@@ -1,0 +1,35 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "AGPL-3.0-or-later"
+
+[workspace.dependencies]
+ra-asm-format = { path = "crates/ra-asm-format" }
+ra-asm-pe = { path = "crates/ra-asm-pe" }
+ra-asm-ir = { path = "crates/ra-asm-ir" }
+ra-asm-x86 = { path = "crates/ra-asm-x86" }
+
+anyhow = "1.0.100"
+clap = { version = "4.6", features = ["derive", "env"] }
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2"
+
+[workspace.lints.rust]
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.dev.package."*"]
+opt-level = 2
