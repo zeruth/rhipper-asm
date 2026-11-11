@@ -1,7 +1,8 @@
 //! Structuring: a function's blocks as a tree of statements.
 //!
 //! The walk goes block by block from the entry. A conditional branch becomes an `if` whose arms
-//! run to the branch's immediate post-dominator, the join; a `switch` likewise; a loop header (the
+//! run to the branch's immediate post-dominator, the join; a `switch` likewise, where a case whose
+//! region runs into another case's block falls through to it; a loop header (the
 //! target of a back edge) wraps its body in a loop, where an edge back to the header is `continue`
 //! and an edge to the loop's exit is `break`. A block that never continues (a trap, a call that
 //! does not return) is no exit for the joins: the paths that go on meet without it. A short block
@@ -48,14 +49,25 @@ pub enum Stmt {
     Break,
     Continue,
     Goto(BlockId),
+    /// The cases in the order they are written: a case that falls through sits right before the
+    /// case it runs into.
     Switch {
         ty: Type,
         value: Operand,
-        cases: Vec<(Vec<i128>, Vec<Stmt>)>,
-        default: Vec<Stmt>,
+        cases: Vec<Case>,
     },
     Return(Option<(Type, Operand)>),
     Unreachable,
+}
+
+/// One arm of a `switch`: the values that select it (and whether the default does too), its
+/// body, and whether the body runs on into the next case's instead of leaving the `switch`.
+#[derive(Debug, Clone)]
+pub struct Case {
+    pub values: Vec<i128>,
+    pub default: bool,
+    pub body: Vec<Stmt>,
+    pub falls_through: bool,
 }
 
 /// A structured function: the statements, and the blocks that need a label.
@@ -74,7 +86,7 @@ impl Structured {
                     Stmt::Copy(_) => 1,
                     Stmt::If { then, els, .. } => count(then) + count(els),
                     Stmt::Loop { body, .. } => count(body),
-                    Stmt::Switch { cases, default, .. } => cases.iter().map(|(_, b)| count(b)).sum::<usize>() + count(default),
+                    Stmt::Switch { cases, .. } => cases.iter().map(|c| count(&c.body)).sum::<usize>(),
                     _ => 0,
                 })
                 .sum()
@@ -343,21 +355,51 @@ impl Walk<'_> {
             Terminator::Switch { ty, value, default, cases } => {
                 let (ty, value, default, cases) = (ty.clone(), value.clone(), *default, cases.clone());
                 let join = self.join_of(cur, stop);
-                // Cases that share a target share an arm.
-                let mut arms: Vec<(Vec<i128>, BlockId)> = Vec::new();
+                // Cases that share a target share an arm; the default is the last arm, or the
+                // arm of the case that shares its target.
+                let mut arms: Vec<(Vec<i128>, bool, BlockId)> = Vec::new();
                 for (v, b) in cases {
-                    match arms.iter_mut().find(|(_, t)| *t == b) {
-                        Some((vs, _)) => vs.push(v),
-                        None => arms.push((vec![v], b)),
+                    match arms.iter_mut().find(|(_, _, t)| *t == b) {
+                        Some((vs, _, _)) => vs.push(v),
+                        None => arms.push((vec![v], false, b)),
+                    }
+                }
+                match arms.iter_mut().find(|(_, _, t)| *t == default) {
+                    Some((_, is_default, _)) => *is_default = true,
+                    None => arms.push((Vec::new(), true, default)),
+                }
+                let targets: Vec<BlockId> = arms.iter().map(|(_, _, t)| *t).collect();
+                // An arm whose region runs into another arm's block falls through to it: that arm
+                // is written right after it, and nothing else falls into it (a second one copies).
+                let mut next: Vec<Option<usize>> = vec![None; arms.len()];
+                let mut entered: HashSet<usize> = HashSet::new();
+                for (i, &t) in targets.iter().enumerate() {
+                    if Some(t) == join || self.emitted.contains(&t) {
+                        continue;
+                    }
+                    if let Some(j) = self.falls_into(t, &targets, join, stop)
+                        && j != i
+                        && entered.insert(j)
+                    {
+                        next[i] = Some(j);
+                    }
+                }
+                let mut order: Vec<usize> = Vec::new();
+                for head in (0..arms.len()).filter(|i| !entered.contains(i)) {
+                    let mut at = Some(head);
+                    while let Some(i) = at.filter(|i| !order.contains(i)) {
+                        order.push(i);
+                        at = next[i];
                     }
                 }
                 let mut case_stmts = Vec::new();
-                for (values, target) in arms {
-                    let body = self.arm(target, join, stop);
-                    case_stmts.push((values, body));
+                for i in order {
+                    let (values, is_default, target) = arms[i].clone();
+                    let into = next[i].map(|j| targets[j]);
+                    let body = self.arm(target, into.or(join), stop);
+                    case_stmts.push(Case { values, default: is_default, body, falls_through: into.is_some() });
                 }
-                let default_body = self.arm(default, join, stop);
-                out.push(Stmt::Switch { ty, value, cases: case_stmts, default: default_body });
+                out.push(Stmt::Switch { ty, value, cases: case_stmts });
                 if let Some(j) = join
                     && Some(j) != stop
                 {
@@ -530,6 +572,25 @@ impl Walk<'_> {
         false
     }
 
+    /// The arm of a `switch` the region of its arm at `t` runs into: the first of `targets` on
+    /// `t`'s post-dominator chain short of the join, when the walk has not placed it and the
+    /// context has no jump for it. Every path from `t` passes it, so the arm ends there and the
+    /// next case takes over.
+    fn falls_into(&self, t: BlockId, targets: &[BlockId], join: Option<BlockId>, stop: Option<BlockId>) -> Option<usize> {
+        let mut x = self.g.ipdom.get(&t).copied().flatten();
+        while let Some(b) = x {
+            if Some(b) == join || Some(b) == stop {
+                return None;
+            }
+            if let Some(j) = targets.iter().position(|u| *u == b) {
+                let placed = self.emitted.contains(&b) || self.g.loops.contains_key(&b) || self.jump(b, stop).is_some();
+                return (!placed).then_some(j);
+            }
+            x = self.g.ipdom.get(&b).copied().flatten();
+        }
+        None
+    }
+
     /// One arm of a branch: the statements from `target` to `join`, or the jump that gets there.
     fn arm(&mut self, target: BlockId, join: Option<BlockId>, stop: Option<BlockId>) -> Vec<Stmt> {
         if Some(target) == join {
@@ -554,6 +615,39 @@ impl Walk<'_> {
         }
         self.run(target, stop)
     }
+}
+
+/// A loop whose body ends in the test of its back edge, as the compiler rotates one: the
+/// statements before the test and the condition that goes round again, `do { body } while
+/// (cond)`. A `continue` elsewhere in the body would skip the test, so only a body without one
+/// has the form.
+pub fn do_while(body: &[Stmt]) -> Option<(&[Stmt], Cond)> {
+    let (rest, cond, then, els, tail) = match body {
+        [rest @ .., Stmt::If { cond, then, els }, tail @ (Stmt::Break | Stmt::Continue)] => (rest, cond, then, els, Some(tail)),
+        [rest @ .., Stmt::If { cond, then, els }] => (rest, cond, then, els, None),
+        _ => return None,
+    };
+    // Where an arm goes: its one jump, or the jump after the `if` when it is empty.
+    let goes_round = |arm: &[Stmt]| match (arm, tail) {
+        ([Stmt::Continue], _) | ([], Some(Stmt::Continue)) => Some(true),
+        ([Stmt::Break], _) | ([], Some(Stmt::Break)) => Some(false),
+        _ => None,
+    };
+    let (then_round, els_round) = (goes_round(then)?, goes_round(els)?);
+    if then_round == els_round || has_continue(rest) {
+        return None;
+    }
+    Some((rest, if then_round { cond.clone() } else { Cond::Not(Box::new(cond.clone())) }))
+}
+
+/// Whether a `continue` of the enclosing loop sits in `stmts`, at any depth short of a nested loop.
+fn has_continue(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::Continue => true,
+        Stmt::If { then, els, .. } => has_continue(then) || has_continue(els),
+        Stmt::Switch { cases, .. } => cases.iter().any(|c| has_continue(&c.body)),
+        _ => false,
+    })
 }
 
 /// Whether a body leaves by its last statement, so nothing after it would run.
@@ -630,7 +724,7 @@ mod tests {
             Stmt::Goto(_) => true,
             Stmt::If { then, els, .. } => has_goto(then) || has_goto(els),
             Stmt::Loop { body, .. } => has_goto(body),
-            Stmt::Switch { cases, default, .. } => cases.iter().any(|(_, b)| has_goto(b)) || has_goto(default),
+            Stmt::Switch { cases, .. } => cases.iter().any(|c| has_goto(&c.body)),
             _ => false,
         })
     }
@@ -670,10 +764,76 @@ mod tests {
         fb.finish()
     }
 
+    /// `int f(int n, int *p)`: a `switch` on `n` whose case 1 stores and runs into case 2's block,
+    /// cases 2 and 3 and the default store and leave, all to one return of `*p`. With `shared`,
+    /// cases 1 and 2 instead both run into a block that is no case, which stores before leaving.
+    fn switch_with_fall_through(shared: bool) -> Function {
+        let mut fb = FunctionBuilder::new("f", FnType::new(Type::I32, vec![Type::I32, Type::Ptr]), &["n", "p"]);
+        let (n, p) = (fb.param(0), fb.param(1));
+        let entry = fb.block("entry");
+        let c1 = fb.block("c1");
+        let c2 = fb.block("c2");
+        let c3 = fb.block("c3");
+        let d = fb.block("d");
+        let tail = fb.block("tail");
+        let ret = fb.block("ret");
+        fb.terminate(entry, Terminator::Switch { ty: Type::I32, value: n.into(), default: d, cases: vec![(1, c1), (2, c2), (3, c3)] });
+        fb.store(c1, Type::I32, 1i64, p);
+        fb.terminate(c1, Terminator::Br(if shared { tail } else { c2 }));
+        fb.store(c2, Type::I32, 2i64, p);
+        fb.terminate(c2, Terminator::Br(if shared { tail } else { ret }));
+        fb.store(c3, Type::I32, 3i64, p);
+        fb.terminate(c3, Terminator::Br(ret));
+        fb.store(d, Type::I32, 9i64, p);
+        fb.terminate(d, Terminator::Br(ret));
+        fb.store(tail, Type::I32, 4i64, p);
+        fb.terminate(tail, Terminator::Br(ret));
+        let result = fb.load(ret, Type::I32, p, "r");
+        fb.terminate(ret, Terminator::Ret(Some((Type::I32, result.into()))));
+        fb.finish()
+    }
+
     fn c_of(f: Function) -> String {
         let mut m = Module::x86_64_windows("test");
         m.functions.push(f);
         crate::c::emit_c(&m, &crate::c::Options::default())
+    }
+
+    fn rust_of(f: Function) -> String {
+        let mut m = Module::x86_64_windows("test");
+        m.functions.push(f);
+        let out = crate::rust::emit_rust(&m, &crate::rust::Options::default());
+        out.functions.into_iter().map(|f| f.text).collect()
+    }
+
+    #[test]
+    fn case_that_runs_into_the_next_case_falls_through() {
+        let f = switch_with_fall_through(false);
+        let g = Graph::of(&f);
+        let s = structure(&f, &g);
+        assert_eq!(s.copies(), 0, "{:#?}", s.body);
+        let Some(Stmt::Switch { cases, .. }) = s.body.get(1) else { panic!("{:#?}", s.body) };
+        let order: Vec<(Vec<i128>, bool, bool)> = cases.iter().map(|c| (c.values.clone(), c.default, c.falls_through)).collect();
+        assert_eq!(order, vec![(vec![1], false, true), (vec![2], false, false), (vec![3], false, false), (vec![], true, false)]);
+        let c = c_of(f.clone());
+        assert!(c.contains("case 1:\n        *(uint32_t *)(p) = 1u;\n        /* falls through */\n    case 2:\n"), "{c}");
+        assert_eq!(c.matches("= 2u;").count(), 1, "{c}");
+        let r = rust_of(f);
+        assert!(r.contains("1u32 | 2u32 => {\n            if matches!(n, 1u32) {\n"), "{r}");
+        assert_eq!(r.matches(", 2u32);").count(), 1, "{r}");
+        assert!(r.contains("        _ => {\n"), "{r}");
+    }
+
+    #[test]
+    fn tail_two_cases_run_into_that_is_no_case_stays_a_copy() {
+        let f = switch_with_fall_through(true);
+        let g = Graph::of(&f);
+        let s = structure(&f, &g);
+        assert!(!has_goto(&s.body), "{:#?}", s.body);
+        assert_eq!(s.copies(), 1, "{:#?}", s.body);
+        let c = c_of(f);
+        assert!(!c.contains("falls through"), "{c}");
+        assert_eq!(c.matches("= 4u;").count(), 2, "{c}");
     }
 
     #[test]

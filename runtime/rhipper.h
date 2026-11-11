@@ -137,6 +137,17 @@ uint64_t ra_x86_execute_onexit_table(uint64_t table);
 uint64_t ra_x86_p_argv(void);
 uint64_t ra_x86_initial_narrow_environment(void);
 uint64_t ra_x86_initialize_slist_head(uint64_t head);
+// The window structures of user32 (WNDCLASSA, WNDCLASSEXA, MSG, PAINTSTRUCT), which a 32-bit
+// program lays out with 4-byte pointers: the runtime widens them for the host and narrows what
+// comes back.
+uint64_t ra_x86_register_class_a(uint64_t wndclass);
+uint64_t ra_x86_register_class_ex_a(uint64_t wndclass);
+uint64_t ra_x86_get_message_a(uint64_t msg, uint64_t hwnd, uint64_t first, uint64_t last);
+uint64_t ra_x86_peek_message_a(uint64_t msg, uint64_t hwnd, uint64_t first, uint64_t last, uint64_t remove);
+uint64_t ra_x86_translate_message(uint64_t msg);
+uint64_t ra_x86_dispatch_message_a(uint64_t msg);
+uint64_t ra_x86_begin_paint(uint64_t hwnd, uint64_t paint);
+uint64_t ra_x86_end_paint(uint64_t hwnd, uint64_t paint);
 // The floating-point environment, which on x86 is the x87 control and status words as much as the
 // SSE register: the runtime keeps the lifted words and the host's in step, and the x86 C runtime's
 // square root rounds by the precision control as the x87's does.
@@ -270,11 +281,25 @@ static inline uint32_t ra_bswap_i32(uint32_t v) { return __builtin_bswap32(v); }
 static inline uint64_t ra_bswap_i64(uint64_t v) { return __builtin_bswap64(v); }
 #define RA_FUNNEL(name, type, bits) \
     static inline type ra_fshl_##name(type a, type b, type c) { c &= (bits - 1); return c ? (type)((a << c) | (b >> (bits - c))) : a; } \
-    static inline type ra_fshr_##name(type a, type b, type c) { c &= (bits - 1); return c ? (type)((a << (bits - c)) | (b >> c)) : b; }
+    static inline type ra_fshr_##name(type a, type b, type c) { c &= (bits - 1); return c ? (type)((a << (bits - c)) | (b >> c)) : b; } \
+    static inline type ra_rotl_##name(type v, type c) { return ra_fshl_##name(v, v, c); } \
+    static inline type ra_rotr_##name(type v, type c) { return ra_fshr_##name(v, v, c); }
 RA_FUNNEL(i8, uint8_t, 8)
 RA_FUNNEL(i16, uint16_t, 16)
 RA_FUNNEL(i32, uint32_t, 32)
 RA_FUNNEL(i64, uint64_t, 64)
+// The idioms the emitter reads back as calls: the minimum and maximum a compare-and-select
+// computes, and the walk to a string's end.
+#define RA_MINMAX(name, type, stype) \
+    static inline type ra_umin_##name(type a, type b) { return a < b ? a : b; } \
+    static inline type ra_umax_##name(type a, type b) { return a > b ? a : b; } \
+    static inline type ra_smin_##name(type a, type b) { return (stype)a < (stype)b ? a : b; } \
+    static inline type ra_smax_##name(type a, type b) { return (stype)a > (stype)b ? a : b; }
+RA_MINMAX(i8, uint8_t, int8_t)
+RA_MINMAX(i16, uint16_t, int16_t)
+RA_MINMAX(i32, uint32_t, int32_t)
+RA_MINMAX(i64, uint64_t, int64_t)
+static inline uint64_t ra_strlen(const char *s) { uint64_t n = 0; while (s[n]) n++; return n; }
 static inline float ra_sqrt_f32(float v) { return __builtin_sqrtf(v); }
 static inline double ra_sqrt_f64(double v) { return __builtin_sqrt(v); }
 static inline float ra_fabs_f32(float v) { return __builtin_fabsf(v); }

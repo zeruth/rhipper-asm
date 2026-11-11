@@ -56,8 +56,13 @@ impl<'a> Defs<'a> {
                     positions.insert(v, (bi, ii));
                 }
                 if let (Some(v), Inst::Phi { incoming, .. }) = (i.result, &i.inst) {
+                    // A `switch` with many cases to one block lists the edge once per case; the
+                    // move is one.
                     for (o, p) in incoming {
-                        phi_moves.entry(*p).or_default().push((v, o.clone()));
+                        let moves = phi_moves.entry(*p).or_default();
+                        if !moves.contains(&(v, o.clone())) {
+                            moves.push((v, o.clone()));
+                        }
                     }
                 }
             }
@@ -126,6 +131,17 @@ impl<'a> Defs<'a> {
             return false;
         }
         inst.uses().into_iter().any(|o| self.uses.get(&o).copied() == Some(1) && self.reads_memory(o))
+    }
+
+    /// Whether the expression of `v` still computes the same at the end of its block: pure, and
+    /// when it reads memory, nothing after it in the block writes or calls. A `for` step moves
+    /// such a value from the latch to the loop's head.
+    pub(crate) fn holds_to_block_end(&self, v: ValueId) -> bool {
+        let Some((block, index, inst)) = self.def(v) else { return false };
+        if inst.has_side_effects() || matches!(inst, Inst::Phi { .. } | Inst::Alloca { .. }) {
+            return false;
+        }
+        !self.reads_memory(v) || block.instrs[index + 1..].iter().all(|n| !n.inst.has_side_effects())
     }
 }
 

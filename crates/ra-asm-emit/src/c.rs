@@ -14,7 +14,7 @@ use std::fmt::Write;
 use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Type, ValueId};
 
 use crate::common::{Defs, parenthesized, strip_parens, trap_count};
-use crate::structure::{Cond, Graph, Stmt, structure};
+use crate::structure::{Cond, Graph, Stmt, do_while, structure};
 
 /// The language the backend writes: C, or C++ (`extern "C"` linkage for what the driver and the
 /// data address, `.cpp` files), where the RTTI classes are classes and their virtual functions
@@ -635,6 +635,7 @@ fn emit_function(
     let graph = Graph::of(f);
     let structured = structure(f, &graph);
     let mut e = Emitter::new(f, &structured.labels, types);
+    e.plan_loops(&structured.body, &graph);
     e.declare_locals(out);
     e.stmts(out, &structured.body, 1);
     let _ = writeln!(out, "}}");
@@ -654,6 +655,53 @@ struct Emitter<'a> {
     /// The locals that point at a struct: each is declared as `struct S *`, and reads as a
     /// `uint8_t *` through a cast everywhere but at its fields.
     struct_of: HashMap<ValueId, &'a str>,
+    /// The loops written as a `for` over their header's phis, by header.
+    for_loops: HashMap<BlockId, ForLoop>,
+    /// The loops written as a call to `ra_strlen`, by header.
+    strlen_loops: HashMap<BlockId, StrlenLoop>,
+    /// The phis a `for` carries: no `_next`, no copy at the header, no move at the edges.
+    hoisted: HashSet<ValueId>,
+    /// The values a `for` step absorbs (`i++` for `i_next = i + 1`): not declared, not assigned.
+    skipped: HashSet<ValueId>,
+    /// The name a value reads as: a step's value reads as the phi it steps into once the loop
+    /// is left, where the two are equal.
+    alias: HashMap<ValueId, ValueId>,
+    /// The aliases of the `for` condition being written: the condition runs after the step, where
+    /// each next-round value is already in its phi.
+    cond_alias: Vec<(ValueId, ValueId)>,
+}
+
+/// A `do ... while` loop written as `for (init; cond; step)` over the phis of its header, which
+/// holds when the condition is decided by the stepped values alone and is true before the first
+/// round, as the compiler knew when it rotated the loop.
+struct ForLoop {
+    phis: Vec<Hoisted>,
+    /// The next-round values defined in the loop, read as their phi in the condition.
+    aliases: Vec<(ValueId, ValueId)>,
+}
+
+/// One phi of a `for`: its first value, its next-round value, and the constant the step adds
+/// when the next value is `phi + k`, written `phi += k`. A next value computed in the latch for
+/// the phi alone is absorbed: the step writes its expression, `n = (n & 1) ? 3 * n + 1 : n / 2`.
+struct Hoisted {
+    phi: ValueId,
+    init: Operand,
+    next: Operand,
+    add: Option<i128>,
+    absorbed: bool,
+}
+
+/// A one-block loop that only walks to the end of a string, `while (s[i]) i++` as the compiler
+/// wrote it: the index phi with its first value and its increment, and the byte it reads at
+/// `base + phi + offset` in the integer type of that sum. The loop leaves with the phi at the
+/// index of the terminator: `init + strlen(base + init + offset)`.
+struct StrlenLoop {
+    phi: ValueId,
+    init: Operand,
+    next: ValueId,
+    base: Operand,
+    ty: Type,
+    offset: i128,
 }
 
 impl<'a> Emitter<'a> {
@@ -669,7 +717,293 @@ impl<'a> Emitter<'a> {
                 struct_of.entry(*v).or_insert(name.as_str());
             }
         }
-        Self { f, labels, defs, types, struct_of }
+        Self {
+            f,
+            labels,
+            defs,
+            types,
+            struct_of,
+            for_loops: HashMap::new(),
+            strlen_loops: HashMap::new(),
+            hoisted: HashSet::new(),
+            skipped: HashSet::new(),
+            alias: HashMap::new(),
+            cond_alias: Vec::new(),
+        }
+    }
+
+    /// Decides the `for` loops of the body, at any depth, before the locals are declared.
+    fn plan_loops(&mut self, stmts: &[Stmt], g: &Graph) {
+        for s in stmts {
+            match s {
+                Stmt::Loop { header, body } => {
+                    if let Some((rest, cond)) = do_while(body)
+                        && let Some(plan) = self.strlen_loop(*header, rest, &cond, g)
+                    {
+                        self.hoisted.insert(plan.phi);
+                        self.strlen_loops.insert(*header, plan);
+                    } else if let Some((rest, cond)) = do_while(body)
+                        && let Some(plan) = self.for_loop(*header, rest, &cond, g)
+                    {
+                        for h in &plan.phis {
+                            self.hoisted.insert(h.phi);
+                            if (h.add.is_some() || h.absorbed)
+                                && let Some(n) = h.next.local()
+                                && !self.inlinable(n)
+                            {
+                                self.skipped.insert(n);
+                                self.alias.insert(n, h.phi);
+                            }
+                        }
+                        self.for_loops.insert(*header, plan);
+                    }
+                    self.plan_loops(body, g);
+                }
+                Stmt::If { then, els, .. } => {
+                    self.plan_loops(then, g);
+                    self.plan_loops(els, g);
+                }
+                Stmt::Switch { cases, .. } => {
+                    for case in cases {
+                        self.plan_loops(&case.body, g);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The `for` form of the `do ... while` loop at `header` whose body is `rest` and whose test
+    /// is `cond`, when it has one: entered from one block and continued from one, the latch at
+    /// the body's end; a condition that compares the next-round values and constants, inlined,
+    /// reading no phi (the step changed them), and true for the first values.
+    fn for_loop(&self, header: BlockId, rest: &[Stmt], cond: &Cond, g: &Graph) -> Option<ForLoop> {
+        if self.labels.contains(&header) {
+            return None;
+        }
+        let members = g.loops.get(&header)?;
+        let (inside, outside): (Vec<BlockId>, Vec<BlockId>) = g.preds.get(&header)?.iter().partition(|p| members.contains(p));
+        let (&[pre], &[latch]) = (outside.as_slice(), inside.as_slice()) else { return None };
+        if !matches!(rest.last(), Some(Stmt::Block(b) | Stmt::Copy(b)) if *b == latch) {
+            return None;
+        }
+        let mut phis: Vec<(ValueId, Operand, Operand)> = Vec::new();
+        for i in &self.f.block(header)?.instrs {
+            if let (Some(p), Inst::Phi { incoming, .. }) = (i.result, &i.inst) {
+                if self.struct_of.contains_key(&p) {
+                    return None;
+                }
+                let from = |b: BlockId| incoming.iter().find(|(_, x)| *x == b).map(|(o, _)| o.clone());
+                phis.push((p, from(pre)?, from(latch)?));
+            }
+        }
+        if phis.is_empty() {
+            return None;
+        }
+        let names: Vec<ValueId> = phis.iter().map(|(p, ..)| *p).collect();
+        // The steps run one after the other: one that reads another phi would read its new value.
+        if phis.iter().any(|(_, _, next)| next.local().is_some_and(|v| names.contains(&v))) {
+            return None;
+        }
+        let (c, negated) = match cond {
+            Cond::Is(Operand::Local(c)) => (*c, false),
+            Cond::Not(inner) => match inner.as_ref() {
+                Cond::Is(Operand::Local(c)) => (*c, true),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let Some((_, _, Inst::ICmp { cond: pred, ty: Type::Int(bits), lhs, rhs })) = self.def(c) else { return None };
+        if !self.inlinable(c) || self.reads_any(c, &names) {
+            return None;
+        }
+        let at_start = |o: &Operand| match o {
+            Operand::Int(v) => Some(*v),
+            Operand::Local(v) => match phis.iter().find(|(_, _, next)| *next == Operand::Local(*v)) {
+                Some((_, Operand::Int(init), _)) => Some(*init),
+                _ => None,
+            },
+            _ => None,
+        };
+        if compare(*pred, *bits, at_start(lhs)?, at_start(rhs)?) == negated {
+            return None;
+        }
+        let defined_in = |v: ValueId| self.def(v).is_some_and(|(b, ..)| members.contains(&b.id));
+        let mut aliases = Vec::new();
+        let hoisted = phis
+            .into_iter()
+            .map(|(phi, init, next)| {
+                let (mut add, mut absorbed) = (None, false);
+                if let Some(n) = next.local().filter(|n| defined_in(*n)) {
+                    aliases.push((n, phi));
+                    let for_phi_alone = self.inlinable(n) || self.used_only_by(n, phi, c, members);
+                    if let Some((
+                        _,
+                        _,
+                        Inst::Bin { op: op @ (BinOp::Add | BinOp::Sub), lhs: Operand::Local(base), rhs: Operand::Int(k), .. },
+                    )) = self.def(n)
+                        && *base == phi
+                        && for_phi_alone
+                    {
+                        add = Some(if *op == BinOp::Sub { -k } else { *k });
+                    } else if !self.inlinable(n) && for_phi_alone {
+                        // The steps run in order: an expression that reads another phi would see
+                        // its new value, so only one over its own phi moves to the step.
+                        let others: Vec<ValueId> = names.iter().copied().filter(|p| *p != phi).collect();
+                        absorbed = self.def(n).is_some_and(|(b, ..)| b.id == latch)
+                            && self.defs.holds_to_block_end(n)
+                            && !self.reads_any(n, &others);
+                    }
+                }
+                Hoisted { phi, init, next, add, absorbed }
+            })
+            .collect();
+        Some(ForLoop { phis: hoisted, aliases })
+    }
+
+    /// The `strlen` the one-block loop at `header` is, when its only work is to step an index
+    /// while the byte at `base + index + offset` is not zero: nothing else in the block but what
+    /// the condition inlines, the index stepped by one.
+    fn strlen_loop(&self, header: BlockId, rest: &[Stmt], cond: &Cond, g: &Graph) -> Option<StrlenLoop> {
+        if self.labels.contains(&header) || !matches!(rest, [Stmt::Block(b)] if *b == header) || g.loops.get(&header)?.len() != 1 {
+            return None;
+        }
+        let (inside, outside): (Vec<BlockId>, Vec<BlockId>) = g.preds.get(&header)?.iter().partition(|p| **p == header);
+        let (&[pre], &[_]) = (outside.as_slice(), inside.as_slice()) else { return None };
+        let mut phi: Option<(ValueId, Operand, Operand)> = None;
+        let mut next = None;
+        for i in &self.f.block(header)?.instrs {
+            match (&i.inst, i.result) {
+                (Inst::Phi { incoming, .. }, Some(p)) => {
+                    if phi.is_some() {
+                        return None;
+                    }
+                    let from = |b: BlockId| incoming.iter().find(|(_, x)| *x == b).map(|(o, _)| o.clone());
+                    phi = Some((p, from(pre)?, from(header)?));
+                }
+                (Inst::Bin { op: BinOp::Add, lhs: Operand::Local(base), rhs: Operand::Int(1), .. }, Some(n))
+                    if phi.as_ref().is_some_and(|(p, ..)| p == base) && next.is_none() =>
+                {
+                    next = Some(n);
+                }
+                (_, Some(v)) if self.inlinable(v) => {}
+                _ => return None,
+            }
+        }
+        let (phi, init, stepped) = phi?;
+        let next = next?;
+        if stepped != Operand::Local(next) {
+            return None;
+        }
+        // The test: the byte is not zero.
+        let (c, negated) = match cond {
+            Cond::Is(Operand::Local(c)) => (*c, false),
+            Cond::Not(inner) => match inner.as_ref() {
+                Cond::Is(Operand::Local(c)) => (*c, true),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let Some((_, _, Inst::ICmp { cond: pred, ty: Type::Int(8), lhs: Operand::Local(byte), rhs: Operand::Int(0) })) = self.def(c) else {
+            return None;
+        };
+        if !self.inlinable(c) || !self.inlinable(*byte) || (*pred != ICond::Ne || negated) && (*pred != ICond::Eq || !negated) {
+            return None;
+        }
+        let Some((_, _, Inst::Load { ty: Type::Int(8), ptr, .. })) = self.def(*byte) else { return None };
+        // The address: an integer sum of the index, one value from outside the loop and constants.
+        let (mut address, mut ty) = (ptr.clone(), Type::Ptr);
+        while let Some((_, _, Inst::Cast { cast: Cast::IntToPtr | Cast::ZExt, from, value, .. })) =
+            address.local().filter(|v| self.inlinable(*v)).and_then(|v| self.def(v))
+        {
+            ty = from.clone();
+            address = value.clone();
+        }
+        let Type::Int(bits) = ty else { return None };
+        let mut terms = Vec::new();
+        self.sum_terms(&address, &mut terms);
+        let (mut base, mut offset, mut index) = (None, 0i128, false);
+        for t in terms {
+            match t {
+                Operand::Int(k) => offset += k,
+                Operand::Local(v) if v == phi && !index => index = true,
+                Operand::Local(v) if self.def(v).is_some_and(|(b, ..)| b.id == header) => return None,
+                other if base.is_none() => base = Some(other),
+                _ => return None,
+            }
+        }
+        if !index {
+            return None;
+        }
+        let mask = if bits >= 128 { -1 } else { (1i128 << bits) - 1 };
+        Some(StrlenLoop { phi, init, next, base: base?, ty, offset: offset & mask })
+    }
+
+    /// The terms of a sum written inline: `(a + b) + 3` is `a`, `b`, `3`.
+    fn sum_terms(&self, o: &Operand, terms: &mut Vec<Operand>) {
+        if let Some((_, _, Inst::Bin { op: BinOp::Add, lhs, rhs, .. })) = o.local().filter(|v| self.inlinable(*v)).and_then(|v| self.def(v))
+        {
+            self.sum_terms(lhs, terms);
+            self.sum_terms(rhs, terms);
+        } else {
+            terms.push(o.clone());
+        }
+    }
+
+    /// The loop at `header` as its `strlen`: the index phi takes its first value plus the length
+    /// of the string from the first byte read, the increment follows when something reads it,
+    /// then the values the exit's phis take from the block.
+    fn strlen_call(&mut self, out: &mut String, header: BlockId, depth: usize) {
+        let pad = "    ".repeat(depth);
+        let Some(s) = self.strlen_loops.remove(&header) else { return };
+        let f = self.f;
+        let ty = f.value_type(s.phi);
+        let mut start = self.operand(&s.ty, &s.base);
+        let mut offset = sign_extended(&s.ty, s.offset);
+        match &s.init {
+            Operand::Int(k) => offset = sign_extended(&s.ty, offset + k),
+            init => {
+                let _ = write!(start, " + {}", self.operand(ty, init));
+            }
+        }
+        if offset < 0 {
+            let _ = write!(start, " - {}", Self::int_constant(&s.ty, -offset));
+        } else if offset != 0 {
+            let _ = write!(start, " + {}", Self::int_constant(&s.ty, offset));
+        }
+        let length = format!("({})ra_strlen((const char *)(uintptr_t)({start}))", c_type(ty));
+        let value = match &s.init {
+            Operand::Int(0) => length,
+            Operand::Int(k) if negative_in(ty, *k) => format!("{length} - {}", Self::int_constant(ty, -sign_extended(ty, *k))),
+            init => format!("{} + {length}", self.operand(ty, init)),
+        };
+        let _ = writeln!(out, "{pad}{} = {value};", name(f, s.phi));
+        if !self.inlinable(s.next)
+            && let Some((_, _, inst)) = self.def(s.next)
+        {
+            let _ = writeln!(out, "{pad}{} = {};", name(f, s.next), strip_parens(&self.expr(inst)));
+        }
+        self.moves(out, header, depth);
+    }
+
+    /// Whether the expression of `v`, as it is written inline, reads one of `names`.
+    fn reads_any(&self, v: ValueId, names: &[ValueId]) -> bool {
+        let Some((_, _, inst)) = self.def(v) else { return false };
+        inst.uses().iter().any(|&u| names.contains(&u) || ((self.inlinable(u) || self.field_pointer(u)) && self.reads_any(u, names)))
+    }
+
+    /// Whether `n` is used only by `phi`, by `cond`, and outside the loop of `members` by
+    /// something other than a phi: the places where the phi it steps into holds the same value.
+    fn used_only_by(&self, n: ValueId, phi: ValueId, cond: ValueId, members: &HashSet<BlockId>) -> bool {
+        self.f.blocks.iter().all(|b| {
+            let instrs = b.instrs.iter().all(|i| {
+                i.result == Some(phi)
+                    || i.result == Some(cond)
+                    || !i.inst.uses().contains(&n)
+                    || (!members.contains(&b.id) && !matches!(i.inst, Inst::Phi { .. }))
+            });
+            instrs && (!members.contains(&b.id) || !b.terminator.uses().contains(&n))
+        })
     }
 
     /// Whether `v` is a field pointer: a `getelementptr` of a named struct's field. It is written
@@ -726,7 +1060,7 @@ impl<'a> Emitter<'a> {
         for b in &self.f.blocks {
             for i in &b.instrs {
                 let Some(v) = i.result else { continue };
-                if self.inlinable(v) || self.field_pointer(v) || !declared.insert(v) {
+                if self.inlinable(v) || self.field_pointer(v) || self.skipped.contains(&v) || !declared.insert(v) {
                     continue;
                 }
                 match &i.inst {
@@ -736,6 +1070,9 @@ impl<'a> Emitter<'a> {
                     }
                     Inst::Phi { .. } if let Some(s) = self.struct_of.get(&v) => {
                         let _ = writeln!(out, "    struct {s} *{}, *{}_next;", name(self.f, v), name(self.f, v));
+                    }
+                    Inst::Phi { ty, .. } if self.hoisted.contains(&v) => {
+                        let _ = writeln!(out, "    {};", declaration(ty, &name(self.f, v)));
                     }
                     Inst::Phi { ty, .. } => {
                         let _ = writeln!(out, "    {} {}, {}_next;", c_type(ty), name(self.f, v), name(self.f, v));
@@ -796,6 +1133,8 @@ impl<'a> Emitter<'a> {
     fn operand(&self, ty: &Type, o: &Operand) -> String {
         match o {
             Operand::Local(v) => {
+                let aliased = self.cond_alias.iter().find(|(n, _)| n == v).map(|(_, p)| *p).or_else(|| self.alias.get(v).copied());
+                let v = &aliased.unwrap_or(*v);
                 if self.inlinable(*v)
                     && let Some((_, _, inst)) = self.def(*v)
                 {
@@ -929,6 +1268,29 @@ impl<'a> Emitter<'a> {
                 }
             }
             Inst::Select { cond, ty, then, els } => {
+                // A select between the two values its compare orders is the minimum or maximum.
+                if let Some((_, _, Inst::ICmp { cond: pred, ty: cmp_ty, lhs, rhs })) =
+                    cond.local().filter(|c| self.inlinable(*c)).and_then(|c| self.def(c))
+                    && cmp_ty == ty
+                    && let Type::Int(bits @ (8 | 16 | 32 | 64)) = ty
+                    && (lhs == then && rhs == els || lhs == els && rhs == then)
+                {
+                    let straight = lhs == then;
+                    let helper = match pred {
+                        ICond::Slt | ICond::Sle => Some(if straight { "smin" } else { "smax" }),
+                        ICond::Sgt | ICond::Sge => Some(if straight { "smax" } else { "smin" }),
+                        ICond::Ult | ICond::Ule => Some(if straight { "umin" } else { "umax" }),
+                        ICond::Ugt | ICond::Uge => Some(if straight { "umax" } else { "umin" }),
+                        ICond::Eq | ICond::Ne => None,
+                    };
+                    if let Some(helper) = helper {
+                        return format!(
+                            "ra_{helper}_i{bits}({}, {})",
+                            strip_parens(&self.operand(ty, lhs)),
+                            strip_parens(&self.operand(ty, rhs))
+                        );
+                    }
+                }
                 format!("({} ? {} : {})", self.operand(&Type::I1, cond), self.operand(ty, then), self.operand(ty, els))
             }
             // The address of a global as a pointer needs no trip through an integer.
@@ -1037,6 +1399,10 @@ impl<'a> Emitter<'a> {
             Inst::Call { fn_ty, callee, args, .. } => {
                 let a: Vec<String> = args.iter().map(|(t, o)| strip_parens(&self.operand(t, o))).collect();
                 match callee {
+                    // A funnel shift of one value by both halves is its rotate.
+                    Callee::Direct(name) if name.starts_with("llvm.fsh") && a.len() == 3 && a[0] == a[1] => {
+                        format!("{}({}, {})", intrinsic(name).replace("fshl", "rotl").replace("fshr", "rotr"), a[0], a[2])
+                    }
                     Callee::Direct(name) if name.starts_with("llvm.") => format!("{}({})", intrinsic(name), a.join(", ")),
                     Callee::Direct(name) => format!("{name}({})", a.join(", ")),
                     Callee::Indirect(p) => {
@@ -1096,11 +1462,29 @@ impl<'a> Emitter<'a> {
                     let _ = writeln!(out, "{pad}}}");
                 }
             }
-            Stmt::Loop { body, .. } => {
-                let _ = writeln!(out, "{pad}for (;;) {{");
-                self.stmts(out, body, depth + 1);
-                let _ = writeln!(out, "{pad}}}");
-            }
+            Stmt::Loop { header, body } => match do_while(body) {
+                Some(_) if self.strlen_loops.contains_key(header) => self.strlen_call(out, *header, depth),
+                Some((rest, cond)) if let Some(plan) = self.for_loops.remove(header) => {
+                    let inits: Vec<String> = plan.phis.iter().map(|h| self.assignment(h.phi, &h.init)).collect();
+                    let steps: Vec<String> = plan.phis.iter().map(|h| self.step(h)).collect();
+                    self.cond_alias = plan.aliases;
+                    let cond = strip_parens(&self.cond(&cond));
+                    self.cond_alias.clear();
+                    let _ = writeln!(out, "{pad}for ({}; {cond}; {}) {{", inits.join(", "), steps.join(", "));
+                    self.stmts(out, rest, depth + 1);
+                    let _ = writeln!(out, "{pad}}}");
+                }
+                Some((rest, cond)) => {
+                    let _ = writeln!(out, "{pad}do {{");
+                    self.stmts(out, rest, depth + 1);
+                    let _ = writeln!(out, "{pad}}} while ({});", strip_parens(&self.cond(&cond)));
+                }
+                None => {
+                    let _ = writeln!(out, "{pad}for (;;) {{");
+                    self.stmts(out, body, depth + 1);
+                    let _ = writeln!(out, "{pad}}}");
+                }
+            },
             Stmt::Break => {
                 let _ = writeln!(out, "{pad}break;");
             }
@@ -1110,21 +1494,21 @@ impl<'a> Emitter<'a> {
             Stmt::Goto(b) => {
                 let _ = writeln!(out, "{pad}goto {};", label(*b, self.f));
             }
-            Stmt::Switch { ty, value, cases, default } => {
+            Stmt::Switch { ty, value, cases } => {
                 let _ = writeln!(out, "{pad}switch ({}) {{", strip_parens(&self.operand(ty, value)));
-                for (values, body) in cases {
-                    for v in values {
+                for case in cases {
+                    for v in &case.values {
                         let _ = writeln!(out, "{pad}case {v}:");
                     }
-                    self.stmts(out, body, depth + 1);
-                    if !ends_in_jump(body) {
+                    if case.default {
+                        let _ = writeln!(out, "{pad}default:");
+                    }
+                    self.stmts(out, &case.body, depth + 1);
+                    if case.falls_through {
+                        let _ = writeln!(out, "{pad}    /* falls through */");
+                    } else if !ends_in_jump(&case.body) {
                         let _ = writeln!(out, "{pad}    break;");
                     }
-                }
-                let _ = writeln!(out, "{pad}default:");
-                self.stmts(out, default, depth + 1);
-                if !ends_in_jump(default) {
-                    let _ = writeln!(out, "{pad}    break;");
                 }
                 let _ = writeln!(out, "{pad}}}");
             }
@@ -1151,10 +1535,12 @@ impl<'a> Emitter<'a> {
         }
         for i in &block.instrs {
             match (&i.inst, i.result) {
+                (Inst::Phi { .. }, Some(v)) if self.hoisted.contains(&v) => {}
                 (Inst::Phi { .. }, Some(v)) => {
                     let _ = writeln!(out, "{pad}{} = {}_next;", name(f, v), name(f, v));
                 }
                 (Inst::Alloca { .. }, _) => {}
+                (_, Some(v)) if self.skipped.contains(&v) => {}
                 (Inst::Store { ty, value, ptr, align, .. }, _) => {
                     let _ = writeln!(out, "{pad}{} = {};", self.access(ty, *align, ptr), strip_parens(&self.operand(ty, value)));
                 }
@@ -1180,6 +1566,9 @@ impl<'a> Emitter<'a> {
         let f = self.f;
         if let Some(moves) = self.defs.phi_moves.get(&id).cloned() {
             for (phi, o) in &moves {
+                if self.hoisted.contains(phi) {
+                    continue;
+                }
                 let ty = f.value_type(*phi).clone();
                 let _ = writeln!(out, "{pad}{}_next = {}{};", name(f, *phi), self.struct_cast(*phi), strip_parens(&self.operand(&ty, o)));
             }
@@ -1189,6 +1578,62 @@ impl<'a> Emitter<'a> {
     /// The cast an assignment to `v` needs when `v` is declared as a struct pointer.
     fn struct_cast(&self, v: ValueId) -> String {
         self.struct_of.get(&v).map(|s| format!("(struct {s} *)")).unwrap_or_default()
+    }
+
+    /// `phi = o`, as a `for` writes its first value.
+    fn assignment(&self, phi: ValueId, o: &Operand) -> String {
+        format!("{} = {}", name(self.f, phi), strip_parens(&self.operand(self.f.value_type(phi), o)))
+    }
+
+    /// The step of a `for` phi: `i++`, `i -= 2`, or `i = next`.
+    fn step(&self, h: &Hoisted) -> String {
+        let ty = self.f.value_type(h.phi);
+        let p = name(self.f, h.phi);
+        match h.add {
+            Some(1) => format!("{p}++"),
+            Some(k) if negative_in(ty, k) => {
+                let k = -sign_extended(ty, k);
+                if k == 1 { format!("{p}--") } else { format!("{p} -= {}", Self::int_constant(ty, k)) }
+            }
+            Some(k) => format!("{p} += {}", Self::int_constant(ty, k)),
+            None if h.absorbed
+                && let Some((_, _, inst)) = h.next.local().and_then(|n| self.def(n)) =>
+            {
+                format!("{p} = {}", strip_parens(&self.expr(inst)))
+            }
+            None => self.assignment(h.phi, &h.next),
+        }
+    }
+}
+
+/// `v` as a signed value of `ty`.
+fn sign_extended(ty: &Type, v: i128) -> i128 {
+    match ty {
+        Type::Int(n) if *n < 128 => {
+            let shift = 128 - u32::from(*n);
+            (v << shift) >> shift
+        }
+        _ => v,
+    }
+}
+
+/// An integer comparison of two constants of `bits` bits.
+fn compare(cond: ICond, bits: u16, a: i128, b: i128) -> bool {
+    let ty = Type::Int(bits);
+    let mask = if bits >= 128 { -1 } else { (1i128 << bits) - 1 };
+    let (ua, ub) = (a & mask, b & mask);
+    let (sa, sb) = (sign_extended(&ty, a), sign_extended(&ty, b));
+    match cond {
+        ICond::Eq => ua == ub,
+        ICond::Ne => ua != ub,
+        ICond::Ugt => ua > ub,
+        ICond::Uge => ua >= ub,
+        ICond::Ult => ua < ub,
+        ICond::Ule => ua <= ub,
+        ICond::Sgt => sa > sb,
+        ICond::Sge => sa >= sb,
+        ICond::Slt => sa < sb,
+        ICond::Sle => sa <= sb,
     }
 }
 

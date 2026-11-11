@@ -340,6 +340,28 @@ fn control64_runs_as_c() {
     run_oracle("control64.exe", "control.txt");
 }
 
+/// The compiler's output read back as its source: `collatz`'s rotated loop as a `for` over its
+/// two induction variables with the `cmov` of its ternary absorbed into the step, `print_int`'s
+/// digit loop as the `do ... while` it is written as, the division and the remainder by ten as
+/// the operators behind the magic multiply, and the walk to a string's end as `strlen`.
+#[test]
+fn control_reads_as_source() {
+    for binary in ["control64.exe", "control32.exe"] {
+        let (_, c, _) = emit(&fixture(binary, "control.txt"), "source", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+        for expected in [
+            "rcx_phi = 27u; rcx_phi != 1u; rax_phi++, rcx_phi = (",
+            "(rcx_phi * 3u) + 1u)",
+            "_phi > 9u);",
+            " / 10u;",
+            " % 10u)",
+            "ra_strlen((const char *)(uintptr_t)(arg0))",
+        ] {
+            assert!(c.contains(expected), "{binary}: no `{expected}` in the C:\n{c}");
+        }
+        assert!(!c.contains("3435973837"), "{binary}: the magic multiply is still in the C:\n{c}");
+    }
+}
+
 #[test]
 fn float64_runs_as_c() {
     run_oracle("float64.exe", "float.txt");
@@ -459,6 +481,20 @@ fn tls64_runs_as_rust() {
 #[test]
 fn tls32_runs_as_rust() {
     run_rust_oracle("tls32.exe", "tls.txt", ra_asm_emit::FUNCTIONS_PER_FILE);
+}
+
+/// The window program: user32 calls the program's window procedure back (on x86 through its
+/// universal entry point, with the four arguments in registers), the message loop runs to the
+/// quit message, and the 32-bit port's WNDCLASSA, MSG and PAINTSTRUCT go through the runtime's
+/// adapters.
+#[test]
+fn window64_runs_as_c() {
+    run_oracle("window64.exe", "window.txt");
+}
+
+#[test]
+fn window32_runs_as_c() {
+    run_oracle("window32.exe", "window.txt");
 }
 
 /// The struct program: a record of mixed fields filled and read through a pointer.
