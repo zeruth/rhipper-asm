@@ -1,9 +1,10 @@
 //! The raising passes: from machine IR over `%State` to source-shaped IR.
 //!
-//! The first pass promotes the general registers and the flags to SSA values inside each function,
-//! guided by liveness, so a flag no branch reads is never computed and a register travels in a
-//! value, not through memory. Dead-code elimination then removes what no one uses. The later
-//! passes (stack frames, signatures, types) build on this.
+//! Promotion turns the registers and the flags into SSA values inside each function, guided by
+//! liveness, so a flag no branch reads is never computed and a register travels in a value, not
+//! through memory. In ABI mode the inferred signatures apply too: parameters, a frame, calls with
+//! arguments, a returned value, and no `%State` at all. Simplification and dead-code elimination
+//! clean up after either.
 
 pub mod abi;
 pub mod dce;
@@ -13,28 +14,68 @@ pub mod prototypes;
 pub mod simplify;
 pub mod stack;
 
+use std::collections::{BTreeSet, HashMap};
+
 use ra_asm_ir::Module;
+
+/// How far to raise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Level {
+    /// The machine IR as lifted: `F_x(ptr %state)`, every register in memory.
+    Machine,
+    /// Registers and flags as SSA values; the `%State` interface stays.
+    Promoted,
+    /// The signatures applied: parameters, frames, results; no `%State`.
+    #[default]
+    Abi,
+}
 
 /// The options of a raise.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Options {
-    /// Keep the machine IR: run no pass.
-    pub machine: bool,
+    pub level: Level,
 }
 
-/// Runs the raising passes over every function of `module`.
-pub fn raise(module: &mut Module, options: Options) {
-    if options.machine {
-        return;
+impl Options {
+    pub fn machine() -> Self {
+        Self { level: Level::Machine }
     }
-    for f in &mut module.functions {
-        promote::promote(f);
-        loop {
-            let changed = simplify::run(f);
-            dce::run(f);
-            if !changed {
-                break;
+}
+
+/// Runs the raising passes over every function of `module`. `roots` are the functions whose
+/// callers the lift does not see (see [`abi::infer`]).
+pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) -> HashMap<String, abi::Signature> {
+    let signatures = abi::infer(module, roots);
+    match options.level {
+        Level::Machine => return signatures,
+        Level::Promoted => {
+            for f in &mut module.functions {
+                promote::promote(f);
+                clean(f);
             }
+        }
+        Level::Abi => {
+            for f in &mut module.functions {
+                let Some(own) = signatures.get(&f.name) else { continue };
+                promote::promote_abi(f, &promote::Abi { own, all: &signatures });
+                if own.noreturn && !f.attrs.iter().any(|a| a == "noreturn") {
+                    f.attrs.push("noreturn".into());
+                }
+                clean(f);
+            }
+            // The import wrappers served the machine model; the calls now go to the adapters.
+            module.functions.retain(|f| crate::import_of_wrapper(&f.name).is_none());
+        }
+    }
+    signatures
+}
+
+fn clean(f: &mut ra_asm_ir::Function) {
+    loop {
+        let changed = simplify::run(f);
+        dce::run(f);
+        if !changed {
+            break;
         }
     }
 }

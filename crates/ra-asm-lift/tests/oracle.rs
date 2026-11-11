@@ -28,13 +28,21 @@ fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
     let image = ra_asm_pe::load(&fixture(binary)).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
     let mut lifted = ra_asm_lift::lift(&image, &analysis);
-    // The machine IR and the raised IR must both run; the tag picks one.
-    ra_asm_lift::raise(&mut lifted.module, ra_asm_lift::RaiseOptions { machine: tag.contains("machine") });
+    // The machine IR, the promoted IR and the ABI IR must all run; the tag picks one.
+    let level = if tag.contains("machine") {
+        ra_asm_lift::RaiseLevel::Machine
+    } else if tag.contains("promoted") {
+        ra_asm_lift::RaiseLevel::Promoted
+    } else {
+        ra_asm_lift::RaiseLevel::Abi
+    };
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions { level });
     // The tests run in parallel: each one writes its own directory.
     let dir = scratch(&format!("{tag}-{binary}"));
     std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
     std::fs::write(dir.join("image.bin"), image.mapped()).unwrap();
-    std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted)).unwrap();
+    let abi = (level == ra_asm_lift::RaiseLevel::Abi).then_some(&signatures);
+    std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted, abi)).unwrap();
     (dir, lifted)
 }
 
@@ -44,8 +52,15 @@ fn the_lifted_fixtures_pass_the_ir_gate() {
         eprintln!("clang is not on the PATH: the IR gate is skipped");
         return;
     }
-    for binary in ["hello64.exe", "control64.exe", "float64.exe", "exports64.dll"] {
-        let (dir, lifted) = lift_to(binary, "gate");
+    for (binary, tag) in [
+        ("hello64.exe", "gate-machine"),
+        ("hello64.exe", "gate-abi"),
+        ("control64.exe", "gate-abi"),
+        ("float64.exe", "gate-abi"),
+        ("exports64.dll", "gate-machine"),
+        ("exports64.dll", "gate-abi"),
+    ] {
+        let (dir, lifted) = lift_to(binary, tag);
         assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
         let check =
             Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
@@ -60,7 +75,8 @@ fn the_lifted_fixtures_pass_the_ir_gate() {
 
 fn run_oracle(binary: &str, expected: &str) {
     run_oracle_as(binary, expected, "run-machine");
-    run_oracle_as(binary, expected, "run-raised");
+    run_oracle_as(binary, expected, "run-promoted");
+    run_oracle_as(binary, expected, "run-abi");
 }
 
 fn run_oracle_as(binary: &str, expected: &str, tag: &str) {

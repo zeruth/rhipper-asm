@@ -1,8 +1,14 @@
 // The host of a lifted program. It maps the image at its own base, binds the import slots to the
-// real functions, gives the machine state a stack, and calls the lifted entry point.
+// real functions, and calls the lifted entry point.
 //
 //   clang -O1 program.ll driver.c -o lifted.exe      (image.h beside program.ll)
 //   lifted.exe image.bin
+//
+// Two modes, by image.h. Without RA_ABI (the machine IR), every lifted function takes a machine
+// state: the driver gives it a stack and the runtime resolves indirect calls through the function
+// table. With RA_ABI (the raised IR), every lifted function has its own parameters and result: the
+// driver writes a trampoline at each function's image address, so a pointer into the image, held by
+// lifted or native code, reaches the host function.
 //
 // The runtime functions the lifted code calls: ra_trap, ra_unsupported and ra_call.
 #include <stdint.h>
@@ -56,8 +62,9 @@ __declspec(noreturn) void ra_unsupported(uint64_t address, uint64_t code) {
 
 typedef uint64_t (*native8)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
-// An indirect call: a lifted function by its address, else native code through the universal
-// adapter. The lifted caller pushed the return address; native code does not pop it, so this does.
+// An indirect call in the machine model: a lifted function by its address, else native code
+// through the universal adapter. The lifted caller pushed the return address; native code does
+// not pop it, so this does.
 void ra_call(void *state_, uint64_t target) {
     struct State *state = state_;
     for (uint64_t i = 0; i < ra_function_count; i++) {
@@ -93,6 +100,43 @@ static void bind_imports(void) {
     }
 }
 
+#ifdef RA_ABI
+// A trampoline at each lifted function's image address: `mov rax, imm64; jmp rax`, 12 bytes.
+// A function closer than 12 bytes to the next one is left alone: its original bytes run natively,
+// which for a function that small (a leaf of a few instructions) gives the same result.
+static int by_address(const void *a, const void *b) {
+    uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
+    return x < y ? -1 : x > y;
+}
+
+static void install_trampolines(void) {
+    uint64_t *addresses = malloc(sizeof(uint64_t) * (ra_function_count + 1));
+    for (uint64_t i = 0; i < ra_function_count; i++) addresses[i] = ra_functions[i].address;
+    qsort(addresses, (size_t)ra_function_count, sizeof(uint64_t), by_address);
+    addresses[ra_function_count] = RA_IMAGE_BASE + RA_IMAGE_SIZE;
+    for (uint64_t i = 0; i < ra_function_count; i++) {
+        uint64_t address = ra_functions[i].address;
+        uint64_t next = RA_IMAGE_BASE + RA_IMAGE_SIZE;
+        for (uint64_t k = 0; k < ra_function_count; k++) {
+            if (addresses[k] == address) {
+                next = addresses[k + 1];
+                break;
+            }
+        }
+        if (next - address < 12) continue;
+        uint8_t *p = (uint8_t *)(uintptr_t)address;
+        p[0] = 0x48;
+        p[1] = 0xB8;
+        uint64_t host = (uint64_t)(uintptr_t)ra_functions[i].function;
+        memcpy(p + 2, &host, 8);
+        p[10] = 0xFF;
+        p[11] = 0xE0;
+    }
+    free(addresses);
+    FlushInstructionCache(GetCurrentProcess(), (void *)(uintptr_t)RA_IMAGE_BASE, RA_IMAGE_SIZE);
+}
+#endif
+
 int main(int argc, char **argv) {
     const char *image_path = argc > 1 ? argv[1] : "image.bin";
     FILE *f = fopen(image_path, "rb");
@@ -113,6 +157,11 @@ int main(int argc, char **argv) {
     }
     bind_imports();
 
+#ifdef RA_ABI
+    install_trampolines();
+    RA_ENTRY_CALL();
+    return 0;
+#else
     static struct State state;
     const size_t stack_size = 1 << 20;
     uint8_t *stack = VirtualAlloc(NULL, stack_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
@@ -125,4 +174,5 @@ int main(int argc, char **argv) {
     state.flags[5] = 0;  // DF clear
     RA_ENTRY(&state);
     return (int)state.gpr[RAX];
+#endif
 }

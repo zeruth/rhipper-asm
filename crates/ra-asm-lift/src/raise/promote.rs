@@ -1,211 +1,111 @@
-//! Promotion of the machine state to SSA values.
+//! Promotion of the machine state to SSA values, in two modes.
 //!
-//! A slot is a general register (an `i64` of the state) or a flag (an `i8`). Inside a function the
-//! lift reads and writes them through `getelementptr %State, ptr %state, i32 0, i32 F, i32 N`. The
-//! pass:
+//! **Machine mode** keeps the `%State` interface: a load becomes the current value, a store sets
+//! it, a block with several predecessors starts with a phi for each live slot, a call flushes the
+//! dirty registers to the state and forgets them, a `ret` flushes the dirty registers. The slots
+//! are the general registers and the flags; the vector registers stay in memory.
 //!
-//! 1. finds the slot each such pointer names;
-//! 2. computes, per block, the slots read before written and the slots written, and from them the
-//!    slots live at each block's entry and exit (a call reads and writes every register; a `ret`
-//!    reads every register; the flags are dead at both, since no convention passes them);
-//! 3. walks the blocks in reverse post-order, keeping the current value of each slot: a load
-//!    becomes the current value, a store sets it, a block with several predecessors starts with a
-//!    phi for each live slot, a call flushes the dirty registers to the state and forgets them,
-//!    a `ret` flushes the dirty registers;
-//! 4. fills the phis from the predecessors' final values.
-//!
-//! The vector registers stay in memory for now: they are read at several types.
+//! **ABI mode** applies the inferred signatures: the function takes its parameters and returns its
+//! result, the entry stack pointer is the top of a frame the function allocates, a call to a lifted
+//! function passes arguments and takes a result, an import is called through its adapter, an
+//! indirect call goes through the pointer itself (the driver makes every lifted function reachable
+//! at its image address), and the vector registers live in a local array. No `%State` remains.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use ra_asm_ir::{Block, BlockId, Callee, Function, Inst, Instruction, Operand, Terminator, Type, ValueId};
+use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, FnType, Function, Inst, Instruction, Operand, Terminator, Type, ValueId};
 
-/// A promoted slot: a general register or a flag.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-enum Slot {
-    Gpr(u8),
-    Flag(u8),
+use super::abi::{Kind, Signature};
+use super::liveness::{
+    CallKind, Liveness, NO_SLOTS, R8, R9, RAX, RCX, RDX, RSP, SLOTS, Slot, SlotSet, abi_exit_set, all_registers, call_kind,
+    reverse_post_order, slot_pointers,
+};
+use crate::{import_of_wrapper, state::import_adapter_type};
+
+/// What the ABI mode needs to know.
+pub struct Abi<'a> {
+    pub own: &'a Signature,
+    pub all: &'a HashMap<String, Signature>,
 }
 
-const GPRS: usize = 16;
-const FLAGS: usize = 8;
-
-impl Slot {
-    fn index(self) -> usize {
-        match self {
-            Self::Gpr(n) => n as usize,
-            Self::Flag(n) => GPRS + n as usize,
-        }
-    }
-
-    fn all() -> impl Iterator<Item = Slot> {
-        (0..GPRS as u8).map(Slot::Gpr).chain((0..FLAGS as u8).map(Slot::Flag))
-    }
-
-    fn ty(self) -> Type {
-        match self {
-            Self::Gpr(_) => Type::I64,
-            Self::Flag(_) => Type::I8,
-        }
-    }
-
-    fn name(self) -> String {
-        match self {
-            Self::Gpr(n) => ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
-                [n as usize]
-                .to_owned(),
-            Self::Flag(n) => ["cf", "pf", "af", "zf", "sf", "df", "of", "f7"][n as usize].to_owned(),
-        }
+/// The register a parameter position arrives in.
+fn param_register(position: usize, kind: Kind) -> Slot {
+    match kind {
+        Kind::Int => [RCX, RDX, R8, R9][position],
+        Kind::Float | Kind::Double => Slot::Xmm(position as u8),
     }
 }
 
-const SLOTS: usize = GPRS + FLAGS;
-
-type SlotSet = [bool; SLOTS];
-
-/// The slot a `getelementptr` into the state names, when it is one of the promoted ones.
-fn slot_of(inst: &Inst, state: ValueId) -> Option<Slot> {
-    let Inst::Gep { base_ty: Type::Named(name), ptr: Operand::Local(p), indices, .. } = inst else { return None };
-    if name != "State" || *p != state || indices.len() != 3 {
-        return None;
-    }
-    let [(_, Operand::Int(0)), (_, Operand::Int(field)), (_, Operand::Int(n))] = indices.as_slice() else { return None };
-    match (field, n) {
-        (0, n) if (0..16).contains(n) => Some(Slot::Gpr(*n as u8)),
-        (2, n) if (0..8).contains(n) => Some(Slot::Flag(*n as u8)),
-        _ => None,
-    }
-}
-
-/// What a call does to the slots.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CallKind {
-    /// A lifted function or the runtime: reads and writes every register through the state.
-    State,
-    /// A host function that never sees the state.
-    Host,
-    /// A call that does not return.
-    NoReturn,
-}
-
-fn call_kind(inst: &Inst) -> Option<CallKind> {
-    let Inst::Call { callee, args, .. } = inst else { return None };
-    match callee {
-        Callee::Direct(name) if name == "ra_trap" || name == "ra_unsupported" => Some(CallKind::NoReturn),
-        Callee::Direct(name) if name.starts_with("llvm.") => Some(CallKind::Host),
-        Callee::Direct(name) if name.starts_with("F_") || name == "ra_call" => Some(CallKind::State),
-        Callee::Direct(_) => {
-            // An import adapter takes integers; anything that takes the state pointer is state-aware.
-            if args.iter().any(|(t, _)| *t == Type::Ptr) { Some(CallKind::State) } else { Some(CallKind::Host) }
-        }
-        Callee::Indirect(_) => Some(CallKind::State),
-    }
-}
-
-/// Promotes the registers and flags of `f`.
+/// Promotes the registers and flags of `f` in machine mode.
 pub fn promote(f: &mut Function) {
+    run(f, None);
+}
+
+/// Rewrites `f` by its signature: parameters, frame, calls with arguments, a returned value.
+pub fn promote_abi(f: &mut Function, abi: &Abi<'_>) {
+    run(f, Some(abi));
+}
+
+/// The per-function rewrite.
+struct Rewriter<'a> {
+    abi: Option<&'a Abi<'a>>,
+    pointers: HashMap<ValueId, Slot>,
+    replace: HashMap<ValueId, Operand>,
+    /// ABI mode: the local vector register array, the frame, and the parameter values.
+    xmm: Option<ValueId>,
+    frame: Option<ValueId>,
+    params: HashMap<Slot, Operand>,
+    stack_param_values: Vec<ValueId>,
+}
+
+fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
     let Some(&state) = f.params.first() else { return };
     if f.blocks.is_empty() {
         return;
     }
     let order = reverse_post_order(f);
     let preds = f.predecessors();
-
-    // The slot pointers: value -> slot.
-    let mut pointers: HashMap<ValueId, Slot> = HashMap::new();
-    for b in &f.blocks {
-        for i in &b.instrs {
-            if let (Some(v), Some(slot)) = (i.result, slot_of(&i.inst, state)) {
-                pointers.insert(v, slot);
-            }
-        }
-    }
-
-    // Per-block gen (read before written) and kill (written) sets.
+    let pointers = slot_pointers(f, state);
     let n = f.blocks.len();
     let index_of: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
-    let mut reads = vec![[false; SLOTS]; n];
-    let mut kill = vec![[false; SLOTS]; n];
-    let mut exit_reads = vec![[false; SLOTS]; n];
-    for (bi, b) in f.blocks.iter().enumerate() {
-        let mut written = [false; SLOTS];
-        for i in &b.instrs {
-            match &i.inst {
-                Inst::Load { ptr: Operand::Local(p), .. } => {
-                    if let Some(slot) = pointers.get(p)
-                        && !written[slot.index()]
-                    {
-                        reads[bi][slot.index()] = true;
-                    }
-                }
-                Inst::Store { ptr: Operand::Local(p), .. } => {
-                    if let Some(slot) = pointers.get(p) {
-                        written[slot.index()] = true;
-                        kill[bi][slot.index()] = true;
-                    }
-                }
-                inst => match call_kind(inst) {
-                    Some(CallKind::State) => {
-                        for slot in Slot::all() {
-                            if let Slot::Gpr(_) = slot {
-                                if !written[slot.index()] {
-                                    reads[bi][slot.index()] = true;
-                                }
-                                written[slot.index()] = true;
-                                kill[bi][slot.index()] = true;
-                            }
-                        }
-                    }
-                    Some(CallKind::NoReturn) => break,
-                    _ => {}
-                },
-            }
-        }
-        if let Terminator::Ret(_) = b.terminator {
-            for slot in Slot::all() {
-                if let Slot::Gpr(_) = slot {
-                    exit_reads[bi][slot.index()] = true;
-                }
-            }
-        }
-    }
 
-    // Liveness: live_in = gen | (live_out & !kill); live_out = union of successors' live_in.
-    let mut live_in = vec![[false; SLOTS]; n];
-    let mut live_out = vec![[false; SLOTS]; n];
-    loop {
-        let mut changed = false;
-        for &bi in order.iter().rev() {
-            let b = &f.blocks[bi];
-            let mut out = exit_reads[bi];
-            for s in b.terminator.successors() {
-                let si = index_of[&s];
-                for k in 0..SLOTS {
-                    out[k] |= live_in[si][k];
-                }
+    // Liveness: the machine model has a call touch every register and a return hand all back;
+    // the ABI model has a call read its callee's parameters and a return hand back the result.
+    let all = all_registers();
+    let machine_model = |_: &Inst| (all, all);
+    let abi_model = |inst: &Inst| match abi {
+        Some(abi) => super::abi::call_model_public(inst, abi.all),
+        None => (all, all),
+    };
+    let exit_set = match abi {
+        None => all,
+        Some(abi) => {
+            let mut set = NO_SLOTS;
+            match abi.own.returns {
+                Some(Kind::Int) => set[RAX.index()] = true,
+                Some(Kind::Float | Kind::Double) => set[Slot::Xmm(0).index()] = true,
+                None => {}
             }
-            let mut inn = reads[bi];
-            for k in 0..SLOTS {
-                inn[k] |= out[k] && !kill[bi][k];
-            }
-            if inn != live_in[bi] || out != live_out[bi] {
-                live_in[bi] = inn;
-                live_out[bi] = out;
-                changed = true;
-            }
+            set
         }
-        if !changed {
-            break;
-        }
-    }
+    };
+    let liveness = if abi.is_some() {
+        Liveness::with_calls(f, &pointers, &order, exit_set, &abi_model)
+    } else {
+        Liveness::with_calls(f, &pointers, &order, exit_set, &machine_model)
+    };
+    let _ = abi_exit_set;
 
-    // Dirty: a slot some path wrote since the last flush to the state.
-    let mut dirty_in = vec![[false; SLOTS]; n];
-    let mut dirty_out = vec![[false; SLOTS]; n];
+    // In machine mode only the general registers and flags are promoted; in ABI mode all slots.
+    let promoted = |slot: Slot| abi.is_some() || !slot.is_xmm();
+
+    // Dirty: a slot some path wrote since the last flush (machine mode only).
+    let mut dirty_in = vec![NO_SLOTS; n];
+    let mut dirty_out = vec![NO_SLOTS; n];
     loop {
         let mut changed = false;
         for &bi in &order {
-            let mut inn = [false; SLOTS];
+            let mut inn = NO_SLOTS;
             if let Some(ps) = preds.get(&f.blocks[bi].id) {
                 for p in ps {
                     let pi = index_of[p];
@@ -215,10 +115,9 @@ pub fn promote(f: &mut Function) {
                 }
             }
             let mut out = inn;
-            for k in 0..SLOTS {
-                out[k] |= kill[bi][k];
+            for (o, w) in out.iter_mut().zip(&liveness.writes[bi]) {
+                *o |= *w;
             }
-            // A call flushes and forgets the registers; the dirty set after it is what follows it.
             if out != dirty_out[bi] || inn != dirty_in[bi] {
                 dirty_in[bi] = inn;
                 dirty_out[bi] = out;
@@ -230,9 +129,113 @@ pub fn promote(f: &mut Function) {
         }
     }
 
-    // The rewrite. Each block gets its entry values: phis where it has several predecessors, the
-    // predecessor's final values where it has one, loads from the state at the entry block.
-    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
+    let mut rw =
+        Rewriter { abi, pointers, replace: HashMap::new(), xmm: None, frame: None, params: HashMap::new(), stack_param_values: Vec::new() };
+
+    // ABI mode: the new parameter list, the frame and the vector array go into a prologue that
+    // the entry block starts with.
+    let mut prologue: Vec<Instruction> = Vec::new();
+    if let Some(abi) = abi {
+        let old_params = std::mem::take(&mut f.params);
+        let _ = old_params;
+        let mut types = Vec::new();
+        for (p, kind) in abi.own.params.iter().enumerate() {
+            let v = f.new_value(&format!("arg{p}"), kind.ty());
+            f.params.push(v);
+            types.push(kind.ty());
+            rw.params.insert(param_register(p, *kind), Operand::Local(v));
+        }
+        for (k, kind) in abi.own.stack_params.iter().enumerate() {
+            let v = f.new_value(&format!("arg{}", abi.own.params.len() + k), kind.ty());
+            f.params.push(v);
+            types.push(kind.ty());
+            rw.stack_param_values.push(v);
+        }
+        let ret = abi.own.returns.map_or(Type::Void, Kind::ty);
+        f.ty = FnType::new(ret, types);
+
+        let xmm = f.new_value("xmm", Type::Ptr);
+        prologue.push(Instruction { result: Some(xmm), inst: Inst::Alloca { ty: Type::array(16, Type::I128), align: 16 }, address: None });
+        rw.xmm = Some(xmm);
+        // The frame: the function's own space below the entry stack pointer, the return address
+        // slot, the home space and the stack parameters above it. The entry stack pointer is 8 past
+        // a 16-byte boundary, as after a native call, so aligned spills land right.
+        let below = abi.own.frame_below.max(16) + 16;
+        let above = 0x28 + 8 * abi.own.stack_params.len() as u64;
+        let size = below + above + 64;
+        let frame = f.new_value("frame", Type::Ptr);
+        prologue.push(Instruction {
+            result: Some(frame),
+            inst: Inst::Alloca { ty: Type::array(size, Type::I8), align: 16 },
+            address: None,
+        });
+        rw.frame = Some(frame);
+        let top = f.new_value("frame.top", Type::Ptr);
+        prologue.push(Instruction {
+            result: Some(top),
+            inst: Inst::Gep {
+                base_ty: Type::I8,
+                ptr: Operand::Local(frame),
+                indices: vec![(Type::I64, Operand::Int(i128::from(below) + 8))],
+                inbounds: true,
+            },
+            address: None,
+        });
+        let rsp0 = f.new_value("rsp0", Type::I64);
+        prologue.push(Instruction {
+            result: Some(rsp0),
+            inst: Inst::Cast { cast: Cast::PtrToInt, from: Type::Ptr, value: Operand::Local(top), to: Type::I64 },
+            address: None,
+        });
+        rw.params.insert(RSP, Operand::Local(rsp0));
+        // The stack parameters go to their slots: the code reads them from memory.
+        for (k, &v) in rw.stack_param_values.clone().iter().enumerate() {
+            let slot = f.new_value(&format!("stack.arg{k}.p"), Type::Ptr);
+            prologue.push(Instruction {
+                result: Some(slot),
+                inst: Inst::Gep {
+                    base_ty: Type::I8,
+                    ptr: Operand::Local(top),
+                    indices: vec![(Type::I64, Operand::Int(0x28 + 8 * k as i128))],
+                    inbounds: true,
+                },
+                address: None,
+            });
+            prologue.push(Instruction {
+                result: None,
+                inst: Inst::Store { ty: Type::I64, value: Operand::Local(v), ptr: Operand::Local(slot), align: 8, volatile: false },
+                address: None,
+            });
+        }
+        // The float parameters go to their vector slots.
+        for (p, kind) in abi.own.params.iter().enumerate() {
+            if let Kind::Float | Kind::Double = kind {
+                let slot = f.new_value(&format!("xmm{p}.p"), Type::Ptr);
+                prologue.push(Instruction {
+                    result: Some(slot),
+                    inst: Inst::Gep {
+                        base_ty: Type::array(16, Type::I128),
+                        ptr: Operand::Local(xmm),
+                        indices: vec![(Type::I64, Operand::Int(0)), (Type::I64, Operand::Int(p as i128))],
+                        inbounds: true,
+                    },
+                    address: None,
+                });
+                prologue.push(Instruction {
+                    result: None,
+                    inst: Inst::Store { ty: Type::I128, value: Operand::Int(0), ptr: Operand::Local(slot), align: 16, volatile: false },
+                    address: None,
+                });
+                let v = rw.params[&Slot::Xmm(p as u8)].clone();
+                prologue.push(Instruction {
+                    result: None,
+                    inst: Inst::Store { ty: kind.ty(), value: v, ptr: Operand::Local(slot), align: 16, volatile: false },
+                    address: None,
+                });
+            }
+        }
+    }
+
     let mut final_values: Vec<HashMap<Slot, Operand>> = vec![HashMap::new(); n];
     let mut phis: Vec<Vec<(Slot, ValueId)>> = vec![Vec::new(); n];
     let mut new_blocks: Vec<Option<Block>> = (0..n).map(|_| None).collect();
@@ -246,11 +249,22 @@ pub fn promote(f: &mut Function) {
         let pred_list: Vec<BlockId> = preds.get(&block.id).cloned().unwrap_or_default();
         let is_entry = bi == 0;
 
-        if !is_entry && pred_list.len() == 1 && visited[index_of[&pred_list[0]]] {
+        if is_entry {
+            instrs.append(&mut prologue);
+            if rw.abi.is_some() {
+                // Every slot starts as its parameter, or undefined.
+                for slot in Slot::all() {
+                    if slot.is_xmm() {
+                        continue; // the vector slots live in memory, initialized where needed
+                    }
+                    current.insert(slot, rw.params.get(&slot).cloned().unwrap_or(Operand::Undef));
+                }
+            }
+        } else if pred_list.len() == 1 && visited[index_of[&pred_list[0]]] {
             current.clone_from(&final_values[index_of[&pred_list[0]]]);
-        } else if !is_entry && !pred_list.is_empty() {
-            for slot in Slot::all() {
-                if live_in[bi][slot.index()] {
+        } else if !pred_list.is_empty() {
+            for slot in Slot::all().filter(|s| promoted(*s) && !s.is_xmm()) {
+                if liveness.live_in[bi][slot.index()] {
                     let v = f.new_value(&format!("{}.phi", slot.name()), slot.ty());
                     instrs.push(Instruction {
                         result: Some(v),
@@ -265,66 +279,115 @@ pub fn promote(f: &mut Function) {
 
         for i in &block.instrs {
             match &i.inst {
-                Inst::Gep { .. } if i.result.is_some_and(|v| pointers.contains_key(&v)) => {}
-                Inst::Load { ptr: Operand::Local(p), .. } if pointers.contains_key(p) => {
-                    let slot = pointers[p];
-                    let result = i.result.unwrap();
-                    if let Some(value) = current.get(&slot) {
-                        replace.insert(result, value.clone());
-                    } else {
-                        // The value is in the state: load it here, through a fresh pointer.
-                        let (gep, load) = load_slot(f, state, slot, i.address);
-                        instrs.push(gep);
-                        replace.insert(result, Operand::Local(load.result.unwrap()));
-                        current.insert(slot, Operand::Local(load.result.unwrap()));
-                        instrs.push(load);
+                Inst::Gep { .. } if i.result.is_some_and(|v| rw.pointers.contains_key(&v)) => {
+                    // A vector slot pointer in ABI mode points into the local array; in machine
+                    // mode the vector slots stay in the state and keep their pointer.
+                    if rw.xmm.is_none() && rw.pointers[&i.result.unwrap()].is_xmm() {
+                        instrs.push(i.clone());
+                    } else if let (Some(xmm), Some(v)) = (rw.xmm, i.result)
+                        && let Slot::Xmm(k) = rw.pointers[&v]
+                    {
+                        instrs.push(Instruction {
+                            result: Some(v),
+                            inst: Inst::Gep {
+                                base_ty: Type::array(16, Type::I128),
+                                ptr: Operand::Local(xmm),
+                                indices: vec![(Type::I64, Operand::Int(0)), (Type::I64, Operand::Int(i128::from(k)))],
+                                inbounds: true,
+                            },
+                            address: i.address,
+                        });
                     }
                 }
-                Inst::Store { ptr: Operand::Local(p), value, .. } if pointers.contains_key(p) => {
-                    let slot = pointers[p];
+                Inst::Load { ptr: Operand::Local(p), .. }
+                    if rw.pointers.contains_key(p) && promoted(rw.pointers[p]) && !rw.pointers[p].is_xmm() =>
+                {
+                    let slot = rw.pointers[p];
+                    let result = i.result.unwrap();
+                    match current.get(&slot) {
+                        Some(value) => {
+                            rw.replace.insert(result, value.clone());
+                        }
+                        None if rw.abi.is_some() => {
+                            rw.replace.insert(result, Operand::Undef);
+                            current.insert(slot, Operand::Undef);
+                        }
+                        None => {
+                            let (gep, load) = load_slot(f, state, slot, i.address);
+                            instrs.push(gep);
+                            rw.replace.insert(result, Operand::Local(load.result.unwrap()));
+                            current.insert(slot, Operand::Local(load.result.unwrap()));
+                            instrs.push(load);
+                        }
+                    }
+                }
+                Inst::Store { ptr: Operand::Local(p), value, .. }
+                    if rw.pointers.contains_key(p) && promoted(rw.pointers[p]) && !rw.pointers[p].is_xmm() =>
+                {
+                    let slot = rw.pointers[p];
                     current.insert(slot, value.clone());
                     dirty[slot.index()] = true;
                 }
-                inst => {
-                    match call_kind(inst) {
-                        Some(CallKind::State) => {
-                            flush(f, state, &current, &dirty, true, i.address, &mut instrs);
-                            instrs.push(i.clone());
-                            for slot in Slot::all() {
-                                if let Slot::Gpr(_) = slot {
-                                    current.remove(&slot);
-                                    dirty[slot.index()] = false;
-                                }
-                            }
-                            // The flags after a call: whatever the callee left; forget them.
-                            for slot in Slot::all() {
-                                if let Slot::Flag(_) = slot {
-                                    current.remove(&slot);
-                                    dirty[slot.index()] = false;
-                                }
-                            }
-                            continue;
+                inst => match (call_kind(inst), rw.abi) {
+                    (Some(CallKind::State), None) => {
+                        flush(f, state, &current, &dirty, i.address, &mut instrs);
+                        instrs.push(i.clone());
+                        for slot in Slot::all().filter(|s| !s.is_xmm()) {
+                            current.remove(&slot);
+                            dirty[slot.index()] = false;
                         }
-                        Some(CallKind::NoReturn) => {
-                            flush(f, state, &current, &dirty, true, i.address, &mut instrs);
-                        }
-                        _ => {}
                     }
-                    instrs.push(i.clone());
+                    (Some(CallKind::State), Some(abi)) => {
+                        rw.lower_call(f, abi, i, &mut current, &mut instrs);
+                    }
+                    (Some(CallKind::NoReturn), None) => {
+                        flush(f, state, &current, &dirty, i.address, &mut instrs);
+                        instrs.push(i.clone());
+                    }
+                    _ => instrs.push(i.clone()),
+                },
+            }
+        }
+        let mut terminator = block.terminator.clone();
+        if let Terminator::Ret(_) = block.terminator {
+            match rw.abi {
+                None => flush(f, state, &current, &dirty, block.instrs.last().and_then(|i| i.address), &mut instrs),
+                Some(abi) => {
+                    terminator = match abi.own.returns {
+                        None => Terminator::Ret(None),
+                        Some(Kind::Int) => Terminator::Ret(Some((Type::I64, current.get(&RAX).cloned().unwrap_or(Operand::Undef)))),
+                        Some(kind) => {
+                            // The float result is in xmm0's slot.
+                            let p = f.new_value("xmm0.ret.p", Type::Ptr);
+                            instrs.push(Instruction {
+                                result: Some(p),
+                                inst: Inst::Gep {
+                                    base_ty: Type::array(16, Type::I128),
+                                    ptr: Operand::Local(rw.xmm.unwrap()),
+                                    indices: vec![(Type::I64, Operand::Int(0)), (Type::I64, Operand::Int(0))],
+                                    inbounds: true,
+                                },
+                                address: None,
+                            });
+                            let v = f.new_value("ret.f", kind.ty());
+                            instrs.push(Instruction {
+                                result: Some(v),
+                                inst: Inst::Load { ty: kind.ty(), ptr: Operand::Local(p), align: 8, volatile: false },
+                                address: None,
+                            });
+                            Terminator::Ret(Some((kind.ty(), Operand::Local(v))))
+                        }
+                    };
                 }
             }
         }
-        if let Terminator::Ret(_) = block.terminator {
-            flush(f, state, &current, &dirty, true, block.instrs.last().and_then(|i| i.address), &mut instrs);
-        }
         final_values[bi] = current;
         visited[bi] = true;
-        new_blocks[bi] =
-            Some(Block { id: block.id, name: block.name.clone(), instrs, terminator: block.terminator.clone(), address: block.address });
+        new_blocks[bi] = Some(Block { id: block.id, name: block.name.clone(), instrs, terminator, address: block.address });
     }
 
     // The phis: one incoming per predecessor. A predecessor whose final value is unknown loads
-    // the slot at its end.
+    // the slot at its end (machine mode) or passes undef (ABI mode).
     let mut tail_loads: HashMap<usize, Vec<Instruction>> = HashMap::new();
     let mut phi_incoming: HashMap<ValueId, Vec<(Operand, BlockId)>> = HashMap::new();
     for (bi, block_phis) in phis.iter().enumerate() {
@@ -334,6 +397,8 @@ pub fn promote(f: &mut Function) {
                 let pi = index_of[&p];
                 let value = if let Some(v) = final_values[pi].get(&slot) {
                     v.clone()
+                } else if rw.abi.is_some() {
+                    Operand::Undef
                 } else {
                     let (gep, load) = load_slot(f, state, slot, None);
                     let v = Operand::Local(load.result.unwrap());
@@ -360,27 +425,245 @@ pub fn promote(f: &mut Function) {
             }
         }
     }
-    // Blocks the order did not reach are unreachable: they keep their old body.
     f.blocks = new_blocks.into_iter().zip(f.blocks.drain(..)).map(|(new, old)| new.unwrap_or(old)).collect();
-    f.replace_uses(&replace);
-    // A phi fed by a value that `replace` renamed got that through replace_uses; the self-loop
-    // case where a phi's incoming is itself is left to the trivial-phi pruning.
-    let _ = HashSet::<ValueId>::new();
+    f.replace_uses(&rw.replace);
+}
+
+impl Rewriter<'_> {
+    /// A pointer `offset` bytes from the value `base` (an address), as a fresh instruction.
+    #[allow(clippy::unused_self)]
+    fn address_ptr(&self, f: &mut Function, base: &Operand, offset: i64, hint: &str, out: &mut Vec<Instruction>) -> ValueId {
+        let sum = f.new_value(&format!("{hint}.a"), Type::I64);
+        out.push(Instruction {
+            result: Some(sum),
+            inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: base.clone(), rhs: Operand::Int(i128::from(offset)) },
+            address: None,
+        });
+        let p = f.new_value(&format!("{hint}.p"), Type::Ptr);
+        out.push(Instruction {
+            result: Some(p),
+            inst: Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: Operand::Local(sum), to: Type::Ptr },
+            address: None,
+        });
+        p
+    }
+
+    fn xmm_slot(&self, f: &mut Function, n: u8, out: &mut Vec<Instruction>) -> ValueId {
+        let p = f.new_value(&format!("xmm{n}.p"), Type::Ptr);
+        out.push(Instruction {
+            result: Some(p),
+            inst: Inst::Gep {
+                base_ty: Type::array(16, Type::I128),
+                ptr: Operand::Local(self.xmm.unwrap()),
+                indices: vec![(Type::I64, Operand::Int(0)), (Type::I64, Operand::Int(i128::from(n)))],
+                inbounds: true,
+            },
+            address: None,
+        });
+        p
+    }
+
+    /// The arguments of a call under `sig`, from the current registers, the vector slots and the
+    /// outgoing stack slots at `rsp + stack_base`.
+    fn arguments(
+        &self,
+        f: &mut Function,
+        sig: &Signature,
+        current: &HashMap<Slot, Operand>,
+        stack_base: i64,
+        out: &mut Vec<Instruction>,
+    ) -> Vec<(Type, Operand)> {
+        let mut args = Vec::new();
+        for (p, kind) in sig.params.iter().enumerate() {
+            match kind {
+                Kind::Int => args.push((Type::I64, current.get(&param_register(p, *kind)).cloned().unwrap_or(Operand::Undef))),
+                Kind::Float | Kind::Double => {
+                    let slot = self.xmm_slot(f, p as u8, out);
+                    let v = f.new_value(&format!("farg{p}"), kind.ty());
+                    out.push(Instruction {
+                        result: Some(v),
+                        inst: Inst::Load { ty: kind.ty(), ptr: Operand::Local(slot), align: 8, volatile: false },
+                        address: None,
+                    });
+                    args.push((kind.ty(), Operand::Local(v)));
+                }
+            }
+        }
+        let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+        for (k, kind) in sig.stack_params.iter().enumerate() {
+            let p = self.address_ptr(f, &rsp, stack_base + 8 * k as i64, &format!("sarg{k}"), out);
+            let v = f.new_value(&format!("sarg{k}"), kind.ty());
+            out.push(Instruction {
+                result: Some(v),
+                inst: Inst::Load { ty: kind.ty(), ptr: Operand::Local(p), align: 8, volatile: false },
+                address: None,
+            });
+            args.push((kind.ty(), Operand::Local(v)));
+        }
+        args
+    }
+
+    /// Eight integers: the four register arguments and four stack slots, for an import or an
+    /// unknown callee.
+    fn universal_arguments(
+        &self,
+        f: &mut Function,
+        current: &HashMap<Slot, Operand>,
+        stack_base: i64,
+        out: &mut Vec<Instruction>,
+    ) -> Vec<(Type, Operand)> {
+        let mut args = Vec::new();
+        for slot in [RCX, RDX, R8, R9] {
+            args.push((Type::I64, current.get(&slot).cloned().unwrap_or(Operand::Undef)));
+        }
+        let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+        for k in 0..4 {
+            let p = self.address_ptr(f, &rsp, stack_base + 8 * k, &format!("sarg{k}"), out);
+            let v = f.new_value(&format!("sarg{k}"), Type::I64);
+            out.push(Instruction {
+                result: Some(v),
+                inst: Inst::Load { ty: Type::I64, ptr: Operand::Local(p), align: 8, volatile: false },
+                address: None,
+            });
+            args.push((Type::I64, Operand::Local(v)));
+        }
+        args
+    }
+
+    /// After a call: the caller-saved registers are gone, the result is in `rax` or `xmm0`.
+    fn after_call(
+        &self,
+        f: &mut Function,
+        current: &mut HashMap<Slot, Operand>,
+        returns: Option<Kind>,
+        result: Option<ValueId>,
+        out: &mut Vec<Instruction>,
+    ) {
+        for slot in Slot::all() {
+            if !slot.callee_saved() && !slot.is_xmm() {
+                current.insert(slot, Operand::Undef);
+            }
+        }
+        match (returns, result) {
+            (Some(Kind::Int), Some(v)) => {
+                current.insert(RAX, Operand::Local(v));
+            }
+            (Some(kind @ (Kind::Float | Kind::Double)), Some(v)) => {
+                let slot = self.xmm_slot(f, 0, out);
+                out.push(Instruction {
+                    result: None,
+                    inst: Inst::Store { ty: Type::I128, value: Operand::Int(0), ptr: Operand::Local(slot), align: 16, volatile: false },
+                    address: None,
+                });
+                out.push(Instruction {
+                    result: None,
+                    inst: Inst::Store { ty: kind.ty(), value: Operand::Local(v), ptr: Operand::Local(slot), align: 16, volatile: false },
+                    address: None,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    /// A state call in ABI mode: a lifted callee by its signature, an import through its adapter,
+    /// an indirect call through the pointer.
+    fn lower_call(
+        &mut self,
+        f: &mut Function,
+        abi: &Abi<'_>,
+        i: &Instruction,
+        current: &mut HashMap<Slot, Operand>,
+        out: &mut Vec<Instruction>,
+    ) {
+        let Inst::Call { callee, args: old_args, .. } = &i.inst else { return };
+        let address = i.address;
+        match callee {
+            Callee::Direct(name) if name.starts_with("F_") => {
+                let sig = abi.all.get(name).cloned().unwrap_or_default();
+                // The machine model pushed the return address: the outgoing arguments are 0x28
+                // above the current stack pointer, and the pointer comes back up by 8 after.
+                let args = self.arguments(f, &sig, current, 0x28, out);
+                let ret = sig.returns.map_or(Type::Void, Kind::ty);
+                let result = if ret == Type::Void { None } else { Some(f.new_value("ret", ret.clone())) };
+                out.push(Instruction {
+                    result,
+                    inst: Inst::Call {
+                        fn_ty: FnType::new(ret, args.iter().map(|(t, _)| t.clone()).collect()),
+                        callee: Callee::Direct(name.clone()),
+                        args,
+                        tail: false,
+                    },
+                    address,
+                });
+                let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+                let popped = f.new_value("rsp", Type::I64);
+                out.push(Instruction {
+                    result: Some(popped),
+                    inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: Operand::Int(8) },
+                    address,
+                });
+                self.after_call(f, current, sig.returns, result, out);
+                current.insert(RSP, Operand::Local(popped));
+            }
+            Callee::Direct(name) if import_of_wrapper(name).is_some() => {
+                let symbol = import_of_wrapper(name).unwrap().to_owned();
+                let tail = name.len() > symbol.len() + "imp_".len(); // `imp_<symbol>.tail`
+                let stack_base = if tail { 0x28 } else { 0x20 };
+                let args = self.universal_arguments(f, current, stack_base, out);
+                let result = f.new_value("ret", Type::I64);
+                out.push(Instruction {
+                    result: Some(result),
+                    inst: Inst::Call { fn_ty: import_adapter_type(), callee: Callee::Direct(symbol), args, tail: false },
+                    address,
+                });
+                self.after_call(f, current, Some(Kind::Int), Some(result), out);
+            }
+            Callee::Direct(name) if name == "ra_call" => {
+                // `ra_call(state, target)`: the target is an address of code; the driver makes
+                // every lifted function reachable at its address, so the call goes through it.
+                let target = old_args.get(1).map_or(Operand::Undef, |(_, o)| o.clone());
+                let fp = f.new_value("fp", Type::Ptr);
+                out.push(Instruction {
+                    result: Some(fp),
+                    inst: Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: target, to: Type::Ptr },
+                    address,
+                });
+                let args = self.universal_arguments(f, current, 0x28, out);
+                let result = f.new_value("ret", Type::I64);
+                out.push(Instruction {
+                    result: Some(result),
+                    inst: Inst::Call { fn_ty: import_adapter_type(), callee: Callee::Indirect(Operand::Local(fp)), args, tail: false },
+                    address,
+                });
+                let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+                let popped = f.new_value("rsp", Type::I64);
+                out.push(Instruction {
+                    result: Some(popped),
+                    inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: Operand::Int(8) },
+                    address,
+                });
+                self.after_call(f, current, Some(Kind::Int), Some(result), out);
+                current.insert(RSP, Operand::Local(popped));
+            }
+            _ => {
+                // Something else that takes the state: keep it, with undefined registers after.
+                out.push(i.clone());
+                self.after_call(f, current, None, None, out);
+            }
+        }
+    }
 }
 
 /// A load of `slot` from the state through a fresh pointer.
 fn load_slot(f: &mut Function, state: ValueId, slot: Slot, address: Option<u64>) -> (Instruction, Instruction) {
-    let (field, n) = match slot {
-        Slot::Gpr(n) => (0, n),
-        Slot::Flag(n) => (2, n),
-    };
+    let (field, n) = slot.field();
     let p = f.new_value(&format!("p.{}", slot.name()), Type::Ptr);
     let gep = Instruction {
         result: Some(p),
         inst: Inst::Gep {
             base_ty: Type::Named("State".into()),
             ptr: Operand::Local(state),
-            indices: vec![(Type::I32, Operand::Int(0)), (Type::I32, Operand::Int(field)), (Type::I32, Operand::Int(i128::from(n)))],
+            indices: vec![(Type::I32, Operand::Int(0)), (Type::I32, Operand::Int(field)), (Type::I32, Operand::Int(n))],
             inbounds: true,
         },
         address,
@@ -391,73 +674,37 @@ fn load_slot(f: &mut Function, state: ValueId, slot: Slot, address: Option<u64>)
     (gep, load)
 }
 
-/// Stores the dirty slots with a known value back to the state. The flags are dropped when
-/// `registers_only`: no convention passes them across a call or a return.
+/// Stores the dirty registers with a known value back to the state. The flags are dropped: no
+/// convention passes them across a call or a return.
 fn flush(
     f: &mut Function,
     state: ValueId,
     current: &HashMap<Slot, Operand>,
     dirty: &SlotSet,
-    registers_only: bool,
     address: Option<u64>,
     out: &mut Vec<Instruction>,
 ) {
     for slot in Slot::all() {
-        if registers_only && matches!(slot, Slot::Flag(_)) {
-            continue;
-        }
-        if !dirty[slot.index()] {
+        if slot.is_flag() || slot.is_xmm() || !dirty[slot.index()] {
             continue;
         }
         let Some(value) = current.get(&slot) else { continue };
-        let (field, n) = match slot {
-            Slot::Gpr(n) => (0, n),
-            Slot::Flag(n) => (2, n),
-        };
+        let (field, n) = slot.field();
         let p = f.new_value(&format!("p.{}", slot.name()), Type::Ptr);
         out.push(Instruction {
             result: Some(p),
             inst: Inst::Gep {
                 base_ty: Type::Named("State".into()),
                 ptr: Operand::Local(state),
-                indices: vec![(Type::I32, Operand::Int(0)), (Type::I32, Operand::Int(field)), (Type::I32, Operand::Int(i128::from(n)))],
+                indices: vec![(Type::I32, Operand::Int(0)), (Type::I32, Operand::Int(field)), (Type::I32, Operand::Int(n))],
                 inbounds: true,
             },
             address,
         });
-        let align = if slot.ty() == Type::I64 { 8 } else { 1 };
         out.push(Instruction {
             result: None,
-            inst: Inst::Store { ty: slot.ty(), value: value.clone(), ptr: Operand::Local(p), align, volatile: false },
+            inst: Inst::Store { ty: slot.ty(), value: value.clone(), ptr: Operand::Local(p), align: 8, volatile: false },
             address,
         });
     }
-}
-
-/// The blocks reachable from the entry, in reverse post-order, as indexes into `f.blocks`.
-fn reverse_post_order(f: &Function) -> Vec<usize> {
-    let index_of: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
-    let mut seen = vec![false; f.blocks.len()];
-    let mut post = Vec::with_capacity(f.blocks.len());
-    // An explicit stack: (block, next successor index).
-    let mut stack: Vec<(usize, Vec<usize>, usize)> = Vec::new();
-    seen[0] = true;
-    let succs = |i: usize| -> Vec<usize> { f.blocks[i].terminator.successors().iter().map(|s| index_of[s]).collect() };
-    stack.push((0, succs(0), 0));
-    while let Some((b, ss, k)) = stack.last_mut() {
-        if *k < ss.len() {
-            let next = ss[*k];
-            *k += 1;
-            if !seen[next] {
-                seen[next] = true;
-                let next_succs = succs(next);
-                stack.push((next, next_succs, 0));
-            }
-        } else {
-            post.push(*b);
-            stack.pop();
-        }
-    }
-    post.reverse();
-    post
 }

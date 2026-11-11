@@ -9,11 +9,29 @@ use ra_asm_ir::{BinOp, Function, Inst, Operand, Type, ValueId};
 /// Runs once; returns whether anything changed.
 pub fn run(f: &mut Function) -> bool {
     let mut map: HashMap<ValueId, Operand> = HashMap::new();
+    // The casts each value came through, for the chains the lift writes: a register read widens
+    // on the write and narrows on the next read.
+    let mut casts: HashMap<ValueId, (ra_asm_ir::Cast, Type, Operand)> = HashMap::new();
+    for b in &f.blocks {
+        for i in &b.instrs {
+            if let (Some(result), Inst::Cast { cast, from, value, .. }) = (i.result, &i.inst) {
+                casts.insert(result, (*cast, from.clone(), value.clone()));
+            }
+        }
+    }
     for b in &f.blocks {
         for i in &b.instrs {
             let Some(result) = i.result else { continue };
             if let Some(replacement) = simplify(&i.inst) {
                 map.insert(result, replacement);
+                continue;
+            }
+            // trunc (zext x: A to B) to A  ==  x, and the same through a sext.
+            if let Inst::Cast { cast: ra_asm_ir::Cast::Trunc, value: Operand::Local(v), to, .. } = &i.inst
+                && let Some((ra_asm_ir::Cast::ZExt | ra_asm_ir::Cast::SExt, inner_from, inner)) = casts.get(v)
+                && inner_from == to
+            {
+                map.insert(result, inner.clone());
             }
         }
     }

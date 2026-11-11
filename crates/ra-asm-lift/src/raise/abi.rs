@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use ra_asm_ir::{Callee, Function, Inst, Module, Operand, Type, ValueId};
 
-use super::liveness::{Liveness, NO_SLOTS, R8, R9, RAX, RCX, RDX, SLOTS, Slot, SlotSet, abi_exit_set, reverse_post_order, slot_pointers};
+use super::liveness::{Liveness, NO_SLOTS, R8, R9, RAX, RCX, RDX, SLOTS, Slot, SlotSet, reverse_post_order, slot_pointers};
 use super::stack::{FIRST_STACK_ARG, StackInfo, analyze as analyze_stack};
 
 /// The kind of a parameter or a return.
@@ -94,8 +94,12 @@ struct Facts {
     float_positions: [Option<Kind>; 4],
     stack: StackInfo,
     writes_rax: bool,
+    /// The float kind the function writes to `xmm0`, when it does.
+    writes_xmm0: Option<Kind>,
     /// Callees whose `rax` this function reads after the call.
     uses_rax_of: Vec<String>,
+    /// Callees whose `xmm0` this function reads after the call.
+    uses_xmm0_of: Vec<String>,
     noreturn: bool,
 }
 
@@ -116,15 +120,28 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>) -> HashMap<String, Signa
     let mut signatures: HashMap<String, Signature> = functions.iter().map(|f| (f.name.clone(), Signature::default())).collect();
     for _round in 0..8 {
         let facts: Vec<Facts> = functions.iter().map(|f| gather(f, &signatures)).collect();
-        let mut returns: BTreeMap<String, bool> = facts.iter().map(|f| (f.name.clone(), false)).collect();
+        let xmm0_kinds: HashMap<&str, Option<Kind>> = facts.iter().map(|f| (f.name.as_str(), f.writes_xmm0)).collect();
+        // A float result wins when a caller reads xmm0 after the call: the callee wrote it as one.
+        let mut returns: BTreeMap<String, Option<Kind>> = facts.iter().map(|f| (f.name.clone(), None)).collect();
         for fact in &facts {
             for callee in &fact.uses_rax_of {
-                if let Some(r) = returns.get_mut(callee) {
-                    *r = true;
+                if let Some(r) = returns.get_mut(callee)
+                    && r.is_none()
+                {
+                    *r = Some(Kind::Int);
                 }
             }
-            if roots.contains(&fact.name) && fact.writes_rax {
-                returns.insert(fact.name.clone(), true);
+            for callee in &fact.uses_xmm0_of {
+                if let Some(r) = returns.get_mut(callee) {
+                    *r = Some(xmm0_kinds.get(callee.as_str()).copied().flatten().unwrap_or(Kind::Double));
+                }
+            }
+            if roots.contains(&fact.name) {
+                if let Some(kind) = fact.writes_xmm0 {
+                    returns.insert(fact.name.clone(), Some(kind));
+                } else if fact.writes_rax {
+                    returns.insert(fact.name.clone(), Some(Kind::Int));
+                }
             }
         }
         let mut next: HashMap<String, Signature> = HashMap::new();
@@ -138,14 +155,14 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>) -> HashMap<String, Signa
                 .collect();
             let stack_count = fact.stack.argument_reads.keys().last().map_or(0, |&k| ((k - FIRST_STACK_ARG) / 8 + 1) as usize);
             let stack_params = (0..stack_count).map(|_| Kind::Int).collect();
-            let returns = returns.get(&fact.name).copied().unwrap_or(false) && !fact.noreturn;
+            let returns = if fact.noreturn { None } else { returns.get(&fact.name).copied().flatten() };
             let frame_below = (-fact.stack.min_offset).max(0) as u64;
             next.insert(
                 fact.name.clone(),
                 Signature {
                     params,
                     stack_params,
-                    returns: returns.then_some(Kind::Int),
+                    returns,
                     noreturn: fact.noreturn,
                     frame_below: (frame_below + 15) & !15,
                     dynamic_stack: fact.stack.dynamic,
@@ -159,6 +176,11 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>) -> HashMap<String, Signa
         }
     }
     signatures
+}
+
+/// [`call_model`] for the promotion pass.
+pub fn call_model_public(inst: &Inst, signatures: &HashMap<String, Signature>) -> (SlotSet, SlotSet) {
+    call_model(inst, signatures)
 }
 
 /// What a state call reads and writes under the current signatures. An import reads as many
@@ -189,10 +211,17 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>) -> Facts {
     let pointers = slot_pointers(f, state);
     let order = reverse_post_order(f);
     let model = |inst: &Inst| call_model(inst, signatures);
-    // Two views: one where a `ret` hands back the convention's registers, for what callers read
-    // after a call; one where it hands back nothing, for what the function itself reads at entry.
-    // Without the second, `xmm0` and the callee-saved registers would look like parameters.
-    let liveness = Liveness::with_calls(f, &pointers, &order, abi_exit_set(), &model);
+    // Two views: one where a `ret` hands back this function's own result register, for what the
+    // callers of its callees read after a call (a call in tail position returns the callee's
+    // result); one where it hands back nothing, for what the function itself reads at entry.
+    // Without the second, the result register would look like a parameter.
+    let mut exit_set = NO_SLOTS;
+    match signatures.get(&f.name).and_then(|s| s.returns) {
+        Some(Kind::Int) => exit_set[RAX.index()] = true,
+        Some(Kind::Float | Kind::Double) => exit_set[Slot::Xmm(0).index()] = true,
+        None => {}
+    }
+    let liveness = Liveness::with_calls(f, &pointers, &order, exit_set, &model);
     let own_reads = Liveness::with_calls(f, &pointers, &order, NO_SLOTS, &model);
     let live_in = own_reads.live_in.first().copied().unwrap_or([false; SLOTS]);
     let int_positions = [live_in[RCX.index()], live_in[RDX.index()], live_in[R8.index()], live_in[R9.index()]];
@@ -201,17 +230,27 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>) -> Facts {
     let stack = analyze_stack(f, state, &pointers);
 
     let mut uses_rax_of = Vec::new();
+    let mut uses_xmm0_of = Vec::new();
     let mut writes_rax = false;
+    let mut writes_xmm0: Option<Kind> = None;
     for (bi, b) in f.blocks.iter().enumerate() {
         let mut calls = 0usize;
         for i in &b.instrs {
             match &i.inst {
                 Inst::Store { ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&RAX) => writes_rax = true,
+                Inst::Store { ty, ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&Slot::Xmm(0)) => match ty {
+                    Type::Double => writes_xmm0 = Some(Kind::Double),
+                    Type::Float if writes_xmm0 != Some(Kind::Double) => writes_xmm0 = Some(Kind::Float),
+                    _ => {}
+                },
                 Inst::Call { callee: Callee::Direct(name), .. } if name.starts_with("F_") => {
-                    if let Some(live) = liveness.live_after_call[bi].get(calls)
-                        && live[RAX.index()]
-                    {
-                        uses_rax_of.push(name.clone());
+                    if let Some(live) = liveness.live_after_call[bi].get(calls) {
+                        if live[RAX.index()] {
+                            uses_rax_of.push(name.clone());
+                        }
+                        if live[Slot::Xmm(0).index()] {
+                            uses_xmm0_of.push(name.clone());
+                        }
                     }
                     calls += 1;
                 }
@@ -225,6 +264,8 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>) -> Facts {
         int_positions,
         float_positions,
         stack,
+        writes_xmm0,
+        uses_xmm0_of,
         writes_rax,
         uses_rax_of,
         noreturn: f.attrs.iter().any(|a| a == "noreturn"),

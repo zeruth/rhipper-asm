@@ -3,6 +3,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+#[allow(unused_imports)]
+use ra_asm_lift::raise::abi::Signature;
 use ra_asm_lift::raise::abi::{Kind, infer};
 
 fn fixture(name: &str) -> PathBuf {
