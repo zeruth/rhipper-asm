@@ -16,7 +16,7 @@ pub mod section;
 pub mod tls;
 
 pub use debug::{CodeView, DebugEntry};
-pub use exception::{RuntimeFunction, UnwindInfo};
+pub use exception::{CatchHandler, CxxFrame, FuncInfo, RuntimeFunction, ThrowInfo, TryBlock, UnwindInfo, UnwindOp};
 pub use exports::{Export, ExportTable};
 pub use headers::{DataDirectory, Directory, Headers, Machine, OptionalMagic};
 pub use image::Image;

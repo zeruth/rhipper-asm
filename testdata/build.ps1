@@ -81,6 +81,10 @@ if (Wanted 'extended') { Build-Exe 'extended' @('-mno-sse') 'c' @() @('32') }
 if (Wanted 'classes') {
   Build-Exe 'classes' @('-std=c++20', '-frtti', '-fno-exceptions') 'cpp' @('-Wl,/alternatename:??_7type_info@@6B@=_??_7type_info@@6B@')
 }
+# throws is C++ with exceptions: vcruntime supplies the throw and the frame handler the unwind
+# data names, nothing else of a runtime. x64 only: the x86 frame handler's registration frames
+# are not lifted yet.
+if (Wanted 'throws') { Build-Exe 'throws' @('-std=c++20', '-fno-rtti', '-lvcruntime') 'cpp' @() @('64') }
 if (Wanted 'exports') { Build-Dll 'exports' }
 # tls has a TLS directory of its own making: a __declspec(thread) variable, the index, the template
 # bounds and a callback, which a program without the C runtime must define itself.

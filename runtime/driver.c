@@ -11,8 +11,10 @@
 // lifted or native code, reaches the host function.
 //
 // The runtime functions the lifted code calls: ra_trap, ra_unsupported and ra_call.
+#include <fenv.h>
 #include <float.h>
 #include <intrin.h>
+#include <math.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -168,17 +170,87 @@ uint64_t ra_x86_initialize_slist_head(uint64_t head) {
     return 0;
 }
 
-// _controlfp: the host's word has no x87 precision control, which the x86 C runtime reports as
-// _PC_53 by default and Direct3D sets to _PC_24; the shim keeps that field and leaves the rest
-// (the rounding mode, the exception masks, the denormal control) to the host.
-static unsigned ra_precision = 0x10000;
+// The floating-point environment of an x86 program is the x87 control and status words as much as
+// the SSE register: _controlfp, _clearfp and the C99 fenv functions read and write both. The port
+// keeps the lifted words (the exact x87 unit rounds by the control word and raises its flags in the
+// status word; the double unit and the host's own arithmetic use the host's) and the host's in
+// step: a mode goes to both, a report merges both. The host's word has no precision control, so
+// that field is the lifted word's alone.
+extern uint16_t ra_x87_cw;
+extern uint16_t ra_x87_sw;
+
+enum { RA_MCW_EM = 0x8001f, RA_MCW_RC = 0x300, RA_MCW_PC = 0x30000, RA_MCW_IC = 0x40000 };
+
+// The exception bits of the C runtime's word (_EM_INEXACT 1, _EM_UNDERFLOW 2, _EM_OVERFLOW 4,
+// _EM_ZERODIVIDE 8, _EM_INVALID 0x10, _EM_DENORMAL 0x80000) from the x87's order (invalid, denormal,
+// zero divide, overflow, underflow, precision in bits 0 to 5), and back.
+static unsigned ra_crt_flags(unsigned x87) {
+    return ((x87 >> 5) & 1) | ((x87 >> 3) & 2) | ((x87 >> 1) & 4) | ((x87 << 1) & 8) | ((x87 << 4) & 0x10) | ((x87 & 2) ? 0x80000u : 0);
+}
+
+static unsigned ra_x87_flags(unsigned crt) {
+    return ((crt >> 4) & 1) | ((crt >> 18) & 2) | ((crt >> 1) & 4) | ((crt << 1) & 8) | ((crt << 3) & 0x10) | ((crt << 5) & 0x20);
+}
+
+// The C runtime's control word from the x87's: the masks, the rounding mode (bits 10 and 11 to
+// bits 8 and 9) and the precision (24 bits is _PC_24 0x20000, 53 _PC_53 0x10000, 64 _PC_64 0).
+static unsigned ra_crt_control(unsigned cw) {
+    unsigned pc = (cw >> 8) & 3;
+    return ra_crt_flags(cw & 0x3f) | ((cw >> 2) & RA_MCW_RC) | (pc == 0 ? 0x20000u : pc == 2 ? 0x10000u : 0);
+}
+
+static uint16_t ra_x87_control(unsigned crt, uint16_t cw) {
+    unsigned pc = (crt & RA_MCW_PC) == 0x20000 ? 0 : (crt & RA_MCW_PC) == 0x10000 ? 2 : 3;
+    return (uint16_t)((cw & 0xf0c0) | ra_x87_flags(crt & RA_MCW_EM) | ((crt & RA_MCW_RC) << 2) | (pc << 8));
+}
 
 uint64_t ra_x86_controlfp(uint64_t new_bits, uint64_t mask) {
-    unsigned pc = (unsigned)mask & 0x30000u;
-    if (pc) ra_precision = (ra_precision & ~pc) | ((unsigned)new_bits & pc);
     unsigned host = 0;
-    _controlfp_s(&host, (unsigned)new_bits & ~0x30000u, (unsigned)mask & ~0x30000u);
-    return (host & ~0x30000u) | ra_precision;
+    _controlfp_s(&host, (unsigned)new_bits & ~(unsigned)(RA_MCW_PC | RA_MCW_IC), (unsigned)mask & ~(unsigned)(RA_MCW_PC | RA_MCW_IC));
+    unsigned x87 = (ra_crt_control(ra_x87_cw) & ~(unsigned)mask) | ((unsigned)new_bits & (unsigned)mask);
+    ra_x87_cw = ra_x87_control(x87, ra_x87_cw);
+    unsigned own = RA_MCW_EM | RA_MCW_RC | RA_MCW_PC;
+    return (host & ~own) | (x87 & own);
+}
+
+uint64_t ra_x86_controlfp_s(uint64_t current, uint64_t new_bits, uint64_t mask) {
+    unsigned word = (unsigned)ra_x86_controlfp(new_bits, mask);
+    if (current) memcpy((void *)(uintptr_t)current, &word, 4);
+    return 0;
+}
+
+uint64_t ra_x86_fesetround(uint64_t mode) {
+    if (mode & ~(uint64_t)RA_MCW_RC) return 1;
+    ra_x86_controlfp(mode, RA_MCW_RC);
+    return 0;
+}
+
+uint64_t ra_x86_statusfp(void) {
+    return _statusfp() | ra_crt_flags(ra_x87_sw & 0x3f);
+}
+
+uint64_t ra_x86_clearfp(void) {
+    unsigned flags = _clearfp() | ra_crt_flags(ra_x87_sw & 0x3f);
+    ra_x87_sw &= (uint16_t)~0xffu;
+    return flags;
+}
+
+uint64_t ra_x86_fetestexcept(uint64_t excepts) {
+    return ((unsigned)fetestexcept((int)excepts) | ra_crt_flags(ra_x87_sw & 0x3f)) & (unsigned)excepts;
+}
+
+uint64_t ra_x86_feclearexcept(uint64_t excepts) {
+    ra_x87_sw &= (uint16_t)~ra_x87_flags((unsigned)excepts);
+    return (unsigned)feclearexcept((int)excepts);
+}
+
+// The x86 C runtime's square root is the x87's: the result rounded to the precision control, so
+// a program that set 24 bits (Direct3D's default) finds a float's mantissa in its double. The
+// double's root rounded to a float is the float's root: 53 bits are enough for the second
+// rounding to be harmless.
+double ra_x86_sqrt(double x) {
+    double r = sqrt(x);
+    return ((ra_x87_cw >> 8) & 3) == 0 ? (double)(float)r : r;
 }
 
 // setjmp and longjmp: the program's jmp_buf is a key, and the host's buffer lives in a table slot
@@ -207,6 +279,13 @@ uint64_t ra_x86_longjmp(uint64_t buffer, uint64_t value) {
 typedef unsigned __int128 f80_u128;
 
 enum { F80_ZERO, F80_FINITE, F80_INF, F80_NAN };
+
+// The exception flags of the status word, which an operation raises as the hardware does with the
+// exceptions masked: invalid, zero divide, overflow, underflow (a tiny and inexact result) and
+// precision (an inexact one).
+enum { F80_IE = 0x01, F80_ZE = 0x04, F80_OE = 0x08, F80_UE = 0x10, F80_PE = 0x20 };
+
+static void f80_raise(unsigned flags) { ra_x87_sw |= (uint16_t)flags; }
 
 // An unpacked value: m * 2^(exp - 63), m normalized with bit 63 set when finite.
 struct f80 { int kind; int sign; int32_t exp; uint64_t m; };
@@ -242,7 +321,11 @@ static void f80_write(void *slot, int sign, uint32_t exponent, uint64_t m) {
     memcpy(slot, bytes, 16);
 }
 
-static void f80_write_indefinite(void *slot) { f80_write(slot, 1, 0x7fff, 0xc000000000000000ull); }
+// The real indefinite: the result of an invalid operation.
+static void f80_write_indefinite(void *slot) {
+    f80_raise(F80_IE);
+    f80_write(slot, 1, 0x7fff, 0xc000000000000000ull);
+}
 static void f80_write_inf(void *slot, int sign) { f80_write(slot, sign, 0x7fff, 0x8000000000000000ull); }
 static void f80_write_quiet(void *slot, struct f80 v) { f80_write(slot, v.sign, 0x7fff, v.m | 0xc000000000000000ull); }
 
@@ -281,7 +364,8 @@ static struct f80_packed f80_round(int sign, int32_t exp, f80_u128 m, int sticky
     struct f80_packed r = { sign, 0, 0 };
     if (m == 0) return r;
     int32_t biased = exp + bias;
-    if (biased < 1) {
+    int tiny = biased < 1;
+    if (tiny) {
         // A denormal: the bits below the format's smallest exponent go into the rounding.
         int32_t s = 1 - biased;
         if (s >= 128) { sticky |= m != 0; m = 0; }
@@ -292,6 +376,7 @@ static struct f80_packed f80_round(int sign, int32_t exp, f80_u128 m, int sticky
     f80_u128 mask = ((f80_u128)1 << shift) - 1, half = (f80_u128)1 << (shift - 1);
     f80_u128 low = m & mask;
     m &= ~mask;
+    int inexact = low != 0 || sticky;
     int up;
     switch (rc) {
     case 0: up = low > half || (low == half && (sticky || (m & ((f80_u128)1 << shift)) != 0)); break;
@@ -306,14 +391,21 @@ static struct f80_packed f80_round(int sign, int32_t exp, f80_u128 m, int sticky
     }
     if (biased == 1 && !(m >> 127)) biased = 0;
     if (biased >= emax) {
+        f80_raise(F80_OE | F80_PE);
         int to_inf = rc == 0 || (rc == 1 && sign) || (rc == 2 && !sign);
         r.biased = to_inf ? emax : emax - 1;
         r.m = to_inf ? 0x8000000000000000ull : ~(uint64_t)0 << (64 - p);
         return r;
     }
+    if (inexact) f80_raise(tiny ? F80_UE | F80_PE : F80_PE);
     r.biased = biased;
     r.m = (uint64_t)(m >> 64);
     return r;
+}
+
+// Whether a finite value below 2^63 has a fraction: the bits of m below the units position.
+static int f80_has_fraction(struct f80 v) {
+    return v.exp < 0 || (v.m << (v.exp + 1)) != 0;
 }
 
 static void f80_write_rounded(void *slot, int sign, int32_t exp, f80_u128 m, int sticky, uint64_t cw) {
@@ -431,11 +523,11 @@ float ra_f80_to_f32(const void *slot, uint64_t cw) {
 uint64_t ra_f80_to_int(const void *slot, uint64_t rounding, uint64_t bits) {
     struct f80 v = f80_unpack(slot);
     uint64_t limit = 1ull << (bits - 1);
-    if (v.kind == F80_NAN || v.kind == F80_INF) return limit;
     if (v.kind == F80_ZERO) return 0;
-    if (v.exp >= (int32_t)bits - 1) return limit;
+    if (v.kind == F80_NAN || v.kind == F80_INF || v.exp >= (int32_t)bits - 1) { f80_raise(F80_IE); return limit; }
     uint64_t q = f80_to_integer(v, (int)(rounding & 3));
-    if (v.sign ? q > limit : q >= limit) return limit;
+    if (v.sign ? q > limit : q >= limit) { f80_raise(F80_IE); return limit; }
+    if (f80_has_fraction(v)) f80_raise(F80_PE);
     return v.sign ? 0 - q : q;
 }
 
@@ -518,8 +610,9 @@ void ra_f80_div(void *result, const void *pa, const void *pb, uint64_t cw) {
     }
     if (b.kind == F80_INF) { f80_write(result, sign, 0, 0); return; }
     if (b.kind == F80_ZERO) {
-        if (a.kind == F80_ZERO) f80_write_indefinite(result);
-        else f80_write_inf(result, sign);
+        if (a.kind == F80_ZERO) { f80_write_indefinite(result); return; }
+        f80_raise(F80_ZE);
+        f80_write_inf(result, sign);
         return;
     }
     if (a.kind == F80_ZERO) { f80_write(result, sign, 0, 0); return; }
@@ -569,6 +662,7 @@ void ra_f80_rndint(void *result, const void *pa, uint64_t cw) {
     if (v.kind != F80_FINITE) { f80_write_special(result, v); return; }
     if (v.exp >= 63) { f80_write(result, v.sign, (uint32_t)(v.exp + 16383), v.m); return; }
     uint64_t q = f80_to_integer(v, f80_rc(cw));
+    if (f80_has_fraction(v)) f80_raise(F80_PE);
     if (q == 0) { f80_write(result, v.sign, 0, 0); return; }
     int shift = f80_clz64(q);
     f80_write(result, v.sign, (uint32_t)(16383 + 63 - shift), q << shift);
@@ -778,11 +872,210 @@ uint64_t ra_x86_initial_narrow_environment(void) {
     return (uint64_t)(uintptr_t)environment32;
 }
 
+// The fail-fast reports of the x86 /GS checks (`__report_gsfailure` after a cookie mismatch,
+// `__report_rangecheckfailure` on an index out of range): the host's own take another shape and
+// clash with its static runtime; these end the program as the native would.
+void ra_x86_report_gsfailure(void) {
+    fprintf(stderr, "ra: the stack cookie check failed\n");
+    fflush(stderr);
+    ExitProcess(0xC0000409u);
+}
+
+void ra_x86_report_rangecheckfailure(void) {
+    fprintf(stderr, "ra: an array index was out of range\n");
+    fflush(stderr);
+    ExitProcess(0xC0000409u);
+}
+
+// C++ exceptions: the runtime half of the protocol the lift writes into the code (rhipper.h names
+// the calls). An exception is the thrown object's copy and the types it can be caught as; one is in
+// flight from its throw until a handler takes it, suspended while the destructors of the way out
+// run, staged between its match and the start of its catch body, and caught while the body runs. A
+// rethrow puts the caught one back in flight; a catch that ends lets its exception go when nothing
+// else holds it.
+struct ra_exception {
+    void *object;
+    uint64_t size;
+    // key, displacement and size of each catchable type.
+    uint64_t types[3 * 16];
+    uint64_t count;
+    int holds;
+};
+
+static struct ra_exception *eh_in_flight, *eh_staged;
+static struct ra_exception *eh_caught[64], *eh_suspended[64];
+static int eh_caught_depth, eh_suspended_depth;
+
+__declspec(noreturn) static void eh_fatal(const char *what) {
+    fprintf(stderr, "ra: %s\n", what);
+    fflush(stderr);
+    ExitProcess(0xE0000006);
+}
+
+static void eh_release(struct ra_exception *e) {
+    if (--e->holds == 0) {
+        free(e->object);
+        free(e);
+    }
+}
+
+void ra_eh_throw(uint64_t object, uint64_t size) {
+    if (eh_in_flight) eh_fatal("a throw while an exception is in flight");
+    struct ra_exception *e = calloc(1, sizeof *e);
+    e->object = malloc(size ? size : 1);
+    memcpy(e->object, (const void *)(uintptr_t)object, size);
+    e->size = size;
+    e->holds = 1;
+    eh_in_flight = e;
+}
+
+void ra_eh_throw_type(uint64_t key, uint64_t displacement, uint64_t size) {
+    struct ra_exception *e = eh_in_flight;
+    if (!e || e->count >= 16) eh_fatal("a catchable type with no throw to belong to");
+    e->types[3 * e->count] = key;
+    e->types[3 * e->count + 1] = displacement;
+    e->types[3 * e->count + 2] = size;
+    e->count++;
+}
+
+void ra_eh_rethrow(void) {
+    if (eh_in_flight) eh_fatal("a rethrow while an exception is in flight");
+    if (eh_caught_depth == 0) eh_fatal("a rethrow with no exception caught");
+    struct ra_exception *e = eh_caught[eh_caught_depth - 1];
+    e->holds++;
+    eh_in_flight = e;
+}
+
+uint64_t ra_eh_pending(void) {
+    return eh_in_flight != NULL;
+}
+
+uint64_t ra_eh_catches(uint64_t key, uint64_t slot, uint64_t flags) {
+    struct ra_exception *e = eh_in_flight;
+    if (!e) eh_fatal("a catch with no exception in flight");
+    for (uint64_t i = 0; i < e->count; i++) {
+        if (key != 0 && e->types[3 * i] != key) continue;
+        if (slot) {
+            char *subobject = (char *)e->object + e->types[3 * i + 1];
+            if (flags & 8) {
+                // By reference: the slot holds a pointer of the program's width.
+                if ((flags >> 8) == 32) {
+                    *(uint32_t *)(uintptr_t)slot = (uint32_t)(uintptr_t)subobject;
+                } else {
+                    *(uint64_t *)(uintptr_t)slot = (uint64_t)(uintptr_t)subobject;
+                }
+            } else {
+                memcpy((void *)(uintptr_t)slot, subobject, (size_t)e->types[3 * i + 2]);
+            }
+        }
+        eh_staged = e;
+        eh_in_flight = NULL;
+        return 1;
+    }
+    return 0;
+}
+
+void ra_eh_enter_catch(void) {
+    if (eh_in_flight) eh_fatal("an exception escaped a destructor on the way to a catch");
+    if (!eh_staged || eh_caught_depth == 64) eh_fatal("a catch body with no exception matched");
+    eh_caught[eh_caught_depth++] = eh_staged;
+    eh_staged = NULL;
+}
+
+void ra_eh_leave_catch(void) {
+    if (eh_caught_depth == 0) eh_fatal("the end of a catch body with no exception caught");
+    eh_release(eh_caught[--eh_caught_depth]);
+}
+
+void ra_eh_suspend(void) {
+    if (eh_suspended_depth == 64) eh_fatal("too many exceptions suspended");
+    eh_suspended[eh_suspended_depth++] = eh_in_flight;
+    eh_in_flight = NULL;
+}
+
+void ra_eh_resume(void) {
+    if (eh_in_flight) eh_fatal("an exception escaped a destructor while another was unwinding");
+    if (eh_suspended_depth == 0) eh_fatal("a resume with no exception suspended");
+    eh_in_flight = eh_suspended[--eh_suspended_depth];
+}
+
+// After the entry returns: an exception nothing caught ends the program, as the native runtime's
+// terminate would.
+static void eh_check_uncaught(void) {
+    if (eh_in_flight) eh_fatal("an exception the program did not catch");
+}
+
+#if RA_POINTER_SIZE == 4
+// The binding table of a 32-bit program's imports, which the lift writes: three words per import,
+// the linked symbol, its DLL and name as "dll\0name\0" (zero for a function of the host's runtime)
+// and the bytes a call to it pops; a zero triple ends it. A native function reached through a
+// pointer is found by its linked address or by the DLL's own address of its name, which a bound
+// slot or GetProcAddress hands the program; the DLL addresses are resolved at the first lookup.
+extern const uint64_t ra_import_pops[];
+extern uint64_t ra_pops;
+static uint64_t *import_addresses;
+
+// The trampolines the 32-bit import slots are bound to (see bind_imports): `mov rax, imm64; jmp
+// rax`, 12 bytes each, in a page below 4 GB.
+static uint8_t *slot_trampolines;
+static size_t slot_trampoline_bytes;
+
+// The host function a trampoline of ours jumps to, or `target` itself.
+static uint64_t through_trampoline(uint64_t target) {
+    uint8_t *p = (uint8_t *)(uintptr_t)target;
+    if (slot_trampolines && p >= slot_trampolines && p + 12 <= slot_trampolines + slot_trampoline_bytes && p[0] == 0x48 && p[1] == 0xB8) {
+        uint64_t host;
+        memcpy(&host, p + 2, 8);
+        return host;
+    }
+    return target;
+}
+
+static int64_t import_pops(uint64_t target) {
+    target = through_trampoline(target);
+    size_t count = 0;
+    while (ra_import_pops[3 * count]) count++;
+    if (!import_addresses) {
+        import_addresses = calloc(count + 1, sizeof(uint64_t));
+        for (size_t i = 0; i < count; i++) {
+            const char *dll = (const char *)(uintptr_t)ra_import_pops[3 * i + 1];
+            if (!dll) continue;
+            const char *name = dll + strlen(dll) + 1;
+            HMODULE module = LoadLibraryA(dll);
+            if (!module) continue;
+            FARPROC f = name[0] == '#' ? GetProcAddress(module, MAKEINTRESOURCEA(atoi(name + 1))) : GetProcAddress(module, name);
+            import_addresses[i] = (uint64_t)(uintptr_t)f;
+        }
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (ra_import_pops[3 * i] == target || (import_addresses[i] && import_addresses[i] == target)) return (int64_t)ra_import_pops[3 * i + 2];
+    }
+    return -1;
+}
+#endif
+
+// What the x86 function last called through a pointer popped beyond its return address: an
+// import's pops from the binding table, else what its universal entry point recorded in ra_pops.
+// The record is consumed, so a native function outside the table reads as popping nothing rather
+// than what an earlier callee popped.
+uint64_t ra_pops_of(uint64_t target) {
+#if RA_POINTER_SIZE == 4
+    uint64_t recorded = ra_pops;
+    ra_pops = 0;
+    int64_t pops = import_pops(target);
+    return pops >= 0 ? (uint64_t)pops : recorded;
+#else
+    (void)target;
+    return 0;
+#endif
+}
+
 // An indirect call in the machine model: a lifted function by its address, else native code
 // through the universal adapter. The lifted caller pushed the return address; native code does
-// not pop it, so this does. A 32-bit program passes every argument on the stack as a dword and
-// takes the result in edx:eax; a port of one runs in a process whose addresses all fit in 32 bits
-// (the image is linked /LARGEADDRESSAWARE:NO), so a dword is a pointer the native code can use.
+// not pop it, so this does, and what a 32-bit import pops beyond it comes from the binding table.
+// A 32-bit program passes every argument on the stack as a dword and takes the result in edx:eax;
+// a port of one runs in a process whose addresses all fit in 32 bits (the image is linked
+// /LARGEADDRESSAWARE:NO), so a dword is a pointer the native code can use.
 void ra_call(void *state_, uint64_t target) {
     struct State *state = state_;
     for (uint64_t i = 0; i < ra_function_count; i++) {
@@ -800,9 +1093,10 @@ void ra_call(void *state_, uint64_t target) {
 #if RA_POINTER_SIZE == 4
     uint32_t *stack = (uint32_t *)(uintptr_t)((uint32_t)state->gpr[RSP] + 4);  // past the pushed return address
     uint64_t result = f(stack[0], stack[1], stack[2], stack[3], stack[4], stack[5], stack[6], stack[7]);
+    int64_t pops = import_pops(target);
     state->gpr[RAX] = (uint32_t)result;
     state->gpr[RDX] = (uint32_t)(result >> 32);
-    state->gpr[RSP] = (uint32_t)state->gpr[RSP] + 4;
+    state->gpr[RSP] = (uint32_t)state->gpr[RSP] + 4 + (pops > 0 ? (uint32_t)pops : 0);
 #else
     uint64_t *stack = (uint64_t *)(state->gpr[RSP] + 8);  // past the pushed return address
     state->gpr[RAX] = f(state->gpr[RCX], state->gpr[RDX], state->gpr[R8], state->gpr[R9], stack[4], stack[5], stack[6], stack[7]);
@@ -811,6 +1105,36 @@ void ra_call(void *state_, uint64_t target) {
 }
 
 #ifndef RA_STANDALONE
+#if RA_POINTER_SIZE == 4
+// A host function's address does not fit a 32-bit program's slot: the slot is bound to a
+// trampoline in a page below 4 GB, which a call through the slot's value reaches; the binding
+// table sees through it to the host function.
+static uint32_t slot_trampoline(FARPROC f) {
+    if (!slot_trampolines) {
+        size_t count = 0;
+        while (ra_imports[count].slot != 0) count++;
+        slot_trampoline_bytes = (count * 12 + 4095) & ~(size_t)4095;
+        for (uintptr_t base = 0x10000000; base < 0x80000000 && !slot_trampolines; base += 0x01000000) {
+            slot_trampolines = VirtualAlloc((void *)base, slot_trampoline_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+        }
+        if (!slot_trampolines) {
+            fprintf(stderr, "ra: no room below 4 GB for the import trampolines\n");
+            ExitProcess(0xE0000004);
+        }
+    }
+    static size_t used;
+    uint8_t *p = slot_trampolines + used * 12;
+    used++;
+    p[0] = 0x48;
+    p[1] = 0xB8;
+    uint64_t host = (uint64_t)(uintptr_t)f;
+    memcpy(p + 2, &host, 8);
+    p[10] = 0xFF;
+    p[11] = 0xE0;
+    return (uint32_t)(uintptr_t)p;
+}
+#endif
+
 static void bind_imports(void) {
     for (int i = 0; ra_imports[i].slot != 0; i++) {
         HMODULE module = LoadLibraryA(ra_imports[i].dll);
@@ -826,7 +1150,7 @@ static void bind_imports(void) {
             continue;
         }
 #if RA_POINTER_SIZE == 4
-        *(uint32_t *)(uintptr_t)ra_imports[i].slot = (uint32_t)(uintptr_t)f;
+        *(uint32_t *)(uintptr_t)ra_imports[i].slot = slot_trampoline(f);
 #else
         *(uint64_t *)(uintptr_t)ra_imports[i].slot = (uint64_t)(uintptr_t)f;
 #endif
@@ -1007,6 +1331,21 @@ static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+#ifdef RA_ABI
+// The entry, and the program's exit code: `main`'s result when the driver's startup stands in for
+// the runtime's (`RA_ENTRY_RETURNS`), else nothing the driver reads.
+static int ra_entry(void) {
+#ifdef RA_ENTRY_RETURNS
+    int code = (int)RA_ENTRY_CALL();
+#else
+    int code = 0;
+    RA_ENTRY_CALL();
+#endif
+    eh_check_uncaught();
+    return code;
+}
+#endif
+
 int main(int argc, char **argv) {
     AddVectoredExceptionHandler(1, on_exception);
     ra_argc = argc;
@@ -1017,8 +1356,7 @@ int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
     attach_process();
-    RA_ENTRY_CALL();
-    return 0;
+    return ra_entry();
 #else
     const char *image_path = argc > 1 ? argv[1] : "image.bin";
     FILE *f = fopen(image_path, "rb");
@@ -1042,8 +1380,7 @@ int main(int argc, char **argv) {
 #ifdef RA_ABI
     install_trampolines();
     attach_process();
-    RA_ENTRY_CALL();
-    return 0;
+    return ra_entry();
 #else
     static struct State state;
     const size_t stack_size = 1 << 20;
@@ -1071,6 +1408,7 @@ int main(int argc, char **argv) {
     state.gpr[RCX] = 0;
     state.flags[5] = 0;  // DF clear
     RA_ENTRY(&state);
+    eh_check_uncaught();
     return (int)state.gpr[RAX];
 #endif
 #endif

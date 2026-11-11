@@ -20,7 +20,7 @@ use super::abi::{Kind, Signature};
 use super::liveness::{
     CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, RSP, SLOTS, Slot, SlotSet, all_registers, call_kind, reverse_post_order, slot_pointers,
 };
-use crate::state::{POPS, X87_STACK, X87_TOP};
+use crate::state::{X87_STACK, X87_TOP};
 use crate::x87::X87Unit;
 use crate::{import_of_wrapper, state::import_adapter_type};
 
@@ -857,13 +857,15 @@ impl Rewriter<'_> {
             Callee::Direct(name) if name == "ra_call" => {
                 // `ra_call(state, target)`: the target is an address of code; the driver makes
                 // every lifted function reachable at its address, so the call goes through it. An
-                // x86 callee pops what it pops; its universal stub says how much in `ra_pops`.
+                // x86 callee pops what it pops: the runtime's `ra_pops_of` says how much, from
+                // the import binding table for a native callee, else from what the universal
+                // stub recorded in `ra_pops`.
                 drop_return_address_push(out, address);
                 let code = old_args.get(1).map_or(Operand::Undef, |(_, o)| o.clone());
                 let fp = f.new_value("fp", Type::Ptr);
                 out.push(Instruction {
                     result: Some(fp),
-                    inst: Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: code, to: Type::Ptr },
+                    inst: Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: code.clone(), to: Type::Ptr },
                     address,
                 });
                 let args = self.universal_arguments(f, current, target.first_stack_arg(), out);
@@ -876,21 +878,15 @@ impl Rewriter<'_> {
                 let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
                 let mut up = Operand::Int(i128::from(ptr));
                 if !target.is_64() {
-                    let pops_ptr = f.new_value("pops.p", Type::Ptr);
-                    out.push(Instruction {
-                        result: Some(pops_ptr),
-                        inst: Inst::Cast {
-                            cast: Cast::IntToPtr,
-                            from: Type::I64,
-                            value: Operand::Address { global: POPS.to_owned(), offset: 0 },
-                            to: Type::Ptr,
-                        },
-                        address,
-                    });
                     let pops = f.new_value("pops", Type::I64);
                     out.push(Instruction {
                         result: Some(pops),
-                        inst: Inst::Load { ty: Type::I64, ptr: Operand::Local(pops_ptr), align: 8, volatile: false },
+                        inst: Inst::Call {
+                            fn_ty: FnType::new(Type::I64, vec![Type::I64]),
+                            callee: Callee::Direct("ra_pops_of".into()),
+                            args: vec![(Type::I64, code)],
+                            tail: false,
+                        },
                         address,
                     });
                     let sum = f.new_value("pops.a", Type::I64);

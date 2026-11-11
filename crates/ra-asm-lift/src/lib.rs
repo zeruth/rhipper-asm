@@ -12,6 +12,7 @@
 //! be right, which the execution oracle checks against the native program.
 
 pub mod data;
+pub mod eh;
 pub mod raise;
 pub mod state;
 pub mod x86;
@@ -36,6 +37,11 @@ pub struct Lifted {
     /// The functions of a C runtime linked into the image, by address, with the host's name for
     /// each: a call to one is a call to the host's runtime, and none of them is lifted.
     pub runtime: BTreeMap<u64, String>,
+    /// The import thunks, by address, with the import each jumps to.
+    pub thunks: BTreeMap<u64, String>,
+    /// Whether the program throws C++ exceptions, which the lift ports over the runtime's
+    /// `ra_eh_*` protocol (x64 only so far): see [`eh`].
+    pub eh: bool,
     /// The function the port starts at: the analysis's program entry.
     pub entry: Option<u64>,
     /// The functions whose callers the lift does not see: the entry, the exports, the callbacks,
@@ -151,13 +157,16 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x8
     b.finish()
 }
 
-/// The stub of an import the host lacks: the import's own arity when the table knows it (the
-/// calls take that many arguments), else the adapter's eight; a stop if it is ever reached.
+/// The stub of an import the host lacks: the import's own prototype when the table knows it (the
+/// calls take that shape, and a host header may declare it so), else the adapter's eight integers;
+/// a stop if it is ever reached.
 fn host_lacking_stub(symbol: &str) -> ra_asm_ir::Function {
     use ra_asm_ir::{Callee, FnType, FunctionBuilder, Terminator};
-    let arity = raise::prototypes::arity(symbol).unwrap_or(8).min(8);
+    let ty = raise::prototypes::typed(symbol)
+        .map_or_else(|| FnType::new(Type::I64, vec![Type::I64; raise::prototypes::arity(symbol).unwrap_or(8).min(8)]), |t| t.fn_type());
     let names = ["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"];
-    let mut b = FunctionBuilder::new(symbol, FnType::new(Type::I64, vec![Type::I64; arity]), &names[..arity]);
+    let arity = ty.params.len().min(8);
+    let mut b = FunctionBuilder::new(symbol, ty, &names[..arity]);
     let block = b.block("entry");
     b.call(
         block,
@@ -349,19 +358,41 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     module.types.push((state::STATE_TYPE.to_owned(), state::state_fields()));
     state::declare_runtime(&mut module);
     state::define_runtime_globals(&mut module, options.x87);
+    let runtime: BTreeMap<u64, String> = analysis
+        .functions
+        .values()
+        .filter_map(|f| match &f.kind {
+            Kind::Runtime(name) => Some((f.entry, name.clone())),
+            _ => None,
+        })
+        .collect();
+    let thunks: BTreeMap<u64, String> = analysis
+        .functions
+        .values()
+        .filter_map(|f| match &f.kind {
+            Kind::ImportThunk(name) => Some((f.entry, name.clone())),
+            _ => None,
+        })
+        .collect();
+    // A program throws when it has the throw to call or a frame to catch in; the x86 frame
+    // handler's registration frames are not lifted yet.
+    let throws = |name: &String| name == "_CxxThrowException";
+    let eh = image.is_64()
+        && (!analysis.cxx_frames.is_empty()
+            || thunks.values().any(throws)
+            || runtime.values().any(throws)
+            || image.imports.iter().any(|i| throws(&i.display_name())));
+    if eh {
+        state::declare_eh_runtime(&mut module);
+    }
 
     let mut lifted = Lifted {
         module,
         imports: BTreeSet::new(),
         functions: BTreeMap::new(),
-        runtime: analysis
-            .functions
-            .values()
-            .filter_map(|f| match &f.kind {
-                Kind::Runtime(name) => Some((f.entry, name.clone())),
-                _ => None,
-            })
-            .collect(),
+        runtime,
+        thunks,
+        eh,
         entry: analysis.program_entry,
         roots: BTreeSet::new(),
         wrappers: BTreeSet::new(),
@@ -426,6 +457,11 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         let ty = raise::prototypes::typed(import).map_or_else(state::import_adapter_type, |t| t.fn_type());
         lifted.module.declare(Declaration { name: import.clone(), ty, conv: CallConv::C, attrs: Vec::new() });
     }
+    // A 32-bit callee reached through a pointer pops what its convention says: the runtime finds
+    // an import's pops in the binding table.
+    if lifted.bits == 32 {
+        lifted.module.globals.extend(state::import_pops_globals(image, &lifted));
+    }
     for (symbol, offset, tail) in &lifted.wrappers {
         lifted.module.functions.push(import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87));
     }
@@ -479,6 +515,10 @@ pub fn image_header(
                     })
                     .collect();
                 let _ = writeln!(out, "#define RA_ENTRY_CALL() {name}({})", args.join(", "));
+                // `main`'s result is the exit code the runtime's startup would have passed to `exit`.
+                if is_main && sig.returns.is_some() {
+                    let _ = writeln!(out, "#define RA_ENTRY_RETURNS 1");
+                }
             }
             None => {
                 let _ = writeln!(out, "void {name}(void *state);");

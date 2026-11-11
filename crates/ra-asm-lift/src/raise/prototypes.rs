@@ -67,8 +67,8 @@ pub fn typed(name: &str) -> Option<Typed> {
     use Kind::{Double, Float, Int, Wide};
     let (params, returns) = match name {
         "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh" | "exp" | "exp2"
-        | "expm1" | "log" | "log2" | "log10" | "log1p" | "logb" | "sqrt" | "cbrt" | "floor" | "ceil" | "trunc" | "round" | "rint"
-        | "nearbyint" | "fabs" | "erf" | "erfc" | "tgamma" | "lgamma" | "_j0" | "_j1" | "_y0" | "_y1" | "_chgsign" => {
+        | "expm1" | "log" | "log2" | "log10" | "log1p" | "logb" | "sqrt" | "ra_x86_sqrt" | "cbrt" | "floor" | "ceil" | "trunc"
+        | "round" | "rint" | "nearbyint" | "fabs" | "erf" | "erfc" | "tgamma" | "lgamma" | "_j0" | "_j1" | "_y0" | "_y1" | "_chgsign" => {
             (vec![Double], Some(Double))
         }
         "sinf" | "cosf" | "tanf" | "asinf" | "acosf" | "atanf" | "sinhf" | "coshf" | "tanhf" | "expf" | "exp2f" | "logf" | "log2f"
@@ -142,9 +142,10 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
 /// as it is: the C runtime functions that walk a table of pointers (`_initterm` and the onexit
 /// table) or hand back one (`argv`, the environment), where the width of a pointer is the
 /// layout, and `InitializeSListHead`, whose 64-bit version writes 16 bytes into the program's
-/// 8-byte list head and refuses one that is not 16-byte aligned, and `_controlfp`, whose 64-bit
-/// version has no x87 precision control to report. The shim takes the same arguments and keeps
-/// the program's layout.
+/// 8-byte list head and refuses one that is not 16-byte aligned, and the floating-point
+/// environment (`_controlfp`, `_clearfp`, `fesetround`, ...), which on x86 is the x87 control and
+/// status words as much as the SSE register: the runtime keeps the lifted words and the host's in
+/// step. The shim takes the same arguments and keeps the program's layout.
 pub fn x86_shim(name: &str) -> Option<&'static str> {
     Some(match name {
         "_initterm" => "ra_x86_initterm",
@@ -155,7 +156,15 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "__p___argv" => "ra_x86_p_argv",
         "_get_initial_narrow_environment" => "ra_x86_initial_narrow_environment",
         "InitializeSListHead" => "ra_x86_initialize_slist_head",
-        "_controlfp" => "ra_x86_controlfp",
+        "_controlfp" | "_control87" => "ra_x86_controlfp",
+        "_controlfp_s" => "ra_x86_controlfp_s",
+        "_clearfp" => "ra_x86_clearfp",
+        "_statusfp" => "ra_x86_statusfp",
+        "fesetround" => "ra_x86_fesetround",
+        "fetestexcept" => "ra_x86_fetestexcept",
+        "feclearexcept" => "ra_x86_feclearexcept",
+        // The x86 C runtime's square root is the x87's, rounded to the precision control.
+        "sqrt" => "ra_x86_sqrt",
         "_setjmp3" | "_setjmp" => "ra_x86_setjmp3",
         "longjmp" | "_longjmpex" => "ra_x86_longjmp",
         // The fail-fast reports of the /GS checks take no argument on x86, and the host has its
@@ -331,6 +340,10 @@ pub fn arity(name: &str) -> Option<usize> {
         | "__telemetry_main_return_trigger"
         | "_kbhit"
         | "_getch"
+        | "_clearfp"
+        | "_statusfp"
+        | "ra_x86_clearfp"
+        | "ra_x86_statusfp"
         | "__iob_func" => 0,
 
         "ExitProcess"
@@ -484,6 +497,12 @@ pub fn arity(name: &str) -> Option<usize> {
         | "_get_errno"
         | "_configthreadlocale"
         | "_register_thread_local_exe_atexit_callback"
+        | "fesetround"
+        | "fetestexcept"
+        | "feclearexcept"
+        | "ra_x86_fesetround"
+        | "ra_x86_fetestexcept"
+        | "ra_x86_feclearexcept"
         | "ra_x86_initialize_onexit_table"
         | "ra_x86_execute_onexit_table" => 1,
 
@@ -566,6 +585,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "_except_handler3"
         | "_XcptFilter"
         | "_controlfp"
+        | "_control87"
         | "ra_x86_controlfp"
         | "_setjmp3"
         | "ra_x86_setjmp3"
@@ -612,6 +632,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "strcat_s"
         | "_recalloc"
         | "_controlfp_s"
+        | "ra_x86_controlfp_s"
         | "_open"
         | "_read"
         | "_write"

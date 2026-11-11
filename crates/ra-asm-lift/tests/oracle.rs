@@ -68,6 +68,7 @@ fn the_lifted_fixtures_pass_the_ir_gate() {
         ("tls64.exe", "gate-machine"),
         ("tls32.exe", "gate-machine"),
         ("crt64.exe", "gate-abi"),
+        ("throws64.exe", "gate-machine"),
     ] {
         let (dir, lifted) = lift_to(binary, tag);
         assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
@@ -219,6 +220,19 @@ fn classes64_runs_lifted() {
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/classes.txt")).unwrap();
     run_oracle("classes64.exe", &expected);
+}
+
+/// The exceptions program: a throw caught by value and one by reference to a base, through a
+/// function without a handler, a rethrow into a catch-all, and a local destroyed on the way out,
+/// all from the unwind data and the frame handler's tables.
+#[test]
+fn throws64_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/throws.txt")).unwrap();
+    run_oracle("throws64.exe", &expected);
 }
 
 #[test]

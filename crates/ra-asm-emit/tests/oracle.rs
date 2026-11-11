@@ -31,10 +31,19 @@ struct Fixture {
     /// The structuring must leave no `goto` in the clang fixtures; MSVC's optimized control flow
     /// and its C runtime keep a few, and an rhtest program is held to its output alone.
     no_goto: bool,
+    /// The x87 unit the lift models: the exact one for a program built for the x87 alone, whose
+    /// bits depend on the extended precision and the precision control.
+    x87: ra_asm_lift::X87Unit,
 }
 
 fn fixture(binary: &str, expected: &str) -> Fixture {
-    Fixture { binary: format!("bin/{binary}"), expected: format!("expected/{expected}"), exit_line: false, no_goto: true }
+    Fixture {
+        binary: format!("bin/{binary}"),
+        expected: format!("expected/{expected}"),
+        exit_line: false,
+        no_goto: true,
+        x87: ra_asm_lift::X87Unit::Double,
+    }
 }
 
 impl Fixture {
@@ -91,7 +100,7 @@ fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm
     let binary = fixture.name();
     let image = ra_asm_pe::load(&fixture.binary_path()).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
-    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, ..Default::default() });
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: fixture.x87 });
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));
@@ -124,7 +133,7 @@ fn run_rust_oracle_with(fixture: &Fixture, functions_per_file: usize) {
     let binary = fixture.name();
     let image = ra_asm_pe::load(&fixture.binary_path()).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
-    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, ..Default::default() });
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: fixture.x87 });
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, None);
@@ -256,33 +265,60 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
 
 /// An rhtest program, MSVC-built for x86 with its static C runtime, as `<name>-<variant>.exe`;
 /// the port prints `<name>.txt` and exits with its last line's code.
+/// An rhtest program's variant: its reference is the program's (`<name>.txt`), unless the variant
+/// prints its own (`<name>-<variant>.txt`: an x87 build whose extended precision shows in the
+/// bits). The `ia32` variants, built for the x87 alone, are lifted with the exact unit.
 fn rhtest(name: &str, variant: &str) -> Fixture {
-    Fixture { binary: format!("rhtest/{name}-{variant}.exe"), expected: format!("rhtest/{name}.txt"), exit_line: true, no_goto: false }
+    let own = format!("rhtest/{name}-{variant}.txt");
+    let expected = if root().join("testdata").join(&own).is_file() { own } else { format!("rhtest/{name}.txt") };
+    let x87 = if variant.starts_with("ia32") { ra_asm_lift::X87Unit::Exact } else { ra_asm_lift::X87Unit::Double };
+    Fixture { binary: format!("rhtest/{name}-{variant}.exe"), expected, exit_line: true, no_goto: false, x87 }
+}
+
+/// The native output of an rhtest binary in the form `compare` reads: the output, then `exit = N`
+/// (a 32-bit Windows program runs on this host as it is).
+fn native_output(path: &Path) -> String {
+    let run = Command::new(path).current_dir(path.parent().unwrap()).output().unwrap();
+    let mut text = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
+    let _ = writeln!(text, "exit = {}", run.status.code().unwrap_or(-1));
+    text
 }
 
 /// A maintenance aid, run by name: the reference of an rhtest program that has none yet, from the
-/// native run of one of its variants (a 32-bit Windows program runs on this host as it is), in the
-/// form `compare` reads: the output, then `exit = N`.
+/// native run of one of its variants, and the reference of a variant whose native output differs
+/// from the program's (`<name>-<variant>.txt`), written or removed as the difference stands.
 #[test]
-#[ignore = "a maintenance aid: writes <name>.txt for every rhtest program without one, run by name"]
+#[ignore = "a maintenance aid: writes <name>.txt for every rhtest program without one, and <name>-<variant>.txt where a variant differs, run by name"]
 fn rhtest_write_references() {
     let dir = root().join("testdata/rhtest");
+    let mut variants = Vec::new();
     for entry in std::fs::read_dir(&dir).unwrap().flatten() {
         let path = entry.path();
         if path.extension().is_none_or(|x| x != "exe") {
             continue;
         }
-        let stem = path.file_stem().unwrap().to_str().unwrap();
-        let name = stem.split('-').next().unwrap();
+        let stem = path.file_stem().unwrap().to_str().unwrap().to_owned();
+        let name = stem.split('-').next().unwrap().to_owned();
         let reference = dir.join(format!("{name}.txt"));
-        if reference.exists() {
-            continue;
+        if !reference.exists() {
+            std::fs::write(&reference, native_output(&path)).unwrap();
+            eprintln!("{}: written from {stem}", reference.display());
         }
-        let run = Command::new(&path).current_dir(&dir).output().unwrap();
-        let mut text = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
-        let _ = writeln!(text, "exit = {}", run.status.code().unwrap_or(-1));
-        std::fs::write(&reference, text).unwrap();
-        eprintln!("{}: written from {stem}", reference.display());
+        variants.push((name, stem, path));
+    }
+    for (name, stem, path) in variants {
+        let program = std::fs::read_to_string(dir.join(format!("{name}.txt"))).unwrap().replace("\r\n", "\n");
+        let own = dir.join(format!("{stem}.txt"));
+        let text = native_output(&path);
+        if text.trim_end() == program.trim_end() {
+            if own.exists() {
+                std::fs::remove_file(&own).unwrap();
+                eprintln!("{}: removed, {stem} prints the program's reference", own.display());
+            }
+        } else if std::fs::read_to_string(&own).ok().is_none_or(|t| t.replace("\r\n", "\n") != text) {
+            std::fs::write(&own, text).unwrap();
+            eprintln!("{}: written, {stem} differs from the program's reference", own.display());
+        }
     }
 }
 
@@ -684,6 +720,73 @@ fn rhtest_fpenv_clang_runs_as_c() {
 #[test]
 fn rhtest_fpenv_clang_runs_as_rust() {
     run_rhtest_as_rust("fpenv", "clang");
+}
+
+/// The floating-point programs at the other levels clang-cl offers (`testdata/rhtest/build.ps1`):
+/// `/Od` over SSE2, and `/arch:IA32` at `/O2` and `/Od`, the x87 unit alone, lifted exact so the
+/// extended precision of a sum kept in `st(0)` and the precision control a program sets print the
+/// bits the native run prints.
+#[test]
+fn rhtest_float_clang_od_runs_as_c() {
+    run_rhtest_as_c("float", "clang-Od");
+}
+
+#[test]
+fn rhtest_float_clang_od_runs_as_rust() {
+    run_rhtest_as_rust("float", "clang-Od");
+}
+
+#[test]
+fn rhtest_float_ia32_runs_as_c() {
+    run_rhtest_as_c("float", "ia32");
+}
+
+/// clang's x87 `fsum` at /O2 shares its loop's exit between two paths that the structuring joins
+/// with a forward `goto`, which Rust can only write as a labeled block (card 54's domain).
+#[test]
+#[ignore = "needs the structuring of a shared tail (card 54): a forward goto into fsum the Rust output cannot express"]
+fn rhtest_float_ia32_runs_as_rust() {
+    run_rhtest_as_rust("float", "ia32");
+}
+
+#[test]
+fn rhtest_float_ia32_od_runs_as_c() {
+    run_rhtest_as_c("float", "ia32-Od");
+}
+
+#[test]
+fn rhtest_float_ia32_od_runs_as_rust() {
+    run_rhtest_as_rust("float", "ia32-Od");
+}
+
+#[test]
+fn rhtest_fpenv_clang_od_runs_as_c() {
+    run_rhtest_as_c("fpenv", "clang-Od");
+}
+
+#[test]
+fn rhtest_fpenv_clang_od_runs_as_rust() {
+    run_rhtest_as_rust("fpenv", "clang-Od");
+}
+
+#[test]
+fn rhtest_fpenv_ia32_runs_as_c() {
+    run_rhtest_as_c("fpenv", "ia32");
+}
+
+#[test]
+fn rhtest_fpenv_ia32_runs_as_rust() {
+    run_rhtest_as_rust("fpenv", "ia32");
+}
+
+#[test]
+fn rhtest_fpenv_ia32_od_runs_as_c() {
+    run_rhtest_as_c("fpenv", "ia32-Od");
+}
+
+#[test]
+fn rhtest_fpenv_ia32_od_runs_as_rust() {
+    run_rhtest_as_rust("fpenv", "ia32-Od");
 }
 
 /// The C runtime program: `printf`'s family through the `va_list` adapter, `strto*` with their end

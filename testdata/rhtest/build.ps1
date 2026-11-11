@@ -20,19 +20,27 @@ $programs = @(
   @{ Name = 'com'; Ext = 'cpp' }, @{ Name = 'stl'; Ext = 'cpp' }, @{ Name = 'stlio'; Ext = 'cpp' }, @{ Name = 'engine'; Ext = 'cpp' }
 )
 $static = @('core', 'int64')
+# The floating-point programs at every level clang-cl offers: /Od beside /O2, and /arch:IA32 for
+# the x87 unit alone (`ia32`, `ia32-Od`), each printing the same bits as the SSE2 build.
+$levels = @('float', 'fpenv')
 # The libraries any of them names: user32 and shell32 (misc, sys, win), ws2_32 (win), COM (com).
 $libs = @('kernel32.lib', 'user32.lib', 'shell32.lib', 'ws2_32.lib', 'ole32.lib', 'oleaut32.lib', 'uuid.lib')
 
 foreach ($p in $programs) {
   if ($Only -and -not ($Only -contains $p.Name)) { continue }
   $name = $p.Name
-  $variants = @(@{ Tag = 'clang'; Crt = '/MD' })
-  if ($static -contains $name) { $variants += @{ Tag = 'static'; Crt = '/MT' } }
+  $variants = @(@{ Tag = 'clang'; Crt = '/MD'; Opt = '/O2'; Arch = @() })
+  if ($static -contains $name) { $variants += @{ Tag = 'static'; Crt = '/MT'; Opt = '/O2'; Arch = @() } }
+  if ($levels -contains $name) {
+    $variants += @{ Tag = 'clang-Od'; Crt = '/MD'; Opt = '/Od'; Arch = @() }
+    $variants += @{ Tag = 'ia32'; Crt = '/MD'; Opt = '/O2'; Arch = @('/arch:IA32') }
+    $variants += @{ Tag = 'ia32-Od'; Crt = '/MD'; Opt = '/Od'; Arch = @('/arch:IA32') }
+  }
   foreach ($v in $variants) {
     $out = Join-Path $PSScriptRoot "$name-$($v.Tag).exe"
     $map = Join-Path $PSScriptRoot "$name-$($v.Tag).map"
     # Compiled and linked in one step, clang-cl keeps no object files.
-    $args = @('--target=i686-pc-windows-msvc', '/nologo', '/O2', $v.Crt, '/Brepro', '/W3', '/EHsc',
+    $args = @('--target=i686-pc-windows-msvc', '/nologo', $v.Opt, $v.Crt, '/Brepro', '/W3', '/EHsc') + $v.Arch + @(
       (Join-Path $src "$name.$($p.Ext)"), (Join-Path $src 'rhtest_main.c'), "/Fe:$out",
       '/link', "/map:$map", '/Brepro', '/subsystem:console') + $libs
     Write-Host "clang-cl $name-$($v.Tag)" -ForegroundColor Cyan

@@ -1,0 +1,14 @@
+~check
+~relay
+5
+~check
+~relay
+error 5
+-1
+~check
+~relay
+int -1
+-2
+inner 7
+outer
+done

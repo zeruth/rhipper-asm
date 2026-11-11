@@ -1,3 +1,5 @@
+slot
+proc
 111
 610
 ABCDEFGHI?

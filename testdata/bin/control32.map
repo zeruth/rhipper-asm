@@ -5,61 +5,73 @@
  Preferred load address is 0000000000400000
 
  Start         Length     Name                   Class
- 0001:00000000 00000958H .text                   CODE
- 0002:00000000 0000009eH .rdata                  DATA
+ 0001:00000000 000009e8H .text                   CODE
+ 0002:00000000 000000c3H .rdata                  DATA
  0003:00000000 00000028H .data                   DATA
- 0003:00000028 00000008H .bss                    DATA
+ 0003:00000028 00000010H .bss                    DATA
 
   Address         Publics by Value              Rva+Base               Lib:Object
 
- 0001:00000000       _mainCRTStartup            0000000000401000     control-1ad3c3.o
- 0001:00000958       _ExitProcess@4             0000000000401958     kernel32:KERNEL32.dll
- 0001:0000095e       _GetStdHandle@4            000000000040195e     kernel32:KERNEL32.dll
- 0001:00000964       _WriteFile@20              0000000000401964     kernel32:KERNEL32.dll
- 0002:0000004c       ??_C@_02PCIJFNDE@?$AN?6?$AA@ 000000000040204c     control-1ad3c3.o
- 0002:0000004f       ??_C@_01CLKCMJKC@?5?$AA@   000000000040204f     control-1ad3c3.o
- 0002:00000051       ??_C@_01FHEEJDEE@A?$AA@    0000000000402051     control-1ad3c3.o
- 0002:00000053       ??_C@_01HMGJMAIH@B?$AA@    0000000000402053     control-1ad3c3.o
- 0002:00000055       ??_C@_01GFHCPBMG@C?$AA@    0000000000402055     control-1ad3c3.o
- 0002:00000057       ??_C@_01CKDDGHAB@D?$AA@    0000000000402057     control-1ad3c3.o
- 0002:00000059       ??_C@_01DDCIFGEA@E?$AA@    0000000000402059     control-1ad3c3.o
- 0002:0000005b       ??_C@_01BIAFAFID@F?$AA@    000000000040205b     control-1ad3c3.o
- 0002:0000005d       ??_C@_01BBODEMC@G?$AA@     000000000040205d     control-1ad3c3.o
- 0002:0000005f       ??_C@_01IGIGCIAN@H?$AA@    000000000040205f     control-1ad3c3.o
- 0002:00000061       ??_C@_01JPJNBJEM@I?$AA@    0000000000402061     control-1ad3c3.o
- 0002:00000063       ??_C@_01OGPIMHDM@?$DP?$AA@ 0000000000402063     control-1ad3c3.o
- 0002:00000065       ??_C@_04DDFHDMOL@zero?$AA@ 0000000000402065     control-1ad3c3.o
- 0002:0000006a       ??_C@_03OHDNLOHO@one?$AA@  000000000040206a     control-1ad3c3.o
- 0002:0000006e       ??_C@_03IJDNBOJF@two?$AA@  000000000040206e     control-1ad3c3.o
- 0002:00000072       ??_C@_05OAGMNDDJ@three?$AA@ 0000000000402072     control-1ad3c3.o
- 0002:00000078       ??_C@_04DNJNMJF@four?$AA@  0000000000402078     control-1ad3c3.o
- 0002:0000007d       ??_C@_04CBHHLJIG@five?$AA@ 000000000040207d     control-1ad3c3.o
- 0002:00000082       ??_C@_03HNBCMMA@six?$AA@   0000000000402082     control-1ad3c3.o
- 0002:00000086       ??_C@_05GJGPGJKM@seven?$AA@ 0000000000402086     control-1ad3c3.o
- 0002:0000008c       ??_C@_05CJEADMFJ@eight?$AA@ 000000000040208c     control-1ad3c3.o
- 0002:00000092       ??_C@_04DDCAAIP@nine?$AA@  0000000000402092     control-1ad3c3.o
- 0002:00000097       ??_C@_06FOLIKDPP@fail?$AN?6?$AA@ 0000000000402097     control-1ad3c3.o
- 0002:00000134       __imp__ExitProcess@4       0000000000402134     kernel32:KERNEL32.dll
- 0002:00000138       __imp__GetStdHandle@4      0000000000402138     kernel32:KERNEL32.dll
- 0002:0000013c       __imp__WriteFile@20        000000000040213c     kernel32:KERNEL32.dll
+ 0001:00000000       _mainCRTStartup            0000000000401000     control-bbc32e.o
+ 0001:000009e8       _ExitProcess@4             00000000004019e8     kernel32:KERNEL32.dll
+ 0001:000009ee       _GetModuleHandleA@4        00000000004019ee     kernel32:KERNEL32.dll
+ 0001:000009f4       _GetProcAddress@8          00000000004019f4     kernel32:KERNEL32.dll
+ 0001:000009fa       _GetStdHandle@4            00000000004019fa     kernel32:KERNEL32.dll
+ 0001:00000a00       _WriteFile@20              0000000000401a00     kernel32:KERNEL32.dll
+ 0002:0000004c       ??_C@_09NOIIIIGM@WriteFile?$AA@ 000000000040204c     control-bbc32e.o
+ 0002:00000056       ??_C@_0N@MDJJJHMB@kernel32?4dll?$AA@ 0000000000402056     control-bbc32e.o
+ 0002:00000063       ??_C@_06MNCNIJJI@slot?$AN?6?$AA@ 0000000000402063     control-bbc32e.o
+ 0002:0000006a       ??_C@_06INHJPMI@proc?$AN?6?$AA@ 000000000040206a     control-bbc32e.o
+ 0002:00000071       ??_C@_02PCIJFNDE@?$AN?6?$AA@ 0000000000402071     control-bbc32e.o
+ 0002:00000074       ??_C@_01CLKCMJKC@?5?$AA@   0000000000402074     control-bbc32e.o
+ 0002:00000076       ??_C@_01FHEEJDEE@A?$AA@    0000000000402076     control-bbc32e.o
+ 0002:00000078       ??_C@_01HMGJMAIH@B?$AA@    0000000000402078     control-bbc32e.o
+ 0002:0000007a       ??_C@_01GFHCPBMG@C?$AA@    000000000040207a     control-bbc32e.o
+ 0002:0000007c       ??_C@_01CKDDGHAB@D?$AA@    000000000040207c     control-bbc32e.o
+ 0002:0000007e       ??_C@_01DDCIFGEA@E?$AA@    000000000040207e     control-bbc32e.o
+ 0002:00000080       ??_C@_01BIAFAFID@F?$AA@    0000000000402080     control-bbc32e.o
+ 0002:00000082       ??_C@_01BBODEMC@G?$AA@     0000000000402082     control-bbc32e.o
+ 0002:00000084       ??_C@_01IGIGCIAN@H?$AA@    0000000000402084     control-bbc32e.o
+ 0002:00000086       ??_C@_01JPJNBJEM@I?$AA@    0000000000402086     control-bbc32e.o
+ 0002:00000088       ??_C@_01OGPIMHDM@?$DP?$AA@ 0000000000402088     control-bbc32e.o
+ 0002:0000008a       ??_C@_04DDFHDMOL@zero?$AA@ 000000000040208a     control-bbc32e.o
+ 0002:0000008f       ??_C@_03OHDNLOHO@one?$AA@  000000000040208f     control-bbc32e.o
+ 0002:00000093       ??_C@_03IJDNBOJF@two?$AA@  0000000000402093     control-bbc32e.o
+ 0002:00000097       ??_C@_05OAGMNDDJ@three?$AA@ 0000000000402097     control-bbc32e.o
+ 0002:0000009d       ??_C@_04DNJNMJF@four?$AA@  000000000040209d     control-bbc32e.o
+ 0002:000000a2       ??_C@_04CBHHLJIG@five?$AA@ 00000000004020a2     control-bbc32e.o
+ 0002:000000a7       ??_C@_03HNBCMMA@six?$AA@   00000000004020a7     control-bbc32e.o
+ 0002:000000ab       ??_C@_05GJGPGJKM@seven?$AA@ 00000000004020ab     control-bbc32e.o
+ 0002:000000b1       ??_C@_05CJEADMFJ@eight?$AA@ 00000000004020b1     control-bbc32e.o
+ 0002:000000b7       ??_C@_04DDCAAIP@nine?$AA@  00000000004020b7     control-bbc32e.o
+ 0002:000000bc       ??_C@_06FOLIKDPP@fail?$AN?6?$AA@ 00000000004020bc     control-bbc32e.o
+ 0002:00000160       __imp__ExitProcess@4       0000000000402160     kernel32:KERNEL32.dll
+ 0002:00000164       __imp__GetModuleHandleA@4  0000000000402164     kernel32:KERNEL32.dll
+ 0002:00000168       __imp__GetProcAddress@8    0000000000402168     kernel32:KERNEL32.dll
+ 0002:0000016c       __imp__GetStdHandle@4      000000000040216c     kernel32:KERNEL32.dll
+ 0002:00000170       __imp__WriteFile@20        0000000000402170     kernel32:KERNEL32.dll
 
  entry point at         0001:00000000
 
  Static symbols
 
- 0001:00000270       _print_int                 0000000000401270     control-1ad3c3.o
- 0001:000002f0       _collatz                   00000000004012f0     control-1ad3c3.o
- 0001:00000320       _fib                       0000000000401320     control-1ad3c3.o
- 0001:00000350       _classify                  0000000000401350     control-1ad3c3.o
- 0001:00000430       _print_str                 0000000000401430     control-1ad3c3.o
- 0001:00000460       _sum_table                 0000000000401460     control-1ad3c3.o
- 0001:000004a0       _sort_table                00000000004014a0     control-1ad3c3.o
- 0001:000008f0       _fail                      00000000004018f0     control-1ad3c3.o
- 0001:00000910       _op_add                    0000000000401910     control-1ad3c3.o
- 0001:00000920       _op_sub                    0000000000401920     control-1ad3c3.o
- 0001:00000930       _op_mul                    0000000000401930     control-1ad3c3.o
- 0001:00000940       _op_div                    0000000000401940     control-1ad3c3.o
- 0002:00000024       _names                     0000000000402024     control-1ad3c3.o
- 0003:00000000       _table                     0000000000403000     control-1ad3c3.o
- 0003:00000028       _out                       0000000000403028     control-1ad3c3.o
- 0003:0000002c       _sink                      000000000040302c     control-1ad3c3.o
+ 0001:000002a0       _print_slot                00000000004012a0     control-bbc32e.o
+ 0001:000002d0       _print_proc                00000000004012d0     control-bbc32e.o
+ 0001:00000300       _print_int                 0000000000401300     control-bbc32e.o
+ 0001:00000380       _collatz                   0000000000401380     control-bbc32e.o
+ 0001:000003b0       _fib                       00000000004013b0     control-bbc32e.o
+ 0001:000003e0       _classify                  00000000004013e0     control-bbc32e.o
+ 0001:000004c0       _print_str                 00000000004014c0     control-bbc32e.o
+ 0001:000004f0       _sum_table                 00000000004014f0     control-bbc32e.o
+ 0001:00000530       _sort_table                0000000000401530     control-bbc32e.o
+ 0001:00000980       _fail                      0000000000401980     control-bbc32e.o
+ 0001:000009a0       _op_add                    00000000004019a0     control-bbc32e.o
+ 0001:000009b0       _op_sub                    00000000004019b0     control-bbc32e.o
+ 0001:000009c0       _op_mul                    00000000004019c0     control-bbc32e.o
+ 0001:000009d0       _op_div                    00000000004019d0     control-bbc32e.o
+ 0002:00000024       _names                     0000000000402024     control-bbc32e.o
+ 0003:00000000       _table                     0000000000403000     control-bbc32e.o
+ 0003:00000028       _out                       0000000000403028     control-bbc32e.o
+ 0003:0000002c       _write_slot                000000000040302c     control-bbc32e.o
+ 0003:00000030       _write_proc                0000000000403030     control-bbc32e.o
+ 0003:00000034       _sink                      0000000000403034     control-bbc32e.o

@@ -41,6 +41,14 @@ pub fn declare_runtime(module: &mut ra_asm_ir::Module) {
         attrs: vec!["noreturn".into()],
     });
     module.declare(Declaration { name: "ra_call".into(), ty: void(vec![Type::Ptr, Type::I64]), conv: CallConv::C, attrs: vec![] });
+    // What the x86 function a pointer named popped: an import's pops from the binding table, else
+    // what the universal entry point recorded in `ra_pops`.
+    module.declare(Declaration {
+        name: "ra_pops_of".into(),
+        ty: FnType::new(Type::I64, vec![Type::I64]),
+        conv: CallConv::C,
+        attrs: vec![],
+    });
     // The processor's own answers, from the host: `cpuid` into four dwords, `xgetbv`, `rdtsc`.
     module.declare(Declaration {
         name: "ra_cpuid".into(),
@@ -186,6 +194,25 @@ pub fn declare_runtime(module: &mut ra_asm_ir::Module) {
 /// `st(0)`, so it lives in globals rather than in `%State`, and survives every raising pass as
 /// plain memory). The thread environment block of an `fs:` or `gs:` access is the runtime's, one
 /// per thread, reached through `ra_teb()`.
+/// Declares the C++ exception protocol of the runtime, for a program that throws: see [`crate::eh`].
+pub fn declare_eh_runtime(module: &mut ra_asm_ir::Module) {
+    let i = Type::I64;
+    let functions = [
+        ("ra_eh_throw", Type::Void, vec![i.clone(), i.clone()]),
+        ("ra_eh_throw_type", Type::Void, vec![i.clone(), i.clone(), i.clone()]),
+        ("ra_eh_rethrow", Type::Void, vec![]),
+        ("ra_eh_pending", i.clone(), vec![]),
+        ("ra_eh_catches", i.clone(), vec![i.clone(), i.clone(), i]),
+        ("ra_eh_enter_catch", Type::Void, vec![]),
+        ("ra_eh_leave_catch", Type::Void, vec![]),
+        ("ra_eh_suspend", Type::Void, vec![]),
+        ("ra_eh_resume", Type::Void, vec![]),
+    ];
+    for (name, ret, params) in functions {
+        module.declare(Declaration { name: name.into(), ty: FnType::new(ret, params), conv: CallConv::C, attrs: vec![] });
+    }
+}
+
 pub const X87_STACK: &str = "ra_x87_stack";
 pub const X87_TOP: &str = "ra_x87_top";
 pub const X87_CW: &str = "ra_x87_cw";
@@ -201,6 +228,15 @@ pub const TLS: &str = "ra_tls";
 /// What the x86 function last called through a pointer popped beyond its return address: its
 /// universal entry point writes it, the caller reads it to find its stack pointer again.
 pub const POPS: &str = "ra_pops";
+/// The binding table of a 32-bit program's imports, for the pops of a native function reached
+/// through a pointer the lift could not resolve: three words per import, the linked symbol's
+/// address, the address of its DLL and name in [`IMPORT_NAMES`] (zero for a function of the host's
+/// runtime) and the bytes a call to it pops, then a zero triple. The runtime matches a callee by
+/// the linked address or by the DLL's own address of the name, which a bound slot or
+/// `GetProcAddress` hands the program.
+pub const IMPORT_POPS: &str = "ra_import_pops";
+/// The names of [`IMPORT_POPS`]: `dll\0name\0` runs, a name by ordinal as `#n`.
+pub const IMPORT_NAMES: &str = "ra_import_names";
 /// The SSE control and status register as the program sets it with `ldmxcsr` and reads it with
 /// `stmxcsr`; the host's own arithmetic keeps its default rounding.
 pub const MXCSR: &str = "ra_mxcsr";
@@ -261,9 +297,56 @@ pub fn tls_global(image: &ra_asm_pe::Image, lifted: &crate::Lifted) -> ra_asm_ir
     }
 }
 
-/// Whether `name` is one of the globals of [`define_runtime_globals`] or the [`TLS`] descriptor.
+/// The [`IMPORT_POPS`] table and its [`IMPORT_NAMES`] for the imports `lifted` calls.
+pub fn import_pops_globals(image: &ra_asm_pe::Image, lifted: &crate::Lifted) -> [ra_asm_ir::Global; 2] {
+    use ra_asm_ir::{Const, Global, Linkage};
+    let mut names: Vec<u8> = Vec::new();
+    let mut items: Vec<Const> = Vec::new();
+    for symbol in &lifted.imports {
+        // A function of the host's runtime (a shim, a linked-in C runtime's) is no DLL's export
+        // and pops nothing; an import of unknown arity is taken as cdecl, as its direct call is.
+        let import = image.imports.iter().find(|i| crate::x86::import_symbol(&i.display_name()) == *symbol);
+        let (name, pops) = match import {
+            Some(import) => {
+                let offset = names.len() as i64;
+                names.extend_from_slice(import.dll.as_bytes());
+                names.push(0);
+                match (&import.name, import.ordinal) {
+                    (Some(n), _) => names.extend_from_slice(n.as_bytes()),
+                    (None, Some(ordinal)) => names.extend_from_slice(format!("#{ordinal}").as_bytes()),
+                    (None, None) => {}
+                }
+                names.push(0);
+                let pops = crate::raise::prototypes::stdcall_pops(&import.dll, symbol).unwrap_or(0);
+                (Const::Address { global: IMPORT_NAMES.to_owned(), offset }, pops)
+            }
+            None => (Const::Int(0), 0),
+        };
+        items.extend([Const::Address { global: symbol.clone(), offset: 0 }, name, Const::Int(i128::from(pops))]);
+    }
+    items.extend([Const::Int(0), Const::Int(0), Const::Int(0)]);
+    if names.is_empty() {
+        names.push(0);
+    }
+    let global = |name: &str, ty: Type, init: Const| Global {
+        name: name.to_owned(),
+        ty,
+        init: Some(init),
+        constant: true,
+        linkage: Linkage::External,
+        align: 16,
+        address: None,
+    };
+    [
+        global(IMPORT_POPS, Type::Packed(vec![Type::I64; items.len()]), Const::Struct(items)),
+        global(IMPORT_NAMES, Type::array(names.len() as u64, Type::I8), Const::Bytes(names)),
+    ]
+}
+
+/// Whether `name` is one of the globals of [`define_runtime_globals`], the [`TLS`] descriptor or
+/// the import binding table.
 pub fn is_runtime_global(name: &str) -> bool {
-    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TLS | POPS | MXCSR)
+    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TLS | POPS | MXCSR | IMPORT_POPS | IMPORT_NAMES)
 }
 
 /// The state helpers over one function under construction.

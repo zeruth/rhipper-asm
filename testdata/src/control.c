@@ -99,8 +99,37 @@ NOINLINE static unsigned mix(unsigned a, unsigned b) {
     return h ^ (h >> 16);
 }
 
+// An import called through a pointer kept in data: one word holds the import slot's value, the
+// other what GetProcAddress returned. Volatile, so the compiler keeps the load and the call
+// through it rather than folding the call into a direct one.
+typedef BOOL(WINAPI *write_fn)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
+static write_fn volatile write_slot;
+static write_fn volatile write_proc;
+
+NOINLINE static void print_slot(const char *s) {
+    DWORD n = 0;
+    const char *p = s;
+    while (*p) p++;
+    write_slot(out, s, (DWORD)(p - s), &n, NULL);
+}
+
+NOINLINE static void print_proc(const char *s) {
+    DWORD n = 0;
+    const char *p = s;
+    while (*p) p++;
+    write_proc(out, s, (DWORD)(p - s), &n, NULL);
+}
+
 int mainCRTStartup(void) {
     out = GetStdHandle(STD_OUTPUT_HANDLE);
+    write_slot = WriteFile;
+    // A port of the 32-bit program that maps the image at its base gets nothing from
+    // GetProcAddress (the host's module handle does not fit a dword); then the slot's value,
+    // still called through a word the lift cannot resolve, since two stores write it.
+    write_fn proc = (write_fn)GetProcAddress(GetModuleHandleA("kernel32.dll"), "WriteFile");
+    write_proc = proc ? proc : WriteFile;
+    print_slot("slot\r\n");
+    print_proc("proc\r\n");
     print_int(collatz(27));
     print_int(fib(15));
     int total = 0;

@@ -200,16 +200,24 @@ fn main_module(module: &Module, options: &Options, modules: &[String]) -> String
     if module.globals.iter().any(|g| g.name == "ra_tls") {
         let _ = writeln!(out, "        rhipper::ra_init_tls((&raw const ra_tls) as *const u64, {});", options.pointer_bits);
     }
+    if module.globals.iter().any(|g| g.name == "ra_import_pops") {
+        let _ = writeln!(out, "        rhipper::ra_init_import_pops((&raw const ra_import_pops) as *const u64, &raw mut ra_pops);");
+    }
     if let Some(entry) = options.entry.as_ref().and_then(|e| module.functions.iter().find(|f| f.name == *e)) {
         let args: Vec<String> = entry.ty.params.iter().map(zero).collect();
         let call = format!("{}({})", entry.name, args.join(", "));
+        // A program that throws may leave an exception nothing caught.
+        let uncaught =
+            if module.declarations.iter().any(|d| d.name == "ra_eh_pending") { "        rhipper::ra_eh_check_uncaught();\n" } else { "" };
         if entry.attrs.iter().any(|a| a == "noreturn") {
             let _ = writeln!(out, "        {call};");
         } else if entry.ty.ret == Type::Void {
             let _ = writeln!(out, "        {call};");
+            let _ = write!(out, "{uncaught}");
             let _ = writeln!(out, "        std::process::exit(0);");
         } else {
             let _ = writeln!(out, "        let code = {call};");
+            let _ = write!(out, "{uncaught}");
             let _ = writeln!(out, "        std::process::exit(code as i32);");
         }
     } else {
@@ -226,16 +234,20 @@ fn data_module(module: &Module, options: &Options, function_names: &HashSet<Stri
     let mut out = String::from("use super::*;\n\n");
     // The imports, by DLL.
     let defined: HashSet<&str> = module.functions.iter().map(|f| f.name.as_str()).collect();
-    let mut by_dll: BTreeMap<String, Vec<&ra_asm_ir::Declaration>> = BTreeMap::new();
+    // A host function that is no import of the image (a C runtime linked into it, which the host
+    // supplies from its own libraries) names no library: the linker finds it in the default ones,
+    // the static functions of `vcruntime` (`__report_rangecheckfailure`) among them.
+    let mut by_dll: BTreeMap<Option<String>, Vec<&ra_asm_ir::Declaration>> = BTreeMap::new();
     for d in &module.declarations {
         if d.name.starts_with("llvm.") || d.name.starts_with("ra_") || defined.contains(d.name.as_str()) {
             continue;
         }
-        let dll = options.imports.get(&d.name).cloned().unwrap_or_else(|| "kernel32".into());
-        by_dll.entry(dll).or_default().push(d);
+        by_dll.entry(options.imports.get(&d.name).cloned()).or_default().push(d);
     }
     for (dll, declarations) in &by_dll {
-        let _ = writeln!(out, "#[link(name = \"{}\")]", import_library(dll));
+        if let Some(dll) = dll {
+            let _ = writeln!(out, "#[link(name = \"{}\")]", import_library(dll));
+        }
         let _ = writeln!(out, "unsafe extern \"system\" {{");
         for d in declarations {
             let params: Vec<String> = d.ty.params.iter().enumerate().map(|(i, t)| format!("a{i}: {}", rust_type(t))).collect();
