@@ -8,6 +8,7 @@
 //! insert and remove them freely.
 
 pub mod builder;
+pub mod dom;
 pub mod inst;
 pub mod module;
 pub mod printer;

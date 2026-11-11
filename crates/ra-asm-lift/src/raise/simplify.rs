@@ -40,11 +40,24 @@ pub fn run(f: &mut Function) -> bool {
         }
     }
     let mut rewrite: HashMap<ValueId, Inst> = HashMap::new();
+    let mut defs: HashMap<ValueId, &Inst> = HashMap::new();
+    for b in &f.blocks {
+        for i in &b.instrs {
+            if let Some(v) = i.result {
+                defs.insert(v, &i.inst);
+            }
+        }
+    }
     for b in &f.blocks {
         for i in &b.instrs {
             let Some(result) = i.result else { continue };
             if let Some(replacement) = simplify(&i.inst) {
                 map.insert(result, replacement);
+                continue;
+            }
+            // `cdq`: `(zext (x >>s 31) << 32) | zext x` is `sext x`.
+            if let Some(x) = sign_extension_idiom(&i.inst, &defs) {
+                rewrite.insert(result, Inst::Cast { cast: ra_asm_ir::Cast::SExt, from: Type::I32, value: x, to: Type::I64 });
                 continue;
             }
             if let Inst::Bin { op: BinOp::Add | BinOp::Sub, ty: Type::Int(64), lhs: Operand::Local(inner), .. } = &i.inst
@@ -113,6 +126,33 @@ pub fn cse(f: &mut Function) -> bool {
     }
     f.replace_uses(&map);
     true
+}
+
+/// The `x` of `or (shl (zext (ashr i32 x, 31)), 32), (zext i32 x)`: the sign extension that
+/// `cdq` or a shift pair writes.
+fn sign_extension_idiom(inst: &Inst, defs: &HashMap<ValueId, &Inst>) -> Option<Operand> {
+    let Inst::Bin { op: BinOp::Or, ty: Type::Int(64), lhs, rhs } = inst else { return None };
+    let def = |o: &Operand| defs.get(&o.local()?).copied();
+    let zext32 = |o: &Operand| match def(o)? {
+        Inst::Cast { cast: ra_asm_ir::Cast::ZExt, from: Type::Int(32), value, .. } => Some(value.clone()),
+        _ => None,
+    };
+    let high_sign = |o: &Operand| -> Option<Operand> {
+        let Inst::Bin { op: BinOp::Shl, lhs, rhs: Operand::Int(32), .. } = def(o)? else { return None };
+        let sign = zext32(lhs)?;
+        match def(&sign)? {
+            Inst::Bin { op: BinOp::AShr, ty: Type::Int(32), lhs, rhs: Operand::Int(31) } => Some(lhs.clone()),
+            _ => None,
+        }
+    };
+    for (a, b) in [(lhs, rhs), (rhs, lhs)] {
+        if let (Some(x), Some(low)) = (high_sign(a), zext32(b))
+            && x == low
+        {
+            return Some(x);
+        }
+    }
+    None
 }
 
 /// The value an instruction equals, when it equals one of its operands or a constant.

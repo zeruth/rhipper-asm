@@ -10,6 +10,7 @@ pub mod abi;
 pub mod conditions;
 pub mod dce;
 pub mod frame;
+pub mod known;
 pub mod liveness;
 pub mod promote;
 pub mod prototypes;
@@ -71,6 +72,13 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
                 clean(f);
                 frame::run(f);
                 clean(f);
+                // Known values and branches, to a fixpoint with the cleanup.
+                for _ in 0..4 {
+                    if !known::run(f) {
+                        break;
+                    }
+                    clean(f);
+                }
             }
             // The import wrappers served the machine model; the calls now go to the imports,
             // each declared with the arity the prototype table gives it.

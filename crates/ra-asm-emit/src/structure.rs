@@ -9,6 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use ra_asm_ir::dom::{dominators, reverse_post_order};
 use ra_asm_ir::{BlockId, Function, Operand, Terminator, Type};
 
 /// A condition: an `i1` value, or a short-circuit combination of them, as the source wrote it
@@ -376,73 +377,6 @@ impl Walk<'_> {
 }
 
 /// Reverse post-order of the reachable blocks.
-pub fn reverse_post_order(f: &Function) -> Vec<BlockId> {
-    let mut seen = HashSet::new();
-    let mut post = Vec::new();
-    let mut stack: Vec<(BlockId, Vec<BlockId>, usize)> = Vec::new();
-    let entry = f.blocks[0].id;
-    seen.insert(entry);
-    stack.push((entry, f.block(entry).unwrap().terminator.successors(), 0));
-    while let Some((b, ss, k)) = stack.last_mut() {
-        if *k < ss.len() {
-            let next = ss[*k];
-            *k += 1;
-            if seen.insert(next) {
-                let next_succs = f.block(next).map(|b| b.terminator.successors()).unwrap_or_default();
-                stack.push((next, next_succs, 0));
-            }
-        } else {
-            post.push(*b);
-            stack.pop();
-        }
-    }
-    post.reverse();
-    post
-}
-
-/// Immediate dominators by the iterative algorithm.
-fn dominators(order: &[BlockId], preds: &HashMap<BlockId, Vec<BlockId>>) -> HashMap<BlockId, BlockId> {
-    let index: HashMap<BlockId, usize> = order.iter().enumerate().map(|(i, b)| (*b, i)).collect();
-    let mut idom: HashMap<BlockId, BlockId> = HashMap::new();
-    let Some(&entry) = order.first() else { return idom };
-    idom.insert(entry, entry);
-    let intersect = |idom: &HashMap<BlockId, BlockId>, mut a: BlockId, mut b: BlockId| -> BlockId {
-        while a != b {
-            while index[&a] > index[&b] {
-                a = idom[&a];
-            }
-            while index[&b] > index[&a] {
-                b = idom[&b];
-            }
-        }
-        a
-    };
-    loop {
-        let mut changed = false;
-        for &b in order.iter().skip(1) {
-            let mut new_idom: Option<BlockId> = None;
-            for p in preds.get(&b).map_or(&Vec::new(), |p| p) {
-                if !index.contains_key(p) || !idom.contains_key(p) {
-                    continue;
-                }
-                new_idom = Some(match new_idom {
-                    None => *p,
-                    Some(n) => intersect(&idom, *p, n),
-                });
-            }
-            if let Some(n) = new_idom
-                && idom.get(&b) != Some(&n)
-            {
-                idom.insert(b, n);
-                changed = true;
-            }
-        }
-        if !changed {
-            return idom;
-        }
-    }
-}
-
 /// Immediate post-dominators over the reversed graph with a virtual exit after every block that
 /// returns or never continues. `None` for a block from which no exit is reached.
 fn post_dominators(f: &Function, order: &[BlockId], succs: &HashMap<BlockId, Vec<BlockId>>) -> HashMap<BlockId, Option<BlockId>> {
