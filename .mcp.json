@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "rhipper": {
+      "type": "stdio",
+      "command": "rc",
+      "args": ["mcp"]
+    }
+  }
+}
