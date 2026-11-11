@@ -394,10 +394,15 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target)
     let mut writes_xmm0: Option<Kind> = None;
     let mut writes = NO_SLOTS;
     for (bi, b) in f.blocks.iter().enumerate() {
+        // A block that ends in `unreachable` (a call that never returns, such as the report after
+        // a failed cookie check) hands nothing back: what it writes reaches no return, so a caller
+        // reading a register after the call reads its own value through it.
+        let dead_end = matches!(b.terminator, ra_asm_ir::Terminator::Unreachable);
         let mut calls = 0usize;
         for i in &b.instrs {
             // The slots the function writes, itself or through a call.
             match &i.inst {
+                _ if dead_end => {}
                 Inst::Store { ptr: Operand::Local(p), .. } => {
                     if let Some(slot) = pointers.get(p) {
                         writes[slot.index()] = true;
@@ -411,7 +416,7 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target)
                 _ => {}
             }
             match &i.inst {
-                Inst::Store { ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&RAX) => writes_rax = true,
+                Inst::Store { ptr: Operand::Local(p), .. } if !dead_end && pointers.get(p) == Some(&RAX) => writes_rax = true,
                 Inst::Store { ty, ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&Slot::Xmm(0)) => match ty {
                     Type::Double => writes_xmm0 = Some(Kind::Double),
                     Type::Float if writes_xmm0 != Some(Kind::Double) => writes_xmm0 = Some(Kind::Float),

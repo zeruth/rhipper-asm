@@ -14,13 +14,36 @@ use ra_asm_pe::Image;
 use crate::function::{self, Function, Kind};
 use crate::rtti::identifier;
 
-/// The ranges of the image that the objects of the C runtime libraries fill, from the PDB.
+/// The ranges of the image that the objects of the C runtime libraries fill: from the PDB's
+/// section contributions, else from the link map, where a function of a runtime library owns the
+/// code from its address to the next named function's, or to the end of its section (a build
+/// with `/MT` and no PDB, such as the VS2010 programs, has only the map).
 pub struct RuntimeRanges(Vec<(u64, u64)>);
 
 impl RuntimeRanges {
     pub fn of(image: &Image) -> Self {
-        let mut ranges: Vec<(u64, u64)> =
-            image.libraries.iter().filter(|r| is_runtime_library(&r.library)).map(|r| (r.va, r.va + u64::from(r.size))).collect();
+        let mut ranges: Vec<(u64, u64)> = if image.libraries.is_empty() {
+            let section_end = |va: u64| {
+                image
+                    .sections
+                    .iter()
+                    .map(|s| (image.va(s.virtual_address), image.va(s.end_rva())))
+                    .find(|&(start, end)| start <= va && va < end)
+            };
+            image
+                .symbols
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.library.as_deref().is_some_and(is_runtime_library))
+                .map(|(i, s)| {
+                    let next = image.symbols.get(i + 1).map(|n| n.va);
+                    let end = section_end(s.va).map(|(_, end)| end).into_iter().chain(next).min().unwrap_or(s.va + 1);
+                    (s.va, end)
+                })
+                .collect()
+        } else {
+            image.libraries.iter().filter(|r| is_runtime_library(&r.library)).map(|r| (r.va, r.va + u64::from(r.size))).collect()
+        };
         ranges.sort_unstable();
         Self(ranges)
     }
@@ -36,16 +59,56 @@ impl RuntimeRanges {
 /// name. A thunk stays a thunk. A runtime function the host cannot link by that name in C (a C++
 /// function, an exception handling funclet such as `common_control87$filt$0`) is the host's all
 /// the same, under the name made an identifier: nothing ported calls one, and a call would fail to
-/// link by name rather than lift the runtime's code.
+/// link by name rather than lift the runtime's code. A helper the port keeps ([`is_ported_helper`])
+/// stays the program's.
 pub fn classify(image: &Image, runtime: &RuntimeRanges, f: &mut Function) {
     if f.is_thunk() || !runtime.contains(f.entry) {
         return;
     }
+    // The host links `_snprintf` and `__security_init_cookie` by those names: a plain C name
+    // keeps its underscores, and only a mangled one is made an identifier.
     let name = match image.symbols.binary_search_by_key(&f.entry, |s| s.va) {
-        Ok(i) => identifier(&undecorate(&image.symbols[i].name, image.is_64())),
+        Ok(i) => {
+            let plain = undecorate(&image.symbols[i].name, image.is_64());
+            if plain.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') { plain } else { identifier(&plain) }
+        }
         Err(_) => function::default_name(f.entry),
     };
+    if is_ported_helper(&name) {
+        return;
+    }
     f.kind = Kind::Runtime(name);
+}
+
+/// The helpers of the 32-bit C runtime that a port keeps as the program's own code even when a
+/// runtime library supplies them: the 64-bit arithmetic (`_alldiv`), the x87 conversions
+/// (`_ftol2`) and the `_CI*` intrinsics that take their operands in the x87 stack, the stack
+/// probe, and the security cookie's check, which compares against the program's own cookie. The
+/// host has no function of the same shape, and their code lifts exactly.
+pub fn is_ported_helper(name: &str) -> bool {
+    matches!(
+        name,
+        "_alldiv"
+            | "_allmul"
+            | "_allrem"
+            | "_allshl"
+            | "_allshr"
+            | "_alldvrm"
+            | "_aulldiv"
+            | "_aullrem"
+            | "_aullshr"
+            | "_aulldvrm"
+            | "_ftol"
+            | "_ftol2"
+            | "_ftol2_sse"
+            | "_ftol2_sse_excpt"
+            | "_ftoul2_legacy"
+            | "_chkstk"
+            | "_alloca_probe"
+            | "_alloca_probe_8"
+            | "_alloca_probe_16"
+            | "__security_check_cookie"
+    ) || name.starts_with("_CI")
 }
 
 /// Names every function the symbols (the PDB, else the link map) name, and keeps each one's symbol
@@ -501,5 +564,15 @@ mod tests {
         assert!(is_runtime_library("libvcruntime.lib"));
         assert!(!is_runtime_library("kernel32.lib"));
         assert!(!is_runtime_library("mylib.lib"));
+    }
+
+    #[test]
+    fn the_x86_helpers_stay_the_programs() {
+        for name in ["_alldiv", "_aulldvrm", "_ftol2", "_CIpow", "_alloca_probe_16", "__security_check_cookie"] {
+            assert!(is_ported_helper(name), "{name}");
+        }
+        for name in ["printf", "malloc", "_mainCRTStartup", "_tmainCRTStartup", "__security_init_cookie"] {
+            assert!(!is_ported_helper(name), "{name}");
+        }
     }
 }

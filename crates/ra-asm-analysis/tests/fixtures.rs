@@ -132,10 +132,42 @@ fn the_link_map_beside_the_image_names_its_functions() {
     assert_eq!(run.name, "rhtest_run");
 }
 
+/// A `/MT` build with no PDB (`core-static.exe`, `int64-static.exe`): the map's libraries tell
+/// the C runtime's functions apart, the startup among them, so the port starts at `main`; the
+/// host links a runtime function by its plain name, underscores kept; the x86 helpers the host
+/// has no equal of stay the program's.
+#[test]
+fn the_link_map_tells_the_static_runtime_apart() {
+    use ra_asm_analysis::Kind;
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/rhtest");
+    for (binary, helper) in [("core-static.exe", "@__security_check_cookie@4"), ("int64-static.exe", "__alldiv")] {
+        let image = ra_asm_pe::load(&dir.join(binary)).unwrap();
+        let analysis = analyze(&image);
+        let entry = analysis.function(image.entry_point().unwrap()).unwrap();
+        assert!(matches!(&entry.kind, Kind::Runtime(host) if host == "mainCRTStartup"), "{binary}: the entry is {:?}", entry.kind);
+        let main = analysis.functions.values().find(|f| f.symbol.as_deref() == Some("_main")).expect("_main");
+        assert!(matches!(main.kind, Kind::Normal), "{binary}: main is {:?}", main.kind);
+        assert_eq!(analysis.program_entry, Some(main.entry), "{binary}: the port starts at main");
+        let ported: Vec<&str> = analysis.ported().map(|f| f.name.as_str()).collect();
+        assert!(ported.len() < 100, "{binary}: {} ported functions: {ported:?}", ported.len());
+        let runtime = analysis.functions.values().filter(|f| matches!(f.kind, Kind::Runtime(_))).count();
+        assert!(runtime > 400, "{binary}: {runtime} runtime functions");
+        assert!(
+            analysis.functions.values().any(|f| matches!(&f.kind, Kind::Runtime(host) if host == "__security_init_cookie")),
+            "{binary}: the host's name keeps its underscores"
+        );
+        let kept =
+            analysis.functions.values().find(|f| f.symbol.as_deref() == Some(helper)).unwrap_or_else(|| panic!("{binary}: {helper}"));
+        assert!(matches!(kept.kind, Kind::Normal), "{binary}: {} is {:?}", kept.name, kept.kind);
+    }
+}
+
 /// The MSVC shapes over the rhtest programs: `int 3` padding between functions, jump tables in
 /// `.text`, `__security_check_cookie`, the hot and cold halves of one function, the CRT's own
 /// code. A map function the analysis misses, one it splits (an entry of ours inside a map
-/// function) and one it invents all fail by name.
+/// function) and one it invents all fail by name. The C runtime the map tells apart (the `/MT`
+/// builds) is the host's, not ported: the labels its assembly leaks into the map (`_lu_top`,
+/// `__rtinfpop`), its funclets and the pieces of its own functions are not held against it.
 #[test]
 fn finds_the_functions_of_the_rhtest_maps() {
     let mut failures = Vec::new();
@@ -144,18 +176,24 @@ fn finds_the_functions_of_the_rhtest_maps() {
         let image = ra_asm_pe::load(&binary).unwrap_or_else(|e| panic!("{name}: {e:#}"));
         let analysis = analyze(&image);
         let expected = rhtest_map_functions(&map);
+        let runtime_symbol = |address: u64| {
+            let library = image.symbols.binary_search_by_key(&address, |s| s.va).ok().and_then(|i| image.symbols[i].library.as_deref());
+            library.is_some_and(ra_asm_analysis::symbols::is_runtime_library)
+        };
+        let runtime_function = |f: &ra_asm_analysis::Function| matches!(f.kind, ra_asm_analysis::Kind::Runtime(_));
         let mut lines = Vec::new();
         for (&address, symbol) in &expected {
-            if analysis.function(address).is_none() {
+            if analysis.function(address).is_none() && !runtime_symbol(address) {
                 let inside = analysis.containing(address).map(|f| format!(" (inside {} at {:#x})", f.name, f.entry)).unwrap_or_default();
                 lines.push(format!("  missed {symbol} at {address:#x}{inside}"));
             }
         }
         for f in analysis.functions.values() {
-            if f.is_thunk() || expected.contains_key(&f.entry) {
+            if f.is_thunk() || expected.contains_key(&f.entry) || runtime_function(f) {
                 continue;
             }
             match expected.range(..f.entry).next_back() {
+                Some((&start, _)) if runtime_symbol(start) => {}
                 Some((&start, symbol)) => lines.push(format!("  split {symbol} at {start:#x}: an entry at {:#x}", f.entry)),
                 None => lines.push(format!("  invented {} at {:#x}", f.name, f.entry)),
             }

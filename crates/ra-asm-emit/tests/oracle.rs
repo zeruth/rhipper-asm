@@ -519,6 +519,18 @@ fn classes64_reads_as_classes() {
     assert_eq!(text.matches("\nclass ").count(), 4, "one class per RTTI class:\n{text}");
 }
 
+/// The exceptions program: the throws, the catches and the destructors on the way out, as the
+/// runtime's exception protocol in C and in Rust.
+#[test]
+fn throws64_runs_as_c() {
+    run_oracle("throws64.exe", "throws.txt");
+}
+
+#[test]
+fn throws64_runs_as_rust() {
+    run_rust_oracle("throws64.exe", "throws.txt", ra_asm_emit::FUNCTIONS_PER_FILE);
+}
+
 /// The rhtest programs: the MSVC C runtime, statically linked, runs lifted around each one, at
 /// /O2 and at /Od.
 #[test]
@@ -551,6 +563,84 @@ fn rhtest_core_o2_runs_as_rust() {
 #[test]
 fn rhtest_core_od_runs_as_rust() {
     run_rhtest_as_rust("core", "Od");
+}
+
+/// The `static` variant: clang-cl at /O2 /MT, the C runtime linked into the image with no PDB,
+/// only the map. The runtime's functions are recognized by the map's libraries and not emitted;
+/// the startup is the driver's; the x86 helpers (`_alldiv`, the probe, the cookie check) stay.
+#[test]
+fn rhtest_core_static_runs_as_c() {
+    run_rhtest_as_c("core", "static");
+}
+
+/// clang-cl's `insertion_sort` at /MT shares a tail between two paths that the structuring joins
+/// with a forward `goto`, which Rust can only write as a labeled block (card 54's domain).
+#[test]
+#[ignore = "needs the structuring of a shared tail (card 54): a forward goto into insertion_sort the Rust output cannot express"]
+fn rhtest_core_static_runs_as_rust() {
+    run_rhtest_as_rust("core", "static");
+}
+
+#[test]
+fn rhtest_int64_static_runs_as_c() {
+    run_rhtest_as_c("int64", "static");
+}
+
+#[test]
+fn rhtest_int64_static_runs_as_rust() {
+    run_rhtest_as_rust("int64", "static");
+}
+
+#[test]
+fn rhtest_core_static_leaves_the_runtime_to_the_host() {
+    let (dir, c, _) = emit(&rhtest("core", "static"), "static-names", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+    let table = std::fs::read_to_string(dir.join("functions.json")).unwrap();
+    assert!(table.contains("\"mainCRTStartup\""), "the startup is in the table:\n{table}");
+    assert!(table.contains("\"runtime\""), "the startup has the runtime status:\n{table}");
+    for absent in ["mainCRTStartup(", "scrt_common_main", "report_gsfailure("] {
+        assert!(!c.contains(&format!(" {absent}")), "`{absent}` is a definition in the C:\n{c}");
+    }
+    assert!(c.contains("security_check_cookie("), "the cookie check is the program's own:\n{c}");
+    assert!(c.contains("main_("), "main is ported:\n{c}");
+}
+
+/// The VS2010 `/MT` builds (`<name>-vs2010.exe` with its map, cl 16.00, built elsewhere like the
+/// `-O2` and `-Od` ones) are not on every machine: a missing one is skipped with a message.
+fn rhtest_vs2010(name: &str) -> Option<Fixture> {
+    let fixture = rhtest(name, "vs2010");
+    if fixture.binary_path().is_file() {
+        return Some(fixture);
+    }
+    eprintln!("{} is not built here: the test is skipped", fixture.binary);
+    None
+}
+
+#[test]
+fn rhtest_core_vs2010_runs_as_c() {
+    if let Some(f) = rhtest_vs2010("core") {
+        run_fixture_as_c(&f, "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+    }
+}
+
+#[test]
+fn rhtest_core_vs2010_runs_as_rust() {
+    if let Some(f) = rhtest_vs2010("core") {
+        run_rust_oracle_with(&f, ra_asm_emit::FUNCTIONS_PER_FILE);
+    }
+}
+
+#[test]
+fn rhtest_int64_vs2010_runs_as_c() {
+    if let Some(f) = rhtest_vs2010("int64") {
+        run_fixture_as_c(&f, "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+    }
+}
+
+#[test]
+fn rhtest_int64_vs2010_runs_as_rust() {
+    if let Some(f) = rhtest_vs2010("int64") {
+        run_rust_oracle_with(&f, ra_asm_emit::FUNCTIONS_PER_FILE);
+    }
 }
 
 /// The `clang` variant of an rhtest program: clang-cl at /O2 /MD over the same MSVC C runtime,
@@ -659,25 +749,25 @@ fn rhtest_win_clang_runs_as_rust() {
 
 /// The exception programs wait for milestone J (task 49): structured and C++ exception handling.
 #[test]
-#[ignore = "needs task 49: structured exception handling"]
+#[ignore = "needs structured exception handling (`__try`, `_except_handler4`'s scope tables), which task 49 left after the C++ tables"]
 fn rhtest_seh_clang_runs_as_c() {
     run_rhtest_as_c("seh", "clang");
 }
 
 #[test]
-#[ignore = "needs task 49: structured exception handling"]
+#[ignore = "needs structured exception handling (`__try`, `_except_handler4`'s scope tables), which task 49 left after the C++ tables"]
 fn rhtest_seh_clang_runs_as_rust() {
     run_rhtest_as_rust("seh", "clang");
 }
 
 #[test]
-#[ignore = "needs task 49: C++ exception handling"]
+#[ignore = "needs the x86 frame handler's registration frames, and thrown objects with destructors, which task 49 left after the x64 tables"]
 fn rhtest_eh_clang_runs_as_c() {
     run_rhtest_as_c("eh", "clang");
 }
 
 #[test]
-#[ignore = "needs task 49: C++ exception handling"]
+#[ignore = "needs the x86 frame handler's registration frames, and thrown objects with destructors, which task 49 left after the x64 tables"]
 fn rhtest_eh_clang_runs_as_rust() {
     run_rhtest_as_rust("eh", "clang");
 }

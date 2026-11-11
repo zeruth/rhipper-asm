@@ -27,6 +27,9 @@ allow = [
     "Bash(./testdata/bin/*)",
     "PowerShell(.\\testdata\\bin\\*)",
     "Bash(out/*)",
+    "Bash(./out/*)",
+    "PowerShell(./out/*)",
+    "PowerShell(.\\out\\*)",
 ]
 
 [worker.env]

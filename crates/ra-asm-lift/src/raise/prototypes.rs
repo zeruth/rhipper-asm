@@ -91,6 +91,10 @@ pub fn typed(name: &str) -> Option<Typed> {
         "strtod" | "ra_x86_strtod" => (vec![Int, Int], Some(Double)),
         "ra_x86_strtoll" | "ra_x86_strtoull" => (vec![Int, Int, Int], Some(Wide)),
         "difftime" | "_difftime64" => (vec![Wide, Wide], Some(Double)),
+        // The host's `vcruntime.h` declares it `void (uintptr_t)`, and a lifted cookie check of a
+        // statically linked runtime calls it: the port's declaration must agree.
+        "__report_gsfailure" => (vec![Int], None),
+        "__report_rangecheckfailure" | "ra_x86_report_gsfailure" | "ra_x86_report_rangecheckfailure" => (vec![], None),
         // The C runtime functions whose 64-bit result an x86 caller reads in edx:eax (`div_t` and
         // `ldiv_t` are two ints in one), and the Win32 functions that take or return one: two x86
         // slots, one host register.
@@ -154,6 +158,10 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "_controlfp" => "ra_x86_controlfp",
         "_setjmp3" | "_setjmp" => "ra_x86_setjmp3",
         "longjmp" | "_longjmpex" => "ra_x86_longjmp",
+        // The fail-fast reports of the /GS checks take no argument on x86, and the host has its
+        // own once in the DLL and once in the static library: the runtime's end the program.
+        "__report_gsfailure" => "ra_x86_report_gsfailure",
+        "__report_rangecheckfailure" => "ra_x86_report_rangecheckfailure",
         // The printf and scanf family hand the program's dword arguments on as a va_list, which
         // the host reads in 8-byte slots: the adapter widens them by the format.
         "__stdio_common_vsprintf" => "ra_x86_vsprintf",
@@ -315,7 +323,9 @@ pub fn arity(name: &str) -> Option<usize> {
         | "__crt_debugger_hook"
         | "_crt_debugger_hook"
         | "__security_init_cookie"
-        | "__report_gsfailure"
+        | "__report_rangecheckfailure"
+        | "ra_x86_report_gsfailure"
+        | "ra_x86_report_rangecheckfailure"
         | "_RTC_Initialize"
         | "__telemetry_main_invoke_trigger"
         | "__telemetry_main_return_trigger"
@@ -325,6 +335,7 @@ pub fn arity(name: &str) -> Option<usize> {
 
         "ExitProcess"
         | "ExitThread"
+        | "__report_gsfailure"
         | "Sleep"
         | "SetLastError"
         | "CloseHandle"
