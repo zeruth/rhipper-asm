@@ -93,6 +93,23 @@ fn emit_writes_the_translation_and_the_table() {
     assert!(table.as_array().is_some_and(|a| a.iter().any(|e| e["name"] == "entry" && e["status"] == "lifted")), "{table}");
 }
 
+/// A `map` in `rhipper.json` names the reference's functions; the map of another build is refused
+/// with its path.
+#[test]
+fn the_project_map_names_the_functions() {
+    let dir = project_with("map", r#"{ "name": "control", "exe": "ref/control64.exe", "map": "ref/control.map" }"#);
+    std::fs::copy(root().join("testdata/bin/control64.map"), dir.join("ref/control.map")).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/functions.json")).unwrap()).unwrap();
+    assert!(table.as_array().is_some_and(|a| a.iter().any(|e| e["name"] == "mainCRTStartup_")), "{table}");
+
+    let dir = project_with("wrong-map", r#"{ "name": "control", "exe": "ref/control64.exe", "map": "ref/core.map" }"#);
+    std::fs::copy(root().join("testdata/rhtest/core-O2.map"), dir.join("ref/core.map")).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "analyze"]);
+    assert!(!ok && text.contains("core.map"), "{text}");
+}
+
 #[test]
 fn the_whole_pipeline_builds_and_runs_the_port() {
     if !(available("cmake") && available("clang")) {

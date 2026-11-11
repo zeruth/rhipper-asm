@@ -40,7 +40,7 @@ fn the_server_answers_each_method_over_the_image() {
         &[
             json!({"jsonrpc": "2.0", "id": 1, "method": "info"}),
             json!({"jsonrpc": "2.0", "id": 2, "method": "functions"}),
-            json!({"jsonrpc": "2.0", "id": 3, "method": "function", "params": {"query": "entry"}}),
+            json!({"jsonrpc": "2.0", "id": 3, "method": "function", "params": {"query": "mainCRTStartup_"}}),
             json!({"jsonrpc": "2.0", "id": 4, "method": "disasm", "params": {"address": "0x140001330"}}),
             json!({"jsonrpc": "2.0", "id": 5, "method": "cfg", "params": {"address": "0x140001330"}}),
             json!({"jsonrpc": "2.0", "id": 6, "method": "callers", "params": {"address": "0x140001330"}}),
@@ -53,8 +53,9 @@ fn the_server_answers_each_method_over_the_image() {
     assert_eq!(responses.len(), 11, "{responses:?}");
     assert_eq!(responses[0]["result"]["machine"], "x86_64");
     assert!(responses[1]["result"]["functions"].as_array().is_some_and(|f| f.len() >= 10));
+    // The map beside the fixture names its entry; the host's runtime owns the bare name.
     let entry = &responses[2]["result"];
-    assert_eq!(entry["name"], "entry");
+    assert_eq!(entry["name"], "mainCRTStartup_");
     assert!(entry["disasm"].as_str().is_some_and(|d| d.contains("call")));
     assert!(entry["calls"].as_array().is_some_and(|c| !c.is_empty()));
     assert!(responses[3]["result"]["instrs"].as_array().is_some_and(|i| !i.is_empty()));

@@ -424,6 +424,7 @@ impl Builder<'_> {
         let function = Function {
             entry: self.entry,
             name: String::new(),
+            symbol: None,
             kind,
             blocks,
             calls: self.calls,

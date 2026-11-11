@@ -4,6 +4,7 @@
 //! {
 //!   "name": "Game",
 //!   "exe": "ref/Game.exe",
+//!   "map": "ref/Game.map",
 //!   "gen": "src/gen",
 //!   "lang": "c",
 //!   "x87": "double",
@@ -14,7 +15,9 @@
 //! ```
 //!
 //! `exe` is the reference binary and the only required key. Every path is relative to the root.
-//! `gen` is where `ras emit` writes the translation and `lang` its language (`c`; `cpp` for the
+//! `map` is the link map of the reference build, which names its functions; without the key, the
+//! PDB or the `<exe>.map` beside the binary does, when there is one. `gen` is where `ras emit`
+//! writes the translation and `lang` its language (`c`; `cpp` for the
 //! same source with C++ linkage; `rust` for a cargo package, built by cargo under `build/cargo`);
 //! `x87` is the floating-point unit the lift models for x87 code: `double` (the default, eight
 //! doubles) or `exact` (the 80-bit unit through the runtime's software `f80`, for a program that
@@ -56,6 +59,8 @@ pub(crate) struct Project {
     pub root: PathBuf,
     pub name: String,
     pub exe: PathBuf,
+    /// The link map that names the reference's functions, when the project names one.
+    pub map: Option<PathBuf>,
     /// Where `ras emit` writes the translation.
     pub gen_dir: PathBuf,
     /// The language of the translation: `c`, `cpp` or `rust`.
@@ -117,6 +122,7 @@ impl Project {
         };
         Ok(Self {
             exe: resolve(&exe),
+            map: string("map").map(|m| resolve(&m)),
             gen_dir: resolve(&string("gen").unwrap_or_else(|| "src/gen".into())),
             lang: string("lang").unwrap_or_else(|| "c".into()),
             x87,
@@ -125,6 +131,15 @@ impl Project {
             run,
             root,
         })
+    }
+
+    /// Loads the reference image, with the names of its functions from the project's link map
+    /// when it names one.
+    pub(crate) fn load_image(&self) -> Result<ra_asm_pe::Image> {
+        match &self.map {
+            Some(map) => ra_asm_pe::load_with_map(&self.exe, map),
+            None => ra_asm_pe::load(&self.exe),
+        }
     }
 
     /// The build outputs the pipeline writes: `build/`.

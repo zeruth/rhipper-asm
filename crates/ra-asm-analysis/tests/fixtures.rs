@@ -110,8 +110,26 @@ fn finds_exactly_the_functions_of_the_linker_maps() {
         // analysis of the image resolves.
         let unresolved: Vec<&String> = analysis.warnings.iter().filter(|w| !w.contains("indirect jump")).collect();
         assert!(unresolved.is_empty(), "{binary}: {:?}", analysis.warnings);
-        assert_eq!(analysis.name_of(image.entry_point().unwrap()), "entry");
+        // The map beside the fixture names its entry; the host's runtime owns the bare name.
+        assert_eq!(analysis.name_of(image.entry_point().unwrap()), "mainCRTStartup_");
     }
+}
+
+/// The MSVC map beside `core-O2.exe` names its functions: each map function keeps its symbol as
+/// the map has it, and its name is the source's.
+#[test]
+fn the_link_map_beside_the_image_names_its_functions() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/rhtest");
+    let image = ra_asm_pe::load(&dir.join("core-O2.exe")).unwrap();
+    assert!(!image.warnings.iter().any(|w| w.starts_with("symbols:")), "{:?}", image.warnings);
+    let analysis = analyze(&image);
+    let expected = rhtest_map_functions(&dir.join("core-O2.map"));
+    for (&address, symbol) in &expected {
+        let f = analysis.function(address).unwrap_or_else(|| panic!("{symbol} at {address:#x} is a function"));
+        assert_eq!(f.symbol.as_deref(), Some(symbol.as_str()), "{symbol} at {address:#x} is named {}", f.name);
+    }
+    let run = analysis.functions.values().find(|f| f.symbol.as_deref() == Some("_rhtest_run")).expect("_rhtest_run");
+    assert_eq!(run.name, "rhtest_run");
 }
 
 /// The MSVC shapes over the rhtest programs: `int 3` padding between functions, jump tables in
@@ -153,6 +171,7 @@ fn finds_the_functions_of_the_rhtest_maps() {
 fn the_rtti_names_the_classes_and_their_virtual_functions() {
     for (binary, map) in [("classes64.exe", "classes64.map"), ("classes32.exe", "classes32.map")] {
         let image = load(binary);
+        let bare_image = Image::parse(std::fs::read(fixture(binary)).unwrap()).unwrap();
         let analysis = analyze(&image);
         let expected = map_functions(map);
         let by_name = |name: &str| analysis.classes.iter().find(|c| c.name == name).unwrap_or_else(|| panic!("{binary}: class {name}"));
@@ -175,12 +194,25 @@ fn the_rtti_names_the_classes_and_their_virtual_functions() {
         assert!(named.bases.is_empty());
         assert_eq!(named.vtables[0].functions.len(), 2);
 
-        // The functions take the names of their slots: the class that introduced them first.
-        let name_of = |mangled: &str| analysis.name_of(expected[mangled]);
-        assert_eq!(name_of(if image.is_64() { "?scale@Shape@@UEBAHH@Z" } else { "?scale@Shape@@UBEHH@Z" }), "Square_vf2");
-        assert_eq!(name_of(if image.is_64() { "?area@Rect@@UEBAHXZ" } else { "?area@Rect@@UBEHXZ" }), "Rect_vf0");
-        assert_eq!(name_of(if image.is_64() { "?label@Rect@@UEBAPEBDXZ" } else { "?label@Rect@@UBEPBDXZ" }), "Rect_Named_vf0");
-        assert_eq!(name_of(if image.is_64() { "?weight@Named@@UEBAHXZ" } else { "?weight@Named@@UBEHXZ" }), "Named_vf1");
+        // The map beside the fixture names the functions by their C++ names. Without it (the same
+        // bytes parsed without a path), they take the names of their slots: the class that
+        // introduced them first.
+        let mangled = |name: &str| {
+            let key = if image.is_64() { name.to_owned() } else { name.replace("@@UEBA", "@@UBE").replace("PEBD", "PBD") };
+            expected[key.as_str()]
+        };
+        let name_of = |name: &str| analysis.name_of(mangled(name));
+        assert_eq!(name_of("?scale@Shape@@UEBAHH@Z"), "Shape_scale");
+        assert_eq!(name_of("?area@Rect@@UEBAHXZ"), "Rect_area");
+        assert_eq!(name_of("?label@Rect@@UEBAPEBDXZ"), "Rect_label");
+        assert_eq!(name_of("?weight@Named@@UEBAHXZ"), "Named_weight");
+        let bare = analyze(&bare_image);
+        let name_of = |name: &str| bare.name_of(mangled(name));
+        assert_eq!(name_of("?scale@Shape@@UEBAHH@Z"), "Square_vf2");
+        assert_eq!(name_of("?area@Rect@@UEBAHXZ"), "Rect_vf0");
+        assert_eq!(name_of("?label@Rect@@UEBAPEBDXZ"), "Rect_Named_vf0");
+        assert_eq!(name_of("?weight@Named@@UEBAHXZ"), "Named_vf1");
+        assert_eq!(bare.name_of(bare_image.entry_point().unwrap()), "entry");
         let scale = analysis.function(expected[if image.is_64() { "?scale@Shape@@UEBAHH@Z" } else { "?scale@Shape@@UBEHH@Z" }]).unwrap();
         assert_eq!(scale.virtuals.len(), 1);
         assert_eq!((scale.virtuals[0].class.as_str(), scale.virtuals[0].slot), ("Square", 2));

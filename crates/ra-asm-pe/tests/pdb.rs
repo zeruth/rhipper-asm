@@ -29,10 +29,29 @@ fn the_crt_fixture_names_its_functions_from_its_pdb() {
     assert!(image.symbols.iter().all(|s| image.is_code(s.va)), "a symbol outside the code");
 }
 
+/// Without a PDB, the link map beside the fixture names its functions.
 #[test]
-fn a_fixture_without_a_pdb_has_no_symbols() {
+fn a_fixture_without_a_pdb_names_its_functions_from_its_map() {
     let image = ra_asm_pe::load(&fixture("control64.exe")).unwrap();
     assert!(image.debug.iter().any(|e| e.codeview.is_some()));
     assert!(ra_asm_pe::debug::pdb_beside(&image).is_none());
-    assert!(image.symbols.is_empty());
+    assert!(image.warnings.is_empty(), "{:?}", image.warnings);
+    let entry = image.symbols.iter().find(|s| Some(s.va) == image.entry_point()).expect("the entry is named");
+    assert_eq!(entry.name, "mainCRTStartup");
+    assert_eq!(entry.library, None);
+    assert!(image.symbols.windows(2).all(|w| w[0].va < w[1].va));
+    assert!(image.symbols.iter().all(|s| image.is_code(s.va)), "a symbol outside the code");
+}
+
+/// The map of another build is refused with its path: one whose entry point lies elsewhere, one
+/// whose segments outgrow the image's sections.
+#[test]
+fn the_map_of_another_build_is_refused() {
+    let rhtest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/rhtest");
+    let error = ra_asm_pe::load_with_map(&rhtest.join("core-O2.exe"), &fixture("hello32.map")).expect_err("refused");
+    let text = format!("{error:#}");
+    assert!(text.contains("hello32.map") && text.contains("entry point"), "{text}");
+    let error = ra_asm_pe::load_with_map(&fixture("control64.exe"), &rhtest.join("core-O2.map")).expect_err("refused");
+    let text = format!("{error:#}");
+    assert!(text.contains("core-O2.map") && text.contains("another build"), "{text}");
 }

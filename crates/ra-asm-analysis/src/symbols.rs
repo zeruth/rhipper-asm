@@ -1,6 +1,7 @@
 //! The names of the functions, from the symbols of the build and from what the source could have
 //! called them: a PDB beside the image names every function it describes and tells which static
-//! library each came from; the functions of a C runtime library are the host's to supply.
+//! library each came from, and a link map beside it names what it lists; the functions of a C
+//! runtime library are the host's to supply.
 //!
 //! Every function ends with a name that is a C identifier, unique in the program, and not one the
 //! port's own runtime or the host's C library owns: `main` becomes `main_`, since the driver has
@@ -47,11 +48,13 @@ pub fn classify(image: &Image, runtime: &RuntimeRanges, f: &mut Function) {
     f.kind = Kind::Runtime(name);
 }
 
-/// Names every function the PDB names. An export keeps its export name; the placeholders
-/// (`F_<address>`, `entry`, `thunk_<import>`) give way.
+/// Names every function the symbols (the PDB, else the link map) name, and keeps each one's symbol
+/// as the build has it. An export keeps its export name; the placeholders (`F_<address>`, `entry`,
+/// `thunk_<import>`) give way.
 pub fn name_functions(image: &Image, functions: &mut BTreeMap<u64, Function>) {
     for symbol in &image.symbols {
         let Some(f) = functions.get_mut(&symbol.va) else { continue };
+        f.symbol = Some(symbol.name.clone());
         if f.name == function::name_for(image, f) && !f.origins.iter().any(|o| matches!(o, crate::Origin::Export(_))) {
             f.name = undecorate(&symbol.name, image.is_64());
         }
@@ -164,8 +167,11 @@ fn is_identifier(name: &str) -> bool {
 
 /// The names a lifted function cannot take: the keywords of C, C++ and Rust, the driver's `main`,
 /// the lift's own prefixes (the import wrappers, the universal entries), the identifiers C
-/// reserves (`__*`) and the functions of the host's C library, which the port links against.
+/// reserves (`__*`), the functions of the host's C library, which the port links against, and
+/// the entry points of the host's C runtime, which the linker would take from the port instead.
 fn is_reserved(name: &str) -> bool {
+    const HOST_RUNTIME: &[&str] =
+        &["mainCRTStartup", "wmainCRTStartup", "WinMainCRTStartup", "wWinMainCRTStartup", "_DllMainCRTStartup", "DllMainCRTStartup"];
     const KEYWORDS: &[&str] = &[
         "auto",
         "break",
@@ -459,7 +465,12 @@ fn is_reserved(name: &str) -> bool {
         "fmax",
         "fma",
     ];
-    name.starts_with("imp_") || name.starts_with("U_") || name.starts_with("__") || KEYWORDS.contains(&name) || C_LIBRARY.contains(&name)
+    name.starts_with("imp_")
+        || name.starts_with("U_")
+        || name.starts_with("__")
+        || KEYWORDS.contains(&name)
+        || C_LIBRARY.contains(&name)
+        || HOST_RUNTIME.contains(&name)
 }
 
 #[cfg(test)]
