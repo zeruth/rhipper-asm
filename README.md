@@ -84,6 +84,17 @@ analysis, the table entry, the source, the IR and the instructions of one functi
 `cfg`, `callers`, `xrefs`, `strings` and `shutdown`. It serves the project of `--project`, or a
 bare image with `--exe`, and reloads the image when its file changes.
 
+A 32-bit x86 program lifts through the same model with 32-bit addresses. Its imports take their
+arguments from the stack and a `stdcall` import pops them, by the prototype table; the x87 unit is
+eight doubles in a global with a top, control word and status word; an `fs:` access lands in a
+thread environment block the runtime keeps. The raise tells `cdecl`, `stdcall`, `fastcall` and
+`thiscall` apart by the registers a function reads first and the bytes it pops on return, reads a
+64-bit result from `edx:eax`, and gives every function a pointer reaches a universal entry point
+that takes the arguments in one order and reports what the function pops. The port of a 32-bit
+program is a 64-bit executable that keeps the program's 32-bit pointers: it is linked without
+large-address awareness, so every address of its process fits in them, and its data words that
+hold addresses are written at startup.
+
 `runtime/driver.c` hosts a lifted program at any level: it maps the image at its own base, binds
 the import slots, and either gives the machine state a stack or installs a trampoline at each
 function's image address and calls the entry as a plain function. The execution oracle in the lift

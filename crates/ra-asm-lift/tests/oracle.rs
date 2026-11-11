@@ -38,7 +38,8 @@ fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
     };
     let mut lifted =
         ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: level == ra_asm_lift::RaiseLevel::Abi });
-    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions { level });
+    let options = lifted.raise_options(level);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     // The tests run in parallel: each one writes its own directory.
     let dir = scratch(&format!("{tag}-{binary}"));
     std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
@@ -145,11 +146,9 @@ fn float64_runs_lifted() {
     run_oracle("float64.exe", &expected);
 }
 
-/// The 32-bit fixtures at the machine and the promoted level; the ABI level waits on the x86
-/// calling conventions (roadmap task 42).
+/// The 32-bit fixtures at every level.
 fn run_oracle_32(binary: &str, expected: &str) {
-    run_oracle_as(binary, expected, "run-machine");
-    run_oracle_as(binary, expected, "run-promoted");
+    run_oracle(binary, expected);
 }
 
 #[test]

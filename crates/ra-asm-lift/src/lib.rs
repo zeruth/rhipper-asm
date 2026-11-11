@@ -44,6 +44,9 @@ pub struct Lifted {
     pub standalone: bool,
     /// 32 or 64: the address width of the image.
     pub bits: u32,
+    /// The addresses of the words the base relocations name: an immediate or a displacement at
+    /// one of them holds an address of the image, which 32-bit code writes as a plain number.
+    pub relocated: std::collections::HashSet<u64>,
     pub warnings: Vec<String>,
 }
 
@@ -128,6 +131,11 @@ pub struct DataSection {
 }
 
 impl Lifted {
+    /// The options that raise this lift to `level`, by the address width of its image.
+    pub fn raise_options(&self, level: RaiseLevel) -> RaiseOptions {
+        RaiseOptions { level, bits: self.bits }
+    }
+
     /// The address operand of `address` in standalone mode: a byte of a data section, or a function.
     pub fn address_of(&self, address: u64) -> Option<ra_asm_ir::Operand> {
         if let Some(name) = self.functions.get(&address) {
@@ -161,6 +169,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         data: Vec::new(),
         standalone: options.standalone,
         bits: if image.is_64() { 64 } else { 32 },
+        relocated: image.relocations.iter().map(|r| r.va).collect(),
         warnings: Vec::new(),
     };
     for f in analysis.functions.values() {
@@ -234,7 +243,7 @@ pub fn image_header(
         match signatures.and_then(|s| s.get(&name)) {
             Some(sig) => {
                 let c_type = |k: raise::abi::Kind| match k {
-                    raise::abi::Kind::Int => "unsigned long long",
+                    raise::abi::Kind::Int | raise::abi::Kind::Wide => "unsigned long long",
                     raise::abi::Kind::Float => "float",
                     raise::abi::Kind::Double => "double",
                 };

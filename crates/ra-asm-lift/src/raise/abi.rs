@@ -1,33 +1,49 @@
-//! Signatures: what each lifted function takes and returns, by the Win64 convention.
+//! Signatures: what each lifted function takes and returns, by the convention of its target.
 //!
-//! A function's parameters are the argument registers it reads before writing (`rcx`, `rdx`,
-//! `r8`, `r9` for integers, `xmm0` to `xmm3` for floats, by position) and the stack slots past the
-//! home space it reads. It returns a value when a caller reads `rax` (or `xmm0`) after calling it,
-//! or when it is a root that writes `rax`. The inference iterates: a call reads its callee's
-//! parameters and writes the caller-saved registers, and the callee's parameters are what is being
-//! inferred.
+//! On Win64 a function's parameters are the argument registers it reads before writing (`rcx`,
+//! `rdx`, `r8`, `r9` for integers, `xmm0` to `xmm3` for floats, by position) and the stack slots
+//! past the home space it reads. On x86 they are `ecx` and `edx` when it reads them first
+//! (`fastcall`, or `thiscall` with `ecx` as `this`) and the dword slots above the return address
+//! it reads; a slot read as 64 bits is one wide parameter. It returns a value when a caller reads
+//! `rax` (or `xmm0`, on Win64) after calling it, or when it is a root that writes `rax`. An x86
+//! function also says what it pops on return: a `stdcall` or `thiscall` function pops its stack
+//! arguments. The inference iterates: a call reads its callee's parameters and writes the
+//! caller-saved registers, and the callee's parameters are what is being inferred.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use ra_asm_ir::{Callee, Function, Inst, Module, Operand, Type, ValueId};
 
-use super::liveness::{Liveness, NO_SLOTS, R8, R9, RAX, RCX, RDX, SLOTS, Slot, SlotSet, reverse_post_order, slot_pointers};
-use super::stack::{FIRST_STACK_ARG, StackInfo, analyze as analyze_stack};
+use super::Target;
+use super::liveness::{Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, reverse_post_order, slot_pointers};
+use super::stack::{StackInfo, analyze as analyze_stack};
 
 /// The kind of a parameter or a return.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
+    /// An integer of the address width.
     Int,
+    /// A 64-bit integer on the x86 stack: two slots.
+    Wide,
     Float,
     Double,
 }
 
 impl Kind {
+    /// The IR type: every integer is 64 bits until the width pass narrows it.
     pub fn ty(self) -> Type {
         match self {
-            Self::Int => Type::I64,
+            Self::Int | Self::Wide => Type::I64,
             Self::Float => Type::Float,
             Self::Double => Type::Double,
+        }
+    }
+
+    /// The bytes a parameter of this kind takes on the stack.
+    pub fn stack_width(self, target: Target) -> i64 {
+        match self {
+            Self::Wide | Self::Double => 8,
+            Self::Int | Self::Float => target.ptr(),
         }
     }
 }
@@ -35,9 +51,10 @@ impl Kind {
 /// A function's signature.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Signature {
-    /// The register parameters by position: `rcx`/`xmm0`, `rdx`/`xmm1`, `r8`/`xmm2`, `r9`/`xmm3`.
+    /// The register parameters by position: `rcx`/`xmm0`, `rdx`/`xmm1`, `r8`/`xmm2`, `r9`/`xmm3`
+    /// on Win64; `ecx`, `edx` on x86.
     pub params: Vec<Kind>,
-    /// The stack parameters after them, from offset `0x28` up.
+    /// The stack parameters after them, from the first stack argument up.
     pub stack_params: Vec<Kind>,
     pub returns: Option<Kind>,
     /// Whether the function never returns.
@@ -46,6 +63,8 @@ pub struct Signature {
     pub frame_below: u64,
     /// The function moves the stack pointer by a run-time amount.
     pub dynamic_stack: bool,
+    /// The bytes the function pops on return beyond the return address (x86 `stdcall`, `thiscall`).
+    pub pops: u64,
 }
 
 impl Signature {
@@ -54,35 +73,59 @@ impl Signature {
     }
 
     /// The register slots the function reads as parameters.
-    pub fn param_slots(&self) -> SlotSet {
+    pub fn param_slots(&self, target: Target) -> SlotSet {
         let mut set = NO_SLOTS;
-        for (p, kind) in self.params.iter().enumerate() {
-            let slot = match kind {
-                Kind::Int => [RCX, RDX, R8, R9][p],
-                Kind::Float | Kind::Double => Slot::Xmm(p as u8),
-            };
-            set[slot.index()] = true;
+        for p in 0..self.params.len() {
+            if let Some(slot) = target.param_slot(&self.params, p) {
+                set[slot.index()] = true;
+            }
         }
         set
+    }
+
+    /// The byte offset of each stack parameter from the first stack argument.
+    pub fn stack_offsets(&self, target: Target) -> Vec<i64> {
+        let mut offsets = Vec::with_capacity(self.stack_params.len());
+        let mut at = 0;
+        for kind in &self.stack_params {
+            offsets.push(at);
+            at += kind.stack_width(target);
+        }
+        offsets
+    }
+
+    /// The bytes the stack parameters take.
+    pub fn stack_bytes(&self, target: Target) -> i64 {
+        self.stack_params.iter().map(|k| k.stack_width(target)).sum()
     }
 }
 
 /// The registers a call clobbers by the convention: everything the callee need not keep.
-pub fn caller_saved() -> SlotSet {
+pub fn caller_saved(target: Target) -> SlotSet {
     let mut set = NO_SLOTS;
     for slot in Slot::all() {
-        if !slot.callee_saved() {
+        if !target.callee_saved(slot) {
             set[slot.index()] = true;
         }
     }
     set
 }
 
-/// The registers an unknown callee may read: the four positions, as integers and as floats.
-pub fn all_argument_slots() -> SlotSet {
+/// The registers an unknown callee may read. On Win64 every argument position, as integers and as
+/// floats. On x86 only `ecx`: the `this` of a `thiscall` method, which a call through a vtable
+/// reaches; `edx` and the vector registers carry arguments only under clang's convention for a
+/// local function, which no pointer names.
+pub fn all_argument_slots(target: Target) -> SlotSet {
     let mut set = NO_SLOTS;
-    for slot in [RCX, RDX, R8, R9, Slot::Xmm(0), Slot::Xmm(1), Slot::Xmm(2), Slot::Xmm(3)] {
-        set[slot.index()] = true;
+    if target.is_64() {
+        for slot in target.int_param_slots() {
+            set[slot.index()] = true;
+        }
+        for n in 0..target.float_params() {
+            set[Slot::Xmm(n as u8).index()] = true;
+        }
+    } else {
+        set[RCX.index()] = true;
     }
     set
 }
@@ -94,10 +137,14 @@ struct Facts {
     float_positions: [Option<Kind>; 4],
     stack: StackInfo,
     writes_rax: bool,
+    /// Whether the function writes `rdx`: with a caller that reads it, a 64-bit result on x86.
+    writes_rdx: bool,
     /// The float kind the function writes to `xmm0`, when it does.
     writes_xmm0: Option<Kind>,
     /// Callees whose `rax` this function reads after the call.
     uses_rax_of: Vec<String>,
+    /// Callees whose `rdx` this function reads after the call: on x86, a 64-bit result in `edx:eax`.
+    uses_rdx_of: Vec<String>,
     /// Callees whose `xmm0` this function reads after the call.
     uses_xmm0_of: Vec<String>,
     noreturn: bool,
@@ -105,7 +152,7 @@ struct Facts {
 
 /// Infers the signature of every `F_` function of `module`. A root (the entry, an export, a
 /// function a pointer names) returns a value when it writes `rax`, since its callers are not seen.
-pub fn infer(module: &Module, roots: &BTreeSet<String>) -> HashMap<String, Signature> {
+pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target) -> HashMap<String, Signature> {
     // The stack analysis reads constants; the machine IR materializes them, so fold them first.
     let functions: Vec<Function> = module
         .functions
@@ -118,10 +165,14 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>) -> HashMap<String, Signa
         })
         .collect();
     let mut signatures: HashMap<String, Signature> = functions.iter().map(|f| (f.name.clone(), Signature::default())).collect();
+    let ints = target.int_param_slots().len();
+    let floats = target.float_params();
     for _round in 0..8 {
-        let facts: Vec<Facts> = functions.iter().map(|f| gather(f, &signatures)).collect();
+        let facts: Vec<Facts> = functions.iter().map(|f| gather(f, &signatures, target)).collect();
         let xmm0_kinds: HashMap<&str, Option<Kind>> = facts.iter().map(|f| (f.name.as_str(), f.writes_xmm0)).collect();
+        let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes_rdx)).collect();
         // A float result wins when a caller reads xmm0 after the call: the callee wrote it as one.
+        // A float an x86 function returns on the x87 stack travels in the lift's globals instead.
         let mut returns: BTreeMap<String, Option<Kind>> = facts.iter().map(|f| (f.name.clone(), None)).collect();
         for fact in &facts {
             for callee in &fact.uses_rax_of {
@@ -131,13 +182,27 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>) -> HashMap<String, Signa
                     *r = Some(Kind::Int);
                 }
             }
+            // A caller that reads xmm0 after the call takes a float result there: the Win64
+            // convention, and clang's own convention for a local x86 function.
             for callee in &fact.uses_xmm0_of {
                 if let Some(r) = returns.get_mut(callee) {
                     *r = Some(xmm0_kinds.get(callee.as_str()).copied().flatten().unwrap_or(Kind::Double));
                 }
             }
+            if !target.is_64() {
+                // A caller that reads edx after the call takes a 64-bit result in edx:eax, from
+                // a callee that writes edx.
+                for callee in &fact.uses_rdx_of {
+                    if let Some(r) = returns.get_mut(callee)
+                        && fact.uses_rax_of.contains(callee)
+                        && writes_rdx.get(callee.as_str()).copied().unwrap_or(false)
+                    {
+                        *r = Some(Kind::Wide);
+                    }
+                }
+            }
             if roots.contains(&fact.name) {
-                if let Some(kind) = fact.writes_xmm0 {
+                if let (true, Some(kind)) = (target.is_64(), fact.writes_xmm0) {
                     returns.insert(fact.name.clone(), Some(kind));
                 } else if fact.writes_rax {
                     returns.insert(fact.name.clone(), Some(Kind::Int));
@@ -146,15 +211,37 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>) -> HashMap<String, Signa
         }
         let mut next: HashMap<String, Signature> = HashMap::new();
         for fact in facts {
-            let positions = (0..4).rev().find(|&p| fact.int_positions[p] || fact.float_positions[p].is_some()).map_or(0, |p| p + 1);
-            let params = (0..positions)
-                .map(|p| match (fact.int_positions[p], fact.float_positions[p]) {
-                    (false, Some(kind)) => kind,
-                    _ => Kind::Int,
-                })
-                .collect();
-            let stack_count = fact.stack.argument_reads.keys().last().map_or(0, |&k| ((k - FIRST_STACK_ARG) / 8 + 1) as usize);
-            let stack_params = (0..stack_count).map(|_| Kind::Int).collect();
+            let params: Vec<Kind> = if target.is_64() {
+                // A position is one register of either class.
+                let positions = (0..ints.max(floats))
+                    .rev()
+                    .find(|&p| (p < ints && fact.int_positions[p]) || (p < floats && fact.float_positions[p].is_some()))
+                    .map_or(0, |p| p + 1);
+                (0..positions)
+                    .map(|p| match (p < ints && fact.int_positions[p], p < floats && fact.float_positions[p].is_some()) {
+                        (false, true) => fact.float_positions[p].unwrap(),
+                        _ => Kind::Int,
+                    })
+                    .collect()
+            } else {
+                // The integer registers, then the float registers, each class up to its last read.
+                let int_count = (0..ints).rev().find(|&p| fact.int_positions[p]).map_or(0, |p| p + 1);
+                let float_count = (0..floats).rev().find(|&p| fact.float_positions[p].is_some()).map_or(0, |p| p + 1);
+                (0..int_count).map(|_| Kind::Int).chain((0..float_count).map(|p| fact.float_positions[p].unwrap_or(Kind::Double))).collect()
+            };
+            // The stack parameters: one per slot from the first stack argument to the last slot
+            // read; on x86 a slot read as 64 bits is one wide parameter over two slots.
+            let first = target.first_stack_arg();
+            let mut stack_params = Vec::new();
+            if let Some(&last) = fact.stack.argument_reads.keys().last() {
+                let mut at = first;
+                while at <= last {
+                    let bits = fact.stack.argument_reads.get(&at).copied().unwrap_or(0);
+                    let kind = if !target.is_64() && bits == 64 { Kind::Wide } else { Kind::Int };
+                    at += kind.stack_width(target);
+                    stack_params.push(kind);
+                }
+            }
             let returns = if fact.noreturn { None } else { returns.get(&fact.name).copied().flatten() };
             let frame_below = (-fact.stack.min_offset).max(0) as u64;
             next.insert(
@@ -166,6 +253,7 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>) -> HashMap<String, Signa
                     noreturn: fact.noreturn,
                     frame_below: (frame_below + 15) & !15,
                     dynamic_stack: fact.stack.dynamic,
+                    pops: if target.is_64() { 0 } else { fact.stack.pops.max(0) as u64 },
                 },
             );
         }
@@ -179,38 +267,41 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>) -> HashMap<String, Signa
 }
 
 /// [`call_model`] for the promotion pass.
-pub fn call_model_public(inst: &Inst, signatures: &HashMap<String, Signature>) -> (SlotSet, SlotSet) {
-    call_model(inst, signatures)
+pub fn call_model_public(inst: &Inst, signatures: &HashMap<String, Signature>, target: Target) -> (SlotSet, SlotSet) {
+    call_model(inst, signatures, target)
 }
 
 /// What a state call reads and writes under the current signatures. An import reads as many
-/// argument registers as its prototype says; an unknown import or an indirect call reads all four.
-fn call_model(inst: &Inst, signatures: &HashMap<String, Signature>) -> (SlotSet, SlotSet) {
-    let writes = caller_saved();
+/// argument registers as its prototype says (none on x86, where they are on the stack); an
+/// unknown import or an indirect call reads every argument register.
+fn call_model(inst: &Inst, signatures: &HashMap<String, Signature>, target: Target) -> (SlotSet, SlotSet) {
+    let writes = caller_saved(target);
     let reads = match inst {
         Inst::Call { callee: Callee::Direct(name), .. } => match signatures.get(name) {
-            Some(s) => s.param_slots(),
+            Some(s) => s.param_slots(target),
             None => match crate::import_of_wrapper(name).and_then(super::prototypes::arity) {
                 Some(arity) => {
                     let mut set = NO_SLOTS;
-                    for slot in [RCX, RDX, R8, R9].into_iter().take(arity) {
-                        set[slot.index()] = true;
+                    if target.is_64() {
+                        for slot in target.int_param_slots().iter().take(arity) {
+                            set[slot.index()] = true;
+                        }
                     }
                     set
                 }
-                None => all_argument_slots(),
+                None => all_argument_slots(target),
             },
         },
-        _ => all_argument_slots(),
+        _ => all_argument_slots(target),
     };
     (reads, writes)
 }
 
-fn gather(f: &Function, signatures: &HashMap<String, Signature>) -> Facts {
+fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target) -> Facts {
     let state = f.params[0];
     let pointers = slot_pointers(f, state);
     let order = reverse_post_order(f);
-    let model = |inst: &Inst| call_model(inst, signatures);
+    let model = |inst: &Inst| call_model(inst, signatures, target);
     // Two views: one where a `ret` hands back this function's own result register, for what the
     // callers of its callees read after a call (a call in tail position returns the callee's
     // result); one where it hands back nothing, for what the function itself reads at entry.
@@ -218,26 +309,39 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>) -> Facts {
     let mut exit_set = NO_SLOTS;
     match signatures.get(&f.name).and_then(|s| s.returns) {
         Some(Kind::Int) => exit_set[RAX.index()] = true,
+        Some(Kind::Wide) => {
+            exit_set[RAX.index()] = true;
+            exit_set[RDX.index()] = true;
+        }
         Some(Kind::Float | Kind::Double) => exit_set[Slot::Xmm(0).index()] = true,
         None => {}
     }
     let liveness = Liveness::with_calls(f, &pointers, &order, exit_set, &model);
     let own_reads = Liveness::with_calls(f, &pointers, &order, NO_SLOTS, &model);
     let live_in = own_reads.live_in.first().copied().unwrap_or([false; SLOTS]);
-    let int_positions = [live_in[RCX.index()], live_in[RDX.index()], live_in[R8.index()], live_in[R9.index()]];
-    let xmm_kind = |n: u8| -> Option<Kind> { live_in[Slot::Xmm(n).index()].then(|| xmm_kind(f, &pointers, n)) };
+    let mut int_positions = [false; 4];
+    for (p, slot) in target.int_param_slots().iter().enumerate() {
+        int_positions[p] = live_in[slot.index()];
+    }
+    let xmm_kind = |n: u8| -> Option<Kind> {
+        (usize::from(n) < target.float_params() && live_in[Slot::Xmm(n).index()]).then(|| xmm_kind(f, &pointers, n))
+    };
     let float_positions = [xmm_kind(0), xmm_kind(1), xmm_kind(2), xmm_kind(3)];
-    let stack = analyze_stack(f, state, &pointers);
+    let pops_of = |name: &str| signatures.get(name).map_or(0, |s| s.pops as i64);
+    let stack = analyze_stack(f, state, &pointers, target, &pops_of);
 
     let mut uses_rax_of = Vec::new();
+    let mut uses_rdx_of = Vec::new();
     let mut uses_xmm0_of = Vec::new();
     let mut writes_rax = false;
+    let mut writes_rdx = false;
     let mut writes_xmm0: Option<Kind> = None;
     for (bi, b) in f.blocks.iter().enumerate() {
         let mut calls = 0usize;
         for i in &b.instrs {
             match &i.inst {
                 Inst::Store { ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&RAX) => writes_rax = true,
+                Inst::Store { ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&RDX) => writes_rdx = true,
                 Inst::Store { ty, ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&Slot::Xmm(0)) => match ty {
                     Type::Double => writes_xmm0 = Some(Kind::Double),
                     Type::Float if writes_xmm0 != Some(Kind::Double) => writes_xmm0 = Some(Kind::Float),
@@ -247,6 +351,9 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>) -> Facts {
                     if let Some(live) = liveness.live_after_call[bi].get(calls) {
                         if live[RAX.index()] {
                             uses_rax_of.push(name.clone());
+                        }
+                        if live[RDX.index()] {
+                            uses_rdx_of.push(name.clone());
                         }
                         if live[Slot::Xmm(0).index()] {
                             uses_xmm0_of.push(name.clone());
@@ -267,7 +374,9 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>) -> Facts {
         writes_xmm0,
         uses_xmm0_of,
         writes_rax,
+        writes_rdx,
         uses_rax_of,
+        uses_rdx_of,
         noreturn: f.attrs.iter().any(|a| a == "noreturn"),
     }
 }

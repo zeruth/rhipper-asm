@@ -197,10 +197,16 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
         let _ = writeln!(prototype_lines, "{};", prototypes[&f.name]);
     }
     let (mut global_types, mut global_decls, mut global_defs) = (String::new(), String::new(), String::new());
+    let mut init = String::new();
     for g in &module.globals {
         global_type(&mut global_types, g);
         declare_global(&mut global_decls, g);
-        define_global(&mut global_defs, g);
+        define_global(&mut global_defs, &mut init, g);
+    }
+    // The address words narrower than a host pointer (a 32-bit program's) are written before
+    // main: a compiler folds no truncated address into a static initializer.
+    if !init.is_empty() {
+        let _ = writeln!(global_defs, "RA_CONSTRUCTOR(ra_init_data) {{\n{init}}}");
     }
     // In C++ the imports, the functions and the data keep C linkage: the driver is C, the imports
     // are the DLLs' own names, and a definition under a prototype with C linkage inherits it.
@@ -247,6 +253,21 @@ pub fn c_type(ty: &Type) -> String {
         Type::Array(n, e) => format!("{}[{n}]", c_type(e)),
         Type::Struct(_) | Type::Packed(_) | Type::Named(_) => "struct ra_opaque".into(),
         Type::Func(_) => "void *".into(),
+    }
+}
+
+/// The C type a memory access of `ty` goes through: the unaligned twin of the type when the
+/// access promises less alignment than the type has, which every machine access does.
+fn access_type(ty: &Type, align: u32) -> String {
+    let size = ty.size(8).unwrap_or(1);
+    if size <= 1 || u64::from(align) >= size {
+        return c_type(ty);
+    }
+    let name = c_type(ty);
+    match name.as_str() {
+        "uint16_t" | "uint32_t" | "uint64_t" | "float" | "double" => format!("ra_ua_{}", name.trim_end_matches("_t")),
+        n if n.starts_with("ra_") => format!("ra_ua_{}", &n[3..]),
+        _ => name,
     }
 }
 
@@ -334,9 +355,26 @@ fn global_type(out: &mut String, g: &ra_asm_ir::Global) {
     }
 }
 
+/// Whether the global holds an address in a word narrower than a host pointer, which a statement
+/// writes at startup: then the global cannot be `const`, or the compiler folds the zero it sees.
+fn written_at_startup(g: &ra_asm_ir::Global) -> bool {
+    if let (Type::Packed(fields), Some(Const::Struct(items))) = (&g.ty, &g.init) {
+        items
+            .iter()
+            .zip(fields)
+            .any(|(item, field)| matches!(item, Const::Address { .. } | Const::Global(_)) && field.size(8).is_some_and(|s| s < 8))
+    } else {
+        false
+    }
+}
+
+fn storage_of(g: &ra_asm_ir::Global) -> &'static str {
+    if g.constant && !written_at_startup(g) { "const " } else { "" }
+}
+
 /// The `extern` declaration of a data global, for the files that do not define it.
 fn declare_global(out: &mut String, g: &ra_asm_ir::Global) {
-    let storage = if g.constant { "const " } else { "" };
+    let storage = storage_of(g);
     match (&g.ty, &g.init) {
         (Type::Array(n, e), Some(Const::Bytes(_) | Const::Zero)) if **e == Type::I8 => {
             let _ = writeln!(out, "extern {storage}uint8_t {}[{n}];", g.name);
@@ -358,9 +396,10 @@ fn declare_global(out: &mut String, g: &ra_asm_ir::Global) {
 }
 
 /// The definition of a data global, with its initializer. The type of a packed global comes from
-/// [`global_type`] first.
-fn define_global(out: &mut String, g: &ra_asm_ir::Global) {
-    let storage = if g.constant { "const " } else { "" };
+/// [`global_type`] first. An address in a word narrower than a pointer is written by a statement
+/// in `init` instead, at run time.
+fn define_global(out: &mut String, init: &mut String, g: &ra_asm_ir::Global) {
+    let storage = storage_of(g);
     match (&g.ty, &g.init) {
         (Type::Array(n, e), Some(Const::Bytes(bytes))) if **e == Type::I8 => {
             let _ = write!(out, "{storage}uint8_t {}[{n}] RA_ALIGNED(16) = {{", g.name);
@@ -374,10 +413,12 @@ fn define_global(out: &mut String, g: &ra_asm_ir::Global) {
             // A packed structure of byte runs and address words. The initializer casts each
             // address to an integer, which the compilers accept in a static initializer.
             let _ = write!(out, "{storage}struct {}_t {} RA_ALIGNED(16) = {{ ", g.name, g.name);
+            let mut offset_in = 0u64;
             for (i, (item, field)) in items.iter().zip(fields).enumerate() {
                 if i > 0 {
                     out.push_str(", ");
                 }
+                let narrow = field.size(8).is_some_and(|s| s < 8);
                 match item {
                     Const::Bytes(bytes) => {
                         out.push('{');
@@ -387,8 +428,28 @@ fn define_global(out: &mut String, g: &ra_asm_ir::Global) {
                     Const::Int(v) => {
                         let _ = write!(out, "{v}ull");
                     }
+                    Const::Address { global, offset } if narrow => {
+                        out.push('0');
+                        let _ = writeln!(
+                            init,
+                            "    *({} *)((uint8_t *)&{} + {offset_in}) = ({})(uintptr_t)((uint8_t *)&{global} + {offset});",
+                            access_type(field, 1),
+                            g.name,
+                            c_type(field)
+                        );
+                    }
                     Const::Address { global, offset } => {
                         let _ = write!(out, "({})((uint8_t *)&{global} + {offset})", c_type(field));
+                    }
+                    Const::Global(name) if narrow => {
+                        out.push('0');
+                        let _ = writeln!(
+                            init,
+                            "    *({} *)((uint8_t *)&{} + {offset_in}) = ({})(uintptr_t)&{name};",
+                            access_type(field, 1),
+                            g.name,
+                            c_type(field)
+                        );
                     }
                     Const::Global(name) => {
                         let _ = write!(out, "({})&{name}", c_type(field));
@@ -397,6 +458,7 @@ fn define_global(out: &mut String, g: &ra_asm_ir::Global) {
                         let _ = write!(out, "0 /* {other:?} */");
                     }
                 }
+                offset_in += field.size(8).unwrap_or(0);
             }
             let _ = writeln!(out, " }};");
         }
@@ -554,7 +616,8 @@ impl<'a> Emitter<'a> {
             Operand::Global(name) => format!("((uint8_t *)&{name})"),
             Operand::Address { global, offset } => match ty {
                 Type::Ptr => format!("((uint8_t *)&{global} + {offset})"),
-                other => format!("({})((uint8_t *)&{global} + {offset})", c_type(other)),
+                // Through uintptr_t: a 32-bit program's address is the low half of the host's.
+                other => format!("({})(uintptr_t)((uint8_t *)&{global} + {offset})", c_type(other)),
             },
             Operand::Null => "(uint8_t *)0".into(),
             Operand::Undef => match ty {
@@ -571,12 +634,16 @@ impl<'a> Emitter<'a> {
     fn expr(&self, inst: &Inst) -> String {
         match inst {
             Inst::Alloca { .. } => "0".into(),
-            Inst::Load { ty, ptr, .. } => format!("*({} *)({})", c_type(ty), self.operand(&Type::Ptr, ptr)),
+            Inst::Load { ty, ptr, align, .. } => format!("*({} *)({})", access_type(ty, *align), self.operand(&Type::Ptr, ptr)),
             Inst::Store { .. } | Inst::Phi { .. } => String::new(),
             Inst::Bin { op, ty, lhs, rhs } => {
                 let c = c_type(ty);
                 let s = signed_type(ty);
                 let a = self.operand(ty, lhs);
+                // A shift's left operand at its own width: a bare literal is an int, too narrow
+                // for a 64-bit shift, whether it came as a constant or as a folded value.
+                let literal = a.trim_start_matches('-').chars().all(|ch| ch.is_ascii_hexdigit() || ch == 'x');
+                let shifted = if literal && matches!(op, BinOp::Shl | BinOp::LShr) { format!("({c}){a}") } else { a.clone() };
                 // `x + -1` is `x - 1`.
                 let (op, rhs) = match (op, rhs) {
                     (BinOp::Add, Operand::Int(v)) if negative_in(ty, *v) => (&BinOp::Sub, Operand::Int(-v)),
@@ -599,8 +666,8 @@ impl<'a> Emitter<'a> {
                     BinOp::SDiv => format!("{c}(({s}){a} / ({s}){b})"),
                     BinOp::URem => format!("({a} % {b})"),
                     BinOp::SRem => format!("{c}(({s}){a} % ({s}){b})"),
-                    BinOp::Shl => format!("{c}({a} << {b})"),
-                    BinOp::LShr => format!("{c}({a} >> {b})"),
+                    BinOp::Shl => format!("{c}({shifted} << {b})"),
+                    BinOp::LShr => format!("{c}({shifted} >> {b})"),
                     BinOp::AShr => format!("({}){}", c_type(ty), format_args!("(({s}){a} >> {b})")),
                     BinOp::And => format!("({a} & {b})"),
                     BinOp::Or => format!("({a} | {b})"),
@@ -841,11 +908,11 @@ impl<'a> Emitter<'a> {
                     let _ = writeln!(out, "{pad}{} = {}_next;", name(f, v), name(f, v));
                 }
                 (Inst::Alloca { .. }, _) => {}
-                (Inst::Store { ty, value, ptr, .. }, _) => {
+                (Inst::Store { ty, value, ptr, align, .. }, _) => {
                     let _ = writeln!(
                         out,
                         "{pad}*({} *)({}) = {};",
-                        c_type(ty),
+                        access_type(ty, *align),
                         strip_parens(&self.operand(&Type::Ptr, ptr)),
                         strip_parens(&self.operand(ty, value))
                     );

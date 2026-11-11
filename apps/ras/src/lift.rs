@@ -3,14 +3,15 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use ra_asm_lift::{RaiseLevel, RaiseOptions};
+use ra_asm_lift::RaiseLevel;
 use ra_asm_pe::Image;
 
 /// Writes `program.ll`, `image.bin` and `image.h` into `out`, or the IR to stdout without `out`.
 pub(crate) fn lift(image: &Image, out: Option<&Path>, quiet: bool, level: RaiseLevel) -> Result<()> {
     let analysis = ra_asm_analysis::analyze(image);
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: level == RaiseLevel::Abi });
-    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, RaiseOptions { level });
+    let options = lifted.raise_options(level);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     let text = lifted.module.to_ll();
     match out {
         None => {

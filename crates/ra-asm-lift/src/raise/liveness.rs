@@ -92,15 +92,6 @@ impl Slot {
     pub fn is_xmm(self) -> bool {
         matches!(self, Self::Xmm(_))
     }
-
-    /// Whether the Win64 convention has the callee keep the register.
-    pub fn callee_saved(self) -> bool {
-        match self {
-            Self::Gpr(n) => matches!(n, 3 | 4 | 5 | 6 | 7 | 12 | 13 | 14 | 15),
-            Self::Xmm(n) => n >= 6,
-            Self::Flag(_) => false,
-        }
-    }
 }
 
 pub type SlotSet = [bool; SLOTS];
@@ -173,18 +164,6 @@ pub fn all_registers() -> SlotSet {
     let mut set = NO_SLOTS;
     for slot in Slot::all().filter(|s| call_touches(*s)) {
         set[slot.index()] = true;
-    }
-    set
-}
-
-/// What a `ret` hands back by the Win64 convention: the result in `rax` and `xmm0`, and the
-/// callee-saved registers.
-pub fn abi_exit_set() -> SlotSet {
-    let mut set = NO_SLOTS;
-    for slot in Slot::all() {
-        if slot == RAX || slot == Slot::Xmm(0) || (slot.callee_saved() && !slot.is_flag()) {
-            set[slot.index()] = true;
-        }
     }
     set
 }

@@ -26,3 +26,14 @@ endif()
 if(WIN32)
   target_link_libraries(@TARGET@ PRIVATE kernel32)
 endif()
+
+# A 32-bit program keeps its 32-bit pointers in the port: every address of the process must fit
+# in them, which the linker arranges for a binary that is not large-address-aware.
+set(RA_POINTER_BITS @POINTER_BITS@)
+if(WIN32 AND RA_POINTER_BITS EQUAL 32)
+  if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_link_options(@TARGET@ PRIVATE /LARGEADDRESSAWARE:NO)
+  else()
+    target_link_options(@TARGET@ PRIVATE -Wl,/largeaddressaware:no)
+  endif()
+endif()

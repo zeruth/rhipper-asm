@@ -137,7 +137,8 @@ impl Pipeline {
         let image = self.image()?;
         let analysis = ra_asm_analysis::analyze(image);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
-        ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions::default());
+        let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+        ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         let text = lifted.module.to_ll();
         fs::create_dir_all(&build_dir)?;
         fs::write(build_dir.join("program.ll"), &text)?;
@@ -161,7 +162,8 @@ impl Pipeline {
         let image = self.image()?;
         let analysis = ra_asm_analysis::analyze(image);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
-        let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions::default());
+        let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+        let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         let translation = crate::emit::translate(image, &analysis, &lifted, &lang, &package)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
@@ -202,7 +204,9 @@ impl Pipeline {
             }
             return Ok(());
         }
-        write_cmake_lists(project)?;
+        let bits = u32::from(self.image()?.pointer_size()) * 8;
+        let project = &self.project;
+        write_cmake_lists(project, bits)?;
         let cmake = "cmake";
         let dir = &project.build.dir;
         let cache = dir.join("CMakeCache.txt");
@@ -298,8 +302,9 @@ fn log_warnings<'a>(log: &mut File, warnings: impl Iterator<Item = &'a String>) 
     count
 }
 
-/// Writes the `CMakeLists.txt` of a project that has none.
-fn write_cmake_lists(project: &Project) -> Result<()> {
+/// Writes the `CMakeLists.txt` of a project that has none. `bits` is the pointer width of the
+/// program, which sets how the port is linked.
+fn write_cmake_lists(project: &Project, bits: u32) -> Result<()> {
     let file = project.root.join("CMakeLists.txt");
     if file.exists() {
         return Ok(());
@@ -308,7 +313,11 @@ fn write_cmake_lists(project: &Project) -> Result<()> {
         Ok(relative) => format!("${{CMAKE_CURRENT_SOURCE_DIR}}/{}", slashes(relative)),
         Err(_) => slashes(&project.gen_dir),
     };
-    let text = CMAKE_LISTS.replace("@NAME@", &project.name).replace("@TARGET@", &project.build.target).replace("@GEN_DIR@", &gen_dir);
+    let text = CMAKE_LISTS
+        .replace("@NAME@", &project.name)
+        .replace("@TARGET@", &project.build.target)
+        .replace("@GEN_DIR@", &gen_dir)
+        .replace("@POINTER_BITS@", &bits.to_string());
     fs::write(&file, text).with_context(|| format!("cannot write {}", file.display()))
 }
 

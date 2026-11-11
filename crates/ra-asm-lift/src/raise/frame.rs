@@ -37,16 +37,19 @@ pub fn run(f: &mut Function) -> bool {
             for i in &b.instrs {
                 let Some(v) = i.result else { continue };
                 let off = match &i.inst {
-                    Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
+                    Inst::Bin { op: BinOp::Add, ty: Type::Int(_), lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
                         offsets.get(l).map(|k| k + *c as i64)
                     }
-                    Inst::Bin { op: BinOp::Sub, ty: Type::I64, lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
+                    Inst::Bin { op: BinOp::Sub, ty: Type::Int(_), lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
                         offsets.get(l).map(|k| k - *c as i64)
                     }
-                    Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: Operand::Int(c), rhs: Operand::Local(r) } => {
+                    Inst::Bin { op: BinOp::Add, ty: Type::Int(_), lhs: Operand::Int(c), rhs: Operand::Local(r) } => {
                         offsets.get(r).map(|k| k + *c as i64)
                     }
-                    Inst::Cast { cast: Cast::IntToPtr, value: Operand::Local(p), .. } => offsets.get(p).copied(),
+                    // The 32-bit model narrows the address to a dword and widens it back.
+                    Inst::Cast { cast: Cast::IntToPtr | Cast::Trunc | Cast::ZExt | Cast::SExt, value: Operand::Local(p), .. } => {
+                        offsets.get(p).copied()
+                    }
                     Inst::Phi { incoming, .. } => {
                         let ks: Vec<Option<i64>> = incoming.iter().map(|(o, _)| o.local().and_then(|l| offsets.get(&l).copied())).collect();
                         match ks.first().copied().flatten() {
@@ -63,16 +66,27 @@ pub fn run(f: &mut Function) -> bool {
         }
     }
 
-    // How each slot is used: by the pointers (inttoptr results) at a known offset.
+    // How each slot is used: by the pointers at a known offset, the inttoptr results and the
+    // prologue's own geps from the frame top (the stack parameter slots).
     let mut slots: BTreeMap<i64, Use> = BTreeMap::new();
     let mut pointer_offsets: HashMap<ValueId, i64> = HashMap::new();
     for b in &f.blocks {
         for i in &b.instrs {
-            if let (Some(v), Inst::Cast { cast: Cast::IntToPtr, .. }) = (i.result, &i.inst)
-                && let Some(&k) = offsets.get(&v)
-            {
-                pointer_offsets.insert(v, k);
-                slots.entry(k).or_default();
+            let Some(v) = i.result else { continue };
+            match &i.inst {
+                Inst::Cast { cast: Cast::IntToPtr, .. } => {
+                    if let Some(&k) = offsets.get(&v) {
+                        pointer_offsets.insert(v, k);
+                        slots.entry(k).or_default();
+                    }
+                }
+                Inst::Gep { base_ty: Type::I8, ptr: Operand::Local(p), indices, .. } if *p == top => {
+                    if let [(_, Operand::Int(k))] = indices.as_slice() {
+                        pointer_offsets.insert(v, *k as i64);
+                        slots.entry(*k as i64).or_default();
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -86,9 +100,9 @@ pub fn run(f: &mut Function) -> bool {
             let consumes_address = |o: &Operand| o.local().and_then(|l| offsets.get(&l).copied());
             let tracked = i.result.is_some_and(|v| offsets.contains_key(&v));
             match &i.inst {
-                Inst::Bin { op: BinOp::Add | BinOp::Sub, ty: Type::I64, lhs, rhs }
+                Inst::Bin { op: BinOp::Add | BinOp::Sub, ty: Type::Int(_), lhs, rhs }
                     if matches!((lhs, rhs), (Operand::Local(_), Operand::Int(_)) | (Operand::Int(_), Operand::Local(_))) => {}
-                Inst::Cast { cast: Cast::IntToPtr, .. } => {}
+                Inst::Cast { cast: Cast::IntToPtr | Cast::Trunc | Cast::ZExt | Cast::SExt, .. } => {}
                 Inst::Phi { incoming, .. } => {
                     if !tracked && incoming.iter().any(|(o, _)| consumes_address(o).is_some()) {
                         dynamic = true;
@@ -163,12 +177,15 @@ pub fn run(f: &mut Function) -> bool {
         let mut out = Vec::with_capacity(b.instrs.len());
         for i in b.instrs.drain(..) {
             match (&i.inst, i.result) {
-                (Inst::Cast { cast: Cast::IntToPtr, .. }, Some(v)) if pointer_offsets.contains_key(&v) => {
+                (Inst::Cast { cast: Cast::IntToPtr, .. } | Inst::Gep { .. }, Some(v)) if pointer_offsets.contains_key(&v) => {
                     let k = pointer_offsets[&v];
-                    changed = true;
                     if let Some((a, _)) = allocas.get(&k) {
+                        changed = true;
                         replace.insert(v, Operand::Local(*a));
+                    } else if matches!(i.inst, Inst::Gep { .. }) {
+                        out.push(i);
                     } else {
+                        changed = true;
                         out.push(Instruction {
                             result: Some(v),
                             inst: Inst::Gep {

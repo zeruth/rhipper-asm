@@ -155,6 +155,9 @@ pub const X87_CW: &str = "ra_x87_cw";
 pub const X87_SW: &str = "ra_x87_sw";
 pub const TEB: &str = "ra_teb";
 pub const TEB_SIZE: u64 = 4096;
+/// What the x86 function last called through a pointer popped beyond its return address: its
+/// universal entry point writes it, the caller reads it to find its stack pointer again.
+pub const POPS: &str = "ra_pops";
 
 pub fn define_runtime_globals(module: &mut ra_asm_ir::Module) {
     use ra_asm_ir::{Const, Global, Linkage};
@@ -172,11 +175,12 @@ pub fn define_runtime_globals(module: &mut ra_asm_ir::Module) {
     module.globals.push(global(X87_CW, Type::I16, Const::Int(0x037f), 2));
     module.globals.push(global(X87_SW, Type::I16, Const::Int(0), 2));
     module.globals.push(global(TEB, Type::array(TEB_SIZE, Type::I8), Const::Zero, 16));
+    module.globals.push(global(POPS, Type::I64, Const::Int(0), 8));
 }
 
 /// Whether `name` is one of the globals of [`define_runtime_globals`].
 pub fn is_runtime_global(name: &str) -> bool {
-    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | TEB)
+    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | TEB | POPS)
 }
 
 /// The state helpers over one function under construction.
@@ -360,14 +364,17 @@ impl Machine<'_> {
         self.b.cast(block, Cast::IntToPtr, Type::I64, wide, Type::Ptr, hint)
     }
 
+    /// A load from machine memory. The address is what the program computed, aligned to nothing
+    /// the lift can know: an unaligned access, so no compiler turns a `movups` into a `movaps`.
     pub fn load(&mut self, block: BlockId, ty: Type, address: impl Into<Operand>, hint: &str) -> ValueId {
         let p = self.ptr(block, address, &format!("{hint}.p"));
-        self.b.load(block, ty, p, hint)
+        self.b.value(block, ra_asm_ir::Inst::Load { ty, ptr: p.into(), align: 1, volatile: false }, hint)
     }
 
+    /// A store to machine memory, unaligned like [`Self::load`].
     pub fn store(&mut self, block: BlockId, ty: Type, value: impl Into<Operand>, address: impl Into<Operand>) {
         let p = self.ptr(block, address, "st.p");
-        self.b.store(block, ty, value, p);
+        self.b.push(block, ra_asm_ir::Inst::Store { ty, value: value.into(), ptr: p.into(), align: 1, volatile: false }, "");
     }
 
     /// Pushes a value of the address width.

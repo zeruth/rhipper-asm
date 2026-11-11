@@ -338,7 +338,33 @@ impl Lifter<'_, '_> {
         self.flat_address(block, i)
     }
 
-    /// The address of the memory operand without its segment.
+    /// The bytes of the immediates at the end of the instruction's encoding.
+    fn immediate_bytes(i: &Instruction) -> u64 {
+        (0..i.op_count())
+            .map(|n| match i.op_kind(n) {
+                OpKind::Immediate8 | OpKind::Immediate8_2nd | OpKind::Immediate8to16 | OpKind::Immediate8to32 | OpKind::Immediate8to64 => 1,
+                OpKind::Immediate16 => 2,
+                OpKind::Immediate32 | OpKind::Immediate32to64 => 4,
+                OpKind::Immediate64 => 8,
+                _ => 0,
+            })
+            .sum()
+    }
+
+    /// Whether a base relocation names the instruction's immediate: then it is an address.
+    fn immediate_is_relocated(&self, i: &Instruction) -> bool {
+        let bytes = Self::immediate_bytes(i);
+        bytes >= 4 && self.lifted.relocated.contains(&(i.next_ip() - bytes))
+    }
+
+    /// Whether a base relocation names the instruction's displacement: then it is an address.
+    fn displacement_is_relocated(&self, i: &Instruction) -> bool {
+        let disp = u64::from(i.memory_displ_size());
+        disp >= 4 && self.lifted.relocated.contains(&(i.next_ip() - Self::immediate_bytes(i) - disp))
+    }
+
+    /// The address of the memory operand without its segment. In standalone mode a relocated
+    /// displacement is an address of the image, the base of an indexed access into the data.
     fn flat_address(&mut self, block: BlockId, i: &Instruction) -> ValueId {
         let ty = self.addr_ty();
         if let Some(address) = Self::absolute_address(i) {
@@ -347,6 +373,10 @@ impl Lifter<'_, '_> {
         }
         let disp = i.memory_displacement64() as i64;
         let mut acc: Option<ValueId> = None;
+        if self.lifted.standalone && disp != 0 && self.displacement_is_relocated(i) {
+            let op = self.address_operand(disp as u64);
+            acc = Some(self.m.value_of(block, ty.clone(), op));
+        }
         let base = i.memory_base();
         if base != R::None {
             let v = self.m.read_gpr(block, base);
@@ -364,8 +394,9 @@ impl Lifter<'_, '_> {
                 None => scaled,
             });
         }
+        let relocated_base = self.lifted.standalone && disp != 0 && self.displacement_is_relocated(i);
         match acc {
-            Some(a) if disp != 0 => self.m.b.bin(block, BinOp::Add, ty, a, disp, "addr"),
+            Some(a) if disp != 0 && !relocated_base => self.m.b.bin(block, BinOp::Add, ty, a, disp, "addr"),
             Some(a) => a,
             None => self.m.value_of(block, ty, disp),
         }
@@ -407,6 +438,12 @@ impl Lifter<'_, '_> {
             }
             _ => {
                 let v = Self::immediate(i, n);
+                // `push offset string`, `mov eax, offset table`: in standalone mode the address of
+                // the data global, which a base relocation marks.
+                if self.lifted.standalone && bits >= 32 && self.immediate_is_relocated(i) {
+                    let op = self.address_operand(v as u64 & if bits == 32 { 0xffff_ffff } else { u64::MAX });
+                    return self.m.value_of(block, Type::Int(bits), op);
+                }
                 self.m.value_of(block, Type::Int(bits), v)
             }
         }

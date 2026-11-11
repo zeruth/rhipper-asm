@@ -73,7 +73,14 @@ pub(crate) fn translate(image: &Image, analysis: &Analysis<'_>, lifted: &Lifted,
     if lang.eq_ignore_ascii_case("rust") || lang.eq_ignore_ascii_case("rs") {
         let imports = image.imports.iter().filter_map(|i| i.name.clone().map(|n| (n, i.dll.clone()))).collect();
         let entry = image.entry_point().map(ra_asm_lift::function_name);
-        let options = ra_asm_emit::RustOptions { names, imports, entry, package: package.to_owned(), ..Default::default() };
+        let options = ra_asm_emit::RustOptions {
+            names,
+            imports,
+            entry,
+            package: package.to_owned(),
+            pointer_bits: u32::from(image.pointer_size()) * 8,
+            ..Default::default()
+        };
         let output = ra_asm_emit::emit_rust(&lifted.module, &options);
         return Ok(Translation { files: output.files, functions: output.functions, infos, runtime: Vec::new() });
     }
@@ -95,7 +102,8 @@ pub(crate) fn translate(image: &Image, analysis: &Analysis<'_>, lifted: &Lifted,
 pub(crate) fn emit(image: &Image, language: &str, out: Option<&Path>, quiet: bool) -> Result<()> {
     let analysis = ra_asm_analysis::analyze(image);
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
-    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions::default());
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
     let translation = translate(image, &analysis, &lifted, language, &package)?;
     match out {

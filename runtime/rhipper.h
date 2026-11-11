@@ -12,12 +12,21 @@
 #define RA_PACKED_BEGIN __pragma(pack(push, 1))
 #define RA_PACKED_END __pragma(pack(pop))
 #define RA_UNREACHABLE() __assume(0)
+// A function that runs before main: a pointer to it in the C runtime's initializer section.
+#define RA_CONSTRUCTOR(name) \
+    static void name(void); \
+    __pragma(section(".CRT$XCU", read)) __declspec(allocate(".CRT$XCU")) static void (*name##_ptr)(void) = name; \
+    static void name(void)
+// A type read or written at any address: the program's own alignment is not known.
+#define RA_UNALIGNED(type, name) typedef __unaligned type name;
 #else
 #define RA_NORETURN __attribute__((noreturn))
 #define RA_ALIGNED(n) __attribute__((aligned(n)))
 #define RA_PACKED_BEGIN
 #define RA_PACKED_END __attribute__((packed))
 #define RA_UNREACHABLE() __builtin_unreachable()
+#define RA_CONSTRUCTOR(name) __attribute__((constructor)) static void name(void)
+#define RA_UNALIGNED(type, name) typedef type __attribute__((aligned(1))) name;
 #endif
 
 typedef unsigned __int128 ra_u128;
@@ -38,6 +47,25 @@ typedef uint8_t ra_v2u1 __attribute__((vector_size(2)));
 typedef uint8_t ra_v4u1 __attribute__((vector_size(4)));
 typedef uint8_t ra_v8u1 __attribute__((vector_size(8)));
 typedef uint8_t ra_v16u1 __attribute__((vector_size(16)));
+
+// The types as the translation reads and writes them in memory: a machine access has whatever
+// alignment the program gave it, and a `movups` must not become a `movaps`.
+RA_UNALIGNED(uint16_t, ra_ua_uint16)
+RA_UNALIGNED(uint32_t, ra_ua_uint32)
+RA_UNALIGNED(uint64_t, ra_ua_uint64)
+RA_UNALIGNED(ra_u128, ra_ua_u128)
+RA_UNALIGNED(float, ra_ua_float)
+RA_UNALIGNED(double, ra_ua_double)
+RA_UNALIGNED(ra_v16u8, ra_ua_v16u8)
+RA_UNALIGNED(ra_v8u16, ra_ua_v8u16)
+RA_UNALIGNED(ra_v4u32, ra_ua_v4u32)
+RA_UNALIGNED(ra_v2u64, ra_ua_v2u64)
+RA_UNALIGNED(ra_v16i8, ra_ua_v16i8)
+RA_UNALIGNED(ra_v8i16, ra_ua_v8i16)
+RA_UNALIGNED(ra_v4i32, ra_ua_v4i32)
+RA_UNALIGNED(ra_v2i64, ra_ua_v2i64)
+RA_UNALIGNED(ra_v4f32, ra_ua_v4f32)
+RA_UNALIGNED(ra_v2f64, ra_ua_v2f64)
 
 struct ra_opaque { uint8_t byte; };
 struct ra_function_entry { uint64_t address; void *function; };
