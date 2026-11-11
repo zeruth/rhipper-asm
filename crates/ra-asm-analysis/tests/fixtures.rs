@@ -345,6 +345,22 @@ fn fail_never_returns_and_its_callers_stop_at_the_call() {
 }
 
 #[test]
+fn a_call_through_a_word_that_holds_an_import_slots_value_is_the_imports() {
+    for (binary, map) in [("control64.exe", "control64.map"), ("control32.exe", "control32.map")] {
+        let image = load(binary);
+        let analysis = analyze(&image);
+        let expected = map_functions(map);
+        // The entry stores WriteFile's slot value in print_slot's word; print_proc's word has two
+        // writers (GetProcAddress's result or the slot's value) and stays unresolved.
+        let print_slot = by_name(&analysis, &expected, "print_slot");
+        assert_eq!(print_slot.register_import_calls.values().collect::<Vec<_>>(), vec!["WriteFile"], "{binary}: print_slot");
+        assert!(print_slot.import_calls.iter().any(|i| i == "WriteFile"), "{binary}: print_slot calls the import");
+        let print_proc = by_name(&analysis, &expected, "print_proc");
+        assert!(print_proc.register_import_calls.is_empty(), "{binary}: print_proc: {:?}", print_proc.register_import_calls);
+    }
+}
+
+#[test]
 fn the_function_pointer_table_names_its_functions_by_origin() {
     let image = load("control64.exe");
     let analysis = analyze(&image);

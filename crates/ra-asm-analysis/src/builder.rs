@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use ra_asm_arch::{Arch, Flow, Instr, Operand, Target};
-use ra_asm_pe::Image;
+use ra_asm_pe::{CxxFrame, Image};
 use ra_asm_x86::X86;
 
 use crate::function::{Block, Function, Kind, Terminator};
@@ -32,6 +32,8 @@ pub(crate) struct Builder<'a> {
     ranges: &'a [(u64, u64)],
     known_starts: &'a BTreeSet<u64>,
     noreturn: &'a HashSet<u64>,
+    /// The x64 C++ frame of the function, when it has one.
+    frame: Option<&'a CxxFrame>,
     blocks: BTreeMap<u64, Draft>,
     worklist: Vec<u64>,
     calls: Vec<u64>,
@@ -41,7 +43,15 @@ pub(crate) struct Builder<'a> {
 }
 
 /// Builds the function at `entry`.
-pub fn build(image: &Image, arch: X86, entry: u64, ranges: &[(u64, u64)], known_starts: &BTreeSet<u64>, noreturn: &HashSet<u64>) -> Built {
+pub fn build(
+    image: &Image,
+    arch: X86,
+    entry: u64,
+    ranges: &[(u64, u64)],
+    known_starts: &BTreeSet<u64>,
+    noreturn: &HashSet<u64>,
+    frame: Option<&CxxFrame>,
+) -> Built {
     let mut b = Builder {
         image,
         arch,
@@ -49,6 +59,7 @@ pub fn build(image: &Image, arch: X86, entry: u64, ranges: &[(u64, u64)], known_
         ranges,
         known_starts,
         noreturn,
+        frame,
         blocks: BTreeMap::new(),
         worklist: vec![entry],
         calls: Vec::new(),
@@ -104,10 +115,26 @@ impl Builder<'_> {
     /// function's `__ehhandler$` stub (code), whose `FuncInfo` names the cleanup actions and the
     /// catch handlers; a catch handler returns its continuation, which is the function's too. A
     /// filter clang outlines into a function of its own follows `int 3` fill, as a funclet of the
-    /// function never does, and stays a function.
+    /// function never does, and stays a function. On x64 the exception table names the function's
+    /// C++ frame: its funclets, and the continuation each catch funclet hands the handler with
+    /// `lea rax, [rip + L]`.
     fn frame_funclets(&self) -> Vec<u64> {
         let mut out = Vec::new();
         if self.arch.bits != 32 {
+            let Some(frame) = self.frame else { return out };
+            out.extend(frame.funclets.iter().map(|f| f.begin));
+            for block in self.blocks.values().filter(|b| frame.funclets.iter().any(|f| f.contains(b.start))) {
+                for instr in block.instrs.iter().filter(|i| i.mnemonic == "lea") {
+                    for operand in &instr.operands {
+                        if let Operand::Mem(m) = operand
+                            && let Some(va) = m.absolute
+                            && self.internal(va)
+                        {
+                            out.push(va);
+                        }
+                    }
+                }
+            }
             return out;
         }
         let after_fill = |va: &u64| self.image.u8(va - 1).is_ok_and(|b| b == 0xcc);

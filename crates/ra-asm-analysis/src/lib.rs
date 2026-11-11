@@ -24,7 +24,7 @@ pub mod symbols;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use ra_asm_arch::Operand;
-use ra_asm_pe::Image;
+use ra_asm_pe::{CxxFrame, Image};
 use ra_asm_x86::X86;
 
 pub use function::{Block, Function, Kind, Origin, Terminator, VirtualSlot};
@@ -40,6 +40,9 @@ pub struct Analysis<'a> {
     pub noreturn: HashSet<u64>,
     /// The classes with virtual functions, from the RTTI.
     pub classes: Vec<Class>,
+    /// The x64 functions under the C++ frame handler, by entry: their tables and their funclets,
+    /// which are blocks of the function.
+    pub cxx_frames: BTreeMap<u64, CxxFrame>,
     /// The function a port starts at: the image's entry point, or `main` when the entry is the
     /// startup of a C runtime linked into the image, whose work the host's own startup does.
     pub program_entry: Option<u64>,
@@ -82,7 +85,8 @@ const MAX_ROUNDS: usize = 64;
 /// Analyzes `image`: finds its functions and builds their control-flow graphs.
 pub fn analyze(image: &Image) -> Analysis<'_> {
     let arch = X86::for_pointer_size(image.pointer_size());
-    let mut state = State::new(image, arch);
+    let cxx_frames: BTreeMap<u64, CxxFrame> = ra_asm_pe::exception::cxx_frames(image).into_iter().map(|f| (f.entry.begin, f)).collect();
+    let mut state = State::new(image, arch, &cxx_frames);
 
     // The seeds, in the order that names them best: the entry, the exports, the callbacks, .pdata.
     if let Some(entry) = image.entry_point() {
@@ -102,9 +106,10 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
             state.seed(callback, Origin::TlsCallback);
         }
     }
+    // A funclet of a C++ frame has an entry of its own but is code of its parent.
     for f in &image.runtime_functions {
         let chained = f.unwind_info(image).is_ok_and(|u| u.is_chained());
-        if !chained {
+        if !chained && !state.funclets.contains(&f.begin) {
             state.seed(f.begin, Origin::ExceptionTable);
         }
     }
@@ -160,6 +165,14 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
     }
 
     let mut functions = state.functions;
+    // The data words that hold an import slot's value show only across the whole program: with
+    // them known, a call through such a word, or through a register loaded from one, resolves.
+    let words = imports::import_words(image, &mut functions);
+    if !words.is_empty() {
+        for f in functions.values_mut() {
+            f.register_import_calls = imports::resolve(image, &words, f).calls;
+        }
+    }
     for f in functions.values_mut() {
         f.noreturn = state.noreturn.contains(&f.entry);
         f.strings = strings_of(image, f);
@@ -172,7 +185,8 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
     name_virtual_functions(&classes, &mut functions);
     let program_entry = symbols::program_entry(image, &functions);
     symbols::finish_names(&mut functions);
-    Analysis { image, arch, functions, noreturn: state.noreturn, classes, program_entry, warnings: state.warnings }
+    let (noreturn, warnings) = (state.noreturn, state.warnings);
+    Analysis { image, arch, functions, noreturn, classes, cxx_frames, program_entry, warnings }
 }
 
 /// The string literals a function addresses: each operand that names an address where printable
@@ -235,11 +249,34 @@ fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>) -> Vec<(u
     seeds
 }
 
-/// The functions in the gaps between the found ones: a 16-byte aligned address after `int 3` fill
-/// in a code section, outside every function, whose trial build has no warning, covers the bytes
-/// from the address to the next fill, function or section end without a hole, and ends in returns
-/// and tail calls only, never in a trap or an unresolved jump. A jump table or a string in the
-/// code section fails the trial; a function does not.
+/// Whether a `nop` fill ends at `offset` of `bytes`: a `90`, or the long `0f 1f /0` forms, which
+/// clang writes between functions where MSVC writes `int 3`.
+fn nop_fill_ends_at(bytes: &[u8], offset: usize) -> bool {
+    const TAILS: [&[u8]; 5] = [&[0x00], &[0x40, 0x00], &[0x44, 0x00, 0x00], &[0x80, 0, 0, 0, 0], &[0x84, 0, 0, 0, 0, 0]];
+    if offset >= 1 && bytes[offset - 1] == 0x90 {
+        return true;
+    }
+    TAILS.iter().any(|tail| {
+        let n = tail.len() + 2;
+        offset >= n && bytes[offset - n..offset - tail.len()] == [0x0f, 0x1f] && bytes[offset - tail.len()..offset] == **tail
+    })
+}
+
+/// Whether a fill starts at `va`: `int 3`, a `90`, or a long `nop` under its `66` and `2e` prefixes.
+fn fill_starts_at(image: &Image, va: u64) -> bool {
+    let byte = |i: u64| image.u8(va + i).unwrap_or(0);
+    if matches!(byte(0), 0xcc | 0x90) {
+        return true;
+    }
+    let prefixes = (0..4).take_while(|&i| matches!(byte(i), 0x66 | 0x2e)).count() as u64;
+    byte(prefixes) == 0x0f && byte(prefixes + 1) == 0x1f
+}
+
+/// The functions in the gaps between the found ones: a 16-byte aligned address after `int 3` or
+/// `nop` fill in a code section, outside every function, whose trial build has no warning, covers
+/// the bytes from the address to the next fill, function or section end without a hole, and ends
+/// in returns and tail calls only, never in a trap or an unresolved jump. A jump table or a string
+/// in the code section fails the trial; a function does not.
 fn gap_seeds(image: &Image, state: &State<'_>) -> Vec<(u64, Origin)> {
     let mut seeds = Vec::new();
     let mut accepted: Vec<(u64, u64)> = Vec::new();
@@ -249,7 +286,7 @@ fn gap_seeds(image: &Image, state: &State<'_>) -> Vec<(u64, Origin)> {
         let end = start + bytes.len() as u64;
         for (offset, pair) in bytes.windows(2).enumerate() {
             let va = start + offset as u64 + 1;
-            if !va.is_multiple_of(16) || pair[0] != 0xcc || pair[1] == 0xcc {
+            if !va.is_multiple_of(16) || pair[1] == 0xcc || (pair[0] != 0xcc && !nop_fill_ends_at(bytes, offset + 1)) {
                 continue;
             }
             if state.known_starts.contains(&va)
@@ -259,11 +296,11 @@ fn gap_seeds(image: &Image, state: &State<'_>) -> Vec<(u64, Origin)> {
                 continue;
             }
             let ranges = state.ranges_of(va);
-            let built = builder::build(image, state.arch, va, &ranges, &state.known_starts, &state.noreturn);
+            let built = builder::build(image, state.arch, va, &ranges, &state.known_starts, &state.noreturn, state.frames.get(&va));
             let blocks = &built.function.blocks;
             let contiguous = blocks.first().is_some_and(|b| b.start == va) && blocks.windows(2).all(|w| w[0].end == w[1].start);
             let last = blocks.last().map_or(va, |b| b.end);
-            let bounded = last == end || state.known_starts.contains(&last) || image.u8(last).is_ok_and(|b| b == 0xcc);
+            let bounded = last == end || state.known_starts.contains(&last) || fill_starts_at(image, last);
             let ends_well = blocks
                 .iter()
                 .all(|b| !matches!(b.terminator, Terminator::Trap | Terminator::Halt | Terminator::Invalid | Terminator::IndirectJump));
@@ -317,14 +354,17 @@ struct State<'a> {
     noreturn: HashSet<u64>,
     /// The entries of the exception table, with their pieces: the extent of an x64 function.
     extents: HashMap<u64, Vec<(u64, u64)>>,
+    /// The x64 C++ frames, by entry, and the funclets they name, which are no functions.
+    frames: &'a BTreeMap<u64, CxxFrame>,
+    funclets: HashSet<u64>,
     /// The ranges of the C runtime libraries linked into the image, from the PDB.
     runtime: symbols::RuntimeRanges,
     warnings: Vec<String>,
 }
 
 impl<'a> State<'a> {
-    fn new(image: &'a Image, arch: X86) -> Self {
-        let extents = exception_extents(image);
+    fn new(image: &'a Image, arch: X86, frames: &'a BTreeMap<u64, CxxFrame>) -> Self {
+        let extents = exception_extents(image, frames);
         let mut known_starts = BTreeSet::new();
         known_starts.extend(extents.keys().copied());
         Self {
@@ -336,6 +376,8 @@ impl<'a> State<'a> {
             origins: HashMap::new(),
             noreturn: HashSet::new(),
             extents,
+            frames,
+            funclets: frames.values().flat_map(|f| f.funclets.iter().map(|r| r.begin)).collect(),
             runtime: symbols::RuntimeRanges::of(image),
             warnings: Vec::new(),
         }
@@ -390,9 +432,9 @@ impl<'a> State<'a> {
         }
 
         let ranges = self.ranges_of(entry);
-        let built = builder::build(self.image, self.arch, entry, &ranges, &self.known_starts, &self.noreturn);
+        let built = builder::build(self.image, self.arch, entry, &ranges, &self.known_starts, &self.noreturn, self.frames.get(&entry));
         let mut function = built.function;
-        function.register_import_calls = imports::resolve(self.image, &mut function);
+        function.register_import_calls = imports::resolve(self.image, &HashMap::new(), &mut function).calls;
         function.origins = self.origins.get(&entry).cloned().unwrap_or_default();
         function.name = function::name_for(self.image, &function);
         // A function of a linked-in C runtime is the host's: the no-return settle judges it by
@@ -422,16 +464,23 @@ impl<'a> State<'a> {
     }
 }
 
-/// The extent of each x64 function from the exception table: its own entry and the chained pieces
-/// that name it as their parent, directly or through another piece.
-fn exception_extents(image: &Image) -> HashMap<u64, Vec<(u64, u64)>> {
+/// The extent of each x64 function from the exception table: its own entry, the chained pieces
+/// that name it as their parent, directly or through another piece, and the funclets of its C++
+/// frame.
+fn exception_extents(image: &Image, frames: &BTreeMap<u64, CxxFrame>) -> HashMap<u64, Vec<(u64, u64)>> {
     let mut parents: HashMap<u64, u64> = HashMap::new();
     let mut extents: HashMap<u64, Vec<(u64, u64)>> = HashMap::new();
+    for frame in frames.values() {
+        for funclet in &frame.funclets {
+            parents.insert(funclet.begin, frame.entry.begin);
+        }
+    }
     for f in &image.runtime_functions {
         match f.unwind_info(image) {
             Ok(u) if u.chained.is_some() => {
                 parents.insert(f.begin, u.chained.unwrap().begin);
             }
+            _ if parents.contains_key(&f.begin) => {}
             _ => {
                 extents.entry(f.begin).or_default().push((f.begin, f.end));
             }
