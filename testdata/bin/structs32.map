@@ -1,0 +1,32 @@
+ structs32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00000250H .text                   CODE
+ 0002:00000000 00000010H .rdata                  DATA
+ 0003:00000000 00000004H .data                   DATA
+ 0003:00000004 00000004H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     structs-0d90d3.o
+ 0002:00000000       __xmm@3ff80000000000000000000000000064 0000000000402000     structs-0d90d3.o
+ 0002:00000010       ??_C@_05GJGPGJKM@seven?$AA@ 0000000000402010     structs-0d90d3.o
+ 0002:0000006c       __imp__ExitProcess@4       000000000040206c     kernel32:KERNEL32.dll
+ 0002:00000070       __imp__GetStdHandle@4      0000000000402070     kernel32:KERNEL32.dll
+ 0002:00000074       __imp__WriteFile@20        0000000000402074     kernel32:KERNEL32.dll
+ 0003:00000000       __fltused                  0000000000403000     structs-0d90d3.o
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:000000a0       _fill                      00000000004010a0     structs-0d90d3.o
+ 0001:000000d0       _print_int                 00000000004010d0     structs-0d90d3.o
+ 0001:000001b0       _weigh                     00000000004011b0     structs-0d90d3.o
+ 0001:000001e0       _name_length               00000000004011e0     structs-0d90d3.o
+ 0001:00000200       _scaled                    0000000000401200     structs-0d90d3.o
+ 0003:00000004       _out                       0000000000403004     structs-0d90d3.o

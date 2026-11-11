@@ -86,6 +86,39 @@ impl Type {
             Self::Named(_) | Self::Func(_) => None,
         }
     }
+
+    /// The alignment in bytes as the x86-64 data layout gives it; `None` for a type without a size.
+    pub fn align(&self, pointer_bytes: u64) -> Option<u64> {
+        match self {
+            Self::Void | Self::Packed(_) => Some(1),
+            Self::Int(n) => Some(u64::from(n.div_ceil(8)).next_power_of_two().min(16)),
+            Self::Half => Some(2),
+            Self::Float => Some(4),
+            Self::Double => Some(8),
+            Self::Fp80 => Some(16),
+            Self::Ptr => Some(pointer_bytes),
+            Self::Vector(..) => self.size(pointer_bytes),
+            Self::Array(_, e) => e.align(pointer_bytes),
+            Self::Struct(fields) => fields.iter().map(|f| f.align(pointer_bytes)).try_fold(1, |a, b| Some(a.max(b?))),
+            Self::Named(_) | Self::Func(_) => None,
+        }
+    }
+}
+
+/// The natural layout of a struct of `fields`: the byte offset of each field, each at its own
+/// alignment, and the size of the whole, padded to the widest alignment. `None` when a field has
+/// no size.
+pub fn layout(fields: &[Type], pointer_bytes: u64) -> Option<(Vec<u64>, u64)> {
+    let mut offsets = Vec::with_capacity(fields.len());
+    let (mut at, mut align) = (0u64, 1u64);
+    for f in fields {
+        let a = f.align(pointer_bytes)?.max(1);
+        at = at.div_ceil(a) * a;
+        offsets.push(at);
+        at += f.size(pointer_bytes)?;
+        align = align.max(a);
+    }
+    Some((offsets, at.div_ceil(align) * align))
 }
 
 impl fmt::Display for Type {

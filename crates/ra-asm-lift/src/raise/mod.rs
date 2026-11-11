@@ -17,6 +17,7 @@ pub mod prototypes;
 pub mod simplify;
 pub mod stack;
 pub mod stubs;
+pub mod types;
 pub mod widths;
 
 use std::collections::{BTreeSet, HashMap};
@@ -219,6 +220,13 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
                 if !widths::run(module, roots) {
                     break;
                 }
+                for f in &mut module.functions {
+                    clean(f);
+                }
+            }
+            // The structs behind the pointers, once the widths are settled; the address
+            // arithmetic the field pointers replace goes with the cleanup.
+            if types::run(module) {
                 for f in &mut module.functions {
                     clean(f);
                 }
