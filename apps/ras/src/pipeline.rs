@@ -17,8 +17,6 @@ use anyhow::{Context, Result, bail};
 use crate::project::Project;
 
 const CMAKE_LISTS: &str = include_str!("../templates/CMakeLists.txt");
-const RHIPPER_H: &str = include_str!("../../../runtime/rhipper.h");
-const DRIVER_C: &str = include_str!("../../../runtime/driver.c");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Step {
@@ -159,34 +157,23 @@ impl Pipeline {
     fn emit(&mut self, log: &mut File) -> Result<()> {
         let gen_dir = self.project.gen_dir.clone();
         let build_dir = self.project.build_dir();
-        let Some(dialect) = ra_asm_emit::Dialect::parse(&self.project.lang) else {
-            bail!("the lang of rhipper.json, `{}`, is not `c` or `cpp`", self.project.lang);
-        };
+        let (lang, package) = (self.project.lang.clone(), self.project.build.target.clone());
         let image = self.image()?;
         let analysis = ra_asm_analysis::analyze(image);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
         let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions::default());
-        let infos = ra_asm_emit::functions::infos(&analysis);
-        let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
-        let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect });
-        let files = unit.files(ra_asm_emit::FUNCTIONS_PER_FILE);
-        let runtime = gen_dir.join("runtime");
-        fs::create_dir_all(&runtime).with_context(|| format!("cannot create {}", runtime.display()))?;
+        let translation = crate::emit::translate(image, &analysis, &lifted, &lang, &package)?;
         fs::create_dir_all(&build_dir)?;
-        ra_asm_emit::write_files(&gen_dir, &files).with_context(|| format!("cannot write into {}", gen_dir.display()))?;
+        translation.write(&gen_dir)?;
         fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
-        fs::write(runtime.join("rhipper.h"), RHIPPER_H)?;
-        fs::write(runtime.join("driver.c"), DRIVER_C)?;
-        fs::write(build_dir.join("functions.json"), ra_asm_emit::table(&unit, &files, &infos))?;
-        let traps: usize = unit.functions.iter().map(|f| f.traps).sum();
-        let bytes: usize = files.iter().map(|f| f.text.len()).sum();
+        fs::write(build_dir.join("functions.json"), translation.table())?;
         let warnings = log_warnings(log, analysis.warnings.iter().chain(&lifted.warnings));
         let summary = format!(
-            "{} functions, {} bytes of C in {} files, {} instructions not lifted, {} warnings -> {}",
-            unit.functions.len(),
-            bytes,
-            files.len(),
-            traps,
+            "{} functions, {} bytes of {lang} in {} files, {} instructions not lifted, {} warnings -> {}",
+            translation.functions.len(),
+            translation.bytes(),
+            translation.files.len(),
+            translation.instructions_not_lifted(),
             warnings,
             gen_dir.display()
         );
@@ -197,6 +184,24 @@ impl Pipeline {
 
     fn build(&mut self, log: &mut File) -> Result<()> {
         let project = &self.project;
+        if project.is_rust() {
+            // A Rust translation is a cargo package under gen; its outputs go under build/cargo.
+            let mut cargo = Command::new("cargo");
+            cargo
+                .arg("build")
+                .arg("--manifest-path")
+                .arg(project.gen_dir.join("Cargo.toml"))
+                .arg("--target-dir")
+                .arg(project.build_dir().join("cargo"));
+            if !project.build.config.eq_ignore_ascii_case("debug") {
+                cargo.arg("--release");
+            }
+            let outcome = run_logged(&mut cargo, log, None)?;
+            if outcome.code != Some(0) {
+                bail!("cargo build exited with {}", outcome.exit());
+            }
+            return Ok(());
+        }
         write_cmake_lists(project)?;
         let cmake = "cmake";
         let dir = &project.build.dir;

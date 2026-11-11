@@ -33,8 +33,70 @@ fn emit(binary: &str, tag: &str, functions_per_file: usize, dialect: ra_asm_emit
     let dir = scratch(&format!("{binary}-{tag}"));
     ra_asm_emit::write_files(&dir, &files).unwrap();
     std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted, Some(&signatures))).unwrap();
-    std::fs::write(dir.join("functions.json"), ra_asm_emit::table(&unit, &files, &infos)).unwrap();
+    std::fs::write(dir.join("functions.json"), ra_asm_emit::table(&unit.functions, &files, &infos)).unwrap();
     (dir, unit.text())
+}
+
+fn cargo_available() -> bool {
+    Command::new("cargo").arg("--version").output().is_ok_and(|o| o.status.success())
+}
+
+/// The Rust package of a fixture, built by cargo and run; its output must match the reference's.
+fn run_rust_oracle(binary: &str, expected_name: &str, functions_per_file: usize) {
+    if !cargo_available() {
+        eprintln!("cargo is not on the PATH: the Rust oracle is skipped");
+        return;
+    }
+    let image = ra_asm_pe::load(&root().join("testdata/bin").join(binary)).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
+    ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions::default());
+    let infos = ra_asm_emit::functions::infos(&analysis);
+    let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
+    let imports = image.imports.iter().filter_map(|i| i.name.clone().map(|n| (n, i.dll.clone()))).collect();
+    let entry = image.entry_point().map(ra_asm_lift::function_name);
+    let package = binary.trim_end_matches(".exe").to_owned();
+    let options = ra_asm_emit::RustOptions { names, imports, entry, package: package.clone(), functions_per_file };
+    let output = ra_asm_emit::emit_rust(&lifted.module, &options);
+    let dir = scratch(&format!("{binary}-rust-{functions_per_file}"));
+    ra_asm_emit::write_files(&dir, &output.files).unwrap();
+    std::fs::write(dir.join("functions.json"), ra_asm_emit::table(&output.functions, &output.files, &infos)).unwrap();
+    check_table(binary, &dir);
+    let target = dir.join("target");
+    let build = Command::new("cargo")
+        .args(["build", "--release", "--manifest-path"])
+        .arg(dir.join("Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&target)
+        .output()
+        .unwrap();
+    assert!(build.status.success(), "{binary}: cargo build in {}:\n{}", dir.display(), String::from_utf8_lossy(&build.stderr));
+    let exe = target.join("release").join(format!("{package}.exe"));
+    let run = Command::new(&exe).current_dir(&dir).output().unwrap();
+    let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
+    let expected = std::fs::read_to_string(root().join("testdata/expected").join(expected_name)).unwrap();
+    assert_eq!(
+        stdout.trim_end(),
+        expected.trim_end(),
+        "{binary}: the output (exit {:?}, stderr {})",
+        run.status.code(),
+        String::from_utf8_lossy(&run.stderr)
+    );
+}
+
+#[test]
+fn hello64_runs_as_rust() {
+    run_rust_oracle("hello64.exe", "hello.txt", ra_asm_emit::FUNCTIONS_PER_FILE);
+}
+
+#[test]
+fn control64_runs_as_rust() {
+    run_rust_oracle("control64.exe", "control.txt", 4);
+}
+
+#[test]
+fn float64_runs_as_rust() {
+    run_rust_oracle("float64.exe", "float.txt", ra_asm_emit::FUNCTIONS_PER_FILE);
 }
 
 /// The function table names every function, and each `line` is the function's definition in its file.

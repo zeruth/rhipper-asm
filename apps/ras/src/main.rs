@@ -57,7 +57,7 @@ enum Command {
     /// Source out of the image. With `--out`, writes `program.c`, `image.h` and `functions.json` there.
     Emit {
         pe: PathBuf,
-        /// The language: `c`, or `cpp` for the same source with C++ linkage and `.cpp` files.
+        /// The language: `c`; `cpp` for the same source with C++ linkage and `.cpp` files; `rust` for a cargo package.
         #[arg(long, default_value = "c")]
         lang: String,
         #[arg(long)]

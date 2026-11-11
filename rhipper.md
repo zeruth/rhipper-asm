@@ -100,7 +100,7 @@
   - 26 ‹milestone› F: the backends {c5} [in_progress]
       objective: `ra-asm-emit` writes C, C++ or Rust source from the raised IR, with a runtime header per language, and the function table the workbench reads.
       acceptance: A fixture's C, C++ and Rust outputs each build in one round and print what the reference prints.
-      notes: Started 2026-11-10 with the C backend; the three x64 fixtures build from their C with clang and print what the reference prints.
+      notes: Started 2026-11-10 with the C backend; the three x64 fixtures build from their C with clang and print what the reference prints. By 2026-11-11 the C, the C++ dialect and the Rust output all pass the oracle; the C++ output of its own shape (task 29) waits for the names and vtables of task 46.
     - 27 ‹task› Structuring {c4} [implemented]
         objective: Reducible graphs become if, else, while and switch; a C or C++ output keeps gotos for the rest; the Rust output uses labeled loops and breaks, since Rust has no goto.
         acceptance: Every fixture function structures without a goto in C; the Rust output compiles.
@@ -115,9 +115,10 @@
         acceptance: The C++ fixture builds and runs.
         notes: The dialect landed 2026-11-11: `ras emit --lang cpp`, or `"lang": "cpp"` in `rhipper.json`, writes the same source as `.cpp` files with the imports, the prototypes and the data under `extern "C"` (the driver is C, the imports are the DLLs' names, and a C++ `const` global would otherwise have internal linkage); clang++ builds control64 split and float64 whole beside the C driver, and the oracle checks both. The shape of its own (classes, references, overloads) waits for the names and vtables of task 46.
         waits-on: 28 46
-    - 30 ‹task› Rust {c4} [defined]
-        objective: Unsafe Rust: one module per source range, `extern "system"` declarations for the imports, labeled loops from the structuring pass, and a `rhipper` runtime crate.
+    - 30 ‹task› Rust {c4} [implemented]
+        objective: Unsafe Rust: one module per source range, `extern "system"` declarations for the imports, the loops of the structuring pass, and a `rhipper` runtime module.
         acceptance: The x64 fixtures build with cargo and pass their expected output.
+        notes: Landed 2026-11-11 (ra-asm-emit/src/rust.rs, runtime/rhipper.rs): `ras emit --lang rust`, or `"lang": "rust"`, writes a cargo package under `gen` (`Cargo.toml`, `src/main.rs` with `main`, `src/rhipper.rs`, `src/data.rs` with the imports by DLL and the data, `src/program.rs` or `src/program_NNN.rs`). Every lifted function is an `unsafe extern "C" fn`, so a pointer to it in the data calls it; memory goes through `read_unaligned` and `write_unaligned`; arithmetic wraps; an `i1` is a `bool`; a vector is an array and its operations go lane by lane through the runtime's `vbin`, `vcmp`, `vcast`, `shuffle` and `insert`; a packed data section is a `#[repr(C, packed)]` struct inside an aligned wrapper, and `ra_init` writes its address words at startup, since the compiler cannot fold a function address into a static. The pipeline builds a Rust project with cargo under `build/cargo` and runs the binary from there. The oracle builds hello64, control64 (split) and float64 with cargo and runs them; the pipeline test ports control64 as Rust. Rust has no `goto`: a jump the structuring cannot express stops the port, as a trap does, and the fixtures have none.
         waits-on: 27
     - 31 ‹task› The function table {c2} [implemented]
         objective: `ras emit --out` writes `functions.json`, one entry per function the analysis found: `addr` (`0x` and at least eight hex digits), `name`, `size`, `file` and `line` of its definition in the written source, `status` (`lifted`, `partial` with a `traps` count, `thunk`, `not lifted`), `calls` and `imports`. The workbench lists, opens and grades functions from this one file; nothing is written in the shapes of the old pipeline.

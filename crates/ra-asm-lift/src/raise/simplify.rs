@@ -75,6 +75,13 @@ pub fn run(f: &mut Function) -> bool {
             {
                 map.insert(result, inner.clone());
             }
+            // zext (zext x) and sext (sext x) are one extension.
+            if let Inst::Cast { cast: outer @ (ra_asm_ir::Cast::ZExt | ra_asm_ir::Cast::SExt), value: Operand::Local(v), to, .. } = &i.inst
+                && let Some((inner_cast, inner_from, inner)) = casts.get(v)
+                && inner_cast == outer
+            {
+                rewrite.insert(result, Inst::Cast { cast: *outer, from: inner_from.clone(), value: inner.clone(), to: to.clone() });
+            }
         }
     }
     if map.is_empty() && rewrite.is_empty() {

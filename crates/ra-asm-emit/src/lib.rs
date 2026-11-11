@@ -8,11 +8,14 @@
 //! that keeps the meaning. The function table says where each function landed, for the workbench.
 
 pub mod c;
+mod common;
 pub mod functions;
+pub mod rust;
 pub mod structure;
 
 pub use c::{Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, Options as COptions, Unit, emit_c, emit_unit};
 pub use functions::{FunctionInfo, format_address, table};
+pub use rust::{Options as RustOptions, Output as RustOutput, emit_rust};
 
 /// Writes the files of `unit` into `dir`, after removing the files of an earlier, larger output
 /// or another dialect (`program.c`, `program.h`, `data.c`, `program_NNN.c`, and the same as
@@ -31,8 +34,24 @@ pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Res
             }
         }
     }
+    // The Rust modules of an earlier output, under src/.
+    if let Ok(entries) = std::fs::read_dir(dir.join("src")) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let stem = name.strip_suffix(".rs").unwrap_or("");
+            let part = stem.strip_prefix("program_").is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+            let ours = stem == "program" || stem == "data" || stem == "main" || stem == "rhipper" || part;
+            if ours && !files.iter().any(|f| f.name == format!("src/{name}")) {
+                std::fs::remove_file(entry.path())?;
+            }
+        }
+    }
     for f in files {
-        std::fs::write(dir.join(&f.name), &f.text)?;
+        let path = dir.join(&f.name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, &f.text)?;
     }
     Ok(())
 }

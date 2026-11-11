@@ -45,7 +45,7 @@ Three decisions shape the design:
 | `ra-asm-analysis` | Functions, basic blocks, the control-flow graph, jump tables, no-return propagation |
 | `ra-asm-ir` | The LLVM-IR-shaped intermediate representation and its `.ll` printer |
 | `ra-asm-lift` | Instructions to machine IR over an explicit `%State`, and the raising passes: signature inference, state promotion, the ABI rewrite, conditions, frames, simplification |
-| `ra-asm-emit` | The structuring pass (if, else, loops, switch, short-circuit conditions) and the C backend; C++ and Rust planned |
+| `ra-asm-emit` | The structuring pass (if, else, loops, switch, short-circuit conditions), the C backend with its C++ dialect, the Rust backend, and the function table |
 | `ras` (app) | The command line: `info`, `sections`, `imports`, `exports`, `relocs`, `debug`, `functions`, `cfg`, `disasm`, `callers`, `xrefs`, `lift`, `signatures`, `emit`, `pipeline` |
 
 `ras lift` raises in three levels: `--machine` keeps the lifted IR over `%State`; `--promoted`
@@ -57,15 +57,17 @@ left. `ras signatures` prints what the inference found.
 parameters and results, loops and conditions, and the data sections as globals, with the helpers
 the output needs in `runtime/rhipper.h`. The output is standalone: it builds with clang against
 `runtime/driver.c` and needs no image at run time. `--lang cpp` writes the same source as `.cpp`
-files with C linkage, for a port that goes on in C++. A program of more than 500 functions splits
-into a header, a data file and a file per 500 functions. Beside the source, `--out` writes
+files with C linkage, for a port that goes on in C++. `--lang rust` writes a cargo package of
+unsafe Rust with its own runtime module, `runtime/rhipper.rs`, which cargo builds and runs with no
+C toolchain at all. A program of more than 500 functions splits into a header, a data file and a
+file per 500 functions, or into one Rust module per 500 functions. Beside the source, `--out` writes
 `functions.json`, the table the workbench reads: every function's address, name, size, file and
 line, how far the lift got (`lifted`, `partial` with a trap count, `thunk`, `not lifted`), its
 calls and its imports.
 
 `ras pipeline` runs a port project end to end from its `rhipper.json`, which names the reference
 binary and, with defaults for all of them, the `gen` directory of the translation, its `lang`
-(`c` or `cpp`), the CMake build and how to run the port. The steps are `analyze`, `lift`, `emit`, `build` and `run`; `--from` and
+(`c`, `cpp` or `rust`), the CMake build (cargo for Rust) and how to run the port. The steps are `analyze`, `lift`, `emit`, `build` and `run`; `--from` and
 `--only` pick them. Each step logs to `build/pipeline/<step>.log` and prints a `[  12s] step`
 progress line, the build writes a `CMakeLists.txt` for a project that has none, and every run of
 the port appends to `build/pipeline/runs.jsonl`. This is what the Rhipper Workbench drives.

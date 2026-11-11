@@ -14,11 +14,15 @@ fn available(tool: &str) -> bool {
 
 /// A project directory with the fixture as its reference binary.
 fn project(name: &str) -> PathBuf {
+    project_with(name, r#"{ "name": "control", "exe": "ref/control64.exe" }"#)
+}
+
+fn project_with(name: &str, rhipper_json: &str) -> PathBuf {
     let dir = std::env::temp_dir().join("ras-pipeline-tests").join(format!("{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("ref")).unwrap();
     std::fs::copy(root().join("testdata/bin/control64.exe"), dir.join("ref/control64.exe")).unwrap();
-    std::fs::write(dir.join("rhipper.json"), r#"{ "name": "control", "exe": "ref/control64.exe" }"#).unwrap();
+    std::fs::write(dir.join("rhipper.json"), rhipper_json).unwrap();
     dir
 }
 
@@ -74,4 +78,33 @@ fn the_whole_pipeline_builds_and_runs_the_port() {
     // A second run reuses the configured build directory.
     let (ok, text) = ras(&dir, &["--from", "build"]);
     assert!(ok, "{text}");
+}
+
+/// A Rust project: the emit step writes a cargo package, the build step runs cargo, and the port
+/// prints what the reference prints.
+#[test]
+fn the_pipeline_builds_a_rust_port() {
+    if !available("cargo") {
+        eprintln!("cargo is not on the PATH: the Rust pipeline is skipped");
+        return;
+    }
+    let dir = project_with("rust", r#"{ "name": "control", "exe": "ref/control64.exe", "lang": "rust" }"#);
+    let (ok, text) = ras(&dir, &[]);
+    assert!(ok, "{text}");
+    for file in [
+        "src/gen/Cargo.toml",
+        "src/gen/src/main.rs",
+        "src/gen/src/rhipper.rs",
+        "src/gen/src/data.rs",
+        "src/gen/src/program.rs",
+        "build/functions.json",
+    ] {
+        assert!(dir.join(file).is_file(), "{file} is missing");
+    }
+    let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/functions.json")).unwrap()).unwrap();
+    assert!(table.as_array().is_some_and(|a| a.iter().any(|e| e["file"] == "src/program.rs")), "{table}");
+    assert!(dir.join("build/cargo/release/control.exe").is_file(), "no port under build/cargo");
+    let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
+    let run_log = std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
+    assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
 }

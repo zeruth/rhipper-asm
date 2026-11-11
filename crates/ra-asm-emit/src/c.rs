@@ -13,6 +13,7 @@ use std::fmt::Write;
 
 use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Type, ValueId};
 
+use crate::common::{Defs, parenthesized, strip_parens, trap_count};
 use crate::structure::{Cond, Graph, Stmt, structure};
 
 /// The language the backend writes: C, or the same source as C++ (`extern "C"` linkage, `.cpp`
@@ -216,13 +217,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
         .map(|f| {
             let mut text = String::new();
             let header_lines = emit_function(&mut text, f, &prototypes[&f.name], options.names.get(&f.name).map(String::as_str));
-            let traps = f
-                .blocks
-                .iter()
-                .flat_map(|b| &b.instrs)
-                .filter(|i| matches!(&i.inst, Inst::Call { callee: Callee::Direct(n), .. } if n == "ra_trap"))
-                .count();
-            EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps, text }
+            EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps: trap_count(f), text }
         })
         .collect();
     Unit { include, externs, prototypes: prototype_lines, global_types, global_decls, global_defs, functions, dialect: options.dialect }
@@ -462,53 +457,20 @@ fn emit_function(out: &mut String, f: &Function, prototype: &str, source_name: O
 struct Emitter<'a> {
     f: &'a Function,
     labels: &'a HashSet<BlockId>,
-    /// Where each value is defined: its block and index.
-    defs: HashMap<ValueId, (usize, usize)>,
-    /// The values each phi takes from each predecessor: pred -> (phi, operand).
-    phi_moves: HashMap<BlockId, Vec<(ValueId, Operand)>>,
-    uses: HashMap<ValueId, usize>,
+    defs: Defs<'a>,
 }
 
 impl<'a> Emitter<'a> {
     fn new(f: &'a Function, labels: &'a HashSet<BlockId>) -> Self {
-        let uses = f.use_counts();
-        let mut phi_moves: HashMap<BlockId, Vec<(ValueId, Operand)>> = HashMap::new();
-        let mut defs = HashMap::new();
-        for (bi, b) in f.blocks.iter().enumerate() {
-            for (ii, i) in b.instrs.iter().enumerate() {
-                if let Some(v) = i.result {
-                    defs.insert(v, (bi, ii));
-                }
-                if let (Some(v), Inst::Phi { incoming, .. }) = (i.result, &i.inst) {
-                    for (o, p) in incoming {
-                        phi_moves.entry(*p).or_default().push((v, o.clone()));
-                    }
-                }
-            }
-        }
-        Self { f, labels, defs, phi_moves, uses }
+        Self { f, labels, defs: Defs::new(f) }
     }
 
     fn def(&self, v: ValueId) -> Option<(&'a Block, usize, &'a Inst)> {
-        let &(bi, ii) = self.defs.get(&v)?;
-        let block = &self.f.blocks[bi];
-        Some((block, ii, &block.instrs[ii].inst))
+        self.defs.def(v)
     }
 
-    /// Whether `v` can be written inline at its one use: pure, used once, in its own block after
-    /// its definition, and for a load, right after it (a store or a call in between could change
-    /// what it reads).
     fn inlinable(&self, v: ValueId) -> bool {
-        let Some((block, index, inst)) = self.def(v) else { return false };
-        if self.uses.get(&v).copied() != Some(1) || inst.has_side_effects() || matches!(inst, Inst::Phi { .. } | Inst::Alloca { .. }) {
-            return false;
-        }
-        let next = block.instrs.get(index + 1);
-        let used_next = next.is_some_and(|n| n.inst.uses().contains(&v)) || (next.is_none() && block.terminator.uses().contains(&v));
-        if matches!(inst, Inst::Load { .. }) {
-            return used_next;
-        }
-        block.instrs[index + 1..].iter().any(|n| n.inst.uses().contains(&v)) || block.terminator.uses().contains(&v)
+        self.defs.inlinable(v)
     }
 
     fn declare_locals(&mut self, out: &mut String) {
@@ -892,7 +854,7 @@ impl<'a> Emitter<'a> {
             }
         }
         // The phis of the successors take their values here, all at once.
-        if let Some(moves) = self.phi_moves.get(&id).cloned() {
+        if let Some(moves) = self.defs.phi_moves.get(&id).cloned() {
             for (phi, o) in &moves {
                 let ty = f.value_type(*phi).clone();
                 let _ = writeln!(out, "{pad}{}_next = {};", name(f, *phi), strip_parens(&self.operand(&ty, o)));
@@ -909,36 +871,6 @@ fn negative_in(ty: &Type, v: i128) -> bool {
             ((v << shift) >> shift) < 0
         }
         _ => false,
-    }
-}
-
-/// `s` without one pair of outer parentheses, when they enclose the whole of it.
-fn strip_parens(s: &str) -> String {
-    if s.starts_with('(') && s.ends_with(')') {
-        let mut depth = 0i32;
-        for (i, c) in s.char_indices() {
-            match c {
-                '(' => depth += 1,
-                ')' => {
-                    depth -= 1;
-                    if depth == 0 && i != s.len() - 1 {
-                        return s.to_owned();
-                    }
-                }
-                _ => {}
-            }
-        }
-        return s[1..s.len() - 1].to_owned();
-    }
-    s.to_owned()
-}
-
-/// `s` in parentheses unless it is one token.
-fn parenthesized(s: &str) -> String {
-    if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || (s.starts_with('(') && strip_parens(s) != s) {
-        s.to_owned()
-    } else {
-        format!("({s})")
     }
 }
 

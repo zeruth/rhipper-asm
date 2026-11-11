@@ -13,8 +13,9 @@
 //! ```
 //!
 //! `exe` is the reference binary and the only required key. Every path is relative to the root.
-//! `gen` is where `ras emit` writes the translation and `lang` its language (`c`, or `cpp` for the
-//! same source with C++ linkage); `sources` are the directories of the hand-written
+//! `gen` is where `ras emit` writes the translation and `lang` its language (`c`; `cpp` for the
+//! same source with C++ linkage; `rust` for a cargo package, built by cargo under `build/cargo`);
+//! `sources` are the directories of the hand-written
 //! port, which the workbench reads and the pipeline does not. `build` is the `CMake` build of the
 //! port, and `run` is how the pipeline starts it: `with`
 //! lists side processes that start before the port and stop after it, and `timeout` in seconds stops
@@ -50,7 +51,7 @@ pub(crate) struct Project {
     pub exe: PathBuf,
     /// Where `ras emit` writes the translation.
     pub gen_dir: PathBuf,
-    /// The language of the translation: `c` or `cpp`.
+    /// The language of the translation: `c`, `cpp` or `rust`.
     pub lang: String,
     pub build: Build,
     pub run: Run,
@@ -121,14 +122,24 @@ impl Project {
         self.build_dir().join("pipeline")
     }
 
-    /// The executable of the port: `run.exe`, else the target in the `CMake` output directory, in
-    /// its configuration's subdirectory (a Visual Studio generator) or not (Ninja).
+    /// Whether the translation is Rust, built by cargo instead of `CMake`.
+    pub(crate) fn is_rust(&self) -> bool {
+        self.lang.eq_ignore_ascii_case("rust") || self.lang.eq_ignore_ascii_case("rs")
+    }
+
+    /// The executable of the port: `run.exe`, else the binary of the cargo package under
+    /// `build/cargo` for Rust, else the target in the `CMake` output directory, in its
+    /// configuration's subdirectory (a Visual Studio generator) or not (Ninja).
     pub(crate) fn port_exe(&self) -> PathBuf {
         if let Some(exe) = &self.run.exe {
             return exe.clone();
         }
-        let bin = self.build.dir.join("bin");
         let name = format!("{}.exe", self.build.target);
+        if self.is_rust() {
+            let profile = if self.build.config.eq_ignore_ascii_case("debug") { "debug" } else { "release" };
+            return self.build_dir().join("cargo").join(profile).join(name);
+        }
+        let bin = self.build.dir.join("bin");
         let multi = bin.join(&self.build.config).join(&name);
         if multi.exists() { multi } else { bin.join(name) }
     }

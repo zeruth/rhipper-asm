@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use serde_json::{Map, Value, json};
 
-use crate::c::{EmittedFile, Unit};
+use crate::c::{EmittedFile, EmittedFunction};
 
 /// What the analysis knows of a function, by its IR name.
 #[derive(Debug, Clone, Default)]
@@ -58,9 +58,9 @@ pub fn format_address(address: u64) -> String {
     format!("{address:#010x}")
 }
 
-/// The function table of `unit`, written as `files`, as a JSON array ordered by address.
-pub fn table(unit: &Unit, files: &[EmittedFile], infos: &HashMap<String, FunctionInfo>) -> String {
-    let emitted: HashMap<&str, &crate::c::EmittedFunction> = unit.functions.iter().map(|f| (f.ir_name.as_str(), f)).collect();
+/// The function table of `functions`, written as `files`, as a JSON array ordered by address.
+pub fn table(functions: &[EmittedFunction], files: &[EmittedFile], infos: &HashMap<String, FunctionInfo>) -> String {
+    let emitted: HashMap<&str, &EmittedFunction> = functions.iter().map(|f| (f.ir_name.as_str(), f)).collect();
     let mut entries: Vec<(u64, Value)> = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
     for file in files {
