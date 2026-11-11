@@ -15,6 +15,7 @@ pub mod promote;
 pub mod prototypes;
 pub mod simplify;
 pub mod stack;
+pub mod widths;
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -74,6 +75,15 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
             // The import wrappers served the machine model; the calls now go to the imports,
             // each declared with the arity the prototype table gives it.
             module.functions.retain(|f| crate::import_of_wrapper(&f.name).is_none());
+            // The widths, to a fixpoint: each narrowing exposes the next through the cleanup.
+            for _ in 0..4 {
+                if !widths::run(module, roots) {
+                    break;
+                }
+                for f in &mut module.functions {
+                    clean(f);
+                }
+            }
             for d in &mut module.declarations {
                 if let Some(arity) = prototypes::arity(&d.name)
                     && d.ty.params.len() == 8

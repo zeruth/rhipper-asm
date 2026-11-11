@@ -169,6 +169,17 @@ fn declaration(ty: &Type, name: &str) -> String {
     }
 }
 
+/// An integer constant read as a signed number of `ty`'s width: `-1` for `0xffffffff` in `i32`.
+fn signed_constant(ty: &Type, v: i128) -> String {
+    let bits = ty.bits().unwrap_or(64).min(64);
+    let shift = 64 - bits;
+    let signed = (((v as u64) << shift) as i64) >> shift;
+    match bits {
+        64 => format!("{signed}ll"),
+        _ => format!("{signed}"),
+    }
+}
+
 /// The signed C type of an integer type.
 fn signed_type(ty: &Type) -> String {
     match ty {
@@ -477,17 +488,20 @@ impl<'a> Emitter<'a> {
                     return format!("!{}", parenthesized(&a));
                 }
                 let b = self.operand(ty, &rhs);
+                // C promotes a type narrower than int, so the result needs the cast back; a
+                // 32-bit or 64-bit operation keeps its type.
+                let c = if matches!(ty, Type::Int(32 | 64)) { String::new() } else { format!("({c})") };
                 match op {
-                    BinOp::Add => format!("({c})({a} + {b})"),
-                    BinOp::Sub => format!("({c})({a} - {b})"),
-                    BinOp::Mul => format!("({c})({a} * {b})"),
+                    BinOp::Add => format!("{c}({a} + {b})"),
+                    BinOp::Sub => format!("{c}({a} - {b})"),
+                    BinOp::Mul => format!("{c}({a} * {b})"),
                     BinOp::UDiv | BinOp::FDiv => format!("({a} / {b})"),
-                    BinOp::SDiv => format!("({c})(({s}){a} / ({s}){b})"),
+                    BinOp::SDiv => format!("{c}(({s}){a} / ({s}){b})"),
                     BinOp::URem => format!("({a} % {b})"),
-                    BinOp::SRem => format!("({c})(({s}){a} % ({s}){b})"),
-                    BinOp::Shl => format!("({c})({a} << {b})"),
-                    BinOp::LShr => format!("({c})({a} >> {b})"),
-                    BinOp::AShr => format!("({c})(({s}){a} >> {b})"),
+                    BinOp::SRem => format!("{c}(({s}){a} % ({s}){b})"),
+                    BinOp::Shl => format!("{c}({a} << {b})"),
+                    BinOp::LShr => format!("{c}({a} >> {b})"),
+                    BinOp::AShr => format!("({}){}", c_type(ty), format_args!("(({s}){a} >> {b})")),
                     BinOp::And => format!("({a} & {b})"),
                     BinOp::Or => format!("({a} | {b})"),
                     BinOp::Xor => format!("({a} ^ {b})"),
@@ -499,7 +513,11 @@ impl<'a> Emitter<'a> {
             }
             Inst::ICmp { cond, ty, lhs, rhs } => {
                 let (a, b) = (self.operand(ty, lhs), self.operand(ty, rhs));
-                let s = signed_type(ty);
+                // A signed compare casts its operands; a constant reads as a signed number instead.
+                let signed = |o: &Operand, text: String| match o {
+                    Operand::Int(v) => signed_constant(ty, *v),
+                    _ => format!("({}){text}", signed_type(ty)),
+                };
                 let (a, b, op) = match cond {
                     ICond::Eq => (a, b, "=="),
                     ICond::Ne => (a, b, "!="),
@@ -507,10 +525,10 @@ impl<'a> Emitter<'a> {
                     ICond::Uge => (a, b, ">="),
                     ICond::Ult => (a, b, "<"),
                     ICond::Ule => (a, b, "<="),
-                    ICond::Sgt => (format!("({s}){a}"), format!("({s}){b}"), ">"),
-                    ICond::Sge => (format!("({s}){a}"), format!("({s}){b}"), ">="),
-                    ICond::Slt => (format!("({s}){a}"), format!("({s}){b}"), "<"),
-                    ICond::Sle => (format!("({s}){a}"), format!("({s}){b}"), "<="),
+                    ICond::Sgt => (signed(lhs, a), signed(rhs, b), ">"),
+                    ICond::Sge => (signed(lhs, a), signed(rhs, b), ">="),
+                    ICond::Slt => (signed(lhs, a), signed(rhs, b), "<"),
+                    ICond::Sle => (signed(lhs, a), signed(rhs, b), "<="),
                 };
                 format!("({a} {op} {b})")
             }
@@ -606,7 +624,7 @@ impl<'a> Emitter<'a> {
                 format!("__builtin_shufflevector({}, {}, {})", self.operand(ty, a), self.operand(ty, b), m.join(", "))
             }
             Inst::Call { fn_ty, callee, args, .. } => {
-                let a: Vec<String> = args.iter().map(|(t, o)| self.operand(t, o)).collect();
+                let a: Vec<String> = args.iter().map(|(t, o)| strip_parens(&self.operand(t, o))).collect();
                 match callee {
                     Callee::Direct(name) if name.starts_with("llvm.") => format!("{}({})", intrinsic(name), a.join(", ")),
                     Callee::Direct(name) => format!("{name}({})", a.join(", ")),
