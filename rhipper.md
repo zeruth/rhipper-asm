@@ -134,11 +134,12 @@
     - 34 ‹task› `ras serve` {c3} [defined]
         objective: JSON-RPC over stdio: project, functions query, function detail (bytes, instructions, IR, source), callers, xrefs, strings; the IDE and its MCP tools call it instead of Python scripts.
         acceptance: The MCP tools of the workbench answer from `ras serve` on a project with no Python installed.
-        notes: Until it exists the workbench calls the subcommands with `--json`: `functions`, `cfg`, `disasm`, `callers` and `xrefs` (the last two added 2026-11-10: every call, jump, address, memory or immediate reference and every relocated data pointer into a range).
+        notes: Until it exists the workbench calls the subcommands with `--json`: `functions`, `cfg`, `disasm`, `callers` and `xrefs` (the last two added 2026-11-10: every call, jump, address, memory or immediate reference and every relocated data pointer into a range). The workbench sweep of 2026-11-10 (rhipper-ide) removed Ghidra, Python, the JDK and the Python Rhipper from the tools, the steps, the readers, the views and the MCP tools: `RasFunctions` reads `functions.json`, `RhipperCommandLines` runs `ras pipeline`, the Build tool window parses the clang diagnostics of the build step, and the MCP tools are `rhipper_project`, `run_step`, `stop_step`, `function`, `query_functions`, `lift_summary`, `clangd_diagnostics`, `port_runs`, `step_log`, `disassemble`, `cfg`, `callers`, `xrefs`, `ras` and `open`.
         waits-on: 33
-    - 35 ‹task› The managed install {c2} [defined]
-        objective: The workbench downloads `ras` from this repository's releases into its tools directory, as it does Rhipper today, and a CI workflow here builds and publishes the release.
+    - 35 ‹task› The managed install {c2} [in_progress]
+        objective: The workbench downloads `ras` from this repository's releases into its tools directory, as it did Rhipper, and a CI workflow here builds and publishes the release.
         acceptance: A fresh workbench installs `ras` on first start and shows its version under Tools.
+        notes: The workbench side landed 2026-11-10 (`RhipperTools.RAS` in rhipper-ide): it reads `<releases>/latest/download/version.txt`, downloads `ras-<version>-<os>-<arch>.zip` (`windows`/`macos`/`linux`, `x64`/`arm64`) with its `.sha256`, unpacks it to `<tools>/ras/<version>/ras.exe`, and reads `ras --version` for the version it shows. The release workflow here must publish those three files under the tag `v<version>`; it does not exist yet.
         waits-on: 33
     - 36 ‹task› The facts of the old pipeline {c4} [defined]
         objective: What the Python extractors produced as facts (prototypes, no-return, vtables, switches, pieces, function pointers, pointer globals, float data) is an analysis of the core, run on demand and cached in `build/`.

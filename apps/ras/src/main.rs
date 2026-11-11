@@ -116,6 +116,12 @@ enum Command {
         /// Stop the port after this many seconds and count the run as alive.
         #[arg(long)]
         timeout: Option<u64>,
+        /// The build configuration, such as `Debug`, instead of the project's.
+        #[arg(long)]
+        config: Option<String>,
+        /// Delete the build outputs before the build.
+        #[arg(long)]
+        rebuild: bool,
     },
 }
 
@@ -160,8 +166,8 @@ fn main() -> anyhow::Result<()> {
             let hi = hi.as_deref().map(disasm::parse_address).transpose()?;
             xrefs::xrefs(&ra_asm_pe::load(&pe)?, lo, hi, json)
         }
-        Command::Pipeline { project, from, only, timeout } => {
-            let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout };
+        Command::Pipeline { project, from, only, timeout, config, rebuild } => {
+            let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild };
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
     }

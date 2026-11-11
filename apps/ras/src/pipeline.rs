@@ -48,17 +48,24 @@ impl Step {
 }
 
 /// Which steps run, and how long the port may run.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Options {
     pub from: Option<Step>,
     pub only: Option<Step>,
     /// Stops the port after this many seconds and counts the run as alive; over `run.timeout`.
     pub timeout: Option<u64>,
+    /// The build configuration, such as `Debug`, over `build.config` of the project.
+    pub config: Option<String>,
+    /// Deletes the build outputs before the build.
+    pub rebuild: bool,
 }
 
 /// Runs the pipeline of the project at `root`.
 pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
-    let project = Project::load(root)?;
+    let mut project = Project::load(root)?;
+    if let Some(config) = &options.config {
+        project.build.config.clone_from(config);
+    }
     let steps: Vec<Step> = match (options.only, options.from) {
         (Some(step), _) => vec![step],
         (None, Some(first)) => Step::ALL.into_iter().filter(|s| *s >= first).collect(),
@@ -66,7 +73,7 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
     };
     fs::create_dir_all(project.log_dir())?;
     let progress = Progress { started: Instant::now() };
-    let mut pipeline = Pipeline { project, progress, image: None, timeout: options.timeout };
+    let mut pipeline = Pipeline { project, progress, image: None, timeout: options.timeout, rebuild: options.rebuild };
     for step in steps {
         pipeline.progress.line(step.id());
         let log = pipeline.project.log_dir().join(format!("{}.log", step.id()));
@@ -106,6 +113,7 @@ struct Pipeline {
     /// The reference image, loaded by the first step that needs it.
     image: Option<ra_asm_pe::Image>,
     timeout: Option<u64>,
+    rebuild: bool,
 }
 
 impl Pipeline {
@@ -187,9 +195,21 @@ impl Pipeline {
         write_cmake_lists(project)?;
         let cmake = "cmake";
         let dir = &project.build.dir;
-        if !dir.join("CMakeCache.txt").is_file() {
+        let cache = dir.join("CMakeCache.txt");
+        if !cache.is_file() {
             let mut configure = Command::new(cmake);
             configure.arg("-S").arg(&project.root).arg("-B").arg(dir).args(generator_args(&project.build.config));
+            let outcome = run_logged(&mut configure, log, None)?;
+            if outcome.code != Some(0) {
+                bail!("cmake configure exited with {}", outcome.exit());
+            }
+        } else if let Some(current) = single_config_type(&cache)
+            && current != project.build.config
+        {
+            // A single-configuration generator (Ninja) builds the configuration it was configured
+            // with: configure again for another.
+            let mut configure = Command::new(cmake);
+            configure.arg("-B").arg(dir).arg(format!("-DCMAKE_BUILD_TYPE={}", project.build.config));
             let outcome = run_logged(&mut configure, log, None)?;
             if outcome.code != Some(0) {
                 bail!("cmake configure exited with {}", outcome.exit());
@@ -197,6 +217,9 @@ impl Pipeline {
         }
         let mut build = Command::new(cmake);
         build.arg("--build").arg(dir).args(["--config", &project.build.config, "--parallel", "--target", &project.build.target]);
+        if self.rebuild {
+            build.arg("--clean-first");
+        }
         let outcome = run_logged(&mut build, log, None)?;
         if outcome.code != Some(0) {
             bail!("cmake build exited with {}", outcome.exit());
@@ -281,6 +304,17 @@ fn write_cmake_lists(project: &Project) -> Result<()> {
 
 fn slashes(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+/// The `CMAKE_BUILD_TYPE` of a build directory whose generator builds one configuration (Ninja,
+/// Makefiles); `None` for a multi-configuration generator such as Visual Studio.
+fn single_config_type(cache: &Path) -> Option<String> {
+    let text = fs::read_to_string(cache).ok()?;
+    let generator = text.lines().find_map(|l| l.strip_prefix("CMAKE_GENERATOR:INTERNAL="))?;
+    if generator.starts_with("Visual Studio") || generator == "Xcode" || generator.contains("Multi-Config") {
+        return None;
+    }
+    Some(text.lines().find_map(|l| l.strip_prefix("CMAKE_BUILD_TYPE:STRING=")).unwrap_or("").to_owned())
 }
 
 /// The generator and the compiler of a new build directory: the environment's `CMAKE_GENERATOR`
