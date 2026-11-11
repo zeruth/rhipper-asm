@@ -15,7 +15,7 @@ use ra_asm_x86::X86;
 use ra_asm_x86::iced_x86::{ConditionCode, Instruction, Mnemonic, OpKind, Register as R};
 
 use crate::state::{Flag, Machine};
-use crate::{Lifted, function_name};
+use crate::{Lifted, eh, function_name};
 
 /// The trap codes the runtime prints.
 pub mod trap {
@@ -35,40 +35,54 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
     let name = function_name(f.entry);
     let mut b = FunctionBuilder::new(&name, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
     b.set_address(f.entry);
-    if f.noreturn {
+    // With exceptions, a function whose every path throws still returns: with one in flight.
+    let noreturn = f.noreturn && !lifted.eh;
+    if noreturn {
         b.add_attr("noreturn");
     }
     let state = b.param(0);
     let bits = if image.is_64() { 64 } else { 32 };
+    let frame = if lifted.eh { eh::Frame::of(image, analysis, f) } else { eh::Frame::none() };
+    let in_funclet = |start: u64| frame.funclets.values().any(|(blocks, _)| blocks.iter().any(|b| b.start == start));
     let mut blocks = HashMap::new();
     blocks.insert(f.entry, b.block(&format!("b_{:x}", f.entry)));
     for blk in &f.blocks {
-        if blk.start != f.entry {
+        if blk.start != f.entry && !in_funclet(blk.start) {
             blocks.insert(blk.start, b.block(&format!("b_{:x}", blk.start)));
         }
     }
     let arch = X86::for_pointer_size(image.pointer_size());
-    let _ = analysis;
     let x87 = lifted.x87;
     let mut lifter = Lifter {
         m: Machine { b: &mut b, state, bits, x87 },
         image,
         lifted,
         arch,
+        function_blocks: blocks.clone(),
         blocks,
         register_import_calls: &f.register_import_calls,
         cond: None,
         jump_target: None,
         switch_index: None,
         switch_load_at: None,
+        frame,
+        funclet: None,
+        landings: HashMap::new(),
+        catch_entries: HashMap::new(),
+        copies: 0,
+        block_instrs: Vec::new(),
+        block_index: 0,
     };
+    // A funclet's blocks are lifted as copies, where the landings enter them.
     for blk in &f.blocks {
-        lifter.lift_block(blk);
+        if !lifter.is_funclet_block(blk.start) {
+            lifter.lift_block(blk);
+        }
     }
     let mut built = b.finish();
     // A function that never returns (every path ends in a call to one that never returns) has
     // no `ret` to come back through: a tail call to a no-return import ends in `unreachable`.
-    if f.noreturn {
+    if noreturn {
         for block in &mut built.blocks {
             if let Terminator::Ret(_) = block.terminator {
                 block.terminator = Terminator::Unreachable;
@@ -83,9 +97,13 @@ pub(crate) struct Lifter<'a, 'b> {
     pub(crate) image: &'a Image,
     pub(crate) lifted: &'a mut Lifted,
     arch: X86,
-    blocks: HashMap<u64, BlockId>,
-    /// The calls through a register that holds an import, by address, from the analysis.
-    register_import_calls: &'a HashMap<u64, String>,
+    /// The IR block of each block of the code being lifted: the function's, or a funclet copy's.
+    pub(crate) blocks: HashMap<u64, BlockId>,
+    /// The function's own blocks, which a catch funclet's continuations name.
+    pub(crate) function_blocks: HashMap<u64, BlockId>,
+    /// The calls through a register or a data word that holds an import's slot value, by
+    /// address, from the analysis.
+    pub(crate) register_import_calls: &'a HashMap<u64, String>,
     /// The condition of the conditional jump that ends the current block.
     cond: Option<ValueId>,
     /// The target of the indirect jump that ends the current block.
@@ -94,6 +112,19 @@ pub(crate) struct Lifter<'a, 'b> {
     switch_index: Option<ValueId>,
     /// The instruction that reads the table entry, and the register that holds the index there.
     switch_load_at: Option<(u64, ra_asm_arch::Register)>,
+    /// The function's frame as an exception sees it: its unwind data and its C++ tables.
+    pub(crate) frame: eh::Frame,
+    /// The funclet copy being lifted, if any.
+    pub(crate) funclet: Option<eh::FuncletCopy>,
+    /// The landing blocks, by state and by the depth of the funclet copy they serve.
+    pub(crate) landings: HashMap<(i32, Option<u64>), BlockId>,
+    /// The blocks that enter a catch funclet, by try block, handler and funclet depth.
+    pub(crate) catch_entries: HashMap<(usize, usize, Option<u64>), BlockId>,
+    /// The funclet copies made so far, for their block names.
+    pub(crate) copies: u32,
+    /// The decoded instructions of the current block and the index of the one being lifted.
+    pub(crate) block_instrs: Vec<Instruction>,
+    pub(crate) block_index: usize,
 }
 
 impl Lifter<'_, '_> {
@@ -107,7 +138,7 @@ impl Lifter<'_, '_> {
 
     // region Blocks
 
-    fn lift_block(&mut self, blk: &Block) {
+    pub(crate) fn lift_block(&mut self, blk: &Block) {
         let mut block = self.blocks[&blk.start];
         self.m.b.set_block_address(block, blk.start);
         self.cond = None;
@@ -117,23 +148,30 @@ impl Lifter<'_, '_> {
             T::Switch { index, load_at, .. } => Some((*load_at, *index)),
             _ => None,
         };
+        // The whole block first: a throw site reads the instructions before it.
+        self.block_instrs.clear();
         for i in &blk.instrs {
             let Ok(bytes) = self.image.read(i.address, i.len as usize) else { break };
             let Some(d) = self.arch.decode_full(bytes, i.address) else { break };
-            self.m.b.address = Some(i.address);
+            self.block_instrs.push(d.iced);
+        }
+        for n in 0..self.block_instrs.len() {
+            let i = self.block_instrs[n];
+            self.block_index = n;
+            self.m.b.address = Some(i.ip());
             if self.m.b.has_terminator(block) {
                 break;
             }
             // The switch index, read before the instruction that turns it into a table entry.
             if let Some((at, index)) = self.switch_load_at
-                && at == i.address
+                && at == i.ip()
                 && let Ok(reg) = R::try_from(index.id as usize)
             {
                 let v = self.m.read_gpr(block, reg);
                 let wide = self.m.zext(block, Type::Int(index.bits), v, Type::I64, "switch.index");
                 self.switch_index = Some(wide);
             }
-            block = self.lift_instr(block, &d.iced);
+            block = self.lift_instr(block, &i);
         }
         if self.m.b.has_terminator(block) {
             return;
@@ -186,25 +224,24 @@ impl Lifter<'_, '_> {
                 // A jump the analysis did not resolve: most often a tail call through a pointer.
                 let wide = self.m.zext(block, self.addr_ty(), target, Type::I64, "target");
                 self.runtime_call(block, wide);
-                self.m.b.terminate(block, Terminator::Ret(None));
+                self.ret(block);
             }
             T::TailCall(t) => {
                 if let Some(symbol) = self.lifted.runtime.get(t).cloned() {
-                    self.import_call_as(block, &symbol, true, true);
-                    self.m.pop(block, "ret.addr");
+                    self.runtime_tail_call(block, &symbol);
                 } else {
                     self.call_lifted(block, *t);
+                    self.ret(block);
                 }
-                self.m.b.terminate(block, Terminator::Ret(None));
             }
             T::ImportTailCall(import) => {
                 // The caller's return address is on the stack; the import sees the arguments past it.
                 self.import_call(block, import, true);
                 self.m.pop(block, "ret.addr");
-                self.m.b.terminate(block, Terminator::Ret(None));
+                self.ret(block);
             }
             T::NoReturnCall(_) | T::NoReturnImportCall(_) => self.m.b.terminate(block, Terminator::Unreachable),
-            T::Return => self.m.b.terminate(block, Terminator::Ret(None)),
+            T::Return => self.ret(block),
             T::Trap => self.m.trap(block, last, trap::INT3),
             T::Halt => self.m.trap(block, last, trap::HLT),
             T::Invalid => self.m.trap(block, last, trap::INVALID),
@@ -223,16 +260,28 @@ impl Lifter<'_, '_> {
         }
         let b = self.m.b.block(&format!("tail_{target:x}"));
         if let Some(symbol) = self.lifted.runtime.get(&target).cloned() {
-            self.import_call_as(b, &symbol, true, true);
-            self.m.pop(b, "ret.addr");
-            self.m.b.terminate(b, Terminator::Ret(None));
+            self.runtime_tail_call(b, &symbol);
         } else if self.lifted.functions.contains_key(&target) {
             self.call_lifted(b, target);
-            self.m.b.terminate(b, Terminator::Ret(None));
+            self.ret(b);
         } else {
             self.m.trap(b, target, trap::INVALID);
         }
         b
+    }
+
+    /// A tail call to a function of the C runtime linked into the image: the host's, called with
+    /// the caller's return address still on the stack. One that never returns (`__report_gsfailure`
+    /// after a cookie check) ends the block, as the lifted callee's own body would have: a return
+    /// path past it would hand the caller an undefined result.
+    fn runtime_tail_call(&mut self, block: BlockId, symbol: &str) {
+        self.import_call_as(block, symbol, true, true);
+        if ra_asm_analysis::noreturn::import_never_returns(symbol) {
+            self.m.b.terminate(block, Terminator::Unreachable);
+            return;
+        }
+        self.m.pop(block, "ret.addr");
+        self.ret(block);
     }
 
     // endregion
@@ -906,6 +955,15 @@ impl Lifter<'_, '_> {
                 self.write(block, i, 0, v);
             }
             M::Lea => {
+                // A catch funclet names the block it resumes its parent at: a number for the
+                // switch at its `ret`, never an address of the image.
+                if let Some(target) = Self::absolute_address(i)
+                    && self.is_continuation(target)
+                {
+                    let v = self.m.value_of(block, self.addr_ty(), target as i64);
+                    self.write(block, i, 0, v);
+                    return block;
+                }
                 let addr = self.mem_address(block, i);
                 let bits = self.op_bits(i, 0);
                 let v = self.m.trunc(block, self.addr_ty(), addr, Type::Int(bits), "lea");
@@ -1185,6 +1243,11 @@ impl Lifter<'_, '_> {
                 self.m.write_gpr(block, bp, old);
             }
             M::Call => {
+                // A throw: the exception goes in flight here, and the code lands in its state.
+                if self.lifted.eh && self.called_import(i, ip).as_deref() == Some("_CxxThrowException") {
+                    self.throw_site(block, ip);
+                    return block;
+                }
                 let ret = self.m.value_of(block, self.addr_ty(), next_ip as i64);
                 match i.op_kind(0) {
                     OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64 => {
@@ -1207,6 +1270,7 @@ impl Lifter<'_, '_> {
                         } else if self.lifted.functions.contains_key(&target) {
                             self.m.push(block, ret);
                             self.call_lifted(block, target);
+                            return self.after_call(block, ip);
                         } else {
                             self.warn(format!("{ip:#x}: a call to {target:#x}, which is no function"));
                             self.m.trap(block, ip, trap::INVALID);
@@ -1214,14 +1278,21 @@ impl Lifter<'_, '_> {
                     }
                     OpKind::Memory if i.is_ip_rel_memory_operand() || (i.memory_base() == R::None && i.memory_index() == R::None) => {
                         let slot = if i.is_ip_rel_memory_operand() { i.ip_rel_memory_address() } else { i.memory_displacement64() };
-                        if let Some(import) = self.image.import_at(slot) {
-                            let name = import.display_name();
+                        // The import's own slot, or a data word the analysis found holding the
+                        // slot's value: the import's own convention applies.
+                        let import = self
+                            .image
+                            .import_at(slot)
+                            .map(ra_asm_pe::Import::display_name)
+                            .or_else(|| self.register_import_calls.get(&ip).cloned());
+                        if let Some(name) = import {
                             self.import_call(block, &name, false);
                         } else {
                             let target = self.read(block, i, 0);
                             let wide = self.m.zext(block, self.addr_ty(), target, Type::I64, "target");
                             self.m.push(block, ret);
                             self.runtime_call(block, wide);
+                            return self.after_call(block, ip);
                         }
                     }
                     _ => {
@@ -1234,6 +1305,7 @@ impl Lifter<'_, '_> {
                             let wide = self.m.zext(block, self.addr_ty(), target, Type::I64, "target");
                             self.m.push(block, ret);
                             self.runtime_call(block, wide);
+                            return self.after_call(block, ip);
                         }
                     }
                 }
@@ -1246,7 +1318,7 @@ impl Lifter<'_, '_> {
                     let adjusted = self.m.b.bin(block, BinOp::Add, self.addr_ty(), sp, extra, "sp");
                     self.m.write_sp(block, adjusted);
                 }
-                self.m.b.terminate(block, Terminator::Ret(None));
+                self.ret(block);
             }
             M::Jmp => {
                 if !matches!(i.op_kind(0), OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64) {

@@ -154,10 +154,197 @@ pub unsafe fn ra_resolve_ordinal(dll: &str, ordinal: u32) -> usize {
     function
 }
 
+/// The binding table of a 32-bit program's imports, as `ra_import_pops` holds it: three words per
+/// import, the linked symbol, its DLL and name as `dll\0name\0` (zero for a function of the host's
+/// runtime) and the bytes a call to it pops, then a zero triple; and the DLL's own address of each
+/// name, which a bound slot or `GetProcAddress` hands the program, resolved at startup. `POPS` is
+/// the port's `ra_pops`, which a universal entry point writes.
+static mut IMPORT_POPS: *const u64 = core::ptr::null();
+static mut IMPORT_ADDRESSES: [u64; 1024] = [0; 1024];
+static mut IMPORT_COUNT: usize = 0;
+static mut POPS: *mut u64 = core::ptr::null_mut();
+
+pub unsafe fn ra_init_import_pops(table: *const u64, pops: *mut u64) {
+    IMPORT_POPS = table;
+    POPS = pops;
+    let mut i = 0;
+    while core::ptr::read_unaligned(table.add(3 * i)) != 0 && i < 1024 {
+        let names = core::ptr::read_unaligned(table.add(3 * i + 1)) as usize;
+        if names != 0 {
+            let dll = core::ffi::CStr::from_ptr(names as *const core::ffi::c_char);
+            let name = core::ffi::CStr::from_ptr((names + dll.to_bytes().len() + 1) as *const core::ffi::c_char);
+            let module = LoadLibraryA(dll.as_ptr().cast());
+            if module != 0 {
+                let text = name.to_bytes();
+                let by = if text.first() == Some(&b'#') {
+                    core::str::from_utf8(&text[1..]).ok().and_then(|n| n.parse::<usize>().ok()).unwrap_or(0)
+                } else {
+                    name.as_ptr() as usize
+                };
+                IMPORT_ADDRESSES[i] = GetProcAddress(module, by) as u64;
+            }
+        }
+        i += 1;
+    }
+    IMPORT_COUNT = i;
+}
+
+/// What the x86 function last called through a pointer popped beyond its return address: an
+/// import's pops from the binding table, else what its universal entry point recorded in
+/// `ra_pops`. The record is consumed, so a native function outside the table reads as popping
+/// nothing rather than what an earlier callee popped.
+pub unsafe fn ra_pops_of(target: u64) -> u64 {
+    let recorded = if POPS.is_null() {
+        0
+    } else {
+        let v = *POPS;
+        *POPS = 0;
+        v
+    };
+    for i in 0..IMPORT_COUNT {
+        let entry = IMPORT_POPS.add(3 * i);
+        if core::ptr::read_unaligned(entry) == target || (IMPORT_ADDRESSES[i] != 0 && IMPORT_ADDRESSES[i] == target) {
+            return core::ptr::read_unaligned(entry.add(2));
+        }
+    }
+    recorded
+}
+
 /// The value of an ordinal import before `ra_init` resolved it.
 pub unsafe extern "system" fn ra_unresolved(_: u64, _: u64, _: u64, _: u64, _: u64, _: u64, _: u64, _: u64) -> u64 {
     eprintln!("ra: an import by ordinal called before it was resolved");
     std::process::exit(0xE000_0004u32 as i32)
+}
+
+/// A C++ exception: the thrown object's copy and the types it can be caught as (key,
+/// displacement and size of each). The lift writes the frame handler's walk into the code as a
+/// protocol over these functions: one exception is in flight from its throw until a handler takes
+/// it, suspended while the destructors of the way out run, staged between its match and the
+/// start of its catch body, and caught while the body runs.
+struct Exception {
+    object: Vec<u8>,
+    types: Vec<(u64, u64, u64)>,
+}
+
+#[derive(Default)]
+struct Exceptions {
+    in_flight: Option<std::rc::Rc<Exception>>,
+    staged: Option<std::rc::Rc<Exception>>,
+    caught: Vec<std::rc::Rc<Exception>>,
+    suspended: Vec<Option<std::rc::Rc<Exception>>>,
+}
+
+thread_local! {
+    static EH: std::cell::RefCell<Exceptions> = std::cell::RefCell::new(Exceptions::default());
+}
+
+fn eh_fatal(what: &str) -> ! {
+    eprintln!("ra: {what}");
+    std::process::exit(0xE000_0006u32 as i32)
+}
+
+pub unsafe fn ra_eh_throw(object: u64, size: u64) {
+    let copy = std::slice::from_raw_parts(object as usize as *const u8, size as usize).to_vec();
+    EH.with(|eh| {
+        let mut eh = eh.borrow_mut();
+        if eh.in_flight.is_some() {
+            eh_fatal("a throw while an exception is in flight");
+        }
+        eh.in_flight = Some(std::rc::Rc::new(Exception { object: copy, types: Vec::new() }));
+    });
+}
+
+pub unsafe fn ra_eh_throw_type(key: u64, displacement: u64, size: u64) {
+    EH.with(|eh| {
+        let mut eh = eh.borrow_mut();
+        let Some(e) = eh.in_flight.as_mut().and_then(std::rc::Rc::get_mut) else { eh_fatal("a catchable type with no throw to belong to") };
+        e.types.push((key, displacement, size));
+    });
+}
+
+pub unsafe fn ra_eh_rethrow() {
+    EH.with(|eh| {
+        let mut eh = eh.borrow_mut();
+        if eh.in_flight.is_some() {
+            eh_fatal("a rethrow while an exception is in flight");
+        }
+        let Some(e) = eh.caught.last().cloned() else { eh_fatal("a rethrow with no exception caught") };
+        eh.in_flight = Some(e);
+    });
+}
+
+pub unsafe fn ra_eh_pending() -> u64 {
+    EH.with(|eh| u64::from(eh.borrow().in_flight.is_some()))
+}
+
+pub unsafe fn ra_eh_catches(key: u64, slot: u64, flags: u64) -> u64 {
+    EH.with(|eh| {
+        let mut eh = eh.borrow_mut();
+        let Some(e) = eh.in_flight.clone() else { eh_fatal("a catch with no exception in flight") };
+        let Some(&(_, displacement, size)) = e.types.iter().find(|t| key == 0 || t.0 == key) else { return 0 };
+        if slot != 0 {
+            let subobject = e.object.as_ptr().add(displacement as usize);
+            if flags & 8 != 0 {
+                // By reference: the slot holds a pointer of the program's width.
+                if flags >> 8 == 32 {
+                    *(slot as usize as *mut u32) = subobject as usize as u32;
+                } else {
+                    *(slot as usize as *mut u64) = subobject as usize as u64;
+                }
+            } else {
+                std::ptr::copy_nonoverlapping(subobject, slot as usize as *mut u8, size as usize);
+            }
+        }
+        eh.staged = Some(e);
+        eh.in_flight = None;
+        1
+    })
+}
+
+pub unsafe fn ra_eh_enter_catch() {
+    EH.with(|eh| {
+        let mut eh = eh.borrow_mut();
+        if eh.in_flight.is_some() {
+            eh_fatal("an exception escaped a destructor on the way to a catch");
+        }
+        let Some(e) = eh.staged.take() else { eh_fatal("a catch body with no exception matched") };
+        eh.caught.push(e);
+    });
+}
+
+pub unsafe fn ra_eh_leave_catch() {
+    EH.with(|eh| {
+        if eh.borrow_mut().caught.pop().is_none() {
+            eh_fatal("the end of a catch body with no exception caught");
+        }
+    });
+}
+
+pub unsafe fn ra_eh_suspend() {
+    EH.with(|eh| {
+        let mut eh = eh.borrow_mut();
+        let e = eh.in_flight.take();
+        eh.suspended.push(e);
+    });
+}
+
+pub unsafe fn ra_eh_resume() {
+    EH.with(|eh| {
+        let mut eh = eh.borrow_mut();
+        if eh.in_flight.is_some() {
+            eh_fatal("an exception escaped a destructor while another was unwinding");
+        }
+        let Some(e) = eh.suspended.pop() else { eh_fatal("a resume with no exception suspended") };
+        eh.in_flight = e;
+    });
+}
+
+/// After the entry returns: an exception nothing caught ends the program, as the native
+/// runtime's terminate would.
+pub unsafe fn ra_eh_check_uncaught() {
+    if ra_eh_pending() != 0 {
+        eh_fatal("an exception the program did not catch");
+    }
 }
 
 /// `setjmp` returns 0 once; `longjmp` cannot come back to it: Rust has no non-local jump, so the
@@ -489,20 +676,112 @@ pub unsafe fn ra_x86_initialize_slist_head(head: u64) -> u64 {
 
 unsafe extern "C" {
     fn _controlfp(new: u32, mask: u32) -> u32;
+    fn _clearfp() -> u32;
+    fn _statusfp() -> u32;
+    fn fetestexcept(excepts: i32) -> i32;
+    fn feclearexcept(excepts: i32) -> i32;
 }
 
-/// `_controlfp`: the host's word has no x87 precision control, which the x86 C runtime reports
-/// as `_PC_53` by default and Direct3D sets to `_PC_24`; the shim keeps that field and leaves the
-/// rest (the rounding mode, the exception masks, the denormal control) to the host.
-static mut PRECISION: u32 = 0x10000;
+// The floating-point environment of an x86 program is the x87 control and status words as much as
+// the SSE register: `_controlfp`, `_clearfp` and the C99 fenv functions read and write both. The
+// port keeps the lifted words (the exact x87 unit rounds by the control word and raises its flags
+// in the status word; the double unit and the host's own arithmetic use the host's) and the host's
+// in step: a mode goes to both, a report merges both. The host's word has no precision control, so
+// that field is the lifted word's alone.
+const MCW_EM: u32 = 0x8001f;
+const MCW_RC: u32 = 0x300;
+const MCW_PC: u32 = 0x30000;
+const MCW_IC: u32 = 0x40000;
+
+/// The exception bits of the C runtime's word (`_EM_INEXACT` 1, `_EM_UNDERFLOW` 2, `_EM_OVERFLOW`
+/// 4, `_EM_ZERODIVIDE` 8, `_EM_INVALID` 0x10, `_EM_DENORMAL` 0x80000) from the x87's order
+/// (invalid, denormal, zero divide, overflow, underflow, precision in bits 0 to 5).
+fn crt_flags(x87: u32) -> u32 {
+    ((x87 >> 5) & 1) | ((x87 >> 3) & 2) | ((x87 >> 1) & 4) | ((x87 << 1) & 8) | ((x87 << 4) & 0x10) | if x87 & 2 != 0 { 0x80000 } else { 0 }
+}
+
+fn x87_flags(crt: u32) -> u32 {
+    ((crt >> 4) & 1) | ((crt >> 18) & 2) | ((crt >> 1) & 4) | ((crt << 1) & 8) | ((crt << 3) & 0x10) | ((crt << 5) & 0x20)
+}
+
+/// The C runtime's control word from the x87's: the masks, the rounding mode (bits 10 and 11 to
+/// bits 8 and 9) and the precision (24 bits is `_PC_24` 0x20000, 53 `_PC_53` 0x10000, 64 `_PC_64` 0).
+fn crt_control(cw: u32) -> u32 {
+    let pc = match (cw >> 8) & 3 {
+        0 => 0x20000,
+        2 => 0x10000,
+        _ => 0,
+    };
+    crt_flags(cw & 0x3f) | ((cw >> 2) & MCW_RC) | pc
+}
+
+fn x87_control(crt: u32, cw: u16) -> u16 {
+    let pc = match crt & MCW_PC {
+        0x20000 => 0,
+        0x10000 => 2,
+        _ => 3,
+    };
+    (u32::from(cw) & 0xf0c0 | x87_flags(crt & MCW_EM) | ((crt & MCW_RC) << 2) | (pc << 8)) as u16
+}
+
+unsafe fn x87_cw() -> u16 {
+    *(&raw const crate::data::ra_x87_cw)
+}
+
+unsafe fn x87_sw_flags() -> u32 {
+    crt_flags(u32::from(*(&raw const crate::data::ra_x87_sw)) & 0x3f)
+}
 
 pub unsafe fn ra_x86_controlfp(new: u64, mask: u64) -> u64 {
-    let pc = mask as u32 & 0x30000;
-    if pc != 0 {
-        PRECISION = (PRECISION & !pc) | (new as u32 & pc);
+    let host = _controlfp(new as u32 & !(MCW_PC | MCW_IC), mask as u32 & !(MCW_PC | MCW_IC));
+    let x87 = (crt_control(u32::from(x87_cw())) & !(mask as u32)) | (new as u32 & mask as u32);
+    *(&raw mut crate::data::ra_x87_cw) = x87_control(x87, x87_cw());
+    let own = MCW_EM | MCW_RC | MCW_PC;
+    u64::from((host & !own) | (x87 & own))
+}
+
+pub unsafe fn ra_x86_controlfp_s(current: u64, new: u64, mask: u64) -> u64 {
+    let word = ra_x86_controlfp(new, mask) as u32;
+    if current != 0 {
+        core::ptr::write_unaligned(current as usize as *mut u32, word);
     }
-    let host = _controlfp(new as u32 & !0x30000, mask as u32 & !0x30000);
-    u64::from((host & !0x30000) | PRECISION)
+    0
+}
+
+pub unsafe fn ra_x86_fesetround(mode: u64) -> u64 {
+    if mode & !u64::from(MCW_RC) != 0 {
+        return 1;
+    }
+    ra_x86_controlfp(mode, u64::from(MCW_RC));
+    0
+}
+
+pub unsafe fn ra_x86_statusfp() -> u64 {
+    u64::from(_statusfp() | x87_sw_flags())
+}
+
+pub unsafe fn ra_x86_clearfp() -> u64 {
+    let flags = _clearfp() | x87_sw_flags();
+    *(&raw mut crate::data::ra_x87_sw) &= !0xff;
+    u64::from(flags)
+}
+
+pub unsafe fn ra_x86_fetestexcept(excepts: u64) -> u64 {
+    u64::from((fetestexcept(excepts as i32) as u32 | x87_sw_flags()) & excepts as u32)
+}
+
+pub unsafe fn ra_x86_feclearexcept(excepts: u64) -> u64 {
+    *(&raw mut crate::data::ra_x87_sw) &= !(x87_flags(excepts as u32) as u16);
+    u64::from(feclearexcept(excepts as i32) as u32)
+}
+
+/// The x86 C runtime's square root is the x87's: the result rounded to the precision control, so
+/// a program that set 24 bits (Direct3D's default) finds a float's mantissa in its double. The
+/// double's root rounded to a float is the float's root: 53 bits are enough for the second
+/// rounding to be harmless.
+pub unsafe fn ra_x86_sqrt(x: f64) -> f64 {
+    let r = x.sqrt();
+    if (x87_cw() >> 8) & 3 == 0 { f64::from(r as f32) } else { r }
 }
 
 static mut ARGV32: Vec<u32> = Vec::new();
@@ -542,6 +821,19 @@ pub unsafe fn ra_x86_initial_narrow_environment() -> u64 {
         env.push(0);
     }
     env.as_ptr() as usize as u64
+}
+
+/// The fail-fast reports of the x86 /GS checks (`__report_gsfailure` after a cookie mismatch,
+/// `__report_rangecheckfailure` on an index out of range): the program ends as it would natively,
+/// with STATUS_STACK_BUFFER_OVERRUN.
+pub fn ra_x86_report_gsfailure() -> ! {
+    eprintln!("ra: the stack cookie check failed");
+    std::process::exit(0xC000_0409u32 as i32)
+}
+
+pub fn ra_x86_report_rangecheckfailure() -> ! {
+    eprintln!("ra: an array index was out of range");
+    std::process::exit(0xC000_0409u32 as i32)
 }
 
 /// The thread environment block the lifted code reads through `fs:` (x86) or `gs:` (x64), one per
@@ -675,6 +967,19 @@ struct F80 {
     m: u64,
 }
 
+// The exception flags of the status word, which an operation raises as the hardware does with the
+// exceptions masked: invalid, zero divide, overflow, underflow (a tiny and inexact result) and
+// precision (an inexact one).
+const F80_IE: u16 = 0x01;
+const F80_ZE: u16 = 0x04;
+const F80_OE: u16 = 0x08;
+const F80_UE: u16 = 0x10;
+const F80_PE: u16 = 0x20;
+
+fn f80_raise(flags: u16) {
+    unsafe { *(&raw mut crate::data::ra_x87_sw) |= flags }
+}
+
 unsafe fn f80_unpack(slot: *const u8) -> F80 {
     let m = core::ptr::read_unaligned(slot as *const u64);
     let se = core::ptr::read_unaligned(slot.add(8) as *const u16);
@@ -702,7 +1007,9 @@ unsafe fn f80_write(slot: *mut u8, sign: bool, exponent: u32, m: u64) {
     core::ptr::write_bytes(slot.add(10), 0, 6);
 }
 
+/// The real indefinite: the result of an invalid operation.
 unsafe fn f80_write_indefinite(slot: *mut u8) {
+    f80_raise(F80_IE);
     f80_write(slot, true, 0x7fff, 0xc000_0000_0000_0000);
 }
 
@@ -762,7 +1069,8 @@ fn f80_round(sign: bool, exp: i32, mut m: u128, mut sticky: bool, p: u32, rc: u3
         return (0, 0);
     }
     let mut biased = exp + bias;
-    if biased < 1 {
+    let tiny = biased < 1;
+    if tiny {
         // A denormal: the bits below the format's smallest exponent go into the rounding.
         let s = 1 - biased;
         if s >= 128 {
@@ -779,6 +1087,7 @@ fn f80_round(sign: bool, exp: i32, mut m: u128, mut sticky: bool, p: u32, rc: u3
     let half = 1u128 << (shift - 1);
     let low = m & mask;
     m &= !mask;
+    let inexact = low != 0 || sticky;
     let up = match rc {
         0 => low > half || (low == half && (sticky || m & (1u128 << shift) != 0)),
         1 => sign && (low != 0 || sticky),
@@ -796,10 +1105,19 @@ fn f80_round(sign: bool, exp: i32, mut m: u128, mut sticky: bool, p: u32, rc: u3
         biased = 0;
     }
     if biased >= emax {
+        f80_raise(F80_OE | F80_PE);
         let to_inf = rc == 0 || (rc == 1 && sign) || (rc == 2 && !sign);
         return if to_inf { (emax, 0x8000_0000_0000_0000) } else { (emax - 1, !0u64 << (64 - p)) };
     }
+    if inexact {
+        f80_raise(if tiny { F80_UE | F80_PE } else { F80_PE });
+    }
     (biased, (m >> 64) as u64)
+}
+
+/// Whether a finite value below 2^63 has a fraction: the bits of `m` below the units position.
+fn f80_has_fraction(v: F80) -> bool {
+    v.exp < 0 || v.m << (v.exp + 1) != 0
 }
 
 unsafe fn f80_write_rounded(slot: *mut u8, sign: bool, exp: i32, m: u128, sticky: bool, cw: u64) {
@@ -909,17 +1227,20 @@ pub unsafe fn ra_f80_to_f32(slot: *const u8, cw: u64) -> f32 {
 pub unsafe fn ra_f80_to_int(slot: *const u8, rounding: u64, bits: u64) -> u64 {
     let v = f80_unpack(slot);
     let limit = 1u64 << (bits - 1);
-    match v.kind {
-        F80Kind::Nan | F80Kind::Inf => return limit,
-        F80Kind::Zero => return 0,
-        F80Kind::Finite => {}
+    if v.kind == F80Kind::Zero {
+        return 0;
     }
-    if v.exp >= bits as i32 - 1 {
+    if v.kind != F80Kind::Finite || v.exp >= bits as i32 - 1 {
+        f80_raise(F80_IE);
         return limit;
     }
     let q = f80_to_integer(v, (rounding & 3) as u32);
     if if v.sign { q > limit } else { q >= limit } {
+        f80_raise(F80_IE);
         return limit;
+    }
+    if f80_has_fraction(v) {
+        f80_raise(F80_PE);
     }
     if v.sign { 0u64.wrapping_sub(q) } else { q }
 }
@@ -1043,6 +1364,7 @@ pub unsafe fn ra_f80_div(result: *mut u8, pa: *const u8, pb: *const u8, cw: u64)
         if a.kind == F80Kind::Zero {
             f80_write_indefinite(result);
         } else {
+            f80_raise(F80_ZE);
             f80_write_inf(result, sign);
         }
         return;
@@ -1115,6 +1437,9 @@ pub unsafe fn ra_f80_rndint(result: *mut u8, pa: *const u8, cw: u64) {
         return;
     }
     let q = f80_to_integer(v, f80_rc(cw));
+    if f80_has_fraction(v) {
+        f80_raise(F80_PE);
+    }
     if q == 0 {
         f80_write(result, v.sign, 0, 0);
         return;

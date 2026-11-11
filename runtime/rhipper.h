@@ -111,10 +111,15 @@ struct ra_function_entry { uint64_t address; void *function; };
 #define RA_ENTER(name) do { } while (0)
 #endif
 
-// The runtime functions the driver provides.
+// The runtime functions the driver provides. The driver is C: a C++ port names them with C linkage.
+#ifdef __cplusplus
+extern "C" {
+#endif
 RA_NORETURN void ra_trap(uint64_t address, uint64_t code);
 RA_NORETURN void ra_unsupported(uint64_t address, uint64_t code);
 void ra_call(void *state, uint64_t target);
+// What the x86 function a pointer named popped beyond its return address.
+uint64_t ra_pops_of(uint64_t target);
 void ra_enter(const char *name);
 // The processor's answers, from the host.
 void ra_cpuid(uint64_t leaf, uint64_t subleaf, void *out);
@@ -132,7 +137,21 @@ uint64_t ra_x86_execute_onexit_table(uint64_t table);
 uint64_t ra_x86_p_argv(void);
 uint64_t ra_x86_initial_narrow_environment(void);
 uint64_t ra_x86_initialize_slist_head(uint64_t head);
+// The floating-point environment, which on x86 is the x87 control and status words as much as the
+// SSE register: the runtime keeps the lifted words and the host's in step, and the x86 C runtime's
+// square root rounds by the precision control as the x87's does.
 uint64_t ra_x86_controlfp(uint64_t new_bits, uint64_t mask);
+uint64_t ra_x86_controlfp_s(uint64_t current, uint64_t new_bits, uint64_t mask);
+uint64_t ra_x86_fesetround(uint64_t mode);
+uint64_t ra_x86_statusfp(void);
+uint64_t ra_x86_clearfp(void);
+uint64_t ra_x86_fetestexcept(uint64_t excepts);
+uint64_t ra_x86_feclearexcept(uint64_t excepts);
+double ra_x86_sqrt(double x);
+// The fail-fast reports of the x86 /GS checks: the program ends as it would natively, with
+// STATUS_STACK_BUFFER_OVERRUN.
+RA_NORETURN void ra_x86_report_gsfailure(void);
+RA_NORETURN void ra_x86_report_rangecheckfailure(void);
 // The printf and scanf family through their va_list, the program's dword arguments widened to the
 // host's slots by the format.
 uint64_t ra_x86_vsprintf(uint64_t options, uint64_t buffer, uint64_t count, uint64_t format, uint64_t locale, uint64_t args);
@@ -178,6 +197,26 @@ jmp_buf *ra_jmp_slot(uint64_t buffer);
 #define ra_x86_setjmp3(buffer, ...) ((uint64_t)(uint32_t)setjmp(*ra_jmp_slot(buffer)))
 uint64_t (ra_x86_setjmp3)(uint64_t buffer, uint64_t count);
 RA_NORETURN uint64_t ra_x86_longjmp(uint64_t buffer, uint64_t value);
+
+// C++ exceptions. A throw site hands the object and the types it can be caught as to the runtime,
+// which keeps a copy in flight; a lifted function asks ra_eh_pending after each call and unwinds
+// its own frame when one is in flight; a landing matches a handler by the key of its type (zero
+// for a catch-all), which copies the object into the catch's slot (flags: the handler's
+// adjectives, bit 3 for a catch by reference, and the pointer width in bits 8 and up); the catch
+// body runs between ra_eh_enter_catch and ra_eh_leave_catch; destructors on the way out run with
+// the exception suspended.
+void ra_eh_throw(uint64_t object, uint64_t size);
+void ra_eh_throw_type(uint64_t key, uint64_t displacement, uint64_t size);
+void ra_eh_rethrow(void);
+uint64_t ra_eh_pending(void);
+uint64_t ra_eh_catches(uint64_t key, uint64_t slot, uint64_t flags);
+void ra_eh_enter_catch(void);
+void ra_eh_leave_catch(void);
+void ra_eh_suspend(void);
+void ra_eh_resume(void);
+#ifdef __cplusplus
+}
+#endif
 
 // Float constants from their bits.
 static inline float ra_f32(uint32_t bits) { float f; __builtin_memcpy(&f, &bits, 4); return f; }

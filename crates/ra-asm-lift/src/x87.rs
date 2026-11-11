@@ -753,7 +753,14 @@ impl Lifter<'_, '_> {
                 let sw = self.m.x87_global(block, X87_SW);
                 self.m.b.store(block, Type::I16, 0i64, sw);
             }
-            M::Fnclex | M::Fclex | M::Ffree | M::Fnop => {}
+            M::Fnclex | M::Fclex => {
+                // The exception flags, the stack fault and the summary go; the condition codes stay.
+                let p = self.m.x87_global(block, X87_SW);
+                let sw = self.m.b.load(block, Type::I16, p, "sw");
+                let cleared = self.m.b.bin(block, BinOp::And, Type::I16, sw, 0xff00i64, "sw.c");
+                self.m.b.store(block, Type::I16, cleared, p);
+            }
+            M::Ffree | M::Fnop => {}
             M::Ffreep | M::Fincstp => self.m.fpop(block),
             M::Fdecstp => {
                 let top = self.m.x87_top(block);
