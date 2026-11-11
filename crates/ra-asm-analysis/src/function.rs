@@ -132,6 +132,9 @@ pub struct Function {
     pub origins: Vec<Origin>,
     /// The string literals its instructions address, in first-use order: the address and the text.
     pub strings: Vec<(u64, String)>,
+    /// The calls through a register that holds an import's slot value, by the address of the
+    /// call: calls to that import, with its convention.
+    pub register_import_calls: std::collections::HashMap<u64, String>,
     /// The vtable slots that hold the function: a virtual function of these classes.
     pub virtuals: Vec<VirtualSlot>,
 }

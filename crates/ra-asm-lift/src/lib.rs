@@ -114,6 +114,25 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32) ->
     b.finish()
 }
 
+/// The stub of an import the host lacks: the import's own arity when the table knows it (the
+/// calls take that many arguments), else the adapter's eight; a stop if it is ever reached.
+fn host_lacking_stub(symbol: &str) -> ra_asm_ir::Function {
+    use ra_asm_ir::{Callee, FnType, FunctionBuilder, Terminator};
+    let arity = raise::prototypes::arity(symbol).unwrap_or(8).min(8);
+    let names = ["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7"];
+    let mut b = FunctionBuilder::new(symbol, FnType::new(Type::I64, vec![Type::I64; arity]), &names[..arity]);
+    let block = b.block("entry");
+    b.call(
+        block,
+        FnType::new(Type::Void, vec![Type::I64, Type::I64]),
+        Callee::Direct("ra_unsupported".into()),
+        vec![(Type::I64, 0i64.into()), (Type::I64, 0i64.into())],
+        "",
+    );
+    b.terminate(block, Terminator::Unreachable);
+    b.finish()
+}
+
 /// The options of a lift.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LiftOptions {
@@ -214,6 +233,12 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         address: None,
     });
     for import in &lifted.imports {
+        // An import the 64-bit host has no DLL for (the x86 exception handling of the C
+        // runtime, which only an exception would call) is a stub that stops the program.
+        if raise::prototypes::host_lacks(import) {
+            lifted.module.functions.push(host_lacking_stub(import));
+            continue;
+        }
         lifted.module.declare(Declaration { name: import.clone(), ty: state::import_adapter_type(), conv: CallConv::C, attrs: Vec::new() });
     }
     for (symbol, offset, tail) in &lifted.wrappers {

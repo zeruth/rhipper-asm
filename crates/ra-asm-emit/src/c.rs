@@ -513,6 +513,8 @@ fn emit_function(out: &mut String, f: &Function, prototype: &str, source_name: O
         header_lines = 1;
     }
     let _ = writeln!(out, "{prototype} {{");
+    // The entry hook: nothing, unless the port is built with RA_TRACE, when it names the function.
+    let _ = writeln!(out, "    RA_ENTER(\"{}\");", f.name);
     let graph = Graph::of(f);
     let structured = structure(f, &graph);
     let mut e = Emitter::new(f, &structured.labels);
@@ -725,6 +727,17 @@ impl<'a> Emitter<'a> {
             Inst::Cast { cast: Cast::IntToPtr, value: value @ Operand::Address { .. }, .. } => self.operand(&Type::Ptr, value),
             Inst::Cast { cast, from, value, to } => {
                 let v = self.operand(from, value);
+                // A conversion lane by lane between vectors is the builtin; a C cast between vector
+                // types is a reinterpretation, and only of the same size.
+                if let (Type::Vector(..), Type::Vector(..)) = (from, to)
+                    && *cast != Cast::Bitcast
+                {
+                    return match cast {
+                        Cast::SIToFP | Cast::SExt => format!("__builtin_convertvector(({}){v}, {})", signed_type(from), c_type(to)),
+                        Cast::FPToSI => format!("({})__builtin_convertvector({v}, {})", c_type(to), signed_type(to)),
+                        _ => format!("__builtin_convertvector({v}, {})", c_type(to)),
+                    };
+                }
                 match cast {
                     Cast::Trunc
                     | Cast::ZExt

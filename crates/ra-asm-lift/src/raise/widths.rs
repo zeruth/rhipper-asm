@@ -424,6 +424,16 @@ fn rewrite(f: &mut Function, a: &Analysis, plan: &Plan) -> bool {
             let block = f.blocks[bi].id;
             edits.at_end.entry(block).or_default().append(&mut edits.before);
             f.blocks[bi].terminator = Terminator::Ret(Some((Type::Int(w), narrowed)));
+        } else if let Terminator::Ret(Some((Type::Int(w), Operand::Local(v)))) = &f.blocks[bi].terminator
+            && let Type::Int(have) = f.value_type(*v).clone()
+            && have != *w
+        {
+            // a value narrowed by its own definition comes back to the function's width
+            let (w, o) = (*w, Operand::Local(*v));
+            let widened = narrow(f, &o, w, &mut edits.before, "ret");
+            let block = f.blocks[bi].id;
+            edits.at_end.entry(block).or_default().append(&mut edits.before);
+            f.blocks[bi].terminator = Terminator::Ret(Some((Type::Int(w), widened)));
         }
         // a switch runs at the width its value and its cases fit in
         if let Terminator::Switch { ty, value, default, cases } = &f.blocks[bi].terminator

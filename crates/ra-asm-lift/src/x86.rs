@@ -55,6 +55,7 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
         lifted,
         arch,
         blocks,
+        register_import_calls: &f.register_import_calls,
         cond: None,
         jump_target: None,
         switch_index: None,
@@ -63,7 +64,17 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
     for blk in &f.blocks {
         lifter.lift_block(blk);
     }
-    b.finish()
+    let mut built = b.finish();
+    // A function that never returns (every path ends in a call to one that never returns) has
+    // no `ret` to come back through: a tail call to a no-return import ends in `unreachable`.
+    if f.noreturn {
+        for block in &mut built.blocks {
+            if let Terminator::Ret(_) = block.terminator {
+                block.terminator = Terminator::Unreachable;
+            }
+        }
+    }
+    built
 }
 
 pub(crate) struct Lifter<'a, 'b> {
@@ -72,6 +83,8 @@ pub(crate) struct Lifter<'a, 'b> {
     pub(crate) lifted: &'a mut Lifted,
     arch: X86,
     blocks: HashMap<u64, BlockId>,
+    /// The calls through a register that holds an import, by address, from the analysis.
+    register_import_calls: &'a HashMap<u64, String>,
     /// The condition of the conditional jump that ends the current block.
     cond: Option<ValueId>,
     /// The target of the indirect jump that ends the current block.
@@ -242,7 +255,14 @@ impl Lifter<'_, '_> {
     /// import pops them: the caller's code expects that, so the lift moves `esp` by the import's
     /// argument bytes after the call.
     fn import_call(&mut self, block: BlockId, import: &str, tail: bool) {
-        let symbol = import_symbol(import);
+        let mut symbol = import_symbol(import);
+        // A C runtime import that walks or hands back a table of the program's pointers goes to
+        // the runtime's shim, which keeps the program's pointer width.
+        if self.m.bits == 32
+            && let Some(shim) = crate::raise::prototypes::x86_shim(&symbol)
+        {
+            symbol = shim.to_owned();
+        }
         self.lifted.imports.insert(symbol.clone());
         let stack_offset = match (self.m.bits, tail) {
             (64, false) => 0x20,
@@ -351,16 +371,34 @@ impl Lifter<'_, '_> {
             .sum()
     }
 
-    /// Whether a base relocation names the instruction's immediate: then it is an address.
-    fn immediate_is_relocated(&self, i: &Instruction) -> bool {
+    /// Whether the instruction's immediate is an address of the image: a base relocation names it,
+    /// or, in an image whose relocations were stripped, it falls in a section (the headers do
+    /// not count: `0x400000` is a size more often than an address).
+    fn immediate_is_relocated(&self, i: &Instruction, value: u64) -> bool {
         let bytes = Self::immediate_bytes(i);
-        bytes >= 4 && self.lifted.relocated.contains(&(i.next_ip() - bytes))
+        if bytes < 4 {
+            return false;
+        }
+        if self.lifted.relocated.is_empty() {
+            self.image.section_of(value).is_some()
+        } else {
+            self.lifted.relocated.contains(&(i.next_ip() - bytes))
+        }
     }
 
-    /// Whether a base relocation names the instruction's displacement: then it is an address.
-    fn displacement_is_relocated(&self, i: &Instruction) -> bool {
+    /// Whether the instruction's displacement is an address of the image, by the same evidence. A
+    /// displacement is an address by nature, so one in the headers counts too (the startup code
+    /// reads `__ImageBase` for the PE header).
+    fn displacement_is_relocated(&self, i: &Instruction, value: u64) -> bool {
         let disp = u64::from(i.memory_displ_size());
-        disp >= 4 && self.lifted.relocated.contains(&(i.next_ip() - Self::immediate_bytes(i) - disp))
+        if disp < 4 {
+            return false;
+        }
+        if self.lifted.relocated.is_empty() {
+            self.image.is_mapped(value)
+        } else {
+            self.lifted.relocated.contains(&(i.next_ip() - Self::immediate_bytes(i) - disp))
+        }
     }
 
     /// The address of the memory operand without its segment. In standalone mode a relocated
@@ -372,9 +410,11 @@ impl Lifter<'_, '_> {
             return self.m.value_of(block, ty, op);
         }
         let disp = i.memory_displacement64() as i64;
+        let disp_address = if self.m.bits == 32 { disp as u64 & 0xffff_ffff } else { disp as u64 };
+        let relocated_base = self.lifted.standalone && disp != 0 && self.displacement_is_relocated(i, disp_address);
         let mut acc: Option<ValueId> = None;
-        if self.lifted.standalone && disp != 0 && self.displacement_is_relocated(i) {
-            let op = self.address_operand(disp as u64);
+        if relocated_base {
+            let op = self.address_operand(disp_address);
             acc = Some(self.m.value_of(block, ty.clone(), op));
         }
         let base = i.memory_base();
@@ -394,7 +434,6 @@ impl Lifter<'_, '_> {
                 None => scaled,
             });
         }
-        let relocated_base = self.lifted.standalone && disp != 0 && self.displacement_is_relocated(i);
         match acc {
             Some(a) if disp != 0 && !relocated_base => self.m.b.bin(block, BinOp::Add, ty, a, disp, "addr"),
             Some(a) => a,
@@ -440,8 +479,9 @@ impl Lifter<'_, '_> {
                 let v = Self::immediate(i, n);
                 // `push offset string`, `mov eax, offset table`: in standalone mode the address of
                 // the data global, which a base relocation marks.
-                if self.lifted.standalone && bits >= 32 && self.immediate_is_relocated(i) {
-                    let op = self.address_operand(v as u64 & if bits == 32 { 0xffff_ffff } else { u64::MAX });
+                let value = v as u64 & if bits == 32 { 0xffff_ffff } else { u64::MAX };
+                if self.lifted.standalone && bits >= 32 && self.immediate_is_relocated(i, value) {
+                    let op = self.address_operand(value);
                     return self.m.value_of(block, Type::Int(bits), op);
                 }
                 self.m.value_of(block, Type::Int(bits), v)
@@ -1064,10 +1104,16 @@ impl Lifter<'_, '_> {
                         }
                     }
                     _ => {
-                        let target = self.read(block, i, 0);
-                        let wide = self.m.zext(block, self.addr_ty(), target, Type::I64, "target");
-                        self.m.push(block, ret);
-                        self.runtime_call(block, wide);
+                        // `call reg` with the register holding an import's slot value: the
+                        // analysis resolved it, and the import's own convention applies.
+                        if let Some(import) = self.register_import_calls.get(&ip).cloned() {
+                            self.import_call(block, &import, false);
+                        } else {
+                            let target = self.read(block, i, 0);
+                            let wide = self.m.zext(block, self.addr_ty(), target, Type::I64, "target");
+                            self.m.push(block, ret);
+                            self.runtime_call(block, wide);
+                        }
                     }
                 }
             }
@@ -1564,6 +1610,64 @@ impl Lifter<'_, '_> {
             }
 
             m if crate::x87::is_x87(m) => self.x87(block, i),
+
+            // The processor's answers come from the host: the port runs on a processor at least
+            // as capable as the one the program asks about.
+            M::Cpuid => {
+                let leaf = self.m.read_gpr(block, R::EAX);
+                let leaf = self.m.zext(block, Type::I32, leaf, Type::I64, "leaf");
+                let sub = self.m.read_gpr(block, R::ECX);
+                let sub = self.m.zext(block, Type::I32, sub, Type::I64, "subleaf");
+                let out = self.m.b.alloca(block, Type::array(4, Type::I32), "cpuid");
+                self.m.b.call(
+                    block,
+                    FnType::new(Type::Void, vec![Type::I64, Type::I64, Type::Ptr]),
+                    Callee::Direct("ra_cpuid".into()),
+                    vec![(Type::I64, leaf.into()), (Type::I64, sub.into()), (Type::Ptr, out.into())],
+                    "",
+                );
+                for (n, reg) in [R::EAX, R::EBX, R::ECX, R::EDX].into_iter().enumerate() {
+                    let p = self.m.b.gep(
+                        block,
+                        Type::array(4, Type::I32),
+                        out,
+                        vec![(Type::I64, 0i64.into()), (Type::I64, (n as i64).into())],
+                        "cpuid.p",
+                    );
+                    let v = self.m.b.load(block, Type::I32, p, "cpuid.v");
+                    self.m.write_gpr(block, reg, v);
+                }
+            }
+            M::Xgetbv => {
+                let which = self.m.read_gpr(block, R::ECX);
+                let which = self.m.zext(block, Type::I32, which, Type::I64, "xcr");
+                let v = self.m.intrinsic(block, "ra_xgetbv", Type::I64, vec![(Type::I64, which.into())], "xgetbv");
+                let low = self.m.trunc(block, Type::I64, v, Type::I32, "xcr.lo");
+                let shifted = self.m.b.bin(block, BinOp::LShr, Type::I64, v, 32i64, "xcr.hs");
+                let high = self.m.trunc(block, Type::I64, shifted, Type::I32, "xcr.hi");
+                self.m.write_gpr(block, R::EAX, low);
+                self.m.write_gpr(block, R::EDX, high);
+            }
+            M::Rdtsc => {
+                let v = self.m.intrinsic(block, "ra_rdtsc", Type::I64, vec![], "tsc");
+                let low = self.m.trunc(block, Type::I64, v, Type::I32, "tsc.lo");
+                let shifted = self.m.b.bin(block, BinOp::LShr, Type::I64, v, 32i64, "tsc.hs");
+                let high = self.m.trunc(block, Type::I64, shifted, Type::I32, "tsc.hi");
+                self.m.write_gpr(block, R::EAX, low);
+                self.m.write_gpr(block, R::EDX, high);
+            }
+            M::Stmxcsr | M::Ldmxcsr => {
+                let mxcsr = Operand::Address { global: crate::state::MXCSR.to_owned(), offset: 0 };
+                let p = self.m.b.cast(block, Cast::IntToPtr, Type::I64, mxcsr, Type::Ptr, "mxcsr.p");
+                let address = self.mem_address(block, i);
+                if i.mnemonic() == M::Stmxcsr {
+                    let v = self.m.b.load(block, Type::I32, p, "mxcsr");
+                    self.m.store(block, Type::I32, v, address);
+                } else {
+                    let v = self.m.load(block, Type::I32, address, "mxcsr.m");
+                    self.m.b.store(block, Type::I32, v, p);
+                }
+            }
 
             other => {
                 self.warn(format!("{ip:#x}: {other:?} is not lifted yet"));

@@ -21,8 +21,6 @@ const IMPORTS: &[&str] = &[
     "abort",
     "_abort",
     "terminate",
-    "_c_exit",
-    "_cexit",
     "_o_exit",
     "_o__exit",
     "__fastfail",

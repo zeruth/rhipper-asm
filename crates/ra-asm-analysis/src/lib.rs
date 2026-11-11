@@ -12,6 +12,7 @@
 
 pub mod builder;
 pub mod function;
+pub mod imports;
 pub mod jumptable;
 pub mod noreturn;
 pub mod rtti;
@@ -118,6 +119,20 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
     }
     state.run();
 
+    // Code addresses in the instructions themselves: `push offset callback`, `mov eax, offset fn`.
+    // With relocations they are marked; without, a 32-bit immediate that lands at the start of
+    // code outside every function is one.
+    for _ in 0..4 {
+        let seeds = immediate_seeds(image, &state.functions);
+        if seeds.is_empty() {
+            break;
+        }
+        for (va, origin) in seeds {
+            state.seed(va, origin);
+        }
+        state.run();
+    }
+
     let mut functions = state.functions;
     for f in functions.values_mut() {
         f.noreturn = state.noreturn.contains(&f.entry);
@@ -150,6 +165,31 @@ fn strings_of(image: &Image, function: &Function) -> Vec<(u64, String)> {
         }
     }
     out
+}
+
+/// The code addresses the instructions of the built functions hold as immediates of the address
+/// width, outside every function: the callbacks a program hands out by `push offset f`.
+fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>) -> Vec<(u64, Origin)> {
+    let bits = u16::from(image.pointer_size()) * 8;
+    let mut seeds = Vec::new();
+    for f in functions.values() {
+        for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+            for operand in &i.operands {
+                let Operand::Imm { value, bits: width } = operand else { continue };
+                if *width != bits {
+                    continue;
+                }
+                let va = if bits == 32 { *value as u64 & 0xffff_ffff } else { *value as u64 };
+                if !image.is_code(va) || functions.contains_key(&va) || functions.values().any(|g| g.contains(va)) {
+                    continue;
+                }
+                seeds.push((va, Origin::Pointer(i.address)));
+            }
+        }
+    }
+    seeds.sort_by_key(|(va, _)| *va);
+    seeds.dedup_by_key(|(va, _)| *va);
+    seeds
 }
 
 /// Fills each function's vtable slots from `classes`, and names a function nothing else names after
@@ -262,6 +302,7 @@ impl<'a> State<'a> {
         let ranges = self.ranges_of(entry);
         let built = builder::build(self.image, self.arch, entry, &ranges, &self.known_starts, &self.noreturn);
         let mut function = built.function;
+        function.register_import_calls = imports::resolve(self.image, &mut function);
         function.origins = self.origins.get(&entry).cloned().unwrap_or_default();
         function.name = function::name_for(self.image, &function);
         self.warnings.extend(built.warnings);
@@ -319,20 +360,26 @@ fn exception_extents(image: &Image) -> HashMap<u64, Vec<(u64, u64)>> {
 }
 
 /// Pointer-sized data slots that hold a code address. On x86 the relocations name every absolute
-/// address; on x64 an aligned slot in an initialized data section is the test.
+/// address; on x64, or on x86 with the relocations stripped, an aligned slot in an initialized
+/// data section is the test.
 fn pointer_seeds(image: &Image) -> Vec<(u64, Origin)> {
     let mut seeds = Vec::new();
-    if image.is_64() {
+    if image.is_64() || image.relocations.is_empty() {
+        let width = usize::from(image.pointer_size());
         for section in &image.sections {
             if section.is_code() || section.is_executable() || section.is_uninitialized() || !section.is_readable() {
                 continue;
             }
             let start = image.va(section.virtual_address);
             let Ok(bytes) = image.read_to_section_end(start) else { continue };
-            for (offset, chunk) in bytes.chunks_exact(8).enumerate() {
-                let value = u64::from_le_bytes(chunk.try_into().unwrap());
+            for (offset, chunk) in bytes.chunks_exact(width).enumerate() {
+                let value = if width == 8 {
+                    u64::from_le_bytes(chunk.try_into().unwrap())
+                } else {
+                    u64::from(u32::from_le_bytes(chunk.try_into().unwrap()))
+                };
                 if image.is_code(value) {
-                    seeds.push((value, Origin::Pointer(start + offset as u64 * 8)));
+                    seeds.push((value, Origin::Pointer(start + (offset * width) as u64)));
                 }
             }
         }

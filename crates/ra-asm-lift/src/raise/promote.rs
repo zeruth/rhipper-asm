@@ -802,15 +802,18 @@ impl Rewriter<'_> {
 }
 
 /// Removes the store of the return address that the machine model's `call` pushed: the last
-/// instruction emitted, a store of a constant a few bytes past the call's own address.
+/// store emitted, of a constant a few bytes past the call's own address. In the 32-bit model the
+/// widening of the new stack pointer follows the store; it stays, for the cleanup to drop.
 fn drop_return_address_push(out: &mut Vec<Instruction>, call_address: Option<u64>) {
     let Some(call_address) = call_address else { return };
-    if let Some(Instruction { inst: Inst::Store { ty: Type::Int(_), value: Operand::Int(c), .. }, .. }) = out.last()
+    let window = out.len().saturating_sub(4);
+    let Some(at) = (window..out.len()).rev().find(|&k| matches!(out[k].inst, Inst::Store { .. })) else { return };
+    if let Inst::Store { ty: Type::Int(_), value: Operand::Int(c), .. } = &out[at].inst
         && let Ok(c) = u64::try_from(*c)
         && c > call_address
         && c - call_address <= 16
     {
-        out.pop();
+        out.remove(at);
     }
 }
 

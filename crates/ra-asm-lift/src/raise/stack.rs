@@ -95,17 +95,19 @@ pub fn analyze(
                             info.dynamic = true;
                         }
                     }
-                    Inst::Bin { op: BinOp::Add | BinOp::Sub, ty: Type::Int(_), lhs: Operand::Local(l), rhs: Operand::Int(c), .. } => {
+                    Inst::Bin {
+                        op: BinOp::Add | BinOp::Sub, ty: Type::Int(bits), lhs: Operand::Local(l), rhs: Operand::Int(c), ..
+                    } => {
                         if let (Some(result), Some(&k)) = (i.result, symbolic.get(l)) {
-                            let c = *c as i64;
+                            let c = super::frame::signed(*c, *bits);
                             let off =
                                 if matches!(i.inst, Inst::Bin { op: BinOp::Add, .. }) { k.wrapping_add(c) } else { k.wrapping_sub(c) };
                             symbolic.insert(result, off);
                         }
                     }
-                    Inst::Bin { op: BinOp::Add, ty: Type::Int(_), lhs: Operand::Int(c), rhs: Operand::Local(r), .. } => {
+                    Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Int(c), rhs: Operand::Local(r), .. } => {
                         if let (Some(result), Some(&k)) = (i.result, symbolic.get(r)) {
-                            symbolic.insert(result, k.wrapping_add(*c as i64));
+                            symbolic.insert(result, k.wrapping_add(super::frame::signed(*c, *bits)));
                         }
                     }
                     // The 32-bit model reads the pointer as a dword and widens it back: the same
@@ -146,7 +148,24 @@ pub fn analyze(
                             // that much above the one the push left. An indirect x86 call pops what
                             // its callee says at run time.
                             match callee {
-                                Some(name) if crate::import_of_wrapper(name).is_some() => {}
+                                Some(name) if crate::import_of_wrapper(name).is_some() => {
+                                    // A tail call to an import hands the function's own stack
+                                    // arguments on: the wrapper reads them, so they are the
+                                    // function's parameters.
+                                    if let Some(symbol) = crate::import_of_wrapper(name)
+                                        && name.len() > "imp_".len() + symbol.len()
+                                    {
+                                        // An import the table does not know takes the universal
+                                        // arguments, so whatever the caller passed flows on.
+                                        let arity = super::prototypes::arity(symbol).unwrap_or(8);
+                                        let registers = if target.is_64() { 4 } else { 0 };
+                                        for k in registers..arity {
+                                            let offset = target.first_stack_arg() + (k - registers) as i64 * ptr;
+                                            let e = info.argument_reads.entry(offset).or_insert(0);
+                                            *e = (*e).max((ptr * 8) as u16);
+                                        }
+                                    }
+                                }
                                 Some(name) if name.starts_with("F_") => sp = sp.map(|k| k + ptr + pops_of(name)),
                                 _ if target.is_64() => sp = sp.map(|k| k + ptr),
                                 _ => {

@@ -13,6 +13,76 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
     arity(name).map(|n| 4 * n as u64)
 }
 
+/// The runtime's own version of a C runtime import that a 32-bit program cannot call on the
+/// 64-bit host as it is: the ones that walk a table of pointers (`_initterm` and the onexit
+/// table) or hand back one (`argv`, the environment), where the width of a pointer is the
+/// layout. The shim takes the same arguments and keeps the program's layout.
+pub fn x86_shim(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "_initterm" => "ra_x86_initterm",
+        "_initterm_e" => "ra_x86_initterm_e",
+        "_initialize_onexit_table" => "ra_x86_initialize_onexit_table",
+        "_register_onexit_function" => "ra_x86_register_onexit_function",
+        "_execute_onexit_table" => "ra_x86_execute_onexit_table",
+        "__p___argv" => "ra_x86_p_argv",
+        "_get_initial_narrow_environment" => "ra_x86_initial_narrow_environment",
+        _ => return None,
+    })
+}
+
+/// Whether the 64-bit host has no such import: the x86 structured exception handling of the C
+/// runtime, which the x86 startup code registers and only an exception would call. The port
+/// defines a stub that stops the program if it is ever reached.
+pub fn host_lacks(name: &str) -> bool {
+    matches!(
+        name,
+        "_except_handler4_common"
+            | "_except_handler3"
+            | "_except_handler2"
+            | "__except_handler4"
+            | "__except_handler3"
+            | "_local_unwind2"
+            | "_local_unwind4"
+            | "_global_unwind2"
+            | "_NLG_Notify"
+            | "_EH_prolog"
+            | "_EH_prolog3"
+            | "_EH_epilog3"
+            | "_EH_prolog3_catch"
+            | "_EH_epilog3_catch"
+            | "_EH_prolog3_GS"
+            | "_EH_epilog3_GS"
+            | "_EH_prolog3_catch_GS"
+            | "_EH_epilog3_catch_GS"
+            | "_SEH_prolog4"
+            | "_SEH_epilog4"
+            | "_SEH_prolog4_GS"
+            | "_SEH_epilog4_GS"
+            | "__CxxFrameHandler"
+            | "__CxxFrameHandler2"
+            | "__CxxFrameHandler3"
+            | "__CxxFrameHandler4"
+            | "_CxxThrowException"
+            | "__CxxLongjmpUnwind"
+            | "_chkstk"
+            | "_alloca_probe"
+            | "_alloca_probe_8"
+            | "_alloca_probe_16"
+            | "_ftol"
+            | "_ftol2"
+            | "_ftol2_sse"
+            | "__ftol2"
+            | "_allmul"
+            | "_alldiv"
+            | "_allrem"
+            | "_allshl"
+            | "_allshr"
+            | "_aulldiv"
+            | "_aullrem"
+            | "_aullshr"
+    )
+}
+
 /// Whether `dll` is a C runtime, whose functions are `cdecl`.
 pub fn is_crt_dll(dll: &str) -> bool {
     let d = dll.to_ascii_lowercase();
@@ -27,7 +97,11 @@ pub fn is_crt_dll(dll: &str) -> bool {
 /// The number of integer arguments of a well-known import, by name.
 pub fn arity(name: &str) -> Option<usize> {
     Some(match name {
-        "GetCurrentThreadId"
+        "ra_x86_p_argv"
+        | "ra_x86_initial_narrow_environment"
+        | "__current_exception"
+        | "__current_exception_context"
+        | "GetCurrentThreadId"
         | "GetCurrentProcessId"
         | "GetLastError"
         | "GetTickCount"
@@ -228,7 +302,11 @@ pub fn arity(name: &str) -> Option<usize> {
         | "_wtoi"
         | "_atoi64"
         | "_free_base"
-        | "_get_errno" => 1,
+        | "_get_errno"
+        | "_configthreadlocale"
+        | "_register_thread_local_exe_atexit_callback"
+        | "ra_x86_initialize_onexit_table"
+        | "ra_x86_execute_onexit_table" => 1,
 
         "TerminateProcess"
         | "GetExitCodeProcess"
@@ -309,7 +387,10 @@ pub fn arity(name: &str) -> Option<usize> {
         | "memchr"
         | "_except_handler3"
         | "_XcptFilter"
-        | "strtod" => 2,
+        | "strtod"
+        | "ra_x86_initterm"
+        | "ra_x86_initterm_e"
+        | "ra_x86_register_onexit_function" => 2,
 
         "VirtualFree"
         | "VirtualQuery"

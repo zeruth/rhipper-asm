@@ -263,6 +263,7 @@ impl Builder<'_> {
             noreturn: false,
             origins: Vec::new(),
             strings: Vec::new(),
+            register_import_calls: std::collections::HashMap::new(),
             virtuals: Vec::new(),
         };
         Built { function, warnings: self.warnings }

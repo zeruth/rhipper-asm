@@ -14,8 +14,26 @@ use ra_asm_pe::{Image, RelocKind};
 
 use crate::{DataSection, Lifted};
 
-/// Adds the data sections of `image` to `lifted` as globals.
+/// Adds the data sections of `image` to `lifted` as globals, and the headers as one more: the C
+/// runtime's startup reads the image's own PE headers (`__ImageBase`, the section table) to find
+/// its writable range, and a program reads them for its own resources.
 pub fn add_sections(image: &Image, lifted: &mut Lifted) {
+    let headers = u64::from(image.headers.optional.size_of_headers).min(u64::from(image.size_of_image()));
+    if headers > 0 {
+        let start = image.image_base();
+        lifted.data.push(DataSection { global: "sec_headers".to_owned(), start, end: start + headers });
+        if let Ok(bytes) = image.read(start, headers as usize) {
+            lifted.module.globals.push(Global {
+                name: "sec_headers".to_owned(),
+                ty: Type::array(headers, Type::I8),
+                init: Some(Const::Bytes(bytes.to_vec())),
+                constant: true,
+                linkage: Linkage::External,
+                align: 16,
+                address: Some(start),
+            });
+        }
+    }
     // The sections first, so a pointer from one into another resolves whatever the order.
     for section in &image.sections {
         if section.is_code() || section.is_executable() || !section.is_readable() || section.mapped_size() == 0 {
@@ -47,8 +65,27 @@ pub fn add_sections(image: &Image, lifted: &mut Lifted) {
         }
         let Ok(bytes) = image.read_to_section_end(data.start) else { continue };
 
-        // The words that hold addresses: the relocated ones, and the import slots.
+        // The words that hold addresses: the relocated ones, and the import slots. In an image
+        // whose relocations were stripped, an aligned word that names a function's entry or a
+        // byte of a data section is taken for an address (a number that happens to fall in the
+        // image's range would be too: such an image gives no better evidence).
         let mut words: BTreeMap<u64, Const> = BTreeMap::new();
+        if image.relocations.is_empty() {
+            for (offset, chunk) in bytes[..size as usize].chunks_exact(width as usize).enumerate() {
+                let value = if width == 8 {
+                    u64::from_le_bytes(chunk.try_into().unwrap())
+                } else {
+                    u64::from(u32::from_le_bytes(chunk.try_into().unwrap()))
+                };
+                let named = lifted.functions.contains_key(&value) || (image.section_of(value).is_some_and(|s| !s.is_code()));
+                if !named {
+                    continue;
+                }
+                if let Some(ra_asm_ir::Operand::Address { global, offset: o }) = lifted.address_of(value) {
+                    words.insert(offset as u64 * width, Const::Address { global, offset: o });
+                }
+            }
+        }
         for r in &image.relocations {
             if r.va < data.start || r.va + width > data.end {
                 continue;

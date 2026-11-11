@@ -11,6 +11,7 @@
 // lifted or native code, reaches the host function.
 //
 // The runtime functions the lifted code calls: ra_trap, ra_unsupported and ra_call.
+#include <intrin.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,13 +55,136 @@ __declspec(noreturn) void ra_trap(uint64_t address, uint64_t code) {
     ExitProcess(0xE0000001);
 }
 
+// The entry hook of a port built with RA_TRACE: each function names itself as it starts.
+void ra_enter(const char *name) {
+    fputs("> ", stderr);
+    fputs(name, stderr);
+    fputs("\n", stderr);
+    fflush(stderr);
+}
+
 __declspec(noreturn) void ra_unsupported(uint64_t address, uint64_t code) {
     fprintf(stderr, "ra: an instruction the lift does not cover at 0x%llx (code %llu)\n", (unsigned long long)address, (unsigned long long)code);
     fflush(stderr);
     ExitProcess(0xE0000002);
 }
 
+// The processor's answers, from the host: the port runs on a processor at least as capable as
+// the one the program asks about.
+void ra_cpuid(uint64_t leaf, uint64_t subleaf, void *out) {
+    int regs[4];
+    __cpuidex(regs, (int)leaf, (int)subleaf);
+    memcpy(out, regs, sizeof regs);
+}
+
+uint64_t ra_xgetbv(uint64_t which) {
+    return _xgetbv((unsigned)which);
+}
+
+uint64_t ra_rdtsc(void) {
+    return __rdtsc();
+}
+
 typedef uint64_t (*native8)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+
+// The C runtime functions a 32-bit program calls that walk or hand back a table of its own
+// pointers. A pointer the program holds is a dword, and a function it names is its universal
+// entry point, which takes eight integers and ignores the ones it does not need; the host's own
+// versions would read the tables with 64-bit strides.
+static uint64_t call_universal(uint32_t function) {
+    native8 f = (native8)(uintptr_t)function;
+    return f(0, 0, 0, 0, 0, 0, 0, 0);
+}
+
+uint64_t ra_x86_initterm(uint64_t first, uint64_t last) {
+    for (uint32_t *p = (uint32_t *)(uintptr_t)first; (uintptr_t)p < (uintptr_t)last; p++) {
+        if (*p) call_universal(*p);
+    }
+    return 0;
+}
+
+uint64_t ra_x86_initterm_e(uint64_t first, uint64_t last) {
+    for (uint32_t *p = (uint32_t *)(uintptr_t)first; (uintptr_t)p < (uintptr_t)last; p++) {
+        if (*p) {
+            uint32_t result = (uint32_t)call_universal(*p);
+            if (result) return result;
+        }
+    }
+    return 0;
+}
+
+// The onexit tables: the program's structure of three dwords names a table; its functions live
+// here, by the table's address.
+struct onexit_table { uint32_t address; uint32_t count; uint32_t functions[256]; };
+static struct onexit_table onexit_tables[8];
+
+static struct onexit_table *onexit_table_of(uint64_t table, int create) {
+    for (int i = 0; i < 8; i++) {
+        if (onexit_tables[i].address == (uint32_t)table) return &onexit_tables[i];
+    }
+    if (!create) return NULL;
+    for (int i = 0; i < 8; i++) {
+        if (onexit_tables[i].address == 0) {
+            onexit_tables[i].address = (uint32_t)table;
+            onexit_tables[i].count = 0;
+            return &onexit_tables[i];
+        }
+    }
+    return NULL;
+}
+
+uint64_t ra_x86_initialize_onexit_table(uint64_t table) {
+    if (!table) return (uint64_t)-1;
+    memset((void *)(uintptr_t)table, 0, 12);
+    struct onexit_table *t = onexit_table_of(table, 1);
+    if (t) t->count = 0;
+    return 0;
+}
+
+uint64_t ra_x86_register_onexit_function(uint64_t table, uint64_t function) {
+    struct onexit_table *t = onexit_table_of(table, 1);
+    if (!t || t->count >= 256) return (uint64_t)-1;
+    t->functions[t->count++] = (uint32_t)function;
+    return 0;
+}
+
+uint64_t ra_x86_execute_onexit_table(uint64_t table) {
+    struct onexit_table *t = onexit_table_of(table, 0);
+    if (!t) return 0;
+    while (t->count > 0) {
+        uint32_t function = t->functions[--t->count];
+        if (function) call_universal(function);
+    }
+    return 0;
+}
+
+// argv and the environment as dword pointers to the host's strings, which sit below 4 GB.
+static int ra_argc;
+static char **ra_argv;
+static uint32_t *argv32;
+static uint32_t argv32_address;
+static uint32_t *environment32;
+
+uint64_t ra_x86_p_argv(void) {
+    if (!argv32) {
+        argv32 = (uint32_t *)calloc((size_t)ra_argc + 1, sizeof(uint32_t));
+        for (int i = 0; i < ra_argc; i++) argv32[i] = (uint32_t)(uintptr_t)ra_argv[i];
+        argv32_address = (uint32_t)(uintptr_t)argv32;
+    }
+    return (uint64_t)(uintptr_t)&argv32_address;
+}
+
+uint64_t ra_x86_initial_narrow_environment(void) {
+    if (!environment32) {
+        char *block = GetEnvironmentStringsA();
+        size_t count = 0;
+        for (char *p = block; *p; p += strlen(p) + 1) count++;
+        environment32 = (uint32_t *)calloc(count + 1, sizeof(uint32_t));
+        size_t i = 0;
+        for (char *p = block; *p; p += strlen(p) + 1) environment32[i++] = (uint32_t)(uintptr_t)p;
+    }
+    return (uint64_t)(uintptr_t)environment32;
+}
 
 // An indirect call in the machine model: a lifted function by its address, else native code
 // through the universal adapter. The lifted caller pushed the return address; native code does
@@ -104,8 +228,10 @@ static void bind_imports(void) {
         }
         FARPROC f = ra_imports[i].name ? GetProcAddress(module, ra_imports[i].name) : GetProcAddress(module, MAKEINTRESOURCEA(ra_imports[i].ordinal));
         if (!f) {
-            fprintf(stderr, "ra: %s has no %s\n", ra_imports[i].dll, ra_imports[i].name ? ra_imports[i].name : "(ordinal)");
-            ExitProcess(0xE0000004);
+            // The host's DLL lacks it (the x86 exception handling of the C runtime, say): the
+            // slot stays empty, and a call through it would fault at address zero.
+            fprintf(stderr, "ra: %s has no %s; its slot stays empty\n", ra_imports[i].dll, ra_imports[i].name ? ra_imports[i].name : "(ordinal)");
+            continue;
         }
 #if RA_POINTER_SIZE == 4
         *(uint32_t *)(uintptr_t)ra_imports[i].slot = (uint32_t)(uintptr_t)f;
@@ -153,11 +279,46 @@ static void install_trampolines(void) {
 #endif
 #endif  // RA_STANDALONE
 
+// The thread environment block the lifted code reads through fs: (x86) or gs: (x64): the fields
+// a program and its C runtime look at, in the layout of the program's pointer width, from the
+// host's own thread. The stack bounds and the block's own address fit the width: a 32-bit port
+// runs with every address below 4 GB. The environment block of the process stays zero.
+extern uint8_t ra_teb[];
+
+static void init_teb(void) {
+    NT_TIB *tib = (NT_TIB *)NtCurrentTeb();
+    uintptr_t self = (uintptr_t)ra_teb;
+    uintptr_t stack_base = (uintptr_t)tib->StackBase;
+    uintptr_t stack_limit = (uintptr_t)tib->StackLimit;
+    uint32_t pid = GetCurrentProcessId();
+    uint32_t tid = GetCurrentThreadId();
+#if RA_POINTER_SIZE == 4
+    *(uint32_t *)(ra_teb + 0x04) = (uint32_t)stack_base;
+    *(uint32_t *)(ra_teb + 0x08) = (uint32_t)stack_limit;
+    *(uint32_t *)(ra_teb + 0x18) = (uint32_t)self;
+    *(uint32_t *)(ra_teb + 0x20) = pid;
+    *(uint32_t *)(ra_teb + 0x24) = tid;
+#else
+    *(uint64_t *)(ra_teb + 0x08) = stack_base;
+    *(uint64_t *)(ra_teb + 0x10) = stack_limit;
+    *(uint64_t *)(ra_teb + 0x30) = self;
+    *(uint64_t *)(ra_teb + 0x40) = pid;
+    *(uint64_t *)(ra_teb + 0x48) = tid;
+#endif
+}
+
 // A crash of the lifted code names the place: the host address as an offset into this module,
 // which llvm-symbolizer maps to the lifted function and the image address its line comment
-// carries, and for an access violation the address it touched.
+// carries, and for an access violation the address it touched. A vectored handler, so a program
+// that installs its own unhandled-exception filter does not take the report away.
 static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
     const EXCEPTION_RECORD *r = info->ExceptionRecord;
+    // The exceptions a program raises and handles itself are not crashes.
+    if (r->ExceptionCode != EXCEPTION_ACCESS_VIOLATION && r->ExceptionCode != EXCEPTION_ILLEGAL_INSTRUCTION
+        && r->ExceptionCode != EXCEPTION_STACK_OVERFLOW && r->ExceptionCode != EXCEPTION_PRIV_INSTRUCTION
+        && r->ExceptionCode != EXCEPTION_BREAKPOINT && r->ExceptionCode != EXCEPTION_INT_DIVIDE_BY_ZERO) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
     uintptr_t module = (uintptr_t)GetModuleHandleA(NULL);
     uintptr_t at = (uintptr_t)r->ExceptionAddress;
     fprintf(stderr, "ra: exception 0x%lx at 0x%llx", r->ExceptionCode, (unsigned long long)at);
@@ -171,7 +332,10 @@ static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
 }
 
 int main(int argc, char **argv) {
-    SetUnhandledExceptionFilter(on_exception);
+    AddVectoredExceptionHandler(1, on_exception);
+    init_teb();
+    ra_argc = argc;
+    ra_argv = argv;
 #ifdef RA_STANDALONE
     // The data sections are globals of the program and the imports are linked by name: there is
     // no image to map and nothing to bind.

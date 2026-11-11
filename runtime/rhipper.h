@@ -3,8 +3,9 @@
 #ifndef RHIPPER_H
 #define RHIPPER_H
 
+// Only stdint.h: a C runtime header would declare the functions the translation imports and
+// declares itself, with other types.
 #include <stdint.h>
-#include <string.h>
 
 #if defined(_MSC_VER) && !defined(__clang__)
 #define RA_NORETURN __declspec(noreturn)
@@ -42,6 +43,18 @@ typedef int32_t ra_v4i32 __attribute__((vector_size(16)));
 typedef int64_t ra_v2i64 __attribute__((vector_size(16)));
 typedef float ra_v4f32 __attribute__((vector_size(16)));
 typedef double ra_v2f64 __attribute__((vector_size(16)));
+// The half and quarter vectors: what a conversion of two lanes or a 64-bit move leaves.
+typedef uint8_t ra_v8u8 __attribute__((vector_size(8)));
+typedef uint16_t ra_v4u16 __attribute__((vector_size(8)));
+typedef uint32_t ra_v2u32 __attribute__((vector_size(8)));
+typedef int8_t ra_v8i8 __attribute__((vector_size(8)));
+typedef int16_t ra_v4i16 __attribute__((vector_size(8)));
+typedef int32_t ra_v2i32 __attribute__((vector_size(8)));
+typedef float ra_v2f32 __attribute__((vector_size(8)));
+typedef uint8_t ra_v4u8 __attribute__((vector_size(4)));
+typedef uint16_t ra_v2u16 __attribute__((vector_size(4)));
+typedef int8_t ra_v4i8 __attribute__((vector_size(4)));
+typedef int16_t ra_v2i16 __attribute__((vector_size(4)));
 typedef uint8_t ra_v1u1 __attribute__((vector_size(1)));
 typedef uint8_t ra_v2u1 __attribute__((vector_size(2)));
 typedef uint8_t ra_v4u1 __attribute__((vector_size(4)));
@@ -66,23 +79,56 @@ RA_UNALIGNED(ra_v4i32, ra_ua_v4i32)
 RA_UNALIGNED(ra_v2i64, ra_ua_v2i64)
 RA_UNALIGNED(ra_v4f32, ra_ua_v4f32)
 RA_UNALIGNED(ra_v2f64, ra_ua_v2f64)
+RA_UNALIGNED(ra_v8u8, ra_ua_v8u8)
+RA_UNALIGNED(ra_v4u16, ra_ua_v4u16)
+RA_UNALIGNED(ra_v2u32, ra_ua_v2u32)
+RA_UNALIGNED(ra_v8i8, ra_ua_v8i8)
+RA_UNALIGNED(ra_v4i16, ra_ua_v4i16)
+RA_UNALIGNED(ra_v2i32, ra_ua_v2i32)
+RA_UNALIGNED(ra_v2f32, ra_ua_v2f32)
+RA_UNALIGNED(ra_v4u8, ra_ua_v4u8)
+RA_UNALIGNED(ra_v2u16, ra_ua_v2u16)
+RA_UNALIGNED(ra_v4i8, ra_ua_v4i8)
+RA_UNALIGNED(ra_v2i16, ra_ua_v2i16)
 
 struct ra_opaque { uint8_t byte; };
 struct ra_function_entry { uint64_t address; void *function; };
+
+// The entry hook of every function: nothing, unless the port is built with RA_TRACE, when each
+// function names itself on stderr as it starts, for finding where a port goes wrong.
+#ifdef RA_TRACE
+#define RA_ENTER(name) ra_enter(name)
+#else
+#define RA_ENTER(name) do { } while (0)
+#endif
 
 // The runtime functions the driver provides.
 RA_NORETURN void ra_trap(uint64_t address, uint64_t code);
 RA_NORETURN void ra_unsupported(uint64_t address, uint64_t code);
 void ra_call(void *state, uint64_t target);
+void ra_enter(const char *name);
+// The processor's answers, from the host.
+void ra_cpuid(uint64_t leaf, uint64_t subleaf, void *out);
+uint64_t ra_xgetbv(uint64_t which);
+uint64_t ra_rdtsc(void);
+// The C runtime functions a 32-bit program calls that walk or hand back a table of its own
+// pointers: the runtime's versions keep the program's pointer width.
+uint64_t ra_x86_initterm(uint64_t first, uint64_t last);
+uint64_t ra_x86_initterm_e(uint64_t first, uint64_t last);
+uint64_t ra_x86_initialize_onexit_table(uint64_t table);
+uint64_t ra_x86_register_onexit_function(uint64_t table, uint64_t function);
+uint64_t ra_x86_execute_onexit_table(uint64_t table);
+uint64_t ra_x86_p_argv(void);
+uint64_t ra_x86_initial_narrow_environment(void);
 
 // Float constants from their bits.
-static inline float ra_f32(uint32_t bits) { float f; memcpy(&f, &bits, 4); return f; }
-static inline double ra_f64(uint64_t bits) { double d; memcpy(&d, &bits, 8); return d; }
+static inline float ra_f32(uint32_t bits) { float f; __builtin_memcpy(&f, &bits, 4); return f; }
+static inline double ra_f64(uint64_t bits) { double d; __builtin_memcpy(&d, &bits, 8); return d; }
 static inline int ra_isnan(double v) { return v != v; }
 static inline double ra_frem(double a, double b) { return __builtin_fmod(a, b); }
 
 // Bit casts between the widths the lift uses.
-#define RA_BITCAST(name, from, to) static inline to ra_bitcast_##name(from v) { to r; memcpy(&r, &v, sizeof r); return r; }
+#define RA_BITCAST(name, from, to) static inline to ra_bitcast_##name(from v) { to r; __builtin_memcpy(&r, &v, sizeof r); return r; }
 RA_BITCAST(u32_f32, uint32_t, float)
 RA_BITCAST(f32_u32, float, uint32_t)
 RA_BITCAST(u64_f64, uint64_t, double)

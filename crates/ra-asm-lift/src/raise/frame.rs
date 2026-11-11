@@ -37,14 +37,14 @@ pub fn run(f: &mut Function) -> bool {
             for i in &b.instrs {
                 let Some(v) = i.result else { continue };
                 let off = match &i.inst {
-                    Inst::Bin { op: BinOp::Add, ty: Type::Int(_), lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
-                        offsets.get(l).map(|k| k + *c as i64)
+                    Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
+                        offsets.get(l).map(|k| k + signed(*c, *bits))
                     }
-                    Inst::Bin { op: BinOp::Sub, ty: Type::Int(_), lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
-                        offsets.get(l).map(|k| k - *c as i64)
+                    Inst::Bin { op: BinOp::Sub, ty: Type::Int(bits), lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
+                        offsets.get(l).map(|k| k - signed(*c, *bits))
                     }
-                    Inst::Bin { op: BinOp::Add, ty: Type::Int(_), lhs: Operand::Int(c), rhs: Operand::Local(r) } => {
-                        offsets.get(r).map(|k| k + *c as i64)
+                    Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Int(c), rhs: Operand::Local(r) } => {
+                        offsets.get(r).map(|k| k + signed(*c, *bits))
                     }
                     // The 32-bit model narrows the address to a dword and widens it back.
                     Inst::Cast { cast: Cast::IntToPtr | Cast::Trunc | Cast::ZExt | Cast::SExt, value: Operand::Local(p), .. } => {
@@ -213,6 +213,17 @@ pub fn run(f: &mut Function) -> bool {
     }
     f.replace_uses(&replace);
     changed
+}
+
+/// A constant of a `bits`-wide integer operation as a signed number: a 32-bit `-16` may be held
+/// as `4294967280`.
+pub fn signed(c: i128, bits: u16) -> i64 {
+    if bits >= 64 {
+        return c as i64;
+    }
+    let mask = (1i128 << bits) - 1;
+    let v = c & mask;
+    if v >> (bits - 1) & 1 == 1 { (v - (1i128 << bits)) as i64 } else { v as i64 }
 }
 
 fn offset_name(k: i64) -> String {

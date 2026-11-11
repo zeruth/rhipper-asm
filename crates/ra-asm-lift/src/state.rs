@@ -41,6 +41,15 @@ pub fn declare_runtime(module: &mut ra_asm_ir::Module) {
         attrs: vec!["noreturn".into()],
     });
     module.declare(Declaration { name: "ra_call".into(), ty: void(vec![Type::Ptr, Type::I64]), conv: CallConv::C, attrs: vec![] });
+    // The processor's own answers, from the host: `cpuid` into four dwords, `xgetbv`, `rdtsc`.
+    module.declare(Declaration {
+        name: "ra_cpuid".into(),
+        ty: void(vec![Type::I64, Type::I64, Type::Ptr]),
+        conv: CallConv::C,
+        attrs: vec![],
+    });
+    module.declare(Declaration { name: "ra_xgetbv".into(), ty: FnType::new(Type::I64, vec![Type::I64]), conv: CallConv::C, attrs: vec![] });
+    module.declare(Declaration { name: "ra_rdtsc".into(), ty: FnType::new(Type::I64, vec![]), conv: CallConv::C, attrs: vec![] });
     module.declare(Declaration {
         name: "ra_unsupported".into(),
         ty: void(vec![Type::I64, Type::I64]),
@@ -158,6 +167,9 @@ pub const TEB_SIZE: u64 = 4096;
 /// What the x86 function last called through a pointer popped beyond its return address: its
 /// universal entry point writes it, the caller reads it to find its stack pointer again.
 pub const POPS: &str = "ra_pops";
+/// The SSE control and status register as the program sets it with `ldmxcsr` and reads it with
+/// `stmxcsr`; the host's own arithmetic keeps its default rounding.
+pub const MXCSR: &str = "ra_mxcsr";
 
 pub fn define_runtime_globals(module: &mut ra_asm_ir::Module) {
     use ra_asm_ir::{Const, Global, Linkage};
@@ -176,11 +188,12 @@ pub fn define_runtime_globals(module: &mut ra_asm_ir::Module) {
     module.globals.push(global(X87_SW, Type::I16, Const::Int(0), 2));
     module.globals.push(global(TEB, Type::array(TEB_SIZE, Type::I8), Const::Zero, 16));
     module.globals.push(global(POPS, Type::I64, Const::Int(0), 8));
+    module.globals.push(global(MXCSR, Type::I32, Const::Int(0x1f80), 4));
 }
 
 /// Whether `name` is one of the globals of [`define_runtime_globals`].
 pub fn is_runtime_global(name: &str) -> bool {
-    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | TEB | POPS)
+    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | TEB | POPS | MXCSR)
 }
 
 /// The state helpers over one function under construction.

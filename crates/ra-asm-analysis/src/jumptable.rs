@@ -5,6 +5,9 @@
 //! - MSVC x64: `lea base, [__ImageBase]; mov v, [base + idx*4 + table_rva]; add v, base; jmp v`,
 //!   the entries RVAs.
 //! - x86: `jmp [table + idx*4]`, the entries absolute addresses.
+//! - MSVC x86, two levels: `movzx idx2, byte ptr [idx + cases]; jmp [idx2*4 + table]`, where the
+//!   byte table maps a sparse index to a case number. The resolved table is the composition, by
+//!   the original index, so a lift switches on it directly.
 //!
 //! The index is bounded by a `cmp idx, n` and a conditional jump before the table code, in the
 //! same block or the one before it. Without a bound, the entries are read while they point at code.
@@ -99,13 +102,39 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
     match jump.operands.first()? {
         // x86: jmp [table + idx*4]
         Operand::Mem(m) => {
-            let index = m.index?;
+            let mut index = m.index?;
             let base = m.base.map_or(Some(0), |b| constant_of(block, last, b))?;
             let address = base.wrapping_add(m.disp as u64);
             let mut context: Vec<&[Instr]> = vec![block];
             context.extend_from_slice(predecessors);
+            // A two-level table: the index came out of a byte or word table by the real index.
+            let mut cases: Option<(u64, u16, u64)> = None;
+            if let Some(load) = block[..last].iter().rev().find(|i| i.operands.first().and_then(reg_of).is_some_and(|d| same(d, index)))
+                && load.mnemonic == "movzx"
+                && let Some(Operand::Mem(cm)) = load.operands.get(1)
+                && matches!(cm.bits, 8 | 16)
+                && cm.scale <= 1
+                && let (Some(real), None) | (None, Some(real)) = (cm.base, cm.index)
+            {
+                cases = Some((cm.disp as u64, cm.bits, load.address));
+                index = real;
+            }
             let count = bound_of(&context, index);
-            read_table(image, address, m.scale.max(1), count, Relative::Absolute, index, jump.address)
+            let Some((cases_address, case_bits, load_at)) = cases else {
+                return read_table(image, address, m.scale.max(1), count, Relative::Absolute, index, jump.address);
+            };
+            // The case of each index, then the target of each case.
+            let count = count?.min(MAX_ENTRIES);
+            let mut numbers = Vec::with_capacity(count);
+            for n in 0..count {
+                let slot = cases_address + n as u64 * u64::from(case_bits / 8);
+                let case = if case_bits == 8 { image.u8(slot).ok().map(u64::from) } else { image.u16(slot).ok().map(u64::from) }?;
+                numbers.push(case as usize);
+            }
+            let entries = numbers.iter().max().copied()? + 1;
+            let table = read_table(image, address, m.scale.max(1), Some(entries), Relative::Absolute, index, load_at)?;
+            let targets = numbers.iter().map(|&c| table.targets[c]).collect();
+            Some(Table { targets, ..table })
         }
         // x64: jmp v, where v = base + entry
         Operand::Reg(value) => {
