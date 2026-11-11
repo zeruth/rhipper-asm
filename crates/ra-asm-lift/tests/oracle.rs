@@ -27,7 +27,9 @@ fn scratch(name: &str) -> PathBuf {
 fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
     let image = ra_asm_pe::load(&fixture(binary)).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
-    let lifted = ra_asm_lift::lift(&image, &analysis);
+    let mut lifted = ra_asm_lift::lift(&image, &analysis);
+    // The machine IR and the raised IR must both run; the tag picks one.
+    ra_asm_lift::raise(&mut lifted.module, ra_asm_lift::RaiseOptions { machine: tag.contains("machine") });
     // The tests run in parallel: each one writes its own directory.
     let dir = scratch(&format!("{tag}-{binary}"));
     std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
@@ -57,7 +59,12 @@ fn the_lifted_fixtures_pass_the_ir_gate() {
 }
 
 fn run_oracle(binary: &str, expected: &str) {
-    let (dir, lifted) = lift_to(binary, "run");
+    run_oracle_as(binary, expected, "run-machine");
+    run_oracle_as(binary, expected, "run-raised");
+}
+
+fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
+    let (dir, lifted) = lift_to(binary, tag);
     assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
     let exe = dir.join("lifted.exe");
     let build = Command::new("clang")

@@ -432,9 +432,43 @@ impl Inst {
         out
     }
 
-    /// Whether removing the instruction, when its value is unused, changes the program.
+    /// Whether removing the instruction, when its value is unused, changes the program. An LLVM
+    /// intrinsic the lift calls (`ctpop`, `fshl`, `sqrt` and their kin) is pure.
     pub fn has_side_effects(&self) -> bool {
-        matches!(self, Self::Store { .. } | Self::Call { .. } | Self::Load { volatile: true, .. })
+        match self {
+            Self::Call { callee: Callee::Direct(name), .. } => !name.starts_with("llvm."),
+            Self::Store { .. } | Self::Load { volatile: true, .. } | Self::Call { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// Every operand, for a pass that rewrites values.
+    pub fn operands_mut(&mut self) -> Vec<&mut Operand> {
+        match self {
+            Self::Alloca { .. } => Vec::new(),
+            Self::Load { ptr, .. } => vec![ptr],
+            Self::Store { value, ptr, .. } => vec![value, ptr],
+            Self::Bin { lhs, rhs, .. } | Self::ICmp { lhs, rhs, .. } | Self::FCmp { lhs, rhs, .. } => vec![lhs, rhs],
+            Self::Select { cond, then, els, .. } => vec![cond, then, els],
+            Self::Cast { value, .. } | Self::Freeze { value, .. } => vec![value],
+            Self::Gep { ptr, indices, .. } => {
+                let mut v = vec![ptr];
+                v.extend(indices.iter_mut().map(|(_, i)| i));
+                v
+            }
+            Self::ExtractElement { vector, index, .. } => vec![vector, index],
+            Self::InsertElement { vector, element, index, .. } => vec![vector, element, index],
+            Self::ShuffleVector { a, b, .. } => vec![a, b],
+            Self::Call { callee, args, .. } => {
+                let mut v = Vec::new();
+                if let Callee::Indirect(p) = callee {
+                    v.push(p);
+                }
+                v.extend(args.iter_mut().map(|(_, a)| a));
+                v
+            }
+            Self::Phi { incoming, .. } => incoming.iter_mut().map(|(o, _)| o).collect(),
+        }
     }
 }
 
@@ -477,6 +511,13 @@ impl Terminator {
             Self::Ret(Some((_, Operand::Local(v))))
             | Self::CondBr { cond: Operand::Local(v), .. }
             | Self::Switch { value: Operand::Local(v), .. } => vec![*v],
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn operands_mut(&mut self) -> Vec<&mut Operand> {
+        match self {
+            Self::Ret(Some((_, o))) | Self::CondBr { cond: o, .. } | Self::Switch { value: o, .. } => vec![o],
             _ => Vec::new(),
         }
     }

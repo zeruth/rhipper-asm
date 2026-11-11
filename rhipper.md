@@ -55,7 +55,7 @@
         objective: Known imports (`ExitProcess`, `exit`, `abort`, `_exit`, `__fastfail`, and the CRT's invalid-parameter handlers) and any function whose every path ends in one are marked no-return, so the bytes after a call to them start a new block or function.
         acceptance: A fixture calling `ExitProcess` in the middle of `.text` decodes the code after the call as its own function.
         waits-on: 12
-  - 16 ‹milestone› D: the IR and the lift {c5} [in_progress]
+  - 16 ‹milestone› D: the IR and the lift {c5} [implemented]
       objective: `ra-asm-ir` is an LLVM-IR-shaped SSA IR with a `.ll` printer, and `ra-asm-lift` turns each function's instructions into it with the machine state explicit.
       acceptance: `ras lift <exe> --ll out.ll` writes a module that `clang -c -x ir` accepts for every fixture, and the lifted fixtures print what the references print when run through the test harness.
     - 17 ‹task› The IR {c3} [implemented]
@@ -70,18 +70,19 @@
         acceptance: The x64 fixtures print the same lines lifted as native.
         notes: Done 2026-11-10. hello64 and control64 run lifted and print their native output. The driver (runtime/driver.c) maps the image at its base, binds the IAT through GetProcAddress, gives rsp a 1 MiB stack and calls F_<entry>. Imports go through an eight-integer adapter; an indirect call goes through ra_call, which finds the lifted function or calls native code. Limits recorded as tasks: 32-bit import calls need an arity table; a 64-bit division whose dividend does not fit 64 bits traps; fs and gs reads are flat.
         waits-on: 18
-    - 20 ‹task› SSE and the rest of the subset {c3} [in_progress]
+    - 20 ‹task› SSE and the rest of the subset {c3} [implemented]
         objective: Scalar SSE arithmetic and conversions, packed moves and zeroing idioms, bit tests, rotates, adc and sbb, bswap, xchg and cmpxchg, the no-ops and traps.
         acceptance: A float fixture passes the execution oracle.
-        notes: The scalar SSE arithmetic, the conversions, the compares, the packed integer and logic operations, the shuffles and the shifts by an immediate are lifted; a float fixture to prove them is the remaining work.
+        notes: Done 2026-11-10. testdata/src/float.c (scalar arithmetic in both widths, conversions both ways, NaN and infinity compares, a struct of floats) runs lifted and matches. The packed float operations, the compares with a predicate, movmskps/pd, the packed conversions and the shuffles are lifted too; x87 is not, and comes with a 32-bit fixture that uses it.
         waits-on: 19
-  - 21 ‹milestone› E: raising {c5} [defined]
+  - 21 ‹milestone› E: raising {c5} [in_progress]
       objective: Passes turn the machine-state IR into source-shaped IR: stack slots become locals, state fields become SSA values, flags become comparisons, calling conventions become signatures, and data references become typed globals.
       acceptance: The raised IR of the fixtures still passes the execution oracle and is a fraction of the machine IR's size.
-    - 22 ‹task› State promotion and dead flags {c3} [defined]
+    - 22 ‹task› State promotion and dead flags {c3} [implemented]
         objective: Loads and stores of state fields within a function become SSA values with phis; flag definitions that no use reaches disappear.
         acceptance: No `%State` field load or store remains in a leaf function with no calls; the oracle still passes.
-    - 23 ‹task› Stack frames and locals {c4} [defined]
+        notes: Done 2026-11-10. ra-asm-lift/src/raise: promote (liveness-guided SSA construction over the register and flag slots; a call flushes the dirty registers and forgets them; the flags are dead at calls and returns), simplify (identities and constant folding), dce (unused pure values, trivial phis). The oracle runs both the machine and the raised IR of every fixture. Lines of IR: hello64 634 to 206, control64 4975 to 2072, float64 2722 to 1825. The vector registers stay in memory until the type-aware promotion. A leaf function still loads its live-in registers and stores its results: that is the signature pass's job (task 24).
+    - 23 ‹task› Stack frames and locals {c4} [in_progress]
         objective: `rsp`- and `rbp`-relative slots become allocas sized by their accesses; the frame setup and teardown disappear.
         acceptance: A fixture function with locals shows them as allocas with no stack pointer arithmetic.
         waits-on: 22

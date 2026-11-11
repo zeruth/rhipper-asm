@@ -147,6 +147,62 @@ impl Function {
     pub fn instr_count(&self) -> usize {
         self.blocks.iter().map(|b| b.instrs.len()).sum()
     }
+
+    /// A fresh local value for a pass: named `hint`, made unique with a suffix.
+    pub fn new_value(&mut self, hint: &str, ty: Type) -> ValueId {
+        let mut name = hint.to_owned();
+        let mut n = 0;
+        while self.value_names.contains(&name) {
+            n += 1;
+            name = format!("{hint}.{n}");
+        }
+        let id = ValueId(self.value_names.len() as u32);
+        self.value_names.push(name);
+        self.value_types.push(ty);
+        id
+    }
+
+    /// Replaces every use of the values in `map` by their replacement, following chains.
+    pub fn replace_uses(&mut self, map: &HashMap<ValueId, crate::inst::Operand>) {
+        use crate::inst::Operand;
+        let resolve = |o: &mut Operand| {
+            let mut guard = 0;
+            while let Operand::Local(v) = o {
+                let Some(r) = map.get(v) else { break };
+                *o = r.clone();
+                guard += 1;
+                if guard > 64 {
+                    break;
+                }
+            }
+        };
+        for b in &mut self.blocks {
+            for i in &mut b.instrs {
+                for o in i.inst.operands_mut() {
+                    resolve(o);
+                }
+            }
+            for o in b.terminator.operands_mut() {
+                resolve(o);
+            }
+        }
+    }
+
+    /// The number of uses of each value.
+    pub fn use_counts(&self) -> HashMap<ValueId, usize> {
+        let mut counts: HashMap<ValueId, usize> = HashMap::new();
+        for b in &self.blocks {
+            for i in &b.instrs {
+                for v in i.inst.uses() {
+                    *counts.entry(v).or_default() += 1;
+                }
+            }
+            for v in b.terminator.uses() {
+                *counts.entry(v).or_default() += 1;
+            }
+        }
+        counts
+    }
 }
 
 /// A module: the unit the printer writes.

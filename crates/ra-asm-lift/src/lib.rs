@@ -11,8 +11,11 @@
 //! The raising passes of milestone E turn this into source-shaped IR; this milestone's job is to
 //! be right, which the execution oracle checks against the native program.
 
+pub mod raise;
 pub mod state;
 pub mod x86;
+
+pub use raise::{Options as RaiseOptions, raise};
 
 use std::collections::{BTreeMap, BTreeSet};
 

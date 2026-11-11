@@ -6,9 +6,10 @@ use anyhow::{Context, Result};
 use ra_asm_pe::Image;
 
 /// Writes `program.ll`, `image.bin` and `image.h` into `out`, or the IR to stdout without `out`.
-pub(crate) fn lift(image: &Image, out: Option<&Path>, quiet: bool) -> Result<()> {
+pub(crate) fn lift(image: &Image, out: Option<&Path>, quiet: bool, machine: bool) -> Result<()> {
     let analysis = ra_asm_analysis::analyze(image);
-    let lifted = ra_asm_lift::lift(image, &analysis);
+    let mut lifted = ra_asm_lift::lift(image, &analysis);
+    ra_asm_lift::raise(&mut lifted.module, ra_asm_lift::RaiseOptions { machine });
     let text = lifted.module.to_ll();
     match out {
         None => {

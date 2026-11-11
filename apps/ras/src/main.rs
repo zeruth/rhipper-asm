@@ -56,6 +56,9 @@ enum Command {
         /// Print no summary and no warnings.
         #[arg(long)]
         quiet: bool,
+        /// Keep the machine IR: run no raising pass.
+        #[arg(long)]
+        machine: bool,
     },
     /// The instructions at an address: its `.pdata` extent, one run of code, or `length` bytes.
     Disasm {
@@ -80,7 +83,7 @@ fn main() -> anyhow::Result<()> {
         Command::Functions { pe, pdata: true } => report::functions(&ra_asm_pe::load(&pe)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&ra_asm_pe::load(&pe)?, json),
         Command::Cfg { pe, address } => functions::cfg(&ra_asm_pe::load(&pe)?, disasm::parse_address(&address)?, json),
-        Command::Lift { pe, out, quiet } => lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), quiet),
+        Command::Lift { pe, out, quiet, machine } => lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), quiet, machine),
         Command::Disasm { pe, address, length } => {
             let address = disasm::parse_address(&address)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;
