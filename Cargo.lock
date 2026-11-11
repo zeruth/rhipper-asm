@@ -198,8 +198,6 @@ name = "ra-asm-ir"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -241,6 +239,7 @@ dependencies = [
  "clap",
  "ra-asm-analysis",
  "ra-asm-arch",
+ "ra-asm-lift",
  "ra-asm-pe",
  "ra-asm-x86",
  "serde",

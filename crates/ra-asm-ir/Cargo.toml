@@ -1,6 +1,6 @@
 [package]
 name = "ra-asm-ir"
-description = "The intermediate representation: instructions, registers, control flow"
+description = "The intermediate representation: a subset of LLVM IR with its own printer"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,5 +12,3 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-serde.workspace = true
-thiserror.workspace = true

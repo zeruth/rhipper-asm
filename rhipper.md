@@ -58,20 +58,22 @@
   - 16 ‹milestone› D: the IR and the lift {c5} [in_progress]
       objective: `ra-asm-ir` is an LLVM-IR-shaped SSA IR with a `.ll` printer, and `ra-asm-lift` turns each function's instructions into it with the machine state explicit.
       acceptance: `ras lift <exe> --ll out.ll` writes a module that `clang -c -x ir` accepts for every fixture, and the lifted fixtures print what the references print when run through the test harness.
-    - 17 ‹task› The IR {c3} [defined]
+    - 17 ‹task› The IR {c3} [implemented]
         objective: Types (`i1` to `i128`, `half` to `double`, vectors, `ptr`), values, the instruction subset (alloca, load, store, the integer and float binops, icmp, fcmp, select, br, switch, call, ret, unreachable, the casts, phi, a few intrinsics), blocks, functions, globals and declarations, with an address attached to each instruction for the backends and the IDE.
         acceptance: The printer round-trips a hand-built module through `clang -c -x ir` without error; `cargo test -p ra-asm-ir` passes.
-    - 18 ‹task› The machine-state lift {c4} [defined]
+    - 18 ‹task› The machine-state lift {c4} [implemented]
         objective: Each native function becomes an IR function over a `%State` pointer: registers are fields, flags are fields computed by each instruction that defines them, memory goes through `inttoptr` into the flat image, a direct call calls the lifted callee, an import calls a declared external through an adapter, and an indirect call goes through a resolver.
         acceptance: `ras lift` on the x64 fixtures passes clang; the integer subset (moves, arithmetic, logic, shifts, compares, setcc, cmovcc, jumps, calls, push and pop, lea, the widening moves, multiply and divide, the string moves) is covered.
         waits-on: 17 13
-    - 19 ‹task› The execution oracle {c3} [defined]
+    - 19 ‹task› The execution oracle {c3} [implemented]
         objective: A test lifts a fixture, compiles the `.ll` with clang together with a C driver that maps the image and calls the lifted entry, runs it, and compares the output with the reference's.
         acceptance: The x64 fixtures print the same lines lifted as native.
+        notes: Done 2026-11-10. hello64 and control64 run lifted and print their native output. The driver (runtime/driver.c) maps the image at its base, binds the IAT through GetProcAddress, gives rsp a 1 MiB stack and calls F_<entry>. Imports go through an eight-integer adapter; an indirect call goes through ra_call, which finds the lifted function or calls native code. Limits recorded as tasks: 32-bit import calls need an arity table; a 64-bit division whose dividend does not fit 64 bits traps; fs and gs reads are flat.
         waits-on: 18
-    - 20 ‹task› SSE and the rest of the subset {c3} [defined]
+    - 20 ‹task› SSE and the rest of the subset {c3} [in_progress]
         objective: Scalar SSE arithmetic and conversions, packed moves and zeroing idioms, bit tests, rotates, adc and sbb, bswap, xchg and cmpxchg, the no-ops and traps.
         acceptance: A float fixture passes the execution oracle.
+        notes: The scalar SSE arithmetic, the conversions, the compares, the packed integer and logic operations, the shuffles and the shifts by an immediate are lifted; a float fixture to prove them is the remaining work.
         waits-on: 19
   - 21 ‹milestone› E: raising {c5} [defined]
       objective: Passes turn the machine-state IR into source-shaped IR: stack slots become locals, state fields become SSA values, flags become comparisons, calling conventions become signatures, and data references become typed globals.

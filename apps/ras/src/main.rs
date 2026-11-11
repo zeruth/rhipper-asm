@@ -3,6 +3,7 @@
 
 mod disasm;
 mod functions;
+mod lift;
 mod report;
 
 use std::path::PathBuf;
@@ -46,6 +47,16 @@ enum Command {
         /// `0x140001000`, `140001000` or `FUN_140001000`.
         address: String,
     },
+    /// The IR of every function. With `--out`, writes `program.ll`, `image.bin` and `image.h` there.
+    Lift {
+        pe: PathBuf,
+        /// The directory to write into; without it, the IR goes to stdout.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Print no summary and no warnings.
+        #[arg(long)]
+        quiet: bool,
+    },
     /// The instructions at an address: its `.pdata` extent, one run of code, or `length` bytes.
     Disasm {
         pe: PathBuf,
@@ -69,6 +80,7 @@ fn main() -> anyhow::Result<()> {
         Command::Functions { pe, pdata: true } => report::functions(&ra_asm_pe::load(&pe)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&ra_asm_pe::load(&pe)?, json),
         Command::Cfg { pe, address } => functions::cfg(&ra_asm_pe::load(&pe)?, disasm::parse_address(&address)?, json),
+        Command::Lift { pe, out, quiet } => lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), quiet),
         Command::Disasm { pe, address, length } => {
             let address = disasm::parse_address(&address)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;

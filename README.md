@@ -44,9 +44,14 @@ Three decisions shape the design:
 | `ra-asm-x86` | The x86 and x86-64 decoder adapter over iced-x86; keeps iced's own instruction beside the record for the lift |
 | `ra-asm-analysis` | Functions, basic blocks, the control-flow graph, jump tables, no-return propagation |
 | `ra-asm-ir` | The LLVM-IR-shaped intermediate representation and its `.ll` printer |
-| `ra-asm-lift` | Instructions to machine IR, and the raising passes |
+| `ra-asm-lift` | Instructions to machine IR over an explicit `%State`; the raising passes follow |
 | `ra-asm-emit` | The C, C++ and Rust backends (planned) |
-| `ras` (app) | The command line: `info`, `sections`, `imports`, `exports`, `functions`, `disasm`, `cfg`, `lift` |
+| `ras` (app) | The command line: `info`, `sections`, `imports`, `exports`, `relocs`, `debug`, `functions`, `cfg`, `disasm`, `lift` |
+
+`runtime/driver.c` hosts a lifted program: it maps the image at its own base, binds the import
+slots, gives the machine state a stack and calls the lifted entry. The execution oracle in the
+lift crate's tests builds each fixture this way with clang and compares its output with the
+native program's.
 
 ## Build and test
 
@@ -54,6 +59,10 @@ Three decisions shape the design:
 cargo build
 cargo test
 cargo run -p ras -- info testdata/bin/hello64.exe
+cargo run -p ras -- cfg testdata/bin/control64.exe 0x140001370
+cargo run -p ras -- lift testdata/bin/control64.exe --out out/control
+clang -O1 out/control/program.ll runtime/driver.c -I out/control -o out/control/lifted.exe
+out/control/lifted.exe out/control/image.bin
 ```
 
 The fixtures under `testdata/` are small C programs built by clang and lld for x86-64 and x86, with

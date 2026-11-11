@@ -52,6 +52,7 @@ function Wanted([string]$Name) { return -not $Only -or ($Only -contains $Name) }
 if (Wanted 'hello') { Build-Exe 'hello' @() }
 # control carries a CodeView debug record, for the debug directory.
 if (Wanted 'control') { Build-Exe 'control' @('-g', '-gcodeview', '-Wl,/debug', '-Wl,/pdbaltpath:control.pdb') }
+if (Wanted 'float') { Build-Exe 'float' @() }
 if (Wanted 'exports') { Build-Dll 'exports' }
 
 # The PDBs and the import libraries are build leftovers, not fixtures.
