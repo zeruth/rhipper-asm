@@ -6,11 +6,27 @@ use anyhow::{Context, Result};
 use ra_asm_lift::RaiseLevel;
 use ra_asm_pe::Image;
 
+/// What `ras lift` was asked for.
+pub(crate) struct Options {
+    /// How far to raise.
+    pub level: RaiseLevel,
+    /// Lift the data sections into globals, as the oracle and the emit do, so the IR is the one a
+    /// port was built from.
+    pub standalone: bool,
+    /// Print no summary and no warnings.
+    pub quiet: bool,
+    /// Print the coverage report instead of the IR.
+    pub report: bool,
+    /// The report as JSON.
+    pub json: bool,
+}
+
 /// Writes `program.ll`, `image.bin` and `image.h` into `out`, or the IR to stdout without `out`.
 /// With `report`, stdout gets the coverage report instead of the IR (JSON with `json`).
-pub(crate) fn lift(image: &Image, out: Option<&Path>, quiet: bool, level: RaiseLevel, report: bool, json: bool) -> Result<()> {
+pub(crate) fn lift(image: &Image, out: Option<&Path>, options: &Options) -> Result<()> {
+    let Options { level, standalone, quiet, report, json } = *options;
     let analysis = ra_asm_analysis::analyze(image);
-    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: level == RaiseLevel::Abi });
+    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone });
     let coverage = report.then(|| ra_asm_lift::coverage(&analysis, &lifted));
     let options = lifted.raise_options(level);
     let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);

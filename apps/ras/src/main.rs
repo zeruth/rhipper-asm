@@ -76,12 +76,16 @@ enum Command {
         /// Print no summary and no warnings.
         #[arg(long)]
         quiet: bool,
-        /// Keep the machine IR: run no raising pass.
-        #[arg(long, conflicts_with = "promoted")]
-        machine: bool,
-        /// Promote the registers but keep the `%State` interface.
+        /// How far to raise: `machine` keeps the lifted IR over `%State`, `promoted` turns the
+        /// registers and flags into SSA values but keeps the `%State` interface, `abi` applies the
+        /// inferred signatures.
+        #[arg(long, default_value = "abi")]
+        level: ra_asm_lift::RaiseLevel,
+        /// Write the data sections as globals and resolve the relocated references to them, so the
+        /// IR stands without the image; the default at the `abi` level, as the oracle and the emit
+        /// have it. The machine and promoted IR address the mapped image without it.
         #[arg(long)]
-        promoted: bool,
+        standalone: bool,
         /// Print the coverage report instead of the IR: the instructions the lift does not cover,
         /// the functions by trap count, the imports without a prototype, the unresolved jumps.
         #[arg(long)]
@@ -165,15 +169,9 @@ fn main() -> anyhow::Result<()> {
         Command::Functions { pe, pdata: true } => report::functions(&ra_asm_pe::load(&pe)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&ra_asm_pe::load(&pe)?, json),
         Command::Cfg { pe, address } => functions::cfg(&ra_asm_pe::load(&pe)?, disasm::parse_address(&address)?, json),
-        Command::Lift { pe, out, quiet, machine, promoted, report } => {
-            let level = if machine {
-                ra_asm_lift::RaiseLevel::Machine
-            } else if promoted {
-                ra_asm_lift::RaiseLevel::Promoted
-            } else {
-                ra_asm_lift::RaiseLevel::Abi
-            };
-            lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), quiet, level, report, json)
+        Command::Lift { pe, out, quiet, level, standalone, report } => {
+            let standalone = standalone || level == ra_asm_lift::RaiseLevel::Abi;
+            lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json })
         }
         Command::Signatures { pe } => signatures::signatures(&ra_asm_pe::load(&pe)?, json),
         Command::Emit { pe, lang, out, quiet } => emit::emit(&ra_asm_pe::load(&pe)?, &lang, out.as_deref(), quiet),

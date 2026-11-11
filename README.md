@@ -48,10 +48,12 @@ Three decisions shape the design:
 | `ra-asm-emit` | The structuring pass (if, else, loops, switch, short-circuit conditions), the C backend with its C++ dialect, the Rust backend, and the function table |
 | `ras` (app) | The command line: `info`, `sections`, `imports`, `exports`, `relocs`, `debug`, `functions`, `cfg`, `disasm`, `callers`, `xrefs`, `lift`, `signatures`, `emit`, `pipeline` |
 
-`ras lift` raises in three levels: `--machine` keeps the lifted IR over `%State`; `--promoted`
-turns the registers and flags into SSA values; the default applies the inferred signatures, so each
-function takes its parameters, keeps its locals in allocas and returns its result, with no `%State`
-left. `ras signatures` prints what the inference found.
+`ras lift` raises in three levels: `--level machine` keeps the lifted IR over `%State`;
+`--level promoted` turns the registers and flags into SSA values; `--level abi`, the default,
+applies the inferred signatures, so each function takes its parameters, keeps its locals in allocas
+and returns its result, with no `%State` left. `--standalone`, the default at the `abi` level, writes
+the data sections as globals and resolves the relocated references to them, so the IR is the one
+the oracle and the emit build from. `ras signatures` prints what the inference found.
 
 `ras emit --lang c` structures the raised IR and writes it as C: typed locals, the inferred
 parameters and results, loops and conditions, and the data sections as globals, with the helpers

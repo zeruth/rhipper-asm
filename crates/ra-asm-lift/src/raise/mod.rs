@@ -121,6 +121,30 @@ pub enum Level {
     Abi,
 }
 
+impl Level {
+    /// The name the command line and the workbench use for the level.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Machine => "machine",
+            Self::Promoted => "promoted",
+            Self::Abi => "abi",
+        }
+    }
+}
+
+impl std::str::FromStr for Level {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text {
+            "machine" => Ok(Self::Machine),
+            "promoted" => Ok(Self::Promoted),
+            "abi" => Ok(Self::Abi),
+            other => Err(format!("no raise level `{other}`: the levels are machine, promoted, abi")),
+        }
+    }
+}
+
 /// The options of a raise.
 #[derive(Debug, Clone, Copy)]
 pub struct Options {
