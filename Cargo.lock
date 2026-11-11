@@ -194,6 +194,7 @@ dependencies = [
  "ra-asm-ir",
  "ra-asm-lift",
  "ra-asm-pe",
+ "serde_json",
 ]
 
 [[package]]

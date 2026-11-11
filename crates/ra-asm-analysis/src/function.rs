@@ -163,9 +163,10 @@ impl Function {
     }
 }
 
-/// `FUN_<address>`, as Ghidra names a function and the workbench reads it.
+/// `F_<address>`: the name of a function nothing in the image names, the same the lift and the
+/// backends give it.
 pub fn default_name(va: u64) -> String {
-    format!("FUN_{va:08x}")
+    format!("F_{va:08x}")
 }
 
 /// The name of a function: the export name, `entry`, the import of a thunk, else the default.

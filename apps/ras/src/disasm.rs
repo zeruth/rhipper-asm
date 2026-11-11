@@ -11,10 +11,10 @@ use serde_json::json;
 
 use crate::report::hex;
 
-/// Reads `0x401000`, `401000`, `FUN_00401000` or `F_00401000` as an address.
+/// Reads `0x401000`, `401000` or `F_00401000` as an address.
 pub(crate) fn parse_address(text: &str) -> Result<u64> {
     let t = text.trim();
-    let digits = ["thunk_FUN_", "FUN_", "LAB_", "F_"].iter().find_map(|p| t.strip_prefix(p)).unwrap_or(t);
+    let digits = t.strip_prefix("F_").unwrap_or(t);
     let digits = digits.strip_prefix("0x").or_else(|| digits.strip_prefix("0X")).unwrap_or(digits);
     u64::from_str_radix(digits, 16).with_context(|| format!("{text} is not an address"))
 }

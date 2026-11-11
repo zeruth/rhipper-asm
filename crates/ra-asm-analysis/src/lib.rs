@@ -43,7 +43,7 @@ impl Analysis<'_> {
         self.functions.values().find(|f| f.contains(va))
     }
 
-    /// The name of the function at `va`, or `FUN_<address>` when none is there.
+    /// The name of the function at `va`, or `F_<address>` when none is there.
     pub fn name_of(&self, va: u64) -> String {
         self.functions.get(&va).map_or_else(|| function::default_name(va), |f| f.name.clone())
     }

@@ -56,7 +56,10 @@ left. `ras signatures` prints what the inference found.
 `ras emit --lang c` structures the raised IR and writes it as C: typed locals, the inferred
 parameters and results, loops and conditions, and the data sections as globals, with the helpers
 the output needs in `runtime/rhipper.h`. The output is standalone: it builds with clang against
-`runtime/driver.c` and needs no image at run time.
+`runtime/driver.c` and needs no image at run time. Beside the source, `--out` writes
+`functions.json`, the table the workbench reads: every function's address, name, size, file and
+line, how far the lift got (`lifted`, `partial` with a trap count, `thunk`, `not lifted`), its
+calls and its imports.
 
 `runtime/driver.c` hosts a lifted program at any level: it maps the image at its own base, binds
 the import slots, and either gives the machine state a stack or installs a trampoline at each

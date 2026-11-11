@@ -46,12 +46,12 @@ enum Command {
     /// The blocks of the function at an address, with the edges between them.
     Cfg {
         pe: PathBuf,
-        /// `0x140001000`, `140001000` or `FUN_140001000`.
+        /// `0x140001000`, `140001000` or `F_140001000`.
         address: String,
     },
     /// What each function takes and returns, as the lift infers it.
     Signatures { pe: PathBuf },
-    /// Source out of the image. With `--out`, writes `program.c` and `image.h` there.
+    /// Source out of the image. With `--out`, writes `program.c`, `image.h` and `functions.json` there.
     Emit {
         pe: PathBuf,
         /// The language: `c`.
@@ -81,7 +81,7 @@ enum Command {
     /// The instructions at an address: its `.pdata` extent, one run of code, or `length` bytes.
     Disasm {
         pe: PathBuf,
-        /// `0x140001000`, `140001000` or `FUN_140001000`.
+        /// `0x140001000`, `140001000` or `F_140001000`.
         address: String,
         /// The number of bytes, in hexadecimal.
         length: Option<String>,
