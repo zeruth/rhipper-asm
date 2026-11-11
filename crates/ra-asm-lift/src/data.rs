@@ -103,7 +103,14 @@ pub fn add_sections(image: &Image, lifted: &mut Lifted) {
         }
         for import in &image.imports {
             if import.iat_va >= data.start && import.iat_va + width <= data.end {
-                let symbol = crate::x86::import_symbol(&import.display_name());
+                let mut symbol = crate::x86::import_symbol(&import.display_name());
+                // The slot of an import the runtime shims for a 32-bit program names the shim, as
+                // a call through it would.
+                if lifted.bits == 32
+                    && let Some(shim) = crate::raise::prototypes::x86_shim(&symbol)
+                {
+                    shim.clone_into(&mut symbol);
+                }
                 lifted.imports.insert(symbol.clone());
                 words.insert(import.iat_va - data.start, Const::Address { global: symbol, offset: 0 });
             }

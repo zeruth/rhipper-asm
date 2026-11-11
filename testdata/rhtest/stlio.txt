@@ -1,0 +1,4 @@
+ostream = 631541188 (0x25a48dc4)
+istream = 440921586 (0x1a47edf2)
+checksum = 0xdf2e0f4d
+exit = 77

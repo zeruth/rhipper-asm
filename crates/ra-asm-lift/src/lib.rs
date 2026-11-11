@@ -70,45 +70,73 @@ pub fn import_of_wrapper(name: &str) -> Option<&str> {
 /// adapter, and stores the result to `rax`. In 32 bits every argument is on the stack: it reads
 /// eight dwords from `esp + stack_offset`, zero-extended, and stores the result to `eax` and its
 /// high half to `edx`. The caller pops what a `stdcall` import pops, since it knows the import.
+/// An import with a typed prototype (the C runtime's math) takes its own arguments instead, a
+/// double read as one, and its result goes where the convention puts it: `xmm0`, or in 32 bits
+/// the x87 stack.
 pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32) -> ra_asm_ir::Function {
-    use ra_asm_ir::{BinOp, Callee, FnType, FunctionBuilder, Terminator};
+    use ra_asm_ir::{BinOp, Callee, Cast, FnType, FunctionBuilder, Terminator};
     use ra_asm_x86::iced_x86::Register as R;
+    use raise::abi::Kind;
     let name = import_wrapper_name(symbol, tail);
     let mut b = FunctionBuilder::new(&name, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
     b.set_linkage(Linkage::Internal);
     let state = b.param(0);
     let block = b.block("entry");
     let mut m = state::Machine { b: &mut b, state, bits };
-    let mut args = Vec::with_capacity(8);
+    let typed = raise::prototypes::typed(symbol);
+    let kinds: Vec<Kind> = typed.as_ref().map_or_else(|| vec![Kind::Int; 8], |t| t.params.clone());
+    let fn_ty = typed.as_ref().map_or_else(state::import_adapter_type, raise::prototypes::Typed::fn_type);
+    let mut args = Vec::with_capacity(kinds.len());
+    let sp = m.read_sp(block);
     if bits == 64 {
-        for r in [R::RCX, R::RDX, R::R8, R::R9] {
-            let v = m.read_gpr(block, r);
-            args.push((Type::I64, v.into()));
-        }
-        let sp = m.read_sp(block);
-        for n in 0..4 {
-            let addr = m.b.bin(block, BinOp::Add, Type::I64, sp, stack_offset + 8 * n, "arg.p");
-            let v = m.load(block, Type::I64, addr, "arg");
-            args.push((Type::I64, v.into()));
+        // A position is one register of either class, then a stack slot of eight bytes.
+        for (p, kind) in kinds.iter().enumerate() {
+            let v = match (p, kind) {
+                (0..=3, Kind::Int | Kind::Wide) => m.read_gpr(block, [R::RCX, R::RDX, R::R8, R::R9][p]),
+                (0..=3, Kind::Float | Kind::Double) => m.read_xmm(block, [R::XMM0, R::XMM1, R::XMM2, R::XMM3][p], kind.ty()),
+                _ => {
+                    let addr = m.b.bin(block, BinOp::Add, Type::I64, sp, stack_offset + 8 * p as i64, "arg.p");
+                    m.load(block, kind.ty(), addr, "arg")
+                }
+            };
+            args.push((kind.ty(), v.into()));
         }
     } else {
-        let sp = m.read_sp(block);
-        for n in 0..8 {
-            let addr = m.b.bin(block, BinOp::Add, Type::I32, sp, stack_offset + 4 * n, "arg.p");
-            let v = m.load(block, Type::I32, addr, "arg");
-            let wide = m.zext(block, Type::I32, v, Type::I64, "arg.w");
-            args.push((Type::I64, wide.into()));
+        // Every argument is on the stack: a dword zero-extended, or the eight bytes of a wide
+        // integer or a double.
+        let mut offset = stack_offset;
+        for kind in &kinds {
+            let addr = m.b.bin(block, BinOp::Add, Type::I32, sp, offset, "arg.p");
+            let v = match kind {
+                Kind::Int => {
+                    let v = m.load(block, Type::I32, addr, "arg");
+                    m.zext(block, Type::I32, v, Type::I64, "arg.w")
+                }
+                Kind::Wide => m.load(block, Type::I64, addr, "arg"),
+                Kind::Float | Kind::Double => m.load(block, kind.ty(), addr, "arg"),
+            };
+            args.push((kind.ty(), v.into()));
+            offset += if matches!(kind, Kind::Wide | Kind::Double) { 8 } else { 4 };
         }
     }
-    let result = m.b.call(block, state::import_adapter_type(), Callee::Direct(symbol.to_owned()), args, "ret").unwrap();
-    if bits == 64 {
-        m.write_gpr(block, R::RAX, result);
-    } else {
-        let low = m.trunc(block, Type::I64, result, Type::I32, "ret.lo");
-        m.write_gpr(block, R::EAX, low);
-        let shifted = m.b.bin(block, BinOp::LShr, Type::I64, result, 32i64, "ret.hs");
-        let high = m.trunc(block, Type::I64, shifted, Type::I32, "ret.hi");
-        m.write_gpr(block, R::EDX, high);
+    let result = m.b.call(block, fn_ty, Callee::Direct(symbol.to_owned()), args, "ret");
+    let returns = typed.as_ref().map_or(Some(Kind::Int), |t| t.returns);
+    match (returns, result) {
+        (Some(Kind::Int | Kind::Wide), Some(result)) if bits == 64 => m.write_gpr(block, R::RAX, result),
+        (Some(Kind::Int | Kind::Wide), Some(result)) => {
+            let low = m.trunc(block, Type::I64, result, Type::I32, "ret.lo");
+            m.write_gpr(block, R::EAX, low);
+            let shifted = m.b.bin(block, BinOp::LShr, Type::I64, result, 32i64, "ret.hs");
+            let high = m.trunc(block, Type::I64, shifted, Type::I32, "ret.hi");
+            m.write_gpr(block, R::EDX, high);
+        }
+        (Some(kind @ (Kind::Float | Kind::Double)), Some(result)) if bits == 64 => m.write_xmm(block, R::XMM0, kind.ty(), result, true),
+        (Some(Kind::Double), Some(result)) => m.fpush(block, result),
+        (Some(Kind::Float), Some(result)) => {
+            let wide = m.b.cast(block, Cast::FPExt, Type::Float, result, Type::Double, "ret.d");
+            m.fpush(block, wide);
+        }
+        _ => {}
     }
     b.terminate(block, Terminator::Ret(None));
     b.finish()
@@ -232,7 +260,9 @@ pub fn coverage(analysis: &Analysis<'_>, lifted: &Lifted) -> Coverage {
     let unknown_imports = lifted
         .imports
         .iter()
-        .filter(|name| raise::prototypes::arity(name).is_none() && !raise::prototypes::host_lacks(name))
+        .filter(|name| {
+            raise::prototypes::arity(name).is_none() && raise::prototypes::typed(name).is_none() && !raise::prototypes::host_lacks(name)
+        })
         .cloned()
         .collect();
     let unresolved_jumps = analysis
@@ -322,7 +352,8 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
             lifted.module.functions.push(host_lacking_stub(import));
             continue;
         }
-        lifted.module.declare(Declaration { name: import.clone(), ty: state::import_adapter_type(), conv: CallConv::C, attrs: Vec::new() });
+        let ty = raise::prototypes::typed(import).map_or_else(state::import_adapter_type, |t| t.fn_type());
+        lifted.module.declare(Declaration { name: import.clone(), ty, conv: CallConv::C, attrs: Vec::new() });
     }
     for (symbol, offset, tail) in &lifted.wrappers {
         lifted.module.functions.push(import_wrapper(symbol, *offset, *tail, lifted.bits));

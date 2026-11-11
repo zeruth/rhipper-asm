@@ -4,7 +4,7 @@
 //! a slot that is only loaded and stored at one type, with no address taken, becomes its own
 //! `alloca`. A store of `undef` (a saved register the function never needed) goes.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ra_asm_ir::{BinOp, Cast, Function, Inst, Instruction, Operand, Type, ValueId};
 
@@ -28,43 +28,16 @@ pub fn run(f: &mut Function) -> bool {
         }
     }
     let (Some(rsp0), Some(top)) = (rsp0, top) else { return false };
+    let mut changed = false;
 
-    // Offsets from the frame top, through adds and subs of constants. Phis of equal offsets too.
-    let mut offsets: HashMap<ValueId, i64> = HashMap::new();
-    offsets.insert(rsp0, 0);
-    for _ in 0..4 {
-        for b in &f.blocks {
-            for i in &b.instrs {
-                let Some(v) = i.result else { continue };
-                let off = match &i.inst {
-                    Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
-                        offsets.get(l).map(|k| k + signed(*c, *bits))
-                    }
-                    Inst::Bin { op: BinOp::Sub, ty: Type::Int(bits), lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
-                        offsets.get(l).map(|k| k - signed(*c, *bits))
-                    }
-                    Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Int(c), rhs: Operand::Local(r) } => {
-                        offsets.get(r).map(|k| k + signed(*c, *bits))
-                    }
-                    // The 32-bit model narrows the address to a dword and widens it back.
-                    Inst::Cast { cast: Cast::IntToPtr | Cast::Trunc | Cast::ZExt | Cast::SExt, value: Operand::Local(p), .. } => {
-                        offsets.get(p).copied()
-                    }
-                    Inst::Phi { incoming, .. } => {
-                        let ks: Vec<Option<i64>> = incoming.iter().map(|(o, _)| o.local().and_then(|l| offsets.get(&l).copied())).collect();
-                        match ks.first().copied().flatten() {
-                            Some(k) if ks.iter().all(|x| *x == Some(k)) => Some(k),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                };
-                if let Some(k) = off {
-                    offsets.insert(v, k);
-                }
-            }
-        }
+    // A variadic x86 function (`varargs` is the address of its caller's argument block): what the
+    // code derives from the entry stack pointer at or past the first stack argument is rebased
+    // onto the block, so a `va_list` walks the caller's arguments and not this frame.
+    if let Some(args) = f.params.iter().copied().find(|v| f.value_name(*v) == "varargs") {
+        let offsets = track(f, rsp0);
+        changed |= rebase_arguments(f, &offsets, args, 4);
     }
+    let offsets = track(f, rsp0);
 
     // How each slot is used: by the pointers at a known offset, the inttoptr results and the
     // prologue's own geps from the frame top (the stack parameter slots).
@@ -157,7 +130,6 @@ pub fn run(f: &mut Function) -> bool {
     // of a slot's own alloca when the slot is private and single-typed.
     let mut allocas: BTreeMap<i64, (ValueId, Type)> = BTreeMap::new();
     let mut replace: HashMap<ValueId, Operand> = HashMap::new();
-    let mut changed = false;
     let mut new_entry: Vec<Instruction> = Vec::new();
     for (k, u) in &slots {
         let size = u.types.iter().filter_map(|t| t.size(8)).max().unwrap_or(8) as i64;
@@ -212,6 +184,124 @@ pub fn run(f: &mut Function) -> bool {
         f.blocks[0].instrs.extend(tail);
     }
     f.replace_uses(&replace);
+    changed
+}
+
+/// Offsets from the frame top, through adds and subs of constants. Phis of equal offsets too,
+/// taken optimistically: a phi whose tracked incomings agree gets their offset (the stack pointer
+/// round a loop depends on itself), and one that an incoming contradicts in the end is dropped,
+/// with what derived from it, by a fresh pass.
+fn track(f: &Function, rsp0: ValueId) -> HashMap<ValueId, i64> {
+    let mut dropped: HashSet<ValueId> = HashSet::new();
+    loop {
+        let offsets = track_with(f, rsp0, &dropped);
+        let mut contradicted = Vec::new();
+        for b in &f.blocks {
+            for i in &b.instrs {
+                if let (Some(v), Inst::Phi { incoming, .. }) = (i.result, &i.inst)
+                    && let Some(&k) = offsets.get(&v)
+                    && incoming.iter().any(|(o, _)| o.local().and_then(|l| offsets.get(&l).copied()) != Some(k))
+                {
+                    contradicted.push(v);
+                }
+            }
+        }
+        if contradicted.is_empty() {
+            return offsets;
+        }
+        dropped.extend(contradicted);
+    }
+}
+
+fn track_with(f: &Function, rsp0: ValueId, dropped: &HashSet<ValueId>) -> HashMap<ValueId, i64> {
+    let mut offsets: HashMap<ValueId, i64> = HashMap::new();
+    offsets.insert(rsp0, 0);
+    loop {
+        let mut changed = false;
+        for b in &f.blocks {
+            for i in &b.instrs {
+                let Some(v) = i.result else { continue };
+                if offsets.contains_key(&v) {
+                    continue;
+                }
+                let off = match &i.inst {
+                    Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
+                        offsets.get(l).map(|k| k + signed(*c, *bits))
+                    }
+                    Inst::Bin { op: BinOp::Sub, ty: Type::Int(bits), lhs: Operand::Local(l), rhs: Operand::Int(c) } => {
+                        offsets.get(l).map(|k| k - signed(*c, *bits))
+                    }
+                    Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Int(c), rhs: Operand::Local(r) } => {
+                        offsets.get(r).map(|k| k + signed(*c, *bits))
+                    }
+                    // The 32-bit model narrows the address to a dword and widens it back.
+                    Inst::Cast { cast: Cast::IntToPtr | Cast::Trunc | Cast::ZExt | Cast::SExt, value: Operand::Local(p), .. } => {
+                        offsets.get(p).copied()
+                    }
+                    Inst::Phi { incoming, .. } if !dropped.contains(&v) => {
+                        let ks: Vec<i64> = incoming.iter().filter_map(|(o, _)| o.local().and_then(|l| offsets.get(&l).copied())).collect();
+                        match ks.first() {
+                            Some(&k) if ks.iter().all(|x| *x == k) => Some(k),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(k) = off {
+                    offsets.insert(v, k);
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return offsets;
+        }
+    }
+}
+
+/// Redefines every value that is `rsp0 + k` with `k >= first` as `args + (k - first)`, at the
+/// value's own type: an integer of either width, or a pointer. A phi of such values keeps its
+/// form, its incoming values being rebased.
+fn rebase_arguments(f: &mut Function, offsets: &HashMap<ValueId, i64>, args: ValueId, first: i64) -> bool {
+    let mut changed = false;
+    for bi in 0..f.blocks.len() {
+        let instrs = std::mem::take(&mut f.blocks[bi].instrs);
+        let mut out = Vec::with_capacity(instrs.len());
+        for i in instrs {
+            let rebased = i.result.and_then(|v| offsets.get(&v)).copied().filter(|&k| k >= first && !matches!(i.inst, Inst::Phi { .. }));
+            let (Some(v), Some(k)) = (i.result, rebased) else {
+                out.push(i);
+                continue;
+            };
+            let delta = Operand::Int(i128::from(k - first));
+            match i.inst.result_type() {
+                Type::Ptr => {
+                    let p = f.new_value("args.p", Type::Ptr);
+                    let cast = Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: Operand::Local(args), to: Type::Ptr };
+                    out.push(Instruction { result: Some(p), inst: cast, address: i.address });
+                    let gep = Inst::Gep { base_ty: Type::I8, ptr: Operand::Local(p), indices: vec![(Type::I64, delta)], inbounds: true };
+                    out.push(Instruction { result: Some(v), inst: gep, address: i.address });
+                }
+                Type::Int(64) => {
+                    let add = Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: Operand::Local(args), rhs: delta };
+                    out.push(Instruction { result: Some(v), inst: add, address: i.address });
+                }
+                Type::Int(bits) => {
+                    let narrow = f.new_value("args.n", Type::Int(bits));
+                    let cast = Inst::Cast { cast: Cast::Trunc, from: Type::I64, value: Operand::Local(args), to: Type::Int(bits) };
+                    out.push(Instruction { result: Some(narrow), inst: cast, address: i.address });
+                    let add = Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Local(narrow), rhs: delta };
+                    out.push(Instruction { result: Some(v), inst: add, address: i.address });
+                }
+                _ => {
+                    out.push(i);
+                    continue;
+                }
+            }
+            changed = true;
+        }
+        f.blocks[bi].instrs = out;
+    }
     changed
 }
 

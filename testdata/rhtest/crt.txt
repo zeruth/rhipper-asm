@@ -1,0 +1,19 @@
+fmt_ints = -320650873 (0xece34187)
+fmt_floats = 754184576 (0x2cf3f180)
+fmt_strings = 45855304 (0x02bbb248)
+fmt_trunc = 2043402004 (0x79cbd714)
+fmt_va = 1752658984 (0x68777428)
+scan = -927461898 (0xc8b80df6)
+convert = 12130 (0x00002f62)
+longs = 0x00000000:0xfffffff9
+sort_items = -1125176324 (0xbcef2bfc)
+search = 4265 (0x000010a9)
+heap = 78554544 (0x04aea5b0)
+strings = 1372312099 (0x51cbd223)
+ctypes = 1599190844 (0x5f51b73c)
+ints = -55484 (0xffff2744)
+malloca = 1536063271 (0x5b8e7727)
+printf: 7 line 3.50
+print = 20 (0x00000014)
+checksum = 0xe879758b
+exit = 11

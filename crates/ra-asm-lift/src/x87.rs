@@ -14,7 +14,7 @@
 use ra_asm_ir::{BinOp, BlockId, Cast, FCond, ICond, Inst, Operand, Type, ValueId};
 use ra_asm_x86::iced_x86::{Instruction, Mnemonic as M, OpKind, Register as R};
 
-use crate::state::{Flag, X87_CW, X87_STACK, X87_SW, X87_TOP};
+use crate::state::{Flag, Machine, X87_CW, X87_STACK, X87_SW, X87_TOP};
 use crate::x86::Lifter;
 
 /// Whether the lift handles `m` here.
@@ -102,49 +102,51 @@ fn st_index(r: R) -> i64 {
     i64::from(r as u32 - R::ST0 as u32)
 }
 
-impl Lifter<'_, '_> {
+/// The x87 stack and its words, over the globals: the lift's instructions and an import wrapper
+/// that leaves a double result in `st(0)` both move it.
+impl Machine<'_> {
     /// A pointer to a global of the x87 state.
     fn x87_global(&mut self, block: BlockId, name: &str) -> ValueId {
         let address = Operand::Address { global: name.to_owned(), offset: 0 };
-        self.m.b.cast(block, Cast::IntToPtr, Type::I64, address, Type::Ptr, &format!("{name}.p"))
+        self.b.cast(block, Cast::IntToPtr, Type::I64, address, Type::Ptr, &format!("{name}.p"))
     }
 
     fn x87_top(&mut self, block: BlockId) -> ValueId {
         let p = self.x87_global(block, X87_TOP);
-        self.m.b.load(block, Type::I64, p, "top")
+        self.b.load(block, Type::I64, p, "top")
     }
 
     fn set_x87_top(&mut self, block: BlockId, top: ValueId) {
         let p = self.x87_global(block, X87_TOP);
-        self.m.b.store(block, Type::I64, top, p);
+        self.b.store(block, Type::I64, top, p);
     }
 
     /// A pointer to `st(i)`: entry `(top + i) & 7` of the stack.
     fn st_ptr(&mut self, block: BlockId, i: i64) -> ValueId {
         let top = self.x87_top(block);
-        let index = if i == 0 { top } else { self.m.b.bin(block, BinOp::Add, Type::I64, top, i, "st.i") };
-        let wrapped = self.m.b.bin(block, BinOp::And, Type::I64, index, 7i64, "st.w");
-        let offset = self.m.b.bin(block, BinOp::Shl, Type::I64, wrapped, 3i64, "st.off");
+        let index = if i == 0 { top } else { self.b.bin(block, BinOp::Add, Type::I64, top, i, "st.i") };
+        let wrapped = self.b.bin(block, BinOp::And, Type::I64, index, 7i64, "st.w");
+        let offset = self.b.bin(block, BinOp::Shl, Type::I64, wrapped, 3i64, "st.off");
         let base = Operand::Address { global: X87_STACK.to_owned(), offset: 0 };
-        let address = self.m.b.bin(block, BinOp::Add, Type::I64, offset, base, "st.addr");
-        self.m.b.cast(block, Cast::IntToPtr, Type::I64, address, Type::Ptr, "st.p")
+        let address = self.b.bin(block, BinOp::Add, Type::I64, offset, base, "st.addr");
+        self.b.cast(block, Cast::IntToPtr, Type::I64, address, Type::Ptr, "st.p")
     }
 
     fn st(&mut self, block: BlockId, i: i64) -> ValueId {
         let p = self.st_ptr(block, i);
-        self.m.b.load(block, Type::Double, p, &format!("st{i}"))
+        self.b.load(block, Type::Double, p, &format!("st{i}"))
     }
 
     fn set_st(&mut self, block: BlockId, i: i64, value: impl Into<Operand>) {
         let p = self.st_ptr(block, i);
-        self.m.b.store(block, Type::Double, value, p);
+        self.b.store(block, Type::Double, value, p);
     }
 
     /// Pushes `value`: the top moves down and the new `st(0)` holds it.
-    fn fpush(&mut self, block: BlockId, value: impl Into<Operand>) {
+    pub(crate) fn fpush(&mut self, block: BlockId, value: impl Into<Operand>) {
         let top = self.x87_top(block);
-        let down = self.m.b.bin(block, BinOp::Sub, Type::I64, top, 1i64, "top.d");
-        let wrapped = self.m.b.bin(block, BinOp::And, Type::I64, down, 7i64, "top");
+        let down = self.b.bin(block, BinOp::Sub, Type::I64, top, 1i64, "top.d");
+        let wrapped = self.b.bin(block, BinOp::And, Type::I64, down, 7i64, "top");
         self.set_x87_top(block, wrapped);
         self.set_st(block, 0, value);
     }
@@ -152,16 +154,18 @@ impl Lifter<'_, '_> {
     /// Pops: the top moves up. The value that was `st(0)` is the caller's to read first.
     fn fpop(&mut self, block: BlockId) {
         let top = self.x87_top(block);
-        let up = self.m.b.bin(block, BinOp::Add, Type::I64, top, 1i64, "top.u");
-        let wrapped = self.m.b.bin(block, BinOp::And, Type::I64, up, 7i64, "top");
+        let up = self.b.bin(block, BinOp::Add, Type::I64, top, 1i64, "top.u");
+        let wrapped = self.b.bin(block, BinOp::And, Type::I64, up, 7i64, "top");
         self.set_x87_top(block, wrapped);
     }
 
     fn control_word(&mut self, block: BlockId) -> ValueId {
         let p = self.x87_global(block, X87_CW);
-        self.m.b.load(block, Type::I16, p, "cw")
+        self.b.load(block, Type::I16, p, "cw")
     }
+}
 
+impl Lifter<'_, '_> {
     /// The memory operand of an x87 instruction as a double: a float, a double, or an integer of
     /// 16, 32 or 64 bits (`integer`), by the operand's size.
     fn fp_memory(&mut self, block: BlockId, i: &Instruction, n: u32, integer: bool) -> Option<ValueId> {
@@ -198,7 +202,7 @@ impl Lifter<'_, '_> {
 
     /// `value` rounded by the control word's rounding mode: nearest even, down, up or toward zero.
     fn round_by_control_word(&mut self, block: BlockId, value: ValueId) -> ValueId {
-        let cw = self.control_word(block);
+        let cw = self.m.control_word(block);
         let shifted = self.m.b.bin(block, BinOp::LShr, Type::I16, cw, 10i64, "rc.s");
         let rc = self.m.b.bin(block, BinOp::And, Type::I16, shifted, 3i64, "rc");
         let d = Type::Double;
@@ -223,7 +227,7 @@ impl Lifter<'_, '_> {
         // An unordered compare sets all three.
         let c0 = self.m.b.bin(block, BinOp::Or, Type::I1, less, unordered, "c0.u");
         let c3 = self.m.b.bin(block, BinOp::Or, Type::I1, equal, unordered, "c3.u");
-        let p = self.x87_global(block, X87_SW);
+        let p = self.m.x87_global(block, X87_SW);
         let sw = self.m.b.load(block, Type::I16, p, "sw");
         let cleared = self.m.b.bin(block, BinOp::And, Type::I16, sw, !0x4500i64 & 0xffff, "sw.c");
         let mut acc = cleared;
@@ -252,7 +256,7 @@ impl Lifter<'_, '_> {
     /// `st(0)` as an operand, so `fld m64` is `fld st, m64` and `fistp m64` is `fistp m64, st`: the
     /// destination is operand 0 and the source operand 1 throughout.
     fn fp_operand(&mut self, block: BlockId, i: &Instruction, n: u32, integer: bool) -> Option<ValueId> {
-        if i.op_kind(n) == OpKind::Memory { self.fp_memory(block, i, n, integer) } else { Some(self.st(block, st_index(i.op_register(n)))) }
+        if i.op_kind(n) == OpKind::Memory { self.fp_memory(block, i, n, integer) } else { Some(self.m.st(block, st_index(i.op_register(n)))) }
     }
 
     /// The source of a one-source instruction: operand 1 when there are two, else operand 0, else
@@ -261,7 +265,7 @@ impl Lifter<'_, '_> {
         match i.op_count() {
             2 => self.fp_operand(block, i, 1, integer),
             1 => self.fp_operand(block, i, 0, integer),
-            _ => Some(self.st(block, 1)),
+            _ => Some(self.m.st(block, 1)),
         }
     }
 
@@ -280,18 +284,18 @@ impl Lifter<'_, '_> {
         let (dst, a, b) = match i.op_count() {
             // `faddp` alone is `faddp st(1), st`.
             0 => {
-                let a = self.st(block, 1);
-                let b = self.st(block, 0);
+                let a = self.m.st(block, 1);
+                let b = self.m.st(block, 0);
                 (1, a, b)
             }
             1 => {
-                let st0 = self.st(block, 0);
+                let st0 = self.m.st(block, 0);
                 let other = self.fp_operand(block, i, 0, integer)?;
                 (0, st0, other)
             }
             _ => {
                 let dst = if i.op_kind(0) == OpKind::Memory { 0 } else { st_index(i.op_register(0)) };
-                let a = self.st(block, dst);
+                let a = self.m.st(block, dst);
                 let b = self.fp_operand(block, i, 1, integer)?;
                 (dst, a, b)
             }
@@ -319,7 +323,7 @@ impl Lifter<'_, '_> {
         match i.mnemonic() {
             M::Fld => {
                 let Some(v) = self.source_operand(block, i, false) else { unsupported!() };
-                self.fpush(block, v);
+                self.m.fpush(block, v);
             }
             M::Fld1 | M::Fldz | M::Fldpi | M::Fldl2e | M::Fldln2 | M::Fldlg2 | M::Fldl2t => {
                 let c = match i.mnemonic() {
@@ -331,24 +335,24 @@ impl Lifter<'_, '_> {
                     M::Fldlg2 => std::f64::consts::LOG10_2,
                     _ => std::f64::consts::LOG2_10,
                 };
-                self.fpush(block, Operand::Float(c));
+                self.m.fpush(block, Operand::Float(c));
             }
             M::Fild => {
                 let Some(n) = Self::memory_operand(i) else { unsupported!() };
                 let Some(v) = self.fp_memory(block, i, n, true) else { unsupported!() };
-                self.fpush(block, v);
+                self.m.fpush(block, v);
             }
             M::Fst | M::Fstp => {
-                let v = self.st(block, 0);
+                let v = self.m.st(block, 0);
                 if i.op_kind(0) == OpKind::Memory {
                     if !self.store_fp_memory(block, i, 0, v) {
                         unsupported!()
                     }
                 } else {
-                    self.set_st(block, st_index(i.op_register(0)), v);
+                    self.m.set_st(block, st_index(i.op_register(0)), v);
                 }
                 if i.mnemonic() == M::Fstp {
-                    self.fpop(block);
+                    self.m.fpop(block);
                 }
             }
             M::Fist | M::Fistp | M::Fisttp => {
@@ -357,7 +361,7 @@ impl Lifter<'_, '_> {
                 if !matches!(bits, 16 | 32 | 64) {
                     unsupported!()
                 }
-                let v = self.st(block, 0);
+                let v = self.m.st(block, 0);
                 let rounded = if i.mnemonic() == M::Fisttp {
                     self.m.intrinsic(block, "llvm.trunc.f64", d.clone(), vec![(d.clone(), v.into())], "rz")
                 } else {
@@ -367,7 +371,7 @@ impl Lifter<'_, '_> {
                 let address = self.mem_address(block, i);
                 self.m.store(block, Type::Int(bits), n, address);
                 if i.mnemonic() != M::Fist {
-                    self.fpop(block);
+                    self.m.fpop(block);
                 }
             }
             M::Fadd
@@ -399,41 +403,41 @@ impl Lifter<'_, '_> {
                     _ => BinOp::FDiv,
                 };
                 let r = self.m.b.bin(block, op, d, a, b, "f");
-                self.set_st(block, dst, r);
+                self.m.set_st(block, dst, r);
                 if matches!(m, M::Faddp | M::Fsubp | M::Fsubrp | M::Fmulp | M::Fdivp | M::Fdivrp) {
-                    self.fpop(block);
+                    self.m.fpop(block);
                 }
             }
             M::Fchs => {
-                let v = self.st(block, 0);
+                let v = self.m.st(block, 0);
                 let r = self.m.b.bin(block, BinOp::FSub, d, Operand::Float(-0.0), v, "neg");
-                self.set_st(block, 0, r);
+                self.m.set_st(block, 0, r);
             }
             M::Fabs => {
-                let v = self.st(block, 0);
+                let v = self.m.st(block, 0);
                 let r = self.m.intrinsic(block, "llvm.fabs.f64", d.clone(), vec![(d, v.into())], "abs");
-                self.set_st(block, 0, r);
+                self.m.set_st(block, 0, r);
             }
             M::Fsqrt => {
-                let v = self.st(block, 0);
+                let v = self.m.st(block, 0);
                 let r = self.m.intrinsic(block, "llvm.sqrt.f64", d.clone(), vec![(d, v.into())], "sqrt");
-                self.set_st(block, 0, r);
+                self.m.set_st(block, 0, r);
             }
             M::Frndint => {
-                let v = self.st(block, 0);
+                let v = self.m.st(block, 0);
                 let r = self.round_by_control_word(block, v);
-                self.set_st(block, 0, r);
+                self.m.set_st(block, 0, r);
             }
             M::Fxch => {
                 let other = Self::source_index(i);
-                let a = self.st(block, 0);
-                let b = self.st(block, other);
-                self.set_st(block, 0, b);
-                self.set_st(block, other, a);
+                let a = self.m.st(block, 0);
+                let b = self.m.st(block, other);
+                self.m.set_st(block, 0, b);
+                self.m.set_st(block, other, a);
             }
             M::Fcom | M::Fcomp | M::Fcompp | M::Fucom | M::Fucomp | M::Fucompp | M::Ficom | M::Ficomp | M::Ftst => {
                 let m = i.mnemonic();
-                let a = self.st(block, 0);
+                let a = self.m.st(block, 0);
                 let b = if m == M::Ftst {
                     self.m.value_of(block, d, Operand::Float(0.0))
                 } else {
@@ -442,25 +446,25 @@ impl Lifter<'_, '_> {
                 };
                 self.set_condition_codes(block, a, b);
                 match m {
-                    M::Fcomp | M::Fucomp | M::Ficomp => self.fpop(block),
+                    M::Fcomp | M::Fucomp | M::Ficomp => self.m.fpop(block),
                     M::Fcompp | M::Fucompp => {
-                        self.fpop(block);
-                        self.fpop(block);
+                        self.m.fpop(block);
+                        self.m.fpop(block);
                     }
                     _ => {}
                 }
             }
             M::Fcomi | M::Fcomip | M::Fucomi | M::Fucomip => {
-                let a = self.st(block, 0);
-                let b = self.st(block, Self::source_index(i));
+                let a = self.m.st(block, 0);
+                let b = self.m.st(block, Self::source_index(i));
                 self.set_compare_flags(block, a, b);
                 if matches!(i.mnemonic(), M::Fcomip | M::Fucomip) {
-                    self.fpop(block);
+                    self.m.fpop(block);
                 }
             }
             M::Fxam => {
                 // C3, C2, C0 classify st(0): zero is 100, a normal number is 010, NaN is 001.
-                let v = self.st(block, 0);
+                let v = self.m.st(block, 0);
                 let zero =
                     self.m.b.value(block, Inst::FCmp { cond: FCond::Oeq, ty: d.clone(), lhs: v.into(), rhs: Operand::Float(0.0) }, "z");
                 let nan = self.m.b.value(block, Inst::FCmp { cond: FCond::Uno, ty: d, lhs: v.into(), rhs: v.into() }, "nan");
@@ -468,7 +472,7 @@ impl Lifter<'_, '_> {
                     let either = self.m.b.bin(block, BinOp::Or, Type::I1, zero, nan, "zn");
                     self.m.b.bin(block, BinOp::Xor, Type::I1, either, 1i64, "normal")
                 };
-                let p = self.x87_global(block, X87_SW);
+                let p = self.m.x87_global(block, X87_SW);
                 let sw = self.m.b.load(block, Type::I16, p, "sw");
                 let mut acc = self.m.b.bin(block, BinOp::And, Type::I16, sw, !0x4500i64 & 0xffff, "sw.c");
                 for (bit, flag) in [(8i64, nan), (10, neither), (14, zero)] {
@@ -479,10 +483,10 @@ impl Lifter<'_, '_> {
                 self.m.b.store(block, Type::I16, acc, p);
             }
             M::Fnstsw | M::Fstsw => {
-                let p = self.x87_global(block, X87_SW);
+                let p = self.m.x87_global(block, X87_SW);
                 let sw = self.m.b.load(block, Type::I16, p, "sw");
                 // The top of stack field, bits 11 to 13, as the hardware would report it.
-                let top = self.x87_top(block);
+                let top = self.m.x87_top(block);
                 let top16 = self.m.trunc(block, Type::I64, top, Type::I16, "top16");
                 let placed = self.m.b.bin(block, BinOp::Shl, Type::I16, top16, 11i64, "top.p");
                 let cleared = self.m.b.bin(block, BinOp::And, Type::I16, sw, !0x3800i64 & 0xffff, "sw.t");
@@ -495,38 +499,38 @@ impl Lifter<'_, '_> {
                 }
             }
             M::Fnstcw | M::Fstcw => {
-                let cw = self.control_word(block);
+                let cw = self.m.control_word(block);
                 let address = self.mem_address(block, i);
                 self.m.store(block, Type::I16, cw, address);
             }
             M::Fldcw => {
                 let address = self.mem_address(block, i);
                 let cw = self.m.load(block, Type::I16, address, "cw.m");
-                let p = self.x87_global(block, X87_CW);
+                let p = self.m.x87_global(block, X87_CW);
                 self.m.b.store(block, Type::I16, cw, p);
             }
             M::Fninit | M::Finit => {
                 let top = self.m.value_of(block, Type::I64, 0i64);
-                self.set_x87_top(block, top);
-                let cw = self.x87_global(block, X87_CW);
+                self.m.set_x87_top(block, top);
+                let cw = self.m.x87_global(block, X87_CW);
                 self.m.b.store(block, Type::I16, 0x037fi64, cw);
-                let sw = self.x87_global(block, X87_SW);
+                let sw = self.m.x87_global(block, X87_SW);
                 self.m.b.store(block, Type::I16, 0i64, sw);
             }
             M::Fnclex | M::Fclex | M::Ffree | M::Fnop => {}
-            M::Ffreep | M::Fincstp => self.fpop(block),
+            M::Ffreep | M::Fincstp => self.m.fpop(block),
             M::Fdecstp => {
-                let top = self.x87_top(block);
+                let top = self.m.x87_top(block);
                 let down = self.m.b.bin(block, BinOp::Sub, Type::I64, top, 1i64, "top.d");
                 let wrapped = self.m.b.bin(block, BinOp::And, Type::I64, down, 7i64, "top");
-                self.set_x87_top(block, wrapped);
+                self.m.set_x87_top(block, wrapped);
             }
             M::Fcmovb | M::Fcmove | M::Fcmovbe | M::Fcmovu | M::Fcmovnb | M::Fcmovne | M::Fcmovnbe | M::Fcmovnu => {
                 let cond = self.condition(block, i.condition_code());
-                let a = self.st(block, 0);
-                let b = self.st(block, Self::source_index(i));
+                let a = self.m.st(block, 0);
+                let b = self.m.st(block, Self::source_index(i));
                 let r = self.m.b.select(block, cond, d, b, a, "fcmov");
-                self.set_st(block, 0, r);
+                self.m.set_st(block, 0, r);
             }
             _ => unsupported!(),
         }

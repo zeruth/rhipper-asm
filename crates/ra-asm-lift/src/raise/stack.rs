@@ -30,6 +30,13 @@ pub struct StackInfo {
     pub argument_reads: BTreeMap<i64, u16>,
     /// The function moves the stack pointer by a run-time amount somewhere.
     pub dynamic: bool,
+    /// The address of a stack argument leaves the stack arithmetic: stored to memory, passed on,
+    /// or added to a register. A `va_list`, or a pointer to the arguments: the function reads
+    /// them through it, not only by their slots.
+    pub argument_address_escapes: bool,
+    /// The function stores into a stack argument's slot: a parameter changed in place, or a dead
+    /// parameter's slot reused for a local (MSVC does, and takes its address), not a `va_list`.
+    pub argument_area_written: bool,
     /// For each call site (the value of the call instruction's position, by block and index), the
     /// stack offset at the call: the caller's outgoing arguments start above it.
     pub call_offsets: HashMap<(usize, usize), i64>,
@@ -86,6 +93,19 @@ pub fn analyze(
             }
             let Some(mut regs) = entry[bi] else { continue };
             for (ii, i) in f.blocks[bi].instrs.iter().enumerate() {
+                let first = target.first_stack_arg();
+                let symbolic_arg = |o: &Operand| matches!(o, Operand::Local(v) if symbolic.get(v).is_some_and(|&k| k >= first));
+                let escapes = match &i.inst {
+                    Inst::Store { ptr, value, .. } => !matches!(ptr, Operand::Local(p) if pointers.contains_key(p)) && symbolic_arg(value),
+                    Inst::Bin { op: BinOp::Add | BinOp::Sub, lhs, rhs, .. } => {
+                        matches!((lhs, rhs), (Operand::Local(_), Operand::Local(_))) && (symbolic_arg(lhs) || symbolic_arg(rhs))
+                    }
+                    Inst::Load { .. } | Inst::Cast { .. } | Inst::ICmp { .. } | Inst::Bin { .. } => false,
+                    other => other.uses().iter().any(|v| symbolic.get(v).is_some_and(|&k| k >= first)),
+                };
+                if escapes {
+                    info.argument_address_escapes = true;
+                }
                 match &i.inst {
                     // A register read: symbolic when the register holds a stack offset. A frame
                     // pointer is one, from `mov ebp, esp`; the stale answer of an earlier round
@@ -145,6 +165,9 @@ pub fn analyze(
                     Inst::Store { ty, ptr: Operand::Local(p), .. } => {
                         if let Some(&k) = symbolic.get(p) {
                             touch(&mut info, k, ty.bits().unwrap_or(64) as u16);
+                            if k >= target.first_stack_arg() {
+                                info.argument_area_written = true;
+                            }
                         }
                     }
                     inst => {
@@ -177,13 +200,21 @@ pub fn analyze(
                                         && name.len() > "imp_".len() + symbol.len()
                                     {
                                         // An import the table does not know takes the universal
-                                        // arguments, so whatever the caller passed flows on.
-                                        let arity = super::prototypes::arity(symbol).unwrap_or(8);
+                                        // arguments, so whatever the caller passed flows on; a
+                                        // typed one reads its doubles as two dwords on x86.
+                                        let kinds = match super::prototypes::typed(symbol) {
+                                            Some(proto) => proto.params,
+                                            None => vec![super::abi::Kind::Int; super::prototypes::arity(symbol).unwrap_or(8)],
+                                        };
                                         let registers = if target.is_64() { 4 } else { 0 };
-                                        for k in registers..arity {
-                                            let offset = target.first_stack_arg() + (k - registers) as i64 * ptr;
-                                            let e = info.argument_reads.entry(offset).or_insert(0);
-                                            *e = (*e).max((ptr * 8) as u16);
+                                        let mut offset = target.first_stack_arg();
+                                        for kind in kinds.iter().skip(registers) {
+                                            let width = kind.stack_width(target);
+                                            for k in (0..width).step_by(ptr as usize) {
+                                                let e = info.argument_reads.entry(offset + k).or_insert(0);
+                                                *e = (*e).max((ptr * 8) as u16);
+                                            }
+                                            offset += width;
                                         }
                                     }
                                 }
