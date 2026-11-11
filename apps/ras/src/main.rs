@@ -2,6 +2,7 @@
 //! person, or JSON with `--json` for the workbench and the agents.
 
 mod disasm;
+mod doctor;
 mod emit;
 mod functions;
 mod lift;
@@ -124,6 +125,13 @@ enum Command {
         #[arg(long)]
         rebuild: bool,
     },
+    /// The tools a port needs on this machine, each with its version or `missing` and what it is
+    /// needed for; fails when a required one is missing.
+    Doctor {
+        /// The language of the port the tools are required for: `c` (also `cpp`) or `rust`.
+        #[arg(long, default_value = "c")]
+        lang: String,
+    },
     /// The engine as a service: JSON-RPC over stdio, one request and one response per line, with
     /// the image and its analysis kept in memory. Serves the project of `--project` (the current
     /// directory without it), or a bare image with `--exe`.
@@ -180,6 +188,7 @@ fn main() -> anyhow::Result<()> {
             let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild };
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
+        Command::Doctor { lang } => doctor::doctor(doctor::Port::of(&lang), json),
         Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
     }
 }

@@ -32,6 +32,46 @@ fn ras(dir: &Path, args: &[&str]) -> (bool, String) {
     (output.status.success(), text)
 }
 
+/// `ras doctor --json` lists the tools of this machine; clang is among them, with a version when
+/// it is on the PATH.
+#[test]
+fn doctor_lists_the_tools_as_json() {
+    let output = Command::new(env!("CARGO_BIN_EXE_ras")).args(["doctor", "--json"]).output().unwrap();
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    let report: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{e}:\n{text}"));
+    let tools = report["tools"].as_array().unwrap();
+    let clang = tools.iter().find(|t| t["name"] == "clang").unwrap_or_else(|| panic!("no clang in {text}"));
+    assert_eq!(clang["for"], "the C compiler of a C or C++ port");
+    assert_eq!(clang["required"], true);
+    if available("clang") {
+        assert!(clang["version"].as_str().is_some_and(|v| v.contains('.')), "{clang}");
+    } else {
+        assert!(clang["version"].is_null(), "{clang}");
+    }
+    for name in ["clang++", "lld", "cmake", "ninja", "visual studio", "cargo", "llvm-symbolizer"] {
+        assert!(tools.iter().any(|t| t["name"] == name), "no {name} in {text}");
+    }
+    assert_eq!(report["ok"].as_bool().unwrap(), output.status.success());
+}
+
+/// With no tool on the PATH, the build step fails with the doctor's message, not `CMake`'s.
+#[test]
+fn the_build_step_names_the_missing_tools() {
+    let dir = project("doctor");
+    let output = Command::new(env!("CARGO_BIN_EXE_ras"))
+        .args(["pipeline", "--project"])
+        .arg(&dir)
+        .args(["--only", "build"])
+        .env("PATH", "")
+        .env_remove("ProgramFiles(x86)")
+        .env_remove("ProgramFiles")
+        .output()
+        .unwrap();
+    let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(!output.status.success(), "{text}");
+    assert!(text.contains("missing: clang (") && text.contains("cmake (") && text.contains("] build failed: stopping"), "{text}");
+}
+
 #[test]
 fn emit_writes_the_translation_and_the_table() {
     let dir = project("emit");

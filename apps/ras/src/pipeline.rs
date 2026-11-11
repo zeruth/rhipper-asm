@@ -14,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 
+use crate::doctor::{self, Port};
 use crate::project::Project;
 
 const CMAKE_LISTS: &str = include_str!("../templates/CMakeLists.txt");
@@ -186,6 +187,11 @@ impl Pipeline {
 
     fn build(&mut self, log: &mut File) -> Result<()> {
         let project = &self.project;
+        // The tools first: a missing one fails with its name, not with the build system's error.
+        let port = if project.is_rust() { Port::Rust } else { Port::C };
+        if let Some(failure) = doctor::check(port).failure() {
+            bail!("{failure}");
+        }
         if project.is_rust() {
             // A Rust translation is a cargo package under gen; its outputs go under build/cargo.
             let mut cargo = Command::new("cargo");
