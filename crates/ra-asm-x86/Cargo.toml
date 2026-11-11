@@ -1,6 +1,6 @@
 [package]
 name = "ra-asm-x86"
-description = "The x86-64 decoder: bytes to instruction records"
+description = "The x86 and x86-64 decoder adapter: bytes to instruction records with operands, flow and accesses"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,5 +13,7 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 iced-x86 = { version = "1.22.0", default-features = false, features = ["std", "decoder", "instr_info", "intel"] }
-ra-asm-ir.workspace = true
-thiserror.workspace = true
+ra-asm-arch.workspace = true
+
+[dev-dependencies]
+ra-asm-pe.workspace = true

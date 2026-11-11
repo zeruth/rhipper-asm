@@ -1,4 +1,3 @@
-//! The intermediate representation. One `Instr` is one operation with explicit operands; the
-//! x86 decoder emits them, and the translators of the pipeline consume them.
-
-pub mod instr;
+//! The intermediate representation: a subset of LLVM IR with its own printer. Milestone D fills
+//! it in. The machine instruction record lives in `ra-asm-arch`; this crate holds what the lift
+//! produces and the backends consume.

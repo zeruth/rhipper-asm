@@ -172,8 +172,16 @@ name = "ra-asm-analysis"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ra-asm-arch",
  "ra-asm-pe",
  "ra-asm-x86",
+ "serde",
+]
+
+[[package]]
+name = "ra-asm-arch"
+version = "0.1.0"
+dependencies = [
  "serde",
 ]
 
@@ -200,6 +208,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ra-asm-analysis",
+ "ra-asm-arch",
  "ra-asm-ir",
  "ra-asm-pe",
  "ra-asm-x86",
@@ -220,8 +229,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "iced-x86",
- "ra-asm-ir",
- "thiserror",
+ "ra-asm-arch",
+ "ra-asm-pe",
 ]
 
 [[package]]
@@ -230,7 +239,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "ra-asm-ir",
+ "ra-asm-arch",
  "ra-asm-pe",
  "ra-asm-x86",
  "serde",

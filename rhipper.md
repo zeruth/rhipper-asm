@@ -20,21 +20,22 @@
         objective: `testdata/` holds small C programs, built by clang for x86-64 and x86 with lld, and the binaries they produce; a test compares the loader with `llvm-readobj` when it is on the PATH and skips when it is not.
         acceptance: `cargo test -p ra-asm-pe` passes with and without LLVM on the PATH; `testdata/build.ps1` rebuilds every fixture.
         notes: Done 2026-11-10. Six fixtures (hello, control, exports; 64 and 32), 2 to 6 KB each, no C runtime; -ffreestanding drops the x64 unwind tables, so the build uses -fno-builtin -funwind-tables. The native output of each program is kept under testdata/expected for the execution oracle.
-  - 7 ‹milestone› B: the instructions {c3} [in_progress]
+  - 7 ‹milestone› B: the instructions {c3} [implemented]
       objective: `ra-asm-x86` turns the bytes of a function into `Instr` records with operands, length, flow kind, and the registers and memory each one reads and writes, in 64-bit and 32-bit mode.
       acceptance: `ras disasm <exe> <address> [length]` prints a function; a test decodes every fixture's `.text` and agrees with `llvm-objdump` on each instruction's length and mnemonic.
-    - 8 ‹task› The decoder adapter {c2} [defined]
+    - 8 ‹task› The decoder adapter {c2} [implemented]
         objective: An `Arch` trait with an x86 implementation over iced-x86: decode one instruction, give its text, its flow (fall through, jump, conditional jump, call, return, indirect, trap), its branch target, and its register and memory accesses.
         acceptance: A unit test decodes a known byte sequence and checks the operands, the flow and the target.
-    - 9 ‹task› `ras disasm` {c1} [defined]
+        notes: Done 2026-11-10. The neutral record and the Arch trait live in a small ra-asm-arch crate, so a second architecture and the analysis share them without depending on x86. X86::decode_full keeps iced's Instruction beside the record for the lift.
+    - 9 ‹task› `ras disasm` {c1} [implemented]
         objective: The command prints `address  mnemonic operands`, with a note for a RIP-relative or absolute target inside the image, and the C string there when there is one, as the old `disasm.py` did.
         acceptance: The command on a fixture's entry point prints the whole function by its `.pdata` extent.
         waits-on: 8
-    - 10 ‹task› The objdump oracle {c2} [defined]
+    - 10 ‹task› The objdump oracle {c2} [implemented]
         objective: A test disassembles the `.text` of every fixture linearly and compares lengths and mnemonics with `llvm-objdump -d`; a difference prints both sides.
         acceptance: The test passes on every fixture, and skips with a message when `llvm-objdump` is not on the PATH.
         waits-on: 8
-  - 11 ‹milestone› C: functions and control flow {c4} [defined]
+  - 11 ‹milestone› C: functions and control flow {c4} [in_progress]
       objective: `ra-asm-analysis` finds the functions of an image and builds the control-flow graph of each one.
       acceptance: `ras functions` lists every function of the fixtures with its size and block count, and finds the same functions as the link map of each fixture.
     - 12 ‹task› Function discovery {c3} [defined]

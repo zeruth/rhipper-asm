@@ -1,6 +1,7 @@
 //! Rhipper Asm: the command line over the disassembly core. Each subcommand prints a table for a
 //! person, or JSON with `--json` for the workbench and the agents.
 
+mod disasm;
 mod report;
 
 use std::path::PathBuf;
@@ -38,6 +39,14 @@ enum Command {
         #[arg(long)]
         pdata: bool,
     },
+    /// The instructions at an address: its `.pdata` extent, one run of code, or `length` bytes.
+    Disasm {
+        pe: PathBuf,
+        /// `0x140001000`, `140001000` or `FUN_140001000`.
+        address: String,
+        /// The number of bytes, in hexadecimal.
+        length: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -51,5 +60,10 @@ fn main() -> anyhow::Result<()> {
         Command::Relocs { pe } => report::relocs(&ra_asm_pe::load(&pe)?, json),
         Command::Debug { pe } => report::debug(&ra_asm_pe::load(&pe)?, json),
         Command::Functions { pe, pdata } => report::functions(&ra_asm_pe::load(&pe)?, pdata, json),
+        Command::Disasm { pe, address, length } => {
+            let address = disasm::parse_address(&address)?;
+            let length = length.as_deref().map(disasm::parse_address).transpose()?;
+            disasm::disasm(&ra_asm_pe::load(&pe)?, address, length, json)
+        }
     }
 }
