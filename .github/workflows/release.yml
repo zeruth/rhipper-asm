@@ -17,6 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Install LLVM
         run: choco install llvm --no-progress -y
       - name: Test
@@ -30,6 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release -p ras
       - name: Pack
@@ -39,10 +41,15 @@ jobs:
           if ("${{ github.ref_name }}" -ne "v$version" -and "${{ github.event_name }}" -eq "push") {
             throw "the tag ${{ github.ref_name }} does not match the workspace version $version"
           }
+          # The workbench shows this line under Tools: the binary must answer with the released version.
+          $reported = (& target/release/ras.exe --version | Out-String).Trim()
+          if ($reported -ne "ras $version") {
+            throw "ras --version printed '$reported', expected 'ras $version'"
+          }
           New-Item -ItemType Directory -Force dist/ras | Out-Null
           Copy-Item target/release/ras.exe dist/ras/
           Copy-Item -Recurse runtime dist/ras/runtime
-          Copy-Item README.md, LICENSE* dist/ras/ -ErrorAction SilentlyContinue
+          Copy-Item README.md dist/ras/
           $zip = "dist/ras-$version-windows-x64.zip"
           Compress-Archive -Path dist/ras/* -DestinationPath $zip
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()

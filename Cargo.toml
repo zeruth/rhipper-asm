@@ -48,6 +48,8 @@ too_many_lines = "allow"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+# The release binary is what the workbench downloads; symbols only add to the download.
+strip = true
 
 [profile.dev.package."*"]
 opt-level = 2
