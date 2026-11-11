@@ -24,14 +24,15 @@ fn origin_name(origin: &Origin) -> String {
     }
 }
 
-/// The classes of the analysis as JSON: name, bases, and each vtable with its functions by name.
+/// The classes of the analysis as JSON: name, bases (all of them, and the direct ones), and each
+/// vtable with its functions by name; a base nothing instantiates has no vtables.
 pub(crate) fn classes_json(analysis: &Analysis<'_>) -> serde_json::Value {
     let rows: Vec<_> = analysis
         .classes
         .iter()
         .map(|c| {
             json!({
-                "name": c.name, "type_descriptor": hex(c.type_descriptor), "bases": c.bases,
+                "name": c.name, "type_descriptor": hex(c.type_descriptor), "bases": c.bases, "direct_bases": c.direct_bases,
                 "vtables": c.vtables.iter().map(|v| json!({
                     "addr": hex(v.address), "offset": v.offset, "base": v.base,
                     "functions": v.functions.iter().map(|f| json!({"addr": hex(*f), "name": analysis.name_of(*f)})).collect::<Vec<_>>(),
@@ -103,7 +104,7 @@ pub(crate) fn functions_json(analysis: &Analysis<'_>) -> serde_json::Value {
         .map(|f| {
             let (strings, virtuals) = facts_json(f);
             json!({
-                "addr": hex(f.entry), "name": f.name, "size": f.size(), "bytes": f.code_bytes(), "blocks": f.blocks.len(),
+                "addr": hex(f.entry), "name": f.name, "symbol": f.symbol, "size": f.size(), "bytes": f.code_bytes(), "blocks": f.blocks.len(),
                 "instrs": f.instr_count(), "noreturn": f.noreturn,
                 "thunk": match &f.kind { Kind::ImportThunk(i) => Some(i.clone()), _ => None },
                 "runtime": match &f.kind { Kind::Runtime(name) => Some(name.clone()), _ => None },

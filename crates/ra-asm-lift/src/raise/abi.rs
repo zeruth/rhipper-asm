@@ -69,6 +69,10 @@ pub struct Signature {
     /// calls writes them. MSVC's `__security_check_cookie` keeps `eax`, and a function sets its
     /// result before calling it; the convention alone would have the call clobber it.
     pub preserves: SlotSet,
+    /// An x86 function that reads its stack arguments through their address (a `va_list`): in
+    /// place of stack parameters it takes the address of its caller's argument block, as the
+    /// trailing parameter `varargs`, and reads every stack argument through it.
+    pub variadic: bool,
 }
 
 impl Default for Signature {
@@ -82,6 +86,7 @@ impl Default for Signature {
             dynamic_stack: false,
             pops: 0,
             preserves: NO_SLOTS,
+            variadic: false,
         }
     }
 }
@@ -156,8 +161,6 @@ struct Facts {
     float_positions: [Option<Kind>; 4],
     stack: StackInfo,
     writes_rax: bool,
-    /// Whether the function writes `rdx`: with a caller that reads it, a 64-bit result on x86.
-    writes_rdx: bool,
     /// The float kind the function writes to `xmm0`, when it does.
     writes_xmm0: Option<Kind>,
     /// The slots the function writes, itself or through what it calls, as far as the signatures
@@ -192,7 +195,8 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target) -> HashM
     for _round in 0..8 {
         let facts: Vec<Facts> = functions.iter().map(|f| gather(f, &signatures, target)).collect();
         let xmm0_kinds: HashMap<&str, Option<Kind>> = facts.iter().map(|f| (f.name.as_str(), f.writes_xmm0)).collect();
-        let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes_rdx)).collect();
+        // Through the callees as well: `call _allrem; ret` hands back the 64 bits its callee left.
+        let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[RDX.index()])).collect();
         let writes_rax: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[RAX.index()])).collect();
         // A float result wins when a caller reads xmm0 after the call: the callee wrote it as one.
         // A float an x86 function returns on the x87 stack travels in the lift's globals instead.
@@ -255,13 +259,16 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target) -> HashM
                 let float_count = (0..floats).rev().find(|&p| fact.float_positions[p].is_some()).map_or(0, |p| p + 1);
                 (0..int_count).map(|_| Kind::Int).chain((0..float_count).map(|p| fact.float_positions[p].unwrap_or(Kind::Double))).collect()
             };
-            // The stack parameters: one per slot from the first stack argument to the last slot
-            // read; on x86 a slot read as 64 bits is one wide parameter over two slots.
+            // The stack parameters: one per slot from the first stack argument to the end of the
+            // widest read; on x86 a slot read as 64 bits is one wide parameter over two slots,
+            // and a 16-byte copy of the arguments (clang moves two 64-bit ones at once) covers
+            // one slot per dword.
             let first = target.first_stack_arg();
+            let slot = Kind::Int.stack_width(target);
             let mut stack_params = Vec::new();
-            if let Some(&last) = fact.stack.argument_reads.keys().last() {
+            if let Some(end) = fact.stack.argument_reads.iter().map(|(&at, &bits)| at + i64::from(bits / 8).max(slot)).max() {
                 let mut at = first;
-                while at <= last {
+                while at < end {
                     let bits = fact.stack.argument_reads.get(&at).copied().unwrap_or(0);
                     let kind = if !target.is_64() && bits == 64 { Kind::Wide } else { Kind::Int };
                     at += kind.stack_width(target);
@@ -274,17 +281,21 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target) -> HashM
             for (kept, written) in preserves.iter_mut().zip(fact.writes) {
                 *kept &= !written;
             }
+            // A function that hands the address of its arguments on reads them through it; one
+            // that also writes into their slots reuses a dead parameter's slot for a local.
+            let variadic = !target.is_64() && fact.stack.argument_address_escapes && !fact.stack.argument_area_written;
             next.insert(
                 fact.name.clone(),
                 Signature {
                     params,
-                    stack_params,
+                    stack_params: if variadic { Vec::new() } else { stack_params },
                     returns,
                     noreturn: fact.noreturn,
                     frame_below: (frame_below + 15) & !15,
                     dynamic_stack: fact.stack.dynamic,
                     pops: if target.is_64() { 0 } else { fact.stack.pops.max(0) as u64 },
                     preserves,
+                    variadic,
                 },
             );
         }
@@ -303,9 +314,11 @@ pub fn call_model_public(inst: &Inst, signatures: &HashMap<String, Signature>, t
 }
 
 /// What a state call reads and writes under the current signatures. An import reads as many
-/// argument registers as its prototype says (none on x86, where they are on the stack); an
-/// unknown import or an indirect call reads every argument register. A lifted callee writes the
-/// caller-saved registers it does not preserve; anything else writes them all.
+/// argument registers as its prototype says (none on x86, where they are on the stack); a
+/// variadic C function reads the integer argument registers, where the Win64 convention puts a
+/// float argument of its too; an unknown import or an indirect call reads every argument
+/// register. A lifted callee writes the caller-saved registers it does not preserve; anything
+/// else writes them all.
 fn call_model(inst: &Inst, signatures: &HashMap<String, Signature>, target: Target) -> (SlotSet, SlotSet) {
     let mut writes = caller_saved(target);
     if let Inst::Call { callee: Callee::Direct(name), .. } = inst
@@ -315,19 +328,24 @@ fn call_model(inst: &Inst, signatures: &HashMap<String, Signature>, target: Targ
             *w &= !kept;
         }
     }
+    let int_slots = |count: usize| {
+        let mut set = NO_SLOTS;
+        if target.is_64() {
+            for slot in target.int_param_slots().iter().take(count) {
+                set[slot.index()] = true;
+            }
+        }
+        set
+    };
     let reads = match inst {
         Inst::Call { callee: Callee::Direct(name), .. } => match signatures.get(name) {
             Some(s) => s.param_slots(target),
-            None => match crate::import_of_wrapper(name).and_then(super::prototypes::arity) {
-                Some(arity) => {
-                    let mut set = NO_SLOTS;
-                    if target.is_64() {
-                        for slot in target.int_param_slots().iter().take(arity) {
-                            set[slot.index()] = true;
-                        }
-                    }
-                    set
-                }
+            None => match crate::import_of_wrapper(name) {
+                Some(symbol) if super::prototypes::is_variadic(symbol) => int_slots(4),
+                Some(symbol) => match super::prototypes::arity(symbol) {
+                    Some(arity) => int_slots(arity),
+                    None => all_argument_slots(target),
+                },
                 None => all_argument_slots(target),
             },
         },
@@ -373,7 +391,6 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target)
     let mut uses_rdx_of = Vec::new();
     let mut uses_xmm0_of = Vec::new();
     let mut writes_rax = false;
-    let mut writes_rdx = false;
     let mut writes_xmm0: Option<Kind> = None;
     let mut writes = NO_SLOTS;
     for (bi, b) in f.blocks.iter().enumerate() {
@@ -395,7 +412,6 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target)
             }
             match &i.inst {
                 Inst::Store { ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&RAX) => writes_rax = true,
-                Inst::Store { ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&RDX) => writes_rdx = true,
                 Inst::Store { ty, ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&Slot::Xmm(0)) => match ty {
                     Type::Double => writes_xmm0 = Some(Kind::Double),
                     Type::Float if writes_xmm0 != Some(Kind::Double) => writes_xmm0 = Some(Kind::Float),
@@ -428,7 +444,6 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target)
         writes_xmm0,
         uses_xmm0_of,
         writes_rax,
-        writes_rdx,
         writes,
         uses_rax_of,
         uses_rdx_of,

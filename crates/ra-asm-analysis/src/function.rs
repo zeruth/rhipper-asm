@@ -126,6 +126,9 @@ impl Block {
 pub struct Function {
     pub entry: u64,
     pub name: String,
+    /// The name the build's symbols (a PDB or a link map) give the function, as they have it:
+    /// `_rhtest_run`, `?area@Rect@@UEBAHXZ`; `None` when nothing names it.
+    pub symbol: Option<String>,
     pub kind: Kind,
     pub blocks: Vec<Block>,
     /// The functions it calls directly, in first-call order.

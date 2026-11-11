@@ -120,7 +120,7 @@ struct Pipeline {
 impl Pipeline {
     fn image(&mut self) -> Result<&ra_asm_pe::Image> {
         if self.image.is_none() {
-            self.image = Some(ra_asm_pe::load(&self.project.exe)?);
+            self.image = Some(self.project.load_image()?);
         }
         Ok(self.image.as_ref().expect("loaded"))
     }
@@ -171,7 +171,7 @@ impl Pipeline {
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         lifted.apply_names(&analysis, Some(&mut signatures));
-        let translation = crate::emit::translate(image, &analysis, &lifted, &lang, &package)?;
+        let translation = crate::emit::translate(image, &analysis, &lifted, &signatures, &lang, &package)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
         fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;

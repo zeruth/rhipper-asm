@@ -11,14 +11,17 @@
 //!   in the complete object, `cd_offset`, type descriptor, class hierarchy descriptor, and on x64
 //!   the locator's own RVA; the x64 fields are RVAs, the x86 fields virtual addresses.
 //! - type descriptor: a pointer to `type_info`'s vtable, a pointer-sized spare, the mangled name.
-//! - class hierarchy descriptor: `signature`, `attributes`, the count of bases, the base class array.
-//! - base class descriptor: type descriptor, the count of contained bases, the displacement
-//!   (`mdisp`, `pdisp`, `vdisp`), `attributes`, class hierarchy descriptor.
+//! - class hierarchy descriptor: `signature`, `attributes`, the count of bases, the base class array:
+//!   the class itself, then its bases depth first, so the direct bases are the entries at the top
+//!   level of that walk.
+//! - base class descriptor: type descriptor, the count of contained bases (the entries of the
+//!   array under this one), the displacement (`mdisp`, `pdisp`, `vdisp`), `attributes`, class
+//!   hierarchy descriptor.
 
 use ra_asm_pe::Image;
 use serde::Serialize;
 
-/// A class with virtual functions.
+/// A class with virtual functions, or a base of one.
 #[derive(Debug, Clone, Serialize)]
 pub struct Class {
     /// The class name as the source wrote it: `Shape`, `ns::Inner`.
@@ -26,8 +29,11 @@ pub struct Class {
     pub type_descriptor: u64,
     /// The direct and indirect bases, as the hierarchy lists them, without the class itself.
     pub bases: Vec<String>,
+    /// The direct bases alone, in declaration order.
+    pub direct_bases: Vec<String>,
     /// The vtables of the class, by the offset of their subobject: one for a single-inheritance
-    /// class, one per base with virtual functions for a multiple-inheritance class.
+    /// class, one per base with virtual functions for a multiple-inheritance class. None for a
+    /// base nothing instantiates, which the image knows only through the classes derived from it.
     pub vtables: Vec<Vtable>,
 }
 
@@ -69,19 +75,44 @@ pub fn identifier(name: &str) -> String {
     out.trim_matches('_').to_owned()
 }
 
-/// Every class with a vtable in `image`, in the order of their type descriptors.
+/// Every class with a vtable in `image`, and every base of one that has no vtable of its own, in
+/// the order of their type descriptors.
 pub fn classes(image: &Image) -> Vec<Class> {
     let locators = find_locators(image);
     let mut classes: Vec<Class> = Vec::new();
+    let mut hierarchies: Vec<Vec<Base>> = Vec::new();
     for l in locators {
         let Some(name) = type_name(image, l.type_descriptor) else { continue };
         let Some(vtable) = find_vtable(image, l.address) else { continue };
-        let bases = base_names(image, l.hierarchy);
         let base = (l.offset != 0).then(|| base_at_offset(image, l.hierarchy, l.offset)).flatten().filter(|b| *b != name);
         let vtable = Vtable { address: vtable.0, offset: l.offset, base, locator: l.address, functions: vtable.1 };
-        match classes.iter_mut().find(|c| c.type_descriptor == l.type_descriptor) {
-            Some(class) => class.vtables.push(vtable),
-            None => classes.push(Class { name, type_descriptor: l.type_descriptor, bases, vtables: vec![vtable] }),
+        if let Some(class) = classes.iter_mut().find(|c| c.type_descriptor == l.type_descriptor) {
+            class.vtables.push(vtable);
+            continue;
+        }
+        let hierarchy = hierarchy(image, l.hierarchy);
+        let bases = names(hierarchy.get(1..).unwrap_or_default());
+        let direct_bases = direct_bases(&hierarchy, 0);
+        classes.push(Class { name, type_descriptor: l.type_descriptor, bases, direct_bases, vtables: vec![vtable] });
+        hierarchies.push(hierarchy);
+    }
+    // A base nothing instantiates has no vtable, so no locator names it: the hierarchies of the
+    // classes derived from it carry its name, its type descriptor and its own bases.
+    for hierarchy in &hierarchies {
+        for (index, base) in hierarchy.iter().enumerate().skip(1) {
+            if classes.iter().any(|c| c.type_descriptor == base.type_descriptor) {
+                continue;
+            }
+            let end = (index + 1 + base.contained as usize).min(hierarchy.len());
+            let bases = names(&hierarchy[index + 1..end]);
+            let direct_bases = direct_bases(hierarchy, index);
+            classes.push(Class {
+                name: base.name.clone(),
+                type_descriptor: base.type_descriptor,
+                bases,
+                direct_bases,
+                vtables: Vec::new(),
+            });
         }
     }
     for class in &mut classes {
@@ -89,6 +120,45 @@ pub fn classes(image: &Image) -> Vec<Class> {
     }
     classes.sort_by_key(|c| c.type_descriptor);
     classes
+}
+
+/// One entry of a class hierarchy descriptor's base class array.
+struct Base {
+    name: String,
+    type_descriptor: u64,
+    /// The entries under this one: its own direct and indirect bases.
+    contained: u32,
+}
+
+/// The base class array of the hierarchy at `va`: the class itself first, then its bases depth
+/// first, up to the first entry that does not read as a class.
+fn hierarchy(image: &Image, va: u64) -> Vec<Base> {
+    base_descriptors(image, va)
+        .into_iter()
+        .map_while(|bcd| {
+            let type_descriptor = field_address(image, bcd)?;
+            let name = type_name(image, type_descriptor)?;
+            Some(Base { name, type_descriptor, contained: image.u32(bcd + 4).ok()? })
+        })
+        .collect()
+}
+
+fn names(bases: &[Base]) -> Vec<String> {
+    bases.iter().map(|b| b.name.clone()).collect()
+}
+
+/// The direct bases of the entry at `index`: the entries under it, each stepped over with the
+/// entries under it in turn.
+fn direct_bases(hierarchy: &[Base], index: usize) -> Vec<String> {
+    let Some(entry) = hierarchy.get(index) else { return Vec::new() };
+    let end = (index + 1 + entry.contained as usize).min(hierarchy.len());
+    let mut out = Vec::new();
+    let mut i = index + 1;
+    while i < end {
+        out.push(hierarchy[i].name.clone());
+        i += 1 + hierarchy[i].contained as usize;
+    }
+    out
 }
 
 struct Locator {
@@ -201,10 +271,6 @@ fn base_descriptors(image: &Image, hierarchy: u64) -> Vec<u64> {
     let Ok(count) = image.u32(hierarchy + 8) else { return Vec::new() };
     let Some(array) = field_address(image, hierarchy + 12) else { return Vec::new() };
     (0..count.min(64)).filter_map(|i| field_address(image, array + u64::from(i) * 4)).collect()
-}
-
-fn base_names(image: &Image, hierarchy: u64) -> Vec<String> {
-    base_descriptors(image, hierarchy).into_iter().skip(1).filter_map(|bcd| type_name(image, field_address(image, bcd)?)).collect()
 }
 
 /// The base whose subobject lies at `offset` in the complete object.

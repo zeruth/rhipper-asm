@@ -1,7 +1,125 @@
-//! The prototypes of common imports: how many integer arguments each takes. An import the table
-//! does not know is modeled as reading all four argument registers, which is safe and may add a
-//! parameter the enclosing function does not have. The old pipeline read these off the SDK
-//! headers (`import_protos.py`); a generated table replaces this one when that port lands.
+//! The prototypes of the imports: how many integer arguments each takes, and which arguments are
+//! doubles or 64-bit integers and what comes back where that matters (the C runtime's math, the
+//! Win32 functions that take a `LARGE_INTEGER`). The C runtime's functions and the runtime's own
+//! shims are written here by hand; the Windows API comes from [`win32`], a table generated from the
+//! SDK headers (`tests/win32_protos.rs` regenerates it), which the hand table takes precedence
+//! over. An import neither knows is modeled as reading all four argument registers, which is safe
+//! and may add a parameter the enclosing function does not have.
+
+mod win32;
+
+use ra_asm_ir::{FnType, Type};
+
+use super::abi::{Kind, Signature};
+
+/// The prototype of a Windows API function from the generated table: the kind of its result
+/// (`None` for a `void` function) and of each parameter.
+pub fn win32(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
+    let i = win32::TABLE.binary_search_by_key(&name, |(n, _)| n).ok()?;
+    let kinds = win32::TABLE[i].1.as_bytes();
+    let kind = |c: u8| match c {
+        b'w' => Kind::Wide,
+        b'd' => Kind::Double,
+        b'f' => Kind::Float,
+        _ => Kind::Int,
+    };
+    let returns = (kinds[0] != b'v').then(|| kind(kinds[0]));
+    Some((returns, kinds[1..].iter().map(|&c| kind(c)).collect()))
+}
+
+/// The prototype of an import whose arguments or result are not all integers: the C runtime's
+/// math. In 32 bits a double is two stack slots and the result comes back in `st(0)`; through the
+/// integer adapter the host would take the halves for two arguments and the program would find no
+/// result on the x87 stack.
+#[derive(Debug, Clone)]
+pub struct Typed {
+    pub params: Vec<Kind>,
+    pub returns: Option<Kind>,
+}
+
+impl Typed {
+    /// The IR type of the import itself.
+    pub fn fn_type(&self) -> FnType {
+        FnType::new(self.returns.map_or(Type::Void, Kind::ty), self.params.iter().map(|k| k.ty()).collect())
+    }
+
+    /// The import as a signature of the target's convention: on Win64 the first four parameters
+    /// arrive in registers, on x86 all of them on the stack (`cdecl`).
+    pub fn signature(&self, is_64: bool) -> Signature {
+        let registers = if is_64 { self.params.len().min(4) } else { 0 };
+        Signature {
+            params: self.params[..registers].to_vec(),
+            stack_params: self.params[registers..].to_vec(),
+            returns: self.returns,
+            ..Signature::default()
+        }
+    }
+
+    /// The bytes the arguments take on the x86 stack.
+    pub fn stack_bytes_x86(&self) -> i64 {
+        self.params.iter().map(|k| if matches!(k, Kind::Wide | Kind::Double) { 8 } else { 4 }).sum()
+    }
+}
+
+/// The typed prototype of a well-known import, by name: the C runtime's math functions, with the
+/// pointer arguments (`frexp`'s exponent, `modf`'s integer part) as integers of the address width.
+pub fn typed(name: &str) -> Option<Typed> {
+    use Kind::{Double, Float, Int, Wide};
+    let (params, returns) = match name {
+        "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh" | "exp" | "exp2"
+        | "expm1" | "log" | "log2" | "log10" | "log1p" | "logb" | "sqrt" | "cbrt" | "floor" | "ceil" | "trunc" | "round" | "rint"
+        | "nearbyint" | "fabs" | "erf" | "erfc" | "tgamma" | "lgamma" | "_j0" | "_j1" | "_y0" | "_y1" | "_chgsign" => {
+            (vec![Double], Some(Double))
+        }
+        "sinf" | "cosf" | "tanf" | "asinf" | "acosf" | "atanf" | "sinhf" | "coshf" | "tanhf" | "expf" | "exp2f" | "logf" | "log2f"
+        | "log10f" | "sqrtf" | "cbrtf" | "floorf" | "ceilf" | "truncf" | "roundf" | "rintf" | "nearbyintf" | "fabsf" | "_chgsignf" => {
+            (vec![Float], Some(Float))
+        }
+        "atan2" | "fmod" | "pow" | "hypot" | "_hypot" | "fmin" | "fmax" | "fdim" | "copysign" | "_copysign" | "nextafter"
+        | "_nextafter" | "remainder" => (vec![Double, Double], Some(Double)),
+        "atan2f" | "fmodf" | "powf" | "hypotf" | "_hypotf" | "fminf" | "fmaxf" | "fdimf" | "copysignf" | "_copysignf" | "nextafterf"
+        | "remainderf" => (vec![Float, Float], Some(Float)),
+        "fma" => (vec![Double, Double, Double], Some(Double)),
+        "fmaf" => (vec![Float, Float, Float], Some(Float)),
+        "frexp" | "modf" | "ldexp" | "scalbn" => (vec![Double, Int], Some(Double)),
+        "frexpf" | "modff" | "ldexpf" | "scalbnf" => (vec![Float, Int], Some(Float)),
+        "lrint" | "lround" | "ilogb" | "_dclass" | "_dsign" | "_finite" | "_isnan" | "_fpclass" => (vec![Double], Some(Int)),
+        "lrintf" | "lroundf" | "ilogbf" | "_fdclass" | "_fdsign" => (vec![Float], Some(Int)),
+        "llrint" | "llround" => (vec![Double], Some(Wide)),
+        "llrintf" | "llroundf" => (vec![Float], Some(Wide)),
+        "atof" => (vec![Int], Some(Double)),
+        "strtod" | "ra_x86_strtod" => (vec![Int, Int], Some(Double)),
+        "ra_x86_strtoll" | "ra_x86_strtoull" => (vec![Int, Int, Int], Some(Wide)),
+        "difftime" | "_difftime64" => (vec![Wide, Wide], Some(Double)),
+        // The C runtime functions whose 64-bit result an x86 caller reads in edx:eax (`div_t` and
+        // `ldiv_t` are two ints in one), and the Win32 functions that take or return one: two x86
+        // slots, one host register.
+        "div" | "ldiv" => (vec![Int, Int], Some(Wide)),
+        "_atoi64" | "atoll" | "_wtoi64" | "_telli64" | "_filelengthi64" | "_ftelli64" => (vec![Int], Some(Wide)),
+        "llabs" | "_abs64" | "_byteswap_uint64" => (vec![Wide], Some(Wide)),
+        "_rotl64" | "_rotr64" => (vec![Wide, Int], Some(Wide)),
+        "_lseeki64" => (vec![Int, Wide, Int], Some(Wide)),
+        "_fseeki64" => (vec![Int, Wide, Int], Some(Int)),
+        "SetFilePointerEx" => (vec![Int, Wide, Int, Int], Some(Int)),
+        "GetTickCount64" => (vec![], Some(Wide)),
+        // The stdio adapters: the options word is 64 bits, two x86 slots.
+        "ra_x86_vsprintf" | "ra_x86_vsprintf_s" | "ra_x86_vsscanf" => (vec![Wide, Int, Int, Int, Int, Int], Some(Int)),
+        "ra_x86_vsnprintf_s" => (vec![Wide, Int, Int, Int, Int, Int, Int], Some(Int)),
+        "ra_x86_vfprintf" => (vec![Wide, Int, Int, Int, Int], Some(Int)),
+        // A Windows API function whose arguments or result are not all integers of the address
+        // width: the generated table knows which. One that takes integers only needs no type,
+        // only its arity.
+        _ => {
+            let (returns, params) = win32(name)?;
+            let wide = |k: &Kind| !matches!(k, Int);
+            if !params.iter().any(wide) && !returns.as_ref().is_some_and(wide) {
+                return None;
+            }
+            (params, returns)
+        }
+    };
+    Some(Typed { params, returns })
+}
 
 /// The bytes a 32-bit import pops on return: four per argument for the `stdcall` of the Win32
 /// API, none for the `cdecl` of the C runtime DLLs, and `None` for an import the table does not
@@ -10,6 +128,9 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
     if is_crt_dll(dll) {
         return Some(0);
     }
+    if let Some(proto) = typed(name) {
+        return Some(proto.stack_bytes_x86() as u64);
+    }
     arity(name).map(|n| 4 * n as u64)
 }
 
@@ -17,8 +138,9 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
 /// as it is: the C runtime functions that walk a table of pointers (`_initterm` and the onexit
 /// table) or hand back one (`argv`, the environment), where the width of a pointer is the
 /// layout, and `InitializeSListHead`, whose 64-bit version writes 16 bytes into the program's
-/// 8-byte list head and refuses one that is not 16-byte aligned. The shim takes the same
-/// arguments and keeps the program's layout.
+/// 8-byte list head and refuses one that is not 16-byte aligned, and `_controlfp`, whose 64-bit
+/// version has no x87 precision control to report. The shim takes the same arguments and keeps
+/// the program's layout.
 pub fn x86_shim(name: &str) -> Option<&'static str> {
     Some(match name {
         "_initterm" => "ra_x86_initterm",
@@ -29,6 +151,22 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "__p___argv" => "ra_x86_p_argv",
         "_get_initial_narrow_environment" => "ra_x86_initial_narrow_environment",
         "InitializeSListHead" => "ra_x86_initialize_slist_head",
+        "_controlfp" => "ra_x86_controlfp",
+        "_setjmp3" | "_setjmp" => "ra_x86_setjmp3",
+        "longjmp" | "_longjmpex" => "ra_x86_longjmp",
+        // The printf and scanf family hand the program's dword arguments on as a va_list, which
+        // the host reads in 8-byte slots: the adapter widens them by the format.
+        "__stdio_common_vsprintf" => "ra_x86_vsprintf",
+        "__stdio_common_vsprintf_s" => "ra_x86_vsprintf_s",
+        "__stdio_common_vsnprintf_s" => "ra_x86_vsnprintf_s",
+        "__stdio_common_vfprintf" => "ra_x86_vfprintf",
+        "__stdio_common_vsscanf" => "ra_x86_vsscanf",
+        // The strto* family writes a `char *` of eight bytes where the program expects four.
+        "strtol" => "ra_x86_strtol",
+        "strtoul" => "ra_x86_strtoul",
+        "strtod" => "ra_x86_strtod",
+        "strtoll" | "_strtoi64" => "ra_x86_strtoll",
+        "strtoull" | "_strtoui64" => "ra_x86_strtoull",
         _ => return None,
     })
 }
@@ -63,9 +201,6 @@ pub fn host_lacks(name: &str) -> bool {
             | "_SEH_epilog4_GS"
             | "__CxxFrameHandler"
             | "__CxxFrameHandler2"
-            | "__CxxFrameHandler3"
-            | "__CxxFrameHandler4"
-            | "_CxxThrowException"
             | "__CxxLongjmpUnwind"
             | "_chkstk"
             | "_alloca_probe"
@@ -97,8 +232,42 @@ pub fn is_crt_dll(dll: &str) -> bool {
         || d == "crtdll.dll"
 }
 
-/// The number of integer arguments of a well-known import, by name.
+/// The variadic functions of the C runtime: a call passes the universal arguments, every register
+/// and stack slot the caller set, since the arguments beyond the format are the caller's to count.
+pub fn is_variadic(name: &str) -> bool {
+    matches!(
+        name,
+        "printf"
+            | "wprintf"
+            | "fprintf"
+            | "fwprintf"
+            | "sprintf"
+            | "swprintf"
+            | "snprintf"
+            | "_snprintf"
+            | "_snwprintf"
+            | "sprintf_s"
+            | "snprintf_s"
+            | "printf_s"
+            | "fprintf_s"
+            | "scanf"
+            | "wscanf"
+            | "sscanf"
+            | "swscanf"
+            | "fscanf"
+            | "scanf_s"
+            | "sscanf_s"
+            | "_scprintf"
+            | "_cprintf"
+    )
+}
+
+/// The number of integer arguments of a well-known import, by name. A variadic function has
+/// none: it takes the universal arguments.
 pub fn arity(name: &str) -> Option<usize> {
+    if is_variadic(name) {
+        return None;
+    }
     Some(match name {
         "ra_x86_p_argv"
         | "ra_x86_initial_narrow_environment"
@@ -108,7 +277,6 @@ pub fn arity(name: &str) -> Option<usize> {
         | "GetCurrentProcessId"
         | "GetLastError"
         | "GetTickCount"
-        | "GetTickCount64"
         | "GetCurrentProcess"
         | "GetCurrentThread"
         | "GetCommandLineA"
@@ -294,18 +462,13 @@ pub fn arity(name: &str) -> Option<usize> {
         | "_amsg_exit"
         | "_onexit"
         | "__set_app_type"
-        | "_controlfp"
-        | "printf"
-        | "wprintf"
         | "__dllonexit"
         | "_lock"
         | "_unlock"
         | "_get_osfhandle"
         | "_close"
         | "_setjmp"
-        | "_setjmp3"
         | "_wtoi"
-        | "_atoi64"
         | "_free_base"
         | "_get_errno"
         | "_configthreadlocale"
@@ -389,10 +552,13 @@ pub fn arity(name: &str) -> Option<usize> {
         | "fprintf"
         | "sscanf"
         | "scanf"
-        | "memchr"
         | "_except_handler3"
         | "_XcptFilter"
-        | "strtod"
+        | "_controlfp"
+        | "ra_x86_controlfp"
+        | "_setjmp3"
+        | "ra_x86_setjmp3"
+        | "ra_x86_longjmp"
         | "ra_x86_initterm"
         | "ra_x86_initterm_e"
         | "ra_x86_register_onexit_function" => 2,
@@ -417,6 +583,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "memmove"
         | "memset"
         | "memcmp"
+        | "memchr"
         | "strncpy"
         | "strncat"
         | "strncmp"
@@ -425,6 +592,8 @@ pub fn arity(name: &str) -> Option<usize> {
         | "strtoul"
         | "strtoll"
         | "strtoull"
+        | "ra_x86_strtol"
+        | "ra_x86_strtoul"
         | "wcsncmp"
         | "fgets"
         | "fseek"
@@ -450,7 +619,6 @@ pub fn arity(name: &str) -> Option<usize> {
         | "VirtualProtect"
         | "HeapReAlloc"
         | "SetFilePointer"
-        | "SetFilePointerEx"
         | "GetStringTypeW"
         | "RaiseException"
         | "MessageBoxA"
@@ -496,6 +664,6 @@ pub fn arity(name: &str) -> Option<usize> {
         "CreateFileA" | "CreateFileW" | "FormatMessageA" | "FormatMessageW" => 7,
         "WideCharToMultiByte" | "RtlVirtualUnwind" => 8,
         "CreateWindowExA" | "CreateWindowExW" => 12,
-        _ => return None,
+        _ => return win32(name).map(|(_, params)| params.len()),
     })
 }

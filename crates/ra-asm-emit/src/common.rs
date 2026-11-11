@@ -2,9 +2,37 @@
 //! which values each block hands to the phis of its successors, and which values can be written
 //! inline at their one use.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use ra_asm_ir::{Block, BlockId, Function, Inst, Operand, ValueId};
+use ra_asm_ir::{Block, BlockId, Function, Inst, Operand, Type, ValueId};
+
+/// A field of a named struct a `getelementptr` names: the struct's name, the field's type and
+/// its byte offset. `None` for any other `getelementptr`.
+pub(crate) struct Field<'a> {
+    pub name: &'a str,
+    pub ty: &'a Type,
+    pub offset: u64,
+}
+
+/// The field a `getelementptr %S, ptr %p, i64 0, i32 k` addresses, when `%S` is one of `types`.
+pub(crate) fn field_of<'a>(types: &'a [(String, Vec<Type>)], base_ty: &Type, indices: &[(Type, Operand)]) -> Option<Field<'a>> {
+    let Type::Named(name) = base_ty else { return None };
+    let [(_, Operand::Int(0)), (_, Operand::Int(k))] = indices else { return None };
+    let (name, fields) = types.iter().find(|(n, _)| n == name)?;
+    let k = usize::try_from(*k).ok()?;
+    let (offsets, _) = ra_asm_ir::types::layout(fields, 8)?;
+    Some(Field { name, ty: fields.get(k)?, offset: *offsets.get(k)? })
+}
+
+/// The byte offset of the field a `getelementptr` of a named struct addresses.
+pub(crate) fn field_offset(types: &[(String, Vec<Type>)], base_ty: &Type, indices: &[(Type, Operand)]) -> Option<u64> {
+    field_of(types, base_ty, indices).map(|f| f.offset)
+}
+
+/// How deep an inlined expression may nest: past this, a value gets a name. An unrolled loop
+/// (a 64-step hash) chains hundreds of single-use values, which no reader follows and which
+/// the printers' recursion cannot hold.
+const MAX_DEPTH: usize = 24;
 
 pub(crate) struct Defs<'a> {
     f: &'a Function,
@@ -13,6 +41,8 @@ pub(crate) struct Defs<'a> {
     /// The values each phi takes from each predecessor: pred -> (phi, operand).
     pub phi_moves: HashMap<BlockId, Vec<(ValueId, Operand)>>,
     uses: HashMap<ValueId, usize>,
+    /// The values written inline at their one use.
+    inline: HashSet<ValueId>,
 }
 
 impl<'a> Defs<'a> {
@@ -32,7 +62,24 @@ impl<'a> Defs<'a> {
                 }
             }
         }
-        Self { f, positions, phi_moves, uses }
+        let mut defs = Self { f, positions, phi_moves, uses, inline: HashSet::new() };
+        // An inlined operand is defined earlier in the same block, so its depth is known by the
+        // time its user is reached.
+        let mut depth: HashMap<ValueId, usize> = HashMap::new();
+        for b in &f.blocks {
+            for i in &b.instrs {
+                let Some(v) = i.result else { continue };
+                if !defs.inlinable_at_use(v) {
+                    continue;
+                }
+                let nested = i.inst.uses().into_iter().filter_map(|o| depth.get(&o)).max().copied().unwrap_or(0);
+                if nested < MAX_DEPTH {
+                    depth.insert(v, nested + 1);
+                    defs.inline.insert(v);
+                }
+            }
+        }
+        defs
     }
 
     pub(crate) fn def(&self, v: ValueId) -> Option<(&'a Block, usize, &'a Inst)> {
@@ -41,11 +88,16 @@ impl<'a> Defs<'a> {
         Some((block, ii, &block.instrs[ii].inst))
     }
 
-    /// Whether `v` can be written inline at its one use: pure, used once, in its own block after
-    /// its definition, and when its expression reads memory, with nothing between the two that
-    /// could change what it reads (a store or a call); the structuring folds a block of such
-    /// values into a condition.
+    /// Whether `v` is written inline at its one use: pure, used once, in its own block after its
+    /// definition, when its expression reads memory with nothing between the two that could
+    /// change what it reads (a store or a call), and not nested too deep; the structuring folds
+    /// a block of such values into a condition.
     pub(crate) fn inlinable(&self, v: ValueId) -> bool {
+        self.inline.contains(&v)
+    }
+
+    /// The rule of `inlinable`, before the depth.
+    fn inlinable_at_use(&self, v: ValueId) -> bool {
         let Some((block, index, inst)) = self.def(v) else { return false };
         if self.uses.get(&v).copied() != Some(1) || inst.has_side_effects() || matches!(inst, Inst::Phi { .. } | Inst::Alloca { .. }) {
             return false;
@@ -109,6 +161,15 @@ pub(crate) fn parenthesized(s: &str) -> String {
 
 /// A value name as an identifier: the IR name with every other character replaced, a digit
 /// start prefixed, and a keyword of the language suffixed.
+/// The DLL and the ordinal of an import by ordinal, from the symbol the lift gives one:
+/// `ra_ordinal_<dll with its dot an underscore>__<ordinal>`.
+pub(crate) fn ordinal_import(symbol: &str) -> Option<(String, u32)> {
+    let rest = symbol.strip_prefix("ra_ordinal_")?;
+    let (dll, ordinal) = rest.rsplit_once("__")?;
+    let (stem, extension) = dll.rsplit_once('_')?;
+    Some((format!("{stem}.{extension}"), ordinal.parse().ok()?))
+}
+
 pub(crate) fn identifier(f: &Function, v: ValueId, keywords: &[&str]) -> String {
     let n = f.value_name(v);
     let mut s: String = n.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();

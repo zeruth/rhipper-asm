@@ -66,8 +66,16 @@ impl Translation {
 }
 
 /// Translates the raised module of `lifted` to `lang`: `c`, `cpp` or `rust`. `package` names a
-/// Rust package and its binary.
-pub(crate) fn translate(image: &Image, analysis: &Analysis<'_>, lifted: &Lifted, lang: &str, package: &str) -> Result<Translation> {
+/// Rust package and its binary; `signatures` (by the final function names) tell the C++ output
+/// which virtual functions read their object.
+pub(crate) fn translate(
+    image: &Image,
+    analysis: &Analysis<'_>,
+    lifted: &Lifted,
+    signatures: &HashMap<String, ra_asm_lift::raise::abi::Signature>,
+    lang: &str,
+    package: &str,
+) -> Result<Translation> {
     let infos = ra_asm_emit::functions::infos(analysis);
     let names: HashMap<String, String> = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
     if lang.eq_ignore_ascii_case("rust") || lang.eq_ignore_ascii_case("rs") {
@@ -87,7 +95,8 @@ pub(crate) fn translate(image: &Image, analysis: &Analysis<'_>, lifted: &Lifted,
     let Some(dialect) = ra_asm_emit::Dialect::parse(lang) else {
         bail!("the language `{lang}` is not `c`, `cpp` or `rust`");
     };
-    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect });
+    let classes = ra_asm_emit::classes(analysis, signatures);
+    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes });
     let files = unit.files(ra_asm_emit::FUNCTIONS_PER_FILE);
     Ok(Translation {
         files,
@@ -106,7 +115,7 @@ pub(crate) fn emit(image: &Image, language: &str, out: Option<&Path>, quiet: boo
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
-    let translation = translate(image, &analysis, &lifted, language, &package)?;
+    let translation = translate(image, &analysis, &lifted, &signatures, language, &package)?;
     match out {
         None => print!("{}", translation.text()),
         Some(dir) => {

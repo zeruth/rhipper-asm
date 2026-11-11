@@ -9,8 +9,9 @@
 //! since a jump table on x86 holds such addresses too and the functions reached by code must own
 //! them first. Last, each function learns the string literals it addresses and the vtable slots
 //! that hold it, and the names settle: a PDB beside the image names what it describes and marks
-//! the functions of a linked-in C runtime as the host's, a function nothing names takes the name
-//! of its vtable slot, and every name becomes an identifier unique in the program.
+//! the functions of a linked-in C runtime as the host's, a link map beside it (or one the project
+//! names) names what it lists, a function nothing names takes the name of its vtable slot, and
+//! every name becomes an identifier unique in the program.
 
 pub mod builder;
 pub mod function;
@@ -163,8 +164,9 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
         f.noreturn = state.noreturn.contains(&f.entry);
         f.strings = strings_of(image, f);
     }
-    // The names, strongest first: the exports are set, the PDB names what it describes, a vtable
-    // slot names what is left, and the last pass makes them identifiers unique in the program.
+    // The names, strongest first: the exports are set, the symbols of the build (the PDB, else the
+    // link map) name what they list, a vtable slot names what is left, and the last pass makes
+    // them identifiers unique in the program.
     // The runtime's functions were marked as they were built.
     symbols::name_functions(image, &mut functions);
     name_virtual_functions(&classes, &mut functions);

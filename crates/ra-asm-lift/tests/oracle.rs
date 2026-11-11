@@ -41,7 +41,8 @@ fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
     let options = ra_asm_lift::LiftOptions { standalone: level == ra_asm_lift::RaiseLevel::Abi, x87 };
     let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
     let options = lifted.raise_options(level);
-    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
     // The tests run in parallel: each one writes its own directory.
     let dir = scratch(&format!("{tag}-{binary}"));
     std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
@@ -64,6 +65,9 @@ fn the_lifted_fixtures_pass_the_ir_gate() {
         ("float64.exe", "gate-abi"),
         ("exports64.dll", "gate-machine"),
         ("exports64.dll", "gate-abi"),
+        ("tls64.exe", "gate-machine"),
+        ("tls32.exe", "gate-machine"),
+        ("crt64.exe", "gate-abi"),
     ] {
         let (dir, lifted) = lift_to(binary, tag);
         assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
@@ -225,4 +229,63 @@ fn control64_runs_lifted() {
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
     run_oracle("control64.exe", &expected);
+}
+
+/// The thread-local storage program: a thread-local counter stepped from two threads, each with
+/// its own block, and the TLS callbacks counted. A thread kernel32 starts enters the lifted code
+/// through its native entry, which only the ABI level has, so the run is at that level alone;
+/// the gate takes the machine IR.
+#[test]
+fn tls64_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/tls.txt")).unwrap();
+    run_oracle_as("tls64.exe", &expected, "run-abi");
+}
+
+/// A program over the static C runtime starts at `main` with the driver's arguments and calls
+/// the host's runtime for the functions the image links in: the ABI level is the one that has
+/// a `main` to call and a host runtime to call into.
+#[test]
+fn crt64_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/crt.txt")).unwrap();
+    run_oracle_as("crt64.exe", &expected, "run-abi");
+}
+
+#[test]
+fn tls32_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/tls.txt")).unwrap();
+    run_oracle_as("tls32.exe", &expected, "run-abi");
+}
+
+/// The struct program: a record of mixed fields filled and read through a pointer, which the
+/// type recovery turns into a named struct at the ABI level.
+#[test]
+fn structs64_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/structs.txt")).unwrap();
+    run_oracle("structs64.exe", &expected);
+}
+
+#[test]
+fn structs32_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/structs.txt")).unwrap();
+    run_oracle_32("structs32.exe", &expected);
 }

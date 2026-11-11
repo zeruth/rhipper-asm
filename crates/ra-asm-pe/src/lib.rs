@@ -9,6 +9,7 @@ pub mod exports;
 pub mod headers;
 pub mod image;
 pub mod imports;
+pub mod linkmap;
 pub mod pdb;
 pub mod relocs;
 pub mod section;
@@ -30,7 +31,7 @@ use std::path::Path;
 use anyhow::Context;
 
 /// Reads and parses the PE file at `path`, and the names of its functions from the PDB beside it
-/// when there is one.
+/// when there is one, else from the link map beside it (`<exe>.map`) when there is one.
 pub fn load(path: &Path) -> anyhow::Result<Image> {
     let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
     let mut image = Image::parse(bytes).with_context(|| format!("{} is not a PE image this loader reads", path.display()))?;
@@ -42,5 +43,21 @@ pub fn load(path: &Path) -> anyhow::Result<Image> {
         }
         Err(e) => image.warnings.push(format!("symbols: {e:#}")),
     }
+    if image.symbols.is_empty()
+        && let Some(map) = linkmap::map_beside(&image)
+    {
+        match linkmap::read(&image, &map) {
+            Ok(symbols) => image.symbols = symbols,
+            Err(e) => image.warnings.push(format!("symbols: {e:#}")),
+        }
+    }
+    Ok(image)
+}
+
+/// [`load`], with the names of the functions from the link map at `map`, which the person named:
+/// a map that disagrees with the image fails the load.
+pub fn load_with_map(path: &Path, map: &Path) -> anyhow::Result<Image> {
+    let mut image = load(path)?;
+    image.symbols = linkmap::read(&image, map)?;
     Ok(image)
 }

@@ -50,7 +50,10 @@ pub(crate) fn serve(target: &Target) -> Result<()> {
     let stdin = std::io::stdin();
     let mut lines = stdin.lock().lines();
     loop {
-        let image = ra_asm_pe::load(&target.exe)?;
+        let image = match &target.project {
+            Some(project) => project.load_image()?,
+            None => ra_asm_pe::load(&target.exe)?,
+        };
         let loaded = modified(&target.exe);
         let analysis = ra_asm_analysis::analyze(&image);
         let session = Session { target, image: &image, analysis: &analysis };
@@ -171,6 +174,7 @@ impl Session<'_> {
             "root": project.root.display().to_string(),
             "name": project.name,
             "exe": project.exe.display().to_string(),
+            "map": project.map.as_ref().map(|m| m.display().to_string()),
             "gen": project.gen_dir.display().to_string(),
             "lang": project.lang,
             "build": {"dir": project.build.dir.display().to_string(), "config": project.build.config, "target": project.build.target},

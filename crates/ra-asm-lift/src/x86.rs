@@ -49,8 +49,9 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
     }
     let arch = X86::for_pointer_size(image.pointer_size());
     let _ = analysis;
+    let x87 = lifted.x87;
     let mut lifter = Lifter {
-        m: Machine { b: &mut b, state, bits },
+        m: Machine { b: &mut b, state, bits, x87 },
         image,
         lifted,
         arch,
@@ -188,7 +189,12 @@ impl Lifter<'_, '_> {
                 self.m.b.terminate(block, Terminator::Ret(None));
             }
             T::TailCall(t) => {
-                self.call_lifted(block, *t);
+                if let Some(symbol) = self.lifted.runtime.get(t).cloned() {
+                    self.import_call_as(block, &symbol, true, true);
+                    self.m.pop(block, "ret.addr");
+                } else {
+                    self.call_lifted(block, *t);
+                }
                 self.m.b.terminate(block, Terminator::Ret(None));
             }
             T::ImportTailCall(import) => {
@@ -216,7 +222,11 @@ impl Lifter<'_, '_> {
             return b;
         }
         let b = self.m.b.block(&format!("tail_{target:x}"));
-        if self.lifted.functions.contains_key(&target) {
+        if let Some(symbol) = self.lifted.runtime.get(&target).cloned() {
+            self.import_call_as(b, &symbol, true, true);
+            self.m.pop(b, "ret.addr");
+            self.m.b.terminate(b, Terminator::Ret(None));
+        } else if self.lifted.functions.contains_key(&target) {
             self.call_lifted(b, target);
             self.m.b.terminate(b, Terminator::Ret(None));
         } else {
@@ -233,6 +243,34 @@ impl Lifter<'_, '_> {
     fn call_lifted(&mut self, block: BlockId, target: u64) {
         let name = function_name(target);
         self.m.b.call(block, FnType::new(Type::Void, vec![Type::Ptr]), Callee::Direct(name), vec![(Type::Ptr, self.m.state.into())], "");
+    }
+
+    /// The MSVC stack probe a 32-bit function calls to move `esp` down by `eax` (`_alloca_probe`,
+    /// `_chkstk`), touching each page on the way, and its front ends that round the new stack
+    /// pointer down first (`_alloca_probe_16`, `_alloca_probe_8`), known by their first bytes. A
+    /// call to a lifted function cannot move the caller's stack pointer, so the caller takes the
+    /// move itself: the alignment to round to, when `target` is one of them.
+    fn stack_probe(&self, target: u64) -> Option<u64> {
+        const PROBE: [u8; 20] =
+            [0x51, 0x8d, 0x4c, 0x24, 0x04, 0x2b, 0xc8, 0x1b, 0xc0, 0xf7, 0xd0, 0x23, 0xc8, 0x8b, 0xc4, 0x25, 0x00, 0xf0, 0xff, 0xff];
+        const ALIGNED: [u8; 18] =
+            [0x51, 0x8d, 0x4c, 0x24, 0x08, 0x2b, 0xc8, 0x83, 0xe1, 0x0f, 0x03, 0xc1, 0x1b, 0xc9, 0x0b, 0xc1, 0x59, 0xe9];
+        if self.m.bits != 32 {
+            return None;
+        }
+        let bytes = self.image.read(target, PROBE.len()).ok()?;
+        if bytes == PROBE {
+            return Some(1);
+        }
+        let mut eight = ALIGNED;
+        eight[9] = 0x07;
+        if bytes[..ALIGNED.len()] == ALIGNED {
+            Some(16)
+        } else if bytes[..eight.len()] == eight {
+            Some(8)
+        } else {
+            None
+        }
     }
 
     /// `call @ra_call(state, target)`: the runtime finds the lifted function or calls native code.
@@ -255,6 +293,12 @@ impl Lifter<'_, '_> {
     /// import pops them: the caller's code expects that, so the lift moves `esp` by the import's
     /// argument bytes after the call.
     fn import_call(&mut self, block: BlockId, import: &str, tail: bool) {
+        self.import_call_as(block, import, tail, false);
+    }
+
+    /// [`Self::import_call`], for a function of a C runtime linked into the image as well: the
+    /// host's runtime supplies it under `import`, and with `cdecl` its caller pops the arguments.
+    fn import_call_as(&mut self, block: BlockId, import: &str, tail: bool, cdecl: bool) {
         let mut symbol = import_symbol(import);
         // A C runtime import that walks or hands back a table of the program's pointers goes to
         // the runtime's shim, which keeps the program's pointer width.
@@ -273,7 +317,7 @@ impl Lifter<'_, '_> {
         let wrapper = crate::import_wrapper_name(&symbol, tail);
         self.lifted.wrappers.insert((symbol.clone(), stack_offset, tail));
         self.m.b.call(block, FnType::new(Type::Void, vec![Type::Ptr]), Callee::Direct(wrapper), vec![(Type::Ptr, self.m.state.into())], "");
-        if self.m.bits == 32 {
+        if self.m.bits == 32 && !cdecl {
             let dll = self.image.imports.iter().find(|i| i.display_name() == import).map(|i| i.dll.clone()).unwrap_or_default();
             let known = crate::raise::prototypes::stdcall_pops(&dll, &symbol);
             if known.is_none() {
@@ -346,13 +390,14 @@ impl Lifter<'_, '_> {
     }
 
     /// The address of the memory operand, at the address width. An `fs:` or `gs:` access lands in
-    /// the thread environment block the runtime keeps.
+    /// the thread environment block the runtime keeps for the calling thread.
     pub(crate) fn mem_address(&mut self, block: BlockId, i: &Instruction) -> ValueId {
         let ty = self.addr_ty();
         let segment = i.segment_prefix();
         if segment == R::FS || segment == R::GS {
             let flat = self.flat_address(block, i);
-            let teb = Operand::Address { global: crate::state::TEB.to_owned(), offset: 0 };
+            let teb = self.m.intrinsic(block, "ra_teb", Type::I64, vec![], "teb");
+            let teb = self.m.trunc(block, Type::I64, teb, ty.clone(), "teb");
             return self.m.b.bin(block, BinOp::Add, ty, flat, teb, "teb.addr");
         }
         self.flat_address(block, i)
@@ -759,6 +804,61 @@ impl Lifter<'_, '_> {
         self.flag_if_counted(block, Flag::Of, nonzero, known, of);
     }
 
+    /// `rcl` and `rcr`: a rotate through the carry, over `bits + 1` positions. The MSVC 64-bit
+    /// division helpers (`_alldvrm`, `_aulldvrm`) shift their divisor with `rcr` by one.
+    fn rotate_carry(&mut self, block: BlockId, i: &Instruction, left: bool) {
+        let bits = self.op_bits(i, 0);
+        let ty = Type::Int(bits);
+        let src = self.read(block, i, 0);
+        let (masked, known) = self.shift_count(block, i, bits);
+        // An 8- or 16-bit operand takes the count modulo its width plus one.
+        let count = if bits < 32 { self.m.b.bin(block, BinOp::URem, ty.clone(), masked, i64::from(bits) + 1, "count.r") } else { masked };
+        let nonzero = self.m.is_true(block, ty.clone(), count, "counted");
+        let cf_in = self.m.get_flag(block, Flag::Cf);
+        let cf_wide = self.m.zext(block, Type::I1, cf_in, ty.clone(), "cf.in");
+        let complement = self.m.b.bin(block, BinOp::Sub, ty.clone(), i64::from(bits), count, "back");
+        // The bits that wrap around the carry move by `bits + 1 - count`, as two shifts so that a
+        // count of one, where they vanish, never shifts by the full width.
+        let (result, cf_bit) = if left {
+            let high = self.m.b.bin(block, BinOp::Shl, ty.clone(), src, count, "rc.h");
+            let less = self.m.b.bin(block, BinOp::Sub, ty.clone(), count, 1i64, "less");
+            let carry = self.m.b.bin(block, BinOp::Shl, ty.clone(), cf_wide, less, "rc.c");
+            let wrapped = self.m.b.bin(block, BinOp::LShr, ty.clone(), src, complement, "rc.w");
+            let low = self.m.b.bin(block, BinOp::LShr, ty.clone(), wrapped, 1i64, "rc.l");
+            let joined = self.m.b.bin(block, BinOp::Or, ty.clone(), high, carry, "rc.hc");
+            (
+                self.m.b.bin(block, BinOp::Or, ty.clone(), joined, low, "rcl"),
+                self.m.b.bin(block, BinOp::LShr, ty.clone(), src, complement, "cf.bits"),
+            )
+        } else {
+            let low = self.m.b.bin(block, BinOp::LShr, ty.clone(), src, count, "rc.l");
+            let carry = self.m.b.bin(block, BinOp::Shl, ty.clone(), cf_wide, complement, "rc.c");
+            let wrapped = self.m.b.bin(block, BinOp::Shl, ty.clone(), src, complement, "rc.w");
+            let high = self.m.b.bin(block, BinOp::Shl, ty.clone(), wrapped, 1i64, "rc.h");
+            let joined = self.m.b.bin(block, BinOp::Or, ty.clone(), low, carry, "rc.lc");
+            let less = self.m.b.bin(block, BinOp::Sub, ty.clone(), count, 1i64, "less");
+            (
+                self.m.b.bin(block, BinOp::Or, ty.clone(), joined, high, "rcr"),
+                self.m.b.bin(block, BinOp::LShr, ty.clone(), src, less, "cf.bits"),
+            )
+        };
+        let value = if known { result } else { self.m.select(block, nonzero, ty.clone(), result, src, "rc.v") };
+        self.write(block, i, 0, value);
+        let cf_low = self.m.b.bin(block, BinOp::And, ty.clone(), cf_bit, 1i64, "cf.w");
+        let cf = self.m.is_true(block, ty.clone(), cf_low, "cf");
+        self.flag_if_counted(block, Flag::Cf, nonzero, known, cf);
+        // OF, defined for a count of one: the sign changed (left), or the two top bits differ (right).
+        let msb = self.m.b.icmp(block, ICond::Slt, ty.clone(), result, 0i64, "msb");
+        let of = if left {
+            self.m.b.bin(block, BinOp::Xor, Type::I1, msb, cf, "of")
+        } else {
+            let shifted = self.m.b.bin(block, BinOp::Shl, ty.clone(), result, 1i64, "next");
+            let next = self.m.b.icmp(block, ICond::Slt, ty, shifted, 0i64, "msb1");
+            self.m.b.bin(block, BinOp::Xor, Type::I1, msb, next, "of")
+        };
+        self.flag_if_counted(block, Flag::Of, nonzero, known, of);
+    }
+
     // endregion
 
     // region Instructions
@@ -932,6 +1032,8 @@ impl Lifter<'_, '_> {
             M::Sar => self.shift(block, i, BinOp::AShr),
             M::Rol => self.rotate(block, i, true),
             M::Ror => self.rotate(block, i, false),
+            M::Rcl => self.rotate_carry(block, i, true),
+            M::Rcr => self.rotate_carry(block, i, false),
             M::Shld | M::Shrd => {
                 let bits = self.op_bits(i, 0);
                 let ty = Type::Int(bits);
@@ -1087,7 +1189,22 @@ impl Lifter<'_, '_> {
                 match i.op_kind(0) {
                     OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64 => {
                         let target = i.near_branch_target();
-                        if self.lifted.functions.contains_key(&target) {
+                        if let Some(align) = self.stack_probe(target) {
+                            // The probe is the caller's `esp -= eax`, rounded down to the
+                            // alignment its front end asks; eax is the probe's to clobber.
+                            let sp = self.m.read_sp(block);
+                            let eax = self.m.read_gpr(block, R::EAX);
+                            let moved = self.m.b.bin(block, BinOp::Sub, Type::I32, sp, eax, "sp.probe");
+                            let aligned = if align > 1 {
+                                self.m.b.bin(block, BinOp::And, Type::I32, moved, -(align as i64), "sp.aligned")
+                            } else {
+                                moved
+                            };
+                            self.m.write_sp(block, aligned);
+                        } else if let Some(symbol) = self.lifted.runtime.get(&target).cloned() {
+                            // The host's runtime takes the call, as it takes an import's.
+                            self.import_call_as(block, &symbol, false, true);
+                        } else if self.lifted.functions.contains_key(&target) {
                             self.m.push(block, ret);
                             self.call_lifted(block, target);
                         } else {
@@ -1293,6 +1410,107 @@ impl Lifter<'_, '_> {
                 let r = self.m.b.value(block, Inst::ShuffleVector { ty: v4.clone(), a: src.into(), b: Operand::Undef, mask }, "pshufd");
                 self.write_vec(block, i, 0, v4, r);
             }
+            // One half's words permuted by the immediate, the other half kept.
+            M::Pshuflw | M::Pshufhw => {
+                let imm = Self::immediate(i, 2) as i32;
+                let v8 = Type::vector(8, Type::I16);
+                let src = self.read_vec(block, i, 1, v8.clone());
+                let base = if i.mnemonic() == M::Pshufhw { 4 } else { 0 };
+                let mask = (0..8).map(|k| if (base..base + 4).contains(&k) { base + ((imm >> (2 * (k - base))) & 3) } else { k }).collect();
+                let r = self.m.b.value(block, Inst::ShuffleVector { ty: v8.clone(), a: src.into(), b: Operand::Undef, mask }, "pshufw");
+                self.write_vec(block, i, 0, v8, r);
+            }
+            // The even dwords multiplied as unsigned into two qwords.
+            M::Pmuludq => {
+                let v4 = Type::vector(4, Type::I32);
+                let v2 = Type::vector(2, Type::I32);
+                let w2 = Type::vector(2, Type::I64);
+                let a = self.read_vec(block, i, 0, v4.clone());
+                let b = self.read_vec(block, i, 1, v4.clone());
+                let even = |this: &mut Self, v: ValueId| {
+                    let picked = this.m.b.value(
+                        block,
+                        Inst::ShuffleVector { ty: v4.clone(), a: v.into(), b: Operand::Undef, mask: vec![0, 2] },
+                        "even",
+                    );
+                    this.m.b.cast(block, Cast::ZExt, v2.clone(), picked, w2.clone(), "even.z")
+                };
+                let wa = even(self, a);
+                let wb = even(self, b);
+                let r = self.m.b.bin(block, BinOp::Mul, w2.clone(), wa, wb, "pmuludq");
+                self.write_vec(block, i, 0, w2, r);
+            }
+            // Signed word products, adjacent pairs summed into dwords: the even words' products
+            // plus the odd words', each four wide (the C runtime has no 256-bit vector).
+            M::Pmaddwd => {
+                let v8 = Type::vector(8, Type::I16);
+                let h4 = Type::vector(4, Type::I16);
+                let v4 = Type::vector(4, Type::I32);
+                let a = self.read_vec(block, i, 0, v8.clone());
+                let b = self.read_vec(block, i, 1, v8.clone());
+                let product = |this: &mut Self, mask: Vec<i32>, hint: &str| {
+                    let ea = this.m.b.value(
+                        block,
+                        Inst::ShuffleVector { ty: v8.clone(), a: a.into(), b: Operand::Undef, mask: mask.clone() },
+                        hint,
+                    );
+                    let eb = this.m.b.value(block, Inst::ShuffleVector { ty: v8.clone(), a: b.into(), b: Operand::Undef, mask }, hint);
+                    let wa = this.m.b.cast(block, Cast::SExt, h4.clone(), ea, v4.clone(), "pmadd.a");
+                    let wb = this.m.b.cast(block, Cast::SExt, h4.clone(), eb, v4.clone(), "pmadd.b");
+                    this.m.b.bin(block, BinOp::Mul, v4.clone(), wa, wb, "pmadd.p")
+                };
+                let even = product(self, vec![0, 2, 4, 6], "even");
+                let odd = product(self, vec![1, 3, 5, 7], "odd");
+                let r = self.m.b.bin(block, BinOp::Add, v4.clone(), even, odd, "pmaddwd");
+                self.write_vec(block, i, 0, v4, r);
+            }
+            // Both operands' lanes saturated to the narrower width and concatenated. The clamp is
+            // written with compare masks, as `pcmp` is: a vector select has no C spelling.
+            M::Packuswb | M::Packsswb | M::Packssdw => {
+                let (from, narrow, lanes, lo, hi): (Type, Type, u32, i64, i64) = match i.mnemonic() {
+                    M::Packuswb => (Type::vector(8, Type::I16), Type::I8, 8, 0, 255),
+                    M::Packsswb => (Type::vector(8, Type::I16), Type::I8, 8, -128, 127),
+                    _ => (Type::vector(4, Type::I32), Type::I16, 4, -32768, 32767),
+                };
+                let halves: Vec<ValueId> = (0..2)
+                    .map(|n| {
+                        let v = self.read_vec(block, i, n, from.clone());
+                        let mut clamped = v;
+                        for (bound, cond) in [(lo, ICond::Slt), (hi, ICond::Sgt)] {
+                            let limit = self.splat(block, &from, lanes, bound);
+                            let past = self.m.b.icmp(block, cond, from.clone(), clamped, limit, "past");
+                            let mask = self.m.b.cast(block, Cast::SExt, Type::vector(lanes, Type::I1), past, from.clone(), "past.m");
+                            let kept = self.m.b.bin(block, BinOp::Xor, from.clone(), mask, -1i64, "keep.m");
+                            let own = self.m.b.bin(block, BinOp::And, from.clone(), clamped, kept, "keep");
+                            let bounded = self.m.b.bin(block, BinOp::And, from.clone(), limit, mask, "bound");
+                            clamped = self.m.b.bin(block, BinOp::Or, from.clone(), own, bounded, "clamp");
+                        }
+                        self.m.b.cast(block, Cast::Trunc, from.clone(), clamped, Type::vector(lanes, narrow.clone()), "pack.n")
+                    })
+                    .collect();
+                let half = Type::vector(lanes, narrow.clone());
+                let mask = (0..2 * lanes as i32).collect();
+                let r = self.m.b.value(block, Inst::ShuffleVector { ty: half, a: halves[0].into(), b: halves[1].into(), mask }, "pack");
+                self.write_vec(block, i, 0, Type::vector(2 * lanes, narrow), r);
+            }
+            // A word from a register's low half or memory into the lane the immediate names.
+            M::Pinsrw => {
+                let v8 = Type::vector(8, Type::I16);
+                let dst = self.read_vec(block, i, 0, v8.clone());
+                let src = self.read(block, i, 1);
+                let word = if self.op_bits(i, 1) == 16 {
+                    src
+                } else {
+                    self.m.trunc(block, Type::Int(self.op_bits(i, 1)), src, Type::I16, "pinsrw.w")
+                };
+                let lane = Self::immediate(i, 2) & 7;
+                let r = self.m.b.value(
+                    block,
+                    Inst::InsertElement { ty: v8.clone(), vector: dst.into(), element: word.into(), index: Operand::Int(i128::from(lane)) },
+                    "pinsrw",
+                );
+                self.write_vec(block, i, 0, v8, r);
+            }
             // The vector zeroing idioms, and `pcmpeq x, x` for all ones: no read of the register.
             M::Pxor | M::Xorps | M::Xorpd | M::Psubb | M::Psubw | M::Psubd | M::Psubq | M::Pandn | M::Andnps | M::Andnpd
                 if same_register(i) =>
@@ -1366,6 +1584,8 @@ impl Lifter<'_, '_> {
             | M::Punpcklqdq
             | M::Punpcklbw
             | M::Punpcklwd
+            | M::Punpckhbw
+            | M::Punpckhwd
             | M::Punpckhdq
             | M::Punpckhqdq
             | M::Unpcklps
@@ -1373,12 +1593,12 @@ impl Lifter<'_, '_> {
             | M::Unpckhps
             | M::Unpckhpd => {
                 let (ty, n) = match i.mnemonic() {
-                    M::Punpcklbw => (Type::vector(16, Type::I8), 16),
-                    M::Punpcklwd => (Type::vector(8, Type::I16), 8),
+                    M::Punpcklbw | M::Punpckhbw => (Type::vector(16, Type::I8), 16),
+                    M::Punpcklwd | M::Punpckhwd => (Type::vector(8, Type::I16), 8),
                     M::Punpckldq | M::Punpckhdq | M::Unpcklps | M::Unpckhps => (Type::vector(4, Type::I32), 4),
                     _ => (Type::vector(2, Type::I64), 2),
                 };
-                let high = matches!(i.mnemonic(), M::Punpckhdq | M::Punpckhqdq | M::Unpckhps | M::Unpckhpd);
+                let high = matches!(i.mnemonic(), M::Punpckhbw | M::Punpckhwd | M::Punpckhdq | M::Punpckhqdq | M::Unpckhps | M::Unpckhpd);
                 let a = self.read_vec(block, i, 0, ty.clone());
                 let b = self.read_vec(block, i, 1, ty.clone());
                 let half = n / 2;

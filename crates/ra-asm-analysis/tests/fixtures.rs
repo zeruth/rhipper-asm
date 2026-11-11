@@ -176,14 +176,24 @@ fn the_rtti_names_the_classes_and_their_virtual_functions() {
         let expected = map_functions(map);
         let by_name = |name: &str| analysis.classes.iter().find(|c| c.name == name).unwrap_or_else(|| panic!("{binary}: class {name}"));
 
+        // Shape is never instantiated: it has no vtable, and is known as a base of Square and Rect.
         let names: Vec<&str> = analysis.classes.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names.len(), 3, "{binary}: {names:?}");
+        assert_eq!(names.len(), 4, "{binary}: {names:?}");
+        let shape = by_name("Shape");
+        assert!(
+            shape.bases.is_empty() && shape.vtables.is_empty(),
+            "{binary}: Shape has {:?} and {} vtables",
+            shape.bases,
+            shape.vtables.len()
+        );
         let square = by_name("Square");
         assert_eq!(square.bases, ["Shape"]);
+        assert_eq!(square.direct_bases, ["Shape"]);
         assert_eq!(square.vtables.len(), 1);
         assert_eq!(square.vtables[0].functions.len(), 3, "{binary}: area, name and the inherited scale");
         let rect = by_name("Rect");
         assert_eq!(rect.bases, ["Shape", "Named"]);
+        assert_eq!(rect.direct_bases, ["Shape", "Named"]);
         assert_eq!(rect.vtables.len(), 2, "{binary}: one vtable per base with virtual functions");
         assert_eq!(rect.vtables[0].offset, 0);
         assert_eq!(rect.vtables[0].functions.len(), 3);

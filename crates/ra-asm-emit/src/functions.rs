@@ -4,14 +4,18 @@
 //!
 //! ```json
 //! {"addr": "0x140001330", "name": "fib", "size": 64, "file": "program.c", "line": 131,
-//!  "status": "lifted", "traps": 0, "calls": ["fib"], "imports": [], "strings": ["fail\r\n"]}
+//!  "status": "lifted", "traps": 0, "copies": 0, "calls": ["fib"], "imports": [], "strings": ["fail\r\n"]}
 //! ```
 //!
 //! `file` is relative to the directory the translation is written to: `program.c`, or
 //! `program_NNN.c` when the output is split. `status` is `lifted` when every instruction
 //! translated, `partial` when the body calls `ra_trap` for the ones that did not (`traps` counts
 //! them), and `not lifted` when the function has no source at all, in which case `file` and `line`
-//! are absent. A thunk to an import has status `thunk` and names the import in `imports`.
+//! are absent. `copies` counts the blocks the structuring wrote a second time in place of a
+//! `goto`: the first of the readability figures. A thunk to an import has status `thunk` and
+//! names the import in `imports`; a function of a C runtime linked into the image, which the
+//! port calls in the host's runtime instead of lifting, has status `runtime` and names the
+//! host's function in `imports`.
 //! `strings` lists the string literals the function addresses. A virtual function has `class` and
 //! `slot`: the class whose vtable holds it first, and the slot in that vtable.
 
@@ -37,15 +41,23 @@ pub struct FunctionInfo {
     pub strings: Vec<String>,
     /// The class whose vtable holds it, and the slot, for a virtual function.
     pub class: Option<(String, usize)>,
+    /// The host's name for a function of a C runtime linked into the image, which is called, not
+    /// lifted.
+    pub runtime: Option<String>,
 }
 
-/// What the analysis knows of every function, by IR name.
+/// What the analysis knows of every function, by IR name: the analysis's name, which the lift
+/// gives the function ([`ra_asm_lift::Lifted::apply_names`]).
 pub fn infos(analysis: &ra_asm_analysis::Analysis) -> HashMap<String, FunctionInfo> {
     let name_of = |va: &u64| analysis.functions.get(va).map_or_else(|| ra_asm_lift::function_name(*va), |f| f.name.clone());
     analysis
         .functions
         .values()
         .map(|f| {
+            let runtime = match &f.kind {
+                ra_asm_analysis::Kind::Runtime(name) => Some(name.clone()),
+                _ => None,
+            };
             let info = FunctionInfo {
                 name: f.name.clone(),
                 address: f.entry,
@@ -55,8 +67,9 @@ pub fn infos(analysis: &ra_asm_analysis::Analysis) -> HashMap<String, FunctionIn
                 thunk: f.is_thunk(),
                 strings: f.strings.iter().map(|(_, text)| text.clone()).collect(),
                 class: f.virtuals.first().map(|v| (v.class.clone(), v.slot)),
+                runtime,
             };
-            (ra_asm_lift::function_name(f.entry), info)
+            (f.name.clone(), info)
         })
         .collect()
 }
@@ -85,6 +98,7 @@ pub fn table(functions: &[EmittedFunction], files: &[EmittedFile], infos: &HashM
             entry.insert("line".into(), json!(line));
             entry.insert("status".into(), json!(if f.traps == 0 { "lifted" } else { "partial" }));
             entry.insert("traps".into(), json!(f.traps));
+            entry.insert("copies".into(), json!(f.copies));
             entry.insert("calls".into(), json!(info.map_or(&[][..], |i| &i.calls)));
             entry.insert("imports".into(), json!(info.map_or(&[][..], |i| &i.imports)));
             if let Some(info) = info {
@@ -101,10 +115,18 @@ pub fn table(functions: &[EmittedFunction], files: &[EmittedFile], infos: &HashM
         entry.insert("addr".into(), json!(format_address(info.address)));
         entry.insert("name".into(), json!(info.name));
         entry.insert("size".into(), json!(info.size));
-        entry.insert("status".into(), json!(if info.thunk { "thunk" } else { "not lifted" }));
+        let status = if info.thunk {
+            "thunk"
+        } else if info.runtime.is_some() {
+            "runtime"
+        } else {
+            "not lifted"
+        };
+        entry.insert("status".into(), json!(status));
         entry.insert("traps".into(), json!(0));
+        entry.insert("copies".into(), json!(0));
         entry.insert("calls".into(), json!(info.calls));
-        entry.insert("imports".into(), json!(info.imports));
+        entry.insert("imports".into(), json!(info.runtime.as_ref().map_or(&info.imports[..], std::slice::from_ref)));
         facts(&mut entry, info);
         entries.push((info.address, Value::Object(entry)));
     }

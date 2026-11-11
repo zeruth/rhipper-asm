@@ -130,8 +130,9 @@ pub fn emit_rust(module: &Module, options: &Options) -> Output {
     let mut functions: Vec<EmittedFunction> = Vec::new();
     for f in &module.functions {
         let mut text = String::new();
-        let header_lines = emit_function(&mut text, f, options.names.get(&f.name).map(String::as_str), &function_names);
-        functions.push(EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps: trap_count(f), text });
+        let (header_lines, copies) =
+            emit_function(&mut text, f, options.names.get(&f.name).map(String::as_str), &function_names, &module.types);
+        functions.push(EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps: trap_count(f), copies, text });
     }
 
     let mut files = Vec::new();
@@ -196,8 +197,8 @@ fn main_module(module: &Module, options: &Options, modules: &[String]) -> String
     let _ = writeln!(out, "fn main() {{");
     let _ = writeln!(out, "    unsafe {{");
     let _ = writeln!(out, "        ra_init();");
-    if module.globals.iter().any(|g| g.name == "ra_teb") {
-        let _ = writeln!(out, "        rhipper::ra_init_teb((&raw mut ra_teb) as *mut u8, {});", options.pointer_bits);
+    if module.globals.iter().any(|g| g.name == "ra_tls") {
+        let _ = writeln!(out, "        rhipper::ra_init_tls((&raw const ra_tls) as *const u64, {});", options.pointer_bits);
     }
     if let Some(entry) = options.entry.as_ref().and_then(|e| module.functions.iter().find(|f| f.name == *e)) {
         let args: Vec<String> = entry.ty.params.iter().map(zero).collect();
@@ -244,8 +245,19 @@ fn data_module(module: &Module, options: &Options, function_names: &HashSet<Stri
         let _ = writeln!(out, "}}\n");
     }
 
-    // The data.
+    // An import by ordinal has no symbol to link: a function pointer `ra_init` resolves from the
+    // DLL's export table.
     let mut init = String::new();
+    for d in &module.declarations {
+        let Some((dll, ordinal)) = crate::common::ordinal_import(&d.name) else { continue };
+        let params: Vec<String> = d.ty.params.iter().map(rust_type).collect();
+        let ret = if d.ty.ret == Type::Void { String::new() } else { format!(" -> {}", rust_type(&d.ty.ret)) };
+        let _ =
+            writeln!(out, "pub static mut {}: unsafe extern \"system\" fn({}){ret} = rhipper::ra_unresolved;", d.name, params.join(", "));
+        let _ = writeln!(init, "    {} = core::mem::transmute(rhipper::ra_resolve_ordinal(\"{dll}\", {ordinal}));", d.name);
+    }
+
+    // The data.
     for g in &module.globals {
         if g.name == "ra_functions" || g.name == "ra_function_count" {
             continue;
@@ -345,7 +357,9 @@ fn import_library(dll: &str) -> String {
 /// The address of `global` plus `offset`, as a `u64` expression at run time.
 fn address_text(global: &str, offset: i64, function_names: &HashSet<String>) -> String {
     if function_names.contains(global) {
-        format!("({global} as *const () as usize as u64).wrapping_add({offset} as u64)")
+        // A runtime function (an import slot that names a shim) lives in the runtime module.
+        let path = if global.starts_with("ra_") { format!("rhipper::{global}") } else { global.to_owned() };
+        format!("({path} as *const () as usize as u64).wrapping_add({offset} as u64)")
     } else if offset == 0 {
         format!("((&raw mut {global}) as *mut u8 as u64)")
     } else {
@@ -391,8 +405,14 @@ fn signature(f: &Function) -> String {
 }
 
 /// A function, with one comment line above it naming it. Returns the number of lines above the
-/// definition.
-fn emit_function(out: &mut String, f: &Function, source_name: Option<&str>, function_names: &HashSet<String>) -> usize {
+/// definition and the number of blocks written twice.
+fn emit_function(
+    out: &mut String,
+    f: &Function,
+    source_name: Option<&str>,
+    function_names: &HashSet<String>,
+    types: &[(String, Vec<Type>)],
+) -> (usize, usize) {
     let mut header_lines = 0;
     if let Some(address) = f.address {
         match source_name {
@@ -408,11 +428,11 @@ fn emit_function(out: &mut String, f: &Function, source_name: Option<&str>, func
     let _ = writeln!(out, "{} {{", signature(f));
     let graph = Graph::of(f);
     let structured = structure(f, &graph);
-    let mut e = Emitter { f, defs: Defs::new(f), labels: &structured.labels, function_names };
+    let mut e = Emitter { f, defs: Defs::new(f), labels: &structured.labels, function_names, types };
     e.declare_locals(out);
     e.stmts(out, &structured.body, 1);
     let _ = writeln!(out, "}}");
-    header_lines
+    (header_lines, structured.copies())
 }
 
 struct Emitter<'a> {
@@ -420,6 +440,8 @@ struct Emitter<'a> {
     defs: Defs<'a>,
     labels: &'a HashSet<BlockId>,
     function_names: &'a HashSet<String>,
+    /// The named struct types of the module: a field pointer is its byte offset here.
+    types: &'a [(String, Vec<Type>)],
 }
 
 impl Emitter<'_> {
@@ -542,6 +564,9 @@ impl Emitter<'_> {
             }
             Inst::Cast { cast, from, value, to } => self.cast(*cast, from, value, to),
             Inst::Gep { base_ty, ptr, indices, .. } => {
+                if let Some(offset) = crate::common::field_offset(self.types, base_ty, indices) {
+                    return format!("({}.wrapping_offset({offset}))", self.operand(&Type::Ptr, ptr));
+                }
                 let mut constant = 0i128;
                 let mut dynamic: Vec<String> = Vec::new();
                 let size = base_ty.size(8).unwrap_or(1) as i128;
@@ -721,6 +746,9 @@ impl Emitter<'_> {
             Cast::SExt if *from == Type::I1 => format!("(0{t}).wrapping_sub({v} as {t})"),
             Cast::SExt => format!("(({v} as {}) as {}) as {t}", signed_type(from), signed_type(to)),
             Cast::SIToFP => format!("({v} as {}) as {t}", signed_type(from)),
+            // The integer indefinite when the value does not fit, as the machine's conversion
+            // makes it; `as` would saturate.
+            Cast::FPToSI if let Type::Int(n @ (16 | 32 | 64)) = to => format!("rhipper::fptosi{n}({v} as f64) as {t}"),
             Cast::FPToSI => format!("({v} as {}) as {t}", signed_type(to)),
             Cast::IntToPtr => format!("{v} as usize as *mut u8"),
             Cast::PtrToInt => format!("{v} as usize as {t}"),
@@ -830,7 +858,7 @@ impl Emitter<'_> {
                 let _ = writeln!(out, "{pad}continue;");
             }
             Stmt::Goto(b) => {
-                let _ = writeln!(out, "{pad}rhipper::ra_goto(\"{}\");", label(*b, self.f));
+                let _ = writeln!(out, "{pad}rhipper::ra_goto(\"{}\", \"{}\");", self.f.name, label(*b, self.f));
             }
             Stmt::Switch { ty, value, cases, default } => {
                 let _ = writeln!(out, "{pad}match {} {{", strip_parens(&self.operand(ty, value)));

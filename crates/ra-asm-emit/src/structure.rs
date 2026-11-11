@@ -64,6 +64,30 @@ pub struct Structured {
     pub labels: HashSet<BlockId>,
 }
 
+impl Structured {
+    /// The blocks written a second time in place of a jump: the function table counts them.
+    pub fn copies(&self) -> usize {
+        fn count(stmts: &[Stmt]) -> usize {
+            stmts
+                .iter()
+                .map(|s| match s {
+                    Stmt::Copy(_) => 1,
+                    Stmt::If { then, els, .. } => count(then) + count(els),
+                    Stmt::Loop { body, .. } => count(body),
+                    Stmt::Switch { cases, default, .. } => cases.iter().map(|(_, b)| count(b)).sum::<usize>() + count(default),
+                    _ => 0,
+                })
+                .sum()
+        }
+        count(&self.body)
+    }
+}
+
+/// The most instructions a block may have to be written a second time instead of reached by
+/// `goto`: a few source statements, which unoptimized code spends several loads and stores on
+/// each. A longer block keeps its `goto` in C and stops the Rust port, which names it.
+pub const COPY_LIMIT: usize = 16;
+
 /// The dominance and loop facts of a graph.
 pub struct Graph {
     pub order: Vec<BlockId>,
@@ -216,10 +240,8 @@ impl Walk<'_> {
     /// loop's latch that tests the count). `None` when the block is long, a loop header, or
     /// leaves to a place this context cannot name.
     fn copy_tail(&self, target: BlockId, stop: Option<BlockId>, depth: usize) -> Option<Vec<Stmt>> {
-        // A few source statements: unoptimized code spends several loads and stores on each.
-        const SHORT: usize = 16;
         let block = self.f.block(target)?;
-        if self.g.loops.contains_key(&target) || block.instrs.len() > SHORT {
+        if self.g.loops.contains_key(&target) || block.instrs.len() > COPY_LIMIT {
             return None;
         }
         match &block.terminator {
@@ -446,17 +468,66 @@ impl Walk<'_> {
         Some((cond.clone(), *then, *els, feeds(*then), feeds(*els)))
     }
 
-    /// The join of a branch at `b`: its immediate post-dominator, inside the current region. When
-    /// an arm returns early there is none, and the paths that go on meet at the join of the
-    /// others: `if (a) { ... return; } rest`.
+    /// The join of a branch at `b`: the nearest block every arm reaches that only `b` leads to,
+    /// else its immediate post-dominator, inside the current region. When an arm returns early
+    /// there is none, and the paths that go on meet at the join of the others: `if (a) { ...
+    /// return; } rest`.
     fn join_of(&self, b: BlockId, stop: Option<BlockId>) -> Option<BlockId> {
-        let j = self.g.ipdom.get(&b).copied().flatten().or_else(|| self.g.ipdom_live.get(&b).copied().flatten());
+        let pdom = self.g.ipdom.get(&b).copied().flatten().or_else(|| self.g.ipdom_live.get(&b).copied().flatten());
+        // A block both arms reach before the post-dominator (a loop one arm enters directly and
+        // the other after a guard, clang's vectorized loop with its scalar remainder) is where
+        // they meet; the post-dominator is where the arm that skips it goes.
+        let j = self.common_target(b, pdom).or(pdom);
+        // The region's end is reached from the branch short of the join: an arm leaves the
+        // region early, and the branch closes at the end.
+        let j = match (j, stop) {
+            (Some(j), Some(s)) if j != s && self.reaches(b, s, j) => Some(s),
+            _ => j,
+        };
         // A join beyond the current loop or region is reached by break or by the caller.
         match j {
             Some(j) if Some(j) == stop => stop,
             Some(j) if self.loops.last().is_some_and(|(_, exit)| Some(j) == *exit) => Some(j),
             other => other,
         }
+    }
+
+    /// The nearest block after `b` that every arm of its branch reaches on its own (not by
+    /// coming round through `b` again) and that only `b` leads to, short of the post-dominator
+    /// `pdom`; not an arm itself, and not a block placed already.
+    fn common_target(&self, b: BlockId, pdom: Option<BlockId>) -> Option<BlockId> {
+        let succs = self.g.succs.get(&b)?;
+        if succs.len() < 2 {
+            return None;
+        }
+        for &j in self.g.order.iter().skip_while(|x| **x != b).skip(1) {
+            if Some(j) == pdom {
+                return None;
+            }
+            if self.emitted.contains(&j) || self.g.idom.get(&j) != Some(&b) || succs.contains(&j) {
+                continue;
+            }
+            if succs.iter().all(|&s| self.reaches(s, j, b)) {
+                return Some(j);
+            }
+        }
+        None
+    }
+
+    /// Whether `to` is reachable from `from` on a path that does not pass through `avoid`.
+    fn reaches(&self, from: BlockId, to: BlockId, avoid: BlockId) -> bool {
+        let mut seen = HashSet::new();
+        let mut stack = vec![from];
+        while let Some(x) = stack.pop() {
+            if x == to {
+                return true;
+            }
+            if x == avoid || !seen.insert(x) {
+                continue;
+            }
+            stack.extend(self.g.succs.get(&x).into_iter().flatten().copied());
+        }
+        false
     }
 
     /// One arm of a branch: the statements from `target` to `join`, or the jump that gets there.
@@ -545,4 +616,89 @@ fn post_dominators(
     post.reverse();
     let ipdom = dominators(&post, &rpreds);
     order.iter().map(|b| (*b, ipdom.get(b).copied().filter(|d| *d != exit && d != b))).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use ra_asm_ir::{BinOp, FnType, FunctionBuilder, ICond, Module, Type};
+
+    use super::*;
+
+    /// Whether any statement of `stmts`, at any depth, is a `goto`.
+    fn has_goto(stmts: &[Stmt]) -> bool {
+        stmts.iter().any(|s| match s {
+            Stmt::Goto(_) => true,
+            Stmt::If { then, els, .. } => has_goto(then) || has_goto(els),
+            Stmt::Loop { body, .. } => has_goto(body),
+            Stmt::Switch { cases, default, .. } => cases.iter().any(|(_, b)| has_goto(b)) || has_goto(default),
+            _ => false,
+        })
+    }
+
+    /// `int f(int n, int *p)`: an early return when `n` is zero, then a loop over `*p` up to `n`
+    /// that leaves through two blocks (the count reached, a value found) to one return block,
+    /// which the entry's early return shares. The return block has `tail` instructions.
+    fn two_exits_to_one_return(tail: usize) -> Function {
+        let mut fb = FunctionBuilder::new("f", FnType::new(Type::I32, vec![Type::I32, Type::Ptr]), &["n", "p"]);
+        let (n, p) = (fb.param(0), fb.param(1));
+        let entry = fb.block("entry");
+        let header = fb.block("header");
+        let body = fb.block("body");
+        let latch = fb.block("latch");
+        let done = fb.block("done");
+        let found = fb.block("found");
+        let ret = fb.block("ret");
+        let none = fb.icmp(entry, ICond::Eq, Type::I32, n, 0i64, "none");
+        fb.terminate(entry, Terminator::CondBr { cond: none.into(), then: ret, els: header });
+        let count = fb.load(header, Type::I32, p, "i");
+        let more = fb.icmp(header, ICond::Slt, Type::I32, count, n, "more");
+        fb.terminate(header, Terminator::CondBr { cond: more.into(), then: body, els: done });
+        let hit = fb.icmp(body, ICond::Eq, Type::I32, count, 7i64, "hit");
+        fb.terminate(body, Terminator::CondBr { cond: hit.into(), then: found, els: latch });
+        let next = fb.bin(latch, BinOp::Add, Type::I32, count, 1i64, "next");
+        fb.store(latch, Type::I32, next, p);
+        fb.terminate(latch, Terminator::Br(header));
+        fb.store(done, Type::I32, 0i64, p);
+        fb.terminate(done, Terminator::Br(ret));
+        fb.store(found, Type::I32, 1i64, p);
+        fb.terminate(found, Terminator::Br(ret));
+        for k in 1..tail {
+            fb.store(ret, Type::I32, i64::try_from(k).unwrap(), p);
+        }
+        let result = fb.load(ret, Type::I32, p, "r");
+        fb.terminate(ret, Terminator::Ret(Some((Type::I32, result.into()))));
+        fb.finish()
+    }
+
+    fn c_of(f: Function) -> String {
+        let mut m = Module::x86_64_windows("test");
+        m.functions.push(f);
+        crate::c::emit_c(&m, &crate::c::Options::default())
+    }
+
+    #[test]
+    fn loop_with_two_exits_to_one_return_block_has_no_goto() {
+        let f = two_exits_to_one_return(2);
+        let g = Graph::of(&f);
+        let s = structure(&f, &g);
+        assert!(!has_goto(&s.body), "{:#?}", s.body);
+        assert!(s.labels.is_empty());
+        assert_eq!(s.copies(), 1, "{:#?}", s.body);
+        let c = c_of(f);
+        assert!(!c.contains("goto "), "{c}");
+        assert_eq!(c.matches("return ").count(), 2, "{c}");
+    }
+
+    #[test]
+    fn block_over_the_copy_limit_keeps_its_goto() {
+        let f = two_exits_to_one_return(COPY_LIMIT + 1);
+        let g = Graph::of(&f);
+        let s = structure(&f, &g);
+        assert!(has_goto(&s.body), "{:#?}", s.body);
+        assert_eq!(s.copies(), 0);
+        assert_eq!(s.labels.len(), 1);
+        let c = c_of(f);
+        assert!(c.contains("goto L_ret;") && c.contains("L_ret:;"), "{c}");
+        assert_eq!(c.matches("return ").count(), 1, "{c}");
+    }
 }

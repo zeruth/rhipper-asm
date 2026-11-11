@@ -16,8 +16,9 @@ use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, Const, FCond, Function, ICo
 use crate::common::{Defs, parenthesized, strip_parens, trap_count};
 use crate::structure::{Cond, Graph, Stmt, structure};
 
-/// The language the backend writes: C, or the same source as C++ (`extern "C"` linkage, `.cpp`
-/// files), until the class recovery gives the C++ output a shape of its own.
+/// The language the backend writes: C, or C++ (`extern "C"` linkage for what the driver and the
+/// data address, `.cpp` files), where the RTTI classes are classes and their virtual functions
+/// methods ([`crate::cpp`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Dialect {
     #[default]
@@ -49,6 +50,9 @@ pub struct Options {
     /// The source name of each function, by IR name: the comment above it.
     pub names: HashMap<String, String>,
     pub dialect: Dialect,
+    /// The classes of the program ([`crate::cpp::classes`]), which the C++ dialect declares; the C
+    /// dialect ignores them.
+    pub classes: Vec<crate::cpp::Class>,
 }
 
 /// One function's C: the comment naming it, the definition line and the body.
@@ -60,6 +64,8 @@ pub struct EmittedFunction {
     pub header_lines: usize,
     /// The `ra_trap` calls in the body: instructions the lift did not translate.
     pub traps: usize,
+    /// The blocks the structuring wrote a second time in place of a `goto`.
+    pub copies: usize,
     pub text: String,
 }
 
@@ -69,6 +75,8 @@ pub struct EmittedFunction {
 pub struct Unit {
     /// The comment and the include of the runtime header.
     pub include: String,
+    /// The structs the type recovery found behind the pointers, before the functions that use them.
+    pub types: String,
     /// The imports, as `extern` declarations.
     pub externs: String,
     /// The prototypes of the functions.
@@ -98,8 +106,8 @@ pub const FUNCTIONS_PER_FILE: usize = 500;
 impl Unit {
     /// The parts every single-file output starts with. The `extern` declarations come before the
     /// definitions in one file too: in C++ a `const` global has internal linkage without them.
-    fn preamble(&self) -> [&String; 6] {
-        [&self.include, &self.externs, &self.prototypes, &self.global_types, &self.global_decls, &self.global_defs]
+    fn preamble(&self) -> [&String; 7] {
+        [&self.include, &self.types, &self.externs, &self.prototypes, &self.global_types, &self.global_decls, &self.global_defs]
     }
 
     /// The whole translation as one unit.
@@ -131,7 +139,7 @@ impl Unit {
         }
         let mut files = Vec::new();
         let mut header = String::from("#pragma once\n");
-        for part in [&self.include, &self.externs, &self.prototypes, &self.global_types, &self.global_decls] {
+        for part in [&self.include, &self.types, &self.externs, &self.prototypes, &self.global_types, &self.global_decls] {
             header.push_str(part);
             header.push('\n');
         }
@@ -203,6 +211,17 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
         declare_global(&mut global_decls, g);
         define_global(&mut global_defs, &mut init, g);
     }
+    // An import by ordinal has no symbol to link: a pointer the runtime fills in before main from
+    // the DLL's export table.
+    for d in &module.declarations {
+        let Some((dll, ordinal)) = crate::common::ordinal_import(&d.name) else { continue };
+        let params: Vec<String> = d.ty.params.iter().map(c_type).collect();
+        let pointer =
+            format!("{} (*{})({})", c_type(&d.ty.ret), d.name, if params.is_empty() { "void".to_owned() } else { params.join(", ") });
+        let _ = writeln!(externs, "extern {pointer};");
+        let _ = writeln!(global_defs, "{pointer};");
+        let _ = writeln!(init, "    {} = ({})ra_resolve_ordinal(\"{dll}\", {ordinal});", d.name, pointer.replacen(&d.name, "", 1));
+    }
     // The address words narrower than a host pointer (a 32-bit program's) are written before
     // main: a compiler folds no truncated address into a static initializer.
     if !init.is_empty() {
@@ -217,16 +236,82 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
             }
         }
     }
+    // In C++ a virtual function is a method of its class; one the module has no body for, or one
+    // whose parameters the raise dropped, cannot take `this`.
+    let by_name: HashMap<&str, &Function> = module.functions.iter().map(|f| (f.name.as_str(), f)).collect();
+    let classes: &[crate::cpp::Class] = if options.dialect == Dialect::Cpp { &options.classes } else { &[] };
+    let method_of: HashMap<&str, (&crate::cpp::Class, crate::cpp::Method)> = classes
+        .iter()
+        .flat_map(|c| c.methods.iter().map(move |m| (c, m)))
+        .filter_map(|(c, m)| {
+            let f = by_name.get(m.ir_name.as_str())?;
+            let method = crate::cpp::Method { this: m.this && !f.params.is_empty(), ..m.clone() };
+            Some((m.ir_name.as_str(), (c, method)))
+        })
+        .collect();
     let functions = module
         .functions
         .iter()
         .map(|f| {
             let mut text = String::new();
-            let header_lines = emit_function(&mut text, f, &prototypes[&f.name], options.names.get(&f.name).map(String::as_str));
-            EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps: trap_count(f), text }
+            let method = method_of.get(f.name.as_str()).map(|(c, m)| (*c, m));
+            let (header_lines, copies) =
+                emit_function(&mut text, f, &prototypes[&f.name], options.names.get(&f.name).map(String::as_str), &module.types, method);
+            EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps: trap_count(f), copies, text }
         })
         .collect();
-    Unit { include, externs, prototypes: prototype_lines, global_types, global_decls, global_defs, functions, dialect: options.dialect }
+    let mut types = define_types(module);
+    if !classes.is_empty() {
+        types.push('\n');
+        types.push_str(&crate::cpp::declare(classes, &by_name));
+    }
+    Unit {
+        include,
+        types,
+        externs,
+        prototypes: prototype_lines,
+        global_types,
+        global_decls,
+        global_defs,
+        functions,
+        dialect: options.dialect,
+    }
+}
+
+/// The named structs the functions address fields of, as C structs: a field is `f<offset>`, the
+/// padding between two is `pad<offset>`. The machine model's `%State` and any other type no
+/// function reaches stay out.
+fn define_types(module: &Module) -> String {
+    let used: HashSet<&str> = module
+        .functions
+        .iter()
+        .flat_map(|f| f.blocks.iter().flat_map(|b| &b.instrs))
+        .filter_map(|i| match &i.inst {
+            Inst::Gep { base_ty: Type::Named(name), .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+    let mut out = String::new();
+    for (name, fields) in &module.types {
+        if !used.contains(name.as_str()) {
+            continue;
+        }
+        let Some((offsets, _)) = ra_asm_ir::types::layout(fields, 8) else { continue };
+        let _ = writeln!(out, "struct {name} {{");
+        for (ty, offset) in fields.iter().zip(offsets) {
+            let _ = writeln!(out, "    {};", declaration(ty, &field_name(ty, offset)));
+        }
+        let _ = writeln!(out, "}};");
+    }
+    out
+}
+
+/// The C name of a struct field at `offset`: the padding is named apart from the fields.
+fn field_name(ty: &Type, offset: u64) -> String {
+    match ty {
+        Type::Array(_, e) if **e == Type::I8 => format!("pad{offset}"),
+        _ => format!("f{offset}"),
+    }
 }
 
 fn prototype(f: &Function) -> String {
@@ -251,7 +336,8 @@ pub fn c_type(ty: &Type) -> String {
         Type::Ptr => "uint8_t *".into(),
         Type::Vector(n, e) => format!("ra_v{n}{}", vector_suffix(e)),
         Type::Array(n, e) => format!("{}[{n}]", c_type(e)),
-        Type::Struct(_) | Type::Packed(_) | Type::Named(_) => "struct ra_opaque".into(),
+        Type::Struct(_) | Type::Packed(_) => "struct ra_opaque".into(),
+        Type::Named(name) => format!("struct {name}"),
         Type::Func(_) => "void *".into(),
     }
 }
@@ -268,6 +354,14 @@ fn access_type(ty: &Type, align: u32) -> String {
         "uint16_t" | "uint32_t" | "uint64_t" | "float" | "double" => format!("ra_ua_{}", name.trim_end_matches("_t")),
         n if n.starts_with("ra_") => format!("ra_ua_{}", &n[3..]),
         _ => name,
+    }
+}
+
+/// The integer vector a compare of `ty` (a vector) yields in C: one lane of the compared width per lane.
+fn mask_type(ty: &Type) -> Type {
+    match ty {
+        Type::Vector(n, e) => Type::vector(*n, Type::Int(e.bits().unwrap_or(32) as u16)),
+        other => other.clone(),
     }
 }
 
@@ -313,7 +407,8 @@ fn signed_type(ty: &Type) -> String {
     }
 }
 
-fn name(f: &Function, v: ValueId) -> String {
+/// The C name of a value.
+pub(crate) fn name(f: &Function, v: ValueId) -> String {
     let n = f.value_name(v);
     let mut s: String = n.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     if s.chars().next().is_some_and(|c| c.is_ascii_digit()) {
@@ -496,10 +591,19 @@ fn emit_bytes(out: &mut String, bytes: &[u8]) {
     out.push('\n');
 }
 
-/// Writes one function.
-/// A function, with one comment line above it naming it: the source name when the image gives
-/// one, and its address. Returns the number of lines above the definition.
-fn emit_function(out: &mut String, f: &Function, prototype: &str, source_name: Option<&str>) -> usize {
+/// Writes one function, with one comment line above it naming it: the source name when the image
+/// gives one, and its address. As a `method` of a C++ class, the body is the method's definition,
+/// its first parameter recovered from `this`, and the function under its own name follows as the
+/// vtable's entry. Returns the number of lines above the definition and the number of blocks
+/// written twice.
+fn emit_function(
+    out: &mut String,
+    f: &Function,
+    prototype: &str,
+    source_name: Option<&str>,
+    types: &[(String, Vec<Type>)],
+    method: Option<(&crate::cpp::Class, &crate::cpp::Method)>,
+) -> (usize, usize) {
     let mut header_lines = 0;
     if let Some(address) = f.address {
         match source_name {
@@ -512,27 +616,101 @@ fn emit_function(out: &mut String, f: &Function, prototype: &str, source_name: O
         }
         header_lines = 1;
     }
-    let _ = writeln!(out, "{prototype} {{");
+    match method {
+        Some((class, m)) => {
+            let _ = writeln!(out, "{} {{", crate::cpp::method_prototype(f, class, m, true));
+        }
+        None => {
+            let _ = writeln!(out, "{prototype} {{");
+        }
+    }
     // The entry hook: nothing, unless the port is built with RA_TRACE, when it names the function.
     let _ = writeln!(out, "    RA_ENTER(\"{}\");", f.name);
+    if let Some((_, m)) = method
+        && m.this
+    {
+        let ty = &f.ty.params[0];
+        let _ = writeln!(out, "    {} = ({})(uintptr_t)this;", declaration(ty, &name(f, f.params[0])), c_type(ty));
+    }
     let graph = Graph::of(f);
     let structured = structure(f, &graph);
-    let mut e = Emitter::new(f, &structured.labels);
+    let mut e = Emitter::new(f, &structured.labels, types);
     e.declare_locals(out);
     e.stmts(out, &structured.body, 1);
     let _ = writeln!(out, "}}");
-    header_lines
+    if let Some((class, m)) = method {
+        out.push('\n');
+        crate::cpp::trampoline(out, f, class, m, prototype);
+    }
+    (header_lines, structured.copies())
 }
 
 struct Emitter<'a> {
     f: &'a Function,
     labels: &'a HashSet<BlockId>,
     defs: Defs<'a>,
+    /// The named struct types of the module.
+    types: &'a [(String, Vec<Type>)],
+    /// The locals that point at a struct: each is declared as `struct S *`, and reads as a
+    /// `uint8_t *` through a cast everywhere but at its fields.
+    struct_of: HashMap<ValueId, &'a str>,
 }
 
 impl<'a> Emitter<'a> {
-    fn new(f: &'a Function, labels: &'a HashSet<BlockId>) -> Self {
-        Self { f, labels, defs: Defs::new(f) }
+    fn new(f: &'a Function, labels: &'a HashSet<BlockId>, types: &'a [(String, Vec<Type>)]) -> Self {
+        let defs = Defs::new(f);
+        let mut struct_of = HashMap::new();
+        for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+            if let Inst::Gep { base_ty: Type::Named(name), ptr: Operand::Local(v), indices, .. } = &i.inst
+                && indices.len() == 2
+                && !f.params.contains(v)
+                && !defs.inlinable(*v)
+            {
+                struct_of.entry(*v).or_insert(name.as_str());
+            }
+        }
+        Self { f, labels, defs, types, struct_of }
+    }
+
+    /// Whether `v` is a field pointer: a `getelementptr` of a named struct's field. It is written
+    /// at each use as the field itself, however many uses it has.
+    fn field_pointer(&self, v: ValueId) -> bool {
+        matches!(self.def(v), Some((_, _, Inst::Gep { base_ty, indices, .. })) if crate::common::field_of(self.types, base_ty, indices).is_some())
+    }
+
+    /// The field a pointer operand addresses, when it is a field pointer: the access expression
+    /// `p->f8` and the field's type.
+    fn field_access(&self, ptr: &Operand) -> Option<(String, &'a Type)> {
+        let Operand::Local(g) = ptr else { return None };
+        let Some((_, _, Inst::Gep { base_ty, ptr: base, indices, .. })) = self.def(*g) else { return None };
+        let field = crate::common::field_of(self.types, base_ty, indices)?;
+        Some((format!("{}->{}", self.struct_base(base, field.name), field_name(field.ty, field.offset)), field.ty))
+    }
+
+    /// A pointer operand as a pointer to `struct_name`: the local declared as one, or a cast of
+    /// the integer it was made of, or of the pointer.
+    fn struct_base(&self, base: &Operand, struct_name: &str) -> String {
+        if let Operand::Local(v) = base {
+            if self.struct_of.get(v) == Some(&struct_name) {
+                return name(self.f, *v);
+            }
+            if self.inlinable(*v)
+                && let Some((_, _, Inst::Cast { cast: Cast::IntToPtr, from, value, .. })) = self.def(*v)
+            {
+                return format!("((struct {struct_name} *){})", self.operand(from, value));
+            }
+        }
+        format!("((struct {struct_name} *){})", self.operand(&Type::Ptr, base))
+    }
+
+    /// The expression of a memory access of `ty` at `ptr`: the field itself when `ptr` names one
+    /// of its type, the field's bytes through a cast when the types differ, the raw access else.
+    fn access(&self, ty: &Type, align: u32, ptr: &Operand) -> String {
+        match self.field_access(ptr) {
+            Some((field, field_ty)) if field_ty == ty => field,
+            Some((field, _)) => format!("*({} *)&{field}", access_type(ty, align)),
+            None => format!("*({} *)({})", access_type(ty, align), self.operand(&Type::Ptr, ptr)),
+        }
     }
 
     fn def(&self, v: ValueId) -> Option<(&'a Block, usize, &'a Inst)> {
@@ -548,7 +726,7 @@ impl<'a> Emitter<'a> {
         for b in &self.f.blocks {
             for i in &b.instrs {
                 let Some(v) = i.result else { continue };
-                if self.inlinable(v) || !declared.insert(v) {
+                if self.inlinable(v) || self.field_pointer(v) || !declared.insert(v) {
                     continue;
                 }
                 match &i.inst {
@@ -556,14 +734,36 @@ impl<'a> Emitter<'a> {
                         let _ = writeln!(out, "    {} RA_ALIGNED({align});", declaration(ty, &format!("{}_mem", name(self.f, v))));
                         let _ = writeln!(out, "    uint8_t *{} = (uint8_t *)&{}_mem;", name(self.f, v), name(self.f, v));
                     }
+                    Inst::Phi { .. } if let Some(s) = self.struct_of.get(&v) => {
+                        let _ = writeln!(out, "    struct {s} *{}, *{}_next;", name(self.f, v), name(self.f, v));
+                    }
                     Inst::Phi { ty, .. } => {
                         let _ = writeln!(out, "    {} {}, {}_next;", c_type(ty), name(self.f, v), name(self.f, v));
+                    }
+                    _ if let Some(s) = self.struct_of.get(&v) => {
+                        let _ = writeln!(out, "    struct {s} *{};", name(self.f, v));
+                    }
+                    // A vector compare's result is a vector of lane masks, the width of what it
+                    // compared: C has no vector of conditions.
+                    Inst::ICmp { ty: ty @ Type::Vector(..), .. } | Inst::FCmp { ty: ty @ Type::Vector(..), .. } => {
+                        let _ = writeln!(out, "    {};", declaration(&mask_type(ty), &name(self.f, v)));
                     }
                     inst => {
                         let _ = writeln!(out, "    {};", declaration(&inst.result_type(), &name(self.f, v)));
                     }
                 }
             }
+        }
+    }
+
+    /// The type of the lane masks a vector compare leaves, when `o` is one.
+    fn compare_mask_type(&self, o: &Operand) -> Option<Type> {
+        let Operand::Local(v) = o else { return None };
+        match self.def(*v) {
+            Some((_, _, Inst::ICmp { ty: ty @ Type::Vector(..), .. } | Inst::FCmp { ty: ty @ Type::Vector(..), .. })) => {
+                Some(mask_type(ty))
+            }
+            _ => None,
         }
     }
 
@@ -597,6 +797,14 @@ impl<'a> Emitter<'a> {
         match o {
             Operand::Local(v) => {
                 if self.inlinable(*v)
+                    && let Some((_, _, inst)) = self.def(*v)
+                {
+                    return self.expr(inst);
+                }
+                if self.struct_of.contains_key(v) {
+                    return format!("((uint8_t *){})", name(self.f, *v));
+                }
+                if self.field_pointer(*v)
                     && let Some((_, _, inst)) = self.def(*v)
                 {
                     return self.expr(inst);
@@ -636,7 +844,7 @@ impl<'a> Emitter<'a> {
     fn expr(&self, inst: &Inst) -> String {
         match inst {
             Inst::Alloca { .. } => "0".into(),
-            Inst::Load { ty, ptr, align, .. } => format!("*({} *)({})", access_type(ty, *align), self.operand(&Type::Ptr, ptr)),
+            Inst::Load { ty, ptr, align, .. } => self.access(ty, *align, ptr),
             Inst::Store { .. } | Inst::Phi { .. } => String::new(),
             Inst::Bin { op, ty, lhs, rhs } => {
                 let c = c_type(ty);
@@ -732,6 +940,20 @@ impl<'a> Emitter<'a> {
                 if let (Type::Vector(..), Type::Vector(..)) = (from, to)
                     && *cast != Cast::Bitcast
                 {
+                    // A vector compare in C is already a mask of all ones per lane, at the width
+                    // of what it compared: a cast when that is the target's lane width, a lane
+                    // conversion otherwise. A condition vector from elsewhere is 0 or 1 per lane.
+                    if *cast == Cast::SExt
+                        && let Type::Vector(_, e) = from
+                        && **e == Type::I1
+                    {
+                        let t = c_type(to);
+                        return match self.compare_mask_type(value) {
+                            Some(mask) if mask.size(8) == to.size(8) => format!("({t})({v})"),
+                            Some(mask) => format!("__builtin_convertvector(({})({v}), {t})", signed_type(&mask)),
+                            None => format!("({t})(0 - __builtin_convertvector({v}, {t}))"),
+                        };
+                    }
                     return match cast {
                         Cast::SIToFP | Cast::SExt => format!("__builtin_convertvector(({}){v}, {})", signed_type(from), c_type(to)),
                         Cast::FPToSI => format!("({})__builtin_convertvector({v}, {})", c_type(to), signed_type(to)),
@@ -747,12 +969,21 @@ impl<'a> Emitter<'a> {
                     | Cast::FPExt
                     | Cast::IntToPtr
                     | Cast::PtrToInt => format!("({}){v}", c_type(to)),
+                    // A condition sign-extended is a mask of all ones, as `cmpltsd` leaves it.
+                    Cast::SExt if *from == Type::I1 => format!("({})(0u - ({})({v}))", c_type(to), c_type(to)),
                     Cast::SExt | Cast::SIToFP => format!("({})({}){v}", c_type(to), signed_type(from)),
+                    // The integer indefinite when the value does not fit, as the machine's conversion
+                    // makes it; a C cast leaves that undefined.
+                    Cast::FPToSI if let Type::Int(n @ (16 | 32 | 64)) = to => format!("({})ra_fptosi_{n}({v})", c_type(to)),
                     Cast::FPToSI => format!("({})({}){v}", c_type(to), signed_type(to)),
                     Cast::Bitcast => format!("ra_bitcast_{}_{}({v})", short_type(from), short_type(to)),
                 }
             }
             Inst::Gep { base_ty, ptr, indices, .. } => {
+                // A field's address, taken as the bytes it is.
+                if let Some(field) = crate::common::field_of(self.types, base_ty, indices) {
+                    return format!("((uint8_t *)&{}->{})", self.struct_base(ptr, field.name), field_name(field.ty, field.offset));
+                }
                 // Constant indexes fold into one offset; the rest scale by the element size.
                 let mut constant = 0i128;
                 let mut dynamic: Vec<String> = Vec::new();
@@ -925,17 +1156,15 @@ impl<'a> Emitter<'a> {
                 }
                 (Inst::Alloca { .. }, _) => {}
                 (Inst::Store { ty, value, ptr, align, .. }, _) => {
-                    let _ = writeln!(
-                        out,
-                        "{pad}*({} *)({}) = {};",
-                        access_type(ty, *align),
-                        strip_parens(&self.operand(&Type::Ptr, ptr)),
-                        strip_parens(&self.operand(ty, value))
-                    );
+                    let _ = writeln!(out, "{pad}{} = {};", self.access(ty, *align, ptr), strip_parens(&self.operand(ty, value)));
                 }
-                (_, Some(v)) if self.inlinable(v) => {}
+                (_, Some(v)) if self.inlinable(v) || self.field_pointer(v) => {}
+                // A struct pointer made of an integer: one cast, from the integer.
+                (Inst::Cast { cast: Cast::IntToPtr, from, value, .. }, Some(v)) if let Some(s) = self.struct_of.get(&v) => {
+                    let _ = writeln!(out, "{pad}{} = (struct {s} *){};", name(f, v), self.operand(from, value));
+                }
                 (inst, Some(v)) => {
-                    let _ = writeln!(out, "{pad}{} = {};", name(f, v), strip_parens(&self.expr(inst)));
+                    let _ = writeln!(out, "{pad}{} = {}{};", name(f, v), self.struct_cast(v), strip_parens(&self.expr(inst)));
                 }
                 (inst, None) => {
                     let _ = writeln!(out, "{pad}{};", self.expr(inst));
@@ -952,9 +1181,14 @@ impl<'a> Emitter<'a> {
         if let Some(moves) = self.defs.phi_moves.get(&id).cloned() {
             for (phi, o) in &moves {
                 let ty = f.value_type(*phi).clone();
-                let _ = writeln!(out, "{pad}{}_next = {};", name(f, *phi), strip_parens(&self.operand(&ty, o)));
+                let _ = writeln!(out, "{pad}{}_next = {}{};", name(f, *phi), self.struct_cast(*phi), strip_parens(&self.operand(&ty, o)));
             }
         }
+    }
+
+    /// The cast an assignment to `v` needs when `v` is declared as a struct pointer.
+    fn struct_cast(&self, v: ValueId) -> String {
+        self.struct_of.get(&v).map(|s| format!("(struct {s} *)")).unwrap_or_default()
     }
 }
 
