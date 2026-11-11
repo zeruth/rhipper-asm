@@ -1,0 +1,18 @@
+[package]
+name = "ra-asm-lift"
+description = "Instructions to machine IR, and the raising passes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+ra-asm-analysis.workspace = true
+ra-asm-ir.workspace = true
+ra-asm-pe.workspace = true
+ra-asm-x86.workspace = true

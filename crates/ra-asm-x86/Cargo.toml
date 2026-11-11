@@ -12,5 +12,6 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+iced-x86 = { version = "1.22.0", default-features = false, features = ["std", "decoder", "instr_info", "intel"] }
 ra-asm-ir.workspace = true
 thiserror.workspace = true

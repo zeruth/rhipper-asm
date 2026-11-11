@@ -1,6 +1,6 @@
 [package]
 name = "ra-asm-pe"
-description = "The PE image: headers, sections, imports, exports, relocations"
+description = "The PE image: headers, sections, imports, exports, relocations, the exception table, TLS, debug"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,4 +12,5 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-thiserror.workspace = true
+ra-asm-format.workspace = true
+serde.workspace = true

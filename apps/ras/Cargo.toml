@@ -20,3 +20,5 @@ clap.workspace = true
 ra-asm-ir.workspace = true
 ra-asm-pe.workspace = true
 ra-asm-x86.workspace = true
+serde.workspace = true
+serde_json.workspace = true

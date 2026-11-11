@@ -1,0 +1,17 @@
+[package]
+name = "ra-asm-analysis"
+description = "Functions, basic blocks, the control-flow graph, jump tables, no-return propagation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+ra-asm-pe.workspace = true
+ra-asm-x86.workspace = true
+serde.workspace = true

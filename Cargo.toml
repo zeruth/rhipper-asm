@@ -14,10 +14,13 @@ ra-asm-format = { path = "crates/ra-asm-format" }
 ra-asm-pe = { path = "crates/ra-asm-pe" }
 ra-asm-ir = { path = "crates/ra-asm-ir" }
 ra-asm-x86 = { path = "crates/ra-asm-x86" }
+ra-asm-analysis = { path = "crates/ra-asm-analysis" }
+ra-asm-lift = { path = "crates/ra-asm-lift" }
 
 anyhow = "1.0.100"
 clap = { version = "4.6", features = ["derive", "env"] }
 serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
 thiserror = "2"
 
 [workspace.lints.rust]
@@ -26,6 +29,17 @@ unreachable_pub = "warn"
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+# A binary parser casts widths on every line; the field names say what the value is.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+cast_lossless = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+similar_names = "allow"
+struct_excessive_bools = "allow"
 
 [profile.release]
 lto = "thin"

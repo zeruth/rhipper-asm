@@ -1,0 +1,3 @@
+EXPORTS
+    ra_hidden @20 NONAME
+    ra_tick = KERNEL32.GetTickCount

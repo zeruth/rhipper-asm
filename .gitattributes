@@ -1,0 +1,5 @@
+# The fixtures are bytes; a map file keeps the line endings the linker wrote.
+testdata/bin/*.exe binary
+testdata/bin/*.dll binary
+testdata/bin/*.map -text
+testdata/expected/*.txt -text

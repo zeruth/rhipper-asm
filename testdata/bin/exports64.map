@@ -1,0 +1,23 @@
+ exports64
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000180000000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00000036H .text                   CODE
+ 0003:00000000 00000004H .data                   DATA
+ 0003:00000004 00000000H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       ra_add                     0000000180001000     exports-3fac5f.o
+ 0001:00000010       ra_twice                   0000000180001010     exports-3fac5f.o
+ 0001:00000020       ra_hidden                  0000000180001020     exports-3fac5f.o
+ 0001:00000030       DllMainCRTStartup          0000000180001030     exports-3fac5f.o
+ 0003:00000000       ra_counter                 0000000180003000     exports-3fac5f.o
+
+ entry point at         0001:00000030
+
+ Static symbols
+

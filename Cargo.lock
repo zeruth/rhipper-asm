@@ -111,10 +111,37 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "iced-x86"
+version = "1.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c23ad4d19dca41180e835ef6fbd2c1ee655777eca086ad80dd517e0513322879"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
+
+[[package]]
+name = "itoa"
+version = "1.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
+
+[[package]]
+name = "lazy_static"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
+
+[[package]]
+name = "memchr"
+version = "2.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "once_cell_polyfill"
@@ -141,6 +168,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ra-asm-analysis"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ra-asm-pe",
+ "ra-asm-x86",
+ "serde",
+]
+
+[[package]]
 name = "ra-asm-format"
 version = "0.1.0"
 dependencies = [
@@ -158,11 +195,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ra-asm-lift"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ra-asm-analysis",
+ "ra-asm-ir",
+ "ra-asm-pe",
+ "ra-asm-x86",
+]
+
+[[package]]
 name = "ra-asm-pe"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "thiserror",
+ "ra-asm-format",
+ "serde",
 ]
 
 [[package]]
@@ -170,6 +219,7 @@ name = "ra-asm-x86"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "iced-x86",
  "ra-asm-ir",
  "thiserror",
 ]
@@ -183,6 +233,8 @@ dependencies = [
  "ra-asm-ir",
  "ra-asm-pe",
  "ra-asm-x86",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -213,6 +265,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.154"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
 ]
 
 [[package]]
@@ -278,3 +343,9 @@ checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
 dependencies = [
  "windows-link",
 ]
+
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
