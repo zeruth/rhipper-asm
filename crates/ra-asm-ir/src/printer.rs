@@ -170,9 +170,22 @@ fn operand(out: &mut String, f: &Function, ty: &Type, o: &Operand) {
         Operand::Global(name) => {
             let _ = write!(out, "@{}", quote(name));
         }
+        Operand::Address { global, offset } => print_address(out, ty, global, *offset),
         Operand::Null => out.push_str("null"),
         Operand::Undef => out.push_str("undef"),
         Operand::Zero => out.push_str("zeroinitializer"),
+    }
+}
+
+/// The address of a byte of a global, as a pointer or as an integer of the type asked for.
+fn print_address(out: &mut String, ty: &Type, global: &str, offset: i64) {
+    let pointer =
+        if offset == 0 { format!("@{}", quote(global)) } else { format!("getelementptr (i8, ptr @{}, i64 {offset})", quote(global)) };
+    match ty {
+        Type::Ptr => out.push_str(&pointer),
+        other => {
+            let _ = write!(out, "ptrtoint (ptr {pointer} to {other})");
+        }
     }
 }
 
@@ -422,6 +435,7 @@ fn print_const(out: &mut String, ty: &Type, c: &Const) {
         Const::Global(name) => {
             let _ = write!(out, "@{}", quote(name));
         }
+        Const::Address { global, offset } => print_address(out, ty, global, *offset),
         Const::Array(items) => {
             let element = match ty {
                 Type::Array(_, e) => (**e).clone(),
@@ -438,11 +452,12 @@ fn print_const(out: &mut String, ty: &Type, c: &Const) {
             out.push(']');
         }
         Const::Struct(items) => {
-            let fields: Vec<Type> = match ty {
-                Type::Struct(fields) => fields.clone(),
-                _ => vec![Type::I8; items.len()],
+            let (fields, packed): (Vec<Type>, bool) = match ty {
+                Type::Struct(fields) => (fields.clone(), false),
+                Type::Packed(fields) => (fields.clone(), true),
+                _ => (vec![Type::I8; items.len()], false),
             };
-            out.push_str("{ ");
+            out.push_str(if packed { "<{ " } else { "{ " });
             for (i, (item, field)) in items.iter().zip(&fields).enumerate() {
                 if i > 0 {
                     out.push_str(", ");
@@ -450,7 +465,7 @@ fn print_const(out: &mut String, ty: &Type, c: &Const) {
                 let _ = write!(out, "{field} ");
                 print_const(out, field, item);
             }
-            out.push_str(" }");
+            out.push_str(if packed { " }>" } else { " }" });
         }
     }
 }

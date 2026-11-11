@@ -21,6 +21,8 @@ pub enum Type {
     Array(u64, Box<Type>),
     /// A literal struct, `{ T, U }`.
     Struct(Vec<Type>),
+    /// A packed literal struct, `<{ T, U }>`: no padding between the fields.
+    Packed(Vec<Type>),
     /// A named struct, `%name`, defined in the module.
     Named(String),
     /// A function type, used through a pointer.
@@ -80,7 +82,7 @@ impl Type {
             Self::Ptr => Some(pointer_bytes),
             Self::Vector(n, e) => e.size(pointer_bytes).map(|s| s * u64::from(*n)),
             Self::Array(n, e) => e.size(pointer_bytes).map(|s| s * n),
-            Self::Struct(fields) => fields.iter().map(|f| f.size(pointer_bytes)).sum(),
+            Self::Struct(fields) | Self::Packed(fields) => fields.iter().map(|f| f.size(pointer_bytes)).sum(),
             Self::Named(_) | Self::Func(_) => None,
         }
     }
@@ -98,15 +100,16 @@ impl fmt::Display for Type {
             Self::Ptr => f.write_str("ptr"),
             Self::Vector(n, e) => write!(f, "<{n} x {e}>"),
             Self::Array(n, e) => write!(f, "[{n} x {e}]"),
-            Self::Struct(fields) => {
-                f.write_str("{ ")?;
+            Self::Struct(fields) | Self::Packed(fields) => {
+                let packed = matches!(self, Self::Packed(_));
+                f.write_str(if packed { "<{ " } else { "{ " })?;
                 for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         f.write_str(", ")?;
                     }
                     write!(f, "{field}")?;
                 }
-                f.write_str(" }")
+                f.write_str(if packed { " }>" } else { " }" })
             }
             Self::Named(name) => write!(f, "%{name}"),
             Self::Func(fn_ty) => write!(f, "{fn_ty}"),

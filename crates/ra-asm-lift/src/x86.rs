@@ -49,7 +49,17 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
     }
     let arch = X86::for_pointer_size(image.pointer_size());
     let _ = analysis;
-    let mut lifter = Lifter { m: Machine { b: &mut b, state, bits }, image, lifted, arch, blocks, cond: None, jump_target: None };
+    let mut lifter = Lifter {
+        m: Machine { b: &mut b, state, bits },
+        image,
+        lifted,
+        arch,
+        blocks,
+        cond: None,
+        jump_target: None,
+        switch_index: None,
+        switch_load_at: None,
+    };
     for blk in &f.blocks {
         lifter.lift_block(blk);
     }
@@ -66,6 +76,10 @@ struct Lifter<'a, 'b> {
     cond: Option<ValueId>,
     /// The target of the indirect jump that ends the current block.
     jump_target: Option<ValueId>,
+    /// The index of the switch that ends the current block, read before the table entry is.
+    switch_index: Option<ValueId>,
+    /// The instruction that reads the table entry, and the register that holds the index there.
+    switch_load_at: Option<(u64, ra_asm_arch::Register)>,
 }
 
 impl Lifter<'_, '_> {
@@ -84,12 +98,26 @@ impl Lifter<'_, '_> {
         self.m.b.set_block_address(block, blk.start);
         self.cond = None;
         self.jump_target = None;
+        self.switch_index = None;
+        self.switch_load_at = match &blk.terminator {
+            T::Switch { index, load_at, .. } => Some((*load_at, *index)),
+            _ => None,
+        };
         for i in &blk.instrs {
             let Ok(bytes) = self.image.read(i.address, i.len as usize) else { break };
             let Some(d) = self.arch.decode_full(bytes, i.address) else { break };
             self.m.b.address = Some(i.address);
             if self.m.b.has_terminator(block) {
                 break;
+            }
+            // The switch index, read before the instruction that turns it into a table entry.
+            if let Some((at, index)) = self.switch_load_at
+                && at == i.address
+                && let Ok(reg) = R::try_from(index.id as usize)
+            {
+                let v = self.m.read_gpr(block, reg);
+                let wide = self.m.zext(block, Type::Int(index.bits), v, Type::I64, "switch.index");
+                self.switch_index = Some(wide);
             }
             block = self.lift_instr(block, &d.iced);
         }
@@ -115,14 +143,24 @@ impl Lifter<'_, '_> {
                     self.m.b.terminate(block, Terminator::CondBr { cond: cond.into(), then: then_block, els: els_block });
                 }
             }
-            T::Switch { targets, .. } => {
+            T::Switch { targets, cases: index_cases, .. } => {
+                let default = self.m.b.block("switch.bad");
+                self.m.trap(default, last, trap::BAD_SWITCH);
+                // By the index when it was read, so the table itself is never needed; else by the
+                // computed target, which only the mapped image makes right.
+                if let Some(index) = self.switch_index {
+                    let cases = index_cases.iter().filter_map(|(n, t)| self.blocks.get(t).map(|b| (i128::from(*n), *b))).collect();
+                    self.m.b.terminate(block, Terminator::Switch { ty: Type::I64, value: index.into(), default, cases });
+                    return;
+                }
                 let Some(target) = self.jump_target else {
                     self.warn(format!("{last:#x}: a switch with no computed target"));
                     self.m.trap(block, last, trap::INVALID);
                     return;
                 };
-                let default = self.m.b.block("switch.bad");
-                self.m.trap(default, last, trap::BAD_SWITCH);
+                if self.lifted.standalone {
+                    self.warn(format!("{last:#x}: a switch by its computed target reads the table of the image"));
+                }
                 let cases = targets.iter().filter_map(|t| self.blocks.get(t).map(|b| (i128::from(*t), *b))).collect();
                 self.m.b.terminate(block, Terminator::Switch { ty: self.addr_ty(), value: target.into(), default, cases });
             }
@@ -248,11 +286,34 @@ impl Lifter<'_, '_> {
         }
     }
 
+    /// A constant address as an operand: in standalone mode, the address of the byte of the data
+    /// global or the function it falls in; otherwise, the number.
+    fn address_operand(&self, address: u64) -> Operand {
+        if self.lifted.standalone
+            && let Some(op) = self.lifted.address_of(address)
+        {
+            return op;
+        }
+        Operand::Int(i128::from(address))
+    }
+
+    /// The constant memory address of an operand, when it has one: RIP-relative, or absolute.
+    fn absolute_address(i: &Instruction) -> Option<u64> {
+        if i.is_ip_rel_memory_operand() {
+            Some(i.ip_rel_memory_address())
+        } else if i.memory_base() == R::None && i.memory_index() == R::None {
+            Some(i.memory_displacement64())
+        } else {
+            None
+        }
+    }
+
     /// The address of the memory operand, at the address width.
     fn mem_address(&mut self, block: BlockId, i: &Instruction) -> ValueId {
         let ty = self.addr_ty();
-        if i.is_ip_rel_memory_operand() {
-            return self.m.value_of(block, ty, i.ip_rel_memory_address() as i64);
+        if let Some(address) = Self::absolute_address(i) {
+            let op = self.address_operand(address);
+            return self.m.value_of(block, ty, op);
         }
         let disp = i.memory_displacement64() as i64;
         let mut acc: Option<ValueId> = None;
@@ -302,6 +363,16 @@ impl Lifter<'_, '_> {
                 }
             }
             OpKind::Memory => {
+                // A read of an import slot in standalone mode is the import's own address.
+                if self.lifted.standalone
+                    && bits == 64
+                    && let Some(address) = Self::absolute_address(i)
+                    && let Some(import) = self.image.import_at(address)
+                {
+                    let symbol = import_symbol(&import.display_name());
+                    self.lifted.imports.insert(symbol.clone());
+                    return self.m.value_of(block, Type::I64, Operand::Address { global: symbol, offset: 0 });
+                }
                 let addr = self.mem_address(block, i);
                 self.m.load(block, Type::Int(bits), addr, "m")
             }
@@ -1922,6 +1993,6 @@ fn data_register(bits: u16) -> R {
 
 /// The symbol an import links as. An import by ordinal has no symbol: it gets a name the runtime
 /// reports as missing.
-fn import_symbol(display_name: &str) -> String {
+pub(crate) fn import_symbol(display_name: &str) -> String {
     if display_name.contains("!#") { format!("ra_ordinal_{}", display_name.replace(['!', '#', '.'], "_")) } else { display_name.to_owned() }
 }

@@ -226,7 +226,9 @@ impl Builder<'_> {
             return Terminator::IndirectJump;
         };
         let mut targets = Vec::new();
-        for target in table.targets {
+        let mut cases = Vec::new();
+        for (n, target) in table.targets.iter().copied().enumerate() {
+            cases.push((n as u64, target));
             if self.internal(target) {
                 if !targets.contains(&target) {
                     targets.push(target);
@@ -236,7 +238,7 @@ impl Builder<'_> {
                 self.tail_calls.push(target);
             }
         }
-        Terminator::Switch { table: table.address, targets }
+        Terminator::Switch { table: table.address, targets, index: table.index, load_at: table.load_at, cases }
     }
 
     fn finish(self) -> Built {

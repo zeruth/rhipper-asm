@@ -18,7 +18,12 @@ pub struct Table {
     /// The address of the first entry.
     pub address: u64,
     pub entry_size: u8,
+    /// The target of each entry, in index order.
     pub targets: Vec<u64>,
+    /// The register that holds the index when the entry is read.
+    pub index: Register,
+    /// The address of the instruction that reads the entry.
+    pub load_at: u64,
 }
 
 /// The most entries a table is read for when no compare bounds it.
@@ -100,7 +105,7 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
             let mut context: Vec<&[Instr]> = vec![block];
             context.extend_from_slice(predecessors);
             let count = bound_of(&context, index);
-            read_table(image, address, m.scale.max(1), count, Relative::Absolute)
+            read_table(image, address, m.scale.max(1), count, Relative::Absolute, index, jump.address)
         }
         // x64: jmp v, where v = base + entry
         Operand::Reg(value) => {
@@ -134,7 +139,7 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
             let mut context: Vec<&[Instr]> = vec![block];
             context.extend_from_slice(predecessors);
             let count = bound_of(&context, index);
-            read_table(image, address, load.scale.max(1), count, Relative::To(add_base))
+            read_table(image, address, load.scale.max(1), count, Relative::To(add_base), index, block[load_at].address)
         }
         _ => None,
     }
@@ -146,7 +151,15 @@ enum Relative {
     To(u64),
 }
 
-fn read_table(image: &Image, address: u64, entry_size: u8, count: Option<usize>, relative: Relative) -> Option<Table> {
+fn read_table(
+    image: &Image,
+    address: u64,
+    entry_size: u8,
+    count: Option<usize>,
+    relative: Relative,
+    index: Register,
+    load_at: u64,
+) -> Option<Table> {
     let limit = count.unwrap_or(MAX_ENTRIES).min(MAX_ENTRIES);
     let mut targets = Vec::new();
     for n in 0..limit {
@@ -169,5 +182,5 @@ fn read_table(image: &Image, address: u64, entry_size: u8, count: Option<usize>,
         }
         targets.push(target);
     }
-    (!targets.is_empty()).then_some(Table { address, entry_size, targets })
+    (!targets.is_empty()).then_some(Table { address, entry_size, targets, index, load_at })
 }

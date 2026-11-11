@@ -27,9 +27,10 @@ fn terminator_json(t: &Terminator) -> serde_json::Value {
         Terminator::FallThrough(to) => json!({"kind": "fall_through", "to": hex(*to)}),
         Terminator::Jump(to) => json!({"kind": "jump", "to": hex(*to)}),
         Terminator::CondJump { taken, fallthrough } => json!({"kind": "cond_jump", "taken": hex(*taken), "fallthrough": hex(*fallthrough)}),
-        Terminator::Switch { table, targets } => {
-            json!({"kind": "switch", "table": hex(*table), "targets": targets.iter().map(|t| hex(*t)).collect::<Vec<_>>()})
-        }
+        Terminator::Switch { table, targets, index, cases, .. } => json!({
+            "kind": "switch", "table": hex(*table), "index": index.name, "targets": targets.iter().map(|t| hex(*t)).collect::<Vec<_>>(),
+            "cases": cases.iter().map(|(i, t)| json!({"index": i, "target": hex(*t)})).collect::<Vec<_>>(),
+        }),
         Terminator::IndirectJump => json!({"kind": "indirect_jump"}),
         Terminator::TailCall(to) => json!({"kind": "tail_call", "to": hex(*to)}),
         Terminator::ImportTailCall(import) => json!({"kind": "import_tail_call", "import": import}),
@@ -47,8 +48,13 @@ fn terminator_text(analysis: &Analysis<'_>, t: &Terminator) -> String {
         Terminator::FallThrough(to) => format!("falls through to {}", hex(*to)),
         Terminator::Jump(to) => format!("jumps to {}", hex(*to)),
         Terminator::CondJump { taken, fallthrough } => format!("branches to {} or {}", hex(*taken), hex(*fallthrough)),
-        Terminator::Switch { table, targets } => {
-            format!("switch over the table at {} to {}", hex(*table), targets.iter().map(|t| hex(*t)).collect::<Vec<_>>().join(", "))
+        Terminator::Switch { table, targets, index, .. } => {
+            format!(
+                "switch on {} over the table at {} to {}",
+                index.name,
+                hex(*table),
+                targets.iter().map(|t| hex(*t)).collect::<Vec<_>>().join(", ")
+            )
         }
         Terminator::IndirectJump => "jumps indirectly (unresolved)".to_owned(),
         Terminator::TailCall(to) => format!("tail-calls {}", analysis.name_of(*to)),

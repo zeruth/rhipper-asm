@@ -13,6 +13,13 @@ pub enum Operand {
     Float(f64),
     /// `@name`.
     Global(String),
+    /// The address of byte `offset` of global `global`: a pointer where the type is `ptr`, else
+    /// that pointer as an integer. The lift writes the data of an image as globals and every
+    /// reference into them as one of these, so the output stands without the image.
+    Address {
+        global: String,
+        offset: i64,
+    },
     Null,
     Undef,
     Zero,

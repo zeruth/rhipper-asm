@@ -27,8 +27,8 @@ fn scratch(name: &str) -> PathBuf {
 fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
     let image = ra_asm_pe::load(&fixture(binary)).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
-    let mut lifted = ra_asm_lift::lift(&image, &analysis);
-    // The machine IR, the promoted IR and the ABI IR must all run; the tag picks one.
+    // The machine IR, the promoted IR and the ABI IR must all run; the tag picks one. The ABI IR
+    // stands alone: its data are globals and it never maps the image.
     let level = if tag.contains("machine") {
         ra_asm_lift::RaiseLevel::Machine
     } else if tag.contains("promoted") {
@@ -36,6 +36,8 @@ fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
     } else {
         ra_asm_lift::RaiseLevel::Abi
     };
+    let mut lifted =
+        ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: level == ra_asm_lift::RaiseLevel::Abi });
     let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions { level });
     // The tests run in parallel: each one writes its own directory.
     let dir = scratch(&format!("{tag}-{binary}"));

@@ -11,6 +11,7 @@
 //! The raising passes of milestone E turn this into source-shaped IR; this milestone's job is to
 //! be right, which the execution oracle checks against the native program.
 
+pub mod data;
 pub mod raise;
 pub mod state;
 pub mod x86;
@@ -36,6 +37,10 @@ pub struct Lifted {
     /// The import wrappers the code calls: the import's symbol and the stack offset of its first
     /// stack argument at the call site.
     pub wrappers: BTreeSet<(String, i64)>,
+    /// The data sections written as globals (standalone mode).
+    pub data: Vec<DataSection>,
+    /// Whether the lift references data through globals rather than the mapped image.
+    pub standalone: bool,
     pub warnings: Vec<String>,
 }
 
@@ -83,8 +88,40 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64) -> ra_asm_ir::Function {
     b.finish()
 }
 
+/// The options of a lift.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LiftOptions {
+    /// Write the data sections as globals and every reference into them as an address of one, so
+    /// the output stands without the image. Without it, the code addresses the mapped image.
+    pub standalone: bool,
+}
+
+/// A data section of the image as a global.
+#[derive(Debug, Clone)]
+pub struct DataSection {
+    pub global: String,
+    pub start: u64,
+    pub end: u64,
+}
+
+impl Lifted {
+    /// The address operand of `address` in standalone mode: a byte of a data section, or a function.
+    pub fn address_of(&self, address: u64) -> Option<ra_asm_ir::Operand> {
+        if let Some(name) = self.functions.get(&address) {
+            return Some(ra_asm_ir::Operand::Address { global: name.clone(), offset: 0 });
+        }
+        let section = self.data.iter().find(|s| address >= s.start && address < s.end)?;
+        Some(ra_asm_ir::Operand::Address { global: section.global.clone(), offset: (address - section.start) as i64 })
+    }
+}
+
 /// Lifts every function of `analysis`.
 pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
+    lift_with(image, analysis, LiftOptions::default())
+}
+
+/// Lifts every function of `analysis` with `options`.
+pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -> Lifted {
     let mut module = Module::x86_64_windows(
         &image.path.as_ref().map_or_else(|| "image".to_owned(), |p| p.file_name().unwrap().to_string_lossy().into_owned()),
     );
@@ -97,6 +134,8 @@ pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
         functions: BTreeMap::new(),
         roots: BTreeSet::new(),
         wrappers: BTreeSet::new(),
+        data: Vec::new(),
+        standalone: options.standalone,
         warnings: Vec::new(),
     };
     for f in analysis.functions.values() {
@@ -106,6 +145,9 @@ pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
             lifted.roots.insert(name.clone());
         }
         lifted.functions.insert(f.entry, name);
+    }
+    if options.standalone {
+        data::add_sections(image, &mut lifted);
     }
     for f in analysis.functions.values() {
         let built = x86::lift_function(image, analysis, &mut lifted, f);
@@ -171,6 +213,9 @@ pub fn image_header(
                 let params: Vec<&str> = sig.params.iter().chain(&sig.stack_params).map(|k| c_type(*k)).collect();
                 let ret = sig.returns.map_or("void", c_type);
                 let _ = writeln!(out, "#define RA_ABI 1");
+                if lifted.standalone {
+                    let _ = writeln!(out, "#define RA_STANDALONE 1");
+                }
                 let _ = writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
                 let zeros: Vec<&str> = params.iter().map(|_| "0").collect();
                 let _ = writeln!(out, "#define RA_ENTRY_CALL() {name}({})", zeros.join(", "));

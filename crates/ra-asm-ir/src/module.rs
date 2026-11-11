@@ -56,6 +56,11 @@ pub enum Const {
     Null,
     /// A pointer to another global.
     Global(String),
+    /// The address of a byte of a global, as the field's type: a pointer or an integer.
+    Address {
+        global: String,
+        offset: i64,
+    },
     Array(Vec<Const>),
     Struct(Vec<Const>),
 }

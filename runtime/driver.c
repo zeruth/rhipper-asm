@@ -138,6 +138,14 @@ static void install_trampolines(void) {
 #endif
 
 int main(int argc, char **argv) {
+#ifdef RA_STANDALONE
+    // The data sections are globals of the program and the imports are linked by name: there is
+    // no image to map and nothing to bind.
+    (void)argc;
+    (void)argv;
+    RA_ENTRY_CALL();
+    return 0;
+#else
     const char *image_path = argc > 1 ? argv[1] : "image.bin";
     FILE *f = fopen(image_path, "rb");
     if (!f) {
@@ -174,5 +182,6 @@ int main(int argc, char **argv) {
     state.flags[5] = 0;  // DF clear
     RA_ENTRY(&state);
     return (int)state.gpr[RAX];
+#endif
 #endif
 }
