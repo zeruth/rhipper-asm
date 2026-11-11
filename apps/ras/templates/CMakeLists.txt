@@ -9,7 +9,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # The translation that ras emit writes, with its runtime beside it.
 set(GEN_DIR "@GEN_DIR@")
-file(GLOB GEN_SOURCES CONFIGURE_DEPENDS "${GEN_DIR}/*.c")
+file(GLOB GEN_SOURCES CONFIGURE_DEPENDS "${GEN_DIR}/*.c" "${GEN_DIR}/*.cpp")
 add_executable(@TARGET@ ${GEN_SOURCES} "${GEN_DIR}/runtime/driver.c")
 target_include_directories(@TARGET@ PRIVATE "${GEN_DIR}" "${GEN_DIR}/runtime")
 

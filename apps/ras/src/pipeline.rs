@@ -159,13 +159,16 @@ impl Pipeline {
     fn emit(&mut self, log: &mut File) -> Result<()> {
         let gen_dir = self.project.gen_dir.clone();
         let build_dir = self.project.build_dir();
+        let Some(dialect) = ra_asm_emit::Dialect::parse(&self.project.lang) else {
+            bail!("the lang of rhipper.json, `{}`, is not `c` or `cpp`", self.project.lang);
+        };
         let image = self.image()?;
         let analysis = ra_asm_analysis::analyze(image);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
         let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions::default());
         let infos = ra_asm_emit::functions::infos(&analysis);
         let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
-        let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names });
+        let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect });
         let files = unit.files(ra_asm_emit::FUNCTIONS_PER_FILE);
         let runtime = gen_dir.join("runtime");
         fs::create_dir_all(&runtime).with_context(|| format!("cannot create {}", runtime.display()))?;

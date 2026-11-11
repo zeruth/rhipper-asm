@@ -21,14 +21,14 @@ fn scratch(name: &str) -> PathBuf {
 
 /// The C of a fixture, with the image header and the function table beside it. With a
 /// `functions_per_file`, the output splits into a header, a data file and several function files.
-fn emit(binary: &str, tag: &str, functions_per_file: usize) -> (PathBuf, String) {
+fn emit(binary: &str, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect) -> (PathBuf, String) {
     let image = ra_asm_pe::load(&root().join("testdata/bin").join(binary)).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
     let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
     let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions::default());
     let infos = ra_asm_emit::functions::infos(&analysis);
     let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
-    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names });
+    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect });
     let files = unit.files(functions_per_file);
     let dir = scratch(&format!("{binary}-{tag}"));
     ra_asm_emit::write_files(&dir, &files).unwrap();
@@ -59,31 +59,27 @@ fn check_table(binary: &str, dir: &Path) {
 }
 
 fn run_oracle(binary: &str, expected_name: &str) {
-    run_oracle_split(binary, expected_name, "one", ra_asm_emit::FUNCTIONS_PER_FILE);
+    run_oracle_with(binary, expected_name, "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
 }
 
-fn run_oracle_split(binary: &str, expected_name: &str, tag: &str, functions_per_file: usize) {
+fn run_oracle_with(binary: &str, expected_name: &str, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect) {
     if !clang_available() {
         eprintln!("clang is not on the PATH: the oracle is skipped");
         return;
     }
-    let (dir, c) = emit(binary, tag, functions_per_file);
+    let (dir, c) = emit(binary, tag, functions_per_file, dialect);
     check_table(binary, &dir);
     assert!(!c.contains("goto "), "{binary}: the C has a goto:\n{c}");
-    let sources: Vec<PathBuf> =
-        std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "c")).collect();
+    let sources: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "c" || x == "cpp"))
+        .collect();
     let exe = dir.join("program.exe");
+    // clang compiles each file in its own language by its extension; the driver stays C.
     let build = Command::new("clang")
-        .args([
-            "-O1",
-            "-std=gnu11",
-            "-Wall",
-            "-Wno-unused-variable",
-            "-Wno-unused-but-set-variable",
-            "-Wno-parentheses",
-            "-Werror",
-            "-fuse-ld=lld",
-        ])
+        .args(["-O1", "-Wall", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-Wno-parentheses", "-Werror", "-fuse-ld=lld"])
         .args(&sources)
         .arg(root().join("runtime/driver.c"))
         .arg("-I")
@@ -126,5 +122,16 @@ fn float64_runs_as_c() {
 /// The split output: a header, a data file and several function files build and run together.
 #[test]
 fn control64_runs_as_split_c() {
-    run_oracle_split("control64.exe", "control.txt", "split", 4);
+    run_oracle_with("control64.exe", "control.txt", "split", 4, ra_asm_emit::Dialect::C);
+}
+
+/// The C++ dialect: the same source with C linkage, built by clang++ beside the C driver.
+#[test]
+fn control64_runs_as_cpp() {
+    run_oracle_with("control64.exe", "control.txt", "cpp", 4, ra_asm_emit::Dialect::Cpp);
+}
+
+#[test]
+fn float64_runs_as_cpp() {
+    run_oracle_with("float64.exe", "float.txt", "cpp", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
 }

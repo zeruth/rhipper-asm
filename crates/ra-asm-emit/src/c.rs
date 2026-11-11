@@ -15,11 +15,39 @@ use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, Const, FCond, Function, ICo
 
 use crate::structure::{Cond, Graph, Stmt, structure};
 
+/// The language the backend writes: C, or the same source as C++ (`extern "C"` linkage, `.cpp`
+/// files), until the class recovery gives the C++ output a shape of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Dialect {
+    #[default]
+    C,
+    Cpp,
+}
+
+impl Dialect {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.to_ascii_lowercase().as_str() {
+            "c" => Some(Self::C),
+            "cpp" | "c++" | "cxx" => Some(Self::Cpp),
+            _ => None,
+        }
+    }
+
+    /// The file extension of a source file.
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::C => "c",
+            Self::Cpp => "cpp",
+        }
+    }
+}
+
 /// What the backend writes.
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     /// The source name of each function, by IR name: the comment above it.
     pub names: HashMap<String, String>,
+    pub dialect: Dialect,
 }
 
 /// One function's C: the comment naming it, the definition line and the body.
@@ -51,6 +79,7 @@ pub struct Unit {
     /// The definitions of the data globals, with their initializers.
     pub global_defs: String,
     pub functions: Vec<EmittedFunction>,
+    pub dialect: Dialect,
 }
 
 /// One file of the output, and the 1-based definition line of each function in it.
@@ -66,10 +95,16 @@ pub struct EmittedFile {
 pub const FUNCTIONS_PER_FILE: usize = 500;
 
 impl Unit {
+    /// The parts every single-file output starts with. The `extern` declarations come before the
+    /// definitions in one file too: in C++ a `const` global has internal linkage without them.
+    fn preamble(&self) -> [&String; 6] {
+        [&self.include, &self.externs, &self.prototypes, &self.global_types, &self.global_decls, &self.global_defs]
+    }
+
     /// The whole translation as one unit.
     pub fn text(&self) -> String {
         let mut out = String::new();
-        for part in [&self.include, &self.externs, &self.prototypes, &self.global_types, &self.global_defs] {
+        for part in self.preamble() {
             out.push_str(part);
             out.push('\n');
         }
@@ -85,14 +120,13 @@ impl Unit {
     /// with up to `max_functions` functions.
     pub fn files(&self, max_functions: usize) -> Vec<EmittedFile> {
         if self.functions.len() <= max_functions.max(1) {
-            let preamble = [&self.include, &self.externs, &self.prototypes, &self.global_types, &self.global_defs];
             let mut text = String::new();
-            for part in preamble {
+            for part in self.preamble() {
                 text.push_str(part);
                 text.push('\n');
             }
             let functions = Self::append_functions(&mut text, &self.functions);
-            return vec![EmittedFile { name: "program.c".into(), text, functions }];
+            return vec![EmittedFile { name: format!("program.{}", self.dialect.extension()), text, functions }];
         }
         let mut files = Vec::new();
         let mut header = String::from("#pragma once\n");
@@ -103,11 +137,11 @@ impl Unit {
         files.push(EmittedFile { name: "program.h".into(), text: header, functions: Vec::new() });
         let mut data = String::from("#include \"program.h\"\n\n");
         data.push_str(&self.global_defs);
-        files.push(EmittedFile { name: "data.c".into(), text: data, functions: Vec::new() });
+        files.push(EmittedFile { name: format!("data.{}", self.dialect.extension()), text: data, functions: Vec::new() });
         for (index, chunk) in self.functions.chunks(max_functions.max(1)).enumerate() {
             let mut text = String::from("#include \"program.h\"\n\n");
             let functions = Self::append_functions(&mut text, chunk);
-            files.push(EmittedFile { name: format!("program_{index:03}.c"), text, functions });
+            files.push(EmittedFile { name: format!("program_{index:03}.{}", self.dialect.extension()), text, functions });
         }
         files
     }
@@ -167,6 +201,15 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
         declare_global(&mut global_decls, g);
         define_global(&mut global_defs, g);
     }
+    // In C++ the imports, the functions and the data keep C linkage: the driver is C, the imports
+    // are the DLLs' own names, and a definition under a prototype with C linkage inherits it.
+    if options.dialect == Dialect::Cpp {
+        for part in [&mut externs, &mut prototype_lines, &mut global_decls, &mut global_defs] {
+            if !part.trim().is_empty() {
+                *part = format!("extern \"C\" {{\n{part}}}\n");
+            }
+        }
+    }
     let functions = module
         .functions
         .iter()
@@ -182,7 +225,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
             EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps, text }
         })
         .collect();
-    Unit { include, externs, prototypes: prototype_lines, global_types, global_decls, global_defs, functions }
+    Unit { include, externs, prototypes: prototype_lines, global_types, global_decls, global_defs, functions, dialect: options.dialect }
 }
 
 fn prototype(f: &Function) -> String {

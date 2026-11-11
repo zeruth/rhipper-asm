@@ -110,10 +110,11 @@
         acceptance: The x64 fixtures compile with clang with no warning and pass their expected output, as one file and split.
         notes: `ras emit --lang c` writes `program.c` and `runtime/rhipper.h` holds the helpers (the 128-bit and vector types, the intrinsics, the trap and the call resolver). Landed 2026-11-10: typed locals from the IR, phis through `_next` temporaries, single-use values inlined into their expression, globals as packed structures, the frame and the xmm array as aligned byte buffers, an empty then-branch inverted and a negated integer compare printed as its inverse. The oracle (ra-asm-emit/tests/oracle.rs) builds hello64, control64 and float64 with `clang -O1 -Wall -Werror` and runs them. control64 is 495 lines of C. The split landed 2026-11-11: `Unit::files` writes `program.c` alone up to 500 functions, else `program.h` (the externs, the prototypes, the structure types of the data and their `extern` declarations), `data.c` (the data definitions) and `program_NNN.c`; the function table names each function's file; `write_files` removes the parts of an earlier, larger output; the split oracle builds control64 as five files. Decided 2026-11-11 to need a clang front end (clang or clang-cl, which the pipeline picks) rather than port the output to cl: the runtime leans on 128-bit integers and vector types, cl has neither, and clang-cl builds against the same MSVC headers and libraries. The widths of task 25 and the known values that followed made the C read as source: control64 is 461 lines.
         waits-on: 27
-    - 29 ‹task› C++ {c3} [defined]
+    - 29 ‹task› C++ {c3} [in_progress]
         objective: The C output with references, classes where RTTI and vtables name them, and overloads where the mangled export names give them.
         acceptance: The C++ fixture builds and runs.
-        waits-on: 28
+        notes: The dialect landed 2026-11-11: `ras emit --lang cpp`, or `"lang": "cpp"` in `rhipper.json`, writes the same source as `.cpp` files with the imports, the prototypes and the data under `extern "C"` (the driver is C, the imports are the DLLs' names, and a C++ `const` global would otherwise have internal linkage); clang++ builds control64 split and float64 whole beside the C driver, and the oracle checks both. The shape of its own (classes, references, overloads) waits for the names and vtables of task 46.
+        waits-on: 28 46
     - 30 ‹task› Rust {c4} [defined]
         objective: Unsafe Rust: one module per source range, `extern "system"` declarations for the imports, labeled loops from the structuring pass, and a `rhipper` runtime crate.
         acceptance: The x64 fixtures build with cargo and pass their expected output.

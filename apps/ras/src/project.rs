@@ -5,6 +5,7 @@
 //!   "name": "Game",
 //!   "exe": "ref/Game.exe",
 //!   "gen": "src/gen",
+//!   "lang": "c",
 //!   "sources": ["src", "vendor"],
 //!   "build": { "dir": "build/cmake", "config": "Release", "target": "Game" },
 //!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0 }
@@ -12,7 +13,8 @@
 //! ```
 //!
 //! `exe` is the reference binary and the only required key. Every path is relative to the root.
-//! `gen` is where `ras emit` writes the translation; `sources` are the directories of the hand-written
+//! `gen` is where `ras emit` writes the translation and `lang` its language (`c`, or `cpp` for the
+//! same source with C++ linkage); `sources` are the directories of the hand-written
 //! port, which the workbench reads and the pipeline does not. `build` is the `CMake` build of the
 //! port, and `run` is how the pipeline starts it: `with`
 //! lists side processes that start before the port and stop after it, and `timeout` in seconds stops
@@ -48,6 +50,8 @@ pub(crate) struct Project {
     pub exe: PathBuf,
     /// Where `ras emit` writes the translation.
     pub gen_dir: PathBuf,
+    /// The language of the translation: `c` or `cpp`.
+    pub lang: String,
     pub build: Build,
     pub run: Run,
 }
@@ -96,7 +100,15 @@ impl Project {
                 .unwrap_or_default(),
             timeout: run.and_then(|r| r.get("timeout")).and_then(Value::as_u64).filter(|t| *t > 0),
         };
-        Ok(Self { exe: resolve(&exe), gen_dir: resolve(&string("gen").unwrap_or_else(|| "src/gen".into())), name, build, run, root })
+        Ok(Self {
+            exe: resolve(&exe),
+            gen_dir: resolve(&string("gen").unwrap_or_else(|| "src/gen".into())),
+            lang: string("lang").unwrap_or_else(|| "c".into()),
+            name,
+            build,
+            run,
+            root,
+        })
     }
 
     /// The build outputs the pipeline writes: `build/`.

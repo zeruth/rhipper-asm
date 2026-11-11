@@ -11,21 +11,21 @@ pub mod c;
 pub mod functions;
 pub mod structure;
 
-pub use c::{EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, Options as COptions, Unit, emit_c, emit_unit};
+pub use c::{Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, Options as COptions, Unit, emit_c, emit_unit};
 pub use functions::{FunctionInfo, format_address, table};
 
 /// Writes the files of `unit` into `dir`, after removing the files of an earlier, larger output
-/// (`program.c`, `program.h`, `data.c`, `program_NNN.c`), so a stale part never builds again.
+/// or another dialect (`program.c`, `program.h`, `data.c`, `program_NNN.c`, and the same as
+/// `.cpp`), so a stale part never builds again.
 pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            let part = name
-                .strip_prefix("program_")
-                .and_then(|rest| rest.strip_suffix(".c"))
-                .is_some_and(|n| n.chars().all(|c| c.is_ascii_digit()));
-            let ours = name == "program.c" || name == "program.h" || name == "data.c" || part;
+            let (stem, extension) = name.rsplit_once('.').unwrap_or((name.as_str(), ""));
+            let source = extension == "c" || extension == "cpp";
+            let part = stem.strip_prefix("program_").is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+            let ours = name == "program.h" || (source && (stem == "program" || stem == "data" || part));
             if ours && !files.iter().any(|f| f.name == name) {
                 std::fs::remove_file(entry.path())?;
             }

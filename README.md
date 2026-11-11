@@ -56,14 +56,16 @@ left. `ras signatures` prints what the inference found.
 `ras emit --lang c` structures the raised IR and writes it as C: typed locals, the inferred
 parameters and results, loops and conditions, and the data sections as globals, with the helpers
 the output needs in `runtime/rhipper.h`. The output is standalone: it builds with clang against
-`runtime/driver.c` and needs no image at run time. Beside the source, `--out` writes
+`runtime/driver.c` and needs no image at run time. `--lang cpp` writes the same source as `.cpp`
+files with C linkage, for a port that goes on in C++. A program of more than 500 functions splits
+into a header, a data file and a file per 500 functions. Beside the source, `--out` writes
 `functions.json`, the table the workbench reads: every function's address, name, size, file and
 line, how far the lift got (`lifted`, `partial` with a trap count, `thunk`, `not lifted`), its
 calls and its imports.
 
 `ras pipeline` runs a port project end to end from its `rhipper.json`, which names the reference
-binary and, with defaults for all of them, the `gen` directory of the translation, the CMake build
-and how to run the port. The steps are `analyze`, `lift`, `emit`, `build` and `run`; `--from` and
+binary and, with defaults for all of them, the `gen` directory of the translation, its `lang`
+(`c` or `cpp`), the CMake build and how to run the port. The steps are `analyze`, `lift`, `emit`, `build` and `run`; `--from` and
 `--only` pick them. Each step logs to `build/pipeline/<step>.log` and prints a `[  12s] step`
 progress line, the build writes a `CMakeLists.txt` for a project that has none, and every run of
 the port appends to `build/pipeline/runs.jsonl`. This is what the Rhipper Workbench drives.

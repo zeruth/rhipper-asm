@@ -7,13 +7,15 @@ use ra_asm_pe::Image;
 
 /// Writes `program.c`, `image.h` and `functions.json` into `out`, or the C to stdout without `out`.
 pub(crate) fn emit(image: &Image, language: &str, out: Option<&Path>, quiet: bool) -> Result<()> {
-    anyhow::ensure!(language == "c", "the {language} backend is not written yet; `c` is");
+    let Some(dialect) = ra_asm_emit::Dialect::parse(language) else {
+        anyhow::bail!("the {language} backend is not written yet; `c` and `cpp` are");
+    };
     let analysis = ra_asm_analysis::analyze(image);
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
     let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions::default());
     let infos = ra_asm_emit::functions::infos(&analysis);
     let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
-    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names });
+    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect });
     match out {
         None => print!("{}", unit.text()),
         Some(dir) => {
