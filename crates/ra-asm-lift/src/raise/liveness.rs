@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use ra_asm_ir::{BlockId, Callee, Function, Inst, Operand, Terminator, Type, ValueId};
+use ra_asm_ir::{BinOp, BlockId, Callee, Cast, Function, Inst, Operand, Terminator, Type, ValueId};
 
 pub const GPRS: usize = 16;
 pub const FLAGS: usize = 8;
@@ -170,12 +170,139 @@ pub fn all_registers() -> SlotSet {
     set
 }
 
-/// The liveness of the slots over a function.
+/// The bytes of each slot: bit `i` is byte `i` of a general register; a flag or a vector register
+/// is all or nothing.
+type ByteSet = [u8; SLOTS];
+
+const NO_BYTES: ByteSet = [0; SLOTS];
+const ALL_BYTES: u8 = 0xff;
+
+fn any_byte(bytes: &ByteSet) -> SlotSet {
+    bytes.map(|b| b != 0)
+}
+
+fn every_byte(set: &SlotSet) -> ByteSet {
+    set.map(|b| if b { ALL_BYTES } else { 0 })
+}
+
+/// The low `bits / 8` bytes.
+fn low_bytes(bits: u16) -> u8 {
+    if bits >= 64 { ALL_BYTES } else { ((1u16 << (bits / 8)) - 1) as u8 }
+}
+
+/// The bytes the loads and stores of the general registers touch. The lift reads a sub-register
+/// as a `trunc` of the whole (through a `lshr 8` for `ah`) and writes one by merging into the
+/// whole: `load; and MASK; or placed; store`. The merge's load passes the kept bytes through
+/// rather than reading them, and its store defines only the others; a load used any other way
+/// reads the whole register, a store of any other value writes it.
+struct Accesses {
+    /// A load's result -> the bytes read.
+    loads: HashMap<ValueId, u8>,
+    /// A merge's store, by block and position -> the bytes written.
+    stores: HashMap<(usize, usize), u8>,
+}
+
+impl Accesses {
+    fn of(f: &Function, pointers: &HashMap<ValueId, Slot>) -> Self {
+        let mut users: HashMap<ValueId, Vec<(usize, usize)>> = HashMap::new();
+        for (bi, b) in f.blocks.iter().enumerate() {
+            for (ii, i) in b.instrs.iter().enumerate() {
+                for v in i.inst.uses() {
+                    users.entry(v).or_default().push((bi, ii));
+                }
+            }
+        }
+        let at = |(bi, ii): (usize, usize)| &f.blocks[bi].instrs[ii];
+        let users_of = |v: ValueId| users.get(&v).map_or(&[][..], Vec::as_slice);
+        // The one store a merge's value feeds, when it goes back to `slot`.
+        let merge_store = |v: Option<ValueId>, slot: Slot| -> Option<(usize, usize)> {
+            let [u] = users_of(v?) else { return None };
+            match &at(*u).inst {
+                Inst::Store { ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&slot) => Some(*u),
+                _ => None,
+            }
+        };
+        let mut loads = HashMap::new();
+        let mut stores = HashMap::new();
+        for b in &f.blocks {
+            for i in &b.instrs {
+                let (Some(whole), Inst::Load { ptr: Operand::Local(p), .. }) = (i.result, &i.inst) else { continue };
+                let Some(&slot) = pointers.get(p).filter(|s| s.is_gpr()) else { continue };
+                let mut read = 0u8;
+                for &u in users_of(whole) {
+                    read |= match &at(u).inst {
+                        Inst::Cast { cast: Cast::Trunc, to: Type::Int(bits), .. } => low_bytes(*bits),
+                        Inst::Bin { op: BinOp::LShr, lhs: Operand::Local(w), rhs: Operand::Int(8), .. } if *w == whole => {
+                            let high = at(u).result.map_or(&[][..], |h| users_of(h));
+                            let truncs: Option<u8> = high
+                                .iter()
+                                .map(|&t| match &at(t).inst {
+                                    Inst::Cast { cast: Cast::Trunc, to: Type::Int(bits), .. } if *bits < 64 => Some(low_bytes(*bits) << 1),
+                                    _ => None,
+                                })
+                                .try_fold(0u8, |acc, b| Some(acc | b?));
+                            truncs.unwrap_or(ALL_BYTES)
+                        }
+                        Inst::Bin { op: BinOp::And, lhs: Operand::Local(w), rhs: Operand::Int(mask), .. } if *w == whole => {
+                            let kept = at(u).result;
+                            let store = merge_store(kept, slot).or_else(|| {
+                                let [o] = users_of(kept?) else { return None };
+                                match &at(*o).inst {
+                                    Inst::Bin { op: BinOp::Or, lhs, rhs, .. } if lhs.local() == kept || rhs.local() == kept => {
+                                        merge_store(at(*o).result, slot)
+                                    }
+                                    _ => None,
+                                }
+                            });
+                            match (store, written_bytes(*mask as u64)) {
+                                (Some(pos), Some(written)) => {
+                                    stores.insert(pos, written);
+                                    0
+                                }
+                                _ => ALL_BYTES,
+                            }
+                        }
+                        _ => ALL_BYTES,
+                    };
+                }
+                loads.insert(whole, read);
+            }
+        }
+        Self { loads, stores }
+    }
+
+    fn load(&self, v: Option<ValueId>) -> u8 {
+        v.and_then(|v| self.loads.get(&v).copied()).unwrap_or(ALL_BYTES)
+    }
+
+    fn store(&self, at: (usize, usize)) -> u8 {
+        self.stores.get(&at).copied().unwrap_or(ALL_BYTES)
+    }
+}
+
+/// The bytes a merge with `mask` replaces: those the mask clears. A byte the mask splits is not
+/// a register's.
+fn written_bytes(mask: u64) -> Option<u8> {
+    let mut written = 0u8;
+    for i in 0..8 {
+        match (mask >> (8 * i)) & 0xff {
+            0xff => {}
+            0 => written |= 1 << i,
+            _ => return None,
+        }
+    }
+    Some(written)
+}
+
+/// The liveness of the slots over a function. A general register is tracked by the byte: a write
+/// of `cl` defines one, a read of `ecx` reads the four not yet defined, so a function that only
+/// ever defines `cl` before it uses it has no `ecx` live at its entry. The sets here are the
+/// any-byte view of that.
 pub struct Liveness {
     pub index_of: HashMap<BlockId, usize>,
-    /// The slots read before written, per block.
+    /// The slots some byte of which is read before written, per block.
     pub reads: Vec<SlotSet>,
-    /// The slots written, per block.
+    /// The slots some byte of which is written, per block.
     pub writes: Vec<SlotSet>,
     pub live_in: Vec<SlotSet>,
     pub live_out: Vec<SlotSet>,
@@ -203,37 +330,36 @@ impl Liveness {
     ) -> Self {
         let n = f.blocks.len();
         let index_of: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
-        let mut reads = vec![NO_SLOTS; n];
-        let mut writes = vec![NO_SLOTS; n];
-        let mut exit_reads = vec![NO_SLOTS; n];
+        let accesses = Accesses::of(f, pointers);
+        let calls = |inst: &Inst| {
+            let (r, w) = calls(inst);
+            (every_byte(&r), every_byte(&w))
+        };
+        let mut reads = vec![NO_BYTES; n];
+        let mut writes = vec![NO_BYTES; n];
+        let mut exit_reads = vec![NO_BYTES; n];
         for (bi, b) in f.blocks.iter().enumerate() {
-            let mut written = NO_SLOTS;
-            for i in &b.instrs {
+            let mut written = NO_BYTES;
+            for (ii, i) in b.instrs.iter().enumerate() {
                 match &i.inst {
                     Inst::Load { ptr: Operand::Local(p), .. } => {
-                        if let Some(slot) = pointers.get(p)
-                            && !written[slot.index()]
-                        {
-                            reads[bi][slot.index()] = true;
+                        if let Some(slot) = pointers.get(p) {
+                            reads[bi][slot.index()] |= accesses.load(i.result) & !written[slot.index()];
                         }
                     }
                     Inst::Store { ptr: Operand::Local(p), .. } => {
                         if let Some(slot) = pointers.get(p) {
-                            written[slot.index()] = true;
-                            writes[bi][slot.index()] = true;
+                            written[slot.index()] |= accesses.store((bi, ii));
+                            writes[bi][slot.index()] |= accesses.store((bi, ii));
                         }
                     }
                     inst => match call_kind(inst) {
                         Some(CallKind::State) => {
                             let (call_reads, call_writes) = calls(inst);
-                            for slot in Slot::all() {
-                                if call_reads[slot.index()] && !written[slot.index()] {
-                                    reads[bi][slot.index()] = true;
-                                }
-                                if call_writes[slot.index()] {
-                                    written[slot.index()] = true;
-                                    writes[bi][slot.index()] = true;
-                                }
+                            for k in 0..SLOTS {
+                                reads[bi][k] |= call_reads[k] & !written[k];
+                                written[k] |= call_writes[k];
+                                writes[bi][k] |= call_writes[k];
                             }
                         }
                         Some(CallKind::NoReturn) => break,
@@ -242,12 +368,12 @@ impl Liveness {
                 }
             }
             if let Terminator::Ret(_) = b.terminator {
-                exit_reads[bi] = exit_set;
+                exit_reads[bi] = every_byte(&exit_set);
             }
         }
 
-        let mut live_in = vec![NO_SLOTS; n];
-        let mut live_out = vec![NO_SLOTS; n];
+        let mut live_in = vec![NO_BYTES; n];
+        let mut live_out = vec![NO_BYTES; n];
         loop {
             let mut changed = false;
             for &bi in order.iter().rev() {
@@ -261,7 +387,7 @@ impl Liveness {
                 }
                 let mut inn = reads[bi];
                 for k in 0..SLOTS {
-                    inn[k] |= out[k] && !writes[bi][k];
+                    inn[k] |= out[k] & !writes[bi][k];
                 }
                 if inn != live_in[bi] || out != live_out[bi] {
                     live_in[bi] = inn;
@@ -279,32 +405,27 @@ impl Liveness {
         for (bi, b) in f.blocks.iter().enumerate() {
             let mut live = live_out[bi];
             let mut at_calls = Vec::new();
-            for i in b.instrs.iter().rev() {
+            for (ii, i) in b.instrs.iter().enumerate().rev() {
                 match &i.inst {
                     Inst::Load { ptr: Operand::Local(p), .. } => {
                         if let Some(slot) = pointers.get(p) {
-                            live[slot.index()] = true;
+                            live[slot.index()] |= accesses.load(i.result);
                         }
                     }
                     Inst::Store { ptr: Operand::Local(p), .. } => {
                         if let Some(slot) = pointers.get(p) {
-                            live[slot.index()] = false;
+                            live[slot.index()] &= !accesses.store((bi, ii));
                         }
                     }
                     inst => match call_kind(inst) {
                         Some(CallKind::State) => {
-                            at_calls.push(live);
+                            at_calls.push(any_byte(&live));
                             let (call_reads, call_writes) = calls(inst);
-                            for slot in Slot::all() {
-                                if call_writes[slot.index()] {
-                                    live[slot.index()] = false;
-                                }
-                                if call_reads[slot.index()] {
-                                    live[slot.index()] = true;
-                                }
+                            for k in 0..SLOTS {
+                                live[k] = (live[k] & !call_writes[k]) | call_reads[k];
                             }
                         }
-                        Some(CallKind::NoReturn) => live = NO_SLOTS,
+                        Some(CallKind::NoReturn) => live = NO_BYTES,
                         _ => {}
                     },
                 }
@@ -312,7 +433,8 @@ impl Liveness {
             at_calls.reverse();
             live_after_call[bi] = at_calls;
         }
-        Self { index_of, reads, writes, live_in, live_out, live_after_call }
+        let view = |sets: &[ByteSet]| sets.iter().map(any_byte).collect();
+        Self { index_of, reads: view(&reads), writes: view(&writes), live_in: view(&live_in), live_out: view(&live_out), live_after_call }
     }
 }
 

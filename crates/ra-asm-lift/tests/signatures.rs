@@ -11,9 +11,17 @@ fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin").join(name)
 }
 
+fn rhtest(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/rhtest").join(name)
+}
+
 /// The linker map: name -> address, as the analysis tests read it.
 fn map_functions(name: &str) -> BTreeMap<String, u64> {
-    let text = std::fs::read_to_string(fixture(name)).unwrap();
+    map_at(&fixture(name))
+}
+
+fn map_at(path: &Path) -> BTreeMap<String, u64> {
+    let text = std::fs::read_to_string(path).unwrap();
     let mut out = BTreeMap::new();
     for line in text.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
@@ -90,4 +98,22 @@ fn float64_signatures_see_the_double_parameters() {
     // double newton_sqrt(double x): called with two different values, so the parameter stays.
     let s = sig("newton_sqrt");
     assert_eq!(s.params.as_slice(), [Kind::Double].as_slice(), "newton_sqrt: {s:?}");
+}
+
+/// A write to a sub-register is not a read of the whole: `put` only ever defines `cl` before it
+/// uses it, so `ecx` is no parameter of it, nor of `imin`, whose arguments are on the stack.
+#[test]
+fn partial_register_writes_make_no_parameter() {
+    let image = ra_asm_pe::load(&rhtest("core-O2.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target { bits: 32 });
+    let map = map_at(&rhtest("core-O2.map"));
+    let sig = |name: &str| signatures.get(&ra_asm_lift::function_name(map[name])).unwrap_or_else(|| panic!("{name} has a signature"));
+    // void put(const char *s): the loop moves each byte through cl.
+    let s = sig("put");
+    assert!(s.params.is_empty(), "put: {s:?}");
+    // int imin(int a, int b): two on the stack, one back.
+    let s = sig("imin");
+    assert_eq!((s.params.len(), s.stack_params.len(), s.returns), (0, 2, Some(Kind::Int)), "imin: {s:?}");
 }
