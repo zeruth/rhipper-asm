@@ -50,6 +50,31 @@ pub fn declare_runtime(module: &mut ra_asm_ir::Module) {
     });
     module.declare(Declaration { name: "ra_xgetbv".into(), ty: FnType::new(Type::I64, vec![Type::I64]), conv: CallConv::C, attrs: vec![] });
     module.declare(Declaration { name: "ra_rdtsc".into(), ty: FnType::new(Type::I64, vec![]), conv: CallConv::C, attrs: vec![] });
+    // The software f80 of the exact x87 unit, over pointers to 16-byte slots; the control word
+    // goes along where the rounding or the precision matters.
+    let (p, i, d) = (Type::Ptr, Type::I64, Type::Double);
+    let f80 = [
+        ("ra_f80_load", Type::Void, vec![p.clone(), p.clone()]),
+        ("ra_f80_store", Type::Void, vec![p.clone(), p.clone()]),
+        ("ra_f80_pack", Type::Void, vec![p.clone(), i.clone(), i.clone()]),
+        ("ra_f80_from_f64", Type::Void, vec![p.clone(), d.clone()]),
+        ("ra_f80_from_i64", Type::Void, vec![p.clone(), i.clone()]),
+        ("ra_f80_to_f64", d, vec![p.clone(), i.clone()]),
+        ("ra_f80_to_f32", Type::Float, vec![p.clone(), i.clone()]),
+        ("ra_f80_to_int", i.clone(), vec![p.clone(), i.clone(), i.clone()]),
+        ("ra_f80_add", Type::Void, vec![p.clone(), p.clone(), p.clone(), i.clone()]),
+        ("ra_f80_sub", Type::Void, vec![p.clone(), p.clone(), p.clone(), i.clone()]),
+        ("ra_f80_mul", Type::Void, vec![p.clone(), p.clone(), p.clone(), i.clone()]),
+        ("ra_f80_div", Type::Void, vec![p.clone(), p.clone(), p.clone(), i.clone()]),
+        ("ra_f80_sqrt", Type::Void, vec![p.clone(), p.clone(), i.clone()]),
+        ("ra_f80_rndint", Type::Void, vec![p.clone(), p.clone(), i.clone()]),
+        ("ra_f80_chs", Type::Void, vec![p.clone(), p.clone()]),
+        ("ra_f80_abs", Type::Void, vec![p.clone(), p.clone()]),
+        ("ra_f80_cmp", i, vec![p.clone(), p]),
+    ];
+    for (name, ret, params) in f80 {
+        module.declare(Declaration { name: name.into(), ty: FnType::new(ret, params), conv: CallConv::C, attrs: vec![] });
+    }
     module.declare(Declaration {
         name: "ra_unsupported".into(),
         ty: void(vec![Type::I64, Type::I64]),
@@ -162,6 +187,9 @@ pub const X87_STACK: &str = "ra_x87_stack";
 pub const X87_TOP: &str = "ra_x87_top";
 pub const X87_CW: &str = "ra_x87_cw";
 pub const X87_SW: &str = "ra_x87_sw";
+/// The scratch slots of the exact unit: a memory operand or a constant, converted for one
+/// instruction.
+pub const X87_TMP: &str = "ra_x87_tmp";
 pub const TEB: &str = "ra_teb";
 pub const TEB_SIZE: u64 = 4096;
 /// What the x86 function last called through a pointer popped beyond its return address: its
@@ -171,7 +199,7 @@ pub const POPS: &str = "ra_pops";
 /// `stmxcsr`; the host's own arithmetic keeps its default rounding.
 pub const MXCSR: &str = "ra_mxcsr";
 
-pub fn define_runtime_globals(module: &mut ra_asm_ir::Module) {
+pub fn define_runtime_globals(module: &mut ra_asm_ir::Module, x87: crate::x87::X87Unit) {
     use ra_asm_ir::{Const, Global, Linkage};
     let global = |name: &str, ty: Type, init: Const, align: u32| Global {
         name: name.to_owned(),
@@ -182,9 +210,16 @@ pub fn define_runtime_globals(module: &mut ra_asm_ir::Module) {
         align,
         address: None,
     };
-    module.globals.push(global(X87_STACK, Type::array(8, Type::Double), Const::Zero, 16));
+    // The exact unit's stack is eight 16-byte slots, each an 80-bit value and its padding.
+    if x87 == crate::x87::X87Unit::Exact {
+        module.globals.push(global(X87_STACK, Type::array(8 * crate::x87::F80_SLOT, Type::I8), Const::Zero, 16));
+        module.globals.push(global(X87_TMP, Type::array(2 * crate::x87::F80_SLOT, Type::I8), Const::Zero, 16));
+    } else {
+        module.globals.push(global(X87_STACK, Type::array(8, Type::Double), Const::Zero, 16));
+    }
     module.globals.push(global(X87_TOP, Type::I64, Const::Int(0), 8));
-    module.globals.push(global(X87_CW, Type::I16, Const::Int(0x037f), 2));
+    // Windows starts a thread with the precision control at 53 bits, not the unit's own 64.
+    module.globals.push(global(X87_CW, Type::I16, Const::Int(0x027f), 2));
     module.globals.push(global(X87_SW, Type::I16, Const::Int(0), 2));
     module.globals.push(global(TEB, Type::array(TEB_SIZE, Type::I8), Const::Zero, 16));
     module.globals.push(global(POPS, Type::I64, Const::Int(0), 8));
@@ -193,7 +228,7 @@ pub fn define_runtime_globals(module: &mut ra_asm_ir::Module) {
 
 /// Whether `name` is one of the globals of [`define_runtime_globals`].
 pub fn is_runtime_global(name: &str) -> bool {
-    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | TEB | POPS | MXCSR)
+    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TEB | POPS | MXCSR)
 }
 
 /// The state helpers over one function under construction.
@@ -202,6 +237,8 @@ pub struct Machine<'b> {
     pub state: ValueId,
     /// 32 or 64: the address width.
     pub bits: u32,
+    /// The x87 unit the lift models.
+    pub x87: crate::x87::X87Unit,
 }
 
 impl Machine<'_> {

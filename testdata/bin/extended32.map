@@ -1,0 +1,37 @@
+ extended32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000003f5H .text                   CODE
+ 0002:00000000 00000020H .rdata                  DATA
+ 0003:00000000 00000004H .data                   DATA
+ 0003:00000004 00000004H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     extended-12390a.o
+ 0002:00000000       __real@4341c37937e08000    0000000000402000     extended-12390a.o
+ 0002:00000008       __real@40800000            0000000000402008     extended-12390a.o
+ 0002:0000000c       __real@40400000            000000000040200c     extended-12390a.o
+ 0002:00000010       __real@435aa535d3d0c000    0000000000402010     extended-12390a.o
+ 0002:00000018       __real@40a00000            0000000000402018     extended-12390a.o
+ 0002:0000001c       __real@40000000            000000000040201c     extended-12390a.o
+ 0002:00000074       __imp__ExitProcess@4       0000000000402074     kernel32:KERNEL32.dll
+ 0002:00000078       __imp__GetStdHandle@4      0000000000402078     kernel32:KERNEL32.dll
+ 0002:0000007c       __imp__WriteFile@20        000000000040207c     kernel32:KERNEL32.dll
+ 0003:00000000       __fltused                  0000000000403000     extended-12390a.o
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:00000220       _print_int                 0000000000401220     extended-12390a.o
+ 0001:00000300       _harmonic                  0000000000401300     extended-12390a.o
+ 0001:00000370       _leibniz                   0000000000401370     extended-12390a.o
+ 0001:000003b0       _root                      00000000004013b0     extended-12390a.o
+ 0001:000003c0       _third                     00000000004013c0     extended-12390a.o
+ 0001:000003e0       _from_tbyte                00000000004013e0     extended-12390a.o
+ 0003:00000004       _out                       0000000000403004     extended-12390a.o

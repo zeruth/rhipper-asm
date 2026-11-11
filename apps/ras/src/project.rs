@@ -6,6 +6,7 @@
 //!   "exe": "ref/Game.exe",
 //!   "gen": "src/gen",
 //!   "lang": "c",
+//!   "x87": "double",
 //!   "sources": ["src", "vendor"],
 //!   "build": { "dir": "build/cmake", "config": "Release", "target": "Game" },
 //!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0, "compare": false }
@@ -15,7 +16,9 @@
 //! `exe` is the reference binary and the only required key. Every path is relative to the root.
 //! `gen` is where `ras emit` writes the translation and `lang` its language (`c`; `cpp` for the
 //! same source with C++ linkage; `rust` for a cargo package, built by cargo under `build/cargo`);
-//! `sources` are the directories of the hand-written
+//! `x87` is the floating-point unit the lift models for x87 code: `double` (the default, eight
+//! doubles) or `exact` (the 80-bit unit through the runtime's software `f80`, for a program that
+//! leans on the extended precision); `sources` are the directories of the hand-written
 //! port, which the workbench reads and the pipeline does not. `build` is the `CMake` build of the
 //! port, and `run` is how the pipeline starts it: `with`
 //! lists side processes that start before the port and stop after it, `timeout` in seconds stops
@@ -57,6 +60,8 @@ pub(crate) struct Project {
     pub gen_dir: PathBuf,
     /// The language of the translation: `c`, `cpp` or `rust`.
     pub lang: String,
+    /// The x87 unit the lift models: `double` or `exact`.
+    pub x87: ra_asm_lift::X87Unit,
     pub build: Build,
     pub run: Run,
 }
@@ -106,10 +111,15 @@ impl Project {
             timeout: run.and_then(|r| r.get("timeout")).and_then(Value::as_u64).filter(|t| *t > 0),
             compare: run.and_then(|r| r.get("compare")).and_then(Value::as_bool).unwrap_or(false),
         };
+        let x87 = match string("x87") {
+            None => ra_asm_lift::X87Unit::Double,
+            Some(text) => text.parse().map_err(|e: String| anyhow::anyhow!("{RHIPPER_JSON}: {e}"))?,
+        };
         Ok(Self {
             exe: resolve(&exe),
             gen_dir: resolve(&string("gen").unwrap_or_else(|| "src/gen".into())),
             lang: string("lang").unwrap_or_else(|| "c".into()),
+            x87,
             name,
             build,
             run,

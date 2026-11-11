@@ -151,17 +151,20 @@ pub struct Options {
     pub level: Level,
     /// The address width of the image: 64 or 32.
     pub bits: u32,
+    /// The x87 unit the lift modelled: the promotion pushes an import's float result as the
+    /// unit keeps it.
+    pub x87: crate::x87::X87Unit,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { level: Level::Abi, bits: 64 }
+        Self { level: Level::Abi, bits: 64, x87: crate::x87::X87Unit::Double }
     }
 }
 
 impl Options {
     pub fn machine() -> Self {
-        Self { level: Level::Machine, bits: 64 }
+        Self { level: Level::Machine, ..Self::default() }
     }
 
     pub fn target(&self) -> Target {
@@ -187,7 +190,7 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
                 let Some(own) = signatures.get(&f.name) else { continue };
                 // The constants first: the rewrite recognizes a pushed return address by its value.
                 simplify::run(f);
-                promote::promote_abi(f, &promote::Abi { own, all: &signatures, target });
+                promote::promote_abi(f, &promote::Abi { own, all: &signatures, target, x87: options.x87 });
                 if own.noreturn && !f.attrs.iter().any(|a| a == "noreturn") {
                     f.attrs.push("noreturn".into());
                 }

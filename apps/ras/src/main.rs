@@ -66,6 +66,9 @@ enum Command {
         out: Option<PathBuf>,
         #[arg(long)]
         quiet: bool,
+        /// The x87 unit: `double` (eight doubles) or `exact` (the 80-bit unit through the runtime's `f80`).
+        #[arg(long, default_value = "double")]
+        x87: ra_asm_lift::X87Unit,
     },
     /// The IR of every function. With `--out`, writes `program.ll`, `image.bin` and `image.h` there.
     Lift {
@@ -90,6 +93,9 @@ enum Command {
         /// the functions by trap count, the imports without a prototype, the unresolved jumps.
         #[arg(long)]
         report: bool,
+        /// The x87 unit: `double` (eight doubles) or `exact` (the 80-bit unit through the runtime's `f80`).
+        #[arg(long, default_value = "double")]
+        x87: ra_asm_lift::X87Unit,
     },
     /// The instructions at an address: its `.pdata` extent, one run of code, or `length` bytes.
     Disasm {
@@ -169,12 +175,12 @@ fn main() -> anyhow::Result<()> {
         Command::Functions { pe, pdata: true } => report::functions(&ra_asm_pe::load(&pe)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&ra_asm_pe::load(&pe)?, json),
         Command::Cfg { pe, address } => functions::cfg(&ra_asm_pe::load(&pe)?, disasm::parse_address(&address)?, json),
-        Command::Lift { pe, out, quiet, level, standalone, report } => {
+        Command::Lift { pe, out, quiet, level, standalone, report, x87 } => {
             let standalone = standalone || level == ra_asm_lift::RaiseLevel::Abi;
-            lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json })
+            lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87 })
         }
         Command::Signatures { pe } => signatures::signatures(&ra_asm_pe::load(&pe)?, json),
-        Command::Emit { pe, lang, out, quiet } => emit::emit(&ra_asm_pe::load(&pe)?, &lang, out.as_deref(), quiet),
+        Command::Emit { pe, lang, out, quiet, x87 } => emit::emit(&ra_asm_pe::load(&pe)?, &lang, out.as_deref(), quiet, x87),
         Command::Disasm { pe, address, length } => {
             let address = disasm::parse_address(&address)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;

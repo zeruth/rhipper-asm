@@ -20,8 +20,8 @@ $targets = @(
   @{ Suffix = '32'; Triple = 'i686-pc-windows-msvc'; Entry = 'mainCRTStartup' }
 )
 
-function Build-Exe([string]$Name, [string[]]$Extra, [string]$Ext = 'c', [string[]]$Extra32 = @()) {
-  foreach ($t in $targets) {
+function Build-Exe([string]$Name, [string[]]$Extra, [string]$Ext = 'c', [string[]]$Extra32 = @(), [string[]]$Suffixes = @('64', '32')) {
+  foreach ($t in ($targets | Where-Object { $Suffixes -contains $_.Suffix })) {
     $out = Join-Path $bin "$Name$($t.Suffix).exe"
     $map = Join-Path $bin "$Name$($t.Suffix).map"
     # -ffreestanding would drop the x64 unwind tables, and the loader tests need .pdata.
@@ -54,6 +54,8 @@ if (Wanted 'hello') { Build-Exe 'hello' @() }
 # control carries a CodeView debug record, for the debug directory.
 if (Wanted 'control') { Build-Exe 'control' @('-g', '-gcodeview', '-Wl,/debug', '-Wl,/pdbaltpath:control.pdb') }
 if (Wanted 'float') { Build-Exe 'float' @() }
+# extended does its floating point on the x87, for the exact unit; x64 code has no x87 arithmetic.
+if (Wanted 'extended') { Build-Exe 'extended' @('-mno-sse') 'c' @() @('32') }
 # classes is C++ with RTTI, for the vtable analysis; no exceptions, so no runtime handler is named.
 # The program defines type_info's vtable symbol itself; on x86 clang prefixes its label with an
 # underscore, and the linker maps the name the type descriptors use to it.

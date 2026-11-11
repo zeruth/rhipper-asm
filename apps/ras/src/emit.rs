@@ -99,9 +99,9 @@ pub(crate) fn translate(image: &Image, analysis: &Analysis<'_>, lifted: &Lifted,
 
 /// Writes the translation, the runtime and `functions.json` into `out`, or the translation to
 /// stdout without `out`.
-pub(crate) fn emit(image: &Image, language: &str, out: Option<&Path>, quiet: bool) -> Result<()> {
+pub(crate) fn emit(image: &Image, language: &str, out: Option<&Path>, quiet: bool, x87: ra_asm_lift::X87Unit) -> Result<()> {
     let analysis = ra_asm_analysis::analyze(image);
-    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
+    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());

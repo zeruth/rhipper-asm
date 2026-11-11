@@ -21,6 +21,7 @@ use super::liveness::{
     CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, RSP, SLOTS, Slot, SlotSet, all_registers, call_kind, reverse_post_order, slot_pointers,
 };
 use crate::state::{POPS, X87_STACK, X87_TOP};
+use crate::x87::X87Unit;
 use crate::{import_of_wrapper, state::import_adapter_type};
 
 /// What the ABI mode needs to know.
@@ -28,41 +29,68 @@ pub struct Abi<'a> {
     pub own: &'a Signature,
     pub all: &'a HashMap<String, Signature>,
     pub target: Target,
+    pub x87: X87Unit,
 }
 
 /// Pushes `v` onto the x87 stack, where an x86 function leaves a float result: the top moves
-/// down and the new `st(0)` holds it, as the machine model's `fpush` does.
-fn push_x87(f: &mut Function, kind: Kind, v: ValueId, out: &mut Vec<Instruction>) {
+/// down and the new `st(0)` holds it, as the machine model's `fpush` does; the exact unit's slot
+/// is 16 bytes and takes the double through the runtime.
+fn push_x87(f: &mut Function, kind: Kind, v: ValueId, x87: X87Unit, out: &mut Vec<Instruction>) {
     fn emit(f: &mut Function, out: &mut Vec<Instruction>, hint: &str, ty: Type, inst: Inst) -> ValueId {
         let r = f.new_value(hint, ty);
         out.push(Instruction { result: Some(r), inst, address: None });
         r
     }
     let value = match kind {
-        Kind::Float => {
-            emit(f, out, "ret.d", Type::Double, Inst::Cast { cast: Cast::FPExt, from: Type::Float, value: Operand::Local(v), to: Type::Double })
-        }
+        Kind::Float => emit(
+            f,
+            out,
+            "ret.d",
+            Type::Double,
+            Inst::Cast { cast: Cast::FPExt, from: Type::Float, value: Operand::Local(v), to: Type::Double },
+        ),
         _ => v,
     };
     let top_address = Operand::Address { global: X87_TOP.to_owned(), offset: 0 };
     let top_p = emit(f, out, "top.p", Type::Ptr, Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: top_address, to: Type::Ptr });
     let top = emit(f, out, "top", Type::I64, Inst::Load { ty: Type::I64, ptr: Operand::Local(top_p), align: 8, volatile: false });
-    let down = emit(f, out, "top.d", Type::I64, Inst::Bin { op: BinOp::Sub, ty: Type::I64, lhs: Operand::Local(top), rhs: Operand::Int(1) });
-    let wrapped = emit(f, out, "top", Type::I64, Inst::Bin { op: BinOp::And, ty: Type::I64, lhs: Operand::Local(down), rhs: Operand::Int(7) });
+    let down =
+        emit(f, out, "top.d", Type::I64, Inst::Bin { op: BinOp::Sub, ty: Type::I64, lhs: Operand::Local(top), rhs: Operand::Int(1) });
+    let wrapped =
+        emit(f, out, "top", Type::I64, Inst::Bin { op: BinOp::And, ty: Type::I64, lhs: Operand::Local(down), rhs: Operand::Int(7) });
     out.push(Instruction {
         result: None,
         inst: Inst::Store { ty: Type::I64, value: Operand::Local(wrapped), ptr: Operand::Local(top_p), align: 8, volatile: false },
         address: None,
     });
-    let offset = emit(f, out, "st.off", Type::I64, Inst::Bin { op: BinOp::Shl, ty: Type::I64, lhs: Operand::Local(wrapped), rhs: Operand::Int(3) });
+    let shift = if x87 == X87Unit::Exact { 4 } else { 3 };
+    let offset = emit(
+        f,
+        out,
+        "st.off",
+        Type::I64,
+        Inst::Bin { op: BinOp::Shl, ty: Type::I64, lhs: Operand::Local(wrapped), rhs: Operand::Int(shift) },
+    );
     let stack = Operand::Address { global: X87_STACK.to_owned(), offset: 0 };
     let address = emit(f, out, "st.addr", Type::I64, Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: Operand::Local(offset), rhs: stack });
-    let p = emit(f, out, "st.p", Type::Ptr, Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: Operand::Local(address), to: Type::Ptr });
-    out.push(Instruction {
-        result: None,
-        inst: Inst::Store { ty: Type::Double, value: Operand::Local(value), ptr: Operand::Local(p), align: 8, volatile: false },
-        address: None,
-    });
+    let p = emit(
+        f,
+        out,
+        "st.p",
+        Type::Ptr,
+        Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: Operand::Local(address), to: Type::Ptr },
+    );
+    let inst = if x87 == X87Unit::Exact {
+        Inst::Call {
+            fn_ty: FnType::new(Type::Void, vec![Type::Ptr, Type::Double]),
+            callee: Callee::Direct("ra_f80_from_f64".into()),
+            args: vec![(Type::Ptr, Operand::Local(p)), (Type::Double, Operand::Local(value))],
+            tail: false,
+        }
+    } else {
+        Inst::Store { ty: Type::Double, value: Operand::Local(value), ptr: Operand::Local(p), align: 8, volatile: false }
+    };
+    out.push(Instruction { result: None, inst, address: None });
 }
 
 /// The register parameter `index` of `params` arrives in.
@@ -798,11 +826,15 @@ impl Rewriter<'_> {
                     let args = self.arguments(f, &sig, current, stack_base, out);
                     let fn_ty = proto.fn_type();
                     let result = (fn_ty.ret != Type::Void).then(|| f.new_value("ret", fn_ty.ret.clone()));
-                    out.push(Instruction { result, inst: Inst::Call { fn_ty, callee: Callee::Direct(symbol), args, tail: false }, address });
+                    out.push(Instruction {
+                        result,
+                        inst: Inst::Call { fn_ty, callee: Callee::Direct(symbol), args, tail: false },
+                        address,
+                    });
                     match (proto.returns, result) {
                         (Some(kind @ (Kind::Float | Kind::Double)), Some(v)) if !target.is_64() => {
                             self.after_call(f, current, None, None, &NO_SLOTS, out);
-                            push_x87(f, kind, v, out);
+                            push_x87(f, kind, v, abi.x87, out);
                         }
                         _ => self.after_call(f, current, proto.returns, result, &NO_SLOTS, out),
                     }

@@ -36,8 +36,10 @@ fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
     } else {
         ra_asm_lift::RaiseLevel::Abi
     };
-    let mut lifted =
-        ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: level == ra_asm_lift::RaiseLevel::Abi });
+    // The exact x87 unit when the tag asks for it.
+    let x87 = if tag.contains("exact") { ra_asm_lift::X87Unit::Exact } else { ra_asm_lift::X87Unit::Double };
+    let options = ra_asm_lift::LiftOptions { standalone: level == ra_asm_lift::RaiseLevel::Abi, x87 };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
     let options = lifted.raise_options(level);
     let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     // The tests run in parallel: each one writes its own directory.
@@ -179,6 +181,20 @@ fn float32_runs_lifted() {
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/float.txt")).unwrap();
     run_oracle_32("float32.exe", &expected);
+}
+
+/// The x87 program under the exact unit: the series summed at 64 bits, the square root, the
+/// tbyte round trip, all to 17 digits.
+#[test]
+fn extended32_runs_lifted_exact() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/extended.txt")).unwrap();
+    run_oracle_as("extended32.exe", &expected, "run-machine-exact");
+    run_oracle_as("extended32.exe", &expected, "run-promoted-exact");
+    run_oracle_as("extended32.exe", &expected, "run-abi-exact");
 }
 
 #[test]

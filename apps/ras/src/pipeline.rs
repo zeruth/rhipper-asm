@@ -137,9 +137,10 @@ impl Pipeline {
 
     fn lift(&mut self, log: &mut File) -> Result<()> {
         let build_dir = self.project.build_dir();
+        let x87 = self.project.x87;
         let image = self.image()?;
         let analysis = ra_asm_analysis::analyze(image);
-        let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
+        let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         let text = lifted.module.to_ll();
@@ -162,9 +163,10 @@ impl Pipeline {
         let gen_dir = self.project.gen_dir.clone();
         let build_dir = self.project.build_dir();
         let (lang, package) = (self.project.lang.clone(), self.project.build.target.clone());
+        let x87 = self.project.x87;
         let image = self.image()?;
         let analysis = ra_asm_analysis::analyze(image);
-        let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
+        let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         let translation = crate::emit::translate(image, &analysis, &lifted, &lang, &package)?;

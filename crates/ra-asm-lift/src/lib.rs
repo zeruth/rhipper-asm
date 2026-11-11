@@ -18,6 +18,7 @@ pub mod x86;
 pub mod x87;
 
 pub use raise::{Level as RaiseLevel, Options as RaiseOptions, raise};
+pub use x87::X87Unit;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -44,6 +45,8 @@ pub struct Lifted {
     pub standalone: bool,
     /// 32 or 64: the address width of the image.
     pub bits: u32,
+    /// The x87 unit the lift modelled.
+    pub x87: X87Unit,
     /// The addresses of the words the base relocations name: an immediate or a displacement at
     /// one of them holds an address of the image, which 32-bit code writes as a plain number.
     pub relocated: std::collections::HashSet<u64>,
@@ -73,7 +76,7 @@ pub fn import_of_wrapper(name: &str) -> Option<&str> {
 /// An import with a typed prototype (the C runtime's math) takes its own arguments instead, a
 /// double read as one, and its result goes where the convention puts it: `xmm0`, or in 32 bits
 /// the x87 stack.
-pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32) -> ra_asm_ir::Function {
+pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x87: X87Unit) -> ra_asm_ir::Function {
     use ra_asm_ir::{BinOp, Callee, Cast, FnType, FunctionBuilder, Terminator};
     use ra_asm_x86::iced_x86::Register as R;
     use raise::abi::Kind;
@@ -82,7 +85,7 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32) ->
     b.set_linkage(Linkage::Internal);
     let state = b.param(0);
     let block = b.block("entry");
-    let mut m = state::Machine { b: &mut b, state, bits };
+    let mut m = state::Machine { b: &mut b, state, bits, x87 };
     let typed = raise::prototypes::typed(symbol);
     let kinds: Vec<Kind> = typed.as_ref().map_or_else(|| vec![Kind::Int; 8], |t| t.params.clone());
     let fn_ty = typed.as_ref().map_or_else(state::import_adapter_type, raise::prototypes::Typed::fn_type);
@@ -95,7 +98,8 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32) ->
                 (0..=3, Kind::Int | Kind::Wide) => m.read_gpr(block, [R::RCX, R::RDX, R::R8, R::R9][p]),
                 (0..=3, Kind::Float | Kind::Double) => m.read_xmm(block, [R::XMM0, R::XMM1, R::XMM2, R::XMM3][p], kind.ty()),
                 _ => {
-                    let addr = m.b.bin(block, BinOp::Add, Type::I64, sp, stack_offset + 8 * p as i64, "arg.p");
+                    // The first stack slot is at the offset: a position past the four registers.
+                    let addr = m.b.bin(block, BinOp::Add, Type::I64, sp, stack_offset + 8 * (p as i64 - 4), "arg.p");
                     m.load(block, kind.ty(), addr, "arg")
                 }
             };
@@ -167,6 +171,8 @@ pub struct LiftOptions {
     /// Write the data sections as globals and every reference into them as an address of one, so
     /// the output stands without the image. Without it, the code addresses the mapped image.
     pub standalone: bool,
+    /// The x87 unit: eight doubles, or the exact 80-bit unit through the runtime's `f80`.
+    pub x87: X87Unit,
 }
 
 /// A data section of the image as a global.
@@ -180,7 +186,7 @@ pub struct DataSection {
 impl Lifted {
     /// The options that raise this lift to `level`, by the address width of its image.
     pub fn raise_options(&self, level: RaiseLevel) -> RaiseOptions {
-        RaiseOptions { level, bits: self.bits }
+        RaiseOptions { level, bits: self.bits, x87: self.x87 }
     }
 
     /// The address operand of `address` in standalone mode: a byte of a data section, or a function.
@@ -290,7 +296,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     );
     module.types.push((state::STATE_TYPE.to_owned(), state::state_fields()));
     state::declare_runtime(&mut module);
-    state::define_runtime_globals(&mut module);
+    state::define_runtime_globals(&mut module, options.x87);
 
     let mut lifted = Lifted {
         module,
@@ -301,6 +307,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         data: Vec::new(),
         standalone: options.standalone,
         bits: if image.is_64() { 64 } else { 32 },
+        x87: options.x87,
         relocated: image.relocations.iter().map(|r| r.va).collect(),
         warnings: Vec::new(),
     };
@@ -356,7 +363,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         lifted.module.declare(Declaration { name: import.clone(), ty, conv: CallConv::C, attrs: Vec::new() });
     }
     for (symbol, offset, tail) in &lifted.wrappers {
-        lifted.module.functions.push(import_wrapper(symbol, *offset, *tail, lifted.bits));
+        lifted.module.functions.push(import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87));
     }
     lifted
 }

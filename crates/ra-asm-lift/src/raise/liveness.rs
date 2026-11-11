@@ -143,6 +143,8 @@ pub fn call_kind(inst: &Inst) -> Option<CallKind> {
         Callee::Direct(name) if name == "ra_trap" || name == "ra_unsupported" => Some(CallKind::NoReturn),
         Callee::Direct(name) if name.starts_with("llvm.") => Some(CallKind::Host),
         Callee::Direct(name) if name.starts_with("F_") || name == "ra_call" => Some(CallKind::State),
+        // The runtime's helpers that take pointers into the lift's own memory, never the state.
+        Callee::Direct(name) if name.starts_with("ra_f80_") || name == "ra_cpuid" => Some(CallKind::Host),
         Callee::Direct(_) => {
             if args.iter().any(|(t, _)| *t == Type::Ptr) {
                 Some(CallKind::State)
