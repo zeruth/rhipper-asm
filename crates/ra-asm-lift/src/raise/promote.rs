@@ -581,7 +581,9 @@ impl Rewriter<'_> {
             Callee::Direct(name) if name.starts_with("F_") => {
                 let sig = abi.all.get(name).cloned().unwrap_or_default();
                 // The machine model pushed the return address: the outgoing arguments are 0x28
-                // above the current stack pointer, and the pointer comes back up by 8 after.
+                // above the current stack pointer, and the pointer comes back up by 8 after. The
+                // push itself, the store just before the call, has no reader: drop it.
+                drop_return_address_push(out, address);
                 let args = self.arguments(f, &sig, current, 0x28, out);
                 let ret = sig.returns.map_or(Type::Void, Kind::ty);
                 let result = if ret == Type::Void { None } else { Some(f.new_value("ret", ret.clone())) };
@@ -621,6 +623,7 @@ impl Rewriter<'_> {
             Callee::Direct(name) if name == "ra_call" => {
                 // `ra_call(state, target)`: the target is an address of code; the driver makes
                 // every lifted function reachable at its address, so the call goes through it.
+                drop_return_address_push(out, address);
                 let target = old_args.get(1).map_or(Operand::Undef, |(_, o)| o.clone());
                 let fp = f.new_value("fp", Type::Ptr);
                 out.push(Instruction {
@@ -651,6 +654,19 @@ impl Rewriter<'_> {
                 self.after_call(f, current, None, None, out);
             }
         }
+    }
+}
+
+/// Removes the store of the return address that the machine model's `call` pushed: the last
+/// instruction emitted, a store of a constant a few bytes past the call's own address.
+fn drop_return_address_push(out: &mut Vec<Instruction>, call_address: Option<u64>) {
+    let Some(call_address) = call_address else { return };
+    if let Some(Instruction { inst: Inst::Store { ty: Type::I64, value: Operand::Int(c), .. }, .. }) = out.last()
+        && let Ok(c) = u64::try_from(*c)
+        && c > call_address
+        && c - call_address <= 16
+    {
+        out.pop();
     }
 }
 

@@ -7,7 +7,9 @@
 //! clean up after either.
 
 pub mod abi;
+pub mod conditions;
 pub mod dce;
+pub mod frame;
 pub mod liveness;
 pub mod promote;
 pub mod prototypes;
@@ -57,10 +59,16 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
         Level::Abi => {
             for f in &mut module.functions {
                 let Some(own) = signatures.get(&f.name) else { continue };
+                // The constants first: the rewrite recognizes a pushed return address by its value.
+                simplify::run(f);
                 promote::promote_abi(f, &promote::Abi { own, all: &signatures });
                 if own.noreturn && !f.attrs.iter().any(|a| a == "noreturn") {
                     f.attrs.push("noreturn".into());
                 }
+                clean(f);
+                conditions::run(f);
+                clean(f);
+                frame::run(f);
                 clean(f);
             }
             // The import wrappers served the machine model; the calls now go to the adapters.
@@ -72,7 +80,7 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
 
 fn clean(f: &mut ra_asm_ir::Function) {
     loop {
-        let changed = simplify::run(f);
+        let changed = simplify::run(f) | simplify::cse(f);
         dce::run(f);
         if !changed {
             break;

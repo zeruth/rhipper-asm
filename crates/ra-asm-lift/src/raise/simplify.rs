@@ -45,6 +45,40 @@ pub fn run(f: &mut Function) -> bool {
     true
 }
 
+/// Common subexpressions within a block: a pure instruction identical to an earlier one in the
+/// same block becomes that one. Within a block the earlier one dominates. Returns whether anything
+/// changed.
+pub fn cse(f: &mut Function) -> bool {
+    let mut map: HashMap<ValueId, Operand> = HashMap::new();
+    for b in &f.blocks {
+        let mut seen: HashMap<String, ValueId> = HashMap::new();
+        for i in &b.instrs {
+            let Some(v) = i.result else { continue };
+            if i.inst.has_side_effects() || matches!(i.inst, Inst::Alloca { .. } | Inst::Phi { .. } | Inst::Load { .. } | Inst::Call { .. })
+            {
+                continue;
+            }
+            let key = format!("{:?}", i.inst);
+            match seen.get(&key) {
+                Some(&earlier) => {
+                    map.insert(v, Operand::Local(earlier));
+                }
+                None => {
+                    seen.insert(key, v);
+                }
+            }
+        }
+    }
+    if map.is_empty() {
+        return false;
+    }
+    for b in &mut f.blocks {
+        b.instrs.retain(|i| !i.result.is_some_and(|v| map.contains_key(&v)));
+    }
+    f.replace_uses(&map);
+    true
+}
+
 /// The value an instruction equals, when it equals one of its operands or a constant.
 fn simplify(inst: &Inst) -> Option<Operand> {
     match inst {
@@ -57,6 +91,7 @@ fn simplify(inst: &Inst) -> Option<Operand> {
             let all_ones = |o: &Operand| matches!(o, Operand::Int(v) if (*v & mask) == mask);
             let zero = |o: &Operand| matches!(o, Operand::Int(0));
             match op {
+                BinOp::And | BinOp::Or if lhs == rhs => return Some(lhs.clone()),
                 BinOp::Or | BinOp::Xor | BinOp::Add | BinOp::Shl | BinOp::LShr | BinOp::AShr | BinOp::Sub if zero(rhs) => {
                     return Some(lhs.clone());
                 }

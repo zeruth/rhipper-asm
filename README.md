@@ -44,14 +44,20 @@ Three decisions shape the design:
 | `ra-asm-x86` | The x86 and x86-64 decoder adapter over iced-x86; keeps iced's own instruction beside the record for the lift |
 | `ra-asm-analysis` | Functions, basic blocks, the control-flow graph, jump tables, no-return propagation |
 | `ra-asm-ir` | The LLVM-IR-shaped intermediate representation and its `.ll` printer |
-| `ra-asm-lift` | Instructions to machine IR over an explicit `%State`; the raising passes follow |
+| `ra-asm-lift` | Instructions to machine IR over an explicit `%State`, and the raising passes: signature inference, state promotion, the ABI rewrite, conditions, frames, simplification |
 | `ra-asm-emit` | The C, C++ and Rust backends (planned) |
 | `ras` (app) | The command line: `info`, `sections`, `imports`, `exports`, `relocs`, `debug`, `functions`, `cfg`, `disasm`, `lift` |
 
-`runtime/driver.c` hosts a lifted program: it maps the image at its own base, binds the import
-slots, gives the machine state a stack and calls the lifted entry. The execution oracle in the
-lift crate's tests builds each fixture this way with clang and compares its output with the
-native program's.
+`ras lift` raises in three levels: `--machine` keeps the lifted IR over `%State`; `--promoted`
+turns the registers and flags into SSA values; the default applies the inferred signatures, so each
+function takes its parameters, keeps its locals in allocas and returns its result, with no `%State`
+left. `ras signatures` prints what the inference found.
+
+`runtime/driver.c` hosts a lifted program at any level: it maps the image at its own base, binds
+the import slots, and either gives the machine state a stack or installs a trampoline at each
+function's image address and calls the entry as a plain function. The execution oracle in the lift
+crate's tests builds each fixture this way with clang at every level and compares its output with
+the native program's.
 
 ## Build and test
 
