@@ -68,25 +68,46 @@ fn terminator_text(analysis: &Analysis<'_>, t: &Terminator) -> String {
     }
 }
 
+/// Every function of the analysis as JSON: what `ras functions --json` prints and `ras serve` answers.
+pub(crate) fn functions_json(analysis: &Analysis<'_>) -> serde_json::Value {
+    let rows: Vec<_> = analysis
+        .functions
+        .values()
+        .map(|f| {
+            json!({
+                "addr": hex(f.entry), "name": f.name, "size": f.size(), "bytes": f.code_bytes(), "blocks": f.blocks.len(),
+                "instrs": f.instr_count(), "noreturn": f.noreturn,
+                "thunk": match &f.kind { Kind::ImportThunk(i) => Some(i.clone()), Kind::Normal => None },
+                "calls": f.calls.iter().map(|c| hex(*c)).collect::<Vec<_>>(), "imports": f.import_calls,
+                "tail_calls": f.tail_calls.iter().map(|c| hex(*c)).collect::<Vec<_>>(),
+                "origins": f.origins.iter().map(origin_name).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    json!({"functions": rows, "warnings": analysis.warnings})
+}
+
+/// The blocks of `function` as JSON: what `ras cfg --json` prints and `ras serve` answers.
+pub(crate) fn cfg_json(image: &Image, function: &ra_asm_analysis::Function) -> serde_json::Value {
+    let blocks: Vec<_> = function
+        .blocks
+        .iter()
+        .map(|b| {
+            json!({
+                "start": hex(b.start), "end": hex(b.end),
+                "instrs": b.instrs.iter().map(|i| json!({"address": hex(i.address), "text": i.text, "note": note(image, i)})).collect::<Vec<_>>(),
+                "terminator": terminator_json(&b.terminator), "successors": b.successors().iter().map(|s| hex(*s)).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    json!({"addr": hex(function.entry), "name": function.name, "size": function.size(), "noreturn": function.noreturn, "blocks": blocks})
+}
+
 pub(crate) fn functions(image: &Image, json: bool) -> Result<()> {
     let analysis = analyze(image);
     let mut out = std::io::stdout().lock();
     if json {
-        let rows: Vec<_> = analysis
-            .functions
-            .values()
-            .map(|f| {
-                json!({
-                    "addr": hex(f.entry), "name": f.name, "size": f.size(), "bytes": f.code_bytes(), "blocks": f.blocks.len(),
-                    "instrs": f.instr_count(), "noreturn": f.noreturn,
-                    "thunk": match &f.kind { Kind::ImportThunk(i) => Some(i.clone()), Kind::Normal => None },
-                    "calls": f.calls.iter().map(|c| hex(*c)).collect::<Vec<_>>(), "imports": f.import_calls,
-                    "tail_calls": f.tail_calls.iter().map(|c| hex(*c)).collect::<Vec<_>>(),
-                    "origins": f.origins.iter().map(origin_name).collect::<Vec<_>>(),
-                })
-            })
-            .collect();
-        serde_json::to_writer_pretty(&mut out, &json!({"functions": rows, "warnings": analysis.warnings}))?;
+        serde_json::to_writer_pretty(&mut out, &functions_json(&analysis))?;
         writeln!(out)?;
         return Ok(());
     }
@@ -124,21 +145,7 @@ pub(crate) fn cfg(image: &Image, address: u64, json: bool) -> Result<()> {
     };
     let mut out = std::io::stdout().lock();
     if json {
-        let blocks: Vec<_> = function
-            .blocks
-            .iter()
-            .map(|b| {
-                json!({
-                    "start": hex(b.start), "end": hex(b.end),
-                    "instrs": b.instrs.iter().map(|i| json!({"address": hex(i.address), "text": i.text, "note": note(image, i)})).collect::<Vec<_>>(),
-                    "terminator": terminator_json(&b.terminator), "successors": b.successors().iter().map(|s| hex(*s)).collect::<Vec<_>>(),
-                })
-            })
-            .collect();
-        serde_json::to_writer_pretty(
-            &mut out,
-            &json!({"addr": hex(function.entry), "name": function.name, "size": function.size(), "noreturn": function.noreturn, "blocks": blocks}),
-        )?;
+        serde_json::to_writer_pretty(&mut out, &cfg_json(image, function))?;
         writeln!(out)?;
         return Ok(());
     }

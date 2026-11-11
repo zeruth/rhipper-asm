@@ -72,6 +72,13 @@ binary and, with defaults for all of them, the `gen` directory of the translatio
 progress line, the build writes a `CMakeLists.txt` for a project that has none, and every run of
 the port appends to `build/pipeline/runs.jsonl`. This is what the Rhipper Workbench drives.
 
+`ras serve` is the engine as a service for the workbench: JSON-RPC 2.0 over stdio, one request and
+one response per line, with the image and its analysis held in memory, so a question about a large
+program costs no new analysis. The methods are `project`, `info`, `functions`, `function` (the
+analysis, the table entry, the source, the IR and the instructions of one function), `disasm`,
+`cfg`, `callers`, `xrefs`, `strings` and `shutdown`. It serves the project of `--project`, or a
+bare image with `--exe`, and reloads the image when its file changes.
+
 `runtime/driver.c` hosts a lifted program at any level: it maps the image at its own base, binds
 the import slots, and either gives the machine state a stack or installs a trampoline at each
 function's image address and calls the entry as a plain function. The execution oracle in the lift

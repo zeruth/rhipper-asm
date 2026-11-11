@@ -31,7 +31,15 @@ fn range(image: &Image, address: u64, length: Option<u64>) -> (u64, Option<u64>)
     (address, None)
 }
 
-pub(crate) fn disasm(image: &Image, address: u64, length: Option<u64>, json: bool) -> Result<()> {
+/// The instructions decoded at `address`: the run, with its start and its bytes.
+pub(crate) struct Decoded<'a> {
+    pub start: u64,
+    pub bytes: &'a [u8],
+    pub instrs: Vec<Instr>,
+}
+
+/// Decodes the instructions at `address`: `length` bytes, the `.pdata` extent, or one run of code.
+pub(crate) fn decode(image: &Image, address: u64, length: Option<u64>) -> Result<Decoded<'_>> {
     if !image.is_code(address) {
         bail!("{} lies in no code section", hex(address));
     }
@@ -55,35 +63,53 @@ pub(crate) fn disasm(image: &Image, address: u64, length: Option<u64>, json: boo
             break;
         }
     }
+    Ok(Decoded { start, bytes, instrs })
+}
 
-    let mut out = std::io::stdout().lock();
-    if json {
-        let rows: Vec<_> = instrs
-            .iter()
-            .map(|i| {
-                let raw = &bytes[(i.address - start) as usize..(i.end() - start) as usize];
-                let raw = raw.iter().fold(String::with_capacity(raw.len() * 2), |mut s, b| {
-                    use std::fmt::Write as _;
-                    let _ = write!(s, "{b:02x}");
-                    s
-                });
-                json!({
-                    "address": hex(i.address), "len": i.len, "bytes": raw,
-                    "mnemonic": i.mnemonic, "text": i.text, "flow": flow_name(i.flow), "target": i.flow.direct_target().map(hex),
-                    "note": note(image, i),
-                })
+/// The instructions as JSON rows: what `ras disasm --json` prints and `ras serve` answers.
+pub(crate) fn disasm_json(image: &Image, decoded: &Decoded<'_>) -> serde_json::Value {
+    let rows: Vec<_> = decoded
+        .instrs
+        .iter()
+        .map(|i| {
+            let raw = &decoded.bytes[(i.address - decoded.start) as usize..(i.end() - decoded.start) as usize];
+            let raw = raw.iter().fold(String::with_capacity(raw.len() * 2), |mut s, b| {
+                use std::fmt::Write as _;
+                let _ = write!(s, "{b:02x}");
+                s
+            });
+            json!({
+                "address": hex(i.address), "len": i.len, "bytes": raw,
+                "mnemonic": i.mnemonic, "text": i.text, "flow": flow_name(i.flow), "target": i.flow.direct_target().map(hex),
+                "note": note(image, i),
             })
-            .collect();
-        serde_json::to_writer_pretty(&mut out, &rows)?;
-        writeln!(out)?;
-        return Ok(());
-    }
-    for i in &instrs {
+        })
+        .collect();
+    serde_json::Value::Array(rows)
+}
+
+/// The instructions as text, one per line, with a note where an operand points into the image.
+pub(crate) fn disasm_text(image: &Image, decoded: &Decoded<'_>) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for i in &decoded.instrs {
         // A note that only repeats an address the text already shows says nothing.
         let note = note(image, i).filter(|n| !(n.starts_with("0x") && !n.contains(' ') && i.text.contains(n.as_str())));
         let note = note.map(|n| format!("   ; {n}")).unwrap_or_default();
-        writeln!(out, "{}  {}{note}", hex(i.address), i.text)?;
+        let _ = writeln!(out, "{}  {}{note}", hex(i.address), i.text);
     }
+    out
+}
+
+pub(crate) fn disasm(image: &Image, address: u64, length: Option<u64>, json: bool) -> Result<()> {
+    let decoded = decode(image, address, length)?;
+    let mut out = std::io::stdout().lock();
+    if json {
+        serde_json::to_writer_pretty(&mut out, &disasm_json(image, &decoded))?;
+        writeln!(out)?;
+        return Ok(());
+    }
+    out.write_all(disasm_text(image, &decoded).as_bytes())?;
     Ok(())
 }
 

@@ -91,6 +91,18 @@ fn print(image: &Image, analysis: &Analysis<'_>, refs: &[Reference], json: bool,
     Ok(())
 }
 
+/// The callers of `callee` as JSON: what `ras callers --json` prints and `ras serve` answers.
+pub(crate) fn callers_json(image: &Image, analysis: &Analysis<'_>, callee: u64) -> serde_json::Value {
+    let refs = references(image, analysis, callee, callee + 1, true);
+    json!({"references": refs.iter().map(Reference::json).collect::<Vec<_>>()})
+}
+
+/// The references into `[lo, hi)` as JSON: what `ras xrefs --json` prints and `ras serve` answers.
+pub(crate) fn xrefs_json(image: &Image, analysis: &Analysis<'_>, lo: u64, hi: u64) -> serde_json::Value {
+    let refs = references(image, analysis, lo, hi, false);
+    json!({"references": refs.iter().map(Reference::json).collect::<Vec<_>>()})
+}
+
 /// Every call or jump to the function at `callee`, and every pointer to it in the data.
 pub(crate) fn callers(image: &Image, callee: u64, json: bool) -> Result<()> {
     let analysis = analyze(image);

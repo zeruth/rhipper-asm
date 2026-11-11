@@ -26,10 +26,10 @@ fn print_warnings(image: &Image) {
     }
 }
 
-pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
-    let h = &image.headers;
-    let o = &h.optional;
-    let directories: Vec<_> = [
+/// The directories the image has: name, address and size.
+fn directories_of(image: &Image) -> Vec<(&'static str, String, u32)> {
+    let o = &image.headers.optional;
+    [
         ("export", Directory::Export),
         ("import", Directory::Import),
         ("resource", Directory::Resource),
@@ -48,10 +48,15 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
         let d = o.directory(index);
         (!d.is_empty()).then(|| (name, hex(image.va(d.rva)), d.size))
     })
-    .collect();
+    .collect()
+}
 
-    if json {
-        return print_json(&json!({
+/// The headers of the image as JSON: what `ras info --json` prints and `ras serve` answers.
+pub(crate) fn info_json(image: &Image) -> serde_json::Value {
+    let h = &image.headers;
+    let o = &h.optional;
+    let directories = directories_of(image);
+    json!({
             "path": image.path.as_ref().map(|p| p.display().to_string()),
             "machine": image.machine().name(),
             "format": if image.is_64() { "pe32+" } else { "pe32" },
@@ -77,8 +82,16 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
             "pdb": image.debug.iter().find_map(|d| d.codeview.as_ref()).map(|cv| cv.pdb_path.clone()),
             "directories": directories.iter().map(|(name, va, size)| json!({"name": name, "va": va, "size": size})).collect::<Vec<_>>(),
             "warnings": image.warnings,
-        }));
+    })
+}
+
+pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
+    if json {
+        return print_json(&info_json(image));
     }
+    let h = &image.headers;
+    let o = &h.optional;
+    let directories = directories_of(image);
 
     println!("machine        {}", image.machine().name());
     println!("format         {}{}", if image.is_64() { "PE32+" } else { "PE32" }, if h.coff.is_dll() { " (DLL)" } else { "" });

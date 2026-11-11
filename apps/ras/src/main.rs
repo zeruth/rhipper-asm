@@ -8,6 +8,7 @@ mod lift;
 mod pipeline;
 mod project;
 mod report;
+mod serve;
 mod signatures;
 mod xrefs;
 
@@ -123,6 +124,15 @@ enum Command {
         #[arg(long)]
         rebuild: bool,
     },
+    /// The engine as a service: JSON-RPC over stdio, one request and one response per line, with
+    /// the image and its analysis kept in memory. Serves the project of `--project` (the current
+    /// directory without it), or a bare image with `--exe`.
+    Serve {
+        #[arg(long, conflicts_with = "exe")]
+        project: Option<PathBuf>,
+        #[arg(long)]
+        exe: Option<PathBuf>,
+    },
 }
 
 fn step(text: Option<String>) -> anyhow::Result<Option<pipeline::Step>> {
@@ -170,5 +180,6 @@ fn main() -> anyhow::Result<()> {
             let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild };
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
+        Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
     }
 }
