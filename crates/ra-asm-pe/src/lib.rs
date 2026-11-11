@@ -9,6 +9,7 @@ pub mod exports;
 pub mod headers;
 pub mod image;
 pub mod imports;
+pub mod pdb;
 pub mod relocs;
 pub mod section;
 pub mod tls;
@@ -19,6 +20,7 @@ pub use exports::{Export, ExportTable};
 pub use headers::{DataDirectory, Directory, Headers, Machine, OptionalMagic};
 pub use image::Image;
 pub use imports::Import;
+pub use pdb::{LibraryRange, Symbol};
 pub use relocs::{RelocKind, Relocation};
 pub use section::Section;
 pub use tls::Tls;
@@ -27,10 +29,18 @@ use std::path::Path;
 
 use anyhow::Context;
 
-/// Reads and parses the PE file at `path`.
+/// Reads and parses the PE file at `path`, and the names of its functions from the PDB beside it
+/// when there is one.
 pub fn load(path: &Path) -> anyhow::Result<Image> {
     let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
     let mut image = Image::parse(bytes).with_context(|| format!("{} is not a PE image this loader reads", path.display()))?;
     image.path = Some(path.to_path_buf());
+    match debug::load_pdb(&image) {
+        Ok(pdb) => {
+            image.symbols = pdb.symbols;
+            image.libraries = pdb.libraries;
+        }
+        Err(e) => image.warnings.push(format!("symbols: {e:#}")),
+    }
     Ok(image)
 }

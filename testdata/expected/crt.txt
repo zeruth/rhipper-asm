@@ -1,0 +1,5 @@
+total 12
+nut items: 9 chars, 4 many
+bolt item: 9 chars, 1 one
+washer items: 12 chars, 7 many
+sorted after

@@ -72,7 +72,7 @@ pub(crate) fn translate(image: &Image, analysis: &Analysis<'_>, lifted: &Lifted,
     let names: HashMap<String, String> = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
     if lang.eq_ignore_ascii_case("rust") || lang.eq_ignore_ascii_case("rs") {
         let imports = image.imports.iter().filter_map(|i| i.name.clone().map(|n| (n, i.dll.clone()))).collect();
-        let entry = image.entry_point().map(ra_asm_lift::function_name);
+        let entry = lifted.entry.and_then(|e| lifted.functions.get(&e).cloned());
         let options = ra_asm_emit::RustOptions {
             names,
             imports,
@@ -103,7 +103,8 @@ pub(crate) fn emit(image: &Image, language: &str, out: Option<&Path>, quiet: boo
     let analysis = ra_asm_analysis::analyze(image);
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
-    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
     let translation = translate(image, &analysis, &lifted, language, &package)?;
     match out {

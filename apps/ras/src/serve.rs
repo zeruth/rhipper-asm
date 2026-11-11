@@ -199,7 +199,8 @@ impl Session<'_> {
                 self.analysis.function(a).or_else(|| self.analysis.containing(a))
             })
             .ok_or_else(|| anyhow!("no function matches `{query}`"))?;
-        let ir_name = ra_asm_lift::function_name(function.entry);
+        // The IR and the source name a function as the analysis does.
+        let ir_name = function.name.clone();
         let decoded = crate::disasm::decode(self.image, function.entry, Some(function.size()))?;
         let (strings, virtuals) = crate::functions::facts_json(function);
         let mut result = json!({

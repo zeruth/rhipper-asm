@@ -143,6 +143,7 @@ impl Pipeline {
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+        lifted.apply_names(&analysis, None);
         let text = lifted.module.to_ll();
         fs::create_dir_all(&build_dir)?;
         fs::write(build_dir.join("program.ll"), &text)?;
@@ -168,7 +169,8 @@ impl Pipeline {
         let analysis = ra_asm_analysis::analyze(image);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
-        let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+        let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+        lifted.apply_names(&analysis, Some(&mut signatures));
         let translation = crate::emit::translate(image, &analysis, &lifted, &lang, &package)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;

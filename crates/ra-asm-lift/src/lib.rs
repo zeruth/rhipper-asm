@@ -20,7 +20,7 @@ pub mod x87;
 pub use raise::{Level as RaiseLevel, Options as RaiseOptions, raise};
 pub use x87::X87Unit;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use ra_asm_analysis::{Analysis, Kind, Origin};
 use ra_asm_ir::{CallConv, Const, Declaration, Global, Linkage, Module, Type};
@@ -33,6 +33,11 @@ pub struct Lifted {
     pub imports: BTreeSet<String>,
     /// The functions, by address and IR name.
     pub functions: BTreeMap<u64, String>,
+    /// The functions of a C runtime linked into the image, by address, with the host's name for
+    /// each: a call to one is a call to the host's runtime, and none of them is lifted.
+    pub runtime: BTreeMap<u64, String>,
+    /// The function the port starts at: the analysis's program entry.
+    pub entry: Option<u64>,
     /// The functions whose callers the lift does not see: the entry, the exports, the callbacks,
     /// the functions a pointer names.
     pub roots: BTreeSet<String>,
@@ -189,6 +194,53 @@ impl Lifted {
         RaiseOptions { level, bits: self.bits, x87: self.x87 }
     }
 
+    /// Gives every lifted function the analysis's name for it (`main_`, `Shape_vf1`, `fib`) in
+    /// place of `F_<address>`, at its definition, its calls and wherever its address is taken; a
+    /// function nothing names keeps `F_<address>`. Runs after the raise, whose passes know a
+    /// lifted function by the `F_` prefix; `signatures`, keyed by the old names, follow.
+    pub fn apply_names(&mut self, analysis: &Analysis<'_>, signatures: Option<&mut HashMap<String, raise::abi::Signature>>) {
+        use ra_asm_ir::{Callee, Inst};
+        let renamed: HashMap<String, String> =
+            analysis.ported().filter(|f| f.name != function_name(f.entry)).map(|f| (function_name(f.entry), f.name.clone())).collect();
+        if renamed.is_empty() {
+            return;
+        }
+        for f in &mut self.module.functions {
+            if let Some(name) = renamed.get(&f.name) {
+                f.name = name.clone();
+            }
+            for b in &mut f.blocks {
+                for i in &mut b.instrs {
+                    if let Inst::Call { callee: Callee::Direct(callee), .. } = &mut i.inst
+                        && let Some(name) = renamed.get(callee)
+                    {
+                        *callee = name.clone();
+                    }
+                    for o in i.inst.operands_mut() {
+                        raise::stubs::rename_operand(o, &renamed);
+                    }
+                }
+                for o in b.terminator.operands_mut() {
+                    raise::stubs::rename_operand(o, &renamed);
+                }
+            }
+        }
+        for g in &mut self.module.globals {
+            if let Some(init) = &mut g.init {
+                raise::stubs::rename_const(init, &renamed);
+            }
+        }
+        for name in self.functions.values_mut() {
+            if let Some(new) = renamed.get(name) {
+                *name = new.clone();
+            }
+        }
+        self.roots = self.roots.iter().map(|r| renamed.get(r).unwrap_or(r).clone()).collect();
+        if let Some(signatures) = signatures {
+            *signatures = signatures.drain().map(|(k, v)| (renamed.get(&k).cloned().unwrap_or(k), v)).collect();
+        }
+    }
+
     /// The address operand of `address` in standalone mode: a byte of a data section, or a function.
     pub fn address_of(&self, address: u64) -> Option<ra_asm_ir::Operand> {
         if let Some(name) = self.functions.get(&address) {
@@ -302,6 +354,15 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         module,
         imports: BTreeSet::new(),
         functions: BTreeMap::new(),
+        runtime: analysis
+            .functions
+            .values()
+            .filter_map(|f| match &f.kind {
+                Kind::Runtime(name) => Some((f.entry, name.clone())),
+                _ => None,
+            })
+            .collect(),
+        entry: analysis.program_entry,
         roots: BTreeSet::new(),
         wrappers: BTreeSet::new(),
         data: Vec::new(),
@@ -311,13 +372,14 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         relocated: image.relocations.iter().map(|r| r.va).collect(),
         warnings: Vec::new(),
     };
-    for f in analysis.functions.values() {
+    for f in analysis.ported() {
         let name = function_name(f.entry);
+        // The program entry is a root too: `main`'s caller is the runtime's startup, which is not lifted.
         let root = f
             .origins
             .iter()
             .any(|o| matches!(o, Origin::Entry | Origin::Export(_) | Origin::TlsCallback | Origin::Pointer(_) | Origin::Vtable(_)));
-        if root || matches!(f.kind, Kind::ImportThunk(_)) {
+        if root || matches!(f.kind, Kind::ImportThunk(_)) || analysis.program_entry == Some(f.entry) {
             lifted.roots.insert(name.clone());
         }
         lifted.functions.insert(f.entry, name);
@@ -327,7 +389,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     }
     let tls = state::tls_global(image, &lifted);
     lifted.module.globals.push(tls);
-    for f in analysis.functions.values() {
+    for f in analysis.ported() {
         let built = x86::lift_function(image, analysis, &mut lifted, f);
         lifted.module.functions.push(built);
     }
@@ -372,7 +434,8 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
 
 /// The C header the driver includes: the base, the size, the entry, and the imports to bind.
 /// With `signatures` (ABI mode), the entry is declared with its own prototype and the driver calls
-/// it as a plain function.
+/// it as a plain function. When the entry is the program's `main` rather than the image's entry
+/// point (a C runtime's startup the host's replaces), the call hands it the driver's arguments.
 pub fn image_header(
     image: &Image,
     analysis: &Analysis<'_>,
@@ -385,8 +448,9 @@ pub fn image_header(
     let _ = writeln!(out, "#define RA_IMAGE_BASE 0x{:x}ULL", image.image_base());
     let _ = writeln!(out, "#define RA_IMAGE_SIZE 0x{:x}", image.size_of_image());
     let _ = writeln!(out, "#define RA_POINTER_SIZE {}", image.pointer_size());
-    if let Some(entry) = image.entry_point() {
-        let name = function_name(entry);
+    if let Some(entry) = lifted.entry.or_else(|| image.entry_point()) {
+        let name = lifted.functions.get(&entry).cloned().unwrap_or_else(|| function_name(entry));
+        let is_main = lifted.entry.is_some() && lifted.entry != image.entry_point();
         let _ = writeln!(out, "#define RA_ENTRY {name}");
         match signatures.and_then(|s| s.get(&name)) {
             Some(sig) => {
@@ -402,8 +466,19 @@ pub fn image_header(
                     let _ = writeln!(out, "#define RA_STANDALONE 1");
                 }
                 let _ = writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
-                let zeros: Vec<&str> = params.iter().map(|_| "0").collect();
-                let _ = writeln!(out, "#define RA_ENTRY_CALL() {name}({})", zeros.join(", "));
+                // `main(argc, argv)` takes the driver's; the argv of a 32-bit program is the
+                // runtime's table of dword pointers.
+                let args: Vec<&str> = params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| match (is_main, i, image.pointer_size()) {
+                        (true, 0, _) => "(unsigned long long)ra_argc",
+                        (true, 1, 8) => "(unsigned long long)(uintptr_t)ra_argv",
+                        (true, 1, _) => "*(unsigned *)(uintptr_t)ra_x86_p_argv()",
+                        _ => "0",
+                    })
+                    .collect();
+                let _ = writeln!(out, "#define RA_ENTRY_CALL() {name}({})", args.join(", "));
             }
             None => {
                 let _ = writeln!(out, "void {name}(void *state);");

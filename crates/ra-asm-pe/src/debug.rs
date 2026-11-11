@@ -1,11 +1,15 @@
-//! The debug directory. The `CodeView` record names the PDB of the build, which the pipeline
-//! reports and a later step may read for names.
+//! The debug directory. The `CodeView` record names the PDB of the build; when a file of that
+//! name lies beside the image and carries the record's GUID, the image's functions take their
+//! names from it ([`crate::pdb`]).
+
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
 
 use crate::headers::Directory;
 use crate::image::Image;
+use crate::pdb::{self, Pdb};
 
 /// The `CodeView` `RSDS` record: the PDB that matches the image.
 #[derive(Debug, Clone, Serialize)]
@@ -50,6 +54,24 @@ impl DebugEntry {
     }
 }
 
+/// The PDB of the build, when it lies beside the image under the file name its `CodeView` record
+/// gives (the record's directory is the build machine's).
+pub fn pdb_beside(image: &Image) -> Option<PathBuf> {
+    let dir = image.path.as_ref()?.parent()?;
+    let codeview = image.debug.iter().find_map(|e| e.codeview.as_ref())?;
+    let name = codeview.pdb_path.rsplit(['\\', '/']).next().filter(|n| !n.is_empty())?;
+    let path = dir.join(name);
+    path.is_file().then_some(path)
+}
+
+/// What the PDB beside the image says, or nothing when there is no such file. A PDB that is there
+/// but belongs to another build is an error, not a silent miss.
+pub(crate) fn load_pdb(image: &Image) -> Result<Pdb> {
+    let Some(path) = pdb_beside(image) else { return Ok(Pdb::default()) };
+    let codeview = image.debug.iter().find_map(|e| e.codeview.as_ref()).expect("a PDB path comes from a CodeView record");
+    pdb::read(image, &path, &codeview.guid, codeview.age).with_context(|| format!("the PDB {}", path.display()))
+}
+
 pub(crate) fn parse(image: &Image) -> Result<Vec<DebugEntry>> {
     let Some((va, size)) = image.directory_va(Directory::Debug) else { return Ok(Vec::new()) };
     let count = u64::from(size) / 28;
@@ -91,21 +113,7 @@ fn read_codeview(image: &Image, entry: &DebugEntry) -> Result<Option<CodeView>> 
         return Ok(None); // NB10 and other forms are not PDB 7.0 records
     }
     let reader = ra_asm_format::Reader::new(bytes);
-    let g = reader.slice(4, 16, "the GUID")?;
-    let guid = format!(
-        "{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
-        u32::from_le_bytes([g[0], g[1], g[2], g[3]]),
-        u16::from_le_bytes([g[4], g[5]]),
-        u16::from_le_bytes([g[6], g[7]]),
-        g[8],
-        g[9],
-        g[10],
-        g[11],
-        g[12],
-        g[13],
-        g[14],
-        g[15]
-    );
+    let guid = pdb::format_guid(reader.slice(4, 16, "the GUID")?);
     let age = reader.u32(20, "the age")?;
     let pdb_path = reader.cstr(24, bytes.len() - 24, "the PDB path")?.to_owned();
     Ok(Some(CodeView { guid, age, pdb_path }))

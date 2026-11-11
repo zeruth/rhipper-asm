@@ -2,6 +2,9 @@
 # environment every run gets. The ports and traces of a program are built by hand with clang and
 # read with the LLVM tools (see rhipper.context.md), and the engine's own binary runs the steps.
 [worker]
+# A run restarts in a fresh session after this many turns, with its handoff carried over: the
+# context a turn carries here grew to 300k tokens over a 200-turn run, and that is the cost.
+turns = 40
 allow = [
     "clang",
     "clang++",

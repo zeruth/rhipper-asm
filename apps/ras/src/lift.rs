@@ -31,7 +31,8 @@ pub(crate) fn lift(image: &Image, out: Option<&Path>, options: &Options) -> Resu
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone, x87 });
     let coverage = report.then(|| ra_asm_lift::coverage(&analysis, &lifted));
     let options = lifted.raise_options(level);
-    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
     let text = lifted.module.to_ll();
     match out {
         None if report => {}

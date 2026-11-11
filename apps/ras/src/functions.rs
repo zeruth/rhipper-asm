@@ -105,7 +105,8 @@ pub(crate) fn functions_json(analysis: &Analysis<'_>) -> serde_json::Value {
             json!({
                 "addr": hex(f.entry), "name": f.name, "size": f.size(), "bytes": f.code_bytes(), "blocks": f.blocks.len(),
                 "instrs": f.instr_count(), "noreturn": f.noreturn,
-                "thunk": match &f.kind { Kind::ImportThunk(i) => Some(i.clone()), Kind::Normal => None },
+                "thunk": match &f.kind { Kind::ImportThunk(i) => Some(i.clone()), _ => None },
+                "runtime": match &f.kind { Kind::Runtime(name) => Some(name.clone()), _ => None },
                 "calls": f.calls.iter().map(|c| hex(*c)).collect::<Vec<_>>(), "imports": f.import_calls,
                 "tail_calls": f.tail_calls.iter().map(|c| hex(*c)).collect::<Vec<_>>(),
                 "origins": f.origins.iter().map(origin_name).collect::<Vec<_>>(),

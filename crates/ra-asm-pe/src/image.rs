@@ -32,6 +32,12 @@ pub struct Image {
     pub runtime_functions: Vec<RuntimeFunction>,
     pub tls: Option<Tls>,
     pub debug: Vec<DebugEntry>,
+    /// The functions the PDB beside the image names, in address order; empty without one. Filled
+    /// by [`crate::load`], which knows the path.
+    pub symbols: Vec<crate::pdb::Symbol>,
+    /// The ranges of the image that the objects of static libraries fill, from the same PDB, in
+    /// address order.
+    pub libraries: Vec<crate::pdb::LibraryRange>,
     /// What the loader could not read. A directory that fails to parse lands here, not in an error.
     pub warnings: Vec<String>,
     file: Vec<u8>,
@@ -83,6 +89,8 @@ impl Image {
             runtime_functions: Vec::new(),
             tls: None,
             debug: Vec::new(),
+            symbols: Vec::new(),
+            libraries: Vec::new(),
             warnings,
             file,
             mapped,

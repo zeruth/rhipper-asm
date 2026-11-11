@@ -8,7 +8,9 @@
 //! The vtables the RTTI names come next, then pointer-sized data slots that hold code addresses,
 //! since a jump table on x86 holds such addresses too and the functions reached by code must own
 //! them first. Last, each function learns the string literals it addresses and the vtable slots
-//! that hold it, and a function nothing names takes the name of its slot.
+//! that hold it, and the names settle: a PDB beside the image names what it describes and marks
+//! the functions of a linked-in C runtime as the host's, a function nothing names takes the name
+//! of its vtable slot, and every name becomes an identifier unique in the program.
 
 pub mod builder;
 pub mod function;
@@ -16,6 +18,7 @@ pub mod imports;
 pub mod jumptable;
 pub mod noreturn;
 pub mod rtti;
+pub mod symbols;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -36,6 +39,9 @@ pub struct Analysis<'a> {
     pub noreturn: HashSet<u64>,
     /// The classes with virtual functions, from the RTTI.
     pub classes: Vec<Class>,
+    /// The function a port starts at: the image's entry point, or `main` when the entry is the
+    /// startup of a C runtime linked into the image, whose work the host's own startup does.
+    pub program_entry: Option<u64>,
     /// What the analysis could not resolve: unresolved indirect jumps, invalid bytes, overlaps.
     pub warnings: Vec<String>,
 }
@@ -59,6 +65,12 @@ impl Analysis<'_> {
     /// The functions that call `callee` directly.
     pub fn callers(&self, callee: u64) -> Vec<&Function> {
         self.functions.values().filter(|f| f.calls.contains(&callee)).collect()
+    }
+
+    /// The functions a port lifts: every one but those of a C runtime linked into the image,
+    /// which the host's runtime supplies.
+    pub fn ported(&self) -> impl Iterator<Item = &Function> {
+        self.functions.values().filter(|f| !matches!(f.kind, Kind::Runtime(_)))
     }
 }
 
@@ -151,8 +163,14 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
         f.noreturn = state.noreturn.contains(&f.entry);
         f.strings = strings_of(image, f);
     }
+    // The names, strongest first: the exports are set, the PDB names what it describes, a vtable
+    // slot names what is left, and the last pass makes them identifiers unique in the program.
+    // The runtime's functions were marked as they were built.
+    symbols::name_functions(image, &mut functions);
     name_virtual_functions(&classes, &mut functions);
-    Analysis { image, arch, functions, noreturn: state.noreturn, classes, warnings: state.warnings }
+    let program_entry = symbols::program_entry(image, &functions);
+    symbols::finish_names(&mut functions);
+    Analysis { image, arch, functions, noreturn: state.noreturn, classes, program_entry, warnings: state.warnings }
 }
 
 /// The string literals a function addresses: each operand that names an address where printable
@@ -297,6 +315,8 @@ struct State<'a> {
     noreturn: HashSet<u64>,
     /// The entries of the exception table, with their pieces: the extent of an x64 function.
     extents: HashMap<u64, Vec<(u64, u64)>>,
+    /// The ranges of the C runtime libraries linked into the image, from the PDB.
+    runtime: symbols::RuntimeRanges,
     warnings: Vec<String>,
 }
 
@@ -314,6 +334,7 @@ impl<'a> State<'a> {
             origins: HashMap::new(),
             noreturn: HashSet::new(),
             extents,
+            runtime: symbols::RuntimeRanges::of(image),
             warnings: Vec::new(),
         }
     }
@@ -372,6 +393,9 @@ impl<'a> State<'a> {
         function.register_import_calls = imports::resolve(self.image, &mut function);
         function.origins = self.origins.get(&entry).cloned().unwrap_or_default();
         function.name = function::name_for(self.image, &function);
+        // A function of a linked-in C runtime is the host's: the no-return settle judges it by
+        // name, not by the body it has here.
+        symbols::classify(self.image, &self.runtime, &mut function);
         self.warnings.extend(built.warnings);
         for &target in function.calls.iter().chain(&function.tail_calls) {
             if self.image.is_code(target) && !self.functions.contains_key(&target) && !self.pending.contains(&target) {

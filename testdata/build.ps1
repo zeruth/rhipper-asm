@@ -1,9 +1,10 @@
 # Builds the fixtures under testdata/bin from the sources under testdata/src.
 #
 # Each program is built for x86-64 and for x86 with clang and lld, without a C runtime, so the
-# binaries stay small and hold only the code of the source. /Brepro makes the output deterministic,
-# so a rebuild from the same sources and the same LLVM gives the same bytes. Every build also writes
-# the linker map beside the binary: the tests compare the functions the analysis finds with it.
+# binaries stay small and hold only the code of the source; crt is the exception, built over the
+# static C runtime with its PDB. /Brepro makes the output deterministic, so a rebuild from the same
+# sources and the same LLVM gives the same bytes. Every build also writes the linker map beside the
+# binary: the tests compare the functions the analysis finds with it.
 #
 #   ./testdata/build.ps1            build every fixture
 #   ./testdata/build.ps1 control    build one
@@ -48,6 +49,24 @@ function Build-Dll([string]$Name) {
   }
 }
 
+# A program over MSVC's static C runtime (/MT), x64 only: clang-cl compiles the program and lld
+# links libcmt and libucrt into it. /debug writes the PDB, which is part of the fixture: it names
+# the functions and the library each came from, and the engine reads it beside the binary. /Z7
+# puts the program's own procedures (the static functions) in it; the runtime's names come from
+# the libraries' symbol tables. _NO_CRT_STDIO_INLINE keeps printf a function of the runtime, not
+# an inline copy in the program; /GS- keeps the security cookie out of the program's code.
+function Build-Crt([string]$Name) {
+  $out = Join-Path $bin "$Name`64.exe"
+  $map = Join-Path $bin "$Name`64.map"
+  $pdb = Join-Path $bin "$Name`64.pdb"
+  $args = @('--target=x86_64-pc-windows-msvc', '/nologo', '/O2', '/MT', '/GS-', '/Z7', '/Brepro', '/D_NO_CRT_STDIO_INLINE', '/D_CRT_SECURE_NO_WARNINGS',
+    (Join-Path $src "$Name.c"), "/Fe:$out",
+    '/link', '/debug', "/pdb:$pdb", "/pdbaltpath:$Name`64.pdb", "/map:$map", '/subsystem:console', '/Brepro')
+  Write-Host "clang-cl $Name`64" -ForegroundColor Cyan
+  & clang-cl @args
+  if ($LASTEXITCODE -ne 0) { throw "clang-cl failed for $Name`64" }
+}
+
 function Wanted([string]$Name) { return -not $Only -or ($Only -contains $Name) }
 
 if (Wanted 'hello') { Build-Exe 'hello' @() }
@@ -68,7 +87,9 @@ if (Wanted 'exports') { Build-Dll 'exports' }
 if (Wanted 'tls') { Build-Exe 'tls' @() }
 # structs reads and writes a record of mixed fields through a pointer, for the type recovery.
 if (Wanted 'structs') { Build-Exe 'structs' @() }
+# crt links the static C runtime; its PDB stays, the engine reads the names from it.
+if (Wanted 'crt') { Build-Crt 'crt' }
 
-# The PDBs and the import libraries are build leftovers, not fixtures.
-Get-ChildItem $bin -Include *.pdb, *.lib, *.exp -Recurse | Remove-Item -Force
+# The PDBs (crt's excepted) and the import libraries are build leftovers, not fixtures.
+Get-ChildItem $bin -Include *.pdb, *.lib, *.exp -Recurse | Where-Object { $_.Name -ne 'crt64.pdb' } | Remove-Item -Force
 Get-ChildItem $bin | Select-Object Name, Length

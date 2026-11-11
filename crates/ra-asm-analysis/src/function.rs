@@ -41,6 +41,9 @@ pub enum Kind {
     Normal,
     /// `jmp [slot]` to an import: the name is the import's.
     ImportThunk(String),
+    /// A function of a C runtime linked into the image, known from the library its object came
+    /// from: the host's runtime supplies it under the name, and its body is not ported.
+    Runtime(String),
 }
 
 /// How a block ends.

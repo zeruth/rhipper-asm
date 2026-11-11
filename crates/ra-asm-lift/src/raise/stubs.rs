@@ -167,7 +167,7 @@ fn address_taken(module: &Module) -> HashSet<String> {
     out
 }
 
-fn rename_const(c: &mut Const, renamed: &HashMap<String, String>) {
+pub(crate) fn rename_const(c: &mut Const, renamed: &HashMap<String, String>) {
     match c {
         Const::Address { global, .. } | Const::Global(global) => {
             if let Some(new) = renamed.get(global) {
@@ -179,7 +179,7 @@ fn rename_const(c: &mut Const, renamed: &HashMap<String, String>) {
     }
 }
 
-fn rename_operand(o: &mut Operand, renamed: &HashMap<String, String>) {
+pub(crate) fn rename_operand(o: &mut Operand, renamed: &HashMap<String, String>) {
     if let Operand::Address { global, .. } | Operand::Global(global) = o
         && let Some(new) = renamed.get(global)
     {

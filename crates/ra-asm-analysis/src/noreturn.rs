@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use crate::function::{Function, Terminator};
+use crate::function::{Function, Kind, Terminator};
 
 /// The imports that never return, by name. The C runtime's names cover MSVC and the UCRT.
 const IMPORTS: &[&str] = &[
@@ -64,8 +64,13 @@ pub fn settle(functions: &BTreeMap<u64, Function>, known: &mut HashSet<u64>) -> 
 }
 
 /// A function never returns when no block returns, no block leaves by a path the analysis cannot
-/// follow, and every tail call goes to a function that never returns.
+/// follow, and every tail call goes to a function that never returns. A function of a C runtime
+/// linked into the image is judged by its name, as an import is: the host's runtime supplies it,
+/// and its own body is not followed.
 fn never_returns(f: &Function, known: &HashSet<u64>) -> bool {
+    if let Kind::Runtime(name) = &f.kind {
+        return import_never_returns(name);
+    }
     f.blocks.iter().all(|b| match &b.terminator {
         Terminator::Return | Terminator::IndirectJump | Terminator::Invalid => false,
         Terminator::TailCall(target) => known.contains(target),
