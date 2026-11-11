@@ -3,7 +3,7 @@
 - 1 ‹project› Rhipper Asm {c5} [in_progress]
     objective: A pure-Rust disassembly and lifting core that replaces Ghidra and the Python Rhipper in the Rhipper Workbench: a PE image in, LLVM IR out, and C, C++ or Rust source out of that IR.
     acceptance: The workbench runs a project from the reference binary to a built and running port with no Ghidra, no JDK and no Python installed.
-    notes: Decisions, 2026-11-10. (1) The decoder is the iced-x86 crate behind the crate's own `Instr` record, so the work goes into the lift and the backends, not into opcode tables; a second architecture plugs in behind the same trait. (2) The IR is a subset of LLVM IR with its own printer: every `.ll` the core writes must pass `clang -c -x ir`, which is the syntax and type gate, and clang is also the way to run lifted code in tests. (3) The first target is x86-64 PE; the loader and the decoder handle PE32 and 32-bit code from the start because the old pipeline's test programs are 32-bit. (4) Milestones run in order A to H below; a later milestone may start when its inputs exist. (5) No compatibility with the old pipeline's files or conventions (Ghidra's corpus and names, the fidelity scores, the gen-index comments): the engine writes its own shapes and the workbench's readers of the old ones are deleted as the new ones land, decided 2026-11-10; Ghidra-based projects stop opening in the workbench until `ras` lifts 32-bit programs.
+    notes: Decisions, 2026-11-10. (1) The decoder is the iced-x86 crate behind the crate's own `Instr` record, so the work goes into the lift and the backends, not into opcode tables; a second architecture plugs in behind the same trait. (2) The IR is a subset of LLVM IR with its own printer: every `.ll` the core writes must pass `clang -c -x ir`, which is the syntax and type gate, and clang is also the way to run lifted code in tests. (3) The first target is x86-64 PE; the loader and the decoder handle PE32 and 32-bit code from the start because the old pipeline's test programs are 32-bit. (4) Milestones run in order A to H below; a later milestone may start when its inputs exist. (5) No compatibility with the old pipeline's files or conventions (Ghidra's corpus and names, the fidelity scores, the gen-index comments): the engine writes its own shapes and the workbench's readers of the old ones are deleted as the new ones land, decided 2026-11-10; Ghidra-based projects stop opening in the workbench until `ras` lifts 32-bit programs. (6) The lift is exact or it stops: an instruction the lift does not cover becomes a trap that names its address, never a guess, so the grade of a function is its trap count and the oracle is the proof; readability work (widths, types, idioms) must keep the oracle green. (7) 32-bit x86 is its own milestone (I), ahead of ARM64 and ELF (H), because it is what lets the old test programs and projects port through `ras`. Vision, 2026-11-10: milestones A to D are done and E to G are in progress; the engine lifts, raises and writes x64 programs to C that builds and runs, the workbench runs it end to end, and nothing of Ghidra or Python remains. What follows, in order: the readability that is still mechanical (widths, then the C++ and Rust printers over the same structured IR), the engine as a service and as a release, 32-bit x86, and then the depth that turns a correct port into a readable one: types from access patterns and debug info, names from RTTI and the CRT, idioms, a hand-port takeover per function, exceptions, resources, and a side-by-side trace of the reference and the port (milestone J). Each of those is a nice-to-have until the one before it is solid, and the oracle and the fixtures grow with each.
   - 2 ‹milestone› A: the image {c3} [implemented]
       objective: `ra-asm-pe` maps a PE file to an image by RVA and reads every structure the later steps need: headers, sections, imports, exports, relocations, the exception table, TLS, and the debug directory.
       acceptance: `ras info`, `ras sections`, `ras imports` and `ras exports` print the fixtures correctly, and the loader tests agree with `llvm-readobj` on every fixture.
@@ -98,7 +98,7 @@
         notes: The conditions landed 2026-11-10 (raise/conditions.rs): the sf, of, zf and cf formulas of a subtraction fold back into one icmp of the operands, with the inverse and the le/be combinations; simplify also folds trunc of zext and per-block common subexpressions. Lines of IR at the ABI level: hello64 132, control64 665 (from 4975 machine), float64 945. The globals landed next (ra-asm-lift/src/data.rs): in standalone mode each data section is one global, a packed structure of byte runs and address words (a relocated word is the address of the function or the data byte it names; an import slot is the import's own address, bound at link time); a RIP-relative or absolute reference becomes the address of a byte of a global; a switch jumps by its index register, read before the table entry, so the table is never read. The ABI level is standalone: the driver maps nothing and binds nothing, and all three fixtures run that way. Still to do: the integer widths (i64 register values narrowed to the width their uses have).
         waits-on: 24
   - 26 ‹milestone› F: the backends {c5} [in_progress]
-      objective: `ra-asm-emit` writes C, C++ or Rust source from the raised IR, with a runtime header per language, and writes the corpus and fidelity files the workbench reads today.
+      objective: `ra-asm-emit` writes C, C++ or Rust source from the raised IR, with a runtime header per language, and the function table the workbench reads.
       acceptance: A fixture's C, C++ and Rust outputs each build in one round and print what the reference prints.
       notes: Started 2026-11-10 with the C backend; the three x64 fixtures build from their C with clang and print what the reference prints.
     - 27 ‹task› Structuring {c4} [implemented]
@@ -106,7 +106,7 @@
         acceptance: Every fixture function structures without a goto in C; the Rust output compiles.
         notes: Landed 2026-11-10 (ra-asm-emit/src/structure.rs), language-neutral: dominators and post-dominators give the join of each branch, natural loops give `for (;;)` with break and continue, a switch terminator gives a switch, and a block that only computes a condition folds into the branch above it as `&&` or `||`, so a short-circuit reads as one. Anything else falls back to a goto with a label, and the fixtures have none. The Rust half (labeled loops) waits for task 30.
     - 28 ‹task› C {c4} [in_progress]
-        objective: One `.c` per source file or per address range, a `/* ref: name */` comment above each function so the workbench's gen index keeps working, and a `rhipper.h` runtime for the helpers.
+        objective: C that builds in one round with clang, clang-cl and MSVC: typed locals, structured control flow, the data as globals, a `rhipper.h` runtime for the helpers, and a split into one `.c` per address range when a program is large.
         acceptance: The x64 fixtures compile with clang and MSVC with no warning and pass their expected output.
         notes: `ras emit --lang c` writes `program.c` and `runtime/rhipper.h` holds the helpers (the 128-bit and vector types, the intrinsics, the trap and the call resolver). Landed 2026-11-10: typed locals from the IR, phis through `_next` temporaries, single-use values inlined into their expression, globals as packed structures, the frame and the xmm array as aligned byte buffers, an empty then-branch inverted and a negated integer compare printed as its inverse. The oracle (ra-asm-emit/tests/oracle.rs) builds hello64, control64 and float64 with `clang -O1 -Wall -Werror` and runs them. control64 is 495 lines of C. Still to do: MSVC (no i128, no vector extensions), the `/* ref */` comments and the per-source split, and the readability the width inference of task 25 will bring.
         waits-on: 27
@@ -141,10 +141,27 @@
         acceptance: A fresh workbench installs `ras` on first start and shows its version under Tools.
         notes: The workbench side landed 2026-11-10 (`RhipperTools.RAS` in rhipper-ide): it reads `<releases>/latest/download/version.txt`, downloads `ras-<version>-<os>-<arch>.zip` (`windows`/`macos`/`linux`, `x64`/`arm64`) with its `.sha256`, unpacks it to `<tools>/ras/<version>/ras.exe`, and reads `ras --version` for the version it shows. The release workflow here must publish those three files under the tag `v<version>`; it does not exist yet.
         waits-on: 33
-    - 36 ‹task› The facts of the old pipeline {c4} [defined]
-        objective: What the Python extractors produced as facts (prototypes, no-return, vtables, switches, pieces, function pointers, pointer globals, float data) is an analysis of the core, run on demand and cached in `build/`.
-        acceptance: A 32-bit test program of the old pipeline ports through `ras` with fidelity equal to the old pipeline's.
+    - 36 ‹task› The facts of the old pipeline as analyses {c3} [defined]
+        objective: What the Python extractors produced as facts and `ras` does not have yet (vtables and the class names RTTI gives them, function pointers in data, pointer globals, float constants, string literals) becomes an analysis of the core, in the function table and over `ras serve`, with the results cached under `build/`.
+        acceptance: `ras functions --json` names the classes and the virtual functions of a C++ fixture, and the string literals it references.
+        notes: Rewritten 2026-11-10: the 32-bit part moved to milestone I. Prototypes, no-return and switches already are analyses of the core.
         waits-on: 34
+  - 40 ‹milestone› I: 32-bit x86 {c4} [defined]
+      objective: The lift, the raising passes and the C backend handle 32-bit x86 PE programs, so the old pipeline's test programs and projects port through `ras`.
+      acceptance: The x86 fixtures pass the execution oracle at every level, and a test program of the old pipeline builds and prints what the reference prints.
+      notes: Placed before milestone H on 2026-11-10 (project decision 7). The loader, the decoder and the analysis handle PE32 already; the lift and the raise do not.
+    - 41 ‹task› The 32-bit lift {c4} [defined]
+        objective: The machine model in 32 bits: 32-bit pointers and `esp`, pushes as arguments, the x87 stack for floats, `fs` as the TEB, and the import adapters and trampolines of the runtime in 32-bit form (a port of a 32-bit program is still an x64 executable, so the runtime translates the pointer width at the import boundary).
+        acceptance: hello32, control32 and a float fixture with x87 run lifted and print their native output.
+        waits-on: 20
+    - 42 ‹task› The x86 calling conventions {c3} [defined]
+        objective: `cdecl`, `stdcall`, `fastcall` and `thiscall` by the stack slots and registers a function reads before writing and by who pops the arguments; an import arity table for the Win32 API so an import call takes the right number of stack arguments.
+        acceptance: `ras signatures` on the x86 fixtures matches their sources, and the oracle passes at the ABI level.
+        waits-on: 41 24
+    - 43 ‹task› The old test programs {c3} [defined]
+        objective: The test programs of the old pipeline (its rhtest sources, built with its MSVC toolsets) become fixtures here, with their expected outputs, and port through `ras pipeline`.
+        acceptance: Each program builds from its C and prints what the reference prints; the workbench opens its project again.
+        waits-on: 42 28
   - 37 ‹milestone› H: other architectures and formats {c4} [defined]
       objective: The `Arch` trait and the loader take a second architecture and a second container without changes to the IR, the raising passes or the backends.
       acceptance: An ARM64 PE lifts to IR that passes clang, and an ELF x86-64 file loads and disassembles.
@@ -154,3 +171,43 @@
     - 39 ‹task› ELF and Mach-O {c3} [defined]
         objective: `ra-asm-format` grows the ELF and Mach-O containers behind the same `Image` trait.
         acceptance: `ras info` prints a Linux x86-64 binary's sections and symbols.
+  - 44 ‹milestone› J: from a correct port to a readable one {c5} [defined]
+      objective: The depth that makes the C read as source: types, names, idioms, a hand-port takeover per function, exceptions, resources, and a trace of the reference beside the port. Each task is a nice-to-have until the one before it is solid; the oracle and the fixtures grow with each.
+      acceptance: A real program of a few thousand functions ports with its structures, its names and its strings, and a person can take over one function at a time without touching the rest.
+      notes: Defined 2026-11-10 as the vision after milestones E to I; the order below is the suggested priority, and a task may move up when a program needs it.
+    - 45 ‹task› Width and type recovery {c4} [defined]
+        objective: Beyond the width narrowing of task 25: pointers typed by what they point to, structure fields from the offsets a base pointer is accessed at, arrays from indexed accesses, `bool` for values only compared and branched on, string literals as `const char *`, and the types of a PDB when the binary names one.
+        acceptance: A fixture with a struct of mixed fields reads as a `struct` with named fields in the C, and the oracle stays green.
+        waits-on: 25
+    - 46 ‹task› Names from the binary {c3} [defined]
+        objective: Names from RTTI (classes, vtables), from a PDB when present, from the exports and from the CRT (a statically linked C runtime recognized by its code, so `printf` reads as `printf` and its body is not ported), and the Windows API prototype table generated from the SDK headers instead of written by hand.
+        acceptance: A C++ fixture's classes and virtual functions carry their names into the C; a program with a static CRT ports with the CRT called, not lifted.
+        waits-on: 36
+    - 47 ‹task› Idioms and loop forms {c3} [defined]
+        objective: The compiler's output read back as its source: `memcpy`, `memset` and `strlen` loops, division and modulo by a constant through multiplication, rotates and byte swaps, min and max through cmov, `for` loops with an induction variable, and a `switch` over a string table.
+        acceptance: The control fixture's loops read as `for` loops and its idioms as calls, with no change to the oracle.
+        waits-on: 45
+    - 48 ‹task› The hand-port takeover {c4} [defined]
+        objective: A port is something a person changes: `rhipper.json` (or a marker in the source) names the functions the hand-written sources own, `ras emit` writes them as declarations instead of definitions, the function table marks them, and the workbench shows and toggles the ownership per function.
+        acceptance: A fixture with one function taken over by hand builds, runs, and prints what the reference prints; the table says which function is hand-written.
+        waits-on: 31
+    - 49 ‹task› Exceptions and unwinding {c3} [defined]
+        objective: SEH and C++ exception handling from the x64 unwind data and handler tables: `__try` and `__except` regions, C++ landing pads and the cleanup of locals, so a program that throws ports instead of trapping.
+        acceptance: A fixture that throws and catches a C++ exception runs ported and prints what the reference prints.
+        waits-on: 24
+    - 50 ‹task› Resources and typed data {c2} [defined]
+        objective: PE resources (strings, dialogs, icons, manifests) extracted to files the port loads, and data sections written as typed arrays and strings where their uses say so, instead of byte blobs.
+        acceptance: A fixture with a string table resource ports with the strings in a file, and its data reads as arrays in the C.
+        waits-on: 45
+    - 51 ‹task› The trace beside the port {c4} [defined]
+        objective: A recorded trace of the reference (calls, returns, and the values at each) and the same trace of the port, compared to the first point where they part; the basis of the workbench's side-by-side stepping.
+        acceptance: A port with one wrong function is found by the trace comparison in one run, and the workbench opens that function.
+        waits-on: 34
+    - 52 ‹task› Incremental and parallel {c3} [defined]
+        objective: The analysis cached under `build/`, the lift and the emit of only the functions a change touched, and the lift of independent functions in parallel, so a program of tens of thousands of functions turns around in seconds.
+        acceptance: A second `ras pipeline` run on an unchanged program finishes in under a second per step, and a large program lifts on every core.
+        waits-on: 34
+    - 53 ‹task› Packed and protected binaries {c2} [defined]
+        objective: Recognize the common packers by their entry section and import table, and dump the unpacked image through an emulated run to the original entry point, so the pipeline starts from the real program.
+        acceptance: A UPX-packed fixture ports as its unpacked program.
+        waits-on: 41
