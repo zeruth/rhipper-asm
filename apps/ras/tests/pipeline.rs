@@ -12,9 +12,10 @@ fn available(tool: &str) -> bool {
     Command::new(tool).arg("--version").output().is_ok_and(|o| o.status.success())
 }
 
-/// A project directory with the fixture as its reference binary.
+/// A project directory with the fixture as its reference binary, whose run step compares the
+/// port with it.
 fn project(name: &str) -> PathBuf {
-    project_with(name, r#"{ "name": "control", "exe": "ref/control64.exe" }"#)
+    project_with(name, r#"{ "name": "control", "exe": "ref/control64.exe", "run": { "compare": true } }"#)
 }
 
 fn project_with(name: &str, rhipper_json: &str) -> PathBuf {
@@ -115,6 +116,13 @@ fn the_whole_pipeline_builds_and_runs_the_port() {
     assert_eq!(record["exit"], "0", "{record}");
     assert_eq!(record["alive"], false);
     assert!(record["when"].as_str().is_some_and(|w| w.ends_with('Z')));
+    // The reference ran beside the port and both printed the same.
+    assert_eq!(record["verdict"], "same", "{record}");
+    assert_eq!(record["reference_exit"], "0", "{record}");
+    assert!(record["differs_at"].is_null(), "{record}");
+    assert!(text.contains("verdict: same"), "{text}");
+    let reference_log = std::fs::read_to_string(dir.join("build/pipeline/reference.log")).unwrap().replace("\r\n", "\n");
+    assert!(reference_log.contains(expected.trim_end()), "the reference log:\n{reference_log}");
     // A second run reuses the configured build directory.
     let (ok, text) = ras(&dir, &["--from", "build"]);
     assert!(ok, "{text}");

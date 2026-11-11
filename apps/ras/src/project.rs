@@ -8,7 +8,7 @@
 //!   "lang": "c",
 //!   "sources": ["src", "vendor"],
 //!   "build": { "dir": "build/cmake", "config": "Release", "target": "Game" },
-//!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0 }
+//!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0, "compare": false }
 //! }
 //! ```
 //!
@@ -18,8 +18,10 @@
 //! `sources` are the directories of the hand-written
 //! port, which the workbench reads and the pipeline does not. `build` is the `CMake` build of the
 //! port, and `run` is how the pipeline starts it: `with`
-//! lists side processes that start before the port and stop after it, and `timeout` in seconds stops
-//! a port that runs on, such as a game, and counts the run as alive.
+//! lists side processes that start before the port and stop after it, `timeout` in seconds stops
+//! a port that runs on, such as a game, and counts the run as alive, and `compare` runs the
+//! reference binary after the port with the same arguments, working directory and timeout and
+//! gives the run a verdict: `same`, `differs at line N` or `port crashed`.
 
 use std::path::{Path, PathBuf};
 
@@ -42,6 +44,8 @@ pub(crate) struct Run {
     pub args: Vec<String>,
     pub with: Vec<Vec<String>>,
     pub timeout: Option<u64>,
+    /// Whether the run step also runs the reference and compares the outputs.
+    pub compare: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +104,7 @@ impl Project {
                 .map(|a| a.iter().map(|c| strings(Some(c))).filter(|c| !c.is_empty()).collect())
                 .unwrap_or_default(),
             timeout: run.and_then(|r| r.get("timeout")).and_then(Value::as_u64).filter(|t| *t > 0),
+            compare: run.and_then(|r| r.get("compare")).and_then(Value::as_bool).unwrap_or(false),
         };
         Ok(Self {
             exe: resolve(&exe),

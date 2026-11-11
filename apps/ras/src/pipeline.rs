@@ -3,7 +3,9 @@
 //! `build/pipeline/<step>.log`, and the pipeline prints one progress line per step, `[  12s] emit`,
 //! which the workbench reads to show the step in work. A failed step prints
 //! `[  12s] build failed: stopping` and the pipeline ends; the last line of a whole run is `done`.
-//! Every run of the port appends a record to `build/pipeline/runs.jsonl`.
+//! Every run of the port appends a record to `build/pipeline/runs.jsonl`; with `run.compare` on,
+//! the reference runs after the port (its output in `reference.log`) and the record and the log
+//! carry a verdict: `same`, `differs at line N` or `port crashed`.
 
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
@@ -204,7 +206,7 @@ impl Pipeline {
             if !project.build.config.eq_ignore_ascii_case("debug") {
                 cargo.arg("--release");
             }
-            let outcome = run_logged(&mut cargo, log, None)?;
+            let outcome = run_logged(&mut cargo, log, None, true)?;
             if outcome.code != Some(0) {
                 bail!("cargo build exited with {}", outcome.exit());
             }
@@ -219,7 +221,7 @@ impl Pipeline {
         if !cache.is_file() {
             let mut configure = Command::new(cmake);
             configure.arg("-S").arg(&project.root).arg("-B").arg(dir).args(generator_args(&project.build.config));
-            let outcome = run_logged(&mut configure, log, None)?;
+            let outcome = run_logged(&mut configure, log, None, true)?;
             if outcome.code != Some(0) {
                 bail!("cmake configure exited with {}", outcome.exit());
             }
@@ -230,7 +232,7 @@ impl Pipeline {
             // with: configure again for another.
             let mut configure = Command::new(cmake);
             configure.arg("-B").arg(dir).arg(format!("-DCMAKE_BUILD_TYPE={}", project.build.config));
-            let outcome = run_logged(&mut configure, log, None)?;
+            let outcome = run_logged(&mut configure, log, None, true)?;
             if outcome.code != Some(0) {
                 bail!("cmake configure exited with {}", outcome.exit());
             }
@@ -240,7 +242,7 @@ impl Pipeline {
         if self.rebuild {
             build.arg("--clean-first");
         }
-        let outcome = run_logged(&mut build, log, None)?;
+        let outcome = run_logged(&mut build, log, None, true)?;
         if outcome.code != Some(0) {
             bail!("cmake build exited with {}", outcome.exit());
         }
@@ -270,13 +272,13 @@ impl Pipeline {
         }
         let mut port = Command::new(&exe);
         port.args(&project.run.args).current_dir(&project.run.cwd);
-        let outcome = run_logged(&mut port, log, timeout);
+        let outcome = run_logged(&mut port, log, timeout, true);
         for mut child in side {
             let _ = child.kill();
             let _ = child.wait();
         }
         let outcome = outcome?;
-        let record = serde_json::json!({
+        let mut record = serde_json::json!({
             "when": now_iso(),
             "commit": git(&project.root, &["rev-parse", "--short", "HEAD"]).unwrap_or_default(),
             "dirty_gen": git(&project.root, &["status", "--porcelain", "--", &project.gen_dir.to_string_lossy()]).is_some_and(|s| !s.is_empty()),
@@ -285,16 +287,69 @@ impl Pipeline {
             "exit": outcome.exit(),
             "fault": outcome.fault(),
         });
+        let mut summary =
+            format!("exit {}{}, {} s", outcome.exit(), outcome.fault().map(|f| format!(" ({f})")).unwrap_or_default(), outcome.secs);
+        if project.run.compare {
+            let reference_log = log_dir.join("reference.log");
+            let mut reference_log = File::create(&reference_log).with_context(|| format!("cannot write {}", reference_log.display()))?;
+            let mut reference = Command::new(&project.exe);
+            reference.args(&project.run.args).current_dir(&project.run.cwd);
+            let reference = run_logged(&mut reference, &mut reference_log, timeout, false)?;
+            let verdict = Verdict::of(&outcome, &reference);
+            record["verdict"] = serde_json::Value::String(verdict.to_string());
+            record["differs_at"] = verdict.line().into();
+            record["reference_exit"] = serde_json::Value::String(reference.exit());
+            summary = format!("{summary}; reference exit {}, {} s; verdict: {verdict}", reference.exit(), reference.secs);
+        }
         let mut runs = fs::OpenOptions::new().create(true).append(true).open(log_dir.join("runs.jsonl"))?;
         writeln!(runs, "{record}")?;
-        let summary =
-            format!("exit {}{}, {} s", outcome.exit(), outcome.fault().map(|f| format!(" ({f})")).unwrap_or_default(), outcome.secs);
         writeln!(log, "{summary}")?;
         println!("{summary}");
         if !outcome.alive && outcome.code != Some(0) {
             bail!("the port exited with {}", outcome.exit());
         }
         Ok(())
+    }
+}
+
+/// How the port's run compares with the reference's: the standard outputs line by line, after
+/// the port ended on its own or at the timeout. The error outputs are not compared: the runtime's
+/// own messages go there.
+enum Verdict {
+    Same,
+    /// The first line (from 1) where the outputs part; one past the shorter output when it is a prefix.
+    DiffersAt(usize),
+    PortCrashed,
+}
+
+impl Verdict {
+    fn of(port: &Outcome, reference: &Outcome) -> Verdict {
+        if port.fault().is_some() {
+            return Verdict::PortCrashed;
+        }
+        let first = port.stdout.iter().zip(&reference.stdout).position(|(p, r)| p != r);
+        match first {
+            Some(i) => Verdict::DiffersAt(i + 1),
+            None if port.stdout.len() == reference.stdout.len() => Verdict::Same,
+            None => Verdict::DiffersAt(port.stdout.len().min(reference.stdout.len()) + 1),
+        }
+    }
+
+    fn line(&self) -> Option<usize> {
+        match self {
+            Verdict::DiffersAt(n) => Some(*n),
+            Verdict::Same | Verdict::PortCrashed => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Verdict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Verdict::Same => f.write_str("same"),
+            Verdict::DiffersAt(n) => write!(f, "differs at line {n}"),
+            Verdict::PortCrashed => f.write_str("port crashed"),
+        }
     }
 }
 
@@ -376,6 +431,8 @@ struct Outcome {
     /// Whether the process ran until the pipeline stopped it at the timeout.
     alive: bool,
     secs: u64,
+    /// The lines of the standard output, for the comparison with the reference.
+    stdout: Vec<String>,
 }
 
 impl Outcome {
@@ -409,15 +466,17 @@ impl Outcome {
     }
 }
 
-/// Runs `command` with its output written to `log` and to the pipeline's own output as it comes,
-/// stopping it after `timeout`.
-fn run_logged(command: &mut Command, log: &mut File, timeout: Option<Duration>) -> Result<Outcome> {
+/// Runs `command` with its output written to `log`, and with `echo` to the pipeline's own output
+/// as it comes, stopping it after `timeout`.
+fn run_logged(command: &mut Command, log: &mut File, timeout: Option<Duration>, echo: bool) -> Result<Outcome> {
     let started = Instant::now();
     let program = command.get_program().to_string_lossy().into_owned();
     let line =
         std::iter::once(program.clone()).chain(command.get_args().map(|a| a.to_string_lossy().into_owned())).collect::<Vec<_>>().join(" ");
     writeln!(log, "$ {line}")?;
-    println!("$ {line}");
+    if echo {
+        println!("$ {line}");
+    }
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -425,19 +484,27 @@ fn run_logged(command: &mut Command, log: &mut File, timeout: Option<Duration>) 
         .spawn()
         .with_context(|| format!("cannot start {program}"))?;
     let sink = Arc::new(Mutex::new(log.try_clone()?));
+    let stdout = Arc::new(Mutex::new(Vec::new()));
     let readers: Vec<_> = [
-        child.stdout.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
-        child.stderr.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+        child.stdout.take().map(|s| (Box::new(s) as Box<dyn std::io::Read + Send>, Some(Arc::clone(&stdout)))),
+        child.stderr.take().map(|s| (Box::new(s) as Box<dyn std::io::Read + Send>, None)),
     ]
     .into_iter()
     .flatten()
-    .map(|stream| {
+    .map(|(stream, kept)| {
         let sink = Arc::clone(&sink);
         std::thread::spawn(move || {
             for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                println!("{line}");
+                if echo {
+                    println!("{line}");
+                }
                 if let Ok(mut log) = sink.lock() {
                     let _ = writeln!(log, "{line}");
+                }
+                if let Some(kept) = &kept
+                    && let Ok(mut kept) = kept.lock()
+                {
+                    kept.push(line);
                 }
             }
         })
@@ -459,7 +526,8 @@ fn run_logged(command: &mut Command, log: &mut File, timeout: Option<Duration>) 
         let _ = reader.join();
     }
     let _ = std::io::stdout().flush();
-    Ok(Outcome { code: if alive { None } else { status.code() }, alive, secs: started.elapsed().as_secs() })
+    let stdout = stdout.lock().map(|lines| lines.clone()).unwrap_or_default();
+    Ok(Outcome { code: if alive { None } else { status.code() }, alive, secs: started.elapsed().as_secs(), stdout })
 }
 
 fn git(root: &Path, args: &[&str]) -> Option<String> {
