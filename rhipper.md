@@ -35,25 +35,27 @@
         objective: A test disassembles the `.text` of every fixture linearly and compares lengths and mnemonics with `llvm-objdump -d`; a difference prints both sides.
         acceptance: The test passes on every fixture, and skips with a message when `llvm-objdump` is not on the PATH.
         waits-on: 8
-  - 11 ‹milestone› C: functions and control flow {c4} [in_progress]
+  - 11 ‹milestone› C: functions and control flow {c4} [implemented]
       objective: `ra-asm-analysis` finds the functions of an image and builds the control-flow graph of each one.
       acceptance: `ras functions` lists every function of the fixtures with its size and block count, and finds the same functions as the link map of each fixture.
-    - 12 ‹task› Function discovery {c3} [defined]
+    - 12 ‹task› Function discovery {c3} [implemented]
         objective: Entry point, exports, TLS callbacks, every `.pdata` entry (x64), then recursive descent through direct calls; import thunks (`jmp [iat]`) become named thunks, not functions; chained unwind entries join their parent.
         acceptance: On the x64 fixtures the function list matches the lld map file; on the x86 fixtures every function the map names is found.
-    - 13 ‹task› Basic blocks and the graph {c3} [defined]
+        notes: Done 2026-11-10. A fixpoint: seeds, descent, a call target inside a built function splits it, a function proven no-return makes its callers rebuild. The analysis finds exactly the map's functions on all four executables. Pointer seeds run last so that x86 jump-table entries are owned by their function first.
+    - 13 ‹task› Basic blocks and the graph {c3} [implemented]
         objective: Each function splits into blocks at jump targets and after control transfers; each block names its successors; a `.pdata` extent bounds a function and a jump out of it is a tail call.
         acceptance: `ras cfg <address>` prints the blocks and edges of a function; a test checks a function with a loop and an if-else.
         waits-on: 12
-    - 14 ‹task› Jump tables {c3} [defined]
+    - 14 ‹task› Jump tables {c3} [implemented]
         objective: The MSVC and clang x64 switch forms (`lea base; mov/movsxd index,[base+idx*4]; add; jmp`) and the x86 form (`jmp [table+idx*4]`) resolve to their targets, bounded by the compare before them and by the function extent.
         acceptance: A fixture with a dense switch has every case block reachable in `ras cfg`.
+        notes: Done 2026-11-10 for the clang x64 form (table-relative entries), the MSVC x64 form (RVA entries) and the x86 absolute form. The MSVC two-level form with a byte index table is not handled yet: no MSVC-built fixture exists; it comes with the first MSVC fixture.
         waits-on: 13
-    - 15 ‹task› Functions that never return {c2} [defined]
+    - 15 ‹task› Functions that never return {c2} [implemented]
         objective: Known imports (`ExitProcess`, `exit`, `abort`, `_exit`, `__fastfail`, and the CRT's invalid-parameter handlers) and any function whose every path ends in one are marked no-return, so the bytes after a call to them start a new block or function.
         acceptance: A fixture calling `ExitProcess` in the middle of `.text` decodes the code after the call as its own function.
         waits-on: 12
-  - 16 ‹milestone› D: the IR and the lift {c5} [defined]
+  - 16 ‹milestone› D: the IR and the lift {c5} [in_progress]
       objective: `ra-asm-ir` is an LLVM-IR-shaped SSA IR with a `.ll` printer, and `ra-asm-lift` turns each function's instructions into it with the machine state explicit.
       acceptance: `ras lift <exe> --ll out.ll` writes a module that `clang -c -x ir` accepts for every fixture, and the lifted fixtures print what the references print when run through the test harness.
     - 17 ‹task› The IR {c3} [defined]

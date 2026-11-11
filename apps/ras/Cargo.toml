@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+ra-asm-analysis.workspace = true
 ra-asm-arch.workspace = true
 ra-asm-pe.workspace = true
 ra-asm-x86.workspace = true

@@ -239,6 +239,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "ra-asm-analysis",
  "ra-asm-arch",
  "ra-asm-pe",
  "ra-asm-x86",

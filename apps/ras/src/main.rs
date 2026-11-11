@@ -2,6 +2,7 @@
 //! person, or JSON with `--json` for the workbench and the agents.
 
 mod disasm;
+mod functions;
 mod report;
 
 use std::path::PathBuf;
@@ -39,6 +40,12 @@ enum Command {
         #[arg(long)]
         pdata: bool,
     },
+    /// The blocks of the function at an address, with the edges between them.
+    Cfg {
+        pe: PathBuf,
+        /// `0x140001000`, `140001000` or `FUN_140001000`.
+        address: String,
+    },
     /// The instructions at an address: its `.pdata` extent, one run of code, or `length` bytes.
     Disasm {
         pe: PathBuf,
@@ -59,7 +66,9 @@ fn main() -> anyhow::Result<()> {
         Command::Exports { pe } => report::exports(&ra_asm_pe::load(&pe)?, json),
         Command::Relocs { pe } => report::relocs(&ra_asm_pe::load(&pe)?, json),
         Command::Debug { pe } => report::debug(&ra_asm_pe::load(&pe)?, json),
-        Command::Functions { pe, pdata } => report::functions(&ra_asm_pe::load(&pe)?, pdata, json),
+        Command::Functions { pe, pdata: true } => report::functions(&ra_asm_pe::load(&pe)?, true, json),
+        Command::Functions { pe, pdata: false } => functions::functions(&ra_asm_pe::load(&pe)?, json),
+        Command::Cfg { pe, address } => functions::cfg(&ra_asm_pe::load(&pe)?, disasm::parse_address(&address)?, json),
         Command::Disasm { pe, address, length } => {
             let address = disasm::parse_address(&address)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;

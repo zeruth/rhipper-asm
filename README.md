@@ -40,7 +40,8 @@ Three decisions shape the design:
 |---|---|
 | `ra-asm-format` | Shared binary-format readers: a little-endian cursor whose errors name the offset |
 | `ra-asm-pe` | The PE image: headers, sections, the flat image by RVA, imports, exports, relocations, the exception table, TLS, debug |
-| `ra-asm-x86` | The x86 and x86-64 decoder adapter: bytes to `Instr` records with operands, flow and accesses |
+| `ra-asm-arch` | The architecture-neutral `Instr` record (operands, flow, accesses) and the `Arch` trait every decoder implements |
+| `ra-asm-x86` | The x86 and x86-64 decoder adapter over iced-x86; keeps iced's own instruction beside the record for the lift |
 | `ra-asm-analysis` | Functions, basic blocks, the control-flow graph, jump tables, no-return propagation |
 | `ra-asm-ir` | The LLVM-IR-shaped intermediate representation and its `.ll` printer |
 | `ra-asm-lift` | Instructions to machine IR, and the raising passes |
