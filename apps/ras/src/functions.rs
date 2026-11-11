@@ -20,6 +20,7 @@ fn origin_name(origin: &Origin) -> String {
         Origin::TailCall(from) => format!("jump from {}", hex(*from)),
         Origin::Pointer(slot) => format!("pointer at {}", hex(*slot)),
         Origin::Vtable(vtable) => format!("vtable at {}", hex(*vtable)),
+        Origin::Gap(after) => format!("gap after {}", hex(*after)),
     }
 }
 

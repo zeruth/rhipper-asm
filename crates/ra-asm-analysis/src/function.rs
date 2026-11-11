@@ -20,6 +20,9 @@ pub enum Origin {
     Pointer(u64),
     /// A slot of the vtable at the address holds the entry.
     Vtable(u64),
+    /// Code nothing names, after the `int 3` fill that follows the function at the address: a
+    /// function the linker kept without a caller.
+    Gap(u64),
 }
 
 /// A slot of a class's vtable that holds the function.

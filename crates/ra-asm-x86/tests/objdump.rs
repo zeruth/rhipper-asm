@@ -12,13 +12,21 @@ fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin").join(name)
 }
 
+/// The rhtest programs: MSVC's and clang-cl's x86 code over the MSVC C runtime.
+fn rhtest_binaries() -> Vec<PathBuf> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/rhtest");
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "exe")))
+        .collect();
+    out.sort();
+    out
+}
+
 /// `llvm-objdump` prints `140001000: mov eax, ecx` per instruction, with tabs between the parts.
-fn objdump(name: &str) -> Option<Vec<(u64, String)>> {
-    let output = Command::new("llvm-objdump")
-        .args(["-d", "--no-show-raw-insn", "-M", "intel", "--section=.text"])
-        .arg(fixture(name))
-        .output()
-        .ok()?;
+fn objdump(path: &Path) -> Option<Vec<(u64, String)>> {
+    let output =
+        Command::new("llvm-objdump").args(["-d", "--no-show-raw-insn", "-M", "intel", "--section=.text"]).arg(path).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -32,6 +40,13 @@ fn objdump(name: &str) -> Option<Vec<(u64, String)>> {
         }
         let Ok(address) = u64::from_str_radix(addr, 16) else { continue };
         let Some(first) = rest.split_whitespace().next() else { continue };
+        // objdump prints a `lock` prefix as a row of its own; iced keeps it on the instruction.
+        if let Some((_, last)) = rows.last_mut()
+            && *last == "lock"
+        {
+            first.clone_into(last);
+            continue;
+        }
         rows.push((address, first.to_owned()));
     }
     Some(rows)
@@ -49,23 +64,42 @@ fn same_mnemonic(ours: &str, theirs: &str) -> bool {
 #[test]
 fn agrees_with_llvm_objdump_on_the_text_section() {
     let names = ["hello64.exe", "hello32.exe", "control64.exe", "control32.exe", "exports64.dll", "exports32.dll"];
-    for name in names {
-        let Some(theirs) = objdump(name) else {
+    let paths: Vec<PathBuf> = names.iter().map(|n| fixture(n)).chain(rhtest_binaries()).collect();
+    for path in &paths {
+        let name = path.file_name().unwrap().to_string_lossy();
+        let Some(theirs) = objdump(path) else {
             eprintln!("llvm-objdump is not on the PATH: the oracle comparison is skipped");
             return;
         };
-        let image = ra_asm_pe::load(&fixture(name)).unwrap();
+        let image = ra_asm_pe::load(path).unwrap();
         let text = image.sections.iter().find(|s| s.name == ".text").unwrap();
         let start = image.va(text.virtual_address);
         let bytes = image.read_to_section_end(start).unwrap();
         let arch = X86::for_pointer_size(image.pointer_size());
         let ours = arch.decode_all(bytes, start);
-        let our_addresses: Vec<u64> = ours.iter().map(|i| i.address).collect();
-        let their_addresses: Vec<u64> = theirs.iter().map(|(a, _)| *a).collect();
-        assert_eq!(our_addresses, their_addresses, "{name}: the instruction boundaries");
+        // The first boundary that differs, with both readings around it.
+        let divergence = ours
+            .iter()
+            .zip(&theirs)
+            .position(|(i, (a, _))| i.address != *a)
+            .or_else(|| (ours.len() != theirs.len()).then(|| ours.len().min(theirs.len())));
+        if let Some(at) = divergence {
+            let from = at.saturating_sub(2);
+            let ours_text: Vec<String> =
+                ours[from..(at + 3).min(ours.len())].iter().map(|i| format!("{:#x}: {}", i.address, i.text)).collect();
+            let theirs_text: Vec<String> = theirs[from..(at + 3).min(theirs.len())].iter().map(|(a, m)| format!("{a:#x}: {m}")).collect();
+            panic!(
+                "{name}: the instruction boundaries diverge after {} instructions ({} ours, {} objdump)\n  ours:    {}\n  objdump: {}",
+                at,
+                ours.len(),
+                theirs.len(),
+                ours_text.join(" | "),
+                theirs_text.join(" | ")
+            );
+        }
         let mut mismatches = Vec::new();
         for (i, (_, mnemonic)) in ours.iter().zip(&theirs) {
-            let first = i.text.split_whitespace().next().unwrap_or("");
+            let first = i.text.split_whitespace().find(|w| *w != "lock").unwrap_or("");
             if !same_mnemonic(first, mnemonic) {
                 mismatches.push(format!("{:#x}: ours {:?}, objdump {mnemonic:?}", i.address, i.text));
             }

@@ -133,6 +133,19 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
         state.run();
     }
 
+    // Code after the `int 3` fill that nothing names: a function the linker kept without a caller
+    // (`/Od` keeps every function of an object it pulls in).
+    for _ in 0..MAX_ROUNDS {
+        let seeds = gap_seeds(image, &state);
+        if seeds.is_empty() {
+            break;
+        }
+        for (va, origin) in seeds {
+            state.seed(va, origin);
+        }
+        state.run();
+    }
+
     let mut functions = state.functions;
     for f in functions.values_mut() {
         f.noreturn = state.noreturn.contains(&f.entry);
@@ -189,6 +202,50 @@ fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>) -> Vec<(u
     }
     seeds.sort_by_key(|(va, _)| *va);
     seeds.dedup_by_key(|(va, _)| *va);
+    seeds
+}
+
+/// The functions in the gaps between the found ones: a 16-byte aligned address after `int 3` fill
+/// in a code section, outside every function, whose trial build has no warning, covers the bytes
+/// from the address to the next fill, function or section end without a hole, and ends in returns
+/// and tail calls only, never in a trap or an unresolved jump. A jump table or a string in the
+/// code section fails the trial; a function does not.
+fn gap_seeds(image: &Image, state: &State<'_>) -> Vec<(u64, Origin)> {
+    let mut seeds = Vec::new();
+    let mut accepted: Vec<(u64, u64)> = Vec::new();
+    for section in image.sections.iter().filter(|s| s.is_code()) {
+        let start = image.va(section.virtual_address);
+        let Ok(bytes) = image.read_to_section_end(start) else { continue };
+        let end = start + bytes.len() as u64;
+        for (offset, pair) in bytes.windows(2).enumerate() {
+            let va = start + offset as u64 + 1;
+            if !va.is_multiple_of(16) || pair[0] != 0xcc || pair[1] == 0xcc {
+                continue;
+            }
+            if state.known_starts.contains(&va)
+                || accepted.iter().any(|&(b, e)| va >= b && va < e)
+                || state.functions.values().any(|f| f.contains(va))
+            {
+                continue;
+            }
+            let ranges = state.ranges_of(va);
+            let built = builder::build(image, state.arch, va, &ranges, &state.known_starts, &state.noreturn);
+            let blocks = &built.function.blocks;
+            let contiguous = blocks.first().is_some_and(|b| b.start == va) && blocks.windows(2).all(|w| w[0].end == w[1].start);
+            let last = blocks.last().map_or(va, |b| b.end);
+            let bounded = last == end || state.known_starts.contains(&last) || image.u8(last).is_ok_and(|b| b == 0xcc);
+            let ends_well = blocks
+                .iter()
+                .all(|b| !matches!(b.terminator, Terminator::Trap | Terminator::Halt | Terminator::Invalid | Terminator::IndirectJump));
+            // An import thunk nothing calls is the linker's leftover, not a function of the program.
+            if !(built.warnings.is_empty() && contiguous && bounded && ends_well) || built.function.is_thunk() {
+                continue;
+            }
+            accepted.push((va, last));
+            let after = state.functions.range(..va).next_back().map_or(va, |(entry, _)| *entry);
+            seeds.push((va, Origin::Gap(after)));
+        }
+    }
     seeds
 }
 

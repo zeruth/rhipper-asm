@@ -56,8 +56,18 @@ pub fn build(image: &Image, arch: X86, entry: u64, ranges: &[(u64, u64)], known_
         tail_calls: Vec::new(),
         warnings: Vec::new(),
     };
-    while let Some(start) = b.worklist.pop() {
-        b.block(start);
+    let mut tried = BTreeSet::new();
+    loop {
+        while let Some(start) = b.worklist.pop() {
+            b.block(start);
+        }
+        // The funclets an exception frame registers are reached by the handler, not by the code;
+        // they belong to the function that registers them.
+        let roots: Vec<u64> = b.frame_funclets().into_iter().filter(|&va| !b.blocks.contains_key(&va) && tried.insert(va)).collect();
+        if roots.is_empty() {
+            break;
+        }
+        b.worklist.extend(roots);
     }
     b.finish()
 }
@@ -72,6 +82,165 @@ impl Builder<'_> {
             return false;
         }
         self.ranges.iter().any(|&(begin, end)| va >= begin && va < end)
+    }
+
+    /// Whether a jump to `target` crosses the `int 3` fill the linker and the compiler put between
+    /// x86 functions, and so leaves this one: `jmp __report_gsfailure` after a cookie check, a
+    /// vector deleting destructor jumping into the scalar one, a tail call to the next function.
+    /// Nothing pads the inside of a function with `int 3` up to a 16-byte boundary: clang's lone
+    /// `int 3` after a call that never returns precedes a block of the same function, which is
+    /// not aligned. On x64 the exception table bounds a function exactly.
+    fn beyond_fill(&self, target: u64) -> bool {
+        self.arch.bits == 32
+            && target.is_multiple_of(16)
+            && !self.blocks.contains_key(&target)
+            && target != self.entry
+            && self.image.u8(target - 1).is_ok_and(|b| b == 0xcc)
+    }
+
+    /// The funclets of the exception frame this function registers on x86. The prologue stores the
+    /// handler and, for SEH, the scope table, then reads `fs:[0]`: MSVC pushes them, clang writes
+    /// the record in place. A scope table (data) names filters and handlers; a C++ handler is the
+    /// function's `__ehhandler$` stub (code), whose `FuncInfo` names the cleanup actions and the
+    /// catch handlers; a catch handler returns its continuation, which is the function's too. A
+    /// filter clang outlines into a function of its own follows `int 3` fill, as a funclet of the
+    /// function never does, and stays a function.
+    fn frame_funclets(&self) -> Vec<u64> {
+        let mut out = Vec::new();
+        if self.arch.bits != 32 {
+            return out;
+        }
+        let after_fill = |va: &u64| self.image.u8(va - 1).is_ok_and(|b| b == 0xcc);
+        for block in self.blocks.values() {
+            for (n, instr) in block.instrs.iter().enumerate() {
+                let reads_frame_chain = instr.mnemonic == "mov"
+                    && instr.operands.iter().any(|o| {
+                        matches!(o, Operand::Mem(m) if m.segment.map(|s| s.name) == Some("fs") && m.base.is_none() && m.index.is_none() && m.disp == 0)
+                    });
+                if !reads_frame_chain {
+                    continue;
+                }
+                for stored in block.instrs[n.saturating_sub(6)..n].iter().flat_map(|i| &i.operands) {
+                    let Operand::Imm { value, bits: 32 } = stored else { continue };
+                    let va = *value as u64 & 0xffff_ffff;
+                    if self.image.is_code(va) {
+                        out.extend(self.cxx_funclets(va));
+                    } else if self.image.section_of(va).is_some() {
+                        out.extend(self.seh_funclets(va));
+                    }
+                }
+            }
+        }
+        out.retain(|va| !after_fill(va));
+        out
+    }
+
+    /// The filters and handlers of an SEH scope table: `{level, filter, handler}` entries, where
+    /// the level encloses the entry (-1, or an earlier index) and the handler is code of this
+    /// function. `__except_handler3`'s table (clang) starts with the entries; `__except_handler4`'s
+    /// (MSVC) puts the four cookie offsets first. A filter clang outlines into a function of its
+    /// own fails the test of this function's code and stays one.
+    fn seh_funclets(&self, table: u64) -> Vec<u64> {
+        let entries = |mut at: u64| {
+            let mut out = Vec::new();
+            for index in 0..256u32 {
+                let (Ok(level), Ok(filter), Ok(handler)) = (self.image.u32(at), self.image.u32(at + 4), self.image.u32(at + 8)) else {
+                    break;
+                };
+                // -1 is the outermost level of `__except_handler3`, -2 that of `__except_handler4`.
+                let level_fits = level == 0xffff_ffff || level == 0xffff_fffe || level < index;
+                if !(level_fits && handler != 0 && self.internal(u64::from(handler))) {
+                    break;
+                }
+                out.extend([u64::from(filter), u64::from(handler)].into_iter().filter(|&va| va != 0 && self.internal(va)));
+                at += 12;
+            }
+            out
+        };
+        let plain = entries(table);
+        if plain.is_empty() { entries(table + 16) } else { plain }
+    }
+
+    /// The funclets a C++ handler stub names: `mov eax, offset FuncInfo; jmp __CxxFrameHandler3`,
+    /// after a cookie check when the function has one, the unwind map's actions and the try
+    /// blocks' catch handlers of the `FuncInfo`, and the continuation each catch handler returns
+    /// with `mov eax, offset L; ret`.
+    fn cxx_funclets(&self, stub: u64) -> Vec<u64> {
+        let mut out = Vec::new();
+        let mut va = stub;
+        let mut info = None;
+        for _ in 0..16 {
+            let Some(instr) = self.decode(va) else { return out };
+            if let (Some(Operand::Reg(r)), Some(Operand::Imm { value, bits: 32 })) = (instr.operands.first(), instr.operands.get(1))
+                && instr.mnemonic == "mov"
+                && r.name == "eax"
+            {
+                let at = *value as u64 & 0xffff_ffff;
+                if self.image.u32(at).is_ok_and(|magic| magic & 0xffff_ff00 == 0x1993_0500) {
+                    info = Some(at);
+                }
+            }
+            match instr.flow {
+                Flow::Next | Flow::Call(_) => va = instr.end(),
+                Flow::Jump(Target::Direct(_)) => break,
+                _ => return out,
+            }
+        }
+        let Some(info) = info else { return out };
+        let field = |n: u64| self.image.u32(info + 4 * n).map_or(0, u64::from);
+        let (states, unwind_map, try_blocks, try_map) = (field(1).min(4096), field(2), field(3).min(4096), field(4));
+        for state in 0..states {
+            if let Ok(action) = self.image.u32(unwind_map + state * 8 + 4)
+                && action != 0
+                && self.internal(u64::from(action))
+            {
+                out.push(u64::from(action));
+            }
+        }
+        for block in 0..try_blocks {
+            let entry = try_map + block * 20;
+            let catches = self.image.u32(entry + 12).map_or(0, u64::from).min(256);
+            let handlers = self.image.u32(entry + 16).map_or(0, u64::from);
+            for n in 0..catches {
+                let Ok(handler) = self.image.u32(handlers + n * 16 + 12) else { continue };
+                if !self.internal(u64::from(handler)) {
+                    continue;
+                }
+                out.push(u64::from(handler));
+                out.extend(self.catch_continuations(u64::from(handler)));
+            }
+        }
+        out
+    }
+
+    /// The addresses a catch handler returns to the frame handler: a `mov eax, offset L` in a
+    /// returning block reachable from the handler, once its blocks are built.
+    fn catch_continuations(&self, handler: u64) -> Vec<u64> {
+        let mut out = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut stack = vec![handler];
+        while let Some(start) = stack.pop() {
+            let Some(block) = self.blocks.get(&start) else { continue };
+            if !seen.insert(start) {
+                continue;
+            }
+            stack.extend(block.terminator.successors());
+            if !matches!(block.terminator, Terminator::Return) {
+                continue;
+            }
+            for instr in &block.instrs {
+                if let (Some(Operand::Reg(r)), Some(Operand::Imm { value, bits: 32 })) = (instr.operands.first(), instr.operands.get(1))
+                    && instr.mnemonic == "mov"
+                    && r.name == "eax"
+                {
+                    let target = *value as u64 & 0xffff_ffff;
+                    if self.internal(target) {
+                        out.push(target);
+                    }
+                }
+            }
+        }
+        out
     }
 
     fn decode(&self, va: u64) -> Option<Instr> {
@@ -130,7 +299,7 @@ impl Builder<'_> {
                 }
                 Flow::Next | Flow::Interrupt => {}
                 Flow::Jump(Target::Direct(target)) => {
-                    draft.terminator = if self.internal(target) {
+                    draft.terminator = if self.internal(target) && !self.beyond_fill(target) {
                         self.worklist.push(target);
                         Terminator::Jump(target)
                     } else {

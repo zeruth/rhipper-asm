@@ -38,6 +38,51 @@ fn map_functions(name: &str) -> BTreeMap<String, u64> {
     out
 }
 
+/// The functions of an rhtest map: `address -> name`. MSVC's `link` flags a function with `f`
+/// and lists the statics under `Static symbols`; lld (the clang builds) flags nothing, so there
+/// every decorated code symbol counts (`_name`, `@name@4`, `?name@@...`), and the labels the
+/// assembler-written runtime objects leak (`L1`, `cs10`, `$ehgcr_4_31`) do not. The import thunks
+/// (`ucrt:api-ms-win-crt-runtime-l1-1-0.dll`) are left out: the analysis knows them as thunks,
+/// not as functions of the program. The exception funclets (`__catch$f$0`, `?dtor$3@?0?f@4HA`)
+/// are pieces of their function, not functions.
+fn rhtest_map_functions(path: &Path) -> BTreeMap<u64, String> {
+    let text = std::fs::read_to_string(path).unwrap();
+    let msvc = text.lines().any(|l| l.split_whitespace().nth(3) == Some("f"));
+    let mut out = BTreeMap::new();
+    for line in text.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 4 || !parts[0].starts_with("0001:") || parts[1].ends_with('H') {
+            continue;
+        }
+        let object = *parts.last().unwrap();
+        let symbol = parts[1];
+        let decorated = symbol.starts_with(['_', '@', '?']);
+        let funclet = ["__catch$", "__unwindfunclet$", "?catch$", "?dtor$"].iter().any(|p| symbol.starts_with(p));
+        let thunk = Path::new(object).extension().is_some_and(|e| e.eq_ignore_ascii_case("dll"));
+        if thunk || (msvc && parts[3] != "f") || (!msvc && !decorated) || funclet {
+            continue;
+        }
+        let address = u64::from_str_radix(parts[2], 16).unwrap();
+        out.entry(address).or_insert_with(|| parts[1].to_owned());
+    }
+    out
+}
+
+/// Every rhtest binary with its map: `<name>-<variant>.exe` beside `<name>-<variant>.map`.
+fn rhtest_binaries() -> Vec<(PathBuf, PathBuf)> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/rhtest");
+    let mut out: Vec<(PathBuf, PathBuf)> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| {
+            let path = e.ok()?.path();
+            (path.extension()? == "exe").then(|| (path.clone(), path.with_extension("map")))
+        })
+        .collect();
+    out.sort();
+    assert!(!out.is_empty(), "rhtest binaries under {}", dir.display());
+    out
+}
+
 fn by_name<'a>(analysis: &'a Analysis<'_>, map: &BTreeMap<String, u64>, name: &str) -> &'a ra_asm_analysis::Function {
     let address = map[name];
     analysis.function(address).unwrap_or_else(|| panic!("{name} at {address:#x} is a function"))
@@ -67,6 +112,41 @@ fn finds_exactly_the_functions_of_the_linker_maps() {
         assert!(unresolved.is_empty(), "{binary}: {:?}", analysis.warnings);
         assert_eq!(analysis.name_of(image.entry_point().unwrap()), "entry");
     }
+}
+
+/// The MSVC shapes over the rhtest programs: `int 3` padding between functions, jump tables in
+/// `.text`, `__security_check_cookie`, the hot and cold halves of one function, the CRT's own
+/// code. A map function the analysis misses, one it splits (an entry of ours inside a map
+/// function) and one it invents all fail by name.
+#[test]
+fn finds_the_functions_of_the_rhtest_maps() {
+    let mut failures = Vec::new();
+    for (binary, map) in rhtest_binaries() {
+        let name = binary.file_name().unwrap().to_string_lossy().into_owned();
+        let image = ra_asm_pe::load(&binary).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        let analysis = analyze(&image);
+        let expected = rhtest_map_functions(&map);
+        let mut lines = Vec::new();
+        for (&address, symbol) in &expected {
+            if analysis.function(address).is_none() {
+                let inside = analysis.containing(address).map(|f| format!(" (inside {} at {:#x})", f.name, f.entry)).unwrap_or_default();
+                lines.push(format!("  missed {symbol} at {address:#x}{inside}"));
+            }
+        }
+        for f in analysis.functions.values() {
+            if f.is_thunk() || expected.contains_key(&f.entry) {
+                continue;
+            }
+            match expected.range(..f.entry).next_back() {
+                Some((&start, symbol)) => lines.push(format!("  split {symbol} at {start:#x}: an entry at {:#x}", f.entry)),
+                None => lines.push(format!("  invented {} at {:#x}", f.name, f.entry)),
+            }
+        }
+        if !lines.is_empty() {
+            failures.push(format!("{name}: {} map functions, {} found\n{}", expected.len(), analysis.functions.len(), lines.join("\n")));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
