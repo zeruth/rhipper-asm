@@ -57,8 +57,20 @@ fn same_mnemonic(ours: &str, theirs: &str) -> bool {
     if ours == theirs {
         return true;
     }
-    // `66 90` is `xchg ax, ax` to iced and `nop` to objdump: the same two bytes.
-    matches!((ours, theirs), ("mov", "movabs") | ("call", "callq") | ("ret", "retq") | ("jmp", "jmpq") | ("xchg", "nop"))
+    // `66 90` is `xchg ax, ax` to iced and `nop` to objdump: the same two bytes. `9b` is `fwait` to
+    // iced and `wait` to objdump, `d7` is `xlat [ebx]` and `xlatb`: the x87 and the table-lookup
+    // spellings the static CRT's floating-point code uses. A far `jmp`/`call` (data read as `ea`/`9a`)
+    // is `ljmp`/`lcall` to objdump.
+    matches!(
+        (ours, theirs),
+        ("mov", "movabs")
+            | ("call", "callq" | "lcall")
+            | ("ret", "retq")
+            | ("jmp", "jmpq" | "ljmp")
+            | ("xchg", "nop")
+            | ("fwait", "wait")
+            | ("xlat", "xlatb")
+    )
 }
 
 #[test]
