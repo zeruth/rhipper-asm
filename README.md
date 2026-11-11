@@ -46,7 +46,7 @@ Three decisions shape the design:
 | `ra-asm-ir` | The LLVM-IR-shaped intermediate representation and its `.ll` printer |
 | `ra-asm-lift` | Instructions to machine IR over an explicit `%State`, and the raising passes: signature inference, state promotion, the ABI rewrite, conditions, frames, simplification |
 | `ra-asm-emit` | The structuring pass (if, else, loops, switch, short-circuit conditions) and the C backend; C++ and Rust planned |
-| `ras` (app) | The command line: `info`, `sections`, `imports`, `exports`, `relocs`, `debug`, `functions`, `cfg`, `disasm`, `lift`, `signatures`, `emit` |
+| `ras` (app) | The command line: `info`, `sections`, `imports`, `exports`, `relocs`, `debug`, `functions`, `cfg`, `disasm`, `callers`, `xrefs`, `lift`, `signatures`, `emit`, `pipeline` |
 
 `ras lift` raises in three levels: `--machine` keeps the lifted IR over `%State`; `--promoted`
 turns the registers and flags into SSA values; the default applies the inferred signatures, so each
@@ -60,6 +60,13 @@ the output needs in `runtime/rhipper.h`. The output is standalone: it builds wit
 `functions.json`, the table the workbench reads: every function's address, name, size, file and
 line, how far the lift got (`lifted`, `partial` with a trap count, `thunk`, `not lifted`), its
 calls and its imports.
+
+`ras pipeline` runs a port project end to end from its `rhipper.json`, which names the reference
+binary and, with defaults for all of them, the `gen` directory of the translation, the CMake build
+and how to run the port. The steps are `analyze`, `lift`, `emit`, `build` and `run`; `--from` and
+`--only` pick them. Each step logs to `build/pipeline/<step>.log` and prints a `[  12s] step`
+progress line, the build writes a `CMakeLists.txt` for a project that has none, and every run of
+the port appends to `build/pipeline/runs.jsonl`. This is what the Rhipper Workbench drives.
 
 `runtime/driver.c` hosts a lifted program at any level: it maps the image at its own base, binds
 the import slots, and either gives the machine state a stack or installs a trampoline at each

@@ -1,0 +1,433 @@
+//! `ras pipeline`: the steps from the reference binary to a running port, in a project with a
+//! `rhipper.json`. The steps are `analyze`, `lift`, `emit`, `build` and `run`; each writes its log to
+//! `build/pipeline/<step>.log`, and the pipeline prints one progress line per step, `[  12s] emit`,
+//! which the workbench reads to show the step in work. A failed step prints
+//! `[  12s] build failed: stopping` and the pipeline ends; the last line of a whole run is `done`.
+//! Every run of the port appends a record to `build/pipeline/runs.jsonl`.
+
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use anyhow::{Context, Result, bail};
+
+use crate::project::Project;
+
+const CMAKE_LISTS: &str = include_str!("../templates/CMakeLists.txt");
+const RHIPPER_H: &str = include_str!("../../../runtime/rhipper.h");
+const DRIVER_C: &str = include_str!("../../../runtime/driver.c");
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Step {
+    Analyze,
+    Lift,
+    Emit,
+    Build,
+    Run,
+}
+
+impl Step {
+    pub(crate) const ALL: [Step; 5] = [Step::Analyze, Step::Lift, Step::Emit, Step::Build, Step::Run];
+
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Step::Analyze => "analyze",
+            Step::Lift => "lift",
+            Step::Emit => "emit",
+            Step::Build => "build",
+            Step::Run => "run",
+        }
+    }
+
+    pub(crate) fn parse(text: &str) -> Option<Step> {
+        Step::ALL.into_iter().find(|s| s.id() == text)
+    }
+}
+
+/// Which steps run, and how long the port may run.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Options {
+    pub from: Option<Step>,
+    pub only: Option<Step>,
+    /// Stops the port after this many seconds and counts the run as alive; over `run.timeout`.
+    pub timeout: Option<u64>,
+}
+
+/// Runs the pipeline of the project at `root`.
+pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
+    let project = Project::load(root)?;
+    let steps: Vec<Step> = match (options.only, options.from) {
+        (Some(step), _) => vec![step],
+        (None, Some(first)) => Step::ALL.into_iter().filter(|s| *s >= first).collect(),
+        (None, None) => Step::ALL.to_vec(),
+    };
+    fs::create_dir_all(project.log_dir())?;
+    let progress = Progress { started: Instant::now() };
+    let mut pipeline = Pipeline { project, progress, image: None, timeout: options.timeout };
+    for step in steps {
+        pipeline.progress.line(step.id());
+        let log = pipeline.project.log_dir().join(format!("{}.log", step.id()));
+        let mut log = File::create(&log).with_context(|| format!("cannot write {}", log.display()))?;
+        let result = match step {
+            Step::Analyze => pipeline.analyze(&mut log),
+            Step::Lift => pipeline.lift(&mut log),
+            Step::Emit => pipeline.emit(&mut log),
+            Step::Build => pipeline.build(&mut log),
+            Step::Run => pipeline.run_port(&mut log),
+        };
+        if let Err(e) = result {
+            let _ = writeln!(log, "error: {e:#}");
+            eprintln!("error: {e:#}");
+            pipeline.progress.line(&format!("{} failed: stopping", step.id()));
+            bail!("{} failed", step.id());
+        }
+    }
+    pipeline.progress.line("done");
+    Ok(())
+}
+
+struct Progress {
+    started: Instant,
+}
+
+impl Progress {
+    fn line(&self, text: &str) {
+        println!("[{:>4}s] {text}", self.started.elapsed().as_secs());
+        let _ = std::io::stdout().flush();
+    }
+}
+
+struct Pipeline {
+    project: Project,
+    progress: Progress,
+    /// The reference image, loaded by the first step that needs it.
+    image: Option<ra_asm_pe::Image>,
+    timeout: Option<u64>,
+}
+
+impl Pipeline {
+    fn image(&mut self) -> Result<&ra_asm_pe::Image> {
+        if self.image.is_none() {
+            self.image = Some(ra_asm_pe::load(&self.project.exe)?);
+        }
+        Ok(self.image.as_ref().expect("loaded"))
+    }
+
+    fn analyze(&mut self, log: &mut File) -> Result<()> {
+        let image = self.image()?;
+        let analysis = ra_asm_analysis::analyze(image);
+        let warnings = log_warnings(log, image.warnings.iter().chain(&analysis.warnings));
+        let summary = format!("{} functions, {} warnings", analysis.functions.len(), warnings);
+        writeln!(log, "{summary}")?;
+        println!("{summary}");
+        Ok(())
+    }
+
+    fn lift(&mut self, log: &mut File) -> Result<()> {
+        let build_dir = self.project.build_dir();
+        let image = self.image()?;
+        let analysis = ra_asm_analysis::analyze(image);
+        let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
+        ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions::default());
+        let text = lifted.module.to_ll();
+        fs::create_dir_all(&build_dir)?;
+        fs::write(build_dir.join("program.ll"), &text)?;
+        let warnings = log_warnings(log, analysis.warnings.iter().chain(&lifted.warnings));
+        let summary = format!(
+            "{} functions, {} imports, {} bytes of IR, {} warnings",
+            lifted.functions.len(),
+            lifted.imports.len(),
+            text.len(),
+            warnings
+        );
+        writeln!(log, "{summary}")?;
+        println!("{summary}");
+        Ok(())
+    }
+
+    fn emit(&mut self, log: &mut File) -> Result<()> {
+        let gen_dir = self.project.gen_dir.clone();
+        let build_dir = self.project.build_dir();
+        let image = self.image()?;
+        let analysis = ra_asm_analysis::analyze(image);
+        let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true });
+        let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, ra_asm_lift::RaiseOptions::default());
+        let infos = ra_asm_emit::functions::infos(&analysis);
+        let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
+        let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names });
+        let text = unit.text();
+        let runtime = gen_dir.join("runtime");
+        fs::create_dir_all(&runtime).with_context(|| format!("cannot create {}", runtime.display()))?;
+        fs::create_dir_all(&build_dir)?;
+        fs::write(gen_dir.join("program.c"), &text)?;
+        fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
+        fs::write(runtime.join("rhipper.h"), RHIPPER_H)?;
+        fs::write(runtime.join("driver.c"), DRIVER_C)?;
+        fs::write(build_dir.join("functions.json"), ra_asm_emit::table(&unit, "program.c", &infos))?;
+        let traps: usize = unit.functions.iter().map(|f| f.traps).sum();
+        let warnings = log_warnings(log, analysis.warnings.iter().chain(&lifted.warnings));
+        let summary = format!(
+            "{} functions, {} bytes of C, {} instructions not lifted, {} warnings -> {}",
+            unit.functions.len(),
+            text.len(),
+            traps,
+            warnings,
+            gen_dir.display()
+        );
+        writeln!(log, "{summary}")?;
+        println!("{summary}");
+        Ok(())
+    }
+
+    fn build(&mut self, log: &mut File) -> Result<()> {
+        let project = &self.project;
+        write_cmake_lists(project)?;
+        let cmake = "cmake";
+        let dir = &project.build.dir;
+        if !dir.join("CMakeCache.txt").is_file() {
+            let mut configure = Command::new(cmake);
+            configure.arg("-S").arg(&project.root).arg("-B").arg(dir).args(generator_args(&project.build.config));
+            let outcome = run_logged(&mut configure, log, None)?;
+            if outcome.code != Some(0) {
+                bail!("cmake configure exited with {}", outcome.exit());
+            }
+        }
+        let mut build = Command::new(cmake);
+        build.arg("--build").arg(dir).args(["--config", &project.build.config, "--parallel", "--target", &project.build.target]);
+        let outcome = run_logged(&mut build, log, None)?;
+        if outcome.code != Some(0) {
+            bail!("cmake build exited with {}", outcome.exit());
+        }
+        Ok(())
+    }
+
+    fn run_port(&mut self, log: &mut File) -> Result<()> {
+        let project = &self.project;
+        let exe = project.port_exe();
+        if !exe.is_file() {
+            bail!("no port at {}: build it first", exe.display());
+        }
+        let timeout = self.timeout.or(project.run.timeout).map(Duration::from_secs);
+        let log_dir = project.log_dir();
+        let mut side: Vec<Child> = Vec::new();
+        for command in &project.run.with {
+            let args: Vec<String> = command.iter().map(|a| a.replace("{out}", &log_dir.to_string_lossy())).collect();
+            let child = Command::new(&args[0])
+                .args(&args[1..])
+                .current_dir(&project.root)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .with_context(|| format!("cannot start {}", args[0]))?;
+            side.push(child);
+        }
+        let mut port = Command::new(&exe);
+        port.args(&project.run.args).current_dir(&project.run.cwd);
+        let outcome = run_logged(&mut port, log, timeout);
+        for mut child in side {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let outcome = outcome?;
+        let record = serde_json::json!({
+            "when": now_iso(),
+            "commit": git(&project.root, &["rev-parse", "--short", "HEAD"]).unwrap_or_default(),
+            "dirty_gen": git(&project.root, &["status", "--porcelain", "--", &project.gen_dir.to_string_lossy()]).is_some_and(|s| !s.is_empty()),
+            "secs": outcome.secs,
+            "alive": outcome.alive,
+            "exit": outcome.exit(),
+            "fault": outcome.fault(),
+        });
+        let mut runs = fs::OpenOptions::new().create(true).append(true).open(log_dir.join("runs.jsonl"))?;
+        writeln!(runs, "{record}")?;
+        let summary =
+            format!("exit {}{}, {} s", outcome.exit(), outcome.fault().map(|f| format!(" ({f})")).unwrap_or_default(), outcome.secs);
+        writeln!(log, "{summary}")?;
+        println!("{summary}");
+        if !outcome.alive && outcome.code != Some(0) {
+            bail!("the port exited with {}", outcome.exit());
+        }
+        Ok(())
+    }
+}
+
+/// Writes the warnings to the log and returns how many there were.
+fn log_warnings<'a>(log: &mut File, warnings: impl Iterator<Item = &'a String>) -> usize {
+    let mut count = 0;
+    for w in warnings {
+        let _ = writeln!(log, "warning: {w}");
+        count += 1;
+    }
+    count
+}
+
+/// Writes the `CMakeLists.txt` of a project that has none.
+fn write_cmake_lists(project: &Project) -> Result<()> {
+    let file = project.root.join("CMakeLists.txt");
+    if file.exists() {
+        return Ok(());
+    }
+    let gen_dir = match project.gen_dir.strip_prefix(&project.root) {
+        Ok(relative) => format!("${{CMAKE_CURRENT_SOURCE_DIR}}/{}", slashes(relative)),
+        Err(_) => slashes(&project.gen_dir),
+    };
+    let text = CMAKE_LISTS.replace("@NAME@", &project.name).replace("@TARGET@", &project.build.target).replace("@GEN_DIR@", &gen_dir);
+    fs::write(&file, text).with_context(|| format!("cannot write {}", file.display()))
+}
+
+fn slashes(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+/// The generator and the compiler of a new build directory: the environment's `CMAKE_GENERATOR`
+/// when set; else Ninja with clang when both are on the PATH, else Visual Studio with clang-cl,
+/// else the default generator. The translation needs a clang front end.
+fn generator_args(config: &str) -> Vec<String> {
+    if std::env::var_os("CMAKE_GENERATOR").is_some() {
+        return Vec::new();
+    }
+    if on_path("ninja") && on_path("clang") {
+        return vec![
+            "-G".into(),
+            "Ninja".into(),
+            "-DCMAKE_C_COMPILER=clang".into(),
+            "-DCMAKE_CXX_COMPILER=clang++".into(),
+            format!("-DCMAKE_BUILD_TYPE={config}"),
+        ];
+    }
+    if on_path("clang-cl") {
+        return vec!["-A".into(), "x64".into(), "-T".into(), "ClangCL".into()];
+    }
+    vec!["-A".into(), "x64".into()]
+}
+
+fn on_path(tool: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else { return false };
+    std::env::split_paths(&path).any(|dir| dir.join(format!("{tool}.exe")).is_file() || dir.join(tool).is_file())
+}
+
+/// The end of a process the pipeline ran.
+struct Outcome {
+    /// The exit code; `None` when the pipeline stopped the process.
+    code: Option<i32>,
+    /// Whether the process ran until the pipeline stopped it at the timeout.
+    alive: bool,
+    secs: u64,
+}
+
+impl Outcome {
+    /// The exit code as text: decimal, or `0x` and eight digits for a status such as `0xc0000005`.
+    fn exit(&self) -> String {
+        match self.code {
+            None => "stopped".to_owned(),
+            Some(code) if !(0..=0xFFFF).contains(&code) => format!("0x{:08x}", code as u32),
+            Some(code) => code.to_string(),
+        }
+    }
+
+    /// What ended the process, when the exit code is a Windows status or a runtime stop.
+    fn fault(&self) -> Option<String> {
+        let code = self.code? as u32;
+        let name = match code {
+            0xC000_0005 => "access violation",
+            0xC000_001D => "illegal instruction",
+            0xC000_0094 => "integer divide by zero",
+            0xC000_00FD => "stack overflow",
+            0xC000_0409 => "stack buffer overrun",
+            0xC000_0374 => "heap corruption",
+            0xE000_0001 => "trap",
+            0xE000_0002 => "an instruction the lift does not cover",
+            0xE000_0003 => "an indirect call to no lifted function",
+            0xE000_0004 => "an import that did not bind",
+            0xC000_0000..=0xFFFF_FFFF => "exception",
+            _ => return None,
+        };
+        Some(format!("{code:08x} {name}"))
+    }
+}
+
+/// Runs `command` with its output written to `log` and to the pipeline's own output as it comes,
+/// stopping it after `timeout`.
+fn run_logged(command: &mut Command, log: &mut File, timeout: Option<Duration>) -> Result<Outcome> {
+    let started = Instant::now();
+    let program = command.get_program().to_string_lossy().into_owned();
+    let line =
+        std::iter::once(program.clone()).chain(command.get_args().map(|a| a.to_string_lossy().into_owned())).collect::<Vec<_>>().join(" ");
+    writeln!(log, "$ {line}")?;
+    println!("$ {line}");
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("cannot start {program}"))?;
+    let sink = Arc::new(Mutex::new(log.try_clone()?));
+    let readers: Vec<_> = [
+        child.stdout.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+        child.stderr.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|stream| {
+        let sink = Arc::clone(&sink);
+        std::thread::spawn(move || {
+            for line in BufReader::new(stream).lines().map_while(Result::ok) {
+                println!("{line}");
+                if let Ok(mut log) = sink.lock() {
+                    let _ = writeln!(log, "{line}");
+                }
+            }
+        })
+    })
+    .collect();
+    let mut alive = false;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if timeout.is_some_and(|t| started.elapsed() >= t) {
+            alive = true;
+            let _ = child.kill();
+            break child.wait()?;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    for reader in readers {
+        let _ = reader.join();
+    }
+    let _ = std::io::stdout().flush();
+    Ok(Outcome { code: if alive { None } else { status.code() }, alive, secs: started.elapsed().as_secs() })
+}
+
+fn git(root: &Path, args: &[&str]) -> Option<String> {
+    let output = Command::new("git").arg("-C").arg(root).args(args).stdin(Stdio::null()).output().ok()?;
+    output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+/// The time now as `2026-11-10T12:34:56Z`.
+#[allow(clippy::many_single_char_names)]
+fn now_iso() -> String {
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let (days, rem) = (secs / 86_400, secs % 86_400);
+    let (h, m, s) = (rem / 3600, rem % 3600 / 60, rem % 60);
+    // Days to a civil date (Howard Hinnant's algorithm).
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(mo <= 2);
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
+}
+
+/// The project directory of the pipeline: `--project`, else the current directory.
+pub(crate) fn project_dir(given: Option<&Path>) -> PathBuf {
+    given.map_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")), Path::to_path_buf)
+}

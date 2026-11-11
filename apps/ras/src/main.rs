@@ -5,8 +5,11 @@ mod disasm;
 mod emit;
 mod functions;
 mod lift;
+mod pipeline;
+mod project;
 mod report;
 mod signatures;
+mod xrefs;
 
 use std::path::PathBuf;
 
@@ -86,6 +89,39 @@ enum Command {
         /// The number of bytes, in hexadecimal.
         length: Option<String>,
     },
+    /// Every call or jump to a function, and every pointer to it in the data.
+    Callers {
+        pe: PathBuf,
+        /// `0x140001000`, `140001000` or `F_140001000`.
+        address: String,
+    },
+    /// Every instruction and data pointer that refers into an address range `[lo, hi)`.
+    Xrefs {
+        pe: PathBuf,
+        lo: String,
+        /// The first address after the range; `lo + 1` without it.
+        hi: Option<String>,
+    },
+    /// The steps from the reference binary to a running port: analyze, lift, emit, build and run,
+    /// in the project whose `rhipper.json` is in `--project` (the current directory without it).
+    Pipeline {
+        #[arg(long)]
+        project: Option<PathBuf>,
+        /// The first step to run; every step after it runs too.
+        #[arg(long, conflicts_with = "only")]
+        from: Option<String>,
+        /// The one step to run.
+        #[arg(long)]
+        only: Option<String>,
+        /// Stop the port after this many seconds and count the run as alive.
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+}
+
+fn step(text: Option<String>) -> anyhow::Result<Option<pipeline::Step>> {
+    text.map(|t| pipeline::Step::parse(&t).ok_or_else(|| anyhow::anyhow!("no step `{t}`: the steps are analyze, lift, emit, build, run")))
+        .transpose()
 }
 
 fn main() -> anyhow::Result<()> {
@@ -117,6 +153,16 @@ fn main() -> anyhow::Result<()> {
             let address = disasm::parse_address(&address)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;
             disasm::disasm(&ra_asm_pe::load(&pe)?, address, length, json)
+        }
+        Command::Callers { pe, address } => xrefs::callers(&ra_asm_pe::load(&pe)?, disasm::parse_address(&address)?, json),
+        Command::Xrefs { pe, lo, hi } => {
+            let lo = disasm::parse_address(&lo)?;
+            let hi = hi.as_deref().map(disasm::parse_address).transpose()?;
+            xrefs::xrefs(&ra_asm_pe::load(&pe)?, lo, hi, json)
+        }
+        Command::Pipeline { project, from, only, timeout } => {
+            let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout };
+            pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
     }
 }
