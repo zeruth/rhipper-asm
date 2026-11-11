@@ -34,18 +34,45 @@ pub struct EmittedFunction {
     pub text: String,
 }
 
-/// A translation unit in pieces: the preamble (the include, the externs, the prototypes and the
-/// globals) and the functions, so the function table can say where each one is.
+/// The translation in pieces: the shared declarations, the data and the functions, so the output
+/// can be one file or several, and the function table can say where each function is.
 #[derive(Debug, Clone)]
 pub struct Unit {
-    pub preamble: String,
+    /// The comment and the include of the runtime header.
+    pub include: String,
+    /// The imports, as `extern` declarations.
+    pub externs: String,
+    /// The prototypes of the functions.
+    pub prototypes: String,
+    /// The structure types of the data globals.
+    pub global_types: String,
+    /// The `extern` declarations of the data globals, for the other files of a split output.
+    pub global_decls: String,
+    /// The definitions of the data globals, with their initializers.
+    pub global_defs: String,
     pub functions: Vec<EmittedFunction>,
 }
 
+/// One file of the output, and the 1-based definition line of each function in it.
+#[derive(Debug, Clone)]
+pub struct EmittedFile {
+    pub name: String,
+    pub text: String,
+    pub functions: Vec<(String, usize)>,
+}
+
+/// The functions one file of a split output holds. A program with more functions than this is
+/// written as a header, a data file, and a file per this many functions.
+pub const FUNCTIONS_PER_FILE: usize = 500;
+
 impl Unit {
-    /// The whole translation unit.
+    /// The whole translation as one unit.
     pub fn text(&self) -> String {
-        let mut out = self.preamble.clone();
+        let mut out = String::new();
+        for part in [&self.include, &self.externs, &self.prototypes, &self.global_types, &self.global_defs] {
+            out.push_str(part);
+            out.push('\n');
+        }
         for f in &self.functions {
             out.push_str(&f.text);
             out.push('\n');
@@ -53,17 +80,49 @@ impl Unit {
         out
     }
 
-    /// The 1-based line of each function's definition in [`Unit::text`], in order.
-    pub fn definition_lines(&self) -> Vec<usize> {
-        let mut line = self.preamble.lines().count() + 1;
-        self.functions
-            .iter()
-            .map(|f| {
-                let definition = line + f.header_lines;
-                line += f.text.lines().count() + 1;
-                definition
-            })
-            .collect()
+    /// The files of the output: `program.c` alone up to `max_functions` functions, else
+    /// `program.h` with the declarations, `data.c` with the globals, and `program_NNN.c` each
+    /// with up to `max_functions` functions.
+    pub fn files(&self, max_functions: usize) -> Vec<EmittedFile> {
+        if self.functions.len() <= max_functions.max(1) {
+            let preamble = [&self.include, &self.externs, &self.prototypes, &self.global_types, &self.global_defs];
+            let mut text = String::new();
+            for part in preamble {
+                text.push_str(part);
+                text.push('\n');
+            }
+            let functions = Self::append_functions(&mut text, &self.functions);
+            return vec![EmittedFile { name: "program.c".into(), text, functions }];
+        }
+        let mut files = Vec::new();
+        let mut header = String::from("#pragma once\n");
+        for part in [&self.include, &self.externs, &self.prototypes, &self.global_types, &self.global_decls] {
+            header.push_str(part);
+            header.push('\n');
+        }
+        files.push(EmittedFile { name: "program.h".into(), text: header, functions: Vec::new() });
+        let mut data = String::from("#include \"program.h\"\n\n");
+        data.push_str(&self.global_defs);
+        files.push(EmittedFile { name: "data.c".into(), text: data, functions: Vec::new() });
+        for (index, chunk) in self.functions.chunks(max_functions.max(1)).enumerate() {
+            let mut text = String::from("#include \"program.h\"\n\n");
+            let functions = Self::append_functions(&mut text, chunk);
+            files.push(EmittedFile { name: format!("program_{index:03}.c"), text, functions });
+        }
+        files
+    }
+
+    /// Appends `functions` to `text` and returns each one's definition line in it.
+    fn append_functions(text: &mut String, functions: &[EmittedFunction]) -> Vec<(String, usize)> {
+        let mut line = text.lines().count() + 1;
+        let mut lines = Vec::with_capacity(functions.len());
+        for f in functions {
+            lines.push((f.ir_name.clone(), line + f.header_lines));
+            text.push_str(&f.text);
+            text.push('\n');
+            line += f.text.lines().count() + 1;
+        }
+        lines
     }
 }
 
@@ -74,15 +133,16 @@ pub fn emit_c(module: &Module, options: &Options) -> String {
 
 /// Writes `module` as C, in pieces.
 pub fn emit_unit(module: &Module, options: &Options) -> Unit {
-    let mut out = String::new();
-    let _ = writeln!(out, "// Generated by ras emit from {}.", module.name);
-    let _ = writeln!(out, "#include \"rhipper.h\"\n");
+    let mut include = String::new();
+    let _ = writeln!(include, "// Generated by ras emit from {}.", module.name);
+    let _ = writeln!(include, "#include \"rhipper.h\"");
 
     // The functions defined here, with their prototypes, so calls in any order resolve.
     let mut prototypes: HashMap<String, String> = HashMap::new();
     for f in &module.functions {
         prototypes.insert(f.name.clone(), prototype(f));
     }
+    let mut externs = String::new();
     for d in &module.declarations {
         // The intrinsics and the runtime are in rhipper.h.
         if d.name.starts_with("llvm.") || d.name.starts_with("ra_") || prototypes.contains_key(&d.name) {
@@ -90,22 +150,23 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
         }
         let params: Vec<String> = d.ty.params.iter().map(c_type).collect();
         let _ = writeln!(
-            out,
+            externs,
             "extern {} {}({});",
             c_type(&d.ty.ret),
             d.name,
             if params.is_empty() { "void".to_owned() } else { params.join(", ") }
         );
     }
-    out.push('\n');
+    let mut prototype_lines = String::new();
     for f in &module.functions {
-        let _ = writeln!(out, "{};", prototypes[&f.name]);
+        let _ = writeln!(prototype_lines, "{};", prototypes[&f.name]);
     }
-    out.push('\n');
+    let (mut global_types, mut global_decls, mut global_defs) = (String::new(), String::new(), String::new());
     for g in &module.globals {
-        emit_global(&mut out, g);
+        global_type(&mut global_types, g);
+        declare_global(&mut global_decls, g);
+        define_global(&mut global_defs, g);
     }
-    out.push('\n');
     let functions = module
         .functions
         .iter()
@@ -121,7 +182,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
             EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps, text }
         })
         .collect();
-    Unit { preamble: out, functions }
+    Unit { include, externs, prototypes: prototype_lines, global_types, global_decls, global_defs, functions }
 }
 
 fn prototype(f: &Function) -> String {
@@ -217,7 +278,47 @@ fn label(b: BlockId, f: &Function) -> String {
     format!("L_{s}")
 }
 
-fn emit_global(out: &mut String, g: &ra_asm_ir::Global) {
+/// The structure type of a packed data global, which its declaration and its definition share.
+fn global_type(out: &mut String, g: &ra_asm_ir::Global) {
+    if let (Type::Packed(fields), Some(Const::Struct(_))) = (&g.ty, &g.init) {
+        let _ = write!(out, "RA_PACKED_BEGIN struct {}_t {{ ", g.name);
+        for (i, field) in fields.iter().enumerate() {
+            match field {
+                Type::Array(n, _) => {
+                    let _ = write!(out, "uint8_t f{i}[{n}]; ");
+                }
+                other => {
+                    let _ = write!(out, "{} f{i}; ", c_type(other));
+                }
+            }
+        }
+        let _ = writeln!(out, "}} RA_PACKED_END;");
+    }
+}
+
+/// The `extern` declaration of a data global, for the files that do not define it.
+fn declare_global(out: &mut String, g: &ra_asm_ir::Global) {
+    let storage = if g.constant { "const " } else { "" };
+    match (&g.ty, &g.init) {
+        (Type::Array(n, e), Some(Const::Bytes(_) | Const::Zero)) if **e == Type::I8 => {
+            let _ = writeln!(out, "extern {storage}uint8_t {}[{n}];", g.name);
+        }
+        (Type::Packed(_), Some(Const::Struct(_))) => {
+            let _ = writeln!(out, "extern {storage}struct {}_t {};", g.name, g.name);
+        }
+        (Type::Array(_, e), Some(Const::Array(items))) if matches!(**e, Type::Struct(_)) => {
+            let _ = writeln!(out, "extern const struct ra_function_entry {}[{}];", g.name, items.len().max(1));
+        }
+        (Type::Int(64), Some(Const::Int(_))) => {
+            let _ = writeln!(out, "extern {storage}uint64_t {};", g.name);
+        }
+        _ => {}
+    }
+}
+
+/// The definition of a data global, with its initializer. The type of a packed global comes from
+/// [`global_type`] first.
+fn define_global(out: &mut String, g: &ra_asm_ir::Global) {
     let storage = if g.constant { "const " } else { "" };
     match (&g.ty, &g.init) {
         (Type::Array(n, e), Some(Const::Bytes(bytes))) if **e == Type::I8 => {
@@ -231,18 +332,6 @@ fn emit_global(out: &mut String, g: &ra_asm_ir::Global) {
         (Type::Packed(fields), Some(Const::Struct(items))) => {
             // A packed structure of byte runs and address words. The initializer casts each
             // address to an integer, which the compilers accept in a static initializer.
-            let _ = write!(out, "RA_PACKED_BEGIN struct {}_t {{ ", g.name);
-            for (i, field) in fields.iter().enumerate() {
-                match field {
-                    Type::Array(n, _) => {
-                        let _ = write!(out, "uint8_t f{i}[{n}]; ");
-                    }
-                    other => {
-                        let _ = write!(out, "{} f{i}; ", c_type(other));
-                    }
-                }
-            }
-            let _ = writeln!(out, "}} RA_PACKED_END;");
             let _ = write!(out, "{storage}struct {}_t {} RA_ALIGNED(16) = {{ ", g.name, g.name);
             for (i, (item, field)) in items.iter().zip(fields).enumerate() {
                 if i > 0 {

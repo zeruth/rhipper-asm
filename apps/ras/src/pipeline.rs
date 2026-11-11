@@ -166,21 +166,23 @@ impl Pipeline {
         let infos = ra_asm_emit::functions::infos(&analysis);
         let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
         let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names });
-        let text = unit.text();
+        let files = unit.files(ra_asm_emit::FUNCTIONS_PER_FILE);
         let runtime = gen_dir.join("runtime");
         fs::create_dir_all(&runtime).with_context(|| format!("cannot create {}", runtime.display()))?;
         fs::create_dir_all(&build_dir)?;
-        fs::write(gen_dir.join("program.c"), &text)?;
+        ra_asm_emit::write_files(&gen_dir, &files).with_context(|| format!("cannot write into {}", gen_dir.display()))?;
         fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
         fs::write(runtime.join("rhipper.h"), RHIPPER_H)?;
         fs::write(runtime.join("driver.c"), DRIVER_C)?;
-        fs::write(build_dir.join("functions.json"), ra_asm_emit::table(&unit, "program.c", &infos))?;
+        fs::write(build_dir.join("functions.json"), ra_asm_emit::table(&unit, &files, &infos))?;
         let traps: usize = unit.functions.iter().map(|f| f.traps).sum();
+        let bytes: usize = files.iter().map(|f| f.text.len()).sum();
         let warnings = log_warnings(log, analysis.warnings.iter().chain(&lifted.warnings));
         let summary = format!(
-            "{} functions, {} bytes of C, {} instructions not lifted, {} warnings -> {}",
+            "{} functions, {} bytes of C in {} files, {} instructions not lifted, {} warnings -> {}",
             unit.functions.len(),
-            text.len(),
+            bytes,
+            files.len(),
             traps,
             warnings,
             gen_dir.display()

@@ -7,16 +7,17 @@
 //!  "status": "lifted", "traps": 0, "calls": ["fib"], "imports": []}
 //! ```
 //!
-//! `status` is `lifted` when every instruction translated, `partial` when the body calls
-//! `ra_trap` for the ones that did not (`traps` counts them), and `not lifted` when the function
-//! has no source at all, in which case `file` and `line` are absent. A thunk to an import has
-//! status `thunk` and names the import in `imports`.
+//! `file` is relative to the directory the translation is written to: `program.c`, or
+//! `program_NNN.c` when the output is split. `status` is `lifted` when every instruction
+//! translated, `partial` when the body calls `ra_trap` for the ones that did not (`traps` counts
+//! them), and `not lifted` when the function has no source at all, in which case `file` and `line`
+//! are absent. A thunk to an import has status `thunk` and names the import in `imports`.
 
 use std::collections::HashMap;
 
 use serde_json::{Map, Value, json};
 
-use crate::c::Unit;
+use crate::c::{EmittedFile, Unit};
 
 /// What the analysis knows of a function, by its IR name.
 #[derive(Debug, Clone, Default)]
@@ -57,26 +58,29 @@ pub fn format_address(address: u64) -> String {
     format!("{address:#010x}")
 }
 
-/// The function table of `unit`, written to `file`, as a JSON array ordered by address.
-pub fn table(unit: &Unit, file: &str, infos: &HashMap<String, FunctionInfo>) -> String {
-    let lines = unit.definition_lines();
+/// The function table of `unit`, written as `files`, as a JSON array ordered by address.
+pub fn table(unit: &Unit, files: &[EmittedFile], infos: &HashMap<String, FunctionInfo>) -> String {
+    let emitted: HashMap<&str, &crate::c::EmittedFunction> = unit.functions.iter().map(|f| (f.ir_name.as_str(), f)).collect();
     let mut entries: Vec<(u64, Value)> = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
-    for (f, line) in unit.functions.iter().zip(lines) {
-        let Some(address) = f.address else { continue };
-        let info = infos.get(&f.ir_name);
-        seen.push(&f.ir_name);
-        let mut entry = Map::new();
-        entry.insert("addr".into(), json!(format_address(address)));
-        entry.insert("name".into(), json!(info.map_or(f.ir_name.as_str(), |i| i.name.as_str())));
-        entry.insert("size".into(), json!(info.map_or(0, |i| i.size)));
-        entry.insert("file".into(), json!(file));
-        entry.insert("line".into(), json!(line));
-        entry.insert("status".into(), json!(if f.traps == 0 { "lifted" } else { "partial" }));
-        entry.insert("traps".into(), json!(f.traps));
-        entry.insert("calls".into(), json!(info.map_or(&[][..], |i| &i.calls)));
-        entry.insert("imports".into(), json!(info.map_or(&[][..], |i| &i.imports)));
-        entries.push((address, Value::Object(entry)));
+    for file in files {
+        for (ir_name, line) in &file.functions {
+            let Some(f) = emitted.get(ir_name.as_str()) else { continue };
+            let Some(address) = f.address else { continue };
+            let info = infos.get(&f.ir_name);
+            seen.push(&f.ir_name);
+            let mut entry = Map::new();
+            entry.insert("addr".into(), json!(format_address(address)));
+            entry.insert("name".into(), json!(info.map_or(f.ir_name.as_str(), |i| i.name.as_str())));
+            entry.insert("size".into(), json!(info.map_or(0, |i| i.size)));
+            entry.insert("file".into(), json!(file.name));
+            entry.insert("line".into(), json!(line));
+            entry.insert("status".into(), json!(if f.traps == 0 { "lifted" } else { "partial" }));
+            entry.insert("traps".into(), json!(f.traps));
+            entry.insert("calls".into(), json!(info.map_or(&[][..], |i| &i.calls)));
+            entry.insert("imports".into(), json!(info.map_or(&[][..], |i| &i.imports)));
+            entries.push((address, Value::Object(entry)));
+        }
     }
     for (ir_name, info) in infos {
         if seen.contains(&ir_name.as_str()) {
