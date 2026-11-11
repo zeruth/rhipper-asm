@@ -6,10 +6,14 @@
 //! `store`, the binary operations, `icmp`, `fcmp`, `select`, the casts, `getelementptr`, `call`,
 //! `phi`; `ret`, `br`, `switch` and `unreachable`. Values are named, never numbered, so a pass can
 //! insert and remove them freely.
+//!
+//! [`interp`] runs a module directly: a value per type, the instruction subset over a flat memory,
+//! and the calls the module cannot answer handed to a host.
 
 pub mod builder;
 pub mod dom;
 pub mod inst;
+pub mod interp;
 pub mod module;
 pub mod printer;
 pub mod types;

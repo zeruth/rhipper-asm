@@ -9,6 +9,7 @@ mod lift;
 mod pipeline;
 mod project;
 mod report;
+mod run;
 mod serve;
 mod signatures;
 mod xrefs;
@@ -97,6 +98,30 @@ enum Command {
         #[arg(long, default_value = "double")]
         x87: ra_asm_lift::X87Unit,
     },
+    /// The program through the IR interpreter: what it prints goes to stdout, its exit code is
+    /// the command's. The lift traps and the faults of the machine stop the run with a message
+    /// that names the address.
+    Run {
+        pe: PathBuf,
+        /// The program's arguments.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// How far to raise before running: `machine`, `promoted` or `abi`.
+        #[arg(long, default_value = "machine")]
+        level: ra_asm_lift::RaiseLevel,
+        /// The x87 unit: `double` (eight doubles) or `exact` (the 80-bit unit).
+        #[arg(long, default_value = "double")]
+        x87: ra_asm_lift::X87Unit,
+        /// Name every function entered on stderr.
+        #[arg(long)]
+        trace: bool,
+        /// Stop after this many IR instructions; 0 for no limit.
+        #[arg(long, default_value_t = 2_000_000_000)]
+        limit: u64,
+        /// Print no warnings of the lift.
+        #[arg(long)]
+        quiet: bool,
+    },
     /// The instructions at an address: its `.pdata` extent, one run of code, or `length` bytes.
     Disasm {
         pe: PathBuf,
@@ -181,6 +206,10 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Signatures { pe } => signatures::signatures(&ra_asm_pe::load(&pe)?, json),
         Command::Emit { pe, lang, out, quiet, x87 } => emit::emit(&ra_asm_pe::load(&pe)?, &lang, out.as_deref(), quiet, x87),
+        Command::Run { pe, args, level, x87, trace, limit, quiet } => {
+            let code = run::run(&ra_asm_pe::load(&pe)?, &run::Options { level, x87, trace, limit, args, quiet })?;
+            std::process::exit(code)
+        }
         Command::Disasm { pe, address, length } => {
             let address = disasm::parse_address(&address)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;

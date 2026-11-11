@@ -11,14 +11,17 @@
 //! The raising passes of milestone E turn this into source-shaped IR; this milestone's job is to
 //! be right, which the execution oracle checks against the native program.
 
+pub mod arm64;
 pub mod data;
 pub mod eh;
 pub mod raise;
+pub mod run;
 pub mod state;
 pub mod x86;
 pub mod x87;
 
 pub use raise::{Level as RaiseLevel, Options as RaiseOptions, raise};
+pub use state::Isa;
 pub use x87::X87Unit;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -56,6 +59,8 @@ pub struct Lifted {
     pub standalone: bool,
     /// 32 or 64: the address width of the image.
     pub bits: u32,
+    /// The instruction set of the image: whose registers `%State` holds.
+    pub isa: Isa,
     /// The x87 unit the lift modelled.
     pub x87: X87Unit,
     /// The addresses of the words the base relocations name: an immediate or a displacement at
@@ -96,7 +101,7 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x8
     b.set_linkage(Linkage::Internal);
     let state = b.param(0);
     let block = b.block("entry");
-    let mut m = state::Machine { b: &mut b, state, bits, x87 };
+    let mut m = state::Machine { b: &mut b, state, bits, x87, isa: state::Isa::X86 };
     let typed = raise::prototypes::typed(symbol);
     let kinds: Vec<Kind> = typed.as_ref().map_or_else(|| vec![Kind::Int; 8], |t| t.params.clone());
     let fn_ty = typed.as_ref().map_or_else(state::import_adapter_type, raise::prototypes::Typed::fn_type);
@@ -200,7 +205,7 @@ pub struct DataSection {
 impl Lifted {
     /// The options that raise this lift to `level`, by the address width of its image.
     pub fn raise_options(&self, level: RaiseLevel) -> RaiseOptions {
-        RaiseOptions { level, bits: self.bits, x87: self.x87 }
+        RaiseOptions { level, bits: self.bits, x87: self.x87, isa: self.isa }
     }
 
     /// Gives every lifted function the analysis's name for it (`main_`, `Shape_vf1`, `fib`) in
@@ -306,10 +311,20 @@ pub fn coverage(analysis: &Analysis<'_>, lifted: &Lifted) -> Coverage {
                     continue;
                 }
                 let (Some((_, Operand::Int(address))), Some((_, Operand::Int(code)))) = (args.first(), args.get(1)) else { continue };
-                let mnemonic = usize::try_from(*code)
-                    .ok()
-                    .and_then(|c| Code::try_from(c).ok())
-                    .map_or_else(|| format!("code {code}"), |c| format!("{:?}", c.mnemonic()).to_ascii_lowercase());
+                // An ARM64 code is yaxpeax's, which names no mnemonic: the instruction at the
+                // address does.
+                let mnemonic = match lifted.isa {
+                    Isa::Arm64 => analysis
+                        .image
+                        .read(*address as u64, 4)
+                        .ok()
+                        .and_then(|bytes| analysis.arch.decode(bytes, *address as u64))
+                        .map_or_else(|| format!("code {code}"), |i| i.mnemonic),
+                    Isa::X86 => usize::try_from(*code)
+                        .ok()
+                        .and_then(|c| Code::try_from(c).ok())
+                        .map_or_else(|| format!("code {code}"), |c| format!("{:?}", c.mnemonic()).to_ascii_lowercase()),
+                };
                 let slot = by_mnemonic.entry(mnemonic).or_insert((0, *address as u64));
                 slot.0 += 1;
                 slot.1 = slot.1.min(*address as u64);
@@ -352,10 +367,13 @@ pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
 
 /// Lifts every function of `analysis` with `options`.
 pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -> Lifted {
-    let mut module = Module::x86_64_windows(
-        &image.path.as_ref().map_or_else(|| "image".to_owned(), |p| p.file_name().unwrap().to_string_lossy().into_owned()),
-    );
-    module.types.push((state::STATE_TYPE.to_owned(), state::state_fields()));
+    let isa = if image.machine() == ra_asm_pe::Machine::Arm64 { Isa::Arm64 } else { Isa::X86 };
+    let name = image.path.as_ref().map_or_else(|| "image".to_owned(), |p| p.file_name().unwrap().to_string_lossy().into_owned());
+    let mut module = match isa {
+        Isa::X86 => Module::x86_64_windows(&name),
+        Isa::Arm64 => Module::aarch64_windows(&name),
+    };
+    module.types.push((state::STATE_TYPE.to_owned(), state::state_fields_for(isa)));
     state::declare_runtime(&mut module);
     state::define_runtime_globals(&mut module, options.x87);
     let runtime: BTreeMap<u64, String> = analysis
@@ -399,6 +417,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         data: Vec::new(),
         standalone: options.standalone,
         bits: if image.is_64() { 64 } else { 32 },
+        isa,
         x87: options.x87,
         relocated: image.relocations.iter().map(|r| r.va).collect(),
         warnings: Vec::new(),
@@ -421,8 +440,19 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     let tls = state::tls_global(image, &lifted);
     lifted.module.globals.push(tls);
     for f in analysis.ported() {
-        let built = x86::lift_function(image, analysis, &mut lifted, f);
+        let built = match isa {
+            Isa::X86 => x86::lift_function(image, analysis, &mut lifted, f),
+            Isa::Arm64 => arm64::lift_function(image, analysis, &mut lifted, f),
+        };
         lifted.module.functions.push(built);
+    }
+    // A function whose address the code or the data holds is a root as well: a window procedure
+    // or a thread's start the system calls back, whose callers the raise never sees, so it keeps
+    // the result it writes.
+    for name in raise::stubs::address_taken(&lifted.module) {
+        if name.starts_with("F_") {
+            lifted.roots.insert(name);
+        }
     }
 
     // The table the runtime resolves an indirect call through: { address, function } pairs.
@@ -463,7 +493,11 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         lifted.module.globals.extend(state::import_pops_globals(image, &lifted));
     }
     for (symbol, offset, tail) in &lifted.wrappers {
-        lifted.module.functions.push(import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87));
+        let wrapper = match isa {
+            Isa::X86 => import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87),
+            Isa::Arm64 => arm64::import_wrapper(symbol, lifted.x87),
+        };
+        lifted.module.functions.push(wrapper);
     }
     lifted
 }

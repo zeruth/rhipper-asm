@@ -1,6 +1,7 @@
-//! The execution oracle: a fixture is lifted, compiled with clang against the driver, run, and its
-//! output compared with the native program's. The IR gate (`clang -c -x ir`) runs on every fixture;
-//! the run needs the C runtime and skips without it.
+//! The execution oracle: a fixture is lifted, run through the IR interpreter, then compiled with
+//! clang against the driver and run again, and each output is compared with the native program's.
+//! The IR gate (`clang -c -x ir`) runs on every fixture; the clang run needs the C runtime and
+//! skips without it.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -23,12 +24,20 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-/// Lifts `binary` into a directory with `program.ll`, `image.bin` and `image.h`.
-fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
+/// A fixture lifted and raised to the level the tag names.
+struct Raised {
+    image: ra_asm_pe::Image,
+    lifted: ra_asm_lift::Lifted,
+    signatures: std::collections::HashMap<String, ra_asm_lift::raise::abi::Signature>,
+    level: ra_asm_lift::RaiseLevel,
+}
+
+/// Lifts `binary` to the level and the x87 unit the tag names. The machine IR, the promoted IR
+/// and the ABI IR must all run; the tag picks one. The ABI IR stands alone: its data are globals
+/// and it never maps the image. The exact x87 unit when the tag asks for it.
+fn raise(binary: &str, tag: &str) -> Raised {
     let image = ra_asm_pe::load(&fixture(binary)).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
-    // The machine IR, the promoted IR and the ABI IR must all run; the tag picks one. The ABI IR
-    // stands alone: its data are globals and it never maps the image.
     let level = if tag.contains("machine") {
         ra_asm_lift::RaiseLevel::Machine
     } else if tag.contains("promoted") {
@@ -36,13 +45,19 @@ fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
     } else {
         ra_asm_lift::RaiseLevel::Abi
     };
-    // The exact x87 unit when the tag asks for it.
     let x87 = if tag.contains("exact") { ra_asm_lift::X87Unit::Exact } else { ra_asm_lift::X87Unit::Double };
     let options = ra_asm_lift::LiftOptions { standalone: level == ra_asm_lift::RaiseLevel::Abi, x87 };
     let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
     let options = lifted.raise_options(level);
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));
+    Raised { image, lifted, signatures, level }
+}
+
+/// Lifts `binary` into a directory with `program.ll`, `image.bin` and `image.h`.
+fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
+    let Raised { image, lifted, signatures, level } = raise(binary, tag);
+    let analysis = ra_asm_analysis::analyze(&image);
     // The tests run in parallel: each one writes its own directory.
     let dir = scratch(&format!("{tag}-{binary}"));
     std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
@@ -50,6 +65,25 @@ fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
     let abi = (level == ra_asm_lift::RaiseLevel::Abi).then_some(&signatures);
     std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted, abi)).unwrap();
     (dir, lifted)
+}
+
+/// Runs `binary` at the tag's level through the IR interpreter and compares its output with the
+/// native program's: the same proof as the clang run, without clang.
+fn run_interpreted(binary: &str, expected: &str, tag: &str) {
+    let Raised { image, lifted, signatures, .. } = raise(binary, tag);
+    assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+    let options = ra_asm_lift::run::Options::default();
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &options).unwrap();
+    let stdout = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
+    assert_eq!(
+        stdout.trim_end(),
+        expected.trim_end(),
+        "{binary} ({tag}): the interpreted program's output (exit {:#x}, stop: {:?}, {} steps)",
+        outcome.exit,
+        outcome.stop,
+        outcome.steps
+    );
+    assert_eq!(outcome.exit, 0, "{binary} ({tag}): the interpreted program's exit (stop: {:?})", outcome.stop);
 }
 
 #[test]
@@ -83,6 +117,40 @@ fn the_lifted_fixtures_pass_the_ir_gate() {
     }
 }
 
+/// The ARM64 build of hello lifts without a trap, over the mapped image and standalone, and its IR
+/// passes the gate. The run needs an ARM64 host or the IR interpreter (task 107): neither is here.
+#[test]
+fn the_arm64_fixture_lifts_and_passes_the_ir_gate() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the IR gate is skipped");
+        return;
+    }
+    let image = ra_asm_pe::load(&fixture("helloa64.exe")).unwrap();
+    assert_eq!(image.machine(), ra_asm_pe::Machine::Arm64);
+    let analysis = ra_asm_analysis::analyze(&image);
+    for standalone in [false, true] {
+        let options = ra_asm_lift::LiftOptions { standalone, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+        assert_eq!(lifted.isa, ra_asm_lift::Isa::Arm64);
+        assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+        let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+        assert_eq!(coverage.traps(), 0, "unsupported instructions: {:?}", coverage.uncovered);
+        lifted.apply_names(&analysis, None);
+        let ll = lifted.module.to_ll();
+        assert!(ll.contains("target triple = \"aarch64-pc-windows-msvc\""));
+        // The three imports are called through their wrappers, found through the adrp/ldr pair.
+        for import in ["GetStdHandle", "WriteFile", "ExitProcess"] {
+            assert!(lifted.imports.contains(import), "{import} is called: {:?}", lifted.imports);
+        }
+        let dir = scratch(&format!("gate-arm64-{standalone}-helloa64"));
+        std::fs::write(dir.join("program.ll"), &ll).unwrap();
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
+    }
+    eprintln!("helloa64: the host is x64 and the IR interpreter (task 107) is not here: the run is skipped");
+}
+
 fn run_oracle(binary: &str, expected: &str) {
     run_oracle_as(binary, expected, "run-machine");
     run_oracle_as(binary, expected, "run-promoted");
@@ -90,6 +158,7 @@ fn run_oracle(binary: &str, expected: &str) {
 }
 
 fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
+    run_interpreted(binary, expected, tag);
     let (dir, lifted) = lift_to(binary, tag);
     assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
     let exe = dir.join("lifted.exe");
@@ -110,7 +179,7 @@ fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
         .arg(&dir)
         .arg("-o")
         .arg(&exe)
-        .arg("-lkernel32")
+        .args(["-lkernel32", "-luser32"])
         .output()
         .unwrap();
     if !build.status.success() {
