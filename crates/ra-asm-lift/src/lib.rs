@@ -165,6 +165,89 @@ impl Lifted {
     }
 }
 
+/// What a lift of a whole program did not cover, so the next lift work is chosen by what a real
+/// program needs rather than by a guess. Counted on the machine-level module, before any raise.
+#[derive(Debug, Clone, Default)]
+pub struct Coverage {
+    /// The mnemonics the lift traps on, most frequent first.
+    pub uncovered: Vec<Uncovered>,
+    /// The functions with a trap: entry, name and trap count, most traps first.
+    pub functions: Vec<(u64, String, usize)>,
+    /// The imports the code calls that the prototype table does not know (and the host has).
+    pub unknown_imports: Vec<String>,
+    /// The indirect jumps the analysis did not resolve: the jump's address and its function's entry.
+    pub unresolved_jumps: Vec<(u64, u64)>,
+}
+
+/// One mnemonic the lift does not cover, with the address of one instance.
+#[derive(Debug, Clone)]
+pub struct Uncovered {
+    pub mnemonic: String,
+    pub count: usize,
+    pub example: u64,
+}
+
+impl Coverage {
+    /// The traps of the whole program.
+    pub fn traps(&self) -> usize {
+        self.uncovered.iter().map(|u| u.count).sum()
+    }
+}
+
+/// The coverage of `lifted`, counted from the `ra_unsupported` calls its IR holds: each names
+/// the address and the iced code of the instruction it stands for.
+pub fn coverage(analysis: &Analysis<'_>, lifted: &Lifted) -> Coverage {
+    use ra_asm_ir::{Callee, Inst, Operand};
+    use ra_asm_x86::iced_x86::Code;
+    let mut by_mnemonic: BTreeMap<String, (usize, u64)> = BTreeMap::new();
+    let mut functions = Vec::new();
+    for f in &lifted.module.functions {
+        let Some(entry) = f.address else { continue };
+        let mut traps = 0;
+        for block in &f.blocks {
+            for i in &block.instrs {
+                let Inst::Call { callee: Callee::Direct(name), args, .. } = &i.inst else { continue };
+                if name != "ra_unsupported" {
+                    continue;
+                }
+                let (Some((_, Operand::Int(address))), Some((_, Operand::Int(code)))) = (args.first(), args.get(1)) else { continue };
+                let mnemonic = usize::try_from(*code)
+                    .ok()
+                    .and_then(|c| Code::try_from(c).ok())
+                    .map_or_else(|| format!("code {code}"), |c| format!("{:?}", c.mnemonic()).to_ascii_lowercase());
+                let slot = by_mnemonic.entry(mnemonic).or_insert((0, *address as u64));
+                slot.0 += 1;
+                slot.1 = slot.1.min(*address as u64);
+                traps += 1;
+            }
+        }
+        if traps > 0 {
+            functions.push((entry, analysis.name_of(entry), traps));
+        }
+    }
+    let mut uncovered: Vec<Uncovered> =
+        by_mnemonic.into_iter().map(|(mnemonic, (count, example))| Uncovered { mnemonic, count, example }).collect();
+    uncovered.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.mnemonic.cmp(&b.mnemonic)));
+    functions.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
+    let unknown_imports = lifted
+        .imports
+        .iter()
+        .filter(|name| raise::prototypes::arity(name).is_none() && !raise::prototypes::host_lacks(name))
+        .cloned()
+        .collect();
+    let unresolved_jumps = analysis
+        .functions
+        .values()
+        .flat_map(|f| {
+            f.blocks
+                .iter()
+                .filter(|b| matches!(b.terminator, ra_asm_analysis::Terminator::IndirectJump))
+                .filter_map(|b| b.instrs.last().map(|i| (i.address, f.entry)))
+        })
+        .collect();
+    Coverage { uncovered, functions, unknown_imports, unresolved_jumps }
+}
+
 /// Lifts every function of `analysis`.
 pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
     lift_with(image, analysis, LiftOptions::default())

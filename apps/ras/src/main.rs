@@ -82,6 +82,10 @@ enum Command {
         /// Promote the registers but keep the `%State` interface.
         #[arg(long)]
         promoted: bool,
+        /// Print the coverage report instead of the IR: the instructions the lift does not cover,
+        /// the functions by trap count, the imports without a prototype, the unresolved jumps.
+        #[arg(long)]
+        report: bool,
     },
     /// The instructions at an address: its `.pdata` extent, one run of code, or `length` bytes.
     Disasm {
@@ -161,7 +165,7 @@ fn main() -> anyhow::Result<()> {
         Command::Functions { pe, pdata: true } => report::functions(&ra_asm_pe::load(&pe)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&ra_asm_pe::load(&pe)?, json),
         Command::Cfg { pe, address } => functions::cfg(&ra_asm_pe::load(&pe)?, disasm::parse_address(&address)?, json),
-        Command::Lift { pe, out, quiet, machine, promoted } => {
+        Command::Lift { pe, out, quiet, machine, promoted, report } => {
             let level = if machine {
                 ra_asm_lift::RaiseLevel::Machine
             } else if promoted {
@@ -169,7 +173,7 @@ fn main() -> anyhow::Result<()> {
             } else {
                 ra_asm_lift::RaiseLevel::Abi
             };
-            lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), quiet, level)
+            lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), quiet, level, report, json)
         }
         Command::Signatures { pe } => signatures::signatures(&ra_asm_pe::load(&pe)?, json),
         Command::Emit { pe, lang, out, quiet } => emit::emit(&ra_asm_pe::load(&pe)?, &lang, out.as_deref(), quiet),

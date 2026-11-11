@@ -135,7 +135,12 @@ pub(crate) fn functions(image: &Image, json: bool) -> Result<()> {
     let analysis = analyze(image);
     let mut out = std::io::stdout().lock();
     if json {
-        serde_json::to_writer_pretty(&mut out, &functions_json(&analysis))?;
+        // The coverage of the machine-level lift rides along, so the workbench reads it where it
+        // reads the functions.
+        let lifted = ra_asm_lift::lift(image, &analysis);
+        let mut value = functions_json(&analysis);
+        value["coverage"] = crate::report::coverage_json(&ra_asm_lift::coverage(&analysis, &lifted));
+        serde_json::to_writer_pretty(&mut out, &value)?;
         writeln!(out)?;
         return Ok(());
     }

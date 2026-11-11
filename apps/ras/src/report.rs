@@ -256,6 +256,55 @@ pub(crate) fn debug(image: &Image, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// The coverage of a lift as JSON: what `ras lift --report --json` prints and `ras functions
+/// --json` carries as `coverage`.
+pub(crate) fn coverage_json(coverage: &ra_asm_lift::Coverage) -> serde_json::Value {
+    json!({
+        "traps": coverage.traps(),
+        "uncovered": coverage.uncovered.iter().map(|u| json!({"mnemonic": u.mnemonic, "count": u.count, "example": hex(u.example)})).collect::<Vec<_>>(),
+        "functions": coverage.functions.iter().map(|(entry, name, traps)| json!({"addr": hex(*entry), "name": name, "traps": traps})).collect::<Vec<_>>(),
+        "unknown_imports": coverage.unknown_imports,
+        "unresolved_jumps": coverage.unresolved_jumps.iter().map(|(at, entry)| json!({"addr": hex(*at), "function": hex(*entry)})).collect::<Vec<_>>(),
+    })
+}
+
+/// The coverage of a lift as four tables, each headed by its name; an empty table says `none`.
+pub(crate) fn coverage(coverage: &ra_asm_lift::Coverage, json: bool) -> Result<()> {
+    if json {
+        return print_json(&coverage_json(coverage));
+    }
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "uncovered instructions ({} traps)", coverage.traps())?;
+    if coverage.uncovered.is_empty() {
+        writeln!(out, "  none")?;
+    }
+    for u in &coverage.uncovered {
+        writeln!(out, "  {:<12} {:>6}  {}", u.mnemonic, u.count, hex(u.example))?;
+    }
+    writeln!(out, "functions by trap count ({})", coverage.functions.len())?;
+    if coverage.functions.is_empty() {
+        writeln!(out, "  none")?;
+    }
+    for (entry, name, traps) in &coverage.functions {
+        writeln!(out, "  {:<18} {:>6}  {name}", hex(*entry), traps)?;
+    }
+    writeln!(out, "imports without a prototype ({})", coverage.unknown_imports.len())?;
+    if coverage.unknown_imports.is_empty() {
+        writeln!(out, "  none")?;
+    }
+    for name in &coverage.unknown_imports {
+        writeln!(out, "  {name}")?;
+    }
+    writeln!(out, "unresolved indirect jumps ({})", coverage.unresolved_jumps.len())?;
+    if coverage.unresolved_jumps.is_empty() {
+        writeln!(out, "  none")?;
+    }
+    for (at, entry) in &coverage.unresolved_jumps {
+        writeln!(out, "  {:<18} in {}", hex(*at), hex(*entry))?;
+    }
+    Ok(())
+}
+
 pub(crate) fn functions(image: &Image, pdata: bool, json: bool) -> Result<()> {
     if !pdata {
         anyhow::bail!("function discovery lands with milestone C; use --pdata for the exception table");

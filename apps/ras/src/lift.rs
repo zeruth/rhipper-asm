@@ -7,13 +7,16 @@ use ra_asm_lift::RaiseLevel;
 use ra_asm_pe::Image;
 
 /// Writes `program.ll`, `image.bin` and `image.h` into `out`, or the IR to stdout without `out`.
-pub(crate) fn lift(image: &Image, out: Option<&Path>, quiet: bool, level: RaiseLevel) -> Result<()> {
+/// With `report`, stdout gets the coverage report instead of the IR (JSON with `json`).
+pub(crate) fn lift(image: &Image, out: Option<&Path>, quiet: bool, level: RaiseLevel, report: bool, json: bool) -> Result<()> {
     let analysis = ra_asm_analysis::analyze(image);
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: level == RaiseLevel::Abi });
+    let coverage = report.then(|| ra_asm_lift::coverage(&analysis, &lifted));
     let options = lifted.raise_options(level);
     let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     let text = lifted.module.to_ll();
     match out {
+        None if report => {}
         None => {
             print!("{text}");
         }
@@ -38,6 +41,9 @@ pub(crate) fn lift(image: &Image, out: Option<&Path>, quiet: bool, level: RaiseL
         for w in analysis.warnings.iter().chain(&lifted.warnings) {
             eprintln!("warning: {w}");
         }
+    }
+    if let Some(coverage) = &coverage {
+        crate::report::coverage(coverage, json)?;
     }
     Ok(())
 }
