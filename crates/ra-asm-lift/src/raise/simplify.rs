@@ -19,12 +19,41 @@ pub fn run(f: &mut Function) -> bool {
             }
         }
     }
+    // The add and sub of a constant each value is, to fold chains: `(x - 56) + 52` is `x - 4`.
+    let mut offsets: HashMap<ValueId, (Operand, i128)> = HashMap::new();
+    let uses = f.use_counts();
+    for b in &f.blocks {
+        for i in &b.instrs {
+            if let (Some(result), Inst::Bin { op: op @ (BinOp::Add | BinOp::Sub), ty: Type::Int(64), lhs, rhs: Operand::Int(c) }) =
+                (i.result, &i.inst)
+            {
+                let c = if *op == BinOp::Add { *c } else { -*c };
+                let (base, total) = match lhs {
+                    Operand::Local(v) if uses.get(v).copied() == Some(1) => match offsets.get(v) {
+                        Some((base, k)) => (base.clone(), k + c),
+                        None => (lhs.clone(), c),
+                    },
+                    _ => (lhs.clone(), c),
+                };
+                offsets.insert(result, (base, total));
+            }
+        }
+    }
+    let mut rewrite: HashMap<ValueId, Inst> = HashMap::new();
     for b in &f.blocks {
         for i in &b.instrs {
             let Some(result) = i.result else { continue };
             if let Some(replacement) = simplify(&i.inst) {
                 map.insert(result, replacement);
                 continue;
+            }
+            if let Inst::Bin { op: BinOp::Add | BinOp::Sub, ty: Type::Int(64), lhs: Operand::Local(inner), .. } = &i.inst
+                && let Some((base, total)) = offsets.get(&result)
+                && offsets.contains_key(inner)
+                && uses.get(inner).copied() == Some(1)
+            {
+                let (op, c) = if *total < 0 { (BinOp::Sub, -*total) } else { (BinOp::Add, *total) };
+                rewrite.insert(result, Inst::Bin { op, ty: Type::I64, lhs: base.clone(), rhs: Operand::Int(c) });
             }
             // trunc (zext x: A to B) to A  ==  x, and the same through a sext.
             if let Inst::Cast { cast: ra_asm_ir::Cast::Trunc, value: Operand::Local(v), to, .. } = &i.inst
@@ -35,11 +64,18 @@ pub fn run(f: &mut Function) -> bool {
             }
         }
     }
-    if map.is_empty() {
+    if map.is_empty() && rewrite.is_empty() {
         return false;
     }
     for b in &mut f.blocks {
         b.instrs.retain(|i| !i.result.is_some_and(|v| map.contains_key(&v)));
+        for i in &mut b.instrs {
+            if let Some(v) = i.result
+                && let Some(inst) = rewrite.remove(&v)
+            {
+                i.inst = inst;
+            }
+        }
     }
     f.replace_uses(&map);
     true

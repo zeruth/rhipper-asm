@@ -186,6 +186,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ra-asm-emit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ra-asm-analysis",
+ "ra-asm-ir",
+ "ra-asm-lift",
+ "ra-asm-pe",
+]
+
+[[package]]
 name = "ra-asm-format"
 version = "0.1.0"
 dependencies = [
@@ -239,6 +250,7 @@ dependencies = [
  "clap",
  "ra-asm-analysis",
  "ra-asm-arch",
+ "ra-asm-emit",
  "ra-asm-lift",
  "ra-asm-pe",
  "ra-asm-x86",

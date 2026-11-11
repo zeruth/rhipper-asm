@@ -84,6 +84,7 @@ void ra_call(void *state_, uint64_t target) {
     state->gpr[RSP] += 8;
 }
 
+#ifndef RA_STANDALONE
 static void bind_imports(void) {
     for (int i = 0; ra_imports[i].slot != 0; i++) {
         HMODULE module = LoadLibraryA(ra_imports[i].dll);
@@ -100,7 +101,7 @@ static void bind_imports(void) {
     }
 }
 
-#ifdef RA_ABI
+#if defined(RA_ABI)
 // A trampoline at each lifted function's image address: `mov rax, imm64; jmp rax`, 12 bytes.
 // A function closer than 12 bytes to the next one is left alone: its original bytes run natively,
 // which for a function that small (a leaf of a few instructions) gives the same result.
@@ -136,6 +137,7 @@ static void install_trampolines(void) {
     FlushInstructionCache(GetCurrentProcess(), (void *)(uintptr_t)RA_IMAGE_BASE, RA_IMAGE_SIZE);
 }
 #endif
+#endif  // RA_STANDALONE
 
 int main(int argc, char **argv) {
 #ifdef RA_STANDALONE

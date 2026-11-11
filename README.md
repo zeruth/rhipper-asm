@@ -45,13 +45,18 @@ Three decisions shape the design:
 | `ra-asm-analysis` | Functions, basic blocks, the control-flow graph, jump tables, no-return propagation |
 | `ra-asm-ir` | The LLVM-IR-shaped intermediate representation and its `.ll` printer |
 | `ra-asm-lift` | Instructions to machine IR over an explicit `%State`, and the raising passes: signature inference, state promotion, the ABI rewrite, conditions, frames, simplification |
-| `ra-asm-emit` | The C, C++ and Rust backends (planned) |
-| `ras` (app) | The command line: `info`, `sections`, `imports`, `exports`, `relocs`, `debug`, `functions`, `cfg`, `disasm`, `lift` |
+| `ra-asm-emit` | The structuring pass (if, else, loops, switch, short-circuit conditions) and the C backend; C++ and Rust planned |
+| `ras` (app) | The command line: `info`, `sections`, `imports`, `exports`, `relocs`, `debug`, `functions`, `cfg`, `disasm`, `lift`, `signatures`, `emit` |
 
 `ras lift` raises in three levels: `--machine` keeps the lifted IR over `%State`; `--promoted`
 turns the registers and flags into SSA values; the default applies the inferred signatures, so each
 function takes its parameters, keeps its locals in allocas and returns its result, with no `%State`
 left. `ras signatures` prints what the inference found.
+
+`ras emit --lang c` structures the raised IR and writes it as C: typed locals, the inferred
+parameters and results, loops and conditions, and the data sections as globals, with the helpers
+the output needs in `runtime/rhipper.h`. The output is standalone: it builds with clang against
+`runtime/driver.c` and needs no image at run time.
 
 `runtime/driver.c` hosts a lifted program at any level: it maps the image at its own base, binds
 the import slots, and either gives the machine state a stack or installs a trampoline at each
@@ -68,7 +73,10 @@ cargo run -p ras -- info testdata/bin/hello64.exe
 cargo run -p ras -- cfg testdata/bin/control64.exe 0x140001370
 cargo run -p ras -- lift testdata/bin/control64.exe --out out/control
 clang -O1 out/control/program.ll runtime/driver.c -I out/control -o out/control/lifted.exe
-out/control/lifted.exe out/control/image.bin
+out/control/lifted.exe
+cargo run -p ras -- emit testdata/bin/control64.exe --out out/control
+clang -O1 out/control/program.c runtime/driver.c -I out/control -I runtime -o out/control/ported.exe
+out/control/ported.exe
 ```
 
 The fixtures under `testdata/` are small C programs built by clang and lld for x86-64 and x86, with

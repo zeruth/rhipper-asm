@@ -97,15 +97,18 @@
         acceptance: A raised fixture reads as C-shaped IR with named globals and `icmp`-driven branches.
         notes: The conditions landed 2026-11-10 (raise/conditions.rs): the sf, of, zf and cf formulas of a subtraction fold back into one icmp of the operands, with the inverse and the le/be combinations; simplify also folds trunc of zext and per-block common subexpressions. Lines of IR at the ABI level: hello64 132, control64 665 (from 4975 machine), float64 945. The globals landed next (ra-asm-lift/src/data.rs): in standalone mode each data section is one global, a packed structure of byte runs and address words (a relocated word is the address of the function or the data byte it names; an import slot is the import's own address, bound at link time); a RIP-relative or absolute reference becomes the address of a byte of a global; a switch jumps by its index register, read before the table entry, so the table is never read. The ABI level is standalone: the driver maps nothing and binds nothing, and all three fixtures run that way. Still to do: the integer widths (i64 register values narrowed to the width their uses have).
         waits-on: 24
-  - 26 ‹milestone› F: the backends {c5} [defined]
+  - 26 ‹milestone› F: the backends {c5} [in_progress]
       objective: `ra-asm-emit` writes C, C++ or Rust source from the raised IR, with a runtime header per language, and writes the corpus and fidelity files the workbench reads today.
       acceptance: A fixture's C, C++ and Rust outputs each build in one round and print what the reference prints.
-    - 27 ‹task› Structuring {c4} [defined]
+      notes: Started 2026-11-10 with the C backend; the three x64 fixtures build from their C with clang and print what the reference prints.
+    - 27 ‹task› Structuring {c4} [implemented]
         objective: Reducible graphs become if, else, while and switch; a C or C++ output keeps gotos for the rest; the Rust output uses labeled loops and breaks, since Rust has no goto.
         acceptance: Every fixture function structures without a goto in C; the Rust output compiles.
-    - 28 ‹task› C {c4} [defined]
+        notes: Landed 2026-11-10 (ra-asm-emit/src/structure.rs), language-neutral: dominators and post-dominators give the join of each branch, natural loops give `for (;;)` with break and continue, a switch terminator gives a switch, and a block that only computes a condition folds into the branch above it as `&&` or `||`, so a short-circuit reads as one. Anything else falls back to a goto with a label, and the fixtures have none. The Rust half (labeled loops) waits for task 30.
+    - 28 ‹task› C {c4} [in_progress]
         objective: One `.c` per source file or per address range, a `/* ref: name */` comment above each function so the workbench's gen index keeps working, and a `rhipper.h` runtime for the helpers.
         acceptance: The x64 fixtures compile with clang and MSVC with no warning and pass their expected output.
+        notes: `ras emit --lang c` writes `program.c` and `runtime/rhipper.h` holds the helpers (the 128-bit and vector types, the intrinsics, the trap and the call resolver). Landed 2026-11-10: typed locals from the IR, phis through `_next` temporaries, single-use values inlined into their expression, globals as packed structures, the frame and the xmm array as aligned byte buffers, an empty then-branch inverted and a negated integer compare printed as its inverse. The oracle (ra-asm-emit/tests/oracle.rs) builds hello64, control64 and float64 with `clang -O1 -Wall -Werror` and runs them. control64 is 495 lines of C. Still to do: MSVC (no i128, no vector extensions), the `/* ref */` comments and the per-source split, and the readability the width inference of task 25 will bring.
         waits-on: 27
     - 29 ‹task› C++ {c3} [defined]
         objective: The C output with references, classes where RTTI and vtables name them, and overloads where the mangled export names give them.

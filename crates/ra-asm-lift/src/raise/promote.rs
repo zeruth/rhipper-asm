@@ -611,11 +611,16 @@ impl Rewriter<'_> {
                 let symbol = import_of_wrapper(name).unwrap().to_owned();
                 let tail = name.len() > symbol.len() + "imp_".len(); // `imp_<symbol>.tail`
                 let stack_base = if tail { 0x28 } else { 0x20 };
-                let args = self.universal_arguments(f, current, stack_base, out);
+                let mut args = self.universal_arguments(f, current, stack_base, out);
+                // An import the prototype table knows takes its own number of arguments.
+                if let Some(arity) = super::prototypes::arity(&symbol) {
+                    args.truncate(arity.min(8));
+                }
+                let fn_ty = FnType::new(Type::I64, vec![Type::I64; args.len()]);
                 let result = f.new_value("ret", Type::I64);
                 out.push(Instruction {
                     result: Some(result),
-                    inst: Inst::Call { fn_ty: import_adapter_type(), callee: Callee::Direct(symbol), args, tail: false },
+                    inst: Inst::Call { fn_ty, callee: Callee::Direct(symbol), args, tail: false },
                     address,
                 });
                 self.after_call(f, current, Some(Kind::Int), Some(result), out);

@@ -2,6 +2,7 @@
 //! person, or JSON with `--json` for the workbench and the agents.
 
 mod disasm;
+mod emit;
 mod functions;
 mod lift;
 mod report;
@@ -50,6 +51,17 @@ enum Command {
     },
     /// What each function takes and returns, as the lift infers it.
     Signatures { pe: PathBuf },
+    /// Source out of the image. With `--out`, writes `program.c` and `image.h` there.
+    Emit {
+        pe: PathBuf,
+        /// The language: `c`.
+        #[arg(long, default_value = "c")]
+        lang: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        quiet: bool,
+    },
     /// The IR of every function. With `--out`, writes `program.ll`, `image.bin` and `image.h` there.
     Lift {
         pe: PathBuf,
@@ -100,6 +112,7 @@ fn main() -> anyhow::Result<()> {
             lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), quiet, level)
         }
         Command::Signatures { pe } => signatures::signatures(&ra_asm_pe::load(&pe)?, json),
+        Command::Emit { pe, lang, out, quiet } => emit::emit(&ra_asm_pe::load(&pe)?, &lang, out.as_deref(), quiet),
         Command::Disasm { pe, address, length } => {
             let address = disasm::parse_address(&address)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;

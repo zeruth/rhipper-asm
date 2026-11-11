@@ -47,11 +47,14 @@ pub fn run(f: &mut Function) -> bool {
     for b in &f.blocks {
         for i in &b.instrs {
             let Some(v) = i.result else { continue };
-            if let Inst::ICmp { .. } = i.inst {
-                continue; // already direct, or a flag that only matters in a combination
-            }
             if let Some(Known::Cmp(cmp)) = classify(v, &defs, &mut memo) {
-                rewrites.insert(v, cmp);
+                // A direct comparison stays as it is; a comparison of a difference with zero
+                // becomes one of the operands (`(a - b) == 0` is `a == b`).
+                let same = matches!(&i.inst, Inst::ICmp { cond, ty, lhs, rhs }
+                    if *cond == cmp.cond && *ty == cmp.ty && *lhs == cmp.lhs && *rhs == cmp.rhs);
+                if !same {
+                    rewrites.insert(v, cmp);
+                }
             }
         }
     }
@@ -105,7 +108,15 @@ fn classify_inner(v: ValueId, defs: &HashMap<ValueId, Inst>, memo: &mut HashMap<
             {
                 return Some(Known::Flag(of));
             }
-            let (ty, a, b) = as_sub(lhs, defs)?;
+            let Some((ty, a, b)) = as_sub(lhs, defs) else {
+                // A direct comparison with zero: a test, or a compare with an immediate zero.
+                return match inst {
+                    Inst::ICmp { cond, ty, lhs, rhs } if *ty != Type::I1 => {
+                        Some(Known::Cmp(Cmp { cond: *cond, ty: ty.clone(), lhs: lhs.clone(), rhs: rhs.clone() }))
+                    }
+                    _ => None,
+                };
+            };
             match cond {
                 ICond::Eq => Some(Known::Cmp(Cmp { cond: ICond::Eq, ty: ty.clone(), lhs: a.clone(), rhs: b.clone() })),
                 ICond::Ne => Some(Known::Cmp(Cmp { cond: ICond::Ne, ty: ty.clone(), lhs: a.clone(), rhs: b.clone() })),

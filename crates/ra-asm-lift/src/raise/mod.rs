@@ -71,8 +71,16 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
                 frame::run(f);
                 clean(f);
             }
-            // The import wrappers served the machine model; the calls now go to the adapters.
+            // The import wrappers served the machine model; the calls now go to the imports,
+            // each declared with the arity the prototype table gives it.
             module.functions.retain(|f| crate::import_of_wrapper(&f.name).is_none());
+            for d in &mut module.declarations {
+                if let Some(arity) = prototypes::arity(&d.name)
+                    && d.ty.params.len() == 8
+                {
+                    d.ty = ra_asm_ir::FnType::new(ra_asm_ir::Type::I64, vec![ra_asm_ir::Type::I64; arity.min(8)]);
+                }
+            }
         }
     }
     signatures
