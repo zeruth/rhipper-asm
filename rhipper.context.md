@@ -19,7 +19,8 @@ The disassembly and lifting core of Rhipper, in pure Rust: a Windows PE image in
 
 ## Build and checks
 
-- `cargo test -q` is the check of a card unless its acceptance names another cargo command in backticks. Run it before reporting. Set `CARGO_BUILD_JOBS=6` first: the machine has little RAM and a full-parallel build swaps.
+- `cargo test -q` is the check of a card unless its acceptance names another cargo command in backticks. Run it before reporting. The run's environment carries `CARGO_BUILD_JOBS=6` (from `rhipper.toml`): the machine has little RAM and a full-parallel build swaps, so never raise it.
+- `rhipper.toml` also allows the worker `clang`, `clang++`, `clang-cl`, `lld-link`, the `llvm-*` tools, `cmake`, `ninja` and `target/debug/ras.exe`, so a port can be built and traced by hand as described below; a command the allowlist refuses is refused for the whole run, so stay with these.
 - The tests need LLVM on the PATH: `clang`, `clang++`, `lld`, `llvm-objdump`, `llvm-readobj`, `llvm-symbolizer`; `cargo` for the Rust oracle. Tests that need a tool skip with a message when it is absent; a skip is not a pass.
 - `cargo clippy --all-targets` warns with the pedantic set (the allows are in `Cargo.toml`); a change adds no warning. `cargo fmt` (width 140, `use_small_heuristics = "Max"`) on what you touched. Edition 2024, let chains allowed.
 - `cargo test` does not always relink `apps/ras`'s binary for the integration tests: run `cargo build -q` first when a `ras` test looks stale.

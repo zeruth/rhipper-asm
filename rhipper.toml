@@ -1,0 +1,24 @@
+# What a Rhipper Agent worker may run in this project beyond the agent's own allowlist, and the
+# environment every run gets. The ports and traces of a program are built by hand with clang and
+# read with the LLVM tools (see rhipper.context.md), and the engine's own binary runs the steps.
+[worker]
+allow = [
+    "clang",
+    "clang++",
+    "clang-cl",
+    "lld-link",
+    "llvm-objdump",
+    "llvm-readobj",
+    "llvm-symbolizer",
+    "llvm-nm",
+    "cmake",
+    "ninja",
+    "target/debug/ras.exe",
+    "target\\debug\\ras.exe",
+    ".\\target\\debug\\ras.exe",
+    "./target/debug/ras.exe",
+]
+
+[worker.env]
+# The machine swaps on a full-parallel build.
+CARGO_BUILD_JOBS = "6"
