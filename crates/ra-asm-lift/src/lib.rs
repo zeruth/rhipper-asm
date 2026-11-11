@@ -325,6 +325,8 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     if options.standalone {
         data::add_sections(image, &mut lifted);
     }
+    let tls = state::tls_global(image, &lifted);
+    lifted.module.globals.push(tls);
     for f in analysis.functions.values() {
         let built = x86::lift_function(image, analysis, &mut lifted, f);
         lifted.module.functions.push(built);

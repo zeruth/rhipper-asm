@@ -50,6 +50,9 @@ pub fn declare_runtime(module: &mut ra_asm_ir::Module) {
     });
     module.declare(Declaration { name: "ra_xgetbv".into(), ty: FnType::new(Type::I64, vec![Type::I64]), conv: CallConv::C, attrs: vec![] });
     module.declare(Declaration { name: "ra_rdtsc".into(), ty: FnType::new(Type::I64, vec![]), conv: CallConv::C, attrs: vec![] });
+    // The thread environment block of the calling thread, as an address: the runtime keeps one
+    // per thread and attaches a thread on its first access.
+    module.declare(Declaration { name: "ra_teb".into(), ty: FnType::new(Type::I64, vec![]), conv: CallConv::C, attrs: vec![] });
     // The software f80 of the exact x87 unit, over pointers to 16-byte slots; the control word
     // goes along where the rounding or the precision matters.
     let (p, i, d) = (Type::Ptr, Type::I64, Type::Double);
@@ -181,8 +184,8 @@ pub fn declare_runtime(module: &mut ra_asm_ir::Module) {
 /// The globals the lifted code keeps beside the state: the x87 stack with its top, control word
 /// and status word (the x87 state crosses calls, since a 32-bit function returns a double in
 /// `st(0)`, so it lives in globals rather than in `%State`, and survives every raising pass as
-/// plain memory), and a thread environment block for `fs:` and `gs:` accesses, zero like a TEB
-/// the program never filled: an exception chain push lands in it and nothing reads it back.
+/// plain memory). The thread environment block of an `fs:` or `gs:` access is the runtime's, one
+/// per thread, reached through `ra_teb()`.
 pub const X87_STACK: &str = "ra_x87_stack";
 pub const X87_TOP: &str = "ra_x87_top";
 pub const X87_CW: &str = "ra_x87_cw";
@@ -190,8 +193,11 @@ pub const X87_SW: &str = "ra_x87_sw";
 /// The scratch slots of the exact unit: a memory operand or a constant, converted for one
 /// instruction.
 pub const X87_TMP: &str = "ra_x87_tmp";
-pub const TEB: &str = "ra_teb";
-pub const TEB_SIZE: u64 = 4096;
+/// The image's thread-local storage, for the runtime's per-thread block: the template's start and
+/// end, `__tls_index`, the zero fill and the callbacks array, five words that are zero for an image
+/// without a TLS directory. Standalone, an address is a byte of a data global; otherwise it is the
+/// address in the mapped image.
+pub const TLS: &str = "ra_tls";
 /// What the x86 function last called through a pointer popped beyond its return address: its
 /// universal entry point writes it, the caller reads it to find its stack pointer again.
 pub const POPS: &str = "ra_pops";
@@ -221,14 +227,43 @@ pub fn define_runtime_globals(module: &mut ra_asm_ir::Module, x87: crate::x87::X
     // Windows starts a thread with the precision control at 53 bits, not the unit's own 64.
     module.globals.push(global(X87_CW, Type::I16, Const::Int(0x027f), 2));
     module.globals.push(global(X87_SW, Type::I16, Const::Int(0), 2));
-    module.globals.push(global(TEB, Type::array(TEB_SIZE, Type::I8), Const::Zero, 16));
     module.globals.push(global(POPS, Type::I64, Const::Int(0), 8));
     module.globals.push(global(MXCSR, Type::I32, Const::Int(0x1f80), 4));
 }
 
-/// Whether `name` is one of the globals of [`define_runtime_globals`].
+/// The [`TLS`] descriptor of `image` for `lifted`.
+pub fn tls_global(image: &ra_asm_pe::Image, lifted: &crate::Lifted) -> ra_asm_ir::Global {
+    use ra_asm_ir::{Const, Global, Linkage};
+    let word = |va: u64| match lifted.standalone.then(|| lifted.address_of(va)).flatten() {
+        Some(Operand::Address { global, offset }) if va != 0 => Const::Address { global, offset },
+        _ => Const::Int(i128::from(va)),
+    };
+    let items = match &image.tls {
+        Some(tls) => {
+            vec![
+                word(tls.start_va),
+                word(tls.end_va),
+                word(tls.index_va),
+                Const::Int(i128::from(tls.zero_fill_size)),
+                word(tls.callbacks_va),
+            ]
+        }
+        None => vec![Const::Int(0); 5],
+    };
+    Global {
+        name: TLS.to_owned(),
+        ty: Type::Packed(vec![Type::I64; 5]),
+        init: Some(Const::Struct(items)),
+        constant: true,
+        linkage: Linkage::External,
+        align: 16,
+        address: None,
+    }
+}
+
+/// Whether `name` is one of the globals of [`define_runtime_globals`] or the [`TLS`] descriptor.
 pub fn is_runtime_global(name: &str) -> bool {
-    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TEB | POPS | MXCSR)
+    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TLS | POPS | MXCSR)
 }
 
 /// The state helpers over one function under construction.

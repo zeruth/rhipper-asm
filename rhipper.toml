@@ -17,6 +17,13 @@ allow = [
     "target\\debug\\ras.exe",
     ".\\target\\debug\\ras.exe",
     "./target/debug/ras.exe",
+    # the reference programs' build script, and the built programs themselves
+    "testdata/build.ps1",
+    "./testdata/build.ps1",
+    ".\\testdata\\build.ps1",
+    "Bash(./testdata/bin/*)",
+    "PowerShell(.\\testdata\\bin\\*)",
+    "Bash(out/*)",
 ]
 
 [worker.env]

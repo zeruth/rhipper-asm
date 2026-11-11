@@ -180,19 +180,29 @@ fn strings_of(image: &Image, function: &Function) -> Vec<(u64, String)> {
     out
 }
 
-/// The code addresses the instructions of the built functions hold as immediates of the address
-/// width, outside every function: the callbacks a program hands out by `push offset f`.
+/// The code addresses the instructions of the built functions hold, outside every function: the
+/// callbacks a program hands out by `push offset f` (an immediate of the address width) or by
+/// `lea r8, [rip + f]` (x64, where a leaf callback has no unwind entry to find it by).
 fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>) -> Vec<(u64, Origin)> {
     let bits = u16::from(image.pointer_size()) * 8;
     let mut seeds = Vec::new();
     for f in functions.values() {
         for i in f.blocks.iter().flat_map(|b| &b.instrs) {
             for operand in &i.operands {
-                let Operand::Imm { value, bits: width } = operand else { continue };
-                if *width != bits {
-                    continue;
-                }
-                let va = if bits == 32 { *value as u64 & 0xffff_ffff } else { *value as u64 };
+                let va = match operand {
+                    Operand::Imm { value, bits: width } if *width == bits => {
+                        if bits == 32 {
+                            *value as u64 & 0xffff_ffff
+                        } else {
+                            *value as u64
+                        }
+                    }
+                    Operand::Mem(m) if i.mnemonic == "lea" => match m.absolute {
+                        Some(va) => va,
+                        None => continue,
+                    },
+                    _ => continue,
+                };
                 if !image.is_code(va) || functions.contains_key(&va) || functions.values().any(|g| g.contains(va)) {
                     continue;
                 }

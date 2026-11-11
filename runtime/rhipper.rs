@@ -100,6 +100,20 @@ funnel!(fshl_i16, fshr_i16, u16, 16);
 funnel!(fshl_i32, fshr_i32, u32, 32);
 funnel!(fshl_i64, fshr_i64, u64, 64);
 
+/// A float to a signed integer as `cvttsd2si` and `fist` make it: truncated, and the integer
+/// indefinite (the minimum) when it does not fit or is NaN, where `as` would saturate.
+pub fn fptosi16(v: f64) -> i16 {
+    if v > -32769.0 && v < 32768.0 { v as i16 } else { i16::MIN }
+}
+
+pub fn fptosi32(v: f64) -> i32 {
+    if v > -2147483649.0 && v < 2147483648.0 { v as i32 } else { i32::MIN }
+}
+
+pub fn fptosi64(v: f64) -> i64 {
+    if v >= -9223372036854775808.0 && v < 9223372036854775808.0 { v as i64 } else { i64::MIN }
+}
+
 /// The port reached an instruction the lift does not cover, or a check of the lift failed:
 /// the address and the code name it, and the process ends as the C runtime ends it.
 pub fn ra_trap(address: u64, code: u64) -> ! {
@@ -124,6 +138,272 @@ unsafe extern "system" {
     fn GetCurrentProcessId() -> u32;
     fn GetCurrentThreadId() -> u32;
     fn GetEnvironmentStringsA() -> *const u8;
+    fn LoadLibraryA(name: *const u8) -> usize;
+    fn GetProcAddress(module: usize, name: usize) -> usize;
+}
+
+/// An import by ordinal has no symbol to link: the host's function, found at startup.
+pub unsafe fn ra_resolve_ordinal(dll: &str, ordinal: u32) -> usize {
+    let name = std::ffi::CString::new(dll).unwrap();
+    let module = LoadLibraryA(name.as_ptr().cast());
+    let function = if module != 0 { GetProcAddress(module, ordinal as usize) } else { 0 };
+    if function == 0 {
+        eprintln!("ra: {dll} has no ordinal {ordinal}");
+        std::process::exit(0xE000_0004u32 as i32);
+    }
+    function
+}
+
+/// The value of an ordinal import before `ra_init` resolved it.
+pub unsafe extern "system" fn ra_unresolved(_: u64, _: u64, _: u64, _: u64, _: u64, _: u64, _: u64, _: u64) -> u64 {
+    eprintln!("ra: an import by ordinal called before it was resolved");
+    std::process::exit(0xE000_0004u32 as i32)
+}
+
+/// `setjmp` returns 0 once; `longjmp` cannot come back to it: Rust has no non-local jump, so the
+/// port stops where the program would jump.
+pub unsafe fn ra_x86_setjmp3(_buffer: u64, _count: u64) -> u64 {
+    0
+}
+
+pub unsafe fn ra_x86_longjmp(_buffer: u64, value: u64) -> u64 {
+    eprintln!("ra: a longjmp with {value}, which the Rust output cannot express");
+    std::process::exit(0xE000_0005u32 as i32)
+}
+
+#[link(name = "ucrt")]
+unsafe extern "C" {
+    fn strtol(s: *const u8, end: *mut *mut u8, base: i32) -> i32;
+    fn strtoul(s: *const u8, end: *mut *mut u8, base: i32) -> u32;
+    fn strtoll(s: *const u8, end: *mut *mut u8, base: i32) -> i64;
+    fn strtoull(s: *const u8, end: *mut *mut u8, base: i32) -> u64;
+    fn strtod(s: *const u8, end: *mut *mut u8) -> f64;
+    fn __stdio_common_vsprintf(options: u64, buffer: *mut u8, count: usize, format: *const u8, locale: usize, args: *const u64) -> i32;
+    fn __stdio_common_vsprintf_s(options: u64, buffer: *mut u8, count: usize, format: *const u8, locale: usize, args: *const u64) -> i32;
+    fn __stdio_common_vsnprintf_s(
+        options: u64,
+        buffer: *mut u8,
+        count: usize,
+        max: usize,
+        format: *const u8,
+        locale: usize,
+        args: *const u64,
+    ) -> i32;
+    fn __stdio_common_vfprintf(options: u64, stream: usize, format: *const u8, locale: usize, args: *const u64) -> i32;
+    fn __stdio_common_vsscanf(options: u64, buffer: *const u8, count: usize, format: *const u8, locale: usize, args: *const u64) -> i32;
+}
+
+/// The strto* family writes a `char *` of eight bytes where the program expects four: the host's
+/// end pointer goes to a local, and its low half to the program's.
+unsafe fn store_end(end: u64, e: *mut u8) {
+    if end != 0 {
+        core::ptr::write_unaligned(end as usize as *mut u32, e as usize as u32);
+    }
+}
+
+pub unsafe fn ra_x86_strtol(s: u64, end: u64, base: u64) -> u64 {
+    let mut e = core::ptr::null_mut();
+    let v = strtol(s as usize as *const u8, &mut e, base as i32);
+    store_end(end, e);
+    v as i64 as u64
+}
+
+pub unsafe fn ra_x86_strtoul(s: u64, end: u64, base: u64) -> u64 {
+    let mut e = core::ptr::null_mut();
+    let v = strtoul(s as usize as *const u8, &mut e, base as i32);
+    store_end(end, e);
+    u64::from(v)
+}
+
+pub unsafe fn ra_x86_strtoll(s: u64, end: u64, base: u64) -> u64 {
+    let mut e = core::ptr::null_mut();
+    let v = strtoll(s as usize as *const u8, &mut e, base as i32);
+    store_end(end, e);
+    v as u64
+}
+
+pub unsafe fn ra_x86_strtoull(s: u64, end: u64, base: u64) -> u64 {
+    let mut e = core::ptr::null_mut();
+    let v = strtoull(s as usize as *const u8, &mut e, base as i32);
+    store_end(end, e);
+    v
+}
+
+pub unsafe fn ra_x86_strtod(s: u64, end: u64) -> f64 {
+    let mut e = core::ptr::null_mut();
+    let v = strtod(s as usize as *const u8, &mut e);
+    store_end(end, e);
+    v
+}
+
+/// The printf family through its va_list: the program's arguments are dwords (a double or a
+/// 64-bit integer two of them), the host's va_list a row of 8-byte slots. The format says what
+/// each argument is; the adapter walks it and widens each argument into a slot.
+unsafe fn widen_printf_args(format: *const u8, args: u64) -> [u64; 64] {
+    let mut slots = [0u64; 64];
+    let dword = |k: usize| core::ptr::read_unaligned((args as usize + 4 * k) as *const u32) as u64;
+    let qword = |k: usize| core::ptr::read_unaligned((args as usize + 4 * k) as *const u64);
+    let (mut n, mut k) = (0usize, 0usize);
+    let mut p = format;
+    while *p != 0 && n + 1 < 64 {
+        if *p != b'%' {
+            p = p.add(1);
+            continue;
+        }
+        p = p.add(1);
+        if *p == b'%' {
+            p = p.add(1);
+            continue;
+        }
+        while b"-+ #0'".contains(&*p) {
+            p = p.add(1);
+        }
+        if *p == b'*' {
+            slots[n] = dword(k);
+            n += 1;
+            k += 1;
+            p = p.add(1);
+        } else {
+            while p.read().is_ascii_digit() {
+                p = p.add(1);
+            }
+        }
+        if *p == b'.' {
+            p = p.add(1);
+            if *p == b'*' {
+                slots[n] = dword(k);
+                n += 1;
+                k += 1;
+                p = p.add(1);
+            } else {
+                while p.read().is_ascii_digit() {
+                    p = p.add(1);
+                }
+            }
+        }
+        let mut wide = false;
+        if *p == b'l' && *p.add(1) == b'l' {
+            wide = true;
+            p = p.add(2);
+        } else if *p == b'I' && *p.add(1) == b'6' && *p.add(2) == b'4' {
+            wide = true;
+            p = p.add(3);
+        } else if *p == b'I' && *p.add(1) == b'3' && *p.add(2) == b'2' {
+            p = p.add(3);
+        } else if *p == b'j' {
+            wide = true;
+            p = p.add(1);
+        } else if *p == b'h' {
+            p = p.add(1);
+            if *p == b'h' {
+                p = p.add(1);
+            }
+        } else if b"lLwIzt".contains(&*p) {
+            p = p.add(1);
+        }
+        match *p {
+            b'a' | b'A' | b'e' | b'E' | b'f' | b'F' | b'g' | b'G' => {
+                slots[n] = qword(k);
+                n += 1;
+                k += 2;
+            }
+            b'd' | b'i' | b'o' | b'u' | b'x' | b'X' | b'c' | b'C' | b's' | b'S' | b'p' | b'n' | b'Z' => {
+                if wide {
+                    slots[n] = qword(k);
+                    k += 2;
+                } else {
+                    slots[n] = dword(k);
+                    k += 1;
+                }
+                n += 1;
+            }
+            0 => break,
+            _ => {}
+        }
+        p = p.add(1);
+    }
+    slots
+}
+
+/// The program's `%p` prints eight hex digits, the host's sixteen: it becomes `%08X` of the
+/// dword. The format to hand the host: the program's own, or a copy.
+unsafe fn narrow_pointers(format: *const u8) -> (Option<Vec<u8>>, *const u8) {
+    let bytes = std::ffi::CStr::from_ptr(format.cast()).to_bytes();
+    if !bytes.windows(2).any(|w| w == b"%p") {
+        return (None, format);
+    }
+    let mut copy = Vec::with_capacity(bytes.len() * 2 + 1);
+    let mut k = 0;
+    while k < bytes.len() {
+        match (bytes[k], bytes.get(k + 1)) {
+            (b'%', Some(b'p')) => {
+                copy.extend_from_slice(b"%08X");
+                k += 2;
+            }
+            (b'%', Some(b'%')) => {
+                copy.extend_from_slice(b"%%");
+                k += 2;
+            }
+            (c, _) => {
+                copy.push(c);
+                k += 1;
+            }
+        }
+    }
+    copy.push(0);
+    let p = copy.as_ptr();
+    (Some(copy), p)
+}
+
+/// scanf's arguments are all pointers, a dword each: one per conversion that is not suppressed.
+unsafe fn widen_scanf_args(format: *const u8, args: u64) -> [u64; 64] {
+    let mut slots = [0u64; 64];
+    let mut n = 0usize;
+    let mut p = format;
+    while *p != 0 && n < 64 {
+        if *p == b'%' {
+            p = p.add(1);
+            if *p == 0 {
+                break;
+            }
+            if *p != b'%' && *p != b'*' {
+                slots[n] = core::ptr::read_unaligned((args as usize + 4 * n) as *const u32) as u64;
+                n += 1;
+            }
+        }
+        p = p.add(1);
+    }
+    slots
+}
+
+pub unsafe fn ra_x86_vsprintf(options: u64, buffer: u64, count: u64, format: u64, locale: u64, args: u64) -> u64 {
+    let (_copy, f) = narrow_pointers(format as usize as *const u8);
+    let slots = widen_printf_args(f, args);
+    __stdio_common_vsprintf(options, buffer as usize as *mut u8, count as usize, f, locale as usize, slots.as_ptr()) as i64 as u64
+}
+
+pub unsafe fn ra_x86_vsprintf_s(options: u64, buffer: u64, count: u64, format: u64, locale: u64, args: u64) -> u64 {
+    let (_copy, f) = narrow_pointers(format as usize as *const u8);
+    let slots = widen_printf_args(f, args);
+    __stdio_common_vsprintf_s(options, buffer as usize as *mut u8, count as usize, f, locale as usize, slots.as_ptr()) as i64 as u64
+}
+
+pub unsafe fn ra_x86_vsnprintf_s(options: u64, buffer: u64, count: u64, max: u64, format: u64, locale: u64, args: u64) -> u64 {
+    let (_copy, f) = narrow_pointers(format as usize as *const u8);
+    let slots = widen_printf_args(f, args);
+    __stdio_common_vsnprintf_s(options, buffer as usize as *mut u8, count as usize, max as usize, f, locale as usize, slots.as_ptr()) as i64 as u64
+}
+
+pub unsafe fn ra_x86_vfprintf(options: u64, stream: u64, format: u64, locale: u64, args: u64) -> u64 {
+    let (_copy, f) = narrow_pointers(format as usize as *const u8);
+    let slots = widen_printf_args(f, args);
+    __stdio_common_vfprintf(options, stream as usize, f, locale as usize, slots.as_ptr()) as i64 as u64
+}
+
+pub unsafe fn ra_x86_vsscanf(options: u64, buffer: u64, count: u64, format: u64, locale: u64, args: u64) -> u64 {
+    let slots = widen_scanf_args(format as usize as *const u8, args);
+    __stdio_common_vsscanf(options, buffer as usize as *const u8, count as usize, format as usize as *const u8, locale as usize, slots.as_ptr())
+        as i64 as u64
 }
 
 /// The C runtime functions a 32-bit program calls that walk or hand back a table of its own
@@ -207,6 +487,24 @@ pub unsafe fn ra_x86_initialize_slist_head(head: u64) -> u64 {
     0
 }
 
+unsafe extern "C" {
+    fn _controlfp(new: u32, mask: u32) -> u32;
+}
+
+/// `_controlfp`: the host's word has no x87 precision control, which the x86 C runtime reports
+/// as `_PC_53` by default and Direct3D sets to `_PC_24`; the shim keeps that field and leaves the
+/// rest (the rounding mode, the exception masks, the denormal control) to the host.
+static mut PRECISION: u32 = 0x10000;
+
+pub unsafe fn ra_x86_controlfp(new: u64, mask: u64) -> u64 {
+    let pc = mask as u32 & 0x30000;
+    if pc != 0 {
+        PRECISION = (PRECISION & !pc) | (new as u32 & pc);
+    }
+    let host = _controlfp(new as u32 & !0x30000, mask as u32 & !0x30000);
+    u64::from((host & !0x30000) | PRECISION)
+}
+
 static mut ARGV32: Vec<u32> = Vec::new();
 static mut ARGV32_ADDRESS: u32 = 0;
 static mut ARG_STRINGS: Vec<std::ffi::CString> = Vec::new();
@@ -246,28 +544,90 @@ pub unsafe fn ra_x86_initial_narrow_environment() -> u64 {
     env.as_ptr() as usize as u64
 }
 
-/// Fills the thread environment block the lifted code reads through `fs:` (x86) or `gs:` (x64):
-/// the fields a program and its C runtime look at, in the layout of the program's pointer width,
-/// from the host's own thread. The stack bounds come from the host's block; the block's own
-/// address fits the width, since a 32-bit port runs with every address below 4 GB.
-pub unsafe fn ra_init_teb(teb: *mut u8, bits: u32) {
+/// The thread environment block the lifted code reads through `fs:` (x86) or `gs:` (x64), one per
+/// thread of the port: the fields a program and its C runtime look at, in the layout of the
+/// program's pointer width, from the host's own thread, and at 0x2c (x86) or 0x58 (x64) the
+/// thread-local storage pointer, an array whose one slot (the program's `__tls_index` is 0) is
+/// the thread's own copy of the image's TLS template. The stack bounds come from the host's block;
+/// the addresses fit the width, since a 32-bit port runs with every address below 4 GB.
+#[repr(C, align(16))]
+struct Teb([u8; 4096]);
+
+thread_local! {
+    static TEB: core::cell::UnsafeCell<Teb> = const { core::cell::UnsafeCell::new(Teb([0; 4096])) };
+    static TLS_SLOT: core::cell::UnsafeCell<u64> = const { core::cell::UnsafeCell::new(0) };
+    static ATTACHED: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// The image's thread-local storage as `ra_tls` holds it: the template's start and end,
+/// `__tls_index`, the zero fill and the callbacks array; zero throughout without a TLS directory.
+static mut TLS: [u64; 5] = [0; 5];
+static mut TLS_BITS: u32 = 64;
+
+/// The loader's work before the entry: `__tls_index` written, the main thread's block, and the
+/// TLS callbacks with `DLL_PROCESS_ATTACH`.
+pub unsafe fn ra_init_tls(tls: *const u64, bits: u32) {
+    TLS = core::ptr::read_unaligned(tls as *const [u64; 5]);
+    TLS_BITS = bits;
+    if TLS[0] != 0 && TLS[2] != 0 {
+        core::ptr::write_unaligned(TLS[2] as usize as *mut u32, 0);
+    }
+    attach_thread(1);
+}
+
+/// The block of the calling thread, attached at its first access (before it reads anything of its
+/// own, as the loader would have) with `DLL_THREAD_ATTACH` to the callbacks. Nothing runs at a
+/// thread's exit.
+pub unsafe fn ra_teb() -> u64 {
+    if !ATTACHED.with(|a| a.get()) {
+        attach_thread(2);
+    }
+    TEB.with(|t| t.get() as usize as u64)
+}
+
+unsafe fn attach_thread(reason: u64) {
+    ATTACHED.with(|a| a.set(true));
+    let teb = TEB.with(|t| t.get() as *mut u8);
+    let slot = TLS_SLOT.with(|s| s.get() as usize as u64);
     let host: *const u8;
     core::arch::asm!("mov {}, gs:[0x30]", out(reg) host, options(nostack, readonly, preserves_flags));
     let stack_base = core::ptr::read_unaligned(host.add(0x08) as *const u64);
     let stack_limit = core::ptr::read_unaligned(host.add(0x10) as *const u64);
     let (pid, tid) = (GetCurrentProcessId(), GetCurrentThreadId());
-    if bits == 32 {
+    if TLS_BITS == 32 {
         core::ptr::write_unaligned(teb.add(0x04) as *mut u32, stack_base as u32);
         core::ptr::write_unaligned(teb.add(0x08) as *mut u32, stack_limit as u32);
         core::ptr::write_unaligned(teb.add(0x18) as *mut u32, teb as usize as u32);
         core::ptr::write_unaligned(teb.add(0x20) as *mut u32, pid);
         core::ptr::write_unaligned(teb.add(0x24) as *mut u32, tid);
+        core::ptr::write_unaligned(teb.add(0x2c) as *mut u32, slot as u32);
     } else {
         core::ptr::write_unaligned(teb.add(0x08) as *mut u64, stack_base);
         core::ptr::write_unaligned(teb.add(0x10) as *mut u64, stack_limit);
         core::ptr::write_unaligned(teb.add(0x30) as *mut u64, teb as usize as u64);
         core::ptr::write_unaligned(teb.add(0x40) as *mut u64, u64::from(pid));
         core::ptr::write_unaligned(teb.add(0x48) as *mut u64, u64::from(tid));
+        core::ptr::write_unaligned(teb.add(0x58) as *mut u64, slot);
+    }
+    if TLS[0] == 0 {
+        return;
+    }
+    let initialized = (TLS[1] - TLS[0]) as usize;
+    let mut block = vec![0u8; initialized + TLS[3] as usize + 16];
+    core::ptr::copy_nonoverlapping(TLS[0] as usize as *const u8, block.as_mut_ptr(), initialized);
+    TLS_SLOT.with(|s| *s.get() = Box::leak(block.into_boxed_slice()).as_mut_ptr() as usize as u64);
+    // The callbacks, in their order: host functions, through their universal entry (the module
+    // handle the loader passes is unknown to a port that stands alone).
+    let width = if TLS_BITS == 32 { 4 } else { 8 };
+    let mut p = TLS[4] as usize;
+    while p != 0 {
+        let target = if width == 4 { u64::from(core::ptr::read_unaligned(p as *const u32)) } else { core::ptr::read_unaligned(p as *const u64) };
+        if target == 0 {
+            break;
+        }
+        let f: Universal = core::mem::transmute(target as usize);
+        f(0, reason, 0, 0, 0, 0, 0, 0);
+        p += width;
     }
 }
 
@@ -291,8 +651,531 @@ pub unsafe fn ra_rdtsc() -> u64 {
     core::arch::x86_64::_rdtsc()
 }
 
-/// A jump the structuring could not express: Rust has no `goto`.
-pub fn ra_goto(label: &str) -> ! {
-    eprintln!("ra: a goto to {label}, which the Rust output cannot express");
+// The exact x87 unit: a software f80. A slot holds an 80-bit value as the x87 stores a tbyte, the
+// 64-bit significand with its explicit integer bit then the sign and the 15-bit exponent, and six
+// bytes of padding. Every operation unpacks its operands, works in 128 bits with a sticky bit for
+// what fell below, and rounds the result by the control word: the rounding mode in bits 10 and 11
+// and the precision in bits 8 and 9 (24, 53 or 64 bits), as the hardware does with the exceptions
+// masked. The C runtime's driver.c has the same unit, line for line.
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum F80Kind {
+    Zero,
+    Finite,
+    Inf,
+    Nan,
+}
+
+/// An unpacked value: `m * 2^(exp - 63)`, `m` normalized with bit 63 set when finite.
+#[derive(Clone, Copy)]
+struct F80 {
+    kind: F80Kind,
+    sign: bool,
+    exp: i32,
+    m: u64,
+}
+
+unsafe fn f80_unpack(slot: *const u8) -> F80 {
+    let m = core::ptr::read_unaligned(slot as *const u64);
+    let se = core::ptr::read_unaligned(slot.add(8) as *const u16);
+    let mut v = F80 { kind: F80Kind::Finite, sign: se >> 15 != 0, exp: 0, m };
+    let e = i32::from(se & 0x7fff);
+    if e == 0x7fff {
+        v.kind = if m << 1 == 0 { F80Kind::Inf } else { F80Kind::Nan };
+        return v;
+    }
+    if m == 0 {
+        v.kind = F80Kind::Zero;
+        return v;
+    }
+    // A denormal has exponent 0 and the integer bit clear; an unnormal is normalized the same way.
+    let shift = m.leading_zeros() as i32;
+    v.m = m << shift;
+    v.exp = (if e == 0 { 1 } else { e }) - 16383 - shift;
+    v
+}
+
+unsafe fn f80_write(slot: *mut u8, sign: bool, exponent: u32, m: u64) {
+    let se = ((sign as u16) << 15) | exponent as u16;
+    core::ptr::write_unaligned(slot as *mut u64, m);
+    core::ptr::write_unaligned(slot.add(8) as *mut u16, se);
+    core::ptr::write_bytes(slot.add(10), 0, 6);
+}
+
+unsafe fn f80_write_indefinite(slot: *mut u8) {
+    f80_write(slot, true, 0x7fff, 0xc000_0000_0000_0000);
+}
+
+unsafe fn f80_write_inf(slot: *mut u8, sign: bool) {
+    f80_write(slot, sign, 0x7fff, 0x8000_0000_0000_0000);
+}
+
+unsafe fn f80_write_quiet(slot: *mut u8, v: F80) {
+    f80_write(slot, v.sign, 0x7fff, v.m | 0xc000_0000_0000_0000);
+}
+
+/// A NaN, an infinity or a zero goes out as it is, the NaN quiet.
+unsafe fn f80_write_special(slot: *mut u8, v: F80) {
+    match v.kind {
+        F80Kind::Nan => f80_write_quiet(slot, v),
+        F80Kind::Inf => f80_write_inf(slot, v.sign),
+        _ => f80_write(slot, v.sign, 0, 0),
+    }
+}
+
+/// The NaN of a two-operand operation: the one with the larger significand, quiet.
+unsafe fn f80_nan_result(slot: *mut u8, a: F80, b: F80) -> bool {
+    if a.kind != F80Kind::Nan && b.kind != F80Kind::Nan {
+        return false;
+    }
+    let n = if a.kind != F80Kind::Nan {
+        b
+    } else if b.kind != F80Kind::Nan {
+        a
+    } else if b.m > a.m {
+        b
+    } else {
+        a
+    };
+    f80_write_quiet(slot, n);
+    true
+}
+
+fn f80_rc(cw: u64) -> u32 {
+    ((cw >> 10) & 3) as u32
+}
+
+fn f80_precision(cw: u64) -> u32 {
+    match (cw >> 8) & 3 {
+        0 => 24,
+        2 => 53,
+        _ => 64,
+    }
+}
+
+/// A result rounded into a binary format: the value `m * 2^(exp - 127)` with bit 127 set (sticky
+/// for what lies below), to `p` bits in the mode `rc`, with the exponent `bias` and the all-ones
+/// exponent `emax` of the format; the significand comes back left-aligned in 64 bits with its
+/// integer bit, and a denormal with the exponent 0.
+fn f80_round(sign: bool, exp: i32, mut m: u128, mut sticky: bool, p: u32, rc: u32, emax: i32, bias: i32) -> (i32, u64) {
+    if m == 0 {
+        return (0, 0);
+    }
+    let mut biased = exp + bias;
+    if biased < 1 {
+        // A denormal: the bits below the format's smallest exponent go into the rounding.
+        let s = 1 - biased;
+        if s >= 128 {
+            sticky |= m != 0;
+            m = 0;
+        } else {
+            sticky |= m & ((1u128 << s) - 1) != 0;
+            m >>= s;
+        }
+        biased = 1;
+    }
+    let shift = 128 - p;
+    let mask = (1u128 << shift) - 1;
+    let half = 1u128 << (shift - 1);
+    let low = m & mask;
+    m &= !mask;
+    let up = match rc {
+        0 => low > half || (low == half && (sticky || m & (1u128 << shift) != 0)),
+        1 => sign && (low != 0 || sticky),
+        2 => !sign && (low != 0 || sticky),
+        _ => false,
+    };
+    if up {
+        let (sum, overflow) = m.overflowing_add(1u128 << shift);
+        m = if overflow { 1u128 << 127 } else { sum };
+        if overflow {
+            biased += 1;
+        }
+    }
+    if biased == 1 && m >> 127 == 0 {
+        biased = 0;
+    }
+    if biased >= emax {
+        let to_inf = rc == 0 || (rc == 1 && sign) || (rc == 2 && !sign);
+        return if to_inf { (emax, 0x8000_0000_0000_0000) } else { (emax - 1, !0u64 << (64 - p)) };
+    }
+    (biased, (m >> 64) as u64)
+}
+
+unsafe fn f80_write_rounded(slot: *mut u8, sign: bool, exp: i32, m: u128, sticky: bool, cw: u64) {
+    let (biased, m) = f80_round(sign, exp, m, sticky, f80_precision(cw), f80_rc(cw), 0x7fff, 16383);
+    f80_write(slot, sign, biased as u32, m);
+}
+
+/// A finite or zero value, rounded to the precision of the control word.
+unsafe fn f80_write_value(slot: *mut u8, v: F80, cw: u64) {
+    let m = if v.kind == F80Kind::Zero { 0 } else { u128::from(v.m) << 64 };
+    f80_write_rounded(slot, v.sign, v.exp, m, false, cw);
+}
+
+/// The magnitude of the integer nearest a finite value below 2^63, by the mode `rc`.
+fn f80_to_integer(v: F80, rc: u32) -> u64 {
+    let shift = 63 - v.exp;
+    let (q, half, sticky) = if shift > 64 {
+        (0, false, true)
+    } else if shift == 64 {
+        (0, v.m >> 63 != 0, v.m << 1 != 0)
+    } else {
+        let rest = v.m & ((1u64 << shift) - 1);
+        (v.m >> shift, (rest >> (shift - 1)) & 1 != 0, rest & ((1u64 << (shift - 1)) - 1) != 0)
+    };
+    let up = match rc {
+        0 => half && (sticky || q & 1 != 0),
+        1 => v.sign && (half || sticky),
+        2 => !v.sign && (half || sticky),
+        _ => false,
+    };
+    q + u64::from(up)
+}
+
+pub unsafe fn ra_f80_load(slot: *mut u8, memory: *const u8) {
+    core::ptr::copy_nonoverlapping(memory, slot, 10);
+    core::ptr::write_bytes(slot.add(10), 0, 6);
+}
+
+pub unsafe fn ra_f80_store(memory: *mut u8, slot: *const u8) {
+    core::ptr::copy_nonoverlapping(slot, memory, 10);
+}
+
+pub unsafe fn ra_f80_pack(slot: *mut u8, significand: u64, sign_exponent: u64) {
+    f80_write(slot, sign_exponent >> 15 & 1 != 0, sign_exponent as u32 & 0x7fff, significand);
+}
+
+pub unsafe fn ra_f80_from_f64(slot: *mut u8, value: f64) {
+    let bits = value.to_bits();
+    let sign = bits >> 63 != 0;
+    let e = ((bits >> 52) & 0x7ff) as i32;
+    let frac = bits & ((1u64 << 52) - 1);
+    if e == 0x7ff {
+        f80_write(slot, sign, 0x7fff, if frac != 0 { 0xc000_0000_0000_0000 | (frac << 11) } else { 0x8000_0000_0000_0000 });
+    } else if e == 0 && frac == 0 {
+        f80_write(slot, sign, 0, 0);
+    } else if e == 0 {
+        let shift = frac.leading_zeros();
+        f80_write(slot, sign, 15372 - shift, frac << shift);
+    } else {
+        f80_write(slot, sign, (e - 1023 + 16383) as u32, 0x8000_0000_0000_0000 | (frac << 11));
+    }
+}
+
+pub unsafe fn ra_f80_from_i64(slot: *mut u8, value: u64) {
+    let v = value as i64;
+    if v == 0 {
+        f80_write(slot, false, 0, 0);
+        return;
+    }
+    let u = v.unsigned_abs();
+    let shift = u.leading_zeros();
+    f80_write(slot, v < 0, 16383 + 63 - shift, u << shift);
+}
+
+pub unsafe fn ra_f80_to_f64(slot: *const u8, cw: u64) -> f64 {
+    let v = f80_unpack(slot);
+    let sign = u64::from(v.sign) << 63;
+    let bits = match v.kind {
+        F80Kind::Nan => sign | 0x7ff << 52 | 1 << 51 | ((v.m << 1) >> 12),
+        F80Kind::Inf => sign | 0x7ff << 52,
+        F80Kind::Zero => sign,
+        F80Kind::Finite => {
+            let (biased, m) = f80_round(v.sign, v.exp, u128::from(v.m) << 64, false, 53, f80_rc(cw), 0x7ff, 1023);
+            sign | (biased as u64) << 52 | ((m << 1) >> 12)
+        }
+    };
+    f64::from_bits(bits)
+}
+
+pub unsafe fn ra_f80_to_f32(slot: *const u8, cw: u64) -> f32 {
+    let v = f80_unpack(slot);
+    let sign = u32::from(v.sign) << 31;
+    let bits = match v.kind {
+        F80Kind::Nan => sign | 0xff << 23 | 1 << 22 | ((v.m << 1) >> 41) as u32,
+        F80Kind::Inf => sign | 0xff << 23,
+        F80Kind::Zero => sign,
+        F80Kind::Finite => {
+            let (biased, m) = f80_round(v.sign, v.exp, u128::from(v.m) << 64, false, 24, f80_rc(cw), 0xff, 127);
+            sign | (biased as u32) << 23 | ((m << 1) >> 41) as u32
+        }
+    };
+    f32::from_bits(bits)
+}
+
+/// An integer of `bits` bits, rounded by `rounding` (the mode alone, 3 for a truncation), or the
+/// integer indefinite when the value is not a number or does not fit.
+pub unsafe fn ra_f80_to_int(slot: *const u8, rounding: u64, bits: u64) -> u64 {
+    let v = f80_unpack(slot);
+    let limit = 1u64 << (bits - 1);
+    match v.kind {
+        F80Kind::Nan | F80Kind::Inf => return limit,
+        F80Kind::Zero => return 0,
+        F80Kind::Finite => {}
+    }
+    if v.exp >= bits as i32 - 1 {
+        return limit;
+    }
+    let q = f80_to_integer(v, (rounding & 3) as u32);
+    if if v.sign { q > limit } else { q >= limit } {
+        return limit;
+    }
+    if v.sign { 0u64.wrapping_sub(q) } else { q }
+}
+
+unsafe fn f80_add(result: *mut u8, pa: *const u8, pb: *const u8, cw: u64, negate: bool) {
+    let a = f80_unpack(pa);
+    let mut b = f80_unpack(pb);
+    b.sign ^= negate;
+    let rc = f80_rc(cw);
+    if f80_nan_result(result, a, b) {
+        return;
+    }
+    if a.kind == F80Kind::Inf || b.kind == F80Kind::Inf {
+        if a.kind == F80Kind::Inf && b.kind == F80Kind::Inf && a.sign != b.sign {
+            f80_write_indefinite(result);
+        } else {
+            f80_write_special(result, if a.kind == F80Kind::Inf { a } else { b });
+        }
+        return;
+    }
+    if a.kind == F80Kind::Zero && b.kind == F80Kind::Zero {
+        f80_write(result, (a.sign && b.sign) || (rc == 1 && (a.sign || b.sign)), 0, 0);
+        return;
+    }
+    if a.kind == F80Kind::Zero {
+        f80_write_value(result, b, cw);
+        return;
+    }
+    if b.kind == F80Kind::Zero {
+        f80_write_value(result, a, cw);
+        return;
+    }
+    // The larger magnitude first; the smaller one is aligned to it, what falls off kept as a
+    // sticky bit far below the rounding position.
+    let (a, b) = if a.exp < b.exp || (a.exp == b.exp && a.m < b.m) { (b, a) } else { (a, b) };
+    let ma = u128::from(a.m) << 64;
+    let mut mb = u128::from(b.m) << 64;
+    let d = a.exp - b.exp;
+    if d >= 128 {
+        mb = 1;
+    } else if d > 0 {
+        let lost = mb & ((1u128 << d) - 1);
+        mb = (mb >> d) | u128::from(lost != 0);
+    }
+    let mut exp = a.exp;
+    let m = if a.sign == b.sign {
+        let (sum, carry) = ma.overflowing_add(mb);
+        if carry {
+            exp += 1;
+            (sum >> 1) | (1u128 << 127) | (sum & 1)
+        } else {
+            sum
+        }
+    } else {
+        let diff = ma - mb;
+        if diff == 0 {
+            f80_write(result, rc == 1, 0, 0);
+            return;
+        }
+        let lz = diff.leading_zeros() as i32;
+        exp -= lz;
+        diff << lz
+    };
+    f80_write_rounded(result, a.sign, exp, m, false, cw);
+}
+
+pub unsafe fn ra_f80_add(result: *mut u8, a: *const u8, b: *const u8, cw: u64) {
+    f80_add(result, a, b, cw, false);
+}
+
+pub unsafe fn ra_f80_sub(result: *mut u8, a: *const u8, b: *const u8, cw: u64) {
+    f80_add(result, a, b, cw, true);
+}
+
+pub unsafe fn ra_f80_mul(result: *mut u8, pa: *const u8, pb: *const u8, cw: u64) {
+    let (a, b) = (f80_unpack(pa), f80_unpack(pb));
+    let sign = a.sign ^ b.sign;
+    if f80_nan_result(result, a, b) {
+        return;
+    }
+    if a.kind == F80Kind::Inf || b.kind == F80Kind::Inf {
+        if a.kind == F80Kind::Zero || b.kind == F80Kind::Zero {
+            f80_write_indefinite(result);
+        } else {
+            f80_write_inf(result, sign);
+        }
+        return;
+    }
+    if a.kind == F80Kind::Zero || b.kind == F80Kind::Zero {
+        f80_write(result, sign, 0, 0);
+        return;
+    }
+    let mut m = u128::from(a.m) * u128::from(b.m);
+    let mut exp = a.exp + b.exp + 1;
+    if m >> 127 == 0 {
+        m <<= 1;
+        exp -= 1;
+    }
+    f80_write_rounded(result, sign, exp, m, false, cw);
+}
+
+pub unsafe fn ra_f80_div(result: *mut u8, pa: *const u8, pb: *const u8, cw: u64) {
+    let (a, b) = (f80_unpack(pa), f80_unpack(pb));
+    let sign = a.sign ^ b.sign;
+    if f80_nan_result(result, a, b) {
+        return;
+    }
+    if a.kind == F80Kind::Inf {
+        if b.kind == F80Kind::Inf {
+            f80_write_indefinite(result);
+        } else {
+            f80_write_inf(result, sign);
+        }
+        return;
+    }
+    if b.kind == F80Kind::Inf {
+        f80_write(result, sign, 0, 0);
+        return;
+    }
+    if b.kind == F80Kind::Zero {
+        if a.kind == F80Kind::Zero {
+            f80_write_indefinite(result);
+        } else {
+            f80_write_inf(result, sign);
+        }
+        return;
+    }
+    if a.kind == F80Kind::Zero {
+        f80_write(result, sign, 0, 0);
+        return;
+    }
+    // The quotient of the significands to 65 bits: the 64 of the result and a guard bit, the
+    // remainder as the sticky bit.
+    let n = u128::from(a.m) << 64;
+    let d = u128::from(b.m);
+    let mut q = n / d;
+    let mut remainder = n - q * d;
+    let mut exp = a.exp - b.exp;
+    if a.m < b.m {
+        let guard = 2 * remainder >= d;
+        remainder = 2 * remainder - if guard { d } else { 0 };
+        q = (q << 1) | u128::from(guard);
+        exp -= 1;
+    }
+    f80_write_rounded(result, sign, exp, q << 63, remainder != 0, cw);
+}
+
+pub unsafe fn ra_f80_sqrt(result: *mut u8, pa: *const u8, cw: u64) {
+    let v = f80_unpack(pa);
+    if v.kind == F80Kind::Nan || v.kind == F80Kind::Zero {
+        f80_write_special(result, v);
+        return;
+    }
+    if v.sign {
+        f80_write_indefinite(result);
+        return;
+    }
+    if v.kind == F80Kind::Inf {
+        f80_write_inf(result, false);
+        return;
+    }
+    // The value as m * 2^k with k even, m in [2^126, 2^128), so the root of m has 64 bits; a
+    // guard bit and the remainder follow.
+    let k = v.exp - 63;
+    let odd = k & 1 != 0;
+    let mut n = if odd { u128::from(v.m) << 63 } else { u128::from(v.m) << 64 };
+    let k2 = (if odd { k - 63 } else { k - 64 }) / 2;
+    let mut root = 0u128;
+    let mut bit = 1u128 << 126;
+    while bit != 0 {
+        if n >= root + bit {
+            n -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    let guard = n > root;
+    let rest = if guard { 4 * n - 4 * root - 1 } else { n };
+    let quotient = ((root << 1) | u128::from(guard)) << 63;
+    f80_write_rounded(result, false, 63 + k2, quotient, rest != 0, cw);
+}
+
+pub unsafe fn ra_f80_rndint(result: *mut u8, pa: *const u8, cw: u64) {
+    let v = f80_unpack(pa);
+    if v.kind != F80Kind::Finite {
+        f80_write_special(result, v);
+        return;
+    }
+    if v.exp >= 63 {
+        f80_write(result, v.sign, (v.exp + 16383) as u32, v.m);
+        return;
+    }
+    let q = f80_to_integer(v, f80_rc(cw));
+    if q == 0 {
+        f80_write(result, v.sign, 0, 0);
+        return;
+    }
+    let shift = q.leading_zeros();
+    f80_write(result, v.sign, 16383 + 63 - shift, q << shift);
+}
+
+pub unsafe fn ra_f80_chs(result: *mut u8, a: *const u8) {
+    let mut bytes = [0u8; 16];
+    core::ptr::copy_nonoverlapping(a, bytes.as_mut_ptr(), 16);
+    bytes[9] ^= 0x80;
+    core::ptr::copy_nonoverlapping(bytes.as_ptr(), result, 16);
+}
+
+pub unsafe fn ra_f80_abs(result: *mut u8, a: *const u8) {
+    let mut bytes = [0u8; 16];
+    core::ptr::copy_nonoverlapping(a, bytes.as_mut_ptr(), 16);
+    bytes[9] &= 0x7f;
+    core::ptr::copy_nonoverlapping(bytes.as_ptr(), result, 16);
+}
+
+/// Less in bit 0, equal in bit 1, unordered in bit 2 (then all three, as the hardware sets its
+/// condition codes).
+pub unsafe fn ra_f80_cmp(pa: *const u8, pb: *const u8) -> u64 {
+    let (a, b) = (f80_unpack(pa), f80_unpack(pb));
+    if a.kind == F80Kind::Nan || b.kind == F80Kind::Nan {
+        return 7;
+    }
+    if a.kind == F80Kind::Zero && b.kind == F80Kind::Zero {
+        return 2;
+    }
+    let order = if a.sign != b.sign {
+        if a.sign { -1 } else { 1 }
+    } else {
+        // The magnitudes: an infinity beyond everything, a zero below, else by exponent then significand.
+        let magnitude = if a.kind == F80Kind::Inf || b.kind == F80Kind::Inf {
+            i32::from(a.kind == F80Kind::Inf) - i32::from(b.kind == F80Kind::Inf)
+        } else if a.kind == F80Kind::Zero || b.kind == F80Kind::Zero {
+            i32::from(b.kind == F80Kind::Zero) - i32::from(a.kind == F80Kind::Zero)
+        } else if a.exp != b.exp {
+            if a.exp > b.exp { 1 } else { -1 }
+        } else {
+            match a.m.cmp(&b.m) {
+                core::cmp::Ordering::Greater => 1,
+                core::cmp::Ordering::Less => -1,
+                core::cmp::Ordering::Equal => 0,
+            }
+        };
+        if a.sign { -magnitude } else { magnitude }
+    };
+    match order {
+        0 => 2,
+        o if o < 0 => 1,
+        _ => 0,
+    }
+}
+
+/// A jump the structuring could not express: Rust has no `goto`, and the block was too long to
+/// write a second time. Names the function and the block, then stops the port.
+pub fn ra_goto(function: &str, label: &str) -> ! {
+    eprintln!("ra: a goto to {label} in {function}, which the Rust output cannot express");
     std::process::exit(0xE000_0005u32 as i32)
 }

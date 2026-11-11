@@ -11,6 +11,7 @@ no compiler. `build.ps1` rebuilds them; `/Brepro` keeps a rebuild byte-identical
 | `src/float.c` | `float64.exe`, `float32.exe` | Floating-point arithmetic, conversions and compares |
 | `src/classes.cpp` | `classes64.exe`, `classes32.exe` | C++ with RTTI: a base, a derived class, a second base and a class with two vtables, called through base pointers; no C++ runtime |
 | `src/exports.c`, `src/exports.def` | `exports64.dll`, `exports32.dll` | Named exports, an export by ordinal only, a forwarder |
+| `src/tls.c` | `tls64.exe`, `tls32.exe` | A `__declspec(thread)` counter stepped from two threads, with the TLS directory (index, template bounds, a callback) the program defines itself for want of a C runtime |
 | `rhtest/src/core.c` | `rhtest/core-O2.exe`, `rhtest/core-Od.exe` | The old pipeline's test program: integers, branches, loops, recursion, switches, arrays, structs by value and through a hidden pointer, globals, strings, a linked list, packed and punned layouts |
 | `rhtest/src/<name>.c`, `.cpp` | `rhtest/<name>-clang.exe` | The other fifteen rhtest programs, built here by `rhtest/build.ps1` with clang-cl over the MSVC C runtime (`/O2 /MD`): `calls`, `int64`, `float`, `fpenv`, `crt` port and run; `misc`, `sys`, `win`, `seh`, `eh`, `cpp`, `com`, `stl`, `stlio`, `engine` wait for what the last paragraph below names |
 

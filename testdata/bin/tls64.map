@@ -1,0 +1,52 @@
+ tls64
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000140000000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000002b4H .text                   CODE
+ 0002:00000000 00000010H .rdata                  DATA
+ 0002:00000010 00000028H .rdata$T                DATA
+ 0002:00000194 00000020H .xdata                  DATA
+ 0003:00000000 00000000H .data                   DATA
+ 0003:00000000 00000020H .bss                    DATA
+ 0004:00000000 00000030H .pdata                  DATA
+ 0005:00000000 00000001H .tls                    DATA
+ 0005:00000004 00000004H .tls$                   DATA
+ 0005:00000008 00000001H .tls$ZZZ                DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       mainCRTStartup             0000000140001000     tls-184a0d.o
+ 0002:00000010       _tls_used                  0000000140002010     tls-184a0d.o
+ 0002:00000038       ??_C@_0BA@NEEOPDIH@attach?5process?5?$AA@ 0000000140002038     tls-184a0d.o
+ 0002:00000048       ??_C@_05MPOGGGCE@main?5?$AA@ 0000000140002048     tls-184a0d.o
+ 0002:0000004e       ??_C@_0P@LONMEAAB@attach?5thread?5?$AA@ 000000014000204e     tls-184a0d.o
+ 0002:0000005d       ??_C@_09IONENDGI@thread?52?5?$AA@ 000000014000205d     tls-184a0d.o
+ 0002:00000067       ??_C@_09IMJCGNDB@thread?51?5?$AA@ 0000000140002067     tls-184a0d.o
+ 0002:000000f0       __imp_CloseHandle          00000001400020f0     kernel32:KERNEL32.dll
+ 0002:000000f8       __imp_CreateThread         00000001400020f8     kernel32:KERNEL32.dll
+ 0002:00000100       __imp_ExitProcess          0000000140002100     kernel32:KERNEL32.dll
+ 0002:00000108       __imp_GetStdHandle         0000000140002108     kernel32:KERNEL32.dll
+ 0002:00000110       __imp_WaitForSingleObject  0000000140002110     kernel32:KERNEL32.dll
+ 0002:00000118       __imp_WriteFile            0000000140002118     kernel32:KERNEL32.dll
+ 0003:00000000       _tls_index                 0000000140003000     tls-184a0d.o
+ 0005:00000000       _tls_start                 0000000140005000     tls-184a0d.o
+ 0005:00000004       counter                    0000000140005004     tls-184a0d.o
+ 0005:00000008       _tls_end                   0000000140005008     tls-184a0d.o
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:000000d0       run                        00000001400010d0     tls-184a0d.o
+ 0001:00000120       print_str                  0000000140001120     tls-184a0d.o
+ 0001:00000170       print_int                  0000000140001170     tls-184a0d.o
+ 0001:00000200       on_tls                     0000000140001200     tls-184a0d.o
+ 0001:00000220       worker                     0000000140001220     tls-184a0d.o
+ 0002:00000000       tls_callbacks              0000000140002000     tls-184a0d.o
+ 0003:00000008       out                        0000000140003008     tls-184a0d.o
+ 0003:00000010       seen                       0000000140003010     tls-184a0d.o
+ 0003:00000018       attached_process           0000000140003018     tls-184a0d.o
+ 0003:0000001c       attached_thread            000000014000301c     tls-184a0d.o

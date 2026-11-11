@@ -1,0 +1,51 @@
+ tls32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00000226H .text                   CODE
+ 0002:00000000 00000008H .rdata                  DATA
+ 0002:00000008 00000018H .rdata$T                DATA
+ 0003:00000000 00000000H .data                   DATA
+ 0003:00000000 00000018H .bss                    DATA
+ 0004:00000000 00000001H .tls                    DATA
+ 0004:00000004 00000004H .tls$                   DATA
+ 0004:00000008 00000001H .tls$ZZZ                DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:0000002c       __tls_array                000000000000002c     <absolute>
+ 0001:00000000       _mainCRTStartup            0000000000401000     tls-ee0702.o
+ 0002:00000008       __tls_used                 0000000000402008     tls-ee0702.o
+ 0002:00000020       ??_C@_0BA@NEEOPDIH@attach?5process?5?$AA@ 0000000000402020     tls-ee0702.o
+ 0002:00000030       ??_C@_05MPOGGGCE@main?5?$AA@ 0000000000402030     tls-ee0702.o
+ 0002:00000036       ??_C@_0P@LONMEAAB@attach?5thread?5?$AA@ 0000000000402036     tls-ee0702.o
+ 0002:00000045       ??_C@_09IONENDGI@thread?52?5?$AA@ 0000000000402045     tls-ee0702.o
+ 0002:0000004f       ??_C@_09IMJCGNDB@thread?51?5?$AA@ 000000000040204f     tls-ee0702.o
+ 0002:000000bc       __imp__CloseHandle@4       00000000004020bc     kernel32:KERNEL32.dll
+ 0002:000000c0       __imp__CreateThread@24     00000000004020c0     kernel32:KERNEL32.dll
+ 0002:000000c4       __imp__ExitProcess@4       00000000004020c4     kernel32:KERNEL32.dll
+ 0002:000000c8       __imp__GetStdHandle@4      00000000004020c8     kernel32:KERNEL32.dll
+ 0002:000000cc       __imp__WaitForSingleObject@8 00000000004020cc     kernel32:KERNEL32.dll
+ 0002:000000d0       __imp__WriteFile@20        00000000004020d0     kernel32:KERNEL32.dll
+ 0003:00000000       __tls_index                0000000000403000     tls-ee0702.o
+ 0004:00000000       __tls_start                0000000000404000     tls-ee0702.o
+ 0004:00000004       _counter                   0000000000404004     tls-ee0702.o
+ 0004:00000008       __tls_end                  0000000000404008     tls-ee0702.o
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:000000b0       _run                       00000000004010b0     tls-ee0702.o
+ 0001:000000e0       _print_str                 00000000004010e0     tls-ee0702.o
+ 0001:00000110       _print_int                 0000000000401110     tls-ee0702.o
+ 0001:00000190       _on_tls@12                 0000000000401190     tls-ee0702.o
+ 0001:000001b0       _worker@4                  00000000004011b0     tls-ee0702.o
+ 0002:00000000       _tls_callbacks             0000000000402000     tls-ee0702.o
+ 0003:00000004       _out                       0000000000403004     tls-ee0702.o
+ 0003:00000008       _seen                      0000000000403008     tls-ee0702.o
+ 0003:00000010       _attached_process          0000000000403010     tls-ee0702.o
+ 0003:00000014       _attached_thread           0000000000403014     tls-ee0702.o

@@ -1,0 +1,5 @@
+main 105
+thread 1 106
+thread 2 121
+attach process 1
+attach thread 2

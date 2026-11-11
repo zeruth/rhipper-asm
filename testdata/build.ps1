@@ -63,6 +63,9 @@ if (Wanted 'classes') {
   Build-Exe 'classes' @('-std=c++20', '-frtti', '-fno-exceptions') 'cpp' @('-Wl,/alternatename:??_7type_info@@6B@=_??_7type_info@@6B@')
 }
 if (Wanted 'exports') { Build-Dll 'exports' }
+# tls has a TLS directory of its own making: a __declspec(thread) variable, the index, the template
+# bounds and a callback, which a program without the C runtime must define itself.
+if (Wanted 'tls') { Build-Exe 'tls' @() }
 
 # The PDBs and the import libraries are build leftovers, not fixtures.
 Get-ChildItem $bin -Include *.pdb, *.lib, *.exp -Recurse | Remove-Item -Force
