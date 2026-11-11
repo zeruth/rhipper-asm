@@ -520,6 +520,23 @@ fn run_logged(command: &mut Command, log: &mut File, timeout: Option<Duration>, 
             break status;
         }
         if timeout.is_some_and(|t| started.elapsed() >= t) {
+            // A program with a window gets the close its user would give it, so its message loop
+            // ends and it leaves with its own code; one that does not leave on that is killed and
+            // reported alive.
+            close_windows(child.id());
+            let grace = Instant::now();
+            let closed = loop {
+                if let Some(status) = child.try_wait()? {
+                    break Some(status);
+                }
+                if grace.elapsed() >= Duration::from_secs(2) {
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            if let Some(status) = closed {
+                break status;
+            }
             alive = true;
             let _ = child.kill();
             break child.wait()?;
@@ -533,6 +550,41 @@ fn run_logged(command: &mut Command, log: &mut File, timeout: Option<Duration>, 
     let stdout = stdout.lock().map(|lines| lines.clone()).unwrap_or_default();
     Ok(Outcome { code: if alive { None } else { status.code() }, alive, secs: started.elapsed().as_secs(), stdout })
 }
+
+/// Posts `WM_CLOSE` to every top-level window of the process `pid`, as closing it by hand would.
+#[cfg(windows)]
+fn close_windows(pid: u32) {
+    use std::ffi::c_void;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn EnumWindows(callback: unsafe extern "system" fn(*mut c_void, isize) -> i32, lparam: isize) -> i32;
+        fn GetWindowThreadProcessId(hwnd: *mut c_void, pid: *mut u32) -> u32;
+        fn PostMessageW(hwnd: *mut c_void, message: u32, wparam: usize, lparam: isize) -> i32;
+    }
+
+    unsafe extern "system" fn close(hwnd: *mut c_void, pid: isize) -> i32 {
+        const WM_CLOSE: u32 = 0x10;
+        let mut owner = 0u32;
+        // SAFETY: user32 hands a window handle to the callback, and `owner` outlives the call.
+        unsafe {
+            GetWindowThreadProcessId(hwnd, &raw mut owner);
+            if owner == pid as u32 {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            }
+        }
+        1
+    }
+
+    // SAFETY: the callback matches the signature user32 calls it with and touches nothing beyond
+    // its arguments.
+    unsafe {
+        EnumWindows(close, pid as isize);
+    }
+}
+
+#[cfg(not(windows))]
+fn close_windows(_: u32) {}
 
 fn git(root: &Path, args: &[&str]) -> Option<String> {
     let output = Command::new("git").arg("-C").arg(root).args(args).stdin(Stdio::null()).output().ok()?;

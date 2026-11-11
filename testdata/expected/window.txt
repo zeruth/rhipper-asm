@@ -1,0 +1,10 @@
+class
+create
+window
+paint
+width 200
+height 100
+close
+destroy
+quit 7
+paints 1

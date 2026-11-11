@@ -16,9 +16,12 @@ $src = Join-Path $PSScriptRoot 'src'
 $bin = Join-Path $PSScriptRoot 'bin'
 New-Item -ItemType Directory -Force $bin | Out-Null
 
+# a64 is the ARM64 build of a fixture, for the second architecture: only the programs that ask
+# for it get one, and it cannot run here, so its expected output is the x64 build's.
 $targets = @(
   @{ Suffix = '64'; Triple = 'x86_64-pc-windows-msvc'; Entry = 'mainCRTStartup' },
-  @{ Suffix = '32'; Triple = 'i686-pc-windows-msvc'; Entry = 'mainCRTStartup' }
+  @{ Suffix = '32'; Triple = 'i686-pc-windows-msvc'; Entry = 'mainCRTStartup' },
+  @{ Suffix = 'a64'; Triple = 'aarch64-pc-windows-msvc'; Entry = 'mainCRTStartup' }
 )
 
 function Build-Exe([string]$Name, [string[]]$Extra, [string]$Ext = 'c', [string[]]$Extra32 = @(), [string[]]$Suffixes = @('64', '32')) {
@@ -37,7 +40,7 @@ function Build-Exe([string]$Name, [string[]]$Extra, [string]$Ext = 'c', [string[
 }
 
 function Build-Dll([string]$Name) {
-  foreach ($t in $targets) {
+  foreach ($t in ($targets | Where-Object { $_.Suffix -ne 'a64' })) {
     $out = Join-Path $bin "$Name$($t.Suffix).dll"
     $map = Join-Path $bin "$Name$($t.Suffix).map"
     $args = @('-target', $t.Triple, '-O2', '-nostdlib', '-fno-builtin', '-funwind-tables', '-shared', '-fuse-ld=lld',
@@ -69,7 +72,8 @@ function Build-Crt([string]$Name) {
 
 function Wanted([string]$Name) { return -not $Only -or ($Only -contains $Name) }
 
-if (Wanted 'hello') { Build-Exe 'hello' @() }
+# hello is also built for ARM64: the fixture of the AArch64 decoder, exception table and lift.
+if (Wanted 'hello') { Build-Exe 'hello' @() 'c' @() @('64', '32', 'a64') }
 # control carries a CodeView debug record, for the debug directory.
 if (Wanted 'control') { Build-Exe 'control' @('-g', '-gcodeview', '-Wl,/debug', '-Wl,/pdbaltpath:control.pdb') }
 if (Wanted 'float') { Build-Exe 'float' @() }
@@ -93,6 +97,9 @@ if (Wanted 'tls') { Build-Exe 'tls' @() }
 if (Wanted 'structs') { Build-Exe 'structs' @() }
 # crt links the static C runtime; its PDB stays, the engine reads the names from it.
 if (Wanted 'crt') { Build-Crt 'crt' }
+# window registers a class, shows a popup, paints once and quits through the message loop: user32
+# calls the program's window procedure back.
+if (Wanted 'window') { Build-Exe 'window' @('-luser32') }
 
 # The PDBs (crt's excepted) and the import libraries are build leftovers, not fixtures.
 Get-ChildItem $bin -Include *.pdb, *.lib, *.exp -Recurse | Where-Object { $_.Name -ne 'crt64.pdb' } | Remove-Item -Force

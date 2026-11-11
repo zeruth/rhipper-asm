@@ -25,6 +25,10 @@
 
 #include "image.h"
 
+// The window adapters below call user32 whether or not the program does: the library comes with
+// the driver, so a link that names only kernel32 still resolves them.
+#pragma comment(lib, "user32")
+
 // The machine state, as %State in the IR: 16 general registers, rip, 8 flag bytes, 16 vectors.
 struct State {
     uint64_t gpr[16];
@@ -168,6 +172,148 @@ uint64_t ra_x86_execute_onexit_table(uint64_t table) {
 uint64_t ra_x86_initialize_slist_head(uint64_t head) {
     memset((void *)(uintptr_t)head, 0, 8);
     return 0;
+}
+
+// The structures a window program hands user32 are laid out at the program's pointer width:
+// WNDCLASSA is 40 bytes on x86 and 72 on the host, WNDCLASSEXA 48 and 80, MSG 28 and 48,
+// PAINTSTRUCT 64 and 72. Each adapter widens the program's record into the host's, calls, and
+// narrows what came back. The window procedure the class names is a universal entry point, which
+// user32 calls with the four arguments in registers, where the stub reads its first four dwords.
+// The narrowing of a handle or an address to a dword (the message's lParam, which carries the
+// CREATESTRUCT of WM_CREATE or the WINDOWPOS of a move) rests on the port's address space: a
+// 32-bit port is linked without large-address awareness, so every address its process allocates,
+// user32's stacks and heaps included, lies below 2 GB, and a window or GDI handle is 32 bits
+// significant on every Windows; only a pointer into a system DLL's own image would not fit, and no
+// message carries one.
+struct ra_wndclass32 {
+    uint32_t style, proc;
+    int32_t cls_extra, wnd_extra;
+    uint32_t instance, icon, cursor, background, menu, name;
+};
+struct ra_wndclassex32 {
+    uint32_t size, style, proc;
+    int32_t cls_extra, wnd_extra;
+    uint32_t instance, icon, cursor, background, menu, name, icon_small;
+};
+struct ra_msg32 {
+    uint32_t hwnd, message, wparam;
+    int32_t lparam;
+    uint32_t time;
+    int32_t x, y;
+};
+struct ra_paintstruct32 {
+    uint32_t hdc;
+    int32_t erase;
+    RECT paint;
+    int32_t restore, inc_update;
+    uint8_t reserved[32];
+};
+
+static void ra_widen_msg(uint64_t narrow, MSG *m) {
+    const struct ra_msg32 *n = (const struct ra_msg32 *)(uintptr_t)narrow;
+    memset(m, 0, sizeof *m);
+    m->hwnd = (HWND)(uintptr_t)n->hwnd;
+    m->message = n->message;
+    m->wParam = n->wparam;
+    m->lParam = n->lparam;
+    m->time = n->time;
+    m->pt.x = n->x;
+    m->pt.y = n->y;
+}
+
+static void ra_narrow_msg(const MSG *m, uint64_t narrow) {
+    struct ra_msg32 *n = (struct ra_msg32 *)(uintptr_t)narrow;
+    n->hwnd = (uint32_t)(uintptr_t)m->hwnd;
+    n->message = m->message;
+    n->wparam = (uint32_t)m->wParam;
+    n->lparam = (int32_t)m->lParam;
+    n->time = m->time;
+    n->x = m->pt.x;
+    n->y = m->pt.y;
+}
+
+uint64_t ra_x86_register_class_a(uint64_t narrow) {
+    const struct ra_wndclass32 *n = (const struct ra_wndclass32 *)(uintptr_t)narrow;
+    WNDCLASSA wc = {n->style,
+                    (WNDPROC)(uintptr_t)n->proc,
+                    n->cls_extra,
+                    n->wnd_extra,
+                    (HINSTANCE)(uintptr_t)n->instance,
+                    (HICON)(uintptr_t)n->icon,
+                    (HCURSOR)(uintptr_t)n->cursor,
+                    (HBRUSH)(uintptr_t)n->background,
+                    (LPCSTR)(uintptr_t)n->menu,
+                    (LPCSTR)(uintptr_t)n->name};
+    return RegisterClassA(&wc);
+}
+
+uint64_t ra_x86_register_class_ex_a(uint64_t narrow) {
+    const struct ra_wndclassex32 *n = (const struct ra_wndclassex32 *)(uintptr_t)narrow;
+    if (n->size != sizeof *n) return 0;
+    WNDCLASSEXA wc = {sizeof wc,
+                      n->style,
+                      (WNDPROC)(uintptr_t)n->proc,
+                      n->cls_extra,
+                      n->wnd_extra,
+                      (HINSTANCE)(uintptr_t)n->instance,
+                      (HICON)(uintptr_t)n->icon,
+                      (HCURSOR)(uintptr_t)n->cursor,
+                      (HBRUSH)(uintptr_t)n->background,
+                      (LPCSTR)(uintptr_t)n->menu,
+                      (LPCSTR)(uintptr_t)n->name,
+                      (HICON)(uintptr_t)n->icon_small};
+    return RegisterClassExA(&wc);
+}
+
+uint64_t ra_x86_get_message_a(uint64_t narrow, uint64_t hwnd, uint64_t first, uint64_t last) {
+    MSG m;
+    BOOL r = GetMessageA(&m, (HWND)(uintptr_t)hwnd, (UINT)first, (UINT)last);
+    ra_narrow_msg(&m, narrow);
+    return (uint64_t)(uint32_t)r;
+}
+
+uint64_t ra_x86_peek_message_a(uint64_t narrow, uint64_t hwnd, uint64_t first, uint64_t last, uint64_t remove) {
+    MSG m;
+    BOOL r = PeekMessageA(&m, (HWND)(uintptr_t)hwnd, (UINT)first, (UINT)last, (UINT)remove);
+    if (r) ra_narrow_msg(&m, narrow);
+    return (uint64_t)(uint32_t)r;
+}
+
+uint64_t ra_x86_translate_message(uint64_t narrow) {
+    MSG m;
+    ra_widen_msg(narrow, &m);
+    return (uint64_t)(uint32_t)TranslateMessage(&m);
+}
+
+uint64_t ra_x86_dispatch_message_a(uint64_t narrow) {
+    MSG m;
+    ra_widen_msg(narrow, &m);
+    return (uint64_t)(uint32_t)DispatchMessageA(&m);
+}
+
+uint64_t ra_x86_begin_paint(uint64_t hwnd, uint64_t narrow) {
+    struct ra_paintstruct32 *n = (struct ra_paintstruct32 *)(uintptr_t)narrow;
+    PAINTSTRUCT ps;
+    HDC dc = BeginPaint((HWND)(uintptr_t)hwnd, &ps);
+    n->hdc = (uint32_t)(uintptr_t)ps.hdc;
+    n->erase = ps.fErase;
+    n->paint = ps.rcPaint;
+    n->restore = ps.fRestore;
+    n->inc_update = ps.fIncUpdate;
+    memcpy(n->reserved, ps.rgbReserved, sizeof n->reserved);
+    return (uint64_t)(uint32_t)(uintptr_t)dc;
+}
+
+uint64_t ra_x86_end_paint(uint64_t hwnd, uint64_t narrow) {
+    const struct ra_paintstruct32 *n = (const struct ra_paintstruct32 *)(uintptr_t)narrow;
+    PAINTSTRUCT ps;
+    ps.hdc = (HDC)(uintptr_t)n->hdc;
+    ps.fErase = n->erase;
+    ps.rcPaint = n->paint;
+    ps.fRestore = n->restore;
+    ps.fIncUpdate = n->inc_update;
+    memcpy(ps.rgbReserved, n->reserved, sizeof ps.rgbReserved);
+    return (uint64_t)(uint32_t)EndPaint((HWND)(uintptr_t)hwnd, &ps);
 }
 
 // The floating-point environment of an x86 program is the x87 control and status words as much as

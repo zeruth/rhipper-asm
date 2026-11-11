@@ -9,6 +9,13 @@
 //! return address, and returns the result. The data and the function table point at the stub, so
 //! a pointer the program holds reaches it; a direct call still goes to the function. With the
 //! stubs holding the addresses, the functions themselves are free for the width pass to narrow.
+//!
+//! The same stub is the shape of a callback the system enters: user32 calls a window procedure,
+//! kernel32 a thread's start, through the trampoline at the image address with the arguments in
+//! the host's four registers, which are the stub's first four universal dwords, where a `stdcall`
+//! callback's stack arguments sit (`hwnd, msg, wparam, lparam` at offsets 0 to 12); the pops the
+//! stub records in `ra_pops` are the callback's own (16 for a window procedure), and a native
+//! caller, which pops nothing, never reads them.
 
 use std::collections::{HashMap, HashSet};
 
@@ -133,7 +140,7 @@ fn build_stub(name: &str, f: &ra_asm_ir::Function, sig: &Signature, target: Targ
 
 /// The functions whose address the module takes: in the data (the function table included, which
 /// the runtime resolves pointers through) or as an operand.
-fn address_taken(module: &Module) -> HashSet<String> {
+pub(crate) fn address_taken(module: &Module) -> HashSet<String> {
     fn consts(c: &Const, out: &mut HashSet<String>) {
         match c {
             Const::Address { global, .. } | Const::Global(global) => {
