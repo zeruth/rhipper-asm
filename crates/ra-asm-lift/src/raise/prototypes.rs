@@ -13,10 +13,12 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
     arity(name).map(|n| 4 * n as u64)
 }
 
-/// The runtime's own version of a C runtime import that a 32-bit program cannot call on the
-/// 64-bit host as it is: the ones that walk a table of pointers (`_initterm` and the onexit
+/// The runtime's own version of an import that a 32-bit program cannot call on the 64-bit host
+/// as it is: the C runtime functions that walk a table of pointers (`_initterm` and the onexit
 /// table) or hand back one (`argv`, the environment), where the width of a pointer is the
-/// layout. The shim takes the same arguments and keeps the program's layout.
+/// layout, and `InitializeSListHead`, whose 64-bit version writes 16 bytes into the program's
+/// 8-byte list head and refuses one that is not 16-byte aligned. The shim takes the same
+/// arguments and keeps the program's layout.
 pub fn x86_shim(name: &str) -> Option<&'static str> {
     Some(match name {
         "_initterm" => "ra_x86_initterm",
@@ -26,6 +28,7 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "_execute_onexit_table" => "ra_x86_execute_onexit_table",
         "__p___argv" => "ra_x86_p_argv",
         "_get_initial_narrow_environment" => "ra_x86_initial_narrow_environment",
+        "InitializeSListHead" => "ra_x86_initialize_slist_head",
         _ => return None,
     })
 }
@@ -132,7 +135,6 @@ pub fn arity(name: &str) -> Option<usize> {
         | "__p___wargv"
         | "_initialize_narrow_environment"
         | "_initialize_wide_environment"
-        | "_crt_atexit"
         | "_cexit"
         | "_c_exit"
         | "terminate"
@@ -194,6 +196,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "TlsFree"
         | "TlsGetValue"
         | "InitializeSListHead"
+        | "ra_x86_initialize_slist_head"
         | "RtlCaptureContext"
         | "SetUnhandledExceptionFilter"
         | "UnhandledExceptionFilter"
@@ -230,6 +233,8 @@ pub fn arity(name: &str) -> Option<usize> {
         | "labs"
         | "exit"
         | "_exit"
+        | "_crt_atexit"
+        | "_crt_at_quick_exit"
         | "puts"
         | "_putws"
         | "putchar"

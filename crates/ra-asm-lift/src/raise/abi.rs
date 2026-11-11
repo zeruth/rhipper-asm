@@ -49,7 +49,7 @@ impl Kind {
 }
 
 /// A function's signature.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Signature {
     /// The register parameters by position: `rcx`/`xmm0`, `rdx`/`xmm1`, `r8`/`xmm2`, `r9`/`xmm3`
     /// on Win64; `ecx`, `edx` on x86.
@@ -65,6 +65,25 @@ pub struct Signature {
     pub dynamic_stack: bool,
     /// The bytes the function pops on return beyond the return address (x86 `stdcall`, `thiscall`).
     pub pops: u64,
+    /// The caller-saved registers the function leaves as they were: neither it nor anything it
+    /// calls writes them. MSVC's `__security_check_cookie` keeps `eax`, and a function sets its
+    /// result before calling it; the convention alone would have the call clobber it.
+    pub preserves: SlotSet,
+}
+
+impl Default for Signature {
+    fn default() -> Self {
+        Self {
+            params: Vec::new(),
+            stack_params: Vec::new(),
+            returns: None,
+            noreturn: false,
+            frame_below: 0,
+            dynamic_stack: false,
+            pops: 0,
+            preserves: NO_SLOTS,
+        }
+    }
 }
 
 impl Signature {
@@ -141,6 +160,9 @@ struct Facts {
     writes_rdx: bool,
     /// The float kind the function writes to `xmm0`, when it does.
     writes_xmm0: Option<Kind>,
+    /// The slots the function writes, itself or through what it calls, as far as the signatures
+    /// of the callees say so far.
+    writes: SlotSet,
     /// Callees whose `rax` this function reads after the call.
     uses_rax_of: Vec<String>,
     /// Callees whose `rdx` this function reads after the call: on x86, a 64-bit result in `edx:eax`.
@@ -171,13 +193,17 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target) -> HashM
         let facts: Vec<Facts> = functions.iter().map(|f| gather(f, &signatures, target)).collect();
         let xmm0_kinds: HashMap<&str, Option<Kind>> = facts.iter().map(|f| (f.name.as_str(), f.writes_xmm0)).collect();
         let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes_rdx)).collect();
+        let writes_rax: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[RAX.index()])).collect();
         // A float result wins when a caller reads xmm0 after the call: the callee wrote it as one.
         // A float an x86 function returns on the x87 stack travels in the lift's globals instead.
         let mut returns: BTreeMap<String, Option<Kind>> = facts.iter().map(|f| (f.name.clone(), None)).collect();
         for fact in &facts {
+            // A caller that reads rax after a call to a callee that leaves rax alone reads its
+            // own value through the call.
             for callee in &fact.uses_rax_of {
                 if let Some(r) = returns.get_mut(callee)
                     && r.is_none()
+                    && writes_rax.get(callee.as_str()).copied().unwrap_or(true)
                 {
                     *r = Some(Kind::Int);
                 }
@@ -244,6 +270,10 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target) -> HashM
             }
             let returns = if fact.noreturn { None } else { returns.get(&fact.name).copied().flatten() };
             let frame_below = (-fact.stack.min_offset).max(0) as u64;
+            let mut preserves = caller_saved(target);
+            for (kept, written) in preserves.iter_mut().zip(fact.writes) {
+                *kept &= !written;
+            }
             next.insert(
                 fact.name.clone(),
                 Signature {
@@ -254,6 +284,7 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target) -> HashM
                     frame_below: (frame_below + 15) & !15,
                     dynamic_stack: fact.stack.dynamic,
                     pops: if target.is_64() { 0 } else { fact.stack.pops.max(0) as u64 },
+                    preserves,
                 },
             );
         }
@@ -273,9 +304,17 @@ pub fn call_model_public(inst: &Inst, signatures: &HashMap<String, Signature>, t
 
 /// What a state call reads and writes under the current signatures. An import reads as many
 /// argument registers as its prototype says (none on x86, where they are on the stack); an
-/// unknown import or an indirect call reads every argument register.
+/// unknown import or an indirect call reads every argument register. A lifted callee writes the
+/// caller-saved registers it does not preserve; anything else writes them all.
 fn call_model(inst: &Inst, signatures: &HashMap<String, Signature>, target: Target) -> (SlotSet, SlotSet) {
-    let writes = caller_saved(target);
+    let mut writes = caller_saved(target);
+    if let Inst::Call { callee: Callee::Direct(name), .. } = inst
+        && let Some(s) = signatures.get(name)
+    {
+        for (w, kept) in writes.iter_mut().zip(s.preserves) {
+            *w &= !kept;
+        }
+    }
     let reads = match inst {
         Inst::Call { callee: Callee::Direct(name), .. } => match signatures.get(name) {
             Some(s) => s.param_slots(target),
@@ -336,9 +375,24 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target)
     let mut writes_rax = false;
     let mut writes_rdx = false;
     let mut writes_xmm0: Option<Kind> = None;
+    let mut writes = NO_SLOTS;
     for (bi, b) in f.blocks.iter().enumerate() {
         let mut calls = 0usize;
         for i in &b.instrs {
+            // The slots the function writes, itself or through a call.
+            match &i.inst {
+                Inst::Store { ptr: Operand::Local(p), .. } => {
+                    if let Some(slot) = pointers.get(p) {
+                        writes[slot.index()] = true;
+                    }
+                }
+                inst if super::liveness::call_kind(inst) == Some(super::liveness::CallKind::State) => {
+                    for (w, called) in writes.iter_mut().zip(model(inst).1) {
+                        *w |= called;
+                    }
+                }
+                _ => {}
+            }
             match &i.inst {
                 Inst::Store { ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&RAX) => writes_rax = true,
                 Inst::Store { ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&RDX) => writes_rdx = true,
@@ -375,6 +429,7 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target)
         uses_xmm0_of,
         writes_rax,
         writes_rdx,
+        writes,
         uses_rax_of,
         uses_rdx_of,
         noreturn: f.attrs.iter().any(|a| a == "noreturn"),

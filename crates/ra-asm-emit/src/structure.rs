@@ -3,7 +3,10 @@
 //! The walk goes block by block from the entry. A conditional branch becomes an `if` whose arms
 //! run to the branch's immediate post-dominator, the join; a `switch` likewise; a loop header (the
 //! target of a back edge) wraps its body in a loop, where an edge back to the header is `continue`
-//! and an edge to the loop's exit is `break`. A block reached a second time, or by an edge the
+//! and an edge to the loop's exit is `break`. A block that never continues (a trap, a call that
+//! does not return) is no exit for the joins: the paths that go on meet without it. A short block
+//! reached a second time whose own exit the context can name (a shared return block, a loop's
+//! latch) is written again in place; any other block reached a second time, or by an edge the
 //! rules do not cover, is reached by `goto`. The fixtures structure with no `goto`; code with
 //! irreducible control flow keeps them, as C allows.
 
@@ -27,6 +30,11 @@ pub enum Cond {
 pub enum Stmt {
     /// The straight-line instructions of a block, with its label when something jumps to it.
     Block(BlockId),
+    /// The instructions of a block written a second time, in place of a jump to it; no label.
+    Copy(BlockId),
+    /// The values the successors' phis take from a block whose condition was folded into the
+    /// branch above it: the head of the arm the block fell through to.
+    Moves(BlockId),
     If {
         cond: Cond,
         then: Vec<Stmt>,
@@ -63,6 +71,9 @@ pub struct Graph {
     pub succs: HashMap<BlockId, Vec<BlockId>>,
     pub idom: HashMap<BlockId, BlockId>,
     pub ipdom: HashMap<BlockId, Option<BlockId>>,
+    /// The post-dominators of the paths that do not return: the join of a branch one of whose
+    /// arms returns early, which `ipdom` has none for.
+    pub ipdom_live: HashMap<BlockId, Option<BlockId>>,
     /// Loop header -> the blocks of its natural loop.
     pub loops: HashMap<BlockId, HashSet<BlockId>>,
 }
@@ -83,7 +94,8 @@ impl Graph {
             succs.insert(b.id, s);
         }
         let idom = dominators(&order, &preds);
-        let ipdom = post_dominators(f, &order, &succs);
+        let ipdom = post_dominators(f, &order, &succs, false);
+        let ipdom_live = post_dominators(f, &order, &succs, true);
         // Natural loops: a back edge b -> h where h dominates b; the body is h plus what reaches b
         // without passing h.
         let mut loops: HashMap<BlockId, HashSet<BlockId>> = HashMap::new();
@@ -101,7 +113,7 @@ impl Graph {
                 }
             }
         }
-        Self { order, preds, succs, idom, ipdom, loops }
+        Self { order, preds, succs, idom, ipdom, ipdom_live, loops }
     }
 
     /// The block a loop leaves to: the one block outside the loop its blocks branch to, if one.
@@ -115,11 +127,19 @@ impl Graph {
                 }
             }
         }
-        match exits.as_slice() {
-            [one] => Some(*one),
-            // Several exits: the header's post-dominator, when the loop leaves to it.
-            _ => self.ipdom.get(&header).copied().flatten().filter(|j| exits.contains(j)),
+        if let [one] = exits.as_slice() {
+            return Some(*one);
         }
+        // Several exits: the header's first post-dominator outside the loop, when the loop
+        // leaves to it (a trap inside the loop is no exit, so the chain starts in the body).
+        let mut x = self.ipdom.get(&header).copied().flatten();
+        while let Some(j) = x {
+            if !body.contains(&j) {
+                return exits.contains(&j).then_some(j);
+            }
+            x = self.ipdom.get(&j).copied().flatten();
+        }
+        None
     }
 }
 
@@ -154,22 +174,78 @@ pub fn structure(f: &Function, g: &Graph) -> Structured {
 }
 
 impl Walk<'_> {
-    /// How an edge to `target` is written from inside the current context.
-    fn edge(&mut self, target: BlockId, stop: Option<BlockId>) -> Option<Stmt> {
+    /// The jump to `target` the context names without a label: nothing at the region's end,
+    /// `continue` or `break` inside a loop. `None` when it has no such name.
+    fn jump(&self, target: BlockId, stop: Option<BlockId>) -> Option<Vec<Stmt>> {
         if Some(target) == stop {
-            return None;
+            return Some(Vec::new());
         }
         if let Some(&(header, exit)) = self.loops.last() {
             if target == header {
-                return Some(Stmt::Continue);
+                return Some(vec![Stmt::Continue]);
             }
             if Some(target) == exit {
-                return Some(Stmt::Break);
+                return Some(vec![Stmt::Break]);
             }
         }
-        if self.emitted.contains(&target) {
-            self.labels.insert(target);
-            return Some(Stmt::Goto(target));
+        None
+    }
+
+    /// How an edge to `target` is written from inside the current context: the jump the context
+    /// names, or for a block placed already, a copy of it when it is short and its own exit has a
+    /// name here, else a `goto`. `None` when the target is the region's end or is not placed yet.
+    fn edge(&mut self, target: BlockId, stop: Option<BlockId>) -> Option<Vec<Stmt>> {
+        if let Some(stmts) = self.jump(target, stop) {
+            return (!stmts.is_empty()).then_some(stmts);
+        }
+        if !self.emitted.contains(&target) {
+            return None;
+        }
+        if let Some(tail) = self.copy_tail(target, stop, 0) {
+            let mut out = vec![Stmt::Copy(target)];
+            out.extend(tail);
+            return Some(out);
+        }
+        self.labels.insert(target);
+        Some(vec![Stmt::Goto(target)])
+    }
+
+    /// What follows a copy of `target`: its return, the jump its branch makes from here, or for a
+    /// conditional branch an `if` of the two; a jump to a short block placed already is a copy of
+    /// that block in turn, a few deep (the shared tail of a `switch` with fall-through cases, a
+    /// loop's latch that tests the count). `None` when the block is long, a loop header, or
+    /// leaves to a place this context cannot name.
+    fn copy_tail(&self, target: BlockId, stop: Option<BlockId>, depth: usize) -> Option<Vec<Stmt>> {
+        // A few source statements: unoptimized code spends several loads and stores on each.
+        const SHORT: usize = 16;
+        let block = self.f.block(target)?;
+        if self.g.loops.contains_key(&target) || block.instrs.len() > SHORT {
+            return None;
+        }
+        match &block.terminator {
+            Terminator::Ret(v) => Some(vec![Stmt::Return(v.clone())]),
+            Terminator::Unreachable => Some(vec![Stmt::Unreachable]),
+            Terminator::Br(t) => self.tail_to(*t, stop, depth),
+            Terminator::CondBr { cond, then, els } => {
+                let then = self.tail_to(*then, stop, depth)?;
+                let els = self.tail_to(*els, stop, depth)?;
+                Some(vec![Stmt::If { cond: Cond::Is(cond.clone()), then, els }])
+            }
+            Terminator::Switch { .. } => None,
+        }
+    }
+
+    /// The way from a copied block to `t`: the jump the context names, or a copy of `t` when it
+    /// is placed already and the chain stays short.
+    fn tail_to(&self, t: BlockId, stop: Option<BlockId>, depth: usize) -> Option<Vec<Stmt>> {
+        const CHAIN: usize = 3;
+        if let Some(stmts) = self.jump(t, stop) {
+            return Some(stmts);
+        }
+        if depth + 1 < CHAIN && self.emitted.contains(&t) {
+            let mut out = vec![Stmt::Copy(t)];
+            out.extend(self.copy_tail(t, stop, depth + 1)?);
+            return Some(out);
         }
         None
     }
@@ -182,9 +258,9 @@ impl Walk<'_> {
             if Some(cur) == stop {
                 return out;
             }
-            // A jump the rules cover: continue, break, or a goto to a block already placed.
-            if let Some(stmt) = self.edge(cur, stop) {
-                out.push(stmt);
+            // A jump the rules cover: continue, break, a copy of or a goto to a block already placed.
+            if let Some(stmts) = self.edge(cur, stop) {
+                out.extend(stmts);
                 return out;
             }
             // A loop header not yet entered: the loop, then its exit.
@@ -220,7 +296,7 @@ impl Walk<'_> {
             Terminator::Br(t) => {
                 let t = *t;
                 match self.edge(t, stop) {
-                    Some(stmt) => out.push(stmt),
+                    Some(stmts) => out.extend(stmts),
                     None => {
                         if Some(t) != stop {
                             out.extend(self.run(t, stop));
@@ -229,10 +305,12 @@ impl Walk<'_> {
                 }
             }
             Terminator::CondBr { cond, then, els } => {
-                let (cond, then, els) = self.fold_condition(Cond::Is(cond.clone()), *then, *els);
-                let join = self.join_of(cur, stop);
-                let then_body = self.arm(then, join, stop);
-                let els_body = self.arm(els, join, stop);
+                let (cond, then, els, last, mut then_body, mut els_body) = self.fold_condition(Cond::Is(cond.clone()), *then, *els, cur);
+                // The join of the folded chain is the last condition's: an earlier one may be
+                // post-dominated by a condition the chain absorbed.
+                let join = self.join_of(last, stop);
+                then_body.extend(self.arm(then, join, stop));
+                els_body.extend(self.arm(els, join, stop));
                 out.push(Stmt::If { cond, then: then_body, els: els_body });
                 if let Some(j) = join
                     && Some(j) != stop
@@ -271,44 +349,73 @@ impl Walk<'_> {
     /// Folds the short-circuit chains: an arm that is only a condition whose branch rejoins the
     /// other arm becomes part of this branch's condition. `if (a) { if (b) T else E } else E` is
     /// `if (a && b) T else E`; `if (a) T else { if (b) T else E }` is `if (a || b) T else E`.
-    fn fold_condition(&mut self, mut cond: Cond, mut then: BlockId, mut els: BlockId) -> (Cond, BlockId, BlockId) {
+    /// A condition block that hands values to the phis of the arm it falls through to (not the
+    /// arm it rejoins) folds too: the hand-over heads that arm. Returns the condition, its arms,
+    /// the last block folded in (`last` when none was), and the heads of the two arms.
+    #[allow(clippy::type_complexity)]
+    fn fold_condition(
+        &mut self,
+        mut cond: Cond,
+        mut then: BlockId,
+        mut els: BlockId,
+        mut last: BlockId,
+    ) -> (Cond, BlockId, BlockId, BlockId, Vec<Stmt>, Vec<Stmt>) {
+        let mut then_head = Vec::new();
+        let mut els_head = Vec::new();
         for _ in 0..16 {
-            if let Some((c2, t2, e2)) = self.condition_only(then) {
-                if e2 == els {
+            if let Some((c2, t2, e2, feeds_t, feeds_e)) = self.condition_only(then) {
+                if e2 == els && !feeds_e {
                     cond = Cond::And(Box::new(cond), Box::new(Cond::Is(c2)));
                     self.emitted.insert(then);
+                    if feeds_t {
+                        then_head.push(Stmt::Moves(then));
+                    }
+                    last = then;
                     then = t2;
                     continue;
                 }
-                if t2 == els {
+                if t2 == els && !feeds_t {
                     cond = Cond::And(Box::new(cond), Box::new(Cond::Not(Box::new(Cond::Is(c2)))));
                     self.emitted.insert(then);
+                    if feeds_e {
+                        then_head.push(Stmt::Moves(then));
+                    }
+                    last = then;
                     then = e2;
                     continue;
                 }
             }
-            if let Some((c2, t2, e2)) = self.condition_only(els) {
-                if t2 == then {
+            if let Some((c2, t2, e2, feeds_t, feeds_e)) = self.condition_only(els) {
+                if t2 == then && !feeds_t {
                     cond = Cond::Or(Box::new(cond), Box::new(Cond::Is(c2)));
                     self.emitted.insert(els);
+                    if feeds_e {
+                        els_head.push(Stmt::Moves(els));
+                    }
+                    last = els;
                     els = e2;
                     continue;
                 }
-                if e2 == then {
+                if e2 == then && !feeds_e {
                     cond = Cond::Or(Box::new(cond), Box::new(Cond::Not(Box::new(Cond::Is(c2)))));
                     self.emitted.insert(els);
+                    if feeds_t {
+                        els_head.push(Stmt::Moves(els));
+                    }
+                    last = els;
                     els = t2;
                     continue;
                 }
             }
             break;
         }
-        (cond, then, els)
+        (cond, then, els, last, then_head, els_head)
     }
 
     /// A block that only computes the condition of its own branch: pure instructions, each used
-    /// once inside the block, one predecessor, no phi fed from it, not a loop header.
-    fn condition_only(&self, b: BlockId) -> Option<(Operand, BlockId, BlockId)> {
+    /// once inside the block, one predecessor, not a loop header. With the condition and the two
+    /// targets, whether each target's phis take a value from the block.
+    fn condition_only(&self, b: BlockId) -> Option<(Operand, BlockId, BlockId, bool, bool)> {
         let block = self.f.block(b)?;
         let Terminator::CondBr { cond, then, els } = &block.terminator else { return None };
         if self.emitted.contains(&b) || self.g.loops.contains_key(&b) || self.g.preds.get(&b).map_or(0, Vec::len) != 1 {
@@ -329,22 +436,21 @@ impl Walk<'_> {
             }
         }
         // A phi in a successor that takes a value from this block needs the block's edge.
-        for s in [*then, *els] {
-            if let Some(succ) = self.f.block(s)
-                && succ
-                    .instrs
+        let feeds = |s: BlockId| {
+            self.f.block(s).is_some_and(|succ| {
+                succ.instrs
                     .iter()
                     .any(|i| matches!(&i.inst, ra_asm_ir::Inst::Phi { incoming, .. } if incoming.iter().any(|(_, p)| *p == b)))
-            {
-                return None;
-            }
-        }
-        Some((cond.clone(), *then, *els))
+            })
+        };
+        Some((cond.clone(), *then, *els, feeds(*then), feeds(*els)))
     }
 
-    /// The join of a branch at `b`: its immediate post-dominator, inside the current region.
+    /// The join of a branch at `b`: its immediate post-dominator, inside the current region. When
+    /// an arm returns early there is none, and the paths that go on meet at the join of the
+    /// others: `if (a) { ... return; } rest`.
     fn join_of(&self, b: BlockId, stop: Option<BlockId>) -> Option<BlockId> {
-        let j = self.g.ipdom.get(&b).copied().flatten();
+        let j = self.g.ipdom.get(&b).copied().flatten().or_else(|| self.g.ipdom_live.get(&b).copied().flatten());
         // A join beyond the current loop or region is reached by break or by the caller.
         match j {
             Some(j) if Some(j) == stop => stop,
@@ -358,16 +464,19 @@ impl Walk<'_> {
         if Some(target) == join {
             return Vec::new();
         }
-        if let Some(stmt) = self.edge(target, stop) {
-            return vec![stmt];
+        // The arm ends at the join: a copy of a placed block that leaves to it needs no jump.
+        if let Some(stmts) = self.edge(target, join.or(stop)) {
+            return stmts;
         }
         if let Some(j) = join {
-            if let Some(stmt) = self.edge(j, stop)
-                && matches!(stmt, Stmt::Goto(_))
+            if let Some(stmts) = self.edge(j, stop)
+                && matches!(stmts.first(), Some(Stmt::Goto(_) | Stmt::Copy(_)))
             {
-                // The join is placed already: the arm runs to it and jumps.
+                // The join is placed already: the arm runs to it and jumps, or writes it again.
                 let mut body = self.run(target, join);
-                body.push(stmt);
+                if !ends_in_jump(&body) {
+                    body.extend(stmts);
+                }
                 return body;
             }
             return self.run(target, join);
@@ -376,16 +485,38 @@ impl Walk<'_> {
     }
 }
 
-/// Reverse post-order of the reachable blocks.
+/// Whether a body leaves by its last statement, so nothing after it would run.
+fn ends_in_jump(body: &[Stmt]) -> bool {
+    matches!(body.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue | Stmt::Goto(_) | Stmt::Unreachable))
+}
+
 /// Immediate post-dominators over the reversed graph with a virtual exit after every block that
-/// returns or never continues. `None` for a block from which no exit is reached.
-fn post_dominators(f: &Function, order: &[BlockId], succs: &HashMap<BlockId, Vec<BlockId>>) -> HashMap<BlockId, Option<BlockId>> {
+/// returns. A block that never continues (a trap, a call that does not return) is left out, with
+/// the edges into it: the joins are where the paths that go on meet, and a `switch` whose default
+/// traps still joins after its cases. With `live`, the blocks that return are left out too, and
+/// the exit sits after the last block before them. `None` for a block from which no exit is
+/// reached.
+fn post_dominators(
+    f: &Function,
+    order: &[BlockId],
+    succs: &HashMap<BlockId, Vec<BlockId>>,
+    live: bool,
+) -> HashMap<BlockId, Option<BlockId>> {
     let exit = BlockId(u32::MAX);
+    let never_continues = |b: BlockId| match f.block(b).map(|b| &b.terminator) {
+        Some(Terminator::Unreachable) => true,
+        Some(Terminator::Ret(_)) => live,
+        _ => false,
+    };
     let mut rsuccs: HashMap<BlockId, Vec<BlockId>> = HashMap::new(); // the reversed graph's successors = preds
     let mut rpreds: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
     for &b in order {
-        let mut s = succs.get(&b).cloned().unwrap_or_default();
-        if s.is_empty() || matches!(f.block(b).map(|b| &b.terminator), Some(Terminator::Ret(_) | Terminator::Unreachable)) {
+        if never_continues(b) {
+            continue;
+        }
+        let mut s: Vec<BlockId> = succs.get(&b).cloned().unwrap_or_default();
+        s.retain(|t| !never_continues(*t));
+        if s.is_empty() {
             s = vec![exit];
         }
         for t in s {

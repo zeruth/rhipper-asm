@@ -200,6 +200,13 @@ pub unsafe fn ra_x86_execute_onexit_table(table: u64) -> u64 {
     0
 }
 
+/// `InitializeSListHead`: the program's list head is 8 bytes, the host's 16, and the host's own
+/// function refuses a head that is not 16-byte aligned; the empty list is zeros.
+pub unsafe fn ra_x86_initialize_slist_head(head: u64) -> u64 {
+    core::ptr::write_bytes(head as usize as *mut u8, 0, 8);
+    0
+}
+
 static mut ARGV32: Vec<u32> = Vec::new();
 static mut ARGV32_ADDRESS: u32 = 0;
 static mut ARG_STRINGS: Vec<std::ffi::CString> = Vec::new();

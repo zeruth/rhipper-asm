@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, HashMap};
 use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Operand, Terminator, Type, ValueId};
 
 use super::Target;
-use super::liveness::{CallKind, RSP, Slot, call_kind, reverse_post_order};
+use super::liveness::{CallKind, GPRS, RSP, Slot, call_kind, reverse_post_order};
 
 /// What the stack analysis found.
 #[derive(Debug, Clone, Default)]
@@ -39,6 +39,9 @@ pub struct StackInfo {
 
 /// Analyzes `f`, whose state pointer is `state`. `pops_of` is what a lifted callee pops beyond its
 /// return address, by name, as far as the inference knows it so far.
+// The names are the ones the analysis is written in: `f`, `n` blocks, `sp`, a block `b` and an
+// instruction `i`.
+#[allow(clippy::many_single_char_names)]
 pub fn analyze(
     f: &Function,
     state: ValueId,
@@ -51,10 +54,14 @@ pub fn analyze(
     let index_of: HashMap<_, _> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
     let preds = f.predecessors();
     let ptr = target.ptr();
-    // The offset of the stack pointer slot at each block's entry: None = unknown, Some(None) = dynamic.
-    let mut entry_offset: Vec<Option<Option<i64>>> = vec![None; n];
-    let mut exit_offset: Vec<Option<Option<i64>>> = vec![None; n];
-    entry_offset[0] = Some(Some(0));
+    let Slot::Gpr(sp) = RSP else { unreachable!() };
+    let sp = usize::from(sp);
+    // The registers at each block's entry: None = not reached yet.
+    let mut entry: Vec<Option<Regs>> = vec![None; n];
+    let mut exit: Vec<Option<Regs>> = vec![None; n];
+    let mut at_entry = [None; GPRS];
+    at_entry[sp] = Some(0);
+    entry[0] = Some(at_entry);
     let mut info = StackInfo::default();
     let mut symbolic: HashMap<ValueId, i64> = HashMap::new();
     let _ = state;
@@ -64,34 +71,42 @@ pub fn analyze(
         for &bi in &order {
             // Join the predecessors.
             if bi != 0 {
-                let mut joined: Option<Option<i64>> = None;
+                let mut joined: Option<Regs> = None;
                 for p in preds.get(&f.blocks[bi].id).cloned().unwrap_or_default() {
                     let pi = index_of[&p];
-                    joined = match (joined, exit_offset[pi]) {
+                    joined = match (joined, exit[pi]) {
                         (None, x) | (x, None) => x,
-                        (Some(Some(a)), Some(Some(b))) if a == b => Some(Some(a)),
-                        _ => Some(None),
+                        (Some(a), Some(b)) => Some(join(a, b)),
                     };
                 }
-                if joined != entry_offset[bi] {
-                    entry_offset[bi] = joined;
+                if joined != entry[bi] {
+                    entry[bi] = joined;
                     changed = true;
                 }
             }
-            let Some(mut sp) = entry_offset[bi] else { continue };
+            let Some(mut regs) = entry[bi] else { continue };
             for (ii, i) in f.blocks[bi].instrs.iter().enumerate() {
                 match &i.inst {
-                    Inst::Load { ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&RSP) => {
-                        if let (Some(result), Some(k)) = (i.result, sp) {
-                            symbolic.insert(result, k);
+                    // A register read: symbolic when the register holds a stack offset. A frame
+                    // pointer is one, from `mov ebp, esp`; the stale answer of an earlier round
+                    // is dropped.
+                    Inst::Load { ptr: Operand::Local(p), .. } if matches!(pointers.get(p), Some(Slot::Gpr(_))) => {
+                        let Some(Slot::Gpr(r)) = pointers.get(p) else { unreachable!() };
+                        if let Some(result) = i.result {
+                            match regs[usize::from(*r)] {
+                                Some(k) => symbolic.insert(result, k),
+                                None => symbolic.remove(&result),
+                            };
                         }
                     }
-                    Inst::Store { ptr: Operand::Local(p), value, .. } if pointers.get(p) == Some(&RSP) => {
-                        sp = match value {
+                    Inst::Store { ptr: Operand::Local(p), value, .. } if matches!(pointers.get(p), Some(Slot::Gpr(_))) => {
+                        let Some(Slot::Gpr(r)) = pointers.get(p) else { unreachable!() };
+                        let k = match value {
                             Operand::Local(v) => symbolic.get(v).copied(),
                             _ => None,
                         };
-                        if sp.is_none() {
+                        regs[usize::from(*r)] = k;
+                        if usize::from(*r) == sp && k.is_none() {
                             info.dynamic = true;
                         }
                     }
@@ -138,8 +153,14 @@ pub fn analyze(
                                 Inst::Call { callee: Callee::Direct(name), .. } => Some(name.as_str()),
                                 _ => None,
                             };
-                            if let Some(k) = sp {
+                            if let Some(k) = regs[sp] {
                                 info.call_offsets.insert((bi, ii), k);
+                            }
+                            // The callee keeps the callee-saved registers and may write the rest.
+                            for (r, offset) in regs.iter_mut().enumerate() {
+                                if r != sp && !target.callee_saved(Slot::Gpr(r as u8)) {
+                                    *offset = None;
+                                }
                             }
                             // An import wrapper runs in place of the native call: nothing was
                             // pushed and the stack pointer stays. For a lifted callee the machine
@@ -166,10 +187,10 @@ pub fn analyze(
                                         }
                                     }
                                 }
-                                Some(name) if name.starts_with("F_") => sp = sp.map(|k| k + ptr + pops_of(name)),
-                                _ if target.is_64() => sp = sp.map(|k| k + ptr),
+                                Some(name) if name.starts_with("F_") => regs[sp] = regs[sp].map(|k| k + ptr + pops_of(name)),
+                                _ if target.is_64() => regs[sp] = regs[sp].map(|k| k + ptr),
                                 _ => {
-                                    sp = None;
+                                    regs[sp] = None;
                                     info.dynamic = true;
                                 }
                             }
@@ -177,8 +198,8 @@ pub fn analyze(
                     }
                 }
             }
-            if exit_offset[bi] != Some(sp) {
-                exit_offset[bi] = Some(sp);
+            if exit[bi] != Some(regs) {
+                exit[bi] = Some(regs);
                 changed = true;
             }
         }
@@ -189,7 +210,7 @@ pub fn analyze(
     // The lowest stack pointer value itself counts: a push writes below it. The offset at a
     // return, past the return address, is what the function pops.
     for &bi in &order {
-        if let Some(Some(k)) = exit_offset[bi] {
+        if let Some(Some(k)) = exit[bi].map(|regs| regs[sp]) {
             info.min_offset = info.min_offset.min(k);
             if let Terminator::Ret(_) = f.blocks[bi].terminator {
                 info.pops = info.pops.max(k - ptr);
@@ -197,6 +218,20 @@ pub fn analyze(
         }
     }
     info
+}
+
+/// The offset from the entry stack pointer each general register holds at a point, `None` for a
+/// register that holds something else or an offset the paths disagree on.
+type Regs = [Option<i64>; GPRS];
+
+fn join(a: Regs, b: Regs) -> Regs {
+    let mut out = [None; GPRS];
+    for (r, offset) in out.iter_mut().enumerate() {
+        if a[r] == b[r] {
+            *offset = a[r];
+        }
+    }
+    out
 }
 
 fn touch(info: &mut StackInfo, offset: i64, bits: u16) {

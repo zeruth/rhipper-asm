@@ -158,6 +158,13 @@ uint64_t ra_x86_execute_onexit_table(uint64_t table) {
     return 0;
 }
 
+// The program's singly linked list head is 8 bytes, the host's 16, and the host's own function
+// refuses a head that is not 16-byte aligned: the empty list is zeros.
+uint64_t ra_x86_initialize_slist_head(uint64_t head) {
+    memset((void *)(uintptr_t)head, 0, 8);
+    return 0;
+}
+
 // argv and the environment as dword pointers to the host's strings, which sit below 4 GB.
 static int ra_argc;
 static char **ra_argv;
@@ -316,7 +323,8 @@ static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
     // The exceptions a program raises and handles itself are not crashes.
     if (r->ExceptionCode != EXCEPTION_ACCESS_VIOLATION && r->ExceptionCode != EXCEPTION_ILLEGAL_INSTRUCTION
         && r->ExceptionCode != EXCEPTION_STACK_OVERFLOW && r->ExceptionCode != EXCEPTION_PRIV_INSTRUCTION
-        && r->ExceptionCode != EXCEPTION_BREAKPOINT && r->ExceptionCode != EXCEPTION_INT_DIVIDE_BY_ZERO) {
+        && r->ExceptionCode != EXCEPTION_BREAKPOINT && r->ExceptionCode != EXCEPTION_INT_DIVIDE_BY_ZERO
+        && r->ExceptionCode != EXCEPTION_DATATYPE_MISALIGNMENT && r->ExceptionCode != EXCEPTION_IN_PAGE_ERROR) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
     uintptr_t module = (uintptr_t)GetModuleHandleA(NULL);

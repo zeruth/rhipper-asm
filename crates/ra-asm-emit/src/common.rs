@@ -42,19 +42,38 @@ impl<'a> Defs<'a> {
     }
 
     /// Whether `v` can be written inline at its one use: pure, used once, in its own block after
-    /// its definition, and for a load, right after it (a store or a call in between could change
-    /// what it reads).
+    /// its definition, and when its expression reads memory, with nothing between the two that
+    /// could change what it reads (a store or a call); the structuring folds a block of such
+    /// values into a condition.
     pub(crate) fn inlinable(&self, v: ValueId) -> bool {
         let Some((block, index, inst)) = self.def(v) else { return false };
         if self.uses.get(&v).copied() != Some(1) || inst.has_side_effects() || matches!(inst, Inst::Phi { .. } | Inst::Alloca { .. }) {
             return false;
         }
-        let next = block.instrs.get(index + 1);
-        let used_next = next.is_some_and(|n| n.inst.uses().contains(&v)) || (next.is_none() && block.terminator.uses().contains(&v));
-        if matches!(inst, Inst::Load { .. }) {
-            return used_next;
+        let reads_memory = self.reads_memory(v);
+        for n in &block.instrs[index + 1..] {
+            if n.inst.uses().contains(&v) {
+                return true;
+            }
+            if reads_memory && n.inst.has_side_effects() {
+                return false;
+            }
         }
-        block.instrs[index + 1..].iter().any(|n| n.inst.uses().contains(&v)) || block.terminator.uses().contains(&v)
+        block.terminator.uses().contains(&v)
+    }
+
+    /// Whether the expression of `v` reads memory: a load, or an operand that is written inline
+    /// into it (a single-use pure value) and does. `cvtpd2ps xmm0, xmm0` zeroes the register
+    /// before the converted value is stored: the conversion of the old value must read it first.
+    fn reads_memory(&self, v: ValueId) -> bool {
+        let Some((_, _, inst)) = self.def(v) else { return false };
+        if matches!(inst, Inst::Load { .. }) {
+            return true;
+        }
+        if inst.has_side_effects() || matches!(inst, Inst::Phi { .. } | Inst::Alloca { .. }) {
+            return false;
+        }
+        inst.uses().into_iter().any(|o| self.uses.get(&o).copied() == Some(1) && self.reads_memory(o))
     }
 }
 

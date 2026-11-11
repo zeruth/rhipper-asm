@@ -7,6 +7,15 @@
 // declares itself, with other types.
 #include <stdint.h>
 
+// The translation declares every import with integer arguments and result, the ABI it was called
+// with; a C runtime import clang knows as a builtin (`exit`, `memcpy`) is then a redeclaration
+// with another type, which is the same call on the wire.
+#if defined(__clang__)
+#pragma clang diagnostic ignored "-Wincompatible-library-redeclaration"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic ignored "-Wbuiltin-declaration-mismatch"
+#endif
+
 #if defined(_MSC_VER) && !defined(__clang__)
 #define RA_NORETURN __declspec(noreturn)
 #define RA_ALIGNED(n) __declspec(align(n))
@@ -120,6 +129,7 @@ uint64_t ra_x86_register_onexit_function(uint64_t table, uint64_t function);
 uint64_t ra_x86_execute_onexit_table(uint64_t table);
 uint64_t ra_x86_p_argv(void);
 uint64_t ra_x86_initial_narrow_environment(void);
+uint64_t ra_x86_initialize_slist_head(uint64_t head);
 
 // Float constants from their bits.
 static inline float ra_f32(uint32_t bits) { float f; __builtin_memcpy(&f, &bits, 4); return f; }

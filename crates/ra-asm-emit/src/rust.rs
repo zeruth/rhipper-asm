@@ -799,7 +799,9 @@ impl Emitter<'_> {
     fn stmt(&mut self, out: &mut String, s: &Stmt, depth: usize) {
         let pad = "    ".repeat(depth);
         match s {
-            Stmt::Block(b) => self.block(out, *b, depth),
+            Stmt::Block(b) => self.block(out, *b, depth, true),
+            Stmt::Copy(b) => self.block(out, *b, depth, false),
+            Stmt::Moves(b) => self.moves(out, *b, depth),
             Stmt::If { cond, then, els } => {
                 let (cond, then, els) = if then.is_empty() && !els.is_empty() {
                     (Cond::Not(Box::new(cond.clone())), els, then)
@@ -855,12 +857,13 @@ impl Emitter<'_> {
         }
     }
 
-    /// The instructions of a block, then the phi moves to its successors.
-    fn block(&mut self, out: &mut String, id: BlockId, depth: usize) {
+    /// The instructions of a block, then the phi moves to its successors; `labeled` for the
+    /// block's own place, not for a copy.
+    fn block(&mut self, out: &mut String, id: BlockId, depth: usize, labeled: bool) {
         let pad = "    ".repeat(depth);
         let f = self.f;
         let Some(block) = f.block(id) else { return };
-        if self.labels.contains(&id) {
+        if labeled && self.labels.contains(&id) {
             let _ = writeln!(out, "{pad}// {}:", label(id, f));
         }
         for i in &block.instrs {
@@ -887,6 +890,13 @@ impl Emitter<'_> {
                 }
             }
         }
+        self.moves(out, id, depth);
+    }
+
+    /// The phis of the successors of `id` take their values here, all at once.
+    fn moves(&mut self, out: &mut String, id: BlockId, depth: usize) {
+        let pad = "    ".repeat(depth);
+        let f = self.f;
         if let Some(moves) = self.defs.phi_moves.get(&id).cloned() {
             for (phi, o) in &moves {
                 let ty = f.value_type(*phi).clone();

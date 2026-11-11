@@ -175,6 +175,7 @@ fn simplify(inst: &Inst) -> Option<Operand> {
             let zero = |o: &Operand| matches!(o, Operand::Int(0));
             match op {
                 BinOp::And | BinOp::Or if lhs == rhs => return Some(lhs.clone()),
+                BinOp::Xor | BinOp::Sub if lhs == rhs => return Some(Operand::Int(0)),
                 BinOp::Or | BinOp::Xor | BinOp::Add | BinOp::Shl | BinOp::LShr | BinOp::AShr | BinOp::Sub if zero(rhs) => {
                     return Some(lhs.clone());
                 }

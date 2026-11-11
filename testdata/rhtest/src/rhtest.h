@@ -1,7 +1,7 @@
-/* rhtest.h: what every rhtest program shares. Each program is small and on its own (one exe, one
- * Rhipper project per build variant, rhtest.py), so a corpus stays ~100 functions and a phase
- * iterates in a minute. A program defines rhtest_run(); rhtest_main.c, linked into each, holds
- * main(), the seed and the output.
+/* rhtest.h: what every rhtest program shares. Each program is small and on its own (one exe per
+ * build variant, `<name>-O2.exe` and `<name>-Od.exe` beside this directory, ported and run by the
+ * emit oracle), so a corpus stays ~100 functions and a port is read in one sitting. A program
+ * defines rhtest_run(); rhtest_main.c, linked into each, holds main(), the seed and the output.
  *
  * A check prints its value and folds it into an FNV-1a checksum, the exit code's low 7 bits.
  * Every line is written out as it is made (WriteFile, kernel32 only: the CRT is a program of its

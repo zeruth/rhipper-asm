@@ -620,18 +620,20 @@ impl Rewriter<'_> {
         args
     }
 
-    /// After a call: the caller-saved registers are gone, the result is in `rax` or `xmm0`.
+    /// After a call: the caller-saved registers are gone, but for the ones the callee is known to
+    /// preserve; the result is in `rax` or `xmm0`.
     fn after_call(
         &self,
         f: &mut Function,
         current: &mut HashMap<Slot, Operand>,
         returns: Option<Kind>,
         result: Option<ValueId>,
+        preserves: &SlotSet,
         out: &mut Vec<Instruction>,
     ) {
         let target = self.target();
         for slot in Slot::all() {
-            if !target.callee_saved(slot) && !slot.is_xmm() {
+            if !target.callee_saved(slot) && !slot.is_xmm() && !preserves[slot.index()] {
                 current.insert(slot, Operand::Undef);
             }
         }
@@ -715,7 +717,7 @@ impl Rewriter<'_> {
                     inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: Operand::Int(i128::from(ptr + sig.pops as i64)) },
                     address,
                 });
-                self.after_call(f, current, sig.returns, result, out);
+                self.after_call(f, current, sig.returns, result, &sig.preserves, out);
                 current.insert(RSP, Operand::Local(popped));
             }
             Callee::Direct(name) if import_of_wrapper(name).is_some() => {
@@ -734,7 +736,7 @@ impl Rewriter<'_> {
                     inst: Inst::Call { fn_ty, callee: Callee::Direct(symbol), args, tail: false },
                     address,
                 });
-                self.after_call(f, current, Some(Kind::Int), Some(result), out);
+                self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, out);
             }
             Callee::Direct(name) if name == "ra_call" => {
                 // `ra_call(state, target)`: the target is an address of code; the driver makes
@@ -789,13 +791,13 @@ impl Rewriter<'_> {
                     inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: up },
                     address,
                 });
-                self.after_call(f, current, Some(Kind::Int), Some(result), out);
+                self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, out);
                 current.insert(RSP, Operand::Local(popped));
             }
             _ => {
                 // Something else that takes the state: keep it, with undefined registers after.
                 out.push(i.clone());
-                self.after_call(f, current, None, None, out);
+                self.after_call(f, current, None, None, &NO_SLOTS, out);
             }
         }
     }

@@ -421,7 +421,11 @@ impl Lifter<'_, '_> {
         if base != R::None {
             let v = self.m.read_gpr(block, base);
             let v = self.m.zext(block, Type::Int((base.size() * 8) as u16), v, ty.clone(), "base");
-            acc = Some(v);
+            // `[eax + table]`: the register indexes the data the displacement names.
+            acc = Some(match acc {
+                Some(a) => self.m.b.bin(block, BinOp::Add, ty.clone(), a, v, "addr"),
+                None => v,
+            });
         }
         let index = i.memory_index();
         if index != R::None {
