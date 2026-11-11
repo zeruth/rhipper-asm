@@ -5,9 +5,13 @@
 //! value, not through memory. Dead-code elimination then removes what no one uses. The later
 //! passes (stack frames, signatures, types) build on this.
 
+pub mod abi;
 pub mod dce;
+pub mod liveness;
 pub mod promote;
+pub mod prototypes;
 pub mod simplify;
+pub mod stack;
 
 use ra_asm_ir::Module;
 

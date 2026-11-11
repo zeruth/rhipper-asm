@@ -14,7 +14,7 @@ use ra_asm_pe::Image;
 use ra_asm_x86::X86;
 use ra_asm_x86::iced_x86::{ConditionCode, Instruction, Mnemonic, OpKind, Register as R};
 
-use crate::state::{Flag, Machine, import_adapter_type};
+use crate::state::{Flag, Machine};
 use crate::{Lifted, function_name};
 
 /// The trap codes the runtime prints.
@@ -195,29 +195,22 @@ impl Lifter<'_, '_> {
         );
     }
 
-    /// Calls an import through the adapter: `rcx, rdx, r8, r9` and four stack slots from
-    /// `rsp + stack_offset`; the result goes to `rax`.
+    /// Calls an import through its wrapper, `imp_<name>(ptr %state)` (or `imp_<name>.tail` when
+    /// the caller's return address is still on the stack). The wrapper reads the argument
+    /// registers and the stack slots, calls the import, and stores the result to `rax`; see
+    /// [`crate::import_wrapper`]. A wrapper keeps the register reads out of the calling function,
+    /// so the signature inference can model the import by its prototype.
     fn import_call(&mut self, block: BlockId, import: &str, stack_offset: i64) {
         if self.m.bits != 64 {
             self.warn(format!("import {import}: 32-bit import calls need the arity table; the call traps"));
             self.m.unsupported(block, self.m.b.address.unwrap_or(0), 0);
             return;
         }
-        let name = import_symbol(import);
-        self.lifted.imports.insert(name.clone());
-        let mut args = Vec::with_capacity(8);
-        for r in [R::RCX, R::RDX, R::R8, R::R9] {
-            let v = self.m.read_gpr(block, r);
-            args.push((Type::I64, v.into()));
-        }
-        let sp = self.m.read_sp(block);
-        for n in 0..4 {
-            let addr = self.m.b.bin(block, BinOp::Add, Type::I64, sp, stack_offset + 8 * n, "arg.p");
-            let v = self.m.load(block, Type::I64, addr, "arg");
-            args.push((Type::I64, v.into()));
-        }
-        let result = self.m.b.call(block, import_adapter_type(), Callee::Direct(name), args, "ret").unwrap();
-        self.m.write_gpr(block, R::RAX, result);
+        let symbol = import_symbol(import);
+        self.lifted.imports.insert(symbol.clone());
+        let wrapper = crate::import_wrapper_name(&symbol, stack_offset);
+        self.lifted.wrappers.insert((symbol, stack_offset));
+        self.m.b.call(block, FnType::new(Type::Void, vec![Type::Ptr]), Callee::Direct(wrapper), vec![(Type::Ptr, self.m.state.into())], "");
     }
 
     // endregion
@@ -691,6 +684,15 @@ impl Lifter<'_, '_> {
                 self.write(block, i, 0, v);
             }
 
+            // `xor r, r` and `sub r, r` zero a register without reading it; a lift that read it
+            // would see a parameter where there is none.
+            M::Xor | M::Sub if same_register(i) => {
+                let bits = self.op_bits(i, 0);
+                let ty = Type::Int(bits);
+                let zero = self.m.value_of(block, ty.clone(), 0i64);
+                self.write(block, i, 0, zero);
+                self.logic_flags(block, ty, zero);
+            }
             M::Add | M::Adc | M::Sub | M::Sbb | M::Cmp => {
                 let bits = self.op_bits(i, 0);
                 let ty = Type::Int(bits);
@@ -1101,6 +1103,17 @@ impl Lifter<'_, '_> {
                 let mask = (0..4).map(|k| (imm >> (2 * k)) & 3).collect();
                 let r = self.m.b.value(block, Inst::ShuffleVector { ty: v4.clone(), a: src.into(), b: Operand::Undef, mask }, "pshufd");
                 self.write_vec(block, i, 0, v4, r);
+            }
+            // The vector zeroing idioms, and `pcmpeq x, x` for all ones: no read of the register.
+            M::Pxor | M::Xorps | M::Xorpd | M::Psubb | M::Psubw | M::Psubd | M::Psubq | M::Pandn | M::Andnps | M::Andnpd
+                if same_register(i) =>
+            {
+                let zero = self.m.value_of(block, Type::I128, 0i64);
+                self.m.write_xmm(block, i.op_register(0), Type::I128, zero, true);
+            }
+            M::Pcmpeqb | M::Pcmpeqw | M::Pcmpeqd if same_register(i) => {
+                let ones = self.m.value_of(block, Type::I128, -1i64);
+                self.m.write_xmm(block, i.op_register(0), Type::I128, ones, true);
             }
             M::Paddb
             | M::Paddw
@@ -1880,6 +1893,11 @@ impl Lifter<'_, '_> {
 
     // endregion
     // endregion
+}
+
+/// Whether a two-operand instruction names the same register twice.
+fn same_register(i: &Instruction) -> bool {
+    i.op_count() == 2 && i.op_kind(0) == OpKind::Register && i.op_kind(1) == OpKind::Register && i.op_register(0) == i.op_register(1)
 }
 
 /// The accumulator of a width: `al`, `ax`, `eax`, `rax`.

@@ -5,6 +5,7 @@ mod disasm;
 mod functions;
 mod lift;
 mod report;
+mod signatures;
 
 use std::path::PathBuf;
 
@@ -47,6 +48,8 @@ enum Command {
         /// `0x140001000`, `140001000` or `FUN_140001000`.
         address: String,
     },
+    /// What each function takes and returns, as the lift infers it.
+    Signatures { pe: PathBuf },
     /// The IR of every function. With `--out`, writes `program.ll`, `image.bin` and `image.h` there.
     Lift {
         pe: PathBuf,
@@ -84,6 +87,7 @@ fn main() -> anyhow::Result<()> {
         Command::Functions { pe, pdata: false } => functions::functions(&ra_asm_pe::load(&pe)?, json),
         Command::Cfg { pe, address } => functions::cfg(&ra_asm_pe::load(&pe)?, disasm::parse_address(&address)?, json),
         Command::Lift { pe, out, quiet, machine } => lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), quiet, machine),
+        Command::Signatures { pe } => signatures::signatures(&ra_asm_pe::load(&pe)?, json),
         Command::Disasm { pe, address, length } => {
             let address = disasm::parse_address(&address)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;

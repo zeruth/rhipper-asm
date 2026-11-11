@@ -86,9 +86,10 @@
         objective: `rsp`- and `rbp`-relative slots become allocas sized by their accesses; the frame setup and teardown disappear.
         acceptance: A fixture function with locals shows them as allocas with no stack pointer arithmetic.
         waits-on: 22
-    - 24 ‹task› Calling conventions and signatures {c4} [defined]
+    - 24 ‹task› Calling conventions and signatures {c4} [in_progress]
         objective: Win64 (`rcx rdx r8 r9`, `xmm0`-`xmm3`, the stack, `rax` and `xmm0` out) and the x86 conventions (`cdecl`, `stdcall`, `fastcall`, `thiscall`) by the registers and slots a function reads before writing and writes before returning; imports take their prototypes from a table.
         acceptance: Each fixture function gets the parameter count of its source; the oracle calls raised functions by their signatures.
+        notes: Inference done 2026-11-10 (raise/abi.rs, liveness.rs, stack.rs, prototypes.rs; `ras signatures`). The parameters are the argument registers read before written under a call model where a call reads its callee's parameters (iterated to a fixpoint) and writes the caller-saved registers; imports read what a prototype table says, unknown ones all four; the stack arguments come from a symbolic stack-pointer analysis that also sizes the frame. A root returns a value when it writes rax; the rest when a caller reads rax after the call. The lift now zeroes a register on `xor r, r` and `pxor x, x` without reading it, and calls imports through per-import wrappers, so neither shows as a read. The signatures of control64 and float64 match the binaries (clang folded constant arguments into collatz, mean and mix). Next: the rewrite that gives each function its parameters, frame and return.
         waits-on: 23
     - 25 ‹task› Conditions, globals and types {c4} [defined]
         objective: `cmp` and `test` followed by a conditional become one comparison; references into data sections become globals of the width their uses say; integer widths, pointers and floats come from the uses.

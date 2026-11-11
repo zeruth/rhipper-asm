@@ -19,7 +19,7 @@ pub use raise::{Options as RaiseOptions, raise};
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ra_asm_analysis::{Analysis, Kind};
+use ra_asm_analysis::{Analysis, Kind, Origin};
 use ra_asm_ir::{CallConv, Const, Declaration, Global, Linkage, Module, Type};
 use ra_asm_pe::Image;
 
@@ -30,12 +30,57 @@ pub struct Lifted {
     pub imports: BTreeSet<String>,
     /// The functions, by address and IR name.
     pub functions: BTreeMap<u64, String>,
+    /// The functions whose callers the lift does not see: the entry, the exports, the callbacks,
+    /// the functions a pointer names.
+    pub roots: BTreeSet<String>,
+    /// The import wrappers the code calls: the import's symbol and the stack offset of its first
+    /// stack argument at the call site.
+    pub wrappers: BTreeSet<(String, i64)>,
     pub warnings: Vec<String>,
 }
 
 /// The IR name of the lifted function at `va`: `F_<address>`, as the old pipeline named them.
 pub fn function_name(va: u64) -> String {
     format!("F_{va:08x}")
+}
+
+/// The name of an import's wrapper: `imp_<symbol>`, or `imp_<symbol>.tail` for a tail call.
+pub fn import_wrapper_name(symbol: &str, stack_offset: i64) -> String {
+    if stack_offset == 0x20 { format!("imp_{symbol}") } else { format!("imp_{symbol}.tail") }
+}
+
+/// The import of a wrapper's name, or `None` for any other function.
+pub fn import_of_wrapper(name: &str) -> Option<&str> {
+    name.strip_prefix("imp_").map(|rest| rest.strip_suffix(".tail").unwrap_or(rest))
+}
+
+/// Builds the wrapper of an import: it reads `rcx`, `rdx`, `r8`, `r9` and four stack slots from
+/// `rsp + stack_offset` out of the state, calls the import through the eight-integer adapter, and
+/// stores the result to `rax`.
+pub fn import_wrapper(symbol: &str, stack_offset: i64) -> ra_asm_ir::Function {
+    use ra_asm_ir::{BinOp, Callee, FnType, FunctionBuilder, Terminator};
+    use ra_asm_x86::iced_x86::Register as R;
+    let name = import_wrapper_name(symbol, stack_offset);
+    let mut b = FunctionBuilder::new(&name, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
+    b.set_linkage(Linkage::Internal);
+    let state = b.param(0);
+    let block = b.block("entry");
+    let mut m = state::Machine { b: &mut b, state, bits: 64 };
+    let mut args = Vec::with_capacity(8);
+    for r in [R::RCX, R::RDX, R::R8, R::R9] {
+        let v = m.read_gpr(block, r);
+        args.push((Type::I64, v.into()));
+    }
+    let sp = m.read_sp(block);
+    for n in 0..4 {
+        let addr = m.b.bin(block, BinOp::Add, Type::I64, sp, stack_offset + 8 * n, "arg.p");
+        let v = m.load(block, Type::I64, addr, "arg");
+        args.push((Type::I64, v.into()));
+    }
+    let result = m.b.call(block, state::import_adapter_type(), Callee::Direct(symbol.to_owned()), args, "ret").unwrap();
+    m.write_gpr(block, R::RAX, result);
+    b.terminate(block, Terminator::Ret(None));
+    b.finish()
 }
 
 /// Lifts every function of `analysis`.
@@ -46,14 +91,21 @@ pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
     module.types.push((state::STATE_TYPE.to_owned(), state::state_fields()));
     state::declare_runtime(&mut module);
 
-    let mut lifted = Lifted { module, imports: BTreeSet::new(), functions: BTreeMap::new(), warnings: Vec::new() };
+    let mut lifted = Lifted {
+        module,
+        imports: BTreeSet::new(),
+        functions: BTreeMap::new(),
+        roots: BTreeSet::new(),
+        wrappers: BTreeSet::new(),
+        warnings: Vec::new(),
+    };
     for f in analysis.functions.values() {
-        if let Kind::ImportThunk(_) = f.kind {
-            // A thunk is `jmp [slot]`: the call sites call the import; the thunk itself lifts too,
-            // so a pointer to it works.
-        }
         let name = function_name(f.entry);
-        lifted.functions.insert(f.entry, name.clone());
+        let root = f.origins.iter().any(|o| matches!(o, Origin::Entry | Origin::Export(_) | Origin::TlsCallback | Origin::Pointer(_)));
+        if root || matches!(f.kind, Kind::ImportThunk(_)) {
+            lifted.roots.insert(name.clone());
+        }
+        lifted.functions.insert(f.entry, name);
     }
     for f in analysis.functions.values() {
         let built = x86::lift_function(image, analysis, &mut lifted, f);
@@ -84,6 +136,9 @@ pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
     });
     for import in &lifted.imports {
         lifted.module.declare(Declaration { name: import.clone(), ty: state::import_adapter_type(), conv: CallConv::C, attrs: Vec::new() });
+    }
+    for (symbol, offset) in &lifted.wrappers {
+        lifted.module.functions.push(import_wrapper(symbol, *offset));
     }
     lifted
 }
