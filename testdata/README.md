@@ -8,6 +8,8 @@ no compiler. `build.ps1` rebuilds them; `/Brepro` keeps a rebuild byte-identical
 |---|---|---|
 | `src/hello.c` | `hello64.exe`, `hello32.exe` | Three imports, two leaf functions, one caller |
 | `src/control.c` | `control64.exe`, `control32.exe` | Loops, if-else, a dense switch, recursion, a table of function pointers, globals, a no-return call mid-function; a CodeView record |
+| `src/float.c` | `float64.exe`, `float32.exe` | Floating-point arithmetic, conversions and compares |
+| `src/classes.cpp` | `classes64.exe`, `classes32.exe` | C++ with RTTI: a base, a derived class, a second base and a class with two vtables, called through base pointers; no C++ runtime |
 | `src/exports.c`, `src/exports.def` | `exports64.dll`, `exports32.dll` | Named exports, an export by ordinal only, a forwarder |
 
 Beside each binary is the linker map (`.map`): the analysis tests compare the functions they find

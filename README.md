@@ -72,6 +72,11 @@ binary and, with defaults for all of them, the `gen` directory of the translatio
 progress line, the build writes a `CMakeLists.txt` for a project that has none, and every run of
 the port appends to `build/pipeline/runs.jsonl`. This is what the Rhipper Workbench drives.
 
+The analysis also reads the RTTI a Microsoft C++ ABI program carries: each class with virtual
+functions, its bases and its vtables. A virtual function nothing else names takes its slot's name
+(`Square_vf2`), and every function lists the string literals it addresses. `ras functions --json`
+prints the classes beside the functions.
+
 `ras serve` is the engine as a service for the workbench: JSON-RPC 2.0 over stdio, one request and
 one response per line, with the image and its analysis held in memory, so a question about a large
 program costs no new analysis. The methods are `project`, `info`, `functions`, `function` (the

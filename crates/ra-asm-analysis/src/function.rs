@@ -18,6 +18,17 @@ pub enum Origin {
     TailCall(u64),
     /// A pointer-sized slot at the address holds the entry.
     Pointer(u64),
+    /// A slot of the vtable at the address holds the entry.
+    Vtable(u64),
+}
+
+/// A slot of a class's vtable that holds the function.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VirtualSlot {
+    pub class: String,
+    /// The offset of the vtable's subobject in the complete object: zero for the primary vtable.
+    pub offset: u32,
+    pub slot: usize,
 }
 
 /// What a function is.
@@ -119,6 +130,10 @@ pub struct Function {
     pub tail_calls: Vec<u64>,
     pub noreturn: bool,
     pub origins: Vec<Origin>,
+    /// The string literals its instructions address, in first-use order: the address and the text.
+    pub strings: Vec<(u64, String)>,
+    /// The vtable slots that hold the function: a virtual function of these classes.
+    pub virtuals: Vec<VirtualSlot>,
 }
 
 impl Function {

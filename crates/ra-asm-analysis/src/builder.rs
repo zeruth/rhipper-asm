@@ -262,6 +262,8 @@ impl Builder<'_> {
             tail_calls: self.tail_calls,
             noreturn: false,
             origins: Vec::new(),
+            strings: Vec::new(),
+            virtuals: Vec::new(),
         };
         Built { function, warnings: self.warnings }
     }

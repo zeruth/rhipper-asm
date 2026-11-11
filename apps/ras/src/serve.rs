@@ -6,9 +6,11 @@
 //! The methods, with their parameters:
 //! - `project`: the project and the outputs that exist.
 //! - `info`: the headers of the image.
-//! - `functions`: every function of the analysis.
-//! - `function` (`query`): one function: the analysis, the function table entry, its source in the
-//!   translation, its IR, and its instructions.
+//! - `functions`: every function of the analysis, and the classes of the RTTI.
+//! - `classes`: the classes alone: name, bases, and each vtable with its functions.
+//! - `function` (`query`): one function: the analysis, the strings it addresses, the vtable slots
+//!   that hold it, the function table entry, its source in the translation, its IR, and its
+//!   instructions.
 //! - `disasm` (`address`, `length`), `cfg` (`address`), `callers` (`address`), `xrefs` (`lo`, `hi`).
 //! - `strings` (`min`, `limit`): the printable strings of the data sections.
 //! - `shutdown`.
@@ -124,6 +126,7 @@ impl Session<'_> {
             "project" => Ok(self.project()),
             "info" => Ok(crate::report::info_json(self.image)),
             "functions" => Ok(crate::functions::functions_json(self.analysis)),
+            "classes" => Ok(json!({"classes": crate::functions::classes_json(self.analysis)})),
             "function" => {
                 let query = params.get("query").and_then(Value::as_str).ok_or_else(|| anyhow!("the parameter `query` is missing"))?;
                 self.function(query)
@@ -198,11 +201,13 @@ impl Session<'_> {
             .ok_or_else(|| anyhow!("no function matches `{query}`"))?;
         let ir_name = ra_asm_lift::function_name(function.entry);
         let decoded = crate::disasm::decode(self.image, function.entry, Some(function.size()))?;
+        let (strings, virtuals) = crate::functions::facts_json(function);
         let mut result = json!({
             "addr": hex(function.entry), "name": function.name, "ir_name": ir_name, "size": function.size(),
             "blocks": function.blocks.len(), "instrs": function.instr_count(), "noreturn": function.noreturn,
             "calls": function.calls.iter().map(|c| self.analysis.name_of(*c)).collect::<Vec<_>>(),
             "imports": function.import_calls,
+            "strings": strings, "virtuals": virtuals,
             "disasm": crate::disasm::disasm_text(self.image, &decoded),
         });
         if let Some(project) = &self.target.project {

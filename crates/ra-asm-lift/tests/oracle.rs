@@ -137,6 +137,16 @@ fn float64_runs_lifted() {
 }
 
 #[test]
+fn classes64_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/classes.txt")).unwrap();
+    run_oracle("classes64.exe", &expected);
+}
+
+#[test]
 fn control64_runs_lifted() {
     if !clang_available() {
         eprintln!("clang is not on the PATH: the oracle is skipped");

@@ -20,14 +20,15 @@ $targets = @(
   @{ Suffix = '32'; Triple = 'i686-pc-windows-msvc'; Entry = 'mainCRTStartup' }
 )
 
-function Build-Exe([string]$Name, [string[]]$Extra) {
+function Build-Exe([string]$Name, [string[]]$Extra, [string]$Ext = 'c', [string[]]$Extra32 = @()) {
   foreach ($t in $targets) {
     $out = Join-Path $bin "$Name$($t.Suffix).exe"
     $map = Join-Path $bin "$Name$($t.Suffix).map"
     # -ffreestanding would drop the x64 unwind tables, and the loader tests need .pdata.
     $args = @('-target', $t.Triple, '-O2', '-nostdlib', '-fno-builtin', '-funwind-tables', '-fuse-ld=lld',
-      (Join-Path $src "$Name.c"), '-o', $out, '-lkernel32',
+      (Join-Path $src "$Name.$Ext"), '-o', $out, '-lkernel32',
       "-Wl,/entry:$($t.Entry)", '-Wl,/subsystem:console', '-Wl,/Brepro', "-Wl,/map:$map") + $Extra
+    if ($t.Suffix -eq '32') { $args += $Extra32 }
     Write-Host "clang $Name$($t.Suffix)" -ForegroundColor Cyan
     & clang @args
     if ($LASTEXITCODE -ne 0) { throw "clang failed for $Name$($t.Suffix)" }
@@ -53,6 +54,12 @@ if (Wanted 'hello') { Build-Exe 'hello' @() }
 # control carries a CodeView debug record, for the debug directory.
 if (Wanted 'control') { Build-Exe 'control' @('-g', '-gcodeview', '-Wl,/debug', '-Wl,/pdbaltpath:control.pdb') }
 if (Wanted 'float') { Build-Exe 'float' @() }
+# classes is C++ with RTTI, for the vtable analysis; no exceptions, so no runtime handler is named.
+# The program defines type_info's vtable symbol itself; on x86 clang prefixes its label with an
+# underscore, and the linker maps the name the type descriptors use to it.
+if (Wanted 'classes') {
+  Build-Exe 'classes' @('-std=c++20', '-frtti', '-fno-exceptions') 'cpp' @('-Wl,/alternatename:??_7type_info@@6B@=_??_7type_info@@6B@')
+}
 if (Wanted 'exports') { Build-Dll 'exports' }
 
 # The PDBs and the import libraries are build leftovers, not fixtures.

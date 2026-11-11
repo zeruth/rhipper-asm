@@ -4,7 +4,7 @@
 //!
 //! ```json
 //! {"addr": "0x140001330", "name": "fib", "size": 64, "file": "program.c", "line": 131,
-//!  "status": "lifted", "traps": 0, "calls": ["fib"], "imports": []}
+//!  "status": "lifted", "traps": 0, "calls": ["fib"], "imports": [], "strings": ["fail\r\n"]}
 //! ```
 //!
 //! `file` is relative to the directory the translation is written to: `program.c`, or
@@ -12,6 +12,8 @@
 //! translated, `partial` when the body calls `ra_trap` for the ones that did not (`traps` counts
 //! them), and `not lifted` when the function has no source at all, in which case `file` and `line`
 //! are absent. A thunk to an import has status `thunk` and names the import in `imports`.
+//! `strings` lists the string literals the function addresses. A virtual function has `class` and
+//! `slot`: the class whose vtable holds it first, and the slot in that vtable.
 
 use std::collections::HashMap;
 
@@ -31,6 +33,10 @@ pub struct FunctionInfo {
     pub imports: Vec<String>,
     /// Whether the function is a thunk to an import.
     pub thunk: bool,
+    /// The string literals it addresses.
+    pub strings: Vec<String>,
+    /// The class whose vtable holds it, and the slot, for a virtual function.
+    pub class: Option<(String, usize)>,
 }
 
 /// What the analysis knows of every function, by IR name.
@@ -47,6 +53,8 @@ pub fn infos(analysis: &ra_asm_analysis::Analysis) -> HashMap<String, FunctionIn
                 calls: f.calls.iter().map(name_of).collect(),
                 imports: f.import_calls.clone(),
                 thunk: f.is_thunk(),
+                strings: f.strings.iter().map(|(_, text)| text.clone()).collect(),
+                class: f.virtuals.first().map(|v| (v.class.clone(), v.slot)),
             };
             (ra_asm_lift::function_name(f.entry), info)
         })
@@ -79,6 +87,9 @@ pub fn table(functions: &[EmittedFunction], files: &[EmittedFile], infos: &HashM
             entry.insert("traps".into(), json!(f.traps));
             entry.insert("calls".into(), json!(info.map_or(&[][..], |i| &i.calls)));
             entry.insert("imports".into(), json!(info.map_or(&[][..], |i| &i.imports)));
+            if let Some(info) = info {
+                facts(&mut entry, info);
+            }
             entries.push((address, Value::Object(entry)));
         }
     }
@@ -94,10 +105,24 @@ pub fn table(functions: &[EmittedFunction], files: &[EmittedFile], infos: &HashM
         entry.insert("traps".into(), json!(0));
         entry.insert("calls".into(), json!(info.calls));
         entry.insert("imports".into(), json!(info.imports));
+        facts(&mut entry, info);
         entries.push((info.address, Value::Object(entry)));
     }
     entries.sort_by_key(|(address, _)| *address);
     let values: Vec<Value> = entries.into_iter().map(|(_, v)| v).collect();
+    finish(values)
+}
+
+/// The strings and the class of a function, in its table entry.
+fn facts(entry: &mut Map<String, Value>, info: &FunctionInfo) {
+    entry.insert("strings".into(), json!(info.strings));
+    if let Some((class, slot)) = &info.class {
+        entry.insert("class".into(), json!(class));
+        entry.insert("slot".into(), json!(slot));
+    }
+}
+
+fn finish(values: Vec<Value>) -> String {
     let mut out = serde_json::to_string_pretty(&Value::Array(values)).expect("a JSON array prints");
     out.push('\n');
     out

@@ -183,6 +183,16 @@ fn float64_runs_as_c() {
 
 /// The split output: a header, a data file and several function files build and run together.
 #[test]
+fn classes64_runs_as_c() {
+    run_oracle("classes64.exe", "classes.txt");
+}
+
+#[test]
+fn classes64_runs_as_rust() {
+    run_rust_oracle("classes64.exe", "classes.txt", ra_asm_emit::FUNCTIONS_PER_FILE);
+}
+
+#[test]
 fn control64_runs_as_split_c() {
     run_oracle_with("control64.exe", "control.txt", "split", 4, ra_asm_emit::Dialect::C);
 }

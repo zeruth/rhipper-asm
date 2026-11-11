@@ -5,20 +5,25 @@
 //! exception table) become functions, each function's recursive descent finds callees and tail
 //! calls that become functions in turn, a call target that lands inside a built function splits
 //! it, and a function proven to never return makes its callers rebuild without the fall-through.
-//! Pointer-sized data slots that hold code addresses come last, since a jump table on x86 holds
-//! such addresses too and the functions reached by code must own them first.
+//! The vtables the RTTI names come next, then pointer-sized data slots that hold code addresses,
+//! since a jump table on x86 holds such addresses too and the functions reached by code must own
+//! them first. Last, each function learns the string literals it addresses and the vtable slots
+//! that hold it, and a function nothing names takes the name of its slot.
 
 pub mod builder;
 pub mod function;
 pub mod jumptable;
 pub mod noreturn;
+pub mod rtti;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+use ra_asm_arch::Operand;
 use ra_asm_pe::Image;
 use ra_asm_x86::X86;
 
-pub use function::{Block, Function, Kind, Origin, Terminator};
+pub use function::{Block, Function, Kind, Origin, Terminator, VirtualSlot};
+pub use rtti::{Class, Vtable};
 
 /// The analysis of one image.
 pub struct Analysis<'a> {
@@ -28,6 +33,8 @@ pub struct Analysis<'a> {
     pub functions: BTreeMap<u64, Function>,
     /// The functions that never return, by entry address.
     pub noreturn: HashSet<u64>,
+    /// The classes with virtual functions, from the RTTI.
+    pub classes: Vec<Class>,
     /// What the analysis could not resolve: unresolved indirect jumps, invalid bytes, overlaps.
     pub warnings: Vec<String>,
 }
@@ -89,6 +96,19 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
     }
     state.run();
 
+    // The virtual functions: the vtables of the RTTI name them before a bare pointer scan does.
+    let classes = rtti::classes(image);
+    for class in &classes {
+        for vtable in &class.vtables {
+            for &va in &vtable.functions {
+                if !state.functions.values().any(|f| f.entry != va && f.contains(va)) {
+                    state.seed(va, Origin::Vtable(vtable.address));
+                }
+            }
+        }
+    }
+    state.run();
+
     // Pointers in data: a function only a pointer reaches, such as a callback in a table.
     for (va, origin) in pointer_seeds(image) {
         if state.functions.values().any(|f| f.contains(va)) || state.functions.contains_key(&va) {
@@ -101,8 +121,61 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
     let mut functions = state.functions;
     for f in functions.values_mut() {
         f.noreturn = state.noreturn.contains(&f.entry);
+        f.strings = strings_of(image, f);
     }
-    Analysis { image, arch, functions, noreturn: state.noreturn, warnings: state.warnings }
+    name_virtual_functions(&classes, &mut functions);
+    Analysis { image, arch, functions, noreturn: state.noreturn, classes, warnings: state.warnings }
+}
+
+/// The string literals a function addresses: each operand that names an address where printable
+/// text of two or more characters ends in a zero, once per address, in first-use order.
+fn strings_of(image: &Image, function: &Function) -> Vec<(u64, String)> {
+    let mut out: Vec<(u64, String)> = Vec::new();
+    for instr in function.blocks.iter().flat_map(|b| &b.instrs) {
+        for operand in &instr.operands {
+            let target = match operand {
+                Operand::Mem(m) if m.absolute.is_some() => m.absolute.unwrap(),
+                // A 32-bit displacement with a base is an absolute address only when it maps.
+                Operand::Mem(m) if !image.is_64() && m.disp > 0 && image.is_mapped(m.disp as u64) => m.disp as u64,
+                Operand::Imm { value, .. } if !image.is_64() => *value as u64 & 0xffff_ffff,
+                Operand::Imm { value, .. } => *value as u64,
+                _ => continue,
+            };
+            if image.is_code(target) || out.iter().any(|(va, _)| *va == target) {
+                continue;
+            }
+            if let Some(text) = image.printable_cstr(target, 2, 512) {
+                out.push((target, text.to_owned()));
+            }
+        }
+    }
+    out
+}
+
+/// Fills each function's vtable slots from `classes`, and names a function nothing else names after
+/// its first slot: the class with the fewest bases first, so an inherited function takes the name
+/// of the class that introduced it.
+fn name_virtual_functions(classes: &[Class], functions: &mut BTreeMap<u64, Function>) {
+    let mut order: Vec<&Class> = classes.iter().collect();
+    order.sort_by_key(|c| (c.bases.len(), c.type_descriptor));
+    let mut taken: HashSet<String> = functions.values().map(|f| f.name.clone()).collect();
+    for class in order {
+        for vtable in &class.vtables {
+            for (slot, &va) in vtable.functions.iter().enumerate() {
+                let Some(f) = functions.get_mut(&va) else { continue };
+                f.virtuals.push(VirtualSlot { class: class.name.clone(), offset: vtable.offset, slot });
+                if f.name != function::default_name(va) {
+                    continue;
+                }
+                let mut name = class.slot_name(vtable, slot);
+                if taken.contains(&name) {
+                    name = format!("{name}_{va:x}");
+                }
+                taken.insert(name.clone());
+                f.name = name;
+            }
+        }
+    }
 }
 
 /// The working state of the fixpoint.

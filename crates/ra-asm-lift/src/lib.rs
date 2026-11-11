@@ -140,7 +140,10 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     };
     for f in analysis.functions.values() {
         let name = function_name(f.entry);
-        let root = f.origins.iter().any(|o| matches!(o, Origin::Entry | Origin::Export(_) | Origin::TlsCallback | Origin::Pointer(_)));
+        let root = f
+            .origins
+            .iter()
+            .any(|o| matches!(o, Origin::Entry | Origin::Export(_) | Origin::TlsCallback | Origin::Pointer(_) | Origin::Vtable(_)));
         if root || matches!(f.kind, Kind::ImportThunk(_)) {
             lifted.roots.insert(name.clone());
         }

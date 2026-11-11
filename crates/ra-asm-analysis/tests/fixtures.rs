@@ -29,8 +29,10 @@ fn map_functions(name: &str) -> BTreeMap<String, u64> {
             continue;
         }
         let address = u64::from_str_radix(parts[2], 16).unwrap();
-        // The 32-bit map decorates: `_print_int`, `_WriteFile@20`.
-        let name = parts[1].trim_start_matches('_').split('@').next().unwrap();
+        // The 32-bit map decorates: `_print_int`, `_WriteFile@20`. A C++ name (`?area@Rect@@UEBAHXZ`)
+        // stays whole.
+        let raw = parts[1];
+        let name = if raw.starts_with('?') { raw } else { raw.trim_start_matches('_').split('@').next().unwrap() };
         out.insert(name.to_owned(), address);
     }
     out
@@ -48,6 +50,8 @@ fn finds_exactly_the_functions_of_the_linker_maps() {
         ("hello32.exe", "hello32.map"),
         ("control64.exe", "control64.map"),
         ("control32.exe", "control32.map"),
+        ("classes64.exe", "classes64.map"),
+        ("classes32.exe", "classes32.map"),
     ] {
         let image = load(binary);
         let analysis = analyze(&image);
@@ -57,8 +61,58 @@ fn finds_exactly_the_functions_of_the_linker_maps() {
         ours.sort_unstable();
         theirs.sort_unstable();
         assert_eq!(ours, theirs, "{binary}: the functions ({})", expected.keys().cloned().collect::<Vec<_>>().join(", "));
-        assert!(analysis.warnings.is_empty(), "{binary}: {:?}", analysis.warnings);
+        // classes has a virtual call in tail position: a jump through the vtable, which no
+        // analysis of the image resolves.
+        let unresolved: Vec<&String> = analysis.warnings.iter().filter(|w| !w.contains("indirect jump")).collect();
+        assert!(unresolved.is_empty(), "{binary}: {:?}", analysis.warnings);
         assert_eq!(analysis.name_of(image.entry_point().unwrap()), "entry");
+    }
+}
+
+#[test]
+fn the_rtti_names_the_classes_and_their_virtual_functions() {
+    for (binary, map) in [("classes64.exe", "classes64.map"), ("classes32.exe", "classes32.map")] {
+        let image = load(binary);
+        let analysis = analyze(&image);
+        let expected = map_functions(map);
+        let by_name = |name: &str| analysis.classes.iter().find(|c| c.name == name).unwrap_or_else(|| panic!("{binary}: class {name}"));
+
+        let names: Vec<&str> = analysis.classes.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names.len(), 3, "{binary}: {names:?}");
+        let square = by_name("Square");
+        assert_eq!(square.bases, ["Shape"]);
+        assert_eq!(square.vtables.len(), 1);
+        assert_eq!(square.vtables[0].functions.len(), 3, "{binary}: area, name and the inherited scale");
+        let rect = by_name("Rect");
+        assert_eq!(rect.bases, ["Shape", "Named"]);
+        assert_eq!(rect.vtables.len(), 2, "{binary}: one vtable per base with virtual functions");
+        assert_eq!(rect.vtables[0].offset, 0);
+        assert_eq!(rect.vtables[0].functions.len(), 3);
+        assert!(rect.vtables[1].offset > 0);
+        assert_eq!(rect.vtables[1].base.as_deref(), Some("Named"));
+        assert_eq!(rect.vtables[1].functions.len(), 2);
+        let named = by_name("Named");
+        assert!(named.bases.is_empty());
+        assert_eq!(named.vtables[0].functions.len(), 2);
+
+        // The functions take the names of their slots: the class that introduced them first.
+        let name_of = |mangled: &str| analysis.name_of(expected[mangled]);
+        assert_eq!(name_of(if image.is_64() { "?scale@Shape@@UEBAHH@Z" } else { "?scale@Shape@@UBEHH@Z" }), "Square_vf2");
+        assert_eq!(name_of(if image.is_64() { "?area@Rect@@UEBAHXZ" } else { "?area@Rect@@UBEHXZ" }), "Rect_vf0");
+        assert_eq!(name_of(if image.is_64() { "?label@Rect@@UEBAPEBDXZ" } else { "?label@Rect@@UBEPBDXZ" }), "Rect_Named_vf0");
+        assert_eq!(name_of(if image.is_64() { "?weight@Named@@UEBAHXZ" } else { "?weight@Named@@UBEHXZ" }), "Named_vf1");
+        let scale = analysis.function(expected[if image.is_64() { "?scale@Shape@@UEBAHH@Z" } else { "?scale@Shape@@UBEHH@Z" }]).unwrap();
+        assert_eq!(scale.virtuals.len(), 1);
+        assert_eq!((scale.virtuals[0].class.as_str(), scale.virtuals[0].slot), ("Square", 2));
+
+        // The string literals each function addresses.
+        let square_name =
+            analysis.function(expected[if image.is_64() { "?name@Square@@UEBAPEBDXZ" } else { "?name@Square@@UBEPBDXZ" }]).unwrap();
+        assert_eq!(square_name.strings.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>(), ["square"]);
+        let describe_named = analysis
+            .function(expected[if image.is_64() { "?describe_named@@YAHPEBUNamed@@@Z" } else { "?describe_named@@YAHPBUNamed@@@Z" }])
+            .unwrap();
+        assert_eq!(describe_named.strings.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>(), ["\r\n"]);
     }
 }
 

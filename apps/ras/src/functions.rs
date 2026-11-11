@@ -19,7 +19,33 @@ fn origin_name(origin: &Origin) -> String {
         Origin::Call(from) => format!("call from {}", hex(*from)),
         Origin::TailCall(from) => format!("jump from {}", hex(*from)),
         Origin::Pointer(slot) => format!("pointer at {}", hex(*slot)),
+        Origin::Vtable(vtable) => format!("vtable at {}", hex(*vtable)),
     }
+}
+
+/// The classes of the analysis as JSON: name, bases, and each vtable with its functions by name.
+pub(crate) fn classes_json(analysis: &Analysis<'_>) -> serde_json::Value {
+    let rows: Vec<_> = analysis
+        .classes
+        .iter()
+        .map(|c| {
+            json!({
+                "name": c.name, "type_descriptor": hex(c.type_descriptor), "bases": c.bases,
+                "vtables": c.vtables.iter().map(|v| json!({
+                    "addr": hex(v.address), "offset": v.offset, "base": v.base,
+                    "functions": v.functions.iter().map(|f| json!({"addr": hex(*f), "name": analysis.name_of(*f)})).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    serde_json::Value::Array(rows)
+}
+
+/// The facts of one function the table and the server share: its strings and its vtable slots.
+pub(crate) fn facts_json(f: &ra_asm_analysis::Function) -> (serde_json::Value, serde_json::Value) {
+    let strings = f.strings.iter().map(|(va, text)| json!({"addr": hex(*va), "text": text})).collect::<Vec<_>>();
+    let virtuals = f.virtuals.iter().map(|v| json!({"class": v.class, "offset": v.offset, "slot": v.slot})).collect::<Vec<_>>();
+    (serde_json::Value::Array(strings), serde_json::Value::Array(virtuals))
 }
 
 fn terminator_json(t: &Terminator) -> serde_json::Value {
@@ -74,6 +100,7 @@ pub(crate) fn functions_json(analysis: &Analysis<'_>) -> serde_json::Value {
         .functions
         .values()
         .map(|f| {
+            let (strings, virtuals) = facts_json(f);
             json!({
                 "addr": hex(f.entry), "name": f.name, "size": f.size(), "bytes": f.code_bytes(), "blocks": f.blocks.len(),
                 "instrs": f.instr_count(), "noreturn": f.noreturn,
@@ -81,10 +108,11 @@ pub(crate) fn functions_json(analysis: &Analysis<'_>) -> serde_json::Value {
                 "calls": f.calls.iter().map(|c| hex(*c)).collect::<Vec<_>>(), "imports": f.import_calls,
                 "tail_calls": f.tail_calls.iter().map(|c| hex(*c)).collect::<Vec<_>>(),
                 "origins": f.origins.iter().map(origin_name).collect::<Vec<_>>(),
+                "strings": strings, "virtuals": virtuals,
             })
         })
         .collect();
-    json!({"functions": rows, "warnings": analysis.warnings})
+    json!({"functions": rows, "classes": classes_json(analysis), "warnings": analysis.warnings})
 }
 
 /// The blocks of `function` as JSON: what `ras cfg --json` prints and `ras serve` answers.
