@@ -136,12 +136,47 @@ pub fn declare_runtime(module: &mut ra_asm_ir::Module) {
             attrs: vec![],
         });
         module.declare(Declaration {
-            name: format!("llvm.roundeven.{name}"),
+            name: format!("llvm.rint.{name}"),
             ty: FnType::new(t.clone(), vec![t.clone()]),
             conv: CallConv::C,
             attrs: vec![],
         });
     }
+}
+
+/// The globals the lifted code keeps beside the state: the x87 stack with its top, control word
+/// and status word (the x87 state crosses calls, since a 32-bit function returns a double in
+/// `st(0)`, so it lives in globals rather than in `%State`, and survives every raising pass as
+/// plain memory), and a thread environment block for `fs:` and `gs:` accesses, zero like a TEB
+/// the program never filled: an exception chain push lands in it and nothing reads it back.
+pub const X87_STACK: &str = "ra_x87_stack";
+pub const X87_TOP: &str = "ra_x87_top";
+pub const X87_CW: &str = "ra_x87_cw";
+pub const X87_SW: &str = "ra_x87_sw";
+pub const TEB: &str = "ra_teb";
+pub const TEB_SIZE: u64 = 4096;
+
+pub fn define_runtime_globals(module: &mut ra_asm_ir::Module) {
+    use ra_asm_ir::{Const, Global, Linkage};
+    let global = |name: &str, ty: Type, init: Const, align: u32| Global {
+        name: name.to_owned(),
+        ty,
+        init: Some(init),
+        constant: false,
+        linkage: Linkage::External,
+        align,
+        address: None,
+    };
+    module.globals.push(global(X87_STACK, Type::array(8, Type::Double), Const::Zero, 16));
+    module.globals.push(global(X87_TOP, Type::I64, Const::Int(0), 8));
+    module.globals.push(global(X87_CW, Type::I16, Const::Int(0x037f), 2));
+    module.globals.push(global(X87_SW, Type::I16, Const::Int(0), 2));
+    module.globals.push(global(TEB, Type::array(TEB_SIZE, Type::I8), Const::Zero, 16));
+}
+
+/// Whether `name` is one of the globals of [`define_runtime_globals`].
+pub fn is_runtime_global(name: &str) -> bool {
+    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | TEB)
 }
 
 /// The state helpers over one function under construction.
@@ -214,7 +249,8 @@ impl Machine<'_> {
         self.b.cast(block, Cast::Trunc, Type::I64, shifted, Type::Int(bits), reg_name(reg))
     }
 
-    /// Writes a general register or a part of one. A 32-bit write in 64-bit mode zero-extends.
+    /// Writes a general register or a part of one. A 32-bit write zero-extends: in 64-bit mode
+    /// that is the machine's rule, and in 32-bit mode nothing reads the upper half.
     pub fn write_gpr(&mut self, block: BlockId, reg: R, value: impl Into<Operand>) {
         let full = reg.full_register();
         let p = self.gpr_ptr(block, full.number() as u32);
@@ -225,7 +261,7 @@ impl Machine<'_> {
             return;
         }
         let wide = self.b.cast(block, Cast::ZExt, Type::Int(bits), value, Type::I64, &format!("{}.z", reg_name(reg)));
-        if bits == 32 && self.bits == 64 {
+        if bits == 32 {
             self.b.store(block, Type::I64, wide, p);
             return;
         }

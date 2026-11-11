@@ -66,10 +66,10 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
     b.finish()
 }
 
-struct Lifter<'a, 'b> {
-    m: Machine<'b>,
-    image: &'a Image,
-    lifted: &'a mut Lifted,
+pub(crate) struct Lifter<'a, 'b> {
+    pub(crate) m: Machine<'b>,
+    pub(crate) image: &'a Image,
+    pub(crate) lifted: &'a mut Lifted,
     arch: X86,
     blocks: HashMap<u64, BlockId>,
     /// The condition of the conditional jump that ends the current block.
@@ -83,11 +83,11 @@ struct Lifter<'a, 'b> {
 }
 
 impl Lifter<'_, '_> {
-    fn warn(&mut self, text: String) {
+    pub(crate) fn warn(&mut self, text: String) {
         self.lifted.warnings.push(text);
     }
 
-    fn addr_ty(&self) -> Type {
+    pub(crate) fn addr_ty(&self) -> Type {
         self.m.address_type()
     }
 
@@ -180,7 +180,7 @@ impl Lifter<'_, '_> {
             }
             T::ImportTailCall(import) => {
                 // The caller's return address is on the stack; the import sees the arguments past it.
-                self.import_call(block, import, 0x28);
+                self.import_call(block, import, true);
                 self.m.pop(block, "ret.addr");
                 self.m.b.terminate(block, Terminator::Ret(None));
             }
@@ -237,18 +237,35 @@ impl Lifter<'_, '_> {
     /// the caller's return address is still on the stack). The wrapper reads the argument
     /// registers and the stack slots, calls the import, and stores the result to `rax`; see
     /// [`crate::import_wrapper`]. A wrapper keeps the register reads out of the calling function,
-    /// so the signature inference can model the import by its prototype.
-    fn import_call(&mut self, block: BlockId, import: &str, stack_offset: i64) {
-        if self.m.bits != 64 {
-            self.warn(format!("import {import}: 32-bit import calls need the arity table; the call traps"));
-            self.m.unsupported(block, self.m.b.address.unwrap_or(0), 0);
-            return;
-        }
+    /// so the signature inference can model the import by its prototype. In 32 bits the arguments
+    /// start at the stack pointer (past the return address for a tail call), and a `stdcall`
+    /// import pops them: the caller's code expects that, so the lift moves `esp` by the import's
+    /// argument bytes after the call.
+    fn import_call(&mut self, block: BlockId, import: &str, tail: bool) {
         let symbol = import_symbol(import);
         self.lifted.imports.insert(symbol.clone());
-        let wrapper = crate::import_wrapper_name(&symbol, stack_offset);
-        self.lifted.wrappers.insert((symbol, stack_offset));
+        let stack_offset = match (self.m.bits, tail) {
+            (64, false) => 0x20,
+            (64, true) => 0x28,
+            (_, false) => 0,
+            (_, true) => 4,
+        };
+        let wrapper = crate::import_wrapper_name(&symbol, tail);
+        self.lifted.wrappers.insert((symbol.clone(), stack_offset, tail));
         self.m.b.call(block, FnType::new(Type::Void, vec![Type::Ptr]), Callee::Direct(wrapper), vec![(Type::Ptr, self.m.state.into())], "");
+        if self.m.bits == 32 {
+            let dll = self.image.imports.iter().find(|i| i.display_name() == import).map(|i| i.dll.clone()).unwrap_or_default();
+            let known = crate::raise::prototypes::stdcall_pops(&dll, &symbol);
+            if known.is_none() {
+                self.warn(format!("import {import}: an unknown arity; the call is taken as cdecl, with nothing popped"));
+            }
+            let pops = known.unwrap_or(0);
+            if pops > 0 {
+                let sp = self.m.read_sp(block);
+                let adjusted = self.m.b.bin(block, BinOp::Add, Type::I32, sp, pops as i64, "sp");
+                self.m.write_sp(block, adjusted);
+            }
+        }
     }
 
     // endregion
@@ -256,7 +273,7 @@ impl Lifter<'_, '_> {
     // region Operands
 
     /// The width in bits of operand `n`.
-    fn op_bits(&self, i: &Instruction, n: u32) -> u16 {
+    pub(crate) fn op_bits(&self, i: &Instruction, n: u32) -> u16 {
         match i.op_kind(n) {
             OpKind::Register => (i.op_register(n).size() * 8) as u16,
             OpKind::Memory => {
@@ -308,8 +325,21 @@ impl Lifter<'_, '_> {
         }
     }
 
-    /// The address of the memory operand, at the address width.
-    fn mem_address(&mut self, block: BlockId, i: &Instruction) -> ValueId {
+    /// The address of the memory operand, at the address width. An `fs:` or `gs:` access lands in
+    /// the thread environment block the runtime keeps.
+    pub(crate) fn mem_address(&mut self, block: BlockId, i: &Instruction) -> ValueId {
+        let ty = self.addr_ty();
+        let segment = i.segment_prefix();
+        if segment == R::FS || segment == R::GS {
+            let flat = self.flat_address(block, i);
+            let teb = Operand::Address { global: crate::state::TEB.to_owned(), offset: 0 };
+            return self.m.b.bin(block, BinOp::Add, ty, flat, teb, "teb.addr");
+        }
+        self.flat_address(block, i)
+    }
+
+    /// The address of the memory operand without its segment.
+    fn flat_address(&mut self, block: BlockId, i: &Instruction) -> ValueId {
         let ty = self.addr_ty();
         if let Some(address) = Self::absolute_address(i) {
             let op = self.address_operand(address);
@@ -334,10 +364,6 @@ impl Lifter<'_, '_> {
                 None => scaled,
             });
         }
-        let segment = i.segment_prefix();
-        if segment == R::FS || segment == R::GS {
-            self.warn(format!("{:#x}: a {} segment access reads the flat address", i.ip(), if segment == R::FS { "fs" } else { "gs" }));
-        }
         match acc {
             Some(a) if disp != 0 => self.m.b.bin(block, BinOp::Add, ty, a, disp, "addr"),
             Some(a) => a,
@@ -346,7 +372,7 @@ impl Lifter<'_, '_> {
     }
 
     /// The integer value of operand `n`, at its own width.
-    fn read(&mut self, block: BlockId, i: &Instruction, n: u32) -> ValueId {
+    pub(crate) fn read(&mut self, block: BlockId, i: &Instruction, n: u32) -> ValueId {
         let bits = self.op_bits(i, n);
         match i.op_kind(n) {
             OpKind::Register => {
@@ -387,7 +413,7 @@ impl Lifter<'_, '_> {
     }
 
     /// Writes `value`, of the operand's width, to operand `n`.
-    fn write(&mut self, block: BlockId, i: &Instruction, n: u32, value: ValueId) {
+    pub(crate) fn write(&mut self, block: BlockId, i: &Instruction, n: u32, value: ValueId) {
         match i.op_kind(n) {
             OpKind::Register => {
                 let r = i.op_register(n);
@@ -412,7 +438,7 @@ impl Lifter<'_, '_> {
 
     // region Conditions
 
-    fn condition(&mut self, block: BlockId, cc: ConditionCode) -> ValueId {
+    pub(crate) fn condition(&mut self, block: BlockId, cc: ConditionCode) -> ValueId {
         let flag = |s: &mut Self, f: Flag| s.m.get_flag(block, f);
         let not = |s: &mut Self, v: ValueId| s.m.b.bin(block, BinOp::Xor, Type::I1, v, 1i64, "not");
         match cc {
@@ -497,8 +523,8 @@ impl Lifter<'_, '_> {
             Some(c) => {
                 let c_wide = self.m.zext(block, Type::I1, c, ty.clone(), "c");
                 let result = self.m.b.bin(block, BinOp::Add, ty.clone(), sum, c_wide, "sum.c");
-                let c1 = self.m.b.icmp(block, ICond::Ult, ty.clone(), sum, lhs, "cf.1");
-                let c2 = self.m.b.icmp(block, ICond::Ult, ty.clone(), result, sum, "cf.2");
+                let c1 = self.m.b.icmp(block, ICond::Ult, ty.clone(), sum, lhs, "cf.a");
+                let c2 = self.m.b.icmp(block, ICond::Ult, ty.clone(), result, sum, "cf.b");
                 let cf = self.m.b.bin(block, BinOp::Or, Type::I1, c1, c2, "cf");
                 (result, cf)
             }
@@ -526,8 +552,8 @@ impl Lifter<'_, '_> {
             Some(c) => {
                 let c_wide = self.m.zext(block, Type::I1, c, ty.clone(), "c");
                 let result = self.m.b.bin(block, BinOp::Sub, ty.clone(), diff, c_wide, "diff.c");
-                let c1 = self.m.b.icmp(block, ICond::Ult, ty.clone(), lhs, rhs, "cf.1");
-                let c2 = self.m.b.icmp(block, ICond::Ult, ty.clone(), diff, c_wide, "cf.2");
+                let c1 = self.m.b.icmp(block, ICond::Ult, ty.clone(), lhs, rhs, "cf.a");
+                let c2 = self.m.b.icmp(block, ICond::Ult, ty.clone(), diff, c_wide, "cf.b");
                 let cf = self.m.b.bin(block, BinOp::Or, Type::I1, c1, c2, "cf");
                 (result, cf)
             }
@@ -992,7 +1018,7 @@ impl Lifter<'_, '_> {
                         let slot = if i.is_ip_rel_memory_operand() { i.ip_rel_memory_address() } else { i.memory_displacement64() };
                         if let Some(import) = self.image.import_at(slot) {
                             let name = import.display_name();
-                            self.import_call(block, &name, 0x20);
+                            self.import_call(block, &name, false);
                         } else {
                             let target = self.read(block, i, 0);
                             let wide = self.m.zext(block, self.addr_ty(), target, Type::I64, "target");
@@ -1127,8 +1153,13 @@ impl Lifter<'_, '_> {
                 self.m.write_gpr(block, acc, new_acc);
             }
 
-            M::Movsb | M::Movsw | M::Movsd | M::Movsq if i.op_kind(0) != OpKind::Register => return self.string_op(block, i),
-            M::Stosb
+            // The string operations; `movsd` and `cmpsd` with an xmm operand are the scalar double
+            // forms below.
+            M::Movsb
+            | M::Movsw
+            | M::Movsd
+            | M::Movsq
+            | M::Stosb
             | M::Stosw
             | M::Stosd
             | M::Stosq
@@ -1364,7 +1395,7 @@ impl Lifter<'_, '_> {
                 let v = if matches!(i.mnemonic(), M::Cvtss2si | M::Cvtsd2si) {
                     self.m.intrinsic(
                         block,
-                        if single { "llvm.roundeven.f32" } else { "llvm.roundeven.f64" },
+                        if single { "llvm.rint.f32" } else { "llvm.rint.f64" },
                         fty.clone(),
                         vec![(fty.clone(), v.into())],
                         "round",
@@ -1494,6 +1525,8 @@ impl Lifter<'_, '_> {
                 let r = self.m.b.bin(block, op, ty.clone(), a, b, "fp");
                 self.write_vec(block, i, 0, ty, r);
             }
+
+            m if crate::x87::is_x87(m) => self.x87(block, i),
 
             other => {
                 self.warn(format!("{ip:#x}: {other:?} is not lifted yet"));

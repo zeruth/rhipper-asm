@@ -294,8 +294,11 @@ fn data_module(module: &Module, options: &Options, function_names: &HashSet<Stri
                 }
                 let _ = writeln!(out, "}});");
             }
-            (Type::Int(64), Some(Const::Int(v))) => {
-                let _ = writeln!(out, "pub static mut {}: u64 = {};", g.name, *v as u64);
+            (Type::Int(bits), Some(Const::Int(v))) => {
+                let _ = writeln!(out, "pub static mut {}: u{bits} = {};", g.name, *v as u64);
+            }
+            (Type::Array(n, e), Some(Const::Zero)) if **e == Type::Double => {
+                let _ = writeln!(out, "pub static mut {}: rhipper::Aligned<[f64; {n}]> = rhipper::Aligned([0.0f64; {n}]);", g.name);
             }
             (ty, init) => {
                 let _ = writeln!(out, "// global {} of type {ty} with initializer {init:?} is not written", g.name);
@@ -715,7 +718,7 @@ impl Emitter<'_> {
                 "trunc" => format!("{x}.trunc()"),
                 "floor" => format!("{x}.floor()"),
                 "ceil" => format!("{x}.ceil()"),
-                "roundeven" => format!("{x}.round_ties_even()"),
+                "rint" => format!("{x}.round_ties_even()"),
                 "round" => format!("{x}.round()"),
                 other => format!("rhipper::{other}({x})"),
             }

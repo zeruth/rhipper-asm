@@ -85,8 +85,17 @@ fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
     let (dir, lifted) = lift_to(binary, tag);
     assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
     let exe = dir.join("lifted.exe");
-    let build = Command::new("clang")
-        .args(["-O1", "-g", "-gcodeview", "-fuse-ld=lld", "-Wno-override-module"])
+    let mut build = Command::new("clang");
+    build.args(["-O1", "-g", "-gcodeview", "-fuse-ld=lld", "-Wno-override-module"]);
+    // A port of a 32-bit program keeps its 32-bit pointers: every address of the process must
+    // fit in them, which the linker arranges for an image that is not large-address-aware. The
+    // levels that map the image at its base cannot have that: the loader of such a process puts
+    // its own heap and environment block at the low addresses, so they run as a plain process
+    // with the driver's stack placed low.
+    if lifted.bits == 32 && lifted.standalone {
+        build.arg("-Wl,/largeaddressaware:no");
+    }
+    let build = build
         .arg(dir.join("program.ll"))
         .arg(root().join("runtime/driver.c"))
         .arg("-I")
@@ -134,6 +143,53 @@ fn float64_runs_lifted() {
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/float.txt")).unwrap();
     run_oracle("float64.exe", &expected);
+}
+
+/// The 32-bit fixtures at the machine and the promoted level; the ABI level waits on the x86
+/// calling conventions (roadmap task 42).
+fn run_oracle_32(binary: &str, expected: &str) {
+    run_oracle_as(binary, expected, "run-machine");
+    run_oracle_as(binary, expected, "run-promoted");
+}
+
+#[test]
+fn hello32_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello.txt")).unwrap();
+    run_oracle_32("hello32.exe", &expected);
+}
+
+#[test]
+fn control32_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
+    run_oracle_32("control32.exe", &expected);
+}
+
+#[test]
+fn float32_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/float.txt")).unwrap();
+    run_oracle_32("float32.exe", &expected);
+}
+
+#[test]
+fn classes32_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/classes.txt")).unwrap();
+    run_oracle_32("classes32.exe", &expected);
 }
 
 #[test]

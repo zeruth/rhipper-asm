@@ -15,6 +15,7 @@ pub mod data;
 pub mod raise;
 pub mod state;
 pub mod x86;
+pub mod x87;
 
 pub use raise::{Level as RaiseLevel, Options as RaiseOptions, raise};
 
@@ -34,13 +35,15 @@ pub struct Lifted {
     /// The functions whose callers the lift does not see: the entry, the exports, the callbacks,
     /// the functions a pointer names.
     pub roots: BTreeSet<String>,
-    /// The import wrappers the code calls: the import's symbol and the stack offset of its first
-    /// stack argument at the call site.
-    pub wrappers: BTreeSet<(String, i64)>,
+    /// The import wrappers the code calls: the import's symbol, the stack offset of its first
+    /// stack argument at the call site, and whether the call is a tail call.
+    pub wrappers: BTreeSet<(String, i64, bool)>,
     /// The data sections written as globals (standalone mode).
     pub data: Vec<DataSection>,
     /// Whether the lift references data through globals rather than the mapped image.
     pub standalone: bool,
+    /// 32 or 64: the address width of the image.
+    pub bits: u32,
     pub warnings: Vec<String>,
 }
 
@@ -50,8 +53,8 @@ pub fn function_name(va: u64) -> String {
 }
 
 /// The name of an import's wrapper: `imp_<symbol>`, or `imp_<symbol>.tail` for a tail call.
-pub fn import_wrapper_name(symbol: &str, stack_offset: i64) -> String {
-    if stack_offset == 0x20 { format!("imp_{symbol}") } else { format!("imp_{symbol}.tail") }
+pub fn import_wrapper_name(symbol: &str, tail: bool) -> String {
+    if tail { format!("imp_{symbol}.tail") } else { format!("imp_{symbol}") }
 }
 
 /// The import of a wrapper's name, or `None` for any other function.
@@ -59,31 +62,51 @@ pub fn import_of_wrapper(name: &str) -> Option<&str> {
     name.strip_prefix("imp_").map(|rest| rest.strip_suffix(".tail").unwrap_or(rest))
 }
 
-/// Builds the wrapper of an import: it reads `rcx`, `rdx`, `r8`, `r9` and four stack slots from
-/// `rsp + stack_offset` out of the state, calls the import through the eight-integer adapter, and
-/// stores the result to `rax`.
-pub fn import_wrapper(symbol: &str, stack_offset: i64) -> ra_asm_ir::Function {
+/// Builds the wrapper of an import. In 64 bits it reads `rcx`, `rdx`, `r8`, `r9` and four stack
+/// slots from `rsp + stack_offset` out of the state, calls the import through the eight-integer
+/// adapter, and stores the result to `rax`. In 32 bits every argument is on the stack: it reads
+/// eight dwords from `esp + stack_offset`, zero-extended, and stores the result to `eax` and its
+/// high half to `edx`. The caller pops what a `stdcall` import pops, since it knows the import.
+pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32) -> ra_asm_ir::Function {
     use ra_asm_ir::{BinOp, Callee, FnType, FunctionBuilder, Terminator};
     use ra_asm_x86::iced_x86::Register as R;
-    let name = import_wrapper_name(symbol, stack_offset);
+    let name = import_wrapper_name(symbol, tail);
     let mut b = FunctionBuilder::new(&name, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
     b.set_linkage(Linkage::Internal);
     let state = b.param(0);
     let block = b.block("entry");
-    let mut m = state::Machine { b: &mut b, state, bits: 64 };
+    let mut m = state::Machine { b: &mut b, state, bits };
     let mut args = Vec::with_capacity(8);
-    for r in [R::RCX, R::RDX, R::R8, R::R9] {
-        let v = m.read_gpr(block, r);
-        args.push((Type::I64, v.into()));
-    }
-    let sp = m.read_sp(block);
-    for n in 0..4 {
-        let addr = m.b.bin(block, BinOp::Add, Type::I64, sp, stack_offset + 8 * n, "arg.p");
-        let v = m.load(block, Type::I64, addr, "arg");
-        args.push((Type::I64, v.into()));
+    if bits == 64 {
+        for r in [R::RCX, R::RDX, R::R8, R::R9] {
+            let v = m.read_gpr(block, r);
+            args.push((Type::I64, v.into()));
+        }
+        let sp = m.read_sp(block);
+        for n in 0..4 {
+            let addr = m.b.bin(block, BinOp::Add, Type::I64, sp, stack_offset + 8 * n, "arg.p");
+            let v = m.load(block, Type::I64, addr, "arg");
+            args.push((Type::I64, v.into()));
+        }
+    } else {
+        let sp = m.read_sp(block);
+        for n in 0..8 {
+            let addr = m.b.bin(block, BinOp::Add, Type::I32, sp, stack_offset + 4 * n, "arg.p");
+            let v = m.load(block, Type::I32, addr, "arg");
+            let wide = m.zext(block, Type::I32, v, Type::I64, "arg.w");
+            args.push((Type::I64, wide.into()));
+        }
     }
     let result = m.b.call(block, state::import_adapter_type(), Callee::Direct(symbol.to_owned()), args, "ret").unwrap();
-    m.write_gpr(block, R::RAX, result);
+    if bits == 64 {
+        m.write_gpr(block, R::RAX, result);
+    } else {
+        let low = m.trunc(block, Type::I64, result, Type::I32, "ret.lo");
+        m.write_gpr(block, R::EAX, low);
+        let shifted = m.b.bin(block, BinOp::LShr, Type::I64, result, 32i64, "ret.hs");
+        let high = m.trunc(block, Type::I64, shifted, Type::I32, "ret.hi");
+        m.write_gpr(block, R::EDX, high);
+    }
     b.terminate(block, Terminator::Ret(None));
     b.finish()
 }
@@ -127,6 +150,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     );
     module.types.push((state::STATE_TYPE.to_owned(), state::state_fields()));
     state::declare_runtime(&mut module);
+    state::define_runtime_globals(&mut module);
 
     let mut lifted = Lifted {
         module,
@@ -136,6 +160,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         wrappers: BTreeSet::new(),
         data: Vec::new(),
         standalone: options.standalone,
+        bits: if image.is_64() { 64 } else { 32 },
         warnings: Vec::new(),
     };
     for f in analysis.functions.values() {
@@ -182,8 +207,8 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     for import in &lifted.imports {
         lifted.module.declare(Declaration { name: import.clone(), ty: state::import_adapter_type(), conv: CallConv::C, attrs: Vec::new() });
     }
-    for (symbol, offset) in &lifted.wrappers {
-        lifted.module.functions.push(import_wrapper(symbol, *offset));
+    for (symbol, offset, tail) in &lifted.wrappers {
+        lifted.module.functions.push(import_wrapper(symbol, *offset, *tail, lifted.bits));
     }
     lifted
 }

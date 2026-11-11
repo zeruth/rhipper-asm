@@ -347,8 +347,11 @@ fn declare_global(out: &mut String, g: &ra_asm_ir::Global) {
         (Type::Array(_, e), Some(Const::Array(items))) if matches!(**e, Type::Struct(_)) => {
             let _ = writeln!(out, "extern const struct ra_function_entry {}[{}];", g.name, items.len().max(1));
         }
-        (Type::Int(64), Some(Const::Int(_))) => {
-            let _ = writeln!(out, "extern {storage}uint64_t {};", g.name);
+        (Type::Int(bits), Some(Const::Int(_))) => {
+            let _ = writeln!(out, "extern {storage}uint{bits}_t {};", g.name);
+        }
+        (Type::Array(n, e), Some(Const::Zero)) if **e == Type::Double => {
+            let _ = writeln!(out, "extern {storage}double {}[{n}];", g.name);
         }
         _ => {}
     }
@@ -409,8 +412,11 @@ fn define_global(out: &mut String, g: &ra_asm_ir::Global) {
             }
             let _ = writeln!(out, "}};");
         }
-        (Type::Int(64), Some(Const::Int(v))) => {
-            let _ = writeln!(out, "{storage}uint64_t {} = {v}ull;", g.name);
+        (Type::Int(bits), Some(Const::Int(v))) => {
+            let _ = writeln!(out, "{storage}uint{bits}_t {} = {v}ull;", g.name);
+        }
+        (Type::Array(n, e), Some(Const::Zero)) if **e == Type::Double => {
+            let _ = writeln!(out, "{storage}double {}[{n}] RA_ALIGNED(16);", g.name);
         }
         (ty, init) => {
             let _ = writeln!(out, "// global {} of type {ty} with initializer {init:?} is not written", g.name);

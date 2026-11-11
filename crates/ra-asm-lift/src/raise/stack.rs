@@ -119,13 +119,18 @@ pub fn analyze(f: &Function, state: ValueId, pointers: &HashMap<ValueId, Slot>) 
                     }
                     inst => {
                         if let Some(CallKind::State) = call_kind(inst) {
-                            // The machine model pushed the return address before the call and the
-                            // callee popped it: the stack pointer after the call is 8 above the
-                            // one the push left, and the outgoing arguments sit above that.
+                            // An import wrapper runs in place of the native call: nothing was
+                            // pushed and the stack pointer stays. For a lifted callee the machine
+                            // model pushed the return address before the call and the callee
+                            // popped it: the stack pointer after the call is 8 above the one the
+                            // push left, and the outgoing arguments sit above that.
+                            let wrapper = matches!(inst, Inst::Call { callee: ra_asm_ir::Callee::Direct(name), .. } if crate::import_of_wrapper(name).is_some());
                             if let Some(k) = sp {
-                                info.call_offsets.insert((bi, ii), k + 8);
+                                info.call_offsets.insert((bi, ii), if wrapper { k } else { k + 8 });
                             }
-                            sp = sp.map(|k| k + 8);
+                            if !wrapper {
+                                sp = sp.map(|k| k + 8);
+                            }
                             call_index += 1;
                         }
                     }

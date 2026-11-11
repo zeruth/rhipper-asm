@@ -111,7 +111,9 @@ static inline float ra_floor_f32(float v) { return __builtin_floorf(v); }
 static inline double ra_floor_f64(double v) { return __builtin_floor(v); }
 static inline float ra_ceil_f32(float v) { return __builtin_ceilf(v); }
 static inline double ra_ceil_f64(double v) { return __builtin_ceil(v); }
-static inline float ra_roundeven_f32(float v) { return __builtin_roundevenf(v); }
-static inline double ra_roundeven_f64(double v) { return __builtin_roundeven(v); }
+// rint rounds to the nearest even under the default rounding mode, and unlike roundeven it is in
+// every C runtime.
+static inline float ra_rint_f32(float v) { return __builtin_rintf(v); }
+static inline double ra_rint_f64(double v) { return __builtin_rint(v); }
 
 #endif

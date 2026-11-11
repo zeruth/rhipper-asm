@@ -64,7 +64,9 @@ typedef uint64_t (*native8)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, ui
 
 // An indirect call in the machine model: a lifted function by its address, else native code
 // through the universal adapter. The lifted caller pushed the return address; native code does
-// not pop it, so this does.
+// not pop it, so this does. A 32-bit program passes every argument on the stack as a dword and
+// takes the result in edx:eax; a port of one runs in a process whose addresses all fit in 32 bits
+// (the image is linked /LARGEADDRESSAWARE:NO), so a dword is a pointer the native code can use.
 void ra_call(void *state_, uint64_t target) {
     struct State *state = state_;
     for (uint64_t i = 0; i < ra_function_count; i++) {
@@ -78,10 +80,18 @@ void ra_call(void *state_, uint64_t target) {
         fflush(stderr);
         ExitProcess(0xE0000003);
     }
-    uint64_t *stack = (uint64_t *)(state->gpr[RSP] + 8);  // past the pushed return address
     native8 f = (native8)target;
+#if RA_POINTER_SIZE == 4
+    uint32_t *stack = (uint32_t *)(uintptr_t)((uint32_t)state->gpr[RSP] + 4);  // past the pushed return address
+    uint64_t result = f(stack[0], stack[1], stack[2], stack[3], stack[4], stack[5], stack[6], stack[7]);
+    state->gpr[RAX] = (uint32_t)result;
+    state->gpr[RDX] = (uint32_t)(result >> 32);
+    state->gpr[RSP] = (uint32_t)state->gpr[RSP] + 4;
+#else
+    uint64_t *stack = (uint64_t *)(state->gpr[RSP] + 8);  // past the pushed return address
     state->gpr[RAX] = f(state->gpr[RCX], state->gpr[RDX], state->gpr[R8], state->gpr[R9], stack[4], stack[5], stack[6], stack[7]);
     state->gpr[RSP] += 8;
+#endif
 }
 
 #ifndef RA_STANDALONE
@@ -97,7 +107,11 @@ static void bind_imports(void) {
             fprintf(stderr, "ra: %s has no %s\n", ra_imports[i].dll, ra_imports[i].name ? ra_imports[i].name : "(ordinal)");
             ExitProcess(0xE0000004);
         }
+#if RA_POINTER_SIZE == 4
+        *(uint32_t *)(uintptr_t)ra_imports[i].slot = (uint32_t)(uintptr_t)f;
+#else
         *(uint64_t *)(uintptr_t)ra_imports[i].slot = (uint64_t)(uintptr_t)f;
+#endif
     }
 }
 
@@ -139,7 +153,25 @@ static void install_trampolines(void) {
 #endif
 #endif  // RA_STANDALONE
 
+// A crash of the lifted code names the place: the host address as an offset into this module,
+// which llvm-symbolizer maps to the lifted function and the image address its line comment
+// carries, and for an access violation the address it touched.
+static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
+    const EXCEPTION_RECORD *r = info->ExceptionRecord;
+    uintptr_t module = (uintptr_t)GetModuleHandleA(NULL);
+    uintptr_t at = (uintptr_t)r->ExceptionAddress;
+    fprintf(stderr, "ra: exception 0x%lx at 0x%llx", r->ExceptionCode, (unsigned long long)at);
+    if (at >= module) fprintf(stderr, " (module+0x%llx)", (unsigned long long)(at - module));
+    if (r->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && r->NumberParameters >= 2) {
+        fprintf(stderr, ", %s 0x%llx", r->ExceptionInformation[0] == 1 ? "writing" : "reading", (unsigned long long)r->ExceptionInformation[1]);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 int main(int argc, char **argv) {
+    SetUnhandledExceptionFilter(on_exception);
 #ifdef RA_STANDALONE
     // The data sections are globals of the program and the imports are linked by name: there is
     // no image to map and nothing to bind.
@@ -174,12 +206,25 @@ int main(int argc, char **argv) {
 #else
     static struct State state;
     const size_t stack_size = 1 << 20;
-    uint8_t *stack = VirtualAlloc(NULL, stack_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    uint8_t *stack = NULL;
+#if RA_POINTER_SIZE == 4
+    // A 32-bit program keeps its stack pointer in 32 bits: the stack must sit below 4 GB.
+    for (uintptr_t base = 0x20000000; base < 0x80000000 && !stack; base += 0x10000000) {
+        stack = VirtualAlloc((void *)base, stack_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    }
+#else
+    stack = VirtualAlloc(NULL, stack_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#endif
     if (!stack) return 2;
-    // The entry sees rsp as after a call: 8 past a 16-byte boundary, with room above it.
+    // The entry sees the stack pointer as after a call: a pointer past a 16-byte boundary, with
+    // room above it.
     uint64_t top = ((uint64_t)(uintptr_t)(stack + stack_size - 64)) & ~15ULL;
-    state.gpr[RSP] = top - 8;
+    state.gpr[RSP] = top - RA_POINTER_SIZE;
+#if RA_POINTER_SIZE == 4
+    *(uint32_t *)(uintptr_t)state.gpr[RSP] = 0;  // the return address of the entry
+#else
     *(uint64_t *)(uintptr_t)state.gpr[RSP] = 0;  // the return address of the entry
+#endif
     state.gpr[RCX] = 0;
     state.flags[5] = 0;  // DF clear
     RA_ENTRY(&state);

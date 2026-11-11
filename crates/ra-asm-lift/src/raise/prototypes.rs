@@ -3,6 +3,27 @@
 //! parameter the enclosing function does not have. The old pipeline read these off the SDK
 //! headers (`import_protos.py`); a generated table replaces this one when that port lands.
 
+/// The bytes a 32-bit import pops on return: four per argument for the `stdcall` of the Win32
+/// API, none for the `cdecl` of the C runtime DLLs, and `None` for an import the table does not
+/// know, which the lift then takes as `cdecl`.
+pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
+    if is_crt_dll(dll) {
+        return Some(0);
+    }
+    arity(name).map(|n| 4 * n as u64)
+}
+
+/// Whether `dll` is a C runtime, whose functions are `cdecl`.
+pub fn is_crt_dll(dll: &str) -> bool {
+    let d = dll.to_ascii_lowercase();
+    d.starts_with("msvcr")
+        || d.starts_with("msvcp")
+        || d.starts_with("ucrtbase")
+        || d.starts_with("api-ms-win-crt")
+        || d.starts_with("vcruntime")
+        || d == "crtdll.dll"
+}
+
 /// The number of integer arguments of a well-known import, by name.
 pub fn arity(name: &str) -> Option<usize> {
     Some(match name {
