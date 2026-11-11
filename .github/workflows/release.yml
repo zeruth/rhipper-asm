@@ -1,0 +1,60 @@
+# The release of ras: on a tag v<version>, build the release binary for Windows x64, pack it with
+# its runtime files, and publish version.txt, ras-<version>-windows-x64.zip and its .sha256, which
+# the Rhipper Workbench downloads into its tools directory.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install LLVM
+        run: choco install llvm --no-progress -y
+      - name: Test
+        run: cargo test --workspace --no-fail-fast
+        env:
+          CARGO_BUILD_JOBS: "4"
+
+  release:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --release -p ras
+      - name: Pack
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ("${{ github.ref_name }}" -ne "v$version" -and "${{ github.event_name }}" -eq "push") {
+            throw "the tag ${{ github.ref_name }} does not match the workspace version $version"
+          }
+          New-Item -ItemType Directory -Force dist/ras | Out-Null
+          Copy-Item target/release/ras.exe dist/ras/
+          Copy-Item -Recurse runtime dist/ras/runtime
+          Copy-Item README.md, LICENSE* dist/ras/ -ErrorAction SilentlyContinue
+          $zip = "dist/ras-$version-windows-x64.zip"
+          Compress-Archive -Path dist/ras/* -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ras-$version-windows-x64.zip" | Out-File -Encoding ascii "$zip.sha256"
+          $version | Out-File -Encoding ascii -NoNewline dist/version.txt
+          "VERSION=$version" | Out-File -Append -Encoding ascii $env:GITHUB_ENV
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: ras ${{ env.VERSION }}
+          files: |
+            dist/version.txt
+            dist/ras-${{ env.VERSION }}-windows-x64.zip
+            dist/ras-${{ env.VERSION }}-windows-x64.zip.sha256

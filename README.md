@@ -98,6 +98,13 @@ the binaries committed, so the tests need no compiler. The loader and decoder te
 with `llvm-readobj` and `llvm-objdump` when those are on the PATH, and skip that comparison when
 they are not. `testdata/build.ps1` rebuilds the fixtures.
 
+## Release
+
+A tag `v<version>` that matches the workspace version in `Cargo.toml` runs `.github/workflows/release.yml`:
+the tests, a release build of `ras`, and a GitHub release with `version.txt`,
+`ras-<version>-windows-x64.zip` (the binary with the runtime files) and its `.sha256`. The Rhipper
+Workbench installs `ras` from those files.
+
 ## Roadmap
 
 [`rhipper.md`](rhipper.md) is the roadmap, in the format Rhipper Agent reads: milestones A to H
