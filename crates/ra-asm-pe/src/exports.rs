@@ -1,7 +1,7 @@
 //! The export directory: the functions and data the image offers by name or ordinal, and the
 //! forwarders that name a function of another module.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 
 use crate::headers::Directory;
@@ -52,7 +52,12 @@ pub(crate) fn parse(image: &Image) -> Result<Option<ExportTable>> {
         image.cstr(image.va(name_rva), 256).context("the export directory's DLL name")?.to_owned()
     };
 
-    // The address table by index; the name table says which indexes have names.
+    // The address table by index; the name table says which indexes have names. A count the
+    // image cannot hold is a refusal, not an allocation.
+    ensure!(
+        u64::from(function_count) * 4 <= u64::from(image.size_of_image()),
+        "the export directory at {va:#x} counts {function_count} functions, more than the image holds"
+    );
     let mut names: Vec<Option<String>> = vec![None; function_count as usize];
     for i in 0..name_count {
         let name_ptr_va = names_va + u64::from(i) * 4;
@@ -76,7 +81,7 @@ pub(crate) fn parse(image: &Image) -> Result<Option<ExportTable>> {
         let forwarder = (target >= dir_start && target < dir_end).then(|| image.cstr(target, 4096).map(str::to_owned)).transpose()?;
         exports.push(Export {
             name,
-            ordinal: ordinal_base + index as u32,
+            ordinal: ordinal_base.wrapping_add(index as u32),
             va: if forwarder.is_some() { None } else { Some(target) },
             forwarder,
         });

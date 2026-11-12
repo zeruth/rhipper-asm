@@ -35,12 +35,13 @@ impl X86 {
         Some(Decoded { instr: self.record(&iced), iced })
     }
 
-    /// Decodes a run of instructions with iced's records.
+    /// Decodes a run of instructions with iced's records. The address wraps at the top of the
+    /// space, as the instruction pointer does.
     pub fn decode_all_full(&self, bytes: &[u8], address: u64) -> Vec<Decoded> {
         let mut out = Vec::new();
         let mut offset = 0usize;
         while offset < bytes.len() {
-            let Some(d) = self.decode_full(&bytes[offset..], address + offset as u64) else { break };
+            let Some(d) = self.decode_full(&bytes[offset..], address.wrapping_add(offset as u64)) else { break };
             offset += d.instr.len as usize;
             out.push(d);
         }

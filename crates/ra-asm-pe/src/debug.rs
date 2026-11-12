@@ -75,7 +75,8 @@ pub(crate) fn load_pdb(image: &Image) -> Result<Pdb> {
 pub(crate) fn parse(image: &Image) -> Result<Vec<DebugEntry>> {
     let Some((va, size)) = image.directory_va(Directory::Debug) else { return Ok(Vec::new()) };
     let count = u64::from(size) / 28;
-    let mut entries = Vec::with_capacity(count as usize);
+    // The size is the file's word: it bounds the walk, not the allocation.
+    let mut entries = Vec::with_capacity(count.min(64) as usize);
     for i in 0..count {
         let entry_va = va + i * 28;
         let kind = image.u32(entry_va + 12).with_context(|| format!("debug directory entry {i}"))?;
