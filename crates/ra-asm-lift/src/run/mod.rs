@@ -225,6 +225,13 @@ fn enter(
         vm.call_named(runtime, &name, vec![Value::Int(u128::from(state))])?;
         return Ok(vm.memory.read_u32(state)? as i32);
     }
+    if f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void && lifted.isa == crate::state::Isa::Arm32 {
+        // The return goes through `lr`, which holds zero; `sp` is `r13`.
+        let state = runtime.new_state(vm)?;
+        vm.memory.write_u64(state + 13 * 8, runtime.stack_top())?;
+        vm.call_named(runtime, &name, vec![Value::Int(u128::from(state))])?;
+        return Ok(vm.memory.read_u32(state)? as i32);
+    }
     if f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void {
         let state = runtime.new_state(vm)?;
         let ptr = u64::from(lifted.bits / 8);

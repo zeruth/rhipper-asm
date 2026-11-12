@@ -17,6 +17,7 @@ pub mod eh;
 pub mod raise;
 pub mod run;
 pub mod state;
+pub mod thumb;
 pub mod x86;
 pub mod x87;
 
@@ -407,7 +408,7 @@ pub fn coverage(analysis: &Analysis<'_>, lifted: &Lifted) -> Coverage {
                 // An ARM64 code is yaxpeax's, which names no mnemonic: the instruction at the
                 // address does.
                 let mnemonic = match lifted.isa {
-                    Isa::Arm64 => analysis
+                    Isa::Arm64 | Isa::Arm32 => analysis
                         .image
                         .read(*address as u64, 4)
                         .ok()
@@ -465,15 +466,23 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
 
 /// [`lift_with`] on `threads` threads, or on as many as the host and the program's size call for.
 fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads: Option<usize>) -> Lifted {
-    let isa = if image.machine() == ra_asm_pe::Machine::Arm64 { Isa::Arm64 } else { Isa::X86 };
+    let isa = match image.machine() {
+        ra_asm_pe::Machine::Arm64 => Isa::Arm64,
+        ra_asm_pe::Machine::Arm => Isa::Arm32,
+        _ => Isa::X86,
+    };
     let name = image.path.as_ref().map_or_else(|| "image".to_owned(), |p| p.file_name().unwrap().to_string_lossy().into_owned());
     let mut module = match isa {
         Isa::X86 if image.elf.is_some() => Module::x86_64_linux(&name),
-        Isa::X86 => Module::x86_64_windows(&name),
+        // A 32-bit program's port is a program of the 64-bit host that keeps its 32-bit pointers.
+        Isa::X86 | Isa::Arm32 => Module::x86_64_windows(&name),
         Isa::Arm64 => Module::aarch64_windows(&name),
     };
     module.types.push((state::STATE_TYPE.to_owned(), state::state_fields_for(isa)));
     state::declare_runtime(&mut module);
+    if isa == Isa::Arm32 {
+        state::declare_svc(&mut module);
+    }
     state::define_runtime_globals(&mut module, options.x87);
     let runtime: BTreeMap<u64, String> = analysis
         .functions
@@ -612,6 +621,8 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
                 import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87, convention)
             }
             Isa::Arm64 => arm64::import_wrapper(symbol, lifted.x87),
+            // The Thumb-2 lift calls no import: it traps at a call it cannot resolve.
+            Isa::Arm32 => continue,
         };
         lifted.module.functions.push(wrapper);
     }
@@ -631,6 +642,7 @@ fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, t
         let built = match lifted.isa {
             Isa::X86 => x86::lift_function(image, analysis, lifted, f),
             Isa::Arm64 => arm64::lift_function(image, analysis, lifted, f),
+            Isa::Arm32 => thumb::lift_function(image, analysis, lifted, f),
         };
         lifted.module.functions.push(built);
     };

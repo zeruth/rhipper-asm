@@ -66,7 +66,8 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<(Headers, Vec<Section>, ElfFile)> {
         }
     }
 
-    let entry_point = match (elf.entry, rva_of(elf.entry)) {
+    let entry = code_address(elf.machine, elf.entry);
+    let entry_point = match (entry, rva_of(entry)) {
         (0, _) => 0,
         (_, Some(rva)) => rva,
         (va, None) => {
@@ -88,6 +89,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<(Headers, Vec<Section>, ElfFile)> {
         format::EM_386 => Machine::I386,
         format::EM_X86_64 => Machine::Amd64,
         format::EM_AARCH64 => Machine::Arm64,
+        format::EM_ARM => Machine::Arm,
         other => Machine::Other(other),
     };
     let headers = Headers {
@@ -258,9 +260,15 @@ fn symbols(elf: &ElfFile) -> Vec<Symbol> {
         .iter()
         .chain(&elf.dynamic_symbols)
         .filter(|s| s.is_defined() && s.is_function() && s.value != 0 && !s.name.is_empty())
-        .map(|s| Symbol { va: s.value, name: s.name.clone(), library: None, object: None })
+        .map(|s| Symbol { va: code_address(elf.machine, s.value), name: s.name.clone(), library: None, object: None })
         .collect();
     symbols.sort_by_key(|s| s.va);
     symbols.dedup_by_key(|s| s.va);
     symbols
+}
+
+/// The address of the code a function's address names: on 32-bit ARM the low bit says Thumb (the
+/// one instruction set the lift reads), not where the code is.
+fn code_address(machine: u16, va: u64) -> u64 {
+    if machine == format::EM_ARM { va & !1 } else { va }
 }
