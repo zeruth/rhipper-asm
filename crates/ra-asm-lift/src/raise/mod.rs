@@ -45,11 +45,14 @@ pub struct Target {
 pub const X8: Slot = Slot::Gpr(8);
 /// The ARM64 stack pointer's slot, the one after `x30`; on x86 the slot of `rsp` is [`RSP`].
 const ARM64_SP: Slot = Slot::Gpr(31);
+/// The 32-bit ARM stack pointer's slot, `r13`.
+const ARM32_SP: Slot = Slot::Gpr(13);
 
 impl Target {
     pub const WIN64: Target = Target { bits: 64, isa: Isa::X86 };
     pub const X86: Target = Target { bits: 32, isa: Isa::X86 };
     pub const ARM64: Target = Target { bits: 64, isa: Isa::Arm64 };
+    pub const ARM32: Target = Target { bits: 32, isa: Isa::Arm32 };
 
     pub fn is_64(self) -> bool {
         self.bits == 64
@@ -57,6 +60,17 @@ impl Target {
 
     pub fn is_arm64(self) -> bool {
         self.isa == Isa::Arm64
+    }
+
+    /// AAPCS32, as 32-bit ARM Linux and Windows RT keep it: `r0` to `r3` and the stack, the
+    /// return address in `lr`.
+    pub fn is_arm32(self) -> bool {
+        self.isa == Isa::Arm32
+    }
+
+    /// Either ARM: a call leaves its return address in the link register and pushes nothing.
+    fn is_arm(self) -> bool {
+        self.is_arm64() || self.is_arm32()
     }
 
     /// Whether a parameter's position is one register of either class, as on Win64; elsewhere
@@ -75,15 +89,21 @@ impl Target {
         Type::Int(self.bits as u16)
     }
 
-    /// The slot of the stack pointer: `rsp`, or `sp` on ARM64.
+    /// The slot of the stack pointer: `rsp`, `sp` on ARM64, `r13` on 32-bit ARM.
     pub fn sp(self) -> Slot {
-        if self.is_arm64() { ARM64_SP } else { RSP }
+        if self.is_arm64() {
+            ARM64_SP
+        } else if self.is_arm32() {
+            ARM32_SP
+        } else {
+            RSP
+        }
     }
 
     /// The bytes a call pushes for its return address and the callee's return pops: a pointer on
-    /// x86, nothing on ARM64, where `bl` leaves it in the link register.
+    /// x86, nothing on ARM, where `bl` leaves it in the link register.
     pub fn pushed_return(self) -> i64 {
-        if self.is_arm64() { 0 } else { self.ptr() }
+        if self.is_arm() { 0 } else { self.ptr() }
     }
 
     /// The general and the vector registers of the target's state.
@@ -111,7 +131,7 @@ impl Target {
     /// Also where a caller's outgoing arguments start above its stack pointer once the return
     /// address is pushed.
     pub fn first_stack_arg(self) -> i64 {
-        if self.is_arm64() {
+        if self.is_arm() {
             0
         } else if self.is_64() {
             0x28
@@ -127,12 +147,15 @@ impl Target {
     }
 
     /// The registers that carry integer arguments, by position: `rcx`, `rdx`, `r8`, `r9` on Win64;
-    /// `ecx` and `edx` on x86, which `fastcall` and `thiscall` use; `x0` to `x7` on ARM64.
+    /// `ecx` and `edx` on x86, which `fastcall` and `thiscall` use; `x0` to `x7` on ARM64; `r0` to
+    /// `r3` on 32-bit ARM.
     pub fn int_param_slots(self) -> &'static [Slot] {
         const ARM64: [Slot; 8] =
             [Slot::Gpr(0), Slot::Gpr(1), Slot::Gpr(2), Slot::Gpr(3), Slot::Gpr(4), Slot::Gpr(5), Slot::Gpr(6), Slot::Gpr(7)];
         if self.is_arm64() {
             &ARM64
+        } else if self.is_arm32() {
+            &ARM64[..4]
         } else if self.is_64() {
             &[RCX, RDX, R8, R9]
         } else {
@@ -143,9 +166,12 @@ impl Target {
     /// How many floats arrive in vector registers: four on Win64, where a position is a register
     /// of either class; three on x86, where clang passes the floats of a local function in `xmm0`
     /// to `xmm2` beside the integers in `ecx` and `edx`, each class counted on its own; eight on
-    /// ARM64, `v0` to `v7`, counted on their own too.
+    /// ARM64, `v0` to `v7`, counted on their own too; none on 32-bit ARM, whose VFP registers the
+    /// lift does not model yet.
     pub fn float_params(self) -> usize {
-        if self.is_arm64() {
+        if self.is_arm32() {
+            0
+        } else if self.is_arm64() {
             8
         } else if self.is_64() {
             4
@@ -171,10 +197,12 @@ impl Target {
     /// and `xmm6` to `xmm15` on Win64; `ebx`, `ebp`, `esp`, `esi` and `edi` on x86; on ARM64
     /// `x19` to `x28`, the frame pointer `x29`, `sp`, the low halves of `v8` to `v15`, and `x18`,
     /// the thread's block, which no Windows function changes. The link register is the caller's
-    /// to lose: `bl` writes it.
+    /// to lose: `bl` writes it. On 32-bit ARM `r4` to `r11` and `sp`.
     pub fn callee_saved(self, slot: Slot) -> bool {
         match slot {
             Slot::Gpr(n) if self.is_arm64() => (18..=29).contains(&n) || n == 31,
+            Slot::Gpr(n) if self.is_arm32() => (4..=11).contains(&n) || n == 13,
+            Slot::Xmm(_) if self.is_arm32() => false,
             Slot::Gpr(n) if self.is_64() => matches!(n, 3 | 4 | 5 | 6 | 7 | 12 | 13 | 14 | 15),
             Slot::Gpr(n) => (3..=7).contains(&n),
             Slot::Xmm(n) if self.is_arm64() => (8..=15).contains(&n),
@@ -188,7 +216,7 @@ impl Target {
     /// alignment is 4 and 12 is what a caller aligned to 16 leaves); on ARM64 the stack pointer
     /// is 16-byte aligned at every call and nothing is pushed, so 0.
     pub fn entry_misalignment(self) -> u64 {
-        if self.is_arm64() {
+        if self.is_arm() {
             0
         } else if self.is_64() {
             8

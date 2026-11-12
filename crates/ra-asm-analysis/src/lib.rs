@@ -47,6 +47,7 @@ pub use signatures::{Signature, SignatureSet};
 pub fn arch_of(image: &Image) -> Box<dyn Arch> {
     match image.machine() {
         Machine::Arm64 => Box::new(ra_asm_arm64::Arm64),
+        Machine::Arm => Box::new(ra_asm_arm64::thumb::Thumb),
         _ => Box::new(ra_asm_x86::X86::for_pointer_size(image.pointer_size())),
     }
 }
@@ -271,9 +272,10 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
 
     // Code after the `int 3` fill that nothing names: a function the linker kept without a caller
     // (`/Od` keeps every function of an object it pulls in). An ARM64 image has no such fill: its
-    // exception table names every function with a frame.
+    // exception table names every function with a frame, and a Thumb image keeps its literal pools
+    // in the gaps.
     for _ in 0..MAX_ROUNDS {
-        let seeds = if image.machine() == Machine::Arm64 { Vec::new() } else { gap_seeds(image, &state) };
+        let seeds = if matches!(image.machine(), Machine::Arm64 | Machine::Arm) { Vec::new() } else { gap_seeds(image, &state) };
         if seeds.is_empty() {
             break;
         }

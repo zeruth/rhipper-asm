@@ -18,6 +18,7 @@ pub const ET_EXEC: u16 = 2;
 pub const ET_DYN: u16 = 3;
 
 pub const EM_386: u16 = 3;
+pub const EM_ARM: u16 = 40;
 pub const EM_X86_64: u16 = 62;
 pub const EM_AARCH64: u16 = 183;
 
