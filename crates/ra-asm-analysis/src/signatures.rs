@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail, ensure};
-use ra_asm_pe::{Image, LibraryRange, Machine, Symbol, object};
+use ra_asm_pe::{Image, LibraryRange, Machine, Symbol, Toolset, object};
 
 use crate::{Kind, analyze};
 
@@ -315,6 +315,28 @@ pub fn installed_msvc_runtime(arch: &str) -> Option<Vec<PathBuf>> {
     Some(paths.into_iter().filter(|p| p.is_file()).collect())
 }
 
+/// The C runtime libraries whose signatures fit `image`, by its toolset: the installed MSVC static
+/// runtime ([`installed_msvc_runtime`]) when the image starts through MSVC's runtime of the 14.x
+/// toolsets, which share one runtime from Visual Studio 2015 on; `None` for an older MSVC (Visual
+/// Studio 2010's `msvcr100` is another runtime), a MinGW one, or an image without a C runtime, whose
+/// functions the installed libraries would only misname.
+pub fn runtime_for(image: &Image) -> Option<Vec<PathBuf>> {
+    let toolset = Toolset::of(image);
+    let arch = match image.headers.coff.machine {
+        Machine::I386 => "x86",
+        Machine::Amd64 => "x64",
+        Machine::Arm64 => "arm64",
+        Machine::Other(_) => return None,
+    };
+    if takes_installed_msvc_runtime(&toolset) { installed_msvc_runtime(arch) } else { None }
+}
+
+/// Whether the installed MSVC runtime is the one `toolset` linked: an MSVC runtime of a 14.x
+/// toolset, or of a linker that does not say its version (lld over the MSVC runtime).
+pub fn takes_installed_msvc_runtime(toolset: &Toolset) -> bool {
+    toolset.runtime_key().is_some_and(|key| key == "msvc" || key.starts_with("msvc-14."))
+}
+
 /// A function of the image a signature named.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Match {
@@ -387,7 +409,7 @@ pub fn apply(image: &mut Image, set: &SignatureSet) -> Applied {
     let mut added = Vec::new();
     for m in &applied.matches {
         if !named.contains(&m.va) {
-            added.push(Symbol { va: m.va, name: m.name.clone(), library: Some(m.library.clone()) });
+            added.push(Symbol { va: m.va, name: m.name.clone(), library: Some(m.library.clone()), object: Some(m.object.clone()) });
         }
         let section_end = image.section_of(m.va).map(|s| image.va(s.end_rva()));
         let size = match points.range(m.va + 1..).next() {
@@ -398,7 +420,7 @@ pub fn apply(image: &mut Image, set: &SignatureSet) -> Applied {
     }
     for c in &applied.callees {
         if !named.contains(&c.va) {
-            added.push(Symbol { va: c.va, name: c.name.clone(), library: c.library.clone() });
+            added.push(Symbol { va: c.va, name: c.name.clone(), library: c.library.clone(), object: None });
         }
         if let Some(library) = &c.library {
             image.libraries.push(LibraryRange { va: c.va, size: c.size, library: library.clone() });
