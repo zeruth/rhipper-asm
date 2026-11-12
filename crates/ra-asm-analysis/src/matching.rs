@@ -11,7 +11,7 @@
 //! calls, line up between two callees already matched when the runs between them are as long on
 //! both sides; what the alignment leaves under a pair (the callees of an inlined call, the calls a
 //! compiler evaluated in another order) matches by the matched functions it calls and the values
-//! it compares and moves; and the one caller each side has left unmatched match. The constants a
+//! it compares and moves and by how many functions it calls and is called by; and the one caller each side has left unmatched match. The constants a
 //! function holds come last, when nothing else matches more. Every step takes only what is unique
 //! on both sides and agrees in strings, imports and return: a function nothing singles out stays
 //! unmatched rather than matched by a guess.
@@ -516,8 +516,8 @@ impl Matcher {
     /// Matches what the alignment left under the pair `old`, `new`: the unmatched functions each
     /// side reaches through unmatched functions only, as the callees of an inlined call are left.
     /// Two match that call the most of the same matched functions, each the other's one best;
-    /// then two alone in their sets by the values they compare with, then by those they move;
-    /// then the last one of each.
+    /// then two alone in their sets by the values they compare with, then by those they move,
+    /// then by how many functions they call and are called by; then the last one of each.
     fn leftovers(&mut self, old: u64, new: u64) {
         let (Some(mut la), Some(mut lb)) = (left(&self.old, &self.old_to_new, old), left(&self.new, &self.new_to_old, new)) else {
             return;
@@ -536,30 +536,39 @@ impl Matcher {
             })
             .collect();
         self.pair_left(&mut la, &mut lb, found);
-        for compared in [true, false] {
-            let values = |side: &Side, f: u64| if compared { side.compared[&f].clone() } else { side.moved[&f].clone() };
-            let mut groups: HashMap<BTreeSet<i64>, (Vec<u64>, Vec<u64>)> = HashMap::new();
-            for &x in &la {
-                groups.entry(values(&self.old, x)).or_default().0.push(x);
-            }
-            for &y in &lb {
-                groups.entry(values(&self.new, y)).or_default().1.push(y);
-            }
-            let mut found: Vec<(u64, u64)> = groups
-                .into_iter()
-                .filter_map(|(key, (xs, ys))| match (xs.as_slice(), ys.as_slice()) {
-                    ([x], [y]) if !key.is_empty() && self.agree(*x, *y) => Some((*x, *y)),
-                    _ => None,
-                })
-                .collect();
-            found.sort_unstable();
-            self.pair_left(&mut la, &mut lb, found);
-        }
+        self.unique_left(&mut la, &mut lb, |side, f| (!side.compared[&f].is_empty()).then(|| side.compared[&f].clone()));
+        self.unique_left(&mut la, &mut lb, |side, f| (!side.moved[&f].is_empty()).then(|| side.moved[&f].clone()));
+        self.unique_left(&mut la, &mut lb, |side, f| Some((side.calls[&f].len(), side.callers[&f].len())));
         if let ([x], [y]) = (la.as_slice(), lb.as_slice())
             && self.agree(*x, *y)
         {
             self.pair(*x, *y, How::Callee);
         }
+    }
+
+    /// Pairs the functions of `la` and `lb` whose `key` one function of each has alone, when the
+    /// two agree.
+    fn unique_left<K: Hash + Eq>(&mut self, la: &mut Vec<u64>, lb: &mut Vec<u64>, key: impl Fn(&Side, u64) -> Option<K>) {
+        let mut groups: HashMap<K, (Vec<u64>, Vec<u64>)> = HashMap::new();
+        for &x in la.iter() {
+            if let Some(k) = key(&self.old, x) {
+                groups.entry(k).or_default().0.push(x);
+            }
+        }
+        for &y in lb.iter() {
+            if let Some(k) = key(&self.new, y) {
+                groups.entry(k).or_default().1.push(y);
+            }
+        }
+        let mut found: Vec<(u64, u64)> = groups
+            .into_values()
+            .filter_map(|(xs, ys)| match (xs.as_slice(), ys.as_slice()) {
+                ([x], [y]) if self.agree(*x, *y) => Some((*x, *y)),
+                _ => None,
+            })
+            .collect();
+        found.sort_unstable();
+        self.pair_left(la, lb, found);
     }
 
     /// Pairs `found` and takes what it paired out of `la` and `lb`.
