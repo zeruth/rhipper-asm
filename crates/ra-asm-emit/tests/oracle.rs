@@ -1011,9 +1011,14 @@ fn control64_rust_is_safe_where_provable() {
     let blocks = |text: &str| text.matches("unsafe {").count();
     assert!(blocks(&proven) * 2 < blocks(&raw), "{} unsafe blocks against {} raw:\n{proven}", blocks(&proven), blocks(&raw));
     assert!(!proven.contains("pub unsafe extern \"C\" fn"), "an unsafe function:\n{proven}");
-    // `sink`, `out` and the sorted `table` are accesses of the data section, constant and indexed.
+    // `sink`, `out` and the sorted `table` are accesses of the data section, constant and indexed:
+    // an index scaled by the element's size is an element of the array.
     assert!(proven.contains("sec_data.get::<u32>(64)"), "{proven}");
-    assert!(proven.contains("sec_data.set::<u32>(("), "{proven}");
+    assert!(proven.contains("sec_data.put::<u32>(") || proven.contains("sec_data.set::<u32>(("), "{proven}");
+    // Every `unsafe` block that stays names why.
+    for line in proven.lines().filter(|l| l.contains("unsafe {")) {
+        assert!(line.contains("unsafe { /* ") || line.contains("} // "), "an unsafe block that names no reason: {line}");
+    }
     // The `n` of WriteFile is a local the function keeps as a value; the frame's address escapes
     // to WriteFile and stays raw, named as such.
     assert!(proven.contains("let mut local_m18: u64 = 0u64;"), "{proven}");
