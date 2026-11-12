@@ -319,7 +319,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
     }
     if !classes.is_empty() {
         types.push('\n');
-        types.push_str(&crate::cpp::declare(classes, &by_name));
+        types.push_str(&crate::cpp::declare(classes, &by_name, &module.types));
     }
     Unit {
         include,
@@ -431,7 +431,7 @@ fn vector_suffix(e: &Type) -> String {
 }
 
 /// A declaration of `name` with type `ty`: the array brackets go after the name in C.
-fn declaration(ty: &Type, name: &str) -> String {
+pub(crate) fn declaration(ty: &Type, name: &str) -> String {
     match ty {
         Type::Array(n, e) => format!("{} {name}[{n}]", c_type(e)),
         Type::Ptr => format!("uint8_t *{name}"),
