@@ -24,10 +24,10 @@ pub(crate) enum Root {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Place {
-    pub root: Root,
-    pub offset: i64,
+    pub(crate) root: Root,
+    pub(crate) offset: i64,
     /// Terms the program computes, each with its scale, added to the offset.
-    pub terms: Vec<(Type, Operand, i128)>,
+    pub(crate) terms: Vec<(Type, Operand, i128)>,
     /// Where the first term entered, block and index. An access reads the terms where it stands,
     /// so nothing with a side effect may lie between the two.
     anchor: Option<(usize, usize)>,
@@ -67,22 +67,49 @@ fn signed(c: i128, ty: &Type) -> i128 {
     }
 }
 
-/// The shape of a local that never escapes: one plain value, or bytes read at several offsets or
-/// as several types.
+/// The shape of a local that never escapes: one plain value, an array of one plain type read
+/// element by element, or bytes read at several offsets as several types.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Local {
     Value(Type),
+    /// The element type and the count.
+    Array(Type, u64),
     Bytes(u64),
+}
+
+impl Local {
+    /// The shape of a local of `size` bytes from its accesses, offset and type: one value when
+    /// every access reads the whole of its start as one type, an array when every access reads
+    /// one type at a whole element and the elements tile the local, bytes otherwise.
+    fn of(size: u64, accesses: &[(i64, &Type)]) -> Self {
+        let Some(&(_, first)) = accesses.first() else { return Self::Bytes(size) };
+        if !accesses.iter().all(|(_, ty)| *ty == first) {
+            return Self::Bytes(size);
+        }
+        if accesses.iter().all(|(offset, _)| *offset == 0) {
+            return Self::Value(first.clone());
+        }
+        match first.size(8) {
+            Some(elem)
+                if elem > 0
+                    && size.is_multiple_of(elem)
+                    && accesses.iter().all(|(offset, _)| u64::try_from(*offset).is_ok_and(|o| o.is_multiple_of(elem))) =>
+            {
+                Self::Array(first.clone(), size / elem)
+            }
+            _ => Self::Bytes(size),
+        }
+    }
 }
 
 pub(crate) struct Safety {
     /// Each proven access by the address of its instruction, with its place.
     accesses: HashMap<usize, Place>,
     /// The locals that never escape, by their `alloca`.
-    pub locals: HashMap<ValueId, Local>,
+    pub(crate) locals: HashMap<ValueId, Local>,
     /// The place values that are never written out: every use is a proven access or another
     /// such value, so the accesses name the root and the offset instead.
-    pub folded: HashSet<ValueId>,
+    pub(crate) folded: HashSet<ValueId>,
 }
 
 /// Whether every bit pattern is a value of `ty` in Rust, as the runtime's `Pod` has it.
@@ -237,12 +264,9 @@ impl Safety {
             if escaped.contains(a) {
                 continue;
             }
-            let mut tys = local_accesses.iter().filter(|(root, _, _)| root == a).map(|(_, offset, ty)| (*offset, ty));
-            let form = match tys.next() {
-                Some((0, first)) if tys.all(|(offset, ty)| offset == 0 && ty == first) => Local::Value(first.clone()),
-                _ => Local::Bytes(*size),
-            };
-            locals.insert(*a, form);
+            let accesses: Vec<(i64, &Type)> =
+                local_accesses.iter().filter(|(root, _, _)| root == a).map(|(_, offset, ty)| (*offset, ty)).collect();
+            locals.insert(*a, Local::of(*size, &accesses));
         }
         Self { accesses, locals, folded }
     }

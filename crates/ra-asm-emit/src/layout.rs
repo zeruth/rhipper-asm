@@ -9,6 +9,9 @@ use ra_asm_ir::{BinOp, Cast, Const, Function, Global, Inst, Module, Operand, Typ
 
 use crate::common::Defs;
 
+/// The flattened bytes and address words of a data section.
+type FlatSection = (Vec<u8>, BTreeMap<u64, (Type, Const)>);
+
 /// What a field's elements are.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Elem {
@@ -25,22 +28,22 @@ pub(crate) enum Elem {
 /// One field of the section's structure.
 #[derive(Debug, Clone)]
 pub(crate) struct Field {
-    pub offset: u64,
+    pub(crate) offset: u64,
     /// The element count; one for a scalar.
-    pub count: u64,
-    pub elem: Elem,
+    pub(crate) count: u64,
+    pub(crate) elem: Elem,
     /// Whether the field is an array: an indexed use said so, or it holds several elements.
-    pub array: bool,
+    pub(crate) array: bool,
 }
 
 impl Field {
     /// The field's name: by its offset, as a struct's fields are named.
-    pub fn name(&self) -> String {
+    pub(crate) fn name(&self) -> String {
         format!("f{}", self.offset)
     }
 
     /// The IR type of one element, or `None` for untyped bytes.
-    pub fn elem_type(&self) -> Option<Type> {
+    pub(crate) fn elem_type(&self) -> Option<Type> {
         match &self.elem {
             Elem::Bytes => None,
             Elem::Char => Some(Type::I8),
@@ -48,11 +51,11 @@ impl Field {
         }
     }
 
-    pub fn elem_size(&self) -> u64 {
+    pub(crate) fn elem_size(&self) -> u64 {
         self.elem_type().and_then(|t| t.size(8)).unwrap_or(1)
     }
 
-    pub fn end(&self) -> u64 {
+    pub(crate) fn end(&self) -> u64 {
         self.offset + self.count * self.elem_size()
     }
 }
@@ -60,21 +63,21 @@ impl Field {
 /// A section as typed fields, with the bytes and the address words they are read from.
 #[derive(Debug, Clone)]
 pub(crate) struct Layout {
-    pub fields: Vec<Field>,
+    pub(crate) fields: Vec<Field>,
     /// The section's bytes, zero where an address word stands.
-    pub bytes: Vec<u8>,
+    pub(crate) bytes: Vec<u8>,
     /// The address words by offset, with the IR's type and constant for each.
-    pub words: BTreeMap<u64, (Type, Const)>,
+    pub(crate) words: BTreeMap<u64, (Type, Const)>,
 }
 
 impl Layout {
     /// The field that holds the byte at `offset`.
-    pub fn field_at(&self, offset: u64) -> Option<&Field> {
+    pub(crate) fn field_at(&self, offset: u64) -> Option<&Field> {
         self.fields.iter().find(|f| offset >= f.offset && offset < f.end())
     }
 
     /// The bytes of element `i` of `field`.
-    pub fn element(&self, field: &Field, i: u64) -> &[u8] {
+    pub(crate) fn element(&self, field: &Field, i: u64) -> &[u8] {
         let size = field.elem_size();
         let at = (field.offset + i * size) as usize;
         &self.bytes[at..at + size as usize]
@@ -84,16 +87,16 @@ impl Layout {
 /// Where a pointer operand points: a byte of a data global, by a constant offset and, for an
 /// indexed access, the index and its scale.
 pub(crate) struct Place {
-    pub global: String,
-    pub offset: i64,
-    pub index: Option<Index>,
+    pub(crate) global: String,
+    pub(crate) offset: i64,
+    pub(crate) index: Option<Index>,
 }
 
 /// The index of an indexed access: `base + value * scale`, `value` in `ty`.
 pub(crate) struct Index {
-    pub value: Operand,
-    pub ty: Type,
-    pub scale: u64,
+    pub(crate) value: Operand,
+    pub(crate) ty: Type,
+    pub(crate) scale: u64,
 }
 
 /// The place a pointer or address operand names: an address of a global, through the casts
@@ -169,7 +172,7 @@ struct Uses {
 /// The layouts of the module's data sections, by global, for the globals whose uses type at
 /// least one field; a section no use types keeps the IR's shape.
 pub(crate) fn layouts(module: &Module) -> HashMap<String, Layout> {
-    let mut flat: HashMap<String, (Vec<u8>, BTreeMap<u64, (Type, Const)>)> = HashMap::new();
+    let mut flat: HashMap<String, FlatSection> = HashMap::new();
     for g in &module.globals {
         if g.address.is_some()
             && let Some(f) = flatten(g)
@@ -207,7 +210,7 @@ pub(crate) fn layouts(module: &Module) -> HashMap<String, Layout> {
 
 /// The bytes and the address words of a data global, from the shapes the lift writes: one byte
 /// array, or a packed structure of byte runs and words.
-fn flatten(g: &Global) -> Option<(Vec<u8>, BTreeMap<u64, (Type, Const)>)> {
+fn flatten(g: &Global) -> Option<FlatSection> {
     match (&g.ty, g.init.as_ref()?) {
         (Type::Array(n, e), Const::Bytes(b)) if **e == Type::I8 => {
             let mut bytes = b.clone();
@@ -235,9 +238,9 @@ fn flatten(g: &Global) -> Option<(Vec<u8>, BTreeMap<u64, (Type, Const)>)> {
 }
 
 /// The typed accesses and the addressed strings of one function.
-fn collect_uses(f: &Function, flat: &HashMap<String, (Vec<u8>, BTreeMap<u64, (Type, Const)>)>, uses: &mut HashMap<String, Uses>) {
+fn collect_uses(f: &Function, flat: &HashMap<String, FlatSection>, uses: &mut HashMap<String, Uses>) {
     let defs = Defs::new(f);
-    let mut address = |op: &Operand, uses: &mut HashMap<String, Uses>| {
+    let address = |op: &Operand, uses: &mut HashMap<String, Uses>| {
         if let Operand::Address { global, offset } = op
             && flat.contains_key(global)
             && let Ok(offset) = u64::try_from(*offset)

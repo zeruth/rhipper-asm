@@ -42,6 +42,25 @@ impl<T> Section<T> {
         bounds(at, core::mem::size_of::<U>(), core::mem::size_of::<T>());
         unsafe { core::ptr::write_unaligned(self.ptr().add(at).cast(), value) }
     }
+
+    /// Element `index` of the array of `U` at byte `base`. The address wraps as the machine's
+    /// does, and the bound is the section's: the machine reads past an array into what follows.
+    #[track_caller]
+    pub fn at<U: Pod>(&self, base: usize, index: isize) -> U {
+        self.get(element::<U>(base, index))
+    }
+
+    /// Writes `value` as element `index` of the array of `U` at byte `base`.
+    #[track_caller]
+    pub fn put<U: Pod>(&self, base: usize, index: isize, value: U) {
+        self.set(element::<U>(base, index), value)
+    }
+}
+
+/// The byte offset of element `index` of an array of `U` at `base`; a negative one is past the
+/// end as an unsigned offset, so the access stops.
+fn element<U>(base: usize, index: isize) -> usize {
+    base.wrapping_add_signed(index.wrapping_mul(core::mem::size_of::<U>() as isize))
 }
 
 /// A type every bit pattern is a value of: the integers, the floats, the raw pointers and

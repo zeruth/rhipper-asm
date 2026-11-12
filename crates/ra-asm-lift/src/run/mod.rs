@@ -46,11 +46,24 @@ pub struct Options {
     /// Write the record of the run here: the calls and returns of the image's functions with
     /// their values, in the shape of a port's trace.
     pub record: Option<PathBuf>,
+    /// Stop at each entry of the image's functions (those the record covers): the run stepped in
+    /// lockstep with a port.
+    pub pause: Option<Pause>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { trace: false, limit: 2_000_000_000, args: Vec::new(), live: false, record: None }
+        Self { trace: false, limit: 2_000_000_000, args: Vec::new(), live: false, record: None, pause: None }
+    }
+}
+
+/// The interpreter's [`ra_asm_ir::interp::Pause`], as an option of a run.
+#[derive(Clone)]
+pub struct Pause(pub ra_asm_ir::interp::Pause);
+
+impl std::fmt::Debug for Pause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Pause")
     }
 }
 
@@ -85,6 +98,19 @@ pub fn run(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signatur
     })
 }
 
+/// An allocation at the addresses a run needs, asked for again for a few seconds while it fails:
+/// the process's other threads (the tests beside this run, a host DLL's heap) hold an address or
+/// the commit charge for a moment, and the image has no other base to go to.
+fn patiently(mut allocate: impl FnMut() -> Option<os::Allocation>) -> Option<os::Allocation> {
+    for _ in 0..100 {
+        if let Some(allocation) = allocate() {
+            return Some(allocation);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    None
+}
+
 fn setup(stop: Stop) -> anyhow::Error {
     match stop {
         Stop::Fault(m) => anyhow!("{m}"),
@@ -95,9 +121,9 @@ fn setup(stop: Stop) -> anyhow::Error {
 fn run_here(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signature>, options: &Options) -> Result<Outcome> {
     let base = image.image_base();
     let size = u64::from(image.size_of_image()).div_ceil(0x10000) * 0x10000;
-    let image_region =
-        os::allocate_at(base, size).ok_or_else(|| anyhow!("cannot map the image at {base:#x}: the address is taken in this process"))?;
-    let low = |len: u64, what: &str| os::allocate_low(len).ok_or_else(|| anyhow!("no room below 4 GB for the {what}"));
+    let image_region = patiently(|| os::allocate_at(base, size))
+        .ok_or_else(|| anyhow!("cannot map the image at {base:#x}: the address is taken in this process"))?;
+    let low = |len: u64, what: &str| patiently(|| os::allocate_low(len)).ok_or_else(|| anyhow!("no room below 4 GB for the {what}"));
     let statics = low(4 << 20, "globals")?;
     let frames = low(16 << 20, "frames")?;
     let stack = low(1 << 20, "stack")?;
@@ -114,11 +140,14 @@ fn run_here(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signatu
     if let Some(path) = &options.record {
         let file = std::fs::File::create(path).with_context(|| format!("cannot write the record at {}", path.display()))?;
         vm.record = Some(Box::new(std::io::BufWriter::new(file)));
+    }
+    if options.record.is_some() || options.pause.is_some() {
         // The image's own functions, as the port's hooks record them: not the stubs and helpers
         // the lift adds.
         let names: HashSet<&str> = lifted.functions.values().map(String::as_str).collect();
         vm.recorded = lifted.module.functions.iter().enumerate().filter(|(_, f)| names.contains(f.name.as_str())).map(|(i, _)| i).collect();
     }
+    vm.pause = options.pause.as_ref().map(|p| p.0.clone());
     vm.set_static_region(statics.start, statics.len);
     vm.set_frame_region(frames.start, frames.len);
     if !lifted.standalone {
