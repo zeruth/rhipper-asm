@@ -24,6 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 
+use crate::annotations::annotate;
 use crate::doctor::{self, Port};
 use crate::project::Project;
 use crate::trace::{self, Tracer};
@@ -237,7 +238,7 @@ impl Pipeline {
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         lifted.apply_names(&analysis, Some(&mut signatures));
-        let options = crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand };
+        let options = crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations: &annotations };
         let translation = crate::emit::translate(image, &analysis, &lifted, &signatures, &options)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;

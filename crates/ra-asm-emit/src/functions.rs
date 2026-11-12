@@ -22,7 +22,9 @@
 //! `slot`: the class whose vtable holds it first, and the slot in that vtable. With the facts of a
 //! traced run ([`ra_asm_analysis::facts`]), a function the run entered has `"seen": true`, and
 //! one whose indirect calls the run resolved lists the functions they reached in `seen_calls`
-//! (they are in `calls` as well): what the workbench shows as seen at run time.
+//! (they are in `calls` as well): what the workbench shows as seen at run time. A function the
+//! person annotated (the project's `rhipper/annotations/`) has `"annotated": true`, its `name`
+//! the annotation's, and the annotation's `type` and `comment` when it gives them.
 
 use std::collections::HashMap;
 
@@ -53,6 +55,11 @@ pub struct FunctionInfo {
     pub seen: bool,
     /// The functions a traced run saw the function's indirect calls reach, by source name.
     pub seen_calls: Vec<String>,
+    /// Whether the person's annotations of the project say something of the function.
+    pub annotated: bool,
+    /// The function's type and the comment the person's annotation gives it.
+    pub ty: Option<String>,
+    pub comment: Option<String>,
 }
 
 /// What the analysis knows of every function, by IR name: the analysis's name, which the lift
@@ -86,6 +93,7 @@ pub fn infos(analysis: &ra_asm_analysis::Analysis) -> HashMap<String, FunctionIn
                 runtime,
                 seen: analysis.facts.entered.contains(&f.entry),
                 seen_calls,
+                ..Default::default()
             };
             (f.name.clone(), info)
         })
@@ -172,6 +180,15 @@ fn facts(entry: &mut Map<String, Value>, info: &FunctionInfo) {
     }
     if !info.seen_calls.is_empty() {
         entry.insert("seen_calls".into(), json!(info.seen_calls));
+    }
+    if info.annotated {
+        entry.insert("annotated".into(), json!(true));
+    }
+    if let Some(ty) = &info.ty {
+        entry.insert("type".into(), json!(ty));
+    }
+    if let Some(comment) = &info.comment {
+        entry.insert("comment".into(), json!(comment));
     }
 }
 

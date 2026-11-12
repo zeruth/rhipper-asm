@@ -24,6 +24,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 use ra_asm_analysis::{Analysis, Kind};
@@ -130,6 +131,16 @@ pub(crate) fn load(root: &Path, warnings: &mut Vec<String>) -> BTreeMap<u64, Ann
     out
 }
 
+/// The sidecar files of the project at `root` with the times they changed: what `ras serve`
+/// compares to see a checkout or a merge change the annotations under it.
+pub(crate) fn stamp(root: &Path) -> Vec<(PathBuf, Option<SystemTime>)> {
+    let Ok(entries) = std::fs::read_dir(dir(root)) else { return Vec::new() };
+    let mut out: Vec<(PathBuf, Option<SystemTime>)> =
+        entries.filter_map(Result::ok).map(|e| (e.path(), e.metadata().and_then(|m| m.modified()).ok())).collect();
+    out.sort();
+    out
+}
+
 /// Writes `annotation` to its sidecar file, or removes the file when the annotation says nothing.
 pub(crate) fn write(root: &Path, annotation: &Annotation) -> Result<PathBuf> {
     let file = file_of(root, annotation.address);
@@ -186,6 +197,15 @@ pub(crate) fn apply_names(analysis: &mut Analysis<'_>, annotations: &BTreeMap<u6
             }
         }
     }
+}
+
+/// Reads the annotations of the project at `root` and gives the functions of `analysis` their
+/// names; returns the annotations and what could not be applied.
+pub(crate) fn annotate(root: &Path, analysis: &mut Analysis<'_>) -> (BTreeMap<u64, Annotation>, Vec<String>) {
+    let mut warnings = Vec::new();
+    let annotations = load(root, &mut warnings);
+    apply_names(analysis, &annotations, &mut warnings);
+    (annotations, warnings)
 }
 
 /// The functions `annotations` give the hand-written sources, as entries of the `hand` list.

@@ -16,6 +16,15 @@
 //! - `hand` (`query`, `owned`): gives a function of a project to the hand-written sources or
 //!   takes it back, in the `hand` list of `rhipper.json` (by the function's name), and answers
 //!   with the list; the next emit step writes the function as its declaration.
+//! - `annotate` (`query`, and any of `name`, `type`, `comment`, `notes`, `hand`): changes the
+//!   person's annotation of a function in its sidecar file under `rhipper/annotations/` (see
+//!   [`crate::annotations`]): a text key sets the text and `null` or `""` clears it, `hand` sets
+//!   the takeover; a name another function has, or the port's runtime owns, is refused. Answers
+//!   with the annotation; every later answer, and the next emit, takes the name.
+//! - `annotations`: every annotation of the project, and what of them the analysis could not take.
+//!
+//! The answers name the functions as the annotations do; a change to the sidecar files on disk (a
+//! checkout, a merge) reloads them before the next answer.
 //! - `trace` (`function`, `from`, `limit`): the replay of the port's trace against the
 //!   reference's (the two the run step recorded with `run.trace`), call by call: each call of the
 //!   port with its arguments and its result beside the reference's at the same place, the calls
@@ -23,6 +32,7 @@
 //!   `parts`, the first divergence, with the function, the call and the two values.
 //! - `shutdown`.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -32,6 +42,7 @@ use ra_asm_analysis::Analysis;
 use ra_asm_pe::Image;
 use serde_json::{Value, json};
 
+use crate::annotations::{self, Annotation};
 use crate::disasm::parse_address;
 use crate::project::Project;
 use crate::report::hex;
@@ -57,22 +68,31 @@ impl Target {
 pub(crate) fn serve(target: &Target) -> Result<()> {
     let stdin = std::io::stdin();
     let mut lines = stdin.lock().lines();
+    let mut pending: Option<String> = None;
     loop {
         let image = match &target.project {
             Some(project) => project.load_image()?,
             None => ra_asm_pe::load(&target.exe)?,
         };
         let loaded = modified(&target.exe);
-        let analysis = ra_asm_analysis::analyze(&image);
-        let session = Session { target, image: &image, analysis: &analysis };
-        if let Outcome::Exit = session.run(&mut lines, loaded)? {
-            return Ok(());
+        let mut analysis = ra_asm_analysis::analyze(&image);
+        let (annotated, warnings) = match &target.project {
+            Some(project) => annotations::annotate(&project.root, &mut analysis),
+            None => (BTreeMap::new(), Vec::new()),
+        };
+        let stamp = target.project.as_ref().map(|p| annotations::stamp(&p.root));
+        let session = Session { target, image: &image, analysis: &analysis, annotations: annotated, warnings, stamp };
+        let mut replay = pending.take().map(Ok::<String, std::io::Error>).into_iter().chain(&mut lines);
+        match session.run(&mut replay, loaded)? {
+            Outcome::Exit => return Ok(()),
+            Outcome::Reload(line) => pending = line,
         }
     }
 }
 
 enum Outcome {
-    Reload,
+    /// Load the image and the annotations again, then answer the request held, when there is one.
+    Reload(Option<String>),
     Exit,
 }
 
@@ -80,6 +100,12 @@ struct Session<'a> {
     target: &'a Target,
     image: &'a Image,
     analysis: &'a Analysis<'a>,
+    /// The project's annotations as the analysis took them, by address.
+    annotations: BTreeMap<u64, Annotation>,
+    /// What the annotations said that the analysis could not take.
+    warnings: Vec<String>,
+    /// The sidecar files as they were when the session loaded them; `None` without a project.
+    stamp: Option<Vec<(PathBuf, Option<SystemTime>)>>,
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {
@@ -114,16 +140,26 @@ impl Session<'_> {
                     &mut out,
                     &json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": "the image changed; the server reloads it, ask again"}}),
                 )?;
-                return Ok(Outcome::Reload);
+                return Ok(Outcome::Reload(None));
             }
-            let response = match self.dispatch(method, &params) {
-                Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            // A checkout or a merge changed the annotations: the answer takes the new names.
+            if let (Some(project), Some(stamp)) = (&self.target.project, &self.stamp)
+                && *stamp != annotations::stamp(&project.root)
+            {
+                return Ok(Outcome::Reload(Some(line)));
+            }
+            let (response, changed) = match self.dispatch(method, &params) {
+                Ok(result) => (json!({"jsonrpc": "2.0", "id": id, "result": result}), method == "annotate"),
                 Err(e) => {
                     let code = if e.to_string().starts_with("no method") { -32601 } else { -32602 };
-                    json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": format!("{e:#}")}})
+                    (json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": format!("{e:#}")}}), false)
                 }
             };
             write_response(&mut out, &response)?;
+            // A rename changes the analysis every later answer reads.
+            if changed {
+                return Ok(Outcome::Reload(None));
+            }
         }
         Ok(Outcome::Exit)
     }
@@ -177,6 +213,15 @@ impl Session<'_> {
                 let hand = project.set_hand(&function.name, owned)?;
                 Ok(json!({"name": function.name, "owned": owned, "hand": hand}))
             }
+            "annotate" => {
+                let query = params.get("query").and_then(Value::as_str).ok_or_else(|| anyhow!("the parameter `query` is missing"))?;
+                self.annotate(self.find(query)?, params)
+            }
+            "annotations" => Ok(json!({
+                "dir": self.target.project.as_ref().map(|p| annotations::dir(&p.root).display().to_string()),
+                "annotations": self.annotations.values().map(Annotation::to_json).collect::<Vec<_>>(),
+                "warnings": self.warnings,
+            })),
             "trace" => {
                 let Some(project) = &self.target.project else { bail!("no project: the traces are a project's") };
                 let function = params.get("function").and_then(Value::as_str);
@@ -195,10 +240,54 @@ impl Session<'_> {
         Project::load(&project.root).map_or_else(|_| project.hand.clone(), |p| p.hand)
     }
 
-    /// Whether the hand-written sources own `function`: the list names it or its address.
+    /// Whether the hand-written sources own `function`: the list names it or its address, or its
+    /// annotation takes it over.
     fn is_hand(&self, function: &ra_asm_analysis::Function) -> bool {
         let address = crate::report::hex(function.entry);
-        self.hand_list().iter().any(|h| h == &function.name || crate::project::same_function(h, &address))
+        self.annotations.get(&function.entry).is_some_and(|a| a.hand)
+            || self.hand_list().iter().any(|h| h == &function.name || crate::project::same_function(h, &address))
+    }
+
+    /// Changes the annotation of `function` by the keys `params` has: `name`, `type`, `comment`
+    /// and `notes` set a text and clear it with `null` or `""`, `hand` sets the takeover. Writes
+    /// the sidecar file, which the next emit reads, and answers with the annotation.
+    fn annotate(&self, function: &ra_asm_analysis::Function, params: &Value) -> Result<Value> {
+        let Some(project) = &self.target.project else { bail!("no project: the annotations are a project's") };
+        let mut annotation =
+            self.annotations.get(&function.entry).cloned().unwrap_or_else(|| Annotation { address: function.entry, ..Annotation::default() });
+        let text = |key: &str| -> Result<Option<Option<String>>> {
+            match params.get(key) {
+                None => Ok(None),
+                Some(Value::Null) => Ok(Some(None)),
+                Some(Value::String(s)) => Ok(Some(Some(s.clone()).filter(|s| !s.is_empty()))),
+                Some(_) => bail!("the parameter `{key}` is no string"),
+            }
+        };
+        if let Some(name) = text("name")? {
+            if let Some(name) = &name {
+                if matches!(function.kind, ra_asm_analysis::Kind::Runtime(_)) {
+                    bail!("the host's runtime supplies {}: the port calls it by the host's name", function.name);
+                }
+                if let Some(fault) = annotations::name_fault(self.analysis, function.entry, name) {
+                    bail!("{fault}");
+                }
+            }
+            annotation.name = name;
+        }
+        if let Some(ty) = text("type")? {
+            annotation.ty = ty;
+        }
+        if let Some(comment) = text("comment")? {
+            annotation.comment = comment;
+        }
+        if let Some(notes) = text("notes")? {
+            annotation.notes = notes;
+        }
+        if let Some(hand) = params.get("hand") {
+            annotation.hand = hand.as_bool().ok_or_else(|| anyhow!("the parameter `hand` is no boolean"))?;
+        }
+        let file = annotations::write(&project.root, &annotation)?;
+        Ok(json!({"file": file.display().to_string(), "written": !annotation.is_empty(), "annotation": annotation.to_json()}))
     }
 
     /// One function by name, address or an address inside it.
@@ -228,6 +317,10 @@ impl Session<'_> {
             "lang": project.lang,
             "sources": project.sources.iter().map(|s| s.display().to_string()).collect::<Vec<_>>(),
             "hand": self.hand_list(),
+            "annotations": {
+                "dir": annotations::dir(&project.root).display().to_string(),
+                "count": self.annotations.len(), "warnings": self.warnings,
+            },
             "build": {"dir": project.build.dir.display().to_string(), "config": project.build.config, "target": project.build.target},
             "port": project.port_binary(self.image.headers.coff.is_dll()).display().to_string(),
             "outputs": {
@@ -260,6 +353,7 @@ impl Session<'_> {
         if let Some(project) = &self.target.project {
             // Whether the hand-written sources own it now, which the table says only after an emit.
             result["hand"] = json!(self.is_hand(function));
+            result["annotation"] = self.annotations.get(&function.entry).map_or(Value::Null, Annotation::to_json);
             // The function table entry, and the source of the function in the translation.
             if let Ok(text) = std::fs::read_to_string(project.build_dir().join("functions.json"))
                 && let Ok(Value::Array(entries)) = serde_json::from_str::<Value>(&text)

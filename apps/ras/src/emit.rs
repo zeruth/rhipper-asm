@@ -1,6 +1,6 @@
 //! `ras emit`: source out of an image, in C, C++ or Rust, with the function table beside it.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -9,6 +9,8 @@ use ra_asm_analysis::Analysis;
 use ra_asm_emit::{EmittedFile, EmittedFunction, FunctionInfo};
 use ra_asm_lift::Lifted;
 use ra_asm_pe::Image;
+
+use crate::annotations::Annotation;
 
 /// The C runtime, written beside a C or C++ translation; a Rust translation carries its own.
 const RHIPPER_H: &str = include_str!("../../../runtime/rhipper.h");
@@ -88,6 +90,8 @@ pub(crate) struct Options<'a> {
     /// The functions the hand-written sources own, by source name or address, which a C or C++
     /// translation declares instead of defining.
     pub hand: &'a [String],
+    /// The person's annotations of the project, by address, which the function table carries.
+    pub annotations: &'a BTreeMap<u64, Annotation>,
 }
 
 /// Translates the raised module of `lifted` as `options` ask. `signatures` (by the final function
@@ -99,8 +103,15 @@ pub(crate) fn translate(
     signatures: &HashMap<String, ra_asm_lift::raise::abi::Signature>,
     options: &Options<'_>,
 ) -> Result<Translation> {
-    let Options { lang, package, trace, hand } = *options;
-    let infos = ra_asm_emit::functions::infos(analysis);
+    let Options { lang, package, trace, hand, annotations } = *options;
+    let mut infos = ra_asm_emit::functions::infos(analysis);
+    for info in infos.values_mut() {
+        if let Some(annotation) = annotations.get(&info.address) {
+            info.annotated = true;
+            info.ty.clone_from(&annotation.ty);
+            info.comment.clone_from(&annotation.comment);
+        }
+    }
     let names: HashMap<String, String> = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
     let resources = resource_files(image);
     let mut warnings = Vec::new();
@@ -256,8 +267,8 @@ pub(crate) fn emit(
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
-    let translation =
-        translate(image, &analysis, &lifted, &signatures, &Options { lang: language, package: &package, trace: false, hand })?;
+    let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations };
+    let translation = translate(image, &analysis, &lifted, &signatures, &options)?;
     match out {
         None => print!("{}", translation.text()),
         Some(dir) => {
