@@ -929,6 +929,12 @@ impl<'a> Runtime<'a> {
                 }
                 some(1)
             }
+            // A Linux or Android program's writes to its standard output and error.
+            "write" | "_write" if matches!(a(0) as u32, 1 | 2) => {
+                let bytes = vm.memory.read_vec(a(1), a(2))?;
+                self.emit(a(0) as u32 == 2, &bytes);
+                some(a(2))
+            }
             "WriteConsoleW" if self.is_std_output(a(0)) => {
                 let units = vm.memory.read_vec(a(1), a(2) * 2)?;
                 let text: Vec<u16> = units.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
@@ -1274,14 +1280,18 @@ impl<'a> Runtime<'a> {
     }
 
     /// The host function for `symbol`: resolved before, an import of the image by its DLL, or a
-    /// function of the host's C runtime.
+    /// function of the host's C runtime. An ELF image's C library (`libc.so.6`, bionic's `libc.so`)
+    /// is no library of a Windows host: its functions are the host's C runtime's of the same name.
     fn procedure(&mut self, symbol: &str) -> Result<usize, Stop> {
         if let Some(&f) = self.procedures.get(symbol) {
             return Ok(f);
         }
+        let runtime = |name: &str| RUNTIME_DLLS.iter().find_map(|dll| os::library(dll).and_then(|m| os::procedure(m, name)));
         let found = match self.imports.get(symbol) {
-            Some((dll, name)) => os::library(dll).and_then(|m| os::procedure(m, name)),
-            None => RUNTIME_DLLS.iter().find_map(|dll| os::library(dll).and_then(|m| os::procedure(m, symbol))),
+            Some((dll, name)) => {
+                os::library(dll).and_then(|m| os::procedure(m, name)).or_else(|| self.image.elf.as_ref().and_then(|_| runtime(name)))
+            }
+            None => runtime(symbol),
         };
         match found {
             Some(f) => {

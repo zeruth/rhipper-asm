@@ -156,6 +156,39 @@ pub(crate) fn read_tables(image: &mut Image) {
     image.relocations = relocations;
     image.symbols = symbols;
     image.warnings.extend(warnings);
+    apply_addends(image);
+}
+
+/// Fills the words the loader computes from a RELA record: a `RELATIVE` word gets its addend, an
+/// absolute word the address of the symbol of this file it names plus the addend. A linker leaves
+/// those words zero in a RELA file (the addend is in the record), so without this a pointer in the
+/// data reads as null. The image is mapped at its linked addresses, where the load bias is zero.
+/// A `RELATIVE` record of no addend (a packed `DT_RELR` one, whose addend is the word) keeps the word.
+fn apply_addends(image: &mut Image) {
+    let Some(elf) = image.elf.as_ref() else { return };
+    let words: Vec<(u64, u64)> = elf
+        .relocations
+        .iter()
+        .filter_map(|r| {
+            let value = match (elf.machine, r.kind) {
+                (format::EM_X86_64, reloc::X86_64_RELATIVE) | (format::EM_AARCH64, reloc::AARCH64_RELATIVE) if r.addend != 0 => {
+                    r.addend as u64
+                }
+                (format::EM_X86_64, reloc::X86_64_64) | (format::EM_AARCH64, reloc::AARCH64_ABS64) => {
+                    let symbol =
+                        if r.symbol == 0 { 0 } else { elf.dynamic_symbols.get(r.symbol as usize).filter(|s| s.is_defined())?.value };
+                    symbol.wrapping_add(r.addend as u64)
+                }
+                _ => return None,
+            };
+            Some((r.offset, value))
+        })
+        .collect();
+    for (va, value) in words {
+        if let Err(e) = image.write_pointer(va, value) {
+            image.warnings.push(format!("the relocation at {va:#x}: {e:#}"));
+        }
+    }
 }
 
 /// Whether a relocation of `kind` binds a slot to a symbol of another module: the GOT slot the

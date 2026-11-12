@@ -1,0 +1,9 @@
+# The calls a host makes into libmain_a64.so and their results: the export, its arguments, the int it returns.
+ra_add 2 3 5
+ra_add -7 4 -3
+ra_score 0 0
+ra_score 5 64
+ra_score 10 277
+ra_name_length 0 4
+ra_name_length 2 3
+ra_name_length 3 5
