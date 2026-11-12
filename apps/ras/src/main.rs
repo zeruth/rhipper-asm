@@ -1,6 +1,7 @@
 //! Rhipper Asm: the command line over the disassembly core. Each subcommand prints a table for a
 //! person, or JSON with `--json` for the workbench and the agents.
 
+mod annotations;
 mod disasm;
 mod doctor;
 mod emit;
@@ -98,6 +99,9 @@ enum Command {
         /// A function the hand-written sources of the port own, by name or address: written as its declaration, not its body.
         #[arg(long, value_name = "FUNCTION")]
         hand: Vec<String>,
+        /// The port project whose annotations (`rhipper/annotations/*.json`) name the functions and give them to the hand-written sources.
+        #[arg(long, value_name = "DIR")]
+        project: Option<PathBuf>,
     },
     /// The IR of every function. With `--out`, writes `program.ll`, `image.bin` and `image.h` there.
     Lift {
@@ -246,7 +250,9 @@ fn main() -> anyhow::Result<()> {
             signatures::recognize(&mut load(&pe, sigs)?, &from, write.as_deref(), json)
         }
         Command::Signatures { pe, .. } => signatures::signatures(&load(&pe, sigs)?, json),
-        Command::Emit { pe, lang, out, quiet, x87, hand } => emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand),
+        Command::Emit { pe, lang, out, quiet, x87, hand, project } => {
+            emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref())
+        }
         Command::Run { pe, args, level, x87, trace, limit, quiet, facts, record } => {
             let code = run::run(&load(&pe, sigs)?, &run::Options { level, x87, trace, limit, args, quiet, facts, record })?;
             std::process::exit(code)

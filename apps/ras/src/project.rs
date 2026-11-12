@@ -51,6 +51,10 @@
 //! a DLL, the port is a DLL too and `run.exe` is the program that loads it (the game's executable,
 //! or a test host): the port's directory leads its DLL search, and the reference's directory the
 //! comparison run's.
+//!
+//! Beside `rhipper.json`, the person's names, types, comments, takeovers and notes of the
+//! functions live in sidecar files under `rhipper/annotations/`, one per function (see
+//! [`crate::annotations`]): an annotation's takeover joins the `hand` list.
 
 use std::path::{Path, PathBuf};
 

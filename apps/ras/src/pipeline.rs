@@ -24,6 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 
+use crate::annotations::annotate;
 use crate::doctor::{self, Port};
 use crate::project::Project;
 use crate::trace::{self, Tracer};
@@ -196,11 +197,12 @@ impl Pipeline {
     }
 
     fn lift(&mut self, log: &mut File) -> Result<()> {
-        let build_dir = self.project.build_dir();
+        let (build_dir, root) = (self.project.build_dir(), self.project.root.clone());
         let x87 = self.project.x87;
         let facts = self.facts(log)?;
         let image = self.image()?;
-        let analysis = ra_asm_analysis::analyze_with(image, &facts);
+        let mut analysis = ra_asm_analysis::analyze_with(image, &facts);
+        let (_, annotated) = annotate(&root, &mut analysis);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
@@ -208,7 +210,7 @@ impl Pipeline {
         let text = lifted.module.to_ll();
         fs::create_dir_all(&build_dir)?;
         fs::write(build_dir.join("program.ll"), &text)?;
-        let warnings = log_warnings(log, analysis.warnings.iter().chain(&lifted.warnings));
+        let warnings = log_warnings(log, analysis.warnings.iter().chain(&annotated).chain(&lifted.warnings));
         let summary = format!(
             "{} functions, {} imports, {} bytes of IR, {} warnings",
             lifted.functions.len(),
@@ -226,21 +228,24 @@ impl Pipeline {
         let build_dir = self.project.build_dir();
         let (lang, package) = (self.project.lang.clone(), self.project.build.target.clone());
         let (x87, trace) = (self.project.x87, self.project.run.trace);
-        let hand = self.project.hand.clone();
+        let (hand, root) = (self.project.hand.clone(), self.project.root.clone());
         let facts = self.facts(log)?;
         let image = self.image()?;
-        let analysis = ra_asm_analysis::analyze_with(image, &facts);
+        let mut analysis = ra_asm_analysis::analyze_with(image, &facts);
+        let (annotations, annotated) = annotate(&root, &mut analysis);
+        let hand = crate::annotations::hand_list(&hand, &annotations);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         lifted.apply_names(&analysis, Some(&mut signatures));
-        let options = crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand };
+        let options = crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations: &annotations };
         let translation = crate::emit::translate(image, &analysis, &lifted, &signatures, &options)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
         fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
         fs::write(build_dir.join("functions.json"), translation.table())?;
-        let warnings = log_warnings(log, analysis.warnings.iter().chain(&lifted.warnings).chain(&translation.warnings));
+        let warnings =
+            log_warnings(log, analysis.warnings.iter().chain(&annotated).chain(&lifted.warnings).chain(&translation.warnings));
         let summary = format!(
             "{} functions, {} bytes of {lang} in {} files, {} instructions not lifted, {} warnings -> {}",
             translation.functions.len(),
