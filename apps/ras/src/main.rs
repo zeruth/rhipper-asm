@@ -16,6 +16,7 @@ mod report;
 mod run;
 mod serve;
 mod signatures;
+mod smoke;
 mod trace;
 mod xrefs;
 
@@ -285,6 +286,38 @@ enum Command {
         #[arg(long)]
         exe: Option<PathBuf>,
     },
+    /// The analysis, the lift and the emit over every executable and library under a directory,
+    /// each file in a process of its own with a time limit: the coverage summed, the traps by
+    /// mnemonic, the slowest files, and the panics with their backtraces. Fails when a file
+    /// panicked or crashed, after the report.
+    Smoke {
+        dir: PathBuf,
+        /// The time limit of one file, in seconds.
+        #[arg(long, default_value_t = 60)]
+        timeout: u64,
+        /// The files run at once.
+        #[arg(long, default_value_t = 1)]
+        jobs: usize,
+        /// The time limit of the whole run, in seconds: a file not started when it is spent is
+        /// reported as skipped. No limit without it.
+        #[arg(long)]
+        budget: Option<u64>,
+        /// How many directory levels under `dir` to enter: 0 for its own files only; all without it.
+        #[arg(long)]
+        depth: Option<usize>,
+        /// An extension to take, repeatable; without it, exe, dll, sys, ocx, cpl, scr, drv and efi.
+        #[arg(long = "ext", value_name = "EXT")]
+        extensions: Vec<String>,
+        /// Write the report as JSON to this file too.
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        /// Print no line per file on stderr.
+        #[arg(long)]
+        quiet: bool,
+    },
+    /// One file of `ras smoke`, in the process it starts for the file.
+    #[command(hide = true)]
+    SmokeFile { pe: PathBuf },
 }
 
 fn step(text: Option<String>) -> anyhow::Result<Option<pipeline::Step>> {
@@ -368,5 +401,15 @@ fn main() -> anyhow::Result<()> {
         Command::Doctor { lang: _, host: Some(exe) } => doctor::host(&exe, json),
         Command::Doctor { lang, host: None } => doctor::doctor(doctor::Port::of(&lang), json),
         Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
+        Command::Smoke { dir, timeout, jobs, budget, depth, extensions, out, quiet } => {
+            let timeout = std::time::Duration::from_secs(timeout);
+            let budget = budget.map(std::time::Duration::from_secs);
+            let options = smoke::Options { timeout, jobs, budget, depth, extensions, signatures: sigs.clone(), out, quiet, json };
+            smoke::smoke(&dir, &options)
+        }
+        Command::SmokeFile { pe } => {
+            smoke::file(&pe, sigs);
+            Ok(())
+        }
     }
 }

@@ -42,6 +42,12 @@ allow = [
     "Bash(./out/*)",
     "PowerShell(./out/*)",
     "PowerShell(.\\out\\*)",
+    # reading the environment (a toolchain's root such as KOS_BASE, card #93) and listing the
+    # system directory's executables (the smoke corpus, card #132): both read-only
+    "printenv",
+    "Bash(printenv *)",
+    "PowerShell(Get-ChildItem C:\\Windows\\System32*)",
+    "Bash(ls /c/Windows/System32*)",
 ]
 
 [worker.env]
