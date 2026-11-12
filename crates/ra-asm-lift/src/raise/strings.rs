@@ -230,7 +230,7 @@ fn partial(o: &Operand, defs: &HashMap<ValueId, Inst>) -> Option<(u128, u128)> {
     const WORD: u128 = 0xffff_ffff_ffff_ffff;
     let Operand::Local(v) = o else { return None };
     let Some(Inst::Bin { op: BinOp::Or, lhs, rhs, .. }) = defs.get(v) else { return None };
-    let (Operand::Local(kept), Operand::Int(k)) | (Operand::Int(k), Operand::Local(kept)) = (lhs, rhs) else { return None };
+    let ((Operand::Local(kept), Operand::Int(k)) | (Operand::Int(k), Operand::Local(kept))) = (lhs, rhs) else { return None };
     let (Some(Inst::Bin { op: BinOp::And, rhs: Operand::Int(m), .. }) | Some(Inst::Bin { op: BinOp::And, lhs: Operand::Int(m), .. })) =
         defs.get(kept)
     else {
