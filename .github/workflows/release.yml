@@ -25,8 +25,24 @@ jobs:
         env:
           CARGO_BUILD_JOBS: "4"
 
+  # the fuzz targets of fuzz/ build against the released loaders and decoders; the nightly fuzz
+  # workflow runs them
+  fuzz-targets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Build
+        run: cargo fuzz build
+
   release:
-    needs: test
+    needs: [test, fuzz-targets]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,0 +1,69 @@
+# The loaders and the decoders under libFuzzer: each target of fuzz/ for a while every night, on
+# the corpus the earlier nights grew, with the fixtures (and objects compiled for the purpose) as
+# seeds. A crash fails the run and uploads its input; the smallest file that shows it becomes a
+# regression test (crates/ra-asm-pe/tests/fuzz_regressions.rs, crates/ra-asm-x86/src/decode/tests.rs).
+# Locally: `cargo +nightly fuzz run <target> fuzz/corpus/<target> testdata/bin`.
+name: fuzz
+
+on:
+  schedule:
+    - cron: "43 4 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: how long each target runs
+        default: "600"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz ${{ matrix.target }}
+    # libFuzzer and its sanitizer are at home on Linux; the code under test is plain Rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [pe, xbe, object, elf, x86, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+
+      - name: corpus
+        uses: actions/cache@v4
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+
+      # the fixtures hold no relocatable object: a few, compiled here for each container the
+      # object reader knows, and an archive of them
+      - name: seeds
+        run: |
+          mkdir -p fuzz/corpus/${{ matrix.target }} fuzz/seeds
+          printf 'int g;\nint f(int x) { return x * 3 + g; }\nint h(int *p) { return f(*p) + f(1); }\n' > fuzz/seeds/seed.c
+          for target in x86_64-linux-gnu i386-linux-gnu aarch64-linux-gnu x86_64-pc-windows-msvc i386-pc-windows-msvc aarch64-pc-windows-msvc; do
+            clang --target=$target -O1 -c fuzz/seeds/seed.c -o fuzz/seeds/$target.o
+          done
+          ar rc fuzz/seeds/seed.a fuzz/seeds/*.o
+
+      - name: run
+        run: >
+          cargo fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} testdata/bin fuzz/seeds --
+          -max_total_time=${{ inputs.seconds || '600' }} -rss_limit_mb=2048 -timeout=30
+
+      - name: crash
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}-artifacts
+          path: fuzz/artifacts/${{ matrix.target }}
+          retention-days: 30
