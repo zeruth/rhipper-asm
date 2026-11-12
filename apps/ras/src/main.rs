@@ -9,6 +9,7 @@ mod functions;
 mod lift;
 mod lockstep;
 mod pipeline;
+mod plugins;
 mod project;
 mod report;
 mod run;
@@ -213,6 +214,12 @@ enum Command {
         #[arg(long, default_value = "c")]
         lang: String,
     },
+    /// The plugins `ras` loads: the project's (`rhipper/plugins/<name>/<name>.wasm` under
+    /// `--project`) and the user's (`RHIPPER_PLUGINS`), each with what it adds.
+    Plugins {
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
     /// The engine as a service: JSON-RPC over stdio, one request and one response per line, with
     /// the image and its analysis kept in memory. Serves the project of `--project` (the current
     /// directory without it), or a bare image with `--exe`.
@@ -273,6 +280,7 @@ fn main() -> anyhow::Result<()> {
             let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild };
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
+        Command::Plugins { project } => plugins::list(project.as_deref(), json),
         Command::Doctor { lang } => doctor::doctor(doctor::Port::of(&lang), json),
         Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
     }

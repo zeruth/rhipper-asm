@@ -62,7 +62,7 @@ impl<'a> Reader<'a> {
     /// within `max` bytes or the end of the data, or when the bytes are not UTF-8.
     pub fn cstr(&self, offset: usize, max: usize, what: &str) -> Result<&'a str> {
         ensure!(offset <= self.bytes.len(), "{what} at offset {offset:#x} is past the end of the data ({:#x} bytes)", self.bytes.len());
-        let window = &self.bytes[offset..self.bytes.len().min(offset + max)];
+        let window = &self.bytes[offset..self.bytes.len().min(offset.saturating_add(max))];
         let Some(end) = window.iter().position(|&b| b == 0) else {
             bail!("{what} at offset {offset:#x} has no terminator within {max} bytes");
         };
@@ -98,8 +98,10 @@ impl<'a> Cursor<'a> {
         self.pos
     }
 
+    /// Moves past `len` bytes. A skip past the end is not a refusal itself: the next read is, and
+    /// it names the field it wanted.
     pub fn skip(&mut self, len: usize) -> &mut Self {
-        self.pos += len;
+        self.pos = self.pos.saturating_add(len);
         self
     }
 

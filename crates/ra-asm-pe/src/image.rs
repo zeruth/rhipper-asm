@@ -22,6 +22,9 @@ use crate::xbe::{self, Xbe};
 /// a reason to allocate the machine's memory.
 const MAX_IMAGE_SIZE: u32 = 1 << 30;
 
+/// The highest image base the loader takes: 2^40 below the top, above any kernel image's base.
+const MAX_IMAGE_BASE: u64 = u64::MAX - (1 << 40);
+
 /// A parsed, mapped PE image.
 #[derive(Debug)]
 pub struct Image {
@@ -70,6 +73,10 @@ impl Image {
 
         let size_of_image = headers.optional.size_of_image;
         ensure!(size_of_image <= MAX_IMAGE_SIZE, "SizeOfImage {size_of_image:#x} is larger than the {MAX_IMAGE_SIZE:#x} the loader maps");
+        // Every address the directories compute is the base plus a 32-bit RVA plus a scaled 32-bit
+        // index, so the base keeps that much room below the top of the address space.
+        let image_base = headers.optional.image_base;
+        ensure!(image_base <= MAX_IMAGE_BASE, "ImageBase {image_base:#x} leaves no room for the image below the top of the address space");
         let mut warnings = Vec::new();
         let mut mapped = vec![0u8; size_of_image as usize];
         let header_bytes = (headers.optional.size_of_headers as usize).min(file.len()).min(mapped.len());

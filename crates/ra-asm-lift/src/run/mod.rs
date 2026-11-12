@@ -98,6 +98,19 @@ pub fn run(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signatur
     })
 }
 
+/// An allocation at the addresses a run needs, asked for again for a few seconds while it fails:
+/// the process's other threads (the tests beside this run, a host DLL's heap) hold an address or
+/// the commit charge for a moment, and the image has no other base to go to.
+fn patiently(mut allocate: impl FnMut() -> Option<os::Allocation>) -> Option<os::Allocation> {
+    for _ in 0..100 {
+        if let Some(allocation) = allocate() {
+            return Some(allocation);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    None
+}
+
 fn setup(stop: Stop) -> anyhow::Error {
     match stop {
         Stop::Fault(m) => anyhow!("{m}"),
@@ -108,9 +121,9 @@ fn setup(stop: Stop) -> anyhow::Error {
 fn run_here(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signature>, options: &Options) -> Result<Outcome> {
     let base = image.image_base();
     let size = u64::from(image.size_of_image()).div_ceil(0x10000) * 0x10000;
-    let image_region =
-        os::allocate_at(base, size).ok_or_else(|| anyhow!("cannot map the image at {base:#x}: the address is taken in this process"))?;
-    let low = |len: u64, what: &str| os::allocate_low(len).ok_or_else(|| anyhow!("no room below 4 GB for the {what}"));
+    let image_region = patiently(|| os::allocate_at(base, size))
+        .ok_or_else(|| anyhow!("cannot map the image at {base:#x}: the address is taken in this process"))?;
+    let low = |len: u64, what: &str| patiently(|| os::allocate_low(len)).ok_or_else(|| anyhow!("no room below 4 GB for the {what}"));
     let statics = low(4 << 20, "globals")?;
     let frames = low(16 << 20, "frames")?;
     let stack = low(1 << 20, "stack")?;
@@ -188,7 +201,8 @@ fn facts_of(vm: &Vm<'_>, image: &Image, lifted: &Lifted, args: &[String]) -> Fac
 }
 
 /// Calls the entry as the driver does: a function of the machine shape gets a state whose stack
-/// pointer sits on a return address of zero, and its `eax` is the exit code; a function of the
+/// pointer sits on a return address of zero (on ARM64 a link register of zero), and its `eax`
+/// (`x0`) is the exit code; a function of the
 /// ABI level gets its arguments by its signature, `main` the program's, and its result is the exit
 /// code when it is `main`.
 fn enter(
@@ -202,6 +216,15 @@ fn enter(
     let name = lifted.functions.get(&entry).cloned().unwrap_or_else(|| crate::function_name(entry));
     let f = vm.function(&name).ok_or_else(|| Stop::fault(format!("the entry @{name} is not in the module")))?;
     let is_main = lifted.entry.is_some() && lifted.entry != image.entry_point();
+    if f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void && lifted.isa == crate::state::Isa::Arm64 {
+        // The return goes through `x30`, so the stack holds nothing of the caller's; `x18` is
+        // the thread's block, as Windows keeps it, and `sp` is the 32nd slot.
+        let state = runtime.new_state(vm)?;
+        vm.memory.write_u64(state + 18 * 8, runtime.teb())?;
+        vm.memory.write_u64(state + 31 * 8, runtime.stack_top())?;
+        vm.call_named(runtime, &name, vec![Value::Int(u128::from(state))])?;
+        return Ok(vm.memory.read_u32(state)? as i32);
+    }
     if f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void {
         let state = runtime.new_state(vm)?;
         let ptr = u64::from(lifted.bits / 8);

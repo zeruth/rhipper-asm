@@ -204,10 +204,11 @@ pub(crate) fn apply_names(analysis: &mut Analysis<'_>, annotations: &BTreeMap<u6
     }
 }
 
-/// Reads the annotations of the project at `root` and gives the functions of `analysis` their
-/// names; returns the annotations and what could not be applied.
+/// Gives the functions of `analysis` the names of the project's name-source plugins, then those
+/// of its annotations, which win; returns the annotations and what could not be applied.
 pub(crate) fn annotate(root: &Path, analysis: &mut Analysis<'_>) -> (BTreeMap<u64, Annotation>, Vec<String>) {
     let mut warnings = Vec::new();
+    crate::plugins::apply_names(root, analysis, &mut warnings);
     let annotations = load(root, &mut warnings);
     apply_names(analysis, &annotations, &mut warnings);
     (annotations, warnings)
