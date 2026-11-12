@@ -12,6 +12,12 @@
 // is its DllMain rather than a main.
 //
 // The runtime functions the lifted code calls: ra_trap, ra_unsupported and ra_call.
+//
+// The program is a Windows program: its imports are the DLLs' and its exceptions, threads and TLS
+// are Windows', so the port builds for a Windows target only.
+#ifndef _WIN32
+#error "driver.c hosts the port of a Windows program and builds for a Windows target only"
+#endif
 #include <fenv.h>
 #include <float.h>
 #include <intrin.h>

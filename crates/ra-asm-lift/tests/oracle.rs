@@ -71,6 +71,18 @@ fn lift_to(binary: &str, tag: &str) -> (ra_asm_testing::Scratch, ra_asm_lift::Li
     (dir, lifted)
 }
 
+/// A host without the Windows DLLs answers only the imports the interpreter runs itself: a run
+/// stopped at another one says so and is skipped there.
+fn stopped_for_dlls(binary: &str, outcome: &ra_asm_lift::run::Outcome) -> bool {
+    match &outcome.stop {
+        Some(stop) if !cfg!(windows) && stop.starts_with("no binding for ") => {
+            eprintln!("{binary}: {stop}; this host has no Windows DLLs: the interpreted run is skipped");
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Runs `binary` at the tag's level through the IR interpreter and compares its output with the
 /// native program's: the same proof as the clang run, without clang.
 fn run_interpreted(binary: &str, expected: &str, tag: &str) {
@@ -78,6 +90,9 @@ fn run_interpreted(binary: &str, expected: &str, tag: &str) {
     assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
     let options = ra_asm_lift::run::Options::default();
     let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &options).unwrap();
+    if stopped_for_dlls(binary, &outcome) {
+        return;
+    }
     let stdout = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
     // An expected file written by the native run on Windows ends its lines in CRLF.
     let expected = expected.replace("\r\n", "\n");
@@ -178,6 +193,12 @@ fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
     run_interpreted(binary, expected, tag);
     let (dir, lifted) = lift_to(binary, tag);
     assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+    // The port links the Windows system libraries and runs as a Windows process; elsewhere the
+    // interpreter's run above is the proof.
+    if !cfg!(windows) {
+        eprintln!("{binary} ({tag}): the port of a Windows program runs on a Windows host: the clang run is skipped");
+        return;
+    }
     let exe = dir.join("lifted.exe");
     let mut build = Command::new("clang");
     build.args(["-O1", "-g", "-gcodeview", "-fuse-ld=lld", "-Wno-override-module"]);
@@ -513,6 +534,9 @@ fn a_traced_run_resolves_the_dispatch() {
     for (binary, level) in [("dispatch64.exe", "machine"), ("dispatch64.exe", "abi"), ("dispatch32.exe", "abi")] {
         let Raised { image, lifted, signatures, .. } = raise(binary, level);
         let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+        if stopped_for_dlls(binary, &outcome) {
+            continue;
+        }
         assert_eq!(outcome.exit, 0, "{binary} ({level}): the first run (stop: {:?})", outcome.stop);
         let facts = outcome.facts;
         assert!(facts.input.is_of(&image), "{binary}: the facts name their input: {:?}", facts.input);

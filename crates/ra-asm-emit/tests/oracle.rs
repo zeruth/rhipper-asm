@@ -14,6 +14,15 @@ fn clang_available() -> bool {
     Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success())
 }
 
+/// The port of a Windows program links the Windows system libraries and runs as a Windows
+/// process: on another host the emit and its checks still run, the build and the run skip.
+fn windows_host(binary: &str) -> bool {
+    if !cfg!(windows) {
+        eprintln!("{binary}: the port of a Windows program runs on a Windows host: the build and the run are skipped");
+    }
+    cfg!(windows)
+}
+
 /// A test's own directory under the system temp, removed when the guard drops; `RA_KEEP_SCRATCH`
 /// keeps it for a person to read.
 fn scratch(name: &str) -> ra_asm_testing::Scratch {
@@ -190,6 +199,9 @@ fn run_rust_oracle_with(fixture: &Fixture, functions_per_file: usize) {
     write_resources(&dir, &image);
     std::fs::write(dir.join("functions.json"), ra_asm_emit::table(&output.functions, &output.files, &infos)).unwrap();
     check_table(binary, &dir);
+    if !windows_host(binary) {
+        return;
+    }
     let target = dir.join("target");
     let build = Command::new("cargo")
         .args(["build", "--release", "--manifest-path"])
@@ -267,6 +279,9 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
     let (dir, c, bits) = emit(fixture, tag, functions_per_file, dialect);
     check_table(binary, &dir);
     assert!(!fixture.no_goto || !c.contains("goto "), "{binary}: the C has a goto:\n{c}");
+    if !windows_host(binary) {
+        return;
+    }
     let sources: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap()
         .flatten()
@@ -642,6 +657,7 @@ fn crt64_runs_as_c() {
 
 /// The reference of the crt fixture is what the native program prints.
 #[test]
+#[cfg_attr(not(windows), ignore = "runs the Windows fixture natively")]
 fn crt64_expected_is_the_native_output() {
     let run = Command::new(root().join("testdata/bin/crt64.exe")).output().unwrap();
     let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
@@ -703,6 +719,7 @@ fn files64_runs_as_rust() {
 
 /// The reference of the files fixture is what the native program prints.
 #[test]
+#[cfg_attr(not(windows), ignore = "runs the Windows fixture natively")]
 fn files64_expected_is_the_native_output() {
     let run = Command::new(root().join("testdata/bin/files64.exe")).output().unwrap();
     let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
@@ -798,6 +815,7 @@ fn resources64_data_reads_as_arrays() {
 
 /// The reference of the resources fixture is what the native program prints.
 #[test]
+#[cfg_attr(not(windows), ignore = "runs the Windows fixture natively")]
 fn resources64_expected_is_the_native_output() {
     let run = Command::new(root().join("testdata/bin/resources64.exe")).output().unwrap();
     let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
@@ -838,6 +856,14 @@ fn a_traced_run_makes_the_dispatch_direct() {
         let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         lifted.apply_names(&analysis, Some(&mut signatures));
         let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+        // A host without the Windows DLLs answers only the imports the interpreter runs itself.
+        if let Some(stop) = &outcome.stop
+            && !cfg!(windows)
+            && stop.starts_with("no binding for ")
+        {
+            eprintln!("{binary}: {stop}; this host has no Windows DLLs: the traced run is skipped");
+            continue;
+        }
         assert_eq!(outcome.exit, 0, "{binary}: the traced run (stop: {:?})", outcome.stop);
         assert_eq!(outcome.facts.calls.len(), 1, "{binary}: the one call through the table: {:?}", outcome.facts.calls);
         fixture.facts = outcome.facts;
