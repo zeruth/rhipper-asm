@@ -18,10 +18,10 @@ fn clang_available() -> bool {
     Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success())
 }
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join("ra-asm-lift-tests").join(format!("{}-{name}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// A test's own directory under the system temp, removed when the guard drops; `RA_KEEP_SCRATCH`
+/// keeps it for a person to read.
+fn scratch(name: &str) -> ra_asm_testing::Scratch {
+    ra_asm_testing::Scratch::new("ra-asm-lift-tests", name)
 }
 
 /// A fixture lifted and raised to the level the tag names.
@@ -55,7 +55,7 @@ fn raise(binary: &str, tag: &str) -> Raised {
 }
 
 /// Lifts `binary` into a directory with `program.ll`, `image.bin` and `image.h`.
-fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
+fn lift_to(binary: &str, tag: &str) -> (ra_asm_testing::Scratch, ra_asm_lift::Lifted) {
     let Raised { image, lifted, signatures, level } = raise(binary, tag);
     let analysis = ra_asm_analysis::analyze(&image);
     // The tests run in parallel: each one writes its own directory.
@@ -100,6 +100,7 @@ fn the_lifted_fixtures_pass_the_ir_gate() {
         ("hello64.exe", "gate-machine"),
         ("hello64.exe", "gate-abi"),
         ("control64.exe", "gate-abi"),
+        ("inline64.exe", "gate-abi"),
         ("float64.exe", "gate-abi"),
         ("exports64.dll", "gate-machine"),
         ("exports64.dll", "gate-abi"),
@@ -249,6 +250,29 @@ fn xbe32_runs_interpreted() {
     }
 }
 
+/// The obfuscated fixture: a flattened function, encrypted strings and an opaque predicate. The
+/// machine and promoted levels run it as it is; the ABI level runs the rebuilt graph, the
+/// strings decrypted at lift time and the bogus branch folded.
+#[test]
+fn obfusc64_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/obfusc.txt")).unwrap();
+    run_oracle("obfusc64.exe", &expected);
+}
+
+#[test]
+fn obfusc32_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/obfusc.txt")).unwrap();
+    run_oracle_32("obfusc32.exe", &expected);
+}
+
 #[test]
 fn hello32_runs_lifted() {
     if !clang_available() {
@@ -334,6 +358,28 @@ fn control64_runs_lifted() {
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
     run_oracle("control64.exe", &expected);
+}
+
+/// The inline program: a helper the compiler inlined into three callers, which the raise outlines
+/// again into one function; the port must still print what the native program does.
+#[test]
+fn inline64_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/inline.txt")).unwrap();
+    run_oracle("inline64.exe", &expected);
+}
+
+#[test]
+fn inline32_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/inline.txt")).unwrap();
+    run_oracle_32("inline32.exe", &expected);
 }
 
 /// The files program: a file created, written, read back and removed through kernel32, whose

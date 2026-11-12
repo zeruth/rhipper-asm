@@ -14,10 +14,10 @@ fn clang_available() -> bool {
     Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success())
 }
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join("ra-asm-emit-tests").join(format!("{}-{name}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// A test's own directory under the system temp, removed when the guard drops; `RA_KEEP_SCRATCH`
+/// keeps it for a person to read.
+fn scratch(name: &str) -> ra_asm_testing::Scratch {
+    ra_asm_testing::Scratch::new("ra-asm-emit-tests", name)
 }
 
 /// A program and what it prints, as paths under `testdata`: the clang fixtures sit in `bin/` with
@@ -116,7 +116,7 @@ fn symbolize(stderr: &str, exe: &Path) -> Option<String> {
 /// The C of a fixture, with the image header and the function table beside it, and the pointer
 /// width of the program. With a `functions_per_file`, the output splits into a header, a data
 /// file and several function files.
-fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect) -> (PathBuf, String, u32) {
+fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect) -> (ra_asm_testing::Scratch, String, u32) {
     let binary = fixture.name();
     let image = fixture.image();
     let analysis = ra_asm_analysis::analyze_with(&image, &fixture.facts);
@@ -437,6 +437,80 @@ fn control_reads_as_source() {
             assert!(c.contains(expected), "{binary}: no `{expected}` in the C:\n{c}");
         }
         assert!(!c.contains("3435973837"), "{binary}: the magic multiply is still in the C:\n{c}");
+    }
+}
+
+#[test]
+fn inline64_runs_as_c() {
+    run_oracle("inline64.exe", "inline.txt");
+}
+
+#[test]
+fn inline32_runs_as_c() {
+    run_oracle("inline32.exe", "inline.txt");
+}
+
+#[test]
+fn inline64_runs_as_rust() {
+    run_rust_oracle("inline64.exe", "inline.txt", ra_asm_emit::FUNCTIONS_PER_FILE);
+}
+
+/// The inlining undone: `score`, inlined into `show_low`, `show_high` and `show_from`, reads as
+/// one function `H_<address>` of the C, its prototype, its definition and a call in each of the
+/// three callers; no second helper is made of it.
+#[test]
+fn inline_reads_as_source() {
+    for binary in ["inline64.exe", "inline32.exe"] {
+        let (_, c, _) = emit(&fixture(binary, "inline.txt"), "source", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+        let word = |ch: char| ch.is_ascii_alphanumeric() || ch == '_';
+        let helpers: std::collections::BTreeSet<&str> = c
+            .match_indices("H_")
+            .filter(|(at, _)| !c[..*at].ends_with(word))
+            .map(|(at, _)| c[at..].split(|ch: char| !word(ch)).next().unwrap())
+            .collect();
+        assert_eq!(helpers.len(), 1, "{binary}: one outlined helper in the C, not {helpers:?}:\n{c}");
+        let helper = helpers.first().unwrap();
+        let calls = c.matches(&format!("{helper}(")).count();
+        assert!(calls >= 5, "{binary}: {helper} is declared, defined and called three times, not {calls} mentions:\n{c}");
+        for caller in ["show_low", "show_high", "show_from"] {
+            // The definition: the mention whose line opens a body.
+            let definition = c
+                .match_indices(&format!(" {caller}("))
+                .map(|(at, _)| &c[at..])
+                .find(|rest| rest.lines().next().is_some_and(|line| line.trim_end().ends_with('{')))
+                .unwrap_or_else(|| panic!("{binary}: no definition of {caller}:\n{c}"));
+            let body = definition.split("\n}").next().unwrap();
+            assert!(body.contains(&format!("{helper}(")), "{binary}: {caller} calls the helper:\n{body}");
+            assert!(!body.contains("while (") && !body.contains("for ("), "{binary}: {caller} keeps no loop:\n{body}");
+        }
+    }
+}
+
+#[test]
+fn obfusc64_runs_as_c() {
+    run_oracle("obfusc64.exe", "obfusc.txt");
+}
+
+#[test]
+fn obfusc32_runs_as_c() {
+    run_oracle("obfusc32.exe", "obfusc.txt");
+}
+
+/// The obfuscation undone: the flattened function reads as its loop, with no dispatcher switch
+/// and none of its state numbers (0x3a1 and 0x1f2 of the source) left; the encrypted strings are
+/// literals; the bogus branch behind the opaque predicate, which would have decrypted "never",
+/// is gone.
+#[test]
+fn obfusc_reads_as_source() {
+    for binary in ["obfusc64.exe", "obfusc32.exe"] {
+        let (_, c, _) = emit(&fixture(binary, "obfusc.txt"), "source", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+        for expected in ["\"Collatz steps\\r\\n\"", "\"steps \"", "memcpy("] {
+            assert!(c.contains(expected), "{binary}: no `{expected}` in the C:\n{c}");
+        }
+        assert!(c.contains("while (") || c.contains("for ("), "{binary}: no loop in the C:\n{c}");
+        for absent in ["switch (", "929", "498", "never"] {
+            assert!(!c.contains(absent), "{binary}: `{absent}` is still in the C:\n{c}");
+        }
     }
 }
 

@@ -19,3 +19,4 @@ serde_json.workspace = true
 
 [dev-dependencies]
 ra-asm-pe.workspace = true
+ra-asm-testing.workspace = true

@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
-use ra_asm_ir::{CallConv, Callee, Cast, Const, Declaration, FnType, Global, Inst, Instruction, Linkage, Module, Operand, Type};
+use ra_asm_ir::{CallConv, Callee, Cast, Const, Declaration, FnType, Global, Inst, Instruction, Linkage, Module, Operand, Type, ValueId};
 
 use super::known::{self, Root};
 
@@ -79,6 +79,205 @@ pub fn run(module: &mut Module) -> Vec<usize> {
     }
     let Ok(baseline) = vm.memory.read_vec(statics_at, statics_len) else { return Vec::new() };
 
-    let mut results: Vec<(Candidate, Vec<Option<Vec<u8>>>)> = Vec::new();
+    let mut plain: Vec<(Candidate, Vec<Option<Vec<u8>>>)> = Vec::new();
     for candidate in candidates {
-        let sizes: Vec<u64> = candidate.args
+        if let Some(outcome) = decrypt(&mut vm, &candidate, statics_at, &baseline) {
+            plain.push((candidate, outcome));
+        }
+    }
+    drop(vm);
+
+    // Later calls first: a replacement of several instructions moves the ones after it.
+    plain.sort_by_key(|(c, _)| std::cmp::Reverse((c.function, c.block, c.index)));
+    let mut new_globals: Vec<Global> = Vec::new();
+    let mut counter = 0usize;
+    let mut changed: Vec<usize> = Vec::new();
+    for (c, buffers) in plain {
+        let mut names = Vec::new();
+        for _ in buffers.iter().flatten() {
+            loop {
+                counter += 1;
+                let name = format!("str_{counter}");
+                if module.global(&name).is_none() && !new_globals.iter().any(|g| g.name == name) {
+                    names.push(name);
+                    break;
+                }
+            }
+        }
+        let mut names = names.into_iter();
+        let f = &mut module.functions[c.function];
+        let address = f.blocks[c.block].instrs[c.index].address;
+        let mut out: Vec<Instruction> = Vec::new();
+        let mut buffer = 0;
+        for arg in &c.args {
+            let Arg::Buffer(ty, operand, _) = arg else { continue };
+            let bytes = buffers[buffer].clone();
+            buffer += 1;
+            let (Some(bytes), Some(name)) = (bytes, names.next()) else { continue };
+            let dst = match ty {
+                Type::Int(64) => operand.clone(),
+                Type::Ptr | Type::Int(_) => {
+                    let v = f.new_value("dst", Type::I64);
+                    let cast = if *ty == Type::Ptr { Cast::PtrToInt } else { Cast::ZExt };
+                    out.push(Instruction {
+                        result: Some(v),
+                        inst: Inst::Cast { cast, from: ty.clone(), value: operand.clone(), to: Type::I64 },
+                        address,
+                    });
+                    Operand::Local(v)
+                }
+                _ => continue,
+            };
+            let len = bytes.len();
+            new_globals.push(Global {
+                name: name.clone(),
+                ty: Type::array(len as u64, Type::I8),
+                init: Some(Const::Bytes(bytes)),
+                constant: true,
+                linkage: Linkage::Internal,
+                align: 1,
+                address: None,
+            });
+            out.push(Instruction {
+                result: None,
+                inst: Inst::Call {
+                    fn_ty: copy_type(),
+                    callee: Callee::Direct("memcpy".to_owned()),
+                    args: vec![(Type::I64, dst), (Type::Ptr, Operand::Global(name)), (Type::I64, Operand::Int(len as i128))],
+                    tail: false,
+                },
+                address,
+            });
+        }
+        if out.is_empty() {
+            continue;
+        }
+        f.blocks[c.block].instrs.splice(c.index..=c.index, out);
+        if !changed.contains(&c.function) {
+            changed.push(c.function);
+        }
+    }
+    module.globals.extend(new_globals);
+    if !changed.is_empty() {
+        module.declare(Declaration { name: "memcpy".to_owned(), ty: copy_type(), conv: CallConv::C, attrs: Vec::new() });
+    }
+    changed
+}
+
+/// The type the copy is called at: `memcpy` over the integer arguments the ABI passes.
+fn copy_type() -> FnType {
+    FnType::new(Type::I64, vec![Type::I64, Type::Ptr, Type::I64])
+}
+
+/// The calls to run: to a function of the module, with a result nothing reads, over constants,
+/// read-only data (the ciphertext) and buffers of the caller's frame (the plaintext).
+fn candidates(module: &Module) -> Vec<Candidate> {
+    let mut out = Vec::new();
+    for (function, f) in module.functions.iter().enumerate() {
+        let defs = known::definitions(f);
+        let uses = f.use_counts();
+        for (block, b) in f.blocks.iter().enumerate() {
+            for (index, i) in b.instrs.iter().enumerate() {
+                let Inst::Call { callee: Callee::Direct(callee), args, .. } = &i.inst else { continue };
+                if module.function(callee).is_none() || i.result.is_some_and(|v| uses.get(&v).is_some_and(|n| *n > 0)) {
+                    continue;
+                }
+                let Some(args) = args.iter().map(|(ty, o)| classify(ty, o, module, &defs)).collect::<Option<Vec<Arg>>>() else { continue };
+                let buffers = args.iter().filter(|a| matches!(a, Arg::Buffer(..))).count();
+                let data = args.iter().filter(|a| matches!(a, Arg::Data(..))).count();
+                if buffers == 0 || data == 0 {
+                    continue;
+                }
+                out.push(Candidate { function, block, index, callee: callee.clone(), args });
+            }
+        }
+    }
+    out
+}
+
+/// An argument as the run takes it; `None` for one the run cannot stand in for.
+fn classify(ty: &Type, o: &Operand, module: &Module, defs: &HashMap<ValueId, Inst>) -> Option<Arg> {
+    let constant = |g: &str| module.global(g).is_some_and(|g| g.constant);
+    match o {
+        Operand::Int(k) => Some(Arg::Int(*k as u128)),
+        Operand::Address { global, offset } if constant(global) => Some(Arg::Data(global.clone(), *offset)),
+        Operand::Global(g) if constant(g) => Some(Arg::Data(g.clone(), 0)),
+        Operand::Local(_) => {
+            let (Root::Alloca(a), offset) = known::place(o, defs)? else { return None };
+            let Some(Inst::Alloca { ty: slot, .. }) = defs.get(&a) else { return None };
+            let size = slot.size(8)?;
+            let offset = u64::try_from(offset).ok()?;
+            (offset < size).then(|| Arg::Buffer(ty.clone(), o.clone(), size - offset))
+        }
+        _ => None,
+    }
+}
+
+/// Runs `c` twice over buffers filled differently. The bytes each buffer got, when both runs
+/// wrote the same prefix of it and touched nothing else; `None` in the place of a buffer the
+/// runs left alone, and no result at all when the runs disagree or stop.
+fn decrypt(vm: &mut Vm<'_>, c: &Candidate, statics_at: u64, baseline: &[u8]) -> Option<Vec<Option<Vec<u8>>>> {
+    let sizes: Vec<u64> = c.args.iter().filter_map(|a| if let Arg::Buffer(_, _, n) = a { Some(*n) } else { None }).collect();
+    let mut buffers: Vec<Vec<u8>> = sizes.iter().map(|n| vec![0u8; *n as usize]).collect();
+    let addresses: Vec<u64> = buffers.iter_mut().map(|b| b.as_mut_ptr() as u64).collect();
+    for (a, n) in addresses.iter().zip(&sizes) {
+        vm.memory.add_region(Region::new(*a, *n, "lift-time buffer"));
+    }
+    let runs = [0x00u8, 0xff].map(|fill| run_once(vm, c, &addresses, &sizes, fill, statics_at, baseline));
+    for a in &addresses {
+        vm.memory.remove_region(*a);
+    }
+    let [Some(first), Some(second)] = runs else { return None };
+    let mut out = Vec::new();
+    for (i, n) in sizes.iter().enumerate() {
+        let (x, y) = (&first[i], &second[i]);
+        let untouched = |j: usize| x[j] == 0x00 && y[j] == 0xff;
+        let written = (0..*n as usize).take_while(|&j| !untouched(j)).count();
+        if written == 0 {
+            out.push(None);
+            continue;
+        }
+        if (written..*n as usize).any(|j| !untouched(j)) || x[..written] != y[..written] {
+            return None;
+        }
+        out.push(Some(x[..written].to_vec()));
+    }
+    if out.iter().all(Option::is_none) {
+        return None;
+    }
+    Some(out)
+}
+
+/// One run of `c` with the buffers filled with `fill`: the buffers' bytes after it, when it ran
+/// to its return and left the read-only data as it was.
+fn run_once(
+    vm: &mut Vm<'_>,
+    c: &Candidate,
+    addresses: &[u64],
+    sizes: &[u64],
+    fill: u8,
+    statics_at: u64,
+    baseline: &[u8],
+) -> Option<Vec<Vec<u8>>> {
+    for (a, n) in addresses.iter().zip(sizes) {
+        vm.memory.fill(*a, *n, fill).ok()?;
+    }
+    let mut buffer = 0;
+    let mut args = Vec::new();
+    for arg in &c.args {
+        args.push(Value::Int(match arg {
+            Arg::Int(k) => *k,
+            Arg::Data(g, offset) => u128::from(vm.symbol(g)?.wrapping_add(*offset as u64)),
+            Arg::Buffer(..) => {
+                buffer += 1;
+                u128::from(addresses[buffer - 1])
+            }
+        }));
+    }
+    vm.steps = 0;
+    vm.call_named(&mut NoHost, &c.callee, args).ok()?;
+    if vm.memory.read_vec(statics_at, baseline.len() as u64).ok()? != baseline {
+        return None;
+    }
+    addresses.iter().zip(sizes).map(|(a, n)| vm.memory.read_vec(*a, *n).ok()).collect()
+}

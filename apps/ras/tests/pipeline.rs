@@ -13,14 +13,14 @@ fn available(tool: &str) -> bool {
 }
 
 /// A project directory with the fixture as its reference binary, whose run step compares the
-/// port with it.
-fn project(name: &str) -> PathBuf {
+/// port with it. The directory goes when the guard drops; `RA_KEEP_SCRATCH` keeps it for a
+/// person to read.
+fn project(name: &str) -> ra_asm_testing::Scratch {
     project_with(name, r#"{ "name": "control", "exe": "ref/control64.exe", "run": { "compare": true } }"#)
 }
 
-fn project_with(name: &str, rhipper_json: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join("ras-pipeline-tests").join(format!("{}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+fn project_with(name: &str, rhipper_json: &str) -> ra_asm_testing::Scratch {
+    let dir = ra_asm_testing::Scratch::new("ras-pipeline-tests", name);
     std::fs::create_dir_all(dir.join("ref")).unwrap();
     std::fs::copy(root().join("testdata/bin/control64.exe"), dir.join("ref/control64.exe")).unwrap();
     std::fs::write(dir.join("rhipper.json"), rhipper_json).unwrap();
@@ -31,6 +31,24 @@ fn ras(dir: &Path, args: &[&str]) -> (bool, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_ras")).arg("pipeline").arg("--project").arg(dir).args(args).output().unwrap();
     let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     (output.status.success(), text)
+}
+
+/// The tests leave nothing new under the system temp: the test binaries run one after another, so
+/// the only scratch directories that may exist while this one runs are this process's own. A
+/// directory of another process written since this binary was built is a leftover of a test that
+/// wrote without a guard; an older one is from the time before the guards, and is only named.
+#[test]
+fn the_tests_leave_nothing_under_temp() {
+    let built = std::fs::metadata(std::env::current_exe().unwrap()).unwrap().modified().unwrap();
+    for suite in ["ra-asm-emit-tests", "ra-asm-lift-tests", "ras-pipeline-tests"] {
+        let foreign = ra_asm_testing::Scratch::foreign(suite);
+        let (new, old): (Vec<_>, Vec<_>) =
+            foreign.into_iter().partition(|p| std::fs::metadata(p).and_then(|m| m.modified()).is_ok_and(|t| t > built));
+        if !old.is_empty() {
+            eprintln!("{suite}: {} directories left by earlier runs, to remove by hand", old.len());
+        }
+        assert!(new.is_empty(), "{suite}: left under the system temp by this run:\n{new:#?}");
+    }
 }
 
 /// `ras doctor --json` lists the tools of this machine; clang is among them, with a version when

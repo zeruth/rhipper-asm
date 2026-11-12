@@ -887,6 +887,12 @@ impl<'a> Runtime<'a> {
         match name {
             "ExitProcess" | "exit" | "_exit" | "_Exit" | "quick_exit" | "_cexit" => Err(Stop::Exit(a(0) as i32)),
             "TerminateProcess" => Err(Stop::Exit(a(1) as i32)),
+            // The copy the lift puts in place of a string's decryptor (see `raise::strings`).
+            "memcpy" | "memmove" => {
+                let bytes = vm.memory.read_vec(a(1), a(2))?;
+                vm.memory.write(a(0), &bytes)?;
+                some(a(0))
+            }
             "abort" => Err(Stop::Exit(3)),
             "__std_terminate" | "terminate" => Err(Stop::fault("std::terminate was called")),
             "_CxxThrowException" => Err(Stop::fault("a C++ throw the lift did not port")),

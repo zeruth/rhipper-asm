@@ -90,17 +90,59 @@ if (Wanted 'classes') {
 # are not lifted yet.
 if (Wanted 'throws') { Build-Exe 'throws' @('-std=c++20', '-fno-rtti', '-lvcruntime') 'cpp' @() @('64') }
 if (Wanted 'exports') { Build-Dll 'exports' }
+# exports_host loads the DLL its command line names and calls its exports: the program the
+# pipeline runs over the port of exports and over exports itself. Its 64-bit build keeps every
+# address below 4 GB, so it can host the port of the 32-bit DLL too.
+if (Wanted 'exports_host') { Build-Exe 'exports_host' @('-Wl,/largeaddressaware:no') }
 # tls has a TLS directory of its own making: a __declspec(thread) variable, the index, the template
 # bounds and a callback, which a program without the C runtime must define itself.
 if (Wanted 'tls') { Build-Exe 'tls' @() }
 # structs reads and writes a record of mixed fields through a pointer, for the type recovery.
 if (Wanted 'structs') { Build-Exe 'structs' @() }
+# dispatch calls through a table of function pointers filled at run time: the fixture of the
+# trace-driven facts, resolved by a run through the IR interpreter.
+if (Wanted 'dispatch') { Build-Exe 'dispatch' @() }
+# obfusc is obfuscated by hand in the shapes of the common tools: a flattened function, encrypted
+# strings with their decryptor, an opaque predicate; the fixture of the passes that undo them.
+if (Wanted 'obfusc') { Build-Exe 'obfusc' @() }
+# inline has a helper the compiler inlines into three callers: the fixture of the outlining pass.
+if (Wanted 'inline') { Build-Exe 'inline' @() }
 # crt links the static C runtime; its PDB stays, the engine reads the names from it.
 if (Wanted 'crt') { Build-Crt 'crt' }
 # window registers a class, shows a popup, paints once and quits through the message loop: user32
 # calls the program's window procedure back.
 if (Wanted 'window') { Build-Exe 'window' @('-luser32') }
+# files creates, reads and removes a file through kernel32: the fixture of the SDK's named constants.
+if (Wanted 'files') { Build-Exe 'files' @() }
+# resources carries a string table and an RCDATA block (resources.rc, compiled by llvm-rc) and
+# reads tables of integers, strings and doubles by index: the fixture of the resource directory
+# and of the typed data.
+if (Wanted 'resources') {
+  $res = Join-Path $bin 'resources.res'
+  & llvm-rc /nologo /FO $res (Join-Path $src 'resources.rc')
+  if ($LASTEXITCODE -ne 0) { throw "llvm-rc failed for resources" }
+  Build-Exe 'resources' @($res, '-luser32')
+}
 
-# The PDBs (crt's excepted) and the import libraries are build leftovers, not fixtures.
-Get-ChildItem $bin -Include *.pdb, *.lib, *.exp -Recurse | Where-Object { $_.Name -ne 'crt64.pdb' } | Remove-Item -Force
+# xbe is a homebrew program of the original Xbox: a PE linked at the Xbox's base without
+# relocations, which the writer test in crates/ra-asm-pe/tests/xbe.rs rewrites as the XBE; the
+# map is the PE's. Its expected output comes from the same source built for this machine
+# (-DXBE_HOST), since no Xbox runs here.
+if (Wanted 'xbe') {
+  $out = Join-Path $PSScriptRoot '..\out'
+  New-Item -ItemType Directory -Force $out | Out-Null
+  $pe = Join-Path $out 'xbe32.exe'
+  $map = Join-Path $bin 'xbe32.map'
+  $args = @('-target', 'i686-pc-windows-msvc', '-O2', '-nostdlib', '-fno-builtin', '-fuse-ld=lld', (Join-Path $src 'xbe.c'), '-o', $pe,
+    '-Wl,/entry:XbeEntry', '-Wl,/subsystem:console', '-Wl,/base:0x10000', '-Wl,/fixed', '-Wl,/Brepro', "-Wl,/map:$map")
+  Write-Host "clang xbe32" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for xbe32" }
+  & cargo test -q -p ra-asm-pe --test xbe write_xbe32_fixture -- --ignored
+  if ($LASTEXITCODE -ne 0) { throw "the XBE writer failed for xbe32" }
+}
+
+# The PDBs (crt's excepted), the import libraries and the compiled resources are build leftovers,
+# not fixtures.
+Get-ChildItem $bin -Include *.pdb, *.lib, *.exp, *.res -Recurse | Where-Object { $_.Name -ne 'crt64.pdb' } | Remove-Item -Force
 Get-ChildItem $bin | Select-Object Name, Length

@@ -70,8 +70,7 @@ fn the_server_answers_each_method_over_the_image() {
 
 #[test]
 fn the_server_reads_the_translation_of_a_project() {
-    let dir = std::env::temp_dir().join("ras-serve-tests").join(std::process::id().to_string());
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = ra_asm_testing::Scratch::new("ras-serve-tests", "translation");
     std::fs::create_dir_all(dir.join("ref")).unwrap();
     std::fs::copy(root().join("testdata/bin/control64.exe"), dir.join("ref/control64.exe")).unwrap();
     std::fs::write(dir.join("rhipper.json"), r#"{ "name": "control", "exe": "ref/control64.exe" }"#).unwrap();

@@ -19,6 +19,7 @@ ra-asm-arm64 = { path = "crates/ra-asm-arm64" }
 ra-asm-analysis = { path = "crates/ra-asm-analysis" }
 ra-asm-lift = { path = "crates/ra-asm-lift" }
 ra-asm-emit = { path = "crates/ra-asm-emit" }
+ra-asm-testing = { path = "crates/ra-asm-testing" }
 
 anyhow = "1.0.100"
 clap = { version = "4.6", features = ["derive", "env"] }

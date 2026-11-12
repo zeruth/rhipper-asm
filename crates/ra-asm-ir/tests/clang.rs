@@ -99,10 +99,10 @@ fn clang() -> Option<PathBuf> {
     output.status.success().then(|| PathBuf::from("clang"))
 }
 
-fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join("ra-asm-ir-tests").join(format!("{}-{name}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// A test's own directory under the system temp, removed when the guard drops; `RA_KEEP_SCRATCH`
+/// keeps it for a person to read.
+fn scratch(name: &str) -> ra_asm_testing::Scratch {
+    ra_asm_testing::Scratch::new("ra-asm-ir-tests", name)
 }
 
 #[test]

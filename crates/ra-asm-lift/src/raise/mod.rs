@@ -9,20 +9,24 @@
 pub mod abi;
 pub mod conditions;
 pub mod dce;
+pub mod flatten;
 pub mod frame;
 pub mod known;
 pub mod liveness;
+pub mod outline;
 pub mod promote;
 pub mod prototypes;
 pub mod simplify;
 pub mod stack;
+pub mod strings;
 pub mod stubs;
 pub mod types;
 pub mod widths;
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use liveness::{R8, R9, RCX, RDX, Slot};
+use ra_asm_analysis::rtti::Vtable;
 use ra_asm_ir::{Module, Type};
 
 /// The machine the IR came from, by its pointer width, which sets the calling convention the
@@ -147,7 +151,7 @@ impl std::str::FromStr for Level {
 }
 
 /// The options of a raise.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Options {
     pub level: Level,
     /// The address width of the image: 64 or 32.
@@ -155,11 +159,28 @@ pub struct Options {
     /// The x87 unit the lift modelled: the promotion pushes an import's float result as the
     /// unit keeps it.
     pub x87: crate::x87::X87Unit,
+    /// The instruction set of the state: the passes know the x86 state's slots and conventions,
+    /// so an ARM64 module stays at the machine level until the target grows (task 74).
+    pub isa: crate::state::Isa,
+    /// The vtables of the program's classes: a call through a slot of one resolves to the
+    /// functions that fill the slot (see [`abi::virtual_calls`]).
+    pub vtables: Vec<Vtable>,
+    /// The indirect calls a traced run resolved, by address, with the lifted functions each
+    /// reached: a call to them directly, with the indirect call kept for any other target (see
+    /// [`abi::traced_calls`]).
+    pub traced_calls: BTreeMap<u64, Vec<u64>>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { level: Level::Abi, bits: 64, x87: crate::x87::X87Unit::Double }
+        Self {
+            level: Level::Abi,
+            bits: 64,
+            x87: crate::x87::X87Unit::Double,
+            isa: crate::state::Isa::X86,
+            vtables: Vec::new(),
+            traced_calls: BTreeMap::new(),
+        }
     }
 }
 
@@ -176,8 +197,12 @@ impl Options {
 /// Runs the raising passes over every function of `module`. `roots` are the functions whose
 /// callers the lift does not see (see [`abi::infer`]).
 pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) -> HashMap<String, abi::Signature> {
+    // The inference reads the x86 state: a guess over the ARM64 one would be a signature of nothing.
+    if options.isa == crate::state::Isa::Arm64 {
+        return HashMap::new();
+    }
     let target = options.target();
-    let signatures = abi::infer(module, roots, target);
+    let signatures = abi::infer_with(module, roots, target, &options.vtables, &options.traced_calls);
     match options.level {
         Level::Machine => return signatures,
         Level::Promoted => {
@@ -187,11 +212,18 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
             }
         }
         Level::Abi => {
+            let globals = &module.globals;
             for f in &mut module.functions {
                 let Some(own) = signatures.get(&f.name) else { continue };
                 // The constants first: the rewrite recognizes a pushed return address by its value.
                 simplify::run(f);
-                promote::promote_abi(f, &promote::Abi { own, all: &signatures, target, x87: options.x87 });
+                let lifted = |name: &str| signatures.contains_key(name);
+                let mut virtual_calls = abi::virtual_calls(f, &options.vtables, target, &lifted);
+                let traced = abi::traced_calls(f, &options.traced_calls, &lifted);
+                let seen: HashSet<_> = traced.keys().copied().collect();
+                virtual_calls.extend(traced);
+                let abi = promote::Abi { own, all: &signatures, target, x87: options.x87, virtual_calls: &virtual_calls, seen: &seen };
+                promote::promote_abi(f, &abi);
                 if own.noreturn && !f.attrs.iter().any(|a| a == "noreturn") {
                     f.attrs.push("noreturn".into());
                 }
@@ -202,15 +234,39 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
                 clean(f);
                 // Known values and branches, to a fixpoint with the cleanup.
                 for _ in 0..4 {
-                    if !known::run(f) {
+                    if !known::run(f, globals) {
                         break;
                     }
                     clean(f);
                 }
+                // A flattened function is rebuilt; the known values settle again over the
+                // graph each rebuild exposes.
+                for _ in 0..4 {
+                    if !flatten::run(f) {
+                        break;
+                    }
+                    for _ in 0..4 {
+                        if !known::run(f, globals) {
+                            break;
+                        }
+                        clean(f);
+                    }
+                }
+            }
+            // The strings a decryptor would compute at run time are computed here.
+            for index in strings::run(module) {
+                clean(&mut module.functions[index]);
             }
             // The import wrappers served the machine model; the calls now go to the imports,
             // each declared with the arity the prototype table gives it.
             module.functions.retain(|f| crate::import_of_wrapper(&f.name).is_none());
+            // The helpers the compiler inlined, read back as functions: a loop whose shape repeats
+            // across the functions becomes one, and each copy a call to it.
+            if outline::run(module) {
+                for f in &mut module.functions {
+                    clean(f);
+                }
+            }
             // An x86 function a pointer reaches gets its universal entry point.
             if !target.is_64() {
                 stubs::add_universal_stubs(module, &signatures, target);
@@ -235,7 +291,7 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
                 if let Some(arity) = prototypes::arity(&d.name)
                     && d.ty.params.len() == 8
                 {
-                    d.ty = ra_asm_ir::FnType::new(ra_asm_ir::Type::I64, vec![ra_asm_ir::Type::I64; arity.min(8)]);
+                    d.ty = ra_asm_ir::FnType::new(ra_asm_ir::Type::I64, vec![ra_asm_ir::Type::I64; arity]);
                 }
             }
         }

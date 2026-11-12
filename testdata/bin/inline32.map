@@ -1,0 +1,38 @@
+ inline32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000002dbH .text                   CODE
+ 0003:00000000 00000000H .data                   DATA
+ 0003:00000000 00000004H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     inline-e5fcc1.o
+ 0002:00000000       ??_C@_05OGMDDBPK@x?9ray?$AA@ 0000000000402000     inline-e5fcc1.o
+ 0002:00000006       ??_C@_03HNBCMMA@six?$AA@   0000000000402006     inline-e5fcc1.o
+ 0002:0000000a       ??_C@_05CJEADMFJ@eight?$AA@ 000000000040200a     inline-e5fcc1.o
+ 0002:00000010       ??_C@_04DNJNMJF@four?$AA@  0000000000402010     inline-e5fcc1.o
+ 0002:00000015       ??_C@_03IJDNBOJF@two?$AA@  0000000000402015     inline-e5fcc1.o
+ 0002:00000019       ??_C@_04DDFHDMOL@zero?$AA@ 0000000000402019     inline-e5fcc1.o
+ 0002:0000001e       ??_C@_05GJGPGJKM@seven?$AA@ 000000000040201e     inline-e5fcc1.o
+ 0002:00000024       ??_C@_04CBHHLJIG@five?$AA@ 0000000000402024     inline-e5fcc1.o
+ 0002:00000029       ??_C@_03OHDNLOHO@one?$AA@  0000000000402029     inline-e5fcc1.o
+ 0002:0000002d       ??_C@_04DDCAAIP@nine?$AA@  000000000040202d     inline-e5fcc1.o
+ 0002:00000032       ??_C@_05OAGMNDDJ@three?$AA@ 0000000000402032     inline-e5fcc1.o
+ 0002:0000008c       __imp__ExitProcess@4       000000000040208c     kernel32:KERNEL32.dll
+ 0002:00000090       __imp__GetStdHandle@4      0000000000402090     kernel32:KERNEL32.dll
+ 0002:00000094       __imp__WriteFile@20        0000000000402094     kernel32:KERNEL32.dll
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:000001a0       _show_low                  00000000004011a0     inline-e5fcc1.o
+ 0001:000001f0       _show_high                 00000000004011f0     inline-e5fcc1.o
+ 0001:00000240       _show_from                 0000000000401240     inline-e5fcc1.o
+ 0001:00000270       _print_int                 0000000000401270     inline-e5fcc1.o
+ 0003:00000000       _out                       0000000000403000     inline-e5fcc1.o

@@ -95,6 +95,59 @@ impl Analysis<'_> {
     }
 }
 
+/// The protector or packer whose stub wraps the image, by the sections it leaves: the program's
+/// own code is then not in the image's code at all, and the lift of what is there is a lift of
+/// the stub. `None` when no known protector shows.
+pub fn protector_of(image: &Image) -> Option<&'static str> {
+    image.sections.iter().find_map(|s| protector_by_section(&s.name))
+}
+
+/// The protector a section name belongs to.
+pub fn protector_by_section(name: &str) -> Option<&'static str> {
+    let name = name.trim_end_matches('\0');
+    Some(match name {
+        "UPX0" | "UPX1" | "UPX2" | "UPX3" | ".UPX0" | ".UPX1" => "UPX",
+        ".vmp0" | ".vmp1" | ".vmp2" => "VMProtect",
+        ".themida" | ".winlice" => "Themida",
+        ".aspack" | ".adata" => "ASPack",
+        ".petite" => "Petite",
+        ".enigma1" | ".enigma2" => "Enigma",
+        ".MPRESS1" | ".MPRESS2" => "MPRESS",
+        ".nsp0" | ".nsp1" | ".nsp2" => "NsPack",
+        ".pelock" => "PELock",
+        ".Upack" | ".ByDwing" => "Upack",
+        ".neolite" | ".neolit" => "NeoLite",
+        ".RLPack" | ".packed" => "RLPack",
+        "PEC2TO" | "PEC2MO" | "PEC2" | "pec1" | "pec2" => "PECompact",
+        ".yP" | ".y0da" => "yoda's Protector",
+        "kkrunchy" => "kkrunchy",
+        ".taz" => "PESpin",
+        ".svkp" => "SVKP",
+        ".tsustub" | ".tsuarch" => "TSULoader",
+        ".perplex" => "Perplex",
+        ".sforce3" => "StarForce",
+        ".mackt" => "ImpREC",
+        ".ccg" => "CCG",
+        "DAStub" => "DAStub",
+        ".boom" => "The Boomerang List Builder",
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod protector_tests {
+    use super::protector_by_section;
+
+    #[test]
+    fn the_common_protectors_are_known_by_their_sections() {
+        assert_eq!(protector_by_section("UPX1"), Some("UPX"));
+        assert_eq!(protector_by_section(".vmp0\0\0"), Some("VMProtect"));
+        assert_eq!(protector_by_section(".themida"), Some("Themida"));
+        assert_eq!(protector_by_section(".text"), None);
+        assert_eq!(protector_by_section(".rdata"), None);
+    }
+}
+
 /// The bound of every rebuild loop. A real image settles in a few rounds; the bound is for a
 /// malformed one.
 const MAX_ROUNDS: usize = 64;

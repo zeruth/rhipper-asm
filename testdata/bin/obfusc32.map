@@ -1,0 +1,32 @@
+ obfusc32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00000264H .text                   CODE
+ 0002:00000000 0000001cH .rdata                  DATA
+ 0003:00000000 00000000H .data                   DATA
+ 0003:00000000 0000000cH .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     obfusc-07b4f5.o
+ 0002:00000070       __imp__ExitProcess@4       0000000000402070     kernel32:KERNEL32.dll
+ 0002:00000074       __imp__GetStdHandle@4      0000000000402074     kernel32:KERNEL32.dll
+ 0002:00000078       __imp__WriteFile@20        0000000000402078     kernel32:KERNEL32.dll
+ 0003:00000004       _opaque_y                  0000000000403004     obfusc-07b4f5.o
+ 0003:00000008       _opaque_x                  0000000000403008     obfusc-07b4f5.o
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:000000e0       _decrypt                   00000000004010e0     obfusc-07b4f5.o
+ 0001:00000160       _print_int                 0000000000401160     obfusc-07b4f5.o
+ 0001:000001d0       _steps_of                  00000000004011d0     obfusc-07b4f5.o
+ 0002:00000000       _enc_banner                0000000000402000     obfusc-07b4f5.o
+ 0002:0000000f       _enc_steps                 000000000040200f     obfusc-07b4f5.o
+ 0002:00000015       _enc_tail                  0000000000402015     obfusc-07b4f5.o
+ 0003:00000000       _out                       0000000000403000     obfusc-07b4f5.o

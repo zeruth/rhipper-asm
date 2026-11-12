@@ -12,3 +12,6 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+
+[dev-dependencies]
+ra-asm-testing.workspace = true

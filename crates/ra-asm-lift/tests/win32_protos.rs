@@ -64,8 +64,7 @@ const BY_VALUE: &[&str] = &["GUID", "CLSID", "IID", "RECT", "RECTL", "TRIVERTEX"
 #[test]
 #[ignore = "a maintenance aid: regenerates src/raise/prototypes/win32.rs from the SDK headers with clang-cl"]
 fn regenerate_win32_prototypes() {
-    let dir = std::env::temp_dir().join("ra-asm-win32-protos");
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = ra_asm_testing::Scratch::new("ra-asm-lift-tests", "win32-protos");
     let source = dir.join("headers.c");
     let mut includes = String::new();
     for header in HEADERS {

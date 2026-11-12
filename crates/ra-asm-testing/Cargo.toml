@@ -1,0 +1,13 @@
+[package]
+name = "ra-asm-testing"
+description = "The scratch directory guard of the tests: made under the system temp, removed when the test ends"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
