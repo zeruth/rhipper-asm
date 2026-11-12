@@ -419,7 +419,13 @@ mod elf {
 
         let mut headers = Vec::with_capacity(shnum);
         for i in 0..shnum {
-            let at = shoff + i * shentsize;
+            // The table's offset is a 64-bit word of the file: past the end, it is no table.
+            let Some(at) = shoff.checked_add(i * shentsize).filter(|&at| at <= bytes.len()) else {
+                bail!(
+                    "section header {i} of the table at offset {shoff:#x} ({shentsize:#x} bytes each) lies past the end of the file ({:#x} bytes)",
+                    bytes.len()
+                );
+            };
             let header = if wide {
                 Header {
                     name: reader.u32(at, "section name")?,

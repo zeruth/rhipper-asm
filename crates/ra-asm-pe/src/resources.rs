@@ -192,7 +192,7 @@ pub fn string_table(image: &Image) -> Vec<(u32, String)> {
             let Some(&len) = units.get(at) else { break };
             let len = usize::from(len);
             if len > 0 && at + 1 + len <= units.len() {
-                strings.push((first + slot,String::from_utf16_lossy(&units[at + 1..at + 1 + len])));
+                strings.push((first + slot, String::from_utf16_lossy(&units[at + 1..at + 1 + len])));
             }
             at += 1 + len;
         }
