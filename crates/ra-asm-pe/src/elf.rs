@@ -257,7 +257,7 @@ fn symbols(elf: &ElfFile) -> Vec<Symbol> {
         .iter()
         .chain(&elf.dynamic_symbols)
         .filter(|s| s.is_defined() && s.is_function() && s.value != 0 && !s.name.is_empty())
-        .map(|s| Symbol { va: s.value, name: s.name.clone(), library: None })
+        .map(|s| Symbol { va: s.value, name: s.name.clone(), library: None, object: None })
         .collect();
     symbols.sort_by_key(|s| s.va);
     symbols.dedup_by_key(|s| s.va);
