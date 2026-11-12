@@ -126,19 +126,25 @@ fn param_register(params: &[Kind], index: usize, target: Target) -> Slot {
     target.param_slot(params, index).expect("a register parameter has a register")
 }
 
-/// Promotes the registers and flags of `f` in machine mode.
-pub fn promote(f: &mut Function) {
-    run(f, None);
+/// Promotes the registers and flags of `f`, lifted for `target`, in machine mode.
+pub fn promote(f: &mut Function, target: Target) {
+    run(f, None, target);
 }
 
 /// Rewrites `f` by its signature: parameters, frame, calls with arguments, a returned value.
 pub fn promote_abi(f: &mut Function, abi: &Abi<'_>) {
-    run(f, Some(abi));
+    run(f, Some(abi), abi.target);
+}
+
+/// The local array the vector registers live in, in ABI mode: as many as the target's state has.
+fn xmm_array(target: Target) -> Type {
+    Type::array(u64::from(target.xmms()), Type::I128)
 }
 
 /// The per-function rewrite.
 struct Rewriter<'a> {
     abi: Option<&'a Abi<'a>>,
+    target: Target,
     pointers: HashMap<ValueId, Slot>,
     replace: HashMap<ValueId, Operand>,
     /// ABI mode: the local vector register array, the frame, and the parameter values.
@@ -150,7 +156,7 @@ struct Rewriter<'a> {
     next_block: u32,
 }
 
-fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
+fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
     let Some(&state) = f.params.first() else { return };
     if f.blocks.is_empty() {
         return;
@@ -163,7 +169,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
 
     // Liveness: the machine model has a call touch every register and a return hand all back;
     // the ABI model has a call read its callee's parameters and a return hand back the result.
-    let all = all_registers();
+    let all = all_registers(target);
     let machine_model = |_: &Inst| (all, all);
     let abi_model = |inst: &Inst| match abi {
         Some(abi) => super::abi::call_model_public(inst, abi.virtual_calls, abi.all, abi.target),
@@ -226,6 +232,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
 
     let mut rw = Rewriter {
         abi,
+        target,
         pointers,
         replace: HashMap::new(),
         xmm: None,
@@ -241,7 +248,6 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
     if let Some(abi) = abi {
         let old_params = std::mem::take(&mut f.params);
         let _ = old_params;
-        let target = abi.target;
         let mut types = Vec::new();
         for (p, kind) in abi.own.params.iter().enumerate() {
             let v = f.new_value(&format!("arg{p}"), kind.ty());
@@ -267,7 +273,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
         f.ty = FnType::new(ret, types);
 
         let xmm = f.new_value("xmm", Type::Ptr);
-        prologue.push(Instruction { result: Some(xmm), inst: Inst::Alloca { ty: Type::array(16, Type::I128), align: 16 }, address: None });
+        prologue.push(Instruction { result: Some(xmm), inst: Inst::Alloca { ty: xmm_array(target), align: 16 }, address: None });
         rw.xmm = Some(xmm);
         // The frame: the function's own space below the entry stack pointer, the return address
         // slot, the home space and the stack parameters above it. The entry stack pointer sits past
@@ -303,7 +309,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
             inst: Inst::Cast { cast: Cast::PtrToInt, from: Type::Ptr, value: Operand::Local(top), to: Type::I64 },
             address: None,
         });
-        rw.params.insert(RSP, Operand::Local(rsp0));
+        rw.params.insert(target.sp(), Operand::Local(rsp0));
         // The stack parameters go to their slots: the code reads them from memory. A dword slot
         // takes the low half of the 64-bit value.
         let offsets = abi.own.stack_offsets(target);
@@ -345,7 +351,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
                 prologue.push(Instruction {
                     result: Some(slot),
                     inst: Inst::Gep {
-                        base_ty: Type::array(16, Type::I128),
+                        base_ty: xmm_array(target),
                         ptr: Operand::Local(xmm),
                         indices: vec![(Type::I64, Operand::Int(0)), (Type::I64, Operand::Int(i128::from(n)))],
                         inbounds: true,
@@ -392,7 +398,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
             instrs.append(&mut prologue);
             if rw.abi.is_some() {
                 // Every slot starts as its parameter, or undefined.
-                for slot in Slot::all() {
+                for slot in target.slots() {
                     if slot.is_xmm() {
                         continue; // the vector slots live in memory, initialized where needed
                     }
@@ -402,7 +408,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
         } else if pred_list.len() == 1 && visited[index_of[&pred_list[0]]] {
             current.clone_from(&final_values[index_of[&pred_list[0]]]);
         } else if !pred_list.is_empty() {
-            for slot in Slot::all().filter(|s| promoted(*s) && !s.is_xmm()) {
+            for slot in target.slots().filter(|s| promoted(*s) && !s.is_xmm()) {
                 if liveness.live_in[bi][slot.index()] {
                     let v = f.new_value(&format!("{}.phi", slot.name()), slot.ty());
                     instrs.push(Instruction {
@@ -429,7 +435,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
                         instrs.push(Instruction {
                             result: Some(v),
                             inst: Inst::Gep {
-                                base_ty: Type::array(16, Type::I128),
+                                base_ty: xmm_array(target),
                                 ptr: Operand::Local(xmm),
                                 indices: vec![(Type::I64, Operand::Int(0)), (Type::I64, Operand::Int(i128::from(k)))],
                                 inbounds: true,
@@ -549,7 +555,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
                             instrs.push(Instruction {
                                 result: Some(p),
                                 inst: Inst::Gep {
-                                    base_ty: Type::array(16, Type::I128),
+                                    base_ty: xmm_array(target),
                                     ptr: Operand::Local(rw.xmm.unwrap()),
                                     indices: vec![(Type::I64, Operand::Int(0)), (Type::I64, Operand::Int(0))],
                                     inbounds: true,
@@ -649,7 +655,7 @@ impl Rewriter<'_> {
         out.push(Instruction {
             result: Some(p),
             inst: Inst::Gep {
-                base_ty: Type::array(16, Type::I128),
+                base_ty: xmm_array(self.target),
                 ptr: Operand::Local(self.xmm.unwrap()),
                 indices: vec![(Type::I64, Operand::Int(0)), (Type::I64, Operand::Int(i128::from(n)))],
                 inbounds: true,
@@ -660,7 +666,12 @@ impl Rewriter<'_> {
     }
 
     fn target(&self) -> Target {
-        self.abi.map_or(Target::WIN64, |a| a.target)
+        self.target
+    }
+
+    /// The current stack pointer.
+    fn sp(&self, current: &HashMap<Slot, Operand>) -> Operand {
+        current.get(&self.target.sp()).cloned().unwrap_or(Operand::Undef)
     }
 
     /// A 64-bit integer loaded from the stack slot `offset` bytes above `rsp`: the slot's own
@@ -721,7 +732,7 @@ impl Rewriter<'_> {
                 }
             }
         }
-        let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+        let rsp = self.sp(current);
         for (k, (kind, offset)) in sig.stack_params.iter().zip(sig.stack_offsets(target)).enumerate() {
             let v = match kind {
                 Kind::Int | Kind::Wide => self.stack_word(f, &rsp, stack_base + offset, kind.stack_width(target), &format!("sarg{k}"), out),
@@ -765,12 +776,14 @@ impl Rewriter<'_> {
     ) -> Vec<(Type, Operand)> {
         let target = self.target();
         let mut args = Vec::new();
-        let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+        let rsp = self.sp(current);
         if target.is_64() {
             for slot in target.int_param_slots() {
                 args.push((Type::I64, current.get(slot).cloned().unwrap_or(Operand::Undef)));
             }
-            for k in 0..4 {
+            // ARM64's eight argument registers are the eight already.
+            let stack_words = 8 - target.int_param_slots().len() as i64;
+            for k in 0..stack_words {
                 let v = self.stack_word(f, &rsp, stack_base + 8 * k, 8, &format!("sarg{k}"), out);
                 args.push((Type::I64, Operand::Local(v)));
             }
@@ -798,7 +811,7 @@ impl Rewriter<'_> {
         out: &mut Vec<Instruction>,
     ) {
         let target = self.target();
-        for slot in Slot::all() {
+        for slot in target.slots() {
             if !target.callee_saved(slot) && !slot.is_xmm() && !preserves[slot.index()] {
                 current.insert(slot, Operand::Undef);
             }
@@ -874,7 +887,7 @@ impl Rewriter<'_> {
         let popped = pop.then(|| self.pop_after_call(f, current, sig.pops as i64, address, out));
         self.after_call(f, current, sig.returns, result, &sig.preserves, out);
         if let Some(popped) = popped {
-            current.insert(RSP, Operand::Local(popped));
+            current.insert(self.target.sp(), Operand::Local(popped));
         }
     }
 
@@ -907,7 +920,7 @@ impl Rewriter<'_> {
             inst: Inst::Call { fn_ty: import_adapter_type(), callee: Callee::Indirect(Operand::Local(fp)), args, tail: false },
             address,
         });
-        let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+        let rsp = self.sp(current);
         let mut up = Operand::Int(i128::from(ptr));
         if !target.is_64() {
             let pops = f.new_value("pops", Type::I64);
@@ -932,7 +945,7 @@ impl Rewriter<'_> {
         let popped = f.new_value("rsp", Type::I64);
         out.push(Instruction { result: Some(popped), inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: up }, address });
         self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, out);
-        current.insert(RSP, Operand::Local(popped));
+        current.insert(self.target.sp(), Operand::Local(popped));
     }
 
     /// A block id no block has, with a name from `hint`.
@@ -951,11 +964,11 @@ impl Rewriter<'_> {
         address: Option<u64>,
         out: &mut Vec<Instruction>,
     ) -> ValueId {
-        let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+        let rsp = self.sp(current);
         let popped = f.new_value("rsp", Type::I64);
         out.push(Instruction {
             result: Some(popped),
-            inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: Operand::Int(i128::from(self.target().ptr() + pops)) },
+            inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: Operand::Int(i128::from(self.target.pushed_return() + pops)) },
             address,
         });
         popped
@@ -1057,7 +1070,7 @@ impl Rewriter<'_> {
         }
         if same_pops {
             let popped = self.pop_after_call(f, current, pops[0], address, &mut joined);
-            current.insert(RSP, Operand::Local(popped));
+            current.insert(self.target.sp(), Operand::Local(popped));
         }
         blocks.push(Block { id: continuation, name: continuation_name, instrs: joined, terminator: Terminator::Unreachable, address });
         Split { head: std::mem::take(out), terminator: terminator.expect("a candidate"), blocks }
@@ -1132,7 +1145,7 @@ impl Rewriter<'_> {
                 if let Some(arity) = super::prototypes::arity(&symbol) {
                     let (registers, universal_stack, width) = if target.is_64() { (4, 4, 8) } else { (0, 6, 4) };
                     args.truncate(arity.min(registers + universal_stack));
-                    let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+                    let rsp = self.sp(current);
                     for k in universal_stack..arity.saturating_sub(registers) {
                         let v = self.stack_word(f, &rsp, stack_base + width * k as i64, width, &format!("sarg{k}"), out);
                         args.push((Type::I64, Operand::Local(v)));

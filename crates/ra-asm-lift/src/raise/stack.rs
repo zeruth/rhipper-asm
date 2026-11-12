@@ -7,7 +7,9 @@
 //! The analysis is a forward dataflow over the blocks. Its state is the offset of the stack
 //! pointer slot (`None` when the function moved it by a run-time amount) and a map from SSA values
 //! to offsets. A call to a lifted function moves the offset by the return address the callee pops
-//! and by what else it pops; an import wrapper, which runs in place of the native call, moves it
+//! (none on ARM64, whose `bl` leaves it in the link register) and by what else it pops; the pre-
+//! and post-indexed ARM64 forms are an add and a store to `sp`, followed like any other; an import
+//! wrapper, which runs in place of the native call, moves it
 //! by nothing; an indirect x86 call moves it by an amount only the callee knows.
 
 use std::collections::{BTreeMap, HashMap};
@@ -15,7 +17,7 @@ use std::collections::{BTreeMap, HashMap};
 use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Operand, Terminator, Type, ValueId};
 
 use super::Target;
-use super::liveness::{CallKind, GPRS, RSP, Slot, call_kind, reverse_post_order};
+use super::liveness::{CallKind, GPRS, Slot, call_kind, reverse_post_order};
 
 /// What the stack analysis found.
 #[derive(Debug, Clone, Default)]
@@ -62,7 +64,8 @@ pub fn analyze(
     let index_of: HashMap<_, _> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
     let preds = f.predecessors();
     let ptr = target.ptr();
-    let Slot::Gpr(sp) = RSP else { unreachable!() };
+    let pushed = target.pushed_return();
+    let Slot::Gpr(sp) = target.sp() else { unreachable!() };
     let sp = usize::from(sp);
     // The registers at each block's entry: None = not reached yet.
     let mut entry: Vec<Option<Regs>> = vec![None; n];
@@ -207,7 +210,7 @@ pub fn analyze(
                                             Some(proto) => proto.params,
                                             None => vec![super::abi::Kind::Int; super::prototypes::arity(symbol).unwrap_or(8)],
                                         };
-                                        let registers = if target.is_64() { 4 } else { 0 };
+                                        let registers = if target.is_64() { target.int_param_slots().len() } else { 0 };
                                         let mut offset = target.first_stack_arg();
                                         for kind in kinds.iter().skip(registers) {
                                             let width = kind.stack_width(target);
@@ -220,8 +223,8 @@ pub fn analyze(
                                     }
                                 }
                                 _ => match call_pops(inst) {
-                                    Some(pops) => regs[sp] = regs[sp].map(|k| k + ptr + pops),
-                                    None if target.is_64() => regs[sp] = regs[sp].map(|k| k + ptr),
+                                    Some(pops) => regs[sp] = regs[sp].map(|k| k + pushed + pops),
+                                    None if target.is_64() => regs[sp] = regs[sp].map(|k| k + pushed),
                                     None => {
                                         regs[sp] = None;
                                         info.dynamic = true;
@@ -247,7 +250,7 @@ pub fn analyze(
         if let Some(Some(k)) = exit[bi].map(|regs| regs[sp]) {
             info.min_offset = info.min_offset.min(k);
             if let Terminator::Ret(_) = f.blocks[bi].terminator {
-                info.pops = info.pops.max(k - ptr);
+                info.pops = info.pops.max(k - pushed);
             }
         }
     }
