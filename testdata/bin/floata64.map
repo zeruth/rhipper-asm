@@ -1,0 +1,34 @@
+ floata64
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000140000000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000002e0H .text                   CODE
+ 0002:000000c0 00000014H .xdata                  DATA
+ 0003:00000000 00000008H .data                   DATA
+ 0003:00000008 00000010H .bss                    DATA
+ 0004:00000000 00000010H .pdata                  DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       mainCRTStartup             0000000140001000     float-7b2794.o
+ 0002:00000068       __imp_ExitProcess          0000000140002068     kernel32:KERNEL32.dll
+ 0002:00000070       __imp_GetStdHandle         0000000140002070     kernel32:KERNEL32.dll
+ 0002:00000078       __imp_WriteFile            0000000140002078     kernel32:KERNEL32.dll
+ 0003:00000000       _fltused                   0000000140003000     float-7b2794.o
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:00000198       print_int                  0000000140001198     float-7b2794.o
+ 0001:00000230       milli                      0000000140001230     float-7b2794.o
+ 0001:00000248       mean                       0000000140001248     float-7b2794.o
+ 0001:00000278       newton_sqrt                0000000140001278     float-7b2794.o
+ 0001:000002ac       dot                        00000001400012ac     float-7b2794.o
+ 0001:000002b4       classify                   00000001400012b4     float-7b2794.o
+ 0003:00000004       seven                      0000000140003004     float-7b2794.o
+ 0003:00000008       out                        0000000140003008     float-7b2794.o
+ 0003:00000010       zero                       0000000140003010     float-7b2794.o
