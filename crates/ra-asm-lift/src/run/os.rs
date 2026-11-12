@@ -1,19 +1,19 @@
 //! What the interpreter's runtime takes from the operating system: memory at chosen addresses,
-//! the functions of the host's DLLs, and the calls into them. Windows answers all of it; another
-//! host has no DLLs of the program's to bind, so it gets none of these and the runtime stubs or
-//! stops instead.
+//! the functions of the host's DLLs, and the calls into them. Windows answers all of it; a POSIX
+//! host maps the memory but has no DLLs of the program's to bind, so the runtime stubs or stops
+//! at the imports it does not interpret.
 
 use std::ffi::c_void;
 
 /// A range of host memory the runtime allocated, released with it.
-pub(super) struct Allocation {
-    pub(super) start: u64,
+pub(crate) struct Allocation {
+    pub(crate) start: u64,
     pub(super) len: u64,
 }
 
 impl Drop for Allocation {
     fn drop(&mut self) {
-        release(self.start);
+        release(self.start, self.len);
     }
 }
 
@@ -69,30 +69,65 @@ pub(super) fn allocate_at(base: u64, len: u64) -> Option<Allocation> {
     }
     let c = unsafe { sys::VirtualAlloc(p, len as usize, sys::MEM_COMMIT, sys::PAGE_READWRITE) };
     if c.is_null() {
-        release(base);
+        release(base, len);
         return None;
     }
     Some(Allocation { start: base, len })
 }
 
 #[cfg(not(windows))]
-pub(super) fn allocate_at(_base: u64, _len: u64) -> Option<Allocation> {
-    None
+mod sys {
+    use std::ffi::c_void;
+
+    unsafe extern "C" {
+        pub(super) fn mmap(address: *mut c_void, len: usize, protect: i32, flags: i32, fd: i32, offset: i64) -> *mut c_void;
+        pub(super) fn munmap(address: *mut c_void, len: usize) -> i32;
+    }
+
+    pub(super) const PROT_READ: i32 = 1;
+    pub(super) const PROT_WRITE: i32 = 2;
+    pub(super) const MAP_PRIVATE: i32 = 2;
+    #[cfg(target_os = "linux")]
+    pub(super) const MAP_ANONYMOUS: i32 = 0x20;
+    #[cfg(not(target_os = "linux"))]
+    pub(super) const MAP_ANONYMOUS: i32 = 0x1000;
+}
+
+/// The address is a hint, not `MAP_FIXED`: a mapping someone holds is never replaced, and one the
+/// kernel placed elsewhere is given back.
+#[cfg(not(windows))]
+pub(super) fn allocate_at(base: u64, len: u64) -> Option<Allocation> {
+    if base == 0 {
+        return None;
+    }
+    let flags = sys::MAP_PRIVATE | sys::MAP_ANONYMOUS;
+    let p = unsafe { sys::mmap(base as usize as *mut c_void, len as usize, sys::PROT_READ | sys::PROT_WRITE, flags, -1, 0) };
+    // MAP_FAILED is all ones.
+    if p as usize == usize::MAX {
+        return None;
+    }
+    if p as usize as u64 != base {
+        unsafe { sys::munmap(p, len as usize) };
+        return None;
+    }
+    Some(Allocation { start: base, len })
 }
 
 /// Memory below 4 GB, where a 32-bit program's pointers reach: the first free spot of a walk
 /// from 256 MB up in 16 MB steps.
-pub(super) fn allocate_low(len: u64) -> Option<Allocation> {
+pub(crate) fn allocate_low(len: u64) -> Option<Allocation> {
     (0x1000_0000u64..0x8000_0000).step_by(0x0100_0000).find_map(|base| allocate_at(base, len))
 }
 
 #[cfg(windows)]
-fn release(start: u64) {
+fn release(start: u64, _len: u64) {
     unsafe { sys::VirtualFree(start as usize as *mut c_void, 0, sys::MEM_RELEASE) };
 }
 
 #[cfg(not(windows))]
-fn release(_start: u64) {}
+fn release(start: u64, len: u64) {
+    unsafe { sys::munmap(start as usize as *mut c_void, len as usize) };
+}
 
 /// The committed, readable range of the process that holds `address`, when there is one: a page
 /// a DLL handed the program.

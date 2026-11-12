@@ -10,7 +10,7 @@
 
 mod f80;
 mod host;
-mod os;
+pub(crate) mod os;
 mod printf;
 
 use std::collections::{HashMap, HashSet};
