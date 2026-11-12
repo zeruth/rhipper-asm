@@ -512,7 +512,6 @@ fn inline_reads_as_source() {
 }
 
 #[test]
-#[ignore = "#111: the rebuilt graph of the flattened function does not run yet as 64-bit C"]
 fn obfusc64_runs_as_c() {
     run_oracle("obfusc64.exe", "obfusc.txt");
 }
@@ -527,7 +526,6 @@ fn obfusc32_runs_as_c() {
 /// literals; the bogus branch behind the opaque predicate, which would have decrypted "never",
 /// is gone.
 #[test]
-#[ignore = "#111: the flattened function does not yet read as its loop"]
 fn obfusc_reads_as_source() {
     for binary in ["obfusc64.exe", "obfusc32.exe"] {
         let (_, c, _) = emit(&fixture(binary, "obfusc.txt"), "source", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
