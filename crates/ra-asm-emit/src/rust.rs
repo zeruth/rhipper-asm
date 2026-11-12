@@ -1107,7 +1107,9 @@ impl Emitter<'_> {
         }
         chains.sort_by_key(|chain| chain.iter().any(|c| c.default));
         // A chain tests the value again: a plain local is read as it is, anything else is bound
-        // once, before the body can change what it reads.
+        // once, before the body can change what it reads. A local is assigned again only as a phi,
+        // on an edge into the block that defines it; that block dominates the switch, so the edge
+        // is a back edge that leaves the chain before its next test.
         let mut subject = self.guarded(&strip_parens(&self.operand(ty, value)));
         if chains.iter().any(|chain| chain.len() > 1) && !matches!(value, Operand::Local(v) if !self.defs.inlinable(*v)) {
             let _ = writeln!(out, "{pad}let ra_switch = {subject};");

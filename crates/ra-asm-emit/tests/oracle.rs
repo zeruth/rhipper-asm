@@ -997,7 +997,8 @@ fn function_text<'a>(text: &'a str, head: &str) -> &'a str {
 /// The switches of core as their source wrote them: `fallthrough` with its cases that run into
 /// the next (`case 0: r += 1;` into `case 1: r *= 3; break;`, `case 4` into `case 5` into
 /// `case 6`) as C fall-throughs, and in Rust as one arm per chain whose steps test the value;
-/// `vowels`, whose every case breaks, with no fall-through, no copied case tail and no `goto`.
+/// `vowels`, whose every case breaks (`case 'a': … case 'u': n += 1; break;` is one case of five
+/// values, not a fall-through), with no fall-through, no copied case tail and no `goto`.
 #[test]
 fn rhtest_core_switches_read_as_source() {
     for variant in ["O2", "Od"] {
