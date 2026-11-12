@@ -23,6 +23,11 @@
 //!   with the annotation; every later answer, and the next emit, takes the name.
 //! - `annotations`: every annotation of the project, and what of them the analysis could not take
 //!   (with what the project's name-source plugins said that it could not take).
+//! - `diff` (`old`, `structure`, `ir`, `context`): the image served matched function by function
+//!   against the older build at the path `old` (see [`crate::diff`]): `pairs` (each with `old`,
+//!   `new`, their names and symbols, `how`, `round`, `change` in percent, and `ir`, the unified
+//!   diff of the raised IR of a changed pair, with `ir`), `removed` and `added`, and the counts;
+//!   by structure alone with `structure`.
 //! - `plugins`: the plugins of the project and the user's (see [`crate::plugins`]): `abi`, the
 //!   `user` directory, and each plugin's `name`, `origin`, `dir`, `kinds` and `error`.
 //!
@@ -244,6 +249,15 @@ impl Session<'_> {
                 "annotations": self.annotations.values().map(Annotation::to_json).collect::<Vec<_>>(),
                 "warnings": self.warnings,
             })),
+            "diff" => {
+                let path = params.get("old").and_then(Value::as_str).ok_or_else(|| anyhow!("the parameter `old` is missing"))?;
+                let image = ra_asm_pe::load(Path::new(path))?;
+                let old = ra_asm_analysis::analyze(&image);
+                let symbols = !params.get("structure").and_then(Value::as_bool).unwrap_or(false);
+                let context = params.get("context").and_then(Value::as_u64).unwrap_or(3) as usize;
+                let ir = params.get("ir").and_then(Value::as_bool).unwrap_or(false).then_some(context);
+                Ok(crate::diff::diff_json(&old, self.analysis, symbols, ir))
+            }
             "plugins" => Ok(crate::plugins::list_json(self.target.project.as_ref().map(|p| p.root.as_path()))),
             "trace" => {
                 let Some(project) = &self.target.project else { bail!("no project: the traces are a project's") };

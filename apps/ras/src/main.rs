@@ -2,6 +2,7 @@
 //! person, or JSON with `--json` for the workbench and the agents.
 
 mod annotations;
+mod diff;
 mod disasm;
 mod doctor;
 mod emit;
@@ -194,6 +195,21 @@ enum Command {
         /// The first address after the range; `lo + 1` without it.
         hi: Option<String>,
     },
+    /// Two builds of a program matched function by function: the changed functions, the most
+    /// changed first, and the functions one build has alone.
+    Diff {
+        old: PathBuf,
+        new: PathBuf,
+        /// Match by structure alone, the builds' symbols aside.
+        #[arg(long)]
+        structure: bool,
+        /// Print the diff of the raised IR of each changed function.
+        #[arg(long)]
+        ir: bool,
+        /// The lines of context around each change of the IR diff.
+        #[arg(long, default_value_t = 3)]
+        context: usize,
+    },
     /// The steps from the reference binary to a running port: analyze, lift, emit, build and run,
     /// in the project whose `rhipper.json` is in `--project` (the current directory without it).
     Pipeline {
@@ -291,6 +307,10 @@ fn main() -> anyhow::Result<()> {
             let lo = disasm::parse_address(&lo)?;
             let hi = hi.as_deref().map(disasm::parse_address).transpose()?;
             xrefs::xrefs(&load(&pe, sigs)?, lo, hi, json)
+        }
+        Command::Diff { old, new, structure, ir, context } => {
+            let options = diff::Options { symbols: !structure, ir: ir.then_some(context), json };
+            diff::diff(&load(&old, sigs)?, &load(&new, sigs)?, &options)
         }
         Command::Pipeline { project, from, only, timeout, config, rebuild } => {
             let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild };

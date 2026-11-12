@@ -17,7 +17,8 @@
 //! traced run ([`facts`]) come last among the seeds and first among the resolutions: a target the
 //! run reached is a function, and an indirect call the run resolved calls what it reached. A
 //! function's [`identity`] is what it is apart from its address, how a new build of the program
-//! finds the functions the person annotated in the last.
+//! finds the functions the person annotated in the last; [`matching`] matches every function of
+//! two builds at once, by their symbols or by structure alone, for a binary diff.
 
 pub mod builder;
 pub mod facts;
@@ -25,6 +26,7 @@ pub mod function;
 pub mod identity;
 pub mod imports;
 pub mod jumptable;
+pub mod matching;
 pub mod noreturn;
 pub mod rtti;
 pub mod signatures;
