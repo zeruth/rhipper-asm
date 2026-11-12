@@ -6,8 +6,8 @@
 use std::ffi::c_void;
 
 /// A range of host memory the runtime allocated, released with it.
-pub(super) struct Allocation {
-    pub(super) start: u64,
+pub(crate) struct Allocation {
+    pub(crate) start: u64,
     pub(super) len: u64,
 }
 
@@ -115,7 +115,7 @@ pub(super) fn allocate_at(base: u64, len: u64) -> Option<Allocation> {
 
 /// Memory below 4 GB, where a 32-bit program's pointers reach: the first free spot of a walk
 /// from 256 MB up in 16 MB steps.
-pub(super) fn allocate_low(len: u64) -> Option<Allocation> {
+pub(crate) fn allocate_low(len: u64) -> Option<Allocation> {
     (0x1000_0000u64..0x8000_0000).step_by(0x0100_0000).find_map(|base| allocate_at(base, len))
 }
 
