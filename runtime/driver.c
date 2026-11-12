@@ -1844,8 +1844,13 @@ static void report_crashes(void) {
 
 #if defined(RA_ABI) && !defined(RA_DLL)
 // The entry, and the program's exit code: `main`'s result when the driver's startup stands in for
-// the runtime's (`RA_ENTRY_RETURNS`), else nothing the driver reads.
+// the runtime's (`RA_ENTRY_RETURNS`), else nothing the driver reads. Standing in, it first runs the
+// program's initializers (`RA_INITIALIZE`), the constructors of its C++ statics among them, and a
+// C initializer that fails ends the start with the code the runtime's startup ends it with.
 static int ra_entry(void) {
+#ifdef RA_INITIALIZE
+    if (RA_INITIALIZE()) return 255;
+#endif
 #ifdef RA_ENTRY_RETURNS
     int code = (int)RA_ENTRY_CALL();
 #else
