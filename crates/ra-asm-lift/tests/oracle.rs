@@ -220,6 +220,36 @@ fn floata64_lifts_and_runs_interpreted() {
     }
 }
 
+/// The Thumb-2 fixture, a static 32-bit ARM Linux program: it lifts without a trap (its IT block,
+/// its literal pool, its long multiply and its `svc`s included), its IR passes the gate, and it
+/// runs through the interpreter over the mapped image with the output its source prints.
+#[test]
+fn thumb32_lifts_and_runs_interpreted() {
+    let image = ra_asm_pe::load(&fixture("thumb32")).unwrap();
+    assert_eq!(image.machine(), ra_asm_pe::Machine::Arm);
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    assert_eq!(lifted.isa, ra_asm_lift::Isa::Arm32);
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+    assert_eq!(coverage.traps(), 0, "unsupported instructions: {:?}", coverage.uncovered);
+    for entry in [0x20118u64, 0x2011c, 0x20124, 0x2013c, 0x20184] {
+        assert!(lifted.functions.contains_key(&entry), "no function at {entry:#x}: {:?}", lifted.functions);
+    }
+    if clang_available() {
+        let Raised { lifted, .. } = raise("thumb32", "gate-machine");
+        let dir = scratch("gate-machine-thumb32");
+        std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
+    } else {
+        eprintln!("clang is not on the PATH: the IR gate is skipped");
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/thumb.txt")).unwrap();
+    run_interpreted("thumb32", &expected, "run-machine");
+}
+
 /// The Linux build of hello lifts without a trap at the machine level, over the mapped image and
 /// standalone: its imports are called through System V wrappers, which read `rdi` first, and its
 /// IR passes the gate. The run is [`hello_linux64_runs_lifted`], on a Linux host.

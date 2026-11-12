@@ -162,6 +162,18 @@ if (Wanted 'hello_linux') {
   if ($LASTEXITCODE -ne 0) { throw "clang failed for hello_linux64" }
 }
 
+# thumb is the fixture of 32-bit ARM: a static Linux program in Thumb-2 that talks to the kernel
+# through svc alone. -mno-movt puts an address in a literal pool; the loops stay rolled and
+# scalar, so the code is the source's shape. No ARM machine is here: it runs lifted only.
+if (Wanted 'thumb') {
+  $args = @('--target=armv7-linux-gnueabihf', '-mthumb', '-O2', '-fno-unroll-loops', '-fno-vectorize', '-fno-slp-vectorize', '-nostdlib',
+    '-ffreestanding', '-fno-builtin', '-mno-movt', '-static', '-fuse-ld=lld', '-Wl,--build-id=none',
+    (Join-Path $src 'thumb.c'), '-o', (Join-Path $bin 'thumb32'))
+  Write-Host "clang thumb32" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for thumb32" }
+}
+
 # The PDBs (crt's excepted), the import libraries and the compiled resources are build leftovers,
 # not fixtures.
 Get-ChildItem $bin -Include *.pdb, *.lib, *.exp, *.res -Recurse | Where-Object { $_.Name -ne 'crt64.pdb' } | Remove-Item -Force
