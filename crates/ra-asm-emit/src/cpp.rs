@@ -372,6 +372,8 @@ fn offset_from(defs: &HashMap<ValueId, &Inst>, types: &[(String, Vec<Type>)], th
     match defs.get(v)? {
         // A 32-bit program's object pointer arrives as a 64-bit parameter and is narrowed to address.
         Inst::Cast { cast: Cast::IntToPtr | Cast::PtrToInt | Cast::ZExt | Cast::Trunc | Cast::Bitcast, value, .. } => at(value),
+        // The same narrowing as a mask: a 32-bit program's object lies below 4 GiB.
+        Inst::Bin { op: BinOp::And, lhs, rhs: Operand::Int(0xffff_ffff), .. } => at(lhs),
         Inst::Bin { op: BinOp::Add, ty, lhs, rhs: Operand::Int(c) } | Inst::Bin { op: BinOp::Add, ty, lhs: Operand::Int(c), rhs: lhs } => {
             at(lhs)?.checked_add(constant(ty, *c)?)
         }
