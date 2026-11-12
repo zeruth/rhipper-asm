@@ -198,12 +198,11 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
             state.seed(f.begin, Origin::ExceptionTable);
         }
     }
-    // An ELF file's `.eh_frame` records its functions as the exception table records a PE's.
-    if let Some(elf) = &image.elf {
-        for &(begin, _) in &elf.functions {
-            if image.is_code(begin) {
-                state.seed(begin, Origin::ExceptionTable);
-            }
+    // An ELF file's `.eh_frame` and a Mach-O file's `__unwind_info` record its functions as the
+    // exception table records a PE's.
+    for &(begin, _) in image.unwind_extents() {
+        if image.is_code(begin) {
+            state.seed(begin, Origin::ExceptionTable);
         }
     }
     state.run();

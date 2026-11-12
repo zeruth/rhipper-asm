@@ -498,7 +498,23 @@ impl Machine<'_> {
 
     /// Writes the low bytes of a vector register as `ty`; with `zero_upper`, the rest becomes zero.
     pub fn write_xmm(&mut self, block: BlockId, reg: R, ty: Type, value: impl Into<Operand>, zero_upper: bool) {
-        let p = self.xmm_ptr(block, reg.number() as u32);
+        self.write_vreg(block, reg.number() as u32, ty, value, zero_upper);
+    }
+
+    /// Reads vector slot `number` as `ty`, from its low bytes: a scalar, a vector of lanes, or the
+    /// whole register.
+    pub fn read_vreg(&mut self, block: BlockId, number: u32, ty: Type) -> ValueId {
+        let p = self.xmm_ptr(block, number);
+        let hint = match self.isa {
+            Isa::X86 => format!("xmm{number}"),
+            Isa::Arm64 => format!("v{number}"),
+        };
+        self.b.load(block, ty, p, &hint)
+    }
+
+    /// Writes the low bytes of vector slot `number` as `ty`; with `zero_upper`, the rest becomes zero.
+    pub fn write_vreg(&mut self, block: BlockId, number: u32, ty: Type, value: impl Into<Operand>, zero_upper: bool) {
+        let p = self.xmm_ptr(block, number);
         if zero_upper && ty.bits() != Some(128) {
             self.b.store(block, Type::I128, 0i64, p);
         }

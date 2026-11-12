@@ -51,12 +51,14 @@ fn directories_of(image: &Image) -> Vec<(&'static str, String, u32)> {
     .collect()
 }
 
-/// `pe32`, `pe32+`, `xbe`, `elf32` or `elf64`.
+/// `pe32`, `pe32+`, `xbe`, `elf32`, `elf64` or `macho64`.
 fn format_name(image: &Image) -> &'static str {
     if image.xbe.is_some() {
         "xbe"
     } else if let Some(elf) = &image.elf {
         if elf.wide { "elf64" } else { "elf32" }
+    } else if image.macho.is_some() {
+        "macho64"
     } else if image.is_64() {
         "pe32+"
     } else {
@@ -103,6 +105,41 @@ fn elf_type(kind: u16) -> String {
     }
 }
 
+/// The name of a Mach-O `filetype`.
+fn macho_type(kind: u32) -> String {
+    match kind {
+        1 => "object".to_owned(),
+        2 => "executable".to_owned(),
+        6 => "dynamic library".to_owned(),
+        7 => "dynamic linker".to_owned(),
+        8 => "bundle".to_owned(),
+        other => format!("type {other:#x}"),
+    }
+}
+
+/// The architectures of a fat Mach-O file, the one the image maps marked `*`; `None` for a thin one.
+fn macho_slices(macho: &ra_asm_format::macho::MachOFile) -> Option<Vec<String>> {
+    (!macho.fat.is_empty()).then(|| {
+        macho
+            .fat
+            .iter()
+            .map(|a| {
+                let name = ra_asm_format::macho::cpu_name(a.cpu_type);
+                if Some((a.offset, a.size)) == macho.slice { format!("{name}*") } else { name }
+            })
+            .collect()
+    })
+}
+
+/// How a Mach-O file's pointers are bound: `chained fixups`, `dyld info`, or `none`.
+fn macho_binding(macho: &ra_asm_format::macho::MachOFile) -> &'static str {
+    match (macho.chained_fixups, macho.bindings.is_empty() && macho.rebases.is_empty()) {
+        (true, _) => "chained fixups",
+        (false, false) => "dyld info",
+        (false, true) => "none",
+    }
+}
+
 /// The headers of the image as JSON: what `ras info --json` prints and `ras serve` answers.
 pub(crate) fn info_json(image: &Image) -> serde_json::Value {
     let h = &image.headers;
@@ -128,6 +165,15 @@ pub(crate) fn info_json(image: &Image) -> serde_json::Value {
                 "needed": e.needed,
                 "soname": e.soname,
                 "eh_frame_functions": e.functions.len(),
+            })),
+            "macho": image.macho.as_ref().map(|m| json!({
+                "type": macho_type(m.kind),
+                "slices": macho_slices(m),
+                "dylinker": m.dylinker,
+                "install_name": m.install_name,
+                "dylibs": m.dylibs,
+                "binding": macho_binding(m),
+                "unwind_functions": m.functions.len(),
             })),
             "symbols": image.symbols.len(),
             "subsystem": o.subsystem_name(),
@@ -179,6 +225,21 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
         }
         println!("needed         {}", if e.needed.is_empty() { "none".to_owned() } else { e.needed.join(", ") });
         println!("symbols        {} functions, {} .eh_frame functions", image.symbols.len(), e.functions.len());
+    }
+    if let Some(m) = &image.macho {
+        println!("type           {}", macho_type(m.kind));
+        if let Some(slices) = macho_slices(m) {
+            println!("slices         {}", slices.join(", "));
+        }
+        if let Some(dylinker) = &m.dylinker {
+            println!("dylinker       {dylinker}");
+        }
+        if let Some(install_name) = &m.install_name {
+            println!("install name   {install_name}");
+        }
+        println!("dylibs         {}", if m.dylibs.is_empty() { "none".to_owned() } else { m.dylibs.join(", ") });
+        println!("binding        {}", macho_binding(m));
+        println!("symbols        {} functions, {} __unwind_info functions", image.symbols.len(), m.functions.len());
     }
     println!("subsystem      {} ({}.{})", o.subsystem_name(), o.subsystem_version.0, o.subsystem_version.1);
     println!("image base     {}", hex(o.image_base));
@@ -411,17 +472,30 @@ pub(crate) fn functions(image: &Image, pdata: bool, json: bool) -> Result<()> {
     if !pdata {
         anyhow::bail!("function discovery lands with milestone C; use --pdata for the exception table");
     }
-    // An ELF file's table of function extents is its `.eh_frame`.
-    if let Some(elf) = &image.elf {
+    // An ELF file's table of function extents is its `.eh_frame`, a Mach-O file's its `__unwind_info`.
+    let table = if image.elf.is_some() {
+        Some(".eh_frame")
+    } else if image.macho.is_some() {
+        Some("__unwind_info")
+    } else {
+        None
+    };
+    if let Some(table) = table {
+        let extents = image.unwind_extents();
+        // The container's own symbol table names an extent that starts a symbol.
+        let name_of = |begin: u64| image.symbols.iter().find(|s| s.va == begin).map(|s| s.name.as_str());
         if json {
-            let rows: Vec<_> =
-                elf.functions.iter().map(|&(begin, end)| json!({"begin": hex(begin), "end": hex(end), "size": end - begin})).collect();
+            let rows: Vec<_> = extents
+                .iter()
+                .map(|&(begin, end)| json!({"begin": hex(begin), "end": hex(end), "size": end - begin, "name": name_of(begin)}))
+                .collect();
             return print_json(&rows);
         }
-        for &(begin, end) in &elf.functions {
-            println!("{}  {}  {:>6}", hex(begin), hex(end), end - begin);
+        for &(begin, end) in extents {
+            let name = name_of(begin).map_or_else(String::new, |n| format!("  {n}"));
+            println!("{}  {}  {:>6}{name}", hex(begin), hex(end), end - begin);
         }
-        println!("{} .eh_frame functions", elf.functions.len());
+        println!("{} {table} functions", extents.len());
         print_warnings(image);
         return Ok(());
     }
