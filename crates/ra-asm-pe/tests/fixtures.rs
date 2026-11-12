@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use ra_asm_pe::{Image, Machine, OptionalMagic, RelocKind};
+use ra_asm_pe::{CxxAbi, Image, Machine, OptionalMagic, RelocKind, RichHeader, RichTool, Toolset};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin").join(name)
@@ -29,6 +29,56 @@ fn hello64_headers_and_sections() {
     let entry = image.entry_point().unwrap();
     assert!(image.is_code(entry), "the entry point {entry:#x} lies in a code section");
     assert_eq!(image.section_of(entry).unwrap().name, ".text");
+}
+
+fn rhtest(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/rhtest").join(name)
+}
+
+#[test]
+fn the_clang_fixtures_are_clang_and_lld() {
+    for name in ["hello64.exe", "hello32.exe", "control64.exe"] {
+        let image = load(name);
+        assert!(image.headers.rich.is_none(), "{name}: lld writes no rich header");
+        let toolset = Toolset::of(&image);
+        assert_eq!(toolset.name, "clang/lld", "{name}: {toolset:?}");
+        assert_eq!(toolset.cxx_abi(), CxxAbi::Msvc);
+    }
+    // clang-cl over the MSVC runtime: the startup is MSVC's, linked in or from the runtime DLLs.
+    let image = ra_asm_pe::load(&rhtest("core-static.exe")).unwrap();
+    let toolset = Toolset::of(&image);
+    assert_eq!(toolset.name, "clang/lld", "{toolset:?}");
+    assert_eq!(toolset.crt.as_ref().map(|c| c.vendor), Some("MSVC"), "{toolset:?}");
+}
+
+#[test]
+fn the_msvc_rhtest_build_is_msvc_14_51() {
+    let image = ra_asm_pe::load(&rhtest("core-O2.exe")).unwrap();
+    let rich = image.headers.rich.as_ref().expect("link writes a rich header");
+    let linker = rich.linker().expect("the rich header names the linker");
+    assert_eq!((linker.product_name(), linker.build), (Some("Linker1400"), 36252));
+    assert!(rich.entries.iter().any(|e| e.tool() == RichTool::Compiler && e.build == linker.build), "{rich:?}");
+    let toolset = Toolset::of(&image);
+    assert_eq!(toolset.name, "MSVC 14.51", "{toolset:?}");
+    assert_eq!(toolset.crt.as_ref().map(|c| c.vendor), Some("MSVC"), "{toolset:?}");
+    assert_eq!(toolset.runtime_key().as_deref(), Some("msvc-14.51"));
+    assert_eq!(toolset.fill, Some(0xcc));
+}
+
+/// The Visual Studio 2010 builds are made elsewhere and join the fixtures when they are there.
+#[test]
+fn the_vs2010_rhtest_build_is_msvc_16_00() {
+    let path = rhtest("core-vs2010.exe");
+    if !path.exists() {
+        eprintln!("{} is not here: the VS2010 fingerprint is skipped", path.display());
+        return;
+    }
+    let image = ra_asm_pe::load(&path).unwrap();
+    let linker = image.headers.rich.as_ref().and_then(RichHeader::linker).expect("link 10.00 writes a rich header");
+    assert_eq!(linker.product_name(), Some("Linker1000"));
+    let toolset = Toolset::of(&image);
+    assert_eq!(toolset.name, "MSVC 16.00", "{toolset:?}");
+    assert_eq!(toolset.runtime_key().as_deref(), Some("msvc-16.00"));
 }
 
 #[test]

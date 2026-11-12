@@ -4,7 +4,7 @@
 use std::io::Write;
 
 use anyhow::Result;
-use ra_asm_pe::{Directory, Image};
+use ra_asm_pe::{Directory, Image, Toolset};
 use serde::Serialize;
 use serde_json::json;
 
@@ -62,12 +62,41 @@ fn format_name(image: &Image) -> &'static str {
     }
 }
 
+/// The C runtime of a toolset in a line: `MSVC, static`, `MSVC, msvcr100.dll`, `none`.
+fn crt_line(toolset: &Toolset) -> String {
+    toolset.crt.as_ref().map_or_else(|| "none".to_owned(), |c| format!("{}, {}", c.vendor, c.dll.as_deref().unwrap_or("static")))
+}
+
+/// The toolset of the image as JSON: its name, the parts it was read from, and the keys it selects.
+fn toolset_json(image: &Image) -> serde_json::Value {
+    let toolset = Toolset::of(image);
+    json!({
+        "name": toolset.name,
+        "compiler": toolset.compiler,
+        "linker": toolset.linker,
+        "linker_version": format!("{}.{}", toolset.linker_version.0, toolset.linker_version.1),
+        "msvc": toolset.msvc.map(|(major, minor)| format!("{major}.{minor:02}")),
+        "crt": toolset.crt,
+        "cxx_abi": toolset.cxx_abi(),
+        "runtime": toolset.runtime_key(),
+        "fill": toolset.fill,
+        "evidence": toolset.evidence,
+        "rich": image.headers.rich.as_ref().map(|r| r.entries.iter().map(|e| json!({
+            "product": e.product,
+            "name": e.product_name(),
+            "build": e.build,
+            "count": e.count,
+        })).collect::<Vec<_>>()),
+    })
+}
+
 /// The headers of the image as JSON: what `ras info --json` prints and `ras serve` answers.
 pub(crate) fn info_json(image: &Image) -> serde_json::Value {
     let h = &image.headers;
     let o = &h.optional;
     let directories = directories_of(image);
     json!({
+            "toolset": toolset_json(image),
             "path": image.path.as_ref().map(|p| p.display().to_string()),
             "machine": image.machine().name(),
             "format": format_name(image),
@@ -124,6 +153,23 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
     println!("size of image  {:#x}", o.size_of_image);
     println!("alignment      section {:#x}, file {:#x}", o.section_alignment, o.file_alignment);
     println!("linker         {}.{}", o.linker_version.0, o.linker_version.1);
+    let toolset = Toolset::of(image);
+    println!("toolset        {} (C runtime {}, C++ ABI {:?})", toolset.name, crt_line(&toolset), toolset.cxx_abi());
+    if let Some(rich) = &h.rich {
+        let entries: Vec<String> = rich
+            .entries
+            .iter()
+            .map(|e| {
+                format!(
+                    "{} {} x{}",
+                    e.product_name().map_or_else(|| format!("product {:#06x}", e.product), str::to_owned),
+                    e.build,
+                    e.count
+                )
+            })
+            .collect();
+        println!("rich           {}", entries.join(", "));
+    }
     println!("timestamp      {:#010x}", h.coff.timestamp);
     println!(
         "flags          characteristics {:#06x}, dll characteristics {:#06x}{}{}",

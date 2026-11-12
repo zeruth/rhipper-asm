@@ -4,6 +4,7 @@
 //! the image keeps a warning for it, because a packed or odd binary is still worth opening.
 //! [`object`] reads the relocatable objects (COFF, ELF) and the archives the signatures of a
 //! library are made from. [`xbe`] reads the original Xbox's container into the same image.
+//! [`toolset`] fingerprints the compiler, linker and C runtime that built an image.
 
 pub mod debug;
 pub mod exception;
@@ -18,6 +19,7 @@ pub mod relocs;
 pub mod resources;
 pub mod section;
 pub mod tls;
+pub mod toolset;
 pub mod xbe;
 
 pub use debug::{CodeView, DebugEntry};
@@ -25,7 +27,7 @@ pub use exception::{
     Arm64Epilog, Arm64Unwind, Arm64UnwindOp, CatchHandler, CxxFrame, FuncInfo, RuntimeFunction, ThrowInfo, TryBlock, UnwindInfo, UnwindOp,
 };
 pub use exports::{Export, ExportTable};
-pub use headers::{DataDirectory, Directory, Headers, Machine, OptionalMagic};
+pub use headers::{DataDirectory, Directory, Headers, Machine, OptionalMagic, RichEntry, RichHeader, RichTool};
 pub use image::Image;
 pub use imports::Import;
 pub use object::{Library, Object, ObjectFunction, ObjectReloc, ObjectSection};
@@ -34,6 +36,7 @@ pub use relocs::{RelocKind, Relocation};
 pub use resources::{Resource, ResourceId};
 pub use section::Section;
 pub use tls::Tls;
+pub use toolset::{CxxAbi, Toolset};
 pub use xbe::{KernelExport, Xbe};
 
 use std::path::Path;

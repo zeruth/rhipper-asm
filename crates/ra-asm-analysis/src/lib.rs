@@ -30,7 +30,7 @@ pub mod symbols;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use ra_asm_arch::{Arch, Operand};
-use ra_asm_pe::{CxxFrame, Image, Machine};
+use ra_asm_pe::{CxxAbi, CxxFrame, Image, Machine, Toolset};
 
 pub use facts::Facts;
 pub use function::{Block, Function, Kind, Origin, Terminator, VirtualSlot};
@@ -63,6 +63,9 @@ pub struct Analysis<'a> {
     pub program_entry: Option<u64>,
     /// The facts of the traced run the analysis took, empty without one.
     pub facts: Facts,
+    /// The toolset that built the image: its C++ ABI decides whose RTTI the classes are read
+    /// from, its runtime key which signatures and prototypes the C runtime takes.
+    pub toolset: Toolset,
     /// What the analysis could not resolve: unresolved indirect jumps, invalid bytes, overlaps.
     pub warnings: Vec<String>,
 }
@@ -192,7 +195,9 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     state.run();
 
     // The virtual functions: the vtables of the RTTI name them before a bare pointer scan does.
-    let classes = rtti::classes(image);
+    // The RTTI read is Microsoft's; a toolset of the Itanium ABI lays its classes out otherwise.
+    let toolset = Toolset::of(image);
+    let classes = if toolset.cxx_abi() == CxxAbi::Msvc { rtti::classes(image) } else { Vec::new() };
     for class in &classes {
         for vtable in &class.vtables {
             for &va in &vtable.functions {
@@ -304,7 +309,7 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     let program_entry = symbols::program_entry(image, &functions);
     symbols::finish_names(&mut functions);
     let (noreturn, warnings) = (state.noreturn, state.warnings);
-    Analysis { image, arch, functions, noreturn, classes, cxx_frames, program_entry, facts: facts.clone(), warnings }
+    Analysis { image, arch, functions, noreturn, classes, cxx_frames, program_entry, facts: facts.clone(), toolset, warnings }
 }
 
 /// The string literals a function addresses: each operand that names an address where printable
