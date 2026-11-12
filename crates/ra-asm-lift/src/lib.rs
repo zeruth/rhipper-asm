@@ -56,6 +56,10 @@ pub struct Lifted {
     /// The imports called `fastcall` (the Xbox kernel's), whose wrappers read `ecx` and `edx`
     /// ahead of the stack.
     pub fastcall: BTreeSet<String>,
+    /// Whether the imports take the System V convention of a Linux binary (an ELF image) rather
+    /// than the Windows one: in 64 bits six integers in `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`,
+    /// eight floats in `xmm0` to `xmm7`, and no shadow space above the return address.
+    pub sysv: bool,
     /// The data sections written as globals (standalone mode).
     pub data: Vec<DataSection>,
     /// The vtables of the program's classes, from the RTTI: the raise resolves a call through a
@@ -93,6 +97,17 @@ pub fn import_of_wrapper(name: &str) -> Option<&str> {
     name.strip_prefix("imp_").map(|rest| rest.strip_suffix(".tail").unwrap_or(rest))
 }
 
+/// The convention an import's wrapper reads its arguments in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Convention {
+    /// Win64 in 64 bits; `cdecl` or `stdcall` in 32, whose arguments are all on the stack.
+    Windows,
+    /// The Xbox kernel's 32-bit `fastcall`: `ecx` and `edx` first.
+    Fastcall,
+    /// The System V AMD64 convention of a Linux binary.
+    SystemV,
+}
+
 /// Builds the wrapper of an import. In 64 bits it reads `rcx`, `rdx`, `r8`, `r9` and four stack
 /// slots from `rsp + stack_offset` out of the state, calls the import through the eight-integer
 /// adapter, and stores the result to `rax`. In 32 bits every argument is on the stack: it reads
@@ -101,8 +116,10 @@ pub fn import_of_wrapper(name: &str) -> Option<&str> {
 /// An import with a typed prototype (the C runtime's math) takes its own arguments instead, a
 /// double read as one, and its result goes where the convention puts it: `xmm0`, or in 32 bits
 /// the x87 stack. A `fastcall` import (the Xbox kernel's) takes its first two integers from `ecx`
-/// and `edx`, and the stack holds the rest.
-pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x87: X87Unit, fastcall: bool) -> ra_asm_ir::Function {
+/// and `edx`, and the stack holds the rest. A System V import (a Linux binary's) takes its
+/// integers from `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9` and its floats from `xmm0` to `xmm7`, each
+/// class counted on its own, and the stack holds what is left in order.
+pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x87: X87Unit, convention: Convention) -> ra_asm_ir::Function {
     use ra_asm_ir::{BinOp, Callee, Cast, FnType, FunctionBuilder, Terminator};
     use ra_asm_x86::iced_x86::Register as R;
     use raise::abi::Kind;
@@ -117,7 +134,27 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x8
     let fn_ty = typed.as_ref().map_or_else(state::import_adapter_type, raise::prototypes::Typed::fn_type);
     let mut args = Vec::with_capacity(kinds.len());
     let sp = m.read_sp(block);
-    if bits == 64 {
+    if bits == 64 && convention == Convention::SystemV {
+        let (mut ints, mut floats, mut slot) = (0usize, 0usize, 0i64);
+        for kind in &kinds {
+            let v = match kind {
+                Kind::Int | Kind::Wide if ints < 6 => {
+                    ints += 1;
+                    m.read_gpr(block, [R::RDI, R::RSI, R::RDX, R::RCX, R::R8, R::R9][ints - 1])
+                }
+                Kind::Float | Kind::Double if floats < 8 => {
+                    floats += 1;
+                    m.read_xmm(block, [R::XMM0, R::XMM1, R::XMM2, R::XMM3, R::XMM4, R::XMM5, R::XMM6, R::XMM7][floats - 1], kind.ty())
+                }
+                _ => {
+                    let addr = m.b.bin(block, BinOp::Add, Type::I64, sp, stack_offset + 8 * slot, "arg.p");
+                    slot += 1;
+                    m.load(block, kind.ty(), addr, "arg")
+                }
+            };
+            args.push((kind.ty(), v.into()));
+        }
+    } else if bits == 64 {
         // A position is one register of either class, then a stack slot of eight bytes.
         for (p, kind) in kinds.iter().enumerate() {
             let v = match (p, kind) {
@@ -136,7 +173,7 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x8
         // integer or a double.
         let mut offset = stack_offset;
         for (p, kind) in kinds.iter().enumerate() {
-            if fastcall && p < 2 {
+            if convention == Convention::Fastcall && p < 2 {
                 let v = m.read_gpr(block, [R::ECX, R::EDX][p]);
                 let v = m.zext(block, Type::I32, v, Type::I64, "arg.w");
                 args.push((Type::I64, v.into()));
@@ -444,6 +481,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         roots: BTreeSet::new(),
         wrappers: BTreeSet::new(),
         fastcall: BTreeSet::new(),
+        sysv: image.elf.is_some(),
         data: Vec::new(),
         vtables: ra_asm_analysis::rtti::vtables(&analysis.classes),
         standalone: options.standalone,
@@ -536,7 +574,16 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     }
     for (symbol, offset, tail) in &lifted.wrappers {
         let wrapper = match isa {
-            Isa::X86 => import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87, lifted.fastcall.contains(symbol)),
+            Isa::X86 => {
+                let convention = if lifted.sysv {
+                    Convention::SystemV
+                } else if lifted.fastcall.contains(symbol) {
+                    Convention::Fastcall
+                } else {
+                    Convention::Windows
+                };
+                import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87, convention)
+            }
             Isa::Arm64 => arm64::import_wrapper(symbol, lifted.x87),
         };
         lifted.module.functions.push(wrapper);

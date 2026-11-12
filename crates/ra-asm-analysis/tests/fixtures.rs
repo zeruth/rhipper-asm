@@ -420,3 +420,28 @@ fn exports_name_their_functions() {
         ("ordinal_20", &vec![ra_asm_analysis::Origin::Export("ordinal_20".to_owned())])
     );
 }
+
+/// The Linux hello: its functions by the names of its symbol table, found from the entry and
+/// `.eh_frame`, and its PLT stubs as the thunks of the imports their slots bind. A lazily bound
+/// slot holds the address of its stub's second half, which is no function.
+#[test]
+fn the_linux_hello_has_its_functions_and_its_plt_thunks() {
+    use ra_asm_analysis::{Kind, Origin};
+    let image = load("hello_linux64");
+    let analysis = analyze(&image);
+    for name in ["square", "_start"] {
+        let f = analysis.functions.values().find(|f| f.name == name).unwrap_or_else(|| panic!("no {name}"));
+        assert!(matches!(f.kind, Kind::Normal), "{name} is {:?}", f.kind);
+        assert!(f.origins.iter().any(|o| matches!(o, Origin::Entry | Origin::ExceptionTable)), "{name}: {:?}", f.origins);
+    }
+    let thunks: Vec<&str> = analysis
+        .functions
+        .values()
+        .filter_map(|f| match &f.kind {
+            Kind::ImportThunk(import) => Some(import.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(thunks, ["write", "exit"]);
+    assert!(!analysis.functions.values().any(|f| f.origins.iter().any(|o| matches!(o, Origin::Pointer(_)))), "a slot seeded a function");
+}
