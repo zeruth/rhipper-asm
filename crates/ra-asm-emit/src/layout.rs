@@ -25,22 +25,22 @@ pub(crate) enum Elem {
 /// One field of the section's structure.
 #[derive(Debug, Clone)]
 pub(crate) struct Field {
-    pub offset: u64,
+    pub(crate) offset: u64,
     /// The element count; one for a scalar.
-    pub count: u64,
-    pub elem: Elem,
+    pub(crate) count: u64,
+    pub(crate) elem: Elem,
     /// Whether the field is an array: an indexed use said so, or it holds several elements.
-    pub array: bool,
+    pub(crate) array: bool,
 }
 
 impl Field {
     /// The field's name: by its offset, as a struct's fields are named.
-    pub fn name(&self) -> String {
+    pub(crate) fn name(&self) -> String {
         format!("f{}", self.offset)
     }
 
     /// The IR type of one element, or `None` for untyped bytes.
-    pub fn elem_type(&self) -> Option<Type> {
+    pub(crate) fn elem_type(&self) -> Option<Type> {
         match &self.elem {
             Elem::Bytes => None,
             Elem::Char => Some(Type::I8),
@@ -48,11 +48,11 @@ impl Field {
         }
     }
 
-    pub fn elem_size(&self) -> u64 {
+    pub(crate) fn elem_size(&self) -> u64 {
         self.elem_type().and_then(|t| t.size(8)).unwrap_or(1)
     }
 
-    pub fn end(&self) -> u64 {
+    pub(crate) fn end(&self) -> u64 {
         self.offset + self.count * self.elem_size()
     }
 }
@@ -60,21 +60,21 @@ impl Field {
 /// A section as typed fields, with the bytes and the address words they are read from.
 #[derive(Debug, Clone)]
 pub(crate) struct Layout {
-    pub fields: Vec<Field>,
+    pub(crate) fields: Vec<Field>,
     /// The section's bytes, zero where an address word stands.
-    pub bytes: Vec<u8>,
+    pub(crate) bytes: Vec<u8>,
     /// The address words by offset, with the IR's type and constant for each.
-    pub words: BTreeMap<u64, (Type, Const)>,
+    pub(crate) words: BTreeMap<u64, (Type, Const)>,
 }
 
 impl Layout {
     /// The field that holds the byte at `offset`.
-    pub fn field_at(&self, offset: u64) -> Option<&Field> {
+    pub(crate) fn field_at(&self, offset: u64) -> Option<&Field> {
         self.fields.iter().find(|f| offset >= f.offset && offset < f.end())
     }
 
     /// The bytes of element `i` of `field`.
-    pub fn element(&self, field: &Field, i: u64) -> &[u8] {
+    pub(crate) fn element(&self, field: &Field, i: u64) -> &[u8] {
         let size = field.elem_size();
         let at = (field.offset + i * size) as usize;
         &self.bytes[at..at + size as usize]
@@ -84,16 +84,25 @@ impl Layout {
 /// Where a pointer operand points: a byte of a data global, by a constant offset and, for an
 /// indexed access, the index and its scale.
 pub(crate) struct Place {
-    pub global: String,
-    pub offset: i64,
-    pub index: Option<Index>,
+    pub(crate) global: String,
+    pub(crate) offset: i64,
+    pub(crate) index: Option<Index>,
 }
 
-/// The index of an indexed access: `base + value * scale`, `value` in `ty`.
+/// The index of an indexed access: `base + value * scale`, `value` in `ty`. In a sum narrower
+/// than a host pointer (a 32-bit port's address) the index is signed: the sum wraps at its width,
+/// so `base + 0xffffffff` is the byte before `base`.
 pub(crate) struct Index {
-    pub value: Operand,
-    pub ty: Type,
-    pub scale: u64,
+    pub(crate) value: Operand,
+    pub(crate) ty: Type,
+    pub(crate) scale: u64,
+}
+
+/// An integer constant of a sum of `ty` as the signed number it adds at that width.
+fn signed_at(ty: &Type, k: i128) -> i64 {
+    let bits = ty.bits().unwrap_or(64).clamp(1, 64);
+    let shift = 64 - bits;
+    ((k as u64) << shift) as i64 >> shift
 }
 
 /// The place a pointer or address operand names: an address of a global, through the casts
@@ -113,10 +122,10 @@ pub(crate) fn place(defs: &Defs<'_>, op: &Operand) -> Option<Place> {
                     },
                 };
                 let index = match other {
-                    Operand::Int(k) => return Some(Place { offset: base.offset.wrapping_add(*k as i64), ..base }),
+                    Operand::Int(k) => return Some(Place { offset: base.offset.wrapping_add(signed_at(ty, *k)), ..base }),
                     Operand::Local(w) => match defs.def(*w).map(|d| d.2) {
-                        Some(Inst::Bin { op: BinOp::Mul, ty, lhs: x, rhs: Operand::Int(k) }) if *k > 0 => {
-                            Index { value: x.clone(), ty: ty.clone(), scale: *k as u64 }
+                        Some(Inst::Bin { op: BinOp::Mul, ty, lhs: x, rhs: Operand::Int(k) }) if signed_at(ty, *k) > 0 => {
+                            Index { value: x.clone(), ty: ty.clone(), scale: signed_at(ty, *k) as u64 }
                         }
                         Some(Inst::Bin { op: BinOp::Shl, ty, lhs: x, rhs: Operand::Int(s) }) if (0..32).contains(s) => {
                             Index { value: x.clone(), ty: ty.clone(), scale: 1 << s }
@@ -237,7 +246,7 @@ fn flatten(g: &Global) -> Option<(Vec<u8>, BTreeMap<u64, (Type, Const)>)> {
 /// The typed accesses and the addressed strings of one function.
 fn collect_uses(f: &Function, flat: &HashMap<String, (Vec<u8>, BTreeMap<u64, (Type, Const)>)>, uses: &mut HashMap<String, Uses>) {
     let defs = Defs::new(f);
-    let mut address = |op: &Operand, uses: &mut HashMap<String, Uses>| {
+    let address = |op: &Operand, uses: &mut HashMap<String, Uses>| {
         if let Operand::Address { global, offset } = op
             && flat.contains_key(global)
             && let Ok(offset) = u64::try_from(*offset)
