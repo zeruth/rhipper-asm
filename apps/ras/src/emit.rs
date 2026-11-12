@@ -65,11 +65,7 @@ impl Translation {
         let files =
             self.runtime.iter().map(|(p, t)| (*p, t.as_bytes())).chain(self.resources.iter().map(|(p, b)| (p.as_str(), b.as_slice())));
         for (path, bytes) in files.chain(exports) {
-            let path = dir.join(path);
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(path, bytes)?;
+            ra_asm_emit::write_if_changed(&dir.join(path), bytes)?;
         }
         Ok(())
     }
