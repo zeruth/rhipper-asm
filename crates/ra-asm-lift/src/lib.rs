@@ -725,8 +725,10 @@ pub fn image_header(
     let _ = writeln!(out, "#define RA_IMAGE_BASE 0x{:x}ULL", image.image_base());
     let _ = writeln!(out, "#define RA_IMAGE_SIZE 0x{:x}", image.size_of_image());
     let _ = writeln!(out, "#define RA_POINTER_SIZE {}", image.pointer_size());
-    // A Windows program: off Windows its imports are the driver's Win32 layer.
-    if image.elf.is_none() {
+    // A Windows program, a PE that is no other container's: off Windows its imports are the
+    // driver's Win32 layer. A Linux or macOS program binds to its own host, an Xbox image to its
+    // kernel's exports.
+    if image.elf.is_none() && image.macho.is_none() && image.xbe.is_none() {
         let _ = writeln!(out, "#define RA_WIN32 1");
     }
     let dll = image.headers.coff.is_dll();

@@ -23,6 +23,16 @@ fn windows_host(binary: &str) -> bool {
     cfg!(windows)
 }
 
+/// The Windows programs whose ports x86-64 Linux builds and runs over the runtime's Win32 layer:
+/// the rhtest programs whose imports (the console, the time, the C runtime's startup) it covers.
+const OVER_THE_LAYER: [&str; 3] = ["core-O2.exe", "core-Od.exe", "calls-clang.exe"];
+
+/// Whether this host builds and runs the port of `binary` as C: a Windows host every program's,
+/// x86-64 Linux the ones over the Win32 layer.
+fn builds_here(binary: &str) -> bool {
+    (cfg!(all(target_os = "linux", target_arch = "x86_64")) && OVER_THE_LAYER.contains(&binary)) || windows_host(binary)
+}
+
 /// A test's own directory under the system temp, removed when the guard drops; `RA_KEEP_SCRATCH`
 /// keeps it for a person to read.
 fn scratch(name: &str) -> ra_asm_testing::Scratch {
@@ -288,7 +298,7 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
     let (dir, c, bits) = emit(fixture, tag, functions_per_file, dialect);
     check_table(binary, &dir);
     assert!(!fixture.no_goto || !c.contains("goto "), "{binary}: the C has a goto:\n{c}");
-    if !windows_host(binary) {
+    if !builds_here(binary) {
         return;
     }
     let sources: Vec<PathBuf> = std::fs::read_dir(&dir)
@@ -298,34 +308,37 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
         .filter(|p| p.extension().is_some_and(|x| x == "c" || x == "cpp"))
         .collect();
     let exe = dir.join("program.exe");
-    // clang compiles each file in its own language by its extension; the driver stays C. A
-    // 32-bit program's port keeps its 32-bit pointers: the binary is not large-address-aware.
-    // The debug information lets a crash report name its function and line.
+    // clang compiles each file in its own language by its extension; the driver stays C. The
+    // debug information lets a crash report name its function and line.
     let mut build = Command::new("clang");
-    build.args(["-O1", "-g", "-gcodeview", "-Wall", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-Wno-parentheses", "-Werror"]);
-    build.arg("-fuse-ld=lld");
-    if bits == 32 {
-        build.arg("-Wl,/largeaddressaware:no");
+    build.args(["-O1", "-g", "-Wall", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-Wno-parentheses", "-Werror"]);
+    if cfg!(windows) {
+        // A 32-bit program's port keeps its 32-bit pointers: the binary is not large-address-aware.
+        build.args(["-gcodeview", "-fuse-ld=lld"]);
+        if bits == 32 {
+            build.arg("-Wl,/largeaddressaware:no");
+        }
+        if dir.join("resources.res").is_file() {
+            build.arg(dir.join("resources.res"));
+        }
+    } else if bits == 32 {
+        // On Linux the executable sits at its fixed low address, and the Win32 layer keeps the
+        // stacks and the heap below 2 GB.
+        build.args(["-fno-pie", "-no-pie"]);
     }
     if trace {
         build.arg("-DRA_TRACE");
     }
-    if dir.join("resources.res").is_file() {
-        build.arg(dir.join("resources.res"));
-    }
-    let build = build
-        .args(&sources)
-        .arg(root().join("runtime/driver.c"))
-        .arg("-I")
-        .arg(&dir)
-        .arg("-I")
-        .arg(root().join("runtime"))
-        .arg("-o")
-        .arg(&exe)
+    build.args(&sources).arg(root().join("runtime/driver.c")).arg("-I").arg(&dir).arg("-I").arg(root().join("runtime")).arg("-o").arg(&exe);
+    if cfg!(windows) {
         // The system libraries the fixtures import from; an unused one costs nothing.
-        .args(["-lkernel32", "-luser32", "-lshell32", "-lws2_32", "-lole32", "-loleaut32", "-ladvapi32"])
-        .output()
-        .unwrap();
+        build.args(["-lkernel32", "-luser32", "-lshell32", "-lws2_32", "-lole32", "-loleaut32", "-ladvapi32"]);
+    } else {
+        // The program's imports are the Win32 layer of the driver, which dlsym finds among the
+        // executable's own exports, and the host's C library.
+        build.args(["-rdynamic", "-pthread", "-ldl", "-lm"]);
+    }
+    let build = build.output().unwrap();
     assert!(build.status.success(), "{binary}: clang on {}:\n{}", dir.join("program.c").display(), String::from_utf8_lossy(&build.stderr));
     let run = Command::new(&exe).current_dir(&dir).output().unwrap();
     fixture.compare(&run, &exe);

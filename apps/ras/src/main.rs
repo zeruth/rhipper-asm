@@ -217,11 +217,16 @@ enum Command {
         rebuild: bool,
     },
     /// The tools a port needs on this machine, each with its version or `missing` and what it is
-    /// needed for; fails when a required one is missing.
+    /// needed for; fails when a required one is missing. With `--host <exe>`, the imports of a
+    /// Windows program instead, each with what answers it off Windows, and fails when one is
+    /// missing from the runtime's Win32 layer.
     Doctor {
         /// The language of the port the tools are required for: `c` (also `cpp`) or `rust`.
         #[arg(long, default_value = "c")]
         lang: String,
+        /// A Windows program whose imports are checked against the Win32 layer of the runtime.
+        #[arg(long)]
+        host: Option<PathBuf>,
     },
     /// The plugins `ras` loads: the project's (`rhipper/plugins/<name>/<name>.wasm` under
     /// `--project`) and the user's (`RHIPPER_PLUGINS`), each with what it adds.
@@ -297,7 +302,8 @@ fn main() -> anyhow::Result<()> {
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
         Command::Plugins { project } => plugins::list(project.as_deref(), json),
-        Command::Doctor { lang } => doctor::doctor(doctor::Port::of(&lang), json),
+        Command::Doctor { lang: _, host: Some(exe) } => doctor::host(&exe, json),
+        Command::Doctor { lang, host: None } => doctor::doctor(doctor::Port::of(&lang), json),
         Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
     }
 }

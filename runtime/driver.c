@@ -1895,11 +1895,24 @@ static void on_signal(int signal_number, siginfo_t *info, void *context) {
     fflush(stderr);
 }
 
+// The report runs on a stack of the thread's own beside the one that crashed, so an overflow is
+// reported as well; every thread the port runs code on sets one up first.
+static RA_THREAD _Alignas(16) uint8_t signal_stack[32768];
+
+static void report_crashes_on_this_thread(void) {
+    stack_t s;
+    memset(&s, 0, sizeof s);
+    s.ss_sp = signal_stack;
+    s.ss_size = sizeof signal_stack;
+    sigaltstack(&s, NULL);
+}
+
 static void report_crashes(void) {
+    report_crashes_on_this_thread();
     struct sigaction action;
     memset(&action, 0, sizeof action);
     action.sa_sigaction = on_signal;
-    action.sa_flags = SA_SIGINFO | SA_RESETHAND | SA_NODEFER;
+    action.sa_flags = SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_ONSTACK;
     sigemptyset(&action.sa_mask);
     const int signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE};
     for (size_t i = 0; i < sizeof signals / sizeof signals[0]; i++) sigaction(signals[i], &action, NULL);
@@ -2399,7 +2412,9 @@ uint64_t VirtualProtect(uint64_t address, uint64_t size, uint64_t protect, uint6
 }
 
 // The heap functions: blocks of the C heap, each after its requested size, which HeapSize answers.
-#define W_HEAP 16  // the process heap's handle
+// The process heap's handle is no multiple of four, so it never names an object of the handle
+// table and CloseHandle refuses it.
+#define W_HEAP 0x7ff1
 enum { W_HEAP_HEADER = 16 };
 
 static uint64_t win32_alloc(size_t size, int zero) {
@@ -2522,11 +2537,14 @@ static int win32_start(pthread_t *thread, size_t stack_size, void *(*main)(void 
     if (stack_size < (1 << 20)) stack_size = 1 << 20;
 #if RA_POINTER_SIZE == 4
     // A thread's TLS sits at the top of a stack it is given: the thread block lands low as well.
+    // A stack the thread is given has no guard page of the host's: its lowest page is one, so an
+    // overflow faults and is reported rather than running into the mapping below.
     void *stack = win32_map(0, stack_size, PROT_READ | PROT_WRITE);
     if (!stack) {
         pthread_attr_destroy(&attr);
         return -1;
     }
+    mprotect(stack, 4096, PROT_NONE);
     pthread_attr_setstack(&attr, stack, stack_size);
 #else
     pthread_attr_setstacksize(&attr, stack_size);
@@ -2546,6 +2564,7 @@ static void win32_thread_end(uint32_t code) {
 }
 
 static void *win32_thread_main(void *argument) {
+    report_crashes_on_this_thread();
     win32_self = argument;
     win32_thread_id = win32_self->id;
     uint32_t code = (uint32_t)((native8)(uintptr_t)win32_self->start)(win32_self->parameter, 0, 0, 0, 0, 0, 0, 0);
@@ -3290,12 +3309,16 @@ static void win32_describe_thread(uint8_t *block) {
 #endif
 }
 
-// The heap stays in the brk area right above a non-PIE executable, one arena for every thread:
-// a 32-bit program's pointers reach it.
+// The heap stays in the brk area right above a non-PIE executable: a 32-bit program's pointers
+// reach it. glibc gives a thread other than the first an arena of its own, mapped high, and a large
+// block a mapping of its own: one arena for every thread, the program's low one among them, and
+// no block mapped, before that thread starts.
 static void win32_prepare(void) {
 #if defined(__GLIBC__) && RA_POINTER_SIZE == 4
     mallopt(M_MMAP_MAX, 0);
     mallopt(M_ARENA_MAX, 1);
+#elif RA_POINTER_SIZE == 4
+#error "a 32-bit program's heap stays below 2 GB by glibc's malloc options: its Win32 layer needs glibc"
 #endif
 }
 #endif  // the Win32 layer
@@ -3319,6 +3342,7 @@ static int ra_entry(void) {
 // there, so the functions it registered for the exit run on that stack as well.
 static void *win32_main_thread(void *unused) {
     (void)unused;
+    report_crashes_on_this_thread();
     attach_process();
     exit(ra_entry());
 }

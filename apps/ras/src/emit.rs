@@ -17,7 +17,7 @@ use crate::annotations::Annotation;
 
 /// The C runtime, written beside a C or C++ translation; a Rust translation carries its own.
 const RHIPPER_H: &str = include_str!("../../../runtime/rhipper.h");
-const DRIVER_C: &str = include_str!("../../../runtime/driver.c");
+pub(crate) const DRIVER_C: &str = include_str!("../../../runtime/driver.c");
 
 /// A translation: the files to write, the functions in them, and what the analysis knows.
 pub(crate) struct Translation {
