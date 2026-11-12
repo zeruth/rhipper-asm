@@ -15,11 +15,14 @@
 //! ([`signatures`]) name the functions of a build without symbols the same way: applied to the
 //! image first, they fill the symbols and the library ranges the analysis reads. The facts of a
 //! traced run ([`facts`]) come last among the seeds and first among the resolutions: a target the
-//! run reached is a function, and an indirect call the run resolved calls what it reached.
+//! run reached is a function, and an indirect call the run resolved calls what it reached. A
+//! function's [`identity`] is what it is apart from its address, how a new build of the program
+//! finds the functions the person annotated in the last.
 
 pub mod builder;
 pub mod facts;
 pub mod function;
+pub mod identity;
 pub mod imports;
 pub mod jumptable;
 pub mod noreturn;
@@ -34,6 +37,7 @@ use ra_asm_pe::{CxxFrame, Image, Machine};
 
 pub use facts::Facts;
 pub use function::{Block, Function, Kind, Origin, Terminator, VirtualSlot};
+pub use identity::Identity;
 pub use rtti::{Class, Vtable};
 pub use signatures::{Signature, SignatureSet};
 

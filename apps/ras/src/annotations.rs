@@ -10,7 +10,8 @@
 //!   "type": "int fib(int n)",
 //!   "comment": "the n-th Fibonacci number",
 //!   "hand": true,
-//!   "notes": "recursive in the reference"
+//!   "notes": "recursive in the reference",
+//!   "identity": {"callees": [], "callers": ["entry", "string \"A\""], "local": ["recursive"]}
 //! }
 //! ```
 //!
@@ -20,6 +21,10 @@
 //! function in the IR, the source and the function table (the emit and lift steps, `ras emit
 //! --project`, `ras serve`); `hand: true` gives it to the hand-written sources beside the `hand`
 //! list of `rhipper.json`; `type`, `comment` and `notes` are the person's, kept for the workbench.
+//! `identity` is the engine's: the function apart from its address
+//! ([`ra_asm_analysis::identity`]), written with the annotation and kept up with each build, by
+//! which a new build of the reference (a patch, another optimization level) finds the function
+//! where it moved ([`reattach`]); a file without one is of the function at its address.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -27,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
-use ra_asm_analysis::{Analysis, Kind};
+use ra_asm_analysis::{Analysis, Identity, Kind};
 use ra_asm_emit::functions::format_address;
 use serde_json::{Value, json};
 
@@ -46,10 +51,12 @@ pub(crate) struct Annotation {
     /// Whether the hand-written sources own the function.
     pub hand: bool,
     pub notes: Option<String>,
+    /// The function apart from its address, as the build the annotation was last applied to has it.
+    pub identity: Option<Identity>,
 }
 
 impl Annotation {
-    /// Whether the annotation says nothing, so its file goes.
+    /// Whether the annotation says nothing, so its file goes: the identity is no saying.
     pub(crate) fn is_empty(&self) -> bool {
         self.name.is_none() && self.ty.is_none() && self.comment.is_none() && !self.hand && self.notes.is_none()
     }
@@ -65,6 +72,7 @@ impl Annotation {
             comment: text("comment"),
             hand: json.get("hand").and_then(Value::as_bool).unwrap_or(false),
             notes: text("notes"),
+            identity: json.get("identity").and_then(parse_identity),
         })
     }
 
@@ -93,6 +101,9 @@ impl Annotation {
         }
         if let Some(notes) = &self.notes {
             lines.push(format!("  \"notes\": {}", json!(notes)));
+        }
+        if let Some(identity) = &self.identity {
+            lines.push(format!("  \"identity\": {}", identity_json(identity)));
         }
         let mut out = String::from("{\n");
         let _ = writeln!(out, "{}", lines.join(",\n"));
@@ -204,11 +215,134 @@ pub(crate) fn apply_names(analysis: &mut Analysis<'_>, annotations: &BTreeMap<u6
     }
 }
 
-/// Reads the annotations of the project at `root` and gives the functions of `analysis` their
-/// names; returns the annotations and what could not be applied.
+/// An identity as one line of JSON: the `identity` of a sidecar file and of `emitted.json`.
+pub(crate) fn identity_json(identity: &Identity) -> Value {
+    let mut json = json!({"local": identity.local, "callers": identity.callers, "callees": identity.callees});
+    if let Some(symbol) = &identity.symbol {
+        json["symbol"] = json!(symbol);
+    }
+    json
+}
+
+/// The identity [`identity_json`] wrote; `None` when the JSON is no identity.
+pub(crate) fn parse_identity(json: &Value) -> Option<Identity> {
+    let list = |key: &str| -> Option<Vec<String>> {
+        json.get(key).map_or(Some(Vec::new()), |v| v.as_array()?.iter().map(|f| f.as_str().map(str::to_owned)).collect())
+    };
+    json.is_object().then_some(())?;
+    Some(Identity {
+        symbol: json.get("symbol").and_then(Value::as_str).map(str::to_owned),
+        local: list("local")?,
+        callers: list("callers")?,
+        callees: list("callees")?,
+    })
+}
+
+/// Finds the function of each annotation in the build `analysis` is of, by the identity its file
+/// keeps: a new build of the reference moves the functions, and the person's names, types,
+/// comments and takeovers move with them, each file renamed for the new address and its identity
+/// brought up to the build. An annotation without an identity is of the function at its address,
+/// and takes the function's. One whose function the build no longer has, or has twice alike
+/// ([`ra_asm_analysis::identity::find`]), or that would land on a function another annotation
+/// holds, stays in its file applied to nothing, with a warning. Returns the annotations by the
+/// address of their function in this build; the moves are among the warnings, for the log.
+pub(crate) fn reattach(
+    root: &Path,
+    analysis: &Analysis<'_>,
+    annotations: BTreeMap<u64, Annotation>,
+    warnings: &mut Vec<String>,
+) -> BTreeMap<u64, Annotation> {
+    if annotations.is_empty() {
+        return annotations;
+    }
+    let identities = ra_asm_analysis::identity::identities(analysis);
+    let index = ra_asm_analysis::identity::Index::new(&identities);
+    let mut placed: BTreeMap<u64, Annotation> = BTreeMap::new();
+    let mut moving: Vec<(Annotation, Option<u64>)> = Vec::new();
+    for annotation in annotations.into_values() {
+        let here = identities.get(&annotation.address);
+        match &annotation.identity {
+            Some(identity) if here == Some(identity) => {
+                placed.insert(annotation.address, annotation);
+            }
+            None => {
+                let mut annotation = annotation;
+                if let Some(identity) = here {
+                    annotation.identity = Some(identity.clone());
+                    if let Err(e) = write(root, &annotation) {
+                        warnings.push(format!("{e:#}"));
+                    }
+                }
+                placed.insert(annotation.address, annotation);
+            }
+            Some(identity) => {
+                let found = index.find(identity);
+                moving.push((annotation, found));
+            }
+        }
+    }
+    let label = |a: &Annotation| {
+        let what = a.name.as_ref().map_or_else(String::new, |n| format!(" (`{n}`)"));
+        format!("the annotation of {}{what}", format_address(a.address))
+    };
+    let targets: Vec<Option<u64>> = moving.iter().map(|(_, found)| *found).collect();
+    let mut accepted: Vec<(Annotation, u64)> = Vec::new();
+    for (annotation, found) in moving {
+        match found {
+            None => warnings.push(format!("{} is of no one function of this build: it stays in its file, applied to nothing", label(&annotation))),
+            Some(to) if placed.contains_key(&to) || targets.iter().filter(|t| **t == Some(to)).count() > 1 => warnings.push(format!(
+                "{} is of the function at {}, which another annotation holds: it stays in its file, applied to nothing",
+                label(&annotation),
+                format_address(to)
+            )),
+            Some(to) => accepted.push((annotation, to)),
+        }
+    }
+    // A file at the new address that does not leave (a merge's conflict, an annotation that
+    // stays where it was) is the person's: nothing writes over it.
+    loop {
+        let leaving: Vec<u64> = accepted.iter().filter(|(a, to)| a.address != *to).map(|(a, _)| a.address).collect();
+        let (free, held): (Vec<_>, Vec<_>) =
+            accepted.into_iter().partition(|(a, to)| a.address == *to || leaving.contains(to) || !file_of(root, *to).exists());
+        accepted = free;
+        if held.is_empty() {
+            break;
+        }
+        for (annotation, to) in held {
+            warnings.push(format!(
+                "{} is of the function at {}, whose file is another's: it stays in its file, applied to nothing",
+                label(&annotation),
+                format_address(to)
+            ));
+        }
+    }
+    for (annotation, to) in &accepted {
+        if annotation.address != *to {
+            let old = file_of(root, annotation.address);
+            if let Err(e) = std::fs::remove_file(&old) {
+                warnings.push(format!("cannot remove {}: {e}", old.display()));
+            }
+            warnings.push(format!("{} moves to {} with its function", label(annotation), format_address(*to)));
+        }
+    }
+    for (mut annotation, to) in accepted {
+        annotation.address = to;
+        annotation.identity = identities.get(&to).cloned();
+        if let Err(e) = write(root, &annotation) {
+            warnings.push(format!("{e:#}"));
+        }
+        placed.insert(to, annotation);
+    }
+    placed
+}
+
+/// Reads the annotations of the project at `root`, finds their functions in the build of
+/// `analysis` ([`reattach`]) and gives the functions their names; returns the annotations and
+/// what could not be applied.
 pub(crate) fn annotate(root: &Path, analysis: &mut Analysis<'_>) -> (BTreeMap<u64, Annotation>, Vec<String>) {
     let mut warnings = Vec::new();
-    let annotations = load(root, &mut warnings);
+    let loaded = load(root, &mut warnings);
+    let annotations = reattach(root, analysis, loaded, &mut warnings);
     apply_names(analysis, &annotations, &mut warnings);
     (annotations, warnings)
 }
@@ -242,9 +376,15 @@ mod tests {
             comment: None,
             hand: true,
             notes: Some("two lines\nof \"notes\"".into()),
+            identity: Some(Identity {
+                symbol: None,
+                local: vec!["recursive".into()],
+                callers: vec!["entry".into(), "string \"A\\r\\n\"".into()],
+                callees: Vec::new(),
+            }),
         };
         let text = annotation.text();
-        assert_eq!(text.lines().count(), 7, "{text}");
+        assert_eq!(text.lines().count(), 8, "{text}");
         let json: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(Annotation::parse(&json, None), Some(annotation));
     }

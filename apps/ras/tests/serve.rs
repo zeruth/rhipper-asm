@@ -143,10 +143,15 @@ fn a_rename_through_the_server_lands_in_the_sidecar_and_the_next_emit() {
     // A name the host's runtime owns is refused, and the annotation stays as it was.
     assert_eq!(responses[2]["error"]["code"], -32602, "{}", responses[2]);
     assert_eq!(responses[3]["result"]["annotations"][0]["name"], "fib", "{}", responses[3]);
-    // One function, one file, one key a line.
+    // One function, one file, one key a line, and the function's identity last, by which the
+    // next build of the reference finds it.
     let file = dir.join("rhipper/annotations/0x140001330.json");
     let text = std::fs::read_to_string(&file).unwrap();
-    assert_eq!(text, "{\n  \"addr\": \"0x140001330\",\n  \"name\": \"fib\",\n  \"comment\": \"the n-th Fibonacci number\"\n}\n");
+    assert!(
+        text.starts_with("{\n  \"addr\": \"0x140001330\",\n  \"name\": \"fib\",\n  \"comment\": \"the n-th Fibonacci number\",\n  \"identity\": {"),
+        "{text}"
+    );
+    assert!(text.ends_with("}\n}\n") && text.lines().count() == 6 && text.contains("\"import WriteFile\""), "{text}");
     // The next emit names the function as the sidecar does, in the source and in the table.
     let emitted =
         Command::new(env!("CARGO_BIN_EXE_ras")).args(["pipeline", "--project"]).arg(&dir).args(["--only", "emit"]).output().unwrap();
