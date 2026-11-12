@@ -54,11 +54,19 @@ pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Res
         }
     }
     for f in files {
-        let path = dir.join(&f.name);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(path, &f.text)?;
+        write_if_changed(&dir.join(&f.name), f.text.as_bytes())?;
     }
     Ok(())
+}
+
+/// Writes `bytes` to `path` unless the file holds them already, creating its directory: a file
+/// the emit did not change keeps its time, so the build recompiles only the parts that changed.
+pub fn write_if_changed(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    if std::fs::read(path).is_ok_and(|old| old == bytes) {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, bytes)
 }

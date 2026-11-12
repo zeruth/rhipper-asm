@@ -3,9 +3,11 @@
 //! relocations, the exception table, TLS, debug and resources. A malformed directory does not fail the load:
 //! the image keeps a warning for it, because a packed or odd binary is still worth opening.
 //! [`object`] reads the relocatable objects (COFF, ELF) and the archives the signatures of a
-//! library are made from. [`xbe`] reads the original Xbox's container into the same image.
+//! library are made from. [`xbe`] reads the original Xbox's container into the same image, and
+//! [`elf`] the executables and shared objects of Linux.
 
 pub mod debug;
+pub mod elf;
 pub mod exception;
 pub mod exports;
 pub mod headers;
@@ -46,6 +48,10 @@ pub fn load(path: &Path) -> anyhow::Result<Image> {
     let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
     let mut image = Image::parse(bytes).with_context(|| format!("{} is not a PE image this loader reads", path.display()))?;
     image.path = Some(path.to_path_buf());
+    // An ELF file names its functions in its own symbol table.
+    if image.elf.is_some() {
+        return Ok(image);
+    }
     match debug::load_pdb(&image) {
         Ok(pdb) => {
             image.symbols = pdb.symbols;

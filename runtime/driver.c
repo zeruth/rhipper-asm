@@ -101,13 +101,114 @@ uint64_t ra_f32_bits(float value) {
     return bits;
 }
 
+// Lockstep: with RHIPPER_STEP naming a pipe, the port serves the pipe and stops at each traced
+// entry, writing `> name kinds value...` (`-` for no arguments, the values in hexadecimal) and
+// reading commands until one lets it go on: `n` to the next entry, `r address size` for the bytes
+// there as one hexadecimal line (`!` and the error when they cannot be read), `q` to run on
+// without stopping. A closed pipe lets the port run on as `q` does.
+static HANDLE step_pipe = INVALID_HANDLE_VALUE;
+
+static int step_open(void) {
+    static int checked;
+    if (!checked) {
+        checked = 1;
+        char name[MAX_PATH];
+        DWORD length = GetEnvironmentVariableA("RHIPPER_STEP", name, sizeof name);
+        if (length == 0 || length >= sizeof name) return 0;
+        HANDLE pipe = CreateNamedPipeA(name, PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 65536, 65536, 0, NULL);
+        if (pipe == INVALID_HANDLE_VALUE) return 0;
+        if (!ConnectNamedPipe(pipe, NULL) && GetLastError() != ERROR_PIPE_CONNECTED) {
+            CloseHandle(pipe);
+            return 0;
+        }
+        step_pipe = pipe;
+    }
+    return step_pipe != INVALID_HANDLE_VALUE;
+}
+
+static void step_close(void) {
+    CloseHandle(step_pipe);
+    step_pipe = INVALID_HANDLE_VALUE;
+}
+
+static int step_write(const char *text, size_t length) {
+    while (length > 0) {
+        DWORD written;
+        if (!WriteFile(step_pipe, text, (DWORD)length, &written, NULL)) return 0;
+        text += written;
+        length -= written;
+    }
+    return 1;
+}
+
+static int step_read_line(char *line, size_t size) {
+    size_t at = 0;
+    for (;;) {
+        char c;
+        DWORD read;
+        if (!ReadFile(step_pipe, &c, 1, &read, NULL) || read == 0) return 0;
+        if (c == '\n') break;
+        if (c != '\r' && at + 1 < size) line[at++] = c;
+    }
+    line[at] = 0;
+    return 1;
+}
+
+static void step_stop(const char *name, const char *kinds, const uint64_t *values, size_t count) {
+    char line[8192];
+    int at = snprintf(line, sizeof line, "> %s %s", name, *kinds ? kinds : "-");
+    for (size_t i = 0; i < count && at < (int)sizeof line - 24; i++) at += snprintf(line + at, sizeof line - at, " 0x%llx", (unsigned long long)values[i]);
+    at += snprintf(line + at, sizeof line - at, "\n");
+    if (!step_write(line, (size_t)at)) {
+        step_close();
+        return;
+    }
+    for (;;) {
+        char command[256];
+        if (!step_read_line(command, sizeof command)) {
+            step_close();
+            return;
+        }
+        if (command[0] == 'n') return;
+        if (command[0] == 'q') {
+            step_close();
+            return;
+        }
+        if (command[0] == 'r') {
+            unsigned long long address = 0, size = 0;
+            static uint8_t bytes[4096];
+            static char reply[2 * sizeof bytes + 2];
+            SIZE_T got = 0;
+            int ok = sscanf_s(command + 1, "%llx %llx", &address, &size) == 2 && size <= sizeof bytes;
+            // A read of the port's own memory through the process API fails on an unmapped page
+            // rather than faulting.
+            if (ok) ok = ReadProcessMemory(GetCurrentProcess(), (const void *)(uintptr_t)address, bytes, (SIZE_T)size, &got) && got == size;
+            int length;
+            if (ok) {
+                for (SIZE_T i = 0; i < got; i++) snprintf(reply + 2 * i, 3, "%02x", bytes[i]);
+                reply[2 * got] = '\n';
+                length = (int)(2 * got + 1);
+            } else {
+                length = snprintf(reply, sizeof reply, "!cannot read 0x%llx bytes at 0x%llx: error %lu\n", size, address, GetLastError());
+            }
+            if (!step_write(reply, (size_t)length)) {
+                step_close();
+                return;
+            }
+        }
+    }
+}
+
 void ra_trace_enter(const char *name, const char *kinds, ...) {
     FILE *file = trace_file();
+    uint64_t values[64];
+    size_t count = 0;
     va_list args;
     va_start(args, kinds);
     fprintf(file, "> %s(", name);
     for (const char *k = kinds; *k; k++) {
         uint64_t value = va_arg(args, uint64_t);
+        if (count < sizeof values / sizeof values[0]) values[count++] = value;
         if (k != kinds) fputs(", ", file);
         switch (*k) {
         case 'f': case 'g': fprintf(file, "f:0x%llx", (unsigned long long)value); break;
@@ -118,6 +219,7 @@ void ra_trace_enter(const char *name, const char *kinds, ...) {
     va_end(args);
     fputs(")\n", file);
     fflush(file);
+    if (step_open()) step_stop(name, kinds, values, count);
 }
 
 uint64_t ra_trace_ret(const char *name, uint64_t value, unsigned bits) {

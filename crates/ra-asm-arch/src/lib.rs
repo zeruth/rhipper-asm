@@ -171,8 +171,10 @@ pub struct Instr {
 }
 
 impl Instr {
+    /// The address after the instruction, wrapping at the top of the space as the instruction
+    /// pointer does.
     pub fn end(&self) -> u64 {
-        self.address + u64::from(self.len)
+        self.address.wrapping_add(u64::from(self.len))
     }
 
     /// The memory operand the instruction branches or calls through, if any.
@@ -200,8 +202,9 @@ impl Instr {
     }
 }
 
-/// A decoder of one architecture.
-pub trait Arch {
+/// A decoder of one architecture. A decoder is shared by the threads that lift an image's
+/// functions in parallel.
+pub trait Arch: Send + Sync {
     fn name(&self) -> &'static str;
 
     /// The width of an address, in bits.
@@ -222,12 +225,13 @@ pub trait Arch {
         let _ = (before, instr);
     }
 
-    /// Decodes instructions in sequence until the bytes end or an instruction fails to decode.
+    /// Decodes instructions in sequence until the bytes end or an instruction fails to decode. The
+    /// address wraps at the top of the space, as the instruction pointer does.
     fn decode_all(&self, bytes: &[u8], address: u64) -> Vec<Instr> {
         let mut out: Vec<Instr> = Vec::new();
         let mut offset = 0usize;
         while offset < bytes.len() {
-            let Some(mut instr) = self.decode(&bytes[offset..], address + offset as u64) else { break };
+            let Some(mut instr) = self.decode(&bytes[offset..], address.wrapping_add(offset as u64)) else { break };
             self.link(&out, &mut instr);
             offset += instr.len as usize;
             out.push(instr);

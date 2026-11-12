@@ -1,6 +1,7 @@
 //! The mapped image: the file laid out by RVA as the Windows loader lays it out, with reads by
 //! virtual address that refuse an address no section holds. An XBE ([`crate::xbe`]) maps the same
-//! way, its header standing where the PE headers would.
+//! way, its header standing where the PE headers would; an ELF file ([`crate::elf`]) maps by its
+//! loaded segments, from the lowest one's page.
 
 use std::path::PathBuf;
 
@@ -21,6 +22,9 @@ use crate::xbe::{self, Xbe};
 /// The largest image the loader maps. A real image is far smaller; a corrupt `SizeOfImage` is not
 /// a reason to allocate the machine's memory.
 const MAX_IMAGE_SIZE: u32 = 1 << 30;
+
+/// The highest image base the loader takes: 2^40 below the top, above any kernel image's base.
+const MAX_IMAGE_BASE: u64 = u64::MAX - (1 << 40);
 
 /// A parsed, mapped PE image.
 #[derive(Debug)]
@@ -45,6 +49,9 @@ pub struct Image {
     pub libraries: Vec<crate::pdb::LibraryRange>,
     /// What the XBE header holds beyond the PE's, when the image is one.
     pub xbe: Option<Xbe>,
+    /// The ELF file the image was mapped from, when it is one: its interpreter, its libraries and
+    /// the function extents of its `.eh_frame`, which no PE table holds.
+    pub elf: Option<ra_asm_format::elf::ElfFile>,
     /// What the loader could not read. A directory that fails to parse lands here, not in an error.
     pub warnings: Vec<String>,
     file: Vec<u8>,
@@ -55,9 +62,12 @@ impl Image {
     /// Parses the bytes of a PE file (or an XBE) and maps them.
     pub fn parse(file: Vec<u8>) -> Result<Self> {
         let reader = Reader::new(&file);
-        let (headers, sections, xbe) = if xbe::is_xbe(reader) {
+        let (headers, sections, xbe, elf) = if xbe::is_xbe(reader) {
             let (headers, sections, xbe) = xbe::parse(reader)?;
-            (headers, sections, Some(xbe))
+            (headers, sections, Some(xbe), None)
+        } else if ra_asm_format::elf::is_elf(&file) {
+            let (headers, sections, elf) = crate::elf::parse(&file)?;
+            (headers, sections, None, Some(elf))
         } else {
             let headers = Headers::parse(reader)?;
             let mut sections = Vec::with_capacity(headers.coff.sections as usize);
@@ -65,11 +75,15 @@ impl Image {
             for index in 0..headers.coff.sections as usize {
                 sections.push(Section::parse(&mut c, index)?);
             }
-            (headers, sections, None)
+            (headers, sections, None, None)
         };
 
         let size_of_image = headers.optional.size_of_image;
         ensure!(size_of_image <= MAX_IMAGE_SIZE, "SizeOfImage {size_of_image:#x} is larger than the {MAX_IMAGE_SIZE:#x} the loader maps");
+        // Every address the directories compute is the base plus a 32-bit RVA plus a scaled 32-bit
+        // index, so the base keeps that much room below the top of the address space.
+        let image_base = headers.optional.image_base;
+        ensure!(image_base <= MAX_IMAGE_BASE, "ImageBase {image_base:#x} leaves no room for the image below the top of the address space");
         let mut warnings = Vec::new();
         let mut mapped = vec![0u8; size_of_image as usize];
         let header_bytes = (headers.optional.size_of_headers as usize).min(file.len()).min(mapped.len());
@@ -106,6 +120,7 @@ impl Image {
             symbols: Vec::new(),
             libraries: Vec::new(),
             xbe,
+            elf,
             warnings,
             file,
             mapped,
@@ -115,6 +130,11 @@ impl Image {
     }
 
     fn read_directories(&mut self) {
+        // An ELF file has none of the PE's directories: its tables are its own.
+        if self.elf.is_some() {
+            crate::elf::read_tables(self);
+            return;
+        }
         // An XBE's imports are its kernel thunk table; the directories below are empty in one
         // but the TLS, which the header points at in the PE's layout.
         let imports = match &self.xbe {

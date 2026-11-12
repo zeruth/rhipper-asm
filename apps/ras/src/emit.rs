@@ -66,11 +66,7 @@ impl Translation {
         let files =
             self.runtime.iter().map(|(p, t)| (*p, t.as_bytes())).chain(self.resources.iter().map(|(p, b)| (p.as_str(), b.as_slice())));
         for (path, bytes) in files.chain(exports) {
-            let path = dir.join(path);
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(path, bytes)?;
+            ra_asm_emit::write_if_changed(&dir.join(path), bytes)?;
         }
         Ok(())
     }
@@ -260,9 +256,10 @@ pub(crate) fn emit(
     project: Option<&Path>,
 ) -> Result<()> {
     let mut analysis = ra_asm_analysis::analyze(image);
-    let mut warnings = Vec::new();
-    let annotations = project.map(|root| crate::annotations::load(root, &mut warnings)).unwrap_or_default();
-    crate::annotations::apply_names(&mut analysis, &annotations, &mut warnings);
+    let (annotations, warnings) = match project {
+        Some(root) => crate::annotations::annotate(root, &mut analysis),
+        None => (BTreeMap::new(), Vec::new()),
+    };
     let hand = crate::annotations::hand_list(hand, &annotations);
     let hand = hand.as_slice();
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });

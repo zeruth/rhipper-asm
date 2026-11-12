@@ -7,7 +7,9 @@ mod doctor;
 mod emit;
 mod functions;
 mod lift;
+mod lockstep;
 mod pipeline;
+mod plugins;
 mod project;
 mod report;
 mod run;
@@ -58,7 +60,10 @@ enum Command {
     Relocs { pe: PathBuf },
     /// The debug directory and the PDB record.
     Debug { pe: PathBuf },
-    /// The functions of the image. With `--pdata`, the raw exception table entries.
+    /// The named functions: from the PDB or the link map of a PE, from the symbol table of an ELF.
+    Symbols { pe: PathBuf },
+    /// The functions of the image. With `--pdata`, the raw exception table entries, or the function
+    /// extents of an ELF file's `.eh_frame`.
     Functions {
         pe: PathBuf,
         /// List the exception table entries instead of the functions.
@@ -201,7 +206,8 @@ enum Command {
         /// The build configuration, such as `Debug`, instead of the project's.
         #[arg(long)]
         config: Option<String>,
-        /// Delete the build outputs before the build.
+        /// Run the analyze, lift and emit steps whatever their stamps say, and delete the build
+        /// outputs before the build.
         #[arg(long)]
         rebuild: bool,
     },
@@ -211,6 +217,12 @@ enum Command {
         /// The language of the port the tools are required for: `c` (also `cpp`) or `rust`.
         #[arg(long, default_value = "c")]
         lang: String,
+    },
+    /// The plugins `ras` loads: the project's (`rhipper/plugins/<name>/<name>.wasm` under
+    /// `--project`) and the user's (`RHIPPER_PLUGINS`), each with what it adds.
+    Plugins {
+        #[arg(long)]
+        project: Option<PathBuf>,
     },
     /// The engine as a service: JSON-RPC over stdio, one request and one response per line, with
     /// the image and its analysis kept in memory. Serves the project of `--project` (the current
@@ -239,6 +251,7 @@ fn main() -> anyhow::Result<()> {
         Command::Exports { pe } => report::exports(&load(&pe, sigs)?, json),
         Command::Relocs { pe } => report::relocs(&load(&pe, sigs)?, json),
         Command::Debug { pe } => report::debug(&load(&pe, sigs)?, json),
+        Command::Symbols { pe } => report::symbols(&load(&pe, sigs)?, json),
         Command::Functions { pe, pdata: true } => report::functions(&load(&pe, sigs)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&load(&pe, sigs)?, json),
         Command::Cfg { pe, address } => functions::cfg(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),
@@ -272,6 +285,7 @@ fn main() -> anyhow::Result<()> {
             let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild };
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
+        Command::Plugins { project } => plugins::list(project.as_deref(), json),
         Command::Doctor { lang } => doctor::doctor(doctor::Port::of(&lang), json),
         Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
     }

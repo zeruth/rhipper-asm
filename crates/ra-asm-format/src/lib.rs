@@ -1,7 +1,8 @@
 //! Shared binary-format helpers: little-endian reads over a byte slice, where every refusal names
 //! the field and the offset it was read at. The PE loader and its XBE reader are the first users;
-//! ELF and Mach-O follow.
+//! [`elf`] reads the ELF container the loader maps the same way; Mach-O follows.
 
+pub mod elf;
 pub mod reader;
 
 pub use reader::{Cursor, Reader};

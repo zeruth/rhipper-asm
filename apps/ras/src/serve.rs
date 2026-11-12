@@ -21,17 +21,34 @@
 //!   [`crate::annotations`]): a text key sets the text and `null` or `""` clears it, `hand` sets
 //!   the takeover; a name another function has, or the port's runtime owns, is refused. Answers
 //!   with the annotation; every later answer, and the next emit, takes the name.
-//! - `annotations`: every annotation of the project, and what of them the analysis could not take.
+//! - `annotations`: every annotation of the project, and what of them the analysis could not take
+//!   (with what the project's name-source plugins said that it could not take).
+//! - `plugins`: the plugins of the project and the user's (see [`crate::plugins`]): `abi`, the
+//!   `user` directory, and each plugin's `name`, `origin`, `dir`, `kinds` and `error`.
 //!
-//! The answers name the functions as the annotations do; a change to the sidecar files on disk (a
+//! The answers name the functions as the plugins and then the annotations do; a change to the sidecar files on disk (a
 //! checkout, a merge) reloads them before the next answer.
 //! - `trace` (`function`, `from`, `limit`): the replay of the port's trace against the
 //!   reference's (the two the run step recorded with `run.trace`), call by call: each call of the
 //!   port with its arguments and its result beside the reference's at the same place, the calls
 //!   of `function` alone when given, from the `from`th and at most `limit`; the verdict; and
 //!   `parts`, the first divergence, with the function, the call and the two values.
+//! - `lockstep.start`: starts the port (a build with `run.trace`) and the reference through the
+//!   interpreter side by side, each stopped at its first function entry (see
+//!   [`crate::lockstep`]), and answers with the state: `entry`, the place of each side (the
+//!   `function` and its `args` with their kinds, and `address` on an integer the reference holds
+//!   as an address of its memory, or `ended` with the `exit`), `equal`, and
+//!   `differs` when the two part. A session started again replaces the one before.
+//! - `lockstep.step` (`function`, `count`, `divergence`): lets both sides go on `count` entries
+//!   (1 by default; of `function` alone when given), or to the first entry where they part when
+//!   `divergence`; never past the end of either side. Answers with the state.
+//! - `lockstep.state`: the state where the two stand.
+//! - `lockstep.read` (`address`, `size`): the `size` bytes at `address` (at most 4096) in each
+//!   side's memory, as hexadecimal `bytes`, or the `error` that kept them.
+//! - `lockstep.stop`: ends the session; the port is stopped.
 //! - `shutdown`.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -44,6 +61,7 @@ use serde_json::{Value, json};
 
 use crate::annotations::{self, Annotation};
 use crate::disasm::parse_address;
+use crate::lockstep::Lockstep;
 use crate::project::Project;
 use crate::report::hex;
 
@@ -69,6 +87,8 @@ pub(crate) fn serve(target: &Target) -> Result<()> {
     let stdin = std::io::stdin();
     let mut lines = stdin.lock().lines();
     let mut pending: Option<String> = None;
+    // The two processes of a lockstep outlive a reload of the image or of the annotations.
+    let lockstep = RefCell::new(None);
     loop {
         let image = match &target.project {
             Some(project) => project.load_image()?,
@@ -81,7 +101,7 @@ pub(crate) fn serve(target: &Target) -> Result<()> {
             None => (BTreeMap::new(), Vec::new()),
         };
         let stamp = target.project.as_ref().map(|p| annotations::stamp(&p.root));
-        let session = Session { target, image: &image, analysis: &analysis, annotations: annotated, warnings, stamp };
+        let session = Session { target, image: &image, analysis: &analysis, annotations: annotated, warnings, stamp, lockstep: &lockstep };
         let mut replay = pending.take().map(Ok::<String, std::io::Error>).into_iter().chain(&mut lines);
         match session.run(&mut replay, loaded)? {
             Outcome::Exit => return Ok(()),
@@ -106,6 +126,8 @@ struct Session<'a> {
     warnings: Vec<String>,
     /// The sidecar files as they were when the session loaded them; `None` without a project.
     stamp: Option<Vec<(PathBuf, Option<SystemTime>)>>,
+    /// The lockstep session, when one was started.
+    lockstep: &'a RefCell<Option<Lockstep>>,
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {
@@ -222,6 +244,7 @@ impl Session<'_> {
                 "annotations": self.annotations.values().map(Annotation::to_json).collect::<Vec<_>>(),
                 "warnings": self.warnings,
             })),
+            "plugins" => Ok(crate::plugins::list_json(self.target.project.as_ref().map(|p| p.root.as_path()))),
             "trace" => {
                 let Some(project) = &self.target.project else { bail!("no project: the traces are a project's") };
                 let function = params.get("function").and_then(Value::as_str);
@@ -229,8 +252,40 @@ impl Session<'_> {
                 let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(500) as usize;
                 Ok(trace_json(project, function, from, limit))
             }
+            "lockstep.start" => {
+                let Some(project) = &self.target.project else { bail!("no project: the lockstep runs a project's port") };
+                // The session before goes first: the interpreter runs one program at a time.
+                self.lockstep.borrow_mut().take();
+                let session = Lockstep::start(project, self.image)?;
+                let state = session.state();
+                *self.lockstep.borrow_mut() = Some(session);
+                Ok(state)
+            }
+            "lockstep.step" => {
+                let function = params.get("function").and_then(Value::as_str);
+                let count = params.get("count").and_then(Value::as_u64).unwrap_or(1).max(1) as usize;
+                let divergence = params.get("divergence").and_then(Value::as_bool).unwrap_or(false);
+                self.with_lockstep(|session| session.step(function, count, divergence))
+            }
+            "lockstep.state" => self.with_lockstep(|session| Ok(session.state())),
+            "lockstep.read" => {
+                let at = address("address")?;
+                let size = params.get("size").and_then(Value::as_u64).unwrap_or(64);
+                if size > crate::lockstep::MAX_READ {
+                    bail!("a read is at most {} bytes", crate::lockstep::MAX_READ);
+                }
+                self.with_lockstep(|session| Ok(session.read(at, size)))
+            }
+            "lockstep.stop" => Ok(json!({"stopped": self.lockstep.borrow_mut().take().is_some()})),
             other => Err(anyhow!("no method `{other}`")),
         }
+    }
+
+    /// Answers from the lockstep session, or refuses when none was started.
+    fn with_lockstep(&self, answer: impl FnOnce(&mut Lockstep) -> Result<Value>) -> Result<Value> {
+        let mut session = self.lockstep.borrow_mut();
+        let Some(session) = session.as_mut() else { bail!("no lockstep session: start one with `lockstep.start`") };
+        answer(session)
     }
 
     /// The `hand` list of the project as `rhipper.json` has it now, which the `hand` method
