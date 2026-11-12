@@ -735,13 +735,7 @@ pub fn image_header(
         let _ = writeln!(out, "#define RA_ENTRY {name}");
         match signatures.and_then(|s| s.get(&name)) {
             Some(sig) => {
-                let c_type = |k: raise::abi::Kind| match k {
-                    raise::abi::Kind::Int | raise::abi::Kind::Wide => "unsigned long long",
-                    raise::abi::Kind::Float => "float",
-                    raise::abi::Kind::Double => "double",
-                };
-                let params: Vec<&str> = sig.params.iter().chain(&sig.stack_params).map(|k| c_type(*k)).collect();
-                let ret = sig.returns.map_or("void", c_type);
+                let (ret, params) = abi_prototype(sig);
                 let _ = writeln!(out, "#define RA_ABI 1");
                 if lifted.standalone {
                     let _ = writeln!(out, "#define RA_STANDALONE 1");
@@ -769,6 +763,28 @@ pub fn image_header(
                 if (is_main || dll) && sig.returns.is_some() {
                     let _ = writeln!(out, "#define RA_ENTRY_RETURNS 1");
                 }
+                // The runtime's startup the driver's replaces ran the program's initializers before
+                // `main`; the driver runs them in its place.
+                if is_main && !dll {
+                    let initializers = startup_initializers(image, analysis, lifted);
+                    if !initializers.is_empty() {
+                        let mut calls = String::new();
+                        for (name, checked) in &initializers {
+                            let Some(sig) = signatures.and_then(|s| s.get(name)) else { continue };
+                            let (ret, params) = abi_prototype(sig);
+                            let _ =
+                                writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
+                            let call = format!("{name}({})", vec!["0"; params.len()].join(", "));
+                            let _ = if *checked && sig.returns.is_some() {
+                                writeln!(calls, "    if ((int){call}) return 1;")
+                            } else {
+                                writeln!(calls, "    {call};")
+                            };
+                        }
+                        let _ = writeln!(out, "static int ra_initialize(void) {{\n{calls}    return 0;\n}}");
+                        let _ = writeln!(out, "#define RA_INITIALIZE ra_initialize");
+                    }
+                }
             }
             None => {
                 let _ = writeln!(out, "void {name}(void *state);");
@@ -794,6 +810,111 @@ pub fn image_header(
     let _ = writeln!(out, "static const unsigned long long ra_noreturn_imports = {};", analysis.noreturn.len());
     let _ = writeln!(out, "static const unsigned ra_lifted_function_count = {};", lifted.functions.len());
     out
+}
+
+/// The C result and parameter types the driver declares a lifted function by at the ABI level.
+fn abi_prototype(sig: &raise::abi::Signature) -> (&'static str, Vec<&'static str>) {
+    let c_type = |k: raise::abi::Kind| match k {
+        raise::abi::Kind::Int | raise::abi::Kind::Wide => "unsigned long long",
+        raise::abi::Kind::Float => "float",
+        raise::abi::Kind::Double => "double",
+    };
+    (sig.returns.map_or("void", c_type), sig.params.iter().chain(&sig.stack_params).map(|k| c_type(*k)).collect())
+}
+
+/// The program's own initializers the C runtime's startup runs before `main`, in its order, each
+/// with whether a nonzero result fails the start: the tables the startup hands `_initterm_e` (the
+/// C initializers, `__xi_a` to `__xi_z`) and `_initterm` (the constructors of the C++ statics,
+/// `__xc_a` to `__xc_z`), read where its calls pass them. An entry of the runtime's own is the
+/// host's startup's work, and stays out.
+fn startup_initializers(image: &Image, analysis: &Analysis<'_>, lifted: &Lifted) -> Vec<(String, bool)> {
+    use ra_asm_arch::{Flow, Operand, Target};
+    let mut tables: Vec<(u64, u64, u64, bool)> = Vec::new();
+    for f in analysis.functions.values() {
+        for block in &f.blocks {
+            for (i, instr) in block.instrs.iter().enumerate() {
+                let callee = match instr.flow {
+                    Flow::Call(Target::Direct(target)) => analysis.functions.get(&target).map(|c| match &c.kind {
+                        Kind::Runtime(name) | Kind::ImportThunk(name) => name.clone(),
+                        Kind::Normal => c.name.clone(),
+                    }),
+                    Flow::Call(Target::Indirect) => match instr.indirect_operand() {
+                        Some(Operand::Mem(m)) => {
+                            m.absolute.and_then(|slot| image.imports.iter().find(|import| import.iat_va == slot)).map(|i| i.display_name())
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let checked = match callee.as_deref() {
+                    Some("_initterm") => false,
+                    Some("_initterm_e") => true,
+                    _ => continue,
+                };
+                if let Some((first, last)) = initterm_arguments(&block.instrs[..i], image.is_64()) {
+                    tables.push((instr.address, first, last, checked));
+                }
+            }
+        }
+    }
+    tables.sort_unstable();
+    let mut seen = BTreeSet::new();
+    tables.retain(|&(_, first, last, _)| seen.insert((first, last)));
+    let width = u64::from(image.pointer_size());
+    let mut initializers = Vec::new();
+    for (_, first, last, checked) in tables {
+        // A table is a few pointers between its two sentinels; anything longer is not one.
+        if last < first || last - first > 0x1_0000 {
+            continue;
+        }
+        for at in (first..last).step_by(width as usize) {
+            if let Ok(value) = image.pointer(at)
+                && let Some(name) = lifted.functions.get(&value)
+            {
+                initializers.push((name.clone(), checked));
+            }
+        }
+    }
+    initializers
+}
+
+/// The two table addresses a call to `_initterm` passes, from the instructions before it in its
+/// block: x86 pushes the end, then the start; x64 loads the start into `rcx` and the end into
+/// `rdx`. `None` when an argument is not a constant address.
+fn initterm_arguments(before: &[ra_asm_arch::Instr], is_64: bool) -> Option<(u64, u64)> {
+    use ra_asm_arch::Operand;
+    let mut args: [Option<u64>; 2] = [None, None];
+    for instr in before.iter().rev() {
+        if let [Some(first), Some(last)] = args {
+            return Some((first, last));
+        }
+        if instr.flow.is_call() {
+            return None;
+        }
+        if is_64 {
+            let Some(Operand::Reg(r)) = instr.operands.first() else { continue };
+            let index = match r.name {
+                "rcx" => 0,
+                "rdx" => 1,
+                _ => continue,
+            };
+            if args[index].is_none() {
+                args[index] = Some(match (instr.mnemonic.as_str(), instr.operands.get(1)) {
+                    ("lea", Some(Operand::Mem(m))) => m.absolute?,
+                    ("mov", Some(Operand::Imm { value, .. })) => *value as u64,
+                    _ => return None,
+                });
+            }
+        } else if instr.mnemonic == "push" {
+            let Some(Operand::Imm { value, .. }) = instr.operands.first() else { return None };
+            let index = args.iter().position(Option::is_none)?;
+            args[index] = Some(u64::from(*value as u32));
+        }
+    }
+    match args {
+        [Some(first), Some(last)] => Some((first, last)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

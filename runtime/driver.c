@@ -449,6 +449,19 @@ uint64_t ra_x86_initialize_slist_head(uint64_t head) {
     return 0;
 }
 
+// `operator new` never returns null and gives a distinct block for a size of zero; the bad_alloc
+// it would throw ends the program, as an unhandled one does.
+uint64_t ra_x86_operator_new(uint64_t size) {
+    void *block = malloc(size ? (size_t)size : 1);
+    if (!block) abort();
+    return (uint64_t)(uintptr_t)block;
+}
+
+uint64_t ra_x86_operator_delete(uint64_t block) {
+    free((void *)(uintptr_t)block);
+    return 0;
+}
+
 // The structures a window program hands user32 are laid out at the program's pointer width:
 // WNDCLASSA is 40 bytes on x86 and 72 on the host, WNDCLASSEXA 48 and 80, MSG 28 and 48,
 // PAINTSTRUCT 64 and 72. Each adapter widens the program's record into the host's, calls, and
@@ -1831,8 +1844,13 @@ static void report_crashes(void) {
 
 #if defined(RA_ABI) && !defined(RA_DLL)
 // The entry, and the program's exit code: `main`'s result when the driver's startup stands in for
-// the runtime's (`RA_ENTRY_RETURNS`), else nothing the driver reads.
+// the runtime's (`RA_ENTRY_RETURNS`), else nothing the driver reads. Standing in, it first runs the
+// program's initializers (`RA_INITIALIZE`), the constructors of its C++ statics among them, and a
+// C initializer that fails ends the start with the code the runtime's startup ends it with.
 static int ra_entry(void) {
+#ifdef RA_INITIALIZE
+    if (RA_INITIALIZE()) return 255;
+#endif
 #ifdef RA_ENTRY_RETURNS
     int code = (int)RA_ENTRY_CALL();
 #else

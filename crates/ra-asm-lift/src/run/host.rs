@@ -781,6 +781,8 @@ impl<'a> Runtime<'a> {
                 vm.memory.fill(a(0), 8, 0)?;
                 int(0)
             }
+            "ra_x86_operator_new" => int(self.allocate(vm, a(0).max(1), 16)?),
+            "ra_x86_operator_delete" => int(0),
             "ra_x86_p_argv" => {
                 self.argv(vm)?;
                 int(self.p_argv)
