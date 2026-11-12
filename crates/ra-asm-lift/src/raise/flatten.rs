@@ -78,6 +78,8 @@ struct Dispatcher {
     phis: Vec<(ValueId, Type, Vec<(Operand, BlockId)>)>,
     /// The state each predecessor of the header sets.
     state_from: HashMap<BlockId, Operand>,
+    /// The values the header and the tree compute, which no longer run once the dispatcher goes.
+    inside: HashSet<ValueId>,
 }
 
 /// What a state resolves to: a constant, or a choice between two constants.
@@ -86,17 +88,19 @@ enum State {
     Two(Operand, u128, u128),
 }
 
-/// Where a state leads once the dispatcher is followed: a case block, or a branch between two
-/// decisions, for a state set by a select.
+/// Where a state leads once the dispatcher is followed: a case block, entered from the tree block
+/// `via`, or a branch between two decisions, for a state set by a select. A branch on the state a
+/// tree block sets has that block as its `key`: every predecessor that comes to it shares one
+/// block for it, so the rebuilt loop has the one entry the original had.
 enum Decision {
-    Leaf(BlockId),
-    Branch(Operand, Box<Decision>, Box<Decision>),
+    Leaf { block: BlockId, via: BlockId },
+    Branch { key: Option<BlockId>, cond: Operand, then: Box<Decision>, els: Box<Decision> },
 }
 
-/// Where a walk through the tree from the header arrives: a case block, or the header again
-/// through the tree block that sets the next state.
+/// Where a walk through the tree from the header arrives: a case block and the tree block it is
+/// entered from, or the header again through the tree block that sets the next state.
 enum Arrive {
-    Leaf(BlockId),
+    Leaf(BlockId, BlockId),
     Header(BlockId),
 }
 
@@ -266,7 +270,14 @@ fn dispatcher_at(f: &Function, header: BlockId, state: ValueId, bits: u32, preds
     if !header_tests_stay {
         return None;
     }
-    Some(Dispatcher { header, state, bits, tree: candidates, phis, state_from })
+    let inside = candidates
+        .iter()
+        .filter_map(|b| f.block(*b))
+        .flat_map(|b| &b.instrs)
+        .filter(|i| !matches!(i.inst, Inst::Phi { .. }))
+        .filter_map(|i| i.result)
+        .collect();
+    Some(Dispatcher { header, state, bits, tree: candidates, phis, state_from, inside })
 }
 
 /// The state an operand sets, through casts: a constant, or a select between two.
@@ -377,7 +388,7 @@ fn walk(f: &Function, d: &Dispatcher, defs: &HashMap<ValueId, Inst>, k: u128) ->
             return Some(Arrive::Header(at));
         }
         if !d.tree.contains(&next) {
-            return Some(Arrive::Leaf(next));
+            return Some(Arrive::Leaf(next, at));
         }
         at = next;
     }
@@ -385,7 +396,8 @@ fn walk(f: &Function, d: &Dispatcher, defs: &HashMap<ValueId, Inst>, k: u128) ->
 }
 
 /// Where `state` leads: through the tree, and through the states the tree sets on its way back
-/// to the header. A case block with phis of its own is not one the pass can reach directly.
+/// to the header. A case block's own phis take on a new edge what they took from the tree block
+/// the edge replaces.
 fn decide(f: &Function, d: &Dispatcher, defs: &HashMap<ValueId, Inst>, state: State, visited: &mut Vec<u128>) -> Option<Decision> {
     match state {
         State::Const(k) => {
@@ -394,26 +406,49 @@ fn decide(f: &Function, d: &Dispatcher, defs: &HashMap<ValueId, Inst>, state: St
             }
             visited.push(k);
             match walk(f, d, defs, k)? {
-                Arrive::Leaf(leaf) => {
+                Arrive::Leaf(leaf, via) => {
                     let block = f.block(leaf)?;
-                    if block.instrs.iter().any(|i| matches!(i.inst, Inst::Phi { .. })) {
-                        return None;
-                    }
-                    Some(Decision::Leaf(leaf))
+                    let joins_from_via = block.instrs.iter().all(|i| match &i.inst {
+                        Inst::Phi { incoming, .. } => incoming.iter().any(|(_, from)| *from == via),
+                        _ => true,
+                    });
+                    joins_from_via.then_some(Decision::Leaf { block: leaf, via })
                 }
-                Arrive::Header(from) => {
-                    let next = follow(d.state_from.get(&from)?, d.bits, defs, 0)?;
-                    decide(f, d, defs, next, visited)
-                }
+                Arrive::Header(from) => match follow(d.state_from.get(&from)?, d.bits, defs, 0)? {
+                    State::Two(cond, a, b) => branch(f, d, defs, Some(from), cond, (a, b), visited),
+                    next => decide(f, d, defs, next, visited),
+                },
             }
         }
-        State::Two(cond, a, b) => {
-            let mut other = visited.clone();
-            let then = decide(f, d, defs, State::Const(a), visited)?;
-            let els = decide(f, d, defs, State::Const(b), &mut other)?;
-            Some(Decision::Branch(cond, Box::new(then), Box::new(els)))
-        }
+        State::Two(cond, a, b) => branch(f, d, defs, None, cond, (a, b), visited),
     }
+}
+
+/// The branch a select between two states makes. Its condition must outlive the dispatcher.
+fn branch(
+    f: &Function,
+    d: &Dispatcher,
+    defs: &HashMap<ValueId, Inst>,
+    key: Option<BlockId>,
+    cond: Operand,
+    (a, b): (u128, u128),
+    visited: &mut Vec<u128>,
+) -> Option<Decision> {
+    if let Operand::Local(v) = &cond
+        && d.inside.contains(v)
+    {
+        return None;
+    }
+    let mut other = visited.clone();
+    let then = decide(f, d, defs, State::Const(a), visited)?;
+    let els = decide(f, d, defs, State::Const(b), &mut other)?;
+    Some(Decision::Branch { key, cond, then: Box::new(then), els: Box::new(els) })
+}
+
+/// Whether `block` has phis: an edge into it from a block that already enters it would need two
+/// entries from one predecessor.
+fn has_phis(f: &Function, block: BlockId) -> bool {
+    f.block(block).is_some_and(|b| b.instrs.iter().any(|i| matches!(i.inst, Inst::Phi { .. })))
 }
 
 /// A predecessor's way on: by its own state, or by the states its predecessors bring when it
@@ -425,7 +460,10 @@ fn thread_of(f: &Function, d: &Dispatcher, defs: &HashMap<ValueId, Inst>, p: Blo
         let decision = decide(f, d, defs, s, &mut Vec::new())?;
         let fits = match &block.terminator {
             Terminator::Br(_) => true,
-            Terminator::CondBr { then, els, .. } => *then == d.header || *els == d.header,
+            Terminator::CondBr { then, els, .. } => {
+                let doubled = matches!(decision, Decision::Leaf { block: l, .. } if (*then == l || *els == l) && has_phis(f, l));
+                (*then == d.header || *els == d.header) && !doubled
+            }
             _ => false,
         };
         return fits.then_some(Thread::Direct(decision));
@@ -459,42 +497,73 @@ fn thread_of(f: &Function, d: &Dispatcher, defs: &HashMap<ValueId, Inst>, p: Blo
     (!copies.is_empty()).then_some(Thread::Duplicate(copies))
 }
 
+/// The predecessor of the header a path of the rewrite starts from, and the substitution of its
+/// values; none on the way out of a shared block, which every origin enters.
+type Origin = Option<(BlockId, usize)>;
+
 /// The new blocks and the edges into the case blocks a rewrite makes.
 struct Materializer {
     next: u32,
     blocks: Vec<Block>,
-    /// `(the block that jumps, the case block, the origin predecessor, its substitution)`.
+    /// `(the block that jumps, the case block or shared block, the origin predecessor, its
+    /// substitution)`: where what an origin brought arrives.
     arrivals: Vec<(BlockId, BlockId, BlockId, usize)>,
+    /// `(the block that jumps, the case block, the tree block the edge replaces)`.
+    edges: Vec<(BlockId, BlockId, BlockId)>,
+    /// The block of each keyed branch.
+    shared: HashMap<BlockId, BlockId>,
 }
 
 impl Materializer {
+    fn fresh(&mut self) -> BlockId {
+        let id = BlockId(self.next);
+        self.next += 1;
+        id
+    }
+
     /// The terminator a block gets to carry out `decision`.
-    fn terminator(&mut self, decision: &Decision, owner: BlockId, origin: BlockId, subst: usize) -> Terminator {
+    fn terminator(&mut self, decision: &Decision, owner: BlockId, origin: Origin) -> Terminator {
         match decision {
-            Decision::Leaf(l) => {
-                self.arrivals.push((owner, *l, origin, subst));
-                Terminator::Br(*l)
-            }
-            Decision::Branch(cond, a, b) => {
-                let then = self.target(a, owner, origin, subst);
-                let els = self.target(b, owner, origin, subst);
-                if then == els { Terminator::Br(then) } else { Terminator::CondBr { cond: cond.clone(), then, els } }
-            }
+            Decision::Branch { key: None, cond, then, els } => self.branch(cond, then, els, owner, origin),
+            _ => Terminator::Br(self.target(decision, owner, origin)),
         }
     }
 
-    /// The block an edge from `owner` goes to for `decision`: the case block, or a new block
-    /// that branches.
-    fn target(&mut self, decision: &Decision, owner: BlockId, origin: BlockId, subst: usize) -> BlockId {
+    fn branch(&mut self, cond: &Operand, then: &Decision, els: &Decision, owner: BlockId, origin: Origin) -> Terminator {
+        let then = self.target(then, owner, origin);
+        let els = self.target(els, owner, origin);
+        if then == els { Terminator::Br(then) } else { Terminator::CondBr { cond: cond.clone(), then, els } }
+    }
+
+    /// The block an edge from `owner` goes to for `decision`: the case block, the shared block of
+    /// a keyed branch, or a new block that branches.
+    fn target(&mut self, decision: &Decision, owner: BlockId, origin: Origin) -> BlockId {
         match decision {
-            Decision::Leaf(l) => {
-                self.arrivals.push((owner, *l, origin, subst));
-                *l
+            Decision::Leaf { block, via } => {
+                self.edges.push((owner, *block, *via));
+                if let Some((from, subst)) = origin {
+                    self.arrivals.push((owner, *block, from, subst));
+                }
+                *block
             }
-            Decision::Branch(..) => {
-                let id = BlockId(self.next);
-                self.next += 1;
-                let terminator = self.terminator(decision, id, origin, subst);
+            Decision::Branch { key: Some(key), cond, then, els } => {
+                let id = if let Some(&id) = self.shared.get(key) {
+                    id
+                } else {
+                    let id = self.fresh();
+                    self.shared.insert(*key, id);
+                    let terminator = self.branch(cond, then, els, id, None);
+                    self.blocks.push(Block { id, name: format!("flat{}", id.0), instrs: Vec::new(), terminator, address: None });
+                    id
+                };
+                if let Some((from, subst)) = origin {
+                    self.arrivals.push((owner, id, from, subst));
+                }
+                id
+            }
+            Decision::Branch { key: None, .. } => {
+                let id = self.fresh();
+                let terminator = self.terminator(decision, id, origin);
                 self.blocks.push(Block { id, name: format!("flat{}", id.0), instrs: Vec::new(), terminator, address: None });
                 id
             }
@@ -556,7 +625,13 @@ fn rebuild(f: &mut Function, d: &Dispatcher) -> bool {
         return false;
     }
 
-    let mut m = Materializer { next: f.blocks.iter().map(|b| b.id.0).max().unwrap_or(0) + 1, blocks: Vec::new(), arrivals: Vec::new() };
+    let mut m = Materializer {
+        next: f.blocks.iter().map(|b| b.id.0).max().unwrap_or(0) + 1,
+        blocks: Vec::new(),
+        arrivals: Vec::new(),
+        edges: Vec::new(),
+        shared: HashMap::new(),
+    };
     // The substitutions of the duplicates: 0 is the identity, for a predecessor sent on as is.
     let mut substs: Vec<HashMap<ValueId, Operand>> = vec![HashMap::new()];
     // The duplicated blocks: the original, its copies with their substitutions, and its values.
@@ -566,9 +641,9 @@ fn rebuild(f: &mut Function, d: &Dispatcher) -> bool {
             Thread::Direct(decision) => {
                 let Some(block) = f.block(*p) else { continue };
                 let terminator = match &block.terminator {
-                    Terminator::Br(_) => m.terminator(decision, *p, *p, 0),
+                    Terminator::Br(_) => m.terminator(decision, *p, Some((*p, 0))),
                     other => {
-                        let target = m.target(decision, *p, *p, 0);
+                        let target = m.target(decision, *p, Some((*p, 0)));
                         let mut t = other.clone();
                         retarget(&mut t, d.header, target);
                         t
@@ -582,8 +657,7 @@ fn rebuild(f: &mut Function, d: &Dispatcher) -> bool {
                 let Some(original) = f.block(*p).cloned() else { continue };
                 let mut made = Vec::new();
                 for (q, decision) in copies {
-                    let id = BlockId(m.next);
-                    m.next += 1;
+                    let id = m.fresh();
                     let mut subst: HashMap<ValueId, Operand> = HashMap::new();
                     let mut instrs = Vec::new();
                     for i in &original.instrs {
@@ -607,7 +681,7 @@ fn rebuild(f: &mut Function, d: &Dispatcher) -> bool {
                     }
                     substs.push(subst);
                     let index = substs.len() - 1;
-                    let terminator = m.terminator(decision, id, *p, index);
+                    let terminator = m.terminator(decision, id, Some((*p, index)));
                     m.blocks.push(Block { id, name: format!("{}.{}", original.name, id.0), instrs, terminator, address: None });
                     if let Some(qb) = f.block_mut(*q) {
                         retarget(&mut qb.terminator, *p, id);
@@ -622,6 +696,19 @@ fn rebuild(f: &mut Function, d: &Dispatcher) -> bool {
         return false;
     }
     f.blocks.append(&mut m.blocks);
+    // A case block's own phis take on each new edge what they took from the tree block it
+    // replaces; the renaming below gives a variable there the value that reaches the new edge.
+    for (jumper, leaf, via) in &m.edges {
+        let Some(block) = f.block_mut(*leaf) else { continue };
+        for i in &mut block.instrs {
+            if let Inst::Phi { incoming, .. } = &mut i.inst
+                && !incoming.iter().any(|(_, from)| from == jumper)
+                && let Some((o, _)) = incoming.iter().find(|(_, from)| from == via).cloned()
+            {
+                incoming.push((o, *jumper));
+            }
+        }
+    }
     // The header and the tree go when nothing reaches them any more; the phis lose the entries
     // of the predecessors sent on.
     known::fold_branches(f);
