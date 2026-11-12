@@ -42,8 +42,9 @@ fn ras_prints_the_linux_hello() {
 
     let extents = ras(&["functions", "--pdata"]);
     assert!(extents.contains("2 .eh_frame functions"), "{extents}");
+    // The functions by their identifiers: `_start` reads `start`, a PLT stub `thunk_<import>`.
     let functions = ras(&["functions"]);
-    for name in ["square", "_start", "write", "exit"] {
-        assert!(functions.contains(name), "no {name} in:\n{functions}");
+    for name in ["square", "start", "thunk_write", "thunk_exit"] {
+        assert!(functions.lines().any(|l| l.contains(&format!("  {name}"))), "no {name} in:\n{functions}");
     }
 }

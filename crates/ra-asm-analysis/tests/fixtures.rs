@@ -423,14 +423,17 @@ fn exports_name_their_functions() {
 
 /// The Linux hello: its functions by the names of its symbol table, found from the entry and
 /// `.eh_frame`, and its PLT stubs as the thunks of the imports their slots bind. A lazily bound
-/// slot holds the address of its stub's second half, which is no function.
+/// slot holds the address of its stub's second half, which is no function. `_start` is `start`
+/// as an identifier, the symbol kept as the build has it.
 #[test]
 fn the_linux_hello_has_its_functions_and_its_plt_thunks() {
     use ra_asm_analysis::{Kind, Origin};
     let image = load("hello_linux64");
     let analysis = analyze(&image);
-    for name in ["square", "_start"] {
-        let f = analysis.functions.values().find(|f| f.name == name).unwrap_or_else(|| panic!("no {name}"));
+    let names: Vec<(&str, Option<&str>)> = analysis.functions.values().map(|f| (f.name.as_str(), f.symbol.as_deref())).collect();
+    for (name, symbol) in [("square", "square"), ("start", "_start")] {
+        let f = analysis.functions.values().find(|f| f.name == name).unwrap_or_else(|| panic!("no {name} in {names:?}"));
+        assert_eq!(f.symbol.as_deref(), Some(symbol), "{name}");
         assert!(matches!(f.kind, Kind::Normal), "{name} is {:?}", f.kind);
         assert!(f.origins.iter().any(|o| matches!(o, Origin::Entry | Origin::ExceptionTable)), "{name}: {:?}", f.origins);
     }
