@@ -1,18 +1,51 @@
 # The release of ras: on a tag v<version>, build the release binary for Windows x64, pack it with
 # its runtime files, and publish version.txt, ras-<version>-windows-x64.zip and its .sha256, which
-# the Rhipper Workbench downloads into its tools directory.
+# the Rhipper Workbench downloads into its tools directory. Nightly, and on a dispatch, the smoke
+# corpus instead: `ras smoke` over the runner's Windows system directory.
 name: release
 
 on:
   push:
     tags: ["v*"]
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  # every executable and library of the system directory through the analysis, the lift and the
+  # emit; the job fails on a panic or a crash, and the report is kept either way
+  smoke:
+    if: github.event_name != 'push'
+    runs-on: windows-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        # the backtraces of the report need the line tables the release binary strips
+        run: cargo build --release -p ras
+        env:
+          CARGO_PROFILE_RELEASE_STRIP: "false"
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+      - name: Smoke
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & target/release/ras.exe smoke "$env:SystemRoot\System32" --depth 0 --timeout 120 --jobs 4 --quiet --out dist/smoke.json | Tee-Object dist/smoke.txt
+          exit $LASTEXITCODE
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke
+          path: dist/smoke.*
+
   test:
+    if: github.event_name != 'schedule'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +61,7 @@ jobs:
   # the fuzz targets of fuzz/ build against the released loaders and decoders; the nightly fuzz
   # workflow runs them
   fuzz-targets:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

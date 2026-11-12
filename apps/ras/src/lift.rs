@@ -1,9 +1,12 @@
 //! `ras lift`: the IR of an image, with what the driver needs to run it.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use ra_asm_lift::RaiseLevel;
+use ra_asm_analysis::Analysis;
+use ra_asm_lift::raise::abi::Signature;
+use ra_asm_lift::{Lifted, RaiseLevel};
 use ra_asm_pe::Image;
 
 /// What `ras lift` was asked for.
@@ -30,9 +33,7 @@ pub(crate) fn lift(image: &Image, out: Option<&Path>, options: &Options) -> Resu
     let analysis = ra_asm_analysis::analyze(image);
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone, x87 });
     let coverage = report.then(|| ra_asm_lift::coverage(&analysis, &lifted));
-    let options = lifted.raise_options(level);
-    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
-    lifted.apply_names(&analysis, Some(&mut signatures));
+    let signatures = raise(&mut lifted, &analysis, level);
     let text = lifted.module.to_ll();
     match out {
         None if report => {}
@@ -65,4 +66,13 @@ pub(crate) fn lift(image: &Image, out: Option<&Path>, options: &Options) -> Resu
         crate::report::coverage(coverage, json)?;
     }
     Ok(())
+}
+
+/// Raises the module of `lifted` to `level` and gives its functions their names: the step between
+/// the lift and the IR or the source. The signatures are by the final names.
+pub(crate) fn raise(lifted: &mut Lifted, analysis: &Analysis<'_>, level: RaiseLevel) -> HashMap<String, Signature> {
+    let options = lifted.raise_options(level);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(analysis, Some(&mut signatures));
+    signatures
 }
