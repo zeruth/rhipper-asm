@@ -919,6 +919,28 @@ enum Ran {
     Fault(String),
 }
 
+/// The flags the manual leaves undefined for one run of `ins` from `input`. iced decides a
+/// rotate through carry on its count reduced modulo the operand's width plus one, the manual on
+/// the masked count: RCL and RCR leave OF undefined whenever the masked count is above 1, even
+/// when the rotation comes to nothing. `rcr al,9` rotates by 9 mod 9 = 0, iced calls OF
+/// untouched, and the CI's processor wrote it (2026-11-12, seed 0x5eed0108).
+fn undefined_flags(ins: &Instruction, input: &Picture) -> u32 {
+    let mut undefined = ins.rflags_undefined();
+    if matches!(ins.mnemonic(), Mnemonic::Rcl | Mnemonic::Rcr) {
+        let width = if ins.op0_kind() == OpKind::Register { ins.op0_register().size() } else { ins.memory_size().size() };
+        let count = match ins.op_count() {
+            0 | 1 => 1,
+            _ if ins.op1_kind() == OpKind::Register => input.gprs[1] & 0xff,
+            _ => ins.immediate(1),
+        };
+        let mask = if width == 8 { 0x3f } else { 0x1f };
+        if count & mask > 1 {
+            undefined |= RflagsBits::OF;
+        }
+    }
+    undefined
+}
+
 /// The fields of two pictures that differ, the flags the manual leaves undefined ignored.
 fn differences(native: &Picture, lifted: &Picture, undefined: u32) -> Vec<String> {
     let mut out = Vec::new();
@@ -1035,7 +1057,7 @@ fn every_form_matches_the_processor() {
             runs += 1;
             *ran.entry(mnemonic_name(code.mnemonic())).or_default() += 1;
             let diffs = match (&native, &interpreted) {
-                (Ran::State(n), Ran::State(l)) => differences(n, l, ins.rflags_undefined()),
+                (Ran::State(n), Ran::State(l)) => differences(n, l, undefined_flags(&ins, &input)),
                 (Ran::Fault(_), Ran::Fault(l)) if l.contains("unsupported") => vec![format!("the lift does not cover the form: {l}")],
                 (Ran::Fault(_), Ran::Fault(_)) => Vec::new(),
                 (Ran::Fault(n), Ran::State(_)) => vec![format!("the processor faulted ({n}), the lifted code ran")],
