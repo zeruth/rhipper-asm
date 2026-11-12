@@ -16,7 +16,9 @@
 //! hold a callee-saved register's value from the entry (the prologue's `push esi`) are no
 //! argument, since that value means nothing to the function. By the same rule an indirect x86
 //! call whose callee no one knows pops nothing when such a save lies right above its return
-//! address.
+//! address. A callee whose stack arguments lie in the function's own (a tail jump through a vtable
+//! slot, `jmp [eax + 4]`, hands the caller's arguments on as they are) reads them there: they are
+//! the function's parameters, as many as the widest of its possible callees takes.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -52,10 +54,18 @@ pub struct StackInfo {
     pub pops: i64,
 }
 
+/// What a lifted callee does to the stack of its caller, as far as the inference knows it so far.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CalleeStack {
+    /// The bytes it pops beyond its return address.
+    pub pops: i64,
+    /// The bytes of stack arguments it reads, from the first stack argument up.
+    pub arguments: i64,
+}
+
 /// Analyzes `f`, whose state pointer is `state`. `call_pops` is what the lifted callee of a call
-/// may pop beyond its return address, as far as the inference knows it so far: one amount for a
-/// direct call, the amount of each function a vtable slot holds; `None` for a callee it does not
-/// know.
+/// may do to the stack: one callee for a direct call, each function a vtable slot holds; `None`
+/// for a callee it does not know.
 // The names are the ones the analysis is written in: `f`, `n` blocks, `sp`, a block `b` and an
 // instruction `i`.
 #[allow(clippy::many_single_char_names)]
@@ -64,7 +74,7 @@ pub fn analyze(
     state: ValueId,
     pointers: &HashMap<ValueId, Slot>,
     target: Target,
-    call_pops: &dyn Fn(&Inst) -> Option<Vec<i64>>,
+    call_pops: &dyn Fn(&Inst) -> Option<Vec<CalleeStack>>,
 ) -> StackInfo {
     let n = f.blocks.len();
     let order = reverse_post_order(f);
@@ -278,15 +288,25 @@ pub fn analyze(
                                     // too, a function pointer) pops nothing when the word above
                                     // the return address is such a save.
                                     let pops = match call_pops(inst) {
-                                        Some(amounts) => {
-                                            let possible: Vec<i64> = amounts
+                                        Some(callees) => {
+                                            let possible: Vec<CalleeStack> = callees
                                                 .into_iter()
-                                                .filter(|&p| {
+                                                .filter(|&CalleeStack { pops, .. }| {
                                                     regs[sp]
-                                                        .is_none_or(|k| !(k + pushed..k + pushed + p).any(|b| saves.bytes.contains(&b)))
+                                                        .is_none_or(|k| !(k + pushed..k + pushed + pops).any(|b| saves.bytes.contains(&b)))
                                                 })
                                                 .collect();
-                                            possible.first().copied().filter(|&first| possible.iter().all(|&p| p == first))
+                                            // The arguments in the function's own argument area,
+                                            // above its return address.
+                                            if let Some(k) = regs[sp] {
+                                                let bytes = possible.iter().map(|c| c.arguments).max().unwrap_or(0);
+                                                for at in ((k + first).max(first)..k + first + bytes).step_by(ptr as usize) {
+                                                    touch(&mut info, at, (ptr * 8) as u16);
+                                                    let e = info.argument_reads.entry(at).or_insert(0);
+                                                    *e = (*e).max((ptr * 8) as u16);
+                                                }
+                                            }
+                                            possible.first().map(|c| c.pops).filter(|&pops| possible.iter().all(|c| c.pops == pops))
                                         }
                                         None => regs[sp].filter(|&k| saves.bytes.contains(&(k + pushed))).map(|_| 0),
                                     };

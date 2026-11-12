@@ -22,7 +22,7 @@ use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Module, Operand, Type, Valu
 
 use super::Target;
 use super::liveness::{CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, call_kind, reverse_post_order, slot_pointers};
-use super::stack::{StackInfo, analyze as analyze_stack};
+use super::stack::{CalleeStack, StackInfo, analyze as analyze_stack};
 
 /// The kind of a parameter or a return.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -638,17 +638,23 @@ fn gather(f: &Function, virtual_calls: &HashMap<ValueId, Candidates>, signatures
         (usize::from(n) < target.float_params() && live_in[Slot::Xmm(n).index()]).then(|| xmm_kind(f, &pointers, n))
     };
     let float_positions: [Option<Kind>; ARGUMENT_REGISTERS] = std::array::from_fn(|n| xmm_kind(n as u8));
-    // What a lifted callee may pop: a call through a vtable slot pops what one of its functions
-    // pops, which the stack analysis narrows to those that can take the arguments at the call.
-    let pops_of = |name: &str| signatures.get(name).map_or(0, |s| s.pops as i64);
-    let call_pops = |inst: &Inst| -> Option<Vec<i64>> {
+    // What a lifted callee may pop and read: a call through a vtable slot does what one of its
+    // functions does, which the stack analysis narrows to those that can take the arguments at
+    // the call.
+    let stack_of = |name: &str| {
+        signatures.get(name).map_or(CalleeStack { pops: 0, arguments: 0 }, |s| CalleeStack {
+            pops: s.pops as i64,
+            arguments: s.stack_bytes(target),
+        })
+    };
+    let call_pops = |inst: &Inst| -> Option<Vec<CalleeStack>> {
         if let Inst::Call { callee: Callee::Direct(name), .. } = inst
             && name.starts_with("F_")
         {
-            return Some(vec![pops_of(name)]);
+            return Some(vec![stack_of(name)]);
         }
         let candidates = virtual_candidates(inst, virtual_calls)?;
-        Some(candidates.iter().map(|(_, name)| pops_of(name)).collect())
+        Some(candidates.iter().map(|(_, name)| stack_of(name)).collect())
     };
     let stack = analyze_stack(f, state, &pointers, target, &call_pops);
 
