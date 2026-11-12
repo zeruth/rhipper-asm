@@ -48,6 +48,11 @@ else()
 endif()
 if(WIN32)
   target_link_libraries(@TARGET@ PRIVATE kernel32 user32)
+else()
+  # On Linux and macOS the program's kernel32, user32 and C runtime imports are the driver's Win32
+  # layer over the host's libraries; `ras doctor --host <exe>` names the imports it lacks.
+  find_package(Threads REQUIRED)
+  target_link_libraries(@TARGET@ PRIVATE Threads::Threads ${CMAKE_DL_LIBS} m)
 endif()
 # The program's resources, which ras emit extracts from the image: linked into the port, so the
 # program's FindResource and LoadString find them as they did.
@@ -64,4 +69,10 @@ if(WIN32 AND RA_POINTER_BITS EQUAL 32)
   else()
     target_link_options(@TARGET@ PRIVATE -Wl,/largeaddressaware:no)
   endif()
+elseif(RA_POINTER_BITS EQUAL 32)
+  # On x86-64 Linux the executable is linked at its fixed low address, and the driver keeps the
+  # stacks and the heap below 2 GB (MAP_32BIT and the brk heap).
+  set_target_properties(@TARGET@ PROPERTIES POSITION_INDEPENDENT_CODE OFF)
+  target_compile_options(@TARGET@ PRIVATE -fno-pie)
+  target_link_options(@TARGET@ PRIVATE -no-pie)
 endif()

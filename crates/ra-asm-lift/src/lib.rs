@@ -468,6 +468,7 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
     let isa = if image.machine() == ra_asm_pe::Machine::Arm64 { Isa::Arm64 } else { Isa::X86 };
     let name = image.path.as_ref().map_or_else(|| "image".to_owned(), |p| p.file_name().unwrap().to_string_lossy().into_owned());
     let mut module = match isa {
+        Isa::X86 if image.elf.is_some() => Module::x86_64_linux(&name),
         Isa::X86 => Module::x86_64_windows(&name),
         Isa::Arm64 => Module::aarch64_windows(&name),
     };
@@ -724,6 +725,10 @@ pub fn image_header(
     let _ = writeln!(out, "#define RA_IMAGE_BASE 0x{:x}ULL", image.image_base());
     let _ = writeln!(out, "#define RA_IMAGE_SIZE 0x{:x}", image.size_of_image());
     let _ = writeln!(out, "#define RA_POINTER_SIZE {}", image.pointer_size());
+    // A Windows program: off Windows its imports are the driver's Win32 layer.
+    if image.elf.is_none() {
+        let _ = writeln!(out, "#define RA_WIN32 1");
+    }
     let dll = image.headers.coff.is_dll();
     if dll {
         let _ = writeln!(out, "#define RA_DLL 1");
