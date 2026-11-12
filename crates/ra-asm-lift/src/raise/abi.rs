@@ -133,7 +133,7 @@ impl Signature {
 /// The registers a call clobbers by the convention: everything the callee need not keep.
 pub fn caller_saved(target: Target) -> SlotSet {
     let mut set = NO_SLOTS;
-    for slot in Slot::all() {
+    for slot in target.slots() {
         if !target.callee_saved(slot) {
             set[slot.index()] = true;
         }
@@ -144,7 +144,8 @@ pub fn caller_saved(target: Target) -> SlotSet {
 /// The registers an unknown callee may read. On Win64 every argument position, as integers and as
 /// floats. On x86 only `ecx`: the `this` of a `thiscall` method, which a call through a vtable
 /// reaches; `edx` and the vector registers carry arguments only under clang's convention for a
-/// local function, which no pointer names.
+/// local function, which no pointer names. On ARM64 `x0` to `x7`, `v0` to `v7`, and `x8`, the
+/// address a callee that returns an aggregate writes it to.
 pub fn all_argument_slots(target: Target) -> SlotSet {
     let mut set = NO_SLOTS;
     if target.is_64() {
@@ -154,17 +155,23 @@ pub fn all_argument_slots(target: Target) -> SlotSet {
         for n in 0..target.float_params() {
             set[Slot::Xmm(n as u8).index()] = true;
         }
+        if target.is_arm64() {
+            set[super::X8.index()] = true;
+        }
     } else {
         set[RCX.index()] = true;
     }
     set
 }
 
+/// The most argument registers of one class a target has: ARM64's eight.
+const ARGUMENT_REGISTERS: usize = 8;
+
 /// The evidence one function gives about itself and its callees.
 struct Facts {
     name: String,
-    int_positions: [bool; 4],
-    float_positions: [Option<Kind>; 4],
+    int_positions: [bool; ARGUMENT_REGISTERS],
+    float_positions: [Option<Kind>; ARGUMENT_REGISTERS],
     stack: StackInfo,
     writes_rax: bool,
     /// The float kind the function writes to `xmm0`, when it does.
@@ -459,7 +466,7 @@ pub fn infer_with(
         }
         let mut next: HashMap<String, Signature> = HashMap::new();
         for fact in facts {
-            let params: Vec<Kind> = if target.is_64() {
+            let params: Vec<Kind> = if target.shares_positions() {
                 // A position is one register of either class.
                 let positions = (0..ints.max(floats))
                     .rev()
@@ -472,7 +479,8 @@ pub fn infer_with(
                     })
                     .collect()
             } else {
-                // The integer registers, then the float registers, each class up to its last read.
+                // The integer registers, then the float registers, each class up to its last read:
+                // x86 and ARM64 count each class on its own.
                 let int_count = (0..ints).rev().find(|&p| fact.int_positions[p]).map_or(0, |p| p + 1);
                 let float_count = (0..floats).rev().find(|&p| fact.float_positions[p].is_some()).map_or(0, |p| p + 1);
                 (0..int_count).map(|_| Kind::Int).chain((0..float_count).map(|p| fact.float_positions[p].unwrap_or(Kind::Double))).collect()
@@ -587,7 +595,7 @@ fn call_model(
         Inst::Call { callee: Callee::Direct(name), .. } => match signatures.get(name) {
             Some(s) => s.param_slots(target),
             None => match crate::import_of_wrapper(name) {
-                Some(symbol) if super::prototypes::is_variadic(symbol) => int_slots(4),
+                Some(symbol) if super::prototypes::is_variadic(symbol) => int_slots(target.int_param_slots().len()),
                 Some(symbol) => match super::prototypes::arity(symbol) {
                     Some(arity) => int_slots(arity),
                     None => all_argument_slots(target),
@@ -622,14 +630,14 @@ fn gather(f: &Function, virtual_calls: &HashMap<ValueId, Candidates>, signatures
     let liveness = Liveness::with_calls(f, &pointers, &order, exit_set, &model);
     let own_reads = Liveness::with_calls(f, &pointers, &order, NO_SLOTS, &model);
     let live_in = own_reads.live_in.first().copied().unwrap_or([false; SLOTS]);
-    let mut int_positions = [false; 4];
+    let mut int_positions = [false; ARGUMENT_REGISTERS];
     for (p, slot) in target.int_param_slots().iter().enumerate() {
         int_positions[p] = live_in[slot.index()];
     }
     let xmm_kind = |n: u8| -> Option<Kind> {
         (usize::from(n) < target.float_params() && live_in[Slot::Xmm(n).index()]).then(|| xmm_kind(f, &pointers, n))
     };
-    let float_positions = [xmm_kind(0), xmm_kind(1), xmm_kind(2), xmm_kind(3)];
+    let float_positions: [Option<Kind>; ARGUMENT_REGISTERS] = std::array::from_fn(|n| xmm_kind(n as u8));
     // What a lifted callee pops: a call through a vtable slot pops what its functions pop, when
     // they agree; otherwise the amount is known at run time alone.
     let pops_of = |name: &str| signatures.get(name).map_or(0, |s| s.pops as i64);
