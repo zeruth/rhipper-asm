@@ -95,6 +95,9 @@ enum Command {
         /// The x87 unit: `double` (eight doubles) or `exact` (the 80-bit unit through the runtime's `f80`).
         #[arg(long, default_value = "double")]
         x87: ra_asm_lift::X87Unit,
+        /// A function the hand-written sources of the port own, by name or address: written as its declaration, not its body.
+        #[arg(long, value_name = "FUNCTION")]
+        hand: Vec<String>,
     },
     /// The IR of every function. With `--out`, writes `program.ll`, `image.bin` and `image.h` there.
     Lift {
@@ -234,7 +237,7 @@ fn main() -> anyhow::Result<()> {
             signatures::recognize(&mut load(&pe, sigs)?, &from, write.as_deref(), json)
         }
         Command::Signatures { pe, .. } => signatures::signatures(&load(&pe, sigs)?, json),
-        Command::Emit { pe, lang, out, quiet, x87 } => emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87),
+        Command::Emit { pe, lang, out, quiet, x87, hand } => emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand),
         Command::Run { pe, args, level, x87, trace, limit, quiet } => {
             let code = run::run(&load(&pe, sigs)?, &run::Options { level, x87, trace, limit, args, quiet })?;
             std::process::exit(code)

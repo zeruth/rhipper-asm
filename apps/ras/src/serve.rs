@@ -13,13 +13,16 @@
 //!   instructions.
 //! - `disasm` (`address`, `length`), `cfg` (`address`), `callers` (`address`), `xrefs` (`lo`, `hi`).
 //! - `strings` (`min`, `limit`): the printable strings of the data sections.
+//! - `hand` (`query`, `owned`): gives a function of a project to the hand-written sources or
+//!   takes it back, in the `hand` list of `rhipper.json` (by the function's name), and answers
+//!   with the list; the next emit step writes the function as its declaration.
 //! - `shutdown`.
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use ra_asm_analysis::Analysis;
 use ra_asm_pe::Image;
 use serde_json::{Value, json};
@@ -161,8 +164,42 @@ impl Session<'_> {
                 let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(1000) as usize;
                 Ok(self.strings(min, limit))
             }
+            "hand" => {
+                let Some(project) = &self.target.project else { bail!("no project: the hand-written functions are a project's") };
+                let query = params.get("query").and_then(Value::as_str).ok_or_else(|| anyhow!("the parameter `query` is missing"))?;
+                let owned = params.get("owned").and_then(Value::as_bool).ok_or_else(|| anyhow!("the parameter `owned` is missing"))?;
+                let function = self.find(query)?;
+                let hand = project.set_hand(&function.name, owned)?;
+                Ok(json!({"name": function.name, "owned": owned, "hand": hand}))
+            }
             other => Err(anyhow!("no method `{other}`")),
         }
+    }
+
+    /// The `hand` list of the project as `rhipper.json` has it now, which the `hand` method
+    /// changes after the project was loaded.
+    fn hand_list(&self) -> Vec<String> {
+        let Some(project) = &self.target.project else { return Vec::new() };
+        Project::load(&project.root).map_or_else(|_| project.hand.clone(), |p| p.hand)
+    }
+
+    /// Whether the hand-written sources own `function`: the list names it or its address.
+    fn is_hand(&self, function: &ra_asm_analysis::Function) -> bool {
+        let address = crate::report::hex(function.entry);
+        self.hand_list().iter().any(|h| h == &function.name || crate::project::same_function(h, &address))
+    }
+
+    /// One function by name, address or an address inside it.
+    fn find(&self, query: &str) -> Result<&ra_asm_analysis::Function> {
+        self.analysis
+            .functions
+            .values()
+            .find(|f| f.name == query)
+            .or_else(|| {
+                let a = parse_address(query).ok()?;
+                self.analysis.function(a).or_else(|| self.analysis.containing(a))
+            })
+            .ok_or_else(|| anyhow!("no function matches `{query}`"))
     }
 
     fn project(&self) -> Value {
@@ -177,8 +214,10 @@ impl Session<'_> {
             "map": project.map.as_ref().map(|m| m.display().to_string()),
             "gen": project.gen_dir.display().to_string(),
             "lang": project.lang,
+            "sources": project.sources.iter().map(|s| s.display().to_string()).collect::<Vec<_>>(),
+            "hand": self.hand_list(),
             "build": {"dir": project.build.dir.display().to_string(), "config": project.build.config, "target": project.build.target},
-            "port": project.port_exe().display().to_string(),
+            "port": project.port_binary(self.image.headers.coff.is_dll()).display().to_string(),
             "outputs": {
                 "functions": exists(&project.build_dir().join("functions.json")),
                 "ir": exists(&project.build_dir().join("program.ll")),
@@ -193,16 +232,7 @@ impl Session<'_> {
     /// One function by name, address or an address inside it: the analysis, the table entry, the
     /// source, the IR and the instructions.
     fn function(&self, query: &str) -> Result<Value> {
-        let function = self
-            .analysis
-            .functions
-            .values()
-            .find(|f| f.name == query)
-            .or_else(|| {
-                let a = parse_address(query).ok()?;
-                self.analysis.function(a).or_else(|| self.analysis.containing(a))
-            })
-            .ok_or_else(|| anyhow!("no function matches `{query}`"))?;
+        let function = self.find(query)?;
         // The IR and the source name a function as the analysis does.
         let ir_name = function.name.clone();
         let decoded = crate::disasm::decode(self.image, function.entry, Some(function.size()))?;
@@ -216,6 +246,8 @@ impl Session<'_> {
             "disasm": crate::disasm::disasm_text(self.image, &decoded),
         });
         if let Some(project) = &self.target.project {
+            // Whether the hand-written sources own it now, which the table says only after an emit.
+            result["hand"] = json!(self.is_hand(function));
             // The function table entry, and the source of the function in the translation.
             if let Ok(text) = std::fs::read_to_string(project.build_dir().join("functions.json"))
                 && let Ok(Value::Array(entries)) = serde_json::from_str::<Value>(&text)

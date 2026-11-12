@@ -189,6 +189,48 @@ fn the_trace_beside_the_port_names_the_wrong_function() {
     assert!(record["verdict"].as_str().is_some_and(|v| v.starts_with("differs at line")), "{record}");
 }
 
+/// A function taken over by hand: `hand` in `rhipper.json` names `fib`, the emit step writes its
+/// declaration in place of its body and marks it in the table, the build compiles the hand-written
+/// `fib` from `sources` beside the translation, and the port prints what the reference prints.
+#[test]
+fn the_pipeline_leaves_a_hand_written_function_to_the_sources() {
+    let dir = project_with(
+        "hand",
+        r#"{ "name": "control", "exe": "ref/control64.exe", "map": "ref/control.map", "sources": ["src"], "hand": ["fib", "nobody"],
+             "run": { "compare": true } }"#,
+    );
+    std::fs::copy(root().join("testdata/bin/control64.map"), dir.join("ref/control.map")).unwrap();
+    std::fs::create_dir_all(dir.join("src/hand")).unwrap();
+    std::fs::write(
+        dir.join("src/hand/fib.c"),
+        "#include <stdint.h>\n\nuint32_t fib(uint32_t n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }\n",
+    )
+    .unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    let c = std::fs::read_to_string(dir.join("src/gen/program.c")).unwrap();
+    assert!(c.contains("// fib at 0x1400013f0: hand-written in the port's sources\nuint32_t fib(uint32_t arg0);\n"), "{c}");
+    assert!(!c.contains("uint32_t fib(uint32_t arg0) {"), "{c}");
+    let log = std::fs::read_to_string(dir.join("build/pipeline/emit.log")).unwrap();
+    assert!(log.contains("hand-written function `nobody` is no function of the image"), "{log}");
+    let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/functions.json")).unwrap()).unwrap();
+    let fib = table.as_array().unwrap().iter().find(|e| e["name"] == "fib").unwrap_or_else(|| panic!("no fib in {table}"));
+    assert_eq!(fib["status"], "hand", "{fib}");
+    assert_eq!(fib["file"], "program.c", "{fib}");
+    let line = fib["line"].as_u64().unwrap() as usize;
+    assert_eq!(c.lines().nth(line - 1), Some("uint32_t fib(uint32_t arg0);"), "{fib}");
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    let (ok, text) = ras(&dir, &["--from", "build"]);
+    assert!(ok, "{text}");
+    assert!(text.contains("verdict: same"), "{text}");
+    let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
+    let run_log = std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
+    assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
+}
+
 /// A program with resources: the emit step writes them beside the port (`resources.res` for the
 /// link, the string table decoded, the other resources as files), and the port CMake builds
 /// finds them through the calls the program made.

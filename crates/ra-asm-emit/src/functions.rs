@@ -15,7 +15,9 @@
 //! `goto`: the first of the readability figures. A thunk to an import has status `thunk` and
 //! names the import in `imports`; a function of a C runtime linked into the image, which the
 //! port calls in the host's runtime instead of lifting, has status `runtime` and names the
-//! host's function in `imports`.
+//! host's function in `imports`. A function the hand-written sources of the port own (`hand` in
+//! `rhipper.json`) has status `hand`: `file` and `line` point at its declaration in the
+//! translation, where the comment says so.
 //! `strings` lists the string literals the function addresses. A virtual function has `class` and
 //! `slot`: the class whose vtable holds it first, and the slot in that vtable.
 
@@ -96,7 +98,14 @@ pub fn table(functions: &[EmittedFunction], files: &[EmittedFile], infos: &HashM
             entry.insert("size".into(), json!(info.map_or(0, |i| i.size)));
             entry.insert("file".into(), json!(file.name));
             entry.insert("line".into(), json!(line));
-            entry.insert("status".into(), json!(if f.traps == 0 { "lifted" } else { "partial" }));
+            let status = if f.hand {
+                "hand"
+            } else if f.traps == 0 {
+                "lifted"
+            } else {
+                "partial"
+            };
+            entry.insert("status".into(), json!(status));
             entry.insert("traps".into(), json!(f.traps));
             entry.insert("copies".into(), json!(f.copies));
             entry.insert("calls".into(), json!(info.map_or(&[][..], |i| &i.calls)));

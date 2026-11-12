@@ -63,9 +63,14 @@ pub struct Options {
     /// runtime's trace hooks, under the name of the function table, so the port's run compares
     /// with the reference's event by event.
     pub trace: bool,
+    /// The functions the hand-written sources of the port define, by IR name: each is written as
+    /// its declaration under its C name and linkage, and its body is left to them. In the C++
+    /// dialect such a function is no method of its class either.
+    pub hand: HashSet<String>,
 }
 
-/// One function's C: the comment naming it, the definition line and the body.
+/// One function's C: the comment naming it, the definition line and the body; or, for a
+/// hand-written function, the comment and the declaration.
 #[derive(Debug, Clone)]
 pub struct EmittedFunction {
     pub ir_name: String,
@@ -76,6 +81,8 @@ pub struct EmittedFunction {
     pub traps: usize,
     /// The blocks the structuring wrote a second time in place of a `goto`.
     pub copies: usize,
+    /// Whether the hand-written sources own the function: the text is its declaration.
+    pub hand: bool,
     pub text: String,
 }
 
@@ -251,7 +258,10 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
     }
     // In C++ a virtual function is a method of its class; one the module has no body for, or one
     // whose parameters the raise dropped, cannot take `this`.
-    let by_name: HashMap<&str, &Function> = module.functions.iter().map(|f| (f.name.as_str(), f)).collect();
+    // A hand-written function stays out of the classes too: the hand source defines it under its C
+    // name, as the declaration says.
+    let by_name: HashMap<&str, &Function> =
+        module.functions.iter().filter(|f| !options.hand.contains(&f.name)).map(|f| (f.name.as_str(), f)).collect();
     let classes: &[crate::cpp::Class] = if options.dialect == Dialect::Cpp { &options.classes } else { &[] };
     let method_of: HashMap<&str, (&crate::cpp::Class, crate::cpp::Method)> = classes
         .iter()
@@ -270,6 +280,18 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
             let mut text = String::new();
             let method = method_of.get(f.name.as_str()).map(|(c, m)| (*c, m));
             let source_name = options.names.get(&f.name).map(String::as_str);
+            if options.hand.contains(&f.name) {
+                let header_lines = declare_hand(&mut text, f, &prototypes[&f.name], source_name);
+                return EmittedFunction {
+                    ir_name: f.name.clone(),
+                    address: f.address,
+                    header_lines,
+                    traps: 0,
+                    copies: 0,
+                    hand: true,
+                    text,
+                };
+            }
             let (header_lines, copies) = emit_function(
                 &mut text,
                 f,
@@ -281,7 +303,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
                 &mut sdk_names,
                 options.trace,
             );
-            EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps: trap_count(f), copies, text }
+            EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps: trap_count(f), copies, hand: false, text }
         })
         .collect();
     let mut types = define_types(module);
@@ -818,6 +840,23 @@ fn emit_function(
         crate::cpp::trampoline(out, f, class, m, prototype);
     }
     (header_lines, structured.copies())
+}
+
+/// A hand-written function in place of its definition: the comment that names it and says who
+/// owns it, and the declaration the hand source must meet. Returns the number of lines above the
+/// declaration.
+fn declare_hand(out: &mut String, f: &Function, prototype: &str, source_name: Option<&str>) -> usize {
+    let at = f.address.map_or_else(String::new, |a| format!(" at {a:#x}"));
+    match source_name {
+        Some(n) if n != f.name => {
+            let _ = writeln!(out, "// {n}{at}: hand-written in the port's sources");
+        }
+        _ => {
+            let _ = writeln!(out, "// {}{at}: hand-written in the port's sources", f.name);
+        }
+    }
+    let _ = writeln!(out, "{prototype};");
+    1
 }
 
 /// The values of `f` the Windows API types with an enumeration: the result of a call to an import

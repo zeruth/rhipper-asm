@@ -10,6 +10,7 @@
 //!   "lang": "c",
 //!   "x87": "double",
 //!   "sources": ["src", "vendor"],
+//!   "hand": ["fib", "0x140001330"],
 //!   "build": { "dir": "build/cmake", "config": "Release", "target": "Game" },
 //!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0, "compare": false, "trace": false }
 //! }
@@ -26,8 +27,12 @@
 //! `x87` is the floating-point unit the lift models for x87 code: `double` (the default, eight
 //! doubles) or `exact` (the 80-bit unit through the runtime's software `f80`, for a program that
 //! leans on the extended precision); `sources` are the directories of the hand-written
-//! port, which the workbench reads and the pipeline does not. `build` is the `CMake` build of the
-//! port, and `run` is how the pipeline starts it: `with`
+//! port, which the workbench reads and the `CMakeLists.txt` the pipeline writes compiles into the
+//! port beside the translation (the files under `gen` excepted). `hand` names the functions the
+//! hand-written sources own, by source name or by address: `ras emit` writes each as its
+//! declaration, under its C name and linkage, in place of its body, and the function table
+//! marks it `hand`; a name no function of the image has is a warning of the emit step. `build` is
+//! the `CMake` build of the port, and `run` is how the pipeline starts it: `with`
 //! lists side processes that start before the port and stop after it, `timeout` in seconds stops
 //! a port that runs on, such as a game, and counts the run as alive, and `compare` runs the
 //! reference binary after the port with the same arguments, working directory and timeout and
@@ -83,6 +88,10 @@ pub(crate) struct Project {
     pub lang: String,
     /// The x87 unit the lift models: `double` or `exact`.
     pub x87: ra_asm_lift::X87Unit,
+    /// The directories of the hand-written sources, compiled into the port.
+    pub sources: Vec<PathBuf>,
+    /// The functions the hand-written sources own, by source name or address, as written.
+    pub hand: Vec<String>,
     pub build: Build,
     pub run: Run,
 }
@@ -144,11 +153,42 @@ impl Project {
             gen_dir: resolve(&string("gen").unwrap_or_else(|| "src/gen".into())),
             lang: string("lang").unwrap_or_else(|| "c".into()),
             x87,
+            sources: strings(obj.get("sources")).iter().map(|s| resolve(s)).collect(),
+            hand: strings(obj.get("hand")),
             name,
             build,
             run,
             root,
         })
+    }
+
+    /// Gives a function to the hand-written sources (`owned`) or takes it back: rewrites the
+    /// `hand` list of the project's `rhipper.json`, the other keys as they were, and returns the
+    /// list. `function` is the name or the address the list carries; an address matches the entry
+    /// written for it in either spelling (`0x1400` and `0x00001400` are one function).
+    pub(crate) fn set_hand(&self, function: &str, owned: bool) -> Result<Vec<String>> {
+        let file = self.root.join(RHIPPER_JSON);
+        let text = std::fs::read_to_string(&file).with_context(|| format!("no {RHIPPER_JSON} at {}", self.root.display()))?;
+        let mut json: Value = serde_json::from_str(&text).with_context(|| format!("{} is not JSON", file.display()))?;
+        let Some(obj) = json.as_object_mut() else { bail!("{RHIPPER_JSON} must hold a JSON object") };
+        let mut hand: Vec<String> = obj
+            .get("hand")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        hand.retain(|h| !same_function(h, function));
+        if owned {
+            hand.push(function.to_owned());
+        }
+        if hand.is_empty() {
+            obj.remove("hand");
+        } else {
+            obj.insert("hand".into(), Value::Array(hand.iter().map(|h| Value::String(h.clone())).collect()));
+        }
+        let mut out = serde_json::to_string_pretty(&json)?;
+        out.push('\n');
+        std::fs::write(&file, out).with_context(|| format!("cannot write {}", file.display()))?;
+        Ok(hand)
     }
 
     /// Loads the reference image, with the names of its functions from the project's link map
@@ -196,4 +236,17 @@ impl Project {
         let multi = bin.join(&self.build.config).join(&name);
         if multi.exists() { multi } else { bin.join(name) }
     }
+}
+
+/// Whether two entries of the `hand` list name one function: the same text, or one address in two
+/// spellings.
+pub(crate) fn same_function(a: &str, b: &str) -> bool {
+    a == b || matches!((hand_address(a), hand_address(b)), (Some(x), Some(y)) if x == y)
+}
+
+/// The address an entry of the `hand` list names, when it is one: `0x` and hexadecimal digits. A
+/// name is never read as an address, however hexadecimal it looks (`add`, `dead`).
+pub(crate) fn hand_address(entry: &str) -> Option<u64> {
+    let digits = entry.trim().strip_prefix("0x").or_else(|| entry.trim().strip_prefix("0X"))?;
+    u64::from_str_radix(digits, 16).ok()
 }

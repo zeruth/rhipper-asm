@@ -1,6 +1,6 @@
 //! `ras emit`: source out of an image, in C, C++ or Rust, with the function table beside it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -77,27 +77,41 @@ impl Translation {
     }
 }
 
-/// Translates the raised module of `lifted` to `lang`: `c`, `cpp` or `rust`. `package` names a
-/// Rust package and its binary; `signatures` (by the final function names) tell the C++ output
-/// which virtual functions read their object; `trace` instruments a C or C++ translation with
-/// the runtime's trace hooks.
+/// What a translation is asked for, beyond the image and its lift.
+pub(crate) struct Options<'a> {
+    /// The language: `c`, `cpp` or `rust`.
+    pub lang: &'a str,
+    /// The name of a Rust package and its binary.
+    pub package: &'a str,
+    /// Instruments a C or C++ translation with the runtime's trace hooks.
+    pub trace: bool,
+    /// The functions the hand-written sources own, by source name or address, which a C or C++
+    /// translation declares instead of defining.
+    pub hand: &'a [String],
+}
+
+/// Translates the raised module of `lifted` as `options` ask. `signatures` (by the final function
+/// names) tell the C++ output which virtual functions read their object.
 pub(crate) fn translate(
     image: &Image,
     analysis: &Analysis<'_>,
     lifted: &Lifted,
     signatures: &HashMap<String, ra_asm_lift::raise::abi::Signature>,
-    lang: &str,
-    package: &str,
-    trace: bool,
+    options: &Options<'_>,
 ) -> Result<Translation> {
+    let Options { lang, package, trace, hand } = *options;
     let infos = ra_asm_emit::functions::infos(analysis);
     let names: HashMap<String, String> = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
     let resources = resource_files(image);
     let mut warnings = Vec::new();
+    let hand = hand_functions(&infos, hand, &mut warnings);
     let exports = image.headers.coff.is_dll().then(|| exports_def(image, lifted, &mut warnings));
     if lang.eq_ignore_ascii_case("rust") || lang.eq_ignore_ascii_case("rs") {
         if exports.is_some() {
             bail!("a DLL ports as C or C++: the Rust translation is a program");
+        }
+        if !hand.is_empty() {
+            warnings.push(format!("{} hand-written functions are named, which a Rust port does not take: they are translated", hand.len()));
         }
         let imports = image.imports.iter().filter_map(|i| i.name.clone().map(|n| (n, i.dll.clone()))).collect();
         let entry = lifted.entry.and_then(|e| lifted.functions.get(&e).cloned());
@@ -125,7 +139,7 @@ pub(crate) fn translate(
         bail!("the language `{lang}` is not `c`, `cpp` or `rust`");
     };
     let classes = ra_asm_emit::classes(analysis, signatures);
-    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace });
+    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace, hand });
     let files = unit.files(ra_asm_emit::FUNCTIONS_PER_FILE);
     Ok(Translation {
         files,
@@ -136,6 +150,24 @@ pub(crate) fn translate(
         exports,
         warnings,
     })
+}
+
+/// The IR names of the functions `hand` names, each by its source name, its IR name or its
+/// address. An entry that names no function of the image is a warning: the port would still
+/// build, with the lift's body where the person meant theirs.
+fn hand_functions(infos: &HashMap<String, FunctionInfo>, hand: &[String], warnings: &mut Vec<String>) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for entry in hand {
+        let address = crate::project::hand_address(entry);
+        let found = infos.iter().find(|(ir, i)| i.name == *entry || **ir == *entry || address.is_some_and(|a| a == i.address));
+        match found {
+            Some((ir, _)) => {
+                out.insert(ir.clone());
+            }
+            None => warnings.push(format!("hand-written function `{entry}` is no function of the image: nothing is left to the sources")),
+        }
+    }
+    out
 }
 
 /// The module definition file of a DLL's port: every export of the image under its name and
@@ -202,15 +234,23 @@ fn resource_files(image: &Image) -> Vec<(String, Vec<u8>)> {
 }
 
 /// Writes the translation, the runtime and `functions.json` into `out`, or the translation to
-/// stdout without `out`.
-pub(crate) fn emit(image: &Image, language: &str, out: Option<&Path>, quiet: bool, x87: ra_asm_lift::X87Unit) -> Result<()> {
+/// stdout without `out`. `hand` names the functions left to hand-written sources.
+pub(crate) fn emit(
+    image: &Image,
+    language: &str,
+    out: Option<&Path>,
+    quiet: bool,
+    x87: ra_asm_lift::X87Unit,
+    hand: &[String],
+) -> Result<()> {
     let analysis = ra_asm_analysis::analyze(image);
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
-    let translation = translate(image, &analysis, &lifted, &signatures, language, &package, false)?;
+    let translation =
+        translate(image, &analysis, &lifted, &signatures, &Options { lang: language, package: &package, trace: false, hand })?;
     match out {
         None => print!("{}", translation.text()),
         Some(dir) => {

@@ -86,13 +86,37 @@ fn the_server_reads_the_translation_of_a_project() {
         &[
             json!({"jsonrpc": "2.0", "id": 1, "method": "project"}),
             json!({"jsonrpc": "2.0", "id": 2, "method": "function", "params": {"query": "F_140001330"}}),
+            json!({"jsonrpc": "2.0", "id": 3, "method": "hand", "params": {"query": "0x140001330", "owned": true}}),
+            json!({"jsonrpc": "2.0", "id": 4, "method": "function", "params": {"query": "F_140001330"}}),
         ],
     );
     let project = &responses[0]["result"];
     assert_eq!(project["name"], "control");
     assert!(project["outputs"]["functions"].as_str().is_some());
+    assert_eq!(project["hand"], json!([]));
     let function = &responses[1]["result"];
     assert_eq!(function["table"]["status"], "lifted");
+    assert_eq!(function["hand"], false);
     assert!(function["source"].as_str().is_some_and(|s| s.contains("F_140001330(")), "{function}");
     assert!(function["ir"].as_str().is_some_and(|s| s.starts_with("define ")), "{function}");
+    // The ownership toggles per function, in rhipper.json, and the function answers with it.
+    assert_eq!(responses[2]["result"]["hand"], json!(["F_140001330"]), "{}", responses[2]);
+    assert_eq!(responses[3]["result"]["hand"], true, "{}", responses[3]);
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("rhipper.json")).unwrap()).unwrap();
+    assert_eq!(json["hand"], json!(["F_140001330"]));
+    assert_eq!(json["exe"], "ref/control64.exe");
+    // A new server sees the list, and taking the function back empties it.
+    let responses = ask(
+        &["--project", dir.to_str().unwrap()],
+        &[
+            json!({"jsonrpc": "2.0", "id": 1, "method": "project"}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "hand", "params": {"query": "F_140001330", "owned": false}}),
+            json!({"jsonrpc": "2.0", "id": 3, "method": "project"}),
+        ],
+    );
+    assert_eq!(responses[0]["result"]["hand"], json!(["F_140001330"]), "{}", responses[0]);
+    assert_eq!(responses[1]["result"]["hand"], json!([]), "{}", responses[1]);
+    assert_eq!(responses[2]["result"]["hand"], json!([]), "{}", responses[2]);
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("rhipper.json")).unwrap()).unwrap();
+    assert!(json.get("hand").is_none(), "{json}");
 }

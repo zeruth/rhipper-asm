@@ -124,7 +124,8 @@ fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm
     let infos = ra_asm_emit::functions::infos(&analysis);
     let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
     let classes = ra_asm_emit::classes(&analysis, &signatures);
-    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace: false });
+    let options = ra_asm_emit::COptions { names, dialect, classes, ..Default::default() };
+    let unit = ra_asm_emit::emit_unit(&lifted.module, &options);
     let files = unit.files(functions_per_file);
     let dir = scratch(&format!("{binary}-{tag}"));
     ra_asm_emit::write_files(&dir, &files).unwrap();

@@ -171,13 +171,15 @@ impl Pipeline {
         let build_dir = self.project.build_dir();
         let (lang, package) = (self.project.lang.clone(), self.project.build.target.clone());
         let (x87, trace) = (self.project.x87, self.project.run.trace);
+        let hand = self.project.hand.clone();
         let image = self.image()?;
         let analysis = ra_asm_analysis::analyze(image);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         lifted.apply_names(&analysis, Some(&mut signatures));
-        let translation = crate::emit::translate(image, &analysis, &lifted, &signatures, &lang, &package, trace)?;
+        let options = crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand };
+        let translation = crate::emit::translate(image, &analysis, &lifted, &signatures, &options)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
         fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
@@ -450,14 +452,16 @@ fn write_cmake_lists(project: &Project, bits: u32, dll: bool) -> Result<()> {
     if file.exists() {
         return Ok(());
     }
-    let gen_dir = match project.gen_dir.strip_prefix(&project.root) {
+    let in_project = |dir: &Path| match dir.strip_prefix(&project.root) {
         Ok(relative) => format!("${{CMAKE_CURRENT_SOURCE_DIR}}/{}", slashes(relative)),
-        Err(_) => slashes(&project.gen_dir),
+        Err(_) => slashes(dir),
     };
+    let sources: Vec<String> = project.sources.iter().map(|s| format!("\"{}\"", in_project(s))).collect();
     let text = CMAKE_LISTS
         .replace("@NAME@", &project.name)
         .replace("@TARGET@", &project.build.target)
-        .replace("@GEN_DIR@", &gen_dir)
+        .replace("@GEN_DIR@", &in_project(&project.gen_dir))
+        .replace("@SOURCES@", &sources.join(" "))
         .replace("@POINTER_BITS@", &bits.to_string())
         .replace("@DLL@", if dll { "ON" } else { "OFF" });
     fs::write(&file, text).with_context(|| format!("cannot write {}", file.display()))
