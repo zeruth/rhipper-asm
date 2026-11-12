@@ -1,0 +1,72 @@
+# The build on every push: the workspace builds and its tests pass on Windows, where the
+# engine's reference programs are built and run. A later push to the same branch cancels a
+# run still going on the older one, so the queue never holds more than the newest state.
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: build and test (windows)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      # the machine swaps on a full-parallel build; the runner is smaller than the machine
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the version is the tree's commit count: the whole history, not a shallow one
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-build
+
+      # the reference programs and the ports are built with clang and read with the LLVM
+      # tools, as the release does
+      - name: install LLVM
+        run: choco install llvm --no-progress -y
+
+      - name: toolchain
+        shell: pwsh
+        run: |
+          clang --version
+          llvm-objdump --version | Select-Object -First 1
+
+      - name: format
+        run: cargo fmt --all -- --check
+
+      - name: build
+        run: cargo build --workspace --locked
+
+      - name: test
+        run: cargo test --workspace --locked --no-fail-fast
+
+      # the lint reports and does not fail the build
+      - name: clippy
+        continue-on-error: true
+        run: cargo clippy --workspace --all-targets --locked
+
+      - name: binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhipper-asm-debug-windows
+          path: target/debug/ras.exe
+          retention-days: 7

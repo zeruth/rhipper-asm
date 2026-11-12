@@ -253,8 +253,11 @@ impl Session<'_> {
     /// the sidecar file, which the next emit reads, and answers with the annotation.
     fn annotate(&self, function: &ra_asm_analysis::Function, params: &Value) -> Result<Value> {
         let Some(project) = &self.target.project else { bail!("no project: the annotations are a project's") };
-        let mut annotation =
-            self.annotations.get(&function.entry).cloned().unwrap_or_else(|| Annotation { address: function.entry, ..Annotation::default() });
+        let mut annotation = self
+            .annotations
+            .get(&function.entry)
+            .cloned()
+            .unwrap_or_else(|| Annotation { address: function.entry, ..Annotation::default() });
         let text = |key: &str| -> Result<Option<Option<String>>> {
             match params.get(key) {
                 None => Ok(None),
