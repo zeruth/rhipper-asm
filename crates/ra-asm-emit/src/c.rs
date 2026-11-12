@@ -1436,8 +1436,6 @@ impl<'a> Emitter<'a> {
             None => Some(name),
             Some(index) if field.array && index.scale == size => {
                 let i = self.operand(&index.ty, &index.value);
-                // A narrow sum wraps at its width: the index it adds is signed there.
-                let i = if index.ty.bits().is_some_and(|b| b < 64) { format!("({})({i})", signed_type(&index.ty)) } else { i };
                 Some(if base == 0 { format!("{name}[{i}]") } else { format!("{name}[{i} + {base}]") })
             }
             Some(_) => None,
