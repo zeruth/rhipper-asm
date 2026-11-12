@@ -60,7 +60,10 @@ enum Command {
     Relocs { pe: PathBuf },
     /// The debug directory and the PDB record.
     Debug { pe: PathBuf },
-    /// The functions of the image. With `--pdata`, the raw exception table entries.
+    /// The named functions: from the PDB or the link map of a PE, from the symbol table of an ELF.
+    Symbols { pe: PathBuf },
+    /// The functions of the image. With `--pdata`, the raw exception table entries, or the function
+    /// extents of an ELF file's `.eh_frame`.
     Functions {
         pe: PathBuf,
         /// List the exception table entries instead of the functions.
@@ -203,7 +206,8 @@ enum Command {
         /// The build configuration, such as `Debug`, instead of the project's.
         #[arg(long)]
         config: Option<String>,
-        /// Delete the build outputs before the build.
+        /// Run the analyze, lift and emit steps whatever their stamps say, and delete the build
+        /// outputs before the build.
         #[arg(long)]
         rebuild: bool,
     },
@@ -247,6 +251,7 @@ fn main() -> anyhow::Result<()> {
         Command::Exports { pe } => report::exports(&load(&pe, sigs)?, json),
         Command::Relocs { pe } => report::relocs(&load(&pe, sigs)?, json),
         Command::Debug { pe } => report::debug(&load(&pe, sigs)?, json),
+        Command::Symbols { pe } => report::symbols(&load(&pe, sigs)?, json),
         Command::Functions { pe, pdata: true } => report::functions(&load(&pe, sigs)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&load(&pe, sigs)?, json),
         Command::Cfg { pe, address } => functions::cfg(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),

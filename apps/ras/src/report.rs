@@ -51,10 +51,12 @@ fn directories_of(image: &Image) -> Vec<(&'static str, String, u32)> {
     .collect()
 }
 
-/// `pe32`, `pe32+` or `xbe`.
+/// `pe32`, `pe32+`, `xbe`, `elf32` or `elf64`.
 fn format_name(image: &Image) -> &'static str {
     if image.xbe.is_some() {
         "xbe"
+    } else if let Some(elf) = &image.elf {
+        if elf.wide { "elf64" } else { "elf32" }
     } else if image.is_64() {
         "pe32+"
     } else {
@@ -62,6 +64,7 @@ fn format_name(image: &Image) -> &'static str {
     }
 }
 
+<<<<<<< HEAD
 /// The C runtime of a toolset in a line: `MSVC, static`, `MSVC, msvcr100.dll`, `none`.
 fn crt_line(toolset: &Toolset) -> String {
     toolset.crt.as_ref().map_or_else(|| "none".to_owned(), |c| format!("{}, {}", c.vendor, c.dll.as_deref().unwrap_or("static")))
@@ -88,6 +91,17 @@ fn toolset_json(image: &Image) -> serde_json::Value {
             "count": e.count,
         })).collect::<Vec<_>>()),
     })
+=======
+/// The name of an ELF `e_type`.
+fn elf_type(kind: u16) -> String {
+    match kind {
+        1 => "relocatable".to_owned(),
+        2 => "executable".to_owned(),
+        3 => "shared object".to_owned(),
+        4 => "core".to_owned(),
+        other => format!("type {other:#x}"),
+    }
+>>>>>>> main
 }
 
 /// The headers of the image as JSON: what `ras info --json` prints and `ras serve` answers.
@@ -108,6 +122,15 @@ pub(crate) fn info_json(image: &Image) -> serde_json::Value {
                 "region": x.region,
                 "libraries": x.libraries.iter().map(ra_asm_pe::xbe::LibraryVersion::display).collect::<Vec<_>>(),
             })),
+            "elf": image.elf.as_ref().map(|e| json!({
+                "type": elf_type(e.kind),
+                "big_endian": e.big_endian,
+                "interpreter": e.interpreter,
+                "needed": e.needed,
+                "soname": e.soname,
+                "eh_frame_functions": e.functions.len(),
+            })),
+            "symbols": image.symbols.len(),
             "subsystem": o.subsystem_name(),
             "image_base": hex(o.image_base),
             "entry_point": image.entry_point().map(hex),
@@ -146,6 +169,17 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
         println!("title          {} ({:#010x}, region {:#x}, {} kernel)", x.title_name, x.title_id, x.region, x.kernel.name());
         let libraries: Vec<String> = x.libraries.iter().map(ra_asm_pe::xbe::LibraryVersion::display).collect();
         println!("libraries      {}", if libraries.is_empty() { "none".to_owned() } else { libraries.join(", ") });
+    }
+    if let Some(e) = &image.elf {
+        println!("type           {}{}", elf_type(e.kind), if e.big_endian { ", big-endian" } else { "" });
+        if let Some(interpreter) = &e.interpreter {
+            println!("interpreter    {interpreter}");
+        }
+        if let Some(soname) = &e.soname {
+            println!("soname         {soname}");
+        }
+        println!("needed         {}", if e.needed.is_empty() { "none".to_owned() } else { e.needed.join(", ") });
+        println!("symbols        {} functions, {} .eh_frame functions", image.symbols.len(), e.functions.len());
     }
     println!("subsystem      {} ({}.{})", o.subsystem_name(), o.subsystem_version.0, o.subsystem_version.1);
     println!("image base     {}", hex(o.image_base));
@@ -378,6 +412,20 @@ pub(crate) fn functions(image: &Image, pdata: bool, json: bool) -> Result<()> {
     if !pdata {
         anyhow::bail!("function discovery lands with milestone C; use --pdata for the exception table");
     }
+    // An ELF file's table of function extents is its `.eh_frame`.
+    if let Some(elf) = &image.elf {
+        if json {
+            let rows: Vec<_> =
+                elf.functions.iter().map(|&(begin, end)| json!({"begin": hex(begin), "end": hex(end), "size": end - begin})).collect();
+            return print_json(&rows);
+        }
+        for &(begin, end) in &elf.functions {
+            println!("{}  {}  {:>6}", hex(begin), hex(end), end - begin);
+        }
+        println!("{} .eh_frame functions", elf.functions.len());
+        print_warnings(image);
+        return Ok(());
+    }
     if json {
         let rows: Vec<_> = image
             .runtime_functions
@@ -400,6 +448,22 @@ pub(crate) fn functions(image: &Image, pdata: bool, json: bool) -> Result<()> {
         println!("{}  {}  {:>6}{note}", hex(f.begin), hex(f.end), f.len());
     }
     println!("{} runtime functions", image.runtime_functions.len());
+    print_warnings(image);
+    Ok(())
+}
+
+pub(crate) fn symbols(image: &Image, json: bool) -> Result<()> {
+    if json {
+        let rows: Vec<_> = image.symbols.iter().map(|s| json!({"va": hex(s.va), "name": s.name, "library": s.library})).collect();
+        return print_json(&rows);
+    }
+    for s in &image.symbols {
+        match &s.library {
+            Some(library) => println!("{}  {}  ({library})", hex(s.va), s.name),
+            None => println!("{}  {}", hex(s.va), s.name),
+        }
+    }
+    println!("{} symbols", image.symbols.len());
     print_warnings(image);
     Ok(())
 }

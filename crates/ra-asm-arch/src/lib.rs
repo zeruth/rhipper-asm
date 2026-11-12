@@ -202,8 +202,9 @@ impl Instr {
     }
 }
 
-/// A decoder of one architecture.
-pub trait Arch {
+/// A decoder of one architecture. A decoder is shared by the threads that lift an image's
+/// functions in parallel.
+pub trait Arch: Send + Sync {
     fn name(&self) -> &'static str;
 
     /// The width of an address, in bits.
