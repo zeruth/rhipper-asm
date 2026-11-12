@@ -130,6 +130,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<(Headers, Vec<Section>, ElfFile)> {
             directories: vec![DataDirectory::default(); 16],
         },
         section_table_offset: 0,
+        rich: None,
     };
     Ok((headers, sections, elf))
 }

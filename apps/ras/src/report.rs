@@ -64,7 +64,6 @@ fn format_name(image: &Image) -> &'static str {
     }
 }
 
-<<<<<<< HEAD
 /// The C runtime of a toolset in a line: `MSVC, static`, `MSVC, msvcr100.dll`, `none`.
 fn crt_line(toolset: &Toolset) -> String {
     toolset.crt.as_ref().map_or_else(|| "none".to_owned(), |c| format!("{}, {}", c.vendor, c.dll.as_deref().unwrap_or("static")))
@@ -91,7 +90,8 @@ fn toolset_json(image: &Image) -> serde_json::Value {
             "count": e.count,
         })).collect::<Vec<_>>()),
     })
-=======
+}
+
 /// The name of an ELF `e_type`.
 fn elf_type(kind: u16) -> String {
     match kind {
@@ -101,7 +101,6 @@ fn elf_type(kind: u16) -> String {
         4 => "core".to_owned(),
         other => format!("type {other:#x}"),
     }
->>>>>>> main
 }
 
 /// The headers of the image as JSON: what `ras info --json` prints and `ras serve` answers.

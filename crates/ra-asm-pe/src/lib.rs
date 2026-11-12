@@ -3,13 +3,9 @@
 //! relocations, the exception table, TLS, debug and resources. A malformed directory does not fail the load:
 //! the image keeps a warning for it, because a packed or odd binary is still worth opening.
 //! [`object`] reads the relocatable objects (COFF, ELF) and the archives the signatures of a
-<<<<<<< HEAD
-//! library are made from. [`xbe`] reads the original Xbox's container into the same image.
-//! [`toolset`] fingerprints the compiler, linker and C runtime that built an image.
-=======
 //! library are made from. [`xbe`] reads the original Xbox's container into the same image, and
-//! [`elf`] the executables and shared objects of Linux.
->>>>>>> main
+//! [`elf`] the executables and shared objects of Linux. [`toolset`] fingerprints the compiler,
+//! linker and C runtime that built an image.
 
 pub mod debug;
 pub mod elf;
