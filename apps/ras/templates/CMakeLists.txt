@@ -49,9 +49,12 @@ endif()
 if(WIN32)
   target_link_libraries(@TARGET@ PRIVATE kernel32 user32)
 else()
-  # On Linux and macOS the program's kernel32, user32 and C runtime imports are the driver's Win32
-  # layer over the host's libraries; `ras doctor --host <exe>` names the imports it lacks.
+  # The driver of a platform-neutral port binds the program's imports with dlopen; a Windows
+  # program's kernel32, user32 and C runtime imports are the driver's Win32 layer over the host's
+  # libraries, which dlsym finds in the executable's own exports. `ras doctor --host <exe>` names
+  # the imports the layer lacks.
   find_package(Threads REQUIRED)
+  set_target_properties(@TARGET@ PROPERTIES ENABLE_EXPORTS ON)
   target_link_libraries(@TARGET@ PRIVATE Threads::Threads ${CMAKE_DL_LIBS} m)
 endif()
 # The program's resources, which ras emit extracts from the image: linked into the port, so the

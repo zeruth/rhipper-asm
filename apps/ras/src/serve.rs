@@ -381,7 +381,10 @@ impl Session<'_> {
                 "dir": annotations::dir(&project.root).display().to_string(),
                 "count": self.annotations.len(), "warnings": self.warnings,
             },
-            "build": {"dir": project.build.dir.display().to_string(), "config": project.build.config, "target": project.build.target},
+            "build": {
+                "dir": project.build.dir.display().to_string(), "config": project.build.config, "target": project.build.target,
+                "generator": project.build.generator.id(),
+            },
             "port": project.port_binary(self.image.headers.coff.is_dll()).display().to_string(),
             "outputs": {
                 "functions": exists(&project.build_dir().join("functions.json")),

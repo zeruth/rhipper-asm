@@ -3406,8 +3406,12 @@ int main(int argc, char **argv) {
     // no image to map and nothing to bind.
     (void)argc;
     (void)argv;
+#if !defined(_WIN32) && defined(RA_WIN32)
+    return win32_main();
+#else
     attach_process();
     return ra_entry();
+#endif
 #else
     const char *image_path = argc > 1 ? argv[1] : "image.bin";
     FILE *f = fopen(image_path, "rb");
@@ -3430,8 +3434,12 @@ int main(int argc, char **argv) {
 
 #ifdef RA_ABI
     install_trampolines();
+#if !defined(_WIN32) && defined(RA_WIN32)
+    return win32_main();
+#else
     attach_process();
     return ra_entry();
+#endif
 #else
     static struct State state;
     const size_t stack_size = 1 << 20;
