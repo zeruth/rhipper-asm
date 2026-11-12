@@ -33,8 +33,9 @@ fn ras(dir: &Path, args: &[&str]) -> (bool, String) {
     (output.status.success(), text)
 }
 
-/// The tests leave nothing new under the system temp: the test binaries run one after another, so
-/// the only scratch directories that may exist while this one runs are this process's own. A
+/// The tests leave nothing new under the system temp: the test binaries of a build run one after
+/// another, so the only scratch directories of this build that may exist while this one runs are
+/// this process's own; the runs of other checkouts, under way at the same time, are not looked at. A
 /// directory of another process written since this binary was built is a leftover of a test that
 /// wrote without a guard; an older one is from the time before the guards, and is only named.
 #[test]
