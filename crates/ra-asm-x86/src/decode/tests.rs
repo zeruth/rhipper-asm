@@ -84,6 +84,17 @@ fn invalid_bytes_decode_to_nothing_and_decode_all_stops_there() {
     assert_eq!(run[1].address, 0x2001);
 }
 
+/// The first fuzzing run's case: a run decoded at the top of the address space wraps to zero, as
+/// the instruction pointer does, rather than overflowing.
+#[test]
+fn a_run_at_the_top_of_the_space_wraps_its_addresses() {
+    let full = X86::X64.decode_all_full(&[0x90, 0x90, 0xc3], u64::MAX);
+    let addresses: Vec<(u64, u64)> = full.iter().map(|d| (d.instr.address, d.instr.end())).collect();
+    assert_eq!(addresses, [(u64::MAX, 0), (0, 1), (1, 2)]);
+    let run = X86::X64.decode_all(&[0x90, 0x90], u64::MAX);
+    assert_eq!(run.iter().map(|i| i.address).collect::<Vec<_>>(), [u64::MAX, 0]);
+}
+
 trait RegOf {
     fn reg(self) -> ra_asm_arch::Register;
 }

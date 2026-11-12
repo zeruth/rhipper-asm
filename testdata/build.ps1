@@ -17,7 +17,8 @@ $bin = Join-Path $PSScriptRoot 'bin'
 New-Item -ItemType Directory -Force $bin | Out-Null
 
 # a64 is the ARM64 build of a fixture, for the second architecture: only the programs that ask
-# for it get one, and it cannot run here, so its expected output is the x64 build's.
+# for it get one, and an x64 host runs it only lifted, through the IR interpreter, so its expected
+# output is the x64 build's.
 $targets = @(
   @{ Suffix = '64'; Triple = 'x86_64-pc-windows-msvc'; Entry = 'mainCRTStartup' },
   @{ Suffix = '32'; Triple = 'i686-pc-windows-msvc'; Entry = 'mainCRTStartup' },

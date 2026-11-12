@@ -257,9 +257,10 @@ pub(crate) fn emit(
     project: Option<&Path>,
 ) -> Result<()> {
     let mut analysis = ra_asm_analysis::analyze(image);
-    let mut warnings = Vec::new();
-    let annotations = project.map(|root| crate::annotations::load(root, &mut warnings)).unwrap_or_default();
-    crate::annotations::apply_names(&mut analysis, &annotations, &mut warnings);
+    let (annotations, warnings) = match project {
+        Some(root) => crate::annotations::annotate(root, &mut analysis),
+        None => (BTreeMap::new(), Vec::new()),
+    };
     let hand = crate::annotations::hand_list(hand, &annotations);
     let hand = hand.as_slice();
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });

@@ -211,11 +211,12 @@ pub(crate) fn parse(reader: Reader<'_>) -> Result<(Headers, Vec<Section>, Xbe)> 
         .then(|| in_header(debug_path, "debug path address").and_then(|at| reader.cstr(at, 260, "the debug path")).ok().map(str::to_owned))
         .flatten();
 
-    let code = sections.iter().filter(|s| s.is_code());
-    let size_of_code = code.clone().map(Section::mapped_size).sum();
-    let base_of_code = code.map(|s| s.virtual_address).min().unwrap_or(0);
-    let size_of_initialized_data = sections.iter().filter(|s| !s.is_code() && !s.is_uninitialized()).map(Section::mapped_size).sum();
-    let size_of_uninitialized_data = sections.iter().filter(|s| s.is_uninitialized()).map(Section::mapped_size).sum();
+    // The sizes are the header's words: a sum past 4 GiB stays at the top, as a PE's field would.
+    let total = |filter: fn(&&Section) -> bool| sections.iter().filter(filter).map(Section::mapped_size).fold(0u32, u32::saturating_add);
+    let size_of_code = total(|s| s.is_code());
+    let base_of_code = sections.iter().filter(|s| s.is_code()).map(|s| s.virtual_address).min().unwrap_or(0);
+    let size_of_initialized_data = total(|s| !s.is_code() && !s.is_uninitialized());
+    let size_of_uninitialized_data = total(|s| s.is_uninitialized());
     let mut directories = vec![DataDirectory::default(); 16];
     if tls != 0 {
         let Some(rva) = tls.checked_sub(base) else { bail!("the XBE header's TLS address {tls:#x} lies below the base {base:#x}") };
