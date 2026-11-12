@@ -808,6 +808,30 @@ impl<'m> Vm<'m> {
             "round" => float(farg(0).round()),
             "fma" | "fmuladd" => float(farg(0).mul_add(farg(1), farg(2))),
             "copysign" => float(farg(0).copysign(farg(1))),
+            // The `.sat` conversions: toward zero, clamped to the type, and a NaN is zero.
+            "fptosi" => {
+                let (x, limit) = (farg(0), 2f64.powi(bits as i32 - 1));
+                let v = if x.is_nan() {
+                    0
+                } else if x >= limit {
+                    (1i128 << (bits - 1)) - 1
+                } else if x < -limit {
+                    -(1i128 << (bits - 1))
+                } else {
+                    x.trunc() as i128
+                };
+                int(v as u128)
+            }
+            "fptoui" => {
+                let x = farg(0);
+                int(if x.is_nan() || x <= -1.0 {
+                    0
+                } else if x >= 2f64.powi(bits as i32) {
+                    mask(bits)
+                } else {
+                    x.trunc() as u128
+                })
+            }
             "abs" => int(sext(arg(0), bits).unsigned_abs()),
             "umax" => int(arg(0).max(arg(1))),
             "umin" => int(arg(0).min(arg(1))),
