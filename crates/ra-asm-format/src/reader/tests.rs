@@ -22,6 +22,10 @@ fn a_read_past_the_end_names_the_field_and_the_offset() {
 fn an_offset_overflow_is_a_refusal_not_a_panic() {
     let bytes = [0u8; 4];
     assert!(Reader::new(&bytes).slice(usize::MAX, 2, "x").is_err());
+    assert_eq!(Reader::new(b"a\0").cstr(0, usize::MAX, "x").unwrap(), "a");
+    let mut c = Reader::new(&bytes).at(2);
+    let error = c.skip(usize::MAX).u8("the flags").unwrap_err();
+    assert!(format!("{error:#}").starts_with("the flags at offset 0xffffffffffffffff"), "{error:#}");
 }
 
 #[test]
