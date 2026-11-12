@@ -6,6 +6,7 @@
 //!   "exe": "ref/Game.exe",
 //!   "map": "ref/Game.map",
 //!   "signatures": ["sig/libcmt-14.51-x86.sig"],
+//!   "store": true,
 //!   "gen": "src/gen",
 //!   "lang": "c",
 //!   "x87": "double",
@@ -21,7 +22,10 @@
 //! PDB or the `<exe>.map` beside the binary does, when there is one. `signatures` lists library
 //! signatures (`ras signatures` files, or `.lib`/`.a`/`.obj` files to make them from) applied to
 //! the image before the analysis: a match names a library function and keeps its body out of the
-//! port. `gen` is where `ras emit`
+//! port. Beside them, the signature stores give the files the reference's toolset fingerprint
+//! picks (see [`crate::signatures`]): the project's own under `rhipper/signatures`, then the
+//! user's, a library the `signatures` list names left to the list; `"store": false` turns the
+//! stores off. `gen` is where `ras emit`
 //! writes the translation and `lang` its language (`c`; `cpp` for the
 //! same source with C++ linkage; `rust` for a cargo package, built by cargo under `build/cargo`);
 //! `x87` is the floating-point unit the lift models for x87 code: `double` (the default, eight
@@ -146,6 +150,8 @@ pub(crate) struct Project {
     pub map: Option<PathBuf>,
     /// The library signatures applied to the reference before the analysis.
     pub signatures: Vec<PathBuf>,
+    /// Whether the signature stores add the files the reference's toolset picks.
+    pub store: bool,
     /// Where `ras emit` writes the translation.
     pub gen_dir: PathBuf,
     /// The language of the translation: `c`, `cpp` or `rust`.
@@ -222,6 +228,7 @@ impl Project {
             exe: resolve(&exe),
             map: string("map").map(|m| resolve(&m)),
             signatures: strings(obj.get("signatures")).iter().map(|s| resolve(s)).collect(),
+            store: obj.get("store").and_then(Value::as_bool).unwrap_or(true),
             gen_dir: resolve(&string("gen").unwrap_or_else(|| "src/gen".into())),
             lang: string("lang").unwrap_or_else(|| "c".into()),
             x87,
@@ -270,10 +277,32 @@ impl Project {
             Some(map) => ra_asm_pe::load_with_map(&self.exe, map),
             None => ra_asm_pe::load(&self.exe),
         }?;
-        if !self.signatures.is_empty() {
-            crate::signatures::apply_files(&mut image, &self.signatures)?;
+        let files = self.signature_files(&image);
+        if !files.is_empty() {
+            crate::signatures::apply_files(&mut image, &files)?;
         }
         Ok(image)
+    }
+
+    /// The signature stores of the project, its own first: `rhipper/signatures` under the root,
+    /// then the user's; none when `store` is off.
+    pub(crate) fn signature_stores(&self) -> Vec<PathBuf> {
+        if !self.store {
+            return Vec::new();
+        }
+        let mut stores = vec![self.root.join(crate::signatures::PROJECT_STORE)];
+        stores.extend(crate::signatures::user_store());
+        stores
+    }
+
+    /// The signature files applied to `image`: the `signatures` list, then the files the stores
+    /// give its toolset, but for a library the list already names.
+    pub(crate) fn signature_files(&self, image: &ra_asm_pe::Image) -> Vec<PathBuf> {
+        let listed: std::collections::BTreeSet<String> = self.signatures.iter().filter_map(|p| crate::signatures::library_of(p)).collect();
+        let stored = crate::signatures::picked(image, &self.signature_stores())
+            .into_iter()
+            .filter(|f| crate::signatures::library_of(f).is_none_or(|l| !listed.contains(&l)));
+        self.signatures.iter().cloned().chain(stored).collect()
     }
 
     /// The build outputs the pipeline writes: `build/`.
