@@ -470,6 +470,7 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
     let mut module = match isa {
         Isa::X86 if image.elf.is_some() => Module::x86_64_linux(&name),
         Isa::X86 => Module::x86_64_windows(&name),
+        Isa::Arm64 if image.elf.is_some() => Module::aarch64_linux(&name),
         Isa::Arm64 => Module::aarch64_windows(&name),
     };
     module.types.push((state::STATE_TYPE.to_owned(), state::state_fields_for(isa)));

@@ -162,6 +162,47 @@ if (Wanted 'hello_linux') {
   if ($LASTEXITCODE -ne 0) { throw "clang failed for hello_linux64" }
 }
 
+# hello_linux_a64 is the same program for ARM64 Linux, over an ARM64 build of the stub libc.so.6:
+# `bl write` reaches the import through its PLT stub. An x64 host runs it only lifted, through the
+# IR interpreter, so its expected output is hello_linux's.
+if (Wanted 'hello_linux_a64') {
+  $out = Join-Path $PSScriptRoot '..\out\aarch64-linux'
+  New-Item -ItemType Directory -Force $out | Out-Null
+  $libc = Join-Path $out 'libc.so.6'
+  $common = @('--target=aarch64-linux-gnu', '-O2', '-nostdlib', '-fno-builtin', '-funwind-tables', '-fuse-ld=lld')
+  $args = $common + @('-shared', '-fPIC', (Join-Path $src 'libc_stub.c'), '-o', $libc, '-Wl,-soname,libc.so.6')
+  Write-Host "clang libc.so.6 (aarch64)" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for the aarch64 stub libc.so.6" }
+  $args = $common + @('-no-pie', (Join-Path $src 'hello_linux.c'), $libc, '-o', (Join-Path $bin 'hello_linux_a64'),
+    '-Wl,--dynamic-linker=/lib/ld-linux-aarch64.so.1', '-Wl,--build-id=none')
+  Write-Host "clang hello_linux_a64" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for hello_linux_a64" }
+}
+
+# libmain is an Android native library, as a game ships its code: a shared object for
+# aarch64-linux-android over the stub bionic libc.so, its relocations RELA records whose addends
+# the loader writes (lld leaves the words zero). A real one is linked at zero; this one at
+# 0x10000000, since the interpreter maps an image at its own base and no page lies at zero.
+# No vectorizer: the loop stays the scalar code the lift covers.
+if (Wanted 'libmain') {
+  $out = Join-Path $PSScriptRoot '..\out\aarch64-android'
+  New-Item -ItemType Directory -Force $out | Out-Null
+  $libc = Join-Path $out 'libc.so'
+  $common = @('--target=aarch64-linux-android21', '-O2', '-nostdlib', '-fno-builtin', '-funwind-tables', '-fuse-ld=lld', '-shared', '-fPIC')
+  $args = $common + @((Join-Path $src 'libc_stub.c'), '-o', $libc, '-Wl,-soname,libc.so')
+  Write-Host "clang libc.so (android)" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for the stub bionic libc.so" }
+  $args = $common + @('-fvisibility=hidden', '-fno-vectorize', '-fno-slp-vectorize', (Join-Path $src 'libmain.c'), $libc,
+    '-o', (Join-Path $bin 'libmain_a64.so'), '-Wl,-soname,libmain.so', '-Wl,--image-base=0x10000000', '-Wl,--build-id=none',
+    '-Wl,--hash-style=gnu', '-Wl,--pack-dyn-relocs=none')
+  Write-Host "clang libmain_a64.so" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for libmain_a64.so" }
+}
+
 # The PDBs (crt's excepted), the import libraries and the compiled resources are build leftovers,
 # not fixtures.
 Get-ChildItem $bin -Include *.pdb, *.lib, *.exp, *.res -Recurse | Where-Object { $_.Name -ne 'crt64.pdb' } | Remove-Item -Force

@@ -81,18 +81,44 @@ pub struct Outcome {
     pub facts: Facts,
 }
 
+/// A call into the image from outside it, as a host program makes one to an export of a library:
+/// the function by its name in the lifted module, and its integer arguments.
+#[derive(Debug, Clone)]
+pub struct Call {
+    pub function: String,
+    pub args: Vec<u64>,
+}
+
 static LOCK: Mutex<()> = Mutex::new(());
 
 /// Runs `lifted` (raised to any level, with the `signatures` of the ABI level when it is at that
 /// level) through the interpreter. The run takes a thread of its own with a deep stack, since the
 /// program's calls nest as the interpreter's.
 pub fn run(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signature>, options: &Options) -> Result<Outcome> {
+    on_own_thread(image, lifted, signatures, options, None).map(|(outcome, _)| outcome)
+}
+
+/// Calls one function of `lifted` through the interpreter, as a host program calls an export of
+/// the library it loaded, and gives its result (the first result register at the machine levels,
+/// the return value at the ABI level) with the outcome of the run. The image is set up as for
+/// [`run`]; its entry does not run.
+pub fn call(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signature>, call: &Call, options: &Options) -> Result<(u64, Outcome)> {
+    on_own_thread(image, lifted, signatures, options, Some(call)).map(|(outcome, result)| (result, outcome))
+}
+
+fn on_own_thread(
+    image: &Image,
+    lifted: &Lifted,
+    signatures: &HashMap<String, Signature>,
+    options: &Options,
+    call: Option<&Call>,
+) -> Result<(Outcome, u64)> {
     let _one_at_a_time = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
     std::thread::scope(|scope| {
         let handle = std::thread::Builder::new()
             .name("ras-run".into())
             .stack_size(256 << 20)
-            .spawn_scoped(scope, || run_here(image, lifted, signatures, options))
+            .spawn_scoped(scope, || run_here(image, lifted, signatures, options, call))
             .context("cannot start the interpreter's thread")?;
         handle.join().map_err(|_| anyhow!("the interpreter panicked"))?
     })

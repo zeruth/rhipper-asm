@@ -927,6 +927,12 @@ impl<'a> Runtime<'a> {
                 }
                 some(1)
             }
+            // A Linux or Android program's writes to its standard output and error.
+            "write" | "_write" if matches!(a(0) as u32, 1 | 2) => {
+                let bytes = vm.memory.read_vec(a(1), a(2))?;
+                self.emit(a(0) as u32 == 2, &bytes);
+                some(a(2))
+            }
             "WriteConsoleW" if self.is_std_output(a(0)) => {
                 let units = vm.memory.read_vec(a(1), a(2) * 2)?;
                 let text: Vec<u16> = units.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();

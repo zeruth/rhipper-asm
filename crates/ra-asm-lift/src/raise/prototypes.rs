@@ -777,6 +777,10 @@ pub fn arity(name: &str) -> Option<usize> {
         | "_read"
         | "_write"
         | "_lseek"
+        // The POSIX names a Linux or Android C library exports them by.
+        | "read"
+        | "write"
+        | "lseek"
         | "_snprintf"
         | "vsprintf"
         | "vfprintf"
