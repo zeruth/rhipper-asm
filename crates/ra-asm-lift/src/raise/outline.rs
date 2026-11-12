@@ -525,12 +525,17 @@ fn matches(module: &Module, t: &Region, s: &Region) -> Option<(Region, Match)> {
     if !pair_terminator(&mut m, &t_pre.terminator, &s_pre.terminator) {
         return None;
     }
+    // The phis of a block come in the order of the machine's slots, which differs between copies
+    // that keep a value in different registers: the rest of each block is paired first, and a
+    // phi then with the copy's phi its uses bound it to.
+    let mut phis: Vec<(&[Instruction], &[Instruction])> = Vec::new();
     for &a in &t.body {
         let (ba, bb) = (ft.block(a)?, fs.block(*blocks.get(&a)?)?);
-        if ba.instrs.len() != bb.instrs.len() {
+        let n = phi_count(ba);
+        if ba.instrs.len() != bb.instrs.len() || n != phi_count(bb) {
             return None;
         }
-        for (x, y) in ba.instrs.iter().zip(&bb.instrs) {
+        for (x, y) in ba.instrs[n..].iter().zip(&bb.instrs[n..]) {
             if !pair_instr(&mut m, x, y) {
                 return None;
             }
@@ -538,21 +543,48 @@ fn matches(module: &Module, t: &Region, s: &Region) -> Option<(Region, Match)> {
         if !pair_terminator(&mut m, &ba.terminator, &bb.terminator) {
             return None;
         }
+        phis.push((&ba.instrs[..n], &bb.instrs[..n]));
     }
     let (xa, xb) = (ft.block(t.exit)?, fs.block(s.exit)?);
     let exit_phis = t.exit_phis(ft);
     if exit_phis != s.exit_phis(fs) {
         return None;
     }
-    for (x, y) in xa.instrs.iter().take(exit_phis).zip(&xb.instrs) {
-        if !pair_instr(&mut m, x, y) {
-            return None;
-        }
-    }
+    phis.push((&xa.instrs[..exit_phis], &xb.instrs[..exit_phis]));
     match (t.output, s.output) {
         (None, None) => {}
-        (Some(x), Some(y)) if m.sigma.get(&x) == Some(&y) => {}
+        (Some(x), Some(y)) if m.bind_value(x, y) => {}
         _ => return None,
+    }
+    let mut pending: Vec<(usize, usize)> = phis.iter().enumerate().flat_map(|(g, (a, _))| (0..a.len()).map(move |i| (g, i))).collect();
+    let mut taken: HashSet<(usize, usize)> = HashSet::new();
+    loop {
+        let before = pending.len();
+        let mut unbound = Vec::new();
+        for (g, i) in pending {
+            let (ta, sb) = phis[g];
+            let Some(y) = ta[i].result.and_then(|v| m.sigma.get(&v).copied()) else {
+                unbound.push((g, i));
+                continue;
+            };
+            let j = sb.iter().position(|p| p.result == Some(y))?;
+            if !taken.insert((g, j)) || !pair_instr(&mut m, &ta[i], &sb[j]) {
+                return None;
+            }
+        }
+        pending = unbound;
+        if pending.is_empty() || pending.len() == before {
+            break;
+        }
+    }
+    // The phis no use bound: in order, over the copy's phis left.
+    for (g, i) in pending {
+        let (ta, sb) = phis[g];
+        let j = (0..sb.len()).find(|j| !taken.contains(&(g, *j)))?;
+        taken.insert((g, j));
+        if !pair_instr(&mut m, &ta[i], &sb[j]) {
+            return None;
+        }
     }
     Some((s, m))
 }
