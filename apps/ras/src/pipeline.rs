@@ -339,7 +339,12 @@ impl<'a> Pipeline<'a> {
             .chain([("image.h", header.as_bytes())]);
         let mut outputs: Vec<(PathBuf, u64)> = written.map(|(path, bytes)| (gen_dir.join(path), digest(bytes))).collect();
         outputs.push((build_dir.join("functions.json"), digest(table.as_bytes())));
+        let regenerated = crate::emit::regenerate(&build_dir, analysis, &translation)?;
         let warnings = log_warnings(log, analysis.warnings.iter().chain(annotated).chain(&lifted.warnings).chain(&translation.warnings));
+        if let Some(line) = regenerated {
+            writeln!(log, "{line}")?;
+            println!("{line}");
+        }
         let summary = format!(
             "{} functions, {} bytes of {lang} in {} files, {} instructions not lifted, {} warnings -> {}",
             translation.functions.len(),

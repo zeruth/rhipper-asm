@@ -344,6 +344,8 @@ impl Session<'_> {
         if let Some(hand) = params.get("hand") {
             annotation.hand = hand.as_bool().ok_or_else(|| anyhow!("the parameter `hand` is no boolean"))?;
         }
+        // The function apart from its address, which the next build of the reference finds it by.
+        annotation.identity = ra_asm_analysis::identity::identities(self.analysis).remove(&function.entry);
         let file = annotations::write(&project.root, &annotation)?;
         Ok(json!({"file": file.display().to_string(), "written": !annotation.is_empty(), "annotation": annotation.to_json()}))
     }
