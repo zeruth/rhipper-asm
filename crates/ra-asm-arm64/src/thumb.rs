@@ -53,18 +53,6 @@ pub enum Shift {
     Rrx,
 }
 
-impl Shift {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Lsl => "lsl",
-            Self::Lsr => "lsr",
-            Self::Asr => "asr",
-            Self::Ror => "ror",
-            Self::Rrx => "rrx",
-        }
-    }
-}
-
 /// The second source of a data-processing instruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
@@ -458,7 +446,6 @@ fn alu32(op: u32, s: bool, rn: u8, rd: u8, src: Source) -> Op {
 }
 
 fn decode32(h1: u32, h2: u32, address: u64) -> Op {
-    let pc = address + 4;
     let rn = reg(h1, 0);
     let rd = reg(h2, 8);
     let rm = reg(h2, 0);

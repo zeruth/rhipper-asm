@@ -523,7 +523,7 @@ impl<'a> Runtime<'a> {
     /// arguments from `r0`, the result in `r0`. The calls a program without a C library makes
     /// to print and to end are here; another stops the run with its number.
     fn svc(&mut self, vm: &mut Vm<'_>, state: u64) -> Result<Value, Stop> {
-        let r = |vm: &Vm<'_>, n: u64| vm.memory.read_u32(state + n * 8);
+        let r = |vm: &mut Vm<'_>, n: u64| vm.memory.read_u32(state + n * 8);
         let number = r(vm, 7)?;
         let result: u32 = match number {
             // exit, exit_group
