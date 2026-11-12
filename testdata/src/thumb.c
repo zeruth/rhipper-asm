@@ -1,13 +1,20 @@
-// The Thumb-2 fixture: a Linux program for 32-bit ARM, built with -mthumb, over the C library's
-// `write` and `exit` imported through the PLT (whose stubs are ARM code, so every import call
-// switches the instruction set). A conditional select becomes an IT block, a loop reads a table
-// of the read-only data, and -mno-movt puts the table's address in a literal pool after the code.
-// clang builds it for armv7-linux-gnueabihf against the stub `libc.so.6` of libc_stub.c; no ARM
+// The Thumb-2 fixture: a static Linux program for 32-bit ARM, built with -mthumb, that talks to
+// the kernel through `svc` alone, so no C library and no PLT is needed. A conditional select
+// becomes an IT block, a loop reads a table of the read-only data, -mno-movt puts the table's
+// address in a literal pool after the code, and a division by ten becomes a long multiply. No ARM
 // machine is here, so it runs lifted only, and its expected output is what the source prints.
-long write(int fd, const void *buf, unsigned long n);
-__attribute__((noreturn)) void exit(int status);
 
 static const int values[5] = {3, 1, 4, 1, 5};
+
+// The EABI system call: the number in r7, the arguments from r0, the result in r0.
+static long syscall3(long number, long a, long b, long c) {
+    register long r7 __asm__("r7") = number;
+    register long r0 __asm__("r0") = a;
+    register long r1 __asm__("r1") = b;
+    register long r2 __asm__("r2") = c;
+    __asm__ volatile("svc #0" : "+r"(r0) : "r"(r7), "r"(r1), "r"(r2) : "memory");
+    return r0;
+}
 
 __attribute__((noinline)) int square(int x) { return x * x; }
 
@@ -43,6 +50,8 @@ __attribute__((noreturn)) void _start(void) {
     *p++ = ' ';
     p = digits(p, (unsigned)sum(values, 5));
     *p++ = '\n';
-    write(1, buf, (unsigned long)(p - buf));
-    exit(0);
+    syscall3(4, 1, (long)buf, p - buf);
+    for (;;) {
+        syscall3(1, 0, 0, 0);
+    }
 }
