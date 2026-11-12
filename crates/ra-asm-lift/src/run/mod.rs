@@ -85,6 +85,19 @@ pub fn run(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signatur
     })
 }
 
+/// An allocation at the addresses a run needs, asked for again for a few seconds while it fails:
+/// the process's other threads (the tests beside this run, a host DLL's heap) hold an address or
+/// the commit charge for a moment, and the image has no other base to go to.
+fn patiently(mut allocate: impl FnMut() -> Option<os::Allocation>) -> Option<os::Allocation> {
+    for _ in 0..100 {
+        if let Some(allocation) = allocate() {
+            return Some(allocation);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    None
+}
+
 fn setup(stop: Stop) -> anyhow::Error {
     match stop {
         Stop::Fault(m) => anyhow!("{m}"),
@@ -95,9 +108,9 @@ fn setup(stop: Stop) -> anyhow::Error {
 fn run_here(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signature>, options: &Options) -> Result<Outcome> {
     let base = image.image_base();
     let size = u64::from(image.size_of_image()).div_ceil(0x10000) * 0x10000;
-    let image_region =
-        os::allocate_at(base, size).ok_or_else(|| anyhow!("cannot map the image at {base:#x}: the address is taken in this process"))?;
-    let low = |len: u64, what: &str| os::allocate_low(len).ok_or_else(|| anyhow!("no room below 4 GB for the {what}"));
+    let image_region = patiently(|| os::allocate_at(base, size))
+        .ok_or_else(|| anyhow!("cannot map the image at {base:#x}: the address is taken in this process"))?;
+    let low = |len: u64, what: &str| patiently(|| os::allocate_low(len)).ok_or_else(|| anyhow!("no room below 4 GB for the {what}"));
     let statics = low(4 << 20, "globals")?;
     let frames = low(16 << 20, "frames")?;
     let stack = low(1 << 20, "stack")?;
