@@ -1278,14 +1278,18 @@ impl<'a> Runtime<'a> {
     }
 
     /// The host function for `symbol`: resolved before, an import of the image by its DLL, or a
-    /// function of the host's C runtime.
+    /// function of the host's C runtime. An ELF image's C library (`libc.so.6`, bionic's `libc.so`)
+    /// is no library of a Windows host: its functions are the host's C runtime's of the same name.
     fn procedure(&mut self, symbol: &str) -> Result<usize, Stop> {
         if let Some(&f) = self.procedures.get(symbol) {
             return Ok(f);
         }
+        let runtime = |name: &str| RUNTIME_DLLS.iter().find_map(|dll| os::library(dll).and_then(|m| os::procedure(m, name)));
         let found = match self.imports.get(symbol) {
-            Some((dll, name)) => os::library(dll).and_then(|m| os::procedure(m, name)),
-            None => RUNTIME_DLLS.iter().find_map(|dll| os::library(dll).and_then(|m| os::procedure(m, symbol))),
+            Some((dll, name)) => {
+                os::library(dll).and_then(|m| os::procedure(m, name)).or_else(|| self.image.elf.as_ref().and_then(|_| runtime(name)))
+            }
+            None => runtime(symbol),
         };
         match found {
             Some(f) => {
