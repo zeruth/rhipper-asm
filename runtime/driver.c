@@ -12,9 +12,14 @@
 // is its DllMain rather than a main.
 //
 // The runtime functions the lifted code calls: ra_trap, ra_unsupported and ra_call.
+//
+// The host is Windows or a POSIX system (Linux, macOS). A Windows program's port needs Windows:
+// its imports are the DLLs', and the adapters of the Microsoft C runtime, user32, the lockstep pipe
+// and the crash report through a vectored handler are Windows' alone. A POSIX host builds the port
+// of a 64-bit program whose imports its own libraries answer, a Linux program's, with the same
+// machine model: the image mapped by mmap, the slots bound by dlsym, a crash reported by a signal.
 #include <fenv.h>
 #include <float.h>
-#include <intrin.h>
 #include <math.h>
 #include <setjmp.h>
 #include <stdarg.h>
@@ -22,20 +27,46 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <intrin.h>
 #include <windows.h>
+#else
+#include <dlfcn.h>
+#include <signal.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#if defined(__x86_64__)
+#include <cpuid.h>
+#include <x86intrin.h>
+#endif
+#endif
 
 #include "image.h"
 
+#ifdef _WIN32
 // The window adapters below call user32 whether or not the program does: the library comes with
 // the driver, so a link that names only kernel32 still resolves them.
 #pragma comment(lib, "user32")
+#define host_exit(code) ExitProcess(code)
+#else
+#if RA_POINTER_SIZE == 4
+#error "a 32-bit program keeps its pointers below 4 GB through a Windows linker flag: its port builds on a Windows host"
+#endif
+#ifdef RA_DLL
+#error "the port of a DLL is a Windows DLL: it builds on a Windows host"
+#endif
+// The reasons a Windows loader passes the TLS callbacks; a POSIX image has none to call.
+enum { DLL_PROCESS_ATTACH = 1, DLL_THREAD_ATTACH = 2 };
+// The status keeps its low byte, the one a POSIX parent sees.
+#define host_exit(code) _Exit((int)((code) & 0xff))
+#endif
 
 // The machine state, as %State in the IR: 16 general registers, rip, 8 flag bytes, 16 vectors.
 struct State {
     uint64_t gpr[16];
     uint64_t rip;
     uint8_t flags[8];
-    __declspec(align(16)) uint8_t xmm[16][16];
+    _Alignas(16) uint8_t xmm[16][16];
 };
 
 enum { RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8, R9 };
@@ -60,10 +91,10 @@ static const char *trap_name(uint64_t code) {
     }
 }
 
-__declspec(noreturn) void ra_trap(uint64_t address, uint64_t code) {
+_Noreturn void ra_trap(uint64_t address, uint64_t code) {
     fprintf(stderr, "ra: %s at 0x%llx\n", trap_name(code), (unsigned long long)address);
     fflush(stderr);
-    ExitProcess(0xE0000001);
+    host_exit(0xE0000001);
 }
 
 // The entry hook of a port built with RA_TRACE: each function names itself as it starts.
@@ -81,9 +112,14 @@ void ra_enter(const char *name) {
 static FILE *trace_file(void) {
     static FILE *file;
     if (!file) {
+#ifdef _WIN32
         char path[MAX_PATH];
         DWORD length = GetEnvironmentVariableA("RHIPPER_TRACE", path, sizeof path);
         if (length > 0 && length < sizeof path && fopen_s(&file, path, "w") != 0) file = NULL;
+#else
+        const char *path = getenv("RHIPPER_TRACE");
+        if (path && *path) file = fopen(path, "w");
+#endif
         if (!file) file = stderr;
     }
     return file;
@@ -105,7 +141,9 @@ uint64_t ra_f32_bits(float value) {
 // entry, writing `> name kinds value...` (`-` for no arguments, the values in hexadecimal) and
 // reading commands until one lets it go on: `n` to the next entry, `r address size` for the bytes
 // there as one hexadecimal line (`!` and the error when they cannot be read), `q` to run on
-// without stopping. A closed pipe lets the port run on as `q` does.
+// without stopping. A closed pipe lets the port run on as `q` does. The pipe is a Windows named
+// pipe, which `ras` connects to on a Windows host: a POSIX port runs without stopping.
+#ifdef _WIN32
 static HANDLE step_pipe = INVALID_HANDLE_VALUE;
 
 static int step_open(void) {
@@ -198,6 +236,18 @@ static void step_stop(const char *name, const char *kinds, const uint64_t *value
         }
     }
 }
+#else
+static int step_open(void) {
+    return 0;
+}
+
+static void step_stop(const char *name, const char *kinds, const uint64_t *values, size_t count) {
+    (void)name;
+    (void)kinds;
+    (void)values;
+    (void)count;
+}
+#endif
 
 void ra_trace_enter(const char *name, const char *kinds, ...) {
     FILE *file = trace_file();
@@ -256,14 +306,16 @@ void ra_trace_leave(const char *name) {
     fflush(file);
 }
 
-__declspec(noreturn) void ra_unsupported(uint64_t address, uint64_t code) {
+_Noreturn void ra_unsupported(uint64_t address, uint64_t code) {
     fprintf(stderr, "ra: an instruction the lift does not cover at 0x%llx (code %llu)\n", (unsigned long long)address, (unsigned long long)code);
     fflush(stderr);
-    ExitProcess(0xE0000002);
+    host_exit(0xE0000002);
 }
 
 // The processor's answers, from the host: the port runs on a processor at least as capable as
-// the one the program asks about.
+// the one the program asks about. A host of another architecture has no answer to give, and the
+// port stops rather than invent one.
+#if defined(_WIN32)
 void ra_cpuid(uint64_t leaf, uint64_t subleaf, void *out) {
     int regs[4];
     __cpuidex(regs, (int)leaf, (int)subleaf);
@@ -277,6 +329,45 @@ uint64_t ra_xgetbv(uint64_t which) {
 uint64_t ra_rdtsc(void) {
     return __rdtsc();
 }
+#elif defined(__x86_64__)
+void ra_cpuid(uint64_t leaf, uint64_t subleaf, void *out) {
+    unsigned regs[4];
+    __cpuid_count((unsigned)leaf, (unsigned)subleaf, regs[0], regs[1], regs[2], regs[3]);
+    memcpy(out, regs, sizeof regs);
+}
+
+uint64_t ra_xgetbv(uint64_t which) {
+    uint32_t low, high;
+    __asm__ volatile("xgetbv" : "=a"(low), "=d"(high) : "c"((uint32_t)which));
+    return ((uint64_t)high << 32) | low;
+}
+
+uint64_t ra_rdtsc(void) {
+    return __rdtsc();
+}
+#else
+_Noreturn static void no_x86_answer(const char *what) {
+    fprintf(stderr, "ra: %s asks an x86 processor, and the host is another\n", what);
+    fflush(stderr);
+    host_exit(0xE0000002);
+}
+
+void ra_cpuid(uint64_t leaf, uint64_t subleaf, void *out) {
+    (void)leaf;
+    (void)subleaf;
+    (void)out;
+    no_x86_answer("cpuid");
+}
+
+uint64_t ra_xgetbv(uint64_t which) {
+    (void)which;
+    no_x86_answer("xgetbv");
+}
+
+uint64_t ra_rdtsc(void) {
+    no_x86_answer("rdtsc");
+}
+#endif
 
 typedef uint64_t (*native8)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
@@ -382,6 +473,7 @@ uint64_t ra_x86_operator_delete(uint64_t block) {
 // user32's stacks and heaps included, lies below 2 GB, and a window or GDI handle is 32 bits
 // significant on every Windows; only a pointer into a system DLL's own image would not fit, and no
 // message carries one.
+#ifdef _WIN32
 struct ra_wndclass32 {
     uint32_t style, proc;
     int32_t cls_extra, wnd_extra;
@@ -512,6 +604,7 @@ uint64_t ra_x86_end_paint(uint64_t hwnd, uint64_t narrow) {
     memcpy(ps.rgbReserved, n->reserved, sizeof ps.rgbReserved);
     return (uint64_t)(uint32_t)EndPaint((HWND)(uintptr_t)hwnd, &ps);
 }
+#endif
 
 // The floating-point environment of an x86 program is the x87 control and status words as much as
 // the SSE register: _controlfp, _clearfp and the C99 fenv functions read and write both. The port
@@ -537,6 +630,8 @@ static unsigned ra_x87_flags(unsigned crt) {
 
 // The C runtime's control word from the x87's: the masks, the rounding mode (bits 10 and 11 to
 // bits 8 and 9) and the precision (24 bits is _PC_24 0x20000, 53 _PC_53 0x10000, 64 _PC_64 0).
+// The words are the Microsoft runtime's, which a Windows host answers.
+#ifdef _WIN32
 static unsigned ra_crt_control(unsigned cw) {
     unsigned pc = (cw >> 8) & 3;
     return ra_crt_flags(cw & 0x3f) | ((cw >> 2) & RA_MCW_RC) | (pc == 0 ? 0x20000u : pc == 2 ? 0x10000u : 0);
@@ -577,6 +672,7 @@ uint64_t ra_x86_clearfp(void) {
     ra_x87_sw &= (uint16_t)~0xffu;
     return flags;
 }
+#endif
 
 uint64_t ra_x86_fetestexcept(uint64_t excepts) {
     return ((unsigned)fetestexcept((int)excepts) | ra_crt_flags(ra_x87_sw & 0x3f)) & (unsigned)excepts;
@@ -606,7 +702,7 @@ jmp_buf *ra_jmp_slot(uint64_t buffer) {
     for (int k = 0; k < 16; k++) if (ra_jumps[k].key == 0) { ra_jumps[k].key = buffer; return &ra_jumps[k].buf; }
     fprintf(stderr, "ra: more than 16 jmp_bufs in use\n");
     fflush(stderr);
-    ExitProcess(0xE0000006);
+    host_exit(0xE0000006);
 }
 
 uint64_t ra_x86_longjmp(uint64_t buffer, uint64_t value) {
@@ -1051,7 +1147,9 @@ uint64_t (ra_x86_setjmp3)(uint64_t buffer, uint64_t count) {
     return 0;
 }
 
-// An import by ordinal has no symbol to link: the host's function, found at startup.
+// An import by ordinal has no symbol to link: the host's function, found at startup. Ordinals and
+// the Microsoft runtime's printf and scanf entries below are a Windows program's alone.
+#ifdef _WIN32
 void *ra_resolve_ordinal(const char *dll, unsigned ordinal) {
     HMODULE module = LoadLibraryA(dll);
     void *function = module ? (void *)GetProcAddress(module, (LPCSTR)(uintptr_t)ordinal) : NULL;
@@ -1165,6 +1263,7 @@ uint64_t ra_x86_vsscanf(uint64_t options, uint64_t buffer, uint64_t count, uint6
     return (uint64_t)(int64_t)__stdio_common_vsscanf(options, (const char *)(uintptr_t)buffer, (size_t)count, (const char *)(uintptr_t)format,
                                                      (_locale_t)(uintptr_t)locale, (va_list)slots);
 }
+#endif
 
 // The strto* family writes a `char *` of eight bytes where the program expects four: the host's
 // end pointer goes to a local, and its low half to the program's.
@@ -1205,12 +1304,20 @@ uint64_t ra_x86_p_argv(void) {
 
 uint64_t ra_x86_initial_narrow_environment(void) {
     if (!environment32) {
+#ifdef _WIN32
         char *block = GetEnvironmentStringsA();
         size_t count = 0;
         for (char *p = block; *p; p += strlen(p) + 1) count++;
         environment32 = (uint32_t *)calloc(count + 1, sizeof(uint32_t));
         size_t i = 0;
         for (char *p = block; *p; p += strlen(p) + 1) environment32[i++] = (uint32_t)(uintptr_t)p;
+#else
+        extern char **environ;
+        size_t count = 0;
+        while (environ[count]) count++;
+        environment32 = (uint32_t *)calloc(count + 1, sizeof(uint32_t));
+        for (size_t i = 0; i < count; i++) environment32[i] = (uint32_t)(uintptr_t)environ[i];
+#endif
     }
     return (uint64_t)(uintptr_t)environment32;
 }
@@ -1221,13 +1328,13 @@ uint64_t ra_x86_initial_narrow_environment(void) {
 void ra_x86_report_gsfailure(void) {
     fprintf(stderr, "ra: the stack cookie check failed\n");
     fflush(stderr);
-    ExitProcess(0xC0000409u);
+    host_exit(0xC0000409u);
 }
 
 void ra_x86_report_rangecheckfailure(void) {
     fprintf(stderr, "ra: an array index was out of range\n");
     fflush(stderr);
-    ExitProcess(0xC0000409u);
+    host_exit(0xC0000409u);
 }
 
 // C++ exceptions: the runtime half of the protocol the lift writes into the code (rhipper.h names
@@ -1249,10 +1356,10 @@ static struct ra_exception *eh_in_flight, *eh_staged;
 static struct ra_exception *eh_caught[64], *eh_suspended[64];
 static int eh_caught_depth, eh_suspended_depth;
 
-__declspec(noreturn) static void eh_fatal(const char *what) {
+_Noreturn static void eh_fatal(const char *what) {
     fprintf(stderr, "ra: %s\n", what);
     fflush(stderr);
-    ExitProcess(0xE0000006);
+    host_exit(0xE0000006);
 }
 
 static void eh_release(struct ra_exception *e) {
@@ -1430,7 +1537,7 @@ void ra_call(void *state_, uint64_t target) {
     if (target >= RA_IMAGE_BASE && target < RA_IMAGE_BASE + RA_IMAGE_SIZE) {
         fprintf(stderr, "ra: an indirect call to 0x%llx, which is no lifted function\n", (unsigned long long)target);
         fflush(stderr);
-        ExitProcess(0xE0000003);
+        host_exit(0xE0000003);
     }
     native8 f = (native8)target;
 #if RA_POINTER_SIZE == 4
@@ -1440,9 +1547,15 @@ void ra_call(void *state_, uint64_t target) {
     state->gpr[RAX] = (uint32_t)result;
     state->gpr[RDX] = (uint32_t)(result >> 32);
     state->gpr[RSP] = (uint32_t)state->gpr[RSP] + 4 + (pops > 0 ? (uint32_t)pops : 0);
-#else
+#elif defined(_WIN32)
     uint64_t *stack = (uint64_t *)(state->gpr[RSP] + 8);  // past the pushed return address
     state->gpr[RAX] = f(state->gpr[RCX], state->gpr[RDX], state->gpr[R8], state->gpr[R9], stack[4], stack[5], stack[6], stack[7]);
+    state->gpr[RSP] += 8;
+#else
+    // A POSIX program calls by System V: six arguments in registers, the rest right past the
+    // return address, without the shadow space.
+    uint64_t *stack = (uint64_t *)(state->gpr[RSP] + 8);  // past the pushed return address
+    state->gpr[RAX] = f(state->gpr[RDI], state->gpr[RSI], state->gpr[RDX], state->gpr[RCX], state->gpr[R8], state->gpr[R9], stack[0], stack[1]);
     state->gpr[RSP] += 8;
 #endif
 }
@@ -1462,7 +1575,7 @@ static uint32_t slot_trampoline(FARPROC f) {
         }
         if (!slot_trampolines) {
             fprintf(stderr, "ra: no room below 4 GB for the import trampolines\n");
-            ExitProcess(0xE0000004);
+            host_exit(0xE0000004);
         }
     }
     static size_t used;
@@ -1478,12 +1591,13 @@ static uint32_t slot_trampoline(FARPROC f) {
 }
 #endif
 
+#ifdef _WIN32
 static void bind_imports(void) {
     for (int i = 0; ra_imports[i].slot != 0; i++) {
         HMODULE module = LoadLibraryA(ra_imports[i].dll);
         if (!module) {
             fprintf(stderr, "ra: cannot load %s\n", ra_imports[i].dll);
-            ExitProcess(0xE0000004);
+            host_exit(0xE0000004);
         }
         FARPROC f = ra_imports[i].name ? GetProcAddress(module, ra_imports[i].name) : GetProcAddress(module, MAKEINTRESOURCEA(ra_imports[i].ordinal));
         if (!f) {
@@ -1499,6 +1613,26 @@ static void bind_imports(void) {
 #endif
     }
 }
+#else
+// A POSIX program imports by symbol name from the libraries it needs, or from the whole process
+// when the image names none for the symbol; an ordinal has no meaning there.
+static void bind_imports(void) {
+    for (int i = 0; ra_imports[i].slot != 0; i++) {
+        const char *library = ra_imports[i].dll && *ra_imports[i].dll ? ra_imports[i].dll : NULL;
+        void *module = dlopen(library, RTLD_NOW | RTLD_GLOBAL);
+        if (!module) {
+            fprintf(stderr, "ra: cannot load %s: %s\n", library ? library : "the process", dlerror());
+            host_exit(0xE0000004);
+        }
+        void *f = ra_imports[i].name ? dlsym(module, ra_imports[i].name) : NULL;
+        if (!f) {
+            fprintf(stderr, "ra: %s has no %s; its slot stays empty\n", library ? library : "the process", ra_imports[i].name ? ra_imports[i].name : "(ordinal)");
+            continue;
+        }
+        *(uint64_t *)(uintptr_t)ra_imports[i].slot = (uint64_t)(uintptr_t)f;
+    }
+}
+#endif
 
 #if defined(RA_ABI)
 // A trampoline at each lifted function's image address: `mov rax, imm64; jmp rax`, 12 bytes.
@@ -1533,7 +1667,11 @@ static void install_trampolines(void) {
         p[11] = 0xE0;
     }
     free(addresses);
+#ifdef _WIN32
     FlushInstructionCache(GetCurrentProcess(), (void *)(uintptr_t)RA_IMAGE_BASE, RA_IMAGE_SIZE);
+#else
+    __builtin___clear_cache((char *)(uintptr_t)RA_IMAGE_BASE, (char *)(uintptr_t)(RA_IMAGE_BASE + RA_IMAGE_SIZE));
+#endif
 }
 #endif
 #endif  // RA_STANDALONE
@@ -1608,6 +1746,7 @@ static void run_tls_callbacks(uint32_t reason) {
 
 static void attach_thread(uint32_t reason) {
     attached = 1;
+#ifdef _WIN32
     NT_TIB *tib = (NT_TIB *)NtCurrentTeb();
     uintptr_t self = (uintptr_t)teb;
     uintptr_t stack_base = (uintptr_t)tib->StackBase;
@@ -1627,6 +1766,12 @@ static void attach_thread(uint32_t reason) {
     *(uint64_t *)(teb + 0x30) = self;
     *(uint64_t *)(teb + 0x40) = pid;
     *(uint64_t *)(teb + 0x48) = tid;
+    *(uint64_t *)(teb + 0x58) = (uint64_t)(uintptr_t)&tls_slot;
+#endif
+#else
+    // A POSIX thread has no TIB to copy: the block names itself and its TLS pointer, and the rest,
+    // the stack guard a Linux program reads at fs:0x28 among it, stays zero.
+    *(uint64_t *)(teb + 0x30) = (uint64_t)(uintptr_t)teb;
     *(uint64_t *)(teb + 0x58) = (uint64_t)(uintptr_t)&tls_slot;
 #endif
     if (ra_tls[0]) {
@@ -1649,6 +1794,7 @@ static void attach_process(void) {
     attach_thread(DLL_PROCESS_ATTACH);
 }
 
+#ifdef _WIN32
 // The module the port is: the program itself, or the DLL the loader attached.
 static HMODULE ra_module;
 
@@ -1676,6 +1822,25 @@ static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
     fflush(stderr);
     return EXCEPTION_CONTINUE_SEARCH;
 }
+#else
+// A crash of the lifted code on a POSIX host names the signal and the address it touched; the
+// handler then gives the signal back to its default, so the process ends as the crash would.
+static void on_signal(int signal_number, siginfo_t *info, void *context) {
+    (void)context;
+    fprintf(stderr, "ra: signal %d at 0x%llx\n", signal_number, (unsigned long long)(uintptr_t)info->si_addr);
+    fflush(stderr);
+}
+
+static void report_crashes(void) {
+    struct sigaction action;
+    memset(&action, 0, sizeof action);
+    action.sa_sigaction = on_signal;
+    action.sa_flags = SA_SIGINFO | SA_RESETHAND | SA_NODEFER;
+    sigemptyset(&action.sa_mask);
+    const int signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE};
+    for (size_t i = 0; i < sizeof signals / sizeof signals[0]; i++) sigaction(signals[i], &action, NULL);
+}
+#endif
 
 #if defined(RA_ABI) && !defined(RA_DLL)
 // The entry, and the program's exit code: `main`'s result when the driver's startup stands in for
@@ -1723,9 +1888,33 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     return ok ? TRUE : FALSE;
 }
 #else  // RA_DLL
+#ifndef RA_STANDALONE
+// Memory at `at`, or anywhere when `at` is zero; NULL when it cannot be had there. On a POSIX
+// host the address is a hint rather than MAP_FIXED, so a mapping the process already holds is
+// never replaced, and one the kernel placed elsewhere is given back.
+static void *host_map(uintptr_t at, size_t size, int executable) {
+#ifdef _WIN32
+    return VirtualAlloc((void *)at, size, MEM_RESERVE | MEM_COMMIT, executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE);
+#else
+    int protect = PROT_READ | PROT_WRITE | (executable ? PROT_EXEC : 0);
+    void *p = mmap((void *)at, size, protect, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED) return NULL;
+    if (at && p != (void *)at) {
+        munmap(p, size);
+        return NULL;
+    }
+    return p;
+#endif
+}
+#endif
+
 int main(int argc, char **argv) {
+#ifdef _WIN32
     ra_module = GetModuleHandleA(NULL);
     AddVectoredExceptionHandler(1, on_exception);
+#else
+    report_crashes();
+#endif
     ra_argc = argc;
     ra_argv = argv;
 #ifdef RA_STANDALONE
@@ -1742,9 +1931,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ra: cannot open %s\n", image_path);
         return 2;
     }
-    void *image = VirtualAlloc((void *)(uintptr_t)RA_IMAGE_BASE, RA_IMAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    void *image = host_map((uintptr_t)RA_IMAGE_BASE, RA_IMAGE_SIZE, 1);
     if (image != (void *)(uintptr_t)RA_IMAGE_BASE) {
-        fprintf(stderr, "ra: cannot map the image at 0x%llx (%lu)\n", (unsigned long long)RA_IMAGE_BASE, GetLastError());
+        fprintf(stderr, "ra: cannot map the image at 0x%llx\n", (unsigned long long)RA_IMAGE_BASE);
         return 2;
     }
     size_t read = fread(image, 1, RA_IMAGE_SIZE, f);
@@ -1765,11 +1954,9 @@ int main(int argc, char **argv) {
     uint8_t *stack = NULL;
 #if RA_POINTER_SIZE == 4
     // A 32-bit program keeps its stack pointer in 32 bits: the stack must sit below 4 GB.
-    for (uintptr_t base = 0x20000000; base < 0x80000000 && !stack; base += 0x10000000) {
-        stack = VirtualAlloc((void *)base, stack_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    }
+    for (uintptr_t base = 0x20000000; base < 0x80000000 && !stack; base += 0x10000000) stack = host_map(base, stack_size, 0);
 #else
-    stack = VirtualAlloc(NULL, stack_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    stack = host_map(0, stack_size, 0);
 #endif
     if (!stack) return 2;
     // The entry sees the stack pointer as after a call: a pointer past a 16-byte boundary, with

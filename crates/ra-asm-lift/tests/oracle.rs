@@ -71,6 +71,18 @@ fn lift_to(binary: &str, tag: &str) -> (ra_asm_testing::Scratch, ra_asm_lift::Li
     (dir, lifted)
 }
 
+/// A host without the Windows DLLs answers only the imports the interpreter runs itself: a run
+/// stopped at another one says so and is skipped there.
+fn stopped_for_dlls(binary: &str, outcome: &ra_asm_lift::run::Outcome) -> bool {
+    match &outcome.stop {
+        Some(stop) if !cfg!(windows) && stop.starts_with("no binding for ") => {
+            eprintln!("{binary}: {stop}; this host has no Windows DLLs: the interpreted run is skipped");
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Runs `binary` at the tag's level through the IR interpreter and compares its output with the
 /// native program's: the same proof as the clang run, without clang.
 fn run_interpreted(binary: &str, expected: &str, tag: &str) {
@@ -78,6 +90,9 @@ fn run_interpreted(binary: &str, expected: &str, tag: &str) {
     assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
     let options = ra_asm_lift::run::Options::default();
     let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &options).unwrap();
+    if stopped_for_dlls(binary, &outcome) {
+        return;
+    }
     let stdout = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
     // An expected file written by the native run on Windows ends its lines in CRLF.
     let expected = expected.replace("\r\n", "\n");
@@ -180,7 +195,7 @@ fn helloa64_runs_interpreted() {
 
 /// The Linux build of hello lifts without a trap at the machine level, over the mapped image and
 /// standalone: its imports are called through System V wrappers, which read `rdi` first, and its
-/// IR passes the gate. It runs on Linux only, so the run is skipped here.
+/// IR passes the gate. The run is [`hello_linux64_runs_lifted`], on a Linux host.
 #[test]
 fn the_linux_fixture_lifts_and_passes_the_ir_gate() {
     if !clang_available() {
@@ -215,7 +230,77 @@ fn the_linux_fixture_lifts_and_passes_the_ir_gate() {
             Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
         assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
     }
-    eprintln!("hello_linux64: a Linux program, and the host is Windows: the run is skipped");
+}
+
+/// The Linux fixture's port runs on an x86-64 Linux host, as the program itself does there.
+fn linux_host(what: &str) -> bool {
+    let linux = cfg!(all(target_os = "linux", target_arch = "x86_64"));
+    if !linux {
+        eprintln!("hello_linux64: a Linux x86-64 program, and the host is another: {what} is skipped");
+    }
+    linux
+}
+
+/// The reference of the Linux fixture is what the program prints on Linux, over the host's C
+/// library rather than the stub it was linked against.
+#[test]
+fn hello_linux64_expected_is_the_native_output() {
+    if !linux_host("the native run") {
+        return;
+    }
+    // The fixture is tracked without the executable bit, which a Windows checkout cannot give it.
+    let dir = scratch("native-hello_linux64");
+    let exe = dir.join("hello_linux64");
+    std::fs::copy(fixture("hello_linux64"), &exe).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let run = Command::new(&exe).output().unwrap();
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello_linux.txt")).unwrap();
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim_end(), expected.replace("\r\n", "\n").trim_end());
+    assert!(run.status.success(), "hello_linux64: exit {:?}", run.status.code());
+}
+
+/// The Linux fixture lifted at the machine level, built by the host's clang beside the driver and
+/// run over the image: its imports bind to the host's C library by name, and it prints what the
+/// program prints.
+#[test]
+fn hello_linux64_runs_lifted() {
+    if !linux_host("the port's run") {
+        return;
+    }
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let binary = "hello_linux64";
+    let (dir, lifted) = lift_to(binary, "run-machine");
+    assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+    let exe = dir.join("lifted");
+    let build = Command::new("clang")
+        .args(["-O1", "-g", "-Wno-override-module"])
+        .arg(dir.join("program.ll"))
+        .arg(root().join("runtime/driver.c"))
+        .arg("-I")
+        .arg(&dir)
+        .arg("-o")
+        .arg(&exe)
+        .args(["-ldl", "-lm"])
+        .output()
+        .unwrap();
+    assert!(build.status.success(), "{binary}: clang link:\n{}", String::from_utf8_lossy(&build.stderr));
+    let run = Command::new(&exe).arg(dir.join("image.bin")).current_dir(&dir).output().unwrap();
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello_linux.txt")).unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout).trim_end(),
+        expected.replace("\r\n", "\n").trim_end(),
+        "{binary}: the lifted program's output (exit {:?}, stderr: {stderr})",
+        run.status.code()
+    );
+    assert!(run.status.success(), "{binary}: exit {:?}, stderr: {stderr}", run.status.code());
 }
 
 fn run_oracle(binary: &str, expected: &str) {
@@ -228,6 +313,12 @@ fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
     run_interpreted(binary, expected, tag);
     let (dir, lifted) = lift_to(binary, tag);
     assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+    // The port links the Windows system libraries and runs as a Windows process; elsewhere the
+    // interpreter's run above is the proof.
+    if !cfg!(windows) {
+        eprintln!("{binary} ({tag}): the port of a Windows program runs on a Windows host: the clang run is skipped");
+        return;
+    }
     let exe = dir.join("lifted.exe");
     let mut build = Command::new("clang");
     build.args(["-O1", "-g", "-gcodeview", "-fuse-ld=lld", "-Wno-override-module"]);
@@ -563,6 +654,9 @@ fn a_traced_run_resolves_the_dispatch() {
     for (binary, level) in [("dispatch64.exe", "machine"), ("dispatch64.exe", "abi"), ("dispatch32.exe", "abi")] {
         let Raised { image, lifted, signatures, .. } = raise(binary, level);
         let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+        if stopped_for_dlls(binary, &outcome) {
+            continue;
+        }
         assert_eq!(outcome.exit, 0, "{binary} ({level}): the first run (stop: {:?})", outcome.stop);
         let facts = outcome.facts;
         assert!(facts.input.is_of(&image), "{binary}: the facts name their input: {:?}", facts.input);
