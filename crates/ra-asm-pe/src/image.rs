@@ -1,7 +1,8 @@
 //! The mapped image: the file laid out by RVA as the Windows loader lays it out, with reads by
 //! virtual address that refuse an address no section holds. An XBE ([`crate::xbe`]) maps the same
 //! way, its header standing where the PE headers would; an ELF file ([`crate::elf`]) maps by its
-//! loaded segments, from the lowest one's page.
+//! loaded segments, from the lowest one's page, and a Mach-O file ([`crate::macho`]) by its
+//! segments the same way.
 
 use std::path::PathBuf;
 
@@ -52,6 +53,9 @@ pub struct Image {
     /// The ELF file the image was mapped from, when it is one: its interpreter, its libraries and
     /// the function extents of its `.eh_frame`, which no PE table holds.
     pub elf: Option<ra_asm_format::elf::ElfFile>,
+    /// The Mach-O file the image was mapped from, when it is one: its dynamic linker, its
+    /// libraries, its bindings and the function extents of its `__unwind_info`.
+    pub macho: Option<ra_asm_format::macho::MachOFile>,
     /// What the loader could not read. A directory that fails to parse lands here, not in an error.
     pub warnings: Vec<String>,
     file: Vec<u8>,
@@ -59,15 +63,18 @@ pub struct Image {
 }
 
 impl Image {
-    /// Parses the bytes of a PE file (or an XBE) and maps them.
-    pub fn parse(file: Vec<u8>) -> Result<Self> {
+    /// Parses the bytes of a PE file (or an XBE, an ELF or a Mach-O file) and maps them.
+    pub fn parse(mut file: Vec<u8>) -> Result<Self> {
         let reader = Reader::new(&file);
-        let (headers, sections, xbe, elf) = if xbe::is_xbe(reader) {
+        let (headers, sections, xbe, elf, macho) = if xbe::is_xbe(reader) {
             let (headers, sections, xbe) = xbe::parse(reader)?;
-            (headers, sections, Some(xbe), None)
+            (headers, sections, Some(xbe), None, None)
         } else if ra_asm_format::elf::is_elf(&file) {
             let (headers, sections, elf) = crate::elf::parse(&file)?;
-            (headers, sections, None, Some(elf))
+            (headers, sections, None, Some(elf), None)
+        } else if ra_asm_format::macho::is_macho(&file) {
+            let (headers, sections, macho) = crate::macho::parse(&file)?;
+            (headers, sections, None, None, Some(macho))
         } else {
             let headers = Headers::parse(reader)?;
             let mut sections = Vec::with_capacity(headers.coff.sections as usize);
@@ -75,8 +82,13 @@ impl Image {
             for index in 0..headers.coff.sections as usize {
                 sections.push(Section::parse(&mut c, index)?);
             }
-            (headers, sections, None, None)
+            (headers, sections, None, None, None)
         };
+        // A fat Mach-O file maps the slice the reader took, whose file offsets are the slice's own;
+        // the reader checked that the slice lies in the file.
+        if let Some((offset, size)) = macho.as_ref().and_then(|m| m.slice) {
+            file = file[offset as usize..(offset + size) as usize].to_vec();
+        }
 
         let size_of_image = headers.optional.size_of_image;
         ensure!(size_of_image <= MAX_IMAGE_SIZE, "SizeOfImage {size_of_image:#x} is larger than the {MAX_IMAGE_SIZE:#x} the loader maps");
@@ -121,6 +133,7 @@ impl Image {
             libraries: Vec::new(),
             xbe,
             elf,
+            macho,
             warnings,
             file,
             mapped,
@@ -133,6 +146,10 @@ impl Image {
         // An ELF file has none of the PE's directories: its tables are its own.
         if self.elf.is_some() {
             crate::elf::read_tables(self);
+            return;
+        }
+        if self.macho.is_some() {
+            crate::macho::read_tables(self);
             return;
         }
         // An XBE's imports are its kernel thunk table; the directories below are empty in one
@@ -317,6 +334,17 @@ impl Image {
     pub fn directory_va(&self, index: crate::headers::Directory) -> Option<(u64, u32)> {
         let dir = self.headers.optional.directory(index);
         (!dir.is_empty()).then(|| (self.va(dir.rva), dir.size))
+    }
+
+    /// The function extents a container records beside a PE's exception table, `(begin, end)` in
+    /// address order: an ELF file's `.eh_frame`, a Mach-O file's `__unwind_info` cut at its function
+    /// starts; empty for a PE.
+    pub fn unwind_extents(&self) -> &[(u64, u64)] {
+        match (&self.elf, &self.macho) {
+            (Some(elf), _) => &elf.functions,
+            (None, Some(macho)) => &macho.functions,
+            (None, None) => &[],
+        }
     }
 
     /// The import whose IAT slot is at `va`.
