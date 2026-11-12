@@ -1,0 +1,73 @@
+# The fuzz targets of the loaders and the decoders, for `cargo fuzz` (nightly). A workspace of its
+# own: libFuzzer and its sanitizer flags stay out of the engine's build and its lockfile.
+#
+# Locally, from the repository root, a target over its corpus with the fixtures as seeds:
+#   cargo +nightly fuzz run pe fuzz/corpus/pe testdata/bin -- -max_total_time=600
+# libFuzzer writes what it finds to the first directory and only reads the others. A crash lands
+# in fuzz/artifacts/<target>/; `cargo +nightly fuzz run <target> <artifact>` replays it, and the
+# smallest file that shows it becomes a test of the crate it names (crates/ra-asm-pe/tests/fuzz_regressions.rs,
+# crates/ra-asm-x86/src/decode/tests.rs).
+[package]
+name = "ra-asm-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "AGPL-3.0-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ra-asm-arch = { path = "../crates/ra-asm-arch" }
+ra-asm-arm64 = { path = "../crates/ra-asm-arm64" }
+ra-asm-pe = { path = "../crates/ra-asm-pe" }
+ra-asm-x86 = { path = "../crates/ra-asm-x86" }
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "pe"
+path = "fuzz_targets/pe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xbe"
+path = "fuzz_targets/xbe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "object"
+path = "fuzz_targets/object.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "elf"
+path = "fuzz_targets/elf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "x86"
+path = "fuzz_targets/x86.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "arm64"
+path = "fuzz_targets/arm64.rs"
+test = false
+doc = false
+bench = false

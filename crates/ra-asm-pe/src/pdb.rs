@@ -222,8 +222,10 @@ impl<'a> Msf<'a> {
     }
 
     fn read_blocks(&self, blocks: &[u32], size: usize) -> Result<Vec<u8>> {
-        let mut out = Vec::with_capacity(size);
-        for &block in blocks {
+        // The size is the file's word: the blocks that are there bound the allocation, and a block
+        // listed past the size is not read.
+        let mut out = Vec::with_capacity(size.min(blocks.len() * self.block_size));
+        for &block in blocks.iter().take(size.div_ceil(self.block_size)) {
             let start = block as usize * self.block_size;
             let Some(bytes) = self.file.get(start..start + self.block_size) else {
                 bail!("block {block} is past the end of the file ({:#x} bytes)", self.file.len())

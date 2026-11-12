@@ -708,7 +708,8 @@ pub(crate) fn parse(image: &Image) -> Result<Vec<RuntimeFunction>> {
     };
     let Some((va, size)) = image.directory_va(Directory::Exception) else { return Ok(Vec::new()) };
     let count = u64::from(size) / stride;
-    let mut functions = Vec::with_capacity(count as usize);
+    // The size is the file's word: it bounds the walk, not the allocation.
+    let mut functions = Vec::with_capacity(count.min(1 << 16) as usize);
     for i in 0..count {
         let entry = read(image, va + i * stride).with_context(|| format!("exception table entry {i}"))?;
         if !entry.is_empty() {
