@@ -39,7 +39,7 @@ fn control64_signatures_match_the_source() {
     let image = ra_asm_pe::load(&fixture("control64.exe")).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
     let lifted = ra_asm_lift::lift(&image, &analysis);
-    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target::WIN64);
+    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target::WIN64, &lifted.vtables);
     let map = map_functions("control64.map");
     let sig = |name: &str| signatures.get(&ra_asm_lift::function_name(map[name])).unwrap_or_else(|| panic!("{name} has a signature"));
 
@@ -82,7 +82,7 @@ fn float64_signatures_see_the_double_parameters() {
     let image = ra_asm_pe::load(&fixture("float64.exe")).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
     let lifted = ra_asm_lift::lift(&image, &analysis);
-    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target::WIN64);
+    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target::WIN64, &lifted.vtables);
     let map = map_functions("float64.map");
     let sig = |name: &str| signatures.get(&ra_asm_lift::function_name(map[name])).unwrap_or_else(|| panic!("{name} has a signature"));
     // long long milli(double x): a double in, an integer out.
@@ -107,7 +107,7 @@ fn partial_register_writes_make_no_parameter() {
     let image = ra_asm_pe::load(&rhtest("core-O2.exe")).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
     let lifted = ra_asm_lift::lift(&image, &analysis);
-    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target { bits: 32 });
+    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target { bits: 32 }, &lifted.vtables);
     let map = map_at(&rhtest("core-O2.map"));
     let sig = |name: &str| signatures.get(&ra_asm_lift::function_name(map[name])).unwrap_or_else(|| panic!("{name} has a signature"));
     // void put(const char *s): the loop moves each byte through cl.

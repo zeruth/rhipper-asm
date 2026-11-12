@@ -10,13 +10,15 @@
 //! writes the address words the compiler cannot fold), and `src/program.rs`, or
 //! `src/program_NNN.rs` when the program is large.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Type, ValueId};
 
 use crate::c::{EmittedFile, EmittedFunction};
 use crate::common::{Defs, identifier, parenthesized, strip_parens, trap_count};
+use crate::safety::{Local, Place, Root, Safety};
 use crate::structure::{Case, Cond, Graph, Stmt, structure};
 
 /// The runtime module, written beside the program.
@@ -41,6 +43,10 @@ pub struct Options {
     /// Whether the image has resources: then `resources.res`, written beside the package, is
     /// linked into the binary, so the program's `FindResource` and `LoadString` find them.
     pub resources: bool,
+    /// Whether the proofs of `safety` apply: a local that never escapes as a value, an access of
+    /// a section or a local at a known offset as a checked one. Without them every access is
+    /// raw, in its own `unsafe` block: the baseline the proofs are measured against.
+    pub proofs: bool,
 }
 
 impl Default for Options {
@@ -53,6 +59,7 @@ impl Default for Options {
             functions_per_file: crate::c::FUNCTIONS_PER_FILE,
             pointer_bits: 64,
             resources: false,
+            proofs: true,
         }
     }
 }
@@ -131,11 +138,14 @@ pub fn emit_rust(module: &Module, options: &Options) -> Output {
     // The names whose address is a function's: the lifted functions and the imports.
     let function_names: HashSet<String> =
         module.functions.iter().map(|f| f.name.clone()).chain(module.declarations.iter().map(|d| d.name.clone())).collect();
+    let defined: HashSet<String> = module.functions.iter().map(|f| f.name.clone()).collect();
+    let sections: HashSet<String> = module.globals.iter().filter(|g| is_section(g)).map(|g| g.name.clone()).collect();
     let mut functions: Vec<EmittedFunction> = Vec::new();
     for f in &module.functions {
         let mut text = String::new();
+        let names = Names { functions: &function_names, defined: &defined, sections: &sections };
         let (header_lines, copies) =
-            emit_function(&mut text, f, options.names.get(&f.name).map(String::as_str), &function_names, &module.types);
+            emit_function(&mut text, f, options.names.get(&f.name).map(String::as_str), &names, &module.types, options.proofs);
         functions.push(EmittedFunction {
             ir_name: f.name.clone(),
             address: f.address,
@@ -153,7 +163,11 @@ pub fn emit_rust(module: &Module, options: &Options) -> Output {
         files.push(EmittedFile { name: "build.rs".into(), text, functions: Vec::new() });
     }
     files.push(EmittedFile { name: "src/rhipper.rs".into(), text: RUNTIME.to_owned(), functions: Vec::new() });
-    files.push(EmittedFile { name: "src/data.rs".into(), text: data_module(module, options, &function_names), functions: Vec::new() });
+    files.push(EmittedFile {
+        name: "src/data.rs".into(),
+        text: data_module(module, options, &function_names, &sections),
+        functions: Vec::new(),
+    });
 
     let per_file = options.functions_per_file.max(1);
     let mut modules: Vec<String> = vec!["data".into()];
@@ -169,8 +183,56 @@ pub fn emit_rust(module: &Module, options: &Options) -> Output {
             modules.push(module_name);
         }
     }
-    files.insert(1, EmittedFile { name: "src/main.rs".into(), text: main_module(module, options, &modules), functions: Vec::new() });
+    files.insert(
+        1,
+        EmittedFile { name: "src/main.rs".into(), text: main_module(module, options, &modules, &sections), functions: Vec::new() },
+    );
     Output { files, functions }
+}
+
+/// Whether `g` is written as a `rhipper::Section`: the bytes of a data section or a table of the
+/// runtime, which the program reads at any offset as any type. A scalar global of the runtime
+/// (`ra_x87_top`) stays a `static mut` the runtime names.
+fn is_section(g: &ra_asm_ir::Global) -> bool {
+    if g.name == "ra_functions" || g.name == "ra_function_count" {
+        return false;
+    }
+    match (&g.ty, &g.init) {
+        (Type::Array(_, e), Some(Const::Bytes(_) | Const::Zero)) => matches!(**e, Type::I8 | Type::Double),
+        (Type::Packed(_), Some(Const::Struct(_))) => true,
+        _ => false,
+    }
+}
+
+/// `global` plus `offset` as a raw `*mut u8`: a section's own pointer, or the address of a
+/// `static mut`.
+fn global_pointer(global: &str, offset: i64, sections: &HashSet<String>) -> String {
+    let base = if sections.contains(global) { format!("{global}.ptr()") } else { format!("((&raw mut {global}) as *mut u8)") };
+    if offset == 0 { base } else { format!("{base}.wrapping_offset({offset})") }
+}
+
+/// The names of the module an emitter consults: every function and import, the lifted
+/// functions among them, and the globals written as sections.
+#[derive(Clone, Copy)]
+struct Names<'a> {
+    functions: &'a HashSet<String>,
+    defined: &'a HashSet<String>,
+    sections: &'a HashSet<String>,
+}
+
+/// The runtime functions that are `unsafe fn`, from the runtime's own text: a call to one of
+/// them needs an `unsafe` block, a call to the others none.
+fn runtime_is_unsafe(name: &str) -> bool {
+    static UNSAFE: std::sync::OnceLock<HashSet<&'static str>> = std::sync::OnceLock::new();
+    UNSAFE
+        .get_or_init(|| {
+            RUNTIME
+                .lines()
+                .filter_map(|l| l.strip_prefix("pub unsafe fn "))
+                .map(|rest| rest.split(['(', '<']).next().unwrap_or(""))
+                .collect()
+        })
+        .contains(name)
 }
 
 /// The build script of a 32-bit program's port: the program keeps its 32-bit pointers, so the
@@ -214,7 +276,7 @@ fn cargo_toml(package: &str) -> String {
     )
 }
 
-fn main_module(module: &Module, options: &Options, modules: &[String]) -> String {
+fn main_module(module: &Module, options: &Options, modules: &[String], sections: &HashSet<String>) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "// Generated by ras emit from {}.", module.name);
     let _ = writeln!(
@@ -234,10 +296,12 @@ fn main_module(module: &Module, options: &Options, modules: &[String]) -> String
     let _ = writeln!(out, "    unsafe {{");
     let _ = writeln!(out, "        ra_init();");
     if module.globals.iter().any(|g| g.name == "ra_tls") {
-        let _ = writeln!(out, "        rhipper::ra_init_tls((&raw const ra_tls) as *const u64, {});", options.pointer_bits);
+        let tls = global_pointer("ra_tls", 0, sections);
+        let _ = writeln!(out, "        rhipper::ra_init_tls({tls} as *const u64, {});", options.pointer_bits);
     }
     if module.globals.iter().any(|g| g.name == "ra_import_pops") {
-        let _ = writeln!(out, "        rhipper::ra_init_import_pops((&raw const ra_import_pops) as *const u64, &raw mut ra_pops);");
+        let pops = global_pointer("ra_import_pops", 0, sections);
+        let _ = writeln!(out, "        rhipper::ra_init_import_pops({pops} as *const u64, &raw mut ra_pops);");
     }
     if let Some(entry) = options.entry.as_ref().and_then(|e| module.functions.iter().find(|f| f.name == *e)) {
         let args: Vec<String> = entry.ty.params.iter().map(zero).collect();
@@ -266,7 +330,7 @@ fn main_module(module: &Module, options: &Options, modules: &[String]) -> String
 }
 
 /// The imports, grouped by DLL, and the data globals with `ra_init`.
-fn data_module(module: &Module, options: &Options, function_names: &HashSet<String>) -> String {
+fn data_module(module: &Module, options: &Options, function_names: &HashSet<String>, sections: &HashSet<String>) -> String {
     let mut out = String::from("use super::*;\n\n");
     // The imports, by DLL.
     let defined: HashSet<&str> = module.functions.iter().map(|f| f.name.as_str()).collect();
@@ -312,12 +376,12 @@ fn data_module(module: &Module, options: &Options, function_names: &HashSet<Stri
         }
         match (&g.ty, &g.init) {
             (Type::Array(n, e), Some(Const::Bytes(bytes))) if **e == Type::I8 => {
-                let _ = write!(out, "pub static mut {}: rhipper::Aligned<[u8; {n}]> = rhipper::Aligned([", g.name);
+                let _ = write!(out, "pub static {}: rhipper::Section<[u8; {n}]> = rhipper::Section::new([", g.name);
                 write_bytes(&mut out, bytes);
                 let _ = writeln!(out, "]);");
             }
             (Type::Array(n, e), Some(Const::Zero)) if **e == Type::I8 => {
-                let _ = writeln!(out, "pub static mut {}: rhipper::Aligned<[u8; {n}]> = rhipper::Aligned([0u8; {n}]);", g.name);
+                let _ = writeln!(out, "pub static {}: rhipper::Section<[u8; {n}]> = rhipper::Section::new([0u8; {n}]);", g.name);
             }
             (Type::Packed(fields), Some(Const::Struct(items))) => {
                 // A packed structure of byte runs and address words. An address word is a u64
@@ -334,7 +398,7 @@ fn data_module(module: &Module, options: &Options, function_names: &HashSet<Stri
                     }
                 }
                 let _ = writeln!(out, "}}");
-                let _ = write!(out, "pub static mut {}: rhipper::Aligned<{}_t> = rhipper::Aligned({}_t {{ ", g.name, g.name, g.name);
+                let _ = write!(out, "pub static {}: rhipper::Section<{}_t> = rhipper::Section::new({}_t {{ ", g.name, g.name, g.name);
                 let mut offset = 0u64;
                 for (i, (item, field)) in items.iter().zip(fields).enumerate() {
                     match item {
@@ -349,17 +413,13 @@ fn data_module(module: &Module, options: &Options, function_names: &HashSet<Stri
                         Const::Address { .. } | Const::Global(_) => {
                             let _ = write!(out, "f{i}: 0, ");
                             let value = match item {
-                                Const::Address { global, offset: o } => address_text(global, *o, function_names),
-                                Const::Global(target) => address_text(target, 0, function_names),
+                                Const::Address { global, offset: o } => address_text(global, *o, function_names, sections),
+                                Const::Global(target) => address_text(target, 0, function_names, sections),
                                 _ => unreachable!(),
                             };
                             // The word's own width: a 32-bit program's words are dwords.
                             let word = rust_type(field);
-                            let _ = writeln!(
-                                init,
-                                "    core::ptr::write_unaligned(((&raw mut {}) as *mut u8).wrapping_add({offset}) as *mut {word}, ({value}) as {word});",
-                                g.name
-                            );
+                            let _ = writeln!(init, "    {}.set::<{word}>({offset}, ({value}) as {word});", g.name);
                         }
                         other => {
                             let _ = write!(out, "f{i}: {} /* {other:?} */, ", zero(field));
@@ -373,7 +433,7 @@ fn data_module(module: &Module, options: &Options, function_names: &HashSet<Stri
                 let _ = writeln!(out, "pub static mut {}: u{bits} = {};", g.name, *v as u64);
             }
             (Type::Array(n, e), Some(Const::Zero)) if **e == Type::Double => {
-                let _ = writeln!(out, "pub static mut {}: rhipper::Aligned<[f64; {n}]> = rhipper::Aligned([0.0f64; {n}]);", g.name);
+                let _ = writeln!(out, "pub static {}: rhipper::Section<[f64; {n}]> = rhipper::Section::new([0.0f64; {n}]);", g.name);
             }
             (ty, init) => {
                 let _ = writeln!(out, "// global {} of type {ty} with initializer {init:?} is not written", g.name);
@@ -403,15 +463,13 @@ fn import_library(dll: &str) -> String {
 }
 
 /// The address of `global` plus `offset`, as a `u64` expression at run time.
-fn address_text(global: &str, offset: i64, function_names: &HashSet<String>) -> String {
+fn address_text(global: &str, offset: i64, function_names: &HashSet<String>, sections: &HashSet<String>) -> String {
     if function_names.contains(global) {
         // A runtime function (an import slot that names a shim) lives in the runtime module.
         let path = if global.starts_with("ra_") { format!("rhipper::{global}") } else { global.to_owned() };
         format!("({path} as *const () as usize as u64).wrapping_add({offset} as u64)")
-    } else if offset == 0 {
-        format!("((&raw mut {global}) as *mut u8 as u64)")
     } else {
-        format!("(((&raw mut {global}) as *mut u8).wrapping_offset({offset}) as u64)")
+        format!("({} as u64)", global_pointer(global, offset, sections))
     }
 }
 
@@ -449,7 +507,7 @@ fn signature(f: &Function) -> String {
     } else {
         format!(" -> {}", rust_type(&f.ty.ret))
     };
-    format!("pub unsafe extern \"C\" fn {}({}){ret}", f.name, params.join(", "))
+    format!("pub extern \"C\" fn {}({}){ret}", f.name, params.join(", "))
 }
 
 /// A function, with one comment line above it naming it. Returns the number of lines above the
@@ -458,8 +516,9 @@ fn emit_function(
     out: &mut String,
     f: &Function,
     source_name: Option<&str>,
-    function_names: &HashSet<String>,
+    names: &Names<'_>,
     types: &[(String, Vec<Type>)],
+    proofs: bool,
 ) -> (usize, usize) {
     let mut header_lines = 0;
     if let Some(address) = f.address {
@@ -476,7 +535,8 @@ fn emit_function(
     let _ = writeln!(out, "{} {{", signature(f));
     let graph = Graph::of(f);
     let structured = structure(f, &graph);
-    let mut e = Emitter { f, defs: Defs::new(f), labels: &structured.labels, function_names, types };
+    let safety = if proofs { Safety::analyze(f, names.sections, types) } else { Safety::none() };
+    let mut e = Emitter { f, defs: Defs::new(f), labels: &structured.labels, names: *names, types, safety, reasons: RefCell::default() };
     e.declare_locals(out);
     e.stmts(out, &structured.body, 1);
     let _ = writeln!(out, "}}");
@@ -487,12 +547,55 @@ struct Emitter<'a> {
     f: &'a Function,
     defs: Defs<'a>,
     labels: &'a HashSet<BlockId>,
-    function_names: &'a HashSet<String>,
+    names: Names<'a>,
     /// The named struct types of the module: a field pointer is its byte offset here.
     types: &'a [(String, Vec<Type>)],
+    /// What is proven safe in the function.
+    safety: Safety,
+    /// Why the statement being written needs an `unsafe` block, gathered as its expressions
+    /// are written and taken when the line is.
+    reasons: RefCell<BTreeSet<&'static str>>,
 }
 
+/// The reasons an operation stays raw, as the `unsafe` block's comment names them.
+const RAW_MEMORY: &str = "memory at a computed address";
+const IMPORT: &str = "an import";
+const INDIRECT_CALL: &str = "a call through an address";
+const RUNTIME_CALL: &str = "the runtime";
+const BIT_CAST: &str = "a bit cast";
+
 impl Emitter<'_> {
+    fn needs(&self, why: &'static str) {
+        self.reasons.borrow_mut().insert(why);
+    }
+
+    /// The reasons gathered since the last line, joined.
+    fn take(&self) -> Option<String> {
+        let mut reasons = self.reasons.borrow_mut();
+        if reasons.is_empty() {
+            return None;
+        }
+        let why = reasons.iter().copied().collect::<Vec<_>>().join(", ");
+        reasons.clear();
+        Some(why)
+    }
+
+    /// `text` as an expression, in an `unsafe` block when what it does needs one.
+    fn guarded(&self, text: &str) -> String {
+        match self.take() {
+            Some(why) => format!("unsafe {{ /* {why} */ {text} }}"),
+            None => text.to_owned(),
+        }
+    }
+
+    /// `text` as a statement line, in an `unsafe` block that names why when it needs one.
+    fn line(&self, out: &mut String, pad: &str, text: &str) {
+        let _ = match self.take() {
+            Some(why) => writeln!(out, "{pad}unsafe {{ {text} }} // {why}"),
+            None => writeln!(out, "{pad}{text}"),
+        };
+    }
+
     fn declare_locals(&mut self, out: &mut String) {
         let mut declared: HashSet<ValueId> = self.f.params.iter().copied().collect();
         for b in &self.f.blocks {
@@ -503,11 +606,20 @@ impl Emitter<'_> {
                 }
                 let n = name(self.f, v);
                 match &i.inst {
-                    Inst::Alloca { ty, .. } => {
-                        let size = ty.size(8).unwrap_or(8);
-                        let _ = writeln!(out, "    let mut {n}_mem = rhipper::Aligned([0u8; {size}]);");
-                        let _ = writeln!(out, "    let {n}: *mut u8 = {n}_mem.0.as_mut_ptr();");
-                    }
+                    Inst::Alloca { ty, .. } => match self.safety.locals.get(&v) {
+                        Some(Local::Value(ty)) => {
+                            let _ = writeln!(out, "    let mut {n}: {} = {};", rust_type(ty), zero(ty));
+                        }
+                        Some(Local::Bytes(size)) => {
+                            let _ = writeln!(out, "    let {n} = rhipper::Section::new([0u8; {size}]);");
+                        }
+                        None => {
+                            let size = ty.size(8).unwrap_or(8);
+                            let _ = writeln!(out, "    let mut {n}_mem = rhipper::Aligned([0u8; {size}]);");
+                            let _ = writeln!(out, "    let {n}: *mut u8 = {n}_mem.0.as_mut_ptr();");
+                        }
+                    },
+                    _ if self.safety.folded.contains(&v) => {}
                     Inst::Phi { ty, .. } => {
                         let _ = writeln!(out, "    let mut {n}: {} = {};", rust_type(ty), zero(ty));
                         let _ = writeln!(out, "    let mut {n}_next: {} = {};", rust_type(ty), zero(ty));
@@ -564,16 +676,45 @@ impl Emitter<'_> {
 
     /// The address of a global or a function, as a pointer or as the integer `ty`.
     fn address(&self, global: &str, offset: i64, ty: &Type) -> String {
-        let pointer = if self.function_names.contains(global) {
+        let pointer = if self.names.functions.contains(global) {
             format!("({global} as usize as u64).wrapping_add({offset} as u64) as *mut u8")
-        } else if offset == 0 {
-            format!("((&raw mut {global}) as *mut u8)")
         } else {
-            format!("((&raw mut {global}) as *mut u8).wrapping_offset({offset})")
+            global_pointer(global, offset, self.names.sections)
         };
         match ty {
             Type::Ptr | Type::Func(_) => format!("({pointer})"),
             other => format!("(({pointer}) as {})", rust_type(other)),
+        }
+    }
+
+    /// The byte offset of a place, as a `usize` expression when it has terms.
+    fn place_offset(&self, p: &Place) -> String {
+        if p.terms.is_empty() {
+            return p.offset.to_string();
+        }
+        let mut s = format!("({}i64)", p.offset);
+        for (ty, index, scale) in &p.terms {
+            let term = format!("(({}) as {}) as i64", self.operand(ty, index), signed_type(ty));
+            s = if *scale == 1 { format!("{s}.wrapping_add({term})") } else { format!("{s}.wrapping_add(({term}).wrapping_mul({scale}))") };
+        }
+        format!("({s}) as usize")
+    }
+
+    /// A proven load: the local's value, or a checked read of the local's bytes or the section.
+    fn load_text(&self, ty: &Type, p: &Place) -> String {
+        match &p.root {
+            Root::Local(a) if matches!(self.safety.locals.get(a), Some(Local::Value(_))) => name(self.f, *a),
+            Root::Local(a) => format!("{}.get::<{}>({})", name(self.f, *a), rust_type(ty), p.offset),
+            Root::Section(g) => format!("{g}.get::<{}>({})", rust_type(ty), self.place_offset(p)),
+        }
+    }
+
+    /// A proven store, as a statement.
+    fn store_text(&self, ty: &Type, p: &Place, value: &str) -> String {
+        match &p.root {
+            Root::Local(a) if matches!(self.safety.locals.get(a), Some(Local::Value(_))) => format!("{} = {value};", name(self.f, *a)),
+            Root::Local(a) => format!("{}.set::<{}>({}, {value});", name(self.f, *a), rust_type(ty), p.offset),
+            Root::Section(g) => format!("{g}.set::<{}>({}, {value});", rust_type(ty), self.place_offset(p)),
         }
     }
 
@@ -582,6 +723,10 @@ impl Emitter<'_> {
         match inst {
             Inst::Alloca { .. } => "core::ptr::null_mut()".into(),
             Inst::Load { ty, ptr, .. } => {
+                if let Some(p) = self.safety.access(inst) {
+                    return self.load_text(ty, p);
+                }
+                self.needs(RAW_MEMORY);
                 format!("core::ptr::read_unaligned({} as *const {})", self.operand(&Type::Ptr, ptr), rust_type(ty))
             }
             Inst::Store { .. } | Inst::Phi { .. } => String::new(),
@@ -662,9 +807,20 @@ impl Emitter<'_> {
                 match callee {
                     Callee::Direct(n) if n.starts_with("llvm.") => Self::intrinsic(n, fn_ty, &a),
                     // the runtime's own functions live in the rhipper module
-                    Callee::Direct(n) if n.starts_with("ra_") => format!("rhipper::{n}({})", a.join(", ")),
-                    Callee::Direct(n) => format!("{n}({})", a.join(", ")),
+                    Callee::Direct(n) if n.starts_with("ra_") && !self.names.defined.contains(n) => {
+                        if runtime_is_unsafe(n) {
+                            self.needs(RUNTIME_CALL);
+                        }
+                        format!("rhipper::{n}({})", a.join(", "))
+                    }
+                    Callee::Direct(n) => {
+                        if !self.names.defined.contains(n) {
+                            self.needs(IMPORT);
+                        }
+                        format!("{n}({})", a.join(", "))
+                    }
                     Callee::Indirect(p) => {
+                        self.needs(INDIRECT_CALL);
                         let params: Vec<String> = fn_ty.params.iter().map(rust_type).collect();
                         let ret = if fn_ty.ret == Type::Void { String::new() } else { format!(" -> {}", rust_type(&fn_ty.ret)) };
                         format!(
@@ -779,7 +935,17 @@ impl Emitter<'_> {
             (Cast::Bitcast, Type::Vector(_, fe), Type::Vector(_, te)) if **te == Type::I1 => {
                 format!("rhipper::vcast({v}, |x| x != 0{})", rust_type(fe))
             }
-            (Cast::Bitcast, _, _) => format!("core::mem::transmute::<{}, {}>({v})", rust_type(from), rust_type(to)),
+            // The bits of a float and back are safe conversions.
+            (Cast::Bitcast, Type::Int(64), Type::Double) | (Cast::Bitcast, Type::Int(32), Type::Float) => {
+                format!("{}::from_bits({v})", rust_type(to))
+            }
+            (Cast::Bitcast, Type::Double, Type::Int(64)) | (Cast::Bitcast, Type::Float, Type::Int(32)) => {
+                format!("{}.to_bits()", parenthesized(&v))
+            }
+            (Cast::Bitcast, _, _) => {
+                self.needs(BIT_CAST);
+                format!("core::mem::transmute::<{}, {}>({v})", rust_type(from), rust_type(to))
+            }
             _ => format!("({})", Self::cast_text(cast, from, &v, to)),
         }
     }
@@ -884,7 +1050,8 @@ impl Emitter<'_> {
                 } else {
                     (cond.clone(), then, els)
                 };
-                let _ = writeln!(out, "{pad}if {} {{", strip_parens(&self.cond(&cond)));
+                let c = self.guarded(&strip_parens(&self.cond(&cond)));
+                let _ = writeln!(out, "{pad}if {c} {{");
                 self.stmts(out, then, depth + 1);
                 if els.is_empty() {
                     let _ = writeln!(out, "{pad}}}");
@@ -913,10 +1080,12 @@ impl Emitter<'_> {
                 let _ = writeln!(out, "{pad}return;");
             }
             Stmt::Return(Some((ty, o))) => {
-                let _ = writeln!(out, "{pad}return {};", strip_parens(&self.operand(ty, o)));
+                let text = format!("return {};", strip_parens(&self.operand(ty, o)));
+                self.line(out, &pad, &text);
             }
+            // After a call that does not return; a panic should the lift be wrong about that.
             Stmt::Unreachable => {
-                let _ = writeln!(out, "{pad}core::hint::unreachable_unchecked();");
+                let _ = writeln!(out, "{pad}unreachable!();");
             }
         }
     }
@@ -939,7 +1108,7 @@ impl Emitter<'_> {
         chains.sort_by_key(|chain| chain.iter().any(|c| c.default));
         // A chain tests the value again: a plain local is read as it is, anything else is bound
         // once, before the body can change what it reads.
-        let mut subject = strip_parens(&self.operand(ty, value));
+        let mut subject = self.guarded(&strip_parens(&self.operand(ty, value)));
         if chains.iter().any(|chain| chain.len() > 1) && !matches!(value, Operand::Local(v) if !self.defs.inlinable(*v)) {
             let _ = writeln!(out, "{pad}let ra_switch = {subject};");
             subject = "ra_switch".into();
@@ -992,21 +1161,24 @@ impl Emitter<'_> {
                     let _ = writeln!(out, "{pad}{} = {}_next;", name(f, v), name(f, v));
                 }
                 (Inst::Alloca { .. }, _) => {}
-                (Inst::Store { ty, value, ptr, .. }, _) => {
-                    let _ = writeln!(
-                        out,
-                        "{pad}core::ptr::write_unaligned({} as *mut {}, {});",
-                        self.operand(&Type::Ptr, ptr),
-                        rust_type(ty),
-                        strip_parens(&self.operand(ty, value))
-                    );
+                (inst @ Inst::Store { ty, value, ptr, .. }, _) => {
+                    let value = strip_parens(&self.operand(ty, value));
+                    let text = if let Some(p) = self.safety.access(inst) {
+                        self.store_text(ty, p, &value)
+                    } else {
+                        self.needs(RAW_MEMORY);
+                        format!("core::ptr::write_unaligned({} as *mut {}, {value});", self.operand(&Type::Ptr, ptr), rust_type(ty))
+                    };
+                    self.line(out, &pad, &text);
                 }
-                (_, Some(v)) if self.defs.inlinable(v) => {}
+                (_, Some(v)) if self.defs.inlinable(v) || self.safety.folded.contains(&v) => {}
                 (inst, Some(v)) => {
-                    let _ = writeln!(out, "{pad}{} = {};", name(f, v), strip_parens(&self.expr(inst)));
+                    let text = format!("{} = {};", name(f, v), strip_parens(&self.expr(inst)));
+                    self.line(out, &pad, &text);
                 }
                 (inst, None) => {
-                    let _ = writeln!(out, "{pad}{};", self.expr(inst));
+                    let text = format!("{};", self.expr(inst));
+                    self.line(out, &pad, &text);
                 }
             }
         }
@@ -1020,7 +1192,8 @@ impl Emitter<'_> {
         if let Some(moves) = self.defs.phi_moves.get(&id).cloned() {
             for (phi, o) in &moves {
                 let ty = f.value_type(*phi).clone();
-                let _ = writeln!(out, "{pad}{}_next = {};", name(f, *phi), strip_parens(&self.operand(&ty, o)));
+                let text = format!("{}_next = {};", name(f, *phi), strip_parens(&self.operand(&ty, o)));
+                self.line(out, &pad, &text);
             }
         }
     }

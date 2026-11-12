@@ -9,6 +9,13 @@
 //! argument registers at an entry and `rax` with the low half of `xmm0` at a return, which the
 //! comparison reads at the port's width and kind. The arguments are recorded for reading, not
 //! compared: a pointer differs between the two processes. A pointer result is not compared either.
+//!
+//! The reference's trace is recorded one of two ways, the [`Tracer`]: the debugger over the
+//! native program, or the IR interpreter over the reference's own IR (`ras run --record`, the
+//! `record` of [`ra_asm_ir::interp::Vm`]), which writes the port's shape itself and so traces a
+//! program the debugger cannot, such as a 32-bit one. The [`replay`] pairs the port's calls with
+//! their returns and the reference's events at the same places, call by call, for the
+//! side-by-side stepping of the workbench, and names the call at fault.
 
 use std::fmt;
 use std::fs::{self, File};
@@ -38,19 +45,54 @@ pub(crate) fn plan(table: &Path) -> Result<Vec<(u64, String)>> {
     Ok(functions)
 }
 
+/// How the reference's trace is recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tracer {
+    /// The native reference under the debugger, breaking at the port's functions.
+    Debugger,
+    /// The reference's IR through the IR interpreter, which records as the port's hooks do.
+    Interpreter,
+}
+
+impl Tracer {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Tracer::Debugger => "debugger",
+            Tracer::Interpreter => "interpreter",
+        }
+    }
+}
+
+impl std::str::FromStr for Tracer {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, String> {
+        match text {
+            "debugger" => Ok(Tracer::Debugger),
+            "interpreter" => Ok(Tracer::Interpreter),
+            other => Err(format!("no tracer `{other}`: the tracers are debugger and interpreter")),
+        }
+    }
+}
+
 /// How the port's trace compares with the reference's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Verdict {
     /// Every event matched: the count.
     Same(usize),
     /// The traces part at `event` (from 1), in `function`: the innermost function of the port
-    /// open at that point, or the function whose result differed.
-    Parts { event: usize, function: String, detail: String },
+    /// open at that point, or the function whose result differed, with the two results when
+    /// they did.
+    Parts { event: usize, function: String, detail: String, values: Option<(String, String)> },
     /// The traces could not be compared, with the reason.
     NotTraced(String),
 }
 
 impl Verdict {
+    fn parts(event: usize, function: &str, detail: String) -> Self {
+        Verdict::Parts { event, function: function.to_owned(), detail, values: None }
+    }
+
     pub(crate) fn function(&self) -> Option<&str> {
         match self {
             Verdict::Parts { function, .. } => Some(function),
@@ -70,7 +112,7 @@ impl fmt::Display for Verdict {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Verdict::Same(n) => write!(f, "same, {n} events"),
-            Verdict::Parts { event, function, detail } => write!(f, "parts at event {event} in {function}: {detail}"),
+            Verdict::Parts { event, function, detail, .. } => write!(f, "parts at event {event} in {function}: {detail}"),
             Verdict::NotTraced(reason) => write!(f, "not traced: {reason}"),
         }
     }
@@ -141,7 +183,10 @@ fn events(path: &Path) -> Vec<Event> {
 
 /// Compares the port's trace with the reference's, event by event.
 pub(crate) fn compare(port: &Path, reference: &Path) -> Verdict {
-    let (port, reference) = (events(port), events(reference));
+    compare_events(&events(port), &events(reference))
+}
+
+fn compare_events(port: &[Event], reference: &[Event]) -> Verdict {
     if port.is_empty() {
         return Verdict::NotTraced("the port recorded no trace".into());
     }
@@ -157,17 +202,17 @@ pub(crate) fn compare(port: &Path, reference: &Path) -> Verdict {
             (Some(p), Some(r)) => (p, r),
             (None, None) => return Verdict::Same(index),
             (Some(p), None) => {
-                let function = open.last().map_or(p.name.as_str(), |f| f).to_owned();
-                return Verdict::Parts { event, function, detail: format!("the reference's trace ends where the port {}", describe(p)) };
+                let function = open.last().map_or(p.name.as_str(), |f| f);
+                return Verdict::parts(event, function, format!("the reference's trace ends where the port {}", describe(p)));
             }
             (None, Some(r)) => {
-                let function = open.last().map_or(r.name.as_str(), |f| f).to_owned();
-                return Verdict::Parts { event, function, detail: format!("the port's trace ends where the reference {}", describe(r)) };
+                let function = open.last().map_or(r.name.as_str(), |f| f);
+                return Verdict::parts(event, function, format!("the port's trace ends where the reference {}", describe(r)));
             }
         };
         if p.enter != r.enter || p.name != r.name {
-            let function = if p.enter { open.last().map_or(p.name.as_str(), |f| f) } else { p.name.as_str() }.to_owned();
-            return Verdict::Parts { event, function, detail: format!("the port {}, the reference {}", describe(p), describe(r)) };
+            let function = if p.enter { open.last().map_or(p.name.as_str(), |f| f) } else { p.name.as_str() };
+            return Verdict::parts(event, function, format!("the port {}, the reference {}", describe(p), describe(r)));
         }
         if p.enter {
             open.push(&p.name);
@@ -176,13 +221,96 @@ pub(crate) fn compare(port: &Path, reference: &Path) -> Verdict {
                 open.truncate(at);
             }
             if let (Some(pv), Some(rv)) = (&p.value, &r.value)
-                && let Some(detail) = differ(pv, rv)
+                && let Some((detail, reference)) = differ(pv, rv)
             {
-                return Verdict::Parts { event, function: p.name.clone(), detail };
+                return Verdict::Parts { event, function: p.name.clone(), detail, values: Some((pv.text(), reference)) };
             }
         }
         index += 1;
     }
+}
+
+/// One call of the port's trace: its entry and its return, with the reference's at the same
+/// events while the traces agree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Call {
+    pub function: String,
+    /// How many calls of the port were open at the entry.
+    pub depth: usize,
+    /// The event (from 1) of the entry, and of the return when the function returned.
+    pub enter: usize,
+    pub ret: Option<usize>,
+    pub port: Side,
+    /// The reference's side of the call; `None` once the traces parted before the entry.
+    pub reference: Option<Side>,
+}
+
+/// The arguments at the entry and the result at the return, as the trace wrote them.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Side {
+    pub args: String,
+    pub result: Option<String>,
+}
+
+/// The two traces replayed call by call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Replay {
+    pub verdict: Verdict,
+    pub calls: Vec<Call>,
+    /// The call at fault, by index: the innermost call open at the parting event whose function
+    /// the verdict names.
+    pub fault: Option<usize>,
+}
+
+/// Replays the port's trace against the reference's: the port's calls paired with their returns
+/// by nesting, the reference's events at the same places up to and including the one where the
+/// traces part, and the call at fault.
+pub(crate) fn replay(port: &Path, reference: &Path) -> Replay {
+    let (port, reference) = (events(port), events(reference));
+    let verdict = compare_events(&port, &reference);
+    // Every event before the parting one matched; the parting one is shown on both sides.
+    let aligned = verdict.event().unwrap_or(port.len());
+    let side_of = |events: &[Event], enter: usize, ret: Option<usize>| Side {
+        args: events.get(enter - 1).map(|e| args_of(&e.line)).unwrap_or_default(),
+        result: ret.and_then(|r| events.get(r - 1)).and_then(|e| e.value.as_ref().map(Value::text)),
+    };
+    let mut calls: Vec<Call> = Vec::new();
+    let mut open: Vec<usize> = Vec::new();
+    for (index, event) in port.iter().enumerate() {
+        let number = index + 1;
+        if event.enter {
+            calls.push(Call {
+                function: event.name.clone(),
+                depth: open.len(),
+                enter: number,
+                ret: None,
+                port: Side::default(),
+                reference: None,
+            });
+            open.push(calls.len() - 1);
+        } else if let Some(at) = open.iter().rposition(|&c| calls[c].function == event.name) {
+            calls[open[at]].ret = Some(number);
+            open.truncate(at);
+        }
+    }
+    for call in &mut calls {
+        call.port = side_of(&port, call.enter, call.ret);
+        if call.enter <= aligned {
+            let ret = call.ret.filter(|&r| r <= aligned);
+            call.reference = Some(side_of(&reference, call.enter, ret));
+        }
+    }
+    let fault = verdict.event().and_then(|event| {
+        let function = verdict.function();
+        let open = |c: &Call| c.enter <= event && c.ret.is_none_or(|r| r >= event);
+        calls.iter().rposition(|c| open(c) && Some(c.function.as_str()) == function).or_else(|| calls.iter().rposition(open))
+    });
+    Replay { verdict, calls, fault }
+}
+
+/// The arguments of an entry line, between its parentheses.
+fn args_of(line: &str) -> String {
+    line.split_once('(').and_then(|(_, rest)| rest.rsplit_once(')')).map(|(args, _)| args.to_owned()).unwrap_or_default()
 }
 
 fn describe(e: &Event) -> String {
@@ -196,18 +324,20 @@ fn describe(e: &Event) -> String {
     }
 }
 
-/// What differs between the port's result and the reference's, read at the port's kind.
-fn differ(port: &Value, reference: &Value) -> Option<String> {
+/// What differs between the port's result and the reference's, read at the port's kind: the
+/// sentence and the reference's value.
+fn differ(port: &Value, reference: &Value) -> Option<(String, String)> {
     let (p, r) = match port.kind {
         Kind::Int(bits) => {
             let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
             (port.bits & mask, reference.bits & mask)
         }
-        Kind::F64 => (port.bits, reference.float?),
-        Kind::F32 => (port.bits & 0xFFFF_FFFF, reference.float? & 0xFFFF_FFFF),
+        // The debugger's reference holds a floating result in `xmm0`; the interpreter's is typed.
+        Kind::F64 => (port.bits, if reference.kind == Kind::Raw { reference.float? } else { reference.bits }),
+        Kind::F32 => (port.bits & 0xFFFF_FFFF, if reference.kind == Kind::Raw { reference.float? } else { reference.bits } & 0xFFFF_FFFF),
         Kind::Ptr | Kind::Raw => return None,
     };
-    (p != r).then(|| format!("the port returned {}, the reference {:#x}", port.text(), r))
+    (p != r).then(|| (format!("the port returned {}, the reference {r:#x}", port.text()), format!("{r:#x}")))
 }
 
 impl Value {

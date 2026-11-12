@@ -53,8 +53,14 @@ pub struct Lifted {
     /// The import wrappers the code calls: the import's symbol, the stack offset of its first
     /// stack argument at the call site, and whether the call is a tail call.
     pub wrappers: BTreeSet<(String, i64, bool)>,
+    /// The imports called `fastcall` (the Xbox kernel's), whose wrappers read `ecx` and `edx`
+    /// ahead of the stack.
+    pub fastcall: BTreeSet<String>,
     /// The data sections written as globals (standalone mode).
     pub data: Vec<DataSection>,
+    /// The vtables of the program's classes, from the RTTI: the raise resolves a call through a
+    /// slot of one to the functions that fill the slot.
+    pub vtables: Vec<ra_asm_analysis::rtti::Vtable>,
     /// Whether the lift references data through globals rather than the mapped image.
     pub standalone: bool,
     /// 32 or 64: the address width of the image.
@@ -66,6 +72,9 @@ pub struct Lifted {
     /// The addresses of the words the base relocations name: an immediate or a displacement at
     /// one of them holds an address of the image, which 32-bit code writes as a plain number.
     pub relocated: std::collections::HashSet<u64>,
+    /// The indirect calls and jumps a traced run resolved, by the address of the instruction,
+    /// with the lifted functions each reached: the raise calls them directly.
+    pub traced_calls: BTreeMap<u64, Vec<u64>>,
     pub warnings: Vec<String>,
 }
 
@@ -91,8 +100,9 @@ pub fn import_of_wrapper(name: &str) -> Option<&str> {
 /// high half to `edx`. The caller pops what a `stdcall` import pops, since it knows the import.
 /// An import with a typed prototype (the C runtime's math) takes its own arguments instead, a
 /// double read as one, and its result goes where the convention puts it: `xmm0`, or in 32 bits
-/// the x87 stack.
-pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x87: X87Unit) -> ra_asm_ir::Function {
+/// the x87 stack. A `fastcall` import (the Xbox kernel's) takes its first two integers from `ecx`
+/// and `edx`, and the stack holds the rest.
+pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x87: X87Unit, fastcall: bool) -> ra_asm_ir::Function {
     use ra_asm_ir::{BinOp, Callee, Cast, FnType, FunctionBuilder, Terminator};
     use ra_asm_x86::iced_x86::Register as R;
     use raise::abi::Kind;
@@ -125,7 +135,13 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x8
         // Every argument is on the stack: a dword zero-extended, or the eight bytes of a wide
         // integer or a double.
         let mut offset = stack_offset;
-        for kind in &kinds {
+        for (p, kind) in kinds.iter().enumerate() {
+            if fastcall && p < 2 {
+                let v = m.read_gpr(block, [R::ECX, R::EDX][p]);
+                let v = m.zext(block, Type::I32, v, Type::I64, "arg.w");
+                args.push((Type::I64, v.into()));
+                continue;
+            }
             let addr = m.b.bin(block, BinOp::Add, Type::I32, sp, offset, "arg.p");
             let v = match kind {
                 Kind::Int => {
@@ -205,7 +221,14 @@ pub struct DataSection {
 impl Lifted {
     /// The options that raise this lift to `level`, by the address width of its image.
     pub fn raise_options(&self, level: RaiseLevel) -> RaiseOptions {
-        RaiseOptions { level, bits: self.bits, x87: self.x87, isa: self.isa }
+        RaiseOptions {
+            level,
+            bits: self.bits,
+            x87: self.x87,
+            isa: self.isa,
+            vtables: self.vtables.clone(),
+            traced_calls: self.traced_calls.clone(),
+        }
     }
 
     /// Gives every lifted function the analysis's name for it (`main_`, `Shape_vf1`, `fib`) in
@@ -256,12 +279,18 @@ impl Lifted {
     }
 
     /// The address operand of `address` in standalone mode: a byte of a data section, or a function.
+    /// A base just before a section (within a page) is a byte of that section at a negative
+    /// offset: the compiler folds the first index of a table into the displacement, so
+    /// `[ecx*4 + table - 8]` names the table's section from before its start.
     pub fn address_of(&self, address: u64) -> Option<ra_asm_ir::Operand> {
         if let Some(name) = self.functions.get(&address) {
             return Some(ra_asm_ir::Operand::Address { global: name.clone(), offset: 0 });
         }
-        let section = self.data.iter().find(|s| address >= s.start && address < s.end)?;
-        Some(ra_asm_ir::Operand::Address { global: section.global.clone(), offset: (address - section.start) as i64 })
+        if let Some(section) = self.data.iter().find(|s| address >= s.start && address < s.end) {
+            return Some(ra_asm_ir::Operand::Address { global: section.global.clone(), offset: (address - section.start) as i64 });
+        }
+        let section = self.data.iter().filter(|s| address < s.start && s.start - address < 0x1000).min_by_key(|s| s.start - address)?;
+        Some(ra_asm_ir::Operand::Address { global: section.global.clone(), offset: -((section.start - address) as i64) })
     }
 }
 
@@ -414,12 +443,15 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         entry: analysis.program_entry,
         roots: BTreeSet::new(),
         wrappers: BTreeSet::new(),
+        fastcall: BTreeSet::new(),
         data: Vec::new(),
+        vtables: ra_asm_analysis::rtti::vtables(&analysis.classes),
         standalone: options.standalone,
         bits: if image.is_64() { 64 } else { 32 },
         isa,
         x87: options.x87,
         relocated: image.relocations.iter().map(|r| r.va).collect(),
+        traced_calls: BTreeMap::new(),
         warnings: Vec::new(),
     };
     for f in analysis.ported() {
@@ -433,6 +465,16 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
             lifted.roots.insert(name.clone());
         }
         lifted.functions.insert(f.entry, name);
+    }
+    // A traced call resolves to the targets that are lifted: a runtime function or an import the
+    // run reached stays with the indirect call, which the host answers.
+    for f in analysis.ported() {
+        for (&site, targets) in &f.traced_calls {
+            let lifted_targets: Vec<u64> = targets.iter().copied().filter(|t| lifted.functions.contains_key(t)).collect();
+            if !lifted_targets.is_empty() {
+                lifted.traced_calls.insert(site, lifted_targets);
+            }
+        }
     }
     if options.standalone {
         data::add_sections(image, &mut lifted);
@@ -494,7 +536,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     }
     for (symbol, offset, tail) in &lifted.wrappers {
         let wrapper = match isa {
-            Isa::X86 => import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87),
+            Isa::X86 => import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87, lifted.fastcall.contains(symbol)),
             Isa::Arm64 => arm64::import_wrapper(symbol, lifted.x87),
         };
         lifted.module.functions.push(wrapper);
@@ -506,6 +548,8 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
 /// With `signatures` (ABI mode), the entry is declared with its own prototype and the driver calls
 /// it as a plain function. When the entry is the program's `main` rather than the image's entry
 /// point (a C runtime's startup the host's replaces), the call hands it the driver's arguments.
+/// A DLL's entry is its `DllMain`: `RA_DLL` is set and the call takes the instance, the reason and
+/// the reserved pointer the loader gives the port's own.
 pub fn image_header(
     image: &Image,
     analysis: &Analysis<'_>,
@@ -518,6 +562,10 @@ pub fn image_header(
     let _ = writeln!(out, "#define RA_IMAGE_BASE 0x{:x}ULL", image.image_base());
     let _ = writeln!(out, "#define RA_IMAGE_SIZE 0x{:x}", image.size_of_image());
     let _ = writeln!(out, "#define RA_POINTER_SIZE {}", image.pointer_size());
+    let dll = image.headers.coff.is_dll();
+    if dll {
+        let _ = writeln!(out, "#define RA_DLL 1");
+    }
     if let Some(entry) = lifted.entry.or_else(|| image.entry_point()) {
         let name = lifted.functions.get(&entry).cloned().unwrap_or_else(|| function_name(entry));
         let is_main = lifted.entry.is_some() && lifted.entry != image.entry_point();
@@ -537,20 +585,25 @@ pub fn image_header(
                 }
                 let _ = writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
                 // `main(argc, argv)` takes the driver's; the argv of a 32-bit program is the
-                // runtime's table of dword pointers.
+                // runtime's table of dword pointers. A DLL's entry takes the loader's three.
                 let args: Vec<&str> = params
                     .iter()
                     .enumerate()
-                    .map(|(i, _)| match (is_main, i, image.pointer_size()) {
-                        (true, 0, _) => "(unsigned long long)ra_argc",
-                        (true, 1, 8) => "(unsigned long long)(uintptr_t)ra_argv",
-                        (true, 1, _) => "*(unsigned *)(uintptr_t)ra_x86_p_argv()",
+                    .map(|(i, _)| match (is_main, dll, i, image.pointer_size()) {
+                        (true, _, 0, _) => "(unsigned long long)ra_argc",
+                        (true, _, 1, 8) => "(unsigned long long)(uintptr_t)ra_argv",
+                        (true, _, 1, _) => "*(unsigned *)(uintptr_t)ra_x86_p_argv()",
+                        (false, true, 0, _) => "(unsigned long long)(uintptr_t)(instance)",
+                        (false, true, 1, _) => "(unsigned long long)(reason)",
+                        (false, true, 2, _) => "(unsigned long long)(uintptr_t)(reserved)",
                         _ => "0",
                     })
                     .collect();
-                let _ = writeln!(out, "#define RA_ENTRY_CALL() {name}({})", args.join(", "));
-                // `main`'s result is the exit code the runtime's startup would have passed to `exit`.
-                if is_main && sig.returns.is_some() {
+                let macro_params = if dll { "instance, reason, reserved" } else { "" };
+                let _ = writeln!(out, "#define RA_ENTRY_CALL({macro_params}) {name}({})", args.join(", "));
+                // `main`'s result is the exit code the runtime's startup would have passed to
+                // `exit`; a DLL's entry answers the loader whether the attach succeeded.
+                if (is_main || dll) && sig.returns.is_some() {
                     let _ = writeln!(out, "#define RA_ENTRY_RETURNS 1");
                 }
             }

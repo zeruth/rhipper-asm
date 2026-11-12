@@ -37,6 +37,8 @@ struct Fixture {
     /// The image without the map or PDB beside it, its C runtime named by the signatures of the
     /// installed toolset's static runtime instead.
     by_signatures: bool,
+    /// The facts of a traced run the analysis takes; none by default.
+    facts: ra_asm_analysis::Facts,
 }
 
 fn fixture(binary: &str, expected: &str) -> Fixture {
@@ -47,6 +49,7 @@ fn fixture(binary: &str, expected: &str) -> Fixture {
         no_goto: true,
         x87: ra_asm_lift::X87Unit::Double,
         by_signatures: false,
+        facts: ra_asm_analysis::Facts::default(),
     }
 }
 
@@ -116,7 +119,7 @@ fn symbolize(stderr: &str, exe: &Path) -> Option<String> {
 fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect) -> (PathBuf, String, u32) {
     let binary = fixture.name();
     let image = fixture.image();
-    let analysis = ra_asm_analysis::analyze(&image);
+    let analysis = ra_asm_analysis::analyze_with(&image, &fixture.facts);
     let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: fixture.x87 });
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
@@ -171,7 +174,16 @@ fn run_rust_oracle_with(fixture: &Fixture, functions_per_file: usize) {
     let package = binary.trim_end_matches(".exe").to_owned();
     let pointer_bits = u32::from(image.pointer_size()) * 8;
     let resources = !image.resources.is_empty();
-    let options = ra_asm_emit::RustOptions { names, imports, entry, package: package.clone(), functions_per_file, pointer_bits, resources };
+    let options = ra_asm_emit::RustOptions {
+        names,
+        imports,
+        entry,
+        package: package.clone(),
+        functions_per_file,
+        pointer_bits,
+        resources,
+        ..Default::default()
+    };
     let output = ra_asm_emit::emit_rust(&lifted.module, &options);
     let dir = scratch(&format!("{binary}-rust-{functions_per_file}"));
     ra_asm_emit::write_files(&dir, &output.files).unwrap();
@@ -304,7 +316,15 @@ fn rhtest(name: &str, variant: &str) -> Fixture {
     let own = format!("rhtest/{name}-{variant}.txt");
     let expected = if root().join("testdata").join(&own).is_file() { own } else { format!("rhtest/{name}.txt") };
     let x87 = if variant.starts_with("ia32") { ra_asm_lift::X87Unit::Exact } else { ra_asm_lift::X87Unit::Double };
-    Fixture { binary: format!("rhtest/{name}-{variant}.exe"), expected, exit_line: true, no_goto: false, x87, by_signatures: false }
+    Fixture {
+        binary: format!("rhtest/{name}-{variant}.exe"),
+        expected,
+        exit_line: true,
+        no_goto: false,
+        x87,
+        by_signatures: false,
+        facts: ra_asm_analysis::Facts::default(),
+    }
 }
 
 /// The signatures of the installed toolset's static x86 C runtime (`libcmt.lib`,
@@ -683,6 +703,50 @@ fn structs64_runs_as_c() {
     run_oracle("structs64.exe", "structs.txt");
 }
 
+/// The dispatch program without facts: its calls through the table stay indirect.
+#[test]
+fn dispatch64_runs_as_c() {
+    run_oracle("dispatch64.exe", "dispatch.txt");
+}
+
+#[test]
+fn dispatch32_runs_as_c() {
+    run_oracle("dispatch32.exe", "dispatch.txt");
+}
+
+/// The facts of a traced run: the interpreter runs the ABI lift and sees the four handlers behind
+/// the call through the table, the analysis of the next pass takes them, and the port calls the
+/// handlers directly (the indirect call stays for a target the run did not see), with the
+/// function table marking what the run saw. The port runs the same.
+#[test]
+fn a_traced_run_makes_the_dispatch_direct() {
+    for binary in ["dispatch64.exe", "dispatch32.exe"] {
+        let mut fixture = fixture(binary, "dispatch.txt");
+        let image = fixture.image();
+        let analysis = ra_asm_analysis::analyze(&image);
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: fixture.x87 });
+        let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+        let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+        lifted.apply_names(&analysis, Some(&mut signatures));
+        let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+        assert_eq!(outcome.exit, 0, "{binary}: the traced run (stop: {:?})", outcome.stop);
+        assert_eq!(outcome.facts.calls.len(), 1, "{binary}: the one call through the table: {:?}", outcome.facts.calls);
+        fixture.facts = outcome.facts;
+        let (dir, c, _) = emit(&fixture, "facts", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+        // The definition of dispatch: the unindented line that opens it, to the closing brace.
+        let lines: Vec<&str> = c.lines().collect();
+        let opens = lines.iter().position(|l| !l.starts_with(' ') && l.contains(" dispatch(") && l.ends_with('{')).unwrap();
+        let body = lines[opens..].iter().take_while(|l| **l != "}").copied().collect::<Vec<_>>().join("\n");
+        for handler in ["h_add(", "h_sub(", "h_mul(", "h_xor("] {
+            assert!(body.contains(handler), "{binary}: dispatch calls {handler}) directly:\n{body}");
+        }
+        let table = std::fs::read_to_string(dir.join("functions.json")).unwrap();
+        assert!(table.contains("\"seen\": true"), "{binary}: the table marks the functions the run entered:\n{table}");
+        assert!(table.contains("\"seen_calls\""), "{binary}: the table lists the resolved calls:\n{table}");
+        run_fixture_as_c(&fixture, "facts", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+    }
+}
+
 #[test]
 fn structs32_runs_as_c() {
     run_oracle("structs32.exe", "structs.txt");
@@ -809,6 +873,11 @@ fn rhtest_core_od_traced() {
 
 /// The Rust package of a fixture as text, the modules joined, without building it.
 fn rust_text(fixture: &Fixture) -> String {
+    rust_text_with(fixture, true)
+}
+
+/// The functions of a fixture's Rust port, with or without the proofs of safety.
+fn rust_text_with(fixture: &Fixture, proofs: bool) -> String {
     let image = ra_asm_pe::load(&fixture.binary_path()).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
     let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: fixture.x87 });
@@ -817,8 +886,31 @@ fn rust_text(fixture: &Fixture) -> String {
     lifted.apply_names(&analysis, None);
     let infos = ra_asm_emit::functions::infos(&analysis);
     let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
-    let options = ra_asm_emit::RustOptions { names, ..ra_asm_emit::RustOptions::default() };
+    let options = ra_asm_emit::RustOptions { names, proofs, ..ra_asm_emit::RustOptions::default() };
     ra_asm_emit::emit_rust(&lifted.module, &options).functions.into_iter().map(|f| f.text).collect()
+}
+
+/// The Rust port is safe where the engine can prove it (task 120): the functions are safe
+/// `extern "C" fn`s, a local the frame never shares is a value, an access of a data section at a
+/// known offset is a checked one, and what stays raw sits in an `unsafe` block that names why.
+/// The control port keeps under half the `unsafe` blocks of the raw port, where every raw
+/// operation stands in its own.
+#[test]
+fn control64_rust_is_safe_where_provable() {
+    let fixture = fixture("control64.exe", "control.txt");
+    let proven = rust_text_with(&fixture, true);
+    let raw = rust_text_with(&fixture, false);
+    let blocks = |text: &str| text.matches("unsafe {").count();
+    assert!(blocks(&proven) * 2 < blocks(&raw), "{} unsafe blocks against {} raw:\n{proven}", blocks(&proven), blocks(&raw));
+    assert!(!proven.contains("pub unsafe extern \"C\" fn"), "an unsafe function:\n{proven}");
+    // `sink`, `out` and the sorted `table` are accesses of the data section, constant and indexed.
+    assert!(proven.contains("sec_data.get::<u32>(64)"), "{proven}");
+    assert!(proven.contains("sec_data.set::<u32>(("), "{proven}");
+    // The `n` of WriteFile is a local the function keeps as a value; the frame's address escapes
+    // to WriteFile and stays raw, named as such.
+    assert!(proven.contains("let mut local_m18: u64 = 0u64;"), "{proven}");
+    assert!(proven.contains(&format!("// {}", "memory at a computed address")), "{proven}");
+    assert!(proven.contains("unsafe { /* an import */") || proven.contains("// an import"), "{proven}");
 }
 
 /// The text of the function whose definition starts with `head`, up to its closing brace.

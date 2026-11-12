@@ -145,10 +145,34 @@ fn the_whole_pipeline_builds_and_runs_the_port() {
     assert!(ok, "{text}");
 }
 
+/// Sends `requests` to a server over the project at `dir` and returns the responses, in order.
+fn serve(dir: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    use std::io::{BufRead, BufReader, Write};
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ras"))
+        .args(["serve", "--project"])
+        .arg(dir)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    for r in requests {
+        writeln!(stdin, "{r}").unwrap();
+    }
+    writeln!(stdin, r#"{{"jsonrpc": "2.0", "id": 999, "method": "shutdown"}}"#).unwrap();
+    drop(stdin);
+    let responses = BufReader::new(stdout).lines().map(|l| serde_json::from_str(&l.unwrap()).unwrap()).collect();
+    assert!(child.wait().unwrap().success());
+    responses
+}
+
 /// With `run.trace`, the port records its calls and returns with their values and the reference's
 /// are recorded under the debugger at the same functions; the two compare the same. A port with
 /// one wrong function (`fib` returning one more) is found by the comparison in one run, which
-/// names the function.
+/// names the function; the `trace` method of `ras serve` replays the two call by call and names
+/// the function, the call and the two values; and the reference recorded the other way, by the
+/// interpreter over its IR, replays over the same port to the same function and value.
 #[test]
 fn the_trace_beside_the_port_names_the_wrong_function() {
     if !(available("cmake") && available("clang")) {
@@ -186,7 +210,66 @@ fn the_trace_beside_the_port_names_the_wrong_function() {
     let record: serde_json::Value = serde_json::from_str(runs.lines().last().unwrap()).unwrap();
     assert_eq!(record["trace_function"], "fib", "{record}");
     assert!(record["trace_event"].as_u64().is_some_and(|e| e > 0), "{record}");
+    assert_eq!(record["tracer"], "debugger", "{record}");
     assert!(record["verdict"].as_str().is_some_and(|v| v.starts_with("differs at line")), "{record}");
+
+    // The replay in the workbench: the call at fault is a `fib` whose port result is one more
+    // than the reference's, and the calls of `fib` alone step side by side with their arguments.
+    let responses = serve(
+        &dir,
+        &[
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "trace"}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "trace", "params": {"function": "fib", "limit": 3}}),
+        ],
+    );
+    let replay = &responses[0]["result"];
+    assert_eq!(replay["tracer"], "debugger", "{replay}");
+    assert!(replay["verdict"].as_str().is_some_and(|v| v.starts_with("parts at event")), "{replay}");
+    let parts = &replay["parts"];
+    assert_eq!(parts["function"], "fib", "{parts}");
+    let (port, reference) = (parts["port"].as_str().unwrap(), parts["reference"].as_str().unwrap());
+    let value = |text: &str| u64::from_str_radix(text.trim_start_matches("0x").split(':').next().unwrap(), 16).unwrap();
+    assert_eq!(value(port), value(reference) + 1, "{parts}");
+    let call = &parts["call"];
+    assert_eq!(call["function"], "fib", "{call}");
+    assert_eq!(call["fault"], true, "{call}");
+    assert!(call["port"]["args"].as_str().is_some_and(|a| a.starts_with("0x")), "{call}");
+    assert_eq!(call["port"]["result"], port, "{call}");
+    assert!(call["reference"]["args"].as_str().is_some_and(|a| a.starts_with("0x")), "{call}");
+    assert!(
+        replay["functions"].as_array().is_some_and(|f| f.iter().any(|e| e["name"] == "fib" && e["calls"].as_u64() > Some(1))),
+        "{replay}"
+    );
+    let fibs = &responses[1]["result"];
+    assert_eq!(fibs["calls"].as_array().map(Vec::len), Some(3), "{fibs}");
+    assert!(
+        fibs["calls"].as_array().unwrap().iter().all(|c| c["function"] == "fib" && c["enter"].as_u64() < c["return"].as_u64()),
+        "{fibs}"
+    );
+    assert!(fibs["total"].as_u64() > Some(3), "{fibs}");
+
+    // The reference recorded the other way, by the interpreter over its IR, replayed over the
+    // same port: the same function and the same value.
+    std::fs::write(
+        dir.join("rhipper.json"),
+        r#"{ "name": "control", "exe": "ref/control64.exe", "map": "ref/control.map", "run": { "compare": true, "trace": true, "tracer": "interpreter" } }"#,
+    )
+    .unwrap();
+    let (ok, text) = ras(&dir, &["--only", "run"]);
+    assert!(ok, "{text}");
+    assert!(text.contains(" in fib: the port returned 0x") && text.contains(" (interpreter)"), "{text}");
+    let reference_trace = std::fs::read_to_string(dir.join("build/pipeline/reference.trace")).unwrap();
+    assert!(reference_trace.contains("> fib(0xf)") && reference_trace.contains("< fib = 0x262:32"), "{reference_trace}");
+    let runs = std::fs::read_to_string(dir.join("build/pipeline/runs.jsonl")).unwrap();
+    let record: serde_json::Value = serde_json::from_str(runs.lines().last().unwrap()).unwrap();
+    assert_eq!(record["tracer"], "interpreter", "{record}");
+    assert_eq!(record["trace_function"], "fib", "{record}");
+    let responses = serve(&dir, &[serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "trace"})]);
+    let parts = &responses[0]["result"]["parts"];
+    assert_eq!(responses[0]["result"]["tracer"], "interpreter", "{}", responses[0]);
+    assert_eq!(parts["function"], "fib", "{parts}");
+    assert_eq!(parts["port"], port, "{parts}");
+    assert_eq!(parts["reference"], reference, "{parts}");
 }
 
 /// A function taken over by hand: `hand` in `rhipper.json` names `fib`, the emit step writes its

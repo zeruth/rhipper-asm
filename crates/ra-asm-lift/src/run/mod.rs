@@ -13,10 +13,13 @@ mod host;
 mod os;
 mod printf;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
 use anyhow::{Context, Result, anyhow};
+use ra_asm_analysis::facts::{Facts, Input, SeenCall};
 use ra_asm_ir::Type;
 use ra_asm_ir::interp::{Memory, Region, Stop, Value, Vm};
 use ra_asm_pe::Image;
@@ -40,11 +43,14 @@ pub struct Options {
     pub args: Vec<String>,
     /// Write the program's output to stdout as it comes, besides capturing it.
     pub live: bool,
+    /// Write the record of the run here: the calls and returns of the image's functions with
+    /// their values, in the shape of a port's trace.
+    pub record: Option<PathBuf>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { trace: false, limit: 2_000_000_000, args: Vec::new(), live: false }
+        Self { trace: false, limit: 2_000_000_000, args: Vec::new(), live: false, record: None }
     }
 }
 
@@ -58,6 +64,8 @@ pub struct Outcome {
     pub stop: Option<String>,
     /// The IR instructions executed.
     pub steps: u64,
+    /// What the run saw, as the analysis of the next pass takes it.
+    pub facts: Facts,
 }
 
 static LOCK: Mutex<()> = Mutex::new(());
@@ -103,6 +111,14 @@ fn run_here(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signatu
     let mut vm = Vm::new(&lifted.module, memory);
     vm.trace = options.trace;
     vm.limit = options.limit;
+    if let Some(path) = &options.record {
+        let file = std::fs::File::create(path).with_context(|| format!("cannot write the record at {}", path.display()))?;
+        vm.record = Some(Box::new(std::io::BufWriter::new(file)));
+        // The image's own functions, as the port's hooks record them: not the stubs and helpers
+        // the lift adds.
+        let names: HashSet<&str> = lifted.functions.values().map(String::as_str).collect();
+        vm.recorded = lifted.module.functions.iter().enumerate().filter(|(_, f)| names.contains(f.name.as_str())).map(|(i, _)| i).collect();
+    }
     vm.set_static_region(statics.start, statics.len);
     vm.set_frame_region(frames.start, frames.len);
     if !lifted.standalone {
@@ -119,7 +135,40 @@ fn run_here(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signatu
         Err(Stop::Limit(n)) => (LIMIT_EXIT, Some(format!("the run limit of {n} instructions was reached"))),
         Err(Stop::Fault(message)) => (FAULT_EXIT, Some(message)),
     };
-    Ok(Outcome { output: std::mem::take(&mut runtime.output), exit, stop, steps: vm.steps })
+    if let Some(record) = &mut vm.record {
+        record.flush().context("cannot write the record of the run")?;
+    }
+    let facts = facts_of(&vm, image, lifted, &options.args);
+    Ok(Outcome { output: std::mem::take(&mut runtime.output), exit, stop, steps: vm.steps, facts })
+}
+
+/// What the run saw, in the image's addresses: a target is a lifted function's image address
+/// (the machine levels hold it as such, the standalone level as the function's own address in
+/// the interpreter, or its universal stub's on x86), and a target that is no lifted function (an
+/// import, a runtime function) is left out, since the analysis has nothing to make of it.
+fn facts_of(vm: &Vm<'_>, image: &Image, lifted: &Lifted, args: &[String]) -> Facts {
+    let by_name: HashMap<&str, u64> = lifted.functions.iter().map(|(va, name)| (name.as_str(), *va)).collect();
+    let image_address = |address: u64| -> Option<u64> {
+        if lifted.functions.contains_key(&address) {
+            return Some(address);
+        }
+        let name = vm.name_at(address)?;
+        match name.strip_prefix("U_").and_then(|hex| u64::from_str_radix(hex, 16).ok()) {
+            Some(va) if lifted.functions.contains_key(&va) => Some(va),
+            _ => by_name.get(name).copied(),
+        }
+    };
+    let calls = vm
+        .seen
+        .calls
+        .iter()
+        .filter_map(|(&site, targets)| {
+            let targets: Vec<u64> = targets.iter().filter_map(|&t| image_address(t)).collect();
+            (!targets.is_empty()).then_some(SeenCall { site, targets })
+        })
+        .collect();
+    let entered = vm.seen.entered.iter().filter_map(|&i| by_name.get(lifted.module.functions[i].name.as_str()).copied()).collect();
+    Facts { input: Input::of(image, args), calls, entered }
 }
 
 /// Calls the entry as the driver does: a function of the machine shape gets a state whose stack

@@ -11,29 +11,44 @@
 //! that hold it, and the names settle: a PDB beside the image names what it describes and marks
 //! the functions of a linked-in C runtime as the host's, a link map beside it (or one the project
 //! names) names what it lists, a function nothing names takes the name of its vtable slot, and
-//! every name becomes an identifier unique in the program.
+//! every name becomes an identifier unique in the program. The signatures of a library
+//! ([`signatures`]) name the functions of a build without symbols the same way: applied to the
+//! image first, they fill the symbols and the library ranges the analysis reads. The facts of a
+//! traced run ([`facts`]) come last among the seeds and first among the resolutions: a target the
+//! run reached is a function, and an indirect call the run resolved calls what it reached.
 
 pub mod builder;
+pub mod facts;
 pub mod function;
 pub mod imports;
 pub mod jumptable;
 pub mod noreturn;
 pub mod rtti;
+pub mod signatures;
 pub mod symbols;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use ra_asm_arch::Operand;
-use ra_asm_pe::{CxxFrame, Image};
-use ra_asm_x86::X86;
+use ra_asm_arch::{Arch, Operand};
+use ra_asm_pe::{CxxFrame, Image, Machine};
 
+pub use facts::Facts;
 pub use function::{Block, Function, Kind, Origin, Terminator, VirtualSlot};
 pub use rtti::{Class, Vtable};
+pub use signatures::{Signature, SignatureSet};
+
+/// The decoder of an image's machine.
+pub fn arch_of(image: &Image) -> Box<dyn Arch> {
+    match image.machine() {
+        Machine::Arm64 => Box::new(ra_asm_arm64::Arm64),
+        _ => Box::new(ra_asm_x86::X86::for_pointer_size(image.pointer_size())),
+    }
+}
 
 /// The analysis of one image.
 pub struct Analysis<'a> {
     pub image: &'a Image,
-    pub arch: X86,
+    pub arch: Box<dyn Arch>,
     /// Every function, by entry address.
     pub functions: BTreeMap<u64, Function>,
     /// The functions that never return, by entry address.
@@ -46,6 +61,8 @@ pub struct Analysis<'a> {
     /// The function a port starts at: the image's entry point, or `main` when the entry is the
     /// startup of a C runtime linked into the image, whose work the host's own startup does.
     pub program_entry: Option<u64>,
+    /// The facts of the traced run the analysis took, empty without one.
+    pub facts: Facts,
     /// What the analysis could not resolve: unresolved indirect jumps, invalid bytes, overlaps.
     pub warnings: Vec<String>,
 }
@@ -84,9 +101,15 @@ const MAX_ROUNDS: usize = 64;
 
 /// Analyzes `image`: finds its functions and builds their control-flow graphs.
 pub fn analyze(image: &Image) -> Analysis<'_> {
-    let arch = X86::for_pointer_size(image.pointer_size());
+    analyze_with(image, &Facts::default())
+}
+
+/// [`analyze`] with the `facts` of a traced run: a target an indirect call reached is a function,
+/// and the call resolves to the functions it reached.
+pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
+    let arch = arch_of(image);
     let cxx_frames: BTreeMap<u64, CxxFrame> = ra_asm_pe::exception::cxx_frames(image).into_iter().map(|f| (f.entry.begin, f)).collect();
-    let mut state = State::new(image, arch, &cxx_frames);
+    let mut state = State::new(image, arch.as_ref(), &cxx_frames);
 
     // The seeds, in the order that names them best: the entry, the exports, the callbacks, .pdata.
     if let Some(entry) = image.entry_point() {
@@ -128,18 +151,11 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
     }
     state.run();
 
-    // Pointers in data: a function only a pointer reaches, such as a callback in a table.
-    for (va, origin) in pointer_seeds(image) {
-        if state.functions.values().any(|f| f.contains(va)) || state.functions.contains_key(&va) {
-            continue;
-        }
-        state.seed(va, origin);
-    }
-    state.run();
-
     // Code addresses in the instructions themselves: `push offset callback`, `mov eax, offset fn`.
     // With relocations they are marked; without, a 32-bit immediate that lands at the start of
-    // code outside every function is one.
+    // code outside every function is one. They come before the pointers in data: a callback the
+    // code names is built whole, with the switch tables of its own, before the entries of those
+    // tables (relocated code addresses in `.rdata` too) could pass for functions.
     for _ in 0..4 {
         let seeds = immediate_seeds(image, &state.functions);
         if seeds.is_empty() {
@@ -151,10 +167,42 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
         state.run();
     }
 
+    // Pointers in data: a function only a pointer reaches, such as a callback in a table.
+    for (va, origin) in pointer_seeds(image) {
+        if state.functions.values().any(|f| f.contains(va)) || state.functions.contains_key(&va) {
+            continue;
+        }
+        state.seed(va, origin);
+    }
+    state.run();
+
+    // The immediates of the functions the pointers named.
+    for _ in 0..4 {
+        let seeds = immediate_seeds(image, &state.functions);
+        if seeds.is_empty() {
+            break;
+        }
+        for (va, origin) in seeds {
+            state.seed(va, origin);
+        }
+        state.run();
+    }
+
+    // The targets a traced run reached: a function only a computed address names.
+    for call in &facts.calls {
+        for &va in &call.targets {
+            if !state.functions.values().any(|f| f.contains(va)) {
+                state.seed(va, Origin::Trace(call.site));
+            }
+        }
+    }
+    state.run();
+
     // Code after the `int 3` fill that nothing names: a function the linker kept without a caller
-    // (`/Od` keeps every function of an object it pulls in).
+    // (`/Od` keeps every function of an object it pulls in). An ARM64 image has no such fill: its
+    // exception table names every function with a frame.
     for _ in 0..MAX_ROUNDS {
-        let seeds = gap_seeds(image, &state);
+        let seeds = if image.machine() == Machine::Arm64 { Vec::new() } else { gap_seeds(image, &state) };
         if seeds.is_empty() {
             break;
         }
@@ -177,6 +225,23 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
         f.noreturn = state.noreturn.contains(&f.entry);
         f.strings = strings_of(image, f);
     }
+    // An indirect call the run resolved calls the functions it reached: they join the caller's
+    // calls, and the lift reads the resolution by the call's address.
+    let entries: HashSet<u64> = functions.keys().copied().collect();
+    for call in &facts.calls {
+        let targets: Vec<u64> = call.targets.iter().copied().filter(|t| entries.contains(t)).collect();
+        if targets.is_empty() {
+            continue;
+        }
+        if let Some(f) = functions.values_mut().find(|f| f.contains(call.site)) {
+            for &t in &targets {
+                if !f.calls.contains(&t) {
+                    f.calls.push(t);
+                }
+            }
+            f.traced_calls.insert(call.site, targets);
+        }
+    }
     // The names, strongest first: the exports are set, the symbols of the build (the PDB, else the
     // link map) name what they list, a vtable slot names what is left, and the last pass makes
     // them identifiers unique in the program.
@@ -186,7 +251,7 @@ pub fn analyze(image: &Image) -> Analysis<'_> {
     let program_entry = symbols::program_entry(image, &functions);
     symbols::finish_names(&mut functions);
     let (noreturn, warnings) = (state.noreturn, state.warnings);
-    Analysis { image, arch, functions, noreturn, classes, cxx_frames, program_entry, warnings }
+    Analysis { image, arch, functions, noreturn, classes, cxx_frames, program_entry, facts: facts.clone(), warnings }
 }
 
 /// The string literals a function addresses: each operand that names an address where printable
@@ -345,7 +410,7 @@ fn name_virtual_functions(classes: &[Class], functions: &mut BTreeMap<u64, Funct
 /// The working state of the fixpoint.
 struct State<'a> {
     image: &'a Image,
-    arch: X86,
+    arch: &'a dyn Arch,
     functions: BTreeMap<u64, Function>,
     /// Every address that starts a function, built or pending: a descent stops at these.
     known_starts: BTreeSet<u64>,
@@ -363,7 +428,7 @@ struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    fn new(image: &'a Image, arch: X86, frames: &'a BTreeMap<u64, CxxFrame>) -> Self {
+    fn new(image: &'a Image, arch: &'a dyn Arch, frames: &'a BTreeMap<u64, CxxFrame>) -> Self {
         let extents = exception_extents(image, frames);
         let mut known_starts = BTreeSet::new();
         known_starts.extend(extents.keys().copied());

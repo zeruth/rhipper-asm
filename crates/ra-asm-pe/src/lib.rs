@@ -1,7 +1,9 @@
 //! The PE image. [`Image::parse`] reads the headers and the section table, lays the file out by
 //! RVA as the loader would, and reads the directories the pipeline needs: imports, exports, base
-//! relocations, the exception table, TLS and debug. A malformed directory does not fail the load:
+//! relocations, the exception table, TLS, debug and resources. A malformed directory does not fail the load:
 //! the image keeps a warning for it, because a packed or odd binary is still worth opening.
+//! [`object`] reads the relocatable objects (COFF, ELF) and the archives the signatures of a
+//! library are made from. [`xbe`] reads the original Xbox's container into the same image.
 
 pub mod debug;
 pub mod exception;
@@ -10,21 +12,29 @@ pub mod headers;
 pub mod image;
 pub mod imports;
 pub mod linkmap;
+pub mod object;
 pub mod pdb;
 pub mod relocs;
+pub mod resources;
 pub mod section;
 pub mod tls;
+pub mod xbe;
 
 pub use debug::{CodeView, DebugEntry};
-pub use exception::{CatchHandler, CxxFrame, FuncInfo, RuntimeFunction, ThrowInfo, TryBlock, UnwindInfo, UnwindOp};
+pub use exception::{
+    Arm64Epilog, Arm64Unwind, Arm64UnwindOp, CatchHandler, CxxFrame, FuncInfo, RuntimeFunction, ThrowInfo, TryBlock, UnwindInfo, UnwindOp,
+};
 pub use exports::{Export, ExportTable};
 pub use headers::{DataDirectory, Directory, Headers, Machine, OptionalMagic};
 pub use image::Image;
 pub use imports::Import;
+pub use object::{Library, Object, ObjectFunction, ObjectReloc, ObjectSection};
 pub use pdb::{LibraryRange, Symbol};
 pub use relocs::{RelocKind, Relocation};
+pub use resources::{Resource, ResourceId};
 pub use section::Section;
 pub use tls::Tls;
+pub use xbe::{KernelExport, Xbe};
 
 use std::path::Path;
 

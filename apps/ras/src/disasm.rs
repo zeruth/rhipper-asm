@@ -4,9 +4,8 @@
 use std::io::Write;
 
 use anyhow::{Context, Result, bail};
-use ra_asm_arch::{Arch, Flow, Instr, Operand, Target};
+use ra_asm_arch::{Flow, Instr, Operand, Target};
 use ra_asm_pe::Image;
-use ra_asm_x86::X86;
 use serde_json::json;
 
 use crate::report::hex;
@@ -43,7 +42,7 @@ pub(crate) fn decode(image: &Image, address: u64, length: Option<u64>) -> Result
     if !image.is_code(address) {
         bail!("{} lies in no code section", hex(address));
     }
-    let arch = X86::for_pointer_size(image.pointer_size());
+    let arch = ra_asm_analysis::arch_of(image);
     let (start, len) = range(image, address, length);
     let bytes = match len {
         Some(len) => image.read(start, len as usize).with_context(|| format!("the {len:#x} bytes at {}", hex(start)))?,
@@ -52,10 +51,11 @@ pub(crate) fn decode(image: &Image, address: u64, length: Option<u64>) -> Result
     let mut instrs = Vec::new();
     let mut offset = 0usize;
     while offset < bytes.len() {
-        let Some(i) = arch.decode(&bytes[offset..], start + offset as u64) else {
+        let Some(mut i) = arch.decode(&bytes[offset..], start + offset as u64) else {
             eprintln!("warning: no instruction at {}", hex(start + offset as u64));
             break;
         };
+        arch.link(&instrs, &mut i);
         offset += i.len as usize;
         let stop = len.is_none() && matches!(i.flow, Flow::Return | Flow::Jump(_) | Flow::Trap | Flow::Halt);
         instrs.push(i);

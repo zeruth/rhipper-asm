@@ -1,0 +1,48 @@
+ files32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000002f5H .text                   CODE
+ 0002:00000000 00000030H .rdata                  DATA
+ 0003:00000000 00000000H .data                   DATA
+ 0003:00000000 00000024H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     files-3f78d0.o
+ 0002:00000010       __xmm@000000020000000000000000c0000000 0000000000402010     files-3f78d0.o
+ 0002:00000020       __xmm@00000003000000000000000180000000 0000000000402020     files-3f78d0.o
+ 0002:00000030       ??_C@_05BGEKGIIP@other?$AA@ 0000000000402030     files-3f78d0.o
+ 0002:00000036       ??_C@_0BC@FELDDKID@no?9such?9dir?2x?4tmp?$AA@ 0000000000402036     files-3f78d0.o
+ 0002:00000048       ??_C@_07KBHKPKKP@no?5path?$AA@ 0000000000402048     files-3f78d0.o
+ 0002:00000050       ??_C@_09GNNAFPDF@not?5found?$AA@ 0000000000402050     files-3f78d0.o
+ 0002:0000005a       ??_C@_06NBOJMOCJ@opened?$AA@ 000000000040205a     files-3f78d0.o
+ 0002:00000061       ??_C@_06GKPCAAFD@denied?$AA@ 0000000000402061     files-3f78d0.o
+ 0002:00000068       ??_C@_0O@CNEFNGOJ@hello?0?5file?$AN?6?$AA@ 0000000000402068     files-3f78d0.o
+ 0002:00000073       ??_C@_02PCIJFNDE@?$AN?6?$AA@ 0000000000402073     files-3f78d0.o
+ 0002:000000e8       __imp__CloseHandle@4       00000000004020e8     kernel32:KERNEL32.dll
+ 0002:000000ec       __imp__CreateFileA@28      00000000004020ec     kernel32:KERNEL32.dll
+ 0002:000000f0       __imp__DeleteFileA@4       00000000004020f0     kernel32:KERNEL32.dll
+ 0002:000000f4       __imp__ExitProcess@4       00000000004020f4     kernel32:KERNEL32.dll
+ 0002:000000f8       __imp__GetCurrentThreadId@0 00000000004020f8     kernel32:KERNEL32.dll
+ 0002:000000fc       __imp__GetFileAttributesA@4 00000000004020fc     kernel32:KERNEL32.dll
+ 0002:00000100       __imp__GetLastError@0      0000000000402100     kernel32:KERNEL32.dll
+ 0002:00000104       __imp__GetStdHandle@4      0000000000402104     kernel32:KERNEL32.dll
+ 0002:00000108       __imp__ReadFile@20         0000000000402108     kernel32:KERNEL32.dll
+ 0002:0000010c       __imp__WriteFile@20        000000000040210c     kernel32:KERNEL32.dll
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:00000100       _print_int                 0000000000401100     files-3f78d0.o
+ 0001:00000180       _write_text                0000000000401180     files-3f78d0.o
+ 0001:000001e0       _read_text                 00000000004011e0     files-3f78d0.o
+ 0001:00000240       _print_str                 0000000000401240     files-3f78d0.o
+ 0001:00000270       _is_plain_file             0000000000401270     files-3f78d0.o
+ 0001:00000290       _open_error                0000000000401290     files-3f78d0.o
+ 0003:00000000       _out                       0000000000403000     files-3f78d0.o
+ 0003:00000004       _path                      0000000000403004     files-3f78d0.o

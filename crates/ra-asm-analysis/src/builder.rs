@@ -6,7 +6,6 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use ra_asm_arch::{Arch, Flow, Instr, Operand, Target};
 use ra_asm_pe::{CxxFrame, Image};
-use ra_asm_x86::X86;
 
 use crate::function::{Block, Function, Kind, Terminator};
 use crate::{jumptable, noreturn};
@@ -27,7 +26,7 @@ struct Draft {
 
 pub(crate) struct Builder<'a> {
     image: &'a Image,
-    arch: X86,
+    arch: &'a dyn Arch,
     entry: u64,
     ranges: &'a [(u64, u64)],
     known_starts: &'a BTreeSet<u64>,
@@ -45,7 +44,7 @@ pub(crate) struct Builder<'a> {
 /// Builds the function at `entry`.
 pub fn build(
     image: &Image,
-    arch: X86,
+    arch: &dyn Arch,
     entry: u64,
     ranges: &[(u64, u64)],
     known_starts: &BTreeSet<u64>,
@@ -102,7 +101,7 @@ impl Builder<'_> {
     /// `int 3` after a call that never returns precedes a block of the same function, which is
     /// not aligned. On x64 the exception table bounds a function exactly.
     fn beyond_fill(&self, target: u64) -> bool {
-        self.arch.bits == 32
+        self.arch.address_bits() == 32
             && target.is_multiple_of(16)
             && !self.blocks.contains_key(&target)
             && target != self.entry
@@ -120,7 +119,7 @@ impl Builder<'_> {
     /// `lea rax, [rip + L]`.
     fn frame_funclets(&self) -> Vec<u64> {
         let mut out = Vec::new();
-        if self.arch.bits != 32 {
+        if self.arch.address_bits() != 32 {
             let Some(frame) = self.frame else { return out };
             out.extend(frame.funclets.iter().map(|f| f.begin));
             for block in self.blocks.values().filter(|b| frame.funclets.iter().any(|f| f.contains(b.start))) {
@@ -309,11 +308,12 @@ impl Builder<'_> {
                 draft.terminator = self.leave(va);
                 break;
             }
-            let Some(instr) = self.decode(va) else {
+            let Some(mut instr) = self.decode(va) else {
                 self.warnings.push(format!("no instruction at {va:#x} in the function at {:#x}", self.entry));
                 draft.terminator = Terminator::Invalid;
                 break;
             };
+            self.arch.link(&draft.instrs, &mut instr);
             let next = instr.end();
             let flow = instr.flow;
             let mnemonic_is_fastfail = instr.mnemonic == "int" && matches!(instr.operands.first(), Some(Operand::Imm { value: 0x29, .. }));
@@ -461,6 +461,7 @@ impl Builder<'_> {
             origins: Vec::new(),
             strings: Vec::new(),
             register_import_calls: std::collections::HashMap::new(),
+            traced_calls: std::collections::BTreeMap::new(),
             virtuals: Vec::new(),
         };
         Built { function, warnings: self.warnings }

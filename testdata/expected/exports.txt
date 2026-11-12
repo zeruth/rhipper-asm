@@ -1,0 +1,5 @@
+ra_add(2, 3) = 5
+ra_twice(21) = 42
+#20(10) = 9
+ra_counter = 7
+ra_tick -> KERNEL32.GetTickCount

@@ -344,6 +344,34 @@ fn fail_never_returns_and_its_callers_stop_at_the_call() {
     }
 }
 
+/// The ARM64 build of hello: the exception table and the descent find its two functions, and the
+/// calls through `x8` after `adrp`/`ldr` of an import slot resolve to the imports.
+#[test]
+fn finds_the_functions_and_the_import_calls_of_the_arm64_fixture() {
+    let image = load("helloa64.exe");
+    let analysis = analyze(&image);
+    assert_eq!(analysis.arch.name(), "arm64");
+    let expected = map_functions("helloa64.map");
+    let mut ours: Vec<u64> = analysis.functions.keys().copied().collect();
+    let mut theirs: Vec<u64> = expected.values().copied().collect();
+    ours.sort_unstable();
+    theirs.sort_unstable();
+    assert_eq!(ours, theirs, "the functions ({})", expected.keys().cloned().collect::<Vec<_>>().join(", "));
+    assert!(analysis.warnings.is_empty(), "{:?}", analysis.warnings);
+    let entry = by_name(&analysis, &expected, "mainCRTStartup");
+    assert_eq!(analysis.name_of(entry.entry), "mainCRTStartup_");
+    let mut calls: Vec<&String> = entry.register_import_calls.values().collect();
+    calls.sort();
+    assert_eq!(calls, ["ExitProcess", "GetStdHandle", "WriteFile"]);
+    assert_eq!(entry.calls, [expected["square"]]);
+    // The `ldr` after the `adrp` names the slot it reads, as a RIP-relative load does on x64.
+    let slot_loads =
+        entry.blocks.iter().flat_map(|b| &b.instrs).filter(|i| i.mnemonic == "ldr" && i.absolute_memory_operand().is_some()).count();
+    assert_eq!(slot_loads, 3);
+    // The entry ends in ExitProcess and the `brk` after it: no return.
+    assert!(analysis.noreturn.contains(&entry.entry) || entry.blocks.iter().any(|b| matches!(b.terminator, Terminator::Trap)));
+}
+
 #[test]
 fn a_call_through_a_word_that_holds_an_import_slots_value_is_the_imports() {
     for (binary, map) in [("control64.exe", "control64.map"), ("control32.exe", "control32.map")] {

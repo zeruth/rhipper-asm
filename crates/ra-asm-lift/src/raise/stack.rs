@@ -44,8 +44,9 @@ pub struct StackInfo {
     pub pops: i64,
 }
 
-/// Analyzes `f`, whose state pointer is `state`. `pops_of` is what a lifted callee pops beyond its
-/// return address, by name, as far as the inference knows it so far.
+/// Analyzes `f`, whose state pointer is `state`. `call_pops` is what the lifted callee of a call
+/// pops beyond its return address, as far as the inference knows it so far; `None` for a callee
+/// it does not know.
 // The names are the ones the analysis is written in: `f`, `n` blocks, `sp`, a block `b` and an
 // instruction `i`.
 #[allow(clippy::many_single_char_names)]
@@ -54,7 +55,7 @@ pub fn analyze(
     state: ValueId,
     pointers: &HashMap<ValueId, Slot>,
     target: Target,
-    pops_of: &dyn Fn(&str) -> i64,
+    call_pops: &dyn Fn(&Inst) -> Option<i64>,
 ) -> StackInfo {
     let n = f.blocks.len();
     let order = reverse_post_order(f);
@@ -218,12 +219,14 @@ pub fn analyze(
                                         }
                                     }
                                 }
-                                Some(name) if name.starts_with("F_") => regs[sp] = regs[sp].map(|k| k + ptr + pops_of(name)),
-                                _ if target.is_64() => regs[sp] = regs[sp].map(|k| k + ptr),
-                                _ => {
-                                    regs[sp] = None;
-                                    info.dynamic = true;
-                                }
+                                _ => match call_pops(inst) {
+                                    Some(pops) => regs[sp] = regs[sp].map(|k| k + ptr + pops),
+                                    None if target.is_64() => regs[sp] = regs[sp].map(|k| k + ptr),
+                                    None => {
+                                        regs[sp] = None;
+                                        info.dynamic = true;
+                                    }
+                                },
                             }
                         }
                     }

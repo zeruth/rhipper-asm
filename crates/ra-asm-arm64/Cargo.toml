@@ -1,0 +1,19 @@
+[package]
+name = "ra-asm-arm64"
+description = "The AArch64 decoder adapter: bytes to instruction records with operands, flow and accesses"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ra-asm-arch.workspace = true
+yaxpeax-arch = { version = "0.3", default-features = false, features = ["std"] }
+yaxpeax-arm = { version = "0.5", default-features = false, features = ["std", "fmt"] }
+
+[dev-dependencies]
+ra-asm-pe.workspace = true

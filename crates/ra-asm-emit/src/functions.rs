@@ -19,7 +19,10 @@
 //! `rhipper.json`) has status `hand`: `file` and `line` point at its declaration in the
 //! translation, where the comment says so.
 //! `strings` lists the string literals the function addresses. A virtual function has `class` and
-//! `slot`: the class whose vtable holds it first, and the slot in that vtable.
+//! `slot`: the class whose vtable holds it first, and the slot in that vtable. With the facts of a
+//! traced run ([`ra_asm_analysis::facts`]), a function the run entered has `"seen": true`, and
+//! one whose indirect calls the run resolved lists the functions they reached in `seen_calls`
+//! (they are in `calls` as well): what the workbench shows as seen at run time.
 
 use std::collections::HashMap;
 
@@ -46,6 +49,10 @@ pub struct FunctionInfo {
     /// The host's name for a function of a C runtime linked into the image, which is called, not
     /// lifted.
     pub runtime: Option<String>,
+    /// Whether a traced run entered the function.
+    pub seen: bool,
+    /// The functions a traced run saw the function's indirect calls reach, by source name.
+    pub seen_calls: Vec<String>,
 }
 
 /// What the analysis knows of every function, by IR name: the analysis's name, which the lift
@@ -60,6 +67,13 @@ pub fn infos(analysis: &ra_asm_analysis::Analysis) -> HashMap<String, FunctionIn
                 ra_asm_analysis::Kind::Runtime(name) => Some(name.clone()),
                 _ => None,
             };
+            let mut seen_calls: Vec<String> = Vec::new();
+            for target in f.traced_calls.values().flatten() {
+                let name = name_of(target);
+                if !seen_calls.contains(&name) {
+                    seen_calls.push(name);
+                }
+            }
             let info = FunctionInfo {
                 name: f.name.clone(),
                 address: f.entry,
@@ -70,6 +84,8 @@ pub fn infos(analysis: &ra_asm_analysis::Analysis) -> HashMap<String, FunctionIn
                 strings: f.strings.iter().map(|(_, text)| text.clone()).collect(),
                 class: f.virtuals.first().map(|v| (v.class.clone(), v.slot)),
                 runtime,
+                seen: analysis.facts.entered.contains(&f.entry),
+                seen_calls,
             };
             (f.name.clone(), info)
         })
@@ -144,12 +160,18 @@ pub fn table(functions: &[EmittedFunction], files: &[EmittedFile], infos: &HashM
     finish(values)
 }
 
-/// The strings and the class of a function, in its table entry.
+/// The strings, the class and what a traced run saw of a function, in its table entry.
 fn facts(entry: &mut Map<String, Value>, info: &FunctionInfo) {
     entry.insert("strings".into(), json!(info.strings));
     if let Some((class, slot)) = &info.class {
         entry.insert("class".into(), json!(class));
         entry.insert("slot".into(), json!(slot));
+    }
+    if info.seen {
+        entry.insert("seen".into(), json!(true));
+    }
+    if !info.seen_calls.is_empty() {
+        entry.insert("seen_calls".into(), json!(info.seen_calls));
     }
 }
 

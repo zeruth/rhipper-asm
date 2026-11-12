@@ -574,8 +574,11 @@ impl Walk<'_> {
 
     /// The arm of a `switch` the region of its arm at `t` runs into: the first of `targets` on
     /// `t`'s post-dominator chain short of the join, when the walk has not placed it and the
-    /// context has no jump for it. Every path from `t` passes it, so the arm ends there and the
-    /// next case takes over.
+    /// context has no jump for it. Post-dominance is what makes the fall-through sound: every
+    /// path from `t` (through a nested branch, a loop, a second edge from deeper in the arm)
+    /// passes the target before anything after it, so the arm walked with the target as its
+    /// stop reaches it only as the end of its region, never by a `goto` to a placed block, and
+    /// the next case takes over where every path arrives.
     fn falls_into(&self, t: BlockId, targets: &[BlockId], join: Option<BlockId>, stop: Option<BlockId>) -> Option<usize> {
         let mut x = self.g.ipdom.get(&t).copied().flatten();
         while let Some(b) = x {
@@ -767,7 +770,8 @@ mod tests {
     /// `int f(int n, int *p)`: a `switch` on `n` whose case 1 stores and runs into case 2's block,
     /// cases 2 and 3 and the default store and leave, all to one return of `*p`. With `shared`,
     /// cases 1 and 2 instead both run into a block that is no case, which stores before leaving.
-    fn switch_with_fall_through(shared: bool) -> Function {
+    /// With `branching`, case 1 tests `*p` and stores one of two values before it runs on.
+    fn switch_with_fall_through(shared: bool, branching: bool) -> Function {
         let mut fb = FunctionBuilder::new("f", FnType::new(Type::I32, vec![Type::I32, Type::Ptr]), &["n", "p"]);
         let (n, p) = (fb.param(0), fb.param(1));
         let entry = fb.block("entry");
@@ -778,8 +782,20 @@ mod tests {
         let tail = fb.block("tail");
         let ret = fb.block("ret");
         fb.terminate(entry, Terminator::Switch { ty: Type::I32, value: n.into(), default: d, cases: vec![(1, c1), (2, c2), (3, c3)] });
-        fb.store(c1, Type::I32, 1i64, p);
-        fb.terminate(c1, Terminator::Br(if shared { tail } else { c2 }));
+        let after_c1 = if shared { tail } else { c2 };
+        if branching {
+            let (yes, no) = (fb.block("yes"), fb.block("no"));
+            let old = fb.load(c1, Type::I32, p, "old");
+            let zero = fb.icmp(c1, ICond::Eq, Type::I32, old, 0i64, "zero");
+            fb.terminate(c1, Terminator::CondBr { cond: zero.into(), then: yes, els: no });
+            fb.store(yes, Type::I32, 1i64, p);
+            fb.terminate(yes, Terminator::Br(after_c1));
+            fb.store(no, Type::I32, 11i64, p);
+            fb.terminate(no, Terminator::Br(after_c1));
+        } else {
+            fb.store(c1, Type::I32, 1i64, p);
+            fb.terminate(c1, Terminator::Br(after_c1));
+        }
         fb.store(c2, Type::I32, 2i64, p);
         fb.terminate(c2, Terminator::Br(if shared { tail } else { ret }));
         fb.store(c3, Type::I32, 3i64, p);
@@ -808,7 +824,7 @@ mod tests {
 
     #[test]
     fn case_that_runs_into_the_next_case_falls_through() {
-        let f = switch_with_fall_through(false);
+        let f = switch_with_fall_through(false, false);
         let g = Graph::of(&f);
         let s = structure(&f, &g);
         assert_eq!(s.copies(), 0, "{:#?}", s.body);
@@ -816,7 +832,7 @@ mod tests {
         let order: Vec<(Vec<i128>, bool, bool)> = cases.iter().map(|c| (c.values.clone(), c.default, c.falls_through)).collect();
         assert_eq!(order, vec![(vec![1], false, true), (vec![2], false, false), (vec![3], false, false), (vec![], true, false)]);
         let c = c_of(f.clone());
-        assert!(c.contains("case 1:\n        *(uint32_t *)(p) = 1u;\n        /* falls through */\n    case 2:\n"), "{c}");
+        assert!(c.contains("case F_1:\n        *(uint32_t *)(p) = 1u;\n        /* falls through */\n    case F_2:\n"), "{c}");
         assert_eq!(c.matches("= 2u;").count(), 1, "{c}");
         let r = rust_of(f);
         assert!(r.contains("1u32 | 2u32 => {\n            if matches!(n, 1u32) {\n"), "{r}");
@@ -824,9 +840,30 @@ mod tests {
         assert!(r.contains("        _ => {\n"), "{r}");
     }
 
+    /// A case that branches before it runs into the next case: both arms of its `if` end at the
+    /// next case's block, which is written once, after it, with no `goto` and no copy.
+    #[test]
+    fn branching_case_falls_through_from_both_arms() {
+        let f = switch_with_fall_through(false, true);
+        let g = Graph::of(&f);
+        let s = structure(&f, &g);
+        assert!(!has_goto(&s.body), "{:#?}", s.body);
+        assert!(s.labels.is_empty(), "{:#?}", s.body);
+        assert_eq!(s.copies(), 0, "{:#?}", s.body);
+        let Some(Stmt::Switch { cases, .. }) = s.body.get(1) else { panic!("{:#?}", s.body) };
+        assert!(cases[0].falls_through && matches!(cases[0].body.as_slice(), [Stmt::Block(_), Stmt::If { .. }]), "{:#?}", cases[0]);
+        assert_eq!(cases[1].values, vec![2]);
+        let c = c_of(f.clone());
+        assert!(c.contains("        }\n        /* falls through */\n    case F_2:\n"), "{c}");
+        assert_eq!(c.matches("= 2u;").count(), 1, "{c}");
+        let r = rust_of(f);
+        assert!(r.contains("1u32 | 2u32 => {\n            if matches!(n, 1u32) {\n                if "), "{r}");
+        assert_eq!(r.matches(", 2u32);").count(), 1, "{r}");
+    }
+
     #[test]
     fn tail_two_cases_run_into_that_is_no_case_stays_a_copy() {
-        let f = switch_with_fall_through(true);
+        let f = switch_with_fall_through(true, false);
         let g = Graph::of(&f);
         let s = structure(&f, &g);
         assert!(!has_goto(&s.body), "{:#?}", s.body);

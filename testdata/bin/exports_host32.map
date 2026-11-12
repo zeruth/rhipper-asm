@@ -1,0 +1,45 @@
+ exports_host32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 0000026bH .text                   CODE
+ 0003:00000000 00000000H .data                   DATA
+ 0003:00000000 00000004H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     exports_host-6108ea.o
+ 0002:00000000       ??_C@_0N@JOMACIEF@GetTickCount?$AA@ 0000000000402000     exports_host-6108ea.o
+ 0002:0000000d       ??_C@_0L@EIMHKPLG@ra_counter?$AA@ 000000000040200d     exports_host-6108ea.o
+ 0002:00000018       ??_C@_0N@MDJJJHMB@kernel32?4dll?$AA@ 0000000000402018     exports_host-6108ea.o
+ 0002:00000025       ??_C@_07CCFFHCJL@ra_tick?$AA@ 0000000000402025     exports_host-6108ea.o
+ 0002:0000002d       ??_C@_08MBALBIGD@ra_twice?$AA@ 000000000040202d     exports_host-6108ea.o
+ 0002:00000036       ??_C@_06KNFKDIFP@ra_add?$AA@ 0000000000402036     exports_host-6108ea.o
+ 0002:0000003d       ??_C@_0N@GECALGHB@cannot?5load?5?$AA@ 000000000040203d     exports_host-6108ea.o
+ 0002:0000004a       ??_C@_0O@PEEJIIIA@ra_counter?5?$DN?5?$AA@ 000000000040204a     exports_host-6108ea.o
+ 0002:00000058       ??_C@_0BA@LDPHFCHK@ra_add?$CI2?0?53?$CJ?5?$DN?5?$AA@ 0000000000402058     exports_host-6108ea.o
+ 0002:00000068       ??_C@_0BA@ODGHMHEG@ra_twice?$CI21?$CJ?5?$DN?5?$AA@ 0000000000402068     exports_host-6108ea.o
+ 0002:00000078       ??_C@_0L@DMBIFFJA@?$CD20?$CI10?$CJ?5?$DN?5?$AA@ 0000000000402078     exports_host-6108ea.o
+ 0002:00000083       ??_C@_0CD@KNALEAEL@ra_tick?5?9?$DO?5KERNEL32?4GetTickCount@ 0000000000402083     exports_host-6108ea.o
+ 0002:000000a6       ??_C@_0BJ@FAMBDAOJ@ra_tick?3?5not?5forwarded?$AN?6?$AA@ 00000000004020a6     exports_host-6108ea.o
+ 0002:000000bc       ??_C@_02PCIJFNDE@?$AN?6?$AA@ 00000000004020bc     exports_host-6108ea.o
+ 0002:0000012c       __imp__ExitProcess@4       000000000040212c     kernel32:KERNEL32.dll
+ 0002:00000130       __imp__FreeLibrary@4       0000000000402130     kernel32:KERNEL32.dll
+ 0002:00000134       __imp__GetCommandLineA@0   0000000000402134     kernel32:KERNEL32.dll
+ 0002:00000138       __imp__GetModuleHandleA@4  0000000000402138     kernel32:KERNEL32.dll
+ 0002:0000013c       __imp__GetProcAddress@8    000000000040213c     kernel32:KERNEL32.dll
+ 0002:00000140       __imp__GetStdHandle@4      0000000000402140     kernel32:KERNEL32.dll
+ 0002:00000144       __imp__LoadLibraryA@4      0000000000402144     kernel32:KERNEL32.dll
+ 0002:00000148       __imp__WriteFile@20        0000000000402148     kernel32:KERNEL32.dll
+ 0002:0000014c       __imp__lstrlenA@4          000000000040214c     kernel32:KERNEL32.dll
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:00000170       _put                       0000000000401170     exports_host-6108ea.o
+ 0001:000001a0       _line                      00000000004011a0     exports_host-6108ea.o
+ 0003:00000000       _out                       0000000000403000     exports_host-6108ea.o

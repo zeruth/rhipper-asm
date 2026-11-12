@@ -23,6 +23,8 @@ pub enum Origin {
     /// Code nothing names, after the `int 3` fill that follows the function at the address: a
     /// function the linker kept without a caller.
     Gap(u64),
+    /// An indirect call or jump at the address reached the entry in a traced run.
+    Trace(u64),
 }
 
 /// A slot of a class's vtable that holds the function.
@@ -144,6 +146,9 @@ pub struct Function {
     /// The calls through a register or a data word that holds an import's slot value, by the
     /// address of the call: calls to that import, with its convention.
     pub register_import_calls: std::collections::HashMap<u64, String>,
+    /// The indirect calls and jumps a traced run resolved, by the address of the instruction:
+    /// the functions the run saw each reach (see [`crate::facts`]).
+    pub traced_calls: std::collections::BTreeMap<u64, Vec<u64>>,
     /// The vtable slots that hold the function: a virtual function of these classes.
     pub virtuals: Vec<VirtualSlot>,
 }

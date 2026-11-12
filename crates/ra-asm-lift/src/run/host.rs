@@ -22,6 +22,8 @@ use crate::state;
 const THREAD_HANDLES: u64 = 0x5a00_0000;
 const HEAP_HANDLE: u64 = 0x5a10_0000;
 const STREAMS: u64 = 0x5a20_0000;
+/// The `HRSRC` of each resource of the image: its index, from this base.
+const RESOURCE_HANDLES: u64 = 0x5a30_0000;
 const MODULE_HANDLES: u64 = 0x5a30_0000;
 
 /// The DLLs a function of the host's C runtime is looked for in, when the image does not import
@@ -85,6 +87,9 @@ pub(super) struct Runtime<'a> {
     threads: Vec<Option<u32>>,
     thread: Thread,
     next_thread_id: u32,
+    /// The copies of the image's resources the program loaded, by resource index: `.rsrc` is no
+    /// global of the lift, so a `LockResource` is answered from the heap.
+    resources: HashMap<usize, u64>,
     tls: [u64; 5],
     eh: Exceptions,
     f80: f80::Unit,
@@ -104,18 +109,28 @@ fn trap_name(code: u64) -> &'static str {
         1 => "int3",
         2 => "ud2",
         3 => "hlt",
-        4 => "division by zero",
+        4 => "a divide error (a zero divisor or a quotient too large)",
         5 => "128-bit division",
         6 => "__fastfail",
         7 => "a switch to an address outside its table",
         8 => "bytes that are no instruction",
         9 => "a software interrupt",
+        10 => "a call through a vtable slot to a function outside the vtables",
         _ => "a trap",
     }
 }
 
 fn arg(args: &[Value], n: usize) -> u64 {
     args.get(n).map_or(0, Value::as_u64)
+}
+
+/// Whether a resource's id is the one a call asked for: a name is matched without case, as the
+/// system does.
+fn resource_ids_match(have: &ra_asm_pe::ResourceId, want: &ra_asm_pe::ResourceId) -> bool {
+    match (have, want) {
+        (ra_asm_pe::ResourceId::Name(a), ra_asm_pe::ResourceId::Name(b)) => a.eq_ignore_ascii_case(b),
+        _ => have == want,
+    }
 }
 
 fn farg(args: &[Value], n: usize) -> f64 {
@@ -167,6 +182,7 @@ impl<'a> Runtime<'a> {
             threads: Vec::new(),
             thread: Thread { teb: 0, stack_top, stack_bottom: 0, id: tid },
             next_thread_id: tid.wrapping_add(1),
+            resources: HashMap::new(),
             tls: [0; 5],
             eh: Exceptions::default(),
             f80: f80::Unit::default(),
@@ -289,6 +305,46 @@ impl<'a> Runtime<'a> {
 
     fn in_heap(&self, address: u64) -> bool {
         address >= self.allocations[1].start && address < self.heap.end
+    }
+
+    /// Whether a module handle names the program itself: `NULL` or its image base.
+    fn is_image_module(&self, module: u64) -> bool {
+        module == 0 || module == self.image.image_base()
+    }
+
+    /// The index of the resource behind an `HRSRC` the runtime handed out.
+    fn resource_index(&self, handle: u64) -> Option<usize> {
+        let index = handle.checked_sub(RESOURCE_HANDLES)? / 16;
+        (handle.is_multiple_of(16) && index >= 1 && index <= self.image.resources.len() as u64).then(|| index as usize - 1)
+    }
+
+    /// A resource's type or name as the call passed it: an ordinal below 0x10000
+    /// (`MAKEINTRESOURCE`), a string else, `#123` standing for an ordinal.
+    fn resource_id(vm: &mut Vm<'_>, arg: u64, wide: bool) -> Result<ra_asm_pe::ResourceId, Stop> {
+        if arg < 0x10000 {
+            return Ok(ra_asm_pe::ResourceId::Id(arg as u32));
+        }
+        let text = if wide {
+            String::from_utf16_lossy(&vm.memory.read_wstr(arg, 1 << 12)?)
+        } else {
+            String::from_utf8_lossy(&vm.memory.read_cstr(arg, 1 << 12)?).into_owned()
+        };
+        Ok(match text.strip_prefix('#').and_then(|n| n.parse().ok()) {
+            Some(id) => ra_asm_pe::ResourceId::Id(id),
+            None => ra_asm_pe::ResourceId::Name(text),
+        })
+    }
+
+    /// The program's copy of resource `index`, made on the first load.
+    fn resource_copy(&mut self, vm: &mut Vm<'_>, index: usize) -> Result<u64, Stop> {
+        if let Some(&at) = self.resources.get(&index) {
+            return Ok(at);
+        }
+        let bytes = self.image.resources[index].data(self.image).map_err(|e| Stop::fault(format!("{e:#}")))?.to_vec();
+        let at = self.allocate(vm, bytes.len() as u64, 16)?;
+        vm.memory.write(at, &bytes)?;
+        self.resources.insert(index, at);
+        Ok(at)
     }
 
     fn reallocate(&mut self, vm: &mut Vm<'_>, old: u64, size: u64) -> Result<u64, Stop> {
@@ -455,6 +511,7 @@ impl<'a> Runtime<'a> {
     /// function of the host's is called with the arguments where the convention puts them, and
     /// the return address the caller pushed is popped here, with what a 32-bit import pops.
     fn machine_call(&mut self, vm: &mut Vm<'_>, state: u64, target: u64) -> Result<Value, Stop> {
+        vm.record_call(target);
         match vm.symbol_at(target).cloned() {
             Some(Symbol::Function(_)) => {
                 let name = vm.name_at(target).unwrap_or_default().to_owned();
@@ -937,6 +994,45 @@ impl<'a> Runtime<'a> {
                 vm.memory.write(a(1), &bytes[..n])?;
                 some((n / unit as usize).saturating_sub(1) as u64)
             }
+            "FindResourceA" | "FindResourceW" | "FindResourceExA" | "FindResourceExW" if self.is_image_module(a(0)) => {
+                let (name_arg, type_arg) = if name.contains("Ex") { (a(2), a(1)) } else { (a(1), a(2)) };
+                let wide = name.ends_with('W');
+                let kind = Self::resource_id(vm, type_arg, wide)?;
+                let wanted = Self::resource_id(vm, name_arg, wide)?;
+                let found =
+                    self.image.resources.iter().position(|r| resource_ids_match(&r.kind, &kind) && resource_ids_match(&r.name, &wanted));
+                some(found.map_or(0, |i| RESOURCE_HANDLES + 16 * (i as u64 + 1)))
+            }
+            "LoadResource" if self.resource_index(a(1)).is_some() => {
+                let index = self.resource_index(a(1)).unwrap_or(0);
+                some(self.resource_copy(vm, index)?)
+            }
+            "SizeofResource" if self.resource_index(a(1)).is_some() => {
+                some(self.resource_index(a(1)).map_or(0, |i| u64::from(self.image.resources[i].size)))
+            }
+            "LockResource" if self.resources.values().any(|&p| p == a(0)) => some(a(0)),
+            "FreeResource" => some(0),
+            "LoadStringA" | "LoadStringW" if self.is_image_module(a(0)) => {
+                let wide = name.ends_with('W');
+                let text =
+                    ra_asm_pe::resources::string_table(self.image).into_iter().find(|(id, _)| u64::from(*id) == a(1)).map(|(_, s)| s);
+                let Some(text) = text else { return some(0) };
+                let units: Vec<u16> = text.encode_utf16().collect();
+                let room = a(3) as usize;
+                if room == 0 {
+                    // The pointer form: the caller reads the string in place, which only the
+                    // image's own table can give.
+                    return some(0);
+                }
+                let n = units.len().min(room - 1);
+                let bytes: Vec<u8> = if wide {
+                    units[..n].iter().chain(std::iter::once(&0)).flat_map(|u| u.to_le_bytes()).collect()
+                } else {
+                    units[..n].iter().map(|&u| if u < 0x80 { u as u8 } else { b'?' }).chain(std::iter::once(0)).collect()
+                };
+                vm.memory.write(a(2), &bytes)?;
+                some(n as u64)
+            }
             "__acrt_iob_func" => some(STREAMS + a(0)),
             "printf" | "_printf_l" => {
                 let text = self.format_slots(vm, a(0), &args[1..])?;
@@ -1020,6 +1116,45 @@ impl<'a> Runtime<'a> {
                 };
                 let text = self.format_list(vm, format, list, 8)?;
                 Self::write_formatted(vm, a(0), count, &text).map(Some)
+            }
+            // The Xbox kernel: a program of the original Xbox has no host DLL to reach, so the
+            // interpreter answers the exports a homebrew calls: the debug print (the program's
+            // output), the pool and the contiguous memory (the heap), the memory routines, and
+            // the return to the dashboard (the exit).
+            "DbgPrint" => {
+                let text = self.format_slots(vm, a(0), &args[1..])?;
+                self.emit(false, &text);
+                some(0)
+            }
+            "RtlSprintf" => {
+                let text = self.format_slots(vm, a(1), &args[2..])?;
+                Self::write_formatted(vm, a(0), u64::from(u32::MAX), &text).map(Some)
+            }
+            "RtlSnprintf" => {
+                let text = self.format_slots(vm, a(2), &args[3..])?;
+                Self::write_formatted(vm, a(0), a(1), &text).map(Some)
+            }
+            "HalReturnToFirmware" => Err(Stop::Exit(0)),
+            "ExAllocatePool"
+            | "ExAllocatePoolWithTag"
+            | "MmAllocateContiguousMemory"
+            | "MmAllocateContiguousMemoryEx"
+            | "MmAllocateSystemMemory" => some(self.allocate(vm, a(0), 4096)?),
+            "ExFreePool" | "MmFreeContiguousMemory" => some(0),
+            "MmFreeSystemMemory" => some(a(1)),
+            "RtlZeroMemory" | "RtlFillMemory" => {
+                let fill = if name == "RtlFillMemory" { a(2) as u8 } else { 0 };
+                vm.memory.write(a(0), &vec![fill; a(1) as usize])?;
+                some(0)
+            }
+            "RtlMoveMemory" => {
+                let bytes = vm.memory.read_vec(a(1), a(2))?;
+                vm.memory.write(a(0), &bytes)?;
+                some(0)
+            }
+            "RtlCompareMemory" => {
+                let (x, y) = (vm.memory.read_vec(a(0), a(2))?, vm.memory.read_vec(a(1), a(2))?);
+                some(x.iter().zip(&y).take_while(|(p, q)| p == q).count() as u64)
             }
             _ => Ok(None),
         }

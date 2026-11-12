@@ -13,7 +13,8 @@
 pub mod memory;
 pub mod value;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::fmt::Write;
 
 pub use memory::{Memory, Region};
 pub use value::{Layout, Value, mask, sext};
@@ -63,6 +64,17 @@ pub trait Host {
     fn call(&mut self, vm: &mut Vm<'_>, name: &str, ty: &FnType, args: &[Value]) -> Result<Value, Stop>;
 }
 
+/// What a run saw that no reading of the program shows: the facts of the trace, which the static
+/// analysis takes on its next pass.
+#[derive(Debug, Clone, Default)]
+pub struct Seen {
+    /// The targets of every indirect call and jump, by the address of the instruction, as the
+    /// addresses the memory held: a function's own, or an alias the host gave it.
+    pub calls: BTreeMap<u64, BTreeSet<u64>>,
+    /// The functions entered, by index in the module.
+    pub entered: BTreeSet<usize>,
+}
+
 /// A bump allocator over a region: the statics grow up, the frames grow down.
 #[derive(Debug, Clone, Copy, Default)]
 struct Bump {
@@ -83,6 +95,16 @@ pub struct Vm<'m> {
     pub limit: u64,
     /// The instructions executed so far.
     pub steps: u64,
+    /// The address of the instruction running, for a host that records what it did.
+    pub site: Option<u64>,
+    /// What the run saw.
+    pub seen: Seen,
+    /// Where the record of the run is written, when one is kept: one line per call and return of
+    /// the recorded functions, in the shape the port's trace hooks write (`> name(args)`,
+    /// `< name = value:kind`), so a run of the reference's IR compares with a port's trace.
+    pub record: Option<Box<dyn std::io::Write>>,
+    /// The functions the record covers, by index; every function when empty.
+    pub recorded: HashSet<usize>,
     functions: HashMap<String, usize>,
     named: HashMap<String, Vec<Type>>,
     /// The index of each block of each function, by id.
@@ -105,6 +127,10 @@ impl<'m> Vm<'m> {
             trace: false,
             limit: 0,
             steps: 0,
+            site: None,
+            seen: Seen::default(),
+            record: None,
+            recorded: HashSet::new(),
             functions,
             named,
             blocks,
@@ -229,6 +255,13 @@ impl<'m> Vm<'m> {
         self.frames.at
     }
 
+    /// Records that the instruction running called or jumped to `target` through a pointer.
+    pub fn record_call(&mut self, target: u64) {
+        if let Some(site) = self.site {
+            self.seen.calls.entry(site).or_default().insert(target);
+        }
+    }
+
     fn write_const(&mut self, address: u64, ty: &Type, c: &Const) -> Result<(), Stop> {
         let layout = Layout { named: &self.named };
         let size = layout.size(ty);
@@ -324,6 +357,11 @@ impl<'m> Vm<'m> {
             return Err(Stop::fault(format!("the call depth passed {MAX_DEPTH} in @{}", f.name)));
         }
         self.depth += 1;
+        self.seen.entered.insert(index);
+        let recorded = self.record.is_some() && (self.recorded.is_empty() || self.recorded.contains(&index));
+        if recorded {
+            self.record_entry(f, &args)?;
+        }
         let mark = self.frames.at;
         let mut values: Vec<Option<Value>> = vec![None; f.value_names.len()];
         for (p, a) in f.params.iter().zip(args) {
@@ -332,7 +370,61 @@ impl<'m> Vm<'m> {
         let result = self.run_blocks(host, index, f, &mut values);
         self.frames.at = mark;
         self.depth -= 1;
+        // A function that never returns (an exit, a fault) leaves no return in the record, as the
+        // port's hooks leave none.
+        if recorded && let Ok(value) = &result {
+            self.record_return(f, value)?;
+        }
         result
+    }
+
+    /// Writes the entry of `f` to the record: each argument as the port's hook writes it, an
+    /// integer or a pointer in hexadecimal, a floating value as `f:` and its bits, `?` for what
+    /// the hook does not record.
+    fn record_entry(&mut self, f: &Function, args: &[Value]) -> Result<(), Stop> {
+        let mut line = format!("> {}(", f.name);
+        for (i, (ty, a)) in f.ty.params.iter().zip(args).enumerate() {
+            if i > 0 {
+                line.push_str(", ");
+            }
+            match ty {
+                Type::Int(_) | Type::Ptr | Type::Func(_) => {
+                    let _ = write!(line, "{:#x}", a.as_u64());
+                }
+                Type::Double => {
+                    let _ = write!(line, "f:{:#x}", a.as_f64().to_bits());
+                }
+                Type::Float => {
+                    let _ = write!(line, "f:{:#x}", a.as_f32().to_bits());
+                }
+                _ => line.push('?'),
+            }
+        }
+        line.push(')');
+        self.record_line(&line)
+    }
+
+    /// Writes the return of `f` with `value` at the kind of its result type: `:N` an integer of
+    /// N bits, `:p` a pointer, `f:...:f64` and `f:...:f32` the bits of a floating result, and the
+    /// name alone for a result the hooks do not record.
+    fn record_return(&mut self, f: &Function, value: &Value) -> Result<(), Stop> {
+        let line = match &f.ty.ret {
+            Type::Int(bits) => format!("< {} = {:#x}:{bits}", f.name, (value.as_u128() & mask(u32::from(*bits))) as u64),
+            Type::Ptr | Type::Func(_) => format!("< {} = {:#x}:p", f.name, value.as_u64()),
+            Type::Double => format!("< {} = f:{:#x}:f64", f.name, value.as_f64().to_bits()),
+            Type::Float => format!("< {} = f:{:#x}:f32", f.name, value.as_f32().to_bits()),
+            _ => format!("< {}", f.name),
+        };
+        self.record_line(&line)
+    }
+
+    fn record_line(&mut self, line: &str) -> Result<(), Stop> {
+        if let Some(out) = &mut self.record {
+            out.write_all(line.as_bytes())
+                .and_then(|()| out.write_all(b"\n"))
+                .map_err(|e| Stop::fault(format!("cannot write the record of the run: {e}")))?;
+        }
+        Ok(())
     }
 
     fn run_blocks(&mut self, host: &mut dyn Host, index: usize, f: &'m Function, values: &mut [Option<Value>]) -> Result<Value, Stop> {
@@ -364,6 +456,7 @@ impl<'m> Vm<'m> {
                 if self.limit != 0 && self.steps > self.limit {
                     return Err(Stop::Limit(self.steps));
                 }
+                self.site = i.address;
                 let v = self.exec(host, f, values, i).map_err(|s| s.at(i.address))?;
                 if let Some(r) = i.result {
                     values[r.0 as usize] = Some(v);
@@ -568,6 +661,7 @@ impl<'m> Vm<'m> {
                     }
                     Callee::Indirect(op) => {
                         let address = self.eval(f, values, op, &Type::Ptr)?.as_u64();
+                        self.record_call(address);
                         self.call_address(host, address, fn_ty, evaluated)
                     }
                 }

@@ -234,6 +234,17 @@ impl Module {
         }
     }
 
+    /// A module for the ARM64 Windows target: the lift of an ARM64 image, which runs on an ARM64
+    /// host or through the interpreter.
+    pub fn aarch64_windows(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            triple: "aarch64-pc-windows-msvc".to_owned(),
+            data_layout: "e-m:w-p270:32:32-p271:32:32-p272:64:64-p:64:64-i32:32-i64:64-i128:128-n32:64-S128-Fn32".to_owned(),
+            ..Self::default()
+        }
+    }
+
     pub fn function(&self, name: &str) -> Option<&Function> {
         self.functions.iter().find(|f| f.name == name)
     }

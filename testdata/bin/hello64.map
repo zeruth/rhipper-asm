@@ -11,8 +11,8 @@
 
   Address         Publics by Value              Rva+Base               Lib:Object
 
- 0001:00000000       square                     0000000140001000     hello-70d37c.o
- 0001:00000010       mainCRTStartup             0000000140001010     hello-70d37c.o
+ 0001:00000000       square                     0000000140001000     hello-40d3da.o
+ 0001:00000010       mainCRTStartup             0000000140001010     hello-40d3da.o
  0002:00000068       __imp_ExitProcess          0000000140002068     kernel32:KERNEL32.dll
  0002:00000070       __imp_GetStdHandle         0000000140002070     kernel32:KERNEL32.dll
  0002:00000078       __imp_WriteFile            0000000140002078     kernel32:KERNEL32.dll

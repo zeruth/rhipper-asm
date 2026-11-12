@@ -12,7 +12,7 @@ use ra_asm_analysis::{Analysis, Block, Function, Terminator as T};
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, ICond, Inst, Operand, Terminator, Type, ValueId};
 use ra_asm_pe::Image;
 use ra_asm_x86::X86;
-use ra_asm_x86::iced_x86::{ConditionCode, Instruction, Mnemonic, OpKind, Register as R};
+use ra_asm_x86::iced_x86::{Code, ConditionCode, Instruction, Mnemonic, OpKind, Register as R};
 
 use crate::state::{Flag, Machine};
 use crate::{Lifted, eh, function_name};
@@ -54,7 +54,7 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
     let arch = X86::for_pointer_size(image.pointer_size());
     let x87 = lifted.x87;
     let mut lifter = Lifter {
-        m: Machine { b: &mut b, state, bits, x87 },
+        m: Machine { b: &mut b, state, bits, x87, isa: crate::state::Isa::X86 },
         image,
         lifted,
         arch,
@@ -368,6 +368,9 @@ impl Lifter<'_, '_> {
         self.m.b.call(block, FnType::new(Type::Void, vec![Type::Ptr]), Callee::Direct(wrapper), vec![(Type::Ptr, self.m.state.into())], "");
         if self.m.bits == 32 && !cdecl {
             let dll = self.image.imports.iter().find(|i| i.display_name() == import).map(|i| i.dll.clone()).unwrap_or_default();
+            if crate::raise::prototypes::is_xbox_fastcall(&dll, &symbol) {
+                self.lifted.fastcall.insert(symbol.clone());
+            }
             let known = crate::raise::prototypes::stdcall_pops(&dll, &symbol);
             if known.is_none() {
                 self.warn(format!("import {import}: an unknown arity; the call is taken as cdecl, with nothing popped"));
@@ -609,6 +612,23 @@ impl Lifter<'_, '_> {
         }
     }
 
+    /// The address of operand `n` when it is in memory, computed now: for an instruction whose
+    /// writes may change the base register before its own store (`xadd`, `cmpxchg`).
+    fn operand_address(&mut self, block: BlockId, i: &Instruction, n: u32) -> Option<ValueId> {
+        (i.op_kind(n) == OpKind::Memory).then(|| self.mem_address(block, i))
+    }
+
+    /// [`Self::write`] to an address computed earlier by [`Self::operand_address`].
+    fn write_to(&mut self, block: BlockId, i: &Instruction, n: u32, address: Option<ValueId>, value: ValueId) {
+        match address {
+            Some(addr) => {
+                let bits = self.op_bits(i, n);
+                self.m.store(block, Type::Int(bits), value, addr);
+            }
+            None => self.write(block, i, n, value),
+        }
+    }
+
     // endregion
 
     // region Conditions
@@ -754,16 +774,19 @@ impl Lifter<'_, '_> {
     }
 
     /// A shift or rotate count, masked as the machine masks it, and whether it is known nonzero.
+    /// The count of a shift or rotate, `cl` or an immediate, masked to the width's five or six
+    /// bits; the count is the last operand. Whether it is known to be nonzero comes along.
     fn shift_count(&mut self, block: BlockId, i: &Instruction, bits: u16) -> (ValueId, bool) {
         let ty = Type::Int(bits);
         let mask = if bits == 64 { 0x3f } else { 0x1f };
-        if i.op_kind(1) == OpKind::Register {
+        let n = i.op_count() - 1;
+        if i.op_kind(n) == OpKind::Register {
             let cl = self.m.read_gpr(block, R::CL);
             let masked = self.m.b.bin(block, BinOp::And, Type::I8, cl, mask, "count.m");
             let wide = self.m.zext(block, Type::I8, masked, ty, "count");
             (wide, false)
         } else {
-            let v = Self::immediate(i, 1) & mask;
+            let v = Self::immediate(i, n) & mask;
             (self.m.value_of(block, ty, v), v != 0)
         }
     }
@@ -779,26 +802,40 @@ impl Lifter<'_, '_> {
         self.m.set_flag(block, flag, v);
     }
 
+    /// The shifts. The count is masked to five bits (six for 64), so an 8- or 16-bit operand can
+    /// shift by more than its width: the processor shifts it as a 32-bit value (sign-extended for
+    /// `sar`), and the result and the carry come from that, which also keeps every IR shift in
+    /// range.
     fn shift(&mut self, block: BlockId, i: &Instruction, op: BinOp) {
         let bits = self.op_bits(i, 0);
         let ty = Type::Int(bits);
+        let wide_bits = bits.max(32);
+        let wty = Type::Int(wide_bits);
         let src = self.read(block, i, 0);
         let (count, known) = self.shift_count(block, i, bits);
         let nonzero = self.m.is_true(block, ty.clone(), count, "counted");
-        let result = self.m.b.bin(block, op, ty.clone(), src, count, "shifted");
+        let count_w = self.m.zext(block, ty.clone(), count, wty.clone(), "count.w");
+        let src_w = if op == BinOp::AShr {
+            self.m.sext(block, ty.clone(), src, wty.clone(), "src.w")
+        } else {
+            self.m.zext(block, ty.clone(), src, wty.clone(), "src.w")
+        };
+        let result_w = self.m.b.bin(block, op, wty.clone(), src_w, count_w, "shifted.w");
+        let result = self.m.trunc(block, wty.clone(), result_w, ty.clone(), "shifted");
         // When the count is zero the value and the flags stay; the write of the same value is harmless.
         let value = if known { result } else { self.m.select(block, nonzero, ty.clone(), result, src, "shift.v") };
         self.write(block, i, 0, value);
-        // CF: the last bit shifted out.
-        let last = if op == BinOp::Shl {
-            let back = self.m.b.bin(block, BinOp::Sub, ty.clone(), i64::from(bits), count, "back");
-            self.m.b.bin(block, BinOp::LShr, ty.clone(), src, back, "cf.bits")
+        // CF: the last bit shifted out; the distance is masked so a count of zero, whose carry is
+        // discarded, never shifts by the width.
+        let distance = if op == BinOp::Shl {
+            self.m.b.bin(block, BinOp::Sub, wty.clone(), i64::from(bits), count_w, "back")
         } else {
-            let less = self.m.b.bin(block, BinOp::Sub, ty.clone(), count, 1i64, "less");
-            self.m.b.bin(block, BinOp::LShr, ty.clone(), src, less, "cf.bits")
+            self.m.b.bin(block, BinOp::Sub, wty.clone(), count_w, 1i64, "less")
         };
-        let cf_wide = self.m.b.bin(block, BinOp::And, ty.clone(), last, 1i64, "cf.w");
-        let cf = self.m.is_true(block, ty.clone(), cf_wide, "cf");
+        let distance = self.m.b.bin(block, BinOp::And, wty.clone(), distance, i64::from(wide_bits) - 1, "cf.at");
+        let last = self.m.b.bin(block, BinOp::LShr, wty.clone(), src_w, distance, "cf.bits");
+        let cf_wide = self.m.b.bin(block, BinOp::And, wty.clone(), last, 1i64, "cf.w");
+        let cf = self.m.is_true(block, wty, cf_wide, "cf");
         self.flag_if_counted(block, Flag::Cf, nonzero, known, cf);
         let of = match op {
             BinOp::Shl => {
@@ -860,8 +897,10 @@ impl Lifter<'_, '_> {
         let ty = Type::Int(bits);
         let src = self.read(block, i, 0);
         let (masked, known) = self.shift_count(block, i, bits);
-        // An 8- or 16-bit operand takes the count modulo its width plus one.
+        // An 8- or 16-bit operand takes the count modulo its width plus one, which can be zero
+        // where the masked count was not: the value and the flags then stay.
         let count = if bits < 32 { self.m.b.bin(block, BinOp::URem, ty.clone(), masked, i64::from(bits) + 1, "count.r") } else { masked };
+        let known = known && bits >= 32;
         let nonzero = self.m.is_true(block, ty.clone(), count, "counted");
         let cf_in = self.m.get_flag(block, Flag::Cf);
         let cf_wide = self.m.zext(block, Type::I1, cf_in, ty.clone(), "cf.in");
@@ -1095,27 +1134,74 @@ impl Lifter<'_, '_> {
             M::Shld | M::Shrd => {
                 let bits = self.op_bits(i, 0);
                 let ty = Type::Int(bits);
+                let left = i.mnemonic() == M::Shld;
                 let a = self.read(block, i, 0);
                 let b = self.read(block, i, 1);
-                let count = match i.op_kind(2) {
-                    OpKind::Register => {
-                        let cl = self.m.read_gpr(block, R::CL);
-                        let m = self.m.b.bin(block, BinOp::And, Type::I8, cl, if bits == 64 { 0x3f } else { 0x1f }, "count.m");
-                        self.m.zext(block, Type::I8, m, ty.clone(), "count")
-                    }
-                    _ => self.m.value_of(block, ty.clone(), Self::immediate(i, 2) & if bits == 64 { 0x3f } else { 0x1f }),
+                let (count, known) = self.shift_count(block, i, bits);
+                let nonzero = self.m.is_true(block, ty.clone(), count, "counted");
+                let (result, cf) = if bits == 16 {
+                    // A 16-bit double shift can move all sixteen bits (a count of 17 to 31 is
+                    // undefined): the pair as a 32-bit value, shifted, is exact for every count
+                    // the manual defines, where a funnel shift would take the count modulo 16.
+                    let wide = Type::I32;
+                    let a_w = self.m.zext(block, ty.clone(), a, wide.clone(), "a.w");
+                    let b_w = self.m.zext(block, ty.clone(), b, wide.clone(), "b.w");
+                    let count_w = self.m.zext(block, ty.clone(), count, wide.clone(), "count.w");
+                    let (high, low) = if left { (a_w, b_w) } else { (b_w, a_w) };
+                    let high_s = self.m.b.bin(block, BinOp::Shl, wide.clone(), high, 16i64, "pair.h");
+                    let pair = self.m.b.bin(block, BinOp::Or, wide.clone(), high_s, low, "pair");
+                    let (moved, cf_at) = if left {
+                        let moved = self.m.b.bin(block, BinOp::Shl, wide.clone(), pair, count_w, "pair.s");
+                        let back = self.m.b.bin(block, BinOp::Sub, wide.clone(), 32i64, count_w, "back");
+                        let back = self.m.b.bin(block, BinOp::And, wide.clone(), back, 31i64, "cf.at");
+                        (self.m.b.bin(block, BinOp::LShr, wide.clone(), moved, 16i64, "dshift.w"), back)
+                    } else {
+                        let less = self.m.b.bin(block, BinOp::Sub, wide.clone(), count_w, 1i64, "less");
+                        let less = self.m.b.bin(block, BinOp::And, wide.clone(), less, 31i64, "cf.at");
+                        (self.m.b.bin(block, BinOp::LShr, wide.clone(), pair, count_w, "dshift.w"), less)
+                    };
+                    let cf_bits = self.m.b.bin(block, BinOp::LShr, wide.clone(), pair, cf_at, "cf.bits");
+                    let cf_w = self.m.b.bin(block, BinOp::And, wide.clone(), cf_bits, 1i64, "cf.w");
+                    let cf = self.m.is_true(block, wide.clone(), cf_w, "cf");
+                    (self.m.trunc(block, wide, moved, ty.clone(), "dshift"), cf)
+                } else {
+                    let name = format!("llvm.fsh{}.i{bits}", if left { "l" } else { "r" });
+                    let (x, y) = if left { (a, b) } else { (b, a) };
+                    let result = self.m.intrinsic(
+                        block,
+                        &name,
+                        ty.clone(),
+                        vec![(ty.clone(), x.into()), (ty.clone(), y.into()), (ty.clone(), count.into())],
+                        "dshift",
+                    );
+                    // CF: the last bit of the destination shifted out.
+                    let distance = if left {
+                        self.m.b.bin(block, BinOp::Sub, ty.clone(), i64::from(bits), count, "back")
+                    } else {
+                        self.m.b.bin(block, BinOp::Sub, ty.clone(), count, 1i64, "less")
+                    };
+                    let distance = self.m.b.bin(block, BinOp::And, ty.clone(), distance, i64::from(bits) - 1, "cf.at");
+                    let cf_bits = self.m.b.bin(block, BinOp::LShr, ty.clone(), a, distance, "cf.bits");
+                    let cf_w = self.m.b.bin(block, BinOp::And, ty.clone(), cf_bits, 1i64, "cf.w");
+                    (result, self.m.is_true(block, ty.clone(), cf_w, "cf"))
                 };
-                let name = format!("llvm.fsh{}.i{bits}", if i.mnemonic() == M::Shld { "l" } else { "r" });
-                let (x, y) = if i.mnemonic() == M::Shld { (a, b) } else { (b, a) };
-                let result = self.m.intrinsic(
-                    block,
-                    &name,
-                    ty.clone(),
-                    vec![(ty.clone(), x.into()), (ty.clone(), y.into()), (ty.clone(), count.into())],
-                    "dshift",
-                );
-                self.write(block, i, 0, result);
-                self.m.set_result_flags(block, ty, result);
+                // A count of zero leaves the destination and every flag alone.
+                let value = if known { result } else { self.m.select(block, nonzero, ty.clone(), result, a, "dshift.v") };
+                self.write(block, i, 0, value);
+                self.flag_if_counted(block, Flag::Cf, nonzero, known, cf);
+                let zf = self.m.b.icmp(block, ICond::Eq, ty.clone(), result, 0i64, "zf");
+                self.flag_if_counted(block, Flag::Zf, nonzero, known, zf);
+                let sf = self.m.b.icmp(block, ICond::Slt, ty.clone(), result, 0i64, "sf");
+                self.flag_if_counted(block, Flag::Sf, nonzero, known, sf);
+                // OF, defined for a count of one: the sign changed.
+                let old_sf = self.m.b.icmp(block, ICond::Slt, ty.clone(), a, 0i64, "sf.old");
+                let of = self.m.b.bin(block, BinOp::Xor, Type::I1, sf, old_sf, "of");
+                self.flag_if_counted(block, Flag::Of, nonzero, known, of);
+                let low = self.m.trunc(block, ty, result, Type::I8, "low");
+                let ones = self.m.intrinsic(block, "llvm.ctpop.i8", Type::I8, vec![(Type::I8, low.into())], "ones");
+                let odd = self.m.b.bin(block, BinOp::And, Type::I8, ones, 1i64, "odd");
+                let pf = self.m.b.icmp(block, ICond::Eq, Type::I8, odd, 0i64, "pf");
+                self.flag_if_counted(block, Flag::Pf, nonzero, known, pf);
             }
             M::Bswap => {
                 let bits = self.op_bits(i, 0);
@@ -1155,7 +1241,11 @@ impl Lifter<'_, '_> {
                 };
                 match i.mnemonic() {
                     M::Popcnt => {
-                        self.logic_flags(block, ty, result);
+                        // Every flag clears but ZF, which says the source was zero.
+                        for flag in [Flag::Cf, Flag::Pf, Flag::Af, Flag::Sf, Flag::Of] {
+                            self.m.set_flag_const(block, flag, false);
+                        }
+                        self.m.set_flag(block, Flag::Zf, zero);
                         self.write(block, i, 0, result);
                     }
                     M::Tzcnt | M::Lzcnt => {
@@ -1165,11 +1255,15 @@ impl Lifter<'_, '_> {
                         self.write(block, i, 0, result);
                     }
                     _ => {
-                        // bsf and bsr leave the destination alone when the source is zero.
+                        // bsf and bsr do not write the destination when the source is zero: not
+                        // even the zero-extension a 32-bit write would do.
                         self.m.set_flag(block, Flag::Zf, zero);
-                        let old = self.read(block, i, 0);
-                        let v = self.m.select(block, zero, ty, old, result, "bs");
-                        self.write(block, i, 0, v);
+                        let found = self.m.b.block("bs.found");
+                        let done = self.m.b.block("bs.done");
+                        self.m.b.terminate(block, Terminator::CondBr { cond: zero.into(), then: done, els: found });
+                        self.write(found, i, 0, result);
+                        self.m.b.terminate(found, Terminator::Br(done));
+                        return done;
                     }
                 }
             }
@@ -1219,28 +1313,50 @@ impl Lifter<'_, '_> {
             M::Push => {
                 let bits = self.op_bits(i, 0);
                 let v = self.read(block, i, 0);
-                let v = self.m.sext(block, Type::Int(bits), v, self.addr_ty(), "push");
-                // push rsp pushes the value before the decrement, which `read` already took.
-                self.m.push(block, v);
+                // A 16-bit operand pushes two bytes; a narrower immediate is sign-extended to
+                // the stack width. push rsp pushes the value before the decrement, which `read`
+                // already took.
+                if bits == 16 {
+                    self.m.push_sized(block, Type::I16, v);
+                } else {
+                    let v = self.m.sext(block, Type::Int(bits), v, self.addr_ty(), "push");
+                    self.m.push(block, v);
+                }
             }
             M::Pop => {
-                let v = self.m.pop(block, "pop");
+                let v = if self.op_bits(i, 0) == 16 { self.m.pop_sized(block, Type::I16, "pop") } else { self.m.pop(block, "pop") };
                 self.write(block, i, 0, v);
             }
-            M::Pushfq | M::Pushfd | M::Pushf => {
+            M::Pushfq | M::Pushfd => {
                 let flags = self.pack_flags(block);
                 self.m.push(block, flags);
             }
-            M::Popfq | M::Popfd | M::Popf => {
+            M::Pushf => {
+                let flags = self.pack_flags(block);
+                let low = self.m.trunc(block, self.addr_ty(), flags, Type::I16, "flags.w");
+                self.m.push_sized(block, Type::I16, low);
+            }
+            M::Popfq | M::Popfd => {
                 let v = self.m.pop(block, "flags");
                 self.unpack_flags(block, v);
+            }
+            M::Popf => {
+                let v = self.m.pop_sized(block, Type::I16, "flags");
+                let wide = self.m.zext(block, Type::I16, v, self.addr_ty(), "flags.z");
+                self.unpack_flags(block, wide);
             }
             M::Leave => {
                 let bp = if self.m.bits == 64 { R::RBP } else { R::EBP };
                 let v = self.m.read_gpr(block, bp);
                 self.m.write_sp(block, v);
-                let old = self.m.pop(block, "bp");
-                self.m.write_gpr(block, bp, old);
+                // The 16-bit form pops two bytes into bp.
+                if i.code() == Code::Leavew {
+                    let old = self.m.pop_sized(block, Type::I16, "bp");
+                    self.m.write_gpr(block, R::BP, old);
+                } else {
+                    let old = self.m.pop(block, "bp");
+                    self.m.write_gpr(block, bp, old);
+                }
             }
             M::Call => {
                 // A throw: the exception goes in flight here, and the code lands in its state.
@@ -1408,25 +1524,36 @@ impl Lifter<'_, '_> {
             M::Xadd => {
                 let bits = self.op_bits(i, 0);
                 let ty = Type::Int(bits);
+                // The address before the writes: the source register may be its base.
+                let address = self.operand_address(block, i, 0);
                 let dst = self.read(block, i, 0);
                 let src = self.read(block, i, 1);
                 let sum = self.add(block, ty, dst, src, None);
                 self.write(block, i, 1, dst);
-                self.write(block, i, 0, sum);
+                self.write_to(block, i, 0, address, sum);
             }
             M::Cmpxchg => {
                 let bits = self.op_bits(i, 0);
                 let ty = Type::Int(bits);
                 let acc = accumulator(bits);
+                let address = self.operand_address(block, i, 0);
                 let a = self.m.read_gpr(block, acc);
                 let dst = self.read(block, i, 0);
                 let src = self.read(block, i, 1);
-                self.sub(block, ty.clone(), a, dst, None);
+                self.sub(block, ty, a, dst, None);
                 let equal = self.m.get_flag(block, Flag::Zf);
-                let new_dst = self.m.select(block, equal, ty.clone(), src, dst, "cx.dst");
-                let new_acc = self.m.select(block, equal, ty, a, dst, "cx.acc");
-                self.write(block, i, 0, new_dst);
-                self.m.write_gpr(block, acc, new_acc);
+                // Equal: the source lands in the destination (which may be the accumulator
+                // itself). Not equal: the destination lands in the accumulator, and a register
+                // destination is not written at all, not even zero-extended.
+                let swap = self.m.b.block("cx.swap");
+                let keep = self.m.b.block("cx.keep");
+                let done = self.m.b.block("cx.done");
+                self.m.b.terminate(block, Terminator::CondBr { cond: equal.into(), then: swap, els: keep });
+                self.write_to(swap, i, 0, address, src);
+                self.m.b.terminate(swap, Terminator::Br(done));
+                self.m.write_gpr(keep, acc, dst);
+                self.m.b.terminate(keep, Terminator::Br(done));
+                return done;
             }
 
             // The string operations; `movsd` and `cmpsd` with an xmm operand are the scalar double
@@ -1696,23 +1823,34 @@ impl Lifter<'_, '_> {
                     _ => (Type::vector(2, Type::I64), 2, 64),
                 };
                 let v = self.read_vec(block, i, 0, ty.clone());
-                let count = if i.op_kind(1) == OpKind::Immediate8 {
-                    Self::immediate(i, 1)
-                } else {
-                    self.warn(format!("{ip:#x}: a vector shift by a register count is not lifted"));
-                    0
-                };
-                let count = count.clamp(0, i64::from(lane_bits));
-                let splat = self.splat(block, &ty, lanes, count);
                 let op = match i.mnemonic() {
                     M::Psrld | M::Psrlq | M::Psrlw => BinOp::LShr,
                     M::Psrad | M::Psraw => BinOp::AShr,
                     _ => BinOp::Shl,
                 };
-                let r = if count >= i64::from(lane_bits) && op != BinOp::AShr {
-                    self.m.value_of(block, ty.clone(), 0i64)
+                // A count past the lane clears it, or fills it with the sign; the count of a
+                // register or memory source is its low quadword.
+                let r = if i.op_kind(1) == OpKind::Immediate8 {
+                    let count = Self::immediate(i, 1).clamp(0, i64::from(lane_bits));
+                    if count >= i64::from(lane_bits) && op != BinOp::AShr {
+                        self.m.value_of(block, ty.clone(), 0i64)
+                    } else {
+                        let splat = self.splat(block, &ty, lanes, count.min(i64::from(lane_bits) - 1));
+                        self.m.b.bin(block, op, ty.clone(), v, splat, "pshift")
+                    }
                 } else {
-                    self.m.b.bin(block, op, ty.clone(), v, splat, "pshift")
+                    let count = self.read_vec(block, i, 1, Type::I64);
+                    let over = self.m.b.icmp(block, ICond::Ugt, Type::I64, count, i64::from(lane_bits) - 1, "pshift.over");
+                    let clamped = self.m.select(block, over, Type::I64, i64::from(lane_bits) - 1, count, "pshift.n");
+                    let lane = self.m.trunc(block, Type::I64, clamped, Type::Int(lane_bits as u16), "pshift.c");
+                    let splat = self.splat_value(block, &ty, lanes, lane);
+                    let shifted = self.m.b.bin(block, op, ty.clone(), v, splat, "pshift");
+                    if op == BinOp::AShr {
+                        shifted
+                    } else {
+                        let zero = self.m.value_of(block, ty.clone(), 0i64);
+                        self.m.select(block, over, ty.clone(), zero, shifted, "pshift.v")
+                    }
                 };
                 self.write_vec(block, i, 0, ty, r);
             }
@@ -2045,9 +2183,10 @@ impl Lifter<'_, '_> {
         block
     }
 
-    /// `div` and `idiv`: the double-width dividend in `rdx:rax` over the operand. A 64-bit division
-    /// whose high half is not the extension of the low half traps: the oracle has no 128-bit
-    /// division runtime on this target.
+    /// `div` and `idiv`: the double-width dividend in `rdx:rax` over the operand. A zero divisor
+    /// or a quotient that does not fit the operand is the processor's divide error, a trap. A
+    /// 64-bit division whose high half is not the extension of the low half traps too: a 128-bit
+    /// division would want a library the C port does not link.
     fn divide(&mut self, block: BlockId, i: &Instruction, signed: bool) -> BlockId {
         let bits = self.op_bits(i, 0);
         let ty = Type::Int(bits);
@@ -2070,8 +2209,10 @@ impl Lifter<'_, '_> {
             (self.m.read_gpr(block, accumulator(bits)), self.m.read_gpr(block, data_register(bits)))
         };
 
-        let (quotient, remainder, block) = if bits == 64 {
-            // The fast and only path: the dividend fits in 64 bits.
+        let overflow = self.m.b.block("div.overflow");
+        self.m.trap(overflow, ip, trap::DIVIDE);
+        let store = self.m.b.block("div.store");
+        let (quotient, remainder) = if bits == 64 {
             let expected = if signed {
                 self.m.b.bin(block, BinOp::AShr, ty.clone(), low, 63i64, "sign")
             } else {
@@ -2082,9 +2223,19 @@ impl Lifter<'_, '_> {
             self.m.trap(wide_trap, ip, trap::DIVIDE_WIDE);
             let narrow = self.m.b.block("div.64");
             self.m.b.terminate(block, Terminator::CondBr { cond: fits.into(), then: narrow, els: wide_trap });
-            let q = self.m.b.bin(narrow, if signed { BinOp::SDiv } else { BinOp::UDiv }, ty.clone(), low, divisor, "quot");
-            let r = self.m.b.bin(narrow, if signed { BinOp::SRem } else { BinOp::URem }, ty.clone(), low, divisor, "rem");
-            (q, r, narrow)
+            // With the dividend in 64 bits the only quotient that overflows is the most negative
+            // value over minus one.
+            let overflows = if signed {
+                let min = self.m.b.icmp(narrow, ICond::Eq, ty.clone(), low, i64::MIN, "div.min");
+                let minus_one = self.m.b.icmp(narrow, ICond::Eq, ty.clone(), divisor, -1i64, "div.m1");
+                self.m.b.bin(narrow, BinOp::And, Type::I1, min, minus_one, "div.over")
+            } else {
+                self.m.value_of(narrow, Type::I1, 0i64)
+            };
+            self.m.b.terminate(narrow, Terminator::CondBr { cond: overflows.into(), then: overflow, els: store });
+            let q = self.m.b.bin(store, if signed { BinOp::SDiv } else { BinOp::UDiv }, ty.clone(), low, divisor, "quot");
+            let r = self.m.b.bin(store, if signed { BinOp::SRem } else { BinOp::URem }, ty.clone(), low, divisor, "rem");
+            (q, r)
         } else {
             let wide = Type::Int(bits * 2);
             let low_w = self.m.zext(block, ty.clone(), low, wide.clone(), "low.w");
@@ -2099,9 +2250,18 @@ impl Lifter<'_, '_> {
             let q_w = self.m.b.bin(block, if signed { BinOp::SDiv } else { BinOp::UDiv }, wide.clone(), dividend, divisor_w, "quot.w");
             let r_w = self.m.b.bin(block, if signed { BinOp::SRem } else { BinOp::URem }, wide.clone(), dividend, divisor_w, "rem.w");
             let q = self.m.trunc(block, wide.clone(), q_w, ty.clone(), "quot");
-            let r = self.m.trunc(block, wide, r_w, ty.clone(), "rem");
-            (q, r, block)
+            let r = self.m.trunc(block, wide.clone(), r_w, ty.clone(), "rem");
+            // The quotient must survive the round trip through the operand's width.
+            let back = if signed {
+                self.m.sext(block, ty.clone(), q, wide.clone(), "quot.back")
+            } else {
+                self.m.zext(block, ty.clone(), q, wide.clone(), "quot.back")
+            };
+            let fits = self.m.b.icmp(block, ICond::Eq, wide, back, q_w, "fits");
+            self.m.b.terminate(block, Terminator::CondBr { cond: fits.into(), then: store, els: overflow });
+            (q, r)
         };
+        let block = store;
         if bits == 8 {
             self.write_product(block, 8, quotient, remainder);
         } else {
@@ -2287,16 +2447,17 @@ impl Lifter<'_, '_> {
     }
 
     fn splat(&mut self, block: BlockId, ty: &Type, lanes: u32, value: i64) -> ValueId {
+        self.splat_value(block, ty, lanes, Operand::Int(i128::from(value)))
+    }
+
+    /// A vector of `lanes` copies of `value`, which has the lane's type.
+    fn splat_value(&mut self, block: BlockId, ty: &Type, lanes: u32, value: impl Into<Operand>) -> ValueId {
+        let element = value.into();
         let mut v = self.m.value_of(block, ty.clone(), 0i64);
         for k in 0..lanes {
             v = self.m.b.value(
                 block,
-                Inst::InsertElement {
-                    ty: ty.clone(),
-                    vector: v.into(),
-                    element: Operand::Int(i128::from(value)),
-                    index: Operand::Int(i128::from(k)),
-                },
+                Inst::InsertElement { ty: ty.clone(), vector: v.into(), element: element.clone(), index: Operand::Int(i128::from(k)) },
                 "splat",
             );
         }

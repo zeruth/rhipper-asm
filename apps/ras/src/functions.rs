@@ -21,6 +21,7 @@ fn origin_name(origin: &Origin) -> String {
         Origin::Pointer(slot) => format!("pointer at {}", hex(*slot)),
         Origin::Vtable(vtable) => format!("vtable at {}", hex(*vtable)),
         Origin::Gap(after) => format!("gap after {}", hex(*after)),
+        Origin::Trace(from) => format!("seen at run time from {}", hex(*from)),
     }
 }
 

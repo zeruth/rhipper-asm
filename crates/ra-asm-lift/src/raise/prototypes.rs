@@ -4,13 +4,113 @@
 //! shims are written here by hand; the Windows API comes from [`win32`], a table generated from the
 //! SDK headers (`tests/win32_protos.rs` regenerates it), which the hand table takes precedence
 //! over. An import neither knows is modeled as reading all four argument registers, which is safe
-//! and may add a parameter the enclosing function does not have.
+//! and may add a parameter the enclosing function does not have. The Xbox kernel's exports come
+//! from the loader's table ([`ra_asm_pe::xbe`]), keyed by the DLL where a name is also Win32's.
+//!
+//! Beside the kinds, the parameters and results that take one of the SDK's named constants: the
+//! enumeration each belongs to is bound here by hand ([`named`]), and the names and values of the
+//! enumerations come from [`win32_names`], generated from the headers (`tests/win32_names.rs`), so
+//! the C reads `CreateFileA(name, GENERIC_READ | GENERIC_WRITE, ...)` and `GetLastError() ==
+//! ERROR_FILE_NOT_FOUND`.
 
 mod win32;
+mod win32_names;
 
 use ra_asm_ir::{FnType, Type};
 
 use super::abi::{Kind, Signature};
+
+/// The Windows API functions whose parameters or result take a named constant: the enumeration
+/// of the result (empty for none), then of each parameter in order (empty for none; a parameter
+/// past the end takes none). An enumeration's names are in the generated table.
+const NAMED: &[(&str, &str, &[&str])] = &[
+    ("CreateFileA", "HANDLE_VALUE", &["", "ACCESS_MASK", "FILE_SHARE_MODE", "", "CREATION_DISPOSITION", "FILE_FLAGS_AND_ATTRIBUTES"]),
+    ("CreateFileW", "HANDLE_VALUE", &["", "ACCESS_MASK", "FILE_SHARE_MODE", "", "CREATION_DISPOSITION", "FILE_FLAGS_AND_ATTRIBUTES"]),
+    ("FindFirstFileA", "HANDLE_VALUE", &[]),
+    ("FindFirstFileW", "HANDLE_VALUE", &[]),
+    ("GetFileAttributesA", "FILE_FLAGS_AND_ATTRIBUTES", &[]),
+    ("GetFileAttributesW", "FILE_FLAGS_AND_ATTRIBUTES", &[]),
+    ("SetFileAttributesA", "", &["", "FILE_FLAGS_AND_ATTRIBUTES"]),
+    ("SetFileAttributesW", "", &["", "FILE_FLAGS_AND_ATTRIBUTES"]),
+    ("SetFilePointer", "SET_FILE_POINTER_RESULT", &["", "", "", "FILE_MOVE_METHOD"]),
+    ("SetFilePointerEx", "", &["", "", "", "FILE_MOVE_METHOD"]),
+    ("GetStdHandle", "HANDLE_VALUE", &["STD_HANDLE"]),
+    ("SetStdHandle", "", &["STD_HANDLE"]),
+    ("GetLastError", "WIN32_ERROR", &[]),
+    ("SetLastError", "", &["WIN32_ERROR"]),
+    ("VirtualAlloc", "", &["", "", "MEM_ALLOCATION", "PAGE_PROTECTION"]),
+    ("VirtualAllocEx", "", &["", "", "", "MEM_ALLOCATION", "PAGE_PROTECTION"]),
+    ("VirtualFree", "", &["", "", "MEM_ALLOCATION"]),
+    ("VirtualFreeEx", "", &["", "", "", "MEM_ALLOCATION"]),
+    ("VirtualProtect", "", &["", "", "PAGE_PROTECTION"]),
+    ("VirtualProtectEx", "", &["", "", "", "PAGE_PROTECTION"]),
+    ("HeapCreate", "", &["HEAP_FLAGS"]),
+    ("HeapAlloc", "", &["", "HEAP_FLAGS"]),
+    ("HeapReAlloc", "", &["", "HEAP_FLAGS"]),
+    ("HeapFree", "", &["", "HEAP_FLAGS"]),
+    ("HeapSize", "", &["", "HEAP_FLAGS"]),
+    ("WaitForSingleObject", "WAIT_RESULT", &["", "TIMEOUT"]),
+    ("WaitForSingleObjectEx", "WAIT_RESULT", &["", "TIMEOUT"]),
+    ("WaitForMultipleObjects", "WAIT_RESULT", &["", "", "", "TIMEOUT"]),
+    ("WaitForMultipleObjectsEx", "WAIT_RESULT", &["", "", "", "TIMEOUT"]),
+    ("Sleep", "", &["TIMEOUT"]),
+    ("SleepEx", "", &["TIMEOUT"]),
+    ("MultiByteToWideChar", "", &["CODE_PAGE"]),
+    ("WideCharToMultiByte", "", &["CODE_PAGE"]),
+    ("ShowWindow", "", &["", "SHOW_WINDOW_CMD"]),
+    ("SendMessageA", "", &["", "WINDOW_MESSAGE"]),
+    ("SendMessageW", "", &["", "WINDOW_MESSAGE"]),
+    ("PostMessageA", "", &["", "WINDOW_MESSAGE"]),
+    ("PostMessageW", "", &["", "WINDOW_MESSAGE"]),
+    ("DefWindowProcA", "", &["", "WINDOW_MESSAGE"]),
+    ("DefWindowProcW", "", &["", "WINDOW_MESSAGE"]),
+    ("RegOpenKeyExA", "WIN32_ERROR", &["HKEY"]),
+    ("RegOpenKeyExW", "WIN32_ERROR", &["HKEY"]),
+    ("RegCreateKeyExA", "WIN32_ERROR", &["HKEY"]),
+    ("RegCreateKeyExW", "WIN32_ERROR", &["HKEY"]),
+    ("RegQueryValueExA", "WIN32_ERROR", &["HKEY"]),
+    ("RegQueryValueExW", "WIN32_ERROR", &["HKEY"]),
+    ("RegSetValueExA", "WIN32_ERROR", &["HKEY"]),
+    ("RegSetValueExW", "WIN32_ERROR", &["HKEY"]),
+    ("RegCloseKey", "WIN32_ERROR", &["HKEY"]),
+];
+
+/// The enumerations an import's result and parameters take, by name: `None` for a function the
+/// binding does not know; inside, `None` for a result or parameter that takes a plain number.
+pub fn named(name: &str) -> Option<(Option<&'static str>, Vec<Option<&'static str>>)> {
+    let &(_, result, params) = NAMED.iter().find(|(n, ..)| *n == name)?;
+    let some = |e: &'static str| (!e.is_empty()).then_some(e);
+    Some((some(result), params.iter().map(|e| some(e)).collect()))
+}
+
+/// The SDK's name of `value`, a constant of `bits` bits in `enumeration`: one member whose value
+/// it is, or, in a flags enumeration, the members whose bits make it up exactly, in the table's
+/// order, each with its own value; `None` when the names do not cover it. A member's value is
+/// compared at the constant's width, and a 64-bit constant also as the zero-extended `DWORD` the
+/// API takes (`STD_OUTPUT_HANDLE`, `(DWORD)-11`, passed in a 64-bit argument).
+pub fn constant_name(enumeration: &str, value: u64, bits: u32) -> Option<Vec<(&'static str, u64)>> {
+    let i = win32_names::NAMES.binary_search_by_key(&enumeration, |(n, ..)| n).ok()?;
+    let (_, flags, members) = win32_names::NAMES[i];
+    let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
+    let value = value & mask;
+    let same = |member: u64| (member & mask) == value || (bits >= 64 && (member & 0xffff_ffff) == value);
+    if let Some(&(name, member)) = members.iter().find(|(_, m)| same(*m)) {
+        return Some(vec![(name, member)]);
+    }
+    if !flags || value == 0 {
+        return None;
+    }
+    let mut rest = value;
+    let mut parts = Vec::new();
+    for &(name, member) in members {
+        let bit = member & mask;
+        if bit != 0 && rest & bit == bit {
+            parts.push((name, member));
+            rest &= !bit;
+        }
+    }
+    (rest == 0).then_some(parts)
+}
 
 /// The prototype of a Windows API function from the generated table: the kind of its result
 /// (`None` for a `void` function) and of each parameter.
@@ -132,6 +232,9 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
     if is_crt_dll(dll) {
         return Some(0);
     }
+    if ra_asm_pe::xbe::is_kernel_dll(dll) {
+        return ra_asm_pe::xbe::kernel_export_named(name).and_then(|e| e.stack_bytes());
+    }
     if let Some(proto) = typed(name) {
         return Some(proto.stack_bytes_x86() as u64);
     }
@@ -184,6 +287,16 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "strtod" => "ra_x86_strtod",
         "strtoll" | "_strtoi64" => "ra_x86_strtoll",
         "strtoull" | "_strtoui64" => "ra_x86_strtoull",
+        // The window structures of user32 hold pointers: the runtime widens the program's record
+        // for the host and narrows what comes back.
+        "RegisterClassA" => "ra_x86_register_class_a",
+        "RegisterClassExA" => "ra_x86_register_class_ex_a",
+        "GetMessageA" => "ra_x86_get_message_a",
+        "PeekMessageA" => "ra_x86_peek_message_a",
+        "TranslateMessage" => "ra_x86_translate_message",
+        "DispatchMessageA" => "ra_x86_dispatch_message_a",
+        "BeginPaint" => "ra_x86_begin_paint",
+        "EndPaint" => "ra_x86_end_paint",
         _ => return None,
     })
 }
@@ -238,6 +351,12 @@ pub fn host_lacks(name: &str) -> bool {
     )
 }
 
+/// Whether `name` of `dll` is a `fastcall` export of the Xbox kernel, whose first two arguments
+/// arrive in `ecx` and `edx`: the import wrapper reads them there.
+pub fn is_xbox_fastcall(dll: &str, name: &str) -> bool {
+    ra_asm_pe::xbe::is_kernel_dll(dll) && ra_asm_pe::xbe::kernel_export_named(name).is_some_and(|e| e.is_fastcall())
+}
+
 /// Whether `dll` is a C runtime, whose functions are `cdecl`.
 pub fn is_crt_dll(dll: &str) -> bool {
     let d = dll.to_ascii_lowercase();
@@ -249,12 +368,16 @@ pub fn is_crt_dll(dll: &str) -> bool {
         || d == "crtdll.dll"
 }
 
-/// The variadic functions of the C runtime: a call passes the universal arguments, every register
-/// and stack slot the caller set, since the arguments beyond the format are the caller's to count.
+/// The variadic functions of the C runtime and of the Xbox kernel: a call passes the universal
+/// arguments, every register and stack slot the caller set, since the arguments beyond the format
+/// are the caller's to count.
 pub fn is_variadic(name: &str) -> bool {
     matches!(
         name,
-        "printf"
+        "DbgPrint"
+            | "RtlSprintf"
+            | "RtlSnprintf"
+            | "printf"
             | "wprintf"
             | "fprintf"
             | "fwprintf"
@@ -279,8 +402,9 @@ pub fn is_variadic(name: &str) -> bool {
     )
 }
 
-/// The number of integer arguments of a well-known import, by name. A variadic function has
-/// none: it takes the universal arguments.
+/// The number of integer arguments of a well-known import, by name: the hand table, the Windows
+/// API's, then the Xbox kernel's (whose names shared with Win32 agree in count). A variadic
+/// function has none: it takes the universal arguments.
 pub fn arity(name: &str) -> Option<usize> {
     if is_variadic(name) {
         return None;
@@ -504,7 +628,11 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_fetestexcept"
         | "ra_x86_feclearexcept"
         | "ra_x86_initialize_onexit_table"
-        | "ra_x86_execute_onexit_table" => 1,
+        | "ra_x86_execute_onexit_table"
+        | "ra_x86_register_class_a"
+        | "ra_x86_register_class_ex_a"
+        | "ra_x86_translate_message"
+        | "ra_x86_dispatch_message_a" => 1,
 
         "TerminateProcess"
         | "GetExitCodeProcess"
@@ -592,7 +720,9 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_longjmp"
         | "ra_x86_initterm"
         | "ra_x86_initterm_e"
-        | "ra_x86_register_onexit_function" => 2,
+        | "ra_x86_register_onexit_function"
+        | "ra_x86_begin_paint"
+        | "ra_x86_end_paint" => 2,
 
         "VirtualFree"
         | "VirtualQuery"
@@ -657,6 +787,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "MessageBoxW"
         | "GetMessageA"
         | "GetMessageW"
+        | "ra_x86_get_message_a"
         | "DefWindowProcA"
         | "DefWindowProcW"
         | "SendMessageA"
@@ -688,6 +819,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ReadConsoleW"
         | "PeekMessageA"
         | "PeekMessageW"
+        | "ra_x86_peek_message_a"
         | "bsearch"
         | "__stdio_common_vfprintf"
         | "__stdio_common_vfwprintf" => 5,
@@ -696,6 +828,6 @@ pub fn arity(name: &str) -> Option<usize> {
         "CreateFileA" | "CreateFileW" | "FormatMessageA" | "FormatMessageW" => 7,
         "WideCharToMultiByte" | "RtlVirtualUnwind" => 8,
         "CreateWindowExA" | "CreateWindowExW" => 12,
-        _ => return win32(name).map(|(_, params)| params.len()),
+        _ => return win32(name).map(|(_, params)| params.len()).or_else(|| ra_asm_pe::xbe::kernel_export_named(name)?.arity()),
     })
 }

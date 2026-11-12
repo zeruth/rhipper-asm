@@ -12,9 +12,12 @@ no compiler. `build.ps1` rebuilds them; `/Brepro` keeps a rebuild byte-identical
 | `src/classes.cpp` | `classes64.exe`, `classes32.exe` | C++ with RTTI: a base, a derived class, a second base and a class with two vtables, called through base pointers; no C++ runtime |
 | `src/throws.cpp` | `throws64.exe` | C++ exceptions: a throw caught by value and one by reference to a base through a function without a handler, a rethrow into a catch-all, and a local destroyed on the way out; vcruntime's throw and frame handler, nothing else of a runtime |
 | `src/exports.c`, `src/exports.def` | `exports64.dll`, `exports32.dll` | Named exports, an export by ordinal only, a forwarder |
+| `src/exports_host.c` | `exports_host64.exe`, `exports_host32.exe` | The program that loads the DLL its command line names and calls its exports by name and ordinal, reads the data export and checks the forwarder; the pipeline runs it over the port of `exports` and over `exports` itself |
 | `src/tls.c` | `tls64.exe`, `tls32.exe` | A `__declspec(thread)` counter stepped from two threads, with the TLS directory (index, template bounds, a callback) the program defines itself for want of a C runtime |
 | `src/structs.c` | `structs64.exe`, `structs32.exe` | A record of mixed fields filled and read through a pointer, for the type recovery |
+| `src/dispatch.c` | `dispatch64.exe`, `dispatch32.exe` | Function-pointer dispatch through a table filled at run time under computed keys (a tail jump through a register on x64, a call through the table on x86), which no reading of the image resolves: the fixture of the trace-driven facts, whose port reads as direct calls after a traced run |
 | `src/window.c` | `window64.exe`, `window32.exe` | A window: a class whose procedure user32 calls back, a popup of a known client size, one paint through `BeginPaint`, and a message loop ended by `PostQuitMessage`; the log names the messages whose order is the window's own and the quit code |
+| `src/xbe.c` | `xbe32.xbe` | A homebrew program of the original Xbox: the kernel reached through the thunk table of the XBE header (`DbgPrint`, the pool, the return to the dashboard), no XAPI, no C runtime; the PE clang links at the Xbox's base, rewritten as an XBE by the writer in `crates/ra-asm-pe/tests/xbe.rs`, with the PE's map beside it; its expected output is the same source built for this machine with `-DXBE_HOST` |
 | `rhtest/src/core.c` | `rhtest/core-O2.exe`, `rhtest/core-Od.exe` | The old pipeline's test program: integers, branches, loops, recursion, switches, arrays, structs by value and through a hidden pointer, globals, strings, a linked list, packed and punned layouts |
 | `rhtest/src/<name>.c`, `.cpp` | `rhtest/<name>-clang.exe` | The other fifteen rhtest programs, built here by `rhtest/build.ps1` with clang-cl over the MSVC C runtime (`/O2 /MD`): `calls`, `int64`, `float`, `fpenv`, `crt` port and run; `misc`, `sys`, `win`, `seh`, `eh`, `cpp`, `com`, `stl`, `stlio`, `engine` wait for what the last paragraph below names |
 | `rhtest/src/core.c`, `int64.c` | `rhtest/core-static.exe`, `rhtest/int64-static.exe` | The same by clang-cl at `/O2 /MT`: the C runtime linked into the image, no PDB, only the map, as a VS2010 `/MT` program ships. The runtime's functions are recognized by the map's libraries and left to the host, the startup is the driver's, and the x86 helpers (`_alldiv`, the stack probe, the cookie check) stay the program's |
@@ -22,6 +25,12 @@ no compiler. `build.ps1` rebuilds them; `/Brepro` keeps a rebuild byte-identical
 Beside each binary is the linker map (`.map`): the analysis tests compare the functions they find
 with it. `expected/<name>.txt` is what the program prints when it runs natively; the execution
 oracle compares the lifted program with it.
+
+`xbe32.xbe` runs through the IR interpreter only, which answers its kernel calls itself; its port
+over clang waits for a platform runtime that defines the kernel's exports for the host. The XDK's
+libraries (`xapilib.lib`, `d3d8.lib`) are not here: a program that links them is recognized the
+way the C runtime's static libraries are, by signatures taken from the `.lib` files
+(`SignatureSet::from_library`), when the SDK is on the machine.
 
 `rhtest/` holds the old pipeline's test programs: `rhtest/src` is their source (each program
 defines `rhtest_run()` over `rhtest.h`; `rhtest_main.c`, linked into each, prints every check and

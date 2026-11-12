@@ -9,6 +9,62 @@
 #[repr(C, align(16))]
 pub struct Aligned<T>(pub T);
 
+/// A data section of the image, a table of the runtime laid out as the program reads it, or a
+/// local a function keeps as bytes: read and written at any offset as any plain value, as the
+/// machine does. Every bit pattern is a value of a plain type and the port's threads are the
+/// program's own, so the accessors are safe Rust; an access past the end stops the port where
+/// the machine would have read what lies beyond.
+#[repr(C, align(16))]
+pub struct Section<T>(core::cell::UnsafeCell<T>);
+
+unsafe impl<T> Sync for Section<T> {}
+
+impl<T> Section<T> {
+    pub const fn new(bytes: T) -> Self {
+        Self(core::cell::UnsafeCell::new(bytes))
+    }
+
+    /// The address of the section, for the program's own pointer arithmetic.
+    pub fn ptr(&self) -> *mut u8 {
+        self.0.get().cast()
+    }
+
+    /// The value at byte `at`.
+    #[track_caller]
+    pub fn get<U: Pod>(&self, at: usize) -> U {
+        bounds(at, core::mem::size_of::<U>(), core::mem::size_of::<T>());
+        unsafe { core::ptr::read_unaligned(self.ptr().add(at).cast()) }
+    }
+
+    /// Writes `value` at byte `at`.
+    #[track_caller]
+    pub fn set<U: Pod>(&self, at: usize, value: U) {
+        bounds(at, core::mem::size_of::<U>(), core::mem::size_of::<T>());
+        unsafe { core::ptr::write_unaligned(self.ptr().add(at).cast(), value) }
+    }
+}
+
+/// A type every bit pattern is a value of: the integers, the floats, the raw pointers and
+/// arrays of them. What a section or a local holds is read as one of these.
+pub unsafe trait Pod: Copy {}
+
+macro_rules! pod {
+    ($($t:ty),*) => { $(unsafe impl Pod for $t {})* };
+}
+pod!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f32, f64, *mut u8, *const u8);
+unsafe impl<T: Pod, const N: usize> Pod for [T; N] {}
+
+/// Stops the port at an access past the end, naming the line of the translation: a panic would
+/// abort through the `extern "C"` frame without one.
+#[track_caller]
+fn bounds(at: usize, size: usize, len: usize) {
+    if at.checked_add(size).is_none_or(|end| end > len) {
+        let at_line = core::panic::Location::caller();
+        eprintln!("ra: an access of {size} bytes at offset {at} of {len} at {at_line}");
+        std::process::exit(0xE000_0006u32 as i32)
+    }
+}
+
 pub type v16u8 = [u8; 16];
 pub type v8u16 = [u16; 8];
 pub type v4u32 = [u32; 4];
@@ -122,6 +178,7 @@ pub fn ra_trap(address: u64, code: u64) -> ! {
         2 => "an undefined instruction",
         3 => "a halt",
         4 => "a division by zero",
+        10 => "a call through a vtable slot to a function outside the vtables",
         _ => "a trap",
     };
     eprintln!("ra: {name} at {address:#x}");

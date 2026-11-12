@@ -1,9 +1,12 @@
-//! The x64 exception directory: one `RUNTIME_FUNCTION` per function or out-of-line piece, with the
+//! The exception directory: one `RUNTIME_FUNCTION` per function or out-of-line piece, with the
 //! unwind information that says how the prolog built the frame and whether the entry chains to a
-//! parent. The function extents of an x64 image come from here. The tables of the C++ frame
-//! handler hang off it too: the `FuncInfo` a handler's data names (the try blocks, the catch
-//! handlers, the unwind actions and the state of each range of code) and the `ThrowInfo` a throw
-//! site passes (the types a thrown object can be caught as).
+//! parent. The function extents of an x64 or ARM64 image come from here. On x64 the entry names
+//! its range and its `UNWIND_INFO`; on ARM64 it names its start and either packs a canonical
+//! prolog into its second word or names an `.xdata` record with the function's length, its epilogs
+//! and its unwind codes ([`Arm64Unwind`]). The tables of the C++ frame handler hang off it too:
+//! the `FuncInfo` a handler's data names (the try blocks, the catch handlers, the unwind actions
+//! and the state of each range of code) and the `ThrowInfo` a throw site passes (the types a
+//! thrown object can be caught as).
 
 use std::collections::BTreeSet;
 
@@ -19,7 +22,11 @@ pub struct RuntimeFunction {
     pub begin: u64,
     /// The first address after the range.
     pub end: u64,
+    /// The address of the unwind data: x64's `UNWIND_INFO`, or ARM64's `.xdata` record; zero for
+    /// an ARM64 entry that packs its unwind data into `packed`.
     pub unwind: u64,
+    /// The second word of an ARM64 entry whose unwind data is packed into it.
+    pub packed: Option<u32>,
 }
 
 impl RuntimeFunction {
@@ -35,9 +42,254 @@ impl RuntimeFunction {
         va >= self.begin && va < self.end
     }
 
-    /// Reads the unwind information of the entry.
+    /// Reads the x64 unwind information of the entry.
     pub fn unwind_info(&self, image: &Image) -> Result<UnwindInfo> {
+        ensure!(image.machine() == Machine::Amd64, "the entry at {:#x} is not an x64 entry: see arm64_unwind", self.begin);
         UnwindInfo::parse(image, self.unwind)
+    }
+
+    /// Reads the ARM64 unwind data of the entry.
+    pub fn arm64_unwind(&self, image: &Image) -> Result<Arm64Unwind> {
+        ensure!(image.machine() == Machine::Arm64, "the entry at {:#x} is not an ARM64 entry: see unwind_info", self.begin);
+        match self.packed {
+            Some(word) => Ok(Arm64Unwind::packed(word)),
+            None => Arm64Unwind::parse(image, self.unwind).map(|(_, unwind)| unwind),
+        }
+    }
+}
+
+/// The unwind data of an ARM64 entry: a canonical prolog packed into the entry, or the `.xdata`
+/// record the entry names.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum Arm64Unwind {
+    Packed {
+        /// A fragment: the range has no prolog of its own (flag 2).
+        fragment: bool,
+        /// The count of `d8..` registers saved, as the field has it (0..=7 for `d8..d15`).
+        regf: u8,
+        /// The count of `x19..` registers saved (0..=10, for `x19..x28`).
+        regi: u8,
+        /// Whether the prolog homes the integer argument registers.
+        homes_arguments: bool,
+        /// How the frame chain is kept: 0 unchained, 1 with the link register signed, 2
+        /// reserved, 3 `x29`/`x30` saved and `x29` set as the frame pointer.
+        cr: u8,
+        /// The bytes the prolog allocates.
+        frame_size: u32,
+    },
+    Full {
+        version: u8,
+        /// The epilog scopes: the offset of each epilog from the start, in bytes, and the index
+        /// of its first unwind code. Empty when the one epilog shares the prolog's codes.
+        epilogs: Vec<Arm64Epilog>,
+        /// The unwind codes, as encoded: see [`Arm64Unwind::operations`].
+        codes: Vec<u8>,
+        /// The exception handler and its data, when the record names one.
+        handler: Option<u64>,
+        handler_data: Option<u64>,
+    },
+}
+
+/// One epilog scope of an ARM64 `.xdata` record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Arm64Epilog {
+    pub start_offset: u32,
+    pub code_index: u32,
+}
+
+/// One ARM64 unwind code: what the prolog did, in prolog order; an epilog's codes undo them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum Arm64UnwindOp {
+    /// `sub sp, sp, #bytes`.
+    Alloc(u32),
+    /// `stp x29, x30, [sp, #offset]`, or the pre-indexed form that also allocates.
+    SaveFpLr {
+        offset: u32,
+        pre_indexed: bool,
+    },
+    /// `stp x19, x20, [sp, #-offset]!`.
+    SaveR19R20X(u32),
+    /// `str x<reg>, [sp, #offset]`, pre-indexed or not.
+    SaveReg {
+        reg: u8,
+        offset: u32,
+        pre_indexed: bool,
+    },
+    /// `stp x<reg>, x<reg + 1>, [sp, #offset]`, pre-indexed or not.
+    SaveRegPair {
+        reg: u8,
+        offset: u32,
+        pre_indexed: bool,
+    },
+    /// `stp x<reg>, lr, [sp, #offset]`.
+    SaveLrPair {
+        reg: u8,
+        offset: u32,
+    },
+    /// `str d<reg>, [sp, #offset]`, pre-indexed or not.
+    SaveFReg {
+        reg: u8,
+        offset: u32,
+        pre_indexed: bool,
+    },
+    /// `stp d<reg>, d<reg + 1>, [sp, #offset]`, pre-indexed or not.
+    SaveFRegPair {
+        reg: u8,
+        offset: u32,
+        pre_indexed: bool,
+    },
+    /// `mov x29, sp`.
+    SetFp,
+    /// `add x29, sp, #bytes`.
+    AddFp(u32),
+    /// The register pair or register after the last saved one, at the next slot.
+    SaveNext,
+    /// A save of any register through the three-byte form (ARM64EC and SVE).
+    SaveAnyReg,
+    Nop,
+    End,
+    /// The end of the prolog shared with a chained fragment.
+    EndC,
+    TrapFrame,
+    MachineFrame,
+    Context,
+    EcContext,
+    ClearUnwoundToCall,
+    PacSignLr,
+    /// A code the format reserves, with its first byte.
+    Reserved(u8),
+}
+
+impl Arm64Unwind {
+    fn packed(word: u32) -> Self {
+        Self::Packed {
+            fragment: word & 3 == 2,
+            regf: ((word >> 13) & 7) as u8,
+            regi: ((word >> 16) & 0xf) as u8,
+            homes_arguments: (word >> 20) & 1 != 0,
+            cr: ((word >> 21) & 3) as u8,
+            frame_size: ((word >> 23) & 0x1ff) * 16,
+        }
+    }
+
+    /// Reads the `.xdata` record at `va`: the record and the entry's extent as the record gives it
+    /// (`begin` is zero: the caller knows it).
+    pub fn parse(image: &Image, va: u64) -> Result<(u64, Self)> {
+        let head = image.u32(va).with_context(|| format!("the ARM64 unwind record at {va:#x}"))?;
+        let length = u64::from(head & 0x3ffff) * 4;
+        let version = ((head >> 18) & 3) as u8;
+        let has_handler = (head >> 20) & 1 != 0;
+        let single_epilog = (head >> 21) & 1 != 0;
+        let mut epilog_count = (head >> 22) & 0x1f;
+        let mut code_words = head >> 27;
+        let mut at = va + 4;
+        if epilog_count == 0 && code_words == 0 {
+            let extended = image.u32(at).with_context(|| format!("the extended header of the ARM64 unwind record at {va:#x}"))?;
+            epilog_count = extended & 0xffff;
+            code_words = (extended >> 16) & 0xff;
+            at += 4;
+        }
+        let mut epilogs = Vec::new();
+        if !single_epilog {
+            for n in 0..epilog_count {
+                let scope = image.u32(at).with_context(|| format!("epilog scope {n} of the ARM64 unwind record at {va:#x}"))?;
+                epilogs.push(Arm64Epilog { start_offset: (scope & 0x3ffff) * 4, code_index: scope >> 22 });
+                at += 4;
+            }
+        }
+        let codes = image
+            .read(at, code_words as usize * 4)
+            .with_context(|| format!("the {code_words} code words of the ARM64 unwind record at {va:#x}"))?
+            .to_vec();
+        at += u64::from(code_words) * 4;
+        let (mut handler, mut handler_data) = (None, None);
+        if has_handler {
+            handler = Some(image.va(image.u32(at).with_context(|| format!("the handler of the ARM64 unwind record at {va:#x}"))?));
+            handler_data = Some(at + 4);
+        }
+        Ok((length, Self::Full { version, epilogs, codes, handler, handler_data }))
+    }
+
+    /// The operations of the prolog, decoded from the codes of a full record; a packed entry has
+    /// none to decode.
+    pub fn operations(&self) -> Result<Vec<Arm64UnwindOp>> {
+        let Self::Full { codes, .. } = self else { return Ok(Vec::new()) };
+        let mut ops = Vec::new();
+        let mut i = 0;
+        while i < codes.len() {
+            let b = codes[i];
+            let next = |n: usize| {
+                codes.get(i + n).copied().map(u32::from).with_context(|| format!("unwind code {i} ({b:#04x}) lacks its byte {n}"))
+            };
+            let (op, used) = match b {
+                0x00..=0x1f => (Arm64UnwindOp::Alloc(u32::from(b & 0x1f) * 16), 1),
+                0x20..=0x3f => (Arm64UnwindOp::SaveR19R20X(u32::from(b & 0x1f) * 8), 1),
+                0x40..=0x7f => (Arm64UnwindOp::SaveFpLr { offset: u32::from(b & 0x3f) * 8, pre_indexed: false }, 1),
+                0x80..=0xbf => (Arm64UnwindOp::SaveFpLr { offset: (u32::from(b & 0x3f) + 1) * 8, pre_indexed: true }, 1),
+                0xc0..=0xc7 => (Arm64UnwindOp::Alloc((u32::from(b & 7) << 8 | next(1)?) * 16), 2),
+                0xc8..=0xcf => {
+                    let w = next(1)?;
+                    let reg = 19 + ((u32::from(b & 3) << 2) | w >> 6) as u8;
+                    let pre = b >= 0xcc;
+                    (Arm64UnwindOp::SaveRegPair { reg, offset: ((w & 0x3f) + u32::from(pre)) * 8, pre_indexed: pre }, 2)
+                }
+                // save_reg is `110100xx xxzzzzzz`; the pre-indexed form has one more register bit
+                // and one fewer offset bit: `1101010x xxxzzzzz`.
+                0xd0..=0xd3 => {
+                    let w = next(1)?;
+                    let reg = 19 + ((u32::from(b & 3) << 2) | w >> 6) as u8;
+                    (Arm64UnwindOp::SaveReg { reg, offset: (w & 0x3f) * 8, pre_indexed: false }, 2)
+                }
+                0xd4..=0xd5 => {
+                    let w = next(1)?;
+                    let reg = 19 + ((u32::from(b & 1) << 3) | w >> 5) as u8;
+                    (Arm64UnwindOp::SaveReg { reg, offset: ((w & 0x1f) + 1) * 8, pre_indexed: true }, 2)
+                }
+                0xd6..=0xd7 => {
+                    let w = next(1)?;
+                    (Arm64UnwindOp::SaveLrPair { reg: 19 + 2 * ((u32::from(b & 1) << 2 | w >> 6) as u8), offset: (w & 0x3f) * 8 }, 2)
+                }
+                0xd8..=0xdb => {
+                    let w = next(1)?;
+                    let pre = b >= 0xda;
+                    let reg = 8 + ((u32::from(b & 1) << 2) | w >> 6) as u8;
+                    (Arm64UnwindOp::SaveFRegPair { reg, offset: ((w & 0x3f) + u32::from(pre)) * 8, pre_indexed: pre }, 2)
+                }
+                // save_freg is `1101110x xxzzzzzz`; the pre-indexed form `11011110 xxxzzzzz`.
+                0xdc..=0xdd => {
+                    let w = next(1)?;
+                    let reg = 8 + ((u32::from(b & 1) << 2) | w >> 6) as u8;
+                    (Arm64UnwindOp::SaveFReg { reg, offset: (w & 0x3f) * 8, pre_indexed: false }, 2)
+                }
+                0xde => {
+                    let w = next(1)?;
+                    (Arm64UnwindOp::SaveFReg { reg: 8 + (w >> 5) as u8, offset: ((w & 0x1f) + 1) * 8, pre_indexed: true }, 2)
+                }
+                0xe0 => (Arm64UnwindOp::Alloc((next(1)? << 16 | next(2)? << 8 | next(3)?) * 16), 4),
+                0xe1 => (Arm64UnwindOp::SetFp, 1),
+                0xe2 => (Arm64UnwindOp::AddFp(next(1)? * 8), 2),
+                0xe3 => (Arm64UnwindOp::Nop, 1),
+                0xe4 => (Arm64UnwindOp::End, 1),
+                0xe5 => (Arm64UnwindOp::EndC, 1),
+                0xe6 => (Arm64UnwindOp::SaveNext, 1),
+                0xe7 => (Arm64UnwindOp::SaveAnyReg, 3),
+                0xe8 => (Arm64UnwindOp::TrapFrame, 1),
+                0xe9 => (Arm64UnwindOp::MachineFrame, 1),
+                0xea => (Arm64UnwindOp::Context, 1),
+                0xeb => (Arm64UnwindOp::EcContext, 1),
+                0xec => (Arm64UnwindOp::ClearUnwoundToCall, 1),
+                0xfc => (Arm64UnwindOp::PacSignLr, 1),
+                0xf8 => (Arm64UnwindOp::Reserved(b), 2),
+                0xf9 => (Arm64UnwindOp::Reserved(b), 3),
+                0xfa => (Arm64UnwindOp::Reserved(b), 4),
+                0xfb => (Arm64UnwindOp::Reserved(b), 5),
+                other => (Arm64UnwindOp::Reserved(other), 1),
+            };
+            ensure!(i + used <= codes.len(), "unwind code {i} ({b:#04x}) runs past the {} code bytes", codes.len());
+            ops.push(op);
+            i += used;
+        }
+        Ok(ops)
     }
 }
 
@@ -426,22 +678,104 @@ fn read_entry(image: &Image, va: u64) -> Result<RuntimeFunction> {
     let end = image.u32(va + 4)?;
     let unwind = image.u32(va + 8)?;
     ensure!(end >= begin, "RUNTIME_FUNCTION at {va:#x} ends ({end:#x}) before it begins ({begin:#x})");
-    Ok(RuntimeFunction { begin: image.va(begin), end: image.va(end), unwind: image.va(unwind) })
+    Ok(RuntimeFunction { begin: image.va(begin), end: image.va(end), unwind: image.va(unwind), packed: None })
 }
 
-pub(crate) fn parse(image: &Image) -> Result<Vec<RuntimeFunction>> {
-    if image.machine() != Machine::Amd64 {
-        return Ok(Vec::new()); // ARM64 has its own entry layout; it comes with that architecture
+/// An ARM64 entry: the start and a word that packs the unwind data (flag 1 or 2, with the length
+/// in units of four bytes) or names the `.xdata` record (flag 0) that holds the length.
+fn read_arm64_entry(image: &Image, va: u64) -> Result<RuntimeFunction> {
+    let begin = image.va(image.u32(va)?);
+    let word = image.u32(va + 4)?;
+    match word & 3 {
+        0 => {
+            let unwind = image.va(word);
+            let (length, _) = Arm64Unwind::parse(image, unwind)?;
+            Ok(RuntimeFunction { begin, end: begin + length, unwind, packed: None })
+        }
+        3 => bail!("the ARM64 entry at {va:#x} has the reserved flag 3"),
+        _ => Ok(RuntimeFunction { begin, end: begin + u64::from((word >> 2) & 0x7ff) * 4, unwind: 0, packed: Some(word) }),
     }
+}
+
+/// The reader of one entry of a machine's exception table.
+type EntryReader = fn(&Image, u64) -> Result<RuntimeFunction>;
+
+pub(crate) fn parse(image: &Image) -> Result<Vec<RuntimeFunction>> {
+    let (stride, read): (u64, EntryReader) = match image.machine() {
+        Machine::Amd64 => (12, read_entry),
+        Machine::Arm64 => (8, read_arm64_entry),
+        _ => return Ok(Vec::new()),
+    };
     let Some((va, size)) = image.directory_va(Directory::Exception) else { return Ok(Vec::new()) };
-    let count = size as u64 / 12;
+    let count = u64::from(size) / stride;
     let mut functions = Vec::with_capacity(count as usize);
     for i in 0..count {
-        let entry = read_entry(image, va + i * 12).with_context(|| format!("exception table entry {i}"))?;
+        let entry = read(image, va + i * stride).with_context(|| format!("exception table entry {i}"))?;
         if !entry.is_empty() {
             functions.push(entry);
         }
     }
     functions.sort_by_key(|f| f.begin);
     Ok(functions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Arm64Unwind, Arm64UnwindOp as Op};
+
+    fn ops(codes: &[u8]) -> Vec<Op> {
+        Arm64Unwind::Full { version: 0, epilogs: Vec::new(), codes: codes.to_vec(), handler: None, handler_data: None }
+            .operations()
+            .unwrap()
+    }
+
+    /// The single-register saves: the pre-indexed forms spend one more bit on the register and
+    /// one fewer on the offset than the plain ones, and their offset counts from one.
+    #[test]
+    fn the_register_saves_decode_both_forms() {
+        // str x19, [sp, #16]; str x28, [sp, #504]; str x19, [sp, #-16]!; str x28, [sp, #-256]!
+        assert_eq!(
+            ops(&[0xd0, 0x02, 0xd2, 0x7f, 0xd4, 0x01, 0xd5, 0x3f]),
+            [
+                Op::SaveReg { reg: 19, offset: 16, pre_indexed: false },
+                Op::SaveReg { reg: 28, offset: 504, pre_indexed: false },
+                Op::SaveReg { reg: 19, offset: 16, pre_indexed: true },
+                Op::SaveReg { reg: 28, offset: 256, pre_indexed: true },
+            ]
+        );
+        // str d8, [sp, #8]; str d15, [sp, #504]; str d8, [sp, #-16]!; str d15, [sp, #-256]!
+        assert_eq!(
+            ops(&[0xdc, 0x01, 0xdd, 0xff, 0xde, 0x01, 0xde, 0xff]),
+            [
+                Op::SaveFReg { reg: 8, offset: 8, pre_indexed: false },
+                Op::SaveFReg { reg: 15, offset: 504, pre_indexed: false },
+                Op::SaveFReg { reg: 8, offset: 16, pre_indexed: true },
+                Op::SaveFReg { reg: 15, offset: 256, pre_indexed: true },
+            ]
+        );
+    }
+
+    /// The pair saves and the frame codes, as a canonical prolog spells them.
+    #[test]
+    fn a_canonical_prolog_decodes() {
+        // stp x29, x30, [sp, #-48]!; stp x19, x20, [sp, #16]; stp d8, d9, [sp, #-32]!; mov x29, sp;
+        // sub sp, sp, #4096; end
+        assert_eq!(
+            ops(&[0x85, 0xc8, 0x02, 0xda, 0x03, 0xe1, 0xc1, 0x00, 0xe4]),
+            [
+                Op::SaveFpLr { offset: 48, pre_indexed: true },
+                Op::SaveRegPair { reg: 19, offset: 16, pre_indexed: false },
+                Op::SaveFRegPair { reg: 8, offset: 32, pre_indexed: true },
+                Op::SetFp,
+                Op::Alloc(4096),
+                Op::End,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_truncated_code_is_refused() {
+        let unwind = Arm64Unwind::Full { version: 0, epilogs: Vec::new(), codes: vec![0xe0, 0x00], handler: None, handler_data: None };
+        assert!(unwind.operations().is_err());
+    }
 }

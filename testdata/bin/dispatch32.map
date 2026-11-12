@@ -1,0 +1,32 @@
+ dispatch32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000001c3H .text                   CODE
+ 0003:00000000 00000004H .data                   DATA
+ 0003:00000004 00000024H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     dispatch-c5f116.o
+ 0002:00000054       __imp__ExitProcess@4       0000000000402054     kernel32:KERNEL32.dll
+ 0002:00000058       __imp__GetStdHandle@4      0000000000402058     kernel32:KERNEL32.dll
+ 0002:0000005c       __imp__WriteFile@20        000000000040205c     kernel32:KERNEL32.dll
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:000000e0       _install                   00000000004010e0     dispatch-c5f116.o
+ 0001:000000f0       _h_add                     00000000004010f0     dispatch-c5f116.o
+ 0001:00000100       _h_sub                     0000000000401100     dispatch-c5f116.o
+ 0001:00000110       _h_mul                     0000000000401110     dispatch-c5f116.o
+ 0001:00000120       _h_xor                     0000000000401120     dispatch-c5f116.o
+ 0001:00000130       _print_int                 0000000000401130     dispatch-c5f116.o
+ 0001:000001b0       _dispatch                  00000000004011b0     dispatch-c5f116.o
+ 0003:00000000       _seed                      0000000000403000     dispatch-c5f116.o
+ 0003:00000004       _out                       0000000000403004     dispatch-c5f116.o
+ 0003:00000008       _table                     0000000000403008     dispatch-c5f116.o

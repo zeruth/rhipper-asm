@@ -149,6 +149,15 @@ enum Command {
         /// Print no warnings of the lift.
         #[arg(long)]
         quiet: bool,
+        /// Write the facts of the run (the targets of its indirect calls, the functions entered)
+        /// as JSON here, for the analysis of the next pass: `build/facts.json` in a project.
+        #[arg(long)]
+        facts: Option<PathBuf>,
+        /// Write the record of the run here: the calls and returns of the program's functions with
+        /// their values, as a port emitted with `run.trace` writes its trace, for `ras serve`'s
+        /// replay against the port's.
+        #[arg(long)]
+        record: Option<PathBuf>,
     },
     /// The instructions at an address: its `.pdata` extent, one run of code, or `length` bytes.
     Disasm {
@@ -238,8 +247,8 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Signatures { pe, .. } => signatures::signatures(&load(&pe, sigs)?, json),
         Command::Emit { pe, lang, out, quiet, x87, hand } => emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand),
-        Command::Run { pe, args, level, x87, trace, limit, quiet } => {
-            let code = run::run(&load(&pe, sigs)?, &run::Options { level, x87, trace, limit, args, quiet })?;
+        Command::Run { pe, args, level, x87, trace, limit, quiet, facts, record } => {
+            let code = run::run(&load(&pe, sigs)?, &run::Options { level, x87, trace, limit, args, quiet, facts, record })?;
             std::process::exit(code)
         }
         Command::Disasm { pe, address, length } => {

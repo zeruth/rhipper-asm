@@ -9,13 +9,19 @@
 //! function also says what it pops on return: a `stdcall` or `thiscall` function pops its stack
 //! arguments. The inference iterates: a call reads its callee's parameters and writes the
 //! caller-saved registers, and the callee's parameters are what is being inferred.
+//!
+//! A call through a vtable slot is a call to the functions that fill the slot (see
+//! [`virtual_calls`]): it reads the union of their parameters and writes what any of them
+//! writes, so the caller's frame and parameters are what those functions need rather than what
+//! an unknown callee might.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use ra_asm_ir::{Callee, Function, Inst, Module, Operand, Type, ValueId};
+use ra_asm_analysis::rtti::{self, Vtable};
+use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Module, Operand, Type, ValueId};
 
 use super::Target;
-use super::liveness::{Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, reverse_post_order, slot_pointers};
+use super::liveness::{CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, call_kind, reverse_post_order, slot_pointers};
 use super::stack::{StackInfo, analyze as analyze_stack};
 
 /// The kind of a parameter or a return.
@@ -175,9 +181,212 @@ struct Facts {
     noreturn: bool,
 }
 
+/// The functions a call through a vtable slot can reach, by address and IR name.
+pub type Candidates = Vec<(u64, String)>;
+
+/// The calls of `f` that go through a vtable slot, by the value the call's target is, each with
+/// the functions that fill the slot. Such a target is a load at `vptr + slot * ptr` where `vptr`
+/// is itself a load, of the object's first word. The receiver's class is not known, so the
+/// candidates are the slot's functions across every vtable that fills it; when the vtable is a
+/// constant, or was stored to the object earlier in the block (a constructor), that vtable's
+/// alone. A register's load reads the last store to it within the block, so the two loads are
+/// found through the state. A slot some function of which is not lifted (`lifted` says) stays
+/// an indirect call.
+pub fn virtual_calls(f: &Function, vtables: &[Vtable], target: Target, lifted: &dyn Fn(&str) -> bool) -> HashMap<ValueId, Candidates> {
+    let mut out = HashMap::new();
+    let Some(&state) = f.params.first() else { return out };
+    if vtables.is_empty() {
+        return out;
+    }
+    let pointers = slot_pointers(f, state);
+    let defs: HashMap<ValueId, &Inst> = f.blocks.iter().flat_map(|b| &b.instrs).filter_map(|i| i.result.map(|r| (r, &i.inst))).collect();
+    let ptr = target.ptr();
+    for b in &f.blocks {
+        // The registers' values so far in the block, by the register and by the load that read it.
+        let mut registers: HashMap<Slot, Operand> = HashMap::new();
+        let mut forwarded: HashMap<ValueId, Operand> = HashMap::new();
+        // The vtable addresses stored to objects so far in the block, by the object's address.
+        let mut stored: Vec<((Operand, i128), u64)> = Vec::new();
+        // A value through the register loads and the width changes of 32-bit code.
+        let strip = |o: &Operand, forwarded: &HashMap<ValueId, Operand>| -> Operand {
+            let mut o = o.clone();
+            for _ in 0..64 {
+                let Operand::Local(v) = &o else { break };
+                if let Some(r) = forwarded.get(v) {
+                    o = r.clone();
+                    continue;
+                }
+                match defs.get(v) {
+                    Some(Inst::Cast { cast: Cast::ZExt | Cast::Trunc, value, .. }) => o = value.clone(),
+                    _ => break,
+                }
+            }
+            o
+        };
+        // An address as a base and an offset: `base + k`, or the value itself at 0.
+        let base_offset = |o: &Operand, forwarded: &HashMap<ValueId, Operand>| -> (Operand, i128) {
+            let o = strip(o, forwarded);
+            if let Operand::Local(v) = &o
+                && let Some(Inst::Bin { op: BinOp::Add, lhs, rhs: Operand::Int(k), .. }) = defs.get(v)
+            {
+                return (strip(lhs, forwarded), *k);
+            }
+            (o, 0)
+        };
+        // The integer address a pointer was made from.
+        let pointer_address = |p: &ValueId| -> Option<Operand> {
+            match defs.get(p) {
+                Some(Inst::Cast { cast: Cast::IntToPtr, value, .. }) => Some(value.clone()),
+                _ => None,
+            }
+        };
+        for i in &b.instrs {
+            match &i.inst {
+                Inst::Store { ptr: Operand::Local(p), value, .. } if pointers.contains_key(p) => {
+                    registers.insert(pointers[p], value.clone());
+                }
+                Inst::Load { ptr: Operand::Local(p), .. } if pointers.contains_key(p) => {
+                    let slot = pointers[p];
+                    let result = i.result.unwrap();
+                    match registers.get(&slot) {
+                        Some(v) => {
+                            forwarded.insert(result, v.clone());
+                        }
+                        None => {
+                            registers.insert(slot, Operand::Local(result));
+                        }
+                    }
+                }
+                Inst::Store { ptr: to, value, .. } => {
+                    // A vtable address stored to an object is remembered for the object; any
+                    // other store forgets what it may overwrite.
+                    let at = match to {
+                        Operand::Local(p) => pointer_address(p).map(|a| base_offset(&a, &forwarded)),
+                        _ => None,
+                    };
+                    let vtable = match strip(value, &forwarded) {
+                        Operand::Int(c) => u64::try_from(c).ok().filter(|c| vtables.iter().any(|v| v.address == *c)),
+                        _ => None,
+                    };
+                    match (at, vtable) {
+                        (Some(at), Some(vtable)) => {
+                            stored.retain(|(a, _)| *a != at);
+                            stored.push((at, vtable));
+                        }
+                        (Some((base, k)), None) => {
+                            stored.retain(|((other, j), _)| *other == base && (k - j).abs() >= i128::from(ptr));
+                        }
+                        (None, _) => stored.clear(),
+                    }
+                }
+                Inst::Call { callee: Callee::Direct(name), args, .. } if name == "ra_call" => {
+                    let Some((_, Operand::Local(key))) = args.get(1) else { continue };
+                    // The slot's load, at `vptr + k`.
+                    let target_value = strip(&Operand::Local(*key), &forwarded);
+                    let Operand::Local(t) = &target_value else { continue };
+                    let Some(Inst::Load { ptr: Operand::Local(p), .. }) = defs.get(t) else { continue };
+                    if pointers.contains_key(p) {
+                        continue;
+                    }
+                    let Some(slot_address) = pointer_address(p) else { continue };
+                    let (vptr, k) = base_offset(&slot_address, &forwarded);
+                    if k < 0 || k % i128::from(ptr) != 0 {
+                        continue;
+                    }
+                    let slot = (k / i128::from(ptr)) as usize;
+                    // The vtable pointer: a constant, or the object's first word.
+                    let vtable = match &vptr {
+                        Operand::Int(c) => match u64::try_from(*c) {
+                            Ok(c) if vtables.iter().any(|v| v.address == c) => Some(c),
+                            _ => continue,
+                        },
+                        Operand::Local(v) => {
+                            let Some(Inst::Load { ptr: Operand::Local(q), .. }) = defs.get(v) else { continue };
+                            if pointers.contains_key(q) {
+                                continue;
+                            }
+                            let Some(object) = pointer_address(q) else { continue };
+                            let object = base_offset(&object, &forwarded);
+                            stored.iter().find(|(a, _)| *a == object).map(|(_, vtable)| *vtable)
+                        }
+                        _ => continue,
+                    };
+                    let functions = match vtable {
+                        Some(address) => {
+                            let own: Vec<Vtable> = vtables.iter().filter(|v| v.address == address).cloned().collect();
+                            rtti::slot_functions(&own, slot)
+                        }
+                        None => rtti::slot_functions(vtables, slot),
+                    };
+                    let candidates: Candidates = functions.iter().map(|&va| (va, crate::function_name(va))).collect();
+                    if !candidates.is_empty() && candidates.iter().all(|(_, name)| lifted(name)) {
+                        out.insert(*key, candidates);
+                    }
+                    registers.clear();
+                    stored.clear();
+                }
+                inst if call_kind(inst) == Some(CallKind::State) => {
+                    registers.clear();
+                    stored.clear();
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// The calls of `f` a traced run resolved (`traced`, by the address of the call, from
+/// [`ra_asm_analysis::facts`]), by the value the call's target is, each with the lifted functions
+/// the run saw it reach. The run proves nothing about the targets it did not take, so the caller
+/// keeps the indirect call for them (see [`super::promote`]); a target that is not lifted leaves
+/// the call indirect altogether.
+pub fn traced_calls(f: &Function, traced: &BTreeMap<u64, Vec<u64>>, lifted: &dyn Fn(&str) -> bool) -> HashMap<ValueId, Candidates> {
+    let mut out = HashMap::new();
+    if traced.is_empty() {
+        return out;
+    }
+    for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+        let Inst::Call { callee: Callee::Direct(name), args, .. } = &i.inst else { continue };
+        if name != "ra_call" {
+            continue;
+        }
+        let (Some(targets), Some((_, Operand::Local(key)))) = (i.address.and_then(|a| traced.get(&a)), args.get(1)) else { continue };
+        let candidates: Candidates = targets.iter().map(|&va| (va, crate::function_name(va))).collect();
+        if !candidates.is_empty() && candidates.iter().all(|(_, name)| lifted(name)) {
+            out.insert(*key, candidates);
+        }
+    }
+    out
+}
+
+/// The candidates of `inst` when it is a call through a vtable slot that `virtual_calls` resolved.
+pub fn virtual_candidates<'a>(inst: &Inst, virtual_calls: &'a HashMap<ValueId, Candidates>) -> Option<&'a Candidates> {
+    if let Inst::Call { callee: Callee::Direct(name), args, .. } = inst
+        && name == "ra_call"
+        && let Some((_, Operand::Local(v))) = args.get(1)
+    {
+        return virtual_calls.get(v);
+    }
+    None
+}
+
 /// Infers the signature of every `F_` function of `module`. A root (the entry, an export, a
 /// function a pointer names) returns a value when it writes `rax`, since its callers are not seen.
-pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target) -> HashMap<String, Signature> {
+/// A call through a slot of one of `vtables` is a call to the functions that fill the slot.
+pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target, vtables: &[Vtable]) -> HashMap<String, Signature> {
+    infer_with(module, roots, target, vtables, &BTreeMap::new())
+}
+
+/// [`infer`] with the calls a traced run resolved (`traced`, see [`traced_calls`]): such a call
+/// is a call to the functions the run saw, as a call through a vtable slot is to the slot's.
+pub fn infer_with(
+    module: &Module,
+    roots: &BTreeSet<String>,
+    target: Target,
+    vtables: &[Vtable],
+    traced: &BTreeMap<u64, Vec<u64>>,
+) -> HashMap<String, Signature> {
     // The stack analysis reads constants; the machine IR materializes them, so fold them first.
     let functions: Vec<Function> = module
         .functions
@@ -190,10 +399,19 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target) -> HashM
         })
         .collect();
     let mut signatures: HashMap<String, Signature> = functions.iter().map(|f| (f.name.clone(), Signature::default())).collect();
+    let lifted = |name: &str| signatures.contains_key(name);
+    let virtuals: Vec<HashMap<ValueId, Candidates>> = functions
+        .iter()
+        .map(|f| {
+            let mut calls = virtual_calls(f, vtables, target, &lifted);
+            calls.extend(traced_calls(f, traced, &lifted));
+            calls
+        })
+        .collect();
     let ints = target.int_param_slots().len();
     let floats = target.float_params();
     for _round in 0..8 {
-        let facts: Vec<Facts> = functions.iter().map(|f| gather(f, &signatures, target)).collect();
+        let facts: Vec<Facts> = functions.iter().zip(&virtuals).map(|(f, v)| gather(f, v, &signatures, target)).collect();
         let xmm0_kinds: HashMap<&str, Option<Kind>> = facts.iter().map(|f| (f.name.as_str(), f.writes_xmm0)).collect();
         // Through the callees as well: `call _allrem; ret` hands back the 64 bits its callee left.
         let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[RDX.index()])).collect();
@@ -309,17 +527,28 @@ pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target) -> HashM
 }
 
 /// [`call_model`] for the promotion pass.
-pub fn call_model_public(inst: &Inst, signatures: &HashMap<String, Signature>, target: Target) -> (SlotSet, SlotSet) {
-    call_model(inst, signatures, target)
+pub fn call_model_public(
+    inst: &Inst,
+    virtual_calls: &HashMap<ValueId, Candidates>,
+    signatures: &HashMap<String, Signature>,
+    target: Target,
+) -> (SlotSet, SlotSet) {
+    call_model(inst, virtual_calls, signatures, target)
 }
 
 /// What a state call reads and writes under the current signatures. An import reads as many
 /// argument registers as its prototype says (none on x86, where they are on the stack); a
 /// variadic C function reads the integer argument registers, where the Win64 convention puts a
 /// float argument of its too; an unknown import or an indirect call reads every argument
-/// register. A lifted callee writes the caller-saved registers it does not preserve; anything
-/// else writes them all.
-fn call_model(inst: &Inst, signatures: &HashMap<String, Signature>, target: Target) -> (SlotSet, SlotSet) {
+/// register. A lifted callee writes the caller-saved registers it does not preserve; a call
+/// through a vtable slot reads what any of the slot's functions reads and writes what any
+/// writes; anything else writes them all.
+fn call_model(
+    inst: &Inst,
+    virtual_calls: &HashMap<ValueId, Candidates>,
+    signatures: &HashMap<String, Signature>,
+    target: Target,
+) -> (SlotSet, SlotSet) {
     let mut writes = caller_saved(target);
     if let Inst::Call { callee: Callee::Direct(name), .. } = inst
         && let Some(s) = signatures.get(name)
@@ -327,6 +556,23 @@ fn call_model(inst: &Inst, signatures: &HashMap<String, Signature>, target: Targ
         for (w, kept) in writes.iter_mut().zip(s.preserves) {
             *w &= !kept;
         }
+    }
+    if let Some(candidates) = virtual_candidates(inst, virtual_calls) {
+        let mut reads = NO_SLOTS;
+        let mut kept_by_all = caller_saved(target);
+        for (_, name) in candidates {
+            let s = signatures.get(name).cloned().unwrap_or_default();
+            for (r, read) in reads.iter_mut().zip(s.param_slots(target)) {
+                *r |= read;
+            }
+            for (k, kept) in kept_by_all.iter_mut().zip(s.preserves) {
+                *k &= kept;
+            }
+        }
+        for (w, kept) in writes.iter_mut().zip(kept_by_all) {
+            *w &= !kept;
+        }
+        return (reads, writes);
     }
     let int_slots = |count: usize| {
         let mut set = NO_SLOTS;
@@ -354,11 +600,11 @@ fn call_model(inst: &Inst, signatures: &HashMap<String, Signature>, target: Targ
     (reads, writes)
 }
 
-fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target) -> Facts {
+fn gather(f: &Function, virtual_calls: &HashMap<ValueId, Candidates>, signatures: &HashMap<String, Signature>, target: Target) -> Facts {
     let state = f.params[0];
     let pointers = slot_pointers(f, state);
     let order = reverse_post_order(f);
-    let model = |inst: &Inst| call_model(inst, signatures, target);
+    let model = |inst: &Inst| call_model(inst, virtual_calls, signatures, target);
     // Two views: one where a `ret` hands back this function's own result register, for what the
     // callers of its callees read after a call (a call in tail position returns the callee's
     // result); one where it hands back nothing, for what the function itself reads at entry.
@@ -384,8 +630,20 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target)
         (usize::from(n) < target.float_params() && live_in[Slot::Xmm(n).index()]).then(|| xmm_kind(f, &pointers, n))
     };
     let float_positions = [xmm_kind(0), xmm_kind(1), xmm_kind(2), xmm_kind(3)];
+    // What a lifted callee pops: a call through a vtable slot pops what its functions pop, when
+    // they agree; otherwise the amount is known at run time alone.
     let pops_of = |name: &str| signatures.get(name).map_or(0, |s| s.pops as i64);
-    let stack = analyze_stack(f, state, &pointers, target, &pops_of);
+    let call_pops = |inst: &Inst| -> Option<i64> {
+        if let Inst::Call { callee: Callee::Direct(name), .. } = inst
+            && name.starts_with("F_")
+        {
+            return Some(pops_of(name));
+        }
+        let candidates = virtual_candidates(inst, virtual_calls)?;
+        let pops = pops_of(&candidates[0].1);
+        candidates.iter().all(|(_, name)| pops_of(name) == pops).then_some(pops)
+    };
+    let stack = analyze_stack(f, state, &pointers, target, &call_pops);
 
     let mut uses_rax_of = Vec::new();
     let mut uses_rdx_of = Vec::new();
@@ -415,6 +673,11 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target)
                 }
                 _ => {}
             }
+            // The lifted callees of a call: one, or the functions that fill a vtable slot.
+            let callees: Vec<&String> = match &i.inst {
+                Inst::Call { callee: Callee::Direct(name), .. } if name.starts_with("F_") => vec![name],
+                inst => virtual_candidates(inst, virtual_calls).map(|c| c.iter().map(|(_, name)| name).collect()).unwrap_or_default(),
+            };
             match &i.inst {
                 Inst::Store { ptr: Operand::Local(p), .. } if !dead_end && pointers.get(p) == Some(&RAX) => writes_rax = true,
                 Inst::Store { ty, ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&Slot::Xmm(0)) => match ty {
@@ -422,16 +685,18 @@ fn gather(f: &Function, signatures: &HashMap<String, Signature>, target: Target)
                     Type::Float if writes_xmm0 != Some(Kind::Double) => writes_xmm0 = Some(Kind::Float),
                     _ => {}
                 },
-                Inst::Call { callee: Callee::Direct(name), .. } if name.starts_with("F_") => {
+                Inst::Call { .. } if !callees.is_empty() => {
                     if let Some(live) = liveness.live_after_call[bi].get(calls) {
-                        if live[RAX.index()] {
-                            uses_rax_of.push(name.clone());
-                        }
-                        if live[RDX.index()] {
-                            uses_rdx_of.push(name.clone());
-                        }
-                        if live[Slot::Xmm(0).index()] {
-                            uses_xmm0_of.push(name.clone());
+                        for name in callees {
+                            if live[RAX.index()] {
+                                uses_rax_of.push(name.clone());
+                            }
+                            if live[RDX.index()] {
+                                uses_rdx_of.push(name.clone());
+                            }
+                            if live[Slot::Xmm(0).index()] {
+                                uses_xmm0_of.push(name.clone());
+                            }
                         }
                     }
                     calls += 1;

@@ -28,14 +28,22 @@ pub struct Resolved {
     pub stores: Vec<(u64, Option<String>)>,
 }
 
-/// The registers a call clobbers in every convention: the accumulator and the two scratch
-/// registers, by the full register's name.
-fn clobbered_by_call(full: &str) -> bool {
-    matches!(full, "rax" | "rcx" | "rdx")
+/// The registers a call clobbers in every convention, by the full register's name: on x86 the
+/// accumulator and the two scratch registers, on ARM64 `x0` to `x17`.
+fn clobbered_by_call(image: &Image, full: &str) -> bool {
+    if image.machine() == ra_asm_pe::Machine::Arm64 {
+        full.strip_prefix('x').and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| n <= 17)
+    } else {
+        matches!(full, "rax" | "rcx" | "rdx")
+    }
 }
 
-fn full_name(reg: ra_asm_arch::Register) -> &'static str {
-    ra_asm_x86::registers::full_of(reg.full).name
+fn full_name(image: &Image, reg: ra_asm_arch::Register) -> &'static str {
+    if image.machine() == ra_asm_pe::Machine::Arm64 {
+        ra_asm_arm64::registers::full_of(reg.full).name
+    } else {
+        ra_asm_x86::registers::full_of(reg.full).name
+    }
 }
 
 /// The import an absolute address holds: its slot, or a data word marked as holding the slot's value.
@@ -43,19 +51,20 @@ fn import_at(image: &Image, words: &HashMap<u64, String>, va: u64) -> Option<Str
     image.import_at(va).map(ra_asm_pe::Import::display_name).or_else(|| words.get(&va).cloned())
 }
 
-/// The import an instruction loads into a register: `mov r, [slot]` or `mov r, [word]`.
+/// The import an instruction loads into a register: `mov r, [slot]` or `mov r, [word]`; on ARM64
+/// the `ldr` after the `adrp` of the slot's page.
 fn slot_load(image: &Image, words: &HashMap<u64, String>, i: &Instr) -> Option<(&'static str, String)> {
-    if i.mnemonic != "mov" || i.operands.len() != 2 {
+    if !(i.mnemonic == "mov" || i.mnemonic == "ldr") || i.operands.len() != 2 {
         return None;
     }
     let (Operand::Reg(dst), Operand::Mem(m)) = (&i.operands[0], &i.operands[1]) else { return None };
     let import = import_at(image, words, m.absolute?)?;
-    Some((full_name(*dst), import))
+    Some((full_name(image, *dst), import))
 }
 
 /// The absolute word an instruction writes or takes the address of, with the import fact the
 /// stored register carries for a plain `mov [word], reg`.
-fn word_store(facts: &BTreeMap<&'static str, String>, i: &Instr) -> Option<(u64, Option<String>)> {
+fn word_store(image: &Image, facts: &BTreeMap<&'static str, String>, i: &Instr) -> Option<(u64, Option<String>)> {
     let (k, m) = i.operands.iter().enumerate().find_map(|(k, o)| match o {
         Operand::Mem(m) if m.absolute.is_some() => Some((k, m)),
         _ => None,
@@ -63,7 +72,7 @@ fn word_store(facts: &BTreeMap<&'static str, String>, i: &Instr) -> Option<(u64,
     let va = m.absolute?;
     if i.mnemonic == "mov" && k == 0 && i.operands.len() == 2 {
         let fact = match &i.operands[1] {
-            Operand::Reg(src) => facts.get(full_name(*src)).cloned(),
+            Operand::Reg(src) => facts.get(full_name(image, *src)).cloned(),
             _ => None,
         };
         return Some((va, fact));
@@ -93,10 +102,10 @@ pub fn resolve(image: &Image, words: &HashMap<u64, String>, f: &mut Function) ->
             return;
         }
         if matches!(i.flow, Flow::Call(_)) {
-            facts.retain(|reg, _| !clobbered_by_call(reg));
+            facts.retain(|reg, _| !clobbered_by_call(image, reg));
         }
         let written: Vec<&'static str> =
-            facts.keys().copied().filter(|reg| i.registers.iter().any(|(r, a)| full_name(*r) == *reg && a.writes())).collect();
+            facts.keys().copied().filter(|reg| i.registers.iter().any(|(r, a)| full_name(image, *r) == *reg && a.writes())).collect();
         for reg in written {
             facts.remove(reg);
         }
@@ -144,7 +153,9 @@ pub fn resolve(image: &Image, words: &HashMap<u64, String>, f: &mut Function) ->
         for n in 0..count {
             let i = &f.blocks[k].instrs[n];
             let target = match (&i.flow, i.operands.first()) {
-                (Flow::Call(Target::Indirect) | Flow::Jump(Target::Indirect), Some(Operand::Reg(r))) => facts.get(full_name(*r)).cloned(),
+                (Flow::Call(Target::Indirect) | Flow::Jump(Target::Indirect), Some(Operand::Reg(r))) => {
+                    facts.get(full_name(image, *r)).cloned()
+                }
                 (Flow::Call(Target::Indirect) | Flow::Jump(Target::Indirect), Some(Operand::Mem(m))) => {
                     m.absolute.and_then(|va| words.get(&va).cloned())
                 }
@@ -166,7 +177,7 @@ pub fn resolve(image: &Image, words: &HashMap<u64, String>, f: &mut Function) ->
             {
                 f.import_calls.push(import.clone());
             }
-            if let Some(store) = word_store(&facts, i) {
+            if let Some(store) = word_store(image, &facts, i) {
                 resolved.stores.push(store);
             }
             transfer(&mut facts, &f.blocks[k].instrs[n]);

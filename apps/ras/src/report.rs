@@ -51,6 +51,17 @@ fn directories_of(image: &Image) -> Vec<(&'static str, String, u32)> {
     .collect()
 }
 
+/// `pe32`, `pe32+` or `xbe`.
+fn format_name(image: &Image) -> &'static str {
+    if image.xbe.is_some() {
+        "xbe"
+    } else if image.is_64() {
+        "pe32+"
+    } else {
+        "pe32"
+    }
+}
+
 /// The headers of the image as JSON: what `ras info --json` prints and `ras serve` answers.
 pub(crate) fn info_json(image: &Image) -> serde_json::Value {
     let h = &image.headers;
@@ -59,8 +70,15 @@ pub(crate) fn info_json(image: &Image) -> serde_json::Value {
     json!({
             "path": image.path.as_ref().map(|p| p.display().to_string()),
             "machine": image.machine().name(),
-            "format": if image.is_64() { "pe32+" } else { "pe32" },
+            "format": format_name(image),
             "dll": h.coff.is_dll(),
+            "xbe": image.xbe.as_ref().map(|x| json!({
+                "kernel": x.kernel.name(),
+                "title": x.title_name,
+                "title_id": hex(u64::from(x.title_id)),
+                "region": x.region,
+                "libraries": x.libraries.iter().map(ra_asm_pe::xbe::LibraryVersion::display).collect::<Vec<_>>(),
+            })),
             "subsystem": o.subsystem_name(),
             "image_base": hex(o.image_base),
             "entry_point": image.entry_point().map(hex),
@@ -94,7 +112,12 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
     let directories = directories_of(image);
 
     println!("machine        {}", image.machine().name());
-    println!("format         {}{}", if image.is_64() { "PE32+" } else { "PE32" }, if h.coff.is_dll() { " (DLL)" } else { "" });
+    println!("format         {}{}", format_name(image).to_uppercase(), if h.coff.is_dll() { " (DLL)" } else { "" });
+    if let Some(x) = &image.xbe {
+        println!("title          {} ({:#010x}, region {:#x}, {} kernel)", x.title_name, x.title_id, x.region, x.kernel.name());
+        let libraries: Vec<String> = x.libraries.iter().map(ra_asm_pe::xbe::LibraryVersion::display).collect();
+        println!("libraries      {}", if libraries.is_empty() { "none".to_owned() } else { libraries.join(", ") });
+    }
     println!("subsystem      {} ({}.{})", o.subsystem_name(), o.subsystem_version.0, o.subsystem_version.1);
     println!("image base     {}", hex(o.image_base));
     println!("entry point    {}", image.entry_point().map_or_else(|| "none".to_owned(), hex));

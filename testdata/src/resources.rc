@@ -1,0 +1,14 @@
+// The resources of resources.c: a string table and an RCDATA block.
+#include <windows.h>
+
+STRINGTABLE
+BEGIN
+    1 "hello from the string table"
+    2 "a second string"
+    3 "the third, with a tab\tand quotes ""here"""
+END
+
+100 RCDATA
+BEGIN
+    0x0201, 0x0403, 0x0605, 0x0807
+END

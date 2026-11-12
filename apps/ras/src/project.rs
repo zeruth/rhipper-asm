@@ -12,7 +12,7 @@
 //!   "sources": ["src", "vendor"],
 //!   "hand": ["fib", "0x140001330"],
 //!   "build": { "dir": "build/cmake", "config": "Release", "target": "Game" },
-//!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0, "compare": false, "trace": false }
+//!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0, "compare": false, "trace": false, "tracer": "debugger", "facts": false }
 //! }
 //! ```
 //!
@@ -38,9 +38,16 @@
 //! reference binary after the port with the same arguments, working directory and timeout and
 //! gives the run a verdict: `same`, `differs at line N` or `port crashed`; `trace` emits the port
 //! with the trace hooks and makes the run step record the port's trace of calls and returns with
-//! their values (`build/pipeline/port.trace`) and the reference's, under a debugger, with
-//! breakpoints at the port's functions (`reference.trace`), compared to the first event where
-//! they part, which names the function. When the reference is
+//! their values (`build/pipeline/port.trace`) and the reference's (`reference.trace`), compared
+//! to the first event where they part, which names the function; `tracer` says how the
+//! reference's is recorded: `debugger` (breakpoints at the port's functions in the native
+//! reference; the default for a 64-bit program) or `interpreter` (the reference's IR through the
+//! IR interpreter; the default for a 32-bit program, which the debugger does not trace); the
+//! `trace` method of `ras serve` replays the two call by call; `facts` makes the analyze step run the reference through
+//! the IR interpreter first, with `args`, and write what the run saw to `build/facts.json`, which
+//! every step then takes (a `facts.json` of this reference written by `ras run --facts` is taken
+//! as well): the indirect calls the run resolved read as direct calls in the port, and the
+//! function table marks what the run entered. When the reference is
 //! a DLL, the port is a DLL too and `run.exe` is the program that loads it (the game's executable,
 //! or a test host): the port's directory leads its DLL search, and the reference's directory the
 //! comparison run's.
@@ -71,6 +78,12 @@ pub(crate) struct Run {
     /// Whether the port is emitted with the trace hooks and the run step records its trace beside
     /// the reference's, compared to the first event where they part.
     pub trace: bool,
+    /// How the reference's trace is recorded: under the debugger or by the IR interpreter; the
+    /// debugger for a 64-bit program and the interpreter for a 32-bit one when not set.
+    pub tracer: Option<crate::trace::Tracer>,
+    /// Whether the analyze step runs the reference through the IR interpreter first and writes
+    /// the facts of the run for every step to take.
+    pub facts: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -141,6 +154,12 @@ impl Project {
             timeout: run.and_then(|r| r.get("timeout")).and_then(Value::as_u64).filter(|t| *t > 0),
             compare: run.and_then(|r| r.get("compare")).and_then(Value::as_bool).unwrap_or(false),
             trace: run.and_then(|r| r.get("trace")).and_then(Value::as_bool).unwrap_or(false),
+            tracer: run
+                .and_then(|r| r.get("tracer"))
+                .and_then(Value::as_str)
+                .map(|t| t.parse().map_err(|e: String| anyhow::anyhow!("{RHIPPER_JSON}: {e}")))
+                .transpose()?,
+            facts: run.and_then(|r| r.get("facts")).and_then(Value::as_bool).unwrap_or(false),
         };
         let x87 = match string("x87") {
             None => ra_asm_lift::X87Unit::Double,
@@ -212,6 +231,11 @@ impl Project {
     /// The logs of the pipeline steps: `build/pipeline/`.
     pub(crate) fn log_dir(&self) -> PathBuf {
         self.build_dir().join("pipeline")
+    }
+
+    /// The facts of a traced run of the reference: `build/facts.json`.
+    pub(crate) fn facts_file(&self) -> PathBuf {
+        self.build_dir().join("facts.json")
     }
 
     /// Whether the translation is Rust, built by cargo instead of `CMake`.

@@ -61,6 +61,32 @@ fn hello32_is_pe32_with_relocations() {
     assert!(image.runtime_functions.is_empty(), "x86 has no exception table");
 }
 
+/// The resource directory of the resources fixture: a string table block and an RCDATA block,
+/// the strings decoded by id, and the `.res` form that opens with the format's empty entry.
+#[test]
+fn resources64_has_a_string_table_and_an_rcdata_block() {
+    use ra_asm_pe::ResourceId;
+    let image = load("resources64.exe");
+    let leaves: Vec<_> = image.resources.iter().map(|r| (r.kind.clone(), r.name.clone(), r.language)).collect();
+    assert_eq!(leaves, [(ResourceId::Id(6), ResourceId::Id(1), 1033), (ResourceId::Id(10), ResourceId::Id(100), 1033)]);
+    let rcdata = &image.resources[1];
+    assert_eq!(rcdata.data(&image).unwrap(), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert_eq!(rcdata.file_name(&image.resources), "RCDATA/100.bin");
+    let strings = ra_asm_pe::resources::string_table(&image);
+    assert_eq!(
+        strings,
+        [
+            (1, "hello from the string table".to_owned()),
+            (2, "a second string".to_owned()),
+            (3, "the third, with a tab\tand quotes \"here\"".to_owned())
+        ]
+    );
+    let res = ra_asm_pe::resources::res_file(&image);
+    assert_eq!(&res[..8], [0, 0, 0, 0, 32, 0, 0, 0]);
+    assert!(res.len() > 32 + 194 + 8 && res.len() % 4 == 0, "{} bytes", res.len());
+    assert!(ra_asm_pe::load(&fixture("hello64.exe")).unwrap().resources.is_empty());
+}
+
 #[test]
 fn control64_has_runtime_functions_for_its_code_and_a_pdb_record() {
     let image = load("control64.exe");
@@ -79,6 +105,38 @@ fn control64_has_runtime_functions_for_its_code_and_a_pdb_record() {
     let codeview = image.debug.iter().find_map(|d| d.codeview.as_ref()).expect("a CodeView record");
     assert_eq!(codeview.pdb_path, "control.pdb");
     assert_eq!(codeview.age, 1);
+}
+
+#[test]
+fn helloa64_has_an_arm64_exception_table() {
+    use ra_asm_pe::{Arm64Unwind, Arm64UnwindOp};
+    let image = load("helloa64.exe");
+    assert_eq!(image.machine(), Machine::Arm64);
+    assert_eq!(image.pointer_size(), 8);
+    // square is a leaf without a frame; the entry has one, described by a full .xdata record.
+    let entry = image.entry_point().unwrap();
+    assert_eq!(image.runtime_functions.len(), 1, "{:?}", image.runtime_functions);
+    let f = image.runtime_functions[0];
+    assert_eq!(f.begin, entry);
+    assert_eq!(f.len(), 148);
+    assert!(image.is_code(f.end - 4));
+    assert!(f.unwind_info(&image).is_err(), "an ARM64 entry has no x64 UNWIND_INFO");
+    let unwind = f.arm64_unwind(&image).unwrap();
+    let Arm64Unwind::Full { version, epilogs, codes, handler, .. } = &unwind else { panic!("a full record: {unwind:?}") };
+    assert_eq!((*version, epilogs.len(), handler), (0, 0, &None));
+    assert_eq!(codes, &[0xd2, 0xc3, 0xd0, 0x02, 0x02, 0xe4, 0xe3, 0xe3]);
+    // str x30, [sp, #24]; str x19, [sp, #16]; sub sp, sp, #32; end; padding.
+    assert_eq!(
+        unwind.operations().unwrap(),
+        [
+            Arm64UnwindOp::SaveReg { reg: 30, offset: 24, pre_indexed: false },
+            Arm64UnwindOp::SaveReg { reg: 19, offset: 16, pre_indexed: false },
+            Arm64UnwindOp::Alloc(32),
+            Arm64UnwindOp::End,
+            Arm64UnwindOp::Nop,
+            Arm64UnwindOp::Nop,
+        ]
+    );
 }
 
 #[test]

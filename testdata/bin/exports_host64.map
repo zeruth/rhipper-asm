@@ -1,0 +1,47 @@
+ exports_host64
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000140000000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00000307H .text                   CODE
+ 0002:00000244 0000002cH .xdata                  DATA
+ 0003:00000000 00000000H .data                   DATA
+ 0003:00000000 00000008H .bss                    DATA
+ 0004:00000000 00000024H .pdata                  DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       mainCRTStartup             0000000140001000     exports_host-affd06.o
+ 0002:00000000       ??_C@_0N@JOMACIEF@GetTickCount?$AA@ 0000000140002000     exports_host-affd06.o
+ 0002:0000000d       ??_C@_0L@EIMHKPLG@ra_counter?$AA@ 000000014000200d     exports_host-affd06.o
+ 0002:00000018       ??_C@_0N@MDJJJHMB@kernel32?4dll?$AA@ 0000000140002018     exports_host-affd06.o
+ 0002:00000025       ??_C@_07CCFFHCJL@ra_tick?$AA@ 0000000140002025     exports_host-affd06.o
+ 0002:0000002d       ??_C@_08MBALBIGD@ra_twice?$AA@ 000000014000202d     exports_host-affd06.o
+ 0002:00000036       ??_C@_06KNFKDIFP@ra_add?$AA@ 0000000140002036     exports_host-affd06.o
+ 0002:0000003d       ??_C@_0N@GECALGHB@cannot?5load?5?$AA@ 000000014000203d     exports_host-affd06.o
+ 0002:0000004a       ??_C@_0O@PEEJIIIA@ra_counter?5?$DN?5?$AA@ 000000014000204a     exports_host-affd06.o
+ 0002:00000058       ??_C@_0BA@LDPHFCHK@ra_add?$CI2?0?53?$CJ?5?$DN?5?$AA@ 0000000140002058     exports_host-affd06.o
+ 0002:00000068       ??_C@_0BA@ODGHMHEG@ra_twice?$CI21?$CJ?5?$DN?5?$AA@ 0000000140002068     exports_host-affd06.o
+ 0002:00000078       ??_C@_0L@DMBIFFJA@?$CD20?$CI10?$CJ?5?$DN?5?$AA@ 0000000140002078     exports_host-affd06.o
+ 0002:00000083       ??_C@_0CD@KNALEAEL@ra_tick?5?9?$DO?5KERNEL32?4GetTickCount@ 0000000140002083     exports_host-affd06.o
+ 0002:000000a6       ??_C@_0BJ@FAMBDAOJ@ra_tick?3?5not?5forwarded?$AN?6?$AA@ 00000001400020a6     exports_host-affd06.o
+ 0002:000000bc       ??_C@_02PCIJFNDE@?$AN?6?$AA@ 00000001400020bc     exports_host-affd06.o
+ 0002:00000158       __imp_ExitProcess          0000000140002158     kernel32:KERNEL32.dll
+ 0002:00000160       __imp_FreeLibrary          0000000140002160     kernel32:KERNEL32.dll
+ 0002:00000168       __imp_GetCommandLineA      0000000140002168     kernel32:KERNEL32.dll
+ 0002:00000170       __imp_GetModuleHandleA     0000000140002170     kernel32:KERNEL32.dll
+ 0002:00000178       __imp_GetProcAddress       0000000140002178     kernel32:KERNEL32.dll
+ 0002:00000180       __imp_GetStdHandle         0000000140002180     kernel32:KERNEL32.dll
+ 0002:00000188       __imp_LoadLibraryA         0000000140002188     kernel32:KERNEL32.dll
+ 0002:00000190       __imp_WriteFile            0000000140002190     kernel32:KERNEL32.dll
+ 0002:00000198       __imp_lstrlenA             0000000140002198     kernel32:KERNEL32.dll
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:000001c0       put                        00000001400011c0     exports_host-affd06.o
+ 0001:00000200       line                       0000000140001200     exports_host-affd06.o
+ 0003:00000000       out                        0000000140003000     exports_host-affd06.o

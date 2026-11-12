@@ -12,7 +12,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
-iced-x86 = { version = "1.22.0", default-features = false, features = ["std", "decoder", "instr_info", "intel"] }
+iced-x86 = { version = "1.22.0", default-features = false, features = ["std", "decoder", "encoder", "op_code_info", "instr_info", "intel"] }
 ra-asm-arch.workspace = true
 
 [dev-dependencies]

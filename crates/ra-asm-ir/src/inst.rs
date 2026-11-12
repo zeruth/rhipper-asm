@@ -449,6 +449,35 @@ impl Inst {
         }
     }
 
+    /// Every operand, for a pass that reads values; globals and constants included.
+    pub fn operands(&self) -> Vec<&Operand> {
+        match self {
+            Self::Alloca { .. } => Vec::new(),
+            Self::Load { ptr, .. } => vec![ptr],
+            Self::Store { value, ptr, .. } => vec![value, ptr],
+            Self::Bin { lhs, rhs, .. } | Self::ICmp { lhs, rhs, .. } | Self::FCmp { lhs, rhs, .. } => vec![lhs, rhs],
+            Self::Select { cond, then, els, .. } => vec![cond, then, els],
+            Self::Cast { value, .. } | Self::Freeze { value, .. } => vec![value],
+            Self::Gep { ptr, indices, .. } => {
+                let mut v = vec![ptr];
+                v.extend(indices.iter().map(|(_, i)| i));
+                v
+            }
+            Self::ExtractElement { vector, index, .. } => vec![vector, index],
+            Self::InsertElement { vector, element, index, .. } => vec![vector, element, index],
+            Self::ShuffleVector { a, b, .. } => vec![a, b],
+            Self::Call { callee, args, .. } => {
+                let mut v = Vec::new();
+                if let Callee::Indirect(p) = callee {
+                    v.push(p);
+                }
+                v.extend(args.iter().map(|(_, a)| a));
+                v
+            }
+            Self::Phi { incoming, .. } => incoming.iter().map(|(o, _)| o).collect(),
+        }
+    }
+
     /// Every operand, for a pass that rewrites values.
     pub fn operands_mut(&mut self) -> Vec<&mut Operand> {
         match self {
@@ -518,6 +547,13 @@ impl Terminator {
             Self::Ret(Some((_, Operand::Local(v))))
             | Self::CondBr { cond: Operand::Local(v), .. }
             | Self::Switch { value: Operand::Local(v), .. } => vec![*v],
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn operands(&self) -> Vec<&Operand> {
+        match self {
+            Self::Ret(Some((_, o))) | Self::CondBr { cond: o, .. } | Self::Switch { value: o, .. } => vec![o],
             _ => Vec::new(),
         }
     }

@@ -62,6 +62,10 @@ fn lift_to(binary: &str, tag: &str) -> (PathBuf, ra_asm_lift::Lifted) {
     let dir = scratch(&format!("{tag}-{binary}"));
     std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
     std::fs::write(dir.join("image.bin"), image.mapped()).unwrap();
+    // The program's resources, linked into the port as the C port links them.
+    if !image.resources.is_empty() {
+        std::fs::write(dir.join("resources.res"), ra_asm_pe::resources::res_file(&image)).unwrap();
+    }
     let abi = (level == ra_asm_lift::RaiseLevel::Abi).then_some(&signatures);
     std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted, abi)).unwrap();
     (dir, lifted)
@@ -172,6 +176,9 @@ fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
     if lifted.bits == 32 && lifted.standalone {
         build.arg("-Wl,/largeaddressaware:no");
     }
+    if dir.join("resources.res").is_file() {
+        build.arg(dir.join("resources.res"));
+    }
     let build = build
         .arg(dir.join("program.ll"))
         .arg(root().join("runtime/driver.c"))
@@ -225,6 +232,21 @@ fn float64_runs_lifted() {
 /// The 32-bit fixtures at every level.
 fn run_oracle_32(binary: &str, expected: &str) {
     run_oracle(binary, expected);
+}
+
+/// The homebrew XBE: a 32-bit x86 program whose imports are the kernel's, by ordinal, named from
+/// the loader's table; the interpreter runs it at every level and answers the kernel calls. The
+/// clang run waits for the kernel's platform runtime.
+#[test]
+fn xbe32_runs_interpreted() {
+    let expected = std::fs::read_to_string(root().join("testdata/expected/xbe.txt")).unwrap();
+    let raised = raise("xbe32.xbe", "run-abi");
+    for name in ["DbgPrint", "ExAllocatePool", "ExFreePool", "HalReturnToFirmware"] {
+        assert!(raised.lifted.imports.contains(name), "the lift names the kernel import {name}: {:?}", raised.lifted.imports);
+    }
+    for tag in ["run-machine", "run-promoted", "run-abi"] {
+        run_interpreted("xbe32.xbe", &expected, tag);
+    }
 }
 
 #[test]
@@ -314,6 +336,18 @@ fn control64_runs_lifted() {
     run_oracle("control64.exe", &expected);
 }
 
+/// The files program: a file created, written, read back and removed through kernel32, whose
+/// pushed and vector-stored arguments the raise forwards into the calls.
+#[test]
+fn files64_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/files.txt")).unwrap();
+    run_oracle("files64.exe", &expected);
+}
+
 /// The thread-local storage program: a thread-local counter stepped from two threads, each with
 /// its own block, and the TLS callbacks counted. A thread kernel32 starts enters the lifted code
 /// through its native entry, which only the ABI level has, so the run is at that level alone;
@@ -351,6 +385,19 @@ fn tls32_runs_lifted() {
     run_oracle_as("tls32.exe", &expected, "run-abi");
 }
 
+/// The resources program: a string table and an RCDATA block read through user32 and kernel32,
+/// which the port finds in its own resource directory (the interpreter in the image's), and
+/// tables of integers, strings and doubles read by index.
+#[test]
+fn resources64_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/resources.txt")).unwrap();
+    run_oracle("resources64.exe", &expected);
+}
+
 /// The struct program: a record of mixed fields filled and read through a pointer, which the
 /// type recovery turns into a named struct at the ABI level.
 #[test]
@@ -371,4 +418,85 @@ fn structs32_runs_lifted() {
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/structs.txt")).unwrap();
     run_oracle_32("structs32.exe", &expected);
+}
+
+/// The dispatch program without facts: every call through its table stays an indirect call,
+/// which runs at every level.
+#[test]
+fn dispatch64_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/dispatch.txt")).unwrap();
+    run_oracle("dispatch64.exe", &expected);
+}
+
+#[test]
+fn dispatch32_runs_lifted() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/dispatch.txt")).unwrap();
+    run_oracle_32("dispatch32.exe", &expected);
+}
+
+/// The facts of a traced run resolve the dispatch: the interpreter sees the four handlers behind
+/// the one call through the table (a tail jump through a register on x64, a call through the
+/// table on x86), the analysis of the next pass takes them, and the lift calls the handlers
+/// directly, with the indirect call kept for a target the run did not see. The resolved program
+/// runs the same, through the interpreter and (at the ABI level, as the port is) through clang.
+#[test]
+fn a_traced_run_resolves_the_dispatch() {
+    let expected = std::fs::read_to_string(root().join("testdata/expected/dispatch.txt")).unwrap();
+    for (binary, level) in [("dispatch64.exe", "machine"), ("dispatch64.exe", "abi"), ("dispatch32.exe", "abi")] {
+        let Raised { image, lifted, signatures, .. } = raise(binary, level);
+        let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+        assert_eq!(outcome.exit, 0, "{binary} ({level}): the first run (stop: {:?})", outcome.stop);
+        let facts = outcome.facts;
+        assert!(facts.input.is_of(&image), "{binary}: the facts name their input: {:?}", facts.input);
+        let analysis = ra_asm_analysis::analyze(&image);
+        let handlers: Vec<u64> = ["h_add", "h_sub", "h_mul", "h_xor"]
+            .iter()
+            .map(|n| analysis.functions.values().find(|f| f.name == *n).unwrap().entry)
+            .collect();
+        let dispatch = analysis.functions.values().find(|f| f.name == "dispatch").unwrap();
+        let [call] = facts.calls.as_slice() else { panic!("{binary} ({level}): one call resolved, not {:?}", facts.calls) };
+        assert!(dispatch.contains(call.site), "{binary} ({level}): the call at {:#x} is in dispatch", call.site);
+        assert_eq!(call.targets, handlers, "{binary} ({level}): the targets are the handlers");
+        assert!(facts.entered.contains(&dispatch.entry), "{binary} ({level}): dispatch was entered");
+
+        // The next pass: the analysis knows the calls, and the ABI lift makes them direct.
+        let analysis = ra_asm_analysis::analyze_with(&image, &facts);
+        let dispatch = analysis.functions.values().find(|f| f.name == "dispatch").unwrap();
+        assert_eq!(dispatch.traced_calls.get(&call.site), Some(&handlers), "{binary}: dispatch knows its traced call");
+        assert!(handlers.iter().all(|h| dispatch.calls.contains(h)), "{binary}: the handlers are among dispatch's calls");
+        let options = ra_asm_lift::LiftOptions { standalone: true, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+        assert_eq!(lifted.traced_calls.get(&call.site), Some(&handlers));
+        let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+        let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+        lifted.apply_names(&analysis, Some(&mut signatures));
+        let f = lifted.module.functions.iter().find(|f| f.name == "dispatch").unwrap();
+        let direct: Vec<&str> = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instrs)
+            .filter_map(|i| match &i.inst {
+                ra_asm_ir::Inst::Call { callee: ra_asm_ir::Callee::Direct(name), .. } if name.starts_with("h_") => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            direct,
+            ["h_add", "h_sub", "h_mul", "h_xor"],
+            "{binary}: dispatch calls the handlers directly:\n{}",
+            lifted.module.to_ll()
+        );
+        let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+        let stdout = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
+        assert_eq!(stdout.trim_end(), expected.trim_end(), "{binary}: the resolved program's output (stop: {:?})", outcome.stop);
+        assert_eq!(outcome.exit, 0, "{binary}: the resolved program's exit (stop: {:?})", outcome.stop);
+    }
 }

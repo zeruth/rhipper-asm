@@ -10,13 +10,22 @@
 //! function passes arguments and takes a result, an import is called through its adapter, an
 //! indirect call goes through the pointer itself (the driver makes every lifted function reachable
 //! at its image address), and the vector registers live in a local array. No `%State` remains.
+//!
+//! A call through a vtable slot (see [`super::abi::virtual_calls`]) is a direct call when one
+//! function fills the slot, and otherwise a dispatch over the code address the slot holds: the
+//! block ends in a chain of tests against the functions' addresses, one arm per function calls
+//! it by its signature, a trap takes any other address, and the block goes on in a continuation
+//! whose phis join the arms' results. A call a traced run resolved (see
+//! [`super::abi::traced_calls`]) is the same dispatch over the functions the run saw, with the
+//! indirect call itself in place of the trap: the run proved the targets it took, not that there
+//! are no others.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, FnType, Function, Inst, Instruction, Operand, Terminator, Type, ValueId};
+use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, FnType, Function, ICond, Inst, Instruction, Operand, Terminator, Type, ValueId};
 
 use super::Target;
-use super::abi::{Kind, Signature};
+use super::abi::{Candidates, Kind, Signature};
 use super::liveness::{
     CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, RSP, SLOTS, Slot, SlotSet, all_registers, call_kind, reverse_post_order, slot_pointers,
 };
@@ -30,6 +39,25 @@ pub struct Abi<'a> {
     pub all: &'a HashMap<String, Signature>,
     pub target: Target,
     pub x87: X87Unit,
+    /// The calls through a vtable slot, by the value of the target, with the slot's functions;
+    /// the calls a traced run resolved too, with the functions the run saw.
+    pub virtual_calls: &'a HashMap<ValueId, Candidates>,
+    /// The targets of `virtual_calls` a run saw rather than a vtable named: the dispatch keeps the
+    /// indirect call for any other target.
+    pub seen: &'a HashSet<ValueId>,
+}
+
+/// The trap code of a call through a vtable slot that holds an address outside the vtables.
+const OUTSIDE_VTABLES: u64 = 10;
+
+/// A call through a vtable slot several functions fill, lowered: the block so far becomes the
+/// head, which ends in `terminator`, the first test of the chain; the tests, the arms and the
+/// trap follow; the block goes on in the continuation, the last of `blocks`, which the rewriter
+/// keeps filling.
+struct Split {
+    head: Vec<Instruction>,
+    terminator: Terminator,
+    blocks: Vec<Block>,
 }
 
 /// Pushes `v` onto the x87 stack, where an x86 function leaves a float result: the top moves
@@ -118,6 +146,8 @@ struct Rewriter<'a> {
     frame: Option<ValueId>,
     params: HashMap<Slot, Operand>,
     stack_param_values: Vec<ValueId>,
+    /// The next free block id, for the blocks a split makes.
+    next_block: u32,
 }
 
 fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
@@ -136,7 +166,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
     let all = all_registers();
     let machine_model = |_: &Inst| (all, all);
     let abi_model = |inst: &Inst| match abi {
-        Some(abi) => super::abi::call_model_public(inst, abi.all, abi.target),
+        Some(abi) => super::abi::call_model_public(inst, abi.virtual_calls, abi.all, abi.target),
         None => (all, all),
     };
     let exit_set = match abi {
@@ -194,8 +224,16 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
         }
     }
 
-    let mut rw =
-        Rewriter { abi, pointers, replace: HashMap::new(), xmm: None, frame: None, params: HashMap::new(), stack_param_values: Vec::new() };
+    let mut rw = Rewriter {
+        abi,
+        pointers,
+        replace: HashMap::new(),
+        xmm: None,
+        frame: None,
+        params: HashMap::new(),
+        stack_param_values: Vec::new(),
+        next_block: f.blocks.iter().map(|b| b.id.0 + 1).max().unwrap_or(0),
+    };
 
     // ABI mode: the new parameter list, the frame and the vector array go into a prologue that
     // the entry block starts with.
@@ -333,6 +371,10 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
     let mut phis: Vec<Vec<(Slot, ValueId)>> = vec![Vec::new(); n];
     let mut new_blocks: Vec<Option<Block>> = (0..n).map(|_| None).collect();
     let mut visited = vec![false; n];
+    // The blocks the splits of a virtual call make, after the function's own; a split block
+    // goes on under a new id, which its successors' phis name as their predecessor.
+    let mut extra_blocks: Vec<Block> = Vec::new();
+    let mut renamed: HashMap<BlockId, BlockId> = HashMap::new();
 
     for &bi in &order {
         let block = f.blocks[bi].clone();
@@ -341,6 +383,10 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
         let mut instrs: Vec<Instruction> = Vec::with_capacity(block.instrs.len());
         let pred_list: Vec<BlockId> = preds.get(&block.id).cloned().unwrap_or_default();
         let is_entry = bi == 0;
+        // The pieces of the block before its last: the head under the block's own id, then the
+        // arms and the continuations of its splits.
+        let mut pieces: Vec<Block> = Vec::new();
+        let mut piece_id = block.id;
 
         if is_entry {
             instrs.append(&mut prologue);
@@ -431,7 +477,21 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
                         }
                     }
                     (Some(CallKind::State), Some(abi)) => {
-                        rw.lower_call(f, abi, i, &mut current, &mut instrs);
+                        if let Some(split) = rw.lower_call(f, abi, i, &mut current, &mut instrs) {
+                            let name = f.blocks[bi].name.clone();
+                            pieces.push(Block {
+                                id: piece_id,
+                                name,
+                                instrs: split.head,
+                                terminator: split.terminator,
+                                address: block.address,
+                            });
+                            let mut blocks = split.blocks;
+                            let continuation = blocks.pop().expect("a split ends in its continuation");
+                            pieces.extend(blocks);
+                            piece_id = continuation.id;
+                            instrs = continuation.instrs;
+                        }
                     }
                     (Some(CallKind::NoReturn), None) => {
                         flush(f, state, &current, &dirty, i.address, &mut instrs);
@@ -508,7 +568,15 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
         }
         final_values[bi] = current;
         visited[bi] = true;
-        new_blocks[bi] = Some(Block { id: block.id, name: block.name.clone(), instrs, terminator, address: block.address });
+        let last = Block { id: piece_id, name: format!("{}.{}", block.name, piece_id.0), instrs, terminator, address: block.address };
+        if pieces.is_empty() {
+            new_blocks[bi] = Some(Block { name: block.name.clone(), ..last });
+        } else {
+            renamed.insert(block.id, piece_id);
+            new_blocks[bi] = Some(pieces.remove(0));
+            extra_blocks.extend(pieces);
+            extra_blocks.push(last);
+        }
     }
 
     // The phis: one incoming per predecessor. A predecessor whose final value is unknown loads
@@ -531,7 +599,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
                     final_values[pi].insert(slot, v.clone());
                     v
                 };
-                incoming.push((value, p));
+                incoming.push((value, renamed.get(&p).copied().unwrap_or(p)));
             }
             phi_incoming.insert(phi, incoming);
         }
@@ -551,6 +619,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
         }
     }
     f.blocks = new_blocks.into_iter().zip(f.blocks.drain(..)).map(|(new, old)| new.unwrap_or(old)).collect();
+    f.blocks.append(&mut extra_blocks);
     f.replace_uses(&rw.replace);
 }
 
@@ -770,8 +839,231 @@ impl Rewriter<'_> {
         }
     }
 
+    /// A call to the lifted function `name` by its signature. The machine model pushed the return
+    /// address: the outgoing arguments start a return address (and on Win64 the home space) above
+    /// the current stack pointer, and the pointer comes back up by the return address and what
+    /// the callee pops after, unless `pop` is off and the caller moves it itself.
+    #[allow(clippy::too_many_arguments)]
+    fn direct_call(
+        &self,
+        f: &mut Function,
+        abi: &Abi<'_>,
+        name: &str,
+        address: Option<u64>,
+        pop: bool,
+        current: &mut HashMap<Slot, Operand>,
+        out: &mut Vec<Instruction>,
+    ) {
+        let target = abi.target;
+        let sig = abi.all.get(name).cloned().unwrap_or_default();
+        let args = self.arguments(f, &sig, current, target.first_stack_arg(), out);
+        let ret = sig.returns.map_or(Type::Void, Kind::ty);
+        let result = if ret == Type::Void { None } else { Some(f.new_value("ret", ret.clone())) };
+        out.push(Instruction {
+            result,
+            inst: Inst::Call {
+                fn_ty: FnType::new(ret, args.iter().map(|(t, _)| t.clone()).collect()),
+                callee: Callee::Direct(name.to_owned()),
+                args,
+                tail: false,
+            },
+            address,
+        });
+        let popped = pop.then(|| self.pop_after_call(f, current, sig.pops as i64, address, out));
+        self.after_call(f, current, sig.returns, result, &sig.preserves, out);
+        if let Some(popped) = popped {
+            current.insert(RSP, Operand::Local(popped));
+        }
+    }
+
+    /// `ra_call(state, target)` in ABI mode: the target `code` is an address of code; the driver
+    /// makes every lifted function reachable at its address, so the call goes through it. An x86
+    /// callee pops what it pops: the runtime's `ra_pops_of` says how much, from the import
+    /// binding table for a native callee, else from what the universal stub recorded in
+    /// `ra_pops`.
+    fn indirect_call(
+        &self,
+        f: &mut Function,
+        abi: &Abi<'_>,
+        code: &Operand,
+        address: Option<u64>,
+        current: &mut HashMap<Slot, Operand>,
+        out: &mut Vec<Instruction>,
+    ) {
+        let target = abi.target;
+        let ptr = target.ptr();
+        let fp = f.new_value("fp", Type::Ptr);
+        out.push(Instruction {
+            result: Some(fp),
+            inst: Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: code.clone(), to: Type::Ptr },
+            address,
+        });
+        let args = self.universal_arguments(f, current, target.first_stack_arg(), out);
+        let result = f.new_value("ret", Type::I64);
+        out.push(Instruction {
+            result: Some(result),
+            inst: Inst::Call { fn_ty: import_adapter_type(), callee: Callee::Indirect(Operand::Local(fp)), args, tail: false },
+            address,
+        });
+        let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+        let mut up = Operand::Int(i128::from(ptr));
+        if !target.is_64() {
+            let pops = f.new_value("pops", Type::I64);
+            out.push(Instruction {
+                result: Some(pops),
+                inst: Inst::Call {
+                    fn_ty: FnType::new(Type::I64, vec![Type::I64]),
+                    callee: Callee::Direct("ra_pops_of".into()),
+                    args: vec![(Type::I64, code.clone())],
+                    tail: false,
+                },
+                address,
+            });
+            let sum = f.new_value("pops.a", Type::I64);
+            out.push(Instruction {
+                result: Some(sum),
+                inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: Operand::Local(pops), rhs: Operand::Int(i128::from(ptr)) },
+                address,
+            });
+            up = Operand::Local(sum);
+        }
+        let popped = f.new_value("rsp", Type::I64);
+        out.push(Instruction { result: Some(popped), inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: up }, address });
+        self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, out);
+        current.insert(RSP, Operand::Local(popped));
+    }
+
+    /// A block id no block has, with a name from `hint`.
+    fn fresh_block(&mut self, hint: &str) -> (BlockId, String) {
+        let id = BlockId(self.next_block);
+        self.next_block += 1;
+        (id, format!("{hint}_{}", id.0))
+    }
+
+    /// The stack pointer after a call that popped the return address and `pops` bytes more.
+    fn pop_after_call(
+        &self,
+        f: &mut Function,
+        current: &HashMap<Slot, Operand>,
+        pops: i64,
+        address: Option<u64>,
+        out: &mut Vec<Instruction>,
+    ) -> ValueId {
+        let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+        let popped = f.new_value("rsp", Type::I64);
+        out.push(Instruction {
+            result: Some(popped),
+            inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: Operand::Int(i128::from(self.target().ptr() + pops)) },
+            address,
+        });
+        popped
+    }
+
+    /// A call through a vtable slot that `candidates` fill: a chain of tests of the code address
+    /// `code` the slot holds against each candidate's address, with a call to the candidate in
+    /// its arm and a trap for any other address. The slot holds the function's own address, not
+    /// a number (the data gave a code address the function's name), so the tests compare with
+    /// the functions rather than switch over constants. The arms join in the continuation,
+    /// where the result and, when the candidates pop differently, the stack pointer are phis;
+    /// the instructions so far become the head, which ends in the first test. With `seen`, the
+    /// candidates are what a run saw and any other address takes the indirect call, which pops
+    /// by itself, so every arm pops its own.
+    #[allow(clippy::too_many_arguments)]
+    fn virtual_dispatch(
+        &mut self,
+        f: &mut Function,
+        abi: &Abi<'_>,
+        candidates: &Candidates,
+        code: &Operand,
+        address: Option<u64>,
+        seen: bool,
+        current: &mut HashMap<Slot, Operand>,
+        out: &mut Vec<Instruction>,
+    ) -> Split {
+        let (continuation, continuation_name) = self.fresh_block("vcall.join");
+        let (default, default_name) = self.fresh_block(if seen { "vcall.other" } else { "vcall.trap" });
+        let pops: Vec<i64> = candidates.iter().map(|(_, name)| abi.all.get(name).map_or(0, |s| s.pops as i64)).collect();
+        let same_pops = !seen && pops.iter().all(|&p| p == pops[0]);
+        let arms: Vec<(BlockId, String)> = candidates.iter().map(|_| self.fresh_block("vcall")).collect();
+        let tests: Vec<(BlockId, String)> = candidates.iter().skip(1).map(|_| self.fresh_block("vcall.test")).collect();
+        let mut blocks = Vec::new();
+        let mut finals: Vec<(BlockId, HashMap<Slot, Operand>)> = Vec::new();
+        let mut terminator = None;
+        for (k, (_, name)) in candidates.iter().enumerate() {
+            // The test: in the head for the first candidate, in its own block after.
+            let is = f.new_value("is", Type::I1);
+            let test = Instruction {
+                result: Some(is),
+                inst: Inst::ICmp {
+                    cond: ICond::Eq,
+                    ty: Type::I64,
+                    lhs: code.clone(),
+                    rhs: Operand::Address { global: name.clone(), offset: 0 },
+                },
+                address,
+            };
+            let next = tests.get(k).map_or(default, |(id, _)| *id);
+            let branch = Terminator::CondBr { cond: Operand::Local(is), then: arms[k].0, els: next };
+            if k == 0 {
+                out.push(test);
+                terminator = Some(branch);
+            } else {
+                let (id, block_name) = tests[k - 1].clone();
+                blocks.push(Block { id, name: block_name, instrs: vec![test], terminator: branch, address });
+            }
+            let mut instrs = Vec::new();
+            let mut arm = current.clone();
+            self.direct_call(f, abi, name, address, !same_pops, &mut arm, &mut instrs);
+            let (id, block_name) = arms[k].clone();
+            blocks.push(Block { id, name: block_name, instrs, terminator: Terminator::Br(continuation), address });
+            finals.push((id, arm));
+        }
+        if seen {
+            let mut instrs = Vec::new();
+            let mut arm = current.clone();
+            self.indirect_call(f, abi, code, address, &mut arm, &mut instrs);
+            blocks.push(Block { id: default, name: default_name, instrs, terminator: Terminator::Br(continuation), address });
+            finals.push((default, arm));
+        } else {
+            let trap = Instruction {
+                result: None,
+                inst: Inst::Call {
+                    fn_ty: FnType::new(Type::Void, vec![Type::I64, Type::I64]),
+                    callee: Callee::Direct("ra_trap".into()),
+                    args: vec![
+                        (Type::I64, Operand::Int(i128::from(address.unwrap_or(0)))),
+                        (Type::I64, Operand::Int(i128::from(OUTSIDE_VTABLES))),
+                    ],
+                    tail: false,
+                },
+                address,
+            };
+            blocks.push(Block { id: default, name: default_name, instrs: vec![trap], terminator: Terminator::Unreachable, address });
+        }
+        // The continuation: a slot the arms agree on keeps its value, any other is a phi.
+        let mut joined = Vec::new();
+        for slot in Slot::all().filter(|s| !s.is_xmm()) {
+            let values: Vec<Operand> = finals.iter().map(|(_, arm)| arm.get(&slot).cloned().unwrap_or(Operand::Undef)).collect();
+            if values.iter().all(|v| *v == values[0]) {
+                current.insert(slot, values[0].clone());
+                continue;
+            }
+            let phi = f.new_value(&format!("{}.phi", slot.name()), slot.ty());
+            let incoming = values.into_iter().zip(finals.iter().map(|(id, _)| *id)).collect();
+            joined.push(Instruction { result: Some(phi), inst: Inst::Phi { ty: slot.ty(), incoming }, address });
+            current.insert(slot, Operand::Local(phi));
+        }
+        if same_pops {
+            let popped = self.pop_after_call(f, current, pops[0], address, &mut joined);
+            current.insert(RSP, Operand::Local(popped));
+        }
+        blocks.push(Block { id: continuation, name: continuation_name, instrs: joined, terminator: Terminator::Unreachable, address });
+        Split { head: std::mem::take(out), terminator: terminator.expect("a candidate"), blocks }
+    }
+
     /// A state call in ABI mode: a lifted callee by its signature, an import through its adapter,
-    /// an indirect call through the pointer.
+    /// a call through a vtable slot to the functions that fill it, an indirect call through the
+    /// pointer. A call through a slot several functions fill splits the block (see [`Split`]).
     fn lower_call(
         &mut self,
         f: &mut Function,
@@ -779,41 +1071,31 @@ impl Rewriter<'_> {
         i: &Instruction,
         current: &mut HashMap<Slot, Operand>,
         out: &mut Vec<Instruction>,
-    ) {
-        let Inst::Call { callee, args: old_args, .. } = &i.inst else { return };
+    ) -> Option<Split> {
+        let Inst::Call { callee, args: old_args, .. } = &i.inst else { return None };
         let address = i.address;
         let target = abi.target;
-        let ptr = target.ptr();
         match callee {
             Callee::Direct(name) if name.starts_with("F_") => {
-                let sig = abi.all.get(name).cloned().unwrap_or_default();
-                // The machine model pushed the return address: the outgoing arguments start a
-                // return address (and on Win64 the home space) above the current stack pointer,
-                // and the pointer comes back up by the return address and what the callee pops
-                // after. The push itself, the store just before the call, has no reader: drop it.
+                // The push of the return address, the store just before the call, has no reader
+                // once the call takes its arguments: drop it.
                 drop_return_address_push(out, address);
-                let args = self.arguments(f, &sig, current, target.first_stack_arg(), out);
-                let ret = sig.returns.map_or(Type::Void, Kind::ty);
-                let result = if ret == Type::Void { None } else { Some(f.new_value("ret", ret.clone())) };
-                out.push(Instruction {
-                    result,
-                    inst: Inst::Call {
-                        fn_ty: FnType::new(ret, args.iter().map(|(t, _)| t.clone()).collect()),
-                        callee: Callee::Direct(name.clone()),
-                        args,
-                        tail: false,
-                    },
-                    address,
-                });
-                let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
-                let popped = f.new_value("rsp", Type::I64);
-                out.push(Instruction {
-                    result: Some(popped),
-                    inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: Operand::Int(i128::from(ptr + sig.pops as i64)) },
-                    address,
-                });
-                self.after_call(f, current, sig.returns, result, &sig.preserves, out);
-                current.insert(RSP, Operand::Local(popped));
+                self.direct_call(f, abi, name, address, true, current, out);
+            }
+            Callee::Direct(name)
+                if name == "ra_call"
+                    && old_args.get(1).and_then(|(_, o)| o.local()).is_some_and(|v| abi.virtual_calls.contains_key(&v)) =>
+            {
+                let code = old_args[1].1.clone();
+                let key = code.local().unwrap();
+                let candidates = &abi.virtual_calls[&key];
+                let seen = abi.seen.contains(&key);
+                drop_return_address_push(out, address);
+                if let ([(_, name)], false) = (candidates.as_slice(), seen) {
+                    self.direct_call(f, abi, name, address, true, current, out);
+                } else {
+                    return Some(self.virtual_dispatch(f, abi, candidates, &code, address, seen, current, out));
+                }
             }
             Callee::Direct(name) if import_of_wrapper(name).is_some() => {
                 let symbol = import_of_wrapper(name).unwrap().to_owned();
@@ -838,12 +1120,21 @@ impl Rewriter<'_> {
                         }
                         _ => self.after_call(f, current, proto.returns, result, &NO_SLOTS, out),
                     }
-                    return;
+                    return None;
                 }
                 let mut args = self.universal_arguments(f, current, stack_base, out);
-                // An import the prototype table knows takes its own number of arguments.
+                // An import the prototype table knows takes its own number of arguments, all of
+                // them from the stack past the registers: the universal eight end in `ecx` and
+                // `edx` on x86 and in four stack words on Win64, so a longer prototype
+                // (`CreateWindowExA` has twelve) reads the slots beyond them.
                 if let Some(arity) = super::prototypes::arity(&symbol) {
-                    args.truncate(arity.min(8));
+                    let (registers, universal_stack, width) = if target.is_64() { (4, 4, 8) } else { (0, 6, 4) };
+                    args.truncate(arity.min(registers + universal_stack));
+                    let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
+                    for k in universal_stack..arity.saturating_sub(registers) {
+                        let v = self.stack_word(f, &rsp, stack_base + width * k as i64, width, &format!("sarg{k}"), out);
+                        args.push((Type::I64, Operand::Local(v)));
+                    }
                 }
                 let fn_ty = FnType::new(Type::I64, vec![Type::I64; args.len()]);
                 let result = f.new_value("ret", Type::I64);
@@ -855,56 +1146,9 @@ impl Rewriter<'_> {
                 self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, out);
             }
             Callee::Direct(name) if name == "ra_call" => {
-                // `ra_call(state, target)`: the target is an address of code; the driver makes
-                // every lifted function reachable at its address, so the call goes through it. An
-                // x86 callee pops what it pops: the runtime's `ra_pops_of` says how much, from
-                // the import binding table for a native callee, else from what the universal
-                // stub recorded in `ra_pops`.
                 drop_return_address_push(out, address);
                 let code = old_args.get(1).map_or(Operand::Undef, |(_, o)| o.clone());
-                let fp = f.new_value("fp", Type::Ptr);
-                out.push(Instruction {
-                    result: Some(fp),
-                    inst: Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: code.clone(), to: Type::Ptr },
-                    address,
-                });
-                let args = self.universal_arguments(f, current, target.first_stack_arg(), out);
-                let result = f.new_value("ret", Type::I64);
-                out.push(Instruction {
-                    result: Some(result),
-                    inst: Inst::Call { fn_ty: import_adapter_type(), callee: Callee::Indirect(Operand::Local(fp)), args, tail: false },
-                    address,
-                });
-                let rsp = current.get(&RSP).cloned().unwrap_or(Operand::Undef);
-                let mut up = Operand::Int(i128::from(ptr));
-                if !target.is_64() {
-                    let pops = f.new_value("pops", Type::I64);
-                    out.push(Instruction {
-                        result: Some(pops),
-                        inst: Inst::Call {
-                            fn_ty: FnType::new(Type::I64, vec![Type::I64]),
-                            callee: Callee::Direct("ra_pops_of".into()),
-                            args: vec![(Type::I64, code)],
-                            tail: false,
-                        },
-                        address,
-                    });
-                    let sum = f.new_value("pops.a", Type::I64);
-                    out.push(Instruction {
-                        result: Some(sum),
-                        inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: Operand::Local(pops), rhs: Operand::Int(i128::from(ptr)) },
-                        address,
-                    });
-                    up = Operand::Local(sum);
-                }
-                let popped = f.new_value("rsp", Type::I64);
-                out.push(Instruction {
-                    result: Some(popped),
-                    inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: up },
-                    address,
-                });
-                self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, out);
-                current.insert(RSP, Operand::Local(popped));
+                self.indirect_call(f, abi, &code, address, current, out);
             }
             _ => {
                 // Something else that takes the state: keep it, with undefined registers after.
@@ -912,6 +1156,7 @@ impl Rewriter<'_> {
                 self.after_call(f, current, None, None, &NO_SLOTS, out);
             }
         }
+        None
     }
 }
 

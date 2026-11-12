@@ -9,8 +9,8 @@
 
   Address         Publics by Value              Rva+Base               Lib:Object
 
- 0001:00000000       _square                    0000000000401000     hello-599048.o
- 0001:00000010       _mainCRTStartup            0000000000401010     hello-599048.o
+ 0001:00000000       _square                    0000000000401000     hello-0aa9bd.o
+ 0001:00000010       _mainCRTStartup            0000000000401010     hello-0aa9bd.o
  0002:00000054       __imp__ExitProcess@4       0000000000402054     kernel32:KERNEL32.dll
  0002:00000058       __imp__GetStdHandle@4      0000000000402058     kernel32:KERNEL32.dll
  0002:0000005c       __imp__WriteFile@20        000000000040205c     kernel32:KERNEL32.dll

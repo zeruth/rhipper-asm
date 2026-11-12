@@ -62,6 +62,21 @@ impl Class {
     }
 }
 
+/// Every vtable of `classes`, in the order of the classes.
+pub fn vtables(classes: &[Class]) -> Vec<Vtable> {
+    classes.iter().flat_map(|c| c.vtables.iter().cloned()).collect()
+}
+
+/// The functions a call through `slot` can reach: the one in that slot of each vtable of
+/// `vtables` that has it, each once, in address order. A call whose receiver's class is unknown
+/// reaches any of them; with the receiver's vtable known, pass that one alone.
+pub fn slot_functions(vtables: &[Vtable], slot: usize) -> Vec<u64> {
+    let mut functions: Vec<u64> = vtables.iter().filter_map(|v| v.functions.get(slot).copied()).collect();
+    functions.sort_unstable();
+    functions.dedup();
+    functions
+}
+
 /// A class name as a C identifier: `ns::Inner` is `ns_Inner`.
 pub fn identifier(name: &str) -> String {
     let mut out = String::with_capacity(name.len());

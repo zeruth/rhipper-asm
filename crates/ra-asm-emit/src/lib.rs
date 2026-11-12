@@ -11,7 +11,9 @@ pub mod c;
 mod common;
 pub mod cpp;
 pub mod functions;
+mod layout;
 pub mod rust;
+mod safety;
 pub mod structure;
 
 pub use c::{Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, Options as COptions, Unit, emit_c, emit_unit};

@@ -1,17 +1,35 @@
 //! The machine state and the helpers that read and write it: registers, flags and memory.
 //!
-//! `%State = type { [16 x i64], i64, [8 x i8], [16 x i128] }`: the general registers in iced's
-//! order, `rip`, the flags as bytes (cf, pf, af, zf, sf, df, of), and the vector registers. The
-//! driver's C `struct State` has the same layout.
+//! `%State = type { [16 x i64], i64, [8 x i8], [16 x i128] }` on x86: the general registers in
+//! iced's order, `rip`, the flags as bytes (cf, pf, af, zf, sf, df, of), and the vector registers.
+//! The driver's C `struct State` has the same layout. On ARM64 the same four fields hold `x0..x30`
+//! and `sp` (32 slots), `pc`, the flags as bytes (n, z, c, v) and `v0..v31`.
 
 use ra_asm_ir::{BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Operand, Type, ValueId};
 use ra_asm_x86::iced_x86::Register as R;
 
 pub const STATE_TYPE: &str = "State";
 
-/// The fields of `%State`.
+/// The instruction set a state belongs to: which registers its slots hold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Isa {
+    #[default]
+    X86,
+    Arm64,
+}
+
+/// The fields of the x86 `%State`.
 pub fn state_fields() -> Vec<Type> {
-    vec![Type::array(16, Type::I64), Type::I64, Type::array(8, Type::I8), Type::array(16, Type::I128)]
+    state_fields_for(Isa::X86)
+}
+
+/// The fields of `%State` for `isa`.
+pub fn state_fields_for(isa: Isa) -> Vec<Type> {
+    let (gprs, vectors) = match isa {
+        Isa::X86 => (16, 16),
+        Isa::Arm64 => (32, 32),
+    };
+    vec![Type::array(gprs, Type::I64), Type::I64, Type::array(8, Type::I8), Type::array(vectors, Type::I128)]
 }
 
 /// The flags, by their byte index in the state.
@@ -357,6 +375,8 @@ pub struct Machine<'b> {
     pub bits: u32,
     /// The x87 unit the lift models.
     pub x87: crate::x87::X87Unit,
+    /// Whose registers the slots hold.
+    pub isa: Isa,
 }
 
 impl Machine<'_> {
@@ -368,11 +388,19 @@ impl Machine<'_> {
         Type::Named(STATE_TYPE.to_owned())
     }
 
+    /// The name of general register slot `number`: iced's order on x86, `x0..x30` and `sp` on ARM64.
+    pub fn gpr_name(&self, number: u32) -> &'static str {
+        match self.isa {
+            Isa::X86 => GPR_NAMES[number as usize],
+            Isa::Arm64 => ra_asm_arm64::registers::full_of(number as u16).name,
+        }
+    }
+
     // region Pointers into the state
 
-    /// The pointer to the slot of a general register, by iced's number (rax is 0).
+    /// The pointer to the slot of a general register, by its number in the state (rax or x0 is 0).
     pub fn gpr_ptr(&mut self, block: BlockId, number: u32) -> ValueId {
-        let hint = format!("p.{}", GPR_NAMES[number as usize]);
+        let hint = format!("p.{}", self.gpr_name(number));
         self.b.gep(
             block,
             Self::state_ty(),
@@ -383,18 +411,26 @@ impl Machine<'_> {
     }
 
     pub fn flag_ptr(&mut self, block: BlockId, flag: Flag) -> ValueId {
-        let hint = format!("p.{}", flag_name(flag));
+        self.flag_ptr_at(block, flag as i64, flag_name(flag))
+    }
+
+    /// The pointer to flag byte `index` of the state, named `name`.
+    pub fn flag_ptr_at(&mut self, block: BlockId, index: i64, name: &str) -> ValueId {
+        let hint = format!("p.{name}");
         self.b.gep(
             block,
             Self::state_ty(),
             self.state,
-            vec![(Type::I32, 0i64.into()), (Type::I32, 2i64.into()), (Type::I32, (flag as i64).into())],
+            vec![(Type::I32, 0i64.into()), (Type::I32, 2i64.into()), (Type::I32, index.into())],
             &hint,
         )
     }
 
     pub fn xmm_ptr(&mut self, block: BlockId, number: u32) -> ValueId {
-        let hint = format!("p.xmm{number}");
+        let hint = match self.isa {
+            Isa::X86 => format!("p.xmm{number}"),
+            Isa::Arm64 => format!("p.v{number}"),
+        };
         self.b.gep(
             block,
             Self::state_ty(),
@@ -560,6 +596,28 @@ impl Machine<'_> {
         let sp = self.read_sp(block);
         let value = self.load(block, ty.clone(), sp, hint);
         let new_sp = self.b.bin(block, BinOp::Add, ty, sp, i64::from(self.bits / 8), "sp");
+        self.write_sp(block, new_sp);
+        value
+    }
+
+    /// Pushes a value of `ty`, which moves the stack pointer by the type's own size: the 16-bit
+    /// push of an operand-size prefix.
+    pub fn push_sized(&mut self, block: BlockId, ty: Type, value: impl Into<Operand>) {
+        let addr = self.address_type();
+        let size = i64::from(ty.bits().unwrap_or(self.bits) / 8);
+        let sp = self.read_sp(block);
+        let new_sp = self.b.bin(block, BinOp::Sub, addr, sp, size, "sp");
+        self.store(block, ty, value, new_sp);
+        self.write_sp(block, new_sp);
+    }
+
+    /// Pops a value of `ty`, by the type's own size.
+    pub fn pop_sized(&mut self, block: BlockId, ty: Type, hint: &str) -> ValueId {
+        let addr = self.address_type();
+        let size = i64::from(ty.bits().unwrap_or(self.bits) / 8);
+        let sp = self.read_sp(block);
+        let value = self.load(block, ty, sp, hint);
+        let new_sp = self.b.bin(block, BinOp::Add, addr, sp, size, "sp");
         self.write_sp(block, new_sp);
         value
     }

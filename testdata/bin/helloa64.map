@@ -1,0 +1,23 @@
+ helloa64
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000140000000
+
+ Start         Length     Name                   Class
+ 0001:00000000 0000009cH .text                   CODE
+ 0002:000000c0 0000000cH .xdata                  DATA
+ 0003:00000000 00000008H .pdata                  DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       square                     0000000140001000     hello-dd9b7c.o
+ 0001:00000008       mainCRTStartup             0000000140001008     hello-dd9b7c.o
+ 0002:00000068       __imp_ExitProcess          0000000140002068     kernel32:KERNEL32.dll
+ 0002:00000070       __imp_GetStdHandle         0000000140002070     kernel32:KERNEL32.dll
+ 0002:00000078       __imp_WriteFile            0000000140002078     kernel32:KERNEL32.dll
+
+ entry point at         0001:00000008
+
+ Static symbols
+

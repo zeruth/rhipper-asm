@@ -1,0 +1,54 @@
+ resources32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000003e7H .text                   CODE
+ 0002:00000000 00000058H .rdata                  DATA
+ 0003:00000000 00000004H .data                   DATA
+ 0003:00000004 0000000cH .bss                    DATA
+ 0004:00000000 000000a0H .rsrc$01                DATA
+ 0004:000000a0 000000d0H .rsrc$02                DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     resources-5b1ffe.o
+ 0002:00000050       __real@4024000000000000    0000000000402050     resources-5b1ffe.o
+ 0002:00000058       ??_C@_03IJDNBOJF@two?$AA@  0000000000402058     resources-5b1ffe.o
+ 0002:0000005c       ??_C@_04DDFHDMOL@zero?$AA@ 000000000040205c     resources-5b1ffe.o
+ 0002:00000061       ??_C@_03OHDNLOHO@one?$AA@  0000000000402061     resources-5b1ffe.o
+ 0002:00000065       ??_C@_05OAGMNDDJ@three?$AA@ 0000000000402065     resources-5b1ffe.o
+ 0002:0000006b       ??_C@_0BA@EINNLAO@no?5such?5block?$AN?6?$AA@ 000000000040206b     resources-5b1ffe.o
+ 0002:00000078       ??_C@_02PCIJFNDE@?$AN?6?$AA@ 0000000000402078     resources-5b1ffe.o
+ 0002:00000100       __imp__ExitProcess@4       0000000000402100     kernel32:KERNEL32.dll
+ 0002:00000104       __imp__FindResourceA@12    0000000000402104     kernel32:KERNEL32.dll
+ 0002:00000108       __imp__GetModuleHandleA@4  0000000000402108     kernel32:KERNEL32.dll
+ 0002:0000010c       __imp__GetStdHandle@4      000000000040210c     kernel32:KERNEL32.dll
+ 0002:00000110       __imp__LoadResource@8      0000000000402110     kernel32:KERNEL32.dll
+ 0002:00000114       __imp__LockResource@4      0000000000402114     kernel32:KERNEL32.dll
+ 0002:00000118       __imp__SizeofResource@8    0000000000402118     kernel32:KERNEL32.dll
+ 0002:0000011c       __imp__WriteFile@20        000000000040211c     kernel32:KERNEL32.dll
+ 0002:00000124       __imp__LoadStringA@16      0000000000402124     user32:USER32.dll
+ 0003:00000000       __fltused                  0000000000403000     resources-5b1ffe.o
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:00000230       _print_string_resource     0000000000401230     resources-5b1ffe.o
+ 0001:00000270       _print_rcdata              0000000000401270     resources-5b1ffe.o
+ 0001:000002e0       _print_int                 00000000004012e0     resources-5b1ffe.o
+ 0001:00000360       _square_of                 0000000000401360     resources-5b1ffe.o
+ 0001:00000370       _print_str                 0000000000401370     resources-5b1ffe.o
+ 0001:000003a0       _name_of                   00000000004013a0     resources-5b1ffe.o
+ 0001:000003b0       _tenths_of                 00000000004013b0     resources-5b1ffe.o
+ 0001:000003d0       _count                     00000000004013d0     resources-5b1ffe.o
+ 0002:00000000       _squares                   0000000000402000     resources-5b1ffe.o
+ 0002:00000020       _names                     0000000000402020     resources-5b1ffe.o
+ 0002:00000030       _halves                    0000000000402030     resources-5b1ffe.o
+ 0003:00000004       _out                       0000000000403004     resources-5b1ffe.o
+ 0003:00000008       _counters                  0000000000403008     resources-5b1ffe.o
+ 0004:000000a0       $R000000                   00000000004040a0     internal .obj file created from .res files
+ 0004:00000168       $R000001                   0000000000404168     internal .obj file created from .res files

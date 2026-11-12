@@ -215,12 +215,20 @@ pub trait Arch {
     /// the bytes hold no valid instruction.
     fn decode(&self, bytes: &[u8], address: u64) -> Option<Instr>;
 
+    /// Completes `instr` from the instructions before it in the same block: an address an
+    /// architecture forms in two instructions (ARM64's `adrp` page and the `ldr` or `add` that
+    /// adds the low bits) becomes the absolute address of the second. Nothing by default.
+    fn link(&self, before: &[Instr], instr: &mut Instr) {
+        let _ = (before, instr);
+    }
+
     /// Decodes instructions in sequence until the bytes end or an instruction fails to decode.
     fn decode_all(&self, bytes: &[u8], address: u64) -> Vec<Instr> {
-        let mut out = Vec::new();
+        let mut out: Vec<Instr> = Vec::new();
         let mut offset = 0usize;
         while offset < bytes.len() {
-            let Some(instr) = self.decode(&bytes[offset..], address + offset as u64) else { break };
+            let Some(mut instr) = self.decode(&bytes[offset..], address + offset as u64) else { break };
+            self.link(&out, &mut instr);
             offset += instr.len as usize;
             out.push(instr);
         }

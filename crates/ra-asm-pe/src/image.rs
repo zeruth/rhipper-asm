@@ -1,5 +1,6 @@
 //! The mapped image: the file laid out by RVA as the Windows loader lays it out, with reads by
-//! virtual address that refuse an address no section holds.
+//! virtual address that refuse an address no section holds. An XBE ([`crate::xbe`]) maps the same
+//! way, its header standing where the PE headers would.
 
 use std::path::PathBuf;
 
@@ -12,8 +13,10 @@ use crate::exports::{self, ExportTable};
 use crate::headers::{Headers, Machine};
 use crate::imports::{self, Import};
 use crate::relocs::{self, Relocation};
+use crate::resources::{self, Resource};
 use crate::section::Section;
 use crate::tls::{self, Tls};
+use crate::xbe::{self, Xbe};
 
 /// The largest image the loader maps. A real image is far smaller; a corrupt `SizeOfImage` is not
 /// a reason to allocate the machine's memory.
@@ -32,12 +35,16 @@ pub struct Image {
     pub runtime_functions: Vec<RuntimeFunction>,
     pub tls: Option<Tls>,
     pub debug: Vec<DebugEntry>,
+    /// The leaves of the resource directory, in the tree's order.
+    pub resources: Vec<Resource>,
     /// The functions the PDB beside the image names, else those its link map names, in address
     /// order; empty without either. Filled by [`crate::load`], which knows the path.
     pub symbols: Vec<crate::pdb::Symbol>,
     /// The ranges of the image that the objects of static libraries fill, from the same PDB, in
     /// address order.
     pub libraries: Vec<crate::pdb::LibraryRange>,
+    /// What the XBE header holds beyond the PE's, when the image is one.
+    pub xbe: Option<Xbe>,
     /// What the loader could not read. A directory that fails to parse lands here, not in an error.
     pub warnings: Vec<String>,
     file: Vec<u8>,
@@ -45,15 +52,21 @@ pub struct Image {
 }
 
 impl Image {
-    /// Parses the bytes of a PE file and maps them.
+    /// Parses the bytes of a PE file (or an XBE) and maps them.
     pub fn parse(file: Vec<u8>) -> Result<Self> {
         let reader = Reader::new(&file);
-        let headers = Headers::parse(reader)?;
-        let mut sections = Vec::with_capacity(headers.coff.sections as usize);
-        let mut c = reader.at(headers.section_table_offset);
-        for index in 0..headers.coff.sections as usize {
-            sections.push(Section::parse(&mut c, index)?);
-        }
+        let (headers, sections, xbe) = if xbe::is_xbe(reader) {
+            let (headers, sections, xbe) = xbe::parse(reader)?;
+            (headers, sections, Some(xbe))
+        } else {
+            let headers = Headers::parse(reader)?;
+            let mut sections = Vec::with_capacity(headers.coff.sections as usize);
+            let mut c = reader.at(headers.section_table_offset);
+            for index in 0..headers.coff.sections as usize {
+                sections.push(Section::parse(&mut c, index)?);
+            }
+            (headers, sections, None)
+        };
 
         let size_of_image = headers.optional.size_of_image;
         ensure!(size_of_image <= MAX_IMAGE_SIZE, "SizeOfImage {size_of_image:#x} is larger than the {MAX_IMAGE_SIZE:#x} the loader maps");
@@ -89,8 +102,10 @@ impl Image {
             runtime_functions: Vec::new(),
             tls: None,
             debug: Vec::new(),
+            resources: Vec::new(),
             symbols: Vec::new(),
             libraries: Vec::new(),
+            xbe,
             warnings,
             file,
             mapped,
@@ -100,7 +115,13 @@ impl Image {
     }
 
     fn read_directories(&mut self) {
-        match imports::parse(self) {
+        // An XBE's imports are its kernel thunk table; the directories below are empty in one
+        // but the TLS, which the header points at in the PE's layout.
+        let imports = match &self.xbe {
+            Some(xbe) => xbe::kernel_imports(self, xbe),
+            None => imports::parse(self),
+        };
+        match imports {
             Ok(imports) => self.imports = imports,
             Err(e) => self.warnings.push(format!("imports: {e:#}")),
         }
@@ -123,6 +144,10 @@ impl Image {
         match debug::parse(self) {
             Ok(debug) => self.debug = debug,
             Err(e) => self.warnings.push(format!("debug: {e:#}")),
+        }
+        match resources::parse(self) {
+            Ok(resources) => self.resources = resources,
+            Err(e) => self.warnings.push(format!("resources: {e:#}")),
         }
     }
 

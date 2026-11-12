@@ -1,0 +1,30 @@
+27
+hello from the string table
+15
+a second string
+39
+the third, with a tab	and quotes "here"
+0
+8
+36
+no such block
+0
+1
+4
+9
+16
+25
+36
+49
+zero
+one
+two
+three
+5
+15
+25
+35
+15
+18
+10
+12

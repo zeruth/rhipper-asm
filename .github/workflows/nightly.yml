@@ -1,0 +1,23 @@
+# The nightly instruction oracle: the x86 forms against the processor at a seed of the night, with
+# more states per form than the suite's fixed-seed run. A failure prints the seed, which
+# `RA_ORACLE_SEED=<seed> cargo test -p ra-asm-lift --test instruction_oracle` replays.
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  instruction-oracle:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Instruction oracle
+        run: cargo test -p ra-asm-lift --test instruction_oracle -- --nocapture
+        env:
+          CARGO_BUILD_JOBS: "4"
+          RA_ORACLE_SEED: random
+          RA_ORACLE_SAMPLES: "64"
