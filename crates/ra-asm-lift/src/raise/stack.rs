@@ -14,7 +14,9 @@
 //! a vtable slot whose functions pop different amounts moves it by the amount of those that can
 //! take the arguments there: a callee pops only what its caller passed, and the stack bytes that
 //! hold a callee-saved register's value from the entry (the prologue's `push esi`) are no
-//! argument, since that value means nothing to the function.
+//! argument, since that value means nothing to the function. By the same rule an indirect x86
+//! call whose callee no one knows pops nothing when such a save lies right above its return
+//! address.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -271,17 +273,23 @@ pub fn analyze(
                                 }
                                 _ => {
                                     // The amounts a callee that can take the arguments here pops:
-                                    // the bytes it pops hold none of the entry values saved.
-                                    let pops = call_pops(inst).and_then(|amounts| {
-                                        let possible: Vec<i64> = amounts
-                                            .into_iter()
-                                            .filter(|&p| {
-                                                regs[sp].is_none_or(|k| !(k + pushed..k + pushed + p).any(|b| saves.bytes.contains(&b)))
-                                            })
-                                            .collect();
-                                        let first = *possible.first()?;
-                                        possible.iter().all(|&p| p == first).then_some(first)
-                                    });
+                                    // the bytes it pops hold none of the entry values saved. A
+                                    // callee no one knows (a slot a runtime class's vtable fills
+                                    // too, a function pointer) pops nothing when the word above
+                                    // the return address is such a save.
+                                    let pops = match call_pops(inst) {
+                                        Some(amounts) => {
+                                            let possible: Vec<i64> = amounts
+                                                .into_iter()
+                                                .filter(|&p| {
+                                                    regs[sp]
+                                                        .is_none_or(|k| !(k + pushed..k + pushed + p).any(|b| saves.bytes.contains(&b)))
+                                                })
+                                                .collect();
+                                            possible.first().copied().filter(|&first| possible.iter().all(|&p| p == first))
+                                        }
+                                        None => regs[sp].filter(|&k| saves.bytes.contains(&(k + pushed))).map(|_| 0),
+                                    };
                                     match pops {
                                         Some(pops) => regs[sp] = regs[sp].map(|k| k + pushed + pops),
                                         None if target.is_64() => regs[sp] = regs[sp].map(|k| k + pushed),
