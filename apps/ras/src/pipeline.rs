@@ -14,7 +14,14 @@
 //! comparison runs the same program finding the reference first. With `run.facts` on, the analyze
 //! step runs the reference through the IR interpreter first and writes what it saw to
 //! `build/facts.json`; every step analyzes with the facts there when they are of the reference.
+//! The analyze, lift and emit steps stamp what they read and what they wrote in
+//! `build/pipeline/<step>.stamp`: a step whose inputs and outputs are as the stamp says prints its
+//! last summary with `(unchanged)` and does no work, and the emit rewrites only the files whose
+//! text changed, so the build recompiles only those. In one run the lift takes over the analyze
+//! step's analysis and the emit the lift's program. `--rebuild` runs every step again.
 
+use std::cell::OnceCell;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -67,7 +74,7 @@ pub(crate) struct Options {
     pub timeout: Option<u64>,
     /// The build configuration, such as `Debug`, over `build.config` of the project.
     pub config: Option<String>,
-    /// Deletes the build outputs before the build.
+    /// Runs every step whatever its stamp says, and deletes the build outputs before the build.
     pub rebuild: bool,
 }
 
@@ -84,23 +91,46 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
     };
     fs::create_dir_all(project.log_dir())?;
     let progress = Progress { started: Instant::now() };
-    let mut pipeline = Pipeline { project, progress, image: None, timeout: options.timeout, rebuild: options.rebuild };
+    let image = OnceCell::new();
+    let mut pipeline =
+        Pipeline { project, progress, image: &image, analysis: None, ported: None, timeout: options.timeout, rebuild: options.rebuild };
     for step in steps {
         pipeline.progress.line(step.id());
         let log = pipeline.project.log_dir().join(format!("{}.log", step.id()));
+        let stamp = pipeline.project.log_dir().join(format!("{}.stamp", step.id()));
+        // `--rebuild` still stamps what it does, so the next run can skip it.
+        let key = inputs_key(&pipeline.project, step);
+        if !options.rebuild
+            && let Some(key) = &key
+            && let Some(summary) = unchanged(&stamp, key)
+        {
+            let mut log = fs::OpenOptions::new().append(true).create(true).open(&log)?;
+            writeln!(log, "unchanged since the last run: {summary}")?;
+            println!("{summary} (unchanged)");
+            continue;
+        }
+        // A step that fails part way leaves outputs its stamp no longer vouches for.
+        let _ = fs::remove_file(&stamp);
         let mut log = File::create(&log).with_context(|| format!("cannot write {}", log.display()))?;
         let result = match step {
-            Step::Analyze => pipeline.analyze(&mut log),
-            Step::Lift => pipeline.lift(&mut log),
-            Step::Emit => pipeline.emit(&mut log),
-            Step::Build => pipeline.build(&mut log),
-            Step::Run => pipeline.run_port(&mut log),
+            Step::Analyze => pipeline.analyze(&mut log).map(Some),
+            Step::Lift => pipeline.lift(&mut log).map(Some),
+            Step::Emit => pipeline.emit(&mut log).map(Some),
+            Step::Build => pipeline.build(&mut log).map(|()| None),
+            Step::Run => pipeline.run_port(&mut log).map(|()| None),
         };
-        if let Err(e) = result {
-            let _ = writeln!(log, "error: {e:#}");
-            eprintln!("error: {e:#}");
-            pipeline.progress.line(&format!("{} failed: stopping", step.id()));
-            bail!("{} failed", step.id());
+        match result {
+            Ok(done) => {
+                if let (Some(key), Some(done)) = (key, done) {
+                    fs::write(&stamp, done.stamp(&key)).with_context(|| format!("cannot write {}", stamp.display()))?;
+                }
+            }
+            Err(e) => {
+                let _ = writeln!(log, "error: {e:#}");
+                eprintln!("error: {e:#}");
+                pipeline.progress.line(&format!("{} failed: stopping", step.id()));
+                bail!("{} failed", step.id());
+            }
         }
     }
     pipeline.progress.line("done");
@@ -118,21 +148,84 @@ impl Progress {
     }
 }
 
-struct Pipeline {
+/// What a step that stamps its work did: its summary line, and every file it wrote with the
+/// digest of what it wrote there.
+struct Done {
+    summary: String,
+    outputs: Vec<(PathBuf, u64)>,
+}
+
+impl Done {
+    /// The text of the step's stamp: the key of its inputs, the summary, then a line per output.
+    fn stamp(&self, key: &str) -> String {
+        use std::fmt::Write;
+        let mut text = format!("{key}\n{}\n", self.summary);
+        for (path, digest) in &self.outputs {
+            let _ = writeln!(text, "{digest:016x} {}", path.display());
+        }
+        text
+    }
+}
+
+/// The digest of an output's bytes, which its stamp holds.
+fn digest(bytes: &[u8]) -> u64 {
+    use std::hash::{DefaultHasher, Hasher};
+    let mut hasher = DefaultHasher::new();
+    hasher.write(bytes);
+    hasher.finish()
+}
+
+/// The program as the lift writes it and the emit translates it: the analysis with the person's
+/// annotations, lifted standalone, raised to the ABI level and named. A run makes it once.
+struct Ported<'a> {
+    analysis: ra_asm_analysis::Analysis<'a>,
+    annotations: BTreeMap<u64, crate::annotations::Annotation>,
+    /// What the annotations could not apply.
+    annotated: Vec<String>,
+    lifted: ra_asm_lift::Lifted,
+    signatures: HashMap<String, ra_asm_lift::raise::abi::Signature>,
+}
+
+struct Pipeline<'a> {
     project: Project,
     progress: Progress,
     /// The reference image, loaded by the first step that needs it.
-    image: Option<ra_asm_pe::Image>,
+    image: &'a OnceCell<ra_asm_pe::Image>,
+    /// The analyze step's analysis, which the lift takes over rather than analyzing again.
+    analysis: Option<ra_asm_analysis::Analysis<'a>>,
+    /// The lift step's program, which the emit translates rather than lifting again.
+    ported: Option<Ported<'a>>,
     timeout: Option<u64>,
     rebuild: bool,
 }
 
-impl Pipeline {
-    fn image(&mut self) -> Result<&ra_asm_pe::Image> {
-        if self.image.is_none() {
-            self.image = Some(self.project.load_image()?);
+impl<'a> Pipeline<'a> {
+    fn image(&self) -> Result<&'a ra_asm_pe::Image> {
+        let cell: &'a OnceCell<ra_asm_pe::Image> = self.image;
+        if let Some(image) = cell.get() {
+            return Ok(image);
         }
-        Ok(self.image.as_ref().expect("loaded"))
+        let image = self.project.load_image()?;
+        Ok(cell.get_or_init(|| image))
+    }
+
+    /// The program the lift and the emit share, made by the first of them that runs.
+    fn ported(&mut self, log: &mut File) -> Result<&Ported<'a>> {
+        if self.ported.is_none() {
+            let image = self.image()?;
+            let mut analysis = match self.analysis.take() {
+                Some(analysis) => analysis,
+                None => ra_asm_analysis::analyze_with(image, &self.facts(log)?),
+            };
+            let (annotations, annotated) = annotate(&self.project.root, &mut analysis);
+            let options = ra_asm_lift::LiftOptions { standalone: true, x87: self.project.x87 };
+            let mut lifted = ra_asm_lift::lift_with(image, &analysis, options);
+            let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+            let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+            lifted.apply_names(&analysis, Some(&mut signatures));
+            self.ported = Some(Ported { analysis, annotations, annotated, lifted, signatures });
+        }
+        Ok(self.ported.as_ref().expect("ported"))
     }
 
     /// The facts of a traced run of the reference, from `build/facts.json` when it is of the
@@ -182,9 +275,13 @@ impl Pipeline {
         crate::run::write_facts(&file, &outcome.facts)
     }
 
-    fn analyze(&mut self, log: &mut File) -> Result<()> {
+    fn analyze(&mut self, log: &mut File) -> Result<Done> {
+        let mut outputs = Vec::new();
         if self.project.run.facts {
             self.trace_facts(log)?;
+            let file = self.project.facts_file();
+            let bytes = fs::read(&file).with_context(|| format!("cannot read {}", file.display()))?;
+            outputs.push((file, digest(&bytes)));
         }
         let facts = self.facts(log)?;
         let image = self.image()?;
@@ -193,24 +290,16 @@ impl Pipeline {
         let summary = format!("{} functions, {} warnings", analysis.functions.len(), warnings);
         writeln!(log, "{summary}")?;
         println!("{summary}");
-        Ok(())
+        self.analysis = Some(analysis);
+        Ok(Done { summary, outputs })
     }
 
-    fn lift(&mut self, log: &mut File) -> Result<()> {
-        let (build_dir, root) = (self.project.build_dir(), self.project.root.clone());
-        let x87 = self.project.x87;
-        let facts = self.facts(log)?;
-        let image = self.image()?;
-        let mut analysis = ra_asm_analysis::analyze_with(image, &facts);
-        let (_, annotated) = annotate(&root, &mut analysis);
-        let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
-        let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
-        ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
-        lifted.apply_names(&analysis, None);
+    fn lift(&mut self, log: &mut File) -> Result<Done> {
+        let file = self.project.build_dir().join("program.ll");
+        let Ported { analysis, annotated, lifted, .. } = self.ported(log)?;
         let text = lifted.module.to_ll();
-        fs::create_dir_all(&build_dir)?;
-        fs::write(build_dir.join("program.ll"), &text)?;
-        let warnings = log_warnings(log, analysis.warnings.iter().chain(&annotated).chain(&lifted.warnings));
+        ra_asm_emit::write_if_changed(&file, text.as_bytes())?;
+        let warnings = log_warnings(log, analysis.warnings.iter().chain(annotated).chain(&lifted.warnings));
         let summary = format!(
             "{} functions, {} imports, {} bytes of IR, {} warnings",
             lifted.functions.len(),
@@ -220,28 +309,22 @@ impl Pipeline {
         );
         writeln!(log, "{summary}")?;
         println!("{summary}");
-        Ok(())
+        Ok(Done { summary, outputs: vec![(file, digest(text.as_bytes()))] })
     }
 
-    fn emit(&mut self, log: &mut File) -> Result<()> {
+    fn emit(&mut self, log: &mut File) -> Result<Done> {
         let gen_dir = self.project.gen_dir.clone();
         let build_dir = self.project.build_dir();
         let (lang, package) = (self.project.lang.clone(), self.project.build.target.clone());
-        let (x87, trace) = (self.project.x87, self.project.run.trace);
-        let (hand, root) = (self.project.hand.clone(), self.project.root.clone());
-        let facts = self.facts(log)?;
+        let (trace, hand) = (self.project.run.trace, self.project.hand.clone());
         let image = self.image()?;
-        let mut analysis = ra_asm_analysis::analyze_with(image, &facts);
-        let (annotations, annotated) = annotate(&root, &mut analysis);
-        let hand = crate::annotations::hand_list(&hand, &annotations);
-        let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
-        let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
-        let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
-        lifted.apply_names(&analysis, Some(&mut signatures));
-        let options = crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations: &annotations };
-        let translation = crate::emit::translate(image, &analysis, &lifted, &signatures, &options)?;
+        let Ported { analysis, annotations, annotated, lifted, signatures } = self.ported(log)?;
+        let hand = crate::annotations::hand_list(&hand, annotations);
+        let options = crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations };
+        let translation = crate::emit::translate(image, analysis, lifted, signatures, &options)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
+<<<<<<< HEAD
         fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
         fs::write(build_dir.join("functions.json"), translation.table())?;
         let regenerated = crate::emit::regenerate(&build_dir, &analysis, &translation)?;
@@ -250,6 +333,24 @@ impl Pipeline {
             writeln!(log, "{line}")?;
             println!("{line}");
         }
+=======
+        let header = ra_asm_lift::image_header(image, analysis, lifted, Some(signatures));
+        ra_asm_emit::write_if_changed(&gen_dir.join("image.h"), header.as_bytes())?;
+        let table = translation.table();
+        ra_asm_emit::write_if_changed(&build_dir.join("functions.json"), table.as_bytes())?;
+        // Every file the translation wrote, so a deleted or edited one runs the emit again.
+        let written = translation
+            .files
+            .iter()
+            .map(|f| (f.name.as_str(), f.text.as_bytes()))
+            .chain(translation.runtime.iter().map(|(p, t)| (*p, t.as_bytes())))
+            .chain(translation.resources.iter().map(|(p, b)| (p.as_str(), b.as_slice())))
+            .chain(translation.exports.iter().map(|d| ("exports.def", d.as_bytes())))
+            .chain([("image.h", header.as_bytes())]);
+        let mut outputs: Vec<(PathBuf, u64)> = written.map(|(path, bytes)| (gen_dir.join(path), digest(bytes))).collect();
+        outputs.push((build_dir.join("functions.json"), digest(table.as_bytes())));
+        let warnings = log_warnings(log, analysis.warnings.iter().chain(annotated).chain(&lifted.warnings).chain(&translation.warnings));
+>>>>>>> main
         let summary = format!(
             "{} functions, {} bytes of {lang} in {} files, {} instructions not lifted, {} warnings -> {}",
             translation.functions.len(),
@@ -261,10 +362,13 @@ impl Pipeline {
         );
         writeln!(log, "{summary}")?;
         println!("{summary}");
-        Ok(())
+        Ok(Done { summary, outputs })
     }
 
     fn build(&mut self, log: &mut File) -> Result<()> {
+        // The program the emit translated is not needed again, and the compiler wants the memory.
+        self.analysis = None;
+        self.ported = None;
         let project = &self.project;
         // The tools first: a missing one fails with its name, not with the build system's error.
         let port = if project.is_rust() { Port::Rust } else { Port::C };
@@ -329,9 +433,7 @@ impl Pipeline {
 
     fn run_port(&mut self, log: &mut File) -> Result<()> {
         let facts = self.facts(log)?;
-        // The image by its field, so the project and the timeout are readable beside it.
-        self.image()?;
-        let image = self.image.as_ref().expect("loaded");
+        let image = self.image()?;
         let (dll, bits, image_base) = (image.headers.coff.is_dll(), u32::from(image.pointer_size()) * 8, image.image_base());
         let project = &self.project;
         let port = project.port_binary(dll);
@@ -513,13 +615,8 @@ fn interpret_reference(
 ) -> Result<Outcome> {
     writeln!(log, "$ ras run --level abi --record {} {}", trace.display(), project.exe.display())?;
     let started = Instant::now();
-    let analysis = ra_asm_analysis::analyze_with(image, facts);
-    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: project.x87 });
-    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
-    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
-    lifted.apply_names(&analysis, Some(&mut signatures));
     let run = ra_asm_lift::run::Options { args: project.run.args.clone(), record: Some(trace.to_path_buf()), ..Default::default() };
-    let outcome = ra_asm_lift::run::run(image, &lifted, &signatures, &run)?;
+    let outcome = interpret(image, facts, project, &run)?;
     let text = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
     log.write_all(text.as_bytes())?;
     if let Some(stop) = &outcome.stop {
@@ -527,6 +624,22 @@ fn interpret_reference(
     }
     let stdout = text.lines().map(str::to_owned).collect();
     Ok(Outcome { code: Some(outcome.exit), alive: false, secs: started.elapsed().as_secs(), stdout })
+}
+
+/// Runs the reference's IR through the interpreter with `run`'s options: lifted as the emit step
+/// lifts it, raised to the ABI level, with the port's names, so its functions are the port's.
+pub(crate) fn interpret(
+    image: &ra_asm_pe::Image,
+    facts: &ra_asm_analysis::Facts,
+    project: &Project,
+    run: &ra_asm_lift::run::Options,
+) -> Result<ra_asm_lift::run::Outcome> {
+    let analysis = ra_asm_analysis::analyze_with(image, facts);
+    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: project.x87 });
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
+    ra_asm_lift::run::run(image, &lifted, &signatures, run)
 }
 
 /// Puts `dir` first on the `PATH` of `command`, so a DLL the program loads by name comes from
@@ -539,6 +652,74 @@ fn lead_dll_search(command: &mut Command, dir: &Path) {
     if let Ok(path) = std::env::join_paths(dirs) {
         command.env("PATH", path);
     }
+}
+
+/// The key of what a step that reads the reference depends on: the project's `rhipper.json`, the
+/// reference, its map and library signatures, the facts of its traced run, the annotations under
+/// `rhipper/annotations` and the files of the plugins (the lift and the emit), and this `ras` itself
+/// (its version and its binary's size and time, so a rebuilt engine runs the steps again).
+/// `None` for the build, which `CMake` or cargo keeps incremental itself, and for the run, which
+/// is the point of running.
+fn inputs_key(project: &Project, step: Step) -> Option<String> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    if !matches!(step, Step::Analyze | Step::Lift | Step::Emit) {
+        return None;
+    }
+    let mut hasher = DefaultHasher::new();
+    step.id().hash(&mut hasher);
+    env!("CARGO_PKG_VERSION").hash(&mut hasher);
+    let engine = std::env::current_exe().and_then(fs::metadata).ok();
+    engine.as_ref().map(|m| (m.len(), m.modified().ok())).hash(&mut hasher);
+    let mut files = vec![project.root.join(crate::project::RHIPPER_JSON), project.exe.clone()];
+    files.extend(project.map.iter().cloned());
+    files.extend(project.signatures.iter().cloned());
+    // The analyze step with `run.facts` on writes the facts rather than reads them.
+    if !(step == Step::Analyze && project.run.facts) {
+        files.push(project.facts_file());
+    }
+    // The lift and the emit read the person's annotations, a file per function.
+    if step != Step::Analyze
+        && let Ok(entries) = fs::read_dir(crate::annotations::dir(&project.root))
+    {
+        let mut annotations: Vec<PathBuf> =
+            entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
+        annotations.sort();
+        files.extend(annotations);
+    }
+    // The plugins name the functions the lift and the emit write, from their files.
+    if step != Step::Analyze {
+        for plugin in crate::plugins::discover(Some(&project.root)) {
+            if let Ok(entries) = fs::read_dir(&plugin.dir) {
+                let mut own: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.is_file()).collect();
+                own.sort();
+                files.extend(own);
+            }
+        }
+    }
+    for file in files {
+        file.hash(&mut hasher);
+        fs::read(&file).ok().hash(&mut hasher);
+    }
+    Some(format!("{:016x}", hasher.finish()))
+}
+
+/// The summary of the last run of a step when its stamp holds `key` and every output it names
+/// still holds what the step wrote: the step would write the same again.
+fn unchanged(stamp: &Path, key: &str) -> Option<String> {
+    let text = fs::read_to_string(stamp).ok()?;
+    let mut lines = text.lines();
+    if lines.next()? != key {
+        return None;
+    }
+    let summary = lines.next()?.to_owned();
+    for line in lines {
+        let (stamped, path) = line.split_once(' ')?;
+        let bytes = fs::read(path).ok()?;
+        if format!("{:016x}", digest(&bytes)) != stamped {
+            return None;
+        }
+    }
+    Some(summary)
 }
 
 /// Writes the warnings to the log and returns how many there were.
