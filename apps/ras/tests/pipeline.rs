@@ -33,11 +33,12 @@ fn ras(dir: &Path, args: &[&str]) -> (bool, String) {
     (output.status.success(), text)
 }
 
-/// The tests leave nothing new under the system temp: the scratch directories that may exist
-/// while this one runs are this process's own and those a live guard holds (another worktree's
-/// tests running at the same time). A directory of another process written since this binary was
-/// built is a leftover of a test that wrote without a guard; an older one is from the time before
-/// the guards, and is only named. A run that keeps its scratch keeps it on purpose and is not checked.
+/// The tests leave nothing new under the system temp: the scratch directories of this build that
+/// may exist while this one runs are this process's own and those a live guard holds; the runs of
+/// other checkouts, under way at the same time, are not looked at. A directory of another process
+/// written since this binary was built is a leftover of a test that wrote without a guard; an
+/// older one is from the time before the guards, and is only named. A run that keeps its scratch
+/// keeps it on purpose and is not checked.
 #[test]
 fn the_tests_leave_nothing_under_temp() {
     if std::env::var_os(ra_asm_testing::KEEP).is_some() {

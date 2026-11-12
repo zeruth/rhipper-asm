@@ -1,7 +1,9 @@
-//! The scratch directory of a test: `<temp>/<suite>/<pid>-<name>`, made by [`Scratch::new`] and
-//! removed, with its suite directory once that is empty, when the guard drops, whether the test
-//! passed or failed. A person who wants to read a test's output sets `RA_KEEP_SCRATCH` to any
-//! value: every scratch directory then stays and names its path on stderr.
+//! The scratch directory of a test: `<temp>/<suite>/<build>-<pid>-<name>`, made by
+//! [`Scratch::new`] and removed, with its suite directory once that is empty, when the guard
+//! drops, whether the test passed or failed. `<build>` names the directory the test binaries were
+//! built in, so the runs of several checkouts at once tell their directories apart. A person who
+//! wants to read a test's output sets `RA_KEEP_SCRATCH` to any value: every scratch directory then
+//! stays and names its path on stderr.
 
 use std::ffi::OsStr;
 use std::ops::Deref;
@@ -22,10 +24,10 @@ pub struct Scratch {
 }
 
 impl Scratch {
-    /// Makes `<temp>/<suite>/<pid>-<name>`, empty: a directory left by a kept or killed run of
-    /// the same process id goes first.
+    /// Makes `<temp>/<suite>/<build>-<pid>-<name>`, empty: a directory left by a kept or killed
+    /// run of the same process id goes first.
     pub fn new(suite: &str, name: &str) -> Self {
-        let path = suite_dir(suite).join(format!("{}-{name}", std::process::id()));
+        let path = suite_dir(suite).join(format!("{}-{}-{name}", build(), std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         // Another test of the process may remove the suite directory between its creation and
         // the directory's own: the second attempt finds it gone and makes both again.
@@ -40,23 +42,37 @@ impl Scratch {
         &self.path
     }
 
-    /// The scratch directories of `suite` that are neither this process's own nor held by the
-    /// guard of a test running in another process: what a run of the tests must not leave behind.
+    /// The scratch directories of `suite` that the test binaries of this build made in other
+    /// processes and that no live guard holds: what a run of the tests must not leave behind. The
+    /// runs of other checkouts, which may be under way, are not counted.
     pub fn foreign(suite: &str) -> Vec<PathBuf> {
-        let own = format!("{}-", std::process::id());
+        let build = format!("{}-", build());
+        let own = format!("{build}{}-", std::process::id());
         let Ok(entries) = std::fs::read_dir(suite_dir(suite)) else {
             return Vec::new();
         };
         entries
             .flatten()
             .map(|e| e.path())
-            .filter(|p| !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&own)) && !held(p))
+            .filter(|p| {
+                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                name.starts_with(&build) && !name.starts_with(&own) && !held(p)
+            })
             .collect()
     }
 }
 
 fn suite_dir(suite: &str) -> PathBuf {
     std::env::temp_dir().join(suite)
+}
+
+/// A short name of the directory this test binary lives in, which every test binary of one
+/// build shares.
+fn build() -> String {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)).hash(&mut hasher);
+    format!("{:08x}", hasher.finish() & 0xffff_ffff)
 }
 
 #[cfg(windows)]
