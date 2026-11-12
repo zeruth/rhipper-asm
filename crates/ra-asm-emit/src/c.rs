@@ -6,14 +6,20 @@
 //! that needs it, as the IR says. Phis become copies at the end of each predecessor, through
 //! temporaries so parallel copies stay parallel. The data globals are byte arrays with address
 //! words; a reference into one is an address plus an offset. The runtime header `rhipper.h` holds
-//! the helpers the intrinsics map to.
+//! the helpers the intrinsics map to. A constant passed to a Windows API parameter the prototype
+//! table binds to an enumeration, or compared or masked with such a parameter or result, reads as
+//! the SDK's name, defined at the top of the output with the value the constant has; a `switch`
+//! over a plain value reads over an `enum` of its cases.
 
-use std::collections::{HashMap, HashSet};
+use std::cell::{Cell, RefCell};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 
 use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Type, ValueId};
+use ra_asm_lift::raise::prototypes;
 
 use crate::common::{Defs, parenthesized, strip_parens, trap_count};
+use crate::layout::{Elem, Layout};
 use crate::structure::{Cond, Graph, Stmt, do_while, structure};
 
 /// The language the backend writes: C, or C++ (`extern "C"` linkage for what the driver and the
@@ -53,6 +59,10 @@ pub struct Options {
     /// The classes of the program ([`crate::cpp::classes`]), which the C++ dialect declares; the C
     /// dialect ignores them.
     pub classes: Vec<crate::cpp::Class>,
+    /// Records every function's arguments at entry and its result at each return through the
+    /// runtime's trace hooks, under the name of the function table, so the port's run compares
+    /// with the reference's event by event.
+    pub trace: bool,
 }
 
 /// One function's C: the comment naming it, the definition line and the body.
@@ -206,10 +216,13 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
     }
     let (mut global_types, mut global_decls, mut global_defs) = (String::new(), String::new(), String::new());
     let mut init = String::new();
+    // The data sections as the code's uses type them: arrays, scalars and strings over the bytes.
+    let layouts = crate::layout::layouts(module);
     for g in &module.globals {
-        global_type(&mut global_types, g);
-        declare_global(&mut global_decls, g);
-        define_global(&mut global_defs, &mut init, g);
+        let layout = layouts.get(&g.name);
+        global_type(&mut global_types, g, layout);
+        declare_global(&mut global_decls, g, layout);
+        define_global(&mut global_defs, &mut init, g, layout);
     }
     // An import by ordinal has no symbol to link: a pointer the runtime fills in before main from
     // the DLL's export table.
@@ -249,18 +262,39 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
             Some((m.ir_name.as_str(), (c, method)))
         })
         .collect();
+    let mut sdk_names: BTreeMap<String, String> = BTreeMap::new();
     let functions = module
         .functions
         .iter()
         .map(|f| {
             let mut text = String::new();
             let method = method_of.get(f.name.as_str()).map(|(c, m)| (*c, m));
-            let (header_lines, copies) =
-                emit_function(&mut text, f, &prototypes[&f.name], options.names.get(&f.name).map(String::as_str), &module.types, method);
+            let source_name = options.names.get(&f.name).map(String::as_str);
+            let (header_lines, copies) = emit_function(
+                &mut text,
+                f,
+                &prototypes[&f.name],
+                source_name,
+                &module.types,
+                &layouts,
+                method,
+                &mut sdk_names,
+                options.trace,
+            );
             EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps: trap_count(f), copies, text }
         })
         .collect();
     let mut types = define_types(module);
+    // The SDK's names the functions read their constants as, each with the value it stands for in
+    // the type it was used at; two uses at different widths keep the second numeric.
+    if !sdk_names.is_empty() {
+        let mut defines = String::from("// The SDK's names of the constants passed to and read from the Windows API.\n");
+        for (name, literal) in &sdk_names {
+            let _ = writeln!(defines, "#define {name} {literal}");
+        }
+        defines.push('\n');
+        types.insert_str(0, &defines);
+    }
     if !classes.is_empty() {
         types.push('\n');
         types.push_str(&crate::cpp::declare(classes, &by_name));
@@ -432,8 +466,26 @@ fn label(b: BlockId, f: &Function) -> String {
     format!("L_{s}")
 }
 
-/// The structure type of a packed data global, which its declaration and its definition share.
-fn global_type(out: &mut String, g: &ra_asm_ir::Global) {
+/// The structure type of a packed data global, which its declaration and its definition share:
+/// the typed fields of its layout when its uses gave it one, the IR's byte runs and words else.
+fn global_type(out: &mut String, g: &ra_asm_ir::Global, layout: Option<&Layout>) {
+    if let Some(layout) = layout {
+        let _ = write!(out, "RA_PACKED_BEGIN struct {}_t {{ ", g.name);
+        for field in &layout.fields {
+            let ty = match &field.elem {
+                Elem::Bytes => "uint8_t".to_owned(),
+                Elem::Char => "char".to_owned(),
+                Elem::Word(ty) | Elem::Value(ty) => c_type(ty),
+            };
+            if field.array {
+                let _ = write!(out, "{ty} {}[{}]; ", field.name(), field.count);
+            } else {
+                let _ = write!(out, "{ty} {}; ", field.name());
+            }
+        }
+        let _ = writeln!(out, "}} RA_PACKED_END;");
+        return;
+    }
     if let (Type::Packed(fields), Some(Const::Struct(_))) = (&g.ty, &g.init) {
         let _ = write!(out, "RA_PACKED_BEGIN struct {}_t {{ ", g.name);
         for (i, field) in fields.iter().enumerate() {
@@ -468,8 +520,12 @@ fn storage_of(g: &ra_asm_ir::Global) -> &'static str {
 }
 
 /// The `extern` declaration of a data global, for the files that do not define it.
-fn declare_global(out: &mut String, g: &ra_asm_ir::Global) {
+fn declare_global(out: &mut String, g: &ra_asm_ir::Global, layout: Option<&Layout>) {
     let storage = storage_of(g);
+    if layout.is_some() {
+        let _ = writeln!(out, "extern {storage}struct {}_t {};", g.name, g.name);
+        return;
+    }
     match (&g.ty, &g.init) {
         (Type::Array(n, e), Some(Const::Bytes(_) | Const::Zero)) if **e == Type::I8 => {
             let _ = writeln!(out, "extern {storage}uint8_t {}[{n}];", g.name);
@@ -493,8 +549,12 @@ fn declare_global(out: &mut String, g: &ra_asm_ir::Global) {
 /// The definition of a data global, with its initializer. The type of a packed global comes from
 /// [`global_type`] first. An address in a word narrower than a pointer is written by a statement
 /// in `init` instead, at run time.
-fn define_global(out: &mut String, init: &mut String, g: &ra_asm_ir::Global) {
+fn define_global(out: &mut String, init: &mut String, g: &ra_asm_ir::Global, layout: Option<&Layout>) {
     let storage = storage_of(g);
+    if let Some(layout) = layout {
+        define_laid_out(out, init, g, layout, storage);
+        return;
+    }
     match (&g.ty, &g.init) {
         (Type::Array(n, e), Some(Const::Bytes(bytes))) if **e == Type::I8 => {
             let _ = write!(out, "{storage}uint8_t {}[{n}] RA_ALIGNED(16) = {{", g.name);
@@ -513,45 +573,13 @@ fn define_global(out: &mut String, init: &mut String, g: &ra_asm_ir::Global) {
                 if i > 0 {
                     out.push_str(", ");
                 }
-                let narrow = field.size(8).is_some_and(|s| s < 8);
                 match item {
                     Const::Bytes(bytes) => {
                         out.push('{');
                         emit_bytes(out, bytes);
                         out.push('}');
                     }
-                    Const::Int(v) => {
-                        let _ = write!(out, "{v}ull");
-                    }
-                    Const::Address { global, offset } if narrow => {
-                        out.push('0');
-                        let _ = writeln!(
-                            init,
-                            "    *({} *)((uint8_t *)&{} + {offset_in}) = ({})(uintptr_t)((uint8_t *)&{global} + {offset});",
-                            access_type(field, 1),
-                            g.name,
-                            c_type(field)
-                        );
-                    }
-                    Const::Address { global, offset } => {
-                        let _ = write!(out, "({})((uint8_t *)&{global} + {offset})", c_type(field));
-                    }
-                    Const::Global(name) if narrow => {
-                        out.push('0');
-                        let _ = writeln!(
-                            init,
-                            "    *({} *)((uint8_t *)&{} + {offset_in}) = ({})(uintptr_t)&{name};",
-                            access_type(field, 1),
-                            g.name,
-                            c_type(field)
-                        );
-                    }
-                    Const::Global(name) => {
-                        let _ = write!(out, "({})&{name}", c_type(field));
-                    }
-                    other => {
-                        let _ = write!(out, "0 /* {other:?} */");
-                    }
+                    other => word_item(out, init, &g.name, field, other, offset_in),
                 }
                 offset_in += field.size(8).unwrap_or(0);
             }
@@ -581,6 +609,127 @@ fn define_global(out: &mut String, init: &mut String, g: &ra_asm_ir::Global) {
     }
 }
 
+/// The initializer of one address word of a data global, of the IR type `field`, at `offset_in`
+/// bytes into the global: an integer as it is, an address cast to the word's type, and an
+/// address in a word narrower than a host pointer as `0` plus a statement in `init`.
+fn word_item(out: &mut String, init: &mut String, global_name: &str, field: &Type, item: &Const, offset_in: u64) {
+    let narrow = field.size(8).is_some_and(|s| s < 8);
+    match item {
+        Const::Int(v) => {
+            let _ = write!(out, "{v}ull");
+        }
+        Const::Address { global, offset } if narrow => {
+            out.push('0');
+            let _ = writeln!(
+                init,
+                "    *({} *)((uint8_t *)&{global_name} + {offset_in}) = ({})(uintptr_t)((uint8_t *)&{global} + {offset});",
+                access_type(field, 1),
+                c_type(field)
+            );
+        }
+        Const::Address { global, offset } => {
+            let _ = write!(out, "({})((uint8_t *)&{global} + {offset})", c_type(field));
+        }
+        Const::Global(name) if narrow => {
+            out.push('0');
+            let _ = writeln!(
+                init,
+                "    *({} *)((uint8_t *)&{global_name} + {offset_in}) = ({})(uintptr_t)&{name};",
+                access_type(field, 1),
+                c_type(field)
+            );
+        }
+        Const::Global(name) => {
+            let _ = write!(out, "({})&{name}", c_type(field));
+        }
+        other => {
+            let _ = write!(out, "0 /* {other:?} */");
+        }
+    }
+}
+
+/// The definition of a data global through its layout: each field initialized from the bytes it
+/// covers, the words as [`word_item`] writes them, a string as its literal, a float as its
+/// decimal. A zero-initialized section has no initializer.
+fn define_laid_out(out: &mut String, init: &mut String, g: &ra_asm_ir::Global, layout: &Layout, storage: &str) {
+    let _ = write!(out, "{storage}struct {}_t {} RA_ALIGNED(16)", g.name, g.name);
+    if matches!(g.init, Some(Const::Zero)) {
+        let _ = writeln!(out, ";");
+        return;
+    }
+    out.push_str(" = { ");
+    for (i, field) in layout.fields.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        match &field.elem {
+            Elem::Bytes => {
+                out.push('{');
+                emit_bytes(out, &layout.bytes[field.offset as usize..field.end() as usize]);
+                out.push('}');
+            }
+            Elem::Char => {
+                // The run without its NUL: the literal supplies it.
+                out.push_str(&crate::layout::string_literal(&layout.bytes[field.offset as usize..field.end() as usize - 1]));
+            }
+            Elem::Word(ty) => {
+                if field.array {
+                    out.push_str("{ ");
+                }
+                for n in 0..field.count {
+                    if n > 0 {
+                        out.push_str(", ");
+                    }
+                    let offset = field.offset + n * field.elem_size();
+                    match layout.words.get(&offset) {
+                        Some((_, item)) => word_item(out, init, &g.name, ty, item, offset),
+                        None => out.push('0'),
+                    }
+                }
+                if field.array {
+                    out.push_str(" }");
+                }
+            }
+            Elem::Value(ty) => {
+                if field.array {
+                    out.push('{');
+                }
+                for n in 0..field.count {
+                    if field.array && n % 16 == 0 {
+                        out.push_str("\n    ");
+                    } else if n > 0 {
+                        out.push(' ');
+                    }
+                    out.push_str(&value_literal(ty, layout.element(field, n)));
+                    if field.array {
+                        out.push(',');
+                    }
+                }
+                if field.array {
+                    out.push_str("\n}");
+                }
+            }
+        }
+    }
+    let _ = writeln!(out, " }};");
+}
+
+/// The literal of an integer or float value from its little-endian bytes, in its C type.
+fn value_literal(ty: &Type, bytes: &[u8]) -> String {
+    if let Some(literal) = crate::layout::float_literal(ty, bytes) {
+        return literal;
+    }
+    let mut v = 0u64;
+    for (n, b) in bytes.iter().enumerate() {
+        v |= u64::from(*b) << (8 * n);
+    }
+    match ty {
+        Type::Int(64) => format!("{v}ull"),
+        Type::Int(32) => format!("{v}u"),
+        _ => v.to_string(),
+    }
+}
+
 fn emit_bytes(out: &mut String, bytes: &[u8]) {
     for (i, b) in bytes.iter().enumerate() {
         if i % 32 == 0 {
@@ -602,7 +751,10 @@ fn emit_function(
     prototype: &str,
     source_name: Option<&str>,
     types: &[(String, Vec<Type>)],
+    layouts: &HashMap<String, Layout>,
     method: Option<(&crate::cpp::Class, &crate::cpp::Method)>,
+    sdk_names: &mut BTreeMap<String, String>,
+    trace: bool,
 ) -> (usize, usize) {
     let mut header_lines = 0;
     if let Some(address) = f.address {
@@ -632,18 +784,96 @@ fn emit_function(
         let ty = &f.ty.params[0];
         let _ = writeln!(out, "    {} = ({})(uintptr_t)this;", declaration(ty, &name(f, f.params[0])), c_type(ty));
     }
+    // The trace hooks name the function as the table does, so the reference's trace, recorded by
+    // address and named through the table, reads the same.
+    let traced = trace.then(|| source_name.unwrap_or(&f.name).to_owned());
+    if let Some(traced) = &traced {
+        let mut kinds = String::new();
+        let mut args = String::new();
+        for (ty, v) in f.ty.params.iter().zip(&f.params) {
+            let v = name(f, *v);
+            let (kind, arg) = match ty {
+                Type::Int(_) => ('u', format!("(uint64_t){v}")),
+                Type::Ptr | Type::Func(_) => ('p', format!("(uint64_t)(uintptr_t){v}")),
+                Type::Double => ('f', format!("ra_f64_bits({v})")),
+                Type::Float => ('g', format!("ra_f32_bits({v})")),
+                _ => ('?', "(uint64_t)0".to_owned()),
+            };
+            kinds.push(kind);
+            args.push_str(", ");
+            args.push_str(&arg);
+        }
+        let _ = writeln!(out, "    ra_trace_enter(\"{traced}\", \"{kinds}\"{args});");
+    }
     let graph = Graph::of(f);
     let structured = structure(f, &graph);
-    let mut e = Emitter::new(f, &structured.labels, types);
+    let mut e = Emitter::new(f, &structured.labels, types, layouts, std::mem::take(sdk_names), traced);
     e.plan_loops(&structured.body, &graph);
     e.declare_locals(out);
     e.stmts(out, &structured.body, 1);
     let _ = writeln!(out, "}}");
+    *sdk_names = e.names.into_inner();
     if let Some((class, m)) = method {
         out.push('\n');
         crate::cpp::trampoline(out, f, class, m, prototype);
     }
     (header_lines, structured.copies())
+}
+
+/// The values of `f` the Windows API types with an enumeration: the result of a call to an import
+/// whose prototype binds one, a value passed in a parameter that binds one, and, to a fixpoint,
+/// what is cast, frozen, selected or carried by a phi from them.
+fn enumerations(f: &Function) -> HashMap<ValueId, &'static str> {
+    let mut out: HashMap<ValueId, &'static str> = HashMap::new();
+    for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+        let Inst::Call { callee: Callee::Direct(callee), args, .. } = &i.inst else { continue };
+        let Some((result, params)) = prototypes::named(callee) else { continue };
+        if let (Some(v), Some(e)) = (i.result, result) {
+            out.insert(v, e);
+        }
+        for ((_, arg), e) in args.iter().zip(params) {
+            if let (Operand::Local(v), Some(e)) = (arg, e) {
+                out.entry(*v).or_insert(e);
+            }
+        }
+    }
+    loop {
+        let mut changed = false;
+        for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+            let Some(v) = i.result else { continue };
+            if out.contains_key(&v) {
+                continue;
+            }
+            let sources: Vec<&Operand> = match &i.inst {
+                Inst::Cast { cast: Cast::Trunc | Cast::ZExt | Cast::SExt, value, .. } | Inst::Freeze { value, .. } => vec![value],
+                Inst::Select { then, els, .. } => vec![then, els],
+                Inst::Phi { incoming, .. } => incoming.iter().map(|(o, _)| o).collect(),
+                _ => continue,
+            };
+            let typed = sources.iter().find_map(|o| match o {
+                Operand::Local(s) => out.get(s).copied(),
+                _ => None,
+            });
+            if let Some(e) = typed {
+                out.insert(v, e);
+                changed = true;
+            }
+        }
+        if !changed {
+            return out;
+        }
+    }
+}
+
+/// The literal a name's `#define` holds: the value in the type of the use, in hexadecimal.
+fn define_literal(ty: &Type, value: u64, bits: u32) -> String {
+    let value = if bits >= 64 { value } else { value & ((1u64 << bits) - 1) };
+    match ty {
+        Type::Ptr => format!("((uint8_t *){value:#x}ull)"),
+        Type::Int(64) => format!("{value:#x}ull"),
+        Type::Int(32) => format!("{value:#x}u"),
+        _ => format!("(({}){value:#x})", c_type(ty)),
+    }
 }
 
 struct Emitter<'a> {
@@ -652,6 +882,8 @@ struct Emitter<'a> {
     defs: Defs<'a>,
     /// The named struct types of the module.
     types: &'a [(String, Vec<Type>)],
+    /// The typed layouts of the data sections, by global: an access into one reads as its field.
+    layouts: &'a HashMap<String, Layout>,
     /// The locals that point at a struct: each is declared as `struct S *`, and reads as a
     /// `uint8_t *` through a cast everywhere but at its fields.
     struct_of: HashMap<ValueId, &'a str>,
@@ -669,6 +901,16 @@ struct Emitter<'a> {
     /// The aliases of the `for` condition being written: the condition runs after the step, where
     /// each next-round value is already in its phi.
     cond_alias: Vec<(ValueId, ValueId)>,
+    /// The enumeration of the values the Windows API typed: the result of a call whose prototype
+    /// names one, a value passed in such a parameter, and what is cast or carried from them.
+    enum_of: HashMap<ValueId, &'static str>,
+    /// The SDK's names written so far, each with the literal its `#define` holds: a name read at
+    /// another width keeps that use numeric, so the define stays one.
+    names: RefCell<BTreeMap<String, String>>,
+    /// The switches written so far: each over a plain value gets its own `enum`.
+    switches: Cell<usize>,
+    /// The name every return records its result under, when the function is traced.
+    traced: Option<String>,
 }
 
 /// A `do ... while` loop written as `for (init; cond; step)` over the phis of its header, which
@@ -702,10 +944,20 @@ struct StrlenLoop {
     base: Operand,
     ty: Type,
     offset: i128,
+    /// The pure values the header computes for the code after the loop (a widened copy of the
+    /// index): written after the call, at their last iteration's value.
+    carried: Vec<ValueId>,
 }
 
 impl<'a> Emitter<'a> {
-    fn new(f: &'a Function, labels: &'a HashSet<BlockId>, types: &'a [(String, Vec<Type>)]) -> Self {
+    fn new(
+        f: &'a Function,
+        labels: &'a HashSet<BlockId>,
+        types: &'a [(String, Vec<Type>)],
+        layouts: &'a HashMap<String, Layout>,
+        names: BTreeMap<String, String>,
+        traced: Option<String>,
+    ) -> Self {
         let defs = Defs::new(f);
         let mut struct_of = HashMap::new();
         for i in f.blocks.iter().flat_map(|b| &b.instrs) {
@@ -722,6 +974,7 @@ impl<'a> Emitter<'a> {
             labels,
             defs,
             types,
+            layouts,
             struct_of,
             for_loops: HashMap::new(),
             strlen_loops: HashMap::new(),
@@ -729,7 +982,65 @@ impl<'a> Emitter<'a> {
             skipped: HashSet::new(),
             alias: HashMap::new(),
             cond_alias: Vec::new(),
+            enum_of: enumerations(f),
+            names: RefCell::new(names),
+            switches: Cell::new(0),
+            traced,
         }
+    }
+
+    /// The SDK's name of the constant `v` of `ty` in `enumeration`, or `None` where the names do
+    /// not cover it or the name is already defined at another width. Flags read or-ed in
+    /// parentheses. Each name's define is recorded with the literal of its own value in `ty`.
+    fn sdk_name(&self, ty: &Type, enumeration: &str, v: i128) -> Option<String> {
+        let bits = match ty {
+            Type::Ptr => 64,
+            Type::Int(n) if *n >= 8 => u32::from(*n),
+            _ => return None,
+        };
+        let parts = prototypes::constant_name(enumeration, v as u64, bits)?;
+        let mut names = self.names.borrow_mut();
+        // One name stands for the constant as it is (a `DWORD` member in a 64-bit argument keeps
+        // the argument's bits); flags each for their own bit.
+        let literals: Vec<(&str, String)> =
+            parts.iter().map(|(name, value)| (*name, define_literal(ty, if parts.len() == 1 { v as u64 } else { *value }, bits))).collect();
+        if literals.iter().any(|(name, literal)| names.get(*name).is_some_and(|known| known != literal)) {
+            return None;
+        }
+        for (name, literal) in &literals {
+            names.entry((*name).to_owned()).or_insert_with(|| literal.clone());
+        }
+        let text: Vec<&str> = parts.iter().map(|(name, _)| *name).collect();
+        Some(if text.len() == 1 { text[0].to_owned() } else { format!("({})", text.join(" | ")) })
+    }
+
+    /// The `enum` of a switch over a plain value: its tag (`classify_case`, numbered from the
+    /// second switch of a function on) and the prefix of its enumerators (`CLASSIFY_0`), when the
+    /// subject is at most 32 bits wide and every case is an `int`, which C's enumerators must be.
+    /// A wider subject cast to the enum would alias cases; it keeps its numbers.
+    fn case_enum(&self, ty: &Type, cases: &[crate::structure::Case]) -> Option<(String, String)> {
+        if !matches!(ty, Type::Int(1..=32)) {
+            return None;
+        }
+        let values: Vec<i128> = cases.iter().flat_map(|c| c.values.iter().map(|v| sign_extended(ty, *v))).collect();
+        if values.is_empty() || values.iter().any(|v| i32::try_from(*v).is_err()) {
+            return None;
+        }
+        let n = self.switches.get() + 1;
+        self.switches.set(n);
+        let base = self.f.name.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let tag = if n == 1 { format!("{base}_case") } else { format!("{base}_case{n}") };
+        let prefix = if n == 1 { base.to_ascii_uppercase() } else { format!("{}_{n}", base.to_ascii_uppercase()) };
+        Some((tag, prefix))
+    }
+
+    /// The constant `k` as the name the other operand's enumeration gives it, else as a number.
+    fn named_or_constant(&self, ty: &Type, other: &Operand, k: i128) -> String {
+        let named = match other {
+            Operand::Local(v) => self.enum_of.get(v).and_then(|e| self.sdk_name(ty, e, k)),
+            _ => None,
+        };
+        named.unwrap_or_else(|| Self::int_constant(ty, k))
     }
 
     /// Decides the `for` loops of the body, at any depth, before the locals are declared.
@@ -872,7 +1183,9 @@ impl<'a> Emitter<'a> {
         let (&[pre], &[_]) = (outside.as_slice(), inside.as_slice()) else { return None };
         let mut phi: Option<(ValueId, Operand, Operand)> = None;
         let mut next = None;
-        for i in &self.f.block(header)?.instrs {
+        let mut carried = Vec::new();
+        let block = self.f.block(header)?;
+        for i in &block.instrs {
             match (&i.inst, i.result) {
                 (Inst::Phi { incoming, .. }, Some(p)) => {
                     if phi.is_some() {
@@ -887,12 +1200,18 @@ impl<'a> Emitter<'a> {
                     next = Some(n);
                 }
                 (_, Some(v)) if self.inlinable(v) => {}
+                (inst, Some(v)) if !inst.has_side_effects() => carried.push(v),
                 _ => return None,
             }
         }
         let (phi, init, stepped) = phi?;
         let next = next?;
         if stepped != Operand::Local(next) {
+            return None;
+        }
+        // A carried value is for the code after the loop only: nothing in the loop reads it.
+        let read_in_loop = |v: ValueId| block.instrs.iter().any(|i| i.inst.uses().contains(&v)) || block.terminator.uses().contains(&v);
+        if carried.iter().any(|&v| read_in_loop(v)) {
             return None;
         }
         // The test: the byte is not zero.
@@ -936,7 +1255,7 @@ impl<'a> Emitter<'a> {
             return None;
         }
         let mask = if bits >= 128 { -1 } else { (1i128 << bits) - 1 };
-        Some(StrlenLoop { phi, init, next, base: base?, ty, offset: offset & mask })
+        Some(StrlenLoop { phi, init, next, base: base?, ty, offset: offset & mask, carried })
     }
 
     /// The terms of a sum written inline: `(a + b) + 3` is `a`, `b`, `3`.
@@ -982,6 +1301,11 @@ impl<'a> Emitter<'a> {
             && let Some((_, _, inst)) = self.def(s.next)
         {
             let _ = writeln!(out, "{pad}{} = {};", name(f, s.next), strip_parens(&self.expr(inst)));
+        }
+        for v in &s.carried {
+            if let Some((_, _, inst)) = self.def(*v) {
+                let _ = writeln!(out, "{pad}{} = {};", name(f, *v), strip_parens(&self.expr(inst)));
+            }
         }
         self.moves(out, header, depth);
     }
@@ -1038,12 +1362,44 @@ impl<'a> Emitter<'a> {
     }
 
     /// The expression of a memory access of `ty` at `ptr`: the field itself when `ptr` names one
-    /// of its type, the field's bytes through a cast when the types differ, the raw access else.
+    /// of its type, the field's bytes through a cast when the types differ, a data section's
+    /// typed field or element when `ptr` addresses one, the raw access else.
     fn access(&self, ty: &Type, align: u32, ptr: &Operand) -> String {
         match self.field_access(ptr) {
             Some((field, field_ty)) if field_ty == ty => field,
             Some((field, _)) => format!("*({} *)&{field}", access_type(ty, align)),
-            None => format!("*({} *)({})", access_type(ty, align), self.operand(&Type::Ptr, ptr)),
+            None => match self.section_access(ty, ptr) {
+                Some(access) => access,
+                None => format!("*({} *)({})", access_type(ty, align), self.operand(&Type::Ptr, ptr)),
+            },
+        }
+    }
+
+    /// A data section's field at `ptr` in the type of the access: `sec_rdata.f96` for a scalar,
+    /// `sec_rdata.f32[i]` for an element, `None` where the access does not fit the layout.
+    fn section_access(&self, ty: &Type, ptr: &Operand) -> Option<String> {
+        let p = crate::layout::place(&self.defs, ptr)?;
+        let layout = self.layouts.get(&p.global)?;
+        let offset = u64::try_from(p.offset).ok()?;
+        let field = layout.field_at(offset)?;
+        if field.elem_type().as_ref() != Some(ty) {
+            return None;
+        }
+        let size = field.elem_size();
+        let rel = offset - field.offset;
+        if rel % size != 0 {
+            return None;
+        }
+        let base = rel / size;
+        let name = format!("{}.{}", p.global, field.name());
+        match p.index {
+            None if field.array => Some(format!("{name}[{base}]")),
+            None => Some(name),
+            Some(index) if field.array && index.scale == size => {
+                let i = self.operand(&index.ty, &index.value);
+                Some(if base == 0 { format!("{name}[{i}]") } else { format!("{name}[{i} + {base}]") })
+            }
+            Some(_) => None,
         }
     }
 
@@ -1115,7 +1471,11 @@ impl<'a> Emitter<'a> {
                     "0".into()
                 }
             }
-            Type::Int(128) => format!("((ra_u128){}ull)", v as u64),
+            Type::Int(128) => {
+                // C has no 128-bit literal: the high half shifted over the low one.
+                let (high, low) = ((v as u128 >> 64) as u64, v as u64);
+                if high == 0 { format!("((ra_u128){low}ull)") } else { format!("(((ra_u128){high}ull << 64) | {low}ull)") }
+            }
             Type::Int(64) => {
                 let u = v as u64;
                 if u > 0x8000_0000_0000_0000 { format!("(uint64_t)-{}", u.wrapping_neg()) } else { format!("{u}ull") }
@@ -1163,11 +1523,14 @@ impl<'a> Emitter<'a> {
                 _ => format!("ra_f64({:#x}ull)", v.to_bits()),
             },
             Operand::Global(name) => format!("((uint8_t *)&{name})"),
-            Operand::Address { global, offset } => match ty {
-                Type::Ptr => format!("((uint8_t *)&{global} + {offset})"),
-                // Through uintptr_t: a 32-bit program's address is the low half of the host's.
-                other => format!("({})(uintptr_t)((uint8_t *)&{global} + {offset})", c_type(other)),
-            },
+            Operand::Address { global, offset } => {
+                let pointer = if *offset == 0 { format!("(uint8_t *)&{global}") } else { format!("((uint8_t *)&{global} + {offset})") };
+                match ty {
+                    Type::Ptr => pointer,
+                    // Through uintptr_t: a 32-bit program's address is the low half of the host's.
+                    other => format!("({})(uintptr_t){pointer}", c_type(other)),
+                }
+            }
             Operand::Null => "(uint8_t *)0".into(),
             Operand::Undef => match ty {
                 Type::Ptr => "(uint8_t *)0".into(),
@@ -1203,7 +1566,11 @@ impl<'a> Emitter<'a> {
                 if *ty == Type::I1 && *op == BinOp::Xor && rhs == Operand::Int(1) {
                     return format!("!{}", parenthesized(&a));
                 }
-                let b = self.operand(ty, &rhs);
+                // A mask over a value the API typed reads as the SDK's flags.
+                let b = match (&op, &rhs) {
+                    (BinOp::And | BinOp::Or | BinOp::Xor, Operand::Int(k)) => self.named_or_constant(ty, lhs, *k),
+                    _ => self.operand(ty, &rhs),
+                };
                 // C promotes a type narrower than int, so the result needs the cast back; a
                 // 32-bit or 64-bit operation keeps its type.
                 let c = if matches!(ty, Type::Int(32 | 64)) { String::new() } else { format!("({c})") };
@@ -1228,7 +1595,12 @@ impl<'a> Emitter<'a> {
                 }
             }
             Inst::ICmp { cond, ty, lhs, rhs } => {
-                let (a, b) = (self.operand(ty, lhs), self.operand(ty, rhs));
+                // A constant against a value the API typed reads as the SDK's name.
+                let side = |o: &Operand, other: &Operand| match o {
+                    Operand::Int(k) => self.named_or_constant(ty, other, *k),
+                    _ => self.operand(ty, o),
+                };
+                let (a, b) = (side(lhs, rhs), side(rhs, lhs));
                 // A signed compare casts its operands; a constant reads as a signed number instead.
                 let signed = |o: &Operand, text: String| match o {
                     Operand::Int(v) => signed_constant(ty, *v),
@@ -1397,7 +1769,22 @@ impl<'a> Emitter<'a> {
                 format!("__builtin_shufflevector({}, {}, {})", self.operand(ty, a), self.operand(ty, b), m.join(", "))
             }
             Inst::Call { fn_ty, callee, args, .. } => {
-                let a: Vec<String> = args.iter().map(|(t, o)| strip_parens(&self.operand(t, o))).collect();
+                // A constant in a parameter the prototype table binds to an enumeration reads as
+                // the SDK's name.
+                let params = match callee {
+                    Callee::Direct(name) => prototypes::named(name).map(|(_, params)| params).unwrap_or_default(),
+                    Callee::Indirect(_) => Vec::new(),
+                };
+                let a: Vec<String> = args
+                    .iter()
+                    .enumerate()
+                    .map(|(n, (t, o))| match (o, params.get(n).copied().flatten()) {
+                        (Operand::Int(k), Some(e)) => {
+                            self.sdk_name(t, e, *k).map_or_else(|| Self::int_constant(t, *k), |s| strip_parens(&s))
+                        }
+                        _ => strip_parens(&self.operand(t, o)),
+                    })
+                    .collect();
                 match callee {
                     // A funnel shift of one value by both halves is its rotate.
                     Callee::Direct(name) if name.starts_with("llvm.fsh") && a.len() == 3 && a[0] == a[1] => {
@@ -1439,29 +1826,58 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// An `if`, opened after `lead`: the block's indentation, or `} else ` when it continues a
+    /// chain. An else-branch that is one `if` continues the chain, so a dispatch over the classes
+    /// of a receiver reads as `if ... else if ... else`.
+    fn if_statement(&mut self, out: &mut String, cond: &Cond, then: &[Stmt], els: &[Stmt], depth: usize, lead: &str) {
+        let pad = "    ".repeat(depth);
+        // An empty then-branch reads better inverted: `if (!c) { ... }`.
+        let (cond, then, els) =
+            if then.is_empty() && !els.is_empty() { (Cond::Not(Box::new(cond.clone())), els, then) } else { (cond.clone(), then, els) };
+        let _ = writeln!(out, "{lead}if ({}) {{", strip_parens(&self.cond(&cond)));
+        self.stmts(out, then, depth + 1);
+        match els {
+            [] => {
+                let _ = writeln!(out, "{pad}}}");
+            }
+            // The blocks before the inner `if` hold its condition alone, which the `if` inlines.
+            [before @ .., Stmt::If { cond, then, els }] if before.iter().all(|s| self.silent(s)) => {
+                let _ = write!(out, "{pad}}} else ");
+                self.if_statement(out, cond, then, els, depth, "");
+            }
+            _ => {
+                let _ = writeln!(out, "{pad}}} else {{");
+                self.stmts(out, els, depth + 1);
+                let _ = writeln!(out, "{pad}}}");
+            }
+        }
+    }
+
+    /// Whether `s` is a block that prints nothing: no label, every instruction inlined, skipped
+    /// or an allocation, and no phi move to a successor.
+    fn silent(&self, s: &Stmt) -> bool {
+        let Stmt::Block(id) = s else { return false };
+        let Some(block) = self.f.block(*id) else { return true };
+        if self.labels.contains(id) {
+            return false;
+        }
+        let moves = self.defs.phi_moves.get(id).is_some_and(|moves| moves.iter().any(|(phi, _)| !self.hoisted.contains(phi)));
+        !moves
+            && block.instrs.iter().all(|i| match (&i.inst, i.result) {
+                (Inst::Phi { .. }, Some(v)) => self.hoisted.contains(&v),
+                (Inst::Alloca { .. }, _) => true,
+                (_, Some(v)) => self.skipped.contains(&v) || self.inlinable(v) || self.field_pointer(v),
+                (_, None) => false,
+            })
+    }
+
     fn stmt(&mut self, out: &mut String, s: &Stmt, depth: usize) {
         let pad = "    ".repeat(depth);
         match s {
             Stmt::Block(b) => self.block(out, *b, depth, true),
             Stmt::Copy(b) => self.block(out, *b, depth, false),
             Stmt::Moves(b) => self.moves(out, *b, depth),
-            Stmt::If { cond, then, els } => {
-                // An empty then-branch reads better inverted: `if (!c) { ... }`.
-                let (cond, then, els) = if then.is_empty() && !els.is_empty() {
-                    (Cond::Not(Box::new(cond.clone())), els, then)
-                } else {
-                    (cond.clone(), then, els)
-                };
-                let _ = writeln!(out, "{pad}if ({}) {{", strip_parens(&self.cond(&cond)));
-                self.stmts(out, then, depth + 1);
-                if els.is_empty() {
-                    let _ = writeln!(out, "{pad}}}");
-                } else {
-                    let _ = writeln!(out, "{pad}}} else {{");
-                    self.stmts(out, els, depth + 1);
-                    let _ = writeln!(out, "{pad}}}");
-                }
-            }
+            Stmt::If { cond, then, els } => self.if_statement(out, cond, then, els, depth, &pad),
             Stmt::Loop { header, body } => match do_while(body) {
                 Some(_) if self.strlen_loops.contains_key(header) => self.strlen_call(out, *header, depth),
                 Some((rest, cond)) if let Some(plan) = self.for_loops.remove(header) => {
@@ -1495,10 +1911,42 @@ impl<'a> Emitter<'a> {
                 let _ = writeln!(out, "{pad}goto {};", label(*b, self.f));
             }
             Stmt::Switch { ty, value, cases } => {
-                let _ = writeln!(out, "{pad}switch ({}) {{", strip_parens(&self.operand(ty, value)));
+                let subject = strip_parens(&self.operand(ty, value));
+                let enumeration = value.local().and_then(|v| self.enum_of.get(&v).copied());
+                let mut labels: HashMap<i128, String> = HashMap::new();
+                if let Some(e) = enumeration {
+                    // The cases of a value the API typed read as the SDK's names.
+                    for v in cases.iter().flat_map(|c| &c.values) {
+                        if let Some(name) = self.sdk_name(ty, e, *v) {
+                            labels.insert(*v, name);
+                        }
+                    }
+                    let _ = writeln!(out, "{pad}switch ({subject}) {{");
+                } else if let Some((tag, prefix)) = self.case_enum(ty, cases) {
+                    // A switch over a plain value reads over an enum of its cases: one per
+                    // switch, named after the function, with the subject cast to it.
+                    let mut members = Vec::new();
+                    for &raw in cases.iter().flat_map(|c| &c.values) {
+                        let v = sign_extended(ty, raw);
+                        let name = if v < 0 { format!("{prefix}_N{}", -v) } else { format!("{prefix}_{v}") };
+                        members.push(format!("{name} = {v}"));
+                        labels.insert(raw, name);
+                    }
+                    let _ = writeln!(out, "{pad}enum {tag} {{ {} }};", members.join(", "));
+                    let _ = writeln!(out, "{pad}switch ((enum {tag}){subject}) {{");
+                } else {
+                    let _ = writeln!(out, "{pad}switch ({subject}) {{");
+                }
                 for case in cases {
                     for v in &case.values {
-                        let _ = writeln!(out, "{pad}case {v}:");
+                        match labels.get(v) {
+                            Some(name) => {
+                                let _ = writeln!(out, "{pad}case {name}:");
+                            }
+                            None => {
+                                let _ = writeln!(out, "{pad}case {v}:");
+                            }
+                        }
                     }
                     if case.default {
                         let _ = writeln!(out, "{pad}default:");
@@ -1513,10 +1961,40 @@ impl<'a> Emitter<'a> {
                 let _ = writeln!(out, "{pad}}}");
             }
             Stmt::Return(None) => {
+                if let Some(traced) = &self.traced {
+                    let _ = writeln!(out, "{pad}ra_trace_leave(\"{traced}\");");
+                }
                 let _ = writeln!(out, "{pad}return;");
             }
             Stmt::Return(Some((ty, o))) => {
-                let _ = writeln!(out, "{pad}return {};", strip_parens(&self.operand(ty, o)));
+                let value = strip_parens(&self.operand(ty, o));
+                let Some(traced) = &self.traced else {
+                    let _ = writeln!(out, "{pad}return {value};");
+                    return;
+                };
+                // The result passes through the hook, which hands it back, so it is evaluated once.
+                match ty {
+                    Type::Int(bits) if *bits <= 64 => {
+                        let _ = writeln!(out, "{pad}return ({})ra_trace_ret(\"{traced}\", (uint64_t)({value}), {bits});", c_type(ty));
+                    }
+                    Type::Ptr | Type::Func(_) => {
+                        let _ = writeln!(
+                            out,
+                            "{pad}return ({})(uintptr_t)ra_trace_ret_ptr(\"{traced}\", (uint64_t)(uintptr_t)({value}));",
+                            c_type(ty)
+                        );
+                    }
+                    Type::Double => {
+                        let _ = writeln!(out, "{pad}return ra_trace_ret_f64(\"{traced}\", {value});");
+                    }
+                    Type::Float => {
+                        let _ = writeln!(out, "{pad}return ra_trace_ret_f32(\"{traced}\", {value});");
+                    }
+                    _ => {
+                        let _ = writeln!(out, "{pad}ra_trace_leave(\"{traced}\");");
+                        let _ = writeln!(out, "{pad}return {value};");
+                    }
+                }
             }
             Stmt::Unreachable => {
                 let _ = writeln!(out, "{pad}RA_UNREACHABLE();");

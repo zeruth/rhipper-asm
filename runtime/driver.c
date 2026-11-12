@@ -8,7 +8,8 @@
 // state: the driver gives it a stack and the runtime resolves indirect calls through the function
 // table. With RA_ABI (the raised IR), every lifted function has its own parameters and result: the
 // driver writes a trampoline at each function's image address, so a pointer into the image, held by
-// lifted or native code, reaches the host function.
+// lifted or native code, reaches the host function. With RA_DLL the port is a DLL and the driver
+// is its DllMain rather than a main.
 //
 // The runtime functions the lifted code calls: ra_trap, ra_unsupported and ra_call.
 #include <fenv.h>
@@ -54,6 +55,7 @@ static const char *trap_name(uint64_t code) {
     case 7: return "a switch to an address outside its table";
     case 8: return "bytes that are no instruction";
     case 9: return "a software interrupt";
+    case 10: return "a call through a vtable slot to a function outside the vtables";
     default: return "a trap";
     }
 }
@@ -70,6 +72,86 @@ void ra_enter(const char *name) {
     fputs(name, stderr);
     fputs("\n", stderr);
     fflush(stderr);
+}
+
+// The trace of a port emitted with tracing: `> name(args)` at entry, `< name = value:kind` at a
+// return (`:p` a pointer, `:f64` and `:f32` the bits of a floating result, `:N` an integer of N
+// bits), `< name` at a return of no recordable value. Each line is flushed as it is written, so a
+// crash keeps the trace up to it.
+static FILE *trace_file(void) {
+    static FILE *file;
+    if (!file) {
+        char path[MAX_PATH];
+        DWORD length = GetEnvironmentVariableA("RHIPPER_TRACE", path, sizeof path);
+        if (length > 0 && length < sizeof path && fopen_s(&file, path, "w") != 0) file = NULL;
+        if (!file) file = stderr;
+    }
+    return file;
+}
+
+uint64_t ra_f64_bits(double value) {
+    uint64_t bits;
+    memcpy(&bits, &value, sizeof bits);
+    return bits;
+}
+
+uint64_t ra_f32_bits(float value) {
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof bits);
+    return bits;
+}
+
+void ra_trace_enter(const char *name, const char *kinds, ...) {
+    FILE *file = trace_file();
+    va_list args;
+    va_start(args, kinds);
+    fprintf(file, "> %s(", name);
+    for (const char *k = kinds; *k; k++) {
+        uint64_t value = va_arg(args, uint64_t);
+        if (k != kinds) fputs(", ", file);
+        switch (*k) {
+        case 'f': case 'g': fprintf(file, "f:0x%llx", (unsigned long long)value); break;
+        case '?': fputs("?", file); break;
+        default: fprintf(file, "0x%llx", (unsigned long long)value); break;
+        }
+    }
+    va_end(args);
+    fputs(")\n", file);
+    fflush(file);
+}
+
+uint64_t ra_trace_ret(const char *name, uint64_t value, unsigned bits) {
+    FILE *file = trace_file();
+    fprintf(file, "< %s = 0x%llx:%u\n", name, (unsigned long long)value, bits);
+    fflush(file);
+    return value;
+}
+
+uint64_t ra_trace_ret_ptr(const char *name, uint64_t value) {
+    FILE *file = trace_file();
+    fprintf(file, "< %s = 0x%llx:p\n", name, (unsigned long long)value);
+    fflush(file);
+    return value;
+}
+
+double ra_trace_ret_f64(const char *name, double value) {
+    FILE *file = trace_file();
+    fprintf(file, "< %s = f:0x%llx:f64\n", name, (unsigned long long)ra_f64_bits(value));
+    fflush(file);
+    return value;
+}
+
+float ra_trace_ret_f32(const char *name, float value) {
+    FILE *file = trace_file();
+    fprintf(file, "< %s = f:0x%llx:f32\n", name, (unsigned long long)ra_f32_bits(value));
+    fflush(file);
+    return value;
+}
+
+void ra_trace_leave(const char *name) {
+    FILE *file = trace_file();
+    fprintf(file, "< %s\n", name);
+    fflush(file);
 }
 
 __declspec(noreturn) void ra_unsupported(uint64_t address, uint64_t code) {
@@ -1452,6 +1534,9 @@ static void attach_process(void) {
     attach_thread(DLL_PROCESS_ATTACH);
 }
 
+// The module the port is: the program itself, or the DLL the loader attached.
+static HMODULE ra_module;
+
 // A crash of the lifted code names the place: the host address as an offset into this module,
 // which llvm-symbolizer maps to the lifted function and the image address its line comment
 // carries, and for an access violation the address it touched. A vectored handler, so a program
@@ -1465,7 +1550,7 @@ static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
         && r->ExceptionCode != EXCEPTION_DATATYPE_MISALIGNMENT && r->ExceptionCode != EXCEPTION_IN_PAGE_ERROR) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
-    uintptr_t module = (uintptr_t)GetModuleHandleA(NULL);
+    uintptr_t module = (uintptr_t)ra_module;
     uintptr_t at = (uintptr_t)r->ExceptionAddress;
     fprintf(stderr, "ra: exception 0x%lx at 0x%llx", r->ExceptionCode, (unsigned long long)at);
     if (at >= module) fprintf(stderr, " (module+0x%llx)", (unsigned long long)(at - module));
@@ -1477,7 +1562,7 @@ static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-#ifdef RA_ABI
+#if defined(RA_ABI) && !defined(RA_DLL)
 // The entry, and the program's exit code: `main`'s result when the driver's startup stands in for
 // the runtime's (`RA_ENTRY_RETURNS`), else nothing the driver reads.
 static int ra_entry(void) {
@@ -1492,7 +1577,39 @@ static int ra_entry(void) {
 }
 #endif
 
+#ifdef RA_DLL
+#if !defined(RA_ABI) || !defined(RA_STANDALONE)
+#error "a DLL ports standalone at the ABI level: its data are the port's own and its exports are host functions"
+#endif
+// The port of a DLL is a DLL: the host's loader maps it, relocates it and resolves its imports,
+// and calls this with every reason as it would the program's own DllMain. The process attach is
+// the driver's startup, then the lifted DllMain with the loader's arguments; its answer at the
+// attach is the port's, so a DllMain that refuses fails the load as before. The handler that
+// reports a crash leaves with the DLL.
+static PVOID exception_handler;
+
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        ra_module = (HMODULE)instance;
+        exception_handler = AddVectoredExceptionHandler(1, on_exception);
+        attach_process();
+    }
+#ifdef RA_ENTRY_RETURNS
+    int ok = (int)RA_ENTRY_CALL(instance, reason, reserved) != 0;
+#else
+    int ok = 1;
+    RA_ENTRY_CALL(instance, reason, reserved);
+#endif
+    if (reason == DLL_PROCESS_ATTACH) eh_check_uncaught();
+    if (reason == DLL_PROCESS_DETACH && exception_handler) {
+        RemoveVectoredExceptionHandler(exception_handler);
+        exception_handler = NULL;
+    }
+    return ok ? TRUE : FALSE;
+}
+#else  // RA_DLL
 int main(int argc, char **argv) {
+    ra_module = GetModuleHandleA(NULL);
     AddVectoredExceptionHandler(1, on_exception);
     ra_argc = argc;
     ra_argv = argv;
@@ -1559,3 +1676,4 @@ int main(int argc, char **argv) {
 #endif
 #endif
 }
+#endif  // RA_DLL

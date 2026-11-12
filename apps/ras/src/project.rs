@@ -5,18 +5,22 @@
 //!   "name": "Game",
 //!   "exe": "ref/Game.exe",
 //!   "map": "ref/Game.map",
+//!   "signatures": ["sig/libcmt-14.51-x86.sig"],
 //!   "gen": "src/gen",
 //!   "lang": "c",
 //!   "x87": "double",
 //!   "sources": ["src", "vendor"],
 //!   "build": { "dir": "build/cmake", "config": "Release", "target": "Game" },
-//!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0, "compare": false }
+//!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0, "compare": false, "trace": false }
 //! }
 //! ```
 //!
 //! `exe` is the reference binary and the only required key. Every path is relative to the root.
 //! `map` is the link map of the reference build, which names its functions; without the key, the
-//! PDB or the `<exe>.map` beside the binary does, when there is one. `gen` is where `ras emit`
+//! PDB or the `<exe>.map` beside the binary does, when there is one. `signatures` lists library
+//! signatures (`ras signatures` files, or `.lib`/`.a`/`.obj` files to make them from) applied to
+//! the image before the analysis: a match names a library function and keeps its body out of the
+//! port. `gen` is where `ras emit`
 //! writes the translation and `lang` its language (`c`; `cpp` for the
 //! same source with C++ linkage; `rust` for a cargo package, built by cargo under `build/cargo`);
 //! `x87` is the floating-point unit the lift models for x87 code: `double` (the default, eight
@@ -27,7 +31,14 @@
 //! lists side processes that start before the port and stop after it, `timeout` in seconds stops
 //! a port that runs on, such as a game, and counts the run as alive, and `compare` runs the
 //! reference binary after the port with the same arguments, working directory and timeout and
-//! gives the run a verdict: `same`, `differs at line N` or `port crashed`.
+//! gives the run a verdict: `same`, `differs at line N` or `port crashed`; `trace` emits the port
+//! with the trace hooks and makes the run step record the port's trace of calls and returns with
+//! their values (`build/pipeline/port.trace`) and the reference's, under a debugger, with
+//! breakpoints at the port's functions (`reference.trace`), compared to the first event where
+//! they part, which names the function. When the reference is
+//! a DLL, the port is a DLL too and `run.exe` is the program that loads it (the game's executable,
+//! or a test host): the port's directory leads its DLL search, and the reference's directory the
+//! comparison run's.
 
 use std::path::{Path, PathBuf};
 
@@ -52,6 +63,9 @@ pub(crate) struct Run {
     pub timeout: Option<u64>,
     /// Whether the run step also runs the reference and compares the outputs.
     pub compare: bool,
+    /// Whether the port is emitted with the trace hooks and the run step records its trace beside
+    /// the reference's, compared to the first event where they part.
+    pub trace: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +75,8 @@ pub(crate) struct Project {
     pub exe: PathBuf,
     /// The link map that names the reference's functions, when the project names one.
     pub map: Option<PathBuf>,
+    /// The library signatures applied to the reference before the analysis.
+    pub signatures: Vec<PathBuf>,
     /// Where `ras emit` writes the translation.
     pub gen_dir: PathBuf,
     /// The language of the translation: `c`, `cpp` or `rust`.
@@ -115,6 +131,7 @@ impl Project {
                 .unwrap_or_default(),
             timeout: run.and_then(|r| r.get("timeout")).and_then(Value::as_u64).filter(|t| *t > 0),
             compare: run.and_then(|r| r.get("compare")).and_then(Value::as_bool).unwrap_or(false),
+            trace: run.and_then(|r| r.get("trace")).and_then(Value::as_bool).unwrap_or(false),
         };
         let x87 = match string("x87") {
             None => ra_asm_lift::X87Unit::Double,
@@ -123,6 +140,7 @@ impl Project {
         Ok(Self {
             exe: resolve(&exe),
             map: string("map").map(|m| resolve(&m)),
+            signatures: strings(obj.get("signatures")).iter().map(|s| resolve(s)).collect(),
             gen_dir: resolve(&string("gen").unwrap_or_else(|| "src/gen".into())),
             lang: string("lang").unwrap_or_else(|| "c".into()),
             x87,
@@ -134,12 +152,16 @@ impl Project {
     }
 
     /// Loads the reference image, with the names of its functions from the project's link map
-    /// when it names one.
+    /// when it names one, and the project's library signatures applied.
     pub(crate) fn load_image(&self) -> Result<ra_asm_pe::Image> {
-        match &self.map {
+        let mut image = match &self.map {
             Some(map) => ra_asm_pe::load_with_map(&self.exe, map),
             None => ra_asm_pe::load(&self.exe),
+        }?;
+        if !self.signatures.is_empty() {
+            crate::signatures::apply_files(&mut image, &self.signatures)?;
         }
+        Ok(image)
     }
 
     /// The build outputs the pipeline writes: `build/`.
@@ -157,14 +179,15 @@ impl Project {
         self.lang.eq_ignore_ascii_case("rust") || self.lang.eq_ignore_ascii_case("rs")
     }
 
-    /// The executable of the port: `run.exe`, else the binary of the cargo package under
+    /// The binary of the port: `run.exe` for a program, else the binary of the cargo package under
     /// `build/cargo` for Rust, else the target in the `CMake` output directory, in its
-    /// configuration's subdirectory (a Visual Studio generator) or not (Ninja).
-    pub(crate) fn port_exe(&self) -> PathBuf {
-        if let Some(exe) = &self.run.exe {
+    /// configuration's subdirectory (a Visual Studio generator) or not (Ninja). The port of a DLL
+    /// (`dll`) is the target's `.dll` there: `run.exe` is then the program that loads it.
+    pub(crate) fn port_binary(&self, dll: bool) -> PathBuf {
+        if !dll && let Some(exe) = &self.run.exe {
             return exe.clone();
         }
-        let name = format!("{}.exe", self.build.target);
+        let name = format!("{}.{}", self.build.target, if dll { "dll" } else { "exe" });
         if self.is_rust() {
             let profile = if self.build.config.eq_ignore_ascii_case("debug") { "debug" } else { "release" };
             return self.build_dir().join("cargo").join(profile).join(name);

@@ -145,6 +145,138 @@ fn the_whole_pipeline_builds_and_runs_the_port() {
     assert!(ok, "{text}");
 }
 
+/// With `run.trace`, the port records its calls and returns with their values and the reference's
+/// are recorded under the debugger at the same functions; the two compare the same. A port with
+/// one wrong function (`fib` returning one more) is found by the comparison in one run, which
+/// names the function.
+#[test]
+fn the_trace_beside_the_port_names_the_wrong_function() {
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    let dir = project_with(
+        "trace",
+        r#"{ "name": "control", "exe": "ref/control64.exe", "map": "ref/control.map", "run": { "compare": true, "trace": true } }"#,
+    );
+    std::fs::copy(root().join("testdata/bin/control64.map"), dir.join("ref/control.map")).unwrap();
+    let (ok, text) = ras(&dir, &[]);
+    assert!(ok, "{text}");
+    assert!(text.contains("verdict: same; trace: same, "), "{text}");
+    let port_trace = std::fs::read_to_string(dir.join("build/pipeline/port.trace")).unwrap();
+    let reference_trace = std::fs::read_to_string(dir.join("build/pipeline/reference.trace")).unwrap();
+    for trace in [&port_trace, &reference_trace] {
+        assert!(trace.contains("> fib(0xf") && trace.contains("< fib = 0x262") && trace.contains("> classify("), "{trace}");
+    }
+    let runs = std::fs::read_to_string(dir.join("build/pipeline/runs.jsonl")).unwrap();
+    let record: serde_json::Value = serde_json::from_str(runs.lines().last().unwrap()).unwrap();
+    assert!(record["trace"].as_str().is_some_and(|t| t.starts_with("same, ")), "{record}");
+    assert!(record["trace_function"].is_null() && record["trace_event"].is_null(), "{record}");
+
+    // One wrong function: fib's result off by one, in the port's C, then the build and the run.
+    let program = dir.join("src/gen/program.c");
+    let c = std::fs::read_to_string(&program).unwrap();
+    let patched = c.replacen("ra_trace_ret(\"fib\", (uint64_t)(", "ra_trace_ret(\"fib\", 1 + (uint64_t)(", 1);
+    assert_ne!(c, patched, "no traced return of fib in:\n{c}");
+    std::fs::write(&program, patched).unwrap();
+    let (ok, text) = ras(&dir, &["--from", "build"]);
+    assert!(ok, "{text}");
+    assert!(text.contains("; trace: parts at event ") && text.contains(" in fib: the port returned 0x"), "{text}");
+    let runs = std::fs::read_to_string(dir.join("build/pipeline/runs.jsonl")).unwrap();
+    let record: serde_json::Value = serde_json::from_str(runs.lines().last().unwrap()).unwrap();
+    assert_eq!(record["trace_function"], "fib", "{record}");
+    assert!(record["trace_event"].as_u64().is_some_and(|e| e > 0), "{record}");
+    assert!(record["verdict"].as_str().is_some_and(|v| v.starts_with("differs at line")), "{record}");
+}
+
+/// A program with resources: the emit step writes them beside the port (`resources.res` for the
+/// link, the string table decoded, the other resources as files), and the port CMake builds
+/// finds them through the calls the program made.
+#[test]
+fn the_pipeline_ports_a_program_with_resources() {
+    let dir = project_with("resources", r#"{ "name": "resources", "exe": "ref/resources64.exe", "run": { "compare": true } }"#);
+    std::fs::copy(root().join("testdata/bin/resources64.exe"), dir.join("ref/resources64.exe")).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    let strings = std::fs::read_to_string(dir.join("src/gen/resources/strings.txt")).unwrap();
+    assert_eq!(strings, "1\thello from the string table\n2\ta second string\n3\tthe third, with a tab\\tand quotes \"here\"\n");
+    assert_eq!(std::fs::read(dir.join("src/gen/resources/RCDATA/100.bin")).unwrap(), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert!(dir.join("src/gen/resources.res").is_file());
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    let (ok, text) = ras(&dir, &["--from", "build"]);
+    assert!(ok, "{text}");
+    assert!(text.contains("verdict: same"), "{text}");
+}
+
+/// A DLL ports as a DLL: the emit step writes the image's exports (by name and ordinal, the data
+/// export, the forwarder) as the definition file of the port and marks `image.h` with `RA_DLL`,
+/// the build makes a shared library, and the run step starts `run.exe`, the host that loads it,
+/// with the port's directory first on its DLL search and the reference's for the comparison; the
+/// host prints the same over both.
+#[test]
+fn the_pipeline_ports_a_dll() {
+    let dir = project_with(
+        "dll",
+        r#"{ "name": "exports", "exe": "ref/exports64.dll", "build": { "target": "exports64" },
+             "run": { "exe": "exports_host64.exe", "args": ["exports64.dll"], "compare": true } }"#,
+    );
+    std::fs::copy(root().join("testdata/bin/exports64.dll"), dir.join("ref/exports64.dll")).unwrap();
+    std::fs::copy(root().join("testdata/bin/exports_host64.exe"), dir.join("exports_host64.exe")).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    let def = std::fs::read_to_string(dir.join("src/gen/exports.def")).unwrap();
+    let (_, exports) = def.split_once("EXPORTS\n").unwrap_or_else(|| panic!("no EXPORTS in:\n{def}"));
+    assert_eq!(
+        exports,
+        "    ordinal_20 @20 NONAME\n    ra_add @21\n    ra_counter = sec_data @22 DATA\n    ra_tick = KERNEL32.GetTickCount @23\n    ra_twice @24\n"
+    );
+    assert!(std::fs::read_to_string(dir.join("src/gen/image.h")).unwrap().contains("#define RA_DLL 1\n"));
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    let (ok, text) = ras(&dir, &["--from", "build"]);
+    assert!(ok, "{text}");
+    let bin = dir.join("build/cmake/bin");
+    assert!(bin.join("exports64.dll").is_file() || bin.join("Release/exports64.dll").is_file(), "no exports64.dll under {}", bin.display());
+    assert!(text.contains("verdict: same"), "{text}");
+    let expected = std::fs::read_to_string(root().join("testdata/expected/exports.txt")).unwrap();
+    for log in ["run.log", "reference.log"] {
+        let text = std::fs::read_to_string(dir.join("build/pipeline").join(log)).unwrap().replace("\r\n", "\n");
+        assert!(text.contains(expected.trim_end()), "{log}:\n{text}");
+    }
+}
+
+/// The 32-bit DLL ports as a 64-bit DLL that keeps the program's 32-bit pointers: the 64-bit host
+/// built without large-address awareness loads it and calls its exports as a 64-bit program
+/// would. The reference needs a 32-bit host, so the run is compared with the native output only.
+#[test]
+fn the_pipeline_ports_a_32_bit_dll() {
+    let dir = project_with(
+        "dll32",
+        r#"{ "name": "exports", "exe": "ref/exports32.dll", "build": { "target": "exports32" },
+             "run": { "exe": "exports_host64.exe", "args": ["exports32.dll"] } }"#,
+    );
+    std::fs::copy(root().join("testdata/bin/exports32.dll"), dir.join("ref/exports32.dll")).unwrap();
+    std::fs::copy(root().join("testdata/bin/exports_host64.exe"), dir.join("exports_host64.exe")).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    let def = std::fs::read_to_string(dir.join("src/gen/exports.def")).unwrap();
+    assert!(def.contains("    ra_add @21\n") && def.contains("    ra_counter = sec_data @22 DATA\n"), "{def}");
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    let (ok, text) = ras(&dir, &["--from", "build"]);
+    assert!(ok, "{text}");
+    let expected = std::fs::read_to_string(root().join("testdata/expected/exports.txt")).unwrap();
+    let run_log = std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
+    assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
+}
+
 /// A Rust project: the emit step writes a cargo package, the build step runs cargo, and the port
 /// prints what the reference prints.
 #[test]

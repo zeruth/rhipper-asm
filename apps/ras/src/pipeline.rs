@@ -5,7 +5,12 @@
 //! `[  12s] build failed: stopping` and the pipeline ends; the last line of a whole run is `done`.
 //! Every run of the port appends a record to `build/pipeline/runs.jsonl`; with `run.compare` on,
 //! the reference runs after the port (its output in `reference.log`) and the record and the log
-//! carry a verdict: `same`, `differs at line N` or `port crashed`.
+//! carry a verdict: `same`, `differs at line N` or `port crashed`. With `run.trace` on, the port
+//! is emitted with the trace hooks and the run step records its trace (`port.trace`) and the
+//! reference's under the debugger (`reference.trace`), and the record and the log carry where
+//! the two part and in which function (`trace`, `trace_function`, `trace_event`). A DLL is built as a shared
+//! library and run through `run.exe`, the program that loads it, which finds the port first; the
+//! comparison runs the same program finding the reference first.
 
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
@@ -18,6 +23,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::doctor::{self, Port};
 use crate::project::Project;
+use crate::trace;
 
 const CMAKE_LISTS: &str = include_str!("../templates/CMakeLists.txt");
 
@@ -164,19 +170,19 @@ impl Pipeline {
         let gen_dir = self.project.gen_dir.clone();
         let build_dir = self.project.build_dir();
         let (lang, package) = (self.project.lang.clone(), self.project.build.target.clone());
-        let x87 = self.project.x87;
+        let (x87, trace) = (self.project.x87, self.project.run.trace);
         let image = self.image()?;
         let analysis = ra_asm_analysis::analyze(image);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         lifted.apply_names(&analysis, Some(&mut signatures));
-        let translation = crate::emit::translate(image, &analysis, &lifted, &signatures, &lang, &package)?;
+        let translation = crate::emit::translate(image, &analysis, &lifted, &signatures, &lang, &package, trace)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
         fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
         fs::write(build_dir.join("functions.json"), translation.table())?;
-        let warnings = log_warnings(log, analysis.warnings.iter().chain(&lifted.warnings));
+        let warnings = log_warnings(log, analysis.warnings.iter().chain(&lifted.warnings).chain(&translation.warnings));
         let summary = format!(
             "{} functions, {} bytes of {lang} in {} files, {} instructions not lifted, {} warnings -> {}",
             translation.functions.len(),
@@ -216,9 +222,10 @@ impl Pipeline {
             }
             return Ok(());
         }
-        let bits = u32::from(self.image()?.pointer_size()) * 8;
+        let image = self.image()?;
+        let (bits, dll) = (u32::from(image.pointer_size()) * 8, image.headers.coff.is_dll());
         let project = &self.project;
-        write_cmake_lists(project, bits)?;
+        write_cmake_lists(project, bits, dll)?;
         let cmake = "cmake";
         let dir = &project.build.dir;
         let cache = dir.join("CMakeCache.txt");
@@ -254,11 +261,27 @@ impl Pipeline {
     }
 
     fn run_port(&mut self, log: &mut File) -> Result<()> {
+        let image = self.image()?;
+        let (dll, bits, image_base) = (image.headers.coff.is_dll(), u32::from(image.pointer_size()) * 8, image.image_base());
         let project = &self.project;
-        let exe = project.port_exe();
-        if !exe.is_file() {
-            bail!("no port at {}: build it first", exe.display());
+        let port = project.port_binary(dll);
+        if !port.is_file() {
+            bail!("no port at {}: build it first", port.display());
         }
+        // A DLL runs in the program that loads it, `run.exe`, which finds the port in its own
+        // directory before any other; a program is its own.
+        let exe = if dll {
+            if let Some(host) = &project.run.exe {
+                host.clone()
+            } else {
+                let line = format!("the port is a DLL, {}, and run.exe names no program that loads it: nothing to run", port.display());
+                writeln!(log, "{line}")?;
+                println!("{line}");
+                return Ok(());
+            }
+        } else {
+            port.clone()
+        };
         let timeout = self.timeout.or(project.run.timeout).map(Duration::from_secs);
         let log_dir = project.log_dir();
         let mut side: Vec<Child> = Vec::new();
@@ -274,9 +297,20 @@ impl Pipeline {
                 .with_context(|| format!("cannot start {}", args[0]))?;
             side.push(child);
         }
-        let mut port = Command::new(&exe);
-        port.args(&project.run.args).current_dir(&project.run.cwd);
-        let outcome = run_logged(&mut port, log, timeout, true);
+        let mut command = Command::new(&exe);
+        command.args(&project.run.args).current_dir(&project.run.cwd);
+        if dll && let Some(dir) = port.parent() {
+            lead_dll_search(&mut command, dir);
+        }
+        // A traced port writes its trace where the environment says; a stale one from an earlier
+        // run would pass for this run's if the port never started.
+        let (port_trace, reference_trace) = (log_dir.join("port.trace"), log_dir.join("reference.trace"));
+        if project.run.trace {
+            let _ = fs::remove_file(&port_trace);
+            let _ = fs::remove_file(&reference_trace);
+            command.env("RHIPPER_TRACE", &port_trace);
+        }
+        let outcome = run_logged(&mut command, log, timeout, true);
         for mut child in side {
             let _ = child.kill();
             let _ = child.wait();
@@ -293,17 +327,47 @@ impl Pipeline {
         });
         let mut summary =
             format!("exit {}{}, {} s", outcome.exit(), outcome.fault().map(|f| format!(" ({f})")).unwrap_or_default(), outcome.secs);
-        if project.run.compare {
+        if project.run.compare || project.run.trace {
             let reference_log = log_dir.join("reference.log");
             let mut reference_log = File::create(&reference_log).with_context(|| format!("cannot write {}", reference_log.display()))?;
-            let mut reference = Command::new(&project.exe);
+            // The reference of a DLL is the same program loading the reference DLL instead.
+            let mut reference = Command::new(if dll { &exe } else { &project.exe });
             reference.args(&project.run.args).current_dir(&project.run.cwd);
-            let reference = run_logged(&mut reference, &mut reference_log, timeout, false)?;
+            if dll && let Some(dir) = project.exe.parent() {
+                lead_dll_search(&mut reference, dir);
+            }
+            // The reference's trace needs the debugger at the program's own functions: a DLL's
+            // run in its host and a 32-bit program's are beyond it for now.
+            let not_traced = if !project.run.trace {
+                None
+            } else if dll {
+                Some("the reference is a DLL in its host".to_owned())
+            } else if bits == 32 {
+                Some("the reference is a 32-bit program".to_owned())
+            } else {
+                None
+            };
+            let reference = if project.run.trace && not_traced.is_none() {
+                let plan = trace::plan(&project.build_dir().join("functions.json"))?;
+                trace::run_reference(&mut reference, &plan, image_base, &reference_trace, &mut reference_log, timeout)?
+            } else {
+                run_logged(&mut reference, &mut reference_log, timeout, false)?
+            };
             let verdict = Verdict::of(&outcome, &reference);
             record["verdict"] = serde_json::Value::String(verdict.to_string());
             record["differs_at"] = verdict.line().into();
             record["reference_exit"] = serde_json::Value::String(reference.exit());
             summary = format!("{summary}; reference exit {}, {} s; verdict: {verdict}", reference.exit(), reference.secs);
+            if project.run.trace {
+                let traces = match not_traced {
+                    Some(reason) => trace::Verdict::NotTraced(reason),
+                    None => trace::compare(&port_trace, &reference_trace),
+                };
+                record["trace"] = serde_json::Value::String(traces.to_string());
+                record["trace_function"] = traces.function().into();
+                record["trace_event"] = traces.event().into();
+                summary = format!("{summary}; trace: {traces}");
+            }
         }
         let mut runs = fs::OpenOptions::new().create(true).append(true).open(log_dir.join("runs.jsonl"))?;
         writeln!(runs, "{record}")?;
@@ -357,6 +421,18 @@ impl std::fmt::Display for Verdict {
     }
 }
 
+/// Puts `dir` first on the `PATH` of `command`, so a DLL the program loads by name comes from
+/// there when its own directory has none.
+fn lead_dll_search(command: &mut Command, dir: &Path) {
+    let mut dirs = vec![dir.to_path_buf()];
+    if let Some(path) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&path));
+    }
+    if let Ok(path) = std::env::join_paths(dirs) {
+        command.env("PATH", path);
+    }
+}
+
 /// Writes the warnings to the log and returns how many there were.
 fn log_warnings<'a>(log: &mut File, warnings: impl Iterator<Item = &'a String>) -> usize {
     let mut count = 0;
@@ -368,8 +444,8 @@ fn log_warnings<'a>(log: &mut File, warnings: impl Iterator<Item = &'a String>) 
 }
 
 /// Writes the `CMakeLists.txt` of a project that has none. `bits` is the pointer width of the
-/// program, which sets how the port is linked.
-fn write_cmake_lists(project: &Project, bits: u32) -> Result<()> {
+/// program, which sets how the port is linked, and `dll` whether it is a shared library.
+fn write_cmake_lists(project: &Project, bits: u32, dll: bool) -> Result<()> {
     let file = project.root.join("CMakeLists.txt");
     if file.exists() {
         return Ok(());
@@ -382,7 +458,8 @@ fn write_cmake_lists(project: &Project, bits: u32) -> Result<()> {
         .replace("@NAME@", &project.name)
         .replace("@TARGET@", &project.build.target)
         .replace("@GEN_DIR@", &gen_dir)
-        .replace("@POINTER_BITS@", &bits.to_string());
+        .replace("@POINTER_BITS@", &bits.to_string())
+        .replace("@DLL@", if dll { "ON" } else { "OFF" });
     fs::write(&file, text).with_context(|| format!("cannot write {}", file.display()))
 }
 
@@ -429,14 +506,14 @@ fn on_path(tool: &str) -> bool {
 }
 
 /// The end of a process the pipeline ran.
-struct Outcome {
+pub(crate) struct Outcome {
     /// The exit code; `None` when the pipeline stopped the process.
-    code: Option<i32>,
+    pub(crate) code: Option<i32>,
     /// Whether the process ran until the pipeline stopped it at the timeout.
-    alive: bool,
-    secs: u64,
+    pub(crate) alive: bool,
+    pub(crate) secs: u64,
     /// The lines of the standard output, for the comparison with the reference.
-    stdout: Vec<String>,
+    pub(crate) stdout: Vec<String>,
 }
 
 impl Outcome {
@@ -470,10 +547,52 @@ impl Outcome {
     }
 }
 
+/// The threads reading a child's output, and the standard output lines they keep.
+pub(crate) struct Readers {
+    threads: Vec<std::thread::JoinHandle<()>>,
+    stdout: Arc<Mutex<Vec<String>>>,
+}
+
 /// Runs `command` with its output written to `log`, and with `echo` to the pipeline's own output
 /// as it comes, stopping it after `timeout`.
 fn run_logged(command: &mut Command, log: &mut File, timeout: Option<Duration>, echo: bool) -> Result<Outcome> {
     let started = Instant::now();
+    let (mut child, readers) = spawn_logged(command, log, echo)?;
+    let mut alive = false;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if timeout.is_some_and(|t| started.elapsed() >= t) {
+            // A program with a window gets the close its user would give it, so its message loop
+            // ends and it leaves with its own code; one that does not leave on that is killed and
+            // reported alive.
+            close_windows(child.id());
+            let grace = Instant::now();
+            let closed = loop {
+                if let Some(status) = child.try_wait()? {
+                    break Some(status);
+                }
+                if grace.elapsed() >= Duration::from_secs(2) {
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            if let Some(status) = closed {
+                break status;
+            }
+            alive = true;
+            let _ = child.kill();
+            break child.wait()?;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    Ok(collect(status, alive, started, readers))
+}
+
+/// Starts `command` with its output read into `log` (and echoed when `echo`) by threads; the
+/// caller waits for the child and then [`collect`]s the outcome.
+pub(crate) fn spawn_logged(command: &mut Command, log: &mut File, echo: bool) -> Result<(Child, Readers)> {
     let program = command.get_program().to_string_lossy().into_owned();
     let line =
         std::iter::once(program.clone()).chain(command.get_args().map(|a| a.to_string_lossy().into_owned())).collect::<Vec<_>>().join(" ");
@@ -514,41 +633,17 @@ fn run_logged(command: &mut Command, log: &mut File, timeout: Option<Duration>, 
         })
     })
     .collect();
-    let mut alive = false;
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if timeout.is_some_and(|t| started.elapsed() >= t) {
-            // A program with a window gets the close its user would give it, so its message loop
-            // ends and it leaves with its own code; one that does not leave on that is killed and
-            // reported alive.
-            close_windows(child.id());
-            let grace = Instant::now();
-            let closed = loop {
-                if let Some(status) = child.try_wait()? {
-                    break Some(status);
-                }
-                if grace.elapsed() >= Duration::from_secs(2) {
-                    break None;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            };
-            if let Some(status) = closed {
-                break status;
-            }
-            alive = true;
-            let _ = child.kill();
-            break child.wait()?;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    };
-    for reader in readers {
+    Ok((child, Readers { threads: readers, stdout }))
+}
+
+/// The outcome of a child that ended with `status`, once its readers are done.
+pub(crate) fn collect(status: std::process::ExitStatus, alive: bool, started: Instant, readers: Readers) -> Outcome {
+    for reader in readers.threads {
         let _ = reader.join();
     }
     let _ = std::io::stdout().flush();
-    let stdout = stdout.lock().map(|lines| lines.clone()).unwrap_or_default();
-    Ok(Outcome { code: if alive { None } else { status.code() }, alive, secs: started.elapsed().as_secs(), stdout })
+    let stdout = readers.stdout.lock().map(|lines| lines.clone()).unwrap_or_default();
+    Outcome { code: if alive { None } else { status.code() }, alive, secs: started.elapsed().as_secs(), stdout }
 }
 
 /// Posts `WM_CLOSE` to every top-level window of the process `pid`, as closing it by hand would.

@@ -2,10 +2,9 @@
 # environment every run gets. The ports and traces of a program are built by hand with clang and
 # read with the LLVM tools (see rhipper.context.md), and the engine's own binary runs the steps.
 [worker]
-# No turn cap: a run goes on until it answers, resuming its session. A turn's cost scales with
-# the context it carries, so a run restarts fresh on a handoff once a turn passes this many
-# input tokens (a 148k-a-turn session cost four times a 41k one here).
-context = 160000
+# No turn cap and no context cap: the workers here run on Fable, whose window is the point of
+# it, and a Fable run is never cut for its context whatever a project sets. A run goes on
+# until it answers, resuming its session.
 # The emit oracle suite builds and runs every reference program: a card's check gets half an
 # hour here, not the ten minutes of the default.
 check_timeout = 1800

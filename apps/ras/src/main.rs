@@ -12,9 +12,10 @@ mod report;
 mod run;
 mod serve;
 mod signatures;
+mod trace;
 mod xrefs;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 
@@ -24,8 +25,22 @@ struct Options {
     /// Print JSON instead of a table.
     #[arg(long, global = true)]
     json: bool,
+    /// Library signatures applied to the image before anything reads it: a signature file, or a
+    /// `.lib`, `.a` or `.obj` the signatures are made from on the spot. A match names the
+    /// function and keeps its body out of the port. Repeatable.
+    #[arg(long, global = true, value_name = "FILE")]
+    signatures: Vec<PathBuf>,
     #[command(subcommand)]
     command: Command,
+}
+
+/// Loads `pe` and applies the `--signatures` to it.
+fn load(pe: &Path, signatures: &[PathBuf]) -> anyhow::Result<ra_asm_pe::Image> {
+    let mut image = ra_asm_pe::load(pe)?;
+    if !signatures.is_empty() {
+        signatures::apply_files(&mut image, signatures)?;
+    }
+    Ok(image)
 }
 
 #[derive(Subcommand)]
@@ -55,8 +70,18 @@ enum Command {
         /// `0x140001000`, `140001000` or `F_140001000`.
         address: String,
     },
-    /// What each function takes and returns, as the lift infers it.
-    Signatures { pe: PathBuf },
+    /// What each function takes and returns, as the lift infers it. With `--from`, the library
+    /// recognition instead: the matches of the signatures of those files (signature files, or
+    /// `.lib`/`.a`/`.obj` files to make them from) over the image's functions, and the collisions.
+    Signatures {
+        pe: PathBuf,
+        /// A signature file or a library to make signatures from; repeatable.
+        #[arg(long, value_name = "FILE")]
+        from: Vec<PathBuf>,
+        /// Write the signatures made from `--from` to this file, in the `ra signatures` text format.
+        #[arg(long, value_name = "FILE")]
+        write: Option<PathBuf>,
+    },
     /// Source out of the image. With `--out`, writes `program.c`, `image.h` and `functions.json` there.
     Emit {
         pe: PathBuf,
@@ -190,36 +215,40 @@ fn step(text: Option<String>) -> anyhow::Result<Option<pipeline::Step>> {
 fn main() -> anyhow::Result<()> {
     let options = Options::parse();
     let json = options.json;
+    let sigs = &options.signatures;
     match options.command {
-        Command::Info { pe } => report::info(&ra_asm_pe::load(&pe)?, json),
-        Command::Sections { pe } => report::sections(&ra_asm_pe::load(&pe)?, json),
-        Command::Imports { pe } => report::imports(&ra_asm_pe::load(&pe)?, json),
-        Command::Exports { pe } => report::exports(&ra_asm_pe::load(&pe)?, json),
-        Command::Relocs { pe } => report::relocs(&ra_asm_pe::load(&pe)?, json),
-        Command::Debug { pe } => report::debug(&ra_asm_pe::load(&pe)?, json),
-        Command::Functions { pe, pdata: true } => report::functions(&ra_asm_pe::load(&pe)?, true, json),
-        Command::Functions { pe, pdata: false } => functions::functions(&ra_asm_pe::load(&pe)?, json),
-        Command::Cfg { pe, address } => functions::cfg(&ra_asm_pe::load(&pe)?, disasm::parse_address(&address)?, json),
+        Command::Info { pe } => report::info(&load(&pe, sigs)?, json),
+        Command::Sections { pe } => report::sections(&load(&pe, sigs)?, json),
+        Command::Imports { pe } => report::imports(&load(&pe, sigs)?, json),
+        Command::Exports { pe } => report::exports(&load(&pe, sigs)?, json),
+        Command::Relocs { pe } => report::relocs(&load(&pe, sigs)?, json),
+        Command::Debug { pe } => report::debug(&load(&pe, sigs)?, json),
+        Command::Functions { pe, pdata: true } => report::functions(&load(&pe, sigs)?, true, json),
+        Command::Functions { pe, pdata: false } => functions::functions(&load(&pe, sigs)?, json),
+        Command::Cfg { pe, address } => functions::cfg(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),
         Command::Lift { pe, out, quiet, level, standalone, report, x87 } => {
             let standalone = standalone || level == ra_asm_lift::RaiseLevel::Abi;
-            lift::lift(&ra_asm_pe::load(&pe)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87 })
+            lift::lift(&load(&pe, sigs)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87 })
         }
-        Command::Signatures { pe } => signatures::signatures(&ra_asm_pe::load(&pe)?, json),
-        Command::Emit { pe, lang, out, quiet, x87 } => emit::emit(&ra_asm_pe::load(&pe)?, &lang, out.as_deref(), quiet, x87),
+        Command::Signatures { pe, from, write } if !from.is_empty() || write.is_some() => {
+            signatures::recognize(&mut load(&pe, sigs)?, &from, write.as_deref(), json)
+        }
+        Command::Signatures { pe, .. } => signatures::signatures(&load(&pe, sigs)?, json),
+        Command::Emit { pe, lang, out, quiet, x87 } => emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87),
         Command::Run { pe, args, level, x87, trace, limit, quiet } => {
-            let code = run::run(&ra_asm_pe::load(&pe)?, &run::Options { level, x87, trace, limit, args, quiet })?;
+            let code = run::run(&load(&pe, sigs)?, &run::Options { level, x87, trace, limit, args, quiet })?;
             std::process::exit(code)
         }
         Command::Disasm { pe, address, length } => {
             let address = disasm::parse_address(&address)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;
-            disasm::disasm(&ra_asm_pe::load(&pe)?, address, length, json)
+            disasm::disasm(&load(&pe, sigs)?, address, length, json)
         }
-        Command::Callers { pe, address } => xrefs::callers(&ra_asm_pe::load(&pe)?, disasm::parse_address(&address)?, json),
+        Command::Callers { pe, address } => xrefs::callers(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),
         Command::Xrefs { pe, lo, hi } => {
             let lo = disasm::parse_address(&lo)?;
             let hi = hi.as_deref().map(disasm::parse_address).transpose()?;
-            xrefs::xrefs(&ra_asm_pe::load(&pe)?, lo, hi, json)
+            xrefs::xrefs(&load(&pe, sigs)?, lo, hi, json)
         }
         Command::Pipeline { project, from, only, timeout, config, rebuild } => {
             let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild };

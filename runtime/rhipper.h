@@ -121,6 +121,20 @@ void ra_call(void *state, uint64_t target);
 // What the x86 function a pointer named popped beyond its return address.
 uint64_t ra_pops_of(uint64_t target);
 void ra_enter(const char *name);
+// The trace of a port emitted with tracing (`run.trace` of the project): every function records
+// its arguments as it starts and its result as it returns, one line per event, to the file the
+// RHIPPER_TRACE environment variable names, else to stderr. `kinds` has one letter per argument,
+// each passed as a uint64_t: `u` an integer, `p` a pointer, `f` and `g` the bits of a double or a
+// float, `?` a value of another type (passed as 0). The pipeline records the reference's trace in
+// the same lines and compares the two event by event.
+void ra_trace_enter(const char *name, const char *kinds, ...);
+uint64_t ra_trace_ret(const char *name, uint64_t value, unsigned bits);
+uint64_t ra_trace_ret_ptr(const char *name, uint64_t value);
+double ra_trace_ret_f64(const char *name, double value);
+float ra_trace_ret_f32(const char *name, float value);
+void ra_trace_leave(const char *name);
+uint64_t ra_f64_bits(double value);
+uint64_t ra_f32_bits(float value);
 // The processor's answers, from the host.
 void ra_cpuid(uint64_t leaf, uint64_t subleaf, void *out);
 uint64_t ra_xgetbv(uint64_t which);

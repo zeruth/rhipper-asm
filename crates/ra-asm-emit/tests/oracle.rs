@@ -34,6 +34,9 @@ struct Fixture {
     /// The x87 unit the lift models: the exact one for a program built for the x87 alone, whose
     /// bits depend on the extended precision and the precision control.
     x87: ra_asm_lift::X87Unit,
+    /// The image without the map or PDB beside it, its C runtime named by the signatures of the
+    /// installed toolset's static runtime instead.
+    by_signatures: bool,
 }
 
 fn fixture(binary: &str, expected: &str) -> Fixture {
@@ -43,6 +46,7 @@ fn fixture(binary: &str, expected: &str) -> Fixture {
         exit_line: false,
         no_goto: true,
         x87: ra_asm_lift::X87Unit::Double,
+        by_signatures: false,
     }
 }
 
@@ -53,6 +57,19 @@ impl Fixture {
 
     fn binary_path(&self) -> PathBuf {
         root().join("testdata").join(&self.binary)
+    }
+
+    /// The image as the port reads it: with the names beside it, or, `by_signatures`, bare and
+    /// with the installed runtime's signatures applied.
+    fn image(&self) -> ra_asm_pe::Image {
+        if !self.by_signatures {
+            return ra_asm_pe::load(&self.binary_path()).unwrap();
+        }
+        let mut image = ra_asm_pe::Image::parse(std::fs::read(self.binary_path()).unwrap()).unwrap();
+        let set = installed_runtime_signatures().expect("the toolset was checked before");
+        let applied = ra_asm_analysis::signatures::apply(&mut image, &set);
+        eprintln!("{}: {} of {} functions matched by signature", self.name(), applied.matches.len(), applied.functions);
+        image
     }
 
     /// The port's output against the reference: a mismatch names the run's exit code and stderr,
@@ -98,7 +115,7 @@ fn symbolize(stderr: &str, exe: &Path) -> Option<String> {
 /// file and several function files.
 fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect) -> (PathBuf, String, u32) {
     let binary = fixture.name();
-    let image = ra_asm_pe::load(&fixture.binary_path()).unwrap();
+    let image = fixture.image();
     let analysis = ra_asm_analysis::analyze(&image);
     let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: fixture.x87 });
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
@@ -107,13 +124,22 @@ fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm
     let infos = ra_asm_emit::functions::infos(&analysis);
     let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
     let classes = ra_asm_emit::classes(&analysis, &signatures);
-    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes });
+    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace: false });
     let files = unit.files(functions_per_file);
     let dir = scratch(&format!("{binary}-{tag}"));
     ra_asm_emit::write_files(&dir, &files).unwrap();
     std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted, Some(&signatures))).unwrap();
     std::fs::write(dir.join("functions.json"), ra_asm_emit::table(&unit.functions, &files, &infos)).unwrap();
+    write_resources(&dir, &image);
     (dir, unit.text(), u32::from(image.pointer_size()) * 8)
+}
+
+/// The program's resources as `resources.res` in the port's directory, as `ras emit` writes them,
+/// for the link to fold into the port.
+fn write_resources(dir: &Path, image: &ra_asm_pe::Image) {
+    if !image.resources.is_empty() {
+        std::fs::write(dir.join("resources.res"), ra_asm_pe::resources::res_file(image)).unwrap();
+    }
 }
 
 fn cargo_available() -> bool {
@@ -143,10 +169,12 @@ fn run_rust_oracle_with(fixture: &Fixture, functions_per_file: usize) {
     let entry = lifted.entry.and_then(|e| lifted.functions.get(&e).cloned());
     let package = binary.trim_end_matches(".exe").to_owned();
     let pointer_bits = u32::from(image.pointer_size()) * 8;
-    let options = ra_asm_emit::RustOptions { names, imports, entry, package: package.clone(), functions_per_file, pointer_bits };
+    let resources = !image.resources.is_empty();
+    let options = ra_asm_emit::RustOptions { names, imports, entry, package: package.clone(), functions_per_file, pointer_bits, resources };
     let output = ra_asm_emit::emit_rust(&lifted.module, &options);
     let dir = scratch(&format!("{binary}-rust-{functions_per_file}"));
     ra_asm_emit::write_files(&dir, &output.files).unwrap();
+    write_resources(&dir, &image);
     std::fs::write(dir.join("functions.json"), ra_asm_emit::table(&output.functions, &output.files, &infos)).unwrap();
     check_table(binary, &dir);
     let target = dir.join("target");
@@ -245,6 +273,9 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
     if trace {
         build.arg("-DRA_TRACE");
     }
+    if dir.join("resources.res").is_file() {
+        build.arg(dir.join("resources.res"));
+    }
     let build = build
         .args(&sources)
         .arg(root().join("runtime/driver.c"))
@@ -272,7 +303,29 @@ fn rhtest(name: &str, variant: &str) -> Fixture {
     let own = format!("rhtest/{name}-{variant}.txt");
     let expected = if root().join("testdata").join(&own).is_file() { own } else { format!("rhtest/{name}.txt") };
     let x87 = if variant.starts_with("ia32") { ra_asm_lift::X87Unit::Exact } else { ra_asm_lift::X87Unit::Double };
-    Fixture { binary: format!("rhtest/{name}-{variant}.exe"), expected, exit_line: true, no_goto: false, x87 }
+    Fixture { binary: format!("rhtest/{name}-{variant}.exe"), expected, exit_line: true, no_goto: false, x87, by_signatures: false }
+}
+
+/// The signatures of the installed toolset's static x86 C runtime (`libcmt.lib`,
+/// `libvcruntime.lib`, `libucrt.lib`), or `None` without a toolset.
+fn installed_runtime_signatures() -> Option<ra_asm_analysis::SignatureSet> {
+    let paths = ra_asm_analysis::signatures::installed_msvc_runtime("x86")?;
+    let mut set = ra_asm_analysis::SignatureSet::default();
+    for path in &paths {
+        set.extend(ra_asm_analysis::SignatureSet::from_library(path).unwrap_or_else(|e| panic!("{}: {e:#}", path.display())));
+    }
+    Some(set)
+}
+
+/// The `static` variant of an rhtest program read without its map: the installed toolset's
+/// runtime signatures name the C runtime instead, and the port runs the same.
+fn run_rhtest_static_by_signatures_as_c(name: &str) {
+    if installed_runtime_signatures().is_none() {
+        eprintln!("no MSVC toolset with libcmt.lib: the signature oracle is skipped");
+        return;
+    }
+    let fixture = Fixture { by_signatures: true, ..rhtest(name, "static") };
+    run_fixture_as_c(&fixture, "sig", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
 }
 
 /// The native output of an rhtest binary in the form `compare` reads: the output, then `exit = N`
@@ -355,6 +408,10 @@ fn control_reads_as_source() {
             " / 10u;",
             " % 10u)",
             "ra_strlen((const char *)(uintptr_t)(arg0))",
+            // `classify`'s switch reads over an enum of its cases (task 115).
+            "enum classify_case { CLASSIFY_0 = 0, CLASSIFY_1 = 1, ",
+            "switch ((enum classify_case)",
+            "case CLASSIFY_8:",
         ] {
             assert!(c.contains(expected), "{binary}: no `{expected}` in the C:\n{c}");
         }
@@ -497,6 +554,128 @@ fn window32_runs_as_c() {
     run_oracle("window32.exe", "window.txt");
 }
 
+/// The files program: a file created, written, read back, asked for its attributes and removed
+/// through kernel32, with the SDK's named constants in every call.
+#[test]
+fn files64_runs_as_c() {
+    run_oracle("files64.exe", "files.txt");
+}
+
+#[test]
+fn files32_runs_as_c() {
+    run_oracle("files32.exe", "files.txt");
+}
+
+#[test]
+fn files64_runs_as_rust() {
+    run_rust_oracle("files64.exe", "files.txt", ra_asm_emit::FUNCTIONS_PER_FILE);
+}
+
+/// The reference of the files fixture is what the native program prints.
+#[test]
+fn files64_expected_is_the_native_output() {
+    let run = Command::new(root().join("testdata/bin/files64.exe")).output().unwrap();
+    let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
+    let expected = std::fs::read_to_string(root().join("testdata/expected/files.txt")).unwrap().replace("\r\n", "\n");
+    assert_eq!(stdout.trim_end(), expected.trim_end());
+    assert!(run.status.success());
+}
+
+/// The constants of the Windows API calls read as the SDK names them, from the prototype table's
+/// enumerations: the access mask and the share mode of `CreateFileA` in both ports, and in the
+/// 32-bit port, whose pushed arguments the raise forwards into the call, the disposition and the
+/// attributes too; the handle compared with `INVALID_HANDLE_VALUE`, the attribute bit tested
+/// with its name, and each name defined once at the top with the value it stands for.
+#[test]
+fn files_read_with_the_sdk_names() {
+    for binary in ["files64.exe", "files32.exe"] {
+        let (_, c, _) = emit(&fixture(binary, "files.txt"), "names", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+        let mut expected = vec![
+            "GetStdHandle(STD_OUTPUT_HANDLE)",
+            "GENERIC_READ | GENERIC_WRITE, 0ull, 0ull, ",
+            "GENERIC_READ, FILE_SHARE_READ, 0ull, ",
+            " INVALID_HANDLE_VALUE)",
+            " & FILE_ATTRIBUTE_DIRECTORY)",
+            "#define GENERIC_READ 0x80000000ull\n",
+            "#define FILE_ATTRIBUTE_DIRECTORY ((uint8_t)0x10)\n",
+        ];
+        if binary == "files32.exe" {
+            expected.extend([
+                "GENERIC_READ | GENERIC_WRITE, 0ull, 0ull, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0ull)",
+                "OPEN_EXISTING, 0ull, 0ull)",
+            ]);
+        }
+        for text in expected {
+            assert!(c.contains(text), "{binary}: no `{text}` in the C:\n{c}");
+        }
+        assert_eq!(c.matches("#define INVALID_HANDLE_VALUE ").count(), 1, "{binary}:\n{c}");
+        // The mask may still sit inside a packed stack constant; the call itself names it.
+        for call in c.lines().filter(|l| l.contains("CreateFileA(")) {
+            assert!(!call.contains("3221225472"), "{binary}: the access mask is still a number:\n{call}\n{c}");
+        }
+    }
+}
+
+/// The resources program: a string table and an RCDATA block read through user32 and kernel32,
+/// which the port finds in its own resource directory, and tables of integers, strings and
+/// doubles read by index.
+#[test]
+fn resources64_runs_as_c() {
+    run_oracle("resources64.exe", "resources.txt");
+}
+
+#[test]
+fn resources32_runs_as_c() {
+    run_oracle("resources32.exe", "resources.txt");
+}
+
+#[test]
+fn resources64_runs_as_cpp() {
+    run_oracle_with("resources64.exe", "resources.txt", "cpp", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
+}
+
+#[test]
+fn resources64_runs_as_rust() {
+    run_rust_oracle("resources64.exe", "resources.txt", ra_asm_emit::FUNCTIONS_PER_FILE);
+}
+
+/// The typed data in the C: the table of squares reads as an array of `uint32_t`, the table of
+/// names as an array of address words, the halves as doubles and the counters as an array of
+/// `uint16_t` in the writable section; the strings the program passes are string literals; and
+/// each read by index is an element, not a cast of pointer arithmetic.
+#[test]
+fn resources64_data_reads_as_arrays() {
+    let (_, text, _) =
+        emit(&fixture("resources64.exe", "resources.txt"), "arrays", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+    for expected in [
+        "uint32_t f0[8]; uint64_t f32[4]; double f64[4]; double f96; ",
+        "\n    0u, 1u, 4u, 9u, 16u, 25u, 36u, 49u,\n",
+        "0.5, 1.5, 2.5, 3.5,",
+        "\"zero\"",
+        "\"three\"",
+        "\"\\r\\n\"",
+        "uint16_t f16[4]; } RA_PACKED_END;",
+        "sec_rdata.f0[",
+        "sec_rdata.f32[",
+        "sec_rdata.f64[",
+        "* sec_rdata.f96",
+        "sec_data.f16[",
+    ] {
+        assert!(text.contains(expected), "`{expected}` is missing from:\n{text}");
+    }
+    assert!(!text.contains("(uint8_t *)&sec_rdata + ((uint64_t)"), "an indexed read is still pointer arithmetic:\n{text}");
+}
+
+/// The reference of the resources fixture is what the native program prints.
+#[test]
+fn resources64_expected_is_the_native_output() {
+    let run = Command::new(root().join("testdata/bin/resources64.exe")).output().unwrap();
+    let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
+    let expected = std::fs::read_to_string(root().join("testdata/expected/resources.txt")).unwrap().replace("\r\n", "\n");
+    assert_eq!(stdout.trim_end(), expected.trim_end());
+    assert!(run.status.success());
+}
+
 /// The struct program: a record of mixed fields filled and read through a pointer.
 #[test]
 fn structs64_runs_as_c() {
@@ -627,6 +806,70 @@ fn rhtest_core_od_traced() {
     run_fixture_as_c_with(&rhtest("core", "Od"), "traced", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C, true);
 }
 
+/// The Rust package of a fixture as text, the modules joined, without building it.
+fn rust_text(fixture: &Fixture) -> String {
+    let image = ra_asm_pe::load(&fixture.binary_path()).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: fixture.x87 });
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+    ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, None);
+    let infos = ra_asm_emit::functions::infos(&analysis);
+    let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
+    let options = ra_asm_emit::RustOptions { names, ..ra_asm_emit::RustOptions::default() };
+    ra_asm_emit::emit_rust(&lifted.module, &options).functions.into_iter().map(|f| f.text).collect()
+}
+
+/// The text of the function whose definition starts with `head`, up to its closing brace.
+fn function_text<'a>(text: &'a str, head: &str) -> &'a str {
+    let start = text.find(head).unwrap_or_else(|| panic!("no `{head}` in:\n{text}"));
+    let end = text[start..].find("\n}\n").map_or(text.len(), |e| start + e + 3);
+    &text[start..end]
+}
+
+/// The switches of core as their source wrote them: `fallthrough` with its cases that run into
+/// the next (`case 0: r += 1;` into `case 1: r *= 3; break;`, `case 4` into `case 5` into
+/// `case 6`) as C fall-throughs, and in Rust as one arm per chain whose steps test the value;
+/// `vowels`, whose every case breaks, with no fall-through, no copied case tail and no `goto`.
+#[test]
+fn rhtest_core_switches_read_as_source() {
+    for variant in ["O2", "Od"] {
+        let fixture = rhtest("core", variant);
+        let (_, c, _) = emit(&fixture, "switches", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+        let f = function_text(&c, "uint32_t fallthrough(uint32_t arg0) {");
+        assert_eq!(f.matches("/* falls through */").count(), 3, "core-{variant}:\n{f}");
+        // The cases read over the switch's own enum (task 115).
+        for (from, into) in [
+            ("case FALLTHROUGH_0:", "case FALLTHROUGH_1:"),
+            ("case FALLTHROUGH_4:", "case FALLTHROUGH_5:"),
+            ("case FALLTHROUGH_5:", "case FALLTHROUGH_6:"),
+        ] {
+            let (a, b) = (f.find(from).unwrap(), f.find(into).unwrap());
+            assert!(a < b && f[a..b].contains("/* falls through */"), "core-{variant}: `{from}` does not fall into `{into}`:\n{f}");
+        }
+        assert_eq!(f.matches("case FALLTHROUGH_1:").count(), 1, "core-{variant}:\n{f}");
+        assert_eq!(f.matches("1000u").count(), 1, "core-{variant}: the tail of case 5 is copied:\n{f}");
+        assert!(!f.contains("goto "), "core-{variant}:\n{f}");
+        let v = function_text(&c, "uint32_t vowels(uint32_t arg0) {");
+        assert!(!v.contains("falls through") && !v.contains("goto "), "core-{variant}:\n{v}");
+        for tail in ["65536u", "256u"] {
+            assert_eq!(v.matches(tail).count(), 1, "core-{variant}: a case tail of vowels is copied:\n{v}");
+        }
+
+        let r = rust_text(&fixture);
+        let f = function_text(&r, "fn fallthrough(arg0: u32) -> u32 {");
+        for arm in ["0u32 | 1u32 => {", "4u32 | 5u32 | 6u32 => {", "if matches!(", "4u32 | 5u32) {"] {
+            assert!(f.contains(arm), "core-{variant}: no `{arm}` in:\n{f}");
+        }
+        assert_eq!(f.matches("1000u32").count(), 1, "core-{variant}: the tail of case 5 is copied:\n{f}");
+        let v = function_text(&r, "fn vowels(arg0: u32) -> u32 {");
+        assert!(!v.contains("matches!(") && !v.contains("ra_goto"), "core-{variant}:\n{v}");
+        for tail in ["65536u32", "256u32"] {
+            assert_eq!(v.matches(tail).count(), 1, "core-{variant}: a case tail of vowels is copied:\n{v}");
+        }
+    }
+}
+
 #[test]
 fn rhtest_core_o2_runs_as_rust() {
     run_rhtest_as_rust("core", "O2");
@@ -656,6 +899,19 @@ fn rhtest_core_static_runs_as_rust() {
 #[test]
 fn rhtest_int64_static_runs_as_c() {
     run_rhtest_as_c("int64", "static");
+}
+
+/// The same two static builds with no map at all: the signatures made from the installed
+/// toolset's `libcmt.lib` (and the ucrt and vcruntime beside it) name the C runtime before the
+/// lift, its bodies stay out of the port, and the port prints the reference.
+#[test]
+fn rhtest_core_static_runs_as_c_by_signatures() {
+    run_rhtest_static_by_signatures_as_c("core");
+}
+
+#[test]
+fn rhtest_int64_static_runs_as_c_by_signatures() {
+    run_rhtest_static_by_signatures_as_c("int64");
 }
 
 #[test]
