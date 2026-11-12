@@ -319,7 +319,8 @@ fn fields(
     let mut fields: BTreeMap<u32, Type> = BTreeMap::new();
     for (m, f) in methods.iter().filter(|(m, f)| m.this && !f.params.is_empty()) {
         // A method of a vtable past the first reads its object from that vtable's subobject.
-        for (offset, ty) in accesses(f, f.params[0], types) {
+        // A move wider than a register is a block copy or clear over several fields, not a field.
+        for (offset, ty) in accesses(f, f.params[0], types).into_iter().filter(|(_, ty)| (1..=8).contains(&size(ty))) {
             let Some(offset) = offset.checked_add(i64::from(m.offset)).and_then(|o| u32::try_from(o).ok()) else { continue };
             let field = fields.entry(offset).or_insert_with(|| ty.clone());
             if size(&ty) > size(field) {
@@ -369,7 +370,8 @@ fn offset_from(defs: &HashMap<ValueId, &Inst>, types: &[(String, Vec<Type>)], th
     }
     let at = |o: &Operand| offset_from(defs, types, this, o, depth + 1);
     match defs.get(v)? {
-        Inst::Cast { cast: Cast::IntToPtr | Cast::PtrToInt | Cast::ZExt | Cast::Bitcast, value, .. } => at(value),
+        // A 32-bit program's object pointer arrives as a 64-bit parameter and is narrowed to address.
+        Inst::Cast { cast: Cast::IntToPtr | Cast::PtrToInt | Cast::ZExt | Cast::Trunc | Cast::Bitcast, value, .. } => at(value),
         Inst::Bin { op: BinOp::Add, ty, lhs, rhs: Operand::Int(c) } | Inst::Bin { op: BinOp::Add, ty, lhs: Operand::Int(c), rhs: lhs } => {
             at(lhs)?.checked_add(constant(ty, *c)?)
         }
