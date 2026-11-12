@@ -22,6 +22,7 @@ ra-asm-arch.workspace = true
 ra-asm-emit.workspace = true
 ra-asm-lift.workspace = true
 ra-asm-pe.workspace = true
+ra-asm-wasm.workspace = true
 ra-asm-x86.workspace = true
 serde.workspace = true
 serde_json.workspace = true

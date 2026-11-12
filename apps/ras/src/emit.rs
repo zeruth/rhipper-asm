@@ -5,10 +5,12 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use ra_asm_analysis::Analysis;
+use ra_asm_analysis::{Analysis, Identity};
+use ra_asm_emit::functions::format_address;
 use ra_asm_emit::{EmittedFile, EmittedFunction, FunctionInfo};
 use ra_asm_lift::Lifted;
 use ra_asm_pe::Image;
+use serde_json::{Value, json};
 
 use crate::annotations::Annotation;
 
@@ -513,7 +515,11 @@ pub(crate) fn emit(
             translation.write(dir)?;
             std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
             std::fs::write(dir.join("functions.json"), translation.table())?;
+            let regenerated = regenerate(dir, &analysis, &translation)?;
             if !quiet {
+                if let Some(line) = regenerated {
+                    eprintln!("{line}");
+                }
                 eprintln!(
                     "{} functions, {} bytes of {language} in {} files -> {}",
                     translation.functions.len(),

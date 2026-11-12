@@ -1,0 +1,13 @@
+[package]
+name = "ra-asm-wasm"
+description = "A WebAssembly interpreter for the plugins of the engine: the module decoded, instantiated in a sandbox of its own memory, and its exports called"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

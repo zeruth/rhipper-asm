@@ -17,7 +17,7 @@ use crate::{Analysis, Function, Kind, Origin};
 
 /// What a function is, apart from its address: sets of features, each a text such as
 /// `import WriteFile` or `string "fail\r\n"`, sorted.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Identity {
     /// The name the build's symbols (a PDB or a link map) give the function, when they do.
     pub symbol: Option<String>,

@@ -244,7 +244,12 @@ impl Pipeline {
         translation.write(&gen_dir)?;
         fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
         fs::write(build_dir.join("functions.json"), translation.table())?;
+        let regenerated = crate::emit::regenerate(&build_dir, &analysis, &translation)?;
         let warnings = log_warnings(log, analysis.warnings.iter().chain(&annotated).chain(&lifted.warnings).chain(&translation.warnings));
+        if let Some(line) = regenerated {
+            writeln!(log, "{line}")?;
+            println!("{line}");
+        }
         let summary = format!(
             "{} functions, {} bytes of {lang} in {} files, {} instructions not lifted, {} warnings -> {}",
             translation.functions.len(),

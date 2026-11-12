@@ -336,11 +336,12 @@ pub(crate) fn reattach(
     placed
 }
 
-/// Reads the annotations of the project at `root`, finds their functions in the build of
-/// `analysis` ([`reattach`]) and gives the functions their names; returns the annotations and
-/// what could not be applied.
+/// Gives the functions of `analysis` the names of the project's name-source plugins, then those
+/// of its annotations, which win, each found in the build of `analysis` by its identity
+/// ([`reattach`]); returns the annotations and what could not be applied.
 pub(crate) fn annotate(root: &Path, analysis: &mut Analysis<'_>) -> (BTreeMap<u64, Annotation>, Vec<String>) {
     let mut warnings = Vec::new();
+    crate::plugins::apply_names(root, analysis, &mut warnings);
     let loaded = load(root, &mut warnings);
     let annotations = reattach(root, analysis, loaded, &mut warnings);
     apply_names(analysis, &annotations, &mut warnings);
