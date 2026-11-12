@@ -45,7 +45,7 @@ fn a_file_that_is_no_image_is_refused() {
 /// The executables of the Windows system directory: every one is lifted and emitted, refused,
 /// or stopped at the time limit, and none panics or crashes.
 #[test]
-#[ignore = "minutes over the system directory; run with --ignored"]
+#[ignore = "minutes over the system directory; run with `cargo test -p ras -q -- --ignored`"]
 fn the_system_directory_does_not_panic() {
     let Some(windows) = std::env::var_os("SystemRoot") else {
         eprintln!("no SystemRoot: not Windows, the system directory smoke is skipped");
