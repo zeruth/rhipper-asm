@@ -185,7 +185,7 @@ fn helloa64_runs_interpreted() {
 
 /// The Linux build of hello lifts without a trap at the machine level, over the mapped image and
 /// standalone: its imports are called through System V wrappers, which read `rdi` first, and its
-/// IR passes the gate. It runs on Linux only, so the run is skipped here.
+/// IR passes the gate. The run is [`hello_linux64_runs_lifted`], on a Linux host.
 #[test]
 fn the_linux_fixture_lifts_and_passes_the_ir_gate() {
     if !clang_available() {
@@ -220,7 +220,77 @@ fn the_linux_fixture_lifts_and_passes_the_ir_gate() {
             Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
         assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
     }
-    eprintln!("hello_linux64: a Linux program, and the host is Windows: the run is skipped");
+}
+
+/// The Linux fixture's port runs on an x86-64 Linux host, as the program itself does there.
+fn linux_host(what: &str) -> bool {
+    let linux = cfg!(all(target_os = "linux", target_arch = "x86_64"));
+    if !linux {
+        eprintln!("hello_linux64: a Linux x86-64 program, and the host is another: {what} is skipped");
+    }
+    linux
+}
+
+/// The reference of the Linux fixture is what the program prints on Linux, over the host's C
+/// library rather than the stub it was linked against.
+#[test]
+fn hello_linux64_expected_is_the_native_output() {
+    if !linux_host("the native run") {
+        return;
+    }
+    // The fixture is tracked without the executable bit, which a Windows checkout cannot give it.
+    let dir = scratch("native-hello_linux64");
+    let exe = dir.join("hello_linux64");
+    std::fs::copy(fixture("hello_linux64"), &exe).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let run = Command::new(&exe).output().unwrap();
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello_linux.txt")).unwrap();
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim_end(), expected.replace("\r\n", "\n").trim_end());
+    assert!(run.status.success(), "hello_linux64: exit {:?}", run.status.code());
+}
+
+/// The Linux fixture lifted at the machine level, built by the host's clang beside the driver and
+/// run over the image: its imports bind to the host's C library by name, and it prints what the
+/// program prints.
+#[test]
+fn hello_linux64_runs_lifted() {
+    if !linux_host("the port's run") {
+        return;
+    }
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the oracle is skipped");
+        return;
+    }
+    let binary = "hello_linux64";
+    let (dir, lifted) = lift_to(binary, "run-machine");
+    assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+    let exe = dir.join("lifted");
+    let build = Command::new("clang")
+        .args(["-O1", "-g", "-Wno-override-module"])
+        .arg(dir.join("program.ll"))
+        .arg(root().join("runtime/driver.c"))
+        .arg("-I")
+        .arg(&dir)
+        .arg("-o")
+        .arg(&exe)
+        .args(["-ldl", "-lm"])
+        .output()
+        .unwrap();
+    assert!(build.status.success(), "{binary}: clang link:\n{}", String::from_utf8_lossy(&build.stderr));
+    let run = Command::new(&exe).arg(dir.join("image.bin")).current_dir(&dir).output().unwrap();
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello_linux.txt")).unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout).trim_end(),
+        expected.replace("\r\n", "\n").trim_end(),
+        "{binary}: the lifted program's output (exit {:?}, stderr: {stderr})",
+        run.status.code()
+    );
+    assert!(run.status.success(), "{binary}: exit {:?}, stderr: {stderr}", run.status.code());
 }
 
 fn run_oracle(binary: &str, expected: &str) {

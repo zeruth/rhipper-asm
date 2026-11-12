@@ -26,8 +26,9 @@ jobs:
         env:
           CARGO_BUILD_JOBS: "4"
 
-  # On Linux the lift, the IR gate, the interpreter and the emit run over the Windows fixtures; the
-  # ports of a Windows program build and run on the Windows job alone.
+  # On Linux the lift, the IR gate, the interpreter and the emit run over the Windows fixtures, and
+  # the Linux fixture's port builds with the host's clang and runs; the ports of a Windows program
+  # build and run on the Windows job alone.
   test-linux:
     runs-on: ubuntu-latest
     steps:
@@ -114,7 +115,15 @@ jobs:
           Copy-Item -Recurse runtime dist/ras/runtime
           Copy-Item README.md dist/ras/
           $name = "ras-$version-${{ matrix.host }}.zip"
-          Compress-Archive -Path dist/ras/* -DestinationPath "dist/$name"
+          # Compress-Archive drops the executable bit; zip keeps it for the hosts that read it.
+          if ($IsWindows) {
+            Compress-Archive -Path dist/ras/* -DestinationPath "dist/$name"
+          } else {
+            Push-Location dist/ras
+            zip -q -r "../$name" .
+            if ($LASTEXITCODE -ne 0) { throw "zip failed for $name" }
+            Pop-Location
+          }
           $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $name" | Out-File -Encoding ascii "dist/$name.sha256"
           Remove-Item -Recurse dist/ras

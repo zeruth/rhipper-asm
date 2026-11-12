@@ -128,15 +128,16 @@ they are not. `testdata/build.ps1` rebuilds the fixtures.
 A tag `v<version>` that matches the workspace version in `Cargo.toml` runs `.github/workflows/release.yml`:
 the tests on Windows and Linux, a release build of `ras` for each host, and a GitHub release with
 `version.txt` and `ras-<version>-<host>.zip` (the binary with the runtime files) with its `.sha256`
-for `windows-x64`, `linux-x64`, `macos-x64` and `macos-arm64`. The archives of Linux and macOS do
-not keep the executable bit: the installer sets it. The Rhipper Workbench installs `ras` from those
-files.
+for `windows-x64`, `linux-x64`, `macos-x64` and `macos-arm64`. The archives of Linux and macOS keep
+the executable bit of `ras` for an unzip that reads it. The Rhipper Workbench installs `ras` from
+those files.
 
 On Linux and macOS `ras` lifts and emits as on Windows. The interpreter needs memory below 4 GB,
 which Linux gives and macOS keeps for itself, and answers only the imports it runs itself, with no
-Windows DLLs to call. The port of a Windows program
-links the Windows system libraries and builds and runs on a Windows host, so the tests that build
-and run one skip elsewhere and say so.
+Windows DLLs to call. The port of a Windows program links the Windows system libraries and builds
+and runs on a Windows host, so the tests that build and run one skip elsewhere and say so. The port
+of a Linux program builds with the host's clang beside `runtime/driver.c` and runs on Linux, its
+imports bound to the host's C library by name.
 
 ## Roadmap
 
