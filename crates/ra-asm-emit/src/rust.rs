@@ -1,7 +1,10 @@
-//! The Rust backend: the raised IR as unsafe Rust over raw pointers, with the same structuring
-//! as the C and a `rhipper` runtime module beside it. Every lifted function is an
-//! `unsafe extern "C" fn`, so a pointer to it in the data calls it as the machine would; memory
-//! goes through `read_unaligned` and `write_unaligned`; arithmetic wraps as the machine's does; a
+//! The Rust backend: the raised IR as Rust, with the same structuring as the C and a `rhipper`
+//! runtime module beside it. Every lifted function is an `extern "C" fn`, so a pointer to it in
+//! the data calls it as the machine would. What `safety` proves is safe Rust: a local that never
+//! escapes is a value or an array indexed by element, an access of a data section at a known
+//! place is a checked one, by element when it indexes an array. Any other memory goes through
+//! `read_unaligned` and `write_unaligned` in an `unsafe` block that names why, as does a call of
+//! an import or through an address; arithmetic wraps as the machine's does; a
 //! vector is an array and its operations go lane by lane through the runtime's helpers. Rust has
 //! no `goto`: a jump the structuring could not express stops the port, as a trap does.
 //!
@@ -295,7 +298,7 @@ fn main_module(module: &Module, options: &Options, modules: &[String], sections:
     }
     out.push('\n');
     let _ = writeln!(out, "fn main() {{");
-    let _ = writeln!(out, "    unsafe {{");
+    let _ = writeln!(out, "    unsafe {{ // the runtime's start, which writes the data's address words and tables");
     let _ = writeln!(out, "        ra_init();");
     if module.globals.iter().any(|g| g.name == "ra_tls") {
         let tls = global_pointer("ra_tls", 0, sections);
@@ -612,6 +615,9 @@ impl Emitter<'_> {
                         Some(Local::Value(ty)) => {
                             let _ = writeln!(out, "    let mut {n}: {} = {};", rust_type(ty), zero(ty));
                         }
+                        Some(Local::Array(elem, count)) => {
+                            let _ = writeln!(out, "    let mut {n}: [{}; {count}] = [{}; {count}];", rust_type(elem), zero(elem));
+                        }
                         Some(Local::Bytes(size)) => {
                             let _ = writeln!(out, "    let {n} = rhipper::Section::new([0u8; {size}]);");
                         }
@@ -702,21 +708,54 @@ impl Emitter<'_> {
         format!("({s}) as usize")
     }
 
-    /// A proven load: the local's value, or a checked read of the local's bytes or the section.
+    /// What a proven access of a local reads and writes: the local's value or its element as a
+    /// place expression, or `None` for a local of bytes.
+    fn local_place(&self, a: ValueId, p: &Place) -> Option<String> {
+        match self.safety.locals.get(&a)? {
+            Local::Value(_) => Some(name(self.f, a)),
+            Local::Array(elem, _) => {
+                let index = u64::try_from(p.offset).ok()? / elem.size(8)?;
+                Some(format!("{}[{index}]", name(self.f, a)))
+            }
+            Local::Bytes(_) => None,
+        }
+    }
+
+    /// The section access of an indexed place: one term scaled by the access's own size is an
+    /// element of an array, `at::<T>(base, index)`; `None` for any other place.
+    fn element_args(&self, ty: &Type, p: &Place) -> Option<String> {
+        let [(index_ty, index, scale)] = p.terms.as_slice() else { return None };
+        if Some(*scale) != ty.size(8).map(i128::from) || p.offset < 0 {
+            return None;
+        }
+        Some(format!("{}, ({}) as {} as isize", p.offset, self.operand(index_ty, index), signed_type(index_ty)))
+    }
+
+    /// A proven load: the local's value or element, or a checked read of the local's bytes or
+    /// the section, by element when the place indexes an array.
     fn load_text(&self, ty: &Type, p: &Place) -> String {
         match &p.root {
-            Root::Local(a) if matches!(self.safety.locals.get(a), Some(Local::Value(_))) => name(self.f, *a),
-            Root::Local(a) => format!("{}.get::<{}>({})", name(self.f, *a), rust_type(ty), p.offset),
-            Root::Section(g) => format!("{g}.get::<{}>({})", rust_type(ty), self.place_offset(p)),
+            Root::Local(a) => {
+                self.local_place(*a, p).unwrap_or_else(|| format!("{}.get::<{}>({})", name(self.f, *a), rust_type(ty), p.offset))
+            }
+            Root::Section(g) => match self.element_args(ty, p) {
+                Some(args) => format!("{g}.at::<{}>({args})", rust_type(ty)),
+                None => format!("{g}.get::<{}>({})", rust_type(ty), self.place_offset(p)),
+            },
         }
     }
 
     /// A proven store, as a statement.
     fn store_text(&self, ty: &Type, p: &Place, value: &str) -> String {
         match &p.root {
-            Root::Local(a) if matches!(self.safety.locals.get(a), Some(Local::Value(_))) => format!("{} = {value};", name(self.f, *a)),
-            Root::Local(a) => format!("{}.set::<{}>({}, {value});", name(self.f, *a), rust_type(ty), p.offset),
-            Root::Section(g) => format!("{g}.set::<{}>({}, {value});", rust_type(ty), self.place_offset(p)),
+            Root::Local(a) => match self.local_place(*a, p) {
+                Some(place) => format!("{place} = {value};"),
+                None => format!("{}.set::<{}>({}, {value});", name(self.f, *a), rust_type(ty), p.offset),
+            },
+            Root::Section(g) => match self.element_args(ty, p) {
+                Some(args) => format!("{g}.put::<{}>({args}, {value});", rust_type(ty)),
+                None => format!("{g}.set::<{}>({}, {value});", rust_type(ty), self.place_offset(p)),
+            },
         }
     }
 
@@ -1109,7 +1148,9 @@ impl Emitter<'_> {
         }
         chains.sort_by_key(|chain| chain.iter().any(|c| c.default));
         // A chain tests the value again: a plain local is read as it is, anything else is bound
-        // once, before the body can change what it reads.
+        // once, before the body can change what it reads. A local is assigned again only as a phi,
+        // on an edge into the block that defines it; that block dominates the switch, so the edge
+        // is a back edge that leaves the chain before its next test.
         let mut subject = self.guarded(&strip_parens(&self.operand(ty, value)));
         if chains.iter().any(|chain| chain.len() > 1) && !matches!(value, Operand::Local(v) if !self.defs.inlinable(*v)) {
             let _ = writeln!(out, "{pad}let ra_switch = {subject};");

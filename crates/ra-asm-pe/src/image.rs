@@ -1,6 +1,7 @@
 //! The mapped image: the file laid out by RVA as the Windows loader lays it out, with reads by
 //! virtual address that refuse an address no section holds. An XBE ([`crate::xbe`]) maps the same
-//! way, its header standing where the PE headers would.
+//! way, its header standing where the PE headers would; an ELF file ([`crate::elf`]) maps by its
+//! loaded segments, from the lowest one's page.
 
 use std::path::PathBuf;
 
@@ -48,6 +49,9 @@ pub struct Image {
     pub libraries: Vec<crate::pdb::LibraryRange>,
     /// What the XBE header holds beyond the PE's, when the image is one.
     pub xbe: Option<Xbe>,
+    /// The ELF file the image was mapped from, when it is one: its interpreter, its libraries and
+    /// the function extents of its `.eh_frame`, which no PE table holds.
+    pub elf: Option<ra_asm_format::elf::ElfFile>,
     /// What the loader could not read. A directory that fails to parse lands here, not in an error.
     pub warnings: Vec<String>,
     file: Vec<u8>,
@@ -58,9 +62,12 @@ impl Image {
     /// Parses the bytes of a PE file (or an XBE) and maps them.
     pub fn parse(file: Vec<u8>) -> Result<Self> {
         let reader = Reader::new(&file);
-        let (headers, sections, xbe) = if xbe::is_xbe(reader) {
+        let (headers, sections, xbe, elf) = if xbe::is_xbe(reader) {
             let (headers, sections, xbe) = xbe::parse(reader)?;
-            (headers, sections, Some(xbe))
+            (headers, sections, Some(xbe), None)
+        } else if ra_asm_format::elf::is_elf(&file) {
+            let (headers, sections, elf) = crate::elf::parse(&file)?;
+            (headers, sections, None, Some(elf))
         } else {
             let headers = Headers::parse(reader)?;
             let mut sections = Vec::with_capacity(headers.coff.sections as usize);
@@ -68,7 +75,7 @@ impl Image {
             for index in 0..headers.coff.sections as usize {
                 sections.push(Section::parse(&mut c, index)?);
             }
-            (headers, sections, None)
+            (headers, sections, None, None)
         };
 
         let size_of_image = headers.optional.size_of_image;
@@ -113,6 +120,7 @@ impl Image {
             symbols: Vec::new(),
             libraries: Vec::new(),
             xbe,
+            elf,
             warnings,
             file,
             mapped,
@@ -122,6 +130,11 @@ impl Image {
     }
 
     fn read_directories(&mut self) {
+        // An ELF file has none of the PE's directories: its tables are its own.
+        if self.elf.is_some() {
+            crate::elf::read_tables(self);
+            return;
+        }
         // An XBE's imports are its kernel thunk table; the directories below are empty in one
         // but the TLS, which the header points at in the PE's layout.
         let imports = match &self.xbe {

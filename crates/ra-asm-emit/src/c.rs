@@ -1188,10 +1188,10 @@ impl<'a> Emitter<'a> {
 
     /// The `enum` of a switch over a plain value: its tag (`classify_case`, numbered from the
     /// second switch of a function on) and the prefix of its enumerators (`CLASSIFY_0`), when the
-    /// subject is at most 32 bits wide and every case is an `int`, which C's enumerators must be.
-    /// A wider subject cast to the enum would alias cases; it keeps its numbers.
+    /// subject is a C integer of at most 32 bits and every case is an `int`, which C's enumerators
+    /// must be. A wider subject cast to the enum would alias cases; it keeps its numbers.
     fn case_enum(&self, ty: &Type, cases: &[crate::structure::Case]) -> Option<(String, String)> {
-        if !matches!(ty, Type::Int(1..=32)) {
+        if !matches!(ty, Type::Int(8 | 16 | 32)) {
             return None;
         }
         let values: Vec<i128> = cases.iter().flat_map(|c| c.values.iter().map(|v| sign_extended(ty, *v))).collect();
@@ -1206,13 +1206,14 @@ impl<'a> Emitter<'a> {
         Some((tag, prefix))
     }
 
-    /// The constant `k` as the name the other operand's enumeration gives it, else as a number.
+    /// The constant `k` as the name the other operand's enumeration gives it, else as the operand
+    /// it is, which splats it over a vector's lanes.
     fn named_or_constant(&self, ty: &Type, other: &Operand, k: i128) -> String {
         let named = match other {
             Operand::Local(v) => self.enum_of.get(v).and_then(|e| self.sdk_name(ty, e, k)),
             _ => None,
         };
-        named.unwrap_or_else(|| Self::int_constant(ty, k))
+        named.unwrap_or_else(|| self.operand(ty, &Operand::Int(k)))
     }
 
     /// Decides the `for` loops of the body, at any depth, before the locals are declared.
@@ -1957,7 +1958,7 @@ impl<'a> Emitter<'a> {
                     .enumerate()
                     .map(|(n, (t, o))| match (o, params.get(n).copied().flatten()) {
                         (Operand::Int(k), Some(e)) => {
-                            self.sdk_name(t, e, *k).map_or_else(|| Self::int_constant(t, *k), |s| strip_parens(&s))
+                            self.sdk_name(t, e, *k).map_or_else(|| strip_parens(&self.operand(t, o)), |s| strip_parens(&s))
                         }
                         _ => strip_parens(&self.operand(t, o)),
                     })
@@ -2110,6 +2111,10 @@ impl<'a> Emitter<'a> {
                         labels.insert(raw, name);
                     }
                     let _ = writeln!(out, "{pad}enum {tag} {{ {} }};", members.join(", "));
+                    // The enumerators are the cases sign-extended; a narrow subject would promote
+                    // zero-extended, so it passes through its signed type to meet them.
+                    let subject =
+                        if matches!(ty, Type::Int(8 | 16)) { format!("({}){}", signed_type(ty), parenthesized(&subject)) } else { subject };
                     let _ = writeln!(out, "{pad}switch ((enum {tag}){subject}) {{");
                 } else {
                     let _ = writeln!(out, "{pad}switch ({subject}) {{");

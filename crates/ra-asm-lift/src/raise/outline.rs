@@ -6,7 +6,8 @@
 //!
 //! A region is a natural loop, with the pure instructions of its preheader that feed only it and
 //! the phis of its one exit block: a single entry, a single exit, and at most one value leaving.
-//! Two regions match when their blocks correspond one to one with the same instructions in each,
+//! An exit the guard that skips the loop also reaches keeps its phis in the caller, the call in
+//! the loop's place among their incomings. Two regions match when their blocks correspond one to one with the same instructions in each,
 //! every operand either a value of the region, mapped by the correspondence, or an outside value:
 //! a value of the enclosing function, a constant or an address. The outside values are bound
 //! place by place; one that differs between the copies, or is a local of the caller, becomes a
@@ -55,8 +56,12 @@ struct Region {
     header: BlockId,
     /// The loop's blocks, in the function's block order.
     body: Vec<BlockId>,
-    /// The one block the loop leaves to; its leading phis belong to the region.
+    /// The one block the loop leaves to; its leading phis belong to the region unless it is shared.
     exit: BlockId,
+    /// Whether the exit is reached from outside the region as well, as when the compiler sends a
+    /// guard that skips the loop to the loop's own exit: its phis then stay the caller's, and the
+    /// call takes the place of the loop's one edge in them.
+    shared_exit: bool,
     /// The values the region defines.
     defined: HashSet<ValueId>,
     /// The value the region hands out, when one is used after it.
@@ -102,9 +107,14 @@ impl Region {
         match self.role(block) {
             Role::Body => true,
             Role::Pre => index.is_none_or(|i| self.tail.contains(&i)),
-            Role::Exit => index.is_some_and(|i| f.block(block).is_some_and(|b| b.instrs.get(i).is_some_and(is_phi))),
+            Role::Exit => index.is_some_and(|i| i < self.exit_phis(f)),
             Role::Outside => false,
         }
+    }
+
+    /// The count of the exit's leading phis the region takes: all of them, none of a shared exit.
+    fn exit_phis(&self, f: &Function) -> usize {
+        if self.shared_exit { 0 } else { f.block(self.exit).map_or(0, phi_count) }
     }
 }
 
@@ -176,8 +186,15 @@ fn regions_of(f: &Function, index: usize) -> Vec<Region> {
         if pre_block.terminator.successors().iter().any(|s| *s != header && *s != exit) {
             continue;
         }
-        if preds.get(&exit).into_iter().flatten().any(|p| *p != pre && !set.contains(p)) {
-            continue;
+        let shared_exit = preds.get(&exit).into_iter().flatten().any(|p| *p != pre && !set.contains(p));
+        if shared_exit {
+            // The call replaces the loop's edge in the exit's phis: one edge, and the preheader
+            // not a second way in.
+            let edges: usize =
+                set.iter().filter_map(|b| f.block(*b)).map(|b| b.terminator.successors().into_iter().filter(|s| *s == exit).count()).sum();
+            if edges != 1 || pre_block.terminator.successors().contains(&exit) {
+                continue;
+            }
         }
         let body: Vec<BlockId> = f.blocks.iter().map(|b| b.id).filter(|b| set.contains(b)).collect();
         let mut region = Region {
@@ -187,6 +204,7 @@ fn regions_of(f: &Function, index: usize) -> Vec<Region> {
             header,
             body,
             exit,
+            shared_exit,
             defined: HashSet::new(),
             output: None,
             work: 0,
@@ -238,6 +256,7 @@ fn tail_of(f: &Function, region: &Region, sites: &HashMap<ValueId, Vec<Site>>) -
 fn finish(f: &Function, region: &mut Region, sites: &HashMap<ValueId, Vec<Site>>) -> bool {
     let mut defined = HashSet::new();
     let (mut work, mut body_instrs) = (0, 0);
+    let exit_phis = region.exit_phis(f);
     let counts = |inst: &Inst| usize::from(!matches!(inst, Inst::Phi { .. } | Inst::Cast { .. }));
     let inside_block = |b: BlockId| b == region.pre || region.body.contains(&b);
     let phis_inside = |x: &Instruction| match &x.inst {
@@ -262,7 +281,7 @@ fn finish(f: &Function, region: &mut Region, sites: &HashMap<ValueId, Vec<Site>>
         }
     }
     if let Some(exit) = f.block(region.exit) {
-        for x in exit.instrs.iter().take(phi_count(exit)) {
+        for x in exit.instrs.iter().take(exit_phis) {
             if !phis_inside(x) {
                 return false;
             }
@@ -503,12 +522,17 @@ fn matches(module: &Module, t: &Region, s: &Region) -> Option<(Region, Match)> {
     if !pair_terminator(&mut m, &t_pre.terminator, &s_pre.terminator) {
         return None;
     }
+    // The phis of a block come in the order of the machine's slots, which differs between copies
+    // that keep a value in different registers: the rest of each block is paired first, and a
+    // phi then with the copy's phi its uses bound it to.
+    let mut phis: Vec<(&[Instruction], &[Instruction])> = Vec::new();
     for &a in &t.body {
         let (ba, bb) = (ft.block(a)?, fs.block(*blocks.get(&a)?)?);
-        if ba.instrs.len() != bb.instrs.len() {
+        let n = phi_count(ba);
+        if ba.instrs.len() != bb.instrs.len() || n != phi_count(bb) {
             return None;
         }
-        for (x, y) in ba.instrs.iter().zip(&bb.instrs) {
+        for (x, y) in ba.instrs[n..].iter().zip(&bb.instrs[n..]) {
             if !pair_instr(&mut m, x, y) {
                 return None;
             }
@@ -516,20 +540,48 @@ fn matches(module: &Module, t: &Region, s: &Region) -> Option<(Region, Match)> {
         if !pair_terminator(&mut m, &ba.terminator, &bb.terminator) {
             return None;
         }
+        phis.push((&ba.instrs[..n], &bb.instrs[..n]));
     }
     let (xa, xb) = (ft.block(t.exit)?, fs.block(s.exit)?);
-    if phi_count(xa) != phi_count(xb) {
+    let exit_phis = t.exit_phis(ft);
+    if exit_phis != s.exit_phis(fs) {
         return None;
     }
-    for (x, y) in xa.instrs.iter().take(phi_count(xa)).zip(&xb.instrs) {
-        if !pair_instr(&mut m, x, y) {
-            return None;
-        }
-    }
+    phis.push((&xa.instrs[..exit_phis], &xb.instrs[..exit_phis]));
     match (t.output, s.output) {
         (None, None) => {}
-        (Some(x), Some(y)) if m.sigma.get(&x) == Some(&y) => {}
+        (Some(x), Some(y)) if m.bind_value(x, y) => {}
         _ => return None,
+    }
+    let mut pending: Vec<(usize, usize)> = phis.iter().enumerate().flat_map(|(g, (a, _))| (0..a.len()).map(move |i| (g, i))).collect();
+    let mut taken: HashSet<(usize, usize)> = HashSet::new();
+    loop {
+        let before = pending.len();
+        let mut unbound = Vec::new();
+        for (g, i) in pending {
+            let (ta, sb) = phis[g];
+            let Some(y) = ta[i].result.and_then(|v| m.sigma.get(&v).copied()) else {
+                unbound.push((g, i));
+                continue;
+            };
+            let j = sb.iter().position(|p| p.result == Some(y))?;
+            if !taken.insert((g, j)) || !pair_instr(&mut m, &ta[i], &sb[j]) {
+                return None;
+            }
+        }
+        pending = unbound;
+        if pending.is_empty() || pending.len() == before {
+            break;
+        }
+    }
+    // The phis no use bound: in order, over the copy's phis left.
+    for (g, i) in pending {
+        let (ta, sb) = phis[g];
+        let j = (0..sb.len()).find(|j| !taken.contains(&(g, *j)))?;
+        taken.insert((g, j));
+        if !pair_instr(&mut m, &ta[i], &sb[j]) {
+            return None;
+        }
     }
     Some((s, m))
 }
@@ -753,7 +805,7 @@ impl<'a> Copier<'a> {
             self.h.blocks.push(Block { id: self.blocks[&b.id], name: b.name.clone(), instrs, terminator, address: b.address });
         }
         let exit = f.block(t.exit).expect("the exit is a block of the function");
-        let instrs: Vec<Instruction> = exit.instrs.iter().take(phi_count(exit)).map(|x| self.copy(x)).collect();
+        let instrs: Vec<Instruction> = exit.instrs.iter().take(t.exit_phis(f)).map(|x| self.copy(x)).collect();
         let returned = t.output.map(|v| (self.h.ty.ret.clone(), Operand::Local(self.local(v))));
         self.h.blocks.push(Block {
             id: self.blocks[&t.exit],
@@ -778,11 +830,24 @@ fn replace(
     address: Option<u64>,
 ) -> Option<(ValueId, ValueId)> {
     let result = (fn_ty.ret != Type::Void).then(|| f.new_value("outlined", fn_ty.ret.clone()));
+    let leaving: Vec<BlockId> =
+        f.blocks.iter().filter(|b| r.body.contains(&b.id) && b.terminator.successors().contains(&r.exit)).map(|b| b.id).collect();
     f.blocks.retain(|b| !r.body.contains(&b.id));
     if let Some(exit) = f.block_mut(r.exit) {
         let phis = phi_count(exit);
-        let rest = exit.instrs.split_off(phis);
-        exit.instrs = rest;
+        if r.shared_exit {
+            // The exit's phis stay; the value the loop brought now comes from the call's block.
+            for x in &mut exit.instrs[..phis] {
+                if let Inst::Phi { incoming, .. } = &mut x.inst {
+                    for (_, b) in incoming.iter_mut().filter(|(_, b)| leaving.contains(b)) {
+                        *b = r.pre;
+                    }
+                }
+            }
+        } else {
+            let rest = exit.instrs.split_off(phis);
+            exit.instrs = rest;
+        }
     }
     if let Some(pre) = f.block_mut(r.pre) {
         let taken: HashSet<usize> = r.tail.iter().copied().collect();

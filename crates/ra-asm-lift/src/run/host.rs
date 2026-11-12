@@ -30,8 +30,10 @@ const MODULE_HANDLES: u64 = 0x5a30_0000;
 /// it: a statically linked runtime's functions, which the lift leaves to the host's.
 const RUNTIME_DLLS: [&str; 6] = ["ucrtbase.dll", "msvcrt.dll", "vcruntime140.dll", "kernel32.dll", "ntdll.dll", "user32.dll"];
 
-/// The bytes of a `%State`: the general registers, `rip`, the flags, the vectors.
+/// The bytes of an x86 `%State`: the general registers, `rip`, the flags, the vectors.
 pub(super) const STATE_SIZE: u64 = 16 * 8 + 8 + 8 + 16 * 16;
+/// The bytes of an ARM64 `%State`: `x0..x30` and `sp`, `pc`, the flags, `v0..v31`.
+const ARM64_STATE_SIZE: u64 = 32 * 8 + 8 + 8 + 32 * 16;
 
 /// A thread of the program as the interpreter runs it: one at a time, a created one to its end
 /// inside `CreateThread`.
@@ -359,11 +361,20 @@ impl<'a> Runtime<'a> {
 
     /// A fresh `%State` in the heap.
     pub(super) fn new_state(&mut self, vm: &mut Vm<'_>) -> Result<u64, Stop> {
-        self.allocate(vm, STATE_SIZE, 16)
+        let size = match self.lifted.isa {
+            crate::state::Isa::X86 => STATE_SIZE,
+            crate::state::Isa::Arm64 => ARM64_STATE_SIZE,
+        };
+        self.allocate(vm, size, 16)
     }
 
     pub(super) fn stack_top(&self) -> u64 {
         self.thread.stack_top
+    }
+
+    /// The current thread's environment block, which ARM64 code reaches through `x18`.
+    pub(super) fn teb(&self) -> u64 {
+        self.thread.teb
     }
 
     /// The string `text` in the heap, NUL-terminated.
@@ -516,6 +527,17 @@ impl<'a> Runtime<'a> {
             Some(Symbol::Function(_)) => {
                 let name = vm.name_at(target).unwrap_or_default().to_owned();
                 vm.call_named(self, &name, vec![Value::Int(u128::from(state))])?;
+                int(0)
+            }
+            Some(Symbol::External(symbol)) if self.lifted.isa == state::Isa::Arm64 => {
+                // `x0..x7` carry the arguments and `x0` the result; the return is through `x30`,
+                // so the stack is the caller's as it was.
+                let mut args = Vec::with_capacity(8);
+                for i in 0..8u64 {
+                    args.push(Value::Int(u128::from(vm.memory.read_u64(state + 8 * i)?)));
+                }
+                let result = self.import_call(vm, &symbol, &state::import_adapter_type(), &args)?.as_u64();
+                vm.memory.write_u64(state, result)?;
                 int(0)
             }
             Some(Symbol::External(symbol)) => {
