@@ -39,6 +39,9 @@ struct Fixture {
     by_signatures: bool,
     /// The facts of a traced run the analysis takes; none by default.
     facts: ra_asm_analysis::Facts,
+    /// The output split by the modules the build's symbols name, as `ras emit` writes it, instead
+    /// of by size.
+    modules: bool,
 }
 
 fn fixture(binary: &str, expected: &str) -> Fixture {
@@ -50,6 +53,7 @@ fn fixture(binary: &str, expected: &str) -> Fixture {
         x87: ra_asm_lift::X87Unit::Double,
         by_signatures: false,
         facts: ra_asm_analysis::Facts::default(),
+        modules: false,
     }
 }
 
@@ -129,7 +133,12 @@ fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm
     let classes = ra_asm_emit::classes(&analysis, &signatures);
     let options = ra_asm_emit::COptions { names, dialect, classes, ..Default::default() };
     let unit = ra_asm_emit::emit_unit(&lifted.module, &options);
-    let files = unit.files(functions_per_file);
+    let files = if fixture.modules {
+        let objects = ra_asm_emit::functions::objects(&infos);
+        unit.module_files(&objects).unwrap_or_else(|| panic!("{binary}: the symbols name fewer than two modules"))
+    } else {
+        unit.files(functions_per_file)
+    };
     let dir = scratch(&format!("{binary}-{tag}"));
     ra_asm_emit::write_files(&dir, &files).unwrap();
     std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted, Some(&signatures))).unwrap();
@@ -324,6 +333,7 @@ fn rhtest(name: &str, variant: &str) -> Fixture {
         x87,
         by_signatures: false,
         facts: ra_asm_analysis::Facts::default(),
+        modules: false,
     }
 }
 
@@ -1015,6 +1025,34 @@ fn throws64_runs_as_rust() {
 #[test]
 fn rhtest_core_o2_runs_as_c() {
     run_rhtest_as_c("core", "O2");
+}
+
+/// The port of core-O2 split by the object files its map names: `core.c` and `rhtest_main.c`,
+/// each with its header, every function of an object in its object's file, and the files build
+/// together into a port that runs as the reference.
+#[test]
+fn rhtest_core_o2_splits_into_the_maps_modules() {
+    let fixture = Fixture { modules: true, ..rhtest("core", "O2") };
+    {
+        let (dir, _, _) = emit(&fixture, "modules", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+        for file in ["program.h", "data.c", "core.c", "core.h", "rhtest_main.c", "rhtest_main.h"] {
+            assert!(dir.join(file).is_file(), "core-O2: no {file} in {}", dir.display());
+        }
+        let header = std::fs::read_to_string(dir.join("core.h")).unwrap();
+        assert!(header.starts_with(ra_asm_emit::MODULE_MARK) && header.contains(" rhtest_run("), "core-O2: core.h is\n{header}");
+        let program = std::fs::read_to_string(dir.join("program.h")).unwrap();
+        assert!(program.contains("#include \"core.h\"\n") && program.contains("#include \"rhtest_main.h\"\n"), "{program}");
+        let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("functions.json")).unwrap()).unwrap();
+        let entries = table.as_array().unwrap();
+        for (object, file) in [("core.obj", "core.c"), ("rhtest_main.obj", "rhtest_main.c")] {
+            let placed: Vec<&serde_json::Value> = entries.iter().filter(|e| e["object"] == object && e.get("file").is_some()).collect();
+            assert!(!placed.is_empty(), "core-O2: no function of {object} in the table");
+            assert!(placed.iter().all(|e| e["file"] == file), "core-O2: a function of {object} outside {file}: {placed:?}");
+        }
+        let run = entries.iter().find(|e| e["name"] == "rhtest_run").unwrap();
+        assert_eq!((&run["file"], &run["object"]), (&serde_json::json!("core.c"), &serde_json::json!("core.obj")), "{run}");
+    }
+    run_fixture_as_c(&fixture, "modules-run", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
 }
 
 #[test]

@@ -1,4 +1,5 @@
-//! `ras emit`: source out of an image, in C, C++ or Rust, with the function table beside it.
+//! `ras emit`: source out of an image, in C, C++ or Rust, with the function table beside it. A C or
+//! C++ translation follows the modules the build's symbols name, a file and a header each.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -147,7 +148,9 @@ pub(crate) fn translate(
     };
     let classes = ra_asm_emit::classes(analysis, signatures);
     let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace, hand });
-    let files = unit.files(ra_asm_emit::FUNCTIONS_PER_FILE);
+    // The modules of the build, when its symbols name two object files or more; else by size.
+    let objects = ra_asm_emit::functions::objects(&infos);
+    let files = unit.module_files(&objects).unwrap_or_else(|| unit.files(ra_asm_emit::FUNCTIONS_PER_FILE));
     Ok(Translation {
         files,
         functions: unit.functions,
