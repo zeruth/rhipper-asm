@@ -142,12 +142,14 @@ fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm
     let classes = ra_asm_emit::classes(&analysis, &signatures);
     let options = ra_asm_emit::COptions { names, dialect, classes, ..Default::default() };
     let unit = ra_asm_emit::emit_unit(&lifted.module, &options);
-    let files = if fixture.modules {
+    let mut files = if fixture.modules {
         let objects = ra_asm_emit::functions::objects(&infos);
         unit.module_files(&objects).unwrap_or_else(|| panic!("{binary}: the symbols name fewer than two modules"))
     } else {
         unit.files(functions_per_file)
     };
+    // The port as `ras emit` writes it: formatted when clang-format is on the PATH.
+    ra_asm_emit::format_files(&mut files, &unit.functions);
     let dir = scratch(&format!("{binary}-{tag}"));
     ra_asm_emit::write_files(&dir, &files).unwrap();
     std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted, Some(&signatures))).unwrap();
@@ -202,7 +204,9 @@ fn run_rust_oracle_with(fixture: &Fixture, functions_per_file: usize) {
         resources,
         ..Default::default()
     };
-    let output = ra_asm_emit::emit_rust(&lifted.module, &options);
+    let mut output = ra_asm_emit::emit_rust(&lifted.module, &options);
+    // The port as `ras emit` writes it: formatted when rustfmt is on the PATH.
+    ra_asm_emit::format_files(&mut output.files, &output.functions);
     let dir = scratch(&format!("{binary}-rust-{functions_per_file}"));
     ra_asm_emit::write_files(&dir, &output.files).unwrap();
     write_resources(&dir, &image);
@@ -212,6 +216,20 @@ fn run_rust_oracle_with(fixture: &Fixture, functions_per_file: usize) {
         return;
     }
     let target = dir.join("target");
+    // The package is lint-clean: clippy, with the compiler's warnings, finds nothing to say.
+    if Command::new("cargo").args(["clippy", "--version"]).output().is_ok_and(|o| o.status.success()) {
+        let clippy = Command::new("cargo")
+            .args(["clippy", "--release", "--quiet", "--manifest-path"])
+            .arg(dir.join("Cargo.toml"))
+            .arg("--target-dir")
+            .arg(&target)
+            .args(["--", "-D", "warnings"])
+            .output()
+            .unwrap();
+        assert!(clippy.status.success(), "{binary}: cargo clippy in {}:\n{}", dir.display(), String::from_utf8_lossy(&clippy.stderr));
+    } else {
+        eprintln!("cargo clippy is not installed: the lint of {binary}'s Rust is skipped");
+    }
     let build = Command::new("cargo")
         .args(["build", "--release", "--manifest-path"])
         .arg(dir.join("Cargo.toml"))
@@ -256,9 +274,15 @@ fn check_table(binary: &str, dir: &Path) {
             let text = file.lines().nth(line as usize - 1).unwrap_or("");
             // A C++ method, virtual or not, is defined as `Class::method(`, under the line of record.
             let defines = text.contains(&format!("{name}(")) || text.contains("::");
-            assert!(defines && text.ends_with('{'), "{binary}: line {line} of {addr} is `{text}`");
+            // rustfmt breaks a long signature after its name's parenthesis.
+            assert!(defines && (text.ends_with('{') || text.ends_with('(')), "{binary}: line {line} of {addr} is `{text}`");
             assert_eq!(e["status"], if e["traps"] == 0 { "lifted" } else { "partial" });
             assert!(e["copies"].is_u64(), "{binary}: {e}");
+            let grade = &e["grade"];
+            for figure in ["gotos", "casts", "unresolved_calls", "stack_accesses", "lines"] {
+                assert!(grade[figure].is_u64(), "{binary}: no {figure} in the grade of {e}");
+            }
+            assert!(grade["lines"].as_u64() > Some(1), "{binary}: {e}");
         } else {
             assert!(e["status"] == "thunk" || e["status"] == "not lifted" || e["status"] == "runtime", "{binary}: {e}");
         }
@@ -300,9 +324,10 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
     let exe = dir.join("program.exe");
     // clang compiles each file in its own language by its extension; the driver stays C. A
     // 32-bit program's port keeps its 32-bit pointers: the binary is not large-address-aware.
-    // The debug information lets a crash report name its function and line.
+    // The debug information lets a crash report name its function and line. The port, the
+    // runtime and the driver build warning-free under the strict flags.
     let mut build = Command::new("clang");
-    build.args(["-O1", "-g", "-gcodeview", "-Wall", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-Wno-parentheses", "-Werror"]);
+    build.args(["-O1", "-g", "-gcodeview", "-Wall", "-Wextra", "-Werror"]);
     build.arg("-fuse-ld=lld");
     if bits == 32 {
         build.arg("-Wl,/largeaddressaware:no");
@@ -1136,9 +1161,12 @@ fn control64_rust_is_safe_where_provable() {
     for line in proven.lines().filter(|l| l.contains("unsafe {")) {
         assert!(line.contains("unsafe { /* ") || line.contains("} // "), "an unsafe block that names no reason: {line}");
     }
-    // The `n` of WriteFile is a local the function keeps as a value; the frame's address escapes
-    // to WriteFile and stays raw, named as such.
-    assert!(proven.contains("let mut local_m18: u64 = 0u64;"), "{proven}");
+    // The slot at -0x18 is a local the function keeps as a value, where the raw port gives it
+    // storage of its own; nothing reads it, so the proven port drops it with its store. The
+    // frame's address escapes to WriteFile and stays raw, named as such.
+    assert!(raw.contains("let mut local_m18_mem"), "{raw}");
+    assert!(!proven.contains("local_m18_mem"), "{proven}");
+    assert!(!proven.contains("local_m18") || proven.contains("let mut local_m18: u64 = 0u64;"), "{proven}");
     assert!(proven.contains(&format!("// {}", "memory at a computed address")), "{proven}");
     assert!(proven.contains("unsafe { /* an import */") || proven.contains("// an import"), "{proven}");
 }
@@ -1182,7 +1210,7 @@ fn rhtest_core_switches_read_as_source() {
 
         let r = rust_text(&fixture);
         let f = function_text(&r, "fn fallthrough(arg0: u32) -> u32 {");
-        for arm in ["0u32 | 1u32 => {", "4u32 | 5u32 | 6u32 => {", "if matches!(", "4u32 | 5u32) {"] {
+        for arm in ["0u32 | 1u32 => {", "4u32..=6u32 => {", "if matches!(", "4u32 | 5u32) {"] {
             assert!(f.contains(arm), "core-{variant}: no `{arm}` in:\n{f}");
         }
         assert_eq!(f.matches("1000u32").count(), 1, "core-{variant}: the tail of case 5 is copied:\n{f}");

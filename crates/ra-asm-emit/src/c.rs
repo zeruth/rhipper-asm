@@ -18,7 +18,7 @@ use std::fmt::Write;
 use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Type, ValueId};
 use ra_asm_lift::raise::prototypes;
 
-use crate::common::{Defs, parenthesized, strip_parens, trap_count};
+use crate::common::{Defs, identifiers, parenthesized, strip_parens, trap_count};
 use crate::layout::{Elem, Layout};
 use crate::structure::{Cond, Graph, Stmt, do_while, structure};
 
@@ -81,6 +81,8 @@ pub struct EmittedFunction {
     pub traps: usize,
     /// The blocks the structuring wrote a second time in place of a `goto`.
     pub copies: usize,
+    /// How the function reads; the default for a hand-written function.
+    pub grade: crate::functions::Grade,
     /// Whether the hand-written sources own the function: the text is its declaration.
     pub hand: bool,
     pub text: String,
@@ -473,11 +475,12 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
                     header_lines,
                     traps: 0,
                     copies: 0,
+                    grade: crate::functions::Grade::default(),
                     hand: true,
                     text,
                 };
             }
-            let (header_lines, copies) = emit_function(
+            let (header_lines, copies, gotos, end) = emit_function(
                 &mut text,
                 f,
                 &prototypes[&f.name],
@@ -488,7 +491,19 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
                 &mut sdk_names,
                 options.trace,
             );
-            EmittedFunction { ir_name: f.name.clone(), address: f.address, header_lines, traps: trap_count(f), copies, hand: false, text }
+            // A method's grade is its definition's: the vtable's entry after it is the engine's.
+            let definition = &text[..end];
+            let grade = crate::functions::Grade::of(f, gotos, casts(definition), definition.lines().count() - header_lines);
+            EmittedFunction {
+                ir_name: f.name.clone(),
+                address: f.address,
+                header_lines,
+                traps: trap_count(f),
+                copies,
+                grade,
+                hand: false,
+                text,
+            }
         })
         .collect();
     let mut types = define_types(module);
@@ -988,8 +1003,8 @@ fn emit_bytes(out: &mut String, bytes: &[u8]) {
 /// Writes one function, with one comment line above it naming it: the source name when the image
 /// gives one, and its address. As a `method` of a C++ class, the body is the method's definition,
 /// its first parameter recovered from `this`, and the function under its own name follows as the
-/// vtable's entry. Returns the number of lines above the definition and the number of blocks
-/// written twice.
+/// vtable's entry. Returns the number of lines above the definition, the number of blocks
+/// written twice, the number of `goto`s and where in `out` the definition ends.
 fn emit_function(
     out: &mut String,
     f: &Function,
@@ -1000,7 +1015,7 @@ fn emit_function(
     method: Option<(&crate::cpp::Class, &crate::cpp::Method)>,
     sdk_names: &mut BTreeMap<String, String>,
     trace: bool,
-) -> (usize, usize) {
+) -> (usize, usize, usize, usize) {
     let mut header_lines = 0;
     if let Some(address) = f.address {
         match source_name {
@@ -1023,15 +1038,10 @@ fn emit_function(
     }
     // The entry hook: nothing, unless the port is built with RA_TRACE, when it names the function.
     let _ = writeln!(out, "    RA_ENTER(\"{}\");", f.name);
-    if let Some((_, m)) = method
-        && m.this
-    {
-        let ty = &f.ty.params[0];
-        let _ = writeln!(out, "    {} = ({})(uintptr_t)this;", declaration(ty, &name(f, f.params[0])), c_type(ty));
-    }
     // The trace hooks name the function as the table does, so the reference's trace, recorded by
     // address and named through the table, reads the same.
     let traced = trace.then(|| source_name.unwrap_or(&f.name).to_owned());
+    let mut entry = String::new();
     if let Some(traced) = &traced {
         let mut kinds = String::new();
         let mut args = String::new();
@@ -1048,21 +1058,148 @@ fn emit_function(
             args.push_str(", ");
             args.push_str(&arg);
         }
-        let _ = writeln!(out, "    ra_trace_enter(\"{traced}\", \"{kinds}\"{args});");
+        let _ = writeln!(entry, "    ra_trace_enter(\"{traced}\", \"{kinds}\"{args});");
     }
     let graph = Graph::of(f);
     let structured = structure(f, &graph);
     let mut e = Emitter::new(f, &structured.labels, types, layouts, std::mem::take(sdk_names), traced);
     e.plan_loops(&structured.body, &graph);
-    e.declare_locals(out);
-    e.stmts(out, &structured.body, 1);
-    let _ = writeln!(out, "}}");
+    let locals = e.declare_locals();
+    let mut body = String::new();
+    e.stmts(&mut body, &structured.body, 1);
     *sdk_names = e.names.into_inner();
+    let declarations = prune_locals(&locals, &mut body);
+    // A parameter the body does not read is one the convention passes and the function ignores.
+    let read: HashSet<&str> =
+        identifiers(&entry).into_iter().chain(identifiers(&body)).filter(|(_, assigned)| !assigned).map(|(n, _)| n).collect();
+    let this = method.is_some_and(|(_, m)| m.this);
+    if this && read.contains(name(f, f.params[0]).as_str()) {
+        let ty = &f.ty.params[0];
+        let _ = writeln!(out, "    {} = ({})(uintptr_t)this;", declaration(ty, &name(f, f.params[0])), c_type(ty));
+    }
+    for p in f.params.iter().skip(usize::from(this)) {
+        let p = name(f, *p);
+        if !read.contains(p.as_str()) {
+            let _ = writeln!(out, "    (void){p};");
+        }
+    }
+    out.push_str(&entry);
+    out.push_str(&declarations);
+    out.push_str(&body);
+    let _ = writeln!(out, "}}");
+    let end = out.len();
     if let Some((class, m)) = method {
         out.push('\n');
         crate::cpp::trampoline(out, f, class, m, prototype);
     }
-    (header_lines, structured.copies())
+    (header_lines, structured.copies(), structured.gotos(), end)
+}
+
+/// A local of a function's C, by the names it declares.
+enum Local {
+    /// One name, declared in `text`: one line, or an allocation's two, its storage and the
+    /// pointer to it.
+    One { name: String, text: String },
+    /// A phi and its next value, declared together: `lead` is the type up to the first name,
+    /// `star` what the second name takes of it.
+    Phi { lead: String, star: &'static str, name: String },
+}
+
+/// The declarations of the locals `body` reads, with `body` rid of the assignments to the others:
+/// a value nothing reads, such as a call's unused result, is not declared, and its assignment
+/// keeps only what may do something, the call. To a fixpoint: a phi nothing reads leaves its
+/// next value unread too.
+fn prune_locals(locals: &[Local], body: &mut String) -> String {
+    let declared: Vec<String> = locals
+        .iter()
+        .flat_map(|l| match l {
+            Local::One { name, .. } => vec![name.clone()],
+            Local::Phi { name, .. } => vec![name.clone(), format!("{name}_next")],
+        })
+        .collect();
+    let mut dead: HashSet<String> = HashSet::new();
+    loop {
+        let read: HashSet<&str> = identifiers(body).into_iter().filter(|(_, assigned)| !assigned).map(|(n, _)| n).collect();
+        let unread: Vec<&String> = declared.iter().filter(|n| !dead.contains(*n) && !read.contains(n.as_str())).collect();
+        if unread.is_empty() {
+            break;
+        }
+        let mut kept = String::with_capacity(body.len());
+        for line in body.lines() {
+            if let Some(line) = unassigned(line, &unread) {
+                kept.push_str(&line);
+                kept.push('\n');
+            }
+        }
+        dead.extend(unread.into_iter().cloned());
+        *body = kept;
+    }
+    let mut out = String::new();
+    for l in locals {
+        match l {
+            Local::One { name, text } if !dead.contains(name) => out.push_str(text),
+            Local::One { .. } => {}
+            Local::Phi { lead, star, name } => {
+                let next = format!("{name}_next");
+                match (dead.contains(name), dead.contains(&next)) {
+                    (false, false) => {
+                        let _ = writeln!(out, "    {lead}{name}, {star}{next};");
+                    }
+                    (false, true) => {
+                        let _ = writeln!(out, "    {lead}{name};");
+                    }
+                    (true, false) => {
+                        let _ = writeln!(out, "    {lead}{next};");
+                    }
+                    (true, true) => {}
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `line` without its assignment when it assigns one of `unread`: nothing for a copy of a name or
+/// a constant, the bare call for a call, and the value cast to `void` for anything else, which may
+/// read memory as the machine did.
+fn unassigned(line: &str, unread: &[&String]) -> Option<String> {
+    let value = line.trim_start();
+    let pad = &line[..line.len() - value.len()];
+    let Some(rhs) = unread.iter().find_map(|n| value.strip_prefix(n.as_str())?.strip_prefix(" = ")?.strip_suffix(';')) else {
+        return Some(line.to_owned());
+    };
+    if rhs.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    let callee = rhs.find('(').map_or(rhs, |at| &rhs[..at]);
+    let args = &rhs[callee.len()..];
+    let call =
+        !callee.is_empty() && callee.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && strip_parens(args).len() + 2 == args.len();
+    Some(if call { format!("{pad}{rhs};") } else { format!("{pad}(void)({rhs});") })
+}
+
+/// The casts a function's C writes: each parenthesized type before an operand, but the `(void)`
+/// of a value read for nothing.
+fn casts(text: &str) -> usize {
+    let mut count = 0;
+    for (at, _) in text.match_indices('(') {
+        let before = text[..at].chars().next_back();
+        // A call's or a function type's parameter list is no cast.
+        if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == ')') {
+            continue;
+        }
+        let Some(end) = text[at + 1..].find(')') else { continue };
+        let inner = text[at + 1..at + 1 + end].trim_end_matches([' ', '*']);
+        let word = inner.strip_prefix("struct ").or_else(|| inner.strip_prefix("enum ")).unwrap_or(inner);
+        let plain = word.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        let typed = inner != word
+            || (plain && (word.ends_with("_t") || word.starts_with("ra_v") || word == "ra_u128"))
+            || ["float", "double", "long double"].contains(&word);
+        if typed {
+            count += 1;
+        }
+    }
+    count
 }
 
 /// A hand-written function in place of its definition: the comment that names it and says who
@@ -1674,42 +1811,49 @@ impl<'a> Emitter<'a> {
         self.defs.inlinable(v)
     }
 
-    fn declare_locals(&mut self, out: &mut String) {
+    fn declare_locals(&self) -> Vec<Local> {
         let mut declared: HashSet<ValueId> = self.f.params.iter().copied().collect();
+        let mut locals = Vec::new();
         for b in &self.f.blocks {
             for i in &b.instrs {
                 let Some(v) = i.result else { continue };
                 if self.inlinable(v) || self.field_pointer(v) || self.skipped.contains(&v) || !declared.insert(v) {
                     continue;
                 }
-                match &i.inst {
+                let name = name(self.f, v);
+                let local = match &i.inst {
                     Inst::Alloca { ty, align } => {
-                        let _ = writeln!(out, "    {} RA_ALIGNED({align});", declaration(ty, &format!("{}_mem", name(self.f, v))));
-                        let _ = writeln!(out, "    uint8_t *{} = (uint8_t *)&{}_mem;", name(self.f, v), name(self.f, v));
+                        let storage = declaration(ty, &format!("{name}_mem"));
+                        let text = format!("    {storage} RA_ALIGNED({align});\n    uint8_t *{name} = (uint8_t *)&{name}_mem;\n");
+                        Local::One { name, text }
                     }
                     Inst::Phi { .. } if let Some(s) = self.struct_of.get(&v) => {
-                        let _ = writeln!(out, "    struct {s} *{}, *{}_next;", name(self.f, v), name(self.f, v));
+                        Local::Phi { lead: format!("struct {s} *"), star: "*", name }
                     }
                     Inst::Phi { ty, .. } if self.hoisted.contains(&v) => {
-                        let _ = writeln!(out, "    {};", declaration(ty, &name(self.f, v)));
+                        let text = format!("    {};\n", declaration(ty, &name));
+                        Local::One { name, text }
                     }
-                    Inst::Phi { ty, .. } => {
-                        let _ = writeln!(out, "    {} {}, {}_next;", c_type(ty), name(self.f, v), name(self.f, v));
-                    }
+                    Inst::Phi { ty, .. } => Local::Phi { lead: format!("{} ", c_type(ty)), star: "", name },
                     _ if let Some(s) = self.struct_of.get(&v) => {
-                        let _ = writeln!(out, "    struct {s} *{};", name(self.f, v));
+                        let text = format!("    struct {s} *{name};\n");
+                        Local::One { name, text }
                     }
                     // A vector compare's result is a vector of lane masks, the width of what it
                     // compared: C has no vector of conditions.
                     Inst::ICmp { ty: ty @ Type::Vector(..), .. } | Inst::FCmp { ty: ty @ Type::Vector(..), .. } => {
-                        let _ = writeln!(out, "    {};", declaration(&mask_type(ty), &name(self.f, v)));
+                        let text = format!("    {};\n", declaration(&mask_type(ty), &name));
+                        Local::One { name, text }
                     }
                     inst => {
-                        let _ = writeln!(out, "    {};", declaration(&inst.result_type(), &name(self.f, v)));
+                        let text = format!("    {};\n", declaration(&inst.result_type(), &name));
+                        Local::One { name, text }
                     }
-                }
+                };
+                locals.push(local);
             }
         }
+        locals
     }
 
     /// The type of the lane masks a vector compare leaves, when `o` is one.

@@ -18,7 +18,8 @@
 //! call whose callee no one knows pops nothing when such a save lies right above its return
 //! address. A callee whose stack arguments lie in the function's own (a tail jump through a vtable
 //! slot, `jmp [eax + 4]`, hands the caller's arguments on as they are) reads them there: they are
-//! the function's parameters, as many as the widest of its possible callees takes.
+//! the function's parameters, as many as the widest of its possible callees takes, even when a
+//! runtime class's method shares the slot and keeps the call indirect.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -57,8 +58,9 @@ pub struct StackInfo {
 /// What a lifted callee does to the stack of its caller, as far as the inference knows it so far.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CalleeStack {
-    /// The bytes it pops beyond its return address.
-    pub pops: i64,
+    /// The bytes it pops beyond its return address; `None` for a function outside the lift (a
+    /// runtime class's method in the same vtable slot), which pops what it pops.
+    pub pops: Option<i64>,
     /// The bytes of stack arguments it reads, from the first stack argument up.
     pub arguments: i64,
 }
@@ -287,13 +289,17 @@ pub fn analyze(
                                     // callee no one knows (a slot a runtime class's vtable fills
                                     // too, a function pointer) pops nothing when the word above
                                     // the return address is such a save.
+                                    let unknown = regs[sp].filter(|&k| saves.bytes.contains(&(k + pushed))).map(|_| 0);
                                     let pops = match call_pops(inst) {
                                         Some(callees) => {
                                             let possible: Vec<CalleeStack> = callees
                                                 .into_iter()
                                                 .filter(|&CalleeStack { pops, .. }| {
-                                                    regs[sp]
-                                                        .is_none_or(|k| !(k + pushed..k + pushed + pops).any(|b| saves.bytes.contains(&b)))
+                                                    pops.is_none_or(|pops| {
+                                                        regs[sp].is_none_or(|k| {
+                                                            !(k + pushed..k + pushed + pops).any(|b| saves.bytes.contains(&b))
+                                                        })
+                                                    })
                                                 })
                                                 .collect();
                                             // The arguments in the function's own argument area,
@@ -306,9 +312,12 @@ pub fn analyze(
                                                     *e = (*e).max((ptr * 8) as u16);
                                                 }
                                             }
-                                            possible.first().map(|c| c.pops).filter(|&pops| possible.iter().all(|c| c.pops == pops))
+                                            match possible.iter().map(|c| c.pops).collect::<Option<Vec<i64>>>() {
+                                                Some(all) => all.first().copied().filter(|&pops| all.iter().all(|&p| p == pops)),
+                                                None => unknown,
+                                            }
                                         }
-                                        None => regs[sp].filter(|&k| saves.bytes.contains(&(k + pushed))).map(|_| 0),
+                                        None => unknown,
                                     };
                                     match pops {
                                         Some(pops) => regs[sp] = regs[sp].map(|k| k + pushed + pops),
