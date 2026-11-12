@@ -688,7 +688,7 @@ impl Emitter<'_> {
     /// The address of a global or a function, as a pointer or as the integer `ty`.
     fn address(&self, global: &str, offset: i64, ty: &Type) -> String {
         let pointer = if self.names.functions.contains(global) {
-            format!("({global} as usize as u64).wrapping_add({offset} as u64) as *mut u8")
+            format!("({global} as *const () as usize as u64).wrapping_add({offset} as u64) as *mut u8")
         } else {
             global_pointer(global, offset, self.names.sections)
         };
