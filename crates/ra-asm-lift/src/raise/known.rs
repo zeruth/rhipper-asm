@@ -1,7 +1,8 @@
 //! Known values: a pure instruction identical to one that dominates it becomes that one (value
 //! numbering over the dominator tree), a condition that a dominating branch decided is that
 //! constant on the branch's side, the operand a dominating equality compared with a constant is
-//! that constant, a branch on a constant becomes a jump, and the blocks nothing reaches go. The
+//! that constant, a comparison of two constants is its answer, a branch on a constant becomes a
+//! jump, and the blocks nothing reaches go. The
 //! lift's own guards are where this shows: its division-by-zero check repeats the program's.
 //! Memory too: a load from a read-only section is the bytes the image holds there, and a load of
 //! a slot a store of the same block wrote, with no call and no aliasing store between, is the
@@ -20,6 +21,7 @@ pub fn run(f: &mut Function, globals: &[Global]) -> bool {
     changed |= fold_constant_loads(f, globals);
     changed |= forward_stores(f);
     changed |= fold_opaque(f);
+    changed |= fold_compares(f);
     changed |= apply_branch_facts(f);
     changed |= fold_branches(f);
     changed
@@ -56,6 +58,9 @@ pub(super) fn place(o: &Operand, defs: &HashMap<ValueId, Inst>) -> Option<(Root,
                 Some((root, base.checked_add(gep_offset(base_ty, indices)?)?))
             }
             Some(Inst::Cast { cast: Cast::IntToPtr | Cast::PtrToInt | Cast::Bitcast | Cast::ZExt, value, .. }) => place(value, defs),
+            // A 32-bit program reads its stack pointer as the low half of the register, and its
+            // frame and data lie below 4 GiB in the port, so the low half is the whole address.
+            Some(Inst::Cast { cast: Cast::Trunc, value, to: Type::Int(32), .. }) => place(value, defs),
             Some(Inst::Bin { op: op @ (BinOp::Add | BinOp::Sub), ty, lhs, rhs: Operand::Int(k) }) => {
                 let (root, base) = place(lhs, defs)?;
                 let k = signed(ty, *k)?;
@@ -413,6 +418,38 @@ fn fold_opaque(f: &mut Function) -> bool {
         if let Some(r) = folded {
             replace.insert(v, Operand::Int(r as i128));
         }
+    }
+    substitute(f, &replace)
+}
+
+/// A comparison of two constants is its answer. The opaque predicate's test is one once its
+/// operand folded, and the cleanup folds the arithmetic of constants but not their comparison.
+fn fold_compares(f: &mut Function) -> bool {
+    let mut replace: HashMap<ValueId, Operand> = HashMap::new();
+    for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+        let (Some(v), Inst::ICmp { cond, ty: Type::Int(bits), lhs: Operand::Int(a), rhs: Operand::Int(b) }) = (i.result, &i.inst) else {
+            continue;
+        };
+        let bits = u32::from(*bits);
+        if bits == 0 {
+            continue;
+        }
+        let (a, b) = (*a as u128 & low_mask(bits), *b as u128 & low_mask(bits));
+        let signed = |x: u128| if bits < 128 && (x >> (bits - 1)) & 1 == 1 { (x | !low_mask(bits)) as i128 } else { x as i128 };
+        let (sa, sb) = (signed(a), signed(b));
+        let r = match cond {
+            ICond::Eq => a == b,
+            ICond::Ne => a != b,
+            ICond::Ugt => a > b,
+            ICond::Uge => a >= b,
+            ICond::Ult => a < b,
+            ICond::Ule => a <= b,
+            ICond::Sgt => sa > sb,
+            ICond::Sge => sa >= sb,
+            ICond::Slt => sa < sb,
+            ICond::Sle => sa <= sb,
+        };
+        replace.insert(v, Operand::Int(i128::from(r)));
     }
     substitute(f, &replace)
 }

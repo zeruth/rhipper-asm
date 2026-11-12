@@ -790,6 +790,15 @@ fn declare_global(out: &mut String, g: &ra_asm_ir::Global, layout: Option<&Layou
     }
 }
 
+/// The text of a constant the lift made rather than read from a section (a string decrypted at
+/// lift time), when its bytes are one printable run and the NUL that ends it: the literal says
+/// what the bytes would only encode.
+fn literal_text<'a>(g: &ra_asm_ir::Global, n: u64, bytes: &'a [u8]) -> Option<&'a [u8]> {
+    let (&0, text) = bytes.split_last()? else { return None };
+    let printable = |&b: &u8| matches!(b, b'\t' | b'\n' | b'\r' | b' '..=b'~');
+    (g.constant && g.address.is_none() && bytes.len() as u64 == n && !text.is_empty() && text.iter().all(printable)).then_some(text)
+}
+
 /// The definition of a data global, with its initializer. The type of a packed global comes from
 /// [`global_type`] first. An address in a word narrower than a pointer is written by a statement
 /// in `init` instead, at run time.
@@ -797,6 +806,13 @@ fn define_global(out: &mut String, init: &mut String, g: &ra_asm_ir::Global, lay
     let storage = storage_of(g);
     if let Some(layout) = layout {
         define_laid_out(out, init, g, layout, storage);
+        return;
+    }
+    if let (Type::Array(n, e), Some(Const::Bytes(bytes))) = (&g.ty, &g.init)
+        && **e == Type::I8
+        && let Some(text) = literal_text(g, *n, bytes)
+    {
+        let _ = writeln!(out, "{storage}uint8_t {}[{n}] RA_ALIGNED(16) = {};", g.name, crate::layout::string_literal(text));
         return;
     }
     match (&g.ty, &g.init) {
