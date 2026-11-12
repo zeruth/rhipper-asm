@@ -238,6 +238,11 @@ fn check_table(binary: &str, dir: &Path) {
             assert!(defines && text.ends_with('{'), "{binary}: line {line} of {addr} is `{text}`");
             assert_eq!(e["status"], if e["traps"] == 0 { "lifted" } else { "partial" });
             assert!(e["copies"].is_u64(), "{binary}: {e}");
+            let grade = &e["grade"];
+            for figure in ["gotos", "casts", "unresolved_calls", "stack_accesses", "lines"] {
+                assert!(grade[figure].is_u64(), "{binary}: no {figure} in the grade of {e}");
+            }
+            assert!(grade["lines"].as_u64() > Some(1), "{binary}: {e}");
         } else {
             assert!(e["status"] == "thunk" || e["status"] == "not lifted" || e["status"] == "runtime", "{binary}: {e}");
         }
@@ -276,9 +281,10 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
     let exe = dir.join("program.exe");
     // clang compiles each file in its own language by its extension; the driver stays C. A
     // 32-bit program's port keeps its 32-bit pointers: the binary is not large-address-aware.
-    // The debug information lets a crash report name its function and line.
+    // The debug information lets a crash report name its function and line. The port, the
+    // runtime and the driver build warning-free under the strict flags.
     let mut build = Command::new("clang");
-    build.args(["-O1", "-g", "-gcodeview", "-Wall", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-Wno-parentheses", "-Werror"]);
+    build.args(["-O1", "-g", "-gcodeview", "-Wall", "-Wextra", "-Werror"]);
     build.arg("-fuse-ld=lld");
     if bits == 32 {
         build.arg("-Wl,/largeaddressaware:no");
