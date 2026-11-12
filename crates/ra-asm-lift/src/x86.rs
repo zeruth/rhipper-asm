@@ -357,16 +357,20 @@ impl Lifter<'_, '_> {
             shim.clone_into(&mut symbol);
         }
         self.lifted.imports.insert(symbol.clone());
-        let stack_offset = match (self.m.bits, tail) {
-            (64, false) => 0x20,
-            (64, true) => 0x28,
-            (_, false) => 0,
-            (_, true) => 4,
+        // The first stack argument: past the return address of a tail call, and in Win64 past
+        // the shadow space of the four register arguments, which System V does not keep.
+        let stack_offset = match (self.m.bits, tail, self.lifted.sysv) {
+            (64, false, false) => 0x20,
+            (64, true, false) => 0x28,
+            (64, true, true) => 8,
+            (_, false, _) => 0,
+            (_, true, _) => 4,
         };
         let wrapper = crate::import_wrapper_name(&symbol, tail);
         self.lifted.wrappers.insert((symbol.clone(), stack_offset, tail));
         self.m.b.call(block, FnType::new(Type::Void, vec![Type::Ptr]), Callee::Direct(wrapper), vec![(Type::Ptr, self.m.state.into())], "");
-        if self.m.bits == 32 && !cdecl {
+        // Every System V import is `cdecl`: its caller pops.
+        if self.m.bits == 32 && !cdecl && !self.lifted.sysv {
             let dll = self.image.imports.iter().find(|i| i.display_name() == import).map(|i| i.dll.clone()).unwrap_or_default();
             if crate::raise::prototypes::is_xbox_fastcall(&dll, &symbol) {
                 self.lifted.fastcall.insert(symbol.clone());

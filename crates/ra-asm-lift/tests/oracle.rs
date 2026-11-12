@@ -168,6 +168,46 @@ fn helloa64_runs_interpreted() {
     }
 }
 
+/// The Linux build of hello lifts without a trap at the machine level, over the mapped image and
+/// standalone: its imports are called through System V wrappers, which read `rdi` first, and its
+/// IR passes the gate. It runs on Linux only, so the run is skipped here.
+#[test]
+fn the_linux_fixture_lifts_and_passes_the_ir_gate() {
+    if !clang_available() {
+        eprintln!("clang is not on the PATH: the IR gate is skipped");
+        return;
+    }
+    let image = ra_asm_pe::load(&fixture("hello_linux64")).unwrap();
+    assert!(image.elf.is_some() && image.machine() == ra_asm_pe::Machine::Amd64);
+    let analysis = ra_asm_analysis::analyze(&image);
+    for standalone in [false, true] {
+        let options = ra_asm_lift::LiftOptions { standalone, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+        assert!(lifted.sysv, "an ELF image's imports take the System V convention");
+        assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+        let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+        assert_eq!(coverage.traps(), 0, "unsupported instructions: {:?}", coverage.uncovered);
+        lifted.apply_names(&analysis, None);
+        for import in ["write", "exit"] {
+            assert!(lifted.imports.contains(import), "{import} is called: {:?}", lifted.imports);
+        }
+        let ll = lifted.module.to_ll();
+        // The wrapper of a call or of a tail call through the PLT stub: either reads `rdi` first.
+        let start =
+            ll.lines().position(|l| l.starts_with("define internal") && l.contains("imp_write")).expect("the wrapper of write is defined");
+        let wrapper: Vec<&str> = ll.lines().skip(start).take_while(|l| *l != "}").collect();
+        let wrapper = wrapper.join("\n");
+        let first_gpr = ["%rdi", "%rcx"].into_iter().filter_map(|r| wrapper.find(r).map(|at| (at, r))).min();
+        assert_eq!(first_gpr.map(|(_, r)| r), Some("%rdi"), "write's wrapper reads System V's registers:\n{wrapper}");
+        let dir = scratch(&format!("gate-linux-{standalone}-hello_linux64"));
+        std::fs::write(dir.join("program.ll"), &ll).unwrap();
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
+    }
+    eprintln!("hello_linux64: a Linux program, and the host is Windows: the run is skipped");
+}
+
 fn run_oracle(binary: &str, expected: &str) {
     run_oracle_as(binary, expected, "run-machine");
     run_oracle_as(binary, expected, "run-promoted");
