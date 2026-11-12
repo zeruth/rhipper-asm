@@ -459,7 +459,6 @@ fn inline64_runs_as_rust() {
 /// one function `H_<address>` of the C, its prototype, its definition and a call in each of the
 /// three callers; no second helper is made of it.
 #[test]
-#[ignore = "#116: the outlined helper is not yet called from each of the three callers"]
 fn inline_reads_as_source() {
     for binary in ["inline64.exe", "inline32.exe"] {
         let (_, c, _) = emit(&fixture(binary, "inline.txt"), "source", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
