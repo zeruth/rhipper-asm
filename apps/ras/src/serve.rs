@@ -36,7 +36,8 @@
 //! - `lockstep.start`: starts the port (a build with `run.trace`) and the reference through the
 //!   interpreter side by side, each stopped at its first function entry (see
 //!   [`crate::lockstep`]), and answers with the state: `entry`, the place of each side (the
-//!   `function` and its `args` with their kinds, or `ended` with the `exit`), `equal`, and
+//!   `function` and its `args` with their kinds, and `address` on an integer the reference holds
+//!   as an address of its memory, or `ended` with the `exit`), `equal`, and
 //!   `differs` when the two part. A session started again replaces the one before.
 //! - `lockstep.step` (`function`, `count`, `divergence`): lets both sides go on `count` entries
 //!   (1 by default; of `function` alone when given), or to the first entry where they part when
@@ -256,7 +257,7 @@ impl Session<'_> {
                 let Some(project) = &self.target.project else { bail!("no project: the lockstep runs a project's port") };
                 // The session before goes first: the interpreter runs one program at a time.
                 self.lockstep.borrow_mut().take();
-                let session = Lockstep::start(project, self.image.headers.coff.is_dll())?;
+                let session = Lockstep::start(project, self.image)?;
                 let state = session.state();
                 *self.lockstep.borrow_mut() = Some(session);
                 Ok(state)

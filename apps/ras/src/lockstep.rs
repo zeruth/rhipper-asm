@@ -10,7 +10,9 @@
 //! [`ra_asm_ir::interp::Pause`]. The state of a side at a stop is the function and its arguments
 //! with their kinds; the two states are equal when the functions are the same and every argument
 //! that is not a pointer has the same value (an integer at the width of the reference's
-//! parameter): a pointer differs between the two processes, as in the trace.
+//! parameter): a pointer differs between the two processes, as in the trace. The lift types a
+//! pointer as an integer of the address width, so such an integer is a pointer when the
+//! reference's value lies in the interpreter's memory, and then only a null in the port differs.
 
 use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
@@ -36,12 +38,14 @@ pub(crate) const MAX_READ: u64 = 4096;
 
 /// One argument at a stop: its kind as the trace hooks name it (`u` an integer, `p` a pointer,
 /// `f` and `g` the bits of a double and a float, `?` another type) and its bits; the width of an
-/// integer when the side knows it.
+/// integer when the side knows it, and whether the reference holds it as an address of its
+/// memory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Arg {
     kind: char,
     bits: u64,
     width: Option<u32>,
+    address: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,8 +98,8 @@ static SESSIONS: AtomicUsize = AtomicUsize::new(0);
 impl Lockstep {
     /// Starts the port of `project` (a build with the trace hooks) and the reference's IR, each
     /// stopped at its first entry.
-    pub(crate) fn start(project: &Project, dll: bool) -> Result<Lockstep> {
-        if dll {
+    pub(crate) fn start(project: &Project, image: &ra_asm_pe::Image) -> Result<Lockstep> {
+        if image.headers.coff.is_dll() {
             bail!("the port is a DLL: a DLL steps in the program that loads it, which the lockstep does not run");
         }
         let binary = project.port_binary(false);
@@ -104,7 +108,7 @@ impl Lockstep {
         }
         let log_dir = project.log_dir();
         std::fs::create_dir_all(&log_dir)?;
-        let reference = Reference::start(project)?;
+        let reference = Reference::start(project, u32::from(image.pointer_size()) * 8)?;
         let port = Port::start(project, &binary, &log_dir)?;
         Ok(Lockstep { port, reference, entry: 1 })
     }
@@ -280,7 +284,8 @@ impl Port {
 }
 
 impl Reference {
-    fn start(project: &Project) -> Result<Reference> {
+    /// Starts the reference of `project`, whose pointers are `pointer_bits` wide.
+    fn start(project: &Project, pointer_bits: u32) -> Result<Reference> {
         let (events, stops) = mpsc::channel::<Place>();
         let (commands, inbox) = mpsc::channel::<Command_>();
         let inbox = Mutex::new(inbox);
@@ -290,7 +295,7 @@ impl Reference {
             if free.load(Ordering::Relaxed) {
                 return;
             }
-            let args = f.ty.params.iter().zip(args).map(|(ty, a)| arg_of(ty, a)).collect();
+            let args = f.ty.params.iter().zip(args).map(|(ty, a)| arg_of(ty, a, memory, pointer_bits)).collect();
             if at_stop.send(Place::Stopped(Entry { function: f.name.clone(), args })).is_err() {
                 free.store(true, Ordering::Relaxed);
                 return;
@@ -367,14 +372,22 @@ fn interpret(root: &std::path::Path, pause: ra_asm_ir::interp::Pause) -> Result<
     crate::pipeline::interpret(&image, &facts, &project, &options)
 }
 
-/// An argument of the interpreter at its parameter's type, in the kinds the port's hooks write.
-fn arg_of(ty: &Type, value: &Value) -> Arg {
+/// An argument of the interpreter at its parameter's type, in the kinds the port's hooks write;
+/// an integer of the address width is an address when `memory` holds it.
+fn arg_of(ty: &Type, value: &Value, memory: &Memory, pointer_bits: u32) -> Arg {
+    let plain = |kind: char, bits: u64| Arg { kind, bits, width: None, address: false };
     match ty {
-        Type::Int(bits) => Arg { kind: 'u', bits: value.as_u64(), width: Some(u32::from(*bits)) },
-        Type::Ptr | Type::Func(_) => Arg { kind: 'p', bits: value.as_u64(), width: None },
-        Type::Double => Arg { kind: 'f', bits: value.as_f64().to_bits(), width: None },
-        Type::Float => Arg { kind: 'g', bits: u64::from(value.as_f32().to_bits()), width: None },
-        _ => Arg { kind: '?', bits: 0, width: None },
+        Type::Int(width) => {
+            let bits = value.as_u64();
+            let address = u32::from(*width) == pointer_bits
+                && bits != 0
+                && memory.regions().iter().any(|r| bits >= r.start && bits - r.start < r.len);
+            Arg { kind: 'u', bits, width: Some(u32::from(*width)), address }
+        }
+        Type::Ptr | Type::Func(_) => plain('p', value.as_u64()),
+        Type::Double => plain('f', value.as_f64().to_bits()),
+        Type::Float => plain('g', u64::from(value.as_f32().to_bits())),
+        _ => plain('?', 0),
     }
 }
 
@@ -392,7 +405,8 @@ fn parse_stop(line: &str) -> Option<Entry> {
     let kinds = tokens.next()?;
     let kinds = if kinds == "-" { "" } else { kinds };
     let values: Vec<u64> = tokens.map(|t| u64::from_str_radix(t.trim_start_matches("0x"), 16).ok()).collect::<Option<_>>()?;
-    Some(Entry { function, args: kinds.chars().zip(values).map(|(kind, bits)| Arg { kind, bits, width: None }).collect() })
+    let args = kinds.chars().zip(values).map(|(kind, bits)| Arg { kind, bits, width: None, address: false }).collect();
+    Some(Entry { function, args })
 }
 
 fn parse_hex(text: &str) -> Option<Vec<u8>> {
@@ -431,6 +445,8 @@ fn differs(port: &Place, reference: &Place) -> Option<String> {
                     ('p' | '?', _) => 0,
                     _ => u64::MAX,
                 };
+                // Each process holds the pointer at its own address: only a null in the port differs.
+                let mask = if ra.address && pa.bits & mask != 0 { 0 } else { mask };
                 if pa.bits & mask != ra.bits & mask {
                     return Some(format!(
                         "argument {n} of {} is {:#x} in the port, {:#x} in the reference",
@@ -462,7 +478,11 @@ fn place_json(place: &Place) -> serde_json::Value {
     match place {
         Place::Stopped(entry) => json!({
             "function": entry.function,
-            "args": entry.args.iter().map(|a| json!({"kind": a.kind.to_string(), "value": format!("{:#x}", a.bits)})).collect::<Vec<_>>(),
+            "args": entry
+                .args
+                .iter()
+                .map(|a| json!({"kind": a.kind.to_string(), "value": format!("{:#x}", a.bits), "address": a.address}))
+                .collect::<Vec<_>>(),
         }),
         Place::Ended { exit, detail } => json!({"ended": true, "exit": exit.map(exit_text_of), "detail": detail}),
     }
