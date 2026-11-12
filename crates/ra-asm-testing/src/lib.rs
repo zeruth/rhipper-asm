@@ -10,10 +10,15 @@ use std::path::{Path, PathBuf};
 /// The environment variable that keeps every scratch directory.
 pub const KEEP: &str = "RA_KEEP_SCRATCH";
 
+/// The file a guard holds open inside its directory, unshared, so that another process can tell
+/// a directory in use from a leftover: the worktrees of this machine run their tests at once.
+const LOCK: &str = ".scratch-lock";
+
 /// A directory under the system temp that lives as long as the guard.
 #[derive(Debug)]
 pub struct Scratch {
     path: PathBuf,
+    lock: Option<std::fs::File>,
 }
 
 impl Scratch {
@@ -27,26 +32,55 @@ impl Scratch {
         if std::fs::create_dir_all(&path).is_err() {
             std::fs::create_dir_all(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         }
-        Self { path }
+        let lock = lock_options().open(path.join(LOCK)).ok();
+        Self { path, lock }
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    /// The scratch directories of `suite` that are not this process's own: what a run of the
-    /// tests must not leave behind.
+    /// The scratch directories of `suite` that are neither this process's own nor held by the
+    /// guard of a test running in another process: what a run of the tests must not leave behind.
     pub fn foreign(suite: &str) -> Vec<PathBuf> {
         let own = format!("{}-", std::process::id());
         let Ok(entries) = std::fs::read_dir(suite_dir(suite)) else {
             return Vec::new();
         };
-        entries.flatten().map(|e| e.path()).filter(|p| !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&own))).collect()
+        entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&own)) && !held(p))
+            .collect()
     }
 }
 
 fn suite_dir(suite: &str) -> PathBuf {
     std::env::temp_dir().join(suite)
+}
+
+#[cfg(windows)]
+fn lock_options() -> std::fs::OpenOptions {
+    use std::os::windows::fs::OpenOptionsExt;
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).write(true).share_mode(0);
+    options
+}
+
+#[cfg(not(windows))]
+fn lock_options() -> std::fs::OpenOptions {
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).write(true);
+    options
+}
+
+/// Whether a live guard holds `dir`: its lock opens only with a sharing violation. A directory
+/// without a lock, or one whose guard is gone, is not held. Elsewhere than Windows a lock does not
+/// exclude, and every directory reads as not held.
+fn held(dir: &Path) -> bool {
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    cfg!(windows)
+        && std::fs::OpenOptions::new().write(true).open(dir.join(LOCK)).is_err_and(|e| e.raw_os_error() == Some(ERROR_SHARING_VIOLATION))
 }
 
 impl Deref for Scratch {
@@ -71,6 +105,8 @@ impl AsRef<OsStr> for Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
+        // The lock is closed first: Windows does not remove a directory with a file open in it.
+        drop(self.lock.take());
         if std::env::var_os(KEEP).is_some() {
             eprintln!("{KEEP} is set: {} is kept", self.path.display());
             return;
@@ -100,7 +136,19 @@ impl Drop for Scratch {
 
 #[cfg(test)]
 mod tests {
-    use super::Scratch;
+    use super::{Scratch, held};
+
+    /// A live guard's directory reads as held, so another worktree's run does not count it as a
+    /// leftover; once the guard drops nothing holds it.
+    #[test]
+    #[cfg(windows)]
+    fn a_live_scratch_is_held() {
+        let scratch = Scratch::new("ra-asm-testing-held", "live");
+        assert!(held(&scratch), "{} is not held by its live guard", scratch.display());
+        let path = scratch.path().to_path_buf();
+        drop(scratch);
+        assert!(!held(&path));
+    }
 
     #[test]
     fn a_scratch_goes_with_its_guard() {

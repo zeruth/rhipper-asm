@@ -33,12 +33,17 @@ fn ras(dir: &Path, args: &[&str]) -> (bool, String) {
     (output.status.success(), text)
 }
 
-/// The tests leave nothing new under the system temp: the test binaries run one after another, so
-/// the only scratch directories that may exist while this one runs are this process's own. A
-/// directory of another process written since this binary was built is a leftover of a test that
-/// wrote without a guard; an older one is from the time before the guards, and is only named.
+/// The tests leave nothing new under the system temp: the scratch directories that may exist
+/// while this one runs are this process's own and those a live guard holds (another worktree's
+/// tests running at the same time). A directory of another process written since this binary was
+/// built is a leftover of a test that wrote without a guard; an older one is from the time before
+/// the guards, and is only named. A run that keeps its scratch keeps it on purpose and is not checked.
 #[test]
 fn the_tests_leave_nothing_under_temp() {
+    if std::env::var_os(ra_asm_testing::KEEP).is_some() {
+        eprintln!("{} is set: the scratch directories are kept, and not checked", ra_asm_testing::KEEP);
+        return;
+    }
     let built = std::fs::metadata(std::env::current_exe().unwrap()).unwrap().modified().unwrap();
     for suite in ["ra-asm-emit-tests", "ra-asm-lift-tests", "ras-pipeline-tests"] {
         let foreign = ra_asm_testing::Scratch::foreign(suite);
@@ -47,7 +52,11 @@ fn the_tests_leave_nothing_under_temp() {
         if !old.is_empty() {
             eprintln!("{suite}: {} directories left by earlier runs, to remove by hand", old.len());
         }
-        assert!(new.is_empty(), "{suite}: left under the system temp by this run:\n{new:#?}");
+        assert!(
+            new.is_empty(),
+            "{suite}: left under the system temp since this test was built (or kept by a run with {} set):\n{new:#?}",
+            ra_asm_testing::KEEP
+        );
     }
 }
 
