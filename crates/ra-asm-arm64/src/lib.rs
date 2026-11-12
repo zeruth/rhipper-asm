@@ -4,6 +4,7 @@
 
 pub mod decode;
 pub mod registers;
+pub mod thumb;
 
 pub use decode::{Arm64, Decoded};
 pub use yaxpeax_arm;

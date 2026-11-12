@@ -362,7 +362,7 @@ impl<'a> Runtime<'a> {
     /// A fresh `%State` in the heap.
     pub(super) fn new_state(&mut self, vm: &mut Vm<'_>) -> Result<u64, Stop> {
         let size = match self.lifted.isa {
-            crate::state::Isa::X86 => STATE_SIZE,
+            crate::state::Isa::X86 | crate::state::Isa::Arm32 => STATE_SIZE,
             crate::state::Isa::Arm64 => ARM64_STATE_SIZE,
         };
         self.allocate(vm, size, 16)
@@ -511,11 +511,40 @@ impl<'a> Runtime<'a> {
             }
             "ra_xgetbv" => int(xgetbv(arg(args, 0) as u32)),
             "ra_rdtsc" => int(rdtsc()),
+            "ra_svc" => self.svc(vm, arg(args, 0)),
             n if n.starts_with("ra_f80_") => self.f80_call(vm, n, args),
             n if n.starts_with("ra_eh_") => self.eh_call(vm, n, args),
             n if n.starts_with("ra_x86_") => self.shim_call(vm, n, args),
             _ => Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
         }
+    }
+
+    /// A system call of a 32-bit ARM Linux program, by the EABI: the number in `r7`, the
+    /// arguments from `r0`, the result in `r0`. The calls a program without a C library makes
+    /// to print and to end are here; another stops the run with its number.
+    fn svc(&mut self, vm: &mut Vm<'_>, state: u64) -> Result<Value, Stop> {
+        let r = |vm: &mut Vm<'_>, n: u64| vm.memory.read_u32(state + n * 8);
+        let number = r(vm, 7)?;
+        let result: u32 = match number {
+            // exit, exit_group
+            1 | 248 => return Err(Stop::Exit(r(vm, 0)? as i32)),
+            // write
+            4 => {
+                let (fd, buffer, len) = (r(vm, 0)?, r(vm, 1)?, r(vm, 2)?);
+                let bytes = vm.memory.read_vec(u64::from(buffer), u64::from(len))?;
+                match fd {
+                    1 | 2 => {
+                        self.emit(fd == 2, &bytes);
+                        len
+                    }
+                    // -EBADF
+                    _ => 9u32.wrapping_neg(),
+                }
+            }
+            _ => return Err(Stop::fault(format!("the system call {number} is not interpreted"))),
+        };
+        vm.memory.write_u64(state, u64::from(result))?;
+        int(0)
     }
 
     /// An indirect call of the machine model: a lifted function at `target` takes the state; a

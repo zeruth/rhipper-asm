@@ -3,7 +3,8 @@
 //! `%State = type { [16 x i64], i64, [8 x i8], [16 x i128] }` on x86: the general registers in
 //! iced's order, `rip`, the flags as bytes (cf, pf, af, zf, sf, df, of), and the vector registers.
 //! The driver's C `struct State` has the same layout. On ARM64 the same four fields hold `x0..x30`
-//! and `sp` (32 slots), `pc`, the flags as bytes (n, z, c, v) and `v0..v31`.
+//! and `sp` (32 slots), `pc`, the flags as bytes (n, z, c, v) and `v0..v31`; on 32-bit ARM the
+//! x86 shape holds `r0..r15`, the flags as ARM64 keeps them and `q0..q15`.
 
 use ra_asm_ir::{BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Operand, Type, ValueId};
 use ra_asm_x86::iced_x86::Register as R;
@@ -16,6 +17,21 @@ pub enum Isa {
     #[default]
     X86,
     Arm64,
+    /// 32-bit ARM in Thumb-2: `r0..r15` in the first 16 general slots, N, Z, C and V in the
+    /// first four flag bytes, as on ARM64.
+    Arm32,
+}
+
+/// The `svc` of a Thumb-2 program: `void @ra_svc(ptr %state, i64 imm)`. The runtime reads the
+/// call's number and arguments from the registers of the state, as the program's system's
+/// convention puts them, and writes the result back.
+pub fn declare_svc(module: &mut ra_asm_ir::Module) {
+    module.declare(Declaration {
+        name: "ra_svc".into(),
+        ty: FnType::new(Type::Void, vec![Type::Ptr, Type::I64]),
+        conv: CallConv::C,
+        attrs: vec![],
+    });
 }
 
 /// The fields of the x86 `%State`.
@@ -26,7 +42,7 @@ pub fn state_fields() -> Vec<Type> {
 /// The fields of `%State` for `isa`.
 pub fn state_fields_for(isa: Isa) -> Vec<Type> {
     let (gprs, vectors) = match isa {
-        Isa::X86 => (16, 16),
+        Isa::X86 | Isa::Arm32 => (16, 16),
         Isa::Arm64 => (32, 32),
     };
     vec![Type::array(gprs, Type::I64), Type::I64, Type::array(8, Type::I8), Type::array(vectors, Type::I128)]
@@ -393,6 +409,7 @@ impl Machine<'_> {
         match self.isa {
             Isa::X86 => GPR_NAMES[number as usize],
             Isa::Arm64 => ra_asm_arm64::registers::full_of(number as u16).name,
+            Isa::Arm32 => ra_asm_arm64::thumb::register(number as u8).name,
         }
     }
 
@@ -430,6 +447,7 @@ impl Machine<'_> {
         let hint = match self.isa {
             Isa::X86 => format!("p.xmm{number}"),
             Isa::Arm64 => format!("p.v{number}"),
+            Isa::Arm32 => format!("p.q{number}"),
         };
         self.b.gep(
             block,
@@ -508,6 +526,7 @@ impl Machine<'_> {
         let hint = match self.isa {
             Isa::X86 => format!("xmm{number}"),
             Isa::Arm64 => format!("v{number}"),
+            Isa::Arm32 => format!("q{number}"),
         };
         self.b.load(block, ty, p, &hint)
     }

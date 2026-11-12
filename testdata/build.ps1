@@ -162,6 +162,18 @@ if (Wanted 'hello_linux') {
   if ($LASTEXITCODE -ne 0) { throw "clang failed for hello_linux64" }
 }
 
+# thumb is the fixture of 32-bit ARM: a static Linux program in Thumb-2 that talks to the kernel
+# through svc alone. -mno-movt puts an address in a literal pool; the loops stay rolled and
+# scalar, so the code is the source's shape. No ARM machine is here: it runs lifted only.
+if (Wanted 'thumb') {
+  $args = @('--target=armv7-linux-gnueabihf', '-mthumb', '-O2', '-fno-unroll-loops', '-fno-vectorize', '-fno-slp-vectorize', '-nostdlib',
+    '-ffreestanding', '-fno-builtin', '-mno-movt', '-static', '-fuse-ld=lld', '-Wl,--build-id=none',
+    (Join-Path $src 'thumb.c'), '-o', (Join-Path $bin 'thumb32'))
+  Write-Host "clang thumb32" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for thumb32" }
+}
+
 # hello_linux_a64 is the same program for ARM64 Linux, over an ARM64 build of the stub libc.so.6:
 # `bl write` reaches the import through its PLT stub. An x64 host runs it only lifted, through the
 # IR interpreter, so its expected output is hello_linux's.

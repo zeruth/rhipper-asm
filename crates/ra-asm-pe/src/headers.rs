@@ -16,6 +16,8 @@ pub enum Machine {
     I386,
     Amd64,
     Arm64,
+    /// 32-bit ARM running Thumb-2: PE's ARMNT, ELF's `EM_ARM`.
+    Arm,
     /// A machine the pipeline does not lift. The value is kept for the report.
     Other(u16),
 }
@@ -27,6 +29,7 @@ impl Machine {
             0x014c => Self::I386,
             0x8664 => Self::Amd64,
             0xaa64 => Self::Arm64,
+            0x01c4 => Self::Arm,
             other => Self::Other(other),
         }
     }
@@ -34,7 +37,7 @@ impl Machine {
     /// The width of a pointer, in bytes.
     pub fn pointer_size(self) -> u8 {
         match self {
-            Self::I386 => 4,
+            Self::I386 | Self::Arm => 4,
             Self::Amd64 | Self::Arm64 | Self::Other(_) => 8,
         }
     }
@@ -44,6 +47,7 @@ impl Machine {
             Self::I386 => "x86".to_owned(),
             Self::Amd64 => "x86_64".to_owned(),
             Self::Arm64 => "arm64".to_owned(),
+            Self::Arm => "arm".to_owned(),
             Self::Other(value) => format!("machine {value:#06x}"),
         }
     }
