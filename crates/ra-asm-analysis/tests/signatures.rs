@@ -27,6 +27,20 @@ fn runtime_signatures(arch: &str) -> Result<(SignatureSet, String), String> {
     Ok((set, paths[0].parent().unwrap().display().to_string()))
 }
 
+/// The toolset picks the runtime libraries: the installed MSVC runtime for the MSVC 14.51 build
+/// and for clang over the MSVC runtime, none for a program without a C runtime.
+#[test]
+fn the_toolset_picks_the_runtime_signatures() {
+    let takes = |path: PathBuf| {
+        let image = ra_asm_pe::load(&path).unwrap();
+        ra_asm_analysis::signatures::takes_installed_msvc_runtime(&ra_asm_pe::Toolset::of(&image))
+    };
+    assert!(takes(rhtest("core-O2.exe")), "MSVC 14.51 takes the installed 14.x runtime");
+    assert!(takes(rhtest("core-static.exe")), "clang/lld over the MSVC runtime takes it");
+    let hello = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin/hello64.exe");
+    assert!(!takes(hello), "hello64 has no C runtime to name");
+}
+
 /// Every symbol of an MSVC or lld map at each address of the code section, with the object that
 /// holds it: `address -> [(symbol, object)]`.
 fn map_symbols(path: &Path) -> BTreeMap<u64, Vec<(String, String)>> {

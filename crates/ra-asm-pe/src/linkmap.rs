@@ -59,7 +59,15 @@ fn parse(image: &Image, text: &str) -> Result<Vec<Symbol>> {
         if thunk || !function || funclet || !image.is_code(va) {
             continue;
         }
-        symbols.push(Symbol { va, name: symbol.to_owned(), library: library.map(|l| format!("{}.lib", l.to_ascii_lowercase())) });
+        // The object file is the module of the port; the linker's own entries (`<linker defined>`)
+        // name none.
+        let object = Path::new(file).extension().is_some_and(|e| e.eq_ignore_ascii_case("obj") || e.eq_ignore_ascii_case("o"));
+        symbols.push(Symbol {
+            va,
+            name: symbol.to_owned(),
+            library: library.map(|l| format!("{}.lib", l.to_ascii_lowercase())),
+            object: object.then(|| file.to_owned()),
+        });
     }
     if entry.is_some() {
         ensure!(

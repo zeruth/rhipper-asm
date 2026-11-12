@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use ra_asm_pe::{Image, Machine, OptionalMagic, RelocKind};
+use ra_asm_pe::{CxxAbi, Image, Machine, OptionalMagic, RelocKind, RichHeader, RichTool, Toolset};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin").join(name)
@@ -29,6 +29,87 @@ fn hello64_headers_and_sections() {
     let entry = image.entry_point().unwrap();
     assert!(image.is_code(entry), "the entry point {entry:#x} lies in a code section");
     assert_eq!(image.section_of(entry).unwrap().name, ".text");
+}
+
+fn rhtest(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/rhtest").join(name)
+}
+
+#[test]
+fn the_clang_fixtures_are_clang_and_lld() {
+    for name in ["hello64.exe", "hello32.exe", "control64.exe"] {
+        let image = load(name);
+        assert!(image.headers.rich.is_none(), "{name}: lld writes no rich header");
+        let toolset = Toolset::of(&image);
+        assert_eq!(toolset.name, "clang/lld", "{name}: {toolset:?}");
+        assert_eq!(toolset.cxx_abi(), CxxAbi::Msvc);
+    }
+    // clang-cl over the MSVC runtime: the startup is MSVC's, linked in or from the runtime DLLs.
+    let image = ra_asm_pe::load(&rhtest("core-static.exe")).unwrap();
+    let toolset = Toolset::of(&image);
+    assert_eq!(toolset.name, "clang/lld", "{toolset:?}");
+    assert_eq!(toolset.crt.as_ref().map(|c| c.vendor), Some("MSVC"), "{toolset:?}");
+}
+
+#[test]
+fn the_msvc_rhtest_build_is_msvc_14_51() {
+    let image = ra_asm_pe::load(&rhtest("core-O2.exe")).unwrap();
+    let rich = image.headers.rich.as_ref().expect("link writes a rich header");
+    let linker = rich.linker().expect("the rich header names the linker");
+    assert_eq!((linker.product_name(), linker.build), (Some("Linker1400"), 36252));
+    assert!(rich.entries.iter().any(|e| e.tool() == RichTool::Compiler && e.build == linker.build), "{rich:?}");
+    let toolset = Toolset::of(&image);
+    assert_eq!(toolset.name, "MSVC 14.51", "{toolset:?}");
+    assert_eq!(toolset.crt.as_ref().map(|c| c.vendor), Some("MSVC"), "{toolset:?}");
+    assert_eq!(toolset.runtime_key().as_deref(), Some("msvc-14.51"));
+    assert_eq!(toolset.fill, Some(0xcc));
+}
+
+/// The Visual Studio 2010 builds are made elsewhere and join the fixtures when they are there.
+#[test]
+fn the_vs2010_rhtest_build_is_msvc_16_00() {
+    let path = rhtest("core-vs2010.exe");
+    if !path.exists() {
+        eprintln!("{} is not here: the VS2010 fingerprint is skipped", path.display());
+        return;
+    }
+    let image = ra_asm_pe::load(&path).unwrap();
+    let linker = image.headers.rich.as_ref().and_then(RichHeader::linker).expect("link 10.00 writes a rich header");
+    assert_eq!(linker.product_name(), Some("Linker1000"));
+    let toolset = Toolset::of(&image);
+    assert_eq!(toolset.name, "MSVC 16.00", "{toolset:?}");
+    assert_eq!(toolset.runtime_key().as_deref(), Some("msvc-16.00"));
+}
+
+/// The MSVC 14.51 build with the products of its rich header moved to Visual Studio 2010's
+/// (`Linker1400` to `Linker1000`, `Utc1900_*` to `Utc1600_*`, at build 30319) and link 10.00's
+/// linker version: the fingerprint reads it as `MSVC 16.00`, while no VS2010 build is here.
+#[test]
+fn a_vs2010_rich_header_is_msvc_16_00() {
+    let mut bytes = std::fs::read(rhtest("core-O2.exe")).unwrap();
+    let rich = ra_asm_pe::load(&rhtest("core-O2.exe")).unwrap().headers.rich.unwrap();
+    let u32_at = |b: &[u8], o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+    for at in (rich.offset + 16..).step_by(8).take(rich.entries.len()) {
+        let id = u32_at(&bytes, at) ^ rich.key;
+        let product = match id >> 16 {
+            p @ 0x00ff..=0x0101 => p - 0x00ff + 0x009a,
+            0x0102 => 0x009d,
+            0x0103 => 0x009e,
+            p @ 0x0104..=0x010e => p - 0x0104 + 0x00aa,
+            p => p,
+        };
+        let build = if product == id >> 16 { id & 0xffff } else { 30319 };
+        bytes[at..at + 4].copy_from_slice(&(((product << 16) | build) ^ rich.key).to_le_bytes());
+    }
+    let pe = usize::try_from(u32_at(&bytes, 0x3c)).unwrap();
+    bytes[pe + 24 + 2..pe + 24 + 4].copy_from_slice(&[10, 0]);
+
+    let image = Image::parse(bytes).unwrap();
+    let linker = image.headers.rich.as_ref().and_then(RichHeader::linker).expect("the rewritten header names its linker");
+    assert_eq!((linker.product_name(), linker.build), (Some("Linker1000"), 30319));
+    let toolset = Toolset::of(&image);
+    assert_eq!(toolset.name, "MSVC 16.00", "{toolset:?}");
+    assert_eq!(toolset.runtime_key().as_deref(), Some("msvc-16.00"));
 }
 
 #[test]

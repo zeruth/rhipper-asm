@@ -452,6 +452,7 @@ impl Builder<'_> {
             entry: self.entry,
             name: String::new(),
             symbol: None,
+            object: None,
             kind,
             blocks,
             calls: self.calls,
