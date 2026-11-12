@@ -387,7 +387,7 @@ pub fn apply(image: &mut Image, set: &SignatureSet) -> Applied {
     let mut added = Vec::new();
     for m in &applied.matches {
         if !named.contains(&m.va) {
-            added.push(Symbol { va: m.va, name: m.name.clone(), library: Some(m.library.clone()) });
+            added.push(Symbol { va: m.va, name: m.name.clone(), library: Some(m.library.clone()), object: Some(m.object.clone()) });
         }
         let section_end = image.section_of(m.va).map(|s| image.va(s.end_rva()));
         let size = match points.range(m.va + 1..).next() {
@@ -398,7 +398,7 @@ pub fn apply(image: &mut Image, set: &SignatureSet) -> Applied {
     }
     for c in &applied.callees {
         if !named.contains(&c.va) {
-            added.push(Symbol { va: c.va, name: c.name.clone(), library: c.library.clone() });
+            added.push(Symbol { va: c.va, name: c.name.clone(), library: c.library.clone(), object: None });
         }
         if let Some(library) = &c.library {
             image.libraries.push(LibraryRange { va: c.va, size: c.size, library: library.clone() });
