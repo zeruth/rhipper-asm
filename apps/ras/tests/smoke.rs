@@ -43,7 +43,9 @@ fn a_file_that_is_no_image_is_refused() {
 }
 
 /// The executables of the Windows system directory: every one is lifted and emitted, refused,
-/// or stopped at the time limit, and none panics or crashes.
+/// or stopped at the time limit, and none panics or crashes. The run is held to a budget that
+/// ends it, smallest files first, well inside a check's half hour on a debug build; the files it
+/// leaves are reported as skipped, and the nightly runs them all.
 #[test]
 #[ignore = "minutes over the system directory; run with `cargo test -p ras -q -- --ignored`"]
 fn the_system_directory_does_not_panic() {
@@ -52,8 +54,14 @@ fn the_system_directory_does_not_panic() {
         return;
     };
     let system = PathBuf::from(windows).join("System32");
-    let (output, report) = smoke(&[system.to_str().unwrap(), "--depth", "0", "--ext", "exe", "--timeout", "20", "--jobs", "2"]);
+    let mut args = vec![system.to_str().unwrap()];
+    args.extend(["--depth", "0", "--ext", "exe", "--timeout", "10", "--jobs", "3", "--budget", "1080"]);
+    let (output, report) = smoke(&args);
     assert!(report["files"].as_u64().unwrap() > 0, "no executable in {}", system.display());
+    let status = &report["status"];
+    let run: u64 = ["ok", "error", "timeout"].into_iter().map(|s| status[s].as_u64().unwrap()).sum();
+    eprintln!("{} executables: {status}", report["files"]);
+    assert!(run > 0, "no executable ran: {status}");
     assert_eq!(report["panics"], serde_json::json!([]), "{:#}", report["panics"]);
     assert_eq!(report["crashes"], serde_json::json!([]), "{:#}", report["crashes"]);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));

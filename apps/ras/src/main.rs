@@ -298,6 +298,10 @@ enum Command {
         /// The files run at once.
         #[arg(long, default_value_t = 1)]
         jobs: usize,
+        /// The time limit of the whole run, in seconds: a file not started when it is spent is
+        /// reported as skipped. No limit without it.
+        #[arg(long)]
+        budget: Option<u64>,
         /// How many directory levels under `dir` to enter: 0 for its own files only; all without it.
         #[arg(long)]
         depth: Option<usize>,
@@ -397,9 +401,10 @@ fn main() -> anyhow::Result<()> {
         Command::Doctor { lang: _, host: Some(exe) } => doctor::host(&exe, json),
         Command::Doctor { lang, host: None } => doctor::doctor(doctor::Port::of(&lang), json),
         Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
-        Command::Smoke { dir, timeout, jobs, depth, extensions, out, quiet } => {
+        Command::Smoke { dir, timeout, jobs, budget, depth, extensions, out, quiet } => {
             let timeout = std::time::Duration::from_secs(timeout);
-            let options = smoke::Options { timeout, jobs, depth, extensions, signatures: sigs.clone(), out, quiet, json };
+            let budget = budget.map(std::time::Duration::from_secs);
+            let options = smoke::Options { timeout, jobs, budget, depth, extensions, signatures: sigs.clone(), out, quiet, json };
             smoke::smoke(&dir, &options)
         }
         Command::SmokeFile { pe } => {

@@ -32,6 +32,8 @@ pub(crate) struct Options {
     pub timeout: Duration,
     /// The files run at once.
     pub jobs: usize,
+    /// The time limit of the whole run: the files not started when it is spent are skipped.
+    pub budget: Option<Duration>,
     /// How many directory levels under the root to enter; every level with `None`.
     pub depth: Option<usize>,
     /// The extensions to take; [`EXTENSIONS`] when empty.
@@ -50,7 +52,8 @@ pub(crate) struct Options {
 struct Outcome {
     file: PathBuf,
     /// `ok`, `error` (the image is refused, such as a format the loader does not read), `panic`,
-    /// `crash` (the process died without a word, such as a stack overflow) or `timeout`.
+    /// `crash` (the process died without a word, such as a stack overflow), `timeout`, or
+    /// `skipped` (not started before the run's budget was spent).
     status: &'static str,
     /// The stage the file was in when it ended.
     stage: String,
@@ -69,7 +72,9 @@ struct Outcome {
 pub(crate) fn smoke(dir: &Path, options: &Options) -> Result<()> {
     let extensions: Vec<String> =
         if options.extensions.is_empty() { EXTENSIONS.iter().map(|e| (*e).to_owned()).collect() } else { options.extensions.clone() };
-    let files = files(dir, options.depth, &extensions);
+    let mut files = files(dir, options.depth, &extensions);
+    // The smallest first, so a budget that runs out leaves the fewest files unrun.
+    files.sort_by_cached_key(|f| std::fs::metadata(f).map_or(u64::MAX, |m| m.len()));
     let exe = std::env::current_exe().context("cannot find the ras executable to run the files with")?;
     let started = Instant::now();
     let next = AtomicUsize::new(0);
@@ -79,7 +84,11 @@ pub(crate) fn smoke(dir: &Path, options: &Options) -> Result<()> {
         for _ in 0..options.jobs.max(1) {
             scope.spawn(|| {
                 while let Some(file) = files.get(next.fetch_add(1, Ordering::SeqCst)) {
-                    let outcome = run_file(&exe, file, &options.signatures, options.timeout);
+                    let outcome = if options.budget.is_some_and(|b| started.elapsed() >= b) {
+                        skipped(file)
+                    } else {
+                        run_file(&exe, file, &options.signatures, options.timeout)
+                    };
                     let n = done.fetch_add(1, Ordering::SeqCst) + 1;
                     if !options.quiet {
                         eprintln!("[{n}/{}] {:<7} {:>7.1}s  {}", files.len(), outcome.status, outcome.seconds, file.display());
@@ -134,6 +143,19 @@ fn files(root: &Path, depth: Option<usize>, extensions: &[String]) -> Vec<PathBu
     }
     out.sort();
     out
+}
+
+/// A file the run's budget left no time for.
+fn skipped(file: &Path) -> Outcome {
+    Outcome {
+        file: file.to_path_buf(),
+        status: "skipped",
+        stage: "start".to_owned(),
+        seconds: 0.0,
+        result: Value::Null,
+        exit_code: None,
+        stderr: String::new(),
+    }
 }
 
 /// One file in `ras smoke-file`, stopped at `timeout`.
@@ -328,7 +350,8 @@ struct Mnemonic {
 /// The report of a run as JSON: the files by status, the coverage summed over the files that
 /// went through, the slowest files, and every panic, crash, timeout and refused image.
 fn report(dir: &Path, timeout: Duration, elapsed: Duration, outcomes: &[Outcome]) -> Value {
-    let mut statuses: BTreeMap<&str, usize> = ["ok", "error", "panic", "crash", "timeout"].into_iter().map(|s| (s, 0)).collect();
+    let mut statuses: BTreeMap<&str, usize> =
+        ["ok", "error", "panic", "crash", "timeout", "skipped"].into_iter().map(|s| (s, 0)).collect();
     let mut functions = 0;
     let mut traps = 0;
     let mut trapping = 0;
