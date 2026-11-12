@@ -161,7 +161,7 @@ impl Done {
         use std::fmt::Write;
         let mut text = format!("{key}\n{}\n", self.summary);
         for (path, digest) in &self.outputs {
-            let _ = write!(text, "{digest:016x} {}\n", path.display());
+            let _ = writeln!(text, "{digest:016x} {}", path.display());
         }
         text
     }
