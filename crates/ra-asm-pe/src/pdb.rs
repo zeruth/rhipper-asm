@@ -138,7 +138,7 @@ pub fn read(image: &Image, path: &Path, guid: &str, age: u32) -> Result<Pdb> {
                 continue;
             }
             let Some(va) = va_of(segment, offset) else { continue };
-            out.push(Symbol { va, name: name.to_owned(), library: library_of(segment, offset) });
+            out.push(symbol(va, name, segment, offset));
         }
     }
     // One name per address: the procedure record wins, being first.

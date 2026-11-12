@@ -7,8 +7,11 @@
 //!  "status": "lifted", "traps": 0, "copies": 0, "calls": ["fib"], "imports": [], "strings": ["fail\r\n"]}
 //! ```
 //!
-//! `file` is relative to the directory the translation is written to: `program.c`, or
-//! `program_NNN.c` when the output is split. `status` is `lifted` when every instruction
+//! `file` is relative to the directory the translation is written to: `program.c`, the module's
+//! own file (`core.c`) when the build's symbols name the object files of two modules or more, or
+//! `program_NNN.c` when the output is split by size. `object` names the object file the symbols
+//! say holds the function (`core.obj`, `msvcrt.lib:gs_report.obj`), when they say: with `file`,
+//! the tree the workbench shows. `status` is `lifted` when every instruction
 //! translated, `partial` when the body calls `ra_trap` for the ones that did not (`traps` counts
 //! them), and `not lifted` when the function has no source at all, in which case `file` and `line`
 //! are absent. `copies` counts the blocks the structuring wrote a second time in place of a
@@ -60,6 +63,9 @@ pub struct FunctionInfo {
     /// The function's type and the comment the person's annotation gives it.
     pub ty: Option<String>,
     pub comment: Option<String>,
+    /// The object file the build's symbols say holds the function (`core.obj`,
+    /// `msvcrt.lib:gs_report.obj`): its module, which the split output follows.
+    pub object: Option<String>,
 }
 
 /// What the analysis knows of every function, by IR name: the analysis's name, which the lift
@@ -93,11 +99,18 @@ pub fn infos(analysis: &ra_asm_analysis::Analysis) -> HashMap<String, FunctionIn
                 runtime,
                 seen: analysis.facts.entered.contains(&f.entry),
                 seen_calls,
+                object: f.object.clone(),
                 ..Default::default()
             };
             (f.name.clone(), info)
         })
         .collect()
+}
+
+/// The object file of every function the build's symbols place, by IR name: what
+/// [`crate::Unit::module_files`] splits the output by.
+pub fn objects(infos: &HashMap<String, FunctionInfo>) -> HashMap<String, String> {
+    infos.iter().filter_map(|(ir_name, info)| Some((ir_name.clone(), info.object.clone()?))).collect()
 }
 
 /// An address as the workbench writes it: `0x` and at least eight hexadecimal digits.
@@ -171,6 +184,9 @@ pub fn table(functions: &[EmittedFunction], files: &[EmittedFile], infos: &HashM
 /// The strings, the class and what a traced run saw of a function, in its table entry.
 fn facts(entry: &mut Map<String, Value>, info: &FunctionInfo) {
     entry.insert("strings".into(), json!(info.strings));
+    if let Some(object) = &info.object {
+        entry.insert("object".into(), json!(object));
+    }
     if let Some((class, slot)) = &info.class {
         entry.insert("class".into(), json!(class));
         entry.insert("slot".into(), json!(slot));
