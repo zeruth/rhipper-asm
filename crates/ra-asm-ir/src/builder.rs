@@ -9,7 +9,10 @@ pub struct FunctionBuilder {
     function: Function,
     /// The address attached to the instructions pushed next.
     pub address: Option<u64>,
+    /// The next suffix of each hint.
     names_used: std::collections::HashMap<String, u32>,
+    /// Every name given, values' and blocks' alike: LLVM's locals share one namespace.
+    names_taken: std::collections::HashSet<String>,
 }
 
 impl FunctionBuilder {
@@ -30,6 +33,7 @@ impl FunctionBuilder {
             },
             address: None,
             names_used: std::collections::HashMap::new(),
+            names_taken: std::collections::HashSet::new(),
         };
         for (i, p) in param_types.into_iter().enumerate() {
             let hint = param_names.get(i).copied().unwrap_or("arg");
@@ -63,12 +67,26 @@ impl FunctionBuilder {
         self.function.params[index]
     }
 
+    /// A name after `hint` no value or block of the function has: `hint`, then `hint.1`, `hint.2`.
+    /// A hint that already ends in a number (`addr.2`) could be another hint's suffixed name, so a
+    /// name is checked against every name given, not only against its own hint's count.
+    fn unique_name(&mut self, hint: &str) -> String {
+        let hint = sanitize(hint);
+        let mut count = self.names_used.get(&hint).copied().unwrap_or(0);
+        let name = loop {
+            let name = if count == 0 { hint.clone() } else { format!("{hint}.{count}") };
+            count += 1;
+            if self.names_taken.insert(name.clone()) {
+                break name;
+            }
+        };
+        self.names_used.insert(hint, count);
+        name
+    }
+
     /// A fresh value named after `hint`: `hint`, then `hint.1`, `hint.2`.
     fn new_value(&mut self, hint: &str, ty: Type) -> ValueId {
-        let hint = sanitize(hint);
-        let count = self.names_used.entry(hint.clone()).or_insert(0);
-        let name = if *count == 0 { hint.clone() } else { format!("{hint}.{count}") };
-        *count += 1;
+        let name = self.unique_name(hint);
         let id = ValueId(self.function.value_names.len() as u32);
         self.function.value_names.push(name);
         self.function.value_types.push(ty);
@@ -78,10 +96,7 @@ impl FunctionBuilder {
     /// A new block named after `hint`, placed last. The first block made is the entry.
     pub fn block(&mut self, hint: &str) -> BlockId {
         let id = BlockId(self.function.blocks.len() as u32);
-        let hint = sanitize(hint);
-        let count = self.names_used.entry(hint.clone()).or_insert(0);
-        let name = if *count == 0 { hint.clone() } else { format!("{hint}.{count}") };
-        *count += 1;
+        let name = self.unique_name(hint);
         self.function.blocks.push(Block { id, name, instrs: Vec::new(), terminator: Terminator::Unreachable, address: self.address });
         id
     }
