@@ -354,7 +354,7 @@ impl Lifter<'_, '_> {
         if self.m.bits == 32
             && let Some(shim) = crate::raise::prototypes::x86_shim(&symbol)
         {
-            symbol = shim.to_owned();
+            shim.clone_into(&mut symbol);
         }
         self.lifted.imports.insert(symbol.clone());
         // The first stack argument: past the return address of a tail call, and in Win64 past

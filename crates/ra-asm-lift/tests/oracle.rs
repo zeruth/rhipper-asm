@@ -79,6 +79,8 @@ fn run_interpreted(binary: &str, expected: &str, tag: &str) {
     let options = ra_asm_lift::run::Options::default();
     let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &options).unwrap();
     let stdout = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
+    // An expected file written by the native run on Windows ends its lines in CRLF.
+    let expected = expected.replace("\r\n", "\n");
     assert_eq!(
         stdout.trim_end(),
         expected.trim_end(),
@@ -123,7 +125,7 @@ fn the_lifted_fixtures_pass_the_ir_gate() {
 }
 
 /// The ARM64 build of hello lifts without a trap, over the mapped image and standalone, and its IR
-/// passes the gate. The run needs an ARM64 host or the IR interpreter (task 107): neither is here.
+/// passes the gate. The run is [`helloa64_runs_interpreted`].
 #[test]
 fn the_arm64_fixture_lifts_and_passes_the_ir_gate() {
     if !clang_available() {
@@ -153,7 +155,17 @@ fn the_arm64_fixture_lifts_and_passes_the_ir_gate() {
             Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
         assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
     }
-    eprintln!("helloa64: the host is x64 and the IR interpreter (task 107) is not here: the run is skipped");
+}
+
+/// The ARM64 build of hello runs lifted through the IR interpreter, over the mapped image and
+/// standalone: the host is x64, so the interpreter is its ARM64 machine. The raise leaves ARM64
+/// at the machine shape, so the two tags differ by the lift's standalone data only.
+#[test]
+fn helloa64_runs_interpreted() {
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello.txt")).unwrap();
+    for tag in ["run-machine", "run-abi"] {
+        run_interpreted("helloa64.exe", &expected, tag);
+    }
 }
 
 /// The Linux build of hello lifts without a trap at the machine level, over the mapped image and
@@ -242,7 +254,9 @@ fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
     }
     let run = Command::new(&exe).arg(dir.join("image.bin")).current_dir(&dir).output().unwrap();
     let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
+    let expected = expected.replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&run.stderr);
+    let expected = expected.replace("\r\n", "\n");
     assert_eq!(
         stdout.trim_end(),
         expected.trim_end(),
