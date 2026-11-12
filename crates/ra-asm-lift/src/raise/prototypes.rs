@@ -144,9 +144,19 @@ impl Typed {
     }
 
     /// The import as a signature of the target's convention: on Win64 the first four parameters
-    /// arrive in registers, on x86 all of them on the stack (`cdecl`).
-    pub fn signature(&self, is_64: bool) -> Signature {
-        let registers = if is_64 { self.params.len().min(4) } else { 0 };
+    /// arrive in registers, on x86 all of them on the stack (`cdecl`), on ARM64 the first eight of
+    /// each class in registers and the rest on the stack.
+    pub fn signature(&self, target: super::Target) -> Signature {
+        if target.is_arm64() {
+            let (mut ints, mut floats) = (0, 0);
+            let (params, stack_params): (Vec<Kind>, Vec<Kind>) = self.params.iter().copied().partition(|k| {
+                let count = if matches!(k, Kind::Float | Kind::Double) { &mut floats } else { &mut ints };
+                *count += 1;
+                *count <= target.int_param_slots().len()
+            });
+            return Signature { params, stack_params, returns: self.returns, ..Signature::default() };
+        }
+        let registers = if target.is_64() { self.params.len().min(4) } else { 0 };
         Signature {
             params: self.params[..registers].to_vec(),
             stack_params: self.params[registers..].to_vec(),

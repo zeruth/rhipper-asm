@@ -12,6 +12,20 @@ fn available(tool: &str) -> bool {
     Command::new(tool).arg("--version").output().is_ok_and(|o| o.status.success())
 }
 
+/// The port of a Windows fixture builds with cmake and clang and runs as a Windows process: on
+/// another host, or without the tools, the build and the run skip and say why.
+fn port_builds_here() -> bool {
+    if !cfg!(windows) {
+        eprintln!("the port of a Windows program runs on a Windows host: the build and the run are skipped");
+        return false;
+    }
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return false;
+    }
+    true
+}
+
 /// A project directory with the fixture as its reference binary, whose run step compares the
 /// port with it. The directory goes when the guard drops; `RA_KEEP_SCRATCH` keeps it for a
 /// person to read.
@@ -173,8 +187,7 @@ fn the_project_map_names_the_functions() {
 
 #[test]
 fn the_whole_pipeline_builds_and_runs_the_port() {
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let dir = project("all");
@@ -236,8 +249,7 @@ fn serve(dir: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
 /// interpreter over its IR, replays over the same port to the same function and value.
 #[test]
 fn the_trace_beside_the_port_names_the_wrong_function() {
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let dir = project_with(
@@ -339,8 +351,7 @@ fn the_trace_beside_the_port_names_the_wrong_function() {
 /// a run to the first divergence takes both to their end with the same exit.
 #[test]
 fn the_lockstep_stops_the_port_and_the_reference_at_the_same_entry() {
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let dir = project_with(
@@ -421,8 +432,7 @@ fn the_pipeline_leaves_a_hand_written_function_to_the_sources() {
     assert_eq!(fib["file"], "program.c", "{fib}");
     let line = fib["line"].as_u64().unwrap() as usize;
     assert_eq!(c.lines().nth(line - 1), Some("uint32_t fib(uint32_t arg0);"), "{fib}");
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let (ok, text) = ras(&dir, &["--from", "build"]);
@@ -431,6 +441,82 @@ fn the_pipeline_leaves_a_hand_written_function_to_the_sources() {
     let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
     let run_log = std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
     assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
+}
+
+/// The round trip: a port of the `-O1` build of control, with `fib` taken over by hand and named
+/// and `classify` named and commented in the sidecar files, regenerated from the `-O2` build put
+/// in its place. Every function moves; the annotations find theirs by identity, not by address,
+/// so the regenerated port keeps the hand-written `fib` and both names, the emit step shows what
+/// moved, and the port prints what the new reference prints.
+#[test]
+fn a_regeneration_from_a_new_build_keeps_the_hand_written_function_and_the_names() {
+    let dir =
+        project_with("round-trip", r#"{ "name": "control", "exe": "ref/control.exe", "sources": ["src"], "run": { "compare": true } }"#);
+    std::fs::copy(root().join("testdata/bin/control64-O1.exe"), dir.join("ref/control.exe")).unwrap();
+    let annotations = dir.join("rhipper/annotations");
+    std::fs::create_dir_all(&annotations).unwrap();
+    std::fs::write(annotations.join("0x1400012b0.json"), "{\n  \"addr\": \"0x1400012b0\",\n  \"name\": \"fib\",\n  \"hand\": true\n}\n")
+        .unwrap();
+    std::fs::write(
+        annotations.join("0x1400012e0.json"),
+        "{\n  \"addr\": \"0x1400012e0\",\n  \"name\": \"classify\",\n  \"comment\": \"the dense switch\"\n}\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("src/hand")).unwrap();
+    std::fs::write(
+        dir.join("src/hand/fib.c"),
+        "#include <stdint.h>\n\nuint32_t fib(uint32_t n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }\n",
+    )
+    .unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    assert!(!text.contains("regenerated:"), "the first emit has nothing to compare with:\n{text}");
+    let c = std::fs::read_to_string(dir.join("src/gen/program.c")).unwrap();
+    assert!(c.contains("// fib at 0x1400012b0: hand-written in the port's sources\n"), "{c}");
+    let fib = std::fs::read_to_string(annotations.join("0x1400012b0.json")).unwrap();
+    assert!(fib.contains("\"identity\": {"), "the first emit keeps the function's identity in its file:\n{fib}");
+
+    // The new build of the reference, at the same path.
+    std::fs::copy(root().join("testdata/bin/control64.exe"), dir.join("ref/control.exe")).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    assert!(text.contains("regenerated: "), "{text}");
+    for (old, new, name) in [("0x1400012b0", "0x1400013f0", "fib"), ("0x1400012e0", "0x140001430", "classify")] {
+        assert!(!annotations.join(format!("{old}.json")).exists(), "the annotation of {name} stayed at {old}");
+        let moved = std::fs::read_to_string(annotations.join(format!("{new}.json"))).unwrap_or_else(|e| panic!("{name} at {new}: {e}"));
+        assert!(moved.contains(&format!("\"addr\": \"{new}\"")) && moved.contains(&format!("\"name\": \"{name}\"")), "{moved}");
+    }
+    let log = std::fs::read_to_string(dir.join("build/pipeline/emit.log")).unwrap();
+    assert!(log.contains("moves to 0x1400013f0 with its function") && log.contains("moves to 0x140001430 with its function"), "{log}");
+    assert!(!log.contains("applied to nothing"), "{log}");
+    let c = std::fs::read_to_string(dir.join("src/gen/program.c")).unwrap();
+    assert!(c.contains("// fib at 0x1400013f0: hand-written in the port's sources\nuint32_t fib(uint32_t arg0);\n"), "{c}");
+    assert!(c.contains("classify("), "{c}");
+    let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/functions.json")).unwrap()).unwrap();
+    let entry =
+        |name: &str| table.as_array().unwrap().iter().find(|e| e["name"] == name).unwrap_or_else(|| panic!("no {name} in {table}")).clone();
+    assert_eq!(entry("fib")["status"], "hand", "{table}");
+    let classify = entry("classify");
+    assert_eq!(classify["annotated"], true, "{classify}");
+    assert_eq!(classify["comment"], "the dense switch", "{classify}");
+
+    // What moved, for the person to read.
+    let regenerated: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("build/regenerated.json")).unwrap()).unwrap();
+    assert!(regenerated["moved"].as_u64().is_some_and(|n| n >= 2), "{regenerated}");
+    let fib = regenerated["entries"].as_array().unwrap().iter().find(|e| e["name"] == "fib").unwrap_or_else(|| panic!("{regenerated}"));
+    assert_eq!(fib["change"], "moved", "{fib}");
+    assert_eq!(fib["was"], "0x1400012b0", "{fib}");
+    assert_eq!(fib["addr"], "0x1400013f0", "{fib}");
+    assert!(dir.join("build/regenerated.diff").is_file());
+
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    let (ok, text) = ras(&dir, &["--from", "build"]);
+    assert!(ok, "{text}");
+    assert!(text.contains("verdict: same"), "{text}");
 }
 
 /// A program with resources: the emit step writes them beside the port (`resources.res` for the
@@ -446,8 +532,7 @@ fn the_pipeline_ports_a_program_with_resources() {
     assert_eq!(strings, "1\thello from the string table\n2\ta second string\n3\tthe third, with a tab\\tand quotes \"here\"\n");
     assert_eq!(std::fs::read(dir.join("src/gen/resources/RCDATA/100.bin")).unwrap(), [1, 2, 3, 4, 5, 6, 7, 8]);
     assert!(dir.join("src/gen/resources.res").is_file());
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let (ok, text) = ras(&dir, &["--from", "build"]);
@@ -478,8 +563,7 @@ fn the_pipeline_ports_a_dll() {
         "    ordinal_20 @20 NONAME\n    ra_add @21\n    ra_counter = sec_data @22 DATA\n    ra_tick = KERNEL32.GetTickCount @23\n    ra_twice @24\n"
     );
     assert!(std::fs::read_to_string(dir.join("src/gen/image.h")).unwrap().contains("#define RA_DLL 1\n"));
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let (ok, text) = ras(&dir, &["--from", "build"]);
@@ -510,8 +594,7 @@ fn the_pipeline_ports_a_32_bit_dll() {
     assert!(ok, "{text}");
     let def = std::fs::read_to_string(dir.join("src/gen/exports.def")).unwrap();
     assert!(def.contains("    ra_add @21\n") && def.contains("    ra_counter = sec_data @22 DATA\n"), "{def}");
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let (ok, text) = ras(&dir, &["--from", "build"]);
@@ -525,6 +608,10 @@ fn the_pipeline_ports_a_32_bit_dll() {
 /// prints what the reference prints.
 #[test]
 fn the_pipeline_builds_a_rust_port() {
+    if !cfg!(windows) {
+        eprintln!("the port of a Windows program runs on a Windows host: the Rust pipeline is skipped");
+        return;
+    }
     if !available("cargo") {
         eprintln!("cargo is not on the PATH: the Rust pipeline is skipped");
         return;

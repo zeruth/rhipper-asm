@@ -133,6 +133,11 @@ fn clang_accepts_and_runs_the_sample() {
     // The gate: the module parses and verifies.
     let check = Command::new(&clang).args(["-c", "-x", "ir", "-o"]).arg(dir.join("sample.o")).arg(&ll).output().unwrap();
     assert!(check.status.success(), "clang -c:\n{}", String::from_utf8_lossy(&check.stderr));
+    // The module names the Windows target: it links with a driver and runs on a Windows host.
+    if !cfg!(windows) {
+        eprintln!("the sample's module targets Windows: the run is skipped on this host");
+        return;
+    }
     // The run: a C driver calls both functions and prints what they return.
     let driver = dir.join("driver.c");
     std::fs::write(
