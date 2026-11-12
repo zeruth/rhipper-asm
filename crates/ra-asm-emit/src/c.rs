@@ -480,7 +480,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
                     text,
                 };
             }
-            let (header_lines, copies, gotos) = emit_function(
+            let (header_lines, copies, gotos, end) = emit_function(
                 &mut text,
                 f,
                 &prototypes[&f.name],
@@ -491,7 +491,9 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
                 &mut sdk_names,
                 options.trace,
             );
-            let grade = crate::functions::Grade::of(f, gotos, casts(&text), text.lines().count() - header_lines);
+            // A method's grade is its definition's: the vtable's entry after it is the engine's.
+            let definition = &text[..end];
+            let grade = crate::functions::Grade::of(f, gotos, casts(definition), definition.lines().count() - header_lines);
             EmittedFunction {
                 ir_name: f.name.clone(),
                 address: f.address,
@@ -986,7 +988,7 @@ fn emit_bytes(out: &mut String, bytes: &[u8]) {
 /// gives one, and its address. As a `method` of a C++ class, the body is the method's definition,
 /// its first parameter recovered from `this`, and the function under its own name follows as the
 /// vtable's entry. Returns the number of lines above the definition, the number of blocks
-/// written twice and the number of `goto`s.
+/// written twice, the number of `goto`s and where in `out` the definition ends.
 fn emit_function(
     out: &mut String,
     f: &Function,
@@ -997,7 +999,7 @@ fn emit_function(
     method: Option<(&crate::cpp::Class, &crate::cpp::Method)>,
     sdk_names: &mut BTreeMap<String, String>,
     trace: bool,
-) -> (usize, usize, usize) {
+) -> (usize, usize, usize, usize) {
     let mut header_lines = 0;
     if let Some(address) = f.address {
         match source_name {
@@ -1069,11 +1071,12 @@ fn emit_function(
     out.push_str(&declarations);
     out.push_str(&body);
     let _ = writeln!(out, "}}");
+    let end = out.len();
     if let Some((class, m)) = method {
         out.push('\n');
         crate::cpp::trampoline(out, f, class, m, prototype);
     }
-    (header_lines, structured.copies(), structured.gotos())
+    (header_lines, structured.copies(), structured.gotos(), end)
 }
 
 /// A local of a function's C, by the names it declares.

@@ -133,12 +133,14 @@ fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm
     let classes = ra_asm_emit::classes(&analysis, &signatures);
     let options = ra_asm_emit::COptions { names, dialect, classes, ..Default::default() };
     let unit = ra_asm_emit::emit_unit(&lifted.module, &options);
-    let files = if fixture.modules {
+    let mut files = if fixture.modules {
         let objects = ra_asm_emit::functions::objects(&infos);
         unit.module_files(&objects).unwrap_or_else(|| panic!("{binary}: the symbols name fewer than two modules"))
     } else {
         unit.files(functions_per_file)
     };
+    // The port as `ras emit` writes it: formatted when clang-format is on the PATH.
+    ra_asm_emit::format_files(&mut files, &unit.functions);
     let dir = scratch(&format!("{binary}-{tag}"));
     ra_asm_emit::write_files(&dir, &files).unwrap();
     std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted, Some(&signatures))).unwrap();
@@ -193,13 +195,29 @@ fn run_rust_oracle_with(fixture: &Fixture, functions_per_file: usize) {
         resources,
         ..Default::default()
     };
-    let output = ra_asm_emit::emit_rust(&lifted.module, &options);
+    let mut output = ra_asm_emit::emit_rust(&lifted.module, &options);
+    // The port as `ras emit` writes it: formatted when rustfmt is on the PATH.
+    ra_asm_emit::format_files(&mut output.files, &output.functions);
     let dir = scratch(&format!("{binary}-rust-{functions_per_file}"));
     ra_asm_emit::write_files(&dir, &output.files).unwrap();
     write_resources(&dir, &image);
     std::fs::write(dir.join("functions.json"), ra_asm_emit::table(&output.functions, &output.files, &infos)).unwrap();
     check_table(binary, &dir);
     let target = dir.join("target");
+    // The package is lint-clean: clippy, with the compiler's warnings, finds nothing to say.
+    if Command::new("cargo").args(["clippy", "--version"]).output().is_ok_and(|o| o.status.success()) {
+        let clippy = Command::new("cargo")
+            .args(["clippy", "--release", "--quiet", "--manifest-path"])
+            .arg(dir.join("Cargo.toml"))
+            .arg("--target-dir")
+            .arg(&target)
+            .args(["--", "-D", "warnings"])
+            .output()
+            .unwrap();
+        assert!(clippy.status.success(), "{binary}: cargo clippy in {}:\n{}", dir.display(), String::from_utf8_lossy(&clippy.stderr));
+    } else {
+        eprintln!("cargo clippy is not installed: the lint of {binary}'s Rust is skipped");
+    }
     let build = Command::new("cargo")
         .args(["build", "--release", "--manifest-path"])
         .arg(dir.join("Cargo.toml"))
@@ -244,7 +262,8 @@ fn check_table(binary: &str, dir: &Path) {
             let text = file.lines().nth(line as usize - 1).unwrap_or("");
             // A C++ method is defined as `Class::method(`, under the line of record.
             let defines = text.contains(&format!("{name}(")) || (e.get("class").is_some() && text.contains("::"));
-            assert!(defines && text.ends_with('{'), "{binary}: line {line} of {addr} is `{text}`");
+            // rustfmt breaks a long signature after its name's parenthesis.
+            assert!(defines && (text.ends_with('{') || text.ends_with('(')), "{binary}: line {line} of {addr} is `{text}`");
             assert_eq!(e["status"], if e["traps"] == 0 { "lifted" } else { "partial" });
             assert!(e["copies"].is_u64(), "{binary}: {e}");
             let grade = &e["grade"];

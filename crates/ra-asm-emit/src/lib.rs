@@ -10,6 +10,7 @@
 pub mod c;
 mod common;
 pub mod cpp;
+mod format;
 pub mod functions;
 mod layout;
 pub mod rust;
@@ -18,6 +19,7 @@ pub mod structure;
 
 pub use c::{Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, MODULE_MARK, Options as COptions, Unit, emit_c, emit_unit};
 pub use cpp::{Class, Method, classes};
+pub use format::format_files;
 pub use functions::{FunctionInfo, Grade, format_address, table};
 pub use rust::{Options as RustOptions, Output as RustOutput, emit_rust};
 
