@@ -6,7 +6,8 @@
 //! build by what it reaches (the strings and imports of its code and of every function it calls,
 //! which an inlined call keeps, with its recursion, that it never returns, the vtable slots that
 //! hold it) matches, and one alone in each build by the shape of its code (its instructions with
-//! the addresses taken out, as a function nothing changed has in both). Then the call graph of
+//! the addresses taken out, as a function nothing changed has in both), or by that shape, its count
+//! of callers and how it was found (called or handed out) when two functions share the code. Then the call graph of
 //! the matched pairs: the functions the two sides of a pair call, in the order of their first
 //! calls, line up between two callees already matched when the runs between them are as long on
 //! both sides; what the alignment leaves under a pair (the callees of an inlined call, the calls a
@@ -92,6 +93,7 @@ pub fn match_functions(old: &Analysis<'_>, new: &Analysis<'_>, symbols: bool) ->
         let before = m.pairs.len();
         m.unique(How::Local, |s, f| (!s.local[&f].is_empty()).then(|| s.local[&f].clone()));
         m.unique(How::Shape, |s, f| Some(s.shape[&f]));
+        m.unique(How::Shape, |s, f| Some((s.shape[&f], s.callers[&f].len(), s.found[&f])));
         m.propagate();
         if m.pairs.len() == before {
             m.unique(How::Constants, |s, f| (!s.constants[&f].is_empty()).then(|| (s.local[&f].clone(), s.constants[&f].clone())));
@@ -142,6 +144,9 @@ struct Side {
     /// The immediates that are neither small nor an address of the image.
     constants: HashMap<u64, BTreeSet<i64>>,
     shape: HashMap<u64, u64>,
+    /// How the analysis found the function, one bit for each kind of [`Origin`]: a function
+    /// called and one whose address is handed out differ in it when their code is the same.
+    found: HashMap<u64, u16>,
     /// The shape of each instruction, in address order.
     tokens: HashMap<u64, Vec<u64>>,
     /// The functions it calls or jumps to, in the order of their first calls.
@@ -195,6 +200,7 @@ impl Side {
             side.moved.insert(f.entry, moved);
             side.constants.insert(f.entry, constants);
             side.shape.insert(f.entry, hasher.finish());
+            side.found.insert(f.entry, f.origins.iter().fold(0, |bits, o| bits | 1 << origin_kind(o)));
             side.tokens.insert(f.entry, tokens);
             for &callee in &calls {
                 side.callers.entry(callee).or_default().push(f.entry);
@@ -231,6 +237,22 @@ impl Side {
             }
         }
         Some(features.into_iter().collect())
+    }
+}
+
+/// The kind of `origin`, without the address it names.
+fn origin_kind(origin: &Origin) -> u16 {
+    match origin {
+        Origin::Entry => 0,
+        Origin::Export(_) => 1,
+        Origin::TlsCallback => 2,
+        Origin::ExceptionTable => 3,
+        Origin::Call(_) => 4,
+        Origin::TailCall(_) => 5,
+        Origin::Pointer(_) => 6,
+        Origin::Vtable(_) => 7,
+        Origin::Gap(_) => 8,
+        Origin::Trace(_) => 9,
     }
 }
 
@@ -321,6 +343,13 @@ fn left(side: &Side, matched: &HashMap<u64, u64>, f: u64) -> Option<Vec<u64>> {
         }
     }
     Some(out)
+}
+
+/// Whether `f` calls a function other than itself that is not matched yet. Two places of a run of
+/// callees differ in it when one build inlined the function of its place into the caller and the
+/// other's place holds what that function called.
+fn open(side: &Side, matched: &HashMap<u64, u64>, f: u64) -> bool {
+    side.calls[&f].iter().any(|c| *c != f && !matched.contains_key(c))
 }
 
 /// The shape of an instruction: its mnemonic and operands, with an address of the image in place
@@ -480,7 +509,8 @@ impl Matcher {
             let mut gb: Vec<u64> = sb[from_b..j].iter().copied().filter(|y| !self.new_to_old.contains_key(y)).collect();
             if !ga.is_empty() && ga.len() == gb.len() {
                 self.unswap(&ga, &mut gb);
-                if ga.iter().zip(&gb).all(|(x, y)| self.agree(*x, *y)) {
+                let fits = |x: u64, y: u64| self.agree(x, y) && open(&self.old, &self.old_to_new, x) == open(&self.new, &self.new_to_old, y);
+                if ga.iter().zip(&gb).all(|(x, y)| fits(*x, *y)) {
                     found.extend(ga.into_iter().zip(gb));
                 }
             }

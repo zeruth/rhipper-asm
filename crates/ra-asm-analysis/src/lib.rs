@@ -339,7 +339,9 @@ fn strings_of(image: &Image, function: &Function) -> Vec<(u64, String)> {
                 Operand::Imm { value, .. } => *value as u64,
                 _ => continue,
             };
-            if image.is_code(target) || out.iter().any(|(va, _)| *va == target) {
+            // A word that holds an address of the image is a pointer whose bytes read as text
+            // (`8A@` for 0x00404138): the start of a table of records, not a literal.
+            if image.is_code(target) || out.iter().any(|(va, _)| *va == target) || image.pointer(target).is_ok_and(|p| image.is_mapped(p)) {
                 continue;
             }
             if let Some(text) = image.printable_cstr(target, 2, 512) {
