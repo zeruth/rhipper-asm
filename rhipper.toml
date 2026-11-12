@@ -48,6 +48,10 @@ allow = [
 # The machine swaps on a full-parallel build.
 CARGO_BUILD_JOBS = "6"
 
+# The whole week is spent, not stopped at 90% (the person, 2026-11-12: "use what is available").
+[plan]
+threshold = 1.0
+
 # The implementer of every card here is Opus; the reviewer and the cheap roles keep theirs.
 [[route]]
 model = "claude-opus-5-5"
