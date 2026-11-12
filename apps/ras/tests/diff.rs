@@ -39,7 +39,7 @@ fn the_debug_and_optimized_builds_of_core_match_by_structure() {
     let new = symbols(pairs.iter().map(|p| (&p["new_symbol"], &p["new"])).chain(added.iter().map(|f| (&f["symbol"], &f["address"]))));
     let matched: BTreeSet<(&str, &str)> = pairs.iter().filter_map(|p| Some((p["old"].as_str()?, p["new"].as_str()?))).collect();
     let agreed: Vec<(&String, &String, &String)> = old.iter().filter_map(|(s, a)| new.get(s).map(|b| (s, a, b))).collect();
-    assert!(agreed.len() > 40,"the maps agree on {} functions only", agreed.len());
+    assert!(agreed.len() > 40, "the maps agree on {} functions only", agreed.len());
     let wrong: Vec<String> = agreed
         .iter()
         .filter(|(_, a, b)| !matched.contains(&(a.as_str(), b.as_str())))
