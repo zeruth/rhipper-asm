@@ -1,7 +1,8 @@
 //! The scratch directory of a test: `<temp>/<suite>/<build>-<pid>-<name>`, made by
 //! [`Scratch::new`] and removed, with its suite directory once that is empty, when the guard
-//! drops, whether the test passed or failed. `<build>` names the directory the test binaries were
-//! built in, so the runs of several checkouts at once tell their directories apart. A person who
+//! drops, whether the test passed or failed. `<build>` names the checkout and the directory the test
+//! binaries were built in, so the runs of several checkouts at once, even into one target
+//! directory, tell their directories apart. A person who
 //! wants to read a test's output sets `RA_KEEP_SCRATCH` to any value: every scratch directory then
 //! stays and names its path on stderr.
 
@@ -38,18 +39,39 @@ impl Scratch {
 
     /// The scratch directories of `suite` that the test binaries of this build made in other
     /// processes: what a run of the tests must not leave behind. The runs of other checkouts,
-    /// which may be under way, are not counted.
+    /// and the processes still running, which may own their directories yet, are not counted.
     pub fn foreign(suite: &str) -> Vec<PathBuf> {
         let build = format!("{}-", build());
-        let own = format!("{build}{}-", std::process::id());
         let Ok(entries) = std::fs::read_dir(suite_dir(suite)) else {
             return Vec::new();
         };
         entries
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&build) && !n.to_string_lossy().starts_with(&own)))
+            .filter(|p| {
+                let Some(name) = p.file_name().map(OsStr::to_string_lossy) else {
+                    return false;
+                };
+                let Some(pid) = name.strip_prefix(&build).and_then(|rest| rest.split('-').next()).and_then(|pid| pid.parse::<u32>().ok())
+                else {
+                    return false;
+                };
+                pid != std::process::id() && !running(pid)
+            })
             .collect()
+    }
+}
+
+/// Whether the process `pid` is running: a test binary of another run on the same build, whose
+/// directories are its own to remove.
+fn running(pid: u32) -> bool {
+    if cfg!(windows) {
+        std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\"")))
+    } else {
+        Path::new(&format!("/proc/{pid}")).exists()
     }
 }
 
@@ -57,11 +79,12 @@ fn suite_dir(suite: &str) -> PathBuf {
     std::env::temp_dir().join(suite)
 }
 
-/// A short name of the directory this test binary lives in, which every test binary of one
-/// build shares.
+/// A short name of the checkout and of the directory this test binary lives in, which every test
+/// binary of one build shares: checkouts that build into one target directory stay apart.
 fn build() -> String {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let mut hasher = DefaultHasher::new();
+    env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
     std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)).hash(&mut hasher);
     format!("{:08x}", hasher.finish() & 0xffff_ffff)
 }
