@@ -12,7 +12,10 @@ temp = ["ra-asm-emit-tests", "ra-asm-lift-tests", "ras-pipeline-tests"]
 # restarts fresh on a handoff once a turn passes this many input tokens. No turn cap. The
 # walk borrows the pool's spare slots: once runelite's queue is empty, asm has all twelve.
 context = 160000
-parallel = 6
+# One Fable worker since the new week (the person, 2026-11-12): the roadmap is pruned and
+# regenerated around the WSL console toolchains and the other architectures, then walked one
+# card at a time, outside the Opus pool.
+parallel = 1
 builds = 0
 # The emit oracle suite builds and runs every reference program: a card's check gets half an
 # hour here, not the ten minutes of the default.
@@ -44,10 +47,47 @@ allow = [
     "PowerShell(.\\out\\*)",
     # reading the environment (a toolchain's root such as KOS_BASE, card #93) and listing the
     # system directory's executables (the smoke corpus, card #132): both read-only
+    # packing the reference programs into the packed fixtures (card #53)
+    "upx",
+    "C:\\Users\\tyler\\AppData\\Local\\Microsoft\\WinGet\\Packages\\UPX.UPX_Microsoft.Winget.Source_8wekyb3d8bbwe\\upx-5.3.0-win64\\upx.exe",
+    "PowerShell(& C:\\Users\\tyler\\AppData\\Local\\Microsoft\\WinGet\\Packages\\UPX.UPX_Microsoft.Winget.Source_8wekyb3d8bbwe\\upx-5.3.0-win64\\upx.exe *)",
+    # the console toolchains live in WSL Ubuntu 24.04 (see rhipper.context.md): a login shell
+    # there has every SDK on its path
+    "wsl",
+    "Bash(wsl *)",
+    "PowerShell(wsl *)",
     "printenv",
     "Bash(printenv *)",
     "PowerShell(Get-ChildItem C:\\Windows\\System32*)",
     "Bash(ls /c/Windows/System32*)",
+    # the roadmap commands a regeneration card reshapes the roadmap with; in a worktree `rc`
+    # opens the project's roadmap. Not `rc set` (accepted lands a card) nor the walk's commands
+    "Bash(rc show*)",
+    "Bash(rc check*)",
+    "Bash(rc next*)",
+    "Bash(rc history*)",
+    "Bash(rc add *)",
+    "Bash(rc edit *)",
+    "Bash(rc remove *)",
+    "Bash(rc move *)",
+    "Bash(rc depend *)",
+    "Bash(rc priority *)",
+    "PowerShell(rc show*)",
+    "PowerShell(rc check*)",
+    "PowerShell(rc next*)",
+    "PowerShell(rc history*)",
+    "PowerShell(rc add *)",
+    "PowerShell(rc edit *)",
+    "PowerShell(rc remove *)",
+    "PowerShell(rc move *)",
+    "PowerShell(rc depend *)",
+    "PowerShell(rc priority *)",
+    "Bash(rc set * defined)",
+    "Bash(rc set * blocked)",
+    "Bash(rc set * cancelled)",
+    "PowerShell(rc set * defined)",
+    "PowerShell(rc set * blocked)",
+    "PowerShell(rc set * cancelled)",
 ]
 
 [worker.env]
@@ -58,6 +98,6 @@ CARGO_BUILD_JOBS = "6"
 [plan]
 threshold = 1.0
 
-# The implementer of every card here is Opus; the reviewer and the cheap roles keep theirs.
+# The implementer of every card here is Fable; the reviewer and the cheap roles keep theirs.
 [[route]]
-model = "claude-opus-5-5"
+model = "claude-fable-5-1"
