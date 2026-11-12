@@ -10,7 +10,7 @@ use serde_json::json;
 use crate::disasm::note;
 use crate::report::hex;
 
-fn origin_name(origin: &Origin) -> String {
+pub(crate) fn origin_name(origin: &Origin) -> String {
     match origin {
         Origin::Entry => "entry".to_owned(),
         Origin::Export(name) => format!("export {name}"),
@@ -49,6 +49,31 @@ pub(crate) fn facts_json(f: &ra_asm_analysis::Function) -> (serde_json::Value, s
     let strings = f.strings.iter().map(|(va, text)| json!({"addr": hex(*va), "text": text})).collect::<Vec<_>>();
     let virtuals = f.virtuals.iter().map(|v| json!({"class": v.class, "offset": v.offset, "slot": v.slot})).collect::<Vec<_>>();
     (serde_json::Value::Array(strings), serde_json::Value::Array(virtuals))
+}
+
+/// The shape of one function's control: its back edges (a loop each, or a jump back), its
+/// switches, the indirect jumps the analysis did not resolve, and each indirect call with the
+/// import it reaches or the functions a traced run saw it reach.
+pub(crate) fn shape_json(analysis: &Analysis<'_>, f: &ra_asm_analysis::Function) -> serde_json::Value {
+    let back_edges = f.blocks.iter().map(|b| b.successors().iter().filter(|s| **s <= b.start && f.contains(**s)).count()).sum::<usize>();
+    let switches = f.blocks.iter().filter(|b| matches!(b.terminator, Terminator::Switch { .. })).count();
+    let unresolved: Vec<_> = f
+        .blocks
+        .iter()
+        .filter(|b| matches!(b.terminator, Terminator::IndirectJump))
+        .filter_map(|b| b.instrs.last().map(|i| json!({"addr": hex(i.address), "text": i.text})))
+        .collect();
+    let indirect: Vec<_> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instrs)
+        .filter(|i| i.flow == ra_asm_arch::Flow::Call(ra_asm_arch::Target::Indirect))
+        .map(|i| {
+            let traced = f.traced_calls.get(&i.address).map(|targets| targets.iter().map(|t| analysis.name_of(*t)).collect::<Vec<_>>());
+            json!({"addr": hex(i.address), "text": i.text, "import": f.register_import_calls.get(&i.address), "traced": traced})
+        })
+        .collect();
+    json!({"back_edges": back_edges, "switches": switches, "unresolved_jumps": unresolved, "indirect_calls": indirect})
 }
 
 fn terminator_json(t: &Terminator) -> serde_json::Value {
