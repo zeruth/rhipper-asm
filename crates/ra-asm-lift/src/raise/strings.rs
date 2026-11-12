@@ -6,14 +6,16 @@
 //! read those and write the frame buffers, and nothing else is mapped, so any other access, any
 //! call out and any change to the read-only data stops it. Two runs over buffers filled with
 //! different bytes must write the same bytes, which shows the result independent of what the
-//! buffer held (a dependence the program could only have through uninitialized memory). The call
+//! buffer held (a dependence the program could only have through uninitialized memory). A key
+//! written to a register's low byte keeps the register's other bits, which no one set: the two
+//! runs pass them clear and set, so the result shows independent of them too. The call
 //! then becomes a copy of the plaintext from a new constant, which the output prints as the
 //! literal it is.
 
 use std::collections::HashMap;
 
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
-use ra_asm_ir::{CallConv, Callee, Cast, Const, Declaration, FnType, Global, Inst, Instruction, Linkage, Module, Operand, Type, ValueId};
+use ra_asm_ir::{BinOp, CallConv, Callee, Cast, Const, Declaration, FnType, Global, Inst, Instruction, Linkage, Module, Operand, Type, ValueId};
 
 use super::known::{self, Root};
 
@@ -32,6 +34,12 @@ impl Host for NoHost {
 /// An argument of a call to run.
 enum Arg {
     Int(u128),
+    /// An integer whose `known` bits are `value` and whose other bits are what the register held
+    /// before a byte or word write: `mov r9b, 0x78` over a value the caller left.
+    Partial {
+        value: u128,
+        known: u128,
+    },
     /// A byte of a read-only global.
     Data(String, i64),
     /// A pointer into the caller's frame: the operand as the call passes it, and the bytes from
@@ -203,6 +211,9 @@ fn classify(ty: &Type, o: &Operand, module: &Module, defs: &HashMap<ValueId, Ins
         Operand::Address { global, offset } if constant(global) => Some(Arg::Data(global.clone(), *offset)),
         Operand::Global(g) if constant(g) => Some(Arg::Data(g.clone(), 0)),
         Operand::Local(_) => {
+            if let Some((value, known)) = partial(o, defs) {
+                return Some(Arg::Partial { value, known });
+            }
             let (Root::Alloca(a), offset) = known::place(o, defs)? else { return None };
             let Some(Inst::Alloca { ty: slot, .. }) = defs.get(&a) else { return None };
             let size = slot.size(8)?;
@@ -211,6 +222,23 @@ fn classify(ty: &Type, o: &Operand, module: &Module, defs: &HashMap<ValueId, Ins
         }
         _ => None,
     }
+}
+
+/// The value and the mask of the known bits of `(x & m) | k`, the shape a write of a register's
+/// low byte or word leaves, in the 64 bits an argument has.
+fn partial(o: &Operand, defs: &HashMap<ValueId, Inst>) -> Option<(u128, u128)> {
+    const WORD: u128 = 0xffff_ffff_ffff_ffff;
+    let Operand::Local(v) = o else { return None };
+    let Some(Inst::Bin { op: BinOp::Or, lhs, rhs, .. }) = defs.get(v) else { return None };
+    let (Operand::Local(kept), Operand::Int(k)) | (Operand::Int(k), Operand::Local(kept)) = (lhs, rhs) else { return None };
+    let (Some(Inst::Bin { op: BinOp::And, rhs: Operand::Int(m), .. }) | Some(Inst::Bin { op: BinOp::And, lhs: Operand::Int(m), .. })) =
+        defs.get(kept)
+    else {
+        return None;
+    };
+    let (m, k) = (*m as u128 & WORD, *k as u128 & WORD);
+    let known = !m & WORD;
+    (known != 0 && k & m == 0).then_some((k, known))
 }
 
 /// Runs `c` twice over buffers filled differently. The bytes each buffer got, when both runs
@@ -267,6 +295,13 @@ fn run_once(
     for arg in &c.args {
         args.push(Value::Int(match arg {
             Arg::Int(k) => *k,
+            Arg::Partial { value, known } => {
+                if fill == 0 {
+                    *value
+                } else {
+                    *value | (!known & u128::from(u64::MAX))
+                }
+            }
             Arg::Data(g, offset) => u128::from(vm.symbol(g)?.wrapping_add(*offset as u64)),
             Arg::Buffer(..) => {
                 buffer += 1;
