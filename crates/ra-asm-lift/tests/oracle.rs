@@ -79,6 +79,8 @@ fn run_interpreted(binary: &str, expected: &str, tag: &str) {
     let options = ra_asm_lift::run::Options::default();
     let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &options).unwrap();
     let stdout = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
+    // An expected file may be checked out with CRLF line ends.
+    let expected = expected.replace("\r\n", "\n");
     assert_eq!(
         stdout.trim_end(),
         expected.trim_end(),
@@ -200,6 +202,7 @@ fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
     }
     let run = Command::new(&exe).arg(dir.join("image.bin")).current_dir(&dir).output().unwrap();
     let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
+    let expected = expected.replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert_eq!(
         stdout.trim_end(),
