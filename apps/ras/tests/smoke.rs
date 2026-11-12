@@ -2,6 +2,7 @@
 //! than a crash, and (ignored, for a run by hand or the nightly) the Windows system directory's
 //! executables go through without a panic.
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -43,9 +44,9 @@ fn a_file_that_is_no_image_is_refused() {
 }
 
 /// The executables of the Windows system directory: every one is lifted and emitted, refused,
-/// or stopped at the time limit, and none panics or crashes. The run is held to a budget that
-/// ends it, smallest files first, well inside a check's half hour on a debug build; the files it
-/// leaves are reported as skipped, and the nightly runs them all.
+/// or stopped at the time limit, and none panics or crashes. Every one is started: the per-file
+/// limit and the jobs fit the directory inside a check's half hour on a debug build, and the
+/// budget only makes a run that would not fit fail with its counts rather than be killed.
 #[test]
 #[ignore = "minutes over the system directory; run with `cargo test -p ras -q -- --ignored`"]
 fn the_system_directory_does_not_panic() {
@@ -55,13 +56,13 @@ fn the_system_directory_does_not_panic() {
     };
     let system = PathBuf::from(windows).join("System32");
     let mut args = vec![system.to_str().unwrap()];
-    args.extend(["--depth", "0", "--ext", "exe", "--timeout", "10", "--jobs", "3", "--budget", "1080"]);
+    args.extend(["--depth", "0", "--ext", "exe", "--timeout", "5", "--jobs", "4", "--budget", "1500"]);
     let (output, report) = smoke(&args);
-    assert!(report["files"].as_u64().unwrap() > 0, "no executable in {}", system.display());
     let status = &report["status"];
-    let run: u64 = ["ok", "error", "timeout"].into_iter().map(|s| status[s].as_u64().unwrap()).sum();
-    eprintln!("{} executables: {status}", report["files"]);
-    assert!(run > 0, "no executable ran: {status}");
+    // Written past the harness's capture, so the check's log shows the counts of a passing run.
+    let _ = writeln!(std::io::stderr(), "ras smoke: {} executables in {}s: {status}", report["files"], report["seconds"]);
+    assert!(report["files"].as_u64().unwrap() > 0, "no executable in {}", system.display());
+    assert_eq!(status["skipped"], 0, "the budget ran out before every executable started: {status}");
     assert_eq!(report["panics"], serde_json::json!([]), "{:#}", report["panics"]);
     assert_eq!(report["crashes"], serde_json::json!([]), "{:#}", report["crashes"]);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
