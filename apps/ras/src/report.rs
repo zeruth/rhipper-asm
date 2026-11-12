@@ -482,13 +482,18 @@ pub(crate) fn functions(image: &Image, pdata: bool, json: bool) -> Result<()> {
     };
     if let Some(table) = table {
         let extents = image.unwind_extents();
+        // The container's own symbol table names an extent that starts a symbol.
+        let name_of = |begin: u64| image.symbols.iter().find(|s| s.va == begin).map(|s| s.name.as_str());
         if json {
-            let rows: Vec<_> =
-                extents.iter().map(|&(begin, end)| json!({"begin": hex(begin), "end": hex(end), "size": end - begin})).collect();
+            let rows: Vec<_> = extents
+                .iter()
+                .map(|&(begin, end)| json!({"begin": hex(begin), "end": hex(end), "size": end - begin, "name": name_of(begin)}))
+                .collect();
             return print_json(&rows);
         }
         for &(begin, end) in extents {
-            println!("{}  {}  {:>6}", hex(begin), hex(end), end - begin);
+            let name = name_of(begin).map_or_else(String::new, |n| format!("  {n}"));
+            println!("{}  {}  {:>6}{name}", hex(begin), hex(end), end - begin);
         }
         println!("{} {table} functions", extents.len());
         print_warnings(image);

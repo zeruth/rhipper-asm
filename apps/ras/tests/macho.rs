@@ -53,6 +53,9 @@ fn check(name: &str, machine: &str, binding: &str, functions: &[&str]) {
     // cut the range back into two.
     let extents = ras(name, &["functions", "--pdata"]);
     assert!(extents.contains("2 __unwind_info functions"), "{name}: {extents}");
+    for function in ["square", "main"] {
+        assert!(extents.lines().any(|l| l.ends_with(&format!("  {function}"))), "{name}: no {function} extent in:\n{extents}");
+    }
     let listed = ras(name, &["functions"]);
     for function in functions {
         assert!(listed.lines().any(|l| l.contains(&format!("  {function}"))), "{name}: no {function} in:\n{listed}");
