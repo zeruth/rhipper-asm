@@ -15,11 +15,14 @@
 //! ([`signatures`]) name the functions of a build without symbols the same way: applied to the
 //! image first, they fill the symbols and the library ranges the analysis reads. The facts of a
 //! traced run ([`facts`]) come last among the seeds and first among the resolutions: a target the
-//! run reached is a function, and an indirect call the run resolved calls what it reached.
+//! run reached is a function, and an indirect call the run resolved calls what it reached. A
+//! function's [`identity`] is what it is apart from its address, how a new build of the program
+//! finds the functions the person annotated in the last.
 
 pub mod builder;
 pub mod facts;
 pub mod function;
+pub mod identity;
 pub mod imports;
 pub mod jumptable;
 pub mod noreturn;
@@ -30,10 +33,11 @@ pub mod symbols;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use ra_asm_arch::{Arch, Operand};
-use ra_asm_pe::{CxxFrame, Image, Machine};
+use ra_asm_pe::{CxxAbi, CxxFrame, Image, Machine, Toolset};
 
 pub use facts::Facts;
 pub use function::{Block, Function, Kind, Origin, Terminator, VirtualSlot};
+pub use identity::Identity;
 pub use rtti::{Class, Vtable};
 pub use signatures::{Signature, SignatureSet};
 
@@ -63,6 +67,9 @@ pub struct Analysis<'a> {
     pub program_entry: Option<u64>,
     /// The facts of the traced run the analysis took, empty without one.
     pub facts: Facts,
+    /// The toolset that built the image: its C++ ABI decides whose RTTI the classes are read
+    /// from, its runtime key which signatures and prototypes the C runtime takes.
+    pub toolset: Toolset,
     /// What the analysis could not resolve: unresolved indirect jumps, invalid bytes, overlaps.
     pub warnings: Vec<String>,
 }
@@ -189,10 +196,20 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
             state.seed(f.begin, Origin::ExceptionTable);
         }
     }
+    // An ELF file's `.eh_frame` records its functions as the exception table records a PE's.
+    if let Some(elf) = &image.elf {
+        for &(begin, _) in &elf.functions {
+            if image.is_code(begin) {
+                state.seed(begin, Origin::ExceptionTable);
+            }
+        }
+    }
     state.run();
 
     // The virtual functions: the vtables of the RTTI name them before a bare pointer scan does.
-    let classes = rtti::classes(image);
+    // The RTTI read is Microsoft's; a toolset of the Itanium ABI lays its classes out otherwise.
+    let toolset = Toolset::of(image);
+    let classes = if toolset.cxx_abi() == CxxAbi::Msvc { rtti::classes(image) } else { Vec::new() };
     for class in &classes {
         for vtable in &class.vtables {
             for &va in &vtable.functions {
@@ -304,7 +321,7 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     let program_entry = symbols::program_entry(image, &functions);
     symbols::finish_names(&mut functions);
     let (noreturn, warnings) = (state.noreturn, state.warnings);
-    Analysis { image, arch, functions, noreturn, classes, cxx_frames, program_entry, facts: facts.clone(), warnings }
+    Analysis { image, arch, functions, noreturn, classes, cxx_frames, program_entry, facts: facts.clone(), toolset, warnings }
 }
 
 /// The string literals a function addresses: each operand that names an address where printable
@@ -638,8 +655,11 @@ fn pointer_seeds(image: &Image) -> Vec<(u64, Origin)> {
                 } else {
                     u64::from(u32::from_le_bytes(chunk.try_into().unwrap()))
                 };
-                if image.is_code(value) {
-                    seeds.push((value, Origin::Pointer(start + (offset * width) as u64)));
+                // An import's slot is the loader's: a lazily bound ELF slot holds the address of its
+                // PLT stub's second half until the first call binds it.
+                let slot = start + (offset * width) as u64;
+                if image.is_code(value) && image.import_at(slot).is_none() {
+                    seeds.push((value, Origin::Pointer(slot)));
                 }
             }
         }

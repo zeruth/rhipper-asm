@@ -29,6 +29,9 @@ pub struct Symbol {
     /// The static library whose object holds the function (`libucrt.lib`), by its file name in
     /// lower case; `None` for an object of the program itself.
     pub library: Option<String>,
+    /// The object file that holds the function (`core.obj`), by its file name as the build has
+    /// it; `None` when the symbols do not say. The modules of a port follow it.
+    pub object: Option<String>,
 }
 
 /// A range of the image that an object of a static library fills: a section contribution of a
@@ -80,9 +83,13 @@ pub fn read(image: &Image, path: &Path, guid: &str, age: u32) -> Result<Pdb> {
         let rva = section.virtual_address.checked_add(offset)?;
         section.contains_rva(rva).then(|| image.va(rva))
     };
-    let library_of = |segment: u16, offset: u32| -> Option<String> {
+    let module_of = |segment: u16, offset: u32| -> Option<&Module> {
         let module = dbi.contributions.iter().find(|c| c.segment == segment && offset >= c.offset && offset - c.offset < c.size)?.module;
-        dbi.modules.get(usize::from(module))?.library.clone()
+        dbi.modules.get(usize::from(module))
+    };
+    let symbol = |va: u64, name: &str, segment: u16, offset: u32| {
+        let module = module_of(segment, offset);
+        Symbol { va, name: name.to_owned(), library: module.and_then(|m| m.library.clone()), object: module.and_then(|m| m.object.clone()) }
     };
 
     // The procedures first: a module's own record names a function as the source did.
@@ -103,7 +110,7 @@ pub fn read(image: &Image, path: &Path, guid: &str, age: u32) -> Result<Pdb> {
                 continue;
             };
             let Some(va) = va_of(segment, offset) else { continue };
-            out.push(Symbol { va, name: name.to_owned(), library: library_of(segment, offset) });
+            out.push(symbol(va, name, segment, offset));
         }
     }
     // Then the public symbols, for the functions no module stream describes: the functions of a
@@ -126,7 +133,7 @@ pub fn read(image: &Image, path: &Path, guid: &str, age: u32) -> Result<Pdb> {
                 continue;
             }
             let Some(va) = va_of(segment, offset) else { continue };
-            out.push(Symbol { va, name: name.to_owned(), library: library_of(segment, offset) });
+            out.push(symbol(va, name, segment, offset));
         }
     }
     // One name per address: the procedure record wins, being first.
@@ -247,6 +254,8 @@ struct Module {
     symbol_bytes: u32,
     /// The library the object came from, when it came from one.
     library: Option<String>,
+    /// The object file's name, for a module that is one.
+    object: Option<String>,
 }
 
 struct Contribution {
@@ -286,7 +295,12 @@ impl Dbi {
             // A library member names its library as the object file; a plain object names itself.
             let library =
                 (object != name && !object.is_empty()).then(|| object.rsplit(['\\', '/']).next().unwrap_or(object).to_ascii_lowercase());
-            modules.push(Module { symbol_stream, symbol_bytes, library });
+            // The linker's own modules (`* Linker *`, an import's `Import:KERNEL32.dll`) are no
+            // object files.
+            let file = name.rsplit(['\\', '/']).next().unwrap_or(name);
+            let object = Path::new(file).extension().is_some_and(|e| e.eq_ignore_ascii_case("obj") || e.eq_ignore_ascii_case("o"));
+            let object = object.then(|| file.to_owned());
+            modules.push(Module { symbol_stream, symbol_bytes, library, object });
         }
 
         let mut contributions = Vec::new();

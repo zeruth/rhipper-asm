@@ -16,14 +16,15 @@ pub mod rust;
 mod safety;
 pub mod structure;
 
-pub use c::{Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, Options as COptions, Unit, emit_c, emit_unit};
+pub use c::{Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, MODULE_MARK, Options as COptions, Unit, emit_c, emit_unit};
 pub use cpp::{Class, Method, classes};
 pub use functions::{FunctionInfo, format_address, table};
 pub use rust::{Options as RustOptions, Output as RustOutput, emit_rust};
 
 /// Writes the files of `unit` into `dir`, after removing the files of an earlier, larger output
-/// or another dialect (`program.c`, `program.h`, `data.c`, `program_NNN.c`, and the same as
-/// `.cpp`), so a stale part never builds again.
+/// or another dialect (`program.c`, `program.h`, `data.c`, `program_NNN.c`, a module's source and
+/// header, which start with [`c::MODULE_MARK`], and the same as `.cpp`), so a stale part never
+/// builds again.
 pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -32,7 +33,9 @@ pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Res
             let (stem, extension) = name.rsplit_once('.').unwrap_or((name.as_str(), ""));
             let source = extension == "c" || extension == "cpp";
             let part = stem.strip_prefix("program_").is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
-            let ours = name == "program.h" || (source && (stem == "program" || stem == "data" || part));
+            let module =
+                (source || extension == "h") && std::fs::read_to_string(entry.path()).is_ok_and(|text| text.starts_with(c::MODULE_MARK));
+            let ours = name == "program.h" || module || (source && (stem == "program" || stem == "data" || part));
             if ours && !files.iter().any(|f| f.name == name) {
                 std::fs::remove_file(entry.path())?;
             }
@@ -51,11 +54,19 @@ pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Res
         }
     }
     for f in files {
-        let path = dir.join(&f.name);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(path, &f.text)?;
+        write_if_changed(&dir.join(&f.name), f.text.as_bytes())?;
     }
     Ok(())
+}
+
+/// Writes `bytes` to `path` unless the file holds them already, creating its directory: a file
+/// the emit did not change keeps its time, so the build recompiles only the parts that changed.
+pub fn write_if_changed(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    if std::fs::read(path).is_ok_and(|old| old == bytes) {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, bytes)
 }

@@ -7,7 +7,9 @@ mod doctor;
 mod emit;
 mod functions;
 mod lift;
+mod lockstep;
 mod pipeline;
+mod plugins;
 mod project;
 mod report;
 mod run;
@@ -19,6 +21,7 @@ mod xrefs;
 
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -59,7 +62,10 @@ enum Command {
     Relocs { pe: PathBuf },
     /// The debug directory and the PDB record.
     Debug { pe: PathBuf },
-    /// The functions of the image. With `--pdata`, the raw exception table entries.
+    /// The named functions: from the PDB or the link map of a PE, from the symbol table of an ELF.
+    Symbols { pe: PathBuf },
+    /// The functions of the image. With `--pdata`, the raw exception table entries, or the function
+    /// extents of an ELF file's `.eh_frame`.
     Functions {
         pe: PathBuf,
         /// List the exception table entries instead of the functions.
@@ -80,6 +86,10 @@ enum Command {
         /// A signature file or a library to make signatures from; repeatable.
         #[arg(long, value_name = "FILE")]
         from: Vec<PathBuf>,
+        /// Recognize with the C runtime libraries the image's toolset picks (the installed MSVC
+        /// runtime for a 14.x one), beside `--from`.
+        #[arg(long)]
+        runtime: bool,
         /// Write the signatures made from `--from` to this file, in the `ra signatures` text format.
         #[arg(long, value_name = "FILE")]
         write: Option<PathBuf>,
@@ -202,7 +212,8 @@ enum Command {
         /// The build configuration, such as `Debug`, instead of the project's.
         #[arg(long)]
         config: Option<String>,
-        /// Delete the build outputs before the build.
+        /// Run the analyze, lift and emit steps whatever their stamps say, and delete the build
+        /// outputs before the build.
         #[arg(long)]
         rebuild: bool,
     },
@@ -212,6 +223,12 @@ enum Command {
         /// The language of the port the tools are required for: `c` (also `cpp`) or `rust`.
         #[arg(long, default_value = "c")]
         lang: String,
+    },
+    /// The plugins `ras` loads: the project's (`rhipper/plugins/<name>/<name>.wasm` under
+    /// `--project`) and the user's (`RHIPPER_PLUGINS`), each with what it adds.
+    Plugins {
+        #[arg(long)]
+        project: Option<PathBuf>,
     },
     /// The engine as a service: JSON-RPC over stdio, one request and one response per line, with
     /// the image and its analysis kept in memory. Serves the project of `--project` (the current
@@ -268,6 +285,7 @@ fn main() -> anyhow::Result<()> {
         Command::Exports { pe } => report::exports(&load(&pe, sigs)?, json),
         Command::Relocs { pe } => report::relocs(&load(&pe, sigs)?, json),
         Command::Debug { pe } => report::debug(&load(&pe, sigs)?, json),
+        Command::Symbols { pe } => report::symbols(&load(&pe, sigs)?, json),
         Command::Functions { pe, pdata: true } => report::functions(&load(&pe, sigs)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&load(&pe, sigs)?, json),
         Command::Cfg { pe, address } => functions::cfg(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),
@@ -275,8 +293,14 @@ fn main() -> anyhow::Result<()> {
             let standalone = standalone || level == ra_asm_lift::RaiseLevel::Abi;
             lift::lift(&load(&pe, sigs)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87 })
         }
-        Command::Signatures { pe, from, write } if !from.is_empty() || write.is_some() => {
-            signatures::recognize(&mut load(&pe, sigs)?, &from, write.as_deref(), json)
+        Command::Signatures { pe, mut from, runtime, write } if runtime || !from.is_empty() || write.is_some() => {
+            let mut image = load(&pe, sigs)?;
+            if runtime {
+                let libraries = ra_asm_analysis::signatures::runtime_for(&image)
+                    .with_context(|| format!("no installed runtime libraries fit the toolset {}", ra_asm_pe::Toolset::of(&image).name))?;
+                from.extend(libraries);
+            }
+            signatures::recognize(&mut image, &from, write.as_deref(), json)
         }
         Command::Signatures { pe, .. } => signatures::signatures(&load(&pe, sigs)?, json),
         Command::Emit { pe, lang, out, quiet, x87, hand, project } => {
@@ -301,6 +325,7 @@ fn main() -> anyhow::Result<()> {
             let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild };
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
+        Command::Plugins { project } => plugins::list(project.as_deref(), json),
         Command::Doctor { lang } => doctor::doctor(doctor::Port::of(&lang), json),
         Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
         Command::Smoke { dir, timeout, jobs, depth, extensions, out, quiet } => {

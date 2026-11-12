@@ -75,6 +75,11 @@ pub struct Seen {
     pub entered: BTreeSet<usize>,
 }
 
+/// What a run calls at each entry of a recorded function, with the function, its arguments and
+/// the machine's memory, before the function runs: a stepping host stops the run there, reading
+/// the memory while it waits, and returns to let it go on.
+pub type Pause = std::sync::Arc<dyn Fn(&Function, &[Value], &mut Memory) + Send + Sync>;
+
 /// A bump allocator over a region: the statics grow up, the frames grow down.
 #[derive(Debug, Clone, Copy, Default)]
 struct Bump {
@@ -105,6 +110,9 @@ pub struct Vm<'m> {
     pub record: Option<Box<dyn std::io::Write>>,
     /// The functions the record covers, by index; every function when empty.
     pub recorded: HashSet<usize>,
+    /// Called at each entry of a recorded function, when set: the stops of a run stepped in
+    /// lockstep with another.
+    pub pause: Option<Pause>,
     functions: HashMap<String, usize>,
     named: HashMap<String, Vec<Type>>,
     /// The index of each block of each function, by id.
@@ -131,6 +139,7 @@ impl<'m> Vm<'m> {
             seen: Seen::default(),
             record: None,
             recorded: HashSet::new(),
+            pause: None,
             functions,
             named,
             blocks,
@@ -358,9 +367,13 @@ impl<'m> Vm<'m> {
         }
         self.depth += 1;
         self.seen.entered.insert(index);
-        let recorded = self.record.is_some() && (self.recorded.is_empty() || self.recorded.contains(&index));
+        let watched = self.recorded.is_empty() || self.recorded.contains(&index);
+        let recorded = self.record.is_some() && watched;
         if recorded {
             self.record_entry(f, &args)?;
+        }
+        if watched && let Some(pause) = self.pause.clone() {
+            pause(f, &args, &mut self.memory);
         }
         let mark = self.frames.at;
         let mut values: Vec<Option<Value>> = vec![None; f.value_names.len()];
@@ -773,6 +786,7 @@ impl<'m> Vm<'m> {
             "cttz" => int(u128::from(if arg(0) == 0 { bits } else { arg(0).trailing_zeros() })),
             "ctlz" => int(u128::from(if arg(0) == 0 { bits } else { arg(0).leading_zeros() - (128 - bits) })),
             "bswap" => int(arg(0).swap_bytes() >> (128 - bits)),
+            "bitreverse" => int(arg(0).reverse_bits() >> (128 - bits)),
             "fshl" | "fshr" => {
                 let (a, b, c) = (arg(0), arg(1), arg(2) % u128::from(bits));
                 int(if c == 0 {

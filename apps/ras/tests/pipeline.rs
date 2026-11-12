@@ -33,12 +33,18 @@ fn ras(dir: &Path, args: &[&str]) -> (bool, String) {
     (output.status.success(), text)
 }
 
-/// The tests leave nothing new under the system temp: the test binaries run one after another, so
-/// the only scratch directories that may exist while this one runs are this process's own. A
-/// directory of another process written since this binary was built is a leftover of a test that
-/// wrote without a guard; an older one is from the time before the guards, and is only named.
+/// The tests leave nothing new under the system temp: the scratch directories of this build that
+/// may exist while this one runs are this process's own and those a live guard holds; the runs of
+/// other checkouts, under way at the same time, are not looked at. A directory of another process
+/// written since this binary was built is a leftover of a test that wrote without a guard; an
+/// older one is from the time before the guards, and is only named. A run that keeps its scratch
+/// keeps it on purpose and is not checked.
 #[test]
 fn the_tests_leave_nothing_under_temp() {
+    if std::env::var_os(ra_asm_testing::KEEP).is_some() {
+        eprintln!("{} is set: the scratch directories are kept, and not checked", ra_asm_testing::KEEP);
+        return;
+    }
     let built = std::fs::metadata(std::env::current_exe().unwrap()).unwrap().modified().unwrap();
     for suite in ["ra-asm-emit-tests", "ra-asm-lift-tests", "ras-pipeline-tests"] {
         let foreign = ra_asm_testing::Scratch::foreign(suite);
@@ -47,7 +53,11 @@ fn the_tests_leave_nothing_under_temp() {
         if !old.is_empty() {
             eprintln!("{suite}: {} directories left by earlier runs, to remove by hand", old.len());
         }
-        assert!(new.is_empty(), "{suite}: left under the system temp by this run:\n{new:#?}");
+        assert!(
+            new.is_empty(),
+            "{suite}: left under the system temp since this test was built (or kept by a run with {} set):\n{new:#?}",
+            ra_asm_testing::KEEP
+        );
     }
 }
 
@@ -109,6 +119,39 @@ fn emit_writes_the_translation_and_the_table() {
     }
     let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/functions.json")).unwrap()).unwrap();
     assert!(table.as_array().is_some_and(|a| a.iter().any(|e| e["name"] == "entry" && e["status"] == "lifted")), "{table}");
+}
+
+/// A second run over unchanged inputs skips the steps, each in under a second, and leaves the
+/// translation as it was; a deleted output, or a change to `rhipper.json`, runs them again.
+#[test]
+fn an_unchanged_program_is_not_lifted_again() {
+    let dir = project("incremental");
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    assert!(!text.contains("(unchanged)"), "{text}");
+    let program = dir.join("src/gen/program.c");
+    let written = std::fs::metadata(&program).unwrap().modified().unwrap();
+    for step in ["analyze", "lift", "emit"] {
+        let (ok, text) = ras(&dir, &["--only", step]);
+        assert!(ok, "{text}");
+        if step == "emit" {
+            assert!(text.contains("(unchanged)"), "{text}");
+        }
+    }
+    for step in ["analyze", "lift", "emit"] {
+        let (ok, text) = ras(&dir, &["--only", step]);
+        assert!(ok && text.contains("(unchanged)"), "{text}");
+        assert!(text.contains("[   0s] done"), "an unchanged {step} took a second or more:\n{text}");
+    }
+    assert_eq!(std::fs::metadata(&program).unwrap().modified().unwrap(), written, "the emit rewrote an unchanged file");
+    std::fs::remove_file(dir.join("src/gen/runtime/driver.c")).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok && !text.contains("(unchanged)"), "the emit missed a deleted output:\n{text}");
+    assert!(dir.join("src/gen/runtime/driver.c").is_file(), "the deleted output was not written again");
+    std::fs::write(dir.join("rhipper.json"), r#"{ "name": "control", "exe": "ref/control64.exe", "x87": "double" }"#).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok && !text.contains("(unchanged)"), "{text}");
+    assert_eq!(std::fs::metadata(&program).unwrap().modified().unwrap(), written, "the same translation was written again");
 }
 
 /// A `map` in `rhipper.json` names the reference's functions; the map of another build is refused
@@ -290,6 +333,64 @@ fn the_trace_beside_the_port_names_the_wrong_function() {
     assert_eq!(parts["reference"], reference, "{parts}");
 }
 
+/// The lockstep of `ras serve`: the port of control64 (a build with `run.trace`) and the reference
+/// through the interpreter, each stopped at its first function entry, then let go to the first
+/// entry of `fib`, where both stand with equal states; a read answers from each side's memory; and
+/// a run to the first divergence takes both to their end with the same exit.
+#[test]
+fn the_lockstep_stops_the_port_and_the_reference_at_the_same_entry() {
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    let dir = project_with(
+        "lockstep",
+        r#"{ "name": "control", "exe": "ref/control64.exe", "map": "ref/control.map", "run": { "trace": true } }"#,
+    );
+    std::fs::copy(root().join("testdata/bin/control64.map"), dir.join("ref/control.map")).unwrap();
+    let (ok, text) = ras(&dir, &[]);
+    assert!(ok, "{text}");
+    let responses = serve(
+        &dir,
+        &[
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "lockstep.state"}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "lockstep.start"}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 3, "method": "lockstep.step", "params": {"function": "fib"}}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 4, "method": "lockstep.read", "params": {"address": "0x0", "size": 8}}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 5, "method": "lockstep.step", "params": {"divergence": true}}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 6, "method": "lockstep.stop"}),
+        ],
+    );
+    assert!(responses[0]["error"]["message"].as_str().is_some_and(|m| m.contains("no lockstep session")), "{}", responses[0]);
+    let started = &responses[1]["result"];
+    assert_eq!(started["entry"], 1, "{}", responses[1]);
+    assert_eq!(started["equal"], true, "{started}");
+    assert!(started["port"]["function"].is_string() && started["port"]["function"] == started["reference"]["function"], "{started}");
+
+    let at_fib = &responses[2]["result"];
+    assert_eq!(at_fib["equal"], true, "{}", responses[2]);
+    for side in ["port", "reference"] {
+        assert_eq!(at_fib[side]["function"], "fib", "{at_fib}");
+        assert_eq!(at_fib[side]["args"][0]["kind"], "u", "{at_fib}");
+        assert_eq!(at_fib[side]["args"][0]["value"], "0xf", "{at_fib}");
+    }
+    assert!(at_fib["entry"].as_u64() > Some(1), "{at_fib}");
+
+    // Nothing is mapped at 0 on either side: each says why.
+    let read = &responses[3]["result"];
+    for side in ["port", "reference"] {
+        assert!(read[side]["error"].is_string(), "{}", responses[3]);
+    }
+
+    let end = &responses[4]["result"];
+    assert_eq!(end["equal"], true, "{}", responses[4]);
+    for side in ["port", "reference"] {
+        assert_eq!(end[side]["ended"], true, "{end}");
+        assert_eq!(end[side]["exit"], "0x0", "{end}");
+    }
+    assert_eq!(responses[5]["result"]["stopped"], true, "{}", responses[5]);
+}
+
 /// A function taken over by hand: `hand` in `rhipper.json` names `fib`, the emit step writes its
 /// declaration in place of its body and marks it in the table, the build compiles the hand-written
 /// `fib` from `sources` beside the translation, and the port prints what the reference prints.
@@ -330,6 +431,82 @@ fn the_pipeline_leaves_a_hand_written_function_to_the_sources() {
     let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
     let run_log = std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
     assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
+}
+
+/// The round trip: a port of the `-O1` build of control, with `fib` taken over by hand and named
+/// and `classify` named and commented in the sidecar files, regenerated from the `-O2` build put
+/// in its place. Every function moves; the annotations find theirs by identity, not by address,
+/// so the regenerated port keeps the hand-written `fib` and both names, the emit step shows what
+/// moved, and the port prints what the new reference prints.
+#[test]
+fn a_regeneration_from_a_new_build_keeps_the_hand_written_function_and_the_names() {
+    let dir =
+        project_with("round-trip", r#"{ "name": "control", "exe": "ref/control.exe", "sources": ["src"], "run": { "compare": true } }"#);
+    std::fs::copy(root().join("testdata/bin/control64-O1.exe"), dir.join("ref/control.exe")).unwrap();
+    let annotations = dir.join("rhipper/annotations");
+    std::fs::create_dir_all(&annotations).unwrap();
+    std::fs::write(annotations.join("0x1400012b0.json"), "{\n  \"addr\": \"0x1400012b0\",\n  \"name\": \"fib\",\n  \"hand\": true\n}\n")
+        .unwrap();
+    std::fs::write(
+        annotations.join("0x1400012e0.json"),
+        "{\n  \"addr\": \"0x1400012e0\",\n  \"name\": \"classify\",\n  \"comment\": \"the dense switch\"\n}\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("src/hand")).unwrap();
+    std::fs::write(
+        dir.join("src/hand/fib.c"),
+        "#include <stdint.h>\n\nuint32_t fib(uint32_t n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }\n",
+    )
+    .unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    assert!(!text.contains("regenerated:"), "the first emit has nothing to compare with:\n{text}");
+    let c = std::fs::read_to_string(dir.join("src/gen/program.c")).unwrap();
+    assert!(c.contains("// fib at 0x1400012b0: hand-written in the port's sources\n"), "{c}");
+    let fib = std::fs::read_to_string(annotations.join("0x1400012b0.json")).unwrap();
+    assert!(fib.contains("\"identity\": {"), "the first emit keeps the function's identity in its file:\n{fib}");
+
+    // The new build of the reference, at the same path.
+    std::fs::copy(root().join("testdata/bin/control64.exe"), dir.join("ref/control.exe")).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    assert!(text.contains("regenerated: "), "{text}");
+    for (old, new, name) in [("0x1400012b0", "0x1400013f0", "fib"), ("0x1400012e0", "0x140001430", "classify")] {
+        assert!(!annotations.join(format!("{old}.json")).exists(), "the annotation of {name} stayed at {old}");
+        let moved = std::fs::read_to_string(annotations.join(format!("{new}.json"))).unwrap_or_else(|e| panic!("{name} at {new}: {e}"));
+        assert!(moved.contains(&format!("\"addr\": \"{new}\"")) && moved.contains(&format!("\"name\": \"{name}\"")), "{moved}");
+    }
+    let log = std::fs::read_to_string(dir.join("build/pipeline/emit.log")).unwrap();
+    assert!(log.contains("moves to 0x1400013f0 with its function") && log.contains("moves to 0x140001430 with its function"), "{log}");
+    assert!(!log.contains("applied to nothing"), "{log}");
+    let c = std::fs::read_to_string(dir.join("src/gen/program.c")).unwrap();
+    assert!(c.contains("// fib at 0x1400013f0: hand-written in the port's sources\nuint32_t fib(uint32_t arg0);\n"), "{c}");
+    assert!(c.contains("classify("), "{c}");
+    let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/functions.json")).unwrap()).unwrap();
+    let entry =
+        |name: &str| table.as_array().unwrap().iter().find(|e| e["name"] == name).unwrap_or_else(|| panic!("no {name} in {table}")).clone();
+    assert_eq!(entry("fib")["status"], "hand", "{table}");
+    let classify = entry("classify");
+    assert_eq!(classify["annotated"], true, "{classify}");
+    assert_eq!(classify["comment"], "the dense switch", "{classify}");
+
+    // What moved, for the person to read.
+    let regenerated: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("build/regenerated.json")).unwrap()).unwrap();
+    assert!(regenerated["moved"].as_u64().is_some_and(|n| n >= 2), "{regenerated}");
+    let fib = regenerated["entries"].as_array().unwrap().iter().find(|e| e["name"] == "fib").unwrap_or_else(|| panic!("{regenerated}"));
+    assert_eq!(fib["change"], "moved", "{fib}");
+    assert_eq!(fib["was"], "0x1400012b0", "{fib}");
+    assert_eq!(fib["addr"], "0x1400013f0", "{fib}");
+    assert!(dir.join("build/regenerated.diff").is_file());
+
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    let (ok, text) = ras(&dir, &["--from", "build"]);
+    assert!(ok, "{text}");
+    assert!(text.contains("verdict: same"), "{text}");
 }
 
 /// A program with resources: the emit step writes them beside the port (`resources.res` for the

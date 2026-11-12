@@ -56,6 +56,10 @@ pub struct Lifted {
     /// The imports called `fastcall` (the Xbox kernel's), whose wrappers read `ecx` and `edx`
     /// ahead of the stack.
     pub fastcall: BTreeSet<String>,
+    /// Whether the imports take the System V convention of a Linux binary (an ELF image) rather
+    /// than the Windows one: in 64 bits six integers in `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`,
+    /// eight floats in `xmm0` to `xmm7`, and no shadow space above the return address.
+    pub sysv: bool,
     /// The data sections written as globals (standalone mode).
     pub data: Vec<DataSection>,
     /// The vtables of the program's classes, from the RTTI: the raise resolves a call through a
@@ -93,6 +97,17 @@ pub fn import_of_wrapper(name: &str) -> Option<&str> {
     name.strip_prefix("imp_").map(|rest| rest.strip_suffix(".tail").unwrap_or(rest))
 }
 
+/// The convention an import's wrapper reads its arguments in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Convention {
+    /// Win64 in 64 bits; `cdecl` or `stdcall` in 32, whose arguments are all on the stack.
+    Windows,
+    /// The Xbox kernel's 32-bit `fastcall`: `ecx` and `edx` first.
+    Fastcall,
+    /// The System V AMD64 convention of a Linux binary.
+    SystemV,
+}
+
 /// Builds the wrapper of an import. In 64 bits it reads `rcx`, `rdx`, `r8`, `r9` and four stack
 /// slots from `rsp + stack_offset` out of the state, calls the import through the eight-integer
 /// adapter, and stores the result to `rax`. In 32 bits every argument is on the stack: it reads
@@ -101,8 +116,10 @@ pub fn import_of_wrapper(name: &str) -> Option<&str> {
 /// An import with a typed prototype (the C runtime's math) takes its own arguments instead, a
 /// double read as one, and its result goes where the convention puts it: `xmm0`, or in 32 bits
 /// the x87 stack. A `fastcall` import (the Xbox kernel's) takes its first two integers from `ecx`
-/// and `edx`, and the stack holds the rest.
-pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x87: X87Unit, fastcall: bool) -> ra_asm_ir::Function {
+/// and `edx`, and the stack holds the rest. A System V import (a Linux binary's) takes its
+/// integers from `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9` and its floats from `xmm0` to `xmm7`, each
+/// class counted on its own, and the stack holds what is left in order.
+pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x87: X87Unit, convention: Convention) -> ra_asm_ir::Function {
     use ra_asm_ir::{BinOp, Callee, Cast, FnType, FunctionBuilder, Terminator};
     use ra_asm_x86::iced_x86::Register as R;
     use raise::abi::Kind;
@@ -117,7 +134,27 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x8
     let fn_ty = typed.as_ref().map_or_else(state::import_adapter_type, raise::prototypes::Typed::fn_type);
     let mut args = Vec::with_capacity(kinds.len());
     let sp = m.read_sp(block);
-    if bits == 64 {
+    if bits == 64 && convention == Convention::SystemV {
+        let (mut ints, mut floats, mut slot) = (0usize, 0usize, 0i64);
+        for kind in &kinds {
+            let v = match kind {
+                Kind::Int | Kind::Wide if ints < 6 => {
+                    ints += 1;
+                    m.read_gpr(block, [R::RDI, R::RSI, R::RDX, R::RCX, R::R8, R::R9][ints - 1])
+                }
+                Kind::Float | Kind::Double if floats < 8 => {
+                    floats += 1;
+                    m.read_xmm(block, [R::XMM0, R::XMM1, R::XMM2, R::XMM3, R::XMM4, R::XMM5, R::XMM6, R::XMM7][floats - 1], kind.ty())
+                }
+                _ => {
+                    let addr = m.b.bin(block, BinOp::Add, Type::I64, sp, stack_offset + 8 * slot, "arg.p");
+                    slot += 1;
+                    m.load(block, kind.ty(), addr, "arg")
+                }
+            };
+            args.push((kind.ty(), v.into()));
+        }
+    } else if bits == 64 {
         // A position is one register of either class, then a stack slot of eight bytes.
         for (p, kind) in kinds.iter().enumerate() {
             let v = match (p, kind) {
@@ -136,7 +173,7 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x8
         // integer or a double.
         let mut offset = stack_offset;
         for (p, kind) in kinds.iter().enumerate() {
-            if fastcall && p < 2 {
+            if convention == Convention::Fastcall && p < 2 {
                 let v = m.read_gpr(block, [R::ECX, R::EDX][p]);
                 let v = m.zext(block, Type::I32, v, Type::I64, "arg.w");
                 args.push((Type::I64, v.into()));
@@ -278,6 +315,33 @@ impl Lifted {
         }
     }
 
+    /// A lift of the same tables with nothing lifted yet and an empty module: what one thread of a
+    /// parallel lift writes into, whose outputs join the lift's after.
+    fn worker(&self) -> Lifted {
+        Lifted {
+            module: Module::default(),
+            imports: BTreeSet::new(),
+            functions: self.functions.clone(),
+            runtime: self.runtime.clone(),
+            thunks: self.thunks.clone(),
+            eh: self.eh,
+            entry: self.entry,
+            roots: BTreeSet::new(),
+            wrappers: BTreeSet::new(),
+            fastcall: BTreeSet::new(),
+            sysv: self.sysv,
+            data: self.data.clone(),
+            vtables: Vec::new(),
+            standalone: self.standalone,
+            bits: self.bits,
+            isa: self.isa,
+            x87: self.x87,
+            relocated: self.relocated.clone(),
+            traced_calls: self.traced_calls.clone(),
+            warnings: Vec::new(),
+        }
+    }
+
     /// The address operand of `address` in standalone mode: a byte of a data section, or a function.
     /// A base just before a section (within a page) is a byte of that section at a negative
     /// offset: the compiler folds the first index of a table into the displacement, so
@@ -396,6 +460,11 @@ pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
 
 /// Lifts every function of `analysis` with `options`.
 pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -> Lifted {
+    lift_on(image, analysis, options, None)
+}
+
+/// [`lift_with`] on `threads` threads, or on as many as the host and the program's size call for.
+fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads: Option<usize>) -> Lifted {
     let isa = if image.machine() == ra_asm_pe::Machine::Arm64 { Isa::Arm64 } else { Isa::X86 };
     let name = image.path.as_ref().map_or_else(|| "image".to_owned(), |p| p.file_name().unwrap().to_string_lossy().into_owned());
     let mut module = match isa {
@@ -444,6 +513,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         roots: BTreeSet::new(),
         wrappers: BTreeSet::new(),
         fastcall: BTreeSet::new(),
+        sysv: image.elf.is_some(),
         data: Vec::new(),
         vtables: ra_asm_analysis::rtti::vtables(&analysis.classes),
         standalone: options.standalone,
@@ -481,13 +551,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     }
     let tls = state::tls_global(image, &lifted);
     lifted.module.globals.push(tls);
-    for f in analysis.ported() {
-        let built = match isa {
-            Isa::X86 => x86::lift_function(image, analysis, &mut lifted, f),
-            Isa::Arm64 => arm64::lift_function(image, analysis, &mut lifted, f),
-        };
-        lifted.module.functions.push(built);
-    }
+    lift_functions(image, analysis, &mut lifted, threads);
     // A function whose address the code or the data holds is a root as well: a window procedure
     // or a thread's start the system calls back, whose callers the raise never sees, so it keeps
     // the result it writes.
@@ -536,12 +600,110 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     }
     for (symbol, offset, tail) in &lifted.wrappers {
         let wrapper = match isa {
-            Isa::X86 => import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87, lifted.fastcall.contains(symbol)),
+            Isa::X86 => {
+                let convention = if lifted.sysv {
+                    Convention::SystemV
+                } else if lifted.fastcall.contains(symbol) {
+                    Convention::Fastcall
+                } else {
+                    Convention::Windows
+                };
+                import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87, convention)
+            }
             Isa::Arm64 => arm64::import_wrapper(symbol, lifted.x87),
         };
         lifted.module.functions.push(wrapper);
     }
     lifted
+}
+
+/// The fewest functions a lift spreads over threads: below it a thread costs more than it saves.
+const PARALLEL_FROM: usize = 64;
+
+/// Lifts the ported functions of `analysis` into `lifted`, on `threads` threads or on every core of
+/// the host for a program of [`PARALLEL_FROM`] functions or more. A function's lift reads only the
+/// analysis and the lift's tables, so each thread lifts a run of consecutive functions into a
+/// worker of its own and the runs join in address order: the module, the warnings, the imports
+/// and every other output are the ones a lift on one thread writes.
+fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, threads: Option<usize>) {
+    let lift_one = |lifted: &mut Lifted, f: &ra_asm_analysis::Function| {
+        let built = match lifted.isa {
+            Isa::X86 => x86::lift_function(image, analysis, lifted, f),
+            Isa::Arm64 => arm64::lift_function(image, analysis, lifted, f),
+        };
+        lifted.module.functions.push(built);
+    };
+    let ported: Vec<&ra_asm_analysis::Function> = analysis.ported().collect();
+    let threads = threads.unwrap_or_else(|| {
+        if ported.len() < PARALLEL_FROM { 1 } else { std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get) }
+    });
+    if threads <= 1 || ported.len() < 2 {
+        for f in ported {
+            lift_one(lifted, f);
+        }
+        return;
+    }
+    let run = ported.len().div_ceil(threads);
+    let workers: Vec<Lifted> = std::thread::scope(|scope| {
+        let handles: Vec<_> = ported
+            .chunks(run)
+            .map(|functions| {
+                let mut worker = lifted.worker();
+                scope.spawn(move || {
+                    for f in functions {
+                        lift_one(&mut worker, f);
+                    }
+                    worker
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+    });
+    let data_before = lifted.data.len();
+    for worker in workers {
+        // Every field by name, so a field the lift comes to write cannot be left behind here.
+        let Lifted {
+            module,
+            imports,
+            functions,
+            runtime,
+            thunks,
+            eh: _,
+            entry: _,
+            roots,
+            wrappers,
+            fastcall,
+            sysv: _,
+            data,
+            vtables,
+            standalone: _,
+            bits: _,
+            isa: _,
+            x87: _,
+            relocated,
+            traced_calls,
+            warnings,
+        } = worker;
+        let Module { name: _, triple: _, data_layout: _, types, globals, declarations, functions: built } = module;
+        lifted.module.types.extend(types);
+        lifted.module.globals.extend(globals);
+        lifted.module.declarations.extend(declarations);
+        lifted.module.functions.extend(built);
+        lifted.imports.extend(imports);
+        lifted.roots.extend(roots);
+        lifted.wrappers.extend(wrappers);
+        lifted.fastcall.extend(fastcall);
+        // A worker's sections start as a copy of the lift's: only the ones it added are new.
+        lifted.data.extend(data.into_iter().skip(data_before));
+        lifted.vtables.extend(vtables);
+        lifted.warnings.extend(warnings);
+        // The tables a function's lift reads and never writes.
+        debug_assert_eq!(functions.len(), lifted.functions.len());
+        debug_assert_eq!(runtime.len(), lifted.runtime.len());
+        debug_assert_eq!(thunks.len(), lifted.thunks.len());
+        debug_assert_eq!(relocated.len(), lifted.relocated.len());
+        debug_assert_eq!(traced_calls.len(), lifted.traced_calls.len());
+    }
 }
 
 /// The C header the driver includes: the base, the size, the entry, and the imports to bind.
@@ -631,4 +793,32 @@ pub fn image_header(
     let _ = writeln!(out, "static const unsigned long long ra_noreturn_imports = {};", analysis.noreturn.len());
     let _ = writeln!(out, "static const unsigned ra_lifted_function_count = {};", lifted.functions.len());
     out
+}
+
+#[cfg(test)]
+mod parallel_tests {
+    use super::*;
+
+    /// A lift on many threads writes what a lift on one writes: the same IR, warnings, imports and
+    /// wrappers, for 32- and 64-bit code, with exceptions, and over the image or standalone.
+    #[test]
+    fn a_lift_on_many_threads_is_the_lift_on_one() {
+        let bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin");
+        let fixtures = [("control64.exe", true), ("control32.exe", true), ("classes32.exe", false), ("throws64.exe", true)];
+        for (fixture, standalone) in fixtures {
+            let image = ra_asm_pe::load(&bin.join(fixture)).unwrap();
+            let analysis = ra_asm_analysis::analyze(&image);
+            let options = || LiftOptions { standalone, x87: X87Unit::Double };
+            let one = lift_on(&image, &analysis, options(), Some(1));
+            let many = lift_on(&image, &analysis, options(), Some(5));
+            assert!(analysis.ported().count() >= 5, "{fixture}: too few functions to spread over the threads");
+            assert_eq!(one.module.to_ll(), many.module.to_ll(), "{fixture}: the IR differs");
+            assert_eq!(one.warnings, many.warnings, "{fixture}");
+            assert_eq!(one.imports, many.imports, "{fixture}");
+            assert_eq!(one.wrappers, many.wrappers, "{fixture}");
+            assert_eq!(one.fastcall, many.fastcall, "{fixture}");
+            assert_eq!(one.roots, many.roots, "{fixture}");
+            assert_eq!(one.data.len(), many.data.len(), "{fixture}");
+        }
+    }
 }

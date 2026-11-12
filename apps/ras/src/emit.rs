@@ -1,14 +1,17 @@
-//! `ras emit`: source out of an image, in C, C++ or Rust, with the function table beside it.
+//! `ras emit`: source out of an image, in C, C++ or Rust, with the function table beside it. A C or
+//! C++ translation follows the modules the build's symbols name, a file and a header each.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use ra_asm_analysis::Analysis;
+use ra_asm_analysis::{Analysis, Identity};
+use ra_asm_emit::functions::format_address;
 use ra_asm_emit::{EmittedFile, EmittedFunction, FunctionInfo};
 use ra_asm_lift::Lifted;
 use ra_asm_pe::Image;
+use serde_json::{Value, json};
 
 use crate::annotations::Annotation;
 
@@ -65,11 +68,7 @@ impl Translation {
         let files =
             self.runtime.iter().map(|(p, t)| (*p, t.as_bytes())).chain(self.resources.iter().map(|(p, b)| (p.as_str(), b.as_slice())));
         for (path, bytes) in files.chain(exports) {
-            let path = dir.join(path);
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(path, bytes)?;
+            ra_asm_emit::write_if_changed(&dir.join(path), bytes)?;
         }
         Ok(())
     }
@@ -151,7 +150,9 @@ pub(crate) fn translate(
     };
     let classes = ra_asm_emit::classes(analysis, signatures);
     let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace, hand });
-    let files = unit.files(ra_asm_emit::FUNCTIONS_PER_FILE);
+    // The modules of the build, when its symbols name two object files or more; else by size.
+    let objects = ra_asm_emit::functions::objects(&infos);
+    let files = unit.module_files(&objects).unwrap_or_else(|| unit.files(ra_asm_emit::FUNCTIONS_PER_FILE));
     Ok(Translation {
         files,
         functions: unit.functions,
@@ -179,6 +180,247 @@ fn hand_functions(infos: &HashMap<String, FunctionInfo>, hand: &[String], warnin
         }
     }
     out
+}
+
+/// What an emit keeps of the functions it wrote, in the build directory, for the next emit to
+/// compare with: one entry per function, its `addr`, `name`, `identity` and `text`.
+pub(crate) const EMITTED_JSON: &str = "emitted.json";
+/// The comparison of an emit with the last, for the workbench: `functions` (how many this emit
+/// wrote), the counts `moved`, `changed`, `new` and `gone`, and `entries`, one per function that
+/// is not as it was: its `name`, `addr` and `change` (`moved` to another address, `changed` in its
+/// text at the same one, `new`, `gone`), `was` and `was_name` for the last emit's address and
+/// name, and `diff`, the unified diff of its text when the text changed.
+pub(crate) const REGENERATED_JSON: &str = "regenerated.json";
+/// The same comparison as one unified diff, function by function, to read.
+pub(crate) const REGENERATED_DIFF: &str = "regenerated.diff";
+
+/// The context lines around a change in a diff.
+const DIFF_CONTEXT: usize = 3;
+/// The most cells of the table a diff of two texts fills; two texts longer than that differ as
+/// wholes.
+const DIFF_CELLS: usize = 1 << 22;
+/// The most identity lookups times functions a regeneration spends pairing the functions that
+/// moved; past that the rest pair by an exact identity and by name only.
+const PAIRING_BUDGET: usize = 1 << 24;
+
+/// One function of a translation, as one emit compares it with another's.
+struct Written {
+    address: u64,
+    name: String,
+    identity: Option<Identity>,
+    text: String,
+}
+
+impl Written {
+    fn to_json(&self) -> Value {
+        let identity = self.identity.as_ref().map_or(Value::Null, crate::annotations::identity_json);
+        json!({"addr": format_address(self.address), "name": self.name, "identity": identity, "text": self.text})
+    }
+
+    fn parse(json: &Value) -> Option<Self> {
+        Some(Self {
+            address: crate::project::hand_address(json.get("addr")?.as_str()?)?,
+            name: json.get("name")?.as_str()?.to_owned(),
+            identity: json.get("identity").and_then(crate::annotations::parse_identity),
+            text: json.get("text")?.as_str()?.to_owned(),
+        })
+    }
+}
+
+/// Compares `translation`, of the build `analysis` is of, with the translation the last emit
+/// wrote (its `emitted.json` in `dir`), and writes the comparison beside it: `regenerated.json`
+/// and `regenerated.diff`. A function of the last emit is this emit's function of the same
+/// identity ([`ra_asm_analysis::identity`]) or, failing that, of the same name when the name is
+/// not the lift's own (a person's names follow their functions, [`crate::annotations::reattach`]);
+/// one this emit's function two of the last pair with is neither's. Keeps this translation in
+/// `emitted.json` for the next. Returns the line that sums the comparison up, `None` on the first
+/// emit.
+pub(crate) fn regenerate(dir: &Path, analysis: &Analysis<'_>, translation: &Translation) -> Result<Option<String>> {
+    let identities = ra_asm_analysis::identity::identities(analysis);
+    let now: Vec<Written> = translation
+        .functions
+        .iter()
+        .filter_map(|f| {
+            let address = f.address?;
+            let name = translation.infos.get(&f.ir_name).map_or_else(|| f.ir_name.clone(), |i| i.name.clone());
+            Some(Written { address, name, identity: identities.get(&address).cloned(), text: f.text.clone() })
+        })
+        .collect();
+    let file = dir.join(EMITTED_JSON);
+    let last: Option<Vec<Written>> = std::fs::read_to_string(&file)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|json| Some(json.as_array()?.iter().filter_map(Written::parse).collect()));
+    std::fs::create_dir_all(dir)?;
+    let kept = Value::Array(now.iter().map(Written::to_json).collect());
+    std::fs::write(&file, serde_json::to_string(&kept)?).with_context(|| format!("cannot write {}", file.display()))?;
+    let Some(last) = last else { return Ok(None) };
+
+    let by_address: HashMap<u64, usize> = now.iter().enumerate().map(|(n, w)| (w.address, n)).collect();
+    let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut by_identity: HashMap<&Identity, Vec<usize>> = HashMap::new();
+    for (n, w) in now.iter().enumerate() {
+        by_name.entry(w.name.as_str()).or_default().push(n);
+        if let Some(identity) = &w.identity {
+            by_identity.entry(identity).or_default().push(n);
+        }
+    }
+    let index = ra_asm_analysis::identity::Index::new(&identities);
+    let mut lookups = 0usize;
+    let found: Vec<Option<usize>> = last
+        .iter()
+        .map(|old| {
+            let identity = old.identity.as_ref()?;
+            if let Some([one]) = by_identity.get(identity).map(Vec::as_slice) {
+                return Some(*one);
+            }
+            lookups += 1;
+            if lookups.saturating_mul(now.len()) > PAIRING_BUDGET {
+                return None;
+            }
+            index.find(identity).and_then(|a| by_address.get(&a).copied())
+        })
+        .zip(&last)
+        .map(|(found, old)| {
+            found.or_else(|| match by_name.get(old.name.as_str()).map(Vec::as_slice) {
+                Some([one]) if !old.name.starts_with("F_") => Some(*one),
+                _ => None,
+            })
+        })
+        .collect();
+    let mut claims: HashMap<usize, usize> = HashMap::new();
+    for n in found.iter().flatten() {
+        *claims.entry(*n).or_default() += 1;
+    }
+    let found: Vec<Option<usize>> = found.into_iter().map(|f| f.filter(|n| claims[n] == 1)).collect();
+
+    let (mut moved, mut changed, mut new, mut gone) = (0usize, 0usize, 0usize, 0usize);
+    let mut entries = Vec::new();
+    let mut diff = String::new();
+    let mut paired = vec![false; now.len()];
+    let mut entry = |change: &str, old: Option<&Written>, w: Option<&Written>, diff: &mut String| {
+        let (before, after) = (old.map_or("", |o| o.text.as_str()), w.map_or("", |w| w.text.as_str()));
+        let hunks = if before == after { String::new() } else { unified_diff(before, after) };
+        let at = |w: Option<&Written>| w.map_or_else(|| "nothing".to_owned(), |w| format!("{} at {}", w.name, format_address(w.address)));
+        if !hunks.is_empty() {
+            let _ = write!(diff, "--- {}\n+++ {}\n{hunks}", at(old), at(w));
+        }
+        let mut e = json!({"name": w.or(old).map(|w| w.name.as_str()), "addr": w.map(|w| format_address(w.address)), "change": change});
+        if let Some(old) = old {
+            e["was"] = json!(format_address(old.address));
+            if w.is_some_and(|w| w.name != old.name) {
+                e["was_name"] = json!(old.name);
+            }
+        }
+        if !hunks.is_empty() {
+            e["diff"] = json!(hunks);
+        }
+        entries.push(e);
+    };
+    for (old, found) in last.iter().zip(&found) {
+        match found {
+            Some(n) => {
+                paired[*n] = true;
+                let w = &now[*n];
+                if w.address != old.address {
+                    moved += 1;
+                    entry("moved", Some(old), Some(w), &mut diff);
+                } else if w.text != old.text {
+                    changed += 1;
+                    entry("changed", Some(old), Some(w), &mut diff);
+                }
+            }
+            None => {
+                gone += 1;
+                entry("gone", Some(old), None, &mut diff);
+            }
+        }
+    }
+    for (w, _) in now.iter().zip(&paired).filter(|(_, p)| !**p) {
+        new += 1;
+        entry("new", None, Some(w), &mut diff);
+    }
+    let summary = json!({
+        "functions": now.len(), "moved": moved, "changed": changed, "new": new, "gone": gone, "entries": entries,
+    });
+    std::fs::write(dir.join(REGENERATED_JSON), serde_json::to_string_pretty(&summary)?)?;
+    std::fs::write(dir.join(REGENERATED_DIFF), &diff)?;
+    let line = if moved + changed + new + gone == 0 {
+        format!("regenerated: the {} functions are as the last emit wrote them", now.len())
+    } else {
+        format!(
+            "regenerated: {moved} functions moved, {changed} changed, {new} new and {gone} gone of {} -> {}",
+            now.len(),
+            dir.join(REGENERATED_DIFF).display()
+        )
+    };
+    Ok(Some(line))
+}
+
+/// The unified diff of two texts, line by line: the hunks, without the file header.
+fn unified_diff(old: &str, new: &str) -> String {
+    let (a, b): (Vec<&str>, Vec<&str>) = (old.lines().collect(), new.lines().collect());
+    let ops = line_ops(&a, &b);
+    let changes: Vec<usize> = ops.iter().enumerate().filter(|(_, (kind, _))| *kind != ' ').map(|(n, _)| n).collect();
+    let mut out = String::new();
+    let mut k = 0;
+    while k < changes.len() {
+        let first = changes[k];
+        let mut last = first;
+        while k + 1 < changes.len() && changes[k + 1] - last <= 2 * DIFF_CONTEXT + 1 {
+            k += 1;
+            last = changes[k];
+        }
+        k += 1;
+        let (lo, hi) = (first.saturating_sub(DIFF_CONTEXT), (last + DIFF_CONTEXT + 1).min(ops.len()));
+        let count = |ops: &[(char, &str)], skip: char| ops.iter().filter(|(kind, _)| *kind != skip).count();
+        let (old_start, new_start) = (count(&ops[..lo], '+'), count(&ops[..lo], '-'));
+        let (old_len, new_len) = (count(&ops[lo..hi], '+'), count(&ops[lo..hi], '-'));
+        let _ =
+            writeln!(out, "@@ -{},{old_len} +{},{new_len} @@", old_start + usize::from(old_len > 0), new_start + usize::from(new_len > 0));
+        for (kind, line) in &ops[lo..hi] {
+            let _ = writeln!(out, "{kind}{line}");
+        }
+    }
+    out
+}
+
+/// The lines of `a` and `b` as a diff's operations: ` ` kept, `-` only in `a`, `+` only in `b`,
+/// by the longest common subsequence of the lines between the common head and tail.
+fn line_ops<'t>(a: &[&'t str], b: &[&'t str]) -> Vec<(char, &'t str)> {
+    let head = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let tail = a[head..].iter().rev().zip(b[head..].iter().rev()).take_while(|(x, y)| x == y).count();
+    let (x, y) = (&a[head..a.len() - tail], &b[head..b.len() - tail]);
+    let mut ops: Vec<(char, &str)> = a[..head].iter().map(|l| (' ', *l)).collect();
+    let (n, m) = (x.len(), y.len());
+    if n.saturating_mul(m) > DIFF_CELLS {
+        ops.extend(x.iter().map(|l| ('-', *l)));
+        ops.extend(y.iter().map(|l| ('+', *l)));
+    } else {
+        let at = |i: usize, j: usize| i * (m + 1) + j;
+        let mut common = vec![0u32; (n + 1) * (m + 1)];
+        for i in (0..n).rev() {
+            for j in (0..m).rev() {
+                common[at(i, j)] = if x[i] == y[j] { common[at(i + 1, j + 1)] + 1 } else { common[at(i + 1, j)].max(common[at(i, j + 1)]) };
+            }
+        }
+        let (mut i, mut j) = (0, 0);
+        while i < n || j < m {
+            if i < n && j < m && x[i] == y[j] {
+                ops.push((' ', x[i]));
+                i += 1;
+                j += 1;
+            } else if i < n && (j == m || common[at(i + 1, j)] >= common[at(i, j + 1)]) {
+                ops.push(('-', x[i]));
+                i += 1;
+            } else {
+                ops.push(('+', y[j]));
+                j += 1;
+            }
+        }
+    }
+    ops.extend(a[a.len() - tail..].iter().map(|l| (' ', *l)));
+    ops
 }
 
 /// The module definition file of a DLL's port: every export of the image under its name and
@@ -257,9 +499,7 @@ pub(crate) fn emit(
     project: Option<&Path>,
 ) -> Result<()> {
     let mut analysis = ra_asm_analysis::analyze(image);
-    let mut warnings = Vec::new();
-    let annotations = project.map(|root| crate::annotations::load(root, &mut warnings)).unwrap_or_default();
-    crate::annotations::apply_names(&mut analysis, &annotations, &mut warnings);
+    let (annotations, warnings) = project.map(|root| crate::annotations::annotate(root, &mut analysis)).unwrap_or_default();
     let hand = crate::annotations::hand_list(hand, &annotations);
     let hand = hand.as_slice();
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
@@ -275,7 +515,11 @@ pub(crate) fn emit(
             translation.write(dir)?;
             std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
             std::fs::write(dir.join("functions.json"), translation.table())?;
+            let regenerated = regenerate(dir, &analysis, &translation)?;
             if !quiet {
+                if let Some(line) = regenerated {
+                    eprintln!("{line}");
+                }
                 eprintln!(
                     "{} functions, {} bytes of {language} in {} files -> {}",
                     translation.functions.len(),

@@ -478,7 +478,9 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
                     }
                     (Some(CallKind::State), Some(abi)) => {
                         if let Some(split) = rw.lower_call(f, abi, i, &mut current, &mut instrs) {
-                            let name = f.blocks[bi].name.clone();
+                            // A piece after the first is a split's continuation: it takes a name of
+                            // its own, as the last piece does, or two blocks would share a label.
+                            let name = if piece_id == block.id { block.name.clone() } else { format!("{}.{}", block.name, piece_id.0) };
                             pieces.push(Block {
                                 id: piece_id,
                                 name,

@@ -17,7 +17,8 @@ $bin = Join-Path $PSScriptRoot 'bin'
 New-Item -ItemType Directory -Force $bin | Out-Null
 
 # a64 is the ARM64 build of a fixture, for the second architecture: only the programs that ask
-# for it get one, and it cannot run here, so its expected output is the x64 build's.
+# for it get one, and an x64 host runs it only lifted, through the IR interpreter, so its expected
+# output is the x64 build's.
 $targets = @(
   @{ Suffix = '64'; Triple = 'x86_64-pc-windows-msvc'; Entry = 'mainCRTStartup' },
   @{ Suffix = '32'; Triple = 'i686-pc-windows-msvc'; Entry = 'mainCRTStartup' },
@@ -140,6 +141,25 @@ if (Wanted 'xbe') {
   if ($LASTEXITCODE -ne 0) { throw "clang failed for xbe32" }
   & cargo test -q -p ra-asm-pe --test xbe write_xbe32_fixture -- --ignored
   if ($LASTEXITCODE -ne 0) { throw "the XBE writer failed for xbe32" }
+}
+
+# hello_linux is the fixture of the ELF container: a Linux x86-64 executable linked by lld against
+# the stub libc.so.6 of libc_stub.c (built under out/, since no Linux C library is here), so its
+# dynamic section imports write and exit from libc.so.6 through the PLT. It runs on Linux only.
+if (Wanted 'hello_linux') {
+  $out = Join-Path $PSScriptRoot '..\out'
+  New-Item -ItemType Directory -Force $out | Out-Null
+  $libc = Join-Path $out 'libc.so.6'
+  $common = @('--target=x86_64-linux-gnu', '-O2', '-nostdlib', '-fno-builtin', '-fuse-ld=lld')
+  $args = $common + @('-shared', '-fPIC', (Join-Path $src 'libc_stub.c'), '-o', $libc, '-Wl,-soname,libc.so.6')
+  Write-Host "clang libc.so.6" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for the stub libc.so.6" }
+  $args = $common + @('-no-pie', (Join-Path $src 'hello_linux.c'), $libc, '-o', (Join-Path $bin 'hello_linux64'),
+    '-Wl,--dynamic-linker=/lib64/ld-linux-x86-64.so.2', '-Wl,--build-id=none')
+  Write-Host "clang hello_linux64" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for hello_linux64" }
 }
 
 # The PDBs (crt's excepted), the import libraries and the compiled resources are build leftovers,
