@@ -955,8 +955,8 @@ fn classes64_reads_as_classes() {
 }
 
 /// The rhtest `cpp` program as classes, running: its C++ prints what the MSVC build prints.
+/// The statically linked `operator new` and `operator delete` go to the runtime's heap.
 #[test]
-#[ignore = "does not link: the C runtime's `operator new` and `operator delete` (`??2@YAPAXI@Z`, `??3@YAXPAXI@Z`) are called in the host as `operator_new` and `operator_delete`, which no host library defines; past them the port goes wrong at `multi` as the C does"]
 fn rhtest_cpp_clang_runs_as_cpp() {
     run_fixture_as_c(&rhtest("cpp", "clang"), "cpp", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
 }

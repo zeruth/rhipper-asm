@@ -151,6 +151,10 @@ uint64_t ra_x86_execute_onexit_table(uint64_t table);
 uint64_t ra_x86_p_argv(void);
 uint64_t ra_x86_initial_narrow_environment(void);
 uint64_t ra_x86_initialize_slist_head(uint64_t head);
+// The C++ runtime's `operator new` and `operator delete` a 32-bit program links statically,
+// over the host's heap.
+uint64_t ra_x86_operator_new(uint64_t size);
+uint64_t ra_x86_operator_delete(uint64_t block);
 // The window structures of user32 (WNDCLASSA, WNDCLASSEXA, MSG, PAINTSTRUCT), which a 32-bit
 // program lays out with 4-byte pointers: the runtime widens them for the host and narrows what
 // comes back.

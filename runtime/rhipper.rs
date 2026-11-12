@@ -751,6 +751,27 @@ pub unsafe fn ra_x86_initialize_slist_head(head: u64) -> u64 {
 }
 
 unsafe extern "C" {
+    fn malloc(size: usize) -> *mut u8;
+    fn free(block: *mut u8);
+}
+
+/// The C++ runtime's `operator new` a 32-bit program links statically: never null, a distinct
+/// block for a size of zero, and the end of the program where it would throw `bad_alloc`.
+pub unsafe fn ra_x86_operator_new(size: u64) -> u64 {
+    let block = malloc(size.max(1) as usize);
+    if block.is_null() {
+        std::process::abort();
+    }
+    block as usize as u64
+}
+
+/// The C++ runtime's `operator delete`, plain or sized: the caller pops the size.
+pub unsafe fn ra_x86_operator_delete(block: u64) -> u64 {
+    free(block as usize as *mut u8);
+    0
+}
+
+unsafe extern "C" {
     fn _controlfp(new: u32, mask: u32) -> u32;
     fn _clearfp() -> u32;
     fn _statusfp() -> u32;
