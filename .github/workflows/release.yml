@@ -61,8 +61,9 @@ jobs:
           CARGO_BUILD_JOBS: "4"
 
   # On Linux the lift, the IR gate, the interpreter and the emit run over the Windows fixtures, and
-  # the Linux fixture's port builds with the host's clang and runs; the ports of a Windows program
-  # build and run on the Windows job alone.
+  # the Linux fixture's port builds with the host's clang and runs, and so do the rhtest `core` and
+  # `calls` ports over the runtime's Win32 layer; the other Windows programs' ports build and run
+  # on the Windows job alone.
   test-linux:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
