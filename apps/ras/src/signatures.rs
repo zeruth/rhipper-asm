@@ -98,7 +98,7 @@ pub(crate) fn signatures(image: &Image, json: bool) -> Result<()> {
     let lifted = ra_asm_lift::lift(image, &analysis);
     let bits = lifted.bits;
     let kind_name = |k: Kind| kind_name(k, bits);
-    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target { bits }, &lifted.vtables);
+    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target { bits, isa: lifted.isa }, &lifted.vtables);
     let mut out = std::io::stdout().lock();
     if json {
         let rows: Vec<_> = analysis

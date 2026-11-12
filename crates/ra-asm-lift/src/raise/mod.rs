@@ -25,25 +25,44 @@ pub mod widths;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use liveness::{R8, R9, RCX, RDX, Slot};
+use liveness::{R8, R9, RCX, RDX, RSP, Slot};
 use ra_asm_analysis::rtti::Vtable;
 use ra_asm_ir::{Module, Type};
 
-/// The machine the IR came from, by its pointer width, which sets the calling convention the
-/// raise applies: Win64 for a 64-bit image, the x86 conventions (`cdecl`, `stdcall`, `fastcall`,
-/// `thiscall`, told apart by the registers a function reads and the bytes it pops) for a 32-bit
-/// one.
+use crate::state::Isa;
+
+/// The machine the IR came from, by its instruction set and pointer width, which set the calling
+/// convention the raise applies: Win64 for a 64-bit x86 image, the x86 conventions (`cdecl`,
+/// `stdcall`, `fastcall`, `thiscall`, told apart by the registers a function reads and the bytes
+/// it pops) for a 32-bit one, and AAPCS64 as Windows on ARM keeps it for an ARM64 one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Target {
     pub bits: u32,
+    pub isa: Isa,
 }
 
+/// The slot of `x8`, where an AAPCS64 caller passes the address of a returned aggregate.
+pub const X8: Slot = Slot::Gpr(8);
+/// The ARM64 stack pointer's slot, the one after `x30`; on x86 the slot of `rsp` is [`RSP`].
+const ARM64_SP: Slot = Slot::Gpr(31);
+
 impl Target {
-    pub const WIN64: Target = Target { bits: 64 };
-    pub const X86: Target = Target { bits: 32 };
+    pub const WIN64: Target = Target { bits: 64, isa: Isa::X86 };
+    pub const X86: Target = Target { bits: 32, isa: Isa::X86 };
+    pub const ARM64: Target = Target { bits: 64, isa: Isa::Arm64 };
 
     pub fn is_64(self) -> bool {
         self.bits == 64
+    }
+
+    pub fn is_arm64(self) -> bool {
+        self.isa == Isa::Arm64
+    }
+
+    /// Whether a parameter's position is one register of either class, as on Win64; elsewhere
+    /// the integers and the floats each count their own registers.
+    pub fn shares_positions(self) -> bool {
+        self.is_64() && !self.is_arm64()
     }
 
     /// The size of a pointer and of a stack slot, in bytes.
@@ -56,38 +75,91 @@ impl Target {
         Type::Int(self.bits as u16)
     }
 
+    /// The slot of the stack pointer: `rsp`, or `sp` on ARM64.
+    pub fn sp(self) -> Slot {
+        if self.is_arm64() { ARM64_SP } else { RSP }
+    }
+
+    /// The bytes a call pushes for its return address and the callee's return pops: a pointer on
+    /// x86, nothing on ARM64, where `bl` leaves it in the link register.
+    pub fn pushed_return(self) -> i64 {
+        if self.is_arm64() { 0 } else { self.ptr() }
+    }
+
+    /// The general and the vector registers of the target's state.
+    pub fn gprs(self) -> u8 {
+        if self.is_arm64() { 32 } else { 16 }
+    }
+
+    pub fn xmms(self) -> u8 {
+        if self.is_arm64() { 32 } else { 16 }
+    }
+
+    /// The slots the target's state has: its general registers, the flags and its vector
+    /// registers. The slot space is the widest state's; a narrower one leaves the rest unused.
+    pub fn slots(self) -> impl Iterator<Item = Slot> {
+        let (gprs, xmms) = (self.gprs(), self.xmms());
+        Slot::all().filter(move |s| match *s {
+            Slot::Gpr(n) => n < gprs,
+            Slot::Flag(_) => true,
+            Slot::Xmm(n) => n < xmms,
+        })
+    }
+
     /// The offset of the first stack argument above the entry stack pointer: past the return
-    /// address, and on Win64 past the four home slots. Also where a caller's outgoing arguments
-    /// start above its stack pointer once the return address is pushed.
+    /// address, and on Win64 past the four home slots; on ARM64 the entry stack pointer itself.
+    /// Also where a caller's outgoing arguments start above its stack pointer once the return
+    /// address is pushed.
     pub fn first_stack_arg(self) -> i64 {
-        if self.is_64() { 0x28 } else { 4 }
+        if self.is_arm64() {
+            0
+        } else if self.is_64() {
+            0x28
+        } else {
+            4
+        }
     }
 
     /// Where a caller's outgoing arguments start above its stack pointer at the call instruction,
     /// before any push: what an import called in place of the native call sees.
     pub fn outgoing_at_call(self) -> i64 {
-        if self.is_64() { 0x20 } else { 0 }
+        if self.shares_positions() { 0x20 } else { 0 }
     }
 
     /// The registers that carry integer arguments, by position: `rcx`, `rdx`, `r8`, `r9` on Win64;
-    /// `ecx` and `edx` on x86, which `fastcall` and `thiscall` use.
+    /// `ecx` and `edx` on x86, which `fastcall` and `thiscall` use; `x0` to `x7` on ARM64.
     pub fn int_param_slots(self) -> &'static [Slot] {
-        if self.is_64() { &[RCX, RDX, R8, R9] } else { &[RCX, RDX] }
+        const ARM64: [Slot; 8] =
+            [Slot::Gpr(0), Slot::Gpr(1), Slot::Gpr(2), Slot::Gpr(3), Slot::Gpr(4), Slot::Gpr(5), Slot::Gpr(6), Slot::Gpr(7)];
+        if self.is_arm64() {
+            &ARM64
+        } else if self.is_64() {
+            &[RCX, RDX, R8, R9]
+        } else {
+            &[RCX, RDX]
+        }
     }
 
     /// How many floats arrive in vector registers: four on Win64, where a position is a register
     /// of either class; three on x86, where clang passes the floats of a local function in `xmm0`
-    /// to `xmm2` beside the integers in `ecx` and `edx`, each class counted on its own.
+    /// to `xmm2` beside the integers in `ecx` and `edx`, each class counted on its own; eight on
+    /// ARM64, `v0` to `v7`, counted on their own too.
     pub fn float_params(self) -> usize {
-        if self.is_64() { 4 } else { 3 }
+        if self.is_arm64() {
+            8
+        } else if self.is_64() {
+            4
+        } else {
+            3
+        }
     }
 
     /// The register of parameter `index` of `params`: by position on Win64, by its place among
-    /// the parameters of its class on x86.
+    /// the parameters of its class on x86 and ARM64.
     pub fn param_slot(self, params: &[abi::Kind], index: usize) -> Option<Slot> {
         let kind = params[index];
         let float = matches!(kind, abi::Kind::Float | abi::Kind::Double);
-        let place = if self.is_64() {
+        let place = if self.shares_positions() {
             index
         } else {
             params[..index].iter().filter(|k| matches!(k, abi::Kind::Float | abi::Kind::Double) == float).count()
@@ -96,11 +168,16 @@ impl Target {
     }
 
     /// Whether the callee keeps the register: `rbx`, `rbp`, `rsp`, `rsi`, `rdi`, `r12` to `r15`
-    /// and `xmm6` to `xmm15` on Win64; `ebx`, `ebp`, `esp`, `esi` and `edi` on x86.
+    /// and `xmm6` to `xmm15` on Win64; `ebx`, `ebp`, `esp`, `esi` and `edi` on x86; on ARM64
+    /// `x19` to `x28`, the frame pointer `x29`, `sp`, the low halves of `v8` to `v15`, and `x18`,
+    /// the thread's block, which no Windows function changes. The link register is the caller's
+    /// to lose: `bl` writes it.
     pub fn callee_saved(self, slot: Slot) -> bool {
         match slot {
+            Slot::Gpr(n) if self.is_arm64() => (18..=29).contains(&n) || n == 31,
             Slot::Gpr(n) if self.is_64() => matches!(n, 3 | 4 | 5 | 6 | 7 | 12 | 13 | 14 | 15),
             Slot::Gpr(n) => (3..=7).contains(&n),
+            Slot::Xmm(n) if self.is_arm64() => (8..=15).contains(&n),
             Slot::Xmm(n) => self.is_64() && n >= 6,
             Slot::Flag(_) => false,
         }
@@ -108,9 +185,16 @@ impl Target {
 
     /// The entry stack pointer's offset past a 16-byte boundary: a native call pushes the return
     /// address onto an aligned stack, so a callee starts at 8 (Win64) or 12 (x86, where the
-    /// alignment is 4 and 12 is what a caller aligned to 16 leaves).
+    /// alignment is 4 and 12 is what a caller aligned to 16 leaves); on ARM64 the stack pointer
+    /// is 16-byte aligned at every call and nothing is pushed, so 0.
     pub fn entry_misalignment(self) -> u64 {
-        if self.is_64() { 8 } else { 12 }
+        if self.is_arm64() {
+            0
+        } else if self.is_64() {
+            8
+        } else {
+            12
+        }
     }
 }
 
@@ -159,9 +243,8 @@ pub struct Options {
     /// The x87 unit the lift modelled: the promotion pushes an import's float result as the
     /// unit keeps it.
     pub x87: crate::x87::X87Unit,
-    /// The instruction set of the state: the passes know the x86 state's slots and conventions,
-    /// so an ARM64 module stays at the machine level until the target grows (task 74).
-    pub isa: crate::state::Isa,
+    /// The instruction set of the state, which with `bits` makes the target.
+    pub isa: Isa,
     /// The vtables of the program's classes: a call through a slot of one resolves to the
     /// functions that fill the slot (see [`abi::virtual_calls`]).
     pub vtables: Vec<Vtable>,
@@ -177,7 +260,7 @@ impl Default for Options {
             level: Level::Abi,
             bits: 64,
             x87: crate::x87::X87Unit::Double,
-            isa: crate::state::Isa::X86,
+            isa: Isa::X86,
             vtables: Vec::new(),
             traced_calls: BTreeMap::new(),
         }
@@ -190,24 +273,20 @@ impl Options {
     }
 
     pub fn target(&self) -> Target {
-        Target { bits: self.bits }
+        Target { bits: self.bits, isa: self.isa }
     }
 }
 
 /// Runs the raising passes over every function of `module`. `roots` are the functions whose
 /// callers the lift does not see (see [`abi::infer`]).
 pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) -> HashMap<String, abi::Signature> {
-    // The inference reads the x86 state: a guess over the ARM64 one would be a signature of nothing.
-    if options.isa == crate::state::Isa::Arm64 {
-        return HashMap::new();
-    }
     let target = options.target();
     let signatures = abi::infer_with(module, roots, target, &options.vtables, &options.traced_calls);
     match options.level {
         Level::Machine => return signatures,
         Level::Promoted => {
             for f in &mut module.functions {
-                promote::promote(f);
+                promote::promote(f, target);
                 clean(f);
             }
         }
