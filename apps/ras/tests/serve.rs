@@ -69,6 +69,49 @@ fn the_server_answers_each_method_over_the_image() {
 }
 
 #[test]
+fn the_tools_a_model_asks_answer_from_the_facts() {
+    let exe = root().join("testdata/bin/control64.exe");
+    let args = ["--exe", exe.to_str().unwrap()];
+    let responses = ask(
+        &args,
+        &[
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools"}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "explain", "params": {"query": "mainCRTStartup_"}}),
+            json!({"jsonrpc": "2.0", "id": 3, "method": "name_hints", "params": {"query": "0x140001330"}}),
+            json!({"jsonrpc": "2.0", "id": 4, "method": "traps"}),
+            json!({"jsonrpc": "2.0", "id": 5, "method": "traps", "params": {"query": "mainCRTStartup_"}}),
+        ],
+    );
+    let tools = responses[0]["result"]["tools"].as_array().unwrap();
+    for method in ["explain", "name_hints", "writers", "traps", "function", "callers", "xrefs"] {
+        assert!(tools.iter().any(|t| t["method"] == method && t["inputSchema"]["type"] == "object"), "{method}: {tools:?}");
+    }
+    let explained = &responses[1]["result"];
+    assert!(explained["summary"].as_str().is_some_and(|s| s.starts_with("mainCRTStartup_ at 0x")), "{explained}");
+    assert!(explained["calls"].as_array().is_some_and(|c| !c.is_empty()), "{explained}");
+    assert!(explained["imports"].as_array().is_some_and(|i| !i.is_empty()), "{explained}");
+    assert!(explained["shape"]["back_edges"].is_u64(), "{explained}");
+    // The entry stores the handle of the output in a global, which the writers of that global name.
+    let written = explained["data"].as_array().unwrap().iter().find(|d| d["access"] == "write").expect("a global written").clone();
+    let hints = &responses[2]["result"];
+    assert!(hints["callers"].as_array().is_some_and(|c| c.iter().any(|c| c["name"] == "mainCRTStartup_" && c["named"] == true)), "{hints}");
+    assert!(responses[3]["result"]["total"].is_u64(), "{}", responses[3]);
+    assert!(responses[3]["result"]["functions"].is_array(), "{}", responses[3]);
+    let one = responses[4]["result"]["functions"].as_array().unwrap();
+    assert!(one.len() == 1 && one[0]["name"] == "mainCRTStartup_", "{one:?}");
+    // Every tool the workbench lists is a method the server answers.
+    let mut requests = vec![json!({"jsonrpc": "2.0", "id": 1, "method": "writers", "params": {"address": written["addr"]}})];
+    requests.extend(tools.iter().enumerate().map(|(n, t)| json!({"jsonrpc": "2.0", "id": n + 2, "method": t["method"]})));
+    let responses = ask(&args, &requests);
+    let writers = &responses[0]["result"];
+    assert!(writers["writers"].as_array().is_some_and(|w| w.iter().any(|w| w["name"] == "mainCRTStartup_")), "{writers}");
+    assert!(writers["accesses"].as_array().is_some_and(|a| a.iter().any(|a| a["access"] == "write")), "{writers}");
+    for (tool, response) in tools.iter().zip(&responses[1..]) {
+        assert_ne!(response["error"]["code"], -32601, "{}: {response}", tool["name"]);
+    }
+}
+
+#[test]
 fn the_server_reads_the_translation_of_a_project() {
     let dir = ra_asm_testing::Scratch::new("ras-serve-tests", "translation");
     std::fs::create_dir_all(dir.join("ref")).unwrap();
