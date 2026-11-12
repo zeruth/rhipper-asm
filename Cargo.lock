@@ -286,6 +286,10 @@ name = "ra-asm-testing"
 version = "0.1.0"
 
 [[package]]
+name = "ra-asm-wasm"
+version = "0.1.0"
+
+[[package]]
 name = "ra-asm-x86"
 version = "0.1.0"
 dependencies = [
@@ -313,6 +317,7 @@ dependencies = [
  "ra-asm-lift",
  "ra-asm-pe",
  "ra-asm-testing",
+ "ra-asm-wasm",
  "ra-asm-x86",
  "serde",
  "serde_json",
