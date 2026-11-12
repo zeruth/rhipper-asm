@@ -79,20 +79,29 @@ pub struct Structured {
 impl Structured {
     /// The blocks written a second time in place of a jump: the function table counts them.
     pub fn copies(&self) -> usize {
-        fn count(stmts: &[Stmt]) -> usize {
-            stmts
-                .iter()
-                .map(|s| match s {
-                    Stmt::Copy(_) => 1,
-                    Stmt::If { then, els, .. } => count(then) + count(els),
-                    Stmt::Loop { body, .. } => count(body),
-                    Stmt::Switch { cases, .. } => cases.iter().map(|c| count(&c.body)).sum::<usize>(),
-                    _ => 0,
-                })
-                .sum()
-        }
-        count(&self.body)
+        count(&self.body, &|s| matches!(s, Stmt::Copy(_)))
     }
+
+    /// The jumps the structuring could not turn into a statement: the grade counts them.
+    pub fn gotos(&self) -> usize {
+        count(&self.body, &|s| matches!(s, Stmt::Goto(_)))
+    }
+}
+
+/// The statements of `stmts` and of every statement nested in them that are `this`.
+fn count(stmts: &[Stmt], this: &dyn Fn(&Stmt) -> bool) -> usize {
+    stmts
+        .iter()
+        .map(|s| {
+            let nested = match s {
+                Stmt::If { then, els, .. } => count(then, this) + count(els, this),
+                Stmt::Loop { body, .. } => count(body, this),
+                Stmt::Switch { cases, .. } => cases.iter().map(|c| count(&c.body, this)).sum::<usize>(),
+                _ => 0,
+            };
+            nested + usize::from(this(s))
+        })
+        .sum()
 }
 
 /// The most instructions a block may have to be written a second time instead of reached by
