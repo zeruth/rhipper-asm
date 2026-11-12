@@ -18,6 +18,12 @@
 // and the crash report through a vectored handler are Windows' alone. A POSIX host builds the port
 // of a 64-bit program whose imports its own libraries answer, a Linux program's, with the same
 // machine model: the image mapped by mmap, the slots bound by dlsym, a crash reported by a signal.
+// A Windows program (RA_WIN32) ports there too: its kernel32, user32 and C runtime imports resolve
+// against the Win32 layer below, which maps files, memory, threads, time, the console and the
+// message loop onto the host. `ras doctor --host <exe>` names the imports the layer lacks.
+#ifndef _WIN32
+#define _GNU_SOURCE
+#endif
 #include <fenv.h>
 #include <float.h>
 #include <math.h>
@@ -32,9 +38,18 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
+#if defined(__GLIBC__) || defined(__linux__)
+#include <malloc.h>
+#include <sys/syscall.h>
+#endif
 #if defined(__x86_64__)
 #include <cpuid.h>
 #include <x86intrin.h>
@@ -49,8 +64,8 @@
 #pragma comment(lib, "user32")
 #define host_exit(code) ExitProcess(code)
 #else
-#if RA_POINTER_SIZE == 4
-#error "a 32-bit program keeps its pointers below 4 GB through a Windows linker flag: its port builds on a Windows host"
+#if RA_POINTER_SIZE == 4 && !(defined(__linux__) && defined(__x86_64__) && defined(RA_STANDALONE))
+#error "a 32-bit program keeps its pointers below 4 GB: off Windows its port builds standalone on x86-64 Linux, whose MAP_32BIT and non-PIE link keep them there"
 #endif
 #ifdef RA_DLL
 #error "the port of a DLL is a Windows DLL: it builds on a Windows host"
@@ -630,8 +645,8 @@ static unsigned ra_x87_flags(unsigned crt) {
 
 // The C runtime's control word from the x87's: the masks, the rounding mode (bits 10 and 11 to
 // bits 8 and 9) and the precision (24 bits is _PC_24 0x20000, 53 _PC_53 0x10000, 64 _PC_64 0).
-// The words are the Microsoft runtime's, which a Windows host answers.
-#ifdef _WIN32
+// The words are the Microsoft runtime's: a Windows host answers them, and on another host the C99
+// environment, whose rounding modes and exception bits are the x87's own fields, stands in.
 static unsigned ra_crt_control(unsigned cw) {
     unsigned pc = (cw >> 8) & 3;
     return ra_crt_flags(cw & 0x3f) | ((cw >> 2) & RA_MCW_RC) | (pc == 0 ? 0x20000u : pc == 2 ? 0x10000u : 0);
@@ -644,8 +659,13 @@ static uint16_t ra_x87_control(unsigned crt, uint16_t cw) {
 
 uint64_t ra_x86_controlfp(uint64_t new_bits, uint64_t mask) {
     unsigned host = 0;
-    _controlfp_s(&host, (unsigned)new_bits & ~(unsigned)(RA_MCW_PC | RA_MCW_IC), (unsigned)mask & ~(unsigned)(RA_MCW_PC | RA_MCW_IC));
     unsigned x87 = (ra_crt_control(ra_x87_cw) & ~(unsigned)mask) | ((unsigned)new_bits & (unsigned)mask);
+#ifdef _WIN32
+    _controlfp_s(&host, (unsigned)new_bits & ~(unsigned)(RA_MCW_PC | RA_MCW_IC), (unsigned)mask & ~(unsigned)(RA_MCW_PC | RA_MCW_IC));
+#else
+    // The C99 rounding modes are the x87's field in place (FE_DOWNWARD 0x400, ...).
+    if (mask & RA_MCW_RC) fesetround((int)((x87 & RA_MCW_RC) << 2));
+#endif
     ra_x87_cw = ra_x87_control(x87, ra_x87_cw);
     unsigned own = RA_MCW_EM | RA_MCW_RC | RA_MCW_PC;
     return (host & ~own) | (x87 & own);
@@ -663,24 +683,52 @@ uint64_t ra_x86_fesetround(uint64_t mode) {
     return 0;
 }
 
+// The host's raised exceptions in the C runtime's bits. The C99 bits off Windows are the x87's
+// order (invalid 1, denormal 2, zero divide 4, overflow 8, underflow 0x10, inexact 0x20).
+static unsigned ra_host_raised(unsigned crt) {
+#ifdef _WIN32
+    return (unsigned)fetestexcept((int)crt);
+#else
+    return ra_crt_flags((unsigned)fetestexcept((int)ra_x87_flags(crt))) & crt;
+#endif
+}
+
+static void ra_host_clear(unsigned crt) {
+#ifdef _WIN32
+    feclearexcept((int)crt);
+#else
+    feclearexcept((int)ra_x87_flags(crt));
+#endif
+}
+
 uint64_t ra_x86_statusfp(void) {
-    return _statusfp() | ra_crt_flags(ra_x87_sw & 0x3f);
+#ifdef _WIN32
+    unsigned host = _statusfp();
+#else
+    unsigned host = ra_host_raised(0x8001f);
+#endif
+    return host | ra_crt_flags(ra_x87_sw & 0x3f);
 }
 
 uint64_t ra_x86_clearfp(void) {
-    unsigned flags = _clearfp() | ra_crt_flags(ra_x87_sw & 0x3f);
+    unsigned flags = (unsigned)ra_x86_statusfp();
+#ifdef _WIN32
+    _clearfp();
+#else
+    ra_host_clear(0x8001f);
+#endif
     ra_x87_sw &= (uint16_t)~0xffu;
     return flags;
 }
-#endif
 
 uint64_t ra_x86_fetestexcept(uint64_t excepts) {
-    return ((unsigned)fetestexcept((int)excepts) | ra_crt_flags(ra_x87_sw & 0x3f)) & (unsigned)excepts;
+    return (ra_host_raised((unsigned)excepts) | ra_crt_flags(ra_x87_sw & 0x3f)) & (unsigned)excepts;
 }
 
 uint64_t ra_x86_feclearexcept(uint64_t excepts) {
     ra_x87_sw &= (uint16_t)~ra_x87_flags((unsigned)excepts);
-    return (unsigned)feclearexcept((int)excepts);
+    ra_host_clear((unsigned)excepts);
+    return 0;
 }
 
 // The x86 C runtime's square root is the x87's: the result rounded to the precision control, so
@@ -1286,17 +1334,25 @@ double ra_x86_strtod(uint64_t s, uint64_t end) {
     return v;
 }
 
-// argv and the environment as dword pointers to the host's strings, which sit below 4 GB.
+// argv and the environment as dword pointers to the host's strings, which sit below 4 GB. A POSIX
+// kernel hands them over at the top of the address space: the port copies them to its heap, which
+// the Win32 layer keeps low.
 static int ra_argc;
 static char **ra_argv;
 static uint32_t *argv32;
 static uint32_t argv32_address;
 static uint32_t *environment32;
 
+#ifdef _WIN32
+#define ra_low_string(s) (s)
+#else
+#define ra_low_string(s) strdup(s)
+#endif
+
 uint64_t ra_x86_p_argv(void) {
     if (!argv32) {
         argv32 = (uint32_t *)calloc((size_t)ra_argc + 1, sizeof(uint32_t));
-        for (int i = 0; i < ra_argc; i++) argv32[i] = (uint32_t)(uintptr_t)ra_argv[i];
+        for (int i = 0; i < ra_argc; i++) argv32[i] = (uint32_t)(uintptr_t)ra_low_string(ra_argv[i]);
         argv32_address = (uint32_t)(uintptr_t)argv32;
     }
     return (uint64_t)(uintptr_t)&argv32_address;
@@ -1316,7 +1372,7 @@ uint64_t ra_x86_initial_narrow_environment(void) {
         size_t count = 0;
         while (environ[count]) count++;
         environment32 = (uint32_t *)calloc(count + 1, sizeof(uint32_t));
-        for (size_t i = 0; i < count; i++) environment32[i] = (uint32_t)(uintptr_t)environ[i];
+        for (size_t i = 0; i < count; i++) environment32[i] = (uint32_t)(uintptr_t)ra_low_string(environ[i]);
 #endif
     }
     return (uint64_t)(uintptr_t)environment32;
@@ -1547,7 +1603,8 @@ void ra_call(void *state_, uint64_t target) {
     state->gpr[RAX] = (uint32_t)result;
     state->gpr[RDX] = (uint32_t)(result >> 32);
     state->gpr[RSP] = (uint32_t)state->gpr[RSP] + 4 + (pops > 0 ? (uint32_t)pops : 0);
-#elif defined(_WIN32)
+#elif defined(_WIN32) || defined(RA_WIN32)
+    // A Windows program passes four arguments in registers and the rest past the shadow space.
     uint64_t *stack = (uint64_t *)(state->gpr[RSP] + 8);  // past the pushed return address
     state->gpr[RAX] = f(state->gpr[RCX], state->gpr[RDX], state->gpr[R8], state->gpr[R9], stack[4], stack[5], stack[6], stack[7]);
     state->gpr[RSP] += 8;
@@ -1615,10 +1672,16 @@ static void bind_imports(void) {
 }
 #else
 // A POSIX program imports by symbol name from the libraries it needs, or from the whole process
-// when the image names none for the symbol; an ordinal has no meaning there.
+// when the image names none for the symbol; an ordinal has no meaning there. A Windows program's
+// imports are the Win32 layer's and the host C library's, both in the process (the port is linked
+// with -rdynamic so dlsym sees the layer).
 static void bind_imports(void) {
     for (int i = 0; ra_imports[i].slot != 0; i++) {
+#ifdef RA_WIN32
+        const char *library = NULL;
+#else
         const char *library = ra_imports[i].dll && *ra_imports[i].dll ? ra_imports[i].dll : NULL;
+#endif
         void *module = dlopen(library, RTLD_NOW | RTLD_GLOBAL);
         if (!module) {
             fprintf(stderr, "ra: cannot load %s: %s\n", library ? library : "the process", dlerror());
@@ -1744,6 +1807,10 @@ static void run_tls_callbacks(uint32_t reason) {
     }
 }
 
+#if !defined(_WIN32) && defined(RA_WIN32)
+static void win32_describe_thread(uint8_t *block);
+#endif
+
 static void attach_thread(uint32_t reason) {
     attached = 1;
 #ifdef _WIN32
@@ -1770,9 +1837,19 @@ static void attach_thread(uint32_t reason) {
 #endif
 #else
     // A POSIX thread has no TIB to copy: the block names itself and its TLS pointer, and the rest,
-    // the stack guard a Linux program reads at fs:0x28 among it, stays zero.
+    // the stack guard a Linux program reads at fs:0x28 among it, stays zero. A Windows program
+    // finds its process and thread ids there as well, and a 32-bit one the 32-bit layout, whose
+    // addresses the Win32 layer keeps low: the thread runs on a low stack, which holds its TLS.
+#if RA_POINTER_SIZE == 4
+    *(uint32_t *)(teb + 0x18) = (uint32_t)(uintptr_t)teb;
+    *(uint32_t *)(teb + 0x2c) = (uint32_t)(uintptr_t)&tls_slot;
+#else
     *(uint64_t *)(teb + 0x30) = (uint64_t)(uintptr_t)teb;
     *(uint64_t *)(teb + 0x58) = (uint64_t)(uintptr_t)&tls_slot;
+#endif
+#ifdef RA_WIN32
+    win32_describe_thread(teb);
+#endif
 #endif
     if (ra_tls[0]) {
         size_t initialized = (size_t)(ra_tls[1] - ra_tls[0]);
@@ -1831,16 +1908,1433 @@ static void on_signal(int signal_number, siginfo_t *info, void *context) {
     fflush(stderr);
 }
 
+// The report runs on a stack of the thread's own beside the one that crashed, so an overflow is
+// reported as well; every thread the port runs code on sets one up first.
+static RA_THREAD _Alignas(16) uint8_t signal_stack[32768];
+
+static void report_crashes_on_this_thread(void) {
+    stack_t s;
+    memset(&s, 0, sizeof s);
+    s.ss_sp = signal_stack;
+    s.ss_size = sizeof signal_stack;
+    sigaltstack(&s, NULL);
+}
+
 static void report_crashes(void) {
+    report_crashes_on_this_thread();
     struct sigaction action;
     memset(&action, 0, sizeof action);
     action.sa_sigaction = on_signal;
-    action.sa_flags = SA_SIGINFO | SA_RESETHAND | SA_NODEFER;
+    action.sa_flags = SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_ONSTACK;
     sigemptyset(&action.sa_mask);
     const int signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE};
     for (size_t i = 0; i < sizeof signals / sizeof signals[0]; i++) sigaction(signals[i], &action, NULL);
 }
 #endif
+
+#if !defined(_WIN32) && defined(RA_WIN32)  // the Win32 layer
+// The Win32 layer: the kernel32, user32 and Microsoft C runtime functions a Windows program
+// imports, over the host's. Each takes and returns integers, as the translation declares every
+// import, and reads and writes the program's structures at its pointer width. A 32-bit program
+// keeps its addresses in 32 bits: the port is linked at its fixed low address (-no-pie), its heap
+// is the brk heap right above it, and every stack and mapping the layer makes is MAP_32BIT. A
+// handle is an index into the layer's table, times four; the standard ones are the first three.
+// What the layer does not cover is not linked: `ras doctor --host <exe>` names it before a build.
+#define W_PTR(x) ((void *)(uintptr_t)(x))
+#define W_INVALID_HANDLE ((uint64_t)-1)
+#define W_INFINITE 0xffffffffu
+
+static RA_THREAD uint32_t win32_last_error;
+static RA_THREAD uint32_t win32_thread_id;
+static pthread_mutex_t win32_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t win32_changed = PTHREAD_COND_INITIALIZER;
+
+static uint64_t win32_fail(uint32_t error) {
+    win32_last_error = error;
+    return 0;
+}
+
+// The Win32 error of an errno.
+static uint32_t win32_error_of(int e) {
+    switch (e) {
+    case ENOENT: return 2;    // ERROR_FILE_NOT_FOUND
+    case ENOTDIR: return 3;   // ERROR_PATH_NOT_FOUND
+    case EMFILE: return 4;    // ERROR_TOO_MANY_OPEN_FILES
+    case EACCES: case EPERM: case EISDIR: return 5;  // ERROR_ACCESS_DENIED
+    case EBADF: return 6;     // ERROR_INVALID_HANDLE
+    case ENOMEM: return 8;    // ERROR_NOT_ENOUGH_MEMORY
+    case EEXIST: return 80;   // ERROR_FILE_EXISTS
+    case ENOSPC: return 112;  // ERROR_DISK_FULL
+    case ENOTEMPTY: return 145;  // ERROR_DIR_NOT_EMPTY
+    default: return 31;       // ERROR_GEN_FAILURE
+    }
+}
+
+static void win32_put32(uint64_t at, uint32_t value) {
+    if (at) memcpy(W_PTR(at), &value, 4);
+}
+
+static void win32_put64(uint64_t at, uint64_t value) {
+    if (at) memcpy(W_PTR(at), &value, 8);
+}
+
+// A pointer in the program's memory, at its width.
+static void win32_put_pointer(uint64_t at, uint64_t value) {
+#if RA_POINTER_SIZE == 4
+    win32_put32(at, (uint32_t)value);
+#else
+    win32_put64(at, value);
+#endif
+}
+
+static uint64_t win32_get_pointer(uint64_t at) {
+#if RA_POINTER_SIZE == 4
+    uint32_t value;
+    memcpy(&value, W_PTR(at), 4);
+#else
+    uint64_t value;
+    memcpy(&value, W_PTR(at), 8);
+#endif
+    return value;
+}
+
+// Anonymous memory at `at`, or anywhere the program's pointers reach when `at` is zero.
+static void *win32_map(uintptr_t at, size_t size, int protect) {
+    int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+#if RA_POINTER_SIZE == 4
+    if (!at) flags |= MAP_32BIT;
+#endif
+    void *p = mmap((void *)at, size, protect, flags, -1, 0);
+    if (p == MAP_FAILED) return NULL;
+    if ((at && p != (void *)at) || (RA_POINTER_SIZE == 4 && (uint64_t)(uintptr_t)p + size > 0x100000000ull)) {
+        munmap(p, size);
+        return NULL;
+    }
+    return p;
+}
+
+// A UTF-16 string of the program as UTF-8, NUL-terminated, from malloc; `count` UTF-16 units, or
+// to the NUL when it is (size_t)-1.
+static char *win32_narrow(uint64_t wide, size_t count) {
+    const uint16_t *w = (const uint16_t *)W_PTR(wide);
+    if (count == (size_t)-1) for (count = 0; w[count]; count++) {}
+    char *out = malloc(count * 3 + 1);
+    if (!out) return NULL;
+    size_t n = 0;
+    for (size_t i = 0; i < count; i++) {
+        uint32_t c = w[i];
+        if (c >= 0xd800 && c < 0xdc00 && i + 1 < count && w[i + 1] >= 0xdc00 && w[i + 1] < 0xe000) {
+            c = 0x10000 + ((c - 0xd800) << 10) + (w[++i] - 0xdc00);
+        }
+        if (c < 0x80) {
+            out[n++] = (char)c;
+        } else if (c < 0x800) {
+            out[n++] = (char)(0xc0 | (c >> 6));
+            out[n++] = (char)(0x80 | (c & 0x3f));
+        } else if (c < 0x10000) {
+            out[n++] = (char)(0xe0 | (c >> 12));
+            out[n++] = (char)(0x80 | ((c >> 6) & 0x3f));
+            out[n++] = (char)(0x80 | (c & 0x3f));
+        } else {
+            out[n++] = (char)(0xf0 | (c >> 18));
+            out[n++] = (char)(0x80 | ((c >> 12) & 0x3f));
+            out[n++] = (char)(0x80 | ((c >> 6) & 0x3f));
+            out[n++] = (char)(0x80 | (c & 0x3f));
+        }
+    }
+    out[n] = 0;
+    return out;
+}
+
+// A Windows path as the host's: the separators turned, from malloc.
+static char *win32_path(const char *name) {
+    char *path = strdup(name);
+    if (path) for (char *p = path; *p; p++) if (*p == '\\') *p = '/';
+    return path;
+}
+
+// ---- Handles: files, threads and events.
+enum { WIN32_FREE, WIN32_FILE, WIN32_THREAD, WIN32_EVENT };
+
+struct win32_thread {
+    uint64_t start, parameter;
+    uint32_t id, code;
+    int done;
+};
+
+struct win32_object {
+    int kind;
+    int fd;
+    struct win32_thread *thread;
+    int manual, signaled;
+};
+
+static struct win32_object win32_objects[1024] = {{WIN32_FILE, 0, NULL, 0, 0}, {WIN32_FILE, 1, NULL, 0, 0}, {WIN32_FILE, 2, NULL, 0, 0}};
+
+// A new handle of `kind`, with the lock held; 0 when the table is full.
+static uint64_t win32_new_handle(int kind) {
+    for (size_t i = 3; i < sizeof win32_objects / sizeof win32_objects[0]; i++) {
+        if (win32_objects[i].kind != WIN32_FREE) continue;
+        memset(&win32_objects[i], 0, sizeof win32_objects[i]);
+        win32_objects[i].kind = kind;
+        return (uint64_t)(i + 1) * 4;
+    }
+    return 0;
+}
+
+static struct win32_object *win32_object(uint64_t handle) {
+    uint32_t h = (uint32_t)handle;
+    if (h == 0 || h % 4 || h / 4 > sizeof win32_objects / sizeof win32_objects[0]) return NULL;
+    struct win32_object *o = &win32_objects[h / 4 - 1];
+    return o->kind == WIN32_FREE ? NULL : o;
+}
+
+static int win32_fd(uint64_t handle) {
+    struct win32_object *o = win32_object(handle);
+    return o && o->kind == WIN32_FILE ? o->fd : -1;
+}
+
+uint64_t GetLastError(void) {
+    return win32_last_error;
+}
+
+uint64_t SetLastError(uint64_t error) {
+    win32_last_error = (uint32_t)error;
+    return 0;
+}
+
+uint64_t GetStdHandle(uint64_t which) {
+    switch ((uint32_t)which) {
+    case (uint32_t)-10: return 4;   // STD_INPUT_HANDLE
+    case (uint32_t)-11: return 8;   // STD_OUTPUT_HANDLE
+    case (uint32_t)-12: return 12;  // STD_ERROR_HANDLE
+    default: win32_last_error = 6; return W_INVALID_HANDLE;
+    }
+}
+
+uint64_t CloseHandle(uint64_t handle) {
+    pthread_mutex_lock(&win32_lock);
+    struct win32_object *o = win32_object(handle);
+    if (!o) {
+        pthread_mutex_unlock(&win32_lock);
+        return win32_fail(6);
+    }
+    if (o->kind == WIN32_FILE && o->fd > 2) close(o->fd);
+    // A thread's record stays: the thread writes its end there whether or not a handle is open.
+    if (o > &win32_objects[2]) o->kind = WIN32_FREE;
+    pthread_mutex_unlock(&win32_lock);
+    return 1;
+}
+
+// ---- Files and the console.
+static uint64_t win32_open(const char *name, uint64_t access, uint64_t disposition) {
+    uint32_t a = (uint32_t)access;
+    // GENERIC_READ, GENERIC_ALL or FILE_READ_DATA; GENERIC_WRITE, GENERIC_ALL, FILE_WRITE_DATA or FILE_APPEND_DATA.
+    int reads = (a & 0x90000001u) != 0, writes = (a & 0x50000006u) != 0;
+    int flags = reads && writes ? O_RDWR : writes ? O_WRONLY : O_RDONLY;
+    switch ((uint32_t)disposition) {
+    case 1: flags |= O_CREAT | O_EXCL; break;   // CREATE_NEW
+    case 2: flags |= O_CREAT | O_TRUNC; break;  // CREATE_ALWAYS
+    case 3: break;                              // OPEN_EXISTING
+    case 4: flags |= O_CREAT; break;            // OPEN_ALWAYS
+    case 5: flags |= O_TRUNC; break;            // TRUNCATE_EXISTING
+    default: win32_last_error = 87; return W_INVALID_HANDLE;  // ERROR_INVALID_PARAMETER
+    }
+    char *path = win32_path(name);
+    if (!path) return win32_fail(8), W_INVALID_HANDLE;
+    struct stat before;
+    int existed = stat(path, &before) == 0;
+    int fd = open(path, flags | O_CLOEXEC, 0666);
+    int error = errno;
+    free(path);
+    if (fd < 0) {
+        win32_last_error = win32_error_of(error);
+        return W_INVALID_HANDLE;
+    }
+    pthread_mutex_lock(&win32_lock);
+    uint64_t handle = win32_new_handle(WIN32_FILE);
+    if (handle) win32_object(handle)->fd = fd;
+    pthread_mutex_unlock(&win32_lock);
+    if (!handle) {
+        close(fd);
+        win32_last_error = 4;
+        return W_INVALID_HANDLE;
+    }
+    // CREATE_ALWAYS and OPEN_ALWAYS report a file that was there with ERROR_ALREADY_EXISTS.
+    uint32_t d = (uint32_t)disposition;
+    win32_last_error = existed && (d == 2 || d == 4) ? 183 : 0;
+    return handle;
+}
+
+uint64_t CreateFileA(uint64_t name, uint64_t access, uint64_t share, uint64_t security, uint64_t disposition, uint64_t flags, uint64_t template_file) {
+    (void)share;
+    (void)security;
+    (void)flags;
+    (void)template_file;
+    return win32_open((const char *)W_PTR(name), access, disposition);
+}
+
+uint64_t CreateFileW(uint64_t name, uint64_t access, uint64_t share, uint64_t security, uint64_t disposition, uint64_t flags, uint64_t template_file) {
+    (void)share;
+    (void)security;
+    (void)flags;
+    (void)template_file;
+    char *narrow = win32_narrow(name, (size_t)-1);
+    if (!narrow) return win32_fail(8), W_INVALID_HANDLE;
+    uint64_t handle = win32_open(narrow, access, disposition);
+    free(narrow);
+    return handle;
+}
+
+uint64_t WriteFile(uint64_t handle, uint64_t buffer, uint64_t count, uint64_t written, uint64_t overlapped) {
+    (void)overlapped;
+    int fd = win32_fd(handle);
+    if (fd < 0) return win32_fail(6);
+    size_t done = 0, n = (uint32_t)count;
+    while (done < n) {
+        ssize_t w = write(fd, (const char *)W_PTR(buffer) + done, n - done);
+        if (w < 0 && errno == EINTR) continue;
+        if (w < 0) {
+            win32_put32(written, (uint32_t)done);
+            return win32_fail(win32_error_of(errno));
+        }
+        done += (size_t)w;
+    }
+    win32_put32(written, (uint32_t)done);
+    return 1;
+}
+
+uint64_t ReadFile(uint64_t handle, uint64_t buffer, uint64_t count, uint64_t read_count, uint64_t overlapped) {
+    (void)overlapped;
+    int fd = win32_fd(handle);
+    if (fd < 0) return win32_fail(6);
+    ssize_t r;
+    do r = read(fd, W_PTR(buffer), (uint32_t)count);
+    while (r < 0 && errno == EINTR);
+    if (r < 0) {
+        win32_put32(read_count, 0);
+        return win32_fail(win32_error_of(errno));
+    }
+    win32_put32(read_count, (uint32_t)r);
+    return 1;
+}
+
+uint64_t WriteConsoleA(uint64_t handle, uint64_t buffer, uint64_t count, uint64_t written, uint64_t reserved) {
+    return WriteFile(handle, buffer, count, written, reserved);
+}
+
+// The count written is in characters, as the program passed them.
+uint64_t WriteConsoleW(uint64_t handle, uint64_t buffer, uint64_t count, uint64_t written, uint64_t reserved) {
+    (void)reserved;
+    char *narrow = win32_narrow(buffer, (uint32_t)count);
+    if (!narrow) return win32_fail(8);
+    uint64_t ok = WriteFile(handle, (uint64_t)(uintptr_t)narrow, strlen(narrow), 0, 0);
+    free(narrow);
+    win32_put32(written, ok ? (uint32_t)count : 0);
+    return ok;
+}
+
+// A console is a terminal; another handle has no console mode.
+uint64_t GetConsoleMode(uint64_t handle, uint64_t mode) {
+    int fd = win32_fd(handle);
+    if (fd < 0 || !isatty(fd)) return win32_fail(6);
+    // ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT, or ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT.
+    win32_put32(mode, fd == 0 ? 7 : 3);
+    return 1;
+}
+
+uint64_t GetFileType(uint64_t handle) {
+    struct stat s;
+    int fd = win32_fd(handle);
+    if (fd < 0 || fstat(fd, &s) != 0) return win32_fail(6);
+    win32_last_error = 0;
+    if (S_ISCHR(s.st_mode)) return 2;                       // FILE_TYPE_CHAR
+    if (S_ISFIFO(s.st_mode) || S_ISSOCK(s.st_mode)) return 3;  // FILE_TYPE_PIPE
+    return 1;                                               // FILE_TYPE_DISK
+}
+
+uint64_t GetFileSize(uint64_t handle, uint64_t high) {
+    struct stat s;
+    int fd = win32_fd(handle);
+    if (fd < 0 || fstat(fd, &s) != 0) {
+        win32_last_error = 6;
+        return 0xffffffffu;  // INVALID_FILE_SIZE
+    }
+    win32_put32(high, (uint32_t)((uint64_t)s.st_size >> 32));
+    win32_last_error = 0;
+    return (uint32_t)s.st_size;
+}
+
+uint64_t GetFileSizeEx(uint64_t handle, uint64_t size) {
+    struct stat s;
+    int fd = win32_fd(handle);
+    if (fd < 0 || fstat(fd, &s) != 0) return win32_fail(6);
+    win32_put64(size, (uint64_t)s.st_size);
+    return 1;
+}
+
+// FILE_BEGIN, FILE_CURRENT and FILE_END are SEEK_SET, SEEK_CUR and SEEK_END.
+uint64_t SetFilePointer(uint64_t handle, uint64_t low, uint64_t high, uint64_t method) {
+    int fd = win32_fd(handle);
+    if (fd < 0) return win32_fail(6), 0xffffffffu;
+    int64_t distance = (int32_t)low;
+    if (high) {
+        int32_t h;
+        memcpy(&h, W_PTR(high), 4);
+        distance = (int64_t)(((uint64_t)(uint32_t)h << 32) | (uint32_t)low);
+    }
+    off_t at = lseek(fd, (off_t)distance, (int)(uint32_t)method);
+    if (at < 0) {
+        win32_last_error = win32_error_of(errno);
+        return 0xffffffffu;  // INVALID_SET_FILE_POINTER
+    }
+    win32_put32(high, (uint32_t)((uint64_t)at >> 32));
+    win32_last_error = 0;
+    return (uint32_t)at;
+}
+
+uint64_t FlushFileBuffers(uint64_t handle) {
+    int fd = win32_fd(handle);
+    if (fd < 0) return win32_fail(6);
+    // A terminal or a pipe has nothing to flush to a disk.
+    if (fsync(fd) != 0 && errno != EINVAL && errno != EROFS) return win32_fail(win32_error_of(errno));
+    return 1;
+}
+
+uint64_t DeleteFileA(uint64_t name) {
+    char *path = win32_path((const char *)W_PTR(name));
+    int ok = path && unlink(path) == 0;
+    int error = errno;
+    free(path);
+    return ok ? 1 : win32_fail(win32_error_of(error));
+}
+
+uint64_t CreateDirectoryA(uint64_t name, uint64_t security) {
+    (void)security;
+    char *path = win32_path((const char *)W_PTR(name));
+    int ok = path && mkdir(path, 0777) == 0;
+    int error = errno;
+    free(path);
+    return ok ? 1 : win32_fail(error == EEXIST ? 183 : win32_error_of(error));  // ERROR_ALREADY_EXISTS
+}
+
+uint64_t RemoveDirectoryA(uint64_t name) {
+    char *path = win32_path((const char *)W_PTR(name));
+    int ok = path && rmdir(path) == 0;
+    int error = errno;
+    free(path);
+    return ok ? 1 : win32_fail(win32_error_of(error));
+}
+
+uint64_t GetFileAttributesA(uint64_t name) {
+    char *path = win32_path((const char *)W_PTR(name));
+    struct stat s;
+    int ok = path && stat(path, &s) == 0;
+    int error = errno;
+    free(path);
+    if (!ok) {
+        win32_last_error = win32_error_of(error);
+        return 0xffffffffu;  // INVALID_FILE_ATTRIBUTES
+    }
+    // FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY, else FILE_ATTRIBUTE_NORMAL.
+    uint32_t attributes = (S_ISDIR(s.st_mode) ? 0x10u : 0) | ((s.st_mode & S_IWUSR) ? 0 : 0x1u);
+    return attributes ? attributes : 0x80u;
+}
+
+// ---- Memory.
+// The regions VirtualAlloc made, for VirtualFree's release of a whole one and VirtualProtect's
+// answer of the protection before.
+struct win32_region { uintptr_t base; size_t size; uint32_t protect; };
+static struct win32_region win32_regions[256];
+
+static int win32_protection(uint32_t protect) {
+    switch (protect & 0xff) {
+    case 0x01: return PROT_NONE;                           // PAGE_NOACCESS
+    case 0x02: return PROT_READ;                           // PAGE_READONLY
+    case 0x04: case 0x08: return PROT_READ | PROT_WRITE;   // PAGE_READWRITE, PAGE_WRITECOPY
+    case 0x10: return PROT_EXEC;                           // PAGE_EXECUTE
+    case 0x20: return PROT_READ | PROT_EXEC;               // PAGE_EXECUTE_READ
+    case 0x40: case 0x80: return PROT_READ | PROT_WRITE | PROT_EXEC;
+    default: return -1;
+    }
+}
+
+static struct win32_region *win32_region_of(uintptr_t at) {
+    for (size_t i = 0; i < sizeof win32_regions / sizeof win32_regions[0]; i++) {
+        struct win32_region *r = &win32_regions[i];
+        if (r->size && at >= r->base && at < r->base + r->size) return r;
+    }
+    return NULL;
+}
+
+uint64_t VirtualAlloc(uint64_t address, uint64_t size, uint64_t type, uint64_t protect) {
+    int prot = win32_protection((uint32_t)protect);
+    size_t page = (size_t)sysconf(_SC_PAGESIZE);
+    uintptr_t at = (uintptr_t)address & ~(uintptr_t)(page - 1);
+    size_t length = ((uintptr_t)address + (size_t)size - at + page - 1) & ~(page - 1);
+    // MEM_COMMIT 0x1000, MEM_RESERVE 0x2000.
+    if (prot < 0 || !size || !(type & 0x3000)) return win32_fail(87);
+    pthread_mutex_lock(&win32_lock);
+    struct win32_region *region = at ? win32_region_of(at) : NULL;
+    uint64_t result = 0;
+    if (region) {
+        // A commit in a reserved region: the pages become accessible.
+        if ((type & 0x1000) && mprotect((void *)at, length, prot) == 0) result = at;
+    } else {
+        void *p = win32_map(at, length, (type & 0x1000) ? prot : PROT_NONE);
+        for (size_t i = 0; p && i < sizeof win32_regions / sizeof win32_regions[0]; i++) {
+            if (win32_regions[i].size) continue;
+            win32_regions[i] = (struct win32_region){(uintptr_t)p, length, (uint32_t)protect};
+            result = (uint64_t)(uintptr_t)p;
+            break;
+        }
+        if (p && !result) munmap(p, length);
+    }
+    pthread_mutex_unlock(&win32_lock);
+    return result ? result : win32_fail(8);
+}
+
+uint64_t VirtualFree(uint64_t address, uint64_t size, uint64_t type) {
+    pthread_mutex_lock(&win32_lock);
+    struct win32_region *r = win32_region_of((uintptr_t)address);
+    int ok = 0;
+    if (r && (type & 0x8000) && r->base == (uintptr_t)address && !size) {  // MEM_RELEASE of the whole
+        ok = munmap((void *)r->base, r->size) == 0;
+        r->size = 0;
+    } else if (r && (type & 0x4000)) {  // MEM_DECOMMIT
+        size_t length = size ? (size_t)size : r->size - ((uintptr_t)address - r->base);
+        ok = mprotect(W_PTR(address), length, PROT_NONE) == 0 && madvise(W_PTR(address), length, MADV_DONTNEED) == 0;
+    }
+    pthread_mutex_unlock(&win32_lock);
+    return ok ? 1 : win32_fail(487);  // ERROR_INVALID_ADDRESS
+}
+
+uint64_t VirtualProtect(uint64_t address, uint64_t size, uint64_t protect, uint64_t old) {
+    int prot = win32_protection((uint32_t)protect);
+    size_t page = (size_t)sysconf(_SC_PAGESIZE);
+    uintptr_t at = (uintptr_t)address & ~(uintptr_t)(page - 1);
+    pthread_mutex_lock(&win32_lock);
+    struct win32_region *r = win32_region_of(at);
+    int ok = r && prot >= 0 && mprotect((void *)at, (uintptr_t)address + (size_t)size - at, prot) == 0;
+    if (ok) {
+        win32_put32(old, r->protect);
+        r->protect = (uint32_t)protect;
+    }
+    pthread_mutex_unlock(&win32_lock);
+    return ok ? 1 : win32_fail(487);
+}
+
+// The heap functions: blocks of the C heap, each after its requested size, which HeapSize answers.
+// The process heap's handle is no multiple of four, so it never names an object of the handle
+// table and CloseHandle refuses it.
+#define W_HEAP 0x7ff1
+enum { W_HEAP_HEADER = 16 };
+
+static uint64_t win32_alloc(size_t size, int zero) {
+    uint8_t *p = zero ? calloc(1, size + W_HEAP_HEADER) : malloc(size + W_HEAP_HEADER);
+    if (!p) return win32_fail(8);
+    memcpy(p, &size, sizeof size);
+    return (uint64_t)(uintptr_t)(p + W_HEAP_HEADER);
+}
+
+static size_t win32_block_size(uint64_t block) {
+    size_t size;
+    memcpy(&size, (uint8_t *)W_PTR(block) - W_HEAP_HEADER, sizeof size);
+    return size;
+}
+
+uint64_t GetProcessHeap(void) {
+    return W_HEAP;
+}
+
+uint64_t HeapCreate(uint64_t options, uint64_t initial, uint64_t maximum) {
+    (void)options;
+    (void)initial;
+    (void)maximum;
+    return W_HEAP;
+}
+
+uint64_t HeapDestroy(uint64_t heap) {
+    (void)heap;
+    return 1;
+}
+
+uint64_t HeapAlloc(uint64_t heap, uint64_t flags, uint64_t size) {
+    (void)heap;
+    return win32_alloc((size_t)(uint32_t)size, (flags & 8) != 0);  // HEAP_ZERO_MEMORY
+}
+
+uint64_t HeapFree(uint64_t heap, uint64_t flags, uint64_t block) {
+    (void)heap;
+    (void)flags;
+    if (block) free((uint8_t *)W_PTR(block) - W_HEAP_HEADER);
+    return 1;
+}
+
+uint64_t HeapSize(uint64_t heap, uint64_t flags, uint64_t block) {
+    (void)heap;
+    (void)flags;
+    return block ? win32_block_size(block) : (uint64_t)-1;
+}
+
+uint64_t HeapReAlloc(uint64_t heap, uint64_t flags, uint64_t block, uint64_t size) {
+    (void)heap;
+    size_t n = (size_t)(uint32_t)size, old = win32_block_size(block);
+    if ((flags & 0x10) && n > old) return win32_fail(8);  // HEAP_REALLOC_IN_PLACE_ONLY
+    uint8_t *p = realloc((uint8_t *)W_PTR(block) - W_HEAP_HEADER, n + W_HEAP_HEADER);
+    if (!p) return win32_fail(8);
+    memcpy(p, &n, sizeof n);
+    if ((flags & 8) && n > old) memset(p + W_HEAP_HEADER + old, 0, n - old);
+    return (uint64_t)(uintptr_t)(p + W_HEAP_HEADER);
+}
+
+// LocalAlloc and GlobalAlloc: a movable block is fixed here, and its lock is its address.
+uint64_t LocalAlloc(uint64_t flags, uint64_t size) {
+    return win32_alloc((size_t)(uint32_t)size, (flags & 0x40) != 0);  // LMEM_ZEROINIT
+}
+
+uint64_t LocalFree(uint64_t block) {
+    HeapFree(W_HEAP, 0, block);
+    return 0;
+}
+
+uint64_t GlobalAlloc(uint64_t flags, uint64_t size) {
+    return win32_alloc((size_t)(uint32_t)size, (flags & 0x40) != 0);  // GMEM_ZEROINIT
+}
+
+uint64_t GlobalFree(uint64_t block) {
+    HeapFree(W_HEAP, 0, block);
+    return 0;
+}
+
+uint64_t GlobalLock(uint64_t block) {
+    return block;
+}
+
+uint64_t GlobalUnlock(uint64_t block) {
+    (void)block;
+    win32_last_error = 0;
+    return 0;
+}
+
+// ---- Threads and synchronization.
+static RA_THREAD struct win32_thread *win32_self;
+static uint32_t win32_next_id = 0x100;
+
+uint64_t GetCurrentThreadId(void) {
+    if (!win32_thread_id) {
+        pthread_mutex_lock(&win32_lock);
+        win32_thread_id = win32_next_id += 4;
+        pthread_mutex_unlock(&win32_lock);
+    }
+    return win32_thread_id;
+}
+
+uint64_t GetCurrentProcessId(void) {
+    return (uint32_t)getpid();
+}
+
+uint64_t GetCurrentProcess(void) {
+    return (uint64_t)-1;
+}
+
+uint64_t GetCurrentThread(void) {
+    return (uint64_t)-2;
+}
+
+// A thread of the program on a stack its pointers reach.
+static int win32_start(pthread_t *thread, size_t stack_size, void *(*main)(void *), void *argument, int detached) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    if (detached) pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    if (stack_size < (1 << 20)) stack_size = 1 << 20;
+#if RA_POINTER_SIZE == 4
+    // A thread's TLS sits at the top of a stack it is given: the thread block lands low as well.
+    // A stack the thread is given has no guard page of the host's: its lowest page is one, so an
+    // overflow faults and is reported rather than running into the mapping below.
+    void *stack = win32_map(0, stack_size, PROT_READ | PROT_WRITE);
+    if (!stack) {
+        pthread_attr_destroy(&attr);
+        return -1;
+    }
+    mprotect(stack, 4096, PROT_NONE);
+    pthread_attr_setstack(&attr, stack, stack_size);
+#else
+    pthread_attr_setstacksize(&attr, stack_size);
+#endif
+    int r = pthread_create(thread, &attr, main, argument);
+    pthread_attr_destroy(&attr);
+    return r;
+}
+
+static void win32_thread_end(uint32_t code) {
+    if (!win32_self) return;
+    pthread_mutex_lock(&win32_lock);
+    win32_self->code = code;
+    win32_self->done = 1;
+    pthread_cond_broadcast(&win32_changed);
+    pthread_mutex_unlock(&win32_lock);
+}
+
+static void *win32_thread_main(void *argument) {
+    report_crashes_on_this_thread();
+    win32_self = argument;
+    win32_thread_id = win32_self->id;
+    uint32_t code = (uint32_t)((native8)(uintptr_t)win32_self->start)(win32_self->parameter, 0, 0, 0, 0, 0, 0, 0);
+    win32_thread_end(code);
+    return NULL;
+}
+
+uint64_t CreateThread(uint64_t security, uint64_t stack_size, uint64_t start, uint64_t parameter, uint64_t flags, uint64_t id) {
+    (void)security;
+    // A suspended start needs ResumeThread, which a POSIX thread has no counterpart of.
+    if (flags & 4) return win32_fail(50);  // CREATE_SUSPENDED: ERROR_NOT_SUPPORTED
+    struct win32_thread *t = calloc(1, sizeof *t);
+    if (!t) return win32_fail(8);
+    t->start = start;
+    t->parameter = parameter;
+    pthread_mutex_lock(&win32_lock);
+    uint64_t handle = win32_new_handle(WIN32_THREAD);
+    if (handle) win32_object(handle)->thread = t;
+    t->id = win32_next_id += 4;
+    pthread_mutex_unlock(&win32_lock);
+    if (!handle) {
+        free(t);
+        return win32_fail(4);
+    }
+    pthread_t thread;
+    if (win32_start(&thread, (size_t)(uint32_t)stack_size, win32_thread_main, t, 1) != 0) {
+        CloseHandle(handle);
+        free(t);
+        return win32_fail(8);
+    }
+    win32_put32(id, t->id);
+    return handle;
+}
+
+uint64_t ExitThread(uint64_t code) {
+    win32_thread_end((uint32_t)code);
+    pthread_exit(NULL);
+}
+
+uint64_t GetExitCodeThread(uint64_t handle, uint64_t code) {
+    pthread_mutex_lock(&win32_lock);
+    struct win32_object *o = win32_object(handle);
+    int ok = o && o->kind == WIN32_THREAD;
+    if (ok) win32_put32(code, o->thread->done ? o->thread->code : 259);  // STILL_ACTIVE
+    pthread_mutex_unlock(&win32_lock);
+    return ok ? 1 : win32_fail(6);
+}
+
+uint64_t ExitProcess(uint64_t code) {
+    exit((int)(uint32_t)code);
+}
+
+uint64_t Sleep(uint64_t milliseconds) {
+    uint32_t ms = (uint32_t)milliseconds;
+    if (ms == 0) {
+        sched_yield();
+        return 0;
+    }
+    struct timespec t = {(time_t)(ms / 1000), (long)(ms % 1000) * 1000000L};
+    while (nanosleep(&t, &t) != 0 && errno == EINTR) {}
+    return 0;
+}
+
+uint64_t SwitchToThread(void) {
+    sched_yield();
+    return 1;
+}
+
+// Events. A name would reach another process, which the layer has none of.
+static uint64_t win32_event(uint64_t manual, uint64_t initial, uint64_t name) {
+    if (name) return win32_fail(50);
+    pthread_mutex_lock(&win32_lock);
+    uint64_t handle = win32_new_handle(WIN32_EVENT);
+    if (handle) {
+        win32_object(handle)->manual = (uint32_t)manual != 0;
+        win32_object(handle)->signaled = (uint32_t)initial != 0;
+    }
+    pthread_mutex_unlock(&win32_lock);
+    return handle ? handle : win32_fail(4);
+}
+
+uint64_t CreateEventA(uint64_t security, uint64_t manual, uint64_t initial, uint64_t name) {
+    (void)security;
+    return win32_event(manual, initial, name);
+}
+
+uint64_t CreateEventW(uint64_t security, uint64_t manual, uint64_t initial, uint64_t name) {
+    (void)security;
+    return win32_event(manual, initial, name);
+}
+
+static uint64_t win32_signal(uint64_t handle, int signaled) {
+    pthread_mutex_lock(&win32_lock);
+    struct win32_object *o = win32_object(handle);
+    int ok = o && o->kind == WIN32_EVENT;
+    if (ok) o->signaled = signaled;
+    pthread_cond_broadcast(&win32_changed);
+    pthread_mutex_unlock(&win32_lock);
+    return ok ? 1 : win32_fail(6);
+}
+
+uint64_t SetEvent(uint64_t handle) {
+    return win32_signal(handle, 1);
+}
+
+uint64_t ResetEvent(uint64_t handle) {
+    return win32_signal(handle, 0);
+}
+
+// WAIT_OBJECT_0 when the thread has ended or the event is set (an automatic one then resets),
+// WAIT_TIMEOUT after the time, WAIT_FAILED on a handle that is neither.
+uint64_t WaitForSingleObject(uint64_t handle, uint64_t milliseconds) {
+    uint32_t ms = (uint32_t)milliseconds;
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += ms / 1000;
+    deadline.tv_nsec += (long)(ms % 1000) * 1000000L;
+    if (deadline.tv_nsec >= 1000000000L) {
+        deadline.tv_sec++;
+        deadline.tv_nsec -= 1000000000L;
+    }
+    pthread_mutex_lock(&win32_lock);
+    uint64_t result = 0;
+    for (;;) {
+        struct win32_object *o = win32_object(handle);
+        if (!o || (o->kind != WIN32_THREAD && o->kind != WIN32_EVENT)) {
+            win32_last_error = 6;
+            result = 0xffffffffu;
+            break;
+        }
+        if (o->kind == WIN32_THREAD ? o->thread->done : o->signaled) {
+            if (o->kind == WIN32_EVENT && !o->manual) o->signaled = 0;
+            break;
+        }
+        if (ms == 0 || (ms != W_INFINITE ? pthread_cond_timedwait(&win32_changed, &win32_lock, &deadline) : pthread_cond_wait(&win32_changed, &win32_lock)) == ETIMEDOUT) {
+            result = 0x102;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&win32_lock);
+    return result;
+}
+
+// A critical section holds a recursive mutex of the host in its first field, DebugInfo, which the
+// program does not read.
+static pthread_mutex_t *win32_mutex_of(uint64_t section) {
+    return (pthread_mutex_t *)W_PTR(win32_get_pointer(section));
+}
+
+uint64_t InitializeCriticalSection(uint64_t section) {
+    memset(W_PTR(section), 0, RA_POINTER_SIZE == 4 ? 24 : 40);
+    pthread_mutex_t *m = malloc(sizeof *m);
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(m, &attr);
+    pthread_mutexattr_destroy(&attr);
+    win32_put_pointer(section, (uint64_t)(uintptr_t)m);
+    return 0;
+}
+
+uint64_t InitializeCriticalSectionAndSpinCount(uint64_t section, uint64_t spin) {
+    (void)spin;
+    InitializeCriticalSection(section);
+    return 1;
+}
+
+uint64_t InitializeCriticalSectionEx(uint64_t section, uint64_t spin, uint64_t flags) {
+    (void)spin;
+    (void)flags;
+    InitializeCriticalSection(section);
+    return 1;
+}
+
+uint64_t EnterCriticalSection(uint64_t section) {
+    pthread_mutex_lock(win32_mutex_of(section));
+    return 0;
+}
+
+uint64_t TryEnterCriticalSection(uint64_t section) {
+    return pthread_mutex_trylock(win32_mutex_of(section)) == 0;
+}
+
+uint64_t LeaveCriticalSection(uint64_t section) {
+    pthread_mutex_unlock(win32_mutex_of(section));
+    return 0;
+}
+
+uint64_t DeleteCriticalSection(uint64_t section) {
+    pthread_mutex_t *m = win32_mutex_of(section);
+    if (m) {
+        pthread_mutex_destroy(m);
+        free(m);
+    }
+    win32_put_pointer(section, 0);
+    return 0;
+}
+
+// Thread-local storage: 64 slots, as many as Windows guarantees.
+static uint64_t win32_tls_used;
+static RA_THREAD uint64_t win32_tls[64];
+
+uint64_t TlsAlloc(void) {
+    pthread_mutex_lock(&win32_lock);
+    uint64_t index = 0xffffffffu;  // TLS_OUT_OF_INDEXES
+    for (unsigned i = 0; i < 64; i++) {
+        if (win32_tls_used & (1ull << i)) continue;
+        win32_tls_used |= 1ull << i;
+        index = i;
+        break;
+    }
+    pthread_mutex_unlock(&win32_lock);
+    if (index == 0xffffffffu) win32_last_error = 8;
+    return index;
+}
+
+uint64_t TlsFree(uint64_t index) {
+    if ((uint32_t)index >= 64) return win32_fail(87);
+    pthread_mutex_lock(&win32_lock);
+    win32_tls_used &= ~(1ull << (uint32_t)index);
+    pthread_mutex_unlock(&win32_lock);
+    return 1;
+}
+
+uint64_t TlsGetValue(uint64_t index) {
+    if ((uint32_t)index >= 64) return win32_fail(87);
+    win32_last_error = 0;
+    return win32_tls[(uint32_t)index];
+}
+
+uint64_t TlsSetValue(uint64_t index, uint64_t value) {
+    if ((uint32_t)index >= 64) return win32_fail(87);
+    win32_tls[(uint32_t)index] = value;
+    return 1;
+}
+
+// ---- Time.
+static uint64_t win32_clock(clockid_t clock) {
+    struct timespec t;
+    clock_gettime(clock, &t);
+    return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec;
+}
+
+// 100-nanosecond intervals since 1601, the FILETIME of now.
+static uint64_t win32_file_time(void) {
+    return win32_clock(CLOCK_REALTIME) / 100 + 116444736000000000ull;
+}
+
+uint64_t GetTickCount(void) {
+    return (uint32_t)(win32_clock(CLOCK_MONOTONIC) / 1000000);
+}
+
+uint64_t GetTickCount64(void) {
+    return win32_clock(CLOCK_MONOTONIC) / 1000000;
+}
+
+uint64_t timeGetTime(void) {
+    return GetTickCount();
+}
+
+uint64_t QueryPerformanceCounter(uint64_t counter) {
+    win32_put64(counter, win32_clock(CLOCK_MONOTONIC));
+    return 1;
+}
+
+uint64_t QueryPerformanceFrequency(uint64_t frequency) {
+    win32_put64(frequency, 1000000000ull);
+    return 1;
+}
+
+uint64_t GetSystemTimeAsFileTime(uint64_t file_time) {
+    win32_put64(file_time, win32_file_time());
+    return 0;
+}
+
+uint64_t GetSystemTimePreciseAsFileTime(uint64_t file_time) {
+    win32_put64(file_time, win32_file_time());
+    return 0;
+}
+
+// A SYSTEMTIME: eight words, the year to the milliseconds.
+static void win32_system_time(uint64_t at, int local) {
+    uint64_t now = win32_clock(CLOCK_REALTIME);
+    time_t seconds = (time_t)(now / 1000000000ull);
+    struct tm t;
+    if (local) localtime_r(&seconds, &t);
+    else gmtime_r(&seconds, &t);
+    uint16_t words[8] = {(uint16_t)(t.tm_year + 1900), (uint16_t)(t.tm_mon + 1), (uint16_t)t.tm_wday, (uint16_t)t.tm_mday,
+                         (uint16_t)t.tm_hour, (uint16_t)t.tm_min, (uint16_t)t.tm_sec, (uint16_t)(now / 1000000 % 1000)};
+    memcpy(W_PTR(at), words, sizeof words);
+}
+
+uint64_t GetSystemTime(uint64_t at) {
+    win32_system_time(at, 0);
+    return 0;
+}
+
+uint64_t GetLocalTime(uint64_t at) {
+    win32_system_time(at, 1);
+    return 0;
+}
+
+// ---- The process.
+static uint64_t win32_unhandled_filter;
+static uint8_t win32_module[4096];  // the module's header: zeros, no MZ, so the C runtime finds no managed image
+
+uint64_t SetUnhandledExceptionFilter(uint64_t filter) {
+    uint64_t previous = win32_unhandled_filter;
+    win32_unhandled_filter = filter;
+    return previous;
+}
+
+uint64_t UnhandledExceptionFilter(uint64_t pointers) {
+    (void)pointers;
+    return 0;  // EXCEPTION_CONTINUE_SEARCH
+}
+
+uint64_t IsDebuggerPresent(void) {
+    return 0;
+}
+
+// Nothing listens: a program without a debugger sends its string nowhere.
+uint64_t OutputDebugStringA(uint64_t text) {
+    (void)text;
+    return 0;
+}
+
+// The baseline of x86-64 (MMX, SSE, SSE2, cmpxchg8b, rdtsc, NX, fail-fast), and the later
+// extensions as the host's processor has them.
+uint64_t IsProcessorFeaturePresent(uint64_t feature) {
+    switch ((uint32_t)feature) {
+    case 2: case 3: case 6: case 8: case 10: case 12: case 23: return 1;
+#if defined(__x86_64__)
+    case 13: case 36: case 37: case 38: case 39: case 40: {
+        uint32_t r1[4], r7[4];
+        ra_cpuid(1, 0, r1);
+        ra_cpuid(7, 0, r7);
+        switch ((uint32_t)feature) {
+        case 13: return r1[2] & 1;         // PF_SSE3_INSTRUCTIONS_AVAILABLE
+        case 36: return (r1[2] >> 9) & 1;  // PF_SSSE3_INSTRUCTIONS_AVAILABLE
+        case 37: return (r1[2] >> 19) & 1; // PF_SSE4_1_INSTRUCTIONS_AVAILABLE
+        case 38: return (r1[2] >> 20) & 1; // PF_SSE4_2_INSTRUCTIONS_AVAILABLE
+        case 39: return (r1[2] >> 28) & 1; // PF_AVX_INSTRUCTIONS_AVAILABLE
+        default: return (r7[1] >> 5) & 1;  // PF_AVX2_INSTRUCTIONS_AVAILABLE
+        }
+    }
+#endif
+    default: return 0;
+    }
+}
+
+#if RA_POINTER_SIZE == 8
+uint64_t InitializeSListHead(uint64_t head) {
+    memset(W_PTR(head), 0, 16);
+    return 0;
+}
+#endif
+
+uint64_t GetModuleHandleA(uint64_t name) {
+    return name ? win32_fail(126) : (uint64_t)(uintptr_t)win32_module;  // ERROR_MOD_NOT_FOUND
+}
+
+uint64_t GetModuleHandleW(uint64_t name) {
+    return GetModuleHandleA(name);
+}
+
+uint64_t GetModuleFileNameA(uint64_t module, uint64_t buffer, uint64_t size) {
+    if (module && module != (uint64_t)(uintptr_t)win32_module) return win32_fail(126);
+    char path[4096];
+#ifdef __linux__
+    ssize_t n = readlink("/proc/self/exe", path, sizeof path - 1);
+    if (n < 0) return win32_fail(win32_error_of(errno));
+    path[n] = 0;
+#else
+    if (!realpath(ra_argv[0], path)) return win32_fail(win32_error_of(errno));
+#endif
+    uint32_t length = (uint32_t)strlen(path), room = (uint32_t)size;
+    if (room == 0) return win32_fail(122);
+    if (length >= room) {
+        memcpy(W_PTR(buffer), path, room - 1);
+        ((char *)W_PTR(buffer))[room - 1] = 0;
+        win32_last_error = 122;  // ERROR_INSUFFICIENT_BUFFER
+        return room;
+    }
+    memcpy(W_PTR(buffer), path, length + 1);
+    return length;
+}
+
+// The command line, the arguments joined and quoted where they hold a space.
+uint64_t GetCommandLineA(void) {
+    static char *line;
+    if (!line) {
+        size_t size = 1;
+        for (int i = 0; i < ra_argc; i++) size += strlen(ra_argv[i]) + 3;
+        line = calloc(size, 1);
+        if (!line) return 0;
+        for (int i = 0; i < ra_argc; i++) {
+            int quote = strchr(ra_argv[i], ' ') || strchr(ra_argv[i], '\t') || !*ra_argv[i];
+            if (i) strcat(line, " ");
+            if (quote) strcat(line, "\"");
+            strcat(line, ra_argv[i]);
+            if (quote) strcat(line, "\"");
+        }
+    }
+    return (uint64_t)(uintptr_t)line;
+}
+
+uint64_t GetEnvironmentVariableA(uint64_t name, uint64_t buffer, uint64_t size) {
+    const char *value = getenv((const char *)W_PTR(name));
+    if (!value) return win32_fail(203);  // ERROR_ENVVAR_NOT_FOUND
+    uint32_t length = (uint32_t)strlen(value);
+    if (length >= (uint32_t)size) return length + 1;
+    memcpy(W_PTR(buffer), value, length + 1);
+    return length;
+}
+
+uint64_t SetEnvironmentVariableA(uint64_t name, uint64_t value) {
+    int r = value ? setenv((const char *)W_PTR(name), (const char *)W_PTR(value), 1) : unsetenv((const char *)W_PTR(name));
+    return r == 0 ? 1 : win32_fail(win32_error_of(errno));
+}
+
+// A STARTUPINFO with nothing set: its size and zeros.
+static uint64_t win32_startup_info(uint64_t info) {
+    uint32_t size = RA_POINTER_SIZE == 4 ? 68 : 104;
+    memset(W_PTR(info), 0, size);
+    win32_put32(info, size);
+    return 0;
+}
+
+uint64_t GetStartupInfoA(uint64_t info) {
+    return win32_startup_info(info);
+}
+
+uint64_t GetStartupInfoW(uint64_t info) {
+    return win32_startup_info(info);
+}
+
+// ---- The message loop. A window is the host's windowing system's, which the layer does not
+// reach: no window exists, and the messages are the threads' own, posted and taken in order.
+struct win32_message { uint32_t thread, message; uint64_t wparam, lparam; uint32_t time; };
+static struct win32_message win32_queue[256];
+static size_t win32_queued;
+
+static uint64_t win32_post(uint32_t thread, uint64_t message, uint64_t wparam, uint64_t lparam) {
+    pthread_mutex_lock(&win32_lock);
+    int ok = win32_queued < sizeof win32_queue / sizeof win32_queue[0];
+    if (ok) win32_queue[win32_queued++] = (struct win32_message){thread, (uint32_t)message, wparam, lparam, (uint32_t)GetTickCount()};
+    pthread_cond_broadcast(&win32_changed);
+    pthread_mutex_unlock(&win32_lock);
+    return ok ? 1 : win32_fail(1816);  // ERROR_NOT_ENOUGH_QUOTA
+}
+
+uint64_t PostThreadMessageA(uint64_t thread, uint64_t message, uint64_t wparam, uint64_t lparam) {
+    return win32_post((uint32_t)thread, message, wparam, lparam);
+}
+
+uint64_t PostQuitMessage(uint64_t code) {
+    win32_post((uint32_t)GetCurrentThreadId(), 0x12, (uint32_t)code, 0);  // WM_QUIT
+    return 0;
+}
+
+// The calling thread's first message in [first, last] (all of them when both are zero) into the
+// program's MSG, removed with `remove`; whether there was one. With the lock held.
+static int win32_take(uint64_t msg, uint32_t first, uint32_t last, int remove) {
+    uint32_t self = (uint32_t)GetCurrentThreadId();
+    for (size_t i = 0; i < win32_queued; i++) {
+        struct win32_message m = win32_queue[i];
+        if (m.thread != self || ((first || last) && (m.message < first || m.message > last))) continue;
+        if (remove) memmove(&win32_queue[i], &win32_queue[i + 1], (win32_queued - i - 1) * sizeof m), win32_queued--;
+#if RA_POINTER_SIZE == 4
+        uint32_t words[7] = {0, m.message, (uint32_t)m.wparam, (uint32_t)m.lparam, m.time, 0, 0};
+        memcpy(W_PTR(msg), words, sizeof words);
+#else
+        uint8_t *out = W_PTR(msg);
+        memset(out, 0, 48);
+        memcpy(out + 8, &m.message, 4);
+        memcpy(out + 16, &m.wparam, 8);
+        memcpy(out + 24, &m.lparam, 8);
+        memcpy(out + 32, &m.time, 4);
+#endif
+        return 1;
+    }
+    return 0;
+}
+
+static uint64_t win32_get_message(uint64_t msg, uint64_t hwnd, uint64_t first, uint64_t last) {
+    if (hwnd) {
+        win32_last_error = 1400;  // ERROR_INVALID_WINDOW_HANDLE
+        return 0xffffffffu;
+    }
+    pthread_mutex_lock(&win32_lock);
+    while (!win32_take(msg, (uint32_t)first, (uint32_t)last, 1)) pthread_cond_wait(&win32_changed, &win32_lock);
+    pthread_mutex_unlock(&win32_lock);
+    uint32_t message;
+    memcpy(&message, (uint8_t *)W_PTR(msg) + RA_POINTER_SIZE, 4);
+    return message != 0x12;  // WM_QUIT ends the loop
+}
+
+static uint64_t win32_peek_message(uint64_t msg, uint64_t hwnd, uint64_t first, uint64_t last, uint64_t remove) {
+    if (hwnd) return win32_fail(1400);
+    pthread_mutex_lock(&win32_lock);
+    int found = win32_take(msg, (uint32_t)first, (uint32_t)last, ((uint32_t)remove & 1) != 0);  // PM_REMOVE
+    pthread_mutex_unlock(&win32_lock);
+    return (uint64_t)found;
+}
+
+uint64_t GetMessageA(uint64_t msg, uint64_t hwnd, uint64_t first, uint64_t last) {
+    return win32_get_message(msg, hwnd, first, last);
+}
+
+uint64_t PeekMessageA(uint64_t msg, uint64_t hwnd, uint64_t first, uint64_t last, uint64_t remove) {
+    return win32_peek_message(msg, hwnd, first, last, remove);
+}
+
+// A thread's message has no window to translate for or to dispatch to.
+uint64_t TranslateMessage(uint64_t msg) {
+    (void)msg;
+    return 0;
+}
+
+uint64_t DispatchMessageA(uint64_t msg) {
+    (void)msg;
+    return 0;
+}
+
+// The 32-bit program's names for the same (prototypes.rs `x86_shim`): the MSG is the program's
+// either way.
+uint64_t ra_x86_get_message_a(uint64_t msg, uint64_t hwnd, uint64_t first, uint64_t last) {
+    return win32_get_message(msg, hwnd, first, last);
+}
+
+uint64_t ra_x86_peek_message_a(uint64_t msg, uint64_t hwnd, uint64_t first, uint64_t last, uint64_t remove) {
+    return win32_peek_message(msg, hwnd, first, last, remove);
+}
+
+uint64_t ra_x86_translate_message(uint64_t msg) {
+    return TranslateMessage(msg);
+}
+
+uint64_t ra_x86_dispatch_message_a(uint64_t msg) {
+    return DispatchMessageA(msg);
+}
+
+// ---- The Microsoft C runtime's own entries; the standard C functions are the host's.
+static int win32_commode, win32_new_mode, win32_locale_mode = 2;  // _DISABLE_PER_THREAD_LOCALE
+static uint64_t win32_current_exception, win32_current_exception_context;
+
+uint64_t __p___argc(void) {
+    return (uint64_t)(uintptr_t)&ra_argc;
+}
+
+uint64_t __p__commode(void) {
+    return (uint64_t)(uintptr_t)&win32_commode;
+}
+
+uint64_t _set_fmode(uint64_t mode) {
+    (void)mode;
+    return 0;
+}
+
+uint64_t _set_app_type(uint64_t type) {
+    (void)type;
+    return 0;
+}
+
+// The host's math library reports its errors through errno, never to a matherr.
+uint64_t __setusermatherr(uint64_t handler) {
+    (void)handler;
+    return 0;
+}
+
+uint64_t _configthreadlocale(uint64_t mode) {
+    int previous = win32_locale_mode;
+    if ((int32_t)mode == 1 || (int32_t)mode == 2) win32_locale_mode = (int)mode;
+    else if ((int32_t)mode != 0 && (int32_t)mode != -1) return (uint64_t)-1;
+    return (uint64_t)(int64_t)previous;
+}
+
+uint64_t _set_new_mode(uint64_t mode) {
+    int previous = win32_new_mode;
+    win32_new_mode = (int)mode;
+    return (uint64_t)(int64_t)previous;
+}
+
+uint64_t _configure_narrow_argv(uint64_t mode) {
+    (void)mode;
+    return 0;
+}
+
+uint64_t _initialize_narrow_environment(void) {
+    return 0;
+}
+
+// No signal handler is installed: every exception goes on to the next handler.
+uint64_t _seh_filter_exe(uint64_t code, uint64_t pointers) {
+    (void)code;
+    (void)pointers;
+    return 0;  // EXCEPTION_CONTINUE_SEARCH
+}
+
+uint64_t __current_exception(void) {
+    return (uint64_t)(uintptr_t)&win32_current_exception;
+}
+
+uint64_t __current_exception_context(void) {
+    return (uint64_t)(uintptr_t)&win32_current_exception_context;
+}
+
+uint64_t terminate(void) {
+    abort();
+}
+
+// The functions _crt_atexit registers and the thread-local destructors' callback, run at the exit
+// as the runtime runs them: the callback first, then the functions in reverse, once.
+static uint64_t win32_atexit_functions[256];
+static size_t win32_atexit_count;
+static uint64_t win32_tls_exit_callback;
+
+static void win32_run_atexit(void) {
+    if (win32_tls_exit_callback) {
+        uint64_t callback = win32_tls_exit_callback;
+        win32_tls_exit_callback = 0;
+        ((native8)(uintptr_t)callback)(0, 0, 0, 0, 0, 0, 0, 0);  // (NULL, DLL_PROCESS_DETACH, NULL)
+    }
+    while (win32_atexit_count) ((native8)(uintptr_t)win32_atexit_functions[--win32_atexit_count])(0, 0, 0, 0, 0, 0, 0, 0);
+}
+
+uint64_t _crt_atexit(uint64_t function) {
+    static int registered;
+    if (!registered) registered = atexit(win32_run_atexit) == 0;
+    if (!registered || win32_atexit_count >= sizeof win32_atexit_functions / sizeof win32_atexit_functions[0]) return (uint64_t)-1;
+    win32_atexit_functions[win32_atexit_count++] = function;
+    return 0;
+}
+
+uint64_t _register_thread_local_exe_atexit_callback(uint64_t callback) {
+    win32_tls_exit_callback = callback;
+    return 0;
+}
+
+uint64_t _cexit(void) {
+    win32_run_atexit();
+    return 0;
+}
+
+uint64_t _c_exit(void) {
+    return 0;
+}
+
+#if RA_POINTER_SIZE == 8
+// The 64-bit program's tables of 8-byte pointers, which a 32-bit program's shims read as dwords.
+uint64_t __p___argv(void) {
+    return (uint64_t)(uintptr_t)&ra_argv;
+}
+
+uint64_t _get_initial_narrow_environment(void) {
+    extern char **environ;
+    return (uint64_t)(uintptr_t)environ;
+}
+
+uint64_t _initterm(uint64_t first, uint64_t last) {
+    for (uint64_t *p = (uint64_t *)W_PTR(first); (uintptr_t)p < (uintptr_t)last; p++) {
+        if (*p) ((native8)(uintptr_t)*p)(0, 0, 0, 0, 0, 0, 0, 0);
+    }
+    return 0;
+}
+
+uint64_t _initterm_e(uint64_t first, uint64_t last) {
+    for (uint64_t *p = (uint64_t *)W_PTR(first); (uintptr_t)p < (uintptr_t)last; p++) {
+        if (!*p) continue;
+        uint32_t result = (uint32_t)((native8)(uintptr_t)*p)(0, 0, 0, 0, 0, 0, 0, 0);
+        if (result) return result;
+    }
+    return 0;
+}
+
+uint64_t _initialize_onexit_table(uint64_t table) {
+    if (!table) return (uint64_t)-1;
+    memset(W_PTR(table), 0, 24);
+    return 0;
+}
+
+// The table's three pointers are the program's: first, last and end of an array the layer grows.
+uint64_t _register_onexit_function(uint64_t table, uint64_t function) {
+    uint64_t *t = (uint64_t *)W_PTR(table);
+    if (t[1] == t[2]) {
+        size_t count = (size_t)(t[1] - t[0]) / 8, room = count ? count * 2 : 32;
+        uint64_t *grown = realloc(W_PTR(t[0]), room * 8);
+        if (!grown) return (uint64_t)-1;
+        t[0] = (uint64_t)(uintptr_t)grown;
+        t[1] = t[0] + count * 8;
+        t[2] = t[0] + room * 8;
+    }
+    *(uint64_t *)W_PTR(t[1]) = function;
+    t[1] += 8;
+    return 0;
+}
+
+uint64_t _execute_onexit_table(uint64_t table) {
+    uint64_t *t = (uint64_t *)W_PTR(table);
+    while (t[1] > t[0]) {
+        t[1] -= 8;
+        uint64_t function = *(uint64_t *)W_PTR(t[1]);
+        if (function) ((native8)(uintptr_t)function)(0, 0, 0, 0, 0, 0, 0, 0);
+    }
+    free(W_PTR(t[0]));
+    memset(t, 0, 24);
+    return 0;
+}
+
+uint64_t _controlfp_s(uint64_t current, uint64_t new_bits, uint64_t mask) {
+    return ra_x86_controlfp_s(current, new_bits, mask);
+}
+#endif
+
+// The thread block's process and thread ids and its stack, as the program's width lays them out.
+static void win32_describe_thread(uint8_t *block) {
+    uintptr_t base = 0, limit = 0;
+#ifdef __linux__
+    pthread_attr_t attr;
+    if (pthread_getattr_np(pthread_self(), &attr) == 0) {
+        void *low;
+        size_t size;
+        if (pthread_attr_getstack(&attr, &low, &size) == 0) {
+            limit = (uintptr_t)low;
+            base = limit + size;
+        }
+        pthread_attr_destroy(&attr);
+    }
+#endif
+    uint32_t pid = (uint32_t)GetCurrentProcessId(), tid = (uint32_t)GetCurrentThreadId();
+#if RA_POINTER_SIZE == 4
+    *(uint32_t *)(block + 0x04) = (uint32_t)base;
+    *(uint32_t *)(block + 0x08) = (uint32_t)limit;
+    *(uint32_t *)(block + 0x20) = pid;
+    *(uint32_t *)(block + 0x24) = tid;
+#else
+    *(uint64_t *)(block + 0x08) = base;
+    *(uint64_t *)(block + 0x10) = limit;
+    *(uint64_t *)(block + 0x40) = pid;
+    *(uint64_t *)(block + 0x48) = tid;
+#endif
+}
+
+// The heap stays in the brk area right above a non-PIE executable: a 32-bit program's pointers
+// reach it. glibc gives a thread other than the first an arena of its own, mapped high, and a large
+// block a mapping of its own: one arena for every thread, the program's low one among them, and
+// no block mapped, before that thread starts.
+static void win32_prepare(void) {
+#if defined(__GLIBC__) && RA_POINTER_SIZE == 4
+    mallopt(M_MMAP_MAX, 0);
+    mallopt(M_ARENA_MAX, 1);
+#elif RA_POINTER_SIZE == 4
+#error "a 32-bit program's heap stays below 2 GB by glibc's malloc options: its Win32 layer needs glibc"
+#endif
+}
+#endif  // the Win32 layer
 
 #if defined(RA_ABI) && !defined(RA_DLL)
 // The entry, and the program's exit code: `main`'s result when the driver's startup stands in for
@@ -1860,6 +3354,33 @@ static int ra_entry(void) {
     eh_check_uncaught();
     return code;
 }
+
+#if !defined(_WIN32) && defined(RA_WIN32)
+// A 32-bit program runs on a thread whose stack and thread block its pointers reach, and exits
+// there, so the functions it registered for the exit run on that stack as well.
+static void *win32_main_thread(void *unused) {
+    (void)unused;
+    report_crashes_on_this_thread();
+    attach_process();
+    exit(ra_entry());
+}
+
+static int win32_main(void) {
+    win32_prepare();
+#if RA_POINTER_SIZE == 4
+    pthread_t thread;
+    if (win32_start(&thread, 8u << 20, win32_main_thread, NULL, 0) != 0) {
+        fprintf(stderr, "ra: no room below 2 GB for the program's stack\n");
+        return 2;
+    }
+    pthread_join(thread, NULL);
+    return 2;
+#else
+    attach_process();
+    return ra_entry();
+#endif
+}
+#endif
 #endif
 
 #ifdef RA_DLL
@@ -1927,8 +3448,12 @@ int main(int argc, char **argv) {
     // no image to map and nothing to bind.
     (void)argc;
     (void)argv;
+#if !defined(_WIN32) && defined(RA_WIN32)
+    return win32_main();
+#else
     attach_process();
     return ra_entry();
+#endif
 #else
     const char *image_path = argc > 1 ? argv[1] : "image.bin";
     FILE *f = fopen(image_path, "rb");
@@ -1951,8 +3476,12 @@ int main(int argc, char **argv) {
 
 #ifdef RA_ABI
     install_trampolines();
+#if !defined(_WIN32) && defined(RA_WIN32)
+    return win32_main();
+#else
     attach_process();
     return ra_entry();
+#endif
 #else
     static struct State state;
     const size_t stack_size = 1 << 20;
