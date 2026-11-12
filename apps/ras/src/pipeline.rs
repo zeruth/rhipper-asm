@@ -324,16 +324,6 @@ impl<'a> Pipeline<'a> {
         let translation = crate::emit::translate(image, analysis, lifted, signatures, &options)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
-<<<<<<< HEAD
-        fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
-        fs::write(build_dir.join("functions.json"), translation.table())?;
-        let regenerated = crate::emit::regenerate(&build_dir, &analysis, &translation)?;
-        let warnings = log_warnings(log, analysis.warnings.iter().chain(&annotated).chain(&lifted.warnings).chain(&translation.warnings));
-        if let Some(line) = regenerated {
-            writeln!(log, "{line}")?;
-            println!("{line}");
-        }
-=======
         let header = ra_asm_lift::image_header(image, analysis, lifted, Some(signatures));
         ra_asm_emit::write_if_changed(&gen_dir.join("image.h"), header.as_bytes())?;
         let table = translation.table();
@@ -349,8 +339,12 @@ impl<'a> Pipeline<'a> {
             .chain([("image.h", header.as_bytes())]);
         let mut outputs: Vec<(PathBuf, u64)> = written.map(|(path, bytes)| (gen_dir.join(path), digest(bytes))).collect();
         outputs.push((build_dir.join("functions.json"), digest(table.as_bytes())));
+        let regenerated = crate::emit::regenerate(&build_dir, analysis, &translation)?;
         let warnings = log_warnings(log, analysis.warnings.iter().chain(annotated).chain(&lifted.warnings).chain(&translation.warnings));
->>>>>>> main
+        if let Some(line) = regenerated {
+            writeln!(log, "{line}")?;
+            println!("{line}");
+        }
         let summary = format!(
             "{} functions, {} bytes of {lang} in {} files, {} instructions not lifted, {} warnings -> {}",
             translation.functions.len(),
