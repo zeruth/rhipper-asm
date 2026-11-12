@@ -5,7 +5,9 @@
 //! arithmetic with and without flags, the logic, the shifts and bitfields, the compare-and-branch
 //! forms, the loads and stores in every addressing mode with the pairs and the extends, multiply
 //! and divide, the conditional selects, and `adrp` with the `add` or the load that completes its
-//! address. An instruction outside it becomes a trap that names its address. Each analysis block
+//! address. Beside it, the scalar floating point (the moves and `movi`, the arithmetic and
+//! `fma` forms, the conversions, `fcmp` into the flags and `fcsel`), the arithmetic also over the
+//! float arrangements as IR vectors. An instruction outside it becomes a trap that names its address. Each analysis block
 //! becomes an IR block; the terminator comes from the analysis, with the condition of a
 //! conditional branch or the target of an indirect one computed by the instruction and consumed
 //! when the block ends.
@@ -16,7 +18,7 @@ use std::collections::HashMap;
 use ra_asm_analysis::{Analysis, Block, Function, Terminator as T};
 use ra_asm_arm64::Arm64;
 use ra_asm_arm64::yaxpeax_arm::armv8::a64::{Instruction, Opcode, Operand as Op, SIMDSizeCode, ShiftStyle, SizeCode};
-use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FnType, FunctionBuilder, ICond, Linkage, Operand, Terminator, Type, ValueId};
+use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, ICond, Inst, Linkage, Operand, Terminator, Type, ValueId};
 use ra_asm_pe::Image;
 
 use crate::state::{Isa, Machine};
@@ -959,6 +961,185 @@ impl Lifter<'_, '_> {
             }
             O::LDP | O::LDNP | O::LDPSW | O::STP | O::STNP => return self.pair(block, i, ip, code, text),
 
+            O::FMOV => {
+                // A move of bits between registers of one width, or an encoded constant.
+                let value = match (scalar_float(&ops[0]), general(&ops[0]), &ops[1]) {
+                    (Some((_, ty, bits)), _, Op::ImmediateDouble(d)) => {
+                        let pattern = if ty == Type::Float { i64::from((*d as f32).to_bits() as i32) } else { d.to_bits() as i64 };
+                        self.m.value_of(block, Type::Int(bits), pattern)
+                    }
+                    (Some((_, _, bits)), _, Op::Register(size, n)) if bits_of(*size) == bits => self.read(block, *n, bits, false),
+                    (Some((_, _, bits)), _, src) | (None, Some((_, bits, _)), src) => match scalar_float(src) {
+                        Some((n, _, from)) if from == bits => self.read_vector(block, n, bits),
+                        _ => return self.unsupported(block, ip, code, text),
+                    },
+                    _ => return self.unsupported(block, ip, code, text),
+                };
+                match (scalar_float(&ops[0]), general(&ops[0])) {
+                    (Some((d, _, bits)), _) => self.write_vector(block, d, bits, value),
+                    (None, Some((d, bits, _))) => self.write(block, d, bits, false, value),
+                    _ => return self.unsupported(block, ip, code, text),
+                }
+            }
+            O::MOVI => {
+                let Some(imm) = vector_immediate(&ops[1]) else { return self.unsupported(block, ip, code, text) };
+                match ops[0] {
+                    Op::SIMDRegister(SIMDSizeCode::D, n) => self.write_vector(block, n, 64, imm as i64),
+                    Op::SIMDRegisterElements(width @ (SIMDSizeCode::D | SIMDSizeCode::Q), n, lane)
+                        if matches!(ops[2], Op::Nothing) && simd_bits(lane) <= 64 =>
+                    {
+                        // The lane's value repeated across 64 bits, then across the register.
+                        let lane = u32::from(simd_bits(lane));
+                        let lane_mask = if lane == 64 { u64::MAX } else { (1u64 << lane) - 1 };
+                        let pattern = (0..64 / lane).fold(0u64, |acc, k| acc | ((imm & lane_mask) << (k * lane)));
+                        if matches!(width, SIMDSizeCode::D) {
+                            self.write_vector(block, n, 64, pattern as i64);
+                        } else {
+                            self.m.write_vreg(block, u32::from(n), Type::vector(2, Type::I64), pattern as i64, false);
+                        }
+                    }
+                    _ => return self.unsupported(block, ip, code, text),
+                }
+            }
+
+            O::FADD | O::FSUB | O::FMUL | O::FDIV => {
+                let (Some((d, ty)), Some((a, aty)), Some((b, bty))) =
+                    (float_operand(&ops[0]), float_operand(&ops[1]), float_operand(&ops[2]))
+                else {
+                    return self.unsupported(block, ip, code, text);
+                };
+                if aty != ty || bty != ty {
+                    return self.unsupported(block, ip, code, text);
+                }
+                let op = match i.opcode {
+                    O::FADD => BinOp::FAdd,
+                    O::FSUB => BinOp::FSub,
+                    O::FMUL => BinOp::FMul,
+                    _ => BinOp::FDiv,
+                };
+                let x = self.read_float(block, a, &ty);
+                let y = self.read_float(block, b, &ty);
+                let result = self.m.b.bin(block, op, ty.clone(), x, y, "f");
+                self.write_float(block, d, &ty, result);
+            }
+            O::FNEG | O::FABS | O::FSQRT => {
+                let (Some((d, ty, bits)), Some((n, nty, _))) = (scalar_float(&ops[0]), scalar_float(&ops[1])) else {
+                    return self.unsupported(block, ip, code, text);
+                };
+                if nty != ty {
+                    return self.unsupported(block, ip, code, text);
+                }
+                let result = if i.opcode == O::FSQRT {
+                    let x = self.read_float(block, n, &ty);
+                    self.m.intrinsic(block, &format!("llvm.sqrt.{}", float_suffix(&ty)), ty.clone(), vec![(ty.clone(), x.into())], "sqrt")
+                } else {
+                    // The sign bit flipped or cleared, NaNs included, as the machine does.
+                    let x = self.read_vector(block, n, bits);
+                    let sign = -1i64 << (bits - 1);
+                    if i.opcode == O::FNEG {
+                        self.m.b.bin(block, BinOp::Xor, Type::Int(bits), x, sign, "fneg")
+                    } else {
+                        self.m.b.bin(block, BinOp::And, Type::Int(bits), x, !sign, "fabs")
+                    }
+                };
+                if i.opcode == O::FSQRT {
+                    self.write_float(block, d, &ty, result);
+                } else {
+                    self.write_vector(block, d, bits, result);
+                }
+            }
+            O::FMADD | O::FMSUB | O::FNMADD | O::FNMSUB => {
+                let (Some((d, ty, _)), Some((n, nty, _)), Some((m, mty, _)), Some((a, aty, _))) =
+                    (scalar_float(&ops[0]), scalar_float(&ops[1]), scalar_float(&ops[2]), scalar_float(&ops[3]))
+                else {
+                    return self.unsupported(block, ip, code, text);
+                };
+                if nty != ty || mty != ty || aty != ty {
+                    return self.unsupported(block, ip, code, text);
+                }
+                // One rounding: `a + n * m` with the product, the addend or both negated.
+                let x = self.read_float(block, n, &ty);
+                let x = if matches!(i.opcode, O::FMSUB | O::FNMADD) { self.negate(block, &ty, x) } else { x };
+                let y = self.read_float(block, m, &ty);
+                let z = self.read_float(block, a, &ty);
+                let z = if matches!(i.opcode, O::FNMADD | O::FNMSUB) { self.negate(block, &ty, z) } else { z };
+                let args = vec![(ty.clone(), x.into()), (ty.clone(), y.into()), (ty.clone(), z.into())];
+                let result = self.m.intrinsic(block, &format!("llvm.fma.{}", float_suffix(&ty)), ty.clone(), args, "fma");
+                self.write_float(block, d, &ty, result);
+            }
+            O::FCVT => {
+                let (Some((d, to, _)), Some((n, from, _))) = (scalar_float(&ops[0]), scalar_float(&ops[1])) else {
+                    return self.unsupported(block, ip, code, text);
+                };
+                let cast = match (&from, &to) {
+                    (Type::Float, Type::Double) => Cast::FPExt,
+                    (Type::Double, Type::Float) => Cast::FPTrunc,
+                    _ => return self.unsupported(block, ip, code, text),
+                };
+                let x = self.read_float(block, n, &from);
+                let result = self.m.b.cast(block, cast, from, x, to.clone(), "fcvt");
+                self.write_float(block, d, &to, result);
+            }
+            O::SCVTF | O::UCVTF => {
+                // The fixed-point form carries a third operand, the fraction bits.
+                let (Some((d, ty, _)), Op::Register(size, n), Op::Nothing) = (scalar_float(&ops[0]), ops[1], ops[2]) else {
+                    return self.unsupported(block, ip, code, text);
+                };
+                let bits = bits_of(size);
+                let x = self.read(block, n, bits, false);
+                let cast = if i.opcode == O::SCVTF { Cast::SIToFP } else { Cast::UIToFP };
+                let result = self.m.b.cast(block, cast, Type::Int(bits), x, ty.clone(), "cvtf");
+                self.write_float(block, d, &ty, result);
+            }
+            O::FCVTZS | O::FCVTZU => {
+                let (Op::Register(size, d), Some((n, ty, _)), Op::Nothing) = (ops[0], scalar_float(&ops[1]), ops[2]) else {
+                    return self.unsupported(block, ip, code, text);
+                };
+                // Toward zero, saturating, and a NaN is zero: the `.sat` conversions exactly.
+                let bits = bits_of(size);
+                let x = self.read_float(block, n, &ty);
+                let kind = if i.opcode == O::FCVTZS { "fptosi" } else { "fptoui" };
+                let name = format!("llvm.{kind}.sat.i{bits}.{}", float_suffix(&ty));
+                let result = self.m.intrinsic(block, &name, Type::Int(bits), vec![(ty.clone(), x.into())], "cvtz");
+                self.write(block, d, bits, false, result);
+            }
+            O::FCMP | O::FCMPE => {
+                let Some((n, ty, _)) = scalar_float(&ops[0]) else { return self.unsupported(block, ip, code, text) };
+                let x = self.read_float(block, n, &ty);
+                let y: Operand = match ops[1] {
+                    // The one constant the encoding has.
+                    Op::ImmediateDouble(_) | Op::Immediate(0) | Op::Imm64(0) => Operand::Float(0.0),
+                    ref op => match scalar_float(op) {
+                        Some((m, mty, _)) if mty == ty => self.read_float(block, m, &ty).into(),
+                        _ => return self.unsupported(block, ip, code, text),
+                    },
+                };
+                // Less is 1000, equal 0110, greater 0010 and unordered 0011.
+                let less = self.fcmp(block, FCond::Olt, &ty, x, y.clone(), "lt");
+                let equal = self.fcmp(block, FCond::Oeq, &ty, x, y.clone(), "eq");
+                let not_less = self.fcmp(block, FCond::Uge, &ty, x, y.clone(), "uge");
+                let unordered = self.fcmp(block, FCond::Uno, &ty, x, y, "uno");
+                self.set_flag(block, Nzcv::N, less);
+                self.set_flag(block, Nzcv::Z, equal);
+                self.set_flag(block, Nzcv::C, not_less);
+                self.set_flag(block, Nzcv::V, unordered);
+            }
+            O::FCSEL => {
+                let (Some((d, ty, bits)), Some((a, aty, _)), Some((b, bty, _)), Op::ConditionCode(cc)) =
+                    (scalar_float(&ops[0]), scalar_float(&ops[1]), scalar_float(&ops[2]), ops[3])
+                else {
+                    return self.unsupported(block, ip, code, text);
+                };
+                if aty != ty || bty != ty {
+                    return self.unsupported(block, ip, code, text);
+                }
+                let cond = self.condition(block, cc);
+                let x = self.read_vector(block, a, bits);
+                let y = self.read_vector(block, b, bits);
+                let result = self.m.b.select(block, cond, Type::Int(bits), x, y, "fcsel");
+                self.write_vector(block, d, bits, result);
+            }
+
             _ => return self.unsupported(block, ip, code, text),
         }
         block
@@ -1066,6 +1247,73 @@ impl Lifter<'_, '_> {
     }
 
     // endregion
+
+    // region Floating point
+
+    /// Vector register `n` as `ty`, from its low bytes.
+    fn read_float(&mut self, block: BlockId, n: u16, ty: &Type) -> ValueId {
+        self.m.read_vreg(block, u32::from(n), ty.clone())
+    }
+
+    /// Writes vector register `n` as `ty` and clears the bytes past it, as every scalar and
+    /// 64-bit vector write does.
+    fn write_float(&mut self, block: BlockId, n: u16, ty: &Type, value: impl Into<Operand>) {
+        self.m.write_vreg(block, u32::from(n), ty.clone(), value, true);
+    }
+
+    /// `x` with its sign bit flipped.
+    fn negate(&mut self, block: BlockId, ty: &Type, x: ValueId) -> ValueId {
+        let bits = if *ty == Type::Float { 32 } else { 64 };
+        let int = self.m.b.cast(block, Cast::Bitcast, ty.clone(), x, Type::Int(bits), "neg.i");
+        let flipped = self.m.b.bin(block, BinOp::Xor, Type::Int(bits), int, -1i64 << (bits - 1), "neg.x");
+        self.m.b.cast(block, Cast::Bitcast, Type::Int(bits), flipped, ty.clone(), "neg")
+    }
+
+    fn fcmp(&mut self, block: BlockId, cond: FCond, ty: &Type, a: impl Into<Operand>, b: impl Into<Operand>, hint: &str) -> ValueId {
+        self.m.b.value(block, Inst::FCmp { cond, ty: ty.clone(), lhs: a.into(), rhs: b.into() }, hint)
+    }
+
+    // endregion
+}
+
+/// A scalar floating-point register: its number, its type and its width. Half precision is not
+/// covered and reads as `None`.
+fn scalar_float(op: &Op) -> Option<(u16, Type, u16)> {
+    match *op {
+        Op::SIMDRegister(SIMDSizeCode::S, n) => Some((n, Type::Float, 32)),
+        Op::SIMDRegister(SIMDSizeCode::D, n) => Some((n, Type::Double, 64)),
+        _ => None,
+    }
+}
+
+/// A floating-point operand of the arithmetic: a scalar register, or a vector register whose
+/// arrangement gives the lanes.
+fn float_operand(op: &Op) -> Option<(u16, Type)> {
+    if let Some((n, ty, _)) = scalar_float(op) {
+        return Some((n, ty));
+    }
+    let Op::SIMDRegisterElements(width @ (SIMDSizeCode::D | SIMDSizeCode::Q), n, lane @ (SIMDSizeCode::S | SIMDSizeCode::D)) = *op else {
+        return None;
+    };
+    let element = if matches!(lane, SIMDSizeCode::S) { Type::Float } else { Type::Double };
+    let lanes = u32::from(simd_bits(width) / simd_bits(lane));
+    (lanes > 1).then(|| (n, Type::vector(lanes, element)))
+}
+
+/// The lane value of a vector immediate.
+fn vector_immediate(op: &Op) -> Option<u64> {
+    match *op {
+        Op::Imm64(v) => Some(v),
+        Op::Immediate(v) => Some(u64::from(v)),
+        Op::ImmShift(v, shift) => Some(u64::from(v) << shift),
+        Op::ImmShiftMSL(v, shift) => Some((u64::from(v) << shift) | ((1u64 << shift) - 1)),
+        _ => None,
+    }
+}
+
+/// The suffix an intrinsic of `ty` carries.
+fn float_suffix(ty: &Type) -> &'static str {
+    if *ty == Type::Float { "f32" } else { "f64" }
 }
 
 /// Builds the wrapper of an import for ARM64: it reads `x0..x7` (a floating-point parameter of a

@@ -193,6 +193,33 @@ fn helloa64_runs_interpreted() {
     }
 }
 
+/// The ARM64 build of the float fixture: the scalar floating point lifts without a trap, passes
+/// the gate at the ABI level, and runs through the interpreter with the native program's output.
+#[test]
+fn floata64_lifts_and_runs_interpreted() {
+    let image = ra_asm_pe::load(&fixture("floata64.exe")).unwrap();
+    assert_eq!(image.machine(), ra_asm_pe::Machine::Arm64);
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+    assert_eq!(coverage.traps(), 0, "unsupported instructions: {:?}", coverage.uncovered);
+    if clang_available() {
+        let Raised { lifted, .. } = raise("floata64.exe", "gate-abi");
+        assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+        let dir = scratch("gate-arm64-abi-floata64");
+        std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
+    } else {
+        eprintln!("clang is not on the PATH: the IR gate is skipped");
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/float.txt")).unwrap();
+    for tag in ["run-machine", "run-abi"] {
+        run_interpreted("floata64.exe", &expected, tag);
+    }
+}
+
 /// The Linux build of hello lifts without a trap at the machine level, over the mapped image and
 /// standalone: its imports are called through System V wrappers, which read `rdi` first, and its
 /// IR passes the gate. The run is [`hello_linux64_runs_lifted`], on a Linux host.
