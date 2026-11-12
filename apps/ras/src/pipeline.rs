@@ -181,7 +181,7 @@ impl Pipeline {
         crate::run::write_facts(&file, &outcome.facts)
     }
 
-    fn analyze(&mut self, log: &mut File) -> Result<()> {
+    fn analyze(&mut self, log: &mut File) -> Result<String> {
         if self.project.run.facts {
             self.trace_facts(log)?;
         }
@@ -192,10 +192,10 @@ impl Pipeline {
         let summary = format!("{} functions, {} warnings", analysis.functions.len(), warnings);
         writeln!(log, "{summary}")?;
         println!("{summary}");
-        Ok(())
+        Ok(summary)
     }
 
-    fn lift(&mut self, log: &mut File) -> Result<()> {
+    fn lift(&mut self, log: &mut File) -> Result<String> {
         let build_dir = self.project.build_dir();
         let x87 = self.project.x87;
         let facts = self.facts(log)?;
@@ -218,10 +218,10 @@ impl Pipeline {
         );
         writeln!(log, "{summary}")?;
         println!("{summary}");
-        Ok(())
+        Ok(summary)
     }
 
-    fn emit(&mut self, log: &mut File) -> Result<()> {
+    fn emit(&mut self, log: &mut File) -> Result<String> {
         let gen_dir = self.project.gen_dir.clone();
         let build_dir = self.project.build_dir();
         let (lang, package) = (self.project.lang.clone(), self.project.build.target.clone());

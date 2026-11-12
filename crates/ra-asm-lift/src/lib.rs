@@ -278,6 +278,32 @@ impl Lifted {
         }
     }
 
+    /// A lift of the same tables with nothing lifted yet and an empty module: what one thread of a
+    /// parallel lift writes into, whose imports, wrappers and warnings join the lift's after.
+    fn worker(&self) -> Lifted {
+        Lifted {
+            module: Module::default(),
+            imports: BTreeSet::new(),
+            functions: self.functions.clone(),
+            runtime: self.runtime.clone(),
+            thunks: self.thunks.clone(),
+            eh: self.eh,
+            entry: self.entry,
+            roots: BTreeSet::new(),
+            wrappers: BTreeSet::new(),
+            fastcall: BTreeSet::new(),
+            data: self.data.clone(),
+            vtables: Vec::new(),
+            standalone: self.standalone,
+            bits: self.bits,
+            isa: self.isa,
+            x87: self.x87,
+            relocated: self.relocated.clone(),
+            traced_calls: self.traced_calls.clone(),
+            warnings: Vec::new(),
+        }
+    }
+
     /// The address operand of `address` in standalone mode: a byte of a data section, or a function.
     /// A base just before a section (within a page) is a byte of that section at a negative
     /// offset: the compiler folds the first index of a table into the displacement, so
@@ -481,13 +507,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     }
     let tls = state::tls_global(image, &lifted);
     lifted.module.globals.push(tls);
-    for f in analysis.ported() {
-        let built = match isa {
-            Isa::X86 => x86::lift_function(image, analysis, &mut lifted, f),
-            Isa::Arm64 => arm64::lift_function(image, analysis, &mut lifted, f),
-        };
-        lifted.module.functions.push(built);
-    }
+    lift_functions(image, analysis, &mut lifted);
     // A function whose address the code or the data holds is a root as well: a window procedure
     // or a thread's start the system calls back, whose callers the raise never sees, so it keeps
     // the result it writes.
@@ -542,6 +562,50 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
         lifted.module.functions.push(wrapper);
     }
     lifted
+}
+
+/// The fewest functions a lift spreads over threads: below it a thread costs more than it saves.
+const PARALLEL_FROM: usize = 64;
+
+/// Lifts the ported functions of `analysis` into `lifted`, on every core of the host. A function's
+/// lift reads only the analysis and the lift's tables, so each thread lifts a run of consecutive
+/// functions into a worker of its own and the runs join in address order: the module, the
+/// warnings and the imports are the ones a lift on one thread writes.
+fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted) {
+    let lift_one = |lifted: &mut Lifted, f: &ra_asm_analysis::Function| match lifted.isa {
+        Isa::X86 => x86::lift_function(image, analysis, lifted, f),
+        Isa::Arm64 => arm64::lift_function(image, analysis, lifted, f),
+    };
+    let ported: Vec<&ra_asm_analysis::Function> = analysis.ported().collect();
+    let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
+    if threads == 1 || ported.len() < PARALLEL_FROM {
+        for f in ported {
+            let built = lift_one(lifted, f);
+            lifted.module.functions.push(built);
+        }
+        return;
+    }
+    let run = ported.len().div_ceil(threads);
+    let workers: Vec<(Vec<ra_asm_ir::Function>, Lifted)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = ported
+            .chunks(run)
+            .map(|functions| {
+                let mut worker = lifted.worker();
+                scope.spawn(move || {
+                    let built: Vec<ra_asm_ir::Function> = functions.iter().map(|f| lift_one(&mut worker, f)).collect();
+                    (built, worker)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+    });
+    for (built, worker) in workers {
+        lifted.module.functions.extend(built);
+        lifted.warnings.extend(worker.warnings);
+        lifted.imports.extend(worker.imports);
+        lifted.wrappers.extend(worker.wrappers);
+        lifted.fastcall.extend(worker.fastcall);
+    }
 }
 
 /// The C header the driver includes: the base, the size, the entry, and the imports to bind.
