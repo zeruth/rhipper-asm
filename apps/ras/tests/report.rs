@@ -33,6 +33,28 @@ fn the_report_has_its_four_tables() {
     assert_eq!(functions["coverage"], json);
 }
 
+/// `ras info` names the toolset of each fixture from its binary: lld's images by their linker
+/// version and the absent rich header, the MSVC ones by the rich header's linker and compiler.
+#[test]
+fn info_names_the_toolset() {
+    let toolsets = [
+        ("testdata/bin/hello64.exe", "clang/lld"),
+        ("testdata/rhtest/core-O2.exe", "MSVC 14.51"),
+        ("testdata/rhtest/core-vs2010.exe", "MSVC 16.00"),
+    ];
+    for (path, name) in toolsets {
+        let exe = root().join(path);
+        if !exe.exists() {
+            eprintln!("{} is not here: its toolset is not checked", exe.display());
+            continue;
+        }
+        let text = ras(&["info", exe.to_str().unwrap()]);
+        assert!(text.lines().any(|l| l.starts_with("toolset") && l.contains(name)), "no toolset {name} for {path} in:\n{text}");
+        let json: serde_json::Value = serde_json::from_str(&ras(&["--json", "info", exe.to_str().unwrap()])).unwrap();
+        assert_eq!(json["toolset"]["name"], name, "{path}: {}", json["toolset"]);
+    }
+}
+
 /// The MSVC-built core program is fully covered: no instruction of it traps.
 #[test]
 fn the_core_program_has_no_uncovered_instruction() {

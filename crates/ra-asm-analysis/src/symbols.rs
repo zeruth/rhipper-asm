@@ -118,6 +118,7 @@ pub fn name_functions(image: &Image, functions: &mut BTreeMap<u64, Function>) {
     for symbol in &image.symbols {
         let Some(f) = functions.get_mut(&symbol.va) else { continue };
         f.symbol = Some(symbol.name.clone());
+        f.object = symbol.object.as_ref().map(|o| symbol.library.as_ref().map_or_else(|| o.clone(), |l| format!("{l}:{o}")));
         if f.name == function::name_for(image, f) && !f.origins.iter().any(|o| matches!(o, crate::Origin::Export(_))) {
             f.name = undecorate(&symbol.name, image.is_64());
         }
