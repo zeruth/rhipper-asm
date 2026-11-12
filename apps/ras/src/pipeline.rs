@@ -509,13 +509,8 @@ fn interpret_reference(
 ) -> Result<Outcome> {
     writeln!(log, "$ ras run --level abi --record {} {}", trace.display(), project.exe.display())?;
     let started = Instant::now();
-    let analysis = ra_asm_analysis::analyze_with(image, facts);
-    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: project.x87 });
-    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
-    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
-    lifted.apply_names(&analysis, Some(&mut signatures));
     let run = ra_asm_lift::run::Options { args: project.run.args.clone(), record: Some(trace.to_path_buf()), ..Default::default() };
-    let outcome = ra_asm_lift::run::run(image, &lifted, &signatures, &run)?;
+    let outcome = interpret(image, facts, project, &run)?;
     let text = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
     log.write_all(text.as_bytes())?;
     if let Some(stop) = &outcome.stop {
@@ -523,6 +518,22 @@ fn interpret_reference(
     }
     let stdout = text.lines().map(str::to_owned).collect();
     Ok(Outcome { code: Some(outcome.exit), alive: false, secs: started.elapsed().as_secs(), stdout })
+}
+
+/// Runs the reference's IR through the interpreter with `run`'s options: lifted as the emit step
+/// lifts it, raised to the ABI level, with the port's names, so its functions are the port's.
+pub(crate) fn interpret(
+    image: &ra_asm_pe::Image,
+    facts: &ra_asm_analysis::Facts,
+    project: &Project,
+    run: &ra_asm_lift::run::Options,
+) -> Result<ra_asm_lift::run::Outcome> {
+    let analysis = ra_asm_analysis::analyze_with(image, facts);
+    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: project.x87 });
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
+    ra_asm_lift::run::run(image, &lifted, &signatures, run)
 }
 
 /// Puts `dir` first on the `PATH` of `command`, so a DLL the program loads by name comes from
