@@ -7,6 +7,7 @@ mod doctor;
 mod emit;
 mod functions;
 mod lift;
+mod lockstep;
 mod pipeline;
 mod project;
 mod report;
