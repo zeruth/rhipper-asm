@@ -34,7 +34,38 @@ pub fn run(f: &mut Function) -> bool {
         }
         changed = true;
     }
+    if changed {
+        free_entry(f);
+    }
     changed
+}
+
+/// Gives `f` an entry no block branches to. A rebuilt graph can loop back to the function's
+/// first block, which LLVM refuses as an entry: a new entry goes before it, holding the
+/// allocations, which run once.
+fn free_entry(f: &mut Function) {
+    let entry = f.blocks[0].id;
+    if !f.blocks.iter().any(|b| b.terminator.successors().contains(&entry)) {
+        return;
+    }
+    let id = BlockId(f.blocks.iter().map(|b| b.id.0).max().unwrap_or(0) + 1);
+    let mut name = "flat.entry".to_owned();
+    let mut n = 0;
+    while f.blocks.iter().any(|b| b.name == name) || f.value_names.contains(&name) {
+        n += 1;
+        name = format!("flat.entry.{n}");
+    }
+    let first = &mut f.blocks[0];
+    let (allocas, rest): (Vec<Instruction>, Vec<Instruction>) =
+        std::mem::take(&mut first.instrs).into_iter().partition(|i| matches!(i.inst, Inst::Alloca { .. }));
+    first.instrs = rest;
+    // A join at the old entry comes in from the start with nothing defined yet.
+    for i in &mut first.instrs {
+        if let Inst::Phi { incoming, .. } = &mut i.inst {
+            incoming.push((Operand::Undef, id));
+        }
+    }
+    f.blocks.insert(0, Block { id, name, instrs: allocas, terminator: Terminator::Br(entry), address: None });
 }
 
 /// A dispatcher: the header, its state phi, the blocks that only test the state, and the header's
