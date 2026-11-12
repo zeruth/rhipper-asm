@@ -119,3 +119,44 @@ fn the_server_reads_the_translation_of_a_project() {
     let json: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("rhipper.json")).unwrap()).unwrap();
     assert!(json.get("hand").is_none(), "{json}");
 }
+
+#[test]
+fn a_rename_through_the_server_lands_in_the_sidecar_and_the_next_emit() {
+    let dir = ra_asm_testing::Scratch::new("ras-serve-tests", "annotations");
+    std::fs::create_dir_all(dir.join("ref")).unwrap();
+    std::fs::copy(root().join("testdata/bin/control64.exe"), dir.join("ref/control64.exe")).unwrap();
+    std::fs::write(dir.join("rhipper.json"), r#"{ "name": "control", "exe": "ref/control64.exe" }"#).unwrap();
+    let responses = ask(
+        &["--project", dir.to_str().unwrap()],
+        &[
+            json!({"jsonrpc": "2.0", "id": 1, "method": "annotate", "params": {"query": "F_140001330", "name": "fib", "comment": "the n-th Fibonacci number"}}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "function", "params": {"query": "fib"}}),
+            json!({"jsonrpc": "2.0", "id": 3, "method": "annotate", "params": {"query": "0x140001330", "name": "mainCRTStartup"}}),
+            json!({"jsonrpc": "2.0", "id": 4, "method": "annotations"}),
+        ],
+    );
+    assert_eq!(responses[0]["result"]["annotation"]["name"], "fib", "{}", responses[0]);
+    // The server answers with the new name from the next request on.
+    let function = &responses[1]["result"];
+    assert_eq!(function["addr"], "0x140001330", "{function}");
+    assert_eq!(function["annotation"]["comment"], "the n-th Fibonacci number", "{function}");
+    // A name the host's runtime owns is refused, and the annotation stays as it was.
+    assert_eq!(responses[2]["error"]["code"], -32602, "{}", responses[2]);
+    assert_eq!(responses[3]["result"]["annotations"][0]["name"], "fib", "{}", responses[3]);
+    // One function, one file, one key a line.
+    let file = dir.join("rhipper/annotations/0x140001330.json");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(text, "{\n  \"addr\": \"0x140001330\",\n  \"name\": \"fib\",\n  \"comment\": \"the n-th Fibonacci number\"\n}\n");
+    // The next emit names the function as the sidecar does, in the source and in the table.
+    let emitted =
+        Command::new(env!("CARGO_BIN_EXE_ras")).args(["pipeline", "--project"]).arg(&dir).args(["--only", "emit"]).output().unwrap();
+    assert!(emitted.status.success(), "{}", String::from_utf8_lossy(&emitted.stderr));
+    let table: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/functions.json")).unwrap()).unwrap();
+    let entry = table.as_array().unwrap().iter().find(|e| e["addr"] == "0x140001330").unwrap();
+    assert_eq!(entry["name"], "fib", "{entry}");
+    assert_eq!(entry["annotated"], true, "{entry}");
+    assert_eq!(entry["comment"], "the n-th Fibonacci number", "{entry}");
+    let file = entry["file"].as_str().unwrap();
+    let source = std::fs::read_to_string(dir.join("src/gen").join(file)).unwrap();
+    assert!(source.contains("fib("), "{source}");
+}

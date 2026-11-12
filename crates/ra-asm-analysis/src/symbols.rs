@@ -232,7 +232,7 @@ fn is_identifier(name: &str) -> bool {
 /// the lift's own prefixes (the import wrappers, the universal entries), the identifiers C
 /// reserves (`__*`), the functions of the host's C library, which the port links against, and
 /// the entry points of the host's C runtime, which the linker would take from the port instead.
-fn is_reserved(name: &str) -> bool {
+pub fn is_reserved(name: &str) -> bool {
     const HOST_RUNTIME: &[&str] =
         &["mainCRTStartup", "wmainCRTStartup", "WinMainCRTStartup", "wWinMainCRTStartup", "_DllMainCRTStartup", "DllMainCRTStartup"];
     const KEYWORDS: &[&str] = &[
