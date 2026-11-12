@@ -10,9 +10,13 @@
 //! (none on ARM64, whose `bl` leaves it in the link register) and by what else it pops; the pre-
 //! and post-indexed ARM64 forms are an add and a store to `sp`, followed like any other; an import
 //! wrapper, which runs in place of the native call, moves it
-//! by nothing; an indirect x86 call moves it by an amount only the callee knows.
+//! by nothing; an indirect x86 call moves it by an amount only the callee knows. A call through
+//! a vtable slot whose functions pop different amounts moves it by the amount of those that can
+//! take the arguments there: a callee pops only what its caller passed, and the stack bytes that
+//! hold a callee-saved register's value from the entry (the prologue's `push esi`) are no
+//! argument, since that value means nothing to the function.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Operand, Terminator, Type, ValueId};
 
@@ -47,8 +51,9 @@ pub struct StackInfo {
 }
 
 /// Analyzes `f`, whose state pointer is `state`. `call_pops` is what the lifted callee of a call
-/// pops beyond its return address, as far as the inference knows it so far; `None` for a callee
-/// it does not know.
+/// may pop beyond its return address, as far as the inference knows it so far: one amount for a
+/// direct call, the amount of each function a vtable slot holds; `None` for a callee it does not
+/// know.
 // The names are the ones the analysis is written in: `f`, `n` blocks, `sp`, a block `b` and an
 // instruction `i`.
 #[allow(clippy::many_single_char_names)]
@@ -57,7 +62,7 @@ pub fn analyze(
     state: ValueId,
     pointers: &HashMap<ValueId, Slot>,
     target: Target,
-    call_pops: &dyn Fn(&Inst) -> Option<i64>,
+    call_pops: &dyn Fn(&Inst) -> Option<Vec<i64>>,
 ) -> StackInfo {
     let n = f.blocks.len();
     let order = reverse_post_order(f);
@@ -73,8 +78,14 @@ pub fn analyze(
     let mut at_entry = [None; GPRS];
     at_entry[sp] = Some(0);
     entry[0] = Some(at_entry);
+    let mut saves_entry: Vec<Option<Saves>> = vec![None; n];
+    let mut saves_exit: Vec<Option<Saves>> = vec![None; n];
+    let intact = (0..GPRS).filter(|&r| r != sp && target.callee_saved(Slot::Gpr(r as u8))).fold(0u64, |m, r| m | 1 << r);
+    saves_entry[0] = Some(Saves { intact, bytes: BTreeSet::new() });
     let mut info = StackInfo::default();
     let mut symbolic: HashMap<ValueId, i64> = HashMap::new();
+    // The values that are a callee-saved register's value from the entry.
+    let mut entry_values: HashSet<ValueId> = HashSet::new();
     let _ = state;
 
     for _round in 0..8 {
@@ -83,19 +94,30 @@ pub fn analyze(
             // Join the predecessors.
             if bi != 0 {
                 let mut joined: Option<Regs> = None;
+                let mut joined_saves: Option<Saves> = None;
                 for p in preds.get(&f.blocks[bi].id).cloned().unwrap_or_default() {
                     let pi = index_of[&p];
                     joined = match (joined, exit[pi]) {
                         (None, x) | (x, None) => x,
                         (Some(a), Some(b)) => Some(join(a, b)),
                     };
+                    joined_saves = match (joined_saves, &saves_exit[pi]) {
+                        (None, x) => x.clone(),
+                        (x, None) => x,
+                        (Some(a), Some(b)) => Some(a.join(b)),
+                    };
                 }
                 if joined != entry[bi] {
                     entry[bi] = joined;
                     changed = true;
                 }
+                if joined_saves != saves_entry[bi] {
+                    saves_entry[bi] = joined_saves;
+                    changed = true;
+                }
             }
             let Some(mut regs) = entry[bi] else { continue };
+            let mut saves = saves_entry[bi].clone().unwrap_or_default();
             for (ii, i) in f.blocks[bi].instrs.iter().enumerate() {
                 let first = target.first_stack_arg();
                 let symbolic_arg = |o: &Operand| matches!(o, Operand::Local(v) if symbolic.get(v).is_some_and(|&k| k >= first));
@@ -121,6 +143,11 @@ pub fn analyze(
                                 Some(k) => symbolic.insert(result, k),
                                 None => symbolic.remove(&result),
                             };
+                            if saves.intact & (1u64 << *r) != 0 {
+                                entry_values.insert(result);
+                            } else {
+                                entry_values.remove(&result);
+                            }
                         }
                     }
                     Inst::Store { ptr: Operand::Local(p), value, .. } if matches!(pointers.get(p), Some(Slot::Gpr(_))) => {
@@ -130,8 +157,11 @@ pub fn analyze(
                             _ => None,
                         };
                         regs[usize::from(*r)] = k;
+                        saves.intact &= !(1u64 << *r);
                         if usize::from(*r) == sp && k.is_none() {
                             info.dynamic = true;
+                            // A push through a stack pointer the analysis lost writes where it cannot see.
+                            saves.bytes.clear();
                         }
                     }
                     Inst::Bin {
@@ -151,9 +181,19 @@ pub fn analyze(
                     }
                     // The 32-bit model reads the pointer as a dword and widens it back: the same
                     // offset throughout.
-                    Inst::Cast { cast: Cast::IntToPtr | Cast::Trunc | Cast::ZExt | Cast::SExt, value: Operand::Local(v), .. } => {
+                    Inst::Cast { cast, value: Operand::Local(v), .. }
+                        if matches!(cast, Cast::IntToPtr | Cast::Trunc | Cast::ZExt | Cast::SExt) =>
+                    {
                         if let (Some(result), Some(&k)) = (i.result, symbolic.get(v)) {
                             symbolic.insert(result, k);
+                        }
+                        // The 32-bit push of a register stores its low dword.
+                        if let Some(result) = i.result {
+                            if matches!(cast, Cast::Trunc | Cast::ZExt) && entry_values.contains(v) {
+                                entry_values.insert(result);
+                            } else {
+                                entry_values.remove(&result);
+                            }
                         }
                     }
                     Inst::Load { ty, ptr: Operand::Local(p), .. } => {
@@ -166,11 +206,18 @@ pub fn analyze(
                             }
                         }
                     }
-                    Inst::Store { ty, ptr: Operand::Local(p), .. } => {
+                    Inst::Store { ty, ptr: Operand::Local(p), value, .. } => {
                         if let Some(&k) = symbolic.get(p) {
-                            touch(&mut info, k, ty.bits().unwrap_or(64) as u16);
+                            let bits = ty.bits().unwrap_or(64) as u16;
+                            touch(&mut info, k, bits);
                             if k >= target.first_stack_arg() {
                                 info.argument_area_written = true;
+                            }
+                            let bytes = k..k + i64::from(bits.div_ceil(8));
+                            if i64::from(bits / 8) == ptr && matches!(value, Operand::Local(v) if entry_values.contains(v)) {
+                                saves.bytes.extend(bytes);
+                            } else {
+                                saves.bytes.retain(|b| !bytes.contains(b));
                             }
                         }
                     }
@@ -222,14 +269,33 @@ pub fn analyze(
                                         }
                                     }
                                 }
-                                _ => match call_pops(inst) {
-                                    Some(pops) => regs[sp] = regs[sp].map(|k| k + pushed + pops),
-                                    None if target.is_64() => regs[sp] = regs[sp].map(|k| k + pushed),
-                                    None => {
-                                        regs[sp] = None;
-                                        info.dynamic = true;
+                                _ => {
+                                    // The amounts a callee that can take the arguments here pops:
+                                    // the bytes it pops hold none of the entry values saved.
+                                    let pops = call_pops(inst).and_then(|amounts| {
+                                        let possible: Vec<i64> = amounts
+                                            .into_iter()
+                                            .filter(|&p| {
+                                                regs[sp].is_none_or(|k| !(k + pushed..k + pushed + p).any(|b| saves.bytes.contains(&b)))
+                                            })
+                                            .collect();
+                                        let first = *possible.first()?;
+                                        possible.iter().all(|&p| p == first).then_some(first)
+                                    });
+                                    match pops {
+                                        Some(pops) => regs[sp] = regs[sp].map(|k| k + pushed + pops),
+                                        None if target.is_64() => regs[sp] = regs[sp].map(|k| k + pushed),
+                                        None => {
+                                            regs[sp] = None;
+                                            info.dynamic = true;
+                                        }
                                     }
-                                },
+                                }
+                            }
+                            // The callee's own frame lies below the stack pointer it returns with.
+                            match regs[sp] {
+                                Some(top) => saves.bytes.retain(|&b| b >= top),
+                                None => saves.bytes.clear(),
                             }
                         }
                     }
@@ -237,6 +303,10 @@ pub fn analyze(
             }
             if exit[bi] != Some(regs) {
                 exit[bi] = Some(regs);
+                changed = true;
+            }
+            if saves_exit[bi].as_ref() != Some(&saves) {
+                saves_exit[bi] = Some(saves);
                 changed = true;
             }
         }
@@ -269,6 +339,20 @@ fn join(a: Regs, b: Regs) -> Regs {
         }
     }
     out
+}
+
+/// The callee-saved registers that still hold their value from the entry, as a mask by number,
+/// and the stack bytes that hold a copy of one: what the prologue saved.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Saves {
+    intact: u64,
+    bytes: BTreeSet<i64>,
+}
+
+impl Saves {
+    fn join(&self, other: &Self) -> Self {
+        Self { intact: self.intact & other.intact, bytes: self.bytes.intersection(&other.bytes).copied().collect() }
+    }
 }
 
 fn touch(info: &mut StackInfo, offset: i64, bits: u16) {

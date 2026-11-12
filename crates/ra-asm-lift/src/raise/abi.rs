@@ -638,18 +638,17 @@ fn gather(f: &Function, virtual_calls: &HashMap<ValueId, Candidates>, signatures
         (usize::from(n) < target.float_params() && live_in[Slot::Xmm(n).index()]).then(|| xmm_kind(f, &pointers, n))
     };
     let float_positions: [Option<Kind>; ARGUMENT_REGISTERS] = std::array::from_fn(|n| xmm_kind(n as u8));
-    // What a lifted callee pops: a call through a vtable slot pops what its functions pop, when
-    // they agree; otherwise the amount is known at run time alone.
+    // What a lifted callee may pop: a call through a vtable slot pops what one of its functions
+    // pops, which the stack analysis narrows to those that can take the arguments at the call.
     let pops_of = |name: &str| signatures.get(name).map_or(0, |s| s.pops as i64);
-    let call_pops = |inst: &Inst| -> Option<i64> {
+    let call_pops = |inst: &Inst| -> Option<Vec<i64>> {
         if let Inst::Call { callee: Callee::Direct(name), .. } = inst
             && name.starts_with("F_")
         {
-            return Some(pops_of(name));
+            return Some(vec![pops_of(name)]);
         }
         let candidates = virtual_candidates(inst, virtual_calls)?;
-        let pops = pops_of(&candidates[0].1);
-        candidates.iter().all(|(_, name)| pops_of(name) == pops).then_some(pops)
+        Some(candidates.iter().map(|(_, name)| pops_of(name)).collect())
     };
     let stack = analyze_stack(f, state, &pointers, target, &call_pops);
 
