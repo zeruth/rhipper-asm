@@ -24,10 +24,10 @@ pub(crate) enum Root {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Place {
-    pub root: Root,
-    pub offset: i64,
+    pub(crate) root: Root,
+    pub(crate) offset: i64,
     /// Terms the program computes, each with its scale, added to the offset.
-    pub terms: Vec<(Type, Operand, i128)>,
+    pub(crate) terms: Vec<(Type, Operand, i128)>,
     /// Where the first term entered, block and index. An access reads the terms where it stands,
     /// so nothing with a side effect may lie between the two.
     anchor: Option<(usize, usize)>,
@@ -79,10 +79,10 @@ pub(crate) struct Safety {
     /// Each proven access by the address of its instruction, with its place.
     accesses: HashMap<usize, Place>,
     /// The locals that never escape, by their `alloca`.
-    pub locals: HashMap<ValueId, Local>,
+    pub(crate) locals: HashMap<ValueId, Local>,
     /// The place values that are never written out: every use is a proven access or another
     /// such value, so the accesses name the root and the offset instead.
-    pub folded: HashSet<ValueId>,
+    pub(crate) folded: HashSet<ValueId>,
 }
 
 /// Whether every bit pattern is a value of `ty` in Rust, as the runtime's `Pod` has it.
