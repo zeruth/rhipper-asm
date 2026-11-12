@@ -234,6 +234,17 @@ impl Module {
         }
     }
 
+    /// A module for the x86-64 Linux target: the lift of a Linux program, whose imports are the C
+    /// library's by System V and whose port a Linux host builds.
+    pub fn x86_64_linux(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            triple: "x86_64-unknown-linux-gnu".to_owned(),
+            data_layout: "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128".to_owned(),
+            ..Self::default()
+        }
+    }
+
     /// A module for the ARM64 Windows target: the lift of an ARM64 image, which runs on an ARM64
     /// host or through the interpreter.
     pub fn aarch64_windows(name: &str) -> Self {

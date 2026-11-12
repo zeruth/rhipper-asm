@@ -9,9 +9,11 @@ use std::collections::HashMap;
 
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, Function, Inst, Operand, Terminator, Type, ValueId};
 
-pub const GPRS: usize = 16;
+/// The widest state's registers: ARM64's 31 general registers and `sp`, and its 32 vector
+/// registers. The x86 state uses the first 16 of each (see [`super::Target::slots`]).
+pub const GPRS: usize = 32;
 pub const FLAGS: usize = 8;
-pub const XMMS: usize = 16;
+pub const XMMS: usize = 32;
 pub const SLOTS: usize = GPRS + FLAGS + XMMS;
 
 /// A slot of the state.
@@ -66,7 +68,9 @@ impl Slot {
 
     pub fn name(self) -> String {
         match self {
-            Self::Gpr(n) => GPR_NAMES[n as usize].to_owned(),
+            // Past x86's sixteen only ARM64 has registers: `x16` to `x30`, then `sp`.
+            Self::Gpr(31) => "sp".to_owned(),
+            Self::Gpr(n) => GPR_NAMES.get(n as usize).map_or_else(|| format!("x{n}"), |name| (*name).to_owned()),
             Self::Flag(n) => FLAG_NAMES[n as usize].to_owned(),
             Self::Xmm(n) => format!("xmm{n}"),
         }
@@ -106,9 +110,9 @@ pub fn slot_of(inst: &Inst, state: ValueId) -> Option<Slot> {
     }
     let [(_, Operand::Int(0)), (_, Operand::Int(field)), (_, Operand::Int(n))] = indices.as_slice() else { return None };
     match (field, n) {
-        (0, n) if (0..16).contains(n) => Some(Slot::Gpr(*n as u8)),
-        (2, n) if (0..8).contains(n) => Some(Slot::Flag(*n as u8)),
-        (3, n) if (0..16).contains(n) => Some(Slot::Xmm(*n as u8)),
+        (0, n) if (0..GPRS as i128).contains(n) => Some(Slot::Gpr(*n as u8)),
+        (2, n) if (0..FLAGS as i128).contains(n) => Some(Slot::Flag(*n as u8)),
+        (3, n) if (0..XMMS as i128).contains(n) => Some(Slot::Xmm(*n as u8)),
         _ => None,
     }
 }
@@ -161,10 +165,11 @@ pub fn call_touches(slot: Slot) -> bool {
     !slot.is_flag()
 }
 
-/// Every register: what a `ret` hands back in the machine model, where the caller may read any.
-pub fn all_registers() -> SlotSet {
+/// Every register of `target`'s state: what a `ret` hands back in the machine model, where the
+/// caller may read any.
+pub fn all_registers(target: super::Target) -> SlotSet {
     let mut set = NO_SLOTS;
-    for slot in Slot::all().filter(|s| call_touches(*s)) {
+    for slot in target.slots().filter(|s| call_touches(*s)) {
         set[slot.index()] = true;
     }
     set
@@ -312,9 +317,9 @@ pub struct Liveness {
 
 impl Liveness {
     /// Computes the liveness of `f`. A `ret` reads the slots of `exit_set`; a state call reads and
-    /// writes every register.
-    pub fn of(f: &Function, pointers: &HashMap<ValueId, Slot>, order: &[usize], exit_set: SlotSet) -> Self {
-        let all = all_registers();
+    /// writes every register of `target`.
+    pub fn of(f: &Function, pointers: &HashMap<ValueId, Slot>, order: &[usize], exit_set: SlotSet, target: super::Target) -> Self {
+        let all = all_registers(target);
         Self::with_calls(f, pointers, order, exit_set, &|_| (all, all))
     }
 

@@ -12,6 +12,20 @@ fn available(tool: &str) -> bool {
     Command::new(tool).arg("--version").output().is_ok_and(|o| o.status.success())
 }
 
+/// The port of a Windows fixture builds with cmake and clang and runs as a Windows process: on
+/// another host, or without the tools, the build and the run skip and say why.
+fn port_builds_here() -> bool {
+    if !cfg!(windows) {
+        eprintln!("the port of a Windows program runs on a Windows host: the build and the run are skipped");
+        return false;
+    }
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return false;
+    }
+    true
+}
+
 /// A project directory with the fixture as its reference binary, whose run step compares the
 /// port with it. The directory goes when the guard drops; `RA_KEEP_SCRATCH` keeps it for a
 /// person to read.
@@ -173,8 +187,7 @@ fn the_project_map_names_the_functions() {
 
 #[test]
 fn the_whole_pipeline_builds_and_runs_the_port() {
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let dir = project("all");
@@ -204,6 +217,66 @@ fn the_whole_pipeline_builds_and_runs_the_port() {
     // A second run reuses the configured build directory.
     let (ok, text) = ras(&dir, &["--from", "build"]);
     assert!(ok, "{text}");
+}
+
+/// Runs the whole pipeline over control with `build.generator` set to `generator`, and checks
+/// that the build wrote `files` at the root and the port printed what the reference prints.
+fn port_through(generator: &str, files: &[&str]) {
+    let dir = project_with(
+        &format!("generator-{generator}"),
+        &format!(
+            r#"{{ "name": "control", "exe": "ref/control64.exe", "build": {{ "generator": "{generator}" }}, "run": {{ "compare": true }} }}"#
+        ),
+    );
+    let (ok, text) = ras(&dir, &[]);
+    assert!(ok, "{text}");
+    for file in files {
+        assert!(dir.join(file).is_file(), "the {generator} build wrote no {file}:\n{text}");
+    }
+    assert!(dir.join("build").join(generator).is_dir(), "no build/{generator}:\n{text}");
+    let runs = std::fs::read_to_string(dir.join("build/pipeline/runs.jsonl")).unwrap();
+    let record: serde_json::Value = serde_json::from_str(runs.lines().last().unwrap()).unwrap();
+    assert_eq!(record["exit"], "0", "{record}");
+    assert_eq!(record["verdict"], "same", "{record}");
+    // A second build reuses what the first wrote and configured.
+    let (ok, text) = ras(&dir, &["--only", "build"]);
+    assert!(ok, "{text}");
+}
+
+/// The port of control built through the generator `rhipper.json` names: a Visual Studio solution
+/// built by `msbuild` when it is on the PATH, else the `CMake` project.
+#[test]
+fn the_pipeline_builds_through_the_generator_of_the_project() {
+    let msbuild = Command::new("msbuild").args(["-version", "-nologo"]).output().is_ok_and(|o| o.status.success());
+    if msbuild {
+        port_through("vs", &["control.sln", "control.vcxproj"]);
+    } else if available("cmake") && available("clang") {
+        eprintln!("msbuild is not on the PATH: the port is built through CMake");
+        port_through("cmake", &["CMakeLists.txt"]);
+    } else {
+        eprintln!("neither msbuild nor cmake and clang are on the PATH: the build and the run are skipped");
+    }
+}
+
+/// The host's clang alone builds the port, with no build system, as on a Linux or macOS machine
+/// that has nothing else.
+#[test]
+fn the_host_clang_builds_the_port_without_a_build_system() {
+    if !available("clang") {
+        eprintln!("clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    port_through("clang", &[]);
+}
+
+/// A Meson project, when Meson is on the PATH.
+#[test]
+fn meson_builds_the_port() {
+    if !(available("meson") && available("ninja") && available("clang")) {
+        eprintln!("meson, ninja or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    port_through("meson", &["meson.build", "build/meson-sources.txt"]);
 }
 
 /// Sends `requests` to a server over the project at `dir` and returns the responses, in order.
@@ -236,8 +309,7 @@ fn serve(dir: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
 /// interpreter over its IR, replays over the same port to the same function and value.
 #[test]
 fn the_trace_beside_the_port_names_the_wrong_function() {
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let dir = project_with(
@@ -339,8 +411,7 @@ fn the_trace_beside_the_port_names_the_wrong_function() {
 /// a run to the first divergence takes both to their end with the same exit.
 #[test]
 fn the_lockstep_stops_the_port_and_the_reference_at_the_same_entry() {
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let dir = project_with(
@@ -421,8 +492,7 @@ fn the_pipeline_leaves_a_hand_written_function_to_the_sources() {
     assert_eq!(fib["file"], "program.c", "{fib}");
     let line = fib["line"].as_u64().unwrap() as usize;
     assert_eq!(c.lines().nth(line - 1), Some("uint32_t fib(uint32_t arg0);"), "{fib}");
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let (ok, text) = ras(&dir, &["--from", "build"]);
@@ -522,8 +592,7 @@ fn the_pipeline_ports_a_program_with_resources() {
     assert_eq!(strings, "1\thello from the string table\n2\ta second string\n3\tthe third, with a tab\\tand quotes \"here\"\n");
     assert_eq!(std::fs::read(dir.join("src/gen/resources/RCDATA/100.bin")).unwrap(), [1, 2, 3, 4, 5, 6, 7, 8]);
     assert!(dir.join("src/gen/resources.res").is_file());
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let (ok, text) = ras(&dir, &["--from", "build"]);
@@ -554,8 +623,7 @@ fn the_pipeline_ports_a_dll() {
         "    ordinal_20 @20 NONAME\n    ra_add @21\n    ra_counter = sec_data @22 DATA\n    ra_tick = KERNEL32.GetTickCount @23\n    ra_twice @24\n"
     );
     assert!(std::fs::read_to_string(dir.join("src/gen/image.h")).unwrap().contains("#define RA_DLL 1\n"));
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let (ok, text) = ras(&dir, &["--from", "build"]);
@@ -586,8 +654,7 @@ fn the_pipeline_ports_a_32_bit_dll() {
     assert!(ok, "{text}");
     let def = std::fs::read_to_string(dir.join("src/gen/exports.def")).unwrap();
     assert!(def.contains("    ra_add @21\n") && def.contains("    ra_counter = sec_data @22 DATA\n"), "{def}");
-    if !(available("cmake") && available("clang")) {
-        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+    if !port_builds_here() {
         return;
     }
     let (ok, text) = ras(&dir, &["--from", "build"]);
@@ -601,6 +668,10 @@ fn the_pipeline_ports_a_32_bit_dll() {
 /// prints what the reference prints.
 #[test]
 fn the_pipeline_builds_a_rust_port() {
+    if !cfg!(windows) {
+        eprintln!("the port of a Windows program runs on a Windows host: the Rust pipeline is skipped");
+        return;
+    }
     if !available("cargo") {
         eprintln!("cargo is not on the PATH: the Rust pipeline is skipped");
         return;

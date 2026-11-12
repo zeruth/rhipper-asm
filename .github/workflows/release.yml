@@ -1,7 +1,8 @@
-# The release of ras: on a tag v<version>, build the release binary for Windows x64, pack it with
-# its runtime files, and publish version.txt, ras-<version>-windows-x64.zip and its .sha256, which
-# the Rhipper Workbench downloads into its tools directory. Nightly, and on a dispatch, the smoke
-# corpus instead: `ras smoke` over the runner's Windows system directory.
+# The release of ras: on a tag v<version>, test on Windows and Linux, build the release binary for
+# each host, pack it with its runtime files, and publish version.txt and ras-<version>-<host>.zip
+# with its .sha256 for windows-x64, linux-x64, macos-x64 and macos-arm64, which the Rhipper
+# Workbench downloads into its tools directory. Nightly, and on a dispatch, the smoke corpus
+# instead: `ras smoke` over the runner's Windows system directory.
 name: release
 
 on:
@@ -58,6 +59,23 @@ jobs:
         env:
           CARGO_BUILD_JOBS: "4"
 
+  # On Linux the lift, the IR gate, the interpreter and the emit run over the Windows fixtures, and
+  # the Linux fixture's port builds with the host's clang and runs; the ports of a Windows program
+  # build and run on the Windows job alone.
+  test-linux:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install LLVM
+        run: sudo apt-get update && sudo apt-get install -y clang lld llvm
+      - name: Test
+        run: cargo test --workspace --no-fail-fast
+        env:
+          CARGO_BUILD_JOBS: "4"
+
   # the fuzz targets of fuzz/ build against the released loaders and decoders; the nightly fuzz
   # workflow runs them
   fuzz-targets:
@@ -75,15 +93,43 @@ jobs:
       - name: Build
         run: cargo fuzz build
 
-  release:
-    needs: [test, fuzz-targets]
-    runs-on: windows-latest
+  build:
+    needs: [test, test-linux, fuzz-targets]
+    strategy:
+      matrix:
+        include:
+          - host: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            exe: ras.exe
+            native: true
+          - host: linux-x64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            exe: ras
+            native: true
+          # the Intel build is cross-compiled on the ARM runner, which cannot run it
+          - host: macos-x64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+            exe: ras
+            native: false
+          - host: macos-arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            exe: ras
+            native: true
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
       - name: Build
-        run: cargo build --release -p ras
+        run: cargo build --release -p ras --target ${{ matrix.target }}
       - name: Pack
         shell: pwsh
         run: |
@@ -91,21 +137,50 @@ jobs:
           if ("${{ github.ref_name }}" -ne "v$version" -and "${{ github.event_name }}" -eq "push") {
             throw "the tag ${{ github.ref_name }} does not match the workspace version $version"
           }
+          $exe = "target/${{ matrix.target }}/release/${{ matrix.exe }}"
           # The workbench shows this line under Tools: the binary must answer with the released version.
-          $reported = (& target/release/ras.exe --version | Out-String).Trim()
-          if ($reported -ne "ras $version") {
-            throw "ras --version printed '$reported', expected 'ras $version'"
+          if ("${{ matrix.native }}" -eq "true") {
+            $reported = (& $exe --version | Out-String).Trim()
+            if ($reported -ne "ras $version") {
+              throw "ras --version printed '$reported', expected 'ras $version'"
+            }
           }
           New-Item -ItemType Directory -Force dist/ras | Out-Null
-          Copy-Item target/release/ras.exe dist/ras/
+          Copy-Item $exe dist/ras/
           Copy-Item -Recurse runtime dist/ras/runtime
           Copy-Item README.md dist/ras/
-          $zip = "dist/ras-$version-windows-x64.zip"
-          Compress-Archive -Path dist/ras/* -DestinationPath $zip
-          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  ras-$version-windows-x64.zip" | Out-File -Encoding ascii "$zip.sha256"
-          $version | Out-File -Encoding ascii -NoNewline dist/version.txt
-          "VERSION=$version" | Out-File -Append -Encoding ascii $env:GITHUB_ENV
+          $name = "ras-$version-${{ matrix.host }}.zip"
+          # Compress-Archive drops the executable bit; zip keeps it for the hosts that read it.
+          if ($IsWindows) {
+            Compress-Archive -Path dist/ras/* -DestinationPath "dist/$name"
+          } else {
+            Push-Location dist/ras
+            zip -q -r "../$name" .
+            if ($LASTEXITCODE -ne 0) { throw "zip failed for $name" }
+            Pop-Location
+          }
+          $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name" | Out-File -Encoding ascii "dist/$name.sha256"
+          Remove-Item -Recurse dist/ras
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ras-${{ matrix.host }}
+          path: dist/
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Version
+        run: |
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
+          printf '%s' "$version" > dist/version.txt
+          echo "VERSION=$version" >> "$GITHUB_ENV"
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
@@ -113,7 +188,14 @@ jobs:
           name: ras ${{ env.VERSION }}
           # the notes: what changed since the last release, from the commits, written by GitHub
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             dist/version.txt
             dist/ras-${{ env.VERSION }}-windows-x64.zip
             dist/ras-${{ env.VERSION }}-windows-x64.zip.sha256
+            dist/ras-${{ env.VERSION }}-linux-x64.zip
+            dist/ras-${{ env.VERSION }}-linux-x64.zip.sha256
+            dist/ras-${{ env.VERSION }}-macos-x64.zip
+            dist/ras-${{ env.VERSION }}-macos-x64.zip.sha256
+            dist/ras-${{ env.VERSION }}-macos-arm64.zip
+            dist/ras-${{ env.VERSION }}-macos-arm64.zip.sha256
