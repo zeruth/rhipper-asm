@@ -261,6 +261,7 @@ pub(crate) fn parse(reader: Reader<'_>) -> Result<(Headers, Vec<Section>, Xbe)> 
             directories,
         },
         section_table_offset,
+        rich: None,
     };
     let xbe = Xbe {
         kernel,
