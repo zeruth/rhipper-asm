@@ -3,15 +3,18 @@
 //!
 //! The matching runs in rounds, each on what the ones before matched. The build's symbols go
 //! first, where both builds have them and the caller wants them. Then a function alone in each
-//! build by what it is by itself (its strings, its imports, its recursion, that it never returns,
-//! the vtable slots that hold it) matches, and one alone in each build by the shape of its code
-//! (its instructions with the addresses taken out, as a function nothing changed has in both).
-//! Then the call graph of the matched pairs: the functions the two sides of a pair call, in the
-//! order of their first calls, line up between two callees already matched when the runs between
-//! them are as long on both sides, and the one caller each side has left unmatched match. The
-//! constants a function holds come last, when nothing else matches more. Every step takes only
-//! what is unique on both sides and agrees in strings, imports and return: a function nothing
-//! singles out stays unmatched rather than matched by a guess.
+//! build by what it reaches (the strings and imports of its code and of every function it calls,
+//! which an inlined call keeps, with its recursion, that it never returns, the vtable slots that
+//! hold it) matches, and one alone in each build by the shape of its code (its instructions with
+//! the addresses taken out, as a function nothing changed has in both). Then the call graph of
+//! the matched pairs: the functions the two sides of a pair call, in the order of their first
+//! calls, line up between two callees already matched when the runs between them are as long on
+//! both sides; what the alignment leaves under a pair (the callees of an inlined call, the calls a
+//! compiler evaluated in another order) matches by the matched functions it calls and the values
+//! it compares and moves; and the one caller each side has left unmatched match. The constants a
+//! function holds come last, when nothing else matches more. Every step takes only what is unique
+//! on both sides and agrees in strings, imports and return: a function nothing singles out stays
+//! unmatched rather than matched by a guess.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -108,15 +111,34 @@ pub fn match_functions(old: &Analysis<'_>, new: &Analysis<'_>, symbols: bool) ->
     Matching { pairs, removed, added }
 }
 
-/// What the matching knows of the functions of one build, by entry address.
+/// The functions past which the features a function reaches are not gathered: a function that
+/// reaches more is too high in the program for them to single it out.
+const MAX_REACH: usize = 1024;
+
+/// The bound of the functions left under a matched pair that [`Matcher::leftovers`] weighs.
+const MAX_LEFT: usize = 64;
+
+/// What the matching knows of the functions of one build, by entry address. A feature is the hash
+/// of its text, so the two builds' compare.
 #[derive(Default)]
 struct Side {
     entries: Vec<u64>,
     symbols: HashMap<u64, String>,
-    /// The features of the function by itself, sorted; no name among them without the symbols.
-    local: HashMap<u64, Vec<String>>,
-    /// What two functions must share to match: their strings, imports and return.
-    agree: HashMap<u64, Vec<String>>,
+    /// What singles the function out, sorted: what it reaches with its own marks; empty past
+    /// [`MAX_REACH`]. No name among them without the symbols.
+    local: HashMap<u64, Vec<u64>>,
+    /// The strings and imports of the function's own code, sorted.
+    own: HashMap<u64, Vec<u64>>,
+    /// The strings and imports of the function and of every function it reaches through direct
+    /// calls and jumps, sorted; `None` past [`MAX_REACH`] functions.
+    reach: HashMap<u64, Option<Vec<u64>>>,
+    /// What two functions must share exactly to match: whether it returns, and the import it is
+    /// the thunk of.
+    strict: HashMap<u64, (bool, Option<String>)>,
+    /// The nonzero values, not addresses of the image, the function compares with.
+    compared: HashMap<u64, BTreeSet<i64>>,
+    /// The nonzero values, not addresses of the image, the function moves.
+    moved: HashMap<u64, BTreeSet<i64>>,
     /// The immediates that are neither small nor an address of the image.
     constants: HashMap<u64, BTreeSet<i64>>,
     shape: HashMap<u64, u64>,
@@ -134,7 +156,7 @@ impl Side {
             let mut calls = Vec::new();
             let mut seen = HashSet::new();
             let mut tokens = Vec::new();
-            let mut constants = BTreeSet::new();
+            let (mut constants, mut compared, mut moved) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
             for i in f.blocks.iter().flat_map(|b| &b.instrs) {
                 tokens.push(token(analysis, f, i));
                 if let Some(t) = i.flow.direct_target()
@@ -146,10 +168,17 @@ impl Side {
                 }
                 for o in &i.operands {
                     if let Operand::Imm { value, .. } = o
-                        && value.unsigned_abs() > 0xff
+                        && *value != 0
                         && !analysis.image.is_mapped(*value as u64)
                     {
-                        constants.insert(*value);
+                        if value.unsigned_abs() > 0xff {
+                            constants.insert(*value);
+                        }
+                        match i.mnemonic.as_str() {
+                            "cmp" => compared.insert(*value),
+                            "mov" => moved.insert(*value),
+                            _ => false,
+                        };
                     }
                 }
             }
@@ -160,8 +189,10 @@ impl Side {
             if let Some(symbol) = &f.symbol {
                 side.symbols.insert(f.entry, symbol.clone());
             }
-            side.local.insert(f.entry, local(analysis, f, symbols));
-            side.agree.insert(f.entry, agree(f));
+            side.own.insert(f.entry, own(f));
+            side.strict.insert(f.entry, (f.noreturn, if let Kind::ImportThunk(import) = &f.kind { Some(import.clone()) } else { None }));
+            side.compared.insert(f.entry, compared);
+            side.moved.insert(f.entry, moved);
             side.constants.insert(f.entry, constants);
             side.shape.insert(f.entry, hasher.finish());
             side.tokens.insert(f.entry, tokens);
@@ -173,49 +204,123 @@ impl Side {
         for &f in &side.entries {
             side.callers.entry(f).or_default();
         }
+        for f in analysis.functions.values() {
+            let reach = side.reach_of(f.entry);
+            let local = reach.as_deref().map(|r| local(analysis, f, symbols, r)).unwrap_or_default();
+            side.local.insert(f.entry, local);
+            side.reach.insert(f.entry, reach);
+        }
         side
+    }
+
+    /// The features of `f` and of every function it reaches, sorted; `None` past [`MAX_REACH`]
+    /// functions.
+    fn reach_of(&self, f: u64) -> Option<Vec<u64>> {
+        let mut seen = HashSet::from([f]);
+        let mut stack = vec![f];
+        let mut features = BTreeSet::new();
+        while let Some(g) = stack.pop() {
+            features.extend(self.own[&g].iter().copied());
+            for &c in &self.calls[&g] {
+                if seen.insert(c) {
+                    if seen.len() > MAX_REACH {
+                        return None;
+                    }
+                    stack.push(c);
+                }
+            }
+        }
+        Some(features.into_iter().collect())
     }
 }
 
-/// The features of `f` by itself, the names of the build left out without `symbols`.
-fn local(analysis: &Analysis<'_>, f: &Function, symbols: bool) -> Vec<String> {
-    let mut features: BTreeSet<String> = agree(f).into_iter().collect();
+fn feature(text: &str) -> u64 {
+    let mut h = DefaultHasher::new();
+    text.hash(&mut h);
+    h.finish()
+}
+
+/// What singles `f` out: the features it reaches and its own marks, the names of the build left
+/// out without `symbols`.
+fn local(analysis: &Analysis<'_>, f: &Function, symbols: bool, reach: &[u64]) -> Vec<u64> {
+    let mut marks = Vec::new();
     for origin in &f.origins {
         match origin {
-            Origin::Entry => features.insert("entry".to_owned()),
-            Origin::TlsCallback => features.insert("tls callback".to_owned()),
-            Origin::Export(name) if symbols => features.insert(format!("export {name}")),
-            _ => false,
-        };
+            Origin::Entry => marks.push("entry".to_owned()),
+            Origin::TlsCallback => marks.push("tls callback".to_owned()),
+            Origin::Export(name) if symbols => marks.push(format!("export {name}")),
+            _ => {}
+        }
     }
     if analysis.program_entry == Some(f.entry) {
-        features.insert("program entry".to_owned());
+        marks.push("program entry".to_owned());
     }
     if let Kind::Runtime(name) = &f.kind
         && symbols
     {
-        features.insert(format!("runtime {name}"));
+        marks.push(format!("runtime {name}"));
+    }
+    if let Kind::ImportThunk(import) = &f.kind {
+        marks.push(format!("thunk {import}"));
+    }
+    if f.noreturn {
+        marks.push("noreturn".to_owned());
     }
     if f.calls.contains(&f.entry) || f.tail_calls.contains(&f.entry) {
-        features.insert("recursive".to_owned());
+        marks.push("recursive".to_owned());
     }
-    features.extend(f.virtuals.iter().map(|v| format!("virtual {}+{}#{}", v.class, v.offset, v.slot)));
+    marks.extend(f.virtuals.iter().map(|v| format!("virtual {}+{}#{}", v.class, v.offset, v.slot)));
+    let features: BTreeSet<u64> = reach.iter().copied().chain(marks.iter().map(|m| feature(m))).collect();
     features.into_iter().collect()
 }
 
-/// What two builds of a function share whatever the compiler did: the strings it addresses, the
-/// imports it calls, the import it is the thunk of, and whether it returns.
-fn agree(f: &Function) -> Vec<String> {
+/// What two builds of a function's code keep whatever the compiler did, though an inlined call
+/// moves them from the callee to the caller: the strings it addresses and the imports it calls
+/// or is the thunk of.
+fn own(f: &Function) -> Vec<u64> {
     let mut features = BTreeSet::new();
-    features.extend(f.strings.iter().map(|(_, text)| format!("string {text:?}")));
-    features.extend(f.import_calls.iter().map(|import| format!("import {import}")));
+    features.extend(f.strings.iter().map(|(_, text)| feature(&format!("string {text:?}"))));
+    features.extend(f.import_calls.iter().chain(f.register_import_calls.values()).map(|import| feature(&format!("import {import}"))));
     if let Kind::ImportThunk(import) = &f.kind {
-        features.insert(format!("thunk {import}"));
-    }
-    if f.noreturn {
-        features.insert("noreturn".to_owned());
+        features.insert(feature(&format!("import {import}")));
     }
     features.into_iter().collect()
+}
+
+/// Whether every feature of `own` is among `reach`; a reach past the bound holds them all.
+fn within(own: &[u64], reach: Option<&[u64]>) -> bool {
+    reach.is_none_or(|r| own.iter().all(|x| r.binary_search(x).is_ok()))
+}
+
+/// The one candidate with the highest score, when the score is above zero and no other has it.
+fn best(candidates: &[u64], score: impl Fn(u64) -> usize) -> Option<u64> {
+    let scores: Vec<(usize, u64)> = candidates.iter().map(|&c| (score(c), c)).collect();
+    let top = scores.iter().map(|&(s, _)| s).max()?;
+    let mut at = scores.iter().filter(|&&(s, _)| s == top);
+    match (at.next(), at.next()) {
+        (Some(&(_, c)), None) if top > 0 => Some(c),
+        _ => None,
+    }
+}
+
+/// The unmatched functions `f` reaches through unmatched functions only, in the order it reaches
+/// them; `None` past [`MAX_LEFT`].
+fn left(side: &Side, matched: &HashMap<u64, u64>, f: u64) -> Option<Vec<u64>> {
+    let mut seen = HashSet::from([f]);
+    let mut out = Vec::new();
+    let mut queue = std::collections::VecDeque::from([f]);
+    while let Some(g) = queue.pop_front() {
+        for &c in &side.calls[&g] {
+            if !matched.contains_key(&c) && seen.insert(c) {
+                if out.len() == MAX_LEFT {
+                    return None;
+                }
+                out.push(c);
+                queue.push_back(c);
+            }
+        }
+    }
+    Some(out)
 }
 
 /// The shape of an instruction: its mnemonic and operands, with an address of the image in place
@@ -282,8 +387,17 @@ impl Matcher {
         self.pairs.push(Pair { old, new, how, round: self.round, change: 0 });
     }
 
+    /// Whether `old` and `new` can be two builds of one function: the same return and thunk, and
+    /// the strings and imports of each among what the other reaches, wherever inlining put them.
     fn agree(&self, old: u64, new: u64) -> bool {
-        self.old.agree.get(&old) == self.new.agree.get(&new)
+        self.old.strict[&old] == self.new.strict[&new]
+            && within(&self.old.own[&old], self.new.reach[&new].as_deref())
+            && within(&self.new.own[&new], self.old.reach[&old].as_deref())
+    }
+
+    /// Whether `old` and `new` compare with and move the same values.
+    fn same_values(&self, old: u64, new: u64) -> bool {
+        self.old.compared[&old] == self.new.compared[&new] && self.old.moved[&old] == self.new.moved[&new]
     }
 
     /// Matches the unmatched functions whose `key` is had by one function of each build alone.
@@ -363,15 +477,98 @@ impl Matcher {
         let (mut from_a, mut from_b) = (0, 0);
         for (i, j) in anchors {
             let ga: Vec<u64> = sa[from_a..i].iter().copied().filter(|x| !self.old_to_new.contains_key(x)).collect();
-            let gb: Vec<u64> = sb[from_b..j].iter().copied().filter(|y| !self.new_to_old.contains_key(y)).collect();
-            if !ga.is_empty() && ga.len() == gb.len() && ga.iter().zip(&gb).all(|(x, y)| self.agree(*x, *y)) {
-                found.extend(ga.into_iter().zip(gb));
+            let mut gb: Vec<u64> = sb[from_b..j].iter().copied().filter(|y| !self.new_to_old.contains_key(y)).collect();
+            if !ga.is_empty() && ga.len() == gb.len() {
+                self.unswap(&ga, &mut gb);
+                if ga.iter().zip(&gb).all(|(x, y)| self.agree(*x, *y)) {
+                    found.extend(ga.into_iter().zip(gb));
+                }
             }
             (from_a, from_b) = (i + 1, j + 1);
         }
         for (x, y) in found {
             self.pair(x, y, How::Callee);
         }
+        self.leftovers(old, new);
+    }
+
+    /// Puts back two neighbours of a run that a compiler called in the other order, as it may
+    /// evaluate the operands of an expression: the values of each match the other place's and
+    /// neither its own, and each calls itself as the other place's does.
+    fn unswap(&self, ga: &[u64], gb: &mut [u64]) {
+        let recursive = |side: &Side, f: u64| side.calls[&f].contains(&f);
+        let fits = |x: u64, y: u64| self.same_values(x, y) && recursive(&self.old, x) == recursive(&self.new, y);
+        let mut k = 0;
+        while k + 1 < ga.len() {
+            let crossed = !self.same_values(ga[k], gb[k])
+                && !self.same_values(ga[k + 1], gb[k + 1])
+                && fits(ga[k], gb[k + 1])
+                && fits(ga[k + 1], gb[k]);
+            if crossed {
+                gb.swap(k, k + 1);
+                k += 2;
+            } else {
+                k += 1;
+            }
+        }
+    }
+
+    /// Matches what the alignment left under the pair `old`, `new`: the unmatched functions each
+    /// side reaches through unmatched functions only, as the callees of an inlined call are left.
+    /// Two match that call the most of the same matched functions, each the other's one best;
+    /// then two alone in their sets by the values they compare with, then by those they move;
+    /// then the last one of each.
+    fn leftovers(&mut self, old: u64, new: u64) {
+        let (Some(mut la), Some(mut lb)) = (left(&self.old, &self.old_to_new, old), left(&self.new, &self.new_to_old, new)) else {
+            return;
+        };
+        if la.is_empty() || lb.is_empty() {
+            return;
+        }
+        let common = |x: u64, y: u64| {
+            self.old.calls[&x].iter().filter(|c| self.old_to_new.get(c).is_some_and(|d| self.new.calls[&y].contains(d))).count()
+        };
+        let found: Vec<(u64, u64)> = la
+            .iter()
+            .filter_map(|&x| {
+                let y = best(&lb, |y| common(x, y))?;
+                (best(&la, |x| common(x, y)) == Some(x) && self.agree(x, y)).then_some((x, y))
+            })
+            .collect();
+        self.pair_left(&mut la, &mut lb, found);
+        for compared in [true, false] {
+            let values = |side: &Side, f: u64| if compared { side.compared[&f].clone() } else { side.moved[&f].clone() };
+            let mut groups: HashMap<BTreeSet<i64>, (Vec<u64>, Vec<u64>)> = HashMap::new();
+            for &x in &la {
+                groups.entry(values(&self.old, x)).or_default().0.push(x);
+            }
+            for &y in &lb {
+                groups.entry(values(&self.new, y)).or_default().1.push(y);
+            }
+            let mut found: Vec<(u64, u64)> = groups
+                .into_iter()
+                .filter_map(|(key, (xs, ys))| match (xs.as_slice(), ys.as_slice()) {
+                    ([x], [y]) if !key.is_empty() && self.agree(*x, *y) => Some((*x, *y)),
+                    _ => None,
+                })
+                .collect();
+            found.sort_unstable();
+            self.pair_left(&mut la, &mut lb, found);
+        }
+        if let ([x], [y]) = (la.as_slice(), lb.as_slice())
+            && self.agree(*x, *y)
+        {
+            self.pair(*x, *y, How::Callee);
+        }
+    }
+
+    /// Pairs `found` and takes what it paired out of `la` and `lb`.
+    fn pair_left(&mut self, la: &mut Vec<u64>, lb: &mut Vec<u64>, found: Vec<(u64, u64)>) {
+        for (x, y) in found {
+            self.pair(x, y, How::Callee);
+        }
+        la.retain(|x| !self.old_to_new.contains_key(x));
+        lb.retain(|y| !self.new_to_old.contains_key(y));
     }
 
     /// Matches the one unmatched caller of `old` to the one of `new`, when the two agree and what
