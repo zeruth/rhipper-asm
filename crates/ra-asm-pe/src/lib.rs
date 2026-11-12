@@ -4,7 +4,8 @@
 //! the image keeps a warning for it, because a packed or odd binary is still worth opening.
 //! [`object`] reads the relocatable objects (COFF, ELF) and the archives the signatures of a
 //! library are made from. [`xbe`] reads the original Xbox's container into the same image, and
-//! [`elf`] the executables and shared objects of Linux. [`toolset`] fingerprints the compiler,
+//! [`elf`] the executables and shared objects of Linux, and [`macho`] the 64-bit executables and
+//! libraries of macOS, thin or fat. [`toolset`] fingerprints the compiler,
 //! linker and C runtime that built an image.
 
 pub mod debug;
@@ -15,6 +16,7 @@ pub mod headers;
 pub mod image;
 pub mod imports;
 pub mod linkmap;
+pub mod macho;
 pub mod object;
 pub mod pdb;
 pub mod relocs;
@@ -51,8 +53,8 @@ pub fn load(path: &Path) -> anyhow::Result<Image> {
     let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
     let mut image = Image::parse(bytes).with_context(|| format!("{} is not a PE image this loader reads", path.display()))?;
     image.path = Some(path.to_path_buf());
-    // An ELF file names its functions in its own symbol table.
-    if image.elf.is_some() {
+    // An ELF or a Mach-O file names its functions in its own symbol table.
+    if image.elf.is_some() || image.macho.is_some() {
         return Ok(image);
     }
     match debug::load_pdb(&image) {
