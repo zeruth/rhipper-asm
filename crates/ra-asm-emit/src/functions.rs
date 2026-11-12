@@ -15,7 +15,7 @@
 //! translated, `partial` when the body calls `ra_trap` for the ones that did not (`traps` counts
 //! them), and `not lifted` when the function has no source at all, in which case `file` and `line`
 //! are absent. `copies` counts the blocks the structuring wrote a second time in place of a
-//! `goto`: the first of the readability figures. A thunk to an import has status `thunk` and
+//! `goto`, beside the `grade` below. A thunk to an import has status `thunk` and
 //! names the import in `imports`; a function of a C runtime linked into the image, which the
 //! port calls in the host's runtime instead of lifting, has status `runtime` and names the
 //! host's function in `imports`. A function the hand-written sources of the port own (`hand` in
@@ -28,12 +28,95 @@
 //! (they are in `calls` as well): what the workbench shows as seen at run time. A function the
 //! person annotated (the project's `rhipper/annotations/`) has `"annotated": true`, its `name`
 //! the annotation's, and the annotation's `type` and `comment` when it gives them.
+//! A function with source has a `grade`, the readability figures beside the trap count ([`Grade`]):
+//!
+//! ```json
+//! "grade": {"gotos": 0, "casts": 12, "unresolved_calls": 1, "stack_accesses": 0, "lines": 40}
+//! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Operand, ValueId};
 use serde_json::{Map, Value, json};
 
 use crate::c::{EmittedFile, EmittedFunction};
+
+/// How a function's source reads, in the figures the readability work moves: each is a thing a
+/// person writing the function would not have written, but `lines`, which is its length.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Grade {
+    /// The jumps the structuring left as `goto` (in Rust, a call that stops the port).
+    pub gotos: usize,
+    /// The type conversions the source writes out.
+    pub casts: usize,
+    /// The calls through an address the analysis did not resolve to a function.
+    pub unresolved_calls: usize,
+    /// The loads and stores of the stack frame the raise could not split into locals: the
+    /// machine's stack at an offset, where the source had a variable.
+    pub stack_accesses: usize,
+    /// The lines of the definition, from its first line to its closing brace.
+    pub lines: usize,
+}
+
+impl Grade {
+    /// The grade of `f`: `gotos` from its structuring, `casts` and `lines` from its text, the rest
+    /// from its IR.
+    pub(crate) fn of(f: &Function, gotos: usize, casts: usize, lines: usize) -> Self {
+        let calls = f.blocks.iter().flat_map(|b| &b.instrs).filter(|i| matches!(i.inst, Inst::Call { callee: Callee::Indirect(_), .. }));
+        Self { gotos, casts, unresolved_calls: calls.count(), stack_accesses: stack_accesses(f), lines }
+    }
+
+    fn json(self) -> Value {
+        json!({
+            "gotos": self.gotos,
+            "casts": self.casts,
+            "unresolved_calls": self.unresolved_calls,
+            "stack_accesses": self.stack_accesses,
+            "lines": self.lines,
+        })
+    }
+}
+
+/// The loads and stores of `f` whose address is in the raise's `frame`: the bytes of the stack it
+/// kept whole, read at an offset.
+fn stack_accesses(f: &Function) -> usize {
+    let defs: HashMap<ValueId, &Inst> = f.blocks.iter().flat_map(|b| &b.instrs).filter_map(|i| Some((i.result?, &i.inst))).collect();
+    let frames: HashSet<ValueId> = defs
+        .iter()
+        .filter(|(v, inst)| matches!(inst, Inst::Alloca { .. }) && f.value_name(**v).starts_with("frame"))
+        .map(|(v, _)| *v)
+        .collect();
+    if frames.is_empty() {
+        return 0;
+    }
+    // The pointer an address is made of, through its offsets and conversions.
+    let in_frame = |o: &Operand| {
+        let mut o = o.clone();
+        for _ in 0..32 {
+            let Operand::Local(v) = o else { return false };
+            if frames.contains(&v) {
+                return true;
+            }
+            o = match defs.get(&v) {
+                Some(Inst::Gep { ptr, .. }) => ptr.clone(),
+                Some(Inst::Cast { cast: Cast::IntToPtr | Cast::PtrToInt | Cast::Bitcast, value, .. } | Inst::Freeze { value, .. }) => {
+                    value.clone()
+                }
+                Some(Inst::Bin { op: BinOp::Add | BinOp::Sub, lhs, .. }) => lhs.clone(),
+                _ => return false,
+            };
+        }
+        false
+    };
+    f.blocks
+        .iter()
+        .flat_map(|b| &b.instrs)
+        .filter(|i| match &i.inst {
+            Inst::Load { ptr, .. } | Inst::Store { ptr, .. } => in_frame(ptr),
+            _ => false,
+        })
+        .count()
+}
 
 /// What the analysis knows of a function, by its IR name.
 #[derive(Debug, Clone, Default)]
@@ -145,6 +228,9 @@ pub fn table(functions: &[EmittedFunction], files: &[EmittedFile], infos: &HashM
             entry.insert("status".into(), json!(status));
             entry.insert("traps".into(), json!(f.traps));
             entry.insert("copies".into(), json!(f.copies));
+            if !f.hand {
+                entry.insert("grade".into(), f.grade.json());
+            }
             entry.insert("calls".into(), json!(info.map_or(&[][..], |i| &i.calls)));
             entry.insert("imports".into(), json!(info.map_or(&[][..], |i| &i.imports)));
             if let Some(info) = info {

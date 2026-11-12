@@ -76,6 +76,12 @@ impl Translation {
     pub(crate) fn table(&self) -> String {
         ra_asm_emit::table(&self.functions, &self.files, &self.infos)
     }
+
+    /// Passes the source files through `clang-format` or `rustfmt` when the tool is on the PATH,
+    /// keeping the table's lines on the definitions.
+    pub(crate) fn format(&mut self) {
+        ra_asm_emit::format_files(&mut self.files, &self.functions);
+    }
 }
 
 /// What a translation is asked for, beyond the image and its lift.
@@ -508,7 +514,8 @@ pub(crate) fn emit(
     lifted.apply_names(&analysis, Some(&mut signatures));
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
     let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations };
-    let translation = translate(image, &analysis, &lifted, &signatures, &options)?;
+    let mut translation = translate(image, &analysis, &lifted, &signatures, &options)?;
+    translation.format();
     match out {
         None => print!("{}", translation.text()),
         Some(dir) => {
