@@ -316,6 +316,17 @@ impl Image {
         if self.is_64() { self.u64(va) } else { self.u32(va).map(u64::from) }
     }
 
+    /// Writes a pointer-width `value` at `va` in the mapped image, as a loader fills a word it
+    /// relocates. The word must lie in one section, as [`Image::read`] has it.
+    pub(crate) fn write_pointer(&mut self, va: u64, value: u64) -> Result<()> {
+        let width = usize::from(self.pointer_size());
+        self.read(va, width)?;
+        let Some(rva) = self.rva(va) else { bail!("address {va:#x} lies outside the image") };
+        let start = rva as usize;
+        self.mapped[start..start + width].copy_from_slice(&value.to_le_bytes()[..width]);
+        Ok(())
+    }
+
     /// The NUL-terminated string at `va`, at most `max` bytes long.
     pub fn cstr(&self, va: u64, max: usize) -> Result<&str> {
         let bytes = self.read_to_section_end(va).with_context(|| format!("string at {va:#x}"))?;

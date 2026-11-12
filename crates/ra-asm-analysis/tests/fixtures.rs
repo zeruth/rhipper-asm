@@ -238,6 +238,10 @@ fn the_rtti_names_the_classes_and_their_virtual_functions() {
         assert!(rect.vtables[1].offset > 0);
         assert_eq!(rect.vtables[1].base.as_deref(), Some("Named"));
         assert_eq!(rect.vtables[1].functions.len(), 2);
+        // Each base's subobject lies where the vtable that serves it does; nothing is virtual.
+        assert_eq!(rect.base_offsets, [Some(0), Some(rect.vtables[1].offset)]);
+        assert!(rect.virtual_bases.is_empty() && square.virtual_bases.is_empty());
+        assert_eq!(square.base_offsets, [Some(0)]);
         let named = by_name("Named");
         assert!(named.bases.is_empty());
         assert_eq!(named.vtables[0].functions.len(), 2);

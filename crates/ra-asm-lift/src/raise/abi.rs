@@ -22,7 +22,7 @@ use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Module, Operand, Type, Valu
 
 use super::Target;
 use super::liveness::{CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, call_kind, reverse_post_order, slot_pointers};
-use super::stack::{StackInfo, analyze as analyze_stack};
+use super::stack::{CalleeStack, StackInfo, analyze as analyze_stack};
 
 /// The kind of a parameter or a return.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -415,10 +415,12 @@ pub fn infer_with(
             calls
         })
         .collect();
+    let slots: Vec<HashMap<ValueId, Candidates>> = functions.iter().map(|f| virtual_calls(f, vtables, target, &|_: &str| true)).collect();
     let ints = target.int_param_slots().len();
     let floats = target.float_params();
     for _round in 0..8 {
-        let facts: Vec<Facts> = functions.iter().zip(&virtuals).map(|(f, v)| gather(f, v, &signatures, target)).collect();
+        let facts: Vec<Facts> =
+            functions.iter().zip(&virtuals).zip(&slots).map(|((f, v), s)| gather(f, v, s, &signatures, target)).collect();
         let xmm0_kinds: HashMap<&str, Option<Kind>> = facts.iter().map(|f| (f.name.as_str(), f.writes_xmm0)).collect();
         // Through the callees as well: `call _allrem; ret` hands back the 64 bits its callee left.
         let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[RDX.index()])).collect();
@@ -608,7 +610,15 @@ fn call_model(
     (reads, writes)
 }
 
-fn gather(f: &Function, virtual_calls: &HashMap<ValueId, Candidates>, signatures: &HashMap<String, Signature>, target: Target) -> Facts {
+/// The facts of `f`. `slots` is every call through a vtable slot with the slot's functions, the
+/// ones outside the lift included, which `virtual_calls` leaves out.
+fn gather(
+    f: &Function,
+    virtual_calls: &HashMap<ValueId, Candidates>,
+    slots: &HashMap<ValueId, Candidates>,
+    signatures: &HashMap<String, Signature>,
+    target: Target,
+) -> Facts {
     let state = f.params[0];
     let pointers = slot_pointers(f, state);
     let order = reverse_post_order(f);
@@ -638,18 +648,29 @@ fn gather(f: &Function, virtual_calls: &HashMap<ValueId, Candidates>, signatures
         (usize::from(n) < target.float_params() && live_in[Slot::Xmm(n).index()]).then(|| xmm_kind(f, &pointers, n))
     };
     let float_positions: [Option<Kind>; ARGUMENT_REGISTERS] = std::array::from_fn(|n| xmm_kind(n as u8));
-    // What a lifted callee pops: a call through a vtable slot pops what its functions pop, when
-    // they agree; otherwise the amount is known at run time alone.
-    let pops_of = |name: &str| signatures.get(name).map_or(0, |s| s.pops as i64);
-    let call_pops = |inst: &Inst| -> Option<i64> {
+    // What a lifted callee may pop and read: a call through a vtable slot does what one of its
+    // functions does, which the stack analysis narrows to those that can take the arguments at
+    // the call.
+    let stack_of = |name: &str| {
+        signatures.get(name).map_or(CalleeStack { pops: Some(0), arguments: 0 }, |s| CalleeStack {
+            pops: Some(s.pops as i64),
+            arguments: s.stack_bytes(target),
+        })
+    };
+    // A slot a runtime class's method fills too stays an indirect call, but its lifted functions
+    // still say what arguments it may take.
+    let slot_stack_of = |name: &str| if signatures.contains_key(name) { stack_of(name) } else { CalleeStack { pops: None, arguments: 0 } };
+    let call_pops = |inst: &Inst| -> Option<Vec<CalleeStack>> {
         if let Inst::Call { callee: Callee::Direct(name), .. } = inst
             && name.starts_with("F_")
         {
-            return Some(pops_of(name));
+            return Some(vec![stack_of(name)]);
         }
-        let candidates = virtual_candidates(inst, virtual_calls)?;
-        let pops = pops_of(&candidates[0].1);
-        candidates.iter().all(|(_, name)| pops_of(name) == pops).then_some(pops)
+        if let Some(candidates) = virtual_candidates(inst, virtual_calls) {
+            return Some(candidates.iter().map(|(_, name)| stack_of(name)).collect());
+        }
+        let candidates = virtual_candidates(inst, slots)?;
+        Some(candidates.iter().map(|(_, name)| slot_stack_of(name)).collect())
     };
     let stack = analyze_stack(f, state, &pointers, target, &call_pops);
 

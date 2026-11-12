@@ -307,6 +307,12 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "DispatchMessageA" => "ra_x86_dispatch_message_a",
         "BeginPaint" => "ra_x86_begin_paint",
         "EndPaint" => "ra_x86_end_paint",
+        // The C++ runtime's `operator new` and `operator delete`, linked into the image from the
+        // runtime library under names no host library exports (`??2@YAPAXI@Z`, the sized and the
+        // plain `??3@`): the host's heap, whose blocks a non-large-address-aware port keeps under
+        // 4 GB, takes them. The sized delete's size is the caller's to pop.
+        "operator_new" | "operator_new_array" => "ra_x86_operator_new",
+        "operator_delete" | "operator_delete_array" => "ra_x86_operator_delete",
         _ => return None,
     })
 }
@@ -553,6 +559,8 @@ pub fn arity(name: &str) -> Option<usize> {
         | "GetSystemMetrics"
         | "malloc"
         | "free"
+        | "ra_x86_operator_new"
+        | "ra_x86_operator_delete"
         | "strlen"
         | "wcslen"
         | "abs"
@@ -777,6 +785,10 @@ pub fn arity(name: &str) -> Option<usize> {
         | "_read"
         | "_write"
         | "_lseek"
+        // The POSIX names a Linux or Android C library exports them by.
+        | "read"
+        | "write"
+        | "lseek"
         | "_snprintf"
         | "vsprintf"
         | "vfprintf"

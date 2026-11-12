@@ -62,6 +62,8 @@ const DT_REL: u64 = 17;
 const DT_RELSZ: u64 = 18;
 const DT_PLTREL: u64 = 20;
 const DT_JMPREL: u64 = 23;
+const DT_RELRSZ: u64 = 35;
+const DT_RELR: u64 = 36;
 const DT_VERSYM: u64 = 0x6fff_fff0;
 const DT_VERNEED: u64 = 0x6fff_fffe;
 const DT_VERNEEDNUM: u64 = 0x6fff_ffff;
@@ -87,6 +89,16 @@ pub mod reloc {
     pub const AARCH64_GLOB_DAT: u32 = 1025;
     pub const AARCH64_JUMP_SLOT: u32 = 1026;
     pub const AARCH64_RELATIVE: u32 = 1027;
+
+    /// The kind that adds the load bias to the word in place, which a packed `DT_RELR` entry stands for.
+    pub fn relative(machine: u16) -> Option<u32> {
+        match machine {
+            super::EM_X86_64 => Some(X86_64_RELATIVE),
+            super::EM_386 => Some(I386_RELATIVE),
+            super::EM_AARCH64 => Some(AARCH64_RELATIVE),
+            _ => None,
+        }
+    }
 }
 
 /// One program header.
@@ -202,7 +214,8 @@ pub struct ElfFile {
     pub needed: Vec<String>,
     /// The file's own name for the dynamic loader, `DT_SONAME`.
     pub soname: Option<String>,
-    /// The relocations the dynamic loader applies: `DT_RELA`, `DT_REL` and `DT_JMPREL`.
+    /// The relocations the dynamic loader applies: `DT_RELA`, `DT_REL`, `DT_JMPREL` and the
+    /// packed `DT_RELR`.
     pub relocations: Vec<Relocation>,
     /// The functions `.eh_frame` describes, one FDE each: `(begin, end)` in address order.
     pub functions: Vec<(u64, u64)>,
@@ -461,6 +474,19 @@ impl ElfFile {
                     (true, false) => i64::from(d.u32(at + 8, &format!("{what} record {i} r_addend"))? as i32),
                 };
                 self.relocations.push(Relocation { offset, kind, symbol, addend });
+            }
+        }
+        // The packed relative relocations of `DT_RELR`, which Android's and today's linkers write:
+        // each word they name is a `RELATIVE` record whose addend is in place.
+        if let (Some(va), Some(size), Some(kind)) = (value(DT_RELR), value(DT_RELRSZ), reloc::relative(self.machine)) {
+            let start = self.offset_or(va, "DT_RELR")?;
+            let width = d.word_size();
+            let mut entries = Vec::new();
+            for i in 0..(size as usize / width).min(MAX_ENTRIES) {
+                entries.push(d.word(start + i * width, &format!("DT_RELR entry {i}"))?);
+            }
+            for offset in unpack_relr(&entries, width as u64) {
+                self.relocations.push(Relocation { offset, kind, symbol: 0, addend: 0 });
             }
         }
 
@@ -776,6 +802,29 @@ fn leb128(d: Data<'_>, cursor: &mut usize, signed: bool) -> Result<u64> {
     }
 }
 
+/// The addresses a `DT_RELR` table relocates, of words `width` bytes wide: an even entry is an
+/// address, and an odd one a bitmap of the words after the last, bit 1 the first of them, each
+/// bitmap covering one word fewer than its bits.
+fn unpack_relr(entries: &[u64], width: u64) -> Vec<u64> {
+    let bits = width * 8;
+    let mut addresses = Vec::new();
+    let mut next = 0u64;
+    for &entry in entries {
+        if entry & 1 == 0 {
+            addresses.push(entry);
+            next = entry.wrapping_add(width);
+            continue;
+        }
+        for bit in 1..bits {
+            if (entry >> bit) & 1 != 0 {
+                addresses.push(next.wrapping_add((bit - 1) * width));
+            }
+        }
+        next = next.wrapping_add((bits - 1) * width);
+    }
+    addresses
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -835,5 +884,15 @@ mod tests {
         assert_eq!(leb128(d, &mut at, true).unwrap() as i64, -1);
         assert_eq!(leb128(d, &mut at, true).unwrap() as i64, -128);
         assert_eq!(at, 6);
+    }
+
+    #[test]
+    fn a_relr_table_unpacks_to_its_words() {
+        // 0x1000, then the words at 0x1008 and 0x1018 (bits 1 and 3), then past the 63 words
+        // the bitmap covers the one at 0x1008 + 63 * 8 (bit 1 of the next).
+        let entries = [0x1000, 0b1011, 0b11];
+        assert_eq!(unpack_relr(&entries, 8), vec![0x1000, 0x1008, 0x1018, 0x1008 + 63 * 8]);
+        // A 32-bit table: 31 words a bitmap.
+        assert_eq!(unpack_relr(&[0x2000, 0b101, 0b11], 4), vec![0x2000, 0x2008, 0x2004 + 31 * 4]);
     }
 }

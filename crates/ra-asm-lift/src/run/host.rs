@@ -810,6 +810,8 @@ impl<'a> Runtime<'a> {
                 vm.memory.fill(a(0), 8, 0)?;
                 int(0)
             }
+            "ra_x86_operator_new" => int(self.allocate(vm, a(0).max(1), 16)?),
+            "ra_x86_operator_delete" => int(0),
             "ra_x86_p_argv" => {
                 self.argv(vm)?;
                 int(self.p_argv)
@@ -955,6 +957,12 @@ impl<'a> Runtime<'a> {
                     vm.memory.write_u32(a(3), a(2) as u32)?;
                 }
                 some(1)
+            }
+            // A Linux or Android program's writes to its standard output and error.
+            "write" | "_write" if matches!(a(0) as u32, 1 | 2) => {
+                let bytes = vm.memory.read_vec(a(1), a(2))?;
+                self.emit(a(0) as u32 == 2, &bytes);
+                some(a(2))
             }
             "WriteConsoleW" if self.is_std_output(a(0)) => {
                 let units = vm.memory.read_vec(a(1), a(2) * 2)?;
@@ -1301,14 +1309,18 @@ impl<'a> Runtime<'a> {
     }
 
     /// The host function for `symbol`: resolved before, an import of the image by its DLL, or a
-    /// function of the host's C runtime.
+    /// function of the host's C runtime. An ELF image's C library (`libc.so.6`, bionic's `libc.so`)
+    /// is no library of a Windows host: its functions are the host's C runtime's of the same name.
     fn procedure(&mut self, symbol: &str) -> Result<usize, Stop> {
         if let Some(&f) = self.procedures.get(symbol) {
             return Ok(f);
         }
+        let runtime = |name: &str| RUNTIME_DLLS.iter().find_map(|dll| os::library(dll).and_then(|m| os::procedure(m, name)));
         let found = match self.imports.get(symbol) {
-            Some((dll, name)) => os::library(dll).and_then(|m| os::procedure(m, name)),
-            None => RUNTIME_DLLS.iter().find_map(|dll| os::library(dll).and_then(|m| os::procedure(m, symbol))),
+            Some((dll, name)) => {
+                os::library(dll).and_then(|m| os::procedure(m, name)).or_else(|| self.image.elf.as_ref().and_then(|_| runtime(name)))
+            }
+            None => runtime(symbol),
         };
         match found {
             Some(f) => {

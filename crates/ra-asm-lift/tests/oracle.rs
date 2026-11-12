@@ -360,6 +360,92 @@ fn hello_linux64_runs_lifted() {
     assert!(run.status.success(), "{binary}: exit {:?}, stderr: {stderr}", run.status.code());
 }
 
+/// Lifts an ARM64 ELF fixture over the mapped image and standalone: no trap, no warning, the
+/// imports called through the PLT, and IR that passes the gate.
+fn gate_arm64_elf(binary: &str, imports: &[&str]) {
+    let image = ra_asm_pe::load(&fixture(binary)).unwrap();
+    assert!(image.elf.is_some() && image.machine() == ra_asm_pe::Machine::Arm64, "{binary}: an ARM64 ELF file");
+    let analysis = ra_asm_analysis::analyze(&image);
+    for standalone in [false, true] {
+        let options = ra_asm_lift::LiftOptions { standalone, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+        assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+        let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+        assert_eq!(coverage.traps(), 0, "{binary}: unsupported instructions: {:?}", coverage.uncovered);
+        lifted.apply_names(&analysis, None);
+        for import in imports {
+            assert!(lifted.imports.contains(*import), "{binary}: {import} is called: {:?}", lifted.imports);
+        }
+        let ll = lifted.module.to_ll();
+        assert!(ll.contains("target triple = \"aarch64-unknown-linux-gnu\""), "{binary}: the Linux triple");
+        if !clang_available() {
+            eprintln!("clang is not on the PATH: the IR gate is skipped");
+            continue;
+        }
+        let dir = scratch(&format!("gate-elf-{standalone}-{binary}"));
+        std::fs::write(dir.join("program.ll"), &ll).unwrap();
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(
+            check.status.success(),
+            "{binary}: clang -c on {}:\n{}",
+            dir.join("program.ll").display(),
+            String::from_utf8_lossy(&check.stderr)
+        );
+    }
+}
+
+/// The ARM64 Linux hello: `bl write` and `bl exit` reach the C library through their PLT stubs,
+/// and the program runs through the interpreter with the x64 build's native output.
+#[test]
+fn hello_linux_a64_lifts_and_runs_interpreted() {
+    gate_arm64_elf("hello_linux_a64", &["write", "exit"]);
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello_linux.txt")).unwrap();
+    for tag in ["run-machine", "run-abi"] {
+        run_interpreted("hello_linux_a64", &expected, tag);
+    }
+}
+
+/// The Android fixture, a game's `libmain.so` in small: its functions port, and a host that loads
+/// it calls each export with the results of `testdata/expected/libmain.txt`, at the machine level
+/// over the mapped image and at the ABI level standalone. `ra_name_length` reads a table of
+/// pointers the loader relocated and calls `strlen` through the PLT.
+#[test]
+fn libmain_a64_ports_and_answers_its_host() {
+    let binary = "libmain_a64.so";
+    gate_arm64_elf(binary, &["strlen"]);
+    let expected = std::fs::read_to_string(root().join("testdata/expected/libmain.txt")).unwrap();
+    let calls: Vec<(&str, Vec<u64>, i64)> = expected
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| {
+            let words: Vec<&str> = l.split_whitespace().collect();
+            let number = |w: &str| w.parse::<i64>().unwrap_or_else(|e| panic!("libmain.txt: `{w}` in `{l}`: {e}"));
+            let (result, args) = words[1..].split_last().unwrap_or_else(|| panic!("libmain.txt: no result in `{l}`"));
+            (words[0], args.iter().map(|w| number(w) as u64).collect(), number(result))
+        })
+        .collect();
+    for tag in ["call-machine", "call-abi"] {
+        let Raised { image, lifted, signatures, .. } = raise(binary, tag);
+        assert!(lifted.warnings.is_empty(), "{binary} ({tag}): the lift warned:\n{}", lifted.warnings.join("\n"));
+        let exports = image.exports.as_ref().expect("the library exports its functions");
+        for (export, args, result) in &calls {
+            let va = exports.by_name(export).and_then(|e| e.va).unwrap_or_else(|| panic!("{binary}: no export {export}"));
+            let function =
+                lifted.functions.get(&va).cloned().unwrap_or_else(|| panic!("{binary}: the export {export} at {va:#x} is not lifted"));
+            let call = ra_asm_lift::run::Call { function, args: args.clone() };
+            let options = ra_asm_lift::run::Options::default();
+            let (value, outcome) = ra_asm_lift::run::call(&image, &lifted, &signatures, &call, &options).unwrap();
+            if stopped_for_dlls(binary, &outcome) {
+                return;
+            }
+            assert_eq!(outcome.stop, None, "{binary} ({tag}): {export}{args:?} stopped ({} steps)", outcome.steps);
+            assert_eq!(i64::from(value as u32 as i32), *result, "{binary} ({tag}): {export}{args:?}");
+        }
+    }
+}
+
 fn run_oracle(binary: &str, expected: &str) {
     run_oracle_as(binary, expected, "run-machine");
     run_oracle_as(binary, expected, "run-promoted");

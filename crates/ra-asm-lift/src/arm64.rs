@@ -1215,7 +1215,7 @@ impl Lifter<'_, '_> {
         let Some((address, writeback)) = self.address(block, &i.operands[2], ip) else { return self.unsupported(block, ip, code, text) };
         let (width, signed) = Self::narrow_access(i.opcode).unwrap_or((bits, false));
         let first = self.m.value_of(block, Type::I64, address);
-        let second = self.m.b.bin(block, BinOp::Add, Type::I64, first, i64::from(width / 8), "addr.2");
+        let second = self.m.b.bin(block, BinOp::Add, Type::I64, first, i64::from(width / 8), "addr.pair");
         let load = matches!(i.opcode, Opcode::LDP | Opcode::LDNP | Opcode::LDPSW);
         for (r, addr) in [(r1, first), (r2, second)] {
             if load {

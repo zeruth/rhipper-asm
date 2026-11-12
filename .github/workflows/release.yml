@@ -1,7 +1,8 @@
 # The release of ras: on a tag v<version>, test on Windows and Linux, build the release binary for
 # each host, pack it with its runtime files, and publish version.txt and ras-<version>-<host>.zip
 # with its .sha256 for windows-x64, linux-x64, macos-x64 and macos-arm64, which the Rhipper
-# Workbench downloads into its tools directory.
+# Workbench downloads into its tools directory, and ras-signatures-<version>.zip, the signature
+# store of the MSVC runtime the Windows runner has.
 name: release
 
 on:
@@ -132,8 +133,36 @@ jobs:
           name: ras-${{ matrix.host }}
           path: dist/
 
+  # The signature store of the runner's MSVC static runtime (x86, x64, arm64, with the Windows
+  # SDK's ucrt), for the people without that toolset: ras-signatures-<version>.zip holds
+  # <toolset>/<machine>/<library>.sig, unpacked into ~/.rhipper/signatures as it is.
+  signatures:
+    needs: [test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release -p ras
+      - name: Store
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          & target/release/ras.exe signatures --build --installed --store dist/signatures
+          if ($LASTEXITCODE -ne 0) { throw "ras signatures --build failed" }
+          $name = "ras-signatures-$version.zip"
+          Compress-Archive -Path dist/signatures/* -DestinationPath "dist/$name"
+          $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name" | Out-File -Encoding ascii "dist/$name.sha256"
+          Remove-Item -Recurse dist/signatures
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ras-signatures
+          path: dist/
+
   publish:
-    needs: [build]
+    needs: [build, signatures]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -164,3 +193,5 @@ jobs:
             dist/ras-${{ env.VERSION }}-macos-x64.zip.sha256
             dist/ras-${{ env.VERSION }}-macos-arm64.zip
             dist/ras-${{ env.VERSION }}-macos-arm64.zip.sha256
+            dist/ras-signatures-${{ env.VERSION }}.zip
+            dist/ras-signatures-${{ env.VERSION }}.zip.sha256

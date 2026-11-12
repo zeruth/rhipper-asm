@@ -15,7 +15,8 @@
 //!   the class itself, then its bases depth first, so the direct bases are the entries at the top
 //!   level of that walk.
 //! - base class descriptor: type descriptor, the count of contained bases (the entries of the
-//!   array under this one), the displacement (`mdisp`, `pdisp`, `vdisp`), `attributes`, class
+//!   array under this one), the displacement (`mdisp`, `pdisp`, `vdisp`: the subobject's offset,
+//!   and the vbtable's offset or -1 when no virtual base lies on the way), `attributes`, class
 //!   hierarchy descriptor.
 
 use ra_asm_pe::Image;
@@ -31,6 +32,11 @@ pub struct Class {
     pub bases: Vec<String>,
     /// The direct bases alone, in declaration order.
     pub direct_bases: Vec<String>,
+    /// The direct bases inherited `virtual`, which the object reaches through its vbtable.
+    pub virtual_bases: Vec<String>,
+    /// The offset of each base's subobject in the object, in the order of `bases`: none for a
+    /// base inside a virtual one, whose place the vbtable gives at run time.
+    pub base_offsets: Vec<Option<u32>>,
     /// The vtables of the class, by the offset of their subobject: one for a single-inheritance
     /// class, one per base with virtual functions for a multiple-inheritance class. None for a
     /// base nothing instantiates, which the image knows only through the classes derived from it.
@@ -106,9 +112,17 @@ pub fn classes(image: &Image) -> Vec<Class> {
             continue;
         }
         let hierarchy = hierarchy(image, l.hierarchy);
-        let bases = names(hierarchy.get(1..).unwrap_or_default());
-        let direct_bases = direct_bases(&hierarchy, 0);
-        classes.push(Class { name, type_descriptor: l.type_descriptor, bases, direct_bases, vtables: vec![vtable] });
+        let (bases, base_offsets) = bases_of(&hierarchy, 0);
+        let (direct_bases, virtual_bases) = direct_bases(&hierarchy, 0);
+        classes.push(Class {
+            name,
+            type_descriptor: l.type_descriptor,
+            bases,
+            direct_bases,
+            virtual_bases,
+            base_offsets,
+            vtables: vec![vtable],
+        });
         hierarchies.push(hierarchy);
     }
     // A base nothing instantiates has no vtable, so no locator names it: the hierarchies of the
@@ -118,14 +132,15 @@ pub fn classes(image: &Image) -> Vec<Class> {
             if classes.iter().any(|c| c.type_descriptor == base.type_descriptor) {
                 continue;
             }
-            let end = (index + 1 + base.contained as usize).min(hierarchy.len());
-            let bases = names(&hierarchy[index + 1..end]);
-            let direct_bases = direct_bases(hierarchy, index);
+            let (bases, base_offsets) = bases_of(hierarchy, index);
+            let (direct_bases, virtual_bases) = direct_bases(hierarchy, index);
             classes.push(Class {
                 name: base.name.clone(),
                 type_descriptor: base.type_descriptor,
                 bases,
                 direct_bases,
+                virtual_bases,
+                base_offsets,
                 vtables: Vec::new(),
             });
         }
@@ -143,6 +158,17 @@ struct Base {
     type_descriptor: u64,
     /// The entries under this one: its own direct and indirect bases.
     contained: u32,
+    /// The offset of the subobject in the complete object (`mdisp`), past the virtual base when
+    /// `pdisp` is not -1: then the vbtable at `pdisp` gives where that base lies.
+    mdisp: u32,
+    pdisp: i32,
+}
+
+impl Base {
+    /// The subobject's offset in the complete object, when no vbtable decides it.
+    fn offset(&self) -> Option<u32> {
+        (self.pdisp == -1).then_some(self.mdisp)
+    }
 }
 
 /// The base class array of the hierarchy at `va`: the class itself first, then its bases depth
@@ -153,27 +179,41 @@ fn hierarchy(image: &Image, va: u64) -> Vec<Base> {
         .map_while(|bcd| {
             let type_descriptor = field_address(image, bcd)?;
             let name = type_name(image, type_descriptor)?;
-            Some(Base { name, type_descriptor, contained: image.u32(bcd + 4).ok()? })
+            let contained = image.u32(bcd + 4).ok()?;
+            let mdisp = image.u32(bcd + 8).ok()?;
+            let pdisp = image.u32(bcd + 12).ok()? as i32;
+            Some(Base { name, type_descriptor, contained, mdisp, pdisp })
         })
         .collect()
 }
 
-fn names(bases: &[Base]) -> Vec<String> {
-    bases.iter().map(|b| b.name.clone()).collect()
+/// The bases of the entry at `index`, direct and indirect, with the offset of each in the
+/// entry's object.
+fn bases_of(hierarchy: &[Base], index: usize) -> (Vec<String>, Vec<Option<u32>>) {
+    let Some(entry) = hierarchy.get(index) else { return (Vec::new(), Vec::new()) };
+    let end = (index + 1 + entry.contained as usize).min(hierarchy.len());
+    let under = &hierarchy[index + 1..end];
+    let offsets = under.iter().map(|b| b.offset().zip(entry.offset()).and_then(|(b, e)| b.checked_sub(e))).collect();
+    (under.iter().map(|b| b.name.clone()).collect(), offsets)
 }
 
 /// The direct bases of the entry at `index`: the entries under it, each stepped over with the
-/// entries under it in turn.
-fn direct_bases(hierarchy: &[Base], index: usize) -> Vec<String> {
-    let Some(entry) = hierarchy.get(index) else { return Vec::new() };
+/// entries under it in turn; and of those, the ones it inherits `virtual`, which a vbtable
+/// reaches from an entry that has a place of its own.
+fn direct_bases(hierarchy: &[Base], index: usize) -> (Vec<String>, Vec<String>) {
+    let Some(entry) = hierarchy.get(index) else { return (Vec::new(), Vec::new()) };
     let end = (index + 1 + entry.contained as usize).min(hierarchy.len());
-    let mut out = Vec::new();
+    let (mut direct, mut virtual_bases) = (Vec::new(), Vec::new());
     let mut i = index + 1;
     while i < end {
-        out.push(hierarchy[i].name.clone());
-        i += 1 + hierarchy[i].contained as usize;
+        let base = &hierarchy[i];
+        direct.push(base.name.clone());
+        if base.pdisp != -1 && entry.pdisp == -1 {
+            virtual_bases.push(base.name.clone());
+        }
+        i += 1 + base.contained as usize;
     }
-    out
+    (direct, virtual_bases)
 }
 
 struct Locator {

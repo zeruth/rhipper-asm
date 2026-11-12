@@ -81,18 +81,50 @@ pub struct Outcome {
     pub facts: Facts,
 }
 
+/// A call into the image from outside it, as a host program makes one to an export of a library:
+/// the function by its name in the lifted module, and its integer arguments.
+#[derive(Debug, Clone)]
+pub struct Call {
+    pub function: String,
+    pub args: Vec<u64>,
+}
+
 static LOCK: Mutex<()> = Mutex::new(());
 
 /// Runs `lifted` (raised to any level, with the `signatures` of the ABI level when it is at that
 /// level) through the interpreter. The run takes a thread of its own with a deep stack, since the
 /// program's calls nest as the interpreter's.
 pub fn run(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signature>, options: &Options) -> Result<Outcome> {
+    on_own_thread(image, lifted, signatures, options, None).map(|(outcome, _)| outcome)
+}
+
+/// Calls one function of `lifted` through the interpreter, as a host program calls an export of
+/// the library it loaded, and gives its result (the first result register at the machine levels,
+/// the return value at the ABI level) with the outcome of the run. The image is set up as for
+/// [`run`]; its entry does not run.
+pub fn call(
+    image: &Image,
+    lifted: &Lifted,
+    signatures: &HashMap<String, Signature>,
+    call: &Call,
+    options: &Options,
+) -> Result<(u64, Outcome)> {
+    on_own_thread(image, lifted, signatures, options, Some(call)).map(|(outcome, result)| (result, outcome))
+}
+
+fn on_own_thread(
+    image: &Image,
+    lifted: &Lifted,
+    signatures: &HashMap<String, Signature>,
+    options: &Options,
+    call: Option<&Call>,
+) -> Result<(Outcome, u64)> {
     let _one_at_a_time = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
     std::thread::scope(|scope| {
         let handle = std::thread::Builder::new()
             .name("ras-run".into())
             .stack_size(256 << 20)
-            .spawn_scoped(scope, || run_here(image, lifted, signatures, options))
+            .spawn_scoped(scope, || run_here(image, lifted, signatures, options, call))
             .context("cannot start the interpreter's thread")?;
         handle.join().map_err(|_| anyhow!("the interpreter panicked"))?
     })
@@ -118,7 +150,13 @@ fn setup(stop: Stop) -> anyhow::Error {
     }
 }
 
-fn run_here(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signature>, options: &Options) -> Result<Outcome> {
+fn run_here(
+    image: &Image,
+    lifted: &Lifted,
+    signatures: &HashMap<String, Signature>,
+    options: &Options,
+    call: Option<&Call>,
+) -> Result<(Outcome, u64)> {
     let base = image.image_base();
     let size = u64::from(image.size_of_image()).div_ceil(0x10000) * 0x10000;
     let image_region = patiently(|| os::allocate_at(base, size))
@@ -158,7 +196,14 @@ fn run_here(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signatu
     let args = std::iter::once(path).chain(options.args.iter().cloned()).collect();
     let mut runtime = Runtime::new(image, lifted, &mut vm, args, options.live, stack, heap);
     runtime.bind(&mut vm).map_err(setup)?;
-    let result = runtime.attach_process(&mut vm).and_then(|()| enter(&mut vm, &mut runtime, image, lifted, signatures));
+    let mut returned = 0;
+    let result = runtime.attach_process(&mut vm).and_then(|()| match call {
+        None => enter(&mut vm, &mut runtime, image, lifted, signatures),
+        Some(call) => invoke(&mut vm, &mut runtime, lifted, call).map(|value| {
+            returned = value;
+            0
+        }),
+    });
     let (exit, stop) = match result.and_then(|code| runtime.check_uncaught().map(|()| code)) {
         Ok(code) | Err(Stop::Exit(code)) => (code, None),
         Err(Stop::Limit(n)) => (LIMIT_EXIT, Some(format!("the run limit of {n} instructions was reached"))),
@@ -168,7 +213,44 @@ fn run_here(image: &Image, lifted: &Lifted, signatures: &HashMap<String, Signatu
         record.flush().context("cannot write the record of the run")?;
     }
     let facts = facts_of(&vm, image, lifted, &options.args);
-    Ok(Outcome { output: std::mem::take(&mut runtime.output), exit, stop, steps: vm.steps, facts })
+    Ok((Outcome { output: std::mem::take(&mut runtime.output), exit, stop, steps: vm.steps, facts }, returned))
+}
+
+/// Calls one function by its integer arguments, as a host calls an export: a function of the ARM64
+/// machine shape gets them in `x0` up, a stack and a link register of zero, and answers in `x0`; a
+/// function of the ABI level gets them as its parameters and answers with its result. An x86
+/// function of the machine shape, or a parameter that is no integer, stops the call: the arguments
+/// would land by a guess.
+fn invoke(vm: &mut Vm<'_>, runtime: &mut Runtime<'_>, lifted: &Lifted, call: &Call) -> Result<u64, Stop> {
+    let name = call.function.as_str();
+    let f = vm.function(name).ok_or_else(|| Stop::fault(format!("@{name} is not in the module")))?;
+    let params = f.ty.params.clone();
+    if params == [Type::Ptr] && f.ty.ret == Type::Void {
+        if lifted.isa != crate::state::Isa::Arm64 || call.args.len() > 8 {
+            return Err(Stop::fault(format!("@{name}: a call by {} arguments into the machine shape of this target", call.args.len())));
+        }
+        let state = runtime.new_state(vm)?;
+        for (n, &arg) in call.args.iter().enumerate() {
+            vm.memory.write_u64(state + 8 * n as u64, arg)?;
+        }
+        vm.memory.write_u64(state + 18 * 8, runtime.teb())?;
+        vm.memory.write_u64(state + 31 * 8, runtime.stack_top())?;
+        vm.call_named(runtime, name, vec![Value::Int(u128::from(state))])?;
+        return vm.memory.read_u64(state);
+    }
+    if params.len() != call.args.len() {
+        return Err(Stop::fault(format!("@{name} takes {} arguments, the call gives {}", params.len(), call.args.len())));
+    }
+    let mut args = Vec::with_capacity(params.len());
+    for (ty, &arg) in params.iter().zip(&call.args) {
+        let value = match ty {
+            Type::Int(bits) if *bits < 64 => arg & ((1u64 << bits) - 1),
+            Type::Int(_) | Type::Ptr => arg,
+            other => return Err(Stop::fault(format!("@{name}: a parameter of type {other:?} from an integer"))),
+        };
+        args.push(Value::Int(u128::from(value)));
+    }
+    Ok(vm.call_named(runtime, name, args)?.as_u64())
 }
 
 /// What the run saw, in the image's addresses: a target is a lifted function's image address

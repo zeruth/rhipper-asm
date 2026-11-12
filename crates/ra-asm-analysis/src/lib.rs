@@ -17,7 +17,8 @@
 //! traced run ([`facts`]) come last among the seeds and first among the resolutions: a target the
 //! run reached is a function, and an indirect call the run resolved calls what it reached. A
 //! function's [`identity`] is what it is apart from its address, how a new build of the program
-//! finds the functions the person annotated in the last.
+//! finds the functions the person annotated in the last; [`matching`] matches every function of
+//! two builds at once, by their symbols or by structure alone, for a binary diff.
 
 pub mod builder;
 pub mod facts;
@@ -25,6 +26,7 @@ pub mod function;
 pub mod identity;
 pub mod imports;
 pub mod jumptable;
+pub mod matching;
 pub mod noreturn;
 pub mod rtti;
 pub mod signatures;
@@ -339,7 +341,9 @@ fn strings_of(image: &Image, function: &Function) -> Vec<(u64, String)> {
                 Operand::Imm { value, .. } => *value as u64,
                 _ => continue,
             };
-            if image.is_code(target) || out.iter().any(|(va, _)| *va == target) {
+            // A word that holds an address of the image is a pointer whose bytes read as text
+            // (`8A@` for 0x00404138): the start of a table of records, not a literal.
+            if image.is_code(target) || out.iter().any(|(va, _)| *va == target) || image.pointer(target).is_ok_and(|p| image.is_mapped(p)) {
                 continue;
             }
             if let Some(text) = image.printable_cstr(target, 2, 512) {
