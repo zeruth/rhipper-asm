@@ -614,6 +614,7 @@ fn emit_function(
     let mut body = String::new();
     e.stmts(&mut body, &structured.body, 1);
     let declarations = prune_locals(&locals, &mut body);
+    let body = drop_empty_branches(&body);
     let read: HashSet<String> =
         identifiers(&statements(&body)).into_iter().filter(|(_, assigned)| !assigned).map(|(n, _)| n.to_owned()).collect();
     let _ = writeln!(out, "{} {{", signature(f, &read));
@@ -680,6 +681,47 @@ fn prune_locals(locals: &[Declared], body: &mut String) -> String {
                 let _ = writeln!(out, "    let {n}: *mut u8 = {n}_mem.0.as_mut_ptr();");
             }
         }
+    }
+    out
+}
+
+/// `body` without the branches the pruning emptied: an `else` with nothing in it goes, and an `if`
+/// with nothing in it and no `else` keeps only its condition, which may read memory as the
+/// machine did. To a fixpoint: an `else` that goes may leave its `if` empty.
+fn drop_empty_branches(body: &str) -> String {
+    let mut lines: Vec<String> = body.lines().map(str::to_owned).collect();
+    loop {
+        let mut kept: Vec<String> = Vec::with_capacity(lines.len());
+        let mut changed = false;
+        let mut i = 0;
+        while i < lines.len() {
+            let line = &lines[i];
+            let text = line.trim_start();
+            let pad = &line[..line.len() - text.len()];
+            let closes = lines.get(i + 1).is_some_and(|next| next.strip_prefix(pad) == Some("}"));
+            if closes && text == "} else {" {
+                kept.push(format!("{pad}}}"));
+                changed = true;
+                i += 2;
+                continue;
+            }
+            if closes && let Some(cond) = text.strip_prefix("if ").and_then(|t| t.strip_suffix(" {")) {
+                kept.push(format!("{pad}let _ = {cond};"));
+                changed = true;
+                i += 2;
+                continue;
+            }
+            kept.push(line.clone());
+            i += 1;
+        }
+        lines = kept;
+        if !changed {
+            break;
+        }
+    }
+    let mut out = lines.join("\n");
+    if !out.is_empty() {
+        out.push('\n');
     }
     out
 }
