@@ -56,8 +56,8 @@ pub struct Lifted {
     /// The imports called `fastcall` (the Xbox kernel's), whose wrappers read `ecx` and `edx`
     /// ahead of the stack.
     pub fastcall: BTreeSet<String>,
-    /// Whether the imports take the System V convention of a Linux binary (an ELF image) rather
-    /// than the Windows one: in 64 bits six integers in `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`,
+    /// Whether the imports take the System V convention of a Linux or a macOS binary (an ELF or a
+    /// Mach-O image) rather than the Windows one: in 64 bits six integers in `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9`,
     /// eight floats in `xmm0` to `xmm7`, and no shadow space above the return address.
     pub sysv: bool,
     /// The data sections written as globals (standalone mode).
@@ -513,7 +513,7 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
         roots: BTreeSet::new(),
         wrappers: BTreeSet::new(),
         fastcall: BTreeSet::new(),
-        sysv: image.elf.is_some(),
+        sysv: image.elf.is_some() || image.macho.is_some(),
         data: Vec::new(),
         vtables: ra_asm_analysis::rtti::vtables(&analysis.classes),
         standalone: options.standalone,
