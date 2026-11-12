@@ -18,7 +18,10 @@
 //! `build/pipeline/<step>.stamp`: a step whose inputs and outputs are as the stamp says prints its
 //! last summary with `(unchanged)` and does no work, and the emit rewrites only the files whose
 //! text changed, so the build recompiles only those. In one run the lift takes over the analyze
-//! step's analysis and the emit the lift's program. `--rebuild` runs every step again.
+//! step's analysis and the emit the lift's program. The build step writes the project of the
+//! build system `build.generator` names when the root has none (`CMakeLists.txt`, a Visual Studio
+//! solution or `meson.build`) and drives it, or compiles the port with the host's clang alone; a
+//! Rust port is built by cargo. `--rebuild` runs every step again.
 
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, HashMap};
@@ -33,10 +36,13 @@ use anyhow::{Context, Result, bail};
 
 use crate::annotations::annotate;
 use crate::doctor::{self, Port};
-use crate::project::Project;
+use crate::project::{Generator, Project};
 use crate::trace::{self, Tracer};
 
 const CMAKE_LISTS: &str = include_str!("../templates/CMakeLists.txt");
+const VCXPROJ: &str = include_str!("../templates/port.vcxproj");
+const SOLUTION: &str = include_str!("../templates/port.sln");
+const MESON_BUILD: &str = include_str!("../templates/meson.build");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Step {
@@ -365,9 +371,11 @@ impl<'a> Pipeline<'a> {
         self.ported = None;
         let project = &self.project;
         // The tools first: a missing one fails with its name, not with the build system's error.
-        let port = if project.is_rust() { Port::Rust } else { Port::C };
-        if let Some(failure) = doctor::check(port).failure() {
-            bail!("{failure}");
+        if project.is_rust() || project.build.generator == Generator::CMake {
+            let port = if project.is_rust() { Port::Rust } else { Port::C };
+            if let Some(failure) = doctor::check(port).failure() {
+                bail!("{failure}");
+            }
         }
         if project.is_rust() {
             // A Rust translation is a cargo package under gen; its outputs go under build/cargo.
@@ -390,39 +398,12 @@ impl<'a> Pipeline<'a> {
         let image = self.image()?;
         let (bits, dll) = (u32::from(image.pointer_size()) * 8, image.headers.coff.is_dll());
         let project = &self.project;
-        write_cmake_lists(project, bits, dll)?;
-        let cmake = "cmake";
-        let dir = &project.build.dir;
-        let cache = dir.join("CMakeCache.txt");
-        if !cache.is_file() {
-            let mut configure = Command::new(cmake);
-            configure.arg("-S").arg(&project.root).arg("-B").arg(dir).args(generator_args(&project.build.config));
-            let outcome = run_logged(&mut configure, log, None, true)?;
-            if outcome.code != Some(0) {
-                bail!("cmake configure exited with {}", outcome.exit());
-            }
-        } else if let Some(current) = single_config_type(&cache)
-            && current != project.build.config
-        {
-            // A single-configuration generator (Ninja) builds the configuration it was configured
-            // with: configure again for another.
-            let mut configure = Command::new(cmake);
-            configure.arg("-B").arg(dir).arg(format!("-DCMAKE_BUILD_TYPE={}", project.build.config));
-            let outcome = run_logged(&mut configure, log, None, true)?;
-            if outcome.code != Some(0) {
-                bail!("cmake configure exited with {}", outcome.exit());
-            }
+        match project.build.generator {
+            Generator::CMake => build_cmake(project, bits, dll, self.rebuild, log),
+            Generator::VisualStudio => build_solution(project, bits, dll, self.rebuild, log),
+            Generator::Meson => build_meson(project, bits, dll, self.rebuild, log),
+            Generator::Clang => build_clang(project, bits, dll, log),
         }
-        let mut build = Command::new(cmake);
-        build.arg("--build").arg(dir).args(["--config", &project.build.config, "--parallel", "--target", &project.build.target]);
-        if self.rebuild {
-            build.arg("--clean-first");
-        }
-        let outcome = run_logged(&mut build, log, None, true)?;
-        if outcome.code != Some(0) {
-            bail!("cmake build exited with {}", outcome.exit());
-        }
-        Ok(())
     }
 
     fn run_port(&mut self, log: &mut File) -> Result<()> {
@@ -724,6 +705,342 @@ fn log_warnings<'a>(log: &mut File, warnings: impl Iterator<Item = &'a String>) 
         count += 1;
     }
     count
+}
+
+/// Runs a step of a build and fails with its exit when it fails.
+fn run_checked(command: &mut Command, log: &mut File, what: &str) -> Result<()> {
+    let outcome = run_logged(command, log, None, true)?;
+    if outcome.code != Some(0) {
+        bail!("{what} exited with {}", outcome.exit());
+    }
+    Ok(())
+}
+
+/// Fails with the name and the use of every tool of `tools` the PATH does not have, as the
+/// doctor does for a `CMake` build.
+fn require(tools: &[(&str, &str)]) -> Result<()> {
+    let missing: Vec<String> = tools.iter().filter(|(tool, _)| !on_path(tool)).map(|(tool, why)| format!("{tool} ({why})")).collect();
+    if !missing.is_empty() {
+        bail!("missing: {}", missing.join(", "));
+    }
+    Ok(())
+}
+
+/// Builds a C or C++ port through its `CMakeLists.txt`: configures a new build directory, or one
+/// of a single-configuration generator for another configuration, and builds the target.
+fn build_cmake(project: &Project, bits: u32, dll: bool, rebuild: bool, log: &mut File) -> Result<()> {
+    write_cmake_lists(project, bits, dll)?;
+    let cmake = "cmake";
+    let dir = &project.build.dir;
+    let cache = dir.join("CMakeCache.txt");
+    if !cache.is_file() {
+        let mut configure = Command::new(cmake);
+        configure.arg("-S").arg(&project.root).arg("-B").arg(dir).args(generator_args(&project.build.config));
+        run_checked(&mut configure, log, "cmake configure")?;
+    } else if let Some(current) = single_config_type(&cache)
+        && current != project.build.config
+    {
+        // A single-configuration generator (Ninja) builds the configuration it was configured
+        // with: configure again for another.
+        let mut configure = Command::new(cmake);
+        configure.arg("-B").arg(dir).arg(format!("-DCMAKE_BUILD_TYPE={}", project.build.config));
+        run_checked(&mut configure, log, "cmake configure")?;
+    }
+    let mut build = Command::new(cmake);
+    build.arg("--build").arg(dir).args(["--config", &project.build.config, "--parallel", "--target", &project.build.target]);
+    if rebuild {
+        build.arg("--clean-first");
+    }
+    run_checked(&mut build, log, "cmake build")
+}
+
+/// Builds a C or C++ port through its Visual Studio solution, with the `msbuild` of the PATH or
+/// of the newest Visual Studio. The `ClangCL` toolset compiles it with the LLVM of the PATH when
+/// there is one, the clang the oracles use, rather than the one Visual Studio bundles.
+fn build_solution(project: &Project, bits: u32, dll: bool, rebuild: bool, log: &mut File) -> Result<()> {
+    let Some(msbuild) = msbuild() else {
+        bail!("missing: msbuild (the build of a Visual Studio solution: Visual Studio with the C++ tools and the ClangCL toolset)");
+    };
+    let solution = write_solution(project, bits, dll)?;
+    let mut build = Command::new(msbuild);
+    build
+        .arg(&solution)
+        .args(["-nologo", "-verbosity:minimal", "-maxCpuCount", "-nodeReuse:false", "-p:Platform=x64"])
+        .arg(format!("-p:Configuration={}", project.build.config))
+        // A worker node left alive would hold the log's pipes open after the build.
+        .env("MSBUILDDISABLENODEREUSE", "1");
+    if let Some((dir, version)) = llvm_install() {
+        build.arg(format!("-p:LLVMInstallDir={}", dir.display()));
+        if let Some(version) = version {
+            build.arg(format!("-p:LLVMToolsVersion={version}"));
+        }
+    }
+    if rebuild {
+        build.arg("-t:Rebuild");
+    }
+    run_checked(&mut build, log, "msbuild")
+}
+
+/// The `msbuild` of the PATH, else of the newest Visual Studio that has one, through `vswhere`.
+fn msbuild() -> Option<PathBuf> {
+    if on_path("msbuild") {
+        return Some(PathBuf::from("msbuild"));
+    }
+    let installer = std::env::var_os("ProgramFiles(x86)").or_else(|| std::env::var_os("ProgramFiles"))?;
+    let vswhere = Path::new(&installer).join("Microsoft Visual Studio/Installer/vswhere.exe");
+    let output = Command::new(vswhere)
+        .args(["-latest", "-products", "*", "-requires", "Microsoft.Component.MSBuild", "-find", r"MSBuild\**\Bin\MSBuild.exe"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.lines().map(str::trim).find(|l| !l.is_empty()).map(PathBuf::from).filter(|p| p.is_file())
+}
+
+/// The LLVM installation of the `clang-cl` on the PATH, with its tools version (its directory
+/// under `lib/clang`), for the `ClangCL` toolset.
+fn llvm_install() -> Option<(PathBuf, Option<String>)> {
+    let path = std::env::var_os("PATH")?;
+    let bin = std::env::split_paths(&path).find(|dir| dir.join("clang-cl.exe").is_file())?;
+    let root = bin.parent()?.to_path_buf();
+    let version = fs::read_dir(root.join("lib").join("clang"))
+        .ok()
+        .and_then(|entries| entries.filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned())).max());
+    Some((root, version))
+}
+
+/// Writes the Visual Studio solution and project of a project that has none, `<target>.sln` and
+/// `<target>.vcxproj`, and returns the solution. Their configurations are Debug, Release and the
+/// project's; `bits` and `dll` are as for [`write_cmake_lists`].
+fn write_solution(project: &Project, bits: u32, dll: bool) -> Result<PathBuf> {
+    let target = &project.build.target;
+    let solution = project.root.join(format!("{target}.sln"));
+    let vcxproj = project.root.join(format!("{target}.vcxproj"));
+    let guid = guid(target);
+    let mut configs = vec!["Debug".to_owned(), "Release".to_owned()];
+    if !configs.contains(&project.build.config) {
+        configs.push(project.build.config.clone());
+    }
+    if !vcxproj.exists() {
+        let in_project = |dir: &Path| match dir.strip_prefix(&project.root) {
+            Ok(relative) if relative.as_os_str().is_empty() => "$(MSBuildProjectDirectory)".to_owned(),
+            Ok(relative) => format!("$(MSBuildProjectDirectory)\\{}", xml(&relative.to_string_lossy().replace('/', "\\"))),
+            Err(_) => xml(&dir.to_string_lossy().replace('/', "\\")),
+        };
+        let configurations: Vec<String> = configs
+            .iter()
+            .map(|c| {
+                let c = xml(c);
+                format!(
+                    "    <ProjectConfiguration Include=\"{c}|x64\">\n      <Configuration>{c}</Configuration>\n      \
+                     <Platform>x64</Platform>\n    </ProjectConfiguration>"
+                )
+            })
+            .collect();
+        // A hand-written file's object goes under its own directory, so it cannot take the name of
+        // the translation's file of the same name.
+        let hand: Vec<String> = project
+            .sources
+            .iter()
+            .map(|dir| {
+                let dir = in_project(dir);
+                format!(
+                    "    <ClCompile Include=\"{dir}\\**\\*.c;{dir}\\**\\*.cpp\" Exclude=\"$(RaGenDir)\\**\">\n      \
+                     <ObjectFileName>$(IntDir)hand\\%(RecursiveDir)</ObjectFileName>\n    </ClCompile>"
+                )
+            })
+            .collect();
+        let text = VCXPROJ
+            .replace("@NAME@", &xml(&project.name))
+            .replace("@TARGET@", &xml(target))
+            .replace("@GUID@", &guid)
+            .replace("@CONFIGURATIONS@", &configurations.join("\n"))
+            .replace("@GEN_DIR@", &in_project(&project.gen_dir))
+            .replace("@OUT_DIR@", &in_project(&project.build.dir))
+            .replace("@HAND_SOURCES@", &hand.join("\n"))
+            .replace("@POINTER_BITS@", &bits.to_string())
+            .replace("@DLL@", if dll { "true" } else { "false" });
+        fs::write(&vcxproj, text).with_context(|| format!("cannot write {}", vcxproj.display()))?;
+    }
+    if !solution.exists() {
+        let solution_configs: Vec<String> = configs.iter().map(|c| format!("\t\t{c}|x64 = {c}|x64")).collect();
+        let project_configs: Vec<String> = configs
+            .iter()
+            .map(|c| format!("\t\t{{{guid}}}.{c}|x64.ActiveCfg = {c}|x64\n\t\t{{{guid}}}.{c}|x64.Build.0 = {c}|x64"))
+            .collect();
+        let text = SOLUTION
+            .replace("@TARGET@", target)
+            .replace("@GUID@", &guid)
+            .replace("@SOLUTION_CONFIGURATIONS@", &solution_configs.join("\n"))
+            .replace("@PROJECT_CONFIGURATIONS@", &project_configs.join("\n"));
+        fs::write(&solution, text.replace("\r\n", "\n").replace('\n', "\r\n")).with_context(|| format!("cannot write {}", solution.display()))?;
+    }
+    Ok(solution)
+}
+
+/// The project GUID of a target: the same for the same name, so a solution written again names
+/// the project it named before.
+fn guid(target: &str) -> String {
+    let hex = format!("{:016X}{:016X}", digest(target.as_bytes()), digest(format!("{target}.vcxproj").as_bytes()));
+    format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..])
+}
+
+fn xml(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// Builds a C or C++ port through its `meson.build` with clang: lists the sources for it,
+/// configures a new build directory or one whose list changed, and compiles.
+fn build_meson(project: &Project, bits: u32, dll: bool, rebuild: bool, log: &mut File) -> Result<()> {
+    require(&[
+        ("meson", "the build of a Meson project"),
+        ("ninja", "the backend of Meson"),
+        ("clang", "the C compiler of a C or C++ port"),
+    ])?;
+    let list = project.build_dir().join("meson-sources.txt");
+    write_meson_build(project, &list, bits, dll)?;
+    let text: String = port_sources(project)?
+        .iter()
+        .fold(String::new(), |mut s, p| {
+            s.push_str(&in_root(project, p));
+            s.push('\n');
+            s
+        });
+    let listed = fs::read_to_string(&list).is_ok_and(|old| old == text);
+    if !listed {
+        fs::create_dir_all(project.build_dir())?;
+        fs::write(&list, &text).with_context(|| format!("cannot write {}", list.display()))?;
+    }
+    let dir = &project.build.dir;
+    let buildtype = if project.build.config.eq_ignore_ascii_case("debug") { "debug" } else { "release" };
+    let configured = dir.join("meson-private").is_dir();
+    if !configured || !listed {
+        let mut setup = Command::new("meson");
+        setup.arg("setup");
+        if configured {
+            setup.arg("--reconfigure");
+        }
+        setup.arg(dir).arg(&project.root).arg(format!("--buildtype={buildtype}")).env("CC", "clang").env("CXX", "clang++");
+        run_checked(&mut setup, log, "meson setup")?;
+    } else {
+        let mut configure = Command::new("meson");
+        configure.arg("configure").arg(dir).arg(format!("-Dbuildtype={buildtype}"));
+        run_checked(&mut configure, log, "meson configure")?;
+    }
+    if rebuild {
+        let mut clean = Command::new("meson");
+        clean.args(["compile", "--clean", "-C"]).arg(dir);
+        run_checked(&mut clean, log, "meson compile --clean")?;
+    }
+    let mut compile = Command::new("meson");
+    compile.args(["compile", "-C"]).arg(dir);
+    run_checked(&mut compile, log, "meson compile")
+}
+
+/// Writes the `meson.build` of a project that has none, over the list of sources at `list`.
+fn write_meson_build(project: &Project, list: &Path, bits: u32, dll: bool) -> Result<()> {
+    let file = project.root.join("meson.build");
+    if file.exists() {
+        return Ok(());
+    }
+    let quoted = |text: &str| text.replace('\\', "\\\\").replace('\'', "\\'");
+    let text = MESON_BUILD
+        .replace("@NAME@", &project.name)
+        .replace("@TARGET@", &quoted(&project.build.target))
+        .replace("@GEN_DIR@", &quoted(&in_root(project, &project.gen_dir)))
+        .replace("@SOURCE_LIST@", &quoted(&in_root(project, list)))
+        .replace("@POINTER_BITS@", &bits.to_string())
+        .replace("@DLL@", if dll { "true" } else { "false" });
+    fs::write(&file, text).with_context(|| format!("cannot write {}", file.display()))
+}
+
+/// Builds a C or C++ port with the host's clang and no build system: one command compiles the
+/// translation, its runtime and the hand-written sources and links the port in the build
+/// directory, on Windows with lld and elsewhere against the C library the driver binds the
+/// program's imports from.
+fn build_clang(project: &Project, bits: u32, dll: bool, log: &mut File) -> Result<()> {
+    let mut tools = vec![("clang", "the C compiler of a C or C++ port")];
+    if cfg!(windows) {
+        tools.push(("lld-link", "the linker of a C or C++ port"));
+    }
+    require(&tools)?;
+    let sources = port_sources(project)?;
+    let gen_dir = &project.gen_dir;
+    let dir = &project.build.dir;
+    fs::create_dir_all(dir).with_context(|| format!("cannot write {}", dir.display()))?;
+    let name =
+        if dll { format!("{}.dll", project.build.target) } else { format!("{}{}", project.build.target, std::env::consts::EXE_SUFFIX) };
+    let mut clang = Command::new("clang");
+    clang.args(["-O1", "-Wall", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-Wno-parentheses"]);
+    if project.build.config.eq_ignore_ascii_case("debug") {
+        clang.arg("-g");
+    }
+    clang.arg("-I").arg(gen_dir).arg("-I").arg(gen_dir.join("runtime")).args(&sources);
+    if cfg!(windows) {
+        clang.args(["-fuse-ld=lld", "-lkernel32", "-luser32"]);
+        // A 32-bit program keeps its 32-bit pointers in the port, which is not large-address-aware.
+        if bits == 32 {
+            clang.arg("-Wl,/largeaddressaware:no");
+        }
+        let resources = gen_dir.join("resources.res");
+        if resources.is_file() {
+            clang.arg(resources);
+        }
+        if dll {
+            clang.arg("-shared").arg(format!("-Wl,/def:{}", gen_dir.join("exports.def").display()));
+        }
+    } else {
+        if dll {
+            clang.args(["-shared", "-fPIC"]);
+        }
+        clang.args(["-ldl", "-lm"]);
+        if sources.iter().any(|s| s.extension().is_some_and(|e| e == "cpp")) {
+            clang.arg(if cfg!(target_os = "macos") { "-lc++" } else { "-lstdc++" });
+        }
+    }
+    clang.arg("-o").arg(dir.join(name));
+    run_checked(&mut clang, log, "clang")
+}
+
+/// The sources of a C or C++ port: the translation's files under `gen` and its driver, then the
+/// hand-written ones under `sources` but those under `gen`, each in name order.
+fn port_sources(project: &Project) -> Result<Vec<PathBuf>> {
+    fn c_or_cpp(path: &Path) -> bool {
+        path.extension().is_some_and(|e| e == "c" || e == "cpp")
+    }
+    fn walk(dir: &Path, skip: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
+        for path in entries.filter_map(|e| e.ok().map(|e| e.path())) {
+            if path.starts_with(skip) {
+                continue;
+            }
+            if path.is_dir() {
+                walk(&path, skip, out);
+            } else if c_or_cpp(&path) {
+                out.push(path);
+            }
+        }
+    }
+    let gen_dir = &project.gen_dir;
+    let entries = fs::read_dir(gen_dir).with_context(|| format!("no translation at {}: run the emit first", gen_dir.display()))?;
+    let mut sources: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.is_file() && c_or_cpp(p)).collect();
+    sources.sort();
+    sources.push(gen_dir.join("runtime").join("driver.c"));
+    let mut hand = Vec::new();
+    for dir in &project.sources {
+        walk(dir, gen_dir, &mut hand);
+    }
+    hand.sort();
+    sources.extend(hand);
+    Ok(sources)
+}
+
+/// A path as a build file at the project's root names it: relative to the root when under it,
+/// else whole, with forward slashes.
+fn in_root(project: &Project, path: &Path) -> String {
+    match path.strip_prefix(&project.root) {
+        Ok(relative) => slashes(relative),
+        Err(_) => slashes(path),
+    }
 }
 
 /// Writes the `CMakeLists.txt` of a project that has none. `bits` is the pointer width of the

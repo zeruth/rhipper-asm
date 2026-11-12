@@ -206,6 +206,64 @@ fn the_whole_pipeline_builds_and_runs_the_port() {
     assert!(ok, "{text}");
 }
 
+/// Runs the whole pipeline over control with `build.generator` set to `generator`, and checks
+/// that the build wrote `files` at the root and the port printed what the reference prints.
+fn port_through(generator: &str, files: &[&str]) {
+    let dir = project_with(
+        &format!("generator-{generator}"),
+        &format!(r#"{{ "name": "control", "exe": "ref/control64.exe", "build": {{ "generator": "{generator}" }}, "run": {{ "compare": true }} }}"#),
+    );
+    let (ok, text) = ras(&dir, &[]);
+    assert!(ok, "{text}");
+    for file in files {
+        assert!(dir.join(file).is_file(), "the {generator} build wrote no {file}:\n{text}");
+    }
+    assert!(dir.join("build").join(generator).is_dir(), "no build/{generator}:\n{text}");
+    let runs = std::fs::read_to_string(dir.join("build/pipeline/runs.jsonl")).unwrap();
+    let record: serde_json::Value = serde_json::from_str(runs.lines().last().unwrap()).unwrap();
+    assert_eq!(record["exit"], "0", "{record}");
+    assert_eq!(record["verdict"], "same", "{record}");
+    // A second build reuses what the first wrote and configured.
+    let (ok, text) = ras(&dir, &["--only", "build"]);
+    assert!(ok, "{text}");
+}
+
+/// The port of control built through the generator `rhipper.json` names: a Visual Studio solution
+/// built by `msbuild` when it is on the PATH, else the `CMake` project.
+#[test]
+fn the_pipeline_builds_through_the_generator_of_the_project() {
+    let msbuild = Command::new("msbuild").args(["-version", "-nologo"]).output().is_ok_and(|o| o.status.success());
+    if msbuild {
+        port_through("vs", &["control.sln", "control.vcxproj"]);
+    } else if available("cmake") && available("clang") {
+        eprintln!("msbuild is not on the PATH: the port is built through CMake");
+        port_through("cmake", &["CMakeLists.txt"]);
+    } else {
+        eprintln!("neither msbuild nor cmake and clang are on the PATH: the build and the run are skipped");
+    }
+}
+
+/// The host's clang alone builds the port, with no build system, as on a Linux or macOS machine
+/// that has nothing else.
+#[test]
+fn the_host_clang_builds_the_port_without_a_build_system() {
+    if !available("clang") {
+        eprintln!("clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    port_through("clang", &[]);
+}
+
+/// A Meson project, when Meson is on the PATH.
+#[test]
+fn meson_builds_the_port() {
+    if !(available("meson") && available("ninja") && available("clang")) {
+        eprintln!("meson, ninja or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    port_through("meson", &["meson.build", "build/meson-sources.txt"]);
+}
+
 /// Sends `requests` to a server over the project at `dir` and returns the responses, in order.
 fn serve(dir: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
     use std::io::{BufRead, BufReader, Write};

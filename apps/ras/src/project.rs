@@ -11,7 +11,7 @@
 //!   "x87": "double",
 //!   "sources": ["src", "vendor"],
 //!   "hand": ["fib", "0x140001330"],
-//!   "build": { "dir": "build/cmake", "config": "Release", "target": "Game" },
+//!   "build": { "generator": "cmake", "dir": "build/cmake", "config": "Release", "target": "Game" },
 //!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0, "compare": false, "trace": false, "tracer": "debugger", "facts": false }
 //! }
 //! ```
@@ -32,7 +32,14 @@
 //! hand-written sources own, by source name or by address: `ras emit` writes each as its
 //! declaration, under its C name and linkage, in place of its body, and the function table
 //! marks it `hand`; a name no function of the image has is a warning of the emit step. `build` is
-//! the `CMake` build of the port, and `run` is how the pipeline starts it: `with`
+//! the build of a C or C++ port, through the build system `generator` names, whose project the
+//! pipeline writes at the root when the root has none and then leaves to the person: `cmake` (the
+//! default; `CMakeLists.txt`), `vs` (a Visual Studio solution, `<target>.sln` and
+//! `<target>.vcxproj`, built by `msbuild` with the `ClangCL` toolset), `meson` (`meson.build`,
+//! over `build/meson-sources.txt`, the list of sources the build step writes) or `clang`
+//! (no project: the host's clang compiles and links the port in one command, the build of a
+//! platform-neutral port on a Linux or macOS machine); `dir` is `build/<generator>` unless set.
+//! `run` is how the pipeline starts the port: `with`
 //! lists side processes that start before the port and stop after it, `timeout` in seconds stops
 //! a port that runs on, such as a game, and counts the run as alive, and `compare` runs the
 //! reference binary after the port with the same arguments, working directory and timeout and
@@ -68,6 +75,46 @@ pub(crate) struct Build {
     pub dir: PathBuf,
     pub config: String,
     pub target: String,
+    /// The build system of a C or C++ port; a Rust port is a cargo package whatever it says.
+    pub generator: Generator,
+}
+
+/// The build system the pipeline writes the port's project for and drives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Generator {
+    /// A `CMakeLists.txt`, configured with Ninja and clang, or Visual Studio and clang-cl.
+    CMake,
+    /// A Visual Studio solution and its `.vcxproj` with the `ClangCL` toolset, built by `msbuild`.
+    VisualStudio,
+    /// A `meson.build`, configured with clang and built by `meson compile`.
+    Meson,
+    /// No build system: the host's clang compiles and links the port in one command, as on a
+    /// Linux or macOS machine that has nothing else.
+    Clang,
+}
+
+impl Generator {
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Generator::CMake => "cmake",
+            Generator::VisualStudio => "vs",
+            Generator::Meson => "meson",
+            Generator::Clang => "clang",
+        }
+    }
+
+    fn parse(text: &str) -> Result<Generator> {
+        Ok(match text.to_ascii_lowercase().as_str() {
+            "cmake" => Generator::CMake,
+            "vs" | "visual studio" | "msbuild" => Generator::VisualStudio,
+            "meson" => Generator::Meson,
+            "clang" => Generator::Clang,
+            "wasm" | "webassembly" => {
+                bail!("{RHIPPER_JSON}: the runtime has no WebAssembly host yet, so a port cannot be built for one")
+            }
+            other => bail!("{RHIPPER_JSON}: unknown build generator \"{other}\": cmake, vs, meson or clang"),
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -140,10 +187,12 @@ impl Project {
             value.and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
         };
         let resolve = |path: &str| root.join(path);
+        let generator = section_string("build", "generator").map_or(Ok(Generator::CMake), |g| Generator::parse(&g))?;
         let build = Build {
-            dir: resolve(&section_string("build", "dir").unwrap_or_else(|| "build/cmake".into())),
+            dir: resolve(&section_string("build", "dir").unwrap_or_else(|| format!("build/{}", generator.id()))),
             config: section_string("build", "config").unwrap_or_else(|| "Release".into()),
             target: section_string("build", "target").unwrap_or_else(|| name.clone()),
+            generator,
         };
         let run = section("run");
         let run = Run {
@@ -248,17 +297,21 @@ impl Project {
     }
 
     /// The binary of the port: `run.exe` for a program, else the binary of the cargo package under
-    /// `build/cargo` for Rust, else the target in the `CMake` output directory, in its
-    /// configuration's subdirectory (a Visual Studio generator) or not (Ninja). The port of a DLL
-    /// (`dll`) is the target's `.dll` there: `run.exe` is then the program that loads it.
+    /// `build/cargo` for Rust, else the target in the build directory: at its top for Meson and
+    /// the host's clang, else under `bin`, in its configuration's subdirectory (Visual Studio) or
+    /// not (Ninja). The port of a DLL (`dll`) is the target's `.dll` there: `run.exe` is then the
+    /// program that loads it.
     pub(crate) fn port_binary(&self, dll: bool) -> PathBuf {
         if !dll && let Some(exe) = &self.run.exe {
             return exe.clone();
         }
-        let name = format!("{}.{}", self.build.target, if dll { "dll" } else { "exe" });
+        let name = if dll { format!("{}.dll", self.build.target) } else { format!("{}{}", self.build.target, std::env::consts::EXE_SUFFIX) };
         if self.is_rust() {
             let profile = if self.build.config.eq_ignore_ascii_case("debug") { "debug" } else { "release" };
             return self.build_dir().join("cargo").join(profile).join(name);
+        }
+        if matches!(self.build.generator, Generator::Meson | Generator::Clang) {
+            return self.build.dir.join(name);
         }
         let bin = self.build.dir.join("bin");
         let multi = bin.join(&self.build.config).join(&name);
