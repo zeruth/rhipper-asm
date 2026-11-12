@@ -49,7 +49,8 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<(Headers, Vec<Section>, ElfFile)> {
     // A file stripped of its section headers still maps: each loaded segment is a section.
     if sections.is_empty() {
         for (i, s) in loads.iter().enumerate() {
-            let (Some(virtual_address), Ok(virtual_size), Ok(raw_size)) = (rva_of(s.vaddr), u32::try_from(s.memsz), u32::try_from(s.filesz))
+            let (Some(virtual_address), Ok(virtual_size), Ok(raw_size)) =
+                (rva_of(s.vaddr), u32::try_from(s.memsz), u32::try_from(s.filesz))
             else {
                 elf.warnings.push(format!("loaded segment {i} at {:#x} is larger than the image", s.vaddr));
                 continue;
@@ -147,7 +148,8 @@ fn characteristics(execute: bool, write: bool, zeros: bool) -> u32 {
 /// symbols and the reader's warnings.
 pub(crate) fn read_tables(image: &mut Image) {
     let Some(elf) = image.elf.as_ref() else { return };
-    let (imports, exports, relocations, symbols, warnings) = (imports(elf), exports(elf), relocations(elf), symbols(elf), elf.warnings.clone());
+    let (imports, exports, relocations, symbols, warnings) =
+        (imports(elf), exports(elf), relocations(elf), symbols(elf), elf.warnings.clone());
     image.imports = imports;
     image.exports = exports;
     image.relocations = relocations;
@@ -209,10 +211,13 @@ fn exports(elf: &ElfFile) -> Option<ExportTable> {
         .dynamic_symbols
         .iter()
         .enumerate()
-        .filter(|(_, s)| {
-            s.is_defined() && s.is_visible() && !s.name.is_empty() && (s.is_function() || s.kind == format::STT_OBJECT)
+        .filter(|(_, s)| s.is_defined() && s.is_visible() && !s.name.is_empty() && (s.is_function() || s.kind == format::STT_OBJECT))
+        .map(|(i, s)| Export {
+            name: Some(s.name.clone()),
+            ordinal: u32::try_from(i).unwrap_or(u32::MAX),
+            va: Some(s.value),
+            forwarder: None,
         })
-        .map(|(i, s)| Export { name: Some(s.name.clone()), ordinal: u32::try_from(i).unwrap_or(u32::MAX), va: Some(s.value), forwarder: None })
         .collect();
     (!exports.is_empty() || elf.soname.is_some()).then(|| ExportTable {
         dll_name: elf.soname.clone().unwrap_or_default(),

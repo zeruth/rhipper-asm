@@ -193,10 +193,8 @@ fn the_linux_fixture_lifts_and_passes_the_ir_gate() {
         }
         let ll = lifted.module.to_ll();
         // The wrapper of a call or of a tail call through the PLT stub: either reads `rdi` first.
-        let start = ll
-            .lines()
-            .position(|l| l.starts_with("define internal") && l.contains("imp_write"))
-            .expect("the wrapper of write is defined");
+        let start =
+            ll.lines().position(|l| l.starts_with("define internal") && l.contains("imp_write")).expect("the wrapper of write is defined");
         let wrapper: Vec<&str> = ll.lines().skip(start).take_while(|l| *l != "}").collect();
         let wrapper = wrapper.join("\n");
         let first_gpr = ["%rdi", "%rcx"].into_iter().filter_map(|r| wrapper.find(r).map(|at| (at, r))).min();

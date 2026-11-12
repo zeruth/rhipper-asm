@@ -261,7 +261,9 @@ impl<'a> Data<'a> {
         let bytes = self.bytes();
         ensure!(offset <= bytes.len(), "{what} at offset {offset:#x} is past the end of the file ({:#x} bytes)", bytes.len());
         let window = &bytes[offset..bytes.len().min(offset.saturating_add(max))];
-        let Some(end) = window.iter().position(|&b| b == 0) else { bail!("{what} at offset {offset:#x} has no terminator within {max} bytes") };
+        let Some(end) = window.iter().position(|&b| b == 0) else {
+            bail!("{what} at offset {offset:#x} has no terminator within {max} bytes")
+        };
         Ok(String::from_utf8_lossy(&window[..end]).into_owned())
     }
 }
@@ -450,7 +452,8 @@ impl ElfFile {
                 let at = start + i * entsize;
                 let offset = d.word(at, &format!("{what} record {i} r_offset"))?;
                 let info = d.word(at + d.word_size(), &format!("{what} record {i} r_info"))?;
-                let (symbol, kind) = if self.wide { ((info >> 32) as u32, (info & 0xffff_ffff) as u32) } else { ((info >> 8) as u32, (info & 0xff) as u32) };
+                let (symbol, kind) =
+                    if self.wide { ((info >> 32) as u32, (info & 0xffff_ffff) as u32) } else { ((info >> 8) as u32, (info & 0xff) as u32) };
                 let addend = match (rela, self.wide) {
                     (false, _) => 0,
                     (true, true) => d.u64(at + 16, &format!("{what} record {i} r_addend"))? as i64,
@@ -645,7 +648,13 @@ fn read_sections(d: Data<'_>, shoff: u64, shentsize: usize, shnum: usize, shstrn
 fn read_symbol(d: Data<'_>, at: usize, name_of: impl Fn(u32) -> Result<String>) -> Result<Symbol> {
     let name = d.u32(at, "st_name")?;
     let (info, other, section, value, size) = if d.wide {
-        (d.u8(at + 4, "st_info")?, d.u8(at + 5, "st_other")?, d.u16(at + 6, "st_shndx")?, d.u64(at + 8, "st_value")?, d.u64(at + 16, "st_size")?)
+        (
+            d.u8(at + 4, "st_info")?,
+            d.u8(at + 5, "st_other")?,
+            d.u16(at + 6, "st_shndx")?,
+            d.u64(at + 8, "st_value")?,
+            d.u64(at + 16, "st_size")?,
+        )
     } else {
         (
             d.u8(at + 12, "st_info")?,
@@ -777,9 +786,12 @@ mod tests {
         b[4] = 2;
         b[5] = if big { 2 } else { 1 };
         b[6] = 1;
-        let put16 = |b: &mut Vec<u8>, at: usize, v: u16| b[at..at + 2].copy_from_slice(&if big { v.to_be_bytes() } else { v.to_le_bytes() });
-        let put32 = |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&if big { v.to_be_bytes() } else { v.to_le_bytes() });
-        let put64 = |b: &mut Vec<u8>, at: usize, v: u64| b[at..at + 8].copy_from_slice(&if big { v.to_be_bytes() } else { v.to_le_bytes() });
+        let put16 =
+            |b: &mut Vec<u8>, at: usize, v: u16| b[at..at + 2].copy_from_slice(&if big { v.to_be_bytes() } else { v.to_le_bytes() });
+        let put32 =
+            |b: &mut Vec<u8>, at: usize, v: u32| b[at..at + 4].copy_from_slice(&if big { v.to_be_bytes() } else { v.to_le_bytes() });
+        let put64 =
+            |b: &mut Vec<u8>, at: usize, v: u64| b[at..at + 8].copy_from_slice(&if big { v.to_be_bytes() } else { v.to_le_bytes() });
         put16(&mut b, 16, ET_EXEC);
         put16(&mut b, 18, EM_X86_64);
         put64(&mut b, 24, 0x40_0078);

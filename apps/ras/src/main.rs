@@ -7,6 +7,7 @@ mod doctor;
 mod emit;
 mod functions;
 mod lift;
+mod lockstep;
 mod pipeline;
 mod plugins;
 mod project;
@@ -205,7 +206,8 @@ enum Command {
         /// The build configuration, such as `Debug`, instead of the project's.
         #[arg(long)]
         config: Option<String>,
-        /// Delete the build outputs before the build.
+        /// Run the analyze, lift and emit steps whatever their stamps say, and delete the build
+        /// outputs before the build.
         #[arg(long)]
         rebuild: bool,
     },

@@ -17,7 +17,8 @@ fn ras(args: &[&str]) -> String {
 #[test]
 fn ras_prints_the_linux_hello() {
     let info = ras(&["info"]);
-    for line in ["machine        x86_64", "format         ELF64", "interpreter    /lib64/ld-linux-x86-64.so.2", "needed         libc.so.6"] {
+    for line in ["machine        x86_64", "format         ELF64", "interpreter    /lib64/ld-linux-x86-64.so.2", "needed         libc.so.6"]
+    {
         assert!(info.contains(line), "no `{line}` in:\n{info}");
     }
     let json: serde_json::Value = serde_json::from_str(&ras(&["--json", "info"])).unwrap();
