@@ -27,7 +27,7 @@ use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, FnType, Function, ICond, In
 use super::Target;
 use super::abi::{Candidates, Kind, Signature};
 use super::liveness::{
-    CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, RSP, SLOTS, Slot, SlotSet, all_registers, call_kind, reverse_post_order, slot_pointers,
+    CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, all_registers, call_kind, reverse_post_order, slot_pointers,
 };
 use crate::state::{X87_STACK, X87_TOP};
 use crate::x87::X87Unit;
@@ -906,7 +906,7 @@ impl Rewriter<'_> {
         out: &mut Vec<Instruction>,
     ) {
         let target = abi.target;
-        let ptr = target.ptr();
+        let ptr = target.pushed_return();
         let fp = f.new_value("fp", Type::Ptr);
         out.push(Instruction {
             result: Some(fp),
@@ -1119,7 +1119,7 @@ impl Rewriter<'_> {
                 // An import with a typed prototype takes its doubles as doubles, and an x86 one
                 // leaves a float result on the x87 stack.
                 if let Some(proto) = super::prototypes::typed(&symbol) {
-                    let sig = proto.signature(target.is_64());
+                    let sig = proto.signature(target);
                     let args = self.arguments(f, &sig, current, stack_base, out);
                     let fn_ty = proto.fn_type();
                     let result = (fn_ty.ret != Type::Void).then(|| f.new_value("ret", fn_ty.ret.clone()));
@@ -1141,9 +1141,16 @@ impl Rewriter<'_> {
                 // An import the prototype table knows takes its own number of arguments, all of
                 // them from the stack past the registers: the universal eight end in `ecx` and
                 // `edx` on x86 and in four stack words on Win64, so a longer prototype
-                // (`CreateWindowExA` has twelve) reads the slots beyond them.
+                // (`CreateWindowExA` has twelve) reads the slots beyond them. ARM64's universal
+                // eight are its eight argument registers.
                 if let Some(arity) = super::prototypes::arity(&symbol) {
-                    let (registers, universal_stack, width) = if target.is_64() { (4, 4, 8) } else { (0, 6, 4) };
+                    let (registers, universal_stack, width) = if target.is_arm64() {
+                        (8, 0, 8)
+                    } else if target.is_64() {
+                        (4, 4, 8)
+                    } else {
+                        (0, 6, 4)
+                    };
                     args.truncate(arity.min(registers + universal_stack));
                     let rsp = self.sp(current);
                     for k in universal_stack..arity.saturating_sub(registers) {

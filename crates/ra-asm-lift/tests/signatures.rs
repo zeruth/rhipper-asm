@@ -77,6 +77,27 @@ fn control64_signatures_match_the_source() {
     assert!(s.frame_below >= 0x28, "entry has a frame: {s:?}");
 }
 
+/// The ARM64 build of hello, by AAPCS64: the arguments in `x0` to `x7`, the result in `x0`, the
+/// return address in the link register, so nothing is popped.
+#[test]
+fn helloa64_signatures_match_the_source() {
+    let image = ra_asm_pe::load(&fixture("helloa64.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target::ARM64, &lifted.vtables);
+    let map = map_functions("helloa64.map");
+    let sig = |name: &str| signatures.get(&ra_asm_lift::function_name(map[name])).unwrap_or_else(|| panic!("{name} has a signature"));
+
+    // int square(int x): one integer in `w0`, one out.
+    let s = sig("square");
+    assert_eq!((s.params.as_slice(), s.stack_params.len(), s.returns), ([Kind::Int].as_slice(), 0, Some(Kind::Int)), "square: {s:?}");
+    assert_eq!(s.pops, 0, "square: {s:?}");
+    // The entry: no parameters, a frame for the buffer and the count WriteFile writes.
+    let s = sig("mainCRTStartup");
+    assert_eq!((s.params.len(), s.stack_params.len()), (0, 0), "entry: {s:?}");
+    assert!(s.frame_below >= 16, "entry has a frame: {s:?}");
+}
+
 #[test]
 fn float64_signatures_see_the_double_parameters() {
     let image = ra_asm_pe::load(&fixture("float64.exe")).unwrap();

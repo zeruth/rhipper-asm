@@ -155,11 +155,20 @@ fn the_arm64_fixture_lifts_and_passes_the_ir_gate() {
             Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
         assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
     }
+    // The ABI level: AAPCS64 signatures, the imports called by their prototypes.
+    let Raised { lifted, signatures, .. } = raise("helloa64.exe", "gate-abi");
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    assert!(!signatures.is_empty(), "the ARM64 raise inferred no signature");
+    let ll = lifted.module.to_ll();
+    let dir = scratch("gate-arm64-abi-helloa64");
+    std::fs::write(dir.join("program.ll"), &ll).unwrap();
+    let check = Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+    assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
 }
 
 /// The ARM64 build of hello runs lifted through the IR interpreter, over the mapped image and
-/// standalone: the host is x64, so the interpreter is its ARM64 machine. The raise leaves ARM64
-/// at the machine shape, so the two tags differ by the lift's standalone data only.
+/// standalone: the host is x64, so the interpreter is its ARM64 machine. The standalone run is
+/// the ABI level, raised by AAPCS64.
 #[test]
 fn helloa64_runs_interpreted() {
     let expected = std::fs::read_to_string(root().join("testdata/expected/hello.txt")).unwrap();
