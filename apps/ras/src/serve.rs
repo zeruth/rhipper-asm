@@ -21,9 +21,12 @@
 //!   [`crate::annotations`]): a text key sets the text and `null` or `""` clears it, `hand` sets
 //!   the takeover; a name another function has, or the port's runtime owns, is refused. Answers
 //!   with the annotation; every later answer, and the next emit, takes the name.
-//! - `annotations`: every annotation of the project, and what of them the analysis could not take.
+//! - `annotations`: every annotation of the project, and what of them the analysis could not take
+//!   (with what the project's name-source plugins said that it could not take).
+//! - `plugins`: the plugins of the project and the user's (see [`crate::plugins`]): `abi`, the
+//!   `user` directory, and each plugin's `name`, `origin`, `dir`, `kinds` and `error`.
 //!
-//! The answers name the functions as the annotations do; a change to the sidecar files on disk (a
+//! The answers name the functions as the plugins and then the annotations do; a change to the sidecar files on disk (a
 //! checkout, a merge) reloads them before the next answer.
 //! - `trace` (`function`, `from`, `limit`): the replay of the port's trace against the
 //!   reference's (the two the run step recorded with `run.trace`), call by call: each call of the
@@ -222,6 +225,7 @@ impl Session<'_> {
                 "annotations": self.annotations.values().map(Annotation::to_json).collect::<Vec<_>>(),
                 "warnings": self.warnings,
             })),
+            "plugins" => Ok(crate::plugins::list_json(self.target.project.as_ref().map(|p| p.root.as_path()))),
             "trace" => {
                 let Some(project) = &self.target.project else { bail!("no project: the traces are a project's") };
                 let function = params.get("function").and_then(Value::as_str);
@@ -253,8 +257,11 @@ impl Session<'_> {
     /// the sidecar file, which the next emit reads, and answers with the annotation.
     fn annotate(&self, function: &ra_asm_analysis::Function, params: &Value) -> Result<Value> {
         let Some(project) = &self.target.project else { bail!("no project: the annotations are a project's") };
-        let mut annotation =
-            self.annotations.get(&function.entry).cloned().unwrap_or_else(|| Annotation { address: function.entry, ..Annotation::default() });
+        let mut annotation = self
+            .annotations
+            .get(&function.entry)
+            .cloned()
+            .unwrap_or_else(|| Annotation { address: function.entry, ..Annotation::default() });
         let text = |key: &str| -> Result<Option<Option<String>>> {
             match params.get(key) {
                 None => Ok(None),

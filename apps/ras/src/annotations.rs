@@ -116,7 +116,8 @@ pub(crate) fn file_of(root: &Path, address: u64) -> PathBuf {
 pub(crate) fn load(root: &Path, warnings: &mut Vec<String>) -> BTreeMap<u64, Annotation> {
     let mut out = BTreeMap::new();
     let Ok(entries) = std::fs::read_dir(dir(root)) else { return out };
-    let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
+    let mut paths: Vec<PathBuf> =
+        entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|e| e == "json")).collect();
     paths.sort();
     for path in paths {
         let address = path.file_stem().and_then(|s| s.to_str()).and_then(crate::project::hand_address);
@@ -125,7 +126,10 @@ pub(crate) fn load(root: &Path, warnings: &mut Vec<String>) -> BTreeMap<u64, Ann
             Some(annotation) => {
                 out.insert(annotation.address, annotation);
             }
-            None => warnings.push(format!("the annotation {} is no annotation (a merge conflict?): its function is left as the analysis has it", path.display())),
+            None => warnings.push(format!(
+                "the annotation {} is no annotation (a merge conflict?): its function is left as the analysis has it",
+                path.display()
+            )),
         }
     }
     out
@@ -159,9 +163,8 @@ pub(crate) fn write(root: &Path, annotation: &Annotation) -> Result<PathBuf> {
 /// runtime, the host's C library or a language owns, the lift's own prefixes, or another
 /// function's name. `None` when it can.
 pub(crate) fn name_fault(analysis: &Analysis<'_>, address: u64, name: &str) -> Option<String> {
-    let identifier = !name.is_empty()
-        && !name.starts_with(|c: char| c.is_ascii_digit())
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let identifier =
+        !name.is_empty() && !name.starts_with(|c: char| c.is_ascii_digit()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     if !identifier {
         return Some(format!("`{name}` is no C identifier"));
     }
@@ -184,7 +187,9 @@ pub(crate) fn apply_names(analysis: &mut Analysis<'_>, annotations: &BTreeMap<u6
         let at = format_address(annotation.address);
         let fault = match analysis.functions.get(&annotation.address) {
             None => Some(format!("it names `{name}`, but no function starts there")),
-            Some(f) if matches!(f.kind, Kind::Runtime(_)) => Some(format!("it names `{name}`, but the host's runtime supplies the function")),
+            Some(f) if matches!(f.kind, Kind::Runtime(_)) => {
+                Some(format!("it names `{name}`, but the host's runtime supplies the function"))
+            }
             Some(f) if f.name == *name => continue,
             Some(_) => name_fault(analysis, annotation.address, name).map(|fault| format!("{fault}; the function keeps its name")),
         };
@@ -199,10 +204,11 @@ pub(crate) fn apply_names(analysis: &mut Analysis<'_>, annotations: &BTreeMap<u6
     }
 }
 
-/// Reads the annotations of the project at `root` and gives the functions of `analysis` their
-/// names; returns the annotations and what could not be applied.
+/// Gives the functions of `analysis` the names of the project's name-source plugins, then those
+/// of its annotations, which win; returns the annotations and what could not be applied.
 pub(crate) fn annotate(root: &Path, analysis: &mut Analysis<'_>) -> (BTreeMap<u64, Annotation>, Vec<String>) {
     let mut warnings = Vec::new();
+    crate::plugins::apply_names(root, analysis, &mut warnings);
     let annotations = load(root, &mut warnings);
     apply_names(analysis, &annotations, &mut warnings);
     (annotations, warnings)

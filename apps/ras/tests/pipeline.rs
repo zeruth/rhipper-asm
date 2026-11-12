@@ -33,12 +33,18 @@ fn ras(dir: &Path, args: &[&str]) -> (bool, String) {
     (output.status.success(), text)
 }
 
-/// The tests leave nothing new under the system temp: the test binaries run one after another, so
-/// the only scratch directories that may exist while this one runs are this process's own. A
-/// directory of another process written since this binary was built is a leftover of a test that
-/// wrote without a guard; an older one is from the time before the guards, and is only named.
+/// The tests leave nothing new under the system temp: the scratch directories of this build that
+/// may exist while this one runs are this process's own and those a live guard holds; the runs of
+/// other checkouts, under way at the same time, are not looked at. A directory of another process
+/// written since this binary was built is a leftover of a test that wrote without a guard; an
+/// older one is from the time before the guards, and is only named. A run that keeps its scratch
+/// keeps it on purpose and is not checked.
 #[test]
 fn the_tests_leave_nothing_under_temp() {
+    if std::env::var_os(ra_asm_testing::KEEP).is_some() {
+        eprintln!("{} is set: the scratch directories are kept, and not checked", ra_asm_testing::KEEP);
+        return;
+    }
     let built = std::fs::metadata(std::env::current_exe().unwrap()).unwrap().modified().unwrap();
     for suite in ["ra-asm-emit-tests", "ra-asm-lift-tests", "ras-pipeline-tests"] {
         let foreign = ra_asm_testing::Scratch::foreign(suite);
@@ -47,7 +53,11 @@ fn the_tests_leave_nothing_under_temp() {
         if !old.is_empty() {
             eprintln!("{suite}: {} directories left by earlier runs, to remove by hand", old.len());
         }
-        assert!(new.is_empty(), "{suite}: left under the system temp by this run:\n{new:#?}");
+        assert!(
+            new.is_empty(),
+            "{suite}: left under the system temp since this test was built (or kept by a run with {} set):\n{new:#?}",
+            ra_asm_testing::KEEP
+        );
     }
 }
 
@@ -111,8 +121,8 @@ fn emit_writes_the_translation_and_the_table() {
     assert!(table.as_array().is_some_and(|a| a.iter().any(|e| e["name"] == "entry" && e["status"] == "lifted")), "{table}");
 }
 
-/// A second run over unchanged inputs skips the steps and leaves the translation as it was; a
-/// change to `rhipper.json` runs them again.
+/// A second run over unchanged inputs skips the steps, each in under a second, and leaves the
+/// translation as it was; a deleted output, or a change to `rhipper.json`, runs them again.
 #[test]
 fn an_unchanged_program_is_not_lifted_again() {
     let dir = project("incremental");
@@ -128,9 +138,16 @@ fn an_unchanged_program_is_not_lifted_again() {
             assert!(text.contains("(unchanged)"), "{text}");
         }
     }
-    let (ok, text) = ras(&dir, &["--only", "lift"]);
-    assert!(ok && text.contains("(unchanged)"), "{text}");
+    for step in ["analyze", "lift", "emit"] {
+        let (ok, text) = ras(&dir, &["--only", step]);
+        assert!(ok && text.contains("(unchanged)"), "{text}");
+        assert!(text.contains("[   0s] done"), "an unchanged {step} took a second or more:\n{text}");
+    }
     assert_eq!(std::fs::metadata(&program).unwrap().modified().unwrap(), written, "the emit rewrote an unchanged file");
+    std::fs::remove_file(dir.join("src/gen/runtime/driver.c")).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok && !text.contains("(unchanged)"), "the emit missed a deleted output:\n{text}");
+    assert!(dir.join("src/gen/runtime/driver.c").is_file(), "the deleted output was not written again");
     std::fs::write(dir.join("rhipper.json"), r#"{ "name": "control", "exe": "ref/control64.exe", "x87": "double" }"#).unwrap();
     let (ok, text) = ras(&dir, &["--only", "emit"]);
     assert!(ok && !text.contains("(unchanged)"), "{text}");

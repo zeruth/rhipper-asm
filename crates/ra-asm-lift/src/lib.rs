@@ -279,7 +279,7 @@ impl Lifted {
     }
 
     /// A lift of the same tables with nothing lifted yet and an empty module: what one thread of a
-    /// parallel lift writes into, whose imports, wrappers and warnings join the lift's after.
+    /// parallel lift writes into, whose outputs join the lift's after.
     fn worker(&self) -> Lifted {
         Lifted {
             module: Module::default(),
@@ -422,6 +422,11 @@ pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
 
 /// Lifts every function of `analysis` with `options`.
 pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -> Lifted {
+    lift_on(image, analysis, options, None)
+}
+
+/// [`lift_with`] on `threads` threads, or on as many as the host and the program's size call for.
+fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads: Option<usize>) -> Lifted {
     let isa = if image.machine() == ra_asm_pe::Machine::Arm64 { Isa::Arm64 } else { Isa::X86 };
     let name = image.path.as_ref().map_or_else(|| "image".to_owned(), |p| p.file_name().unwrap().to_string_lossy().into_owned());
     let mut module = match isa {
@@ -507,7 +512,7 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
     }
     let tls = state::tls_global(image, &lifted);
     lifted.module.globals.push(tls);
-    lift_functions(image, analysis, &mut lifted);
+    lift_functions(image, analysis, &mut lifted, threads);
     // A function whose address the code or the data holds is a root as well: a window procedure
     // or a thread's start the system calls back, whose callers the raise never sees, so it keeps
     // the result it writes.
@@ -567,44 +572,88 @@ pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -
 /// The fewest functions a lift spreads over threads: below it a thread costs more than it saves.
 const PARALLEL_FROM: usize = 64;
 
-/// Lifts the ported functions of `analysis` into `lifted`, on every core of the host. A function's
-/// lift reads only the analysis and the lift's tables, so each thread lifts a run of consecutive
-/// functions into a worker of its own and the runs join in address order: the module, the
-/// warnings and the imports are the ones a lift on one thread writes.
-fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted) {
-    let lift_one = |lifted: &mut Lifted, f: &ra_asm_analysis::Function| match lifted.isa {
-        Isa::X86 => x86::lift_function(image, analysis, lifted, f),
-        Isa::Arm64 => arm64::lift_function(image, analysis, lifted, f),
+/// Lifts the ported functions of `analysis` into `lifted`, on `threads` threads or on every core of
+/// the host for a program of [`PARALLEL_FROM`] functions or more. A function's lift reads only the
+/// analysis and the lift's tables, so each thread lifts a run of consecutive functions into a
+/// worker of its own and the runs join in address order: the module, the warnings, the imports
+/// and every other output are the ones a lift on one thread writes.
+fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, threads: Option<usize>) {
+    let lift_one = |lifted: &mut Lifted, f: &ra_asm_analysis::Function| {
+        let built = match lifted.isa {
+            Isa::X86 => x86::lift_function(image, analysis, lifted, f),
+            Isa::Arm64 => arm64::lift_function(image, analysis, lifted, f),
+        };
+        lifted.module.functions.push(built);
     };
     let ported: Vec<&ra_asm_analysis::Function> = analysis.ported().collect();
-    let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get);
-    if threads == 1 || ported.len() < PARALLEL_FROM {
+    let threads = threads.unwrap_or_else(|| {
+        if ported.len() < PARALLEL_FROM { 1 } else { std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get) }
+    });
+    if threads <= 1 || ported.len() < 2 {
         for f in ported {
-            let built = lift_one(lifted, f);
-            lifted.module.functions.push(built);
+            lift_one(lifted, f);
         }
         return;
     }
     let run = ported.len().div_ceil(threads);
-    let workers: Vec<(Vec<ra_asm_ir::Function>, Lifted)> = std::thread::scope(|scope| {
+    let workers: Vec<Lifted> = std::thread::scope(|scope| {
         let handles: Vec<_> = ported
             .chunks(run)
             .map(|functions| {
                 let mut worker = lifted.worker();
                 scope.spawn(move || {
-                    let built: Vec<ra_asm_ir::Function> = functions.iter().map(|f| lift_one(&mut worker, f)).collect();
-                    (built, worker)
+                    for f in functions {
+                        lift_one(&mut worker, f);
+                    }
+                    worker
                 })
             })
             .collect();
         handles.into_iter().map(|h| h.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
     });
-    for (built, worker) in workers {
+    let data_before = lifted.data.len();
+    for worker in workers {
+        // Every field by name, so a field the lift comes to write cannot be left behind here.
+        let Lifted {
+            module,
+            imports,
+            functions,
+            runtime,
+            thunks,
+            eh: _,
+            entry: _,
+            roots,
+            wrappers,
+            fastcall,
+            data,
+            vtables,
+            standalone: _,
+            bits: _,
+            isa: _,
+            x87: _,
+            relocated,
+            traced_calls,
+            warnings,
+        } = worker;
+        let Module { name: _, triple: _, data_layout: _, types, globals, declarations, functions: built } = module;
+        lifted.module.types.extend(types);
+        lifted.module.globals.extend(globals);
+        lifted.module.declarations.extend(declarations);
         lifted.module.functions.extend(built);
-        lifted.warnings.extend(worker.warnings);
-        lifted.imports.extend(worker.imports);
-        lifted.wrappers.extend(worker.wrappers);
-        lifted.fastcall.extend(worker.fastcall);
+        lifted.imports.extend(imports);
+        lifted.roots.extend(roots);
+        lifted.wrappers.extend(wrappers);
+        lifted.fastcall.extend(fastcall);
+        // A worker's sections start as a copy of the lift's: only the ones it added are new.
+        lifted.data.extend(data.into_iter().skip(data_before));
+        lifted.vtables.extend(vtables);
+        lifted.warnings.extend(warnings);
+        // The tables a function's lift reads and never writes.
+        debug_assert_eq!(functions.len(), lifted.functions.len());
+        debug_assert_eq!(runtime.len(), lifted.runtime.len());
+        debug_assert_eq!(thunks.len(), lifted.thunks.len());
+        debug_assert_eq!(relocated.len(), lifted.relocated.len());
+        debug_assert_eq!(traced_calls.len(), lifted.traced_calls.len());
     }
 }
 
@@ -695,4 +744,32 @@ pub fn image_header(
     let _ = writeln!(out, "static const unsigned long long ra_noreturn_imports = {};", analysis.noreturn.len());
     let _ = writeln!(out, "static const unsigned ra_lifted_function_count = {};", lifted.functions.len());
     out
+}
+
+#[cfg(test)]
+mod parallel_tests {
+    use super::*;
+
+    /// A lift on many threads writes what a lift on one writes: the same IR, warnings, imports and
+    /// wrappers, for 32- and 64-bit code, with exceptions, and over the image or standalone.
+    #[test]
+    fn a_lift_on_many_threads_is_the_lift_on_one() {
+        let bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin");
+        let fixtures = [("control64.exe", true), ("control32.exe", true), ("classes32.exe", false), ("throws64.exe", true)];
+        for (fixture, standalone) in fixtures {
+            let image = ra_asm_pe::load(&bin.join(fixture)).unwrap();
+            let analysis = ra_asm_analysis::analyze(&image);
+            let options = || LiftOptions { standalone, x87: X87Unit::Double };
+            let one = lift_on(&image, &analysis, options(), Some(1));
+            let many = lift_on(&image, &analysis, options(), Some(5));
+            assert!(analysis.ported().count() >= 5, "{fixture}: too few functions to spread over the threads");
+            assert_eq!(one.module.to_ll(), many.module.to_ll(), "{fixture}: the IR differs");
+            assert_eq!(one.warnings, many.warnings, "{fixture}");
+            assert_eq!(one.imports, many.imports, "{fixture}");
+            assert_eq!(one.wrappers, many.wrappers, "{fixture}");
+            assert_eq!(one.fastcall, many.fastcall, "{fixture}");
+            assert_eq!(one.roots, many.roots, "{fixture}");
+            assert_eq!(one.data.len(), many.data.len(), "{fixture}");
+        }
+    }
 }
