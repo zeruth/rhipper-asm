@@ -254,7 +254,7 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
                 }
             }
             // The strings a decryptor would compute at run time are computed here.
-            for index in strings::run(module) {
+            for index in strings::run(module, !target.is_64()) {
                 clean(&mut module.functions[index]);
             }
             // The import wrappers served the machine model; the calls now go to the imports,

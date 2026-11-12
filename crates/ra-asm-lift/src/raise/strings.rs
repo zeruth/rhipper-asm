@@ -56,8 +56,29 @@ struct Candidate {
     args: Vec<Arg>,
 }
 
+/// Host memory for a run: anywhere for a 64-bit program, below 4 GiB for a 32-bit one, whose
+/// pointers are the low halves of the addresses.
+enum Backing {
+    Heap(Vec<u8>),
+    Low(crate::run::os::Allocation),
+}
+
+impl Backing {
+    fn new(len: u64, low: bool) -> Option<Self> {
+        if low { crate::run::os::allocate_low(len).map(Self::Low) } else { Some(Self::Heap(vec![0u8; len as usize])) }
+    }
+
+    fn start(&mut self) -> u64 {
+        match self {
+            Self::Heap(bytes) => bytes.as_mut_ptr() as u64,
+            Self::Low(allocation) => allocation.start,
+        }
+    }
+}
+
 /// Runs the decryptor calls of `module` and replaces them; returns the functions it changed.
-pub fn run(module: &mut Module) -> Vec<usize> {
+/// `low` is for a 32-bit program, whose runs need their memory below 4 GiB.
+pub fn run(module: &mut Module, low: bool) -> Vec<usize> {
     let candidates = candidates(module);
     if candidates.is_empty() {
         return Vec::new();
@@ -72,9 +93,8 @@ pub fn run(module: &mut Module) -> Vec<usize> {
         + 16 * (copy.functions.len() + copy.declarations.len()) as u64
         + (1 << 20);
     let frames_len = 8u64 << 20;
-    let mut statics = vec![0u8; statics_len as usize];
-    let mut frames = vec![0u8; frames_len as usize];
-    let (statics_at, frames_at) = (statics.as_mut_ptr() as u64, frames.as_mut_ptr() as u64);
+    let (Some(mut statics), Some(mut frames)) = (Backing::new(statics_len, low), Backing::new(frames_len, low)) else { return Vec::new() };
+    let (statics_at, frames_at) = (statics.start(), frames.start());
     let mut memory = Memory::new();
     memory.add_region(Region::new(statics_at, statics_len, "lift-time statics"));
     memory.add_region(Region::new(frames_at, frames_len, "lift-time frames"));
@@ -89,7 +109,7 @@ pub fn run(module: &mut Module) -> Vec<usize> {
 
     let mut plain: Vec<(Candidate, Vec<Option<Vec<u8>>>)> = Vec::new();
     for candidate in candidates {
-        if let Some(outcome) = decrypt(&mut vm, &candidate, statics_at, &baseline) {
+        if let Some(outcome) = decrypt(&mut vm, &candidate, statics_at, &baseline, low) {
             plain.push((candidate, outcome));
         }
     }
@@ -214,7 +234,14 @@ fn classify(ty: &Type, o: &Operand, module: &Module, defs: &HashMap<ValueId, Ins
             if let Some((value, known)) = partial(o, defs) {
                 return Some(Arg::Partial { value, known });
             }
-            let (Root::Alloca(a), offset) = known::place(o, defs)? else { return None };
+            // An address in read-only data the code narrowed or offset (a 32-bit program's
+            // pointer is the low half of the address) is still that byte.
+            let (root, offset) = known::place(o, defs)?;
+            let a = match root {
+                Root::Alloca(a) => a,
+                Root::Global(g) if constant(&g) => return Some(Arg::Data(g, offset)),
+                _ => return None,
+            };
             let Some(Inst::Alloca { ty: slot, .. }) = defs.get(&a) else { return None };
             let size = slot.size(8)?;
             let offset = u64::try_from(offset).ok()?;
@@ -244,10 +271,10 @@ fn partial(o: &Operand, defs: &HashMap<ValueId, Inst>) -> Option<(u128, u128)> {
 /// Runs `c` twice over buffers filled differently. The bytes each buffer got, when both runs
 /// wrote the same prefix of it and touched nothing else; `None` in the place of a buffer the
 /// runs left alone, and no result at all when the runs disagree or stop.
-fn decrypt(vm: &mut Vm<'_>, c: &Candidate, statics_at: u64, baseline: &[u8]) -> Option<Vec<Option<Vec<u8>>>> {
+fn decrypt(vm: &mut Vm<'_>, c: &Candidate, statics_at: u64, baseline: &[u8], low: bool) -> Option<Vec<Option<Vec<u8>>>> {
     let sizes: Vec<u64> = c.args.iter().filter_map(|a| if let Arg::Buffer(_, _, n) = a { Some(*n) } else { None }).collect();
-    let mut buffers: Vec<Vec<u8>> = sizes.iter().map(|n| vec![0u8; *n as usize]).collect();
-    let addresses: Vec<u64> = buffers.iter_mut().map(|b| b.as_mut_ptr() as u64).collect();
+    let mut buffers: Vec<Backing> = sizes.iter().map(|n| Backing::new(*n, low)).collect::<Option<_>>()?;
+    let addresses: Vec<u64> = buffers.iter_mut().map(Backing::start).collect();
     for (a, n) in addresses.iter().zip(&sizes) {
         vm.memory.add_region(Region::new(*a, *n, "lift-time buffer"));
     }
