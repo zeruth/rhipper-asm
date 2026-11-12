@@ -300,6 +300,64 @@ fn the_trace_beside_the_port_names_the_wrong_function() {
     assert_eq!(parts["reference"], reference, "{parts}");
 }
 
+/// The lockstep of `ras serve`: the port of control64 (a build with `run.trace`) and the reference
+/// through the interpreter, each stopped at its first function entry, then let go to the first
+/// entry of `fib`, where both stand with equal states; a read answers from each side's memory; and
+/// a run to the first divergence takes both to their end with the same exit.
+#[test]
+fn the_lockstep_stops_the_port_and_the_reference_at_the_same_entry() {
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the build and the run are skipped");
+        return;
+    }
+    let dir = project_with(
+        "lockstep",
+        r#"{ "name": "control", "exe": "ref/control64.exe", "map": "ref/control.map", "run": { "trace": true } }"#,
+    );
+    std::fs::copy(root().join("testdata/bin/control64.map"), dir.join("ref/control.map")).unwrap();
+    let (ok, text) = ras(&dir, &[]);
+    assert!(ok, "{text}");
+    let responses = serve(
+        &dir,
+        &[
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "lockstep.state"}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "lockstep.start"}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 3, "method": "lockstep.step", "params": {"function": "fib"}}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 4, "method": "lockstep.read", "params": {"address": "0x0", "size": 8}}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 5, "method": "lockstep.step", "params": {"divergence": true}}),
+            serde_json::json!({"jsonrpc": "2.0", "id": 6, "method": "lockstep.stop"}),
+        ],
+    );
+    assert!(responses[0]["error"]["message"].as_str().is_some_and(|m| m.contains("no lockstep session")), "{}", responses[0]);
+    let started = &responses[1]["result"];
+    assert_eq!(started["entry"], 1, "{}", responses[1]);
+    assert_eq!(started["equal"], true, "{started}");
+    assert!(started["port"]["function"].is_string() && started["port"]["function"] == started["reference"]["function"], "{started}");
+
+    let at_fib = &responses[2]["result"];
+    assert_eq!(at_fib["equal"], true, "{}", responses[2]);
+    for side in ["port", "reference"] {
+        assert_eq!(at_fib[side]["function"], "fib", "{at_fib}");
+        assert_eq!(at_fib[side]["args"][0]["kind"], "u", "{at_fib}");
+        assert_eq!(at_fib[side]["args"][0]["value"], "0xf", "{at_fib}");
+    }
+    assert!(at_fib["entry"].as_u64() > Some(1), "{at_fib}");
+
+    // Nothing is mapped at 0 on either side: each says why.
+    let read = &responses[3]["result"];
+    for side in ["port", "reference"] {
+        assert!(read[side]["error"].is_string(), "{}", responses[3]);
+    }
+
+    let end = &responses[4]["result"];
+    assert_eq!(end["equal"], true, "{}", responses[4]);
+    for side in ["port", "reference"] {
+        assert_eq!(end[side]["ended"], true, "{end}");
+        assert_eq!(end[side]["exit"], "0x0", "{end}");
+    }
+    assert_eq!(responses[5]["result"]["stopped"], true, "{}", responses[5]);
+}
+
 /// A function taken over by hand: `hand` in `rhipper.json` names `fib`, the emit step writes its
 /// declaration in place of its body and marks it in the table, the build compiles the hand-written
 /// `fib` from `sources` beside the translation, and the port prints what the reference prints.
