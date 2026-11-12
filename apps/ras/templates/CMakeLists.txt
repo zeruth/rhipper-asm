@@ -48,6 +48,9 @@ else()
 endif()
 if(WIN32)
   target_link_libraries(@TARGET@ PRIVATE kernel32 user32)
+else()
+  # The driver of a platform-neutral port binds the program's imports with dlopen.
+  target_link_libraries(@TARGET@ PRIVATE ${CMAKE_DL_LIBS} m)
 endif()
 # The program's resources, which ras emit extracts from the image: linked into the port, so the
 # program's FindResource and LoadString find them as they did.

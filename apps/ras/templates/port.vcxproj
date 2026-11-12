@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Visual Studio project of the port of @NAME@. ras wrote this file because the project had
+     none. ras does not write it again, so you can change it. -->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+@CONFIGURATIONS@
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{@GUID@}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>@TARGET@</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <!-- The translation that ras emit writes, with its runtime beside it. A DLL is a shared
+         library whose exports (by name and ordinal, with the forwarders) are the image's, from the
+         definition file ras emit writes beside the translation. -->
+    <RaGenDir>@GEN_DIR@</RaGenDir>
+    <RaDll>@DLL@</RaDll>
+    <RaPointerBits>@POINTER_BITS@</RaPointerBits>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <!-- The translation uses the clang extensions the runtime header relies on: 128-bit integers
+       and vector types, so the compiler is clang-cl. -->
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType Condition="'$(RaDll)'=='true'">DynamicLibrary</ConfigurationType>
+    <ConfigurationType Condition="'$(RaDll)'!='true'">Application</ConfigurationType>
+    <PlatformToolset>ClangCL</PlatformToolset>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'!='Debug'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>@OUT_DIR@\bin\$(Configuration)\</OutDir>
+    <IntDir>@OUT_DIR@\obj\$(Configuration)\</IntDir>
+    <TargetName>@TARGET@</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(RaGenDir);$(RaGenDir)\runtime;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <WarningLevel>Level1</WarningLevel>
+      <Optimization>MinSpace</Optimization>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <LanguageStandard_C>stdc11</LanguageStandard_C>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalOptions>/clang:-Wno-parentheses /clang:-Wno-unused-variable /clang:-Wno-unused-but-set-variable %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>kernel32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- The program's resources, which ras emit extracts from the image: linked into the port,
+           so the program's FindResource and LoadString find them as they did. -->
+      <AdditionalDependencies Condition="Exists('$(RaGenDir)\resources.res')">$(RaGenDir)\resources.res;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile Condition="'$(RaDll)'=='true'">$(RaGenDir)\exports.def</ModuleDefinitionFile>
+      <!-- A 32-bit program keeps its 32-bit pointers in the port: every address of the process
+           must fit in them, which the linker arranges for a binary that is not
+           large-address-aware. -->
+      <LargeAddressAware Condition="'$(RaPointerBits)'=='32'">false</LargeAddressAware>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="$(RaGenDir)\*.c;$(RaGenDir)\*.cpp;$(RaGenDir)\runtime\driver.c" />
+  </ItemGroup>
+  <!-- The hand-written sources of the port (`sources` in rhipper.json), beside the translation:
+       the functions rhipper.json names under `hand` are theirs to define, ras emit only declares
+       them. -->
+  <ItemGroup>
+@HAND_SOURCES@
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
