@@ -20,6 +20,7 @@ mod xrefs;
 
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -84,6 +85,10 @@ enum Command {
         /// A signature file or a library to make signatures from; repeatable.
         #[arg(long, value_name = "FILE")]
         from: Vec<PathBuf>,
+        /// Recognize with the C runtime libraries the image's toolset picks (the installed MSVC
+        /// runtime for a 14.x one), beside `--from`.
+        #[arg(long)]
+        runtime: bool,
         /// Write the signatures made from `--from` to this file, in the `ra signatures` text format.
         #[arg(long, value_name = "FILE")]
         write: Option<PathBuf>,
@@ -259,8 +264,15 @@ fn main() -> anyhow::Result<()> {
             let standalone = standalone || level == ra_asm_lift::RaiseLevel::Abi;
             lift::lift(&load(&pe, sigs)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87 })
         }
-        Command::Signatures { pe, from, write } if !from.is_empty() || write.is_some() => {
-            signatures::recognize(&mut load(&pe, sigs)?, &from, write.as_deref(), json)
+        Command::Signatures { pe, mut from, runtime, write } if runtime || !from.is_empty() || write.is_some() => {
+            let mut image = load(&pe, sigs)?;
+            if runtime {
+                let libraries = ra_asm_analysis::signatures::runtime_for(&image).with_context(|| {
+                    format!("no installed runtime libraries fit the toolset {}", ra_asm_pe::Toolset::of(&image).name)
+                })?;
+                from.extend(libraries);
+            }
+            signatures::recognize(&mut image, &from, write.as_deref(), json)
         }
         Command::Signatures { pe, .. } => signatures::signatures(&load(&pe, sigs)?, json),
         Command::Emit { pe, lang, out, quiet, x87, hand, project } => {
