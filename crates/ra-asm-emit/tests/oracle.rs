@@ -589,6 +589,39 @@ fn classes64_names_its_functions_in_the_c() {
     }
 }
 
+/// The virtual calls of the classes fixture read as direct calls: `describe` takes a `Shape` and
+/// `describe_named` a `Named` whose class the call does not know, so each call tests the slot's
+/// code address against the functions the vtables fill it with and calls the one it holds by
+/// name; no call through a pointer is left.
+#[test]
+fn classes64_calls_its_virtual_functions_by_name() {
+    let (_, c, _) =
+        emit(&fixture("classes64.exe", "classes.txt"), "devirtualized", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+    let image = ra_asm_pe::load(&root().join("testdata/bin/classes64.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let name = |address: u64| analysis.function(address).unwrap_or_else(|| panic!("a function at {address:#x}")).name.clone();
+    let body = |address: u64| {
+        let name = name(address);
+        let start = c.find(&format!("RA_ENTER(\"{name}\")")).unwrap_or_else(|| panic!("the C does not define {name}:\n{c}"));
+        let end = c[start..].find("\n}\n").map_or(c.len(), |k| start + k);
+        (name, c[start..end].to_owned())
+    };
+    // `describe` and `describe_named`, by their addresses in `classes64.map`, with the functions
+    // their calls reach: `Square::area`, `Rect::area`, `Square::name`, `Rect::name`,
+    // `Shape::scale`, `Rect::scale`; `Rect::label`, `Named::label`, `Rect::weight`, `Named::weight`.
+    for (caller, callees) in [
+        (0x1_4000_1070, &[0x1_4000_11d0, 0x1_4000_1200, 0x1_4000_11e0, 0x1_4000_1210, 0x1_4000_11f0, 0x1_4000_1220][..]),
+        (0x1_4000_10c0, &[0x1_4000_1230, 0x1_4000_1250, 0x1_4000_1240, 0x1_4000_1260][..]),
+    ] {
+        let (caller, text) = body(caller);
+        assert!(!text.contains("(*)("), "{caller} still calls through a pointer:\n{text}");
+        for &callee in callees {
+            let callee = name(callee);
+            assert!(text.contains(&format!("{callee}(")), "{caller} does not call {callee} by name:\n{text}");
+        }
+    }
+}
+
 /// A program over the static C runtime: the PDB beside it names every function, the runtime's
 /// functions are called in the host's runtime rather than lifted, and the port starts at `main`.
 #[test]

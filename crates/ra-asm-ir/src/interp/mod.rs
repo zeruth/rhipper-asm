@@ -773,6 +773,7 @@ impl<'m> Vm<'m> {
             "cttz" => int(u128::from(if arg(0) == 0 { bits } else { arg(0).trailing_zeros() })),
             "ctlz" => int(u128::from(if arg(0) == 0 { bits } else { arg(0).leading_zeros() - (128 - bits) })),
             "bswap" => int(arg(0).swap_bytes() >> (128 - bits)),
+            "bitreverse" => int(arg(0).reverse_bits() >> (128 - bits)),
             "fshl" | "fshr" => {
                 let (a, b, c) = (arg(0), arg(1), arg(2) % u128::from(bits));
                 int(if c == 0 {
