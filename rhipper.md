@@ -236,7 +236,7 @@
       objective: The loader takes a second and a third container behind the same `Image` without changes to the analysis, the IR, the raise or the backends: the executables of Linux and macOS, then the images of the consoles as their architectures arrive; and `ras` itself runs on Linux and macOS.
       acceptance: An ELF x86-64 file loads, disassembles and ports on this machine, and a Mach-O file loads and disassembles.
       notes: Renamed 2026-11-11 from "other architectures and formats": the architectures have milestones of their own (K, L, M), this one is the containers and the hosts. The console containers (PSX-EXE, the PS2 ELF, PRX, DOL and REL, XBE and XEX, N64 ROMs) are cards of the architecture that needs each.
-    - 39 ‹task› ELF {c3} [defined]
+    - 39 ‹task› ELF {c3} [in_progress]
         objective: `ra-asm-format` grows the ELF container (32 and 64, little-endian first, big-endian for the consoles that need it): program headers mapped by virtual address, sections, the dynamic section's imports and exports by symbol name, relocations (REL and RELA, the x86-64 and i386 kinds first), the symbol table when present, and `.eh_frame` as the function extents; `ras info`, `imports`, `exports` and `functions` work on it as on a PE, and the x86 lift's import boundary gains the System V convention for a Linux binary.
         acceptance: `cargo test -q` passes with a Linux x86-64 hello built here by clang (`--target x86_64-linux-gnu`) whose sections, symbols and functions `ras` prints, and whose lift passes the IR gate.
         files: crates/ra-asm-format/src/lib.rs crates/ra-asm-pe/src/image.rs crates/ra-asm-pe/src/lib.rs apps/ras/src/report.rs testdata/build.ps1
@@ -290,7 +290,7 @@
       objective: MIPS through the one IR, with the machines that made it matter: the PlayStation (R3000), the PlayStation 2 (the R5900 Emotion Engine with its 128-bit multimedia unit, the vector units and the IOP), the PSP (Allegrex) and the Nintendo 64 (VR4300); a game's executable decodes, lifts and ports to C over the platform runtime of milestone N.
       acceptance: A PlayStation 2 game's ELF lifts with no trap in its own code (the SDK recognized by signatures), and a homebrew PS2 program ports to a PC program that prints what the emulator prints.
       notes: The MIPS family shares a decoder and a `%State`: 32 general registers, `hi` and `lo`, the FPU, the coprocessor 0 as traps, with the width (32 or 64) and the extensions (MMI, VFPU) as features of the `Target`. The branch delay slot is the one shape the CFG builder does not have today: a branch's successor edges leave after the slot instruction, and a likely branch's slot belongs to the taken edge alone.
-    - 80 ‹task› The MIPS decoder and the delay slot {c4} [defined]
+    - 80 ‹task› The MIPS decoder and the delay slot {c4} [in_progress]
         objective: An `Arch` implementation for MIPS I through MIPS IV with the R5900 and Allegrex extensions behind feature flags, over a decoder of this repository's own (the encoding is regular enough that a table and the formats fit in a crate), with the `Instr` record's flow kinds grown by the delay slot: the builder appends the slot instruction to the branch's block and makes the edges leave after it, a likely branch's slot goes to the taken edge, and a jump through `jr` with a table before it resolves as a jump table; `ras disasm` prints a MIPS function.
         acceptance: `cargo test -p ra-asm-mips -p ra-asm-analysis -q` passes with the decoder agreeing with `llvm-objdump` on the `.text` of a clang-built MIPS fixture (`--target mipsel-linux-gnu`) and a CFG test of a loop whose branch has a slot.
         files: crates/ra-asm-arch/src/lib.rs crates/ra-asm-analysis/src/builder.rs crates/ra-asm-analysis/src/jumptable.rs crates/ra-asm-x86/tests/objdump.rs
@@ -409,7 +409,7 @@
         files: crates/ra-asm-analysis/src/lib.rs crates/ra-asm-lift/src/raise/prototypes.rs apps/ras/src/signatures.rs crates/ra-asm-pe/src/lib.rs
         session: da2dfbb0-f530-46f0-8750-c9e9640530b5 63e54a5c15d59beb 1794452474
         waits-on: 46 56
-    - 104 ‹task› Toolset fingerprinting {c2} [defined]
+    - 104 ‹task› Toolset fingerprinting {c2} [in_progress]
         objective: The compiler and linker of a binary read from the rich header of a PE (the product ids and builds), the CRT startup's shape, the padding bytes, the section names and the SDK strings; the fingerprint selects the prototype table, the idiom set, the signature libraries and the C++ ABI details the lift uses, and `ras info` prints it.
         acceptance: `cargo test -p ra-asm-pe -p ras -q` passes with the fixtures' toolsets named (clang/lld, MSVC 14.51, MSVC 16.00) from their binaries alone.
         files: crates/ra-asm-pe/src/headers.rs crates/ra-asm-analysis/src/lib.rs apps/ras/src/report.rs
@@ -442,7 +442,7 @@
         files: crates/ra-asm-analysis/src/lib.rs crates/ra-asm-lift/src/lib.rs apps/ras/src/pipeline.rs crates/ra-asm-emit/src/functions.rs
         session: 73c28348-9283-4b76-8cd8-a15921a73a5b 35ff172541390caf 1794450769
         waits-on: 107
-    - 53 ‹task› Packed and protected binaries {c2} [defined]
+    - 53 ‹task› Packed and protected binaries {c2} [in_progress]
         objective: Recognize the common packers by their entry section and import table, and dump the unpacked image through the interpreter's run to the original entry point, with the imports it resolved at run time as the dumped image's import table, so the pipeline starts from the real program.
         acceptance: `cargo test -q` passes with a UPX-packed fixture that ports as its unpacked program.
         files: crates/ra-asm-pe/src/image.rs crates/ra-asm-analysis/src/lib.rs apps/ras/src/pipeline.rs
@@ -499,7 +499,7 @@
   - 118 ‹milestone› R: the port as a codebase {c4} [defined]
       objective: The output of the engine looks like a project a team wrote: the original's module boundaries and names, idiomatic and lint-clean C, C++ and Rust, the build systems people use, Rust that is safe where the engine can prove it, and a round trip that keeps a person's edits across regeneration.
       acceptance: A ported program opens in the workbench as a tree of modules with headers, passes `-Wall -Wextra` and clippy, and keeps every hand-written function across a regeneration from a new build of the reference.
-    - 119 ‹task› Module boundaries {c3} [defined]
+    - 119 ‹task› Module boundaries {c3} [in_progress]
         objective: The sources split by the object files a map or a PDB names (each becomes a `.c`/`.cpp` with its header and the originals' names), and, without either, by the clusters the call graph and the string references suggest; the data likewise, by the module that owns each global; the function table and the workbench show the tree.
         acceptance: `cargo test -p ra-asm-emit -q` passes with the rhtest `core` port split into the map's object files, each building.
         files: crates/ra-asm-emit/src/lib.rs crates/ra-asm-emit/src/c.rs crates/ra-asm-emit/src/functions.rs apps/ras/src/emit.rs
@@ -511,7 +511,7 @@
         files: crates/ra-asm-emit/src/rust.rs crates/ra-asm-lift/src/raise/mod.rs runtime/rhipper.rs
         session: 393fd22a-d08b-487a-b016-8e7efbf330ca 4c02d83201677dbb 1794450572
         waits-on: 45
-    - 121 ‹task› Formatting, lint and the readability grade {c2} [defined]
+    - 121 ‹task› Formatting, lint and the readability grade {c2} [in_progress]
         objective: The written sources pass through `clang-format` and `rustfmt` when on the PATH, build under `-Wall -Wextra -Werror` and `cargo clippy` with no warning, and the function table carries a readability grade per function (gotos, casts, unresolved calls, raw stack accesses, lines) the workbench shows beside the trap count, so the readability work has a number to move.
         acceptance: `cargo test -p ra-asm-emit -q` passes with every fixture's port warning-free under the strict flags and graded in `functions.json`.
         files: crates/ra-asm-emit/src/c.rs crates/ra-asm-emit/src/rust.rs crates/ra-asm-emit/src/functions.rs apps/ras/src/emit.rs
@@ -540,7 +540,7 @@
         acceptance: `cargo test -p ras -q` passes with the `-O2` and `-Od` builds of rhtest `core` matched by name-free structure for every function the maps agree on.
         files: apps/ras/src/main.rs apps/ras/src/serve.rs crates/ra-asm-analysis/src/lib.rs crates/ra-asm-ir/src/lib.rs
         waits-on: 103
-    - 127 ‹task› Plugins over the engine's API {c4} [defined]
+    - 127 ‹task› Plugins over the engine's API {c4} [in_progress]
         objective: The engine's API (the image, the functions, the IR, the facts, the emit) exposed to WebAssembly plugins with a stable interface: a plugin can add a name source, a raise pass, a signature library, an output language or a device model for the platform runtime, loaded by `ras` from the project or the user's plugin directory and listed by the workbench; the first plugin is one of the engine's own passes moved out, as the proof.
         acceptance: `cargo test -p ras -q` passes with a plugin that names functions from a text file loading and its names reaching `functions.json`.
         files: apps/ras/src/main.rs crates/ra-asm-lift/src/raise/mod.rs crates/ra-asm-analysis/src/lib.rs
@@ -550,7 +550,7 @@
         acceptance: `cargo test -p ras -q` passes with the new `serve` methods answered on a fixture and the workbench's tool list reading them.
         files: apps/ras/src/serve.rs apps/ras/src/xrefs.rs apps/ras/src/functions.rs
         waits-on: 109
-    - 129 ‹task› Live debugging in lockstep {c5} [defined]
+    - 129 ‹task› Live debugging in lockstep {c5} [in_progress]
         objective: The port under the host's debugger (the workbench's CLion-derived debugger over LLDB) and the reference under an emulator with a debug protocol (PCSX2, DuckStation, or the native tracer for a Windows program), stepped in lockstep by function from the recorded trace of task 110, with the registers and memory of both shown side by side and the divergence stopped at; the workbench's end-game view.
         acceptance: `cargo test -p ras -q` passes with the lockstep protocol driving the interpreter and a port of control64 to the same breakpoint with equal states.
         files: apps/ras/src/serve.rs apps/ras/src/pipeline.rs runtime/driver.c
@@ -574,10 +574,12 @@
         acceptance: `cargo test -p ras -q --ignored` passes with `ras smoke` over the Windows system directory's executables finishing with no panic.
         files: apps/ras/src/main.rs apps/ras/src/lift.rs .github/workflows/release.yml
         waits-on: 60
-    - 133 ‹task› Fuzzing the loaders and the decoders {c2} [defined]
+    - 133 ‹task› Fuzzing the loaders and the decoders {c2} [implemented]
         objective: `cargo fuzz` targets over the PE, ELF, Mach-O and console containers and over each decoder, with a corpus seeded from the fixtures, run by a workflow on a schedule and locally on request; every refusal is a message with an offset, never a panic, and a found case becomes a regression test.
         acceptance: `cargo test -p ra-asm-pe -p ra-asm-x86 -q` passes with the regression tests of the first fuzzing run, and the fuzz targets build.
+        notes: I added the `cargo fuzz` targets, a nightly workflow that runs them, and a release job that builds them. Nothing has been compiled or run here, because builds are refused in this session. The regression tests from the first fuzzing run, and the hardening they test, were already on the branch from the two checkpoint commits (76b2a01, 8783c29).\n\n**Already on the branch (checkpoints):**\n- **Hardening:** overflows, oversized allocations and runaway walks are now refusals or warnings that name the offset. This covers `crates/ra-asm-format/src/reader.rs` (`cstr`, `Cursor::skip`), the PE loader (the image base must stay below the top of the address space, export counts, export ordinals, relocations, the resource tree's budget, the debug and exception directories, ELF objects, XBE) and the decoders (`decode.rs` and `Arch::decode_all` wrap the address at the top of the space).\n- **Regression tests:** `crates/ra-asm-pe/tests/fuzz_regressions.rs` (11 tests), `crates/ra-asm-x86/src/decode/tests.rs` (wrap at `u64::MAX`) and `crates/ra-asm-format/src/reader/tests.rs`.\n\n**Added this session:**\n- **`fuzz/Cargo.toml`:** a separate workspace (its own `[workspace]`), so the root `crates/*` build and its `Cargo.lock` never pull in libFuzzer. The header comment gives the local run command.\n- **`fuzz/.gitignore`:** ignores the build output, corpus, crash files, seeds and the fuzz crate's lockfile.\n- **`fuzz/src/lib.rs`:**\n  - `walk` reads the parts of a loaded image that the loader leaves to its callers: the string table, the `.res` file, the C++ frames, and the x64 or ARM64 unwind data of each exception-table entry.\n  - `split` turns a decoder's input into a mode byte, an 8-byte start address and the bytes.\n- **Targets in `fuzz/fuzz_targets/`:**\n  - `pe.rs` loads any bytes as a PE.\n  - `xbe.rs` and `elf.rs` force the format's magic onto the first four bytes, so every input reaches that reader.\n  - `object.rs` covers COFF, ELF and archives.\n  - `x86.rs` picks 32- or 64-bit from the first byte and runs both decoding paths.\n  - `arm64.rs` decodes word by word and as a run.\n- **`.github/workflows/fuzz.yml` (new):** runs each target on Linux, nightly and on request, for 600 s by default. Each night starts from the corpus the earlier nights grew (kept in the Actions cache). The seeds are `testdata/bin` plus small ELF and COFF objects (x86, x64, arm64) and an `ar` archive, compiled in the job because the fixtures contain no relocatable object. A crash uploads its input.\n- **`.github/workflows/release.yml`:** a new `fuzz-targets` job runs `cargo fuzz build` on nightly, and `release` now needs it.\n\n**Checked by reading only:**\n- The calls exist and are public with the signatures used: `xbe::MAGIC`, `object::parse`, `object::parse_object`, `RuntimeFunction::unwind_info`, `RuntimeFunction::arm64_unwind`, `Arm64Unwind::operations`, `UnwindInfo::operations`, `UnwindInfo::frame_size`, `Arm64::decode_full(self)`, `X86::decode_all_full`, `Instr::end`, `indirect_operand`, `absolute_memory_operand`.\n- `split_at_checked` and `<[u8; 8]>::try_from(&[u8])` are stable APIs.\n\nThe orchestrator's `cargo test -p ra-asm-pe -p ra-asm-x86 -q` will show whether the regression tests pass. It will not build the fuzz targets: they need `libfuzzer-sys`, which is not in the root `Cargo.lock` and cannot be fetched offline. They will build for the first time in the release's `fuzz-targets` job, so the "fuzz targets build" criterion is unproven until that job runs; for the same reason the linter cannot check the `fuzz/` files here.\n\n**Gaps:**\n- There is no Mach-O loader in the engine and no console format other than XBE, so those containers have no target. A Mach-O target becomes a card once the loader exists.\n- Crashes found later have to be turned into regression tests by hand.\n\nNo JSON the workbench reads has changed.\n\n## Faster next time\n- The two WIP checkpoint commits had already done the hardening and the regression tests, and the card didn't say so. One line naming them would have saved the turns spent finding where to start.
         files: crates/ra-asm-pe/src/lib.rs crates/ra-asm-format/src/reader.rs crates/ra-asm-x86/src/decode.rs .github/workflows/release.yml
+        session: 48569fd5-3bc2-49a7-a388-e97699caed2d 371bab1d1110e14d 1794465591
   - 137 ‹task› The objdump oracle reads fwait and wait as one mnemonic {c1} [accepted]
       objective: crates/ra-asm-x86/tests/objdump.rs agrees_with_llvm_objdump_on_the_text_section is red on the static CRT programs cards 56 added: the decoder prints 'fwait' where llvm-objdump prints 'wait' (0x40e2ef and some twenty more in core-static.exe), the same instruction under two names. Cards 49 and 117 failed on nothing else. Normalise the pair in the oracle's comparison (and any other alias the run shows), not in the decoder's output, and say in the report which addresses it covered.
       acceptance: cargo test -p ra-asm-x86 -q passes with the rhtest static programs in the oracle's set; no decoder output changes.

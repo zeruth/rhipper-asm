@@ -43,7 +43,10 @@ pub(crate) fn parse(image: &Image) -> Result<Vec<Relocation>> {
         for i in 0..entries {
             let entry = reader.u16(offset + 8 + i * 2, "relocation entry")?;
             let kind = (entry >> 12) as u8;
-            let target = image.va(page_rva + u32::from(entry & 0x0fff));
+            let Some(rva) = page_rva.checked_add(u32::from(entry & 0x0fff)) else {
+                anyhow::bail!("relocation entry {i} of the block at offset {offset:#x} of the directory patches past RVA 0xffffffff");
+            };
+            let target = image.va(rva);
             let kind = match kind {
                 0 => continue, // padding
                 3 => RelocKind::HighLow,
