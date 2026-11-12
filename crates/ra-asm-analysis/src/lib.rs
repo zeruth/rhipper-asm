@@ -189,6 +189,14 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
             state.seed(f.begin, Origin::ExceptionTable);
         }
     }
+    // An ELF file's `.eh_frame` records its functions as the exception table records a PE's.
+    if let Some(elf) = &image.elf {
+        for &(begin, _) in &elf.functions {
+            if image.is_code(begin) {
+                state.seed(begin, Origin::ExceptionTable);
+            }
+        }
+    }
     state.run();
 
     // The virtual functions: the vtables of the RTTI name them before a bare pointer scan does.
@@ -638,8 +646,11 @@ fn pointer_seeds(image: &Image) -> Vec<(u64, Origin)> {
                 } else {
                     u64::from(u32::from_le_bytes(chunk.try_into().unwrap()))
                 };
-                if image.is_code(value) {
-                    seeds.push((value, Origin::Pointer(start + (offset * width) as u64)));
+                // An import's slot is the loader's: a lazily bound ELF slot holds the address of its
+                // PLT stub's second half until the first call binds it.
+                let slot = start + (offset * width) as u64;
+                if image.is_code(value) && image.import_at(slot).is_none() {
+                    seeds.push((value, Origin::Pointer(slot)));
                 }
             }
         }
