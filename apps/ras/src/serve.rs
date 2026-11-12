@@ -16,6 +16,11 @@
 //! - `hand` (`query`, `owned`): gives a function of a project to the hand-written sources or
 //!   takes it back, in the `hand` list of `rhipper.json` (by the function's name), and answers
 //!   with the list; the next emit step writes the function as its declaration.
+//! - `trace` (`function`, `from`, `limit`): the replay of the port's trace against the
+//!   reference's (the two the run step recorded with `run.trace`), call by call: each call of the
+//!   port with its arguments and its result beside the reference's at the same place, the calls
+//!   of `function` alone when given, from the `from`th and at most `limit`; the verdict; and
+//!   `parts`, the first divergence, with the function, the call and the two values.
 //! - `shutdown`.
 
 use std::io::{BufRead, Write};
@@ -171,6 +176,13 @@ impl Session<'_> {
                 let function = self.find(query)?;
                 let hand = project.set_hand(&function.name, owned)?;
                 Ok(json!({"name": function.name, "owned": owned, "hand": hand}))
+            }
+            "trace" => {
+                let Some(project) = &self.target.project else { bail!("no project: the traces are a project's") };
+                let function = params.get("function").and_then(Value::as_str);
+                let from = params.get("from").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(500) as usize;
+                Ok(trace_json(project, function, from, limit))
             }
             other => Err(anyhow!("no method `{other}`")),
         }
@@ -334,6 +346,54 @@ fn ir_of(path: &Path, name: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// The replay of the project's two traces (see [`crate::trace::replay`]): the calls of `function`
+/// (every function without one) from the `from`th, at most `limit`, each with the port's side and
+/// the reference's; the functions called, in order of first call, with their counts; the verdict;
+/// and `parts`, the call at fault with the two values, when the traces part.
+fn trace_json(project: &Project, function: Option<&str>, from: usize, limit: usize) -> Value {
+    use crate::trace::{Call, Side, Verdict};
+    let log_dir = project.log_dir();
+    let (port, reference) = (log_dir.join("port.trace"), log_dir.join("reference.trace"));
+    let replay = crate::trace::replay(&port, &reference);
+    let side = |s: &Side| json!({"args": s.args, "result": s.result});
+    let call_json = |index: usize, c: &Call| {
+        json!({
+            "index": index, "function": c.function, "depth": c.depth, "enter": c.enter, "return": c.ret,
+            "port": side(&c.port), "reference": c.reference.as_ref().map(side), "fault": replay.fault == Some(index),
+        })
+    };
+    let selected: Vec<(usize, &Call)> = replay.calls.iter().enumerate().filter(|(_, c)| function.is_none_or(|f| c.function == f)).collect();
+    let total = selected.len();
+    let calls: Vec<Value> = selected.into_iter().skip(from).take(limit).map(|(i, c)| call_json(i, c)).collect();
+    let mut functions: Vec<(&str, usize)> = Vec::new();
+    for c in &replay.calls {
+        match functions.iter_mut().find(|(name, _)| *name == c.function) {
+            Some(entry) => entry.1 += 1,
+            None => functions.push((&c.function, 1)),
+        }
+    }
+    let parts = match &replay.verdict {
+        Verdict::Parts { event, function, detail, values } => json!({
+            "event": event, "function": function, "detail": detail,
+            "call": replay.fault.map(|i| call_json(i, &replay.calls[i])),
+            "port": values.as_ref().map(|v| &v.0), "reference": values.as_ref().map(|v| &v.1),
+        }),
+        Verdict::Same(_) | Verdict::NotTraced(_) => Value::Null,
+    };
+    // The last run's record says how the reference's trace was recorded.
+    let tracer = std::fs::read_to_string(log_dir.join("runs.jsonl"))
+        .ok()
+        .and_then(|runs| runs.lines().last().and_then(|l| serde_json::from_str::<Value>(l).ok()))
+        .and_then(|record| record.get("tracer").cloned())
+        .unwrap_or(Value::Null);
+    json!({
+        "port": port.display().to_string(), "reference": reference.display().to_string(), "tracer": tracer,
+        "verdict": replay.verdict.to_string(), "parts": parts,
+        "functions": functions.iter().map(|(name, calls)| json!({"name": name, "calls": calls})).collect::<Vec<_>>(),
+        "total": total, "calls": calls,
+    })
 }
 
 fn write_response(out: &mut impl Write, response: &Value) -> Result<()> {

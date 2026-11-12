@@ -8,7 +8,9 @@
 //! insert and remove them freely.
 //!
 //! [`interp`] runs a module directly: a value per type, the instruction subset over a flat memory,
-//! and the calls the module cannot answer handed to a host.
+//! and the calls the module cannot answer handed to a host; a run can keep a record of its calls
+//! and returns with their values, in the shape a port's trace hooks write, for the replay of one
+//! against the other.
 
 pub mod builder;
 pub mod dom;

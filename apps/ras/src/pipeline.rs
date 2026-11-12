@@ -7,10 +7,13 @@
 //! the reference runs after the port (its output in `reference.log`) and the record and the log
 //! carry a verdict: `same`, `differs at line N` or `port crashed`. With `run.trace` on, the port
 //! is emitted with the trace hooks and the run step records its trace (`port.trace`) and the
-//! reference's under the debugger (`reference.trace`), and the record and the log carry where
-//! the two part and in which function (`trace`, `trace_function`, `trace_event`). A DLL is built as a shared
+//! reference's (`reference.trace`), under the debugger or through the IR interpreter as
+//! `run.tracer` says, and the record and the log carry where the two part and in which function
+//! (`trace`, `trace_function`, `trace_event`, `tracer`). A DLL is built as a shared
 //! library and run through `run.exe`, the program that loads it, which finds the port first; the
-//! comparison runs the same program finding the reference first.
+//! comparison runs the same program finding the reference first. With `run.facts` on, the analyze
+//! step runs the reference through the IR interpreter first and writes what it saw to
+//! `build/facts.json`; every step analyzes with the facts there when they are of the reference.
 
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
@@ -23,7 +26,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::doctor::{self, Port};
 use crate::project::Project;
-use crate::trace;
+use crate::trace::{self, Tracer};
 
 const CMAKE_LISTS: &str = include_str!("../templates/CMakeLists.txt");
 
@@ -131,9 +134,60 @@ impl Pipeline {
         Ok(self.image.as_ref().expect("loaded"))
     }
 
-    fn analyze(&mut self, log: &mut File) -> Result<()> {
+    /// The facts of a traced run of the reference, from `build/facts.json` when it is of the
+    /// reference; empty otherwise, with the reason in the log.
+    fn facts(&mut self, log: &mut File) -> Result<ra_asm_analysis::Facts> {
+        let file = self.project.facts_file();
+        if !file.is_file() {
+            return Ok(ra_asm_analysis::Facts::default());
+        }
+        match crate::run::read_facts(&file, self.image()?) {
+            Ok(facts) => {
+                writeln!(
+                    log,
+                    "facts of a run of {} with {:?}: {} calls resolved, {} functions entered",
+                    facts.input.exe,
+                    facts.input.args,
+                    facts.calls.len(),
+                    facts.entered.len()
+                )?;
+                Ok(facts)
+            }
+            Err(reason) => {
+                writeln!(log, "{reason}")?;
+                Ok(ra_asm_analysis::Facts::default())
+            }
+        }
+    }
+
+    /// Runs the reference through the IR interpreter with the project's arguments and writes
+    /// what the run saw to `build/facts.json`. The run is at the ABI level, the port's own shape,
+    /// which runs a 32-bit program over its C runtime too.
+    fn trace_facts(&mut self, log: &mut File) -> Result<()> {
+        let (args, x87, file) = (self.project.run.args.clone(), self.project.x87, self.project.facts_file());
         let image = self.image()?;
         let analysis = ra_asm_analysis::analyze(image);
+        let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
+        let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+        let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+        lifted.apply_names(&analysis, Some(&mut signatures));
+        let run = ra_asm_lift::run::Options { args, ..Default::default() };
+        let outcome = ra_asm_lift::run::run(image, &lifted, &signatures, &run)?;
+        let stop = outcome.stop.as_deref().unwrap_or("ran to its end");
+        let line =
+            format!("interpreted: exit {:#x}, {} steps, {stop}; {} calls resolved", outcome.exit, outcome.steps, outcome.facts.calls.len());
+        writeln!(log, "{line}")?;
+        println!("{line}");
+        crate::run::write_facts(&file, &outcome.facts)
+    }
+
+    fn analyze(&mut self, log: &mut File) -> Result<()> {
+        if self.project.run.facts {
+            self.trace_facts(log)?;
+        }
+        let facts = self.facts(log)?;
+        let image = self.image()?;
+        let analysis = ra_asm_analysis::analyze_with(image, &facts);
         let warnings = log_warnings(log, image.warnings.iter().chain(&analysis.warnings));
         let summary = format!("{} functions, {} warnings", analysis.functions.len(), warnings);
         writeln!(log, "{summary}")?;
@@ -144,8 +198,9 @@ impl Pipeline {
     fn lift(&mut self, log: &mut File) -> Result<()> {
         let build_dir = self.project.build_dir();
         let x87 = self.project.x87;
+        let facts = self.facts(log)?;
         let image = self.image()?;
-        let analysis = ra_asm_analysis::analyze(image);
+        let analysis = ra_asm_analysis::analyze_with(image, &facts);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
@@ -172,8 +227,9 @@ impl Pipeline {
         let (lang, package) = (self.project.lang.clone(), self.project.build.target.clone());
         let (x87, trace) = (self.project.x87, self.project.run.trace);
         let hand = self.project.hand.clone();
+        let facts = self.facts(log)?;
         let image = self.image()?;
-        let analysis = ra_asm_analysis::analyze(image);
+        let analysis = ra_asm_analysis::analyze_with(image, &facts);
         let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
@@ -263,7 +319,10 @@ impl Pipeline {
     }
 
     fn run_port(&mut self, log: &mut File) -> Result<()> {
-        let image = self.image()?;
+        let facts = self.facts(log)?;
+        // The image by its field, so the project and the timeout are readable beside it.
+        self.image()?;
+        let image = self.image.as_ref().expect("loaded");
         let (dll, bits, image_base) = (image.headers.coff.is_dll(), u32::from(image.pointer_size()) * 8, image.image_base());
         let project = &self.project;
         let port = project.port_binary(dll);
@@ -338,22 +397,28 @@ impl Pipeline {
             if dll && let Some(dir) = project.exe.parent() {
                 lead_dll_search(&mut reference, dir);
             }
-            // The reference's trace needs the debugger at the program's own functions: a DLL's
-            // run in its host and a 32-bit program's are beyond it for now.
-            let not_traced = if !project.run.trace {
-                None
+            // The reference's trace comes from the debugger at the program's own functions or
+            // from the interpreter over its IR; a DLL's run in its host is beyond both for now,
+            // and a 32-bit program is beyond the debugger.
+            let (tracer, not_traced) = if !project.run.trace {
+                (None, None)
             } else if dll {
-                Some("the reference is a DLL in its host".to_owned())
-            } else if bits == 32 {
-                Some("the reference is a 32-bit program".to_owned())
+                (None, Some("the reference is a DLL in its host".to_owned()))
             } else {
-                None
+                match project.run.tracer.unwrap_or(if bits == 32 { Tracer::Interpreter } else { Tracer::Debugger }) {
+                    Tracer::Debugger if bits == 32 => {
+                        (None, Some("the reference is a 32-bit program, which the debugger does not trace".to_owned()))
+                    }
+                    tracer => (Some(tracer), None),
+                }
             };
-            let reference = if project.run.trace && not_traced.is_none() {
-                let plan = trace::plan(&project.build_dir().join("functions.json"))?;
-                trace::run_reference(&mut reference, &plan, image_base, &reference_trace, &mut reference_log, timeout)?
-            } else {
-                run_logged(&mut reference, &mut reference_log, timeout, false)?
+            let reference = match tracer {
+                Some(Tracer::Debugger) => {
+                    let plan = trace::plan(&project.build_dir().join("functions.json"))?;
+                    trace::run_reference(&mut reference, &plan, image_base, &reference_trace, &mut reference_log, timeout)?
+                }
+                Some(Tracer::Interpreter) => interpret_reference(image, &facts, project, &reference_trace, &mut reference_log)?,
+                None => run_logged(&mut reference, &mut reference_log, timeout, false)?,
             };
             let verdict = Verdict::of(&outcome, &reference);
             record["verdict"] = serde_json::Value::String(verdict.to_string());
@@ -368,7 +433,11 @@ impl Pipeline {
                 record["trace"] = serde_json::Value::String(traces.to_string());
                 record["trace_function"] = traces.function().into();
                 record["trace_event"] = traces.event().into();
+                record["tracer"] = tracer.map(Tracer::name).into();
                 summary = format!("{summary}; trace: {traces}");
+                if let Some(tracer) = tracer {
+                    summary = format!("{summary} ({})", tracer.name());
+                }
             }
         }
         let mut runs = fs::OpenOptions::new().create(true).append(true).open(log_dir.join("runs.jsonl"))?;
@@ -421,6 +490,34 @@ impl std::fmt::Display for Verdict {
             Verdict::PortCrashed => f.write_str("port crashed"),
         }
     }
+}
+
+/// Runs the reference through the IR interpreter, lifted as the emit step lifts it so its
+/// functions carry the port's names, with the record of the run written to `trace` in the shape
+/// of the port's; the output goes to `log` as a run's, and the outcome reads as a process's.
+fn interpret_reference(
+    image: &ra_asm_pe::Image,
+    facts: &ra_asm_analysis::Facts,
+    project: &Project,
+    trace: &Path,
+    log: &mut File,
+) -> Result<Outcome> {
+    writeln!(log, "$ ras run --level abi --record {} {}", trace.display(), project.exe.display())?;
+    let started = Instant::now();
+    let analysis = ra_asm_analysis::analyze_with(image, facts);
+    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: project.x87 });
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
+    let run = ra_asm_lift::run::Options { args: project.run.args.clone(), record: Some(trace.to_path_buf()), ..Default::default() };
+    let outcome = ra_asm_lift::run::run(image, &lifted, &signatures, &run)?;
+    let text = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
+    log.write_all(text.as_bytes())?;
+    if let Some(stop) = &outcome.stop {
+        writeln!(log, "ra: {stop}")?;
+    }
+    let stdout = text.lines().map(str::to_owned).collect();
+    Ok(Outcome { code: Some(outcome.exit), alive: false, secs: started.elapsed().as_secs(), stdout })
 }
 
 /// Puts `dir` first on the `PATH` of `command`, so a DLL the program loads by name comes from

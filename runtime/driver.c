@@ -49,7 +49,7 @@ static const char *trap_name(uint64_t code) {
     case 1: return "int3";
     case 2: return "ud2";
     case 3: return "hlt";
-    case 4: return "division by zero";
+    case 4: return "a divide error (a zero divisor or a quotient too large)";
     case 5: return "128-bit division";
     case 6: return "__fastfail";
     case 7: return "a switch to an address outside its table";
