@@ -1,5 +1,6 @@
 //! The PE headers: the DOS header, the COFF file header and the optional header with its data
-//! directories, as the loader reads them. Every read names the offset of a malformed field.
+//! directories, as the loader reads them, and the rich header of Microsoft's linker before them.
+//! Every read names the offset of a malformed field.
 
 use anyhow::{Result, ensure};
 use ra_asm_format::Reader;
@@ -184,6 +185,168 @@ pub struct Headers {
     pub optional: OptionalHeader,
     /// The file offset of the first section header.
     pub section_table_offset: usize,
+    /// The rich header Microsoft's linker writes between the DOS stub and the PE signature;
+    /// `None` when another linker made the image or the header was stripped.
+    pub rich: Option<RichHeader>,
+}
+
+/// One tool of the rich header: a product (the compiler, the linker, the assembler of one
+/// toolset), the build of it, and how many objects it made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct RichEntry {
+    pub product: u16,
+    pub build: u16,
+    pub count: u32,
+}
+
+/// What a rich header's product is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RichTool {
+    /// The imported functions of the image, counted.
+    Imports,
+    Compiler,
+    Linker,
+    Assembler,
+    ImportLibrary,
+    Export,
+    Resource,
+    Other,
+}
+
+impl RichEntry {
+    /// The product's name in Microsoft's own table (`Utc1900_C`, `Linker1400`), for the products
+    /// of the toolsets from Visual Studio 2008 on that the engine fingerprints; `None` for another.
+    pub fn product_name(self) -> Option<&'static str> {
+        Some(match self.product {
+            0x0001 => "Import0",
+            0x0083..=0x008f => [
+                "Utc1500_C",
+                "Utc1500_CPP",
+                "Utc1500_C_Std",
+                "Utc1500_CPP_Std",
+                "Utc1500_CVTCIL_C",
+                "Utc1500_CVTCIL_CPP",
+                "Utc1500_LTCG_C",
+                "Utc1500_LTCG_CPP",
+                "Utc1500_LTCG_MSIL",
+                "Utc1500_POGO_I_C",
+                "Utc1500_POGO_I_CPP",
+                "Utc1500_POGO_O_C",
+                "Utc1500_POGO_O_CPP",
+            ][usize::from(self.product - 0x0083)],
+            0x0091 => "Linker900",
+            0x0092 => "Export900",
+            0x0093 => "Implib900",
+            0x0094 => "Cvtres900",
+            0x0095 => "Masm900",
+            0x0096 => "AliasObj900",
+            0x0097 => "Resource",
+            0x0098 => "AliasObj1000",
+            0x0099 => "Cvtpgd1600",
+            0x009a => "Cvtres1000",
+            0x009b => "Export1000",
+            0x009c => "Implib1000",
+            0x009d => "Linker1000",
+            0x009e => "Masm1000",
+            0x00aa..=0x00b4 => [
+                "Utc1600_C",
+                "Utc1600_CPP",
+                "Utc1600_CVTCIL_C",
+                "Utc1600_CVTCIL_CPP",
+                "Utc1600_LTCG_C",
+                "Utc1600_LTCG_CPP",
+                "Utc1600_LTCG_MSIL",
+                "Utc1600_POGO_I_C",
+                "Utc1600_POGO_I_CPP",
+                "Utc1600_POGO_O_C",
+                "Utc1600_POGO_O_CPP",
+            ][usize::from(self.product - 0x00aa)],
+            0x00fd => "AliasObj1400",
+            0x00fe => "Cvtpgd1900",
+            0x00ff => "Cvtres1400",
+            0x0100 => "Export1400",
+            0x0101 => "Implib1400",
+            0x0102 => "Linker1400",
+            0x0103 => "Masm1400",
+            0x0104..=0x010e => [
+                "Utc1900_C",
+                "Utc1900_CPP",
+                "Utc1900_CVTCIL_C",
+                "Utc1900_CVTCIL_CPP",
+                "Utc1900_LTCG_C",
+                "Utc1900_LTCG_CPP",
+                "Utc1900_LTCG_MSIL",
+                "Utc1900_POGO_I_C",
+                "Utc1900_POGO_I_CPP",
+                "Utc1900_POGO_O_C",
+                "Utc1900_POGO_O_CPP",
+            ][usize::from(self.product - 0x0104)],
+            _ => return None,
+        })
+    }
+
+    /// What the product is, by its name; [`RichTool::Other`] for a product the table lacks.
+    pub fn tool(self) -> RichTool {
+        let Some(name) = self.product_name() else { return RichTool::Other };
+        if name == "Import0" {
+            RichTool::Imports
+        } else if name.starts_with("Utc") {
+            RichTool::Compiler
+        } else if name.starts_with("Linker") {
+            RichTool::Linker
+        } else if name.starts_with("Masm") {
+            RichTool::Assembler
+        } else if name.starts_with("Implib") {
+            RichTool::ImportLibrary
+        } else if name.starts_with("Export") {
+            RichTool::Export
+        } else if name.starts_with("Cvtres") || name == "Resource" {
+            RichTool::Resource
+        } else {
+            RichTool::Other
+        }
+    }
+}
+
+/// The rich header: the tools that made the objects of the image, as the linker recorded them,
+/// each entry masked by a key the linker derived from the DOS header and the entries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RichHeader {
+    /// The file offset of the masked `DanS` that opens the header.
+    pub offset: usize,
+    pub key: u32,
+    /// The entries in the linker's order.
+    pub entries: Vec<RichEntry>,
+}
+
+impl RichHeader {
+    const RICH: u32 = 0x6863_6952;
+    const DANS: u32 = 0x536e_6144;
+
+    /// The rich header between the DOS header and the PE signature at `pe_offset`, or `None`
+    /// when there is none or its `DanS` does not unmask.
+    pub fn parse(reader: Reader<'_>, pe_offset: usize) -> Option<Self> {
+        let end = pe_offset.min(reader.len());
+        let rich = (0x40..end.saturating_sub(7)).step_by(4).find(|&o| reader.u32(o, "Rich").ok() == Some(Self::RICH))?;
+        let key = reader.u32(rich + 4, "the rich key").ok()?;
+        let offset = (0x40..rich).step_by(4).rev().find(|&o| reader.u32(o, "DanS").is_ok_and(|v| (v ^ key) == Self::DANS))?;
+        // `DanS` is followed by three masked zeros, then the entries up to `Rich`.
+        let mut entries = Vec::new();
+        let mut at = offset + 16;
+        while at + 8 <= rich {
+            let id = reader.u32(at, "a rich entry").ok()? ^ key;
+            let count = reader.u32(at + 4, "a rich entry").ok()? ^ key;
+            entries.push(RichEntry { product: (id >> 16) as u16, build: id as u16, count });
+            at += 8;
+        }
+        Some(Self { offset, key, entries })
+    }
+
+    /// The linker's entry: the one product of the header that links.
+    pub fn linker(&self) -> Option<RichEntry> {
+        self.entries.iter().copied().find(|e| e.tool() == RichTool::Linker)
+    }
 }
 
 impl Headers {
@@ -282,6 +445,7 @@ impl Headers {
             directories,
         };
         let section_table_offset = optional_offset + coff.optional_header_size as usize;
-        Ok(Self { pe_offset, coff, optional, section_table_offset })
+        let rich = RichHeader::parse(reader, pe_offset as usize);
+        Ok(Self { pe_offset, coff, optional, section_table_offset, rich })
     }
 }
