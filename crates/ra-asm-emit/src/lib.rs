@@ -18,7 +18,7 @@ pub mod structure;
 
 pub use c::{Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, Options as COptions, Unit, emit_c, emit_unit};
 pub use cpp::{Class, Method, classes};
-pub use functions::{FunctionInfo, format_address, table};
+pub use functions::{FunctionInfo, Grade, format_address, table};
 pub use rust::{Options as RustOptions, Output as RustOutput, emit_rust};
 
 /// Writes the files of `unit` into `dir`, after removing the files of an earlier, larger output

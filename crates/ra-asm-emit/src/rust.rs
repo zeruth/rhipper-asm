@@ -17,7 +17,7 @@ use std::fmt::Write;
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Type, ValueId};
 
 use crate::c::{EmittedFile, EmittedFunction};
-use crate::common::{Defs, identifier, parenthesized, strip_parens, trap_count};
+use crate::common::{Defs, identifier, identifiers, parenthesized, strip_parens, trap_count};
 use crate::safety::{Local, Place, Root, Safety};
 use crate::structure::{Case, Cond, Graph, Stmt, structure};
 
@@ -144,14 +144,16 @@ pub fn emit_rust(module: &Module, options: &Options) -> Output {
     for f in &module.functions {
         let mut text = String::new();
         let names = Names { functions: &function_names, defined: &defined, sections: &sections };
-        let (header_lines, copies) =
+        let (header_lines, copies, gotos) =
             emit_function(&mut text, f, options.names.get(&f.name).map(String::as_str), &names, &module.types, options.proofs);
+        let casts = identifiers(&text).iter().filter(|(word, _)| *word == "as").count();
         functions.push(EmittedFunction {
             ir_name: f.name.clone(),
             address: f.address,
             header_lines,
             traps: trap_count(f),
             copies,
+            grade: crate::functions::Grade::of(f, gotos, casts, text.lines().count() - header_lines),
             hand: false,
             text,
         });
@@ -511,7 +513,7 @@ fn signature(f: &Function) -> String {
 }
 
 /// A function, with one comment line above it naming it. Returns the number of lines above the
-/// definition and the number of blocks written twice.
+/// definition, the number of blocks written twice and the number of jumps left.
 fn emit_function(
     out: &mut String,
     f: &Function,
@@ -519,7 +521,7 @@ fn emit_function(
     names: &Names<'_>,
     types: &[(String, Vec<Type>)],
     proofs: bool,
-) -> (usize, usize) {
+) -> (usize, usize, usize) {
     let mut header_lines = 0;
     if let Some(address) = f.address {
         match source_name {
@@ -540,7 +542,7 @@ fn emit_function(
     e.declare_locals(out);
     e.stmts(out, &structured.body, 1);
     let _ = writeln!(out, "}}");
-    (header_lines, structured.copies())
+    (header_lines, structured.copies(), structured.gotos())
 }
 
 struct Emitter<'a> {
