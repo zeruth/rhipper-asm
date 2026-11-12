@@ -136,7 +136,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<(Headers, Vec<Section>, ElfFile)> {
 }
 
 /// The PE characteristics of a section or a segment of these permissions.
-fn characteristics(execute: bool, write: bool, zeros: bool) -> u32 {
+pub(crate) fn characteristics(execute: bool, write: bool, zeros: bool) -> u32 {
     let content = match (execute, zeros) {
         (true, _) => Section::CNT_CODE | Section::MEM_EXECUTE,
         (false, true) => Section::CNT_UNINITIALIZED_DATA,
