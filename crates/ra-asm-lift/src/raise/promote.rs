@@ -478,7 +478,10 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>) {
                     }
                     (Some(CallKind::State), Some(abi)) => {
                         if let Some(split) = rw.lower_call(f, abi, i, &mut current, &mut instrs) {
-                            let name = f.blocks[bi].name.clone();
+                            // The head of a second split is the first's continuation: its own
+                            // name, as the block's name twice is one label to LLVM, which joins
+                            // the two blocks into one.
+                            let name = if piece_id == block.id { block.name.clone() } else { format!("{}.{}", block.name, piece_id.0) };
                             pieces.push(Block {
                                 id: piece_id,
                                 name,
