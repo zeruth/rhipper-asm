@@ -2,6 +2,7 @@
 //! person, or JSON with `--json` for the workbench and the agents.
 
 mod annotations;
+mod diff;
 mod disasm;
 mod doctor;
 mod emit;
@@ -80,8 +81,34 @@ enum Command {
     /// What each function takes and returns, as the lift infers it. With `--from`, the library
     /// recognition instead: the matches of the signatures of those files (signature files, or
     /// `.lib`/`.a`/`.obj` files to make them from) over the image's functions, and the collisions.
+    /// With `--build`, writes the signature store; with `--list`, says what the stores hold and
+    /// which files the image's fingerprint picks.
     Signatures {
-        pe: PathBuf,
+        /// The image; with `--build` or `--list`, the one whose fingerprint keys the store.
+        pe: Option<PathBuf>,
+        /// Write the signatures of these libraries into the store, under the toolset of
+        /// `--toolset` or of the image's fingerprint, a file per library and machine. Put the
+        /// image before the flag: the paths after it are the libraries.
+        #[arg(long, num_args = 0.., value_name = "LIB")]
+        build: Option<Vec<PathBuf>>,
+        /// With `--build`, also the installed MSVC static runtime of every machine, under its
+        /// version's toolset key unless `--toolset` gives one.
+        #[arg(long, requires = "build")]
+        installed: bool,
+        /// The toolset key the built files go under: `msvc-14.44`, `mingw`.
+        #[arg(long, value_name = "KEY", requires = "build")]
+        toolset: Option<String>,
+        /// The store to build or list instead of the user's (`RHIPPER_SIGNATURES`, else
+        /// `~/.rhipper/signatures`).
+        #[arg(long, value_name = "DIR")]
+        store: Option<PathBuf>,
+        /// The files of the stores, and for the image (or the project's reference) the toolset
+        /// key, the files it picks, and the key the installed MSVC runtime would be built under.
+        #[arg(long, conflicts_with = "build")]
+        list: bool,
+        /// With `--list`, the project whose stores (its own and the user's) and reference to list.
+        #[arg(long, value_name = "DIR", requires = "list")]
+        project: Option<PathBuf>,
         /// A signature file or a library to make signatures from; repeatable.
         #[arg(long, value_name = "FILE")]
         from: Vec<PathBuf>,
@@ -194,6 +221,21 @@ enum Command {
         /// The first address after the range; `lo + 1` without it.
         hi: Option<String>,
     },
+    /// Two builds of a program matched function by function: the changed functions, the most
+    /// changed first, and the functions one build has alone.
+    Diff {
+        old: PathBuf,
+        new: PathBuf,
+        /// Match by structure alone, the builds' symbols aside.
+        #[arg(long)]
+        structure: bool,
+        /// Print the diff of the raised IR of each changed function.
+        #[arg(long)]
+        ir: bool,
+        /// The lines of context around each change of the IR diff.
+        #[arg(long, default_value_t = 3)]
+        context: usize,
+    },
     /// The steps from the reference binary to a running port: analyze, lift, emit, build and run,
     /// in the project whose `rhipper.json` is in `--project` (the current directory without it).
     Pipeline {
@@ -269,7 +311,24 @@ fn main() -> anyhow::Result<()> {
             let standalone = standalone || level == ra_asm_lift::RaiseLevel::Abi;
             lift::lift(&load(&pe, sigs)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87 })
         }
-        Command::Signatures { pe, mut from, runtime, write } if runtime || !from.is_empty() || write.is_some() => {
+        Command::Signatures { pe, build: Some(libraries), installed, toolset, store, .. } => {
+            let image = pe.as_deref().map(ra_asm_pe::load).transpose()?;
+            signatures::build(store.as_deref(), &libraries, installed, toolset.as_deref(), image.as_ref(), json)
+        }
+        Command::Signatures { pe, list: true, store, project, .. } => {
+            let (stores, exe) = match project {
+                Some(dir) => {
+                    let project = project::Project::load(&dir)?;
+                    let stores = store.map_or_else(|| project.signature_stores(), |s| vec![s]);
+                    (stores, pe.or(Some(project.exe)))
+                }
+                None => (store.or_else(signatures::user_store).into_iter().collect(), pe),
+            };
+            let image = exe.as_deref().map(ra_asm_pe::load).transpose()?;
+            signatures::list(&stores, image.as_ref(), json)
+        }
+        Command::Signatures { pe, mut from, runtime, write, .. } if runtime || !from.is_empty() || write.is_some() => {
+            let pe = pe.context("a PE image is required")?;
             let mut image = load(&pe, sigs)?;
             if runtime {
                 let libraries = ra_asm_analysis::signatures::runtime_for(&image)
@@ -278,7 +337,7 @@ fn main() -> anyhow::Result<()> {
             }
             signatures::recognize(&mut image, &from, write.as_deref(), json)
         }
-        Command::Signatures { pe, .. } => signatures::signatures(&load(&pe, sigs)?, json),
+        Command::Signatures { pe, .. } => signatures::signatures(&load(&pe.context("a PE image is required")?, sigs)?, json),
         Command::Emit { pe, lang, out, quiet, x87, hand, project } => {
             emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref())
         }
@@ -296,6 +355,10 @@ fn main() -> anyhow::Result<()> {
             let lo = disasm::parse_address(&lo)?;
             let hi = hi.as_deref().map(disasm::parse_address).transpose()?;
             xrefs::xrefs(&load(&pe, sigs)?, lo, hi, json)
+        }
+        Command::Diff { old, new, structure, ir, context } => {
+            let options = diff::Options { symbols: !structure, ir: ir.then_some(context), json };
+            diff::diff(&load(&old, sigs)?, &load(&new, sigs)?, &options)
         }
         Command::Pipeline { project, from, only, timeout, config, rebuild } => {
             let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild };

@@ -282,8 +282,8 @@ fn check_table(binary: &str, dir: &Path) {
         if let Some(line) = e["line"].as_u64() {
             let file = std::fs::read_to_string(dir.join(e["file"].as_str().unwrap())).unwrap();
             let text = file.lines().nth(line as usize - 1).unwrap_or("");
-            // A C++ method is defined as `Class::method(`, under the line of record.
-            let defines = text.contains(&format!("{name}(")) || (e.get("class").is_some() && text.contains("::"));
+            // A C++ method, virtual or not, is defined as `Class::method(`, under the line of record.
+            let defines = text.contains(&format!("{name}(")) || text.contains("::");
             // rustfmt breaks a long signature after its name's parenthesis.
             assert!(defines && (text.ends_with('{') || text.ends_with('(')), "{binary}: line {line} of {addr} is `{text}`");
             assert_eq!(e["status"], if e["traps"] == 0 { "lifted" } else { "partial" });
@@ -1002,11 +1002,11 @@ fn classes64_reads_as_classes() {
     let (_, text, _) =
         emit(&fixture("classes64.exe", "classes.txt"), "classes", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
     for expected in [
-        "class Shape {\npublic:\n    uint64_t scale(uint64_t arg1); // slot 2\n};\n",
-        "class Square : public Shape {\npublic:\n    uint64_t area(); // slot 0\n    static uint64_t name(); // slot 1\n};\n",
+        "class Shape {\npublic:\n    uint64_t scale(uint64_t arg1); // slot 2\n",
+        "class Square : public Shape {\npublic:\n    uint64_t area(); // slot 0, overrides Shape\n    static uint64_t name(); // slot 1, overrides Shape\n",
         "class Named {\n",
-        "class Rect : public Shape, public Named {\npublic:\n    uint64_t area(); // slot 0\n",
-        "    uint64_t weight(); // slot 1 of the vtable at offset 16\n};\n",
+        "class Rect : public Shape, public Named {\npublic:\n    uint64_t area(); // slot 0, overrides Shape\n",
+        "    uint64_t weight(); // slot 1 of the vtable at offset 16",
         "uint64_t Rect::area() {\n    RA_ENTER(\"Rect_area\");\n    uint64_t arg0 = (uint64_t)(uintptr_t)this;\n",
         "extern \"C\" uint64_t Rect_area(uint64_t arg0) {\n    return ((Rect *)(uintptr_t)arg0)->area();\n}\n",
         "extern \"C\" uint64_t Rect_name(void) {\n    return Rect::name();\n}\n",
@@ -1014,6 +1014,66 @@ fn classes64_reads_as_classes() {
         assert!(text.contains(expected), "`{expected}` is missing from the C++:\n{text}");
     }
     assert_eq!(text.matches("\nclass ").count(), 4, "one class per RTTI class:\n{text}");
+}
+
+/// The rhtest `cpp` program as classes, running: its C++ prints what the MSVC build prints.
+/// The statically linked `operator new` and `operator delete` go to the runtime's heap.
+#[test]
+fn rhtest_cpp_clang_runs_as_cpp() {
+    run_fixture_as_c(&rhtest("cpp", "clang"), "cpp", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
+}
+
+/// The declaration of the class `head` opens, up to its closing brace.
+fn class_block<'a>(text: &'a str, head: &str) -> Option<&'a str> {
+    let start = text.find(head)?;
+    let end = text[start..].find("\n};\n").map_or(text.len(), |e| start + e + 3);
+    Some(&text[start..end])
+}
+
+/// The classes of the rhtest `cpp` program as its source declares them: the hierarchy from the
+/// RTTI, `Counter`, which has no vtable, from the symbols of its member functions; the virtual
+/// functions in their slots, an override naming the base whose slot it fills; a method that never
+/// reads its object static; and the fields at the offsets the source's members lie at in the
+/// x86 object, after the vtable pointer, each declared once, by the class whose methods reach it.
+#[test]
+fn rhtest_cpp_reads_as_classes() {
+    let (_, text, _) = emit(&rhtest("cpp", "clang"), "classes", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
+    let expectations: [(&str, &[&str]); 6] = [
+        // n_ and steps_; total_ is static, a global.
+        ("class Counter {", &[" add(", " value()", "static ", " total()", " f0; // offset 0", " f4; // offset 4"]),
+        ("class Shape {", &[" kind(); // slot 3\n"]),
+        // w_ and h_; Shape's id_ lies at 4, which only the functions that take a Shape read.
+        (
+            "class Rect : public Shape {",
+            &[" area(); // slot 1, overrides Shape", " perimeter(); // slot 2, overrides Shape", " f8; // offset 8", " f12; // offset 12"],
+        ),
+        ("class Square : public Rect {", &[" kind(); // slot 3, overrides Rect"]),
+        // a_, b_ and c_.
+        (
+            "class Tri : public Shape {",
+            &[" area(); // slot 1, overrides Shape", " f8; // offset 8", " f12; // offset 12", " f16; // offset 16"],
+        ),
+        // name_ and v_, past Named (a vtable pointer and tag) and Valued (a vtable pointer and scale).
+        (
+            "class Item : public Named, public Valued {",
+            &[" name_hash(); // slot 1", " get(); // slot 1 of the vtable at offset 8", " f16; // offset 16", " f20; // offset 20"],
+        ),
+    ];
+    // Every miss at once, with every class the output declares.
+    let mut misses = Vec::new();
+    for (head, lines) in expectations {
+        let Some(block) = class_block(&text, head) else {
+            misses.push(format!("`{head}` is missing"));
+            continue;
+        };
+        misses.extend(lines.iter().filter(|line| !block.contains(**line)).map(|line| format!("`{line}` is missing from `{head}`")));
+        if block.contains("; // offset 0\n") && head != "class Counter {" {
+            misses.push(format!("`{head}` declares its vtable pointer as a field"));
+        }
+    }
+    let declarations: Vec<&str> =
+        text.split("\n// ").filter(|d| d.contains("\nclass ")).map(|d| d.find("\n};\n").map_or(d, |end| &d[..end + 3])).collect();
+    assert!(misses.is_empty(), "{}\n\nthe classes:\n// {}", misses.join("\n"), declarations.join("\n// "));
 }
 
 /// The exceptions program: the throws, the catches and the destructors on the way out, as the

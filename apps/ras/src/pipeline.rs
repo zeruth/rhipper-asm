@@ -648,6 +648,7 @@ fn inputs_key(project: &Project, step: Step) -> Option<String> {
     let mut files = vec![project.root.join(crate::project::RHIPPER_JSON), project.exe.clone()];
     files.extend(project.map.iter().cloned());
     files.extend(project.signatures.iter().cloned());
+    files.extend(crate::signatures::store_files(&project.signature_stores()));
     // The analyze step with `run.facts` on writes the facts rather than reads them.
     if !(step == Step::Analyze && project.run.facts) {
         files.push(project.facts_file());

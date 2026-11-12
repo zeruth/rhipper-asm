@@ -85,6 +85,13 @@ pub fn print(module: &Module) -> String {
     out
 }
 
+/// The definition of one function, as [`print`] writes it in its module.
+pub fn function(f: &Function) -> String {
+    let mut out = String::new();
+    print_function(&mut out, f);
+    out
+}
+
 fn print_function(out: &mut String, f: &Function) {
     let linkage = match f.linkage {
         Linkage::External => "",
