@@ -58,6 +58,9 @@ pub(super) fn place(o: &Operand, defs: &HashMap<ValueId, Inst>) -> Option<(Root,
                 Some((root, base.checked_add(gep_offset(base_ty, indices)?)?))
             }
             Some(Inst::Cast { cast: Cast::IntToPtr | Cast::PtrToInt | Cast::Bitcast | Cast::ZExt, value, .. }) => place(value, defs),
+            // A 32-bit program reads its stack pointer as the low half of the register, and its
+            // frame and data lie below 4 GiB in the port, so the low half is the whole address.
+            Some(Inst::Cast { cast: Cast::Trunc, value, to: Type::Int(32), .. }) => place(value, defs),
             Some(Inst::Bin { op: op @ (BinOp::Add | BinOp::Sub), ty, lhs, rhs: Operand::Int(k) }) => {
                 let (root, base) = place(lhs, defs)?;
                 let k = signed(ty, *k)?;
