@@ -335,7 +335,7 @@ mod coff {
 }
 
 mod elf {
-    use anyhow::{Result, ensure};
+    use anyhow::{Result, bail, ensure};
     use ra_asm_format::Reader;
 
     use super::{Object, ObjectFunction, ObjectReloc, ObjectSection};
@@ -378,6 +378,18 @@ mod elf {
             (62, 12 | 13) | (183, 259) => 2,
             (62, 14 | 15) => 1,
             _ => 4,
+        }
+    }
+
+    /// The file offset of entry `i` of a table section, refused past the end of the file: the
+    /// offset and the entry size are 64-bit words of the file, so their sum is checked.
+    fn entry_at(h: &Header, i: usize, entsize: usize, len: usize) -> Result<usize> {
+        match i.checked_mul(entsize).and_then(|o| h.offset.checked_add(o)) {
+            Some(at) if at <= len => Ok(at),
+            _ => bail!(
+                "entry {i} of the section at offset {:#x} ({entsize:#x} bytes each) lies past the end of the file ({len:#x} bytes)",
+                h.offset
+            ),
         }
     }
 
@@ -435,8 +447,7 @@ mod elf {
         }
         let string_at = |table: usize, offset: u32| -> Result<String> {
             let Some(h) = headers.get(table) else { return Ok(String::new()) };
-            let start = h.offset + offset as usize;
-            let end = h.offset + h.size;
+            let (start, end) = (h.offset.saturating_add(offset as usize), h.offset.saturating_add(h.size));
             ensure!(start <= end && end <= bytes.len(), "string {offset:#x} of section {table} is past its end");
             let s = &bytes[start..end];
             let len = s.iter().position(|&b| b == 0).unwrap_or(s.len());
@@ -448,7 +459,7 @@ mod elf {
         if let Some(h) = headers.iter().find(|h| h.kind == SHT_SYMTAB) {
             let entsize = if h.entsize == 0 { if wide { 24 } else { 16 } } else { h.entsize };
             for i in 0..h.size / entsize {
-                let at = h.offset + i * entsize;
+                let at = entry_at(h, i, entsize, bytes.len())?;
                 let name = reader.u32(at, "symbol name")?;
                 let (info, value, size, section) = if wide {
                     (
@@ -486,7 +497,7 @@ mod elf {
             let entsize =
                 if h.entsize == 0 { (if wide { 16 } else { 8 }) + if rela { if wide { 8 } else { 4 } } else { 0 } } else { h.entsize };
             for i in 0..h.size / entsize {
-                let at = h.offset + i * entsize;
+                let at = entry_at(h, i, entsize, bytes.len())?;
                 let (offset, sym, kind) = if wide {
                     let info = reader.u64(at + 8, "relocation info")?;
                     (reader.u64(at, "relocation offset")?, (info >> 32) as usize, (info & 0xFFFF_FFFF) as u32)
@@ -521,7 +532,7 @@ mod elf {
             let Some(section) = code_index.get(s.section as usize).copied().flatten() else { continue };
             let section_len = sections[section].bytes.len() as u64;
             let end = if s.size > 0 {
-                (s.value + s.size).min(section_len)
+                s.value.saturating_add(s.size).min(section_len)
             } else {
                 starts.iter().find(|&&(sec, v)| sec == section && v > s.value).map_or(section_len, |&(_, v)| v)
             };

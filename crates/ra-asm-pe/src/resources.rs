@@ -4,7 +4,7 @@
 //! the `.res` form the linker takes, and [`Resource::file_name`] names the file each is
 //! extracted to for reading.
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
 
 use crate::headers::Directory;
@@ -109,22 +109,38 @@ impl Resource {
 
 const SUBDIRECTORY: u32 = 0x8000_0000;
 const MAX_ENTRIES: u32 = 1 << 16;
+/// The entries of the whole tree: directories that share their subdirectories multiply, and three
+/// levels of a full directory each would be 2^48 leaves.
+const MAX_TREE_ENTRIES: u32 = 1 << 18;
 
 pub(crate) fn parse(image: &Image) -> Result<Vec<Resource>> {
     let Some((dir_va, _)) = image.directory_va(Directory::Resource) else { return Ok(Vec::new()) };
     let mut resources = Vec::new();
-    walk(image, dir_va, 0, 0, &mut Vec::new(), &mut resources)?;
+    let mut budget = MAX_TREE_ENTRIES;
+    walk(image, dir_va, 0, 0, &mut Vec::new(), &mut resources, &mut budget)?;
     Ok(resources)
 }
 
 /// One directory of the tree: its entries are types at the root, names below, languages below
-/// those, and a language entry names the data.
-fn walk(image: &Image, dir_va: u64, offset: u32, depth: usize, path: &mut Vec<ResourceId>, out: &mut Vec<Resource>) -> Result<()> {
+/// those, and a language entry names the data. `budget` is what is left of [`MAX_TREE_ENTRIES`].
+fn walk(
+    image: &Image,
+    dir_va: u64,
+    offset: u32,
+    depth: usize,
+    path: &mut Vec<ResourceId>,
+    out: &mut Vec<Resource>,
+    budget: &mut u32,
+) -> Result<()> {
     ensure!(depth < 3, "the resource directory at offset {offset:#x} nests deeper than type, name and language");
     let table = dir_va + u64::from(offset);
     let named = u32::from(image.u16(table + 12).with_context(|| format!("resource directory at offset {offset:#x}"))?);
     let ids = u32::from(image.u16(table + 14)?);
     ensure!(named + ids <= MAX_ENTRIES, "the resource directory at offset {offset:#x} claims {} entries", named + ids);
+    let Some(left) = budget.checked_sub(named + ids) else {
+        bail!("the resource directory at offset {offset:#x} takes the tree past {MAX_TREE_ENTRIES} entries");
+    };
+    *budget = left;
     for i in 0..named + ids {
         let entry = table + 16 + u64::from(i) * 8;
         let name = image.u32(entry).with_context(|| format!("resource entry {i} at offset {offset:#x}"))?;
@@ -140,7 +156,7 @@ fn walk(image: &Image, dir_va: u64, offset: u32, depth: usize, path: &mut Vec<Re
         };
         path.push(id);
         if data & SUBDIRECTORY != 0 {
-            walk(image, dir_va, data & !SUBDIRECTORY, depth + 1, path, out)?;
+            walk(image, dir_va, data & !SUBDIRECTORY, depth + 1, path, out, budget)?;
         } else if let [kind, name, language] = path.as_slice() {
             let leaf = dir_va + u64::from(data);
             let rva = image.u32(leaf).with_context(|| format!("resource data entry at offset {data:#x}"))?;
@@ -167,6 +183,8 @@ pub fn string_table(image: &Image) -> Vec<(u32, String)> {
     let mut strings = Vec::new();
     for r in &image.resources {
         let (ResourceId::Id(6), ResourceId::Id(block)) = (&r.kind, &r.name) else { continue };
+        // A block whose ids pass 2^32 holds no string an id can name.
+        let Some(first) = block.saturating_sub(1).checked_mul(16).filter(|first| first.checked_add(15).is_some()) else { continue };
         let Ok(bytes) = r.data(image) else { continue };
         let units: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
         let mut at = 0usize;
@@ -174,7 +192,7 @@ pub fn string_table(image: &Image) -> Vec<(u32, String)> {
             let Some(&len) = units.get(at) else { break };
             let len = usize::from(len);
             if len > 0 && at + 1 + len <= units.len() {
-                strings.push((block.saturating_sub(1) * 16 + slot, String::from_utf16_lossy(&units[at + 1..at + 1 + len])));
+                strings.push((first + slot,String::from_utf16_lossy(&units[at + 1..at + 1 + len])));
             }
             at += 1 + len;
         }

@@ -171,8 +171,10 @@ pub struct Instr {
 }
 
 impl Instr {
+    /// The address after the instruction, wrapping at the top of the space as the instruction
+    /// pointer does.
     pub fn end(&self) -> u64 {
-        self.address + u64::from(self.len)
+        self.address.wrapping_add(u64::from(self.len))
     }
 
     /// The memory operand the instruction branches or calls through, if any.

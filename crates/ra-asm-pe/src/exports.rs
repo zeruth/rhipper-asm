@@ -1,7 +1,7 @@
 //! The export directory: the functions and data the image offers by name or ordinal, and the
 //! forwarders that name a function of another module.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 
 use crate::headers::Directory;
