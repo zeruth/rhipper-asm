@@ -1353,7 +1353,6 @@ impl Emitter<'_> {
     /// arm of the default comes last, since `_` would hide the arms after it.
     fn switch(&mut self, out: &mut String, ty: &Type, value: &Operand, cases: &[Case], depth: usize) {
         let pad = "    ".repeat(depth);
-        let constant = |v: &i128| Self::int_constant(ty, *v);
         let mut chains: Vec<&[Case]> = Vec::new();
         let mut start = 0;
         for (i, case) in cases.iter().enumerate() {
@@ -1377,7 +1376,7 @@ impl Emitter<'_> {
             let default_at = chain.iter().position(|c| c.default);
             let pattern = match default_at {
                 Some(_) => "_".to_string(),
-                None => chain.iter().flat_map(|c| c.values.iter()).map(constant).collect::<Vec<_>>().join(" | "),
+                None => Self::pattern(ty, chain.iter().flat_map(|c| c.values.iter())),
             };
             let _ = writeln!(out, "{pad}    {pattern} => {{");
             for (k, case) in chain.iter().enumerate() {
@@ -1391,18 +1390,47 @@ impl Emitter<'_> {
                     Some(d) if k >= d => ("!", &chain[k + 1..]),
                     _ => ("", &chain[..=k]),
                 };
-                let values: Vec<String> = values.iter().flat_map(|c| c.values.iter()).map(constant).collect();
-                if values.is_empty() {
+                if values.iter().all(|c| c.values.is_empty()) {
                     self.stmts(out, &case.body, depth + 2);
                     continue;
                 }
-                let _ = writeln!(out, "{pad}        if {not}matches!({subject}, {}) {{", values.join(" | "));
+                let values = Self::pattern(ty, values.iter().flat_map(|c| c.values.iter()));
+                let _ = writeln!(out, "{pad}        if {not}matches!({subject}, {values}) {{");
                 self.stmts(out, &case.body, depth + 3);
                 let _ = writeln!(out, "{pad}        }}");
             }
             let _ = writeln!(out, "{pad}    }}");
         }
         let _ = writeln!(out, "{pad}}}");
+    }
+
+    /// The pattern of case values: in order, a run of three or more consecutive values as a range
+    /// (`4u32..=6u32`), as clippy asks of an or-pattern that spells one out.
+    fn pattern<'v>(ty: &Type, values: impl Iterator<Item = &'v i128>) -> String {
+        let mask = match ty {
+            Type::Int(n) if *n < 128 => (1u128 << n) - 1,
+            _ => u128::MAX,
+        };
+        let mut values: Vec<u128> = values.map(|v| (*v as u128) & mask).collect();
+        values.sort_unstable();
+        values.dedup();
+        let constant = |v: u128| Self::int_constant(ty, v as i128);
+        let mut parts: Vec<String> = Vec::new();
+        let mut i = 0;
+        while i < values.len() {
+            let mut end = i;
+            while end + 1 < values.len() && values[end + 1] == values[end] + 1 {
+                end += 1;
+            }
+            // A bool has no range pattern.
+            if end >= i + 2 && *ty != Type::Int(1) {
+                parts.push(format!("{}..={}", constant(values[i]), constant(values[end])));
+            } else {
+                parts.extend(values[i..=end].iter().map(|v| constant(*v)));
+            }
+            i = end + 1;
+        }
+        parts.join(" | ")
     }
 
     /// The instructions of a block, then the phi moves to its successors; `labeled` for the

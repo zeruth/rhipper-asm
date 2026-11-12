@@ -1107,9 +1107,12 @@ fn control64_rust_is_safe_where_provable() {
     for line in proven.lines().filter(|l| l.contains("unsafe {")) {
         assert!(line.contains("unsafe { /* ") || line.contains("} // "), "an unsafe block that names no reason: {line}");
     }
-    // The `n` of WriteFile is a local the function keeps as a value; the frame's address escapes
-    // to WriteFile and stays raw, named as such.
-    assert!(proven.contains("let mut local_m18: u64 = 0u64;"), "{proven}");
+    // The slot at -0x18 is a local the function keeps as a value, where the raw port gives it
+    // storage of its own; nothing reads it, so the proven port drops it with its store. The
+    // frame's address escapes to WriteFile and stays raw, named as such.
+    assert!(raw.contains("let mut local_m18_mem"), "{raw}");
+    assert!(!proven.contains("local_m18_mem"), "{proven}");
+    assert!(!proven.contains("local_m18") || proven.contains("let mut local_m18: u64 = 0u64;"), "{proven}");
     assert!(proven.contains(&format!("// {}", "memory at a computed address")), "{proven}");
     assert!(proven.contains("unsafe { /* an import */") || proven.contains("// an import"), "{proven}");
 }
@@ -1153,7 +1156,7 @@ fn rhtest_core_switches_read_as_source() {
 
         let r = rust_text(&fixture);
         let f = function_text(&r, "fn fallthrough(arg0: u32) -> u32 {");
-        for arm in ["0u32 | 1u32 => {", "4u32 | 5u32 | 6u32 => {", "if matches!(", "4u32 | 5u32) {"] {
+        for arm in ["0u32 | 1u32 => {", "4u32..=6u32 => {", "if matches!(", "4u32 | 5u32) {"] {
             assert!(f.contains(arm), "core-{variant}: no `{arm}` in:\n{f}");
         }
         assert_eq!(f.matches("1000u32").count(), 1, "core-{variant}: the tail of case 5 is copied:\n{f}");
