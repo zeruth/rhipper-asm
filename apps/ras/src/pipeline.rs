@@ -14,6 +14,10 @@
 //! comparison runs the same program finding the reference first. With `run.facts` on, the analyze
 //! step runs the reference through the IR interpreter first and writes what it saw to
 //! `build/facts.json`; every step analyzes with the facts there when they are of the reference.
+//! The analyze, lift and emit steps stamp what they read in `build/pipeline/<step>.stamp`: a step
+//! whose inputs and outputs are as the stamp says prints its last summary with `(unchanged)` and
+//! does no work, and the emit rewrites only the files whose text changed, so the build recompiles
+//! only those. `--rebuild` runs every step again.
 
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
@@ -66,7 +70,7 @@ pub(crate) struct Options {
     pub timeout: Option<u64>,
     /// The build configuration, such as `Debug`, over `build.config` of the project.
     pub config: Option<String>,
-    /// Deletes the build outputs before the build.
+    /// Runs every step whatever its stamp says, and deletes the build outputs before the build.
     pub rebuild: bool,
 }
 
@@ -87,19 +91,38 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
     for step in steps {
         pipeline.progress.line(step.id());
         let log = pipeline.project.log_dir().join(format!("{}.log", step.id()));
+        let stamp = pipeline.project.log_dir().join(format!("{}.stamp", step.id()));
+        let key = if options.rebuild { None } else { inputs_key(&pipeline.project, step) };
+        if let Some(key) = &key
+            && let Some(summary) = unchanged(&pipeline.project, step, &stamp, key)
+        {
+            let mut log = fs::OpenOptions::new().append(true).create(true).open(&log)?;
+            writeln!(log, "unchanged since the last run: {summary}")?;
+            println!("{summary} (unchanged)");
+            continue;
+        }
+        // A step that fails part way leaves outputs its stamp no longer vouches for.
+        let _ = fs::remove_file(&stamp);
         let mut log = File::create(&log).with_context(|| format!("cannot write {}", log.display()))?;
         let result = match step {
-            Step::Analyze => pipeline.analyze(&mut log),
-            Step::Lift => pipeline.lift(&mut log),
-            Step::Emit => pipeline.emit(&mut log),
-            Step::Build => pipeline.build(&mut log),
-            Step::Run => pipeline.run_port(&mut log),
+            Step::Analyze => pipeline.analyze(&mut log).map(Some),
+            Step::Lift => pipeline.lift(&mut log).map(Some),
+            Step::Emit => pipeline.emit(&mut log).map(Some),
+            Step::Build => pipeline.build(&mut log).map(|()| None),
+            Step::Run => pipeline.run_port(&mut log).map(|()| None),
         };
-        if let Err(e) = result {
-            let _ = writeln!(log, "error: {e:#}");
-            eprintln!("error: {e:#}");
-            pipeline.progress.line(&format!("{} failed: stopping", step.id()));
-            bail!("{} failed", step.id());
+        match result {
+            Ok(summary) => {
+                if let (Some(key), Some(summary)) = (key, summary) {
+                    fs::write(&stamp, format!("{key}\n{summary}\n")).with_context(|| format!("cannot write {}", stamp.display()))?;
+                }
+            }
+            Err(e) => {
+                let _ = writeln!(log, "error: {e:#}");
+                eprintln!("error: {e:#}");
+                pipeline.progress.line(&format!("{} failed: stopping", step.id()));
+                bail!("{} failed", step.id());
+            }
         }
     }
     pipeline.progress.line("done");
@@ -206,8 +229,7 @@ impl Pipeline {
         ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         lifted.apply_names(&analysis, None);
         let text = lifted.module.to_ll();
-        fs::create_dir_all(&build_dir)?;
-        fs::write(build_dir.join("program.ll"), &text)?;
+        ra_asm_emit::write_if_changed(&build_dir.join("program.ll"), text.as_bytes())?;
         let warnings = log_warnings(log, analysis.warnings.iter().chain(&lifted.warnings));
         let summary = format!(
             "{} functions, {} imports, {} bytes of IR, {} warnings",
@@ -238,8 +260,9 @@ impl Pipeline {
         let translation = crate::emit::translate(image, &analysis, &lifted, &signatures, &options)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
-        fs::write(gen_dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
-        fs::write(build_dir.join("functions.json"), translation.table())?;
+        let header = ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures));
+        ra_asm_emit::write_if_changed(&gen_dir.join("image.h"), header.as_bytes())?;
+        ra_asm_emit::write_if_changed(&build_dir.join("functions.json"), translation.table().as_bytes())?;
         let warnings = log_warnings(log, analysis.warnings.iter().chain(&lifted.warnings).chain(&translation.warnings));
         let summary = format!(
             "{} functions, {} bytes of {lang} in {} files, {} instructions not lifted, {} warnings -> {}",
@@ -252,7 +275,7 @@ impl Pipeline {
         );
         writeln!(log, "{summary}")?;
         println!("{summary}");
-        Ok(())
+        Ok(summary)
     }
 
     fn build(&mut self, log: &mut File) -> Result<()> {
@@ -533,6 +556,49 @@ fn lead_dll_search(command: &mut Command, dir: &Path) {
 }
 
 /// Writes the warnings to the log and returns how many there were.
+/// The key of what a step that reads the reference depends on: the project's `rhipper.json`, the
+/// reference, its map and library signatures, the facts of its traced run, and this `ras` itself
+/// (its version and its binary's size and time, so a rebuilt engine runs the steps again).
+/// `None` for the build, which `CMake` or cargo keeps incremental itself, and for the run, which
+/// is the point of running.
+fn inputs_key(project: &Project, step: Step) -> Option<String> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    if !matches!(step, Step::Analyze | Step::Lift | Step::Emit) {
+        return None;
+    }
+    let mut hasher = DefaultHasher::new();
+    step.id().hash(&mut hasher);
+    env!("CARGO_PKG_VERSION").hash(&mut hasher);
+    let engine = std::env::current_exe().and_then(fs::metadata).ok();
+    engine.as_ref().map(|m| (m.len(), m.modified().ok())).hash(&mut hasher);
+    let mut files = vec![project.root.join(crate::project::RHIPPER_JSON), project.exe.clone()];
+    files.extend(project.map.iter().cloned());
+    files.extend(project.signatures.iter().cloned());
+    // The analyze step with `run.facts` on writes the facts rather than reads them.
+    if !(step == Step::Analyze && project.run.facts) {
+        files.push(project.facts_file());
+    }
+    for file in files {
+        file.hash(&mut hasher);
+        fs::read(&file).ok().hash(&mut hasher);
+    }
+    Some(format!("{:016x}", hasher.finish()))
+}
+
+/// The summary of the last run of `step` when its stamp holds `key` and its outputs are there:
+/// the step would write what it wrote then.
+fn unchanged(project: &Project, step: Step, stamp: &Path, key: &str) -> Option<String> {
+    let text = fs::read_to_string(stamp).ok()?;
+    let (stamped, summary) = text.split_once('\n')?;
+    let outputs = match step {
+        Step::Analyze => !project.run.facts || project.facts_file().is_file(),
+        Step::Lift => project.build_dir().join("program.ll").is_file(),
+        Step::Emit => project.build_dir().join("functions.json").is_file() && project.gen_dir.join("image.h").is_file(),
+        Step::Build | Step::Run => false,
+    };
+    (stamped == key && outputs).then(|| summary.trim_end().to_owned())
+}
+
 fn log_warnings<'a>(log: &mut File, warnings: impl Iterator<Item = &'a String>) -> usize {
     let mut count = 0;
     for w in warnings {

@@ -111,6 +111,32 @@ fn emit_writes_the_translation_and_the_table() {
     assert!(table.as_array().is_some_and(|a| a.iter().any(|e| e["name"] == "entry" && e["status"] == "lifted")), "{table}");
 }
 
+/// A second run over unchanged inputs skips the steps and leaves the translation as it was; a
+/// change to `rhipper.json` runs them again.
+#[test]
+fn an_unchanged_program_is_not_lifted_again() {
+    let dir = project("incremental");
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    assert!(!text.contains("(unchanged)"), "{text}");
+    let program = dir.join("src/gen/program.c");
+    let written = std::fs::metadata(&program).unwrap().modified().unwrap();
+    for step in ["analyze", "lift", "emit"] {
+        let (ok, text) = ras(&dir, &["--only", step]);
+        assert!(ok, "{text}");
+        if step == "emit" {
+            assert!(text.contains("(unchanged)"), "{text}");
+        }
+    }
+    let (ok, text) = ras(&dir, &["--only", "lift"]);
+    assert!(ok && text.contains("(unchanged)"), "{text}");
+    assert_eq!(std::fs::metadata(&program).unwrap().modified().unwrap(), written, "the emit rewrote an unchanged file");
+    std::fs::write(dir.join("rhipper.json"), r#"{ "name": "control", "exe": "ref/control64.exe", "x87": "double" }"#).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok && !text.contains("(unchanged)"), "{text}");
+    assert_eq!(std::fs::metadata(&program).unwrap().modified().unwrap(), written, "the same translation was written again");
+}
+
 /// A `map` in `rhipper.json` names the reference's functions; the map of another build is refused
 /// with its path.
 #[test]
