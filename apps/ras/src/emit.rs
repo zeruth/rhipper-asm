@@ -234,7 +234,8 @@ fn resource_files(image: &Image) -> Vec<(String, Vec<u8>)> {
 }
 
 /// Writes the translation, the runtime and `functions.json` into `out`, or the translation to
-/// stdout without `out`. `hand` names the functions left to hand-written sources.
+/// stdout without `out`. `hand` names the functions left to hand-written sources; the annotations
+/// of the project at `project` rename functions and leave more to the sources.
 pub(crate) fn emit(
     image: &Image,
     language: &str,
@@ -242,8 +243,14 @@ pub(crate) fn emit(
     quiet: bool,
     x87: ra_asm_lift::X87Unit,
     hand: &[String],
+    project: Option<&Path>,
 ) -> Result<()> {
-    let analysis = ra_asm_analysis::analyze(image);
+    let mut analysis = ra_asm_analysis::analyze(image);
+    let mut warnings = Vec::new();
+    let annotations = project.map(|root| crate::annotations::load(root, &mut warnings)).unwrap_or_default();
+    crate::annotations::apply_names(&mut analysis, &annotations, &mut warnings);
+    let hand = crate::annotations::hand_list(hand, &annotations);
+    let hand = hand.as_slice();
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
@@ -269,7 +276,7 @@ pub(crate) fn emit(
         }
     }
     if !quiet {
-        for w in analysis.warnings.iter().chain(&lifted.warnings).chain(&translation.warnings) {
+        for w in analysis.warnings.iter().chain(&warnings).chain(&lifted.warnings).chain(&translation.warnings) {
             eprintln!("warning: {w}");
         }
     }
