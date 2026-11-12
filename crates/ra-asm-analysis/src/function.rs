@@ -131,6 +131,9 @@ pub struct Function {
     /// The name the build's symbols (a PDB or a link map) give the function, as they have it:
     /// `_rhtest_run`, `?area@Rect@@UEBAHXZ`; `None` when nothing names it.
     pub symbol: Option<String>,
+    /// The object file the build's symbols say holds the function (`core.obj`), with its library
+    /// for a library's member (`msvcrt.lib:gs_report.obj`): the module of the port that defines it.
+    pub object: Option<String>,
     pub kind: Kind,
     pub blocks: Vec<Block>,
     /// The functions it calls directly, in first-call order.

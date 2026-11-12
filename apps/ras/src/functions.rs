@@ -105,7 +105,7 @@ pub(crate) fn functions_json(analysis: &Analysis<'_>) -> serde_json::Value {
         .map(|f| {
             let (strings, virtuals) = facts_json(f);
             json!({
-                "addr": hex(f.entry), "name": f.name, "symbol": f.symbol, "size": f.size(), "bytes": f.code_bytes(), "blocks": f.blocks.len(),
+                "addr": hex(f.entry), "name": f.name, "symbol": f.symbol, "object": f.object, "size": f.size(), "bytes": f.code_bytes(), "blocks": f.blocks.len(),
                 "instrs": f.instr_count(), "noreturn": f.noreturn,
                 "thunk": match &f.kind { Kind::ImportThunk(i) => Some(i.clone()), _ => None },
                 "runtime": match &f.kind { Kind::Runtime(name) => Some(name.clone()), _ => None },

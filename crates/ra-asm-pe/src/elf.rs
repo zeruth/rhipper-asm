@@ -130,6 +130,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<(Headers, Vec<Section>, ElfFile)> {
             directories: vec![DataDirectory::default(); 16],
         },
         section_table_offset: 0,
+        rich: None,
     };
     Ok((headers, sections, elf))
 }
@@ -257,7 +258,7 @@ fn symbols(elf: &ElfFile) -> Vec<Symbol> {
         .iter()
         .chain(&elf.dynamic_symbols)
         .filter(|s| s.is_defined() && s.is_function() && s.value != 0 && !s.name.is_empty())
-        .map(|s| Symbol { va: s.value, name: s.name.clone(), library: None })
+        .map(|s| Symbol { va: s.value, name: s.name.clone(), library: None, object: None })
         .collect();
     symbols.sort_by_key(|s| s.va);
     symbols.dedup_by_key(|s| s.va);
