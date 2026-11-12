@@ -198,6 +198,65 @@ pub(crate) fn identifier(f: &Function, v: ValueId, keywords: &[&str]) -> String 
     s
 }
 
+/// The identifiers of C or Rust source outside its comments and string literals, in order, each
+/// with whether it opens its line as the target of a plain assignment (`x = ...;`). A field after
+/// `.` or `->` is no identifier of its own.
+pub(crate) fn identifiers(text: &str) -> Vec<(&str, bool)> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    // Only blanks since the line began.
+    let mut line_start = true;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\n' => {
+                line_start = true;
+                i += 1;
+            }
+            b' ' | b'\t' | b'\r' => i += 1,
+            b'"' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+                i += 1;
+                line_start = false;
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i = text[i + 2..].find("*/").map_or(bytes.len(), |end| i + 2 + end + 2);
+                line_start = false;
+            }
+            c if c.is_ascii_alphabetic() || c == b'_' => {
+                let start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                let field = text[..start].ends_with('.') || text[..start].ends_with("->");
+                if !field {
+                    out.push((&text[start..i], line_start && text[i..].starts_with(" = ")));
+                }
+                line_start = false;
+            }
+            c if c.is_ascii_digit() => {
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'.') {
+                    i += 1;
+                }
+                line_start = false;
+            }
+            _ => {
+                i += 1;
+                line_start = false;
+            }
+        }
+    }
+    out
+}
+
 /// The number of `ra_trap` calls in a function: the instructions the lift did not translate.
 pub(crate) fn trap_count(f: &Function) -> usize {
     f.blocks

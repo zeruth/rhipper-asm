@@ -25,6 +25,25 @@
 //!   (with what the project's name-source plugins said that it could not take).
 //! - `plugins`: the plugins of the project and the user's (see [`crate::plugins`]): `abi`, the
 //!   `user` directory, and each plugin's `name`, `origin`, `dir`, `kinds` and `error`.
+//! - `tools`: the tools the workbench gives a model, each a method here with the JSON schema of
+//!   its parameters (`name`, `method`, `description`, `inputSchema`). The questions a model asks
+//!   in a port are compositions of the engine's answers, and none calls a model:
+//! - `explain` (`query`): what a function does: a `summary` line of its facts, its `callers`,
+//!   `calls`, `tail_calls`, `imports`, `strings`, `virtuals`, the `data` it addresses and how
+//!   (`read`, `write`, `address`), its `shape` (back edges, switches, unresolved jumps, indirect
+//!   calls with the targets a traced run saw), `seen` at run time, its `traps` in the lift, and in
+//!   a project its annotation, table entry, source and IR.
+//! - `name_hints` (`query`): the facts a name is made from: the function's symbol, strings,
+//!   imports, data and classes, and the name, strings and imports of each caller and callee,
+//!   `named` when something other than its address names it.
+//! - `writers` (`address`, `hi`): the functions that write the data in `[address, hi)`, every
+//!   instruction that writes, reads or takes its address, and the pointers to it.
+//! - `traps` (`query`): the functions whose lift traps, most first, each trap with its
+//!   instruction, and the unresolved jumps; with `query`, that function alone. The lift is made at
+//!   the first question and kept until the image changes.
+//!
+//! A project's server analyzes with the facts of its traced run (`build/facts.json`) when they
+//! are of its reference, as the pipeline does.
 //!
 //! The answers name the functions as the plugins and then the annotations do; a change to the sidecar files on disk (a
 //! checkout, a merge) reloads them before the next answer.
@@ -48,7 +67,7 @@
 //! - `lockstep.stop`: ends the session; the port is stopped.
 //! - `shutdown`.
 
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -95,13 +114,31 @@ pub(crate) fn serve(target: &Target) -> Result<()> {
             None => ra_asm_pe::load(&target.exe)?,
         };
         let loaded = modified(&target.exe);
-        let mut analysis = ra_asm_analysis::analyze(&image);
+        // The facts of a traced run of the reference, as every step of the pipeline takes them.
+        let facts = target
+            .project
+            .as_ref()
+            .map(Project::facts_file)
+            .filter(|f| f.is_file())
+            .and_then(|f| crate::run::read_facts(&f, &image).ok())
+            .unwrap_or_default();
+        let mut analysis = ra_asm_analysis::analyze_with(&image, &facts);
         let (annotated, warnings) = match &target.project {
             Some(project) => annotations::annotate(&project.root, &mut analysis),
             None => (BTreeMap::new(), Vec::new()),
         };
         let stamp = target.project.as_ref().map(|p| annotations::stamp(&p.root));
-        let session = Session { target, image: &image, analysis: &analysis, annotations: annotated, warnings, stamp, lockstep: &lockstep };
+        let session = Session {
+            target,
+            image: &image,
+            analysis: &analysis,
+            annotations: annotated,
+            warnings,
+            stamp,
+            lockstep: &lockstep,
+            lifted: OnceCell::new(),
+            trap_sites: OnceCell::new(),
+        };
         let mut replay = pending.take().map(Ok::<String, std::io::Error>).into_iter().chain(&mut lines);
         match session.run(&mut replay, loaded)? {
             Outcome::Exit => return Ok(()),
@@ -128,6 +165,10 @@ struct Session<'a> {
     stamp: Option<Vec<(PathBuf, Option<SystemTime>)>>,
     /// The lockstep session, when one was started.
     lockstep: &'a RefCell<Option<Lockstep>>,
+    /// The machine-level lift of the program, made the first time an answer needs its traps.
+    lifted: OnceCell<ra_asm_lift::Lifted>,
+    /// The addresses the lift traps at, by function, from the lift above.
+    trap_sites: OnceCell<BTreeMap<u64, Vec<u64>>>,
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {
@@ -191,6 +232,7 @@ impl Session<'_> {
             let text = params.get(key).and_then(Value::as_str).ok_or_else(|| anyhow!("the parameter `{key}` is missing"))?;
             parse_address(text)
         };
+        let query = || params.get("query").and_then(Value::as_str).ok_or_else(|| anyhow!("the parameter `query` is missing"));
         match method {
             "project" => Ok(self.project()),
             "info" => Ok(crate::report::info_json(self.image)),
@@ -245,6 +287,18 @@ impl Session<'_> {
                 "warnings": self.warnings,
             })),
             "plugins" => Ok(crate::plugins::list_json(self.target.project.as_ref().map(|p| p.root.as_path()))),
+            "tools" => Ok(tools()),
+            "explain" => Ok(self.explain(self.find(query()?)?)),
+            "name_hints" => Ok(self.name_hints(self.find(query()?)?)),
+            "writers" => {
+                let lo = address("address")?;
+                let hi = params.get("hi").and_then(Value::as_str).map(parse_address).transpose()?.unwrap_or(lo + 1);
+                Ok(crate::xrefs::accesses_json(self.image, self.analysis, lo, hi))
+            }
+            "traps" => {
+                let only = params.get("query").and_then(Value::as_str).map(|q| self.find(q)).transpose()?;
+                Ok(self.traps(only))
+            }
             "trace" => {
                 let Some(project) = &self.target.project else { bail!("no project: the traces are a project's") };
                 let function = params.get("function").and_then(Value::as_str);
@@ -401,7 +455,6 @@ impl Session<'_> {
     /// source, the IR and the instructions.
     fn function(&self, query: &str) -> Result<Value> {
         let function = self.find(query)?;
-        // The IR and the source name a function as the analysis does.
         let ir_name = function.name.clone();
         let decoded = crate::disasm::decode(self.image, function.entry, Some(function.size()))?;
         let (strings, virtuals) = crate::functions::facts_json(function);
@@ -413,26 +466,194 @@ impl Session<'_> {
             "strings": strings, "virtuals": virtuals,
             "disasm": crate::disasm::disasm_text(self.image, &decoded),
         });
-        if let Some(project) = &self.target.project {
-            // Whether the hand-written sources own it now, which the table says only after an emit.
-            result["hand"] = json!(self.is_hand(function));
-            result["annotation"] = self.annotations.get(&function.entry).map_or(Value::Null, Annotation::to_json);
-            // The function table entry, and the source of the function in the translation.
-            if let Ok(text) = std::fs::read_to_string(project.build_dir().join("functions.json"))
-                && let Ok(Value::Array(entries)) = serde_json::from_str::<Value>(&text)
-                && let Some(entry) =
-                    entries.into_iter().find(|e| e.get("addr").and_then(Value::as_str) == Some(hex(function.entry).as_str()))
-            {
-                if let (Some(file), Some(line)) = (entry.get("file").and_then(Value::as_str), entry.get("line").and_then(Value::as_u64)) {
-                    let path = project.gen_dir.join(file);
-                    result["source_file"] = json!(path.display().to_string());
-                    result["source"] = json!(source_at(&path, line as usize));
-                }
-                result["table"] = entry;
-            }
-            result["ir"] = json!(ir_of(&project.build_dir().join("program.ll"), &ir_name));
-        }
+        self.translation(function, &mut result);
         Ok(result)
+    }
+
+    /// Adds to `result` what the project's outputs say of `function`: whether the hand-written
+    /// sources own it, its annotation, its function table entry, its source and its raised IR.
+    fn translation(&self, function: &ra_asm_analysis::Function, result: &mut Value) {
+        let Some(project) = &self.target.project else { return };
+        // Whether the hand-written sources own it now, which the table says only after an emit.
+        result["hand"] = json!(self.is_hand(function));
+        result["annotation"] = self.annotations.get(&function.entry).map_or(Value::Null, Annotation::to_json);
+        // The function table entry, and the source of the function in the translation.
+        if let Ok(text) = std::fs::read_to_string(project.build_dir().join("functions.json"))
+            && let Ok(Value::Array(entries)) = serde_json::from_str::<Value>(&text)
+            && let Some(entry) = entries.into_iter().find(|e| e.get("addr").and_then(Value::as_str) == Some(hex(function.entry).as_str()))
+        {
+            if let (Some(file), Some(line)) = (entry.get("file").and_then(Value::as_str), entry.get("line").and_then(Value::as_u64)) {
+                let path = project.gen_dir.join(file);
+                result["source_file"] = json!(path.display().to_string());
+                result["source"] = json!(source_at(&path, line as usize));
+            }
+            result["table"] = entry;
+        }
+        // The IR and the source name a function as the analysis does.
+        result["ir"] = json!(ir_of(&project.build_dir().join("program.ll"), &function.name));
+    }
+
+    /// The machine-level lift of the program, made once per load.
+    fn lifted(&self) -> &ra_asm_lift::Lifted {
+        self.lifted.get_or_init(|| ra_asm_lift::lift(self.image, self.analysis))
+    }
+
+    /// The addresses the lift traps at, by the entry of the function: each `ra_unsupported` call
+    /// names the instruction it stands for.
+    fn trap_sites(&self) -> &BTreeMap<u64, Vec<u64>> {
+        use ra_asm_ir::{Callee, Inst, Operand};
+        self.trap_sites.get_or_init(|| {
+            let mut sites = BTreeMap::new();
+            for f in &self.lifted().module.functions {
+                let Some(entry) = f.address else { continue };
+                let at: Vec<u64> = f
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.instrs)
+                    .filter_map(|i| match &i.inst {
+                        Inst::Call { callee: Callee::Direct(name), args, .. } if name == "ra_unsupported" => match args.first() {
+                            Some((_, Operand::Int(at))) => u64::try_from(*at).ok(),
+                            _ => None,
+                        },
+                        _ => None,
+                    })
+                    .collect();
+                if !at.is_empty() {
+                    sites.insert(entry, at);
+                }
+            }
+            sites
+        })
+    }
+
+    /// The traps of `function` in the lift: each instruction the lift does not cover, by its
+    /// address, mnemonic and text.
+    fn traps_of(&self, function: &ra_asm_analysis::Function) -> Vec<Value> {
+        let Some(sites) = self.trap_sites().get(&function.entry) else { return Vec::new() };
+        sites
+            .iter()
+            .map(|&at| {
+                let instr = function.blocks.iter().flat_map(|b| &b.instrs).find(|i| i.address == at);
+                json!({"addr": hex(at), "mnemonic": instr.map(|i| &i.mnemonic), "text": instr.map(|i| &i.text)})
+            })
+            .collect()
+    }
+
+    /// What a function does, as the engine knows it: what it calls and what calls it, the imports,
+    /// the strings and the data it addresses and how, the shape of its control, the calls a
+    /// traced run resolved, its traps, and the project's annotation, source and raised IR.
+    fn explain(&self, function: &ra_asm_analysis::Function) -> Value {
+        let (strings, virtuals) = crate::functions::facts_json(function);
+        let callers: Vec<Value> =
+            self.analysis.callers(function.entry).iter().map(|c| json!({"addr": hex(c.entry), "name": c.name})).collect();
+        let calls: Vec<Value> = function.calls.iter().map(|c| json!({"addr": hex(*c), "name": self.analysis.name_of(*c)})).collect();
+        let data = crate::xrefs::data_of_json(self.image, function);
+        let traps = self.traps_of(function);
+        let seen = self.analysis.facts.entered.contains(&function.entry);
+        let written: Vec<&str> =
+            data.as_array().into_iter().flatten().filter(|d| d["access"] == "write").filter_map(|d| d["addr"].as_str()).collect();
+        // One line of the facts, for a reader that wants the gist before the tables.
+        let mut summary = vec![format!(
+            "{} at {}: {} blocks, {} instructions",
+            function.name,
+            hex(function.entry),
+            function.blocks.len(),
+            function.instr_count()
+        )];
+        if !function.calls.is_empty() {
+            summary.push(format!("calls {}", function.calls.iter().map(|c| self.analysis.name_of(*c)).collect::<Vec<_>>().join(", ")));
+        }
+        if !function.import_calls.is_empty() {
+            summary.push(format!("calls the imports {}", function.import_calls.join(", ")));
+        }
+        if !function.strings.is_empty() {
+            summary.push(format!(
+                "addresses the strings {}",
+                function.strings.iter().map(|(_, s)| format!("{s:?}")).collect::<Vec<_>>().join(", ")
+            ));
+        }
+        if !written.is_empty() {
+            summary.push(format!("writes the data at {}", written.join(", ")));
+        }
+        if function.noreturn {
+            summary.push("never returns".to_owned());
+        }
+        if seen {
+            summary.push("seen at run time".to_owned());
+        }
+        summary.push(if traps.is_empty() { "lifts without a trap".to_owned() } else { format!("{} traps in the lift", traps.len()) });
+        let mut result = json!({
+            "addr": hex(function.entry), "name": function.name, "symbol": function.symbol, "object": function.object,
+            "kind": match &function.kind {
+                ra_asm_analysis::Kind::Normal => json!("function"),
+                ra_asm_analysis::Kind::ImportThunk(import) => json!({"thunk": import}),
+                ra_asm_analysis::Kind::Runtime(name) => json!({"runtime": name}),
+            },
+            "summary": summary.join("; "),
+            "size": function.size(), "blocks": function.blocks.len(), "instrs": function.instr_count(), "noreturn": function.noreturn,
+            "origins": function.origins.iter().map(crate::functions::origin_name).collect::<Vec<_>>(), "seen": seen,
+            "callers": callers, "calls": calls,
+            "tail_calls": function.tail_calls.iter().map(|c| json!({"addr": hex(*c), "name": self.analysis.name_of(*c)})).collect::<Vec<_>>(),
+            "imports": function.import_calls, "strings": strings, "virtuals": virtuals, "data": data,
+            "shape": crate::functions::shape_json(self.analysis, function), "traps": traps,
+        });
+        self.translation(function, &mut result);
+        result
+    }
+
+    /// The facts a name is made from: the function's own symbol, strings, imports, data and
+    /// vtable slots, and the names and strings of its callers and its callees, each marked
+    /// `named` when a symbol, a signature, a plugin or an annotation named it rather than its address.
+    fn name_hints(&self, function: &ra_asm_analysis::Function) -> Value {
+        let named = |name: &str| !name.starts_with("F_") && !name.starts_with("U_");
+        let neighbour = |f: Option<&ra_asm_analysis::Function>, at: u64| {
+            let name = f.map_or_else(|| self.analysis.name_of(at), |f| f.name.clone());
+            json!({
+                "addr": hex(at), "named": named(&name), "name": name,
+                "strings": f.map(|f| f.strings.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>()).unwrap_or_default(),
+                "imports": f.map(|f| f.import_calls.clone()).unwrap_or_default(),
+            })
+        };
+        let (strings, virtuals) = crate::functions::facts_json(function);
+        let mut classes: Vec<&str> = function.virtuals.iter().map(|v| v.class.as_str()).collect();
+        classes.sort_unstable();
+        classes.dedup();
+        json!({
+            "addr": hex(function.entry), "name": function.name, "named": named(&function.name), "symbol": function.symbol, "object": function.object,
+            "annotation": self.annotations.get(&function.entry).map_or(Value::Null, Annotation::to_json),
+            "strings": strings, "imports": function.import_calls, "virtuals": virtuals, "classes": classes,
+            "data": crate::xrefs::data_of_json(self.image, function),
+            "origins": function.origins.iter().map(crate::functions::origin_name).collect::<Vec<_>>(),
+            "callers": self.analysis.callers(function.entry).into_iter().map(|c| neighbour(Some(c), c.entry)).collect::<Vec<_>>(),
+            "calls": function.calls.iter().map(|c| neighbour(self.analysis.function(*c), *c)).collect::<Vec<_>>(),
+        })
+    }
+
+    /// The functions that trap in the lift (of `only` alone when given), most traps first, each
+    /// with every trap's instruction and the indirect jumps the analysis did not resolve; and the
+    /// coverage of the whole program: the mnemonics not covered and the imports no prototype knows.
+    fn traps(&self, only: Option<&ra_asm_analysis::Function>) -> Value {
+        let mut rows: Vec<(usize, Value)> = Vec::new();
+        for function in self.analysis.functions.values().filter(|f| only.is_none_or(|o| o.entry == f.entry)) {
+            let traps = self.traps_of(function);
+            let unresolved = crate::functions::shape_json(self.analysis, function)["unresolved_jumps"].take();
+            if traps.is_empty() && unresolved.as_array().is_none_or(Vec::is_empty) && only.is_none() {
+                continue;
+            }
+            let count = traps.len();
+            rows.push((
+                count,
+                json!({"addr": hex(function.entry), "name": function.name, "count": count, "traps": traps, "unresolved_jumps": unresolved}),
+            ));
+        }
+        rows.sort_by_key(|x| std::cmp::Reverse(x.0));
+        let coverage = ra_asm_lift::coverage(self.analysis, self.lifted());
+        json!({
+            "total": coverage.traps(),
+            "functions": rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>(),
+            "uncovered": crate::report::coverage_json(&coverage)["uncovered"].take(),
+            "unknown_imports": coverage.unknown_imports,
+        })
     }
 
     /// The printable strings of the data sections: runs of `min` printable bytes ended by a zero.
@@ -462,6 +683,94 @@ impl Session<'_> {
         }
         json!({"strings": rows, "truncated": false})
     }
+}
+
+/// The tools the workbench gives a model, each a method of the server with its parameters as a
+/// JSON schema, as MCP lists a tool: what a model can ask of the engine, and nothing that calls a
+/// model. The workbench reads its tool list from this answer.
+fn tools() -> Value {
+    const QUERY: (&str, &str, &str, bool) = ("query", "string", "a function: its name, its address, or an address inside it", true);
+    const ADDRESS: (&str, &str, &str, bool) = ("address", "string", "an address of the image, hexadecimal with 0x", true);
+    let tool = |name: &str, method: &str, description: &str, params: &[(&str, &str, &str, bool)]| {
+        let properties: serde_json::Map<String, Value> =
+            params.iter().map(|(key, ty, about, _)| ((*key).to_owned(), json!({"type": ty, "description": about}))).collect();
+        let required: Vec<&str> = params.iter().filter(|p| p.3).map(|p| p.0).collect();
+        json!({
+            "name": name, "method": method, "description": description,
+            "inputSchema": {"type": "object", "properties": properties, "required": required},
+        })
+    };
+    json!({"tools": [
+        tool("list_functions", "functions", "Every function of the program: address, name, size, calls, imports, strings, origins, and the classes of its RTTI.", &[]),
+        tool("get_function", "function", "One function: the analysis, its strings and vtable slots, its source in the translation, its raised IR and its instructions.", &[QUERY]),
+        tool(
+            "explain_function",
+            "explain",
+            "What a function does, from the engine's facts: a summary line, its callers and callees, imports, strings, the data it reads and writes, its loops and switches, the indirect calls a traced run resolved, its traps, its annotation, source and IR.",
+            &[QUERY],
+        ),
+        tool(
+            "name_hints",
+            "name_hints",
+            "The facts to name a function from: its symbol, strings, imports, data and classes, and the names, strings and imports of its callers and callees, each marked when already named.",
+            &[QUERY],
+        ),
+        tool(
+            "find_writers",
+            "writers",
+            "The functions that write a global (or any address in [address, hi)), with every instruction that writes, reads or takes its address, and the pointers to it in the data.",
+            &[ADDRESS, ("hi", "string", "the end of the range, exclusive; one byte when absent", false)],
+        ),
+        tool(
+            "list_traps",
+            "traps",
+            "The functions whose lift traps, most traps first, with each instruction the lift does not cover and the indirect jumps left unresolved; or one function's.",
+            &[("query", "string", "one function alone: its name or an address", false)],
+        ),
+        tool("find_callers", "callers", "Every call or jump to the function at an address, and every pointer to it in the data.", &[ADDRESS]),
+        tool(
+            "find_references",
+            "xrefs",
+            "Every instruction and data pointer that refers into [lo, hi).",
+            &[("lo", "string", "the start of the range, hexadecimal", true), ("hi", "string", "the end of the range, exclusive", false)],
+        ),
+        tool(
+            "list_strings",
+            "strings",
+            "The printable strings of the data sections.",
+            &[("min", "integer", "the shortest string, 5 by default", false), ("limit", "integer", "at most this many, 1000 by default", false)],
+        ),
+        tool("get_cfg", "cfg", "The blocks of the function at or around an address, with their instructions and how each ends.", &[ADDRESS]),
+        tool(
+            "disassemble",
+            "disasm",
+            "The instructions from an address.",
+            &[ADDRESS, ("length", "string", "the bytes to decode, hexadecimal", false)],
+        ),
+        tool("list_classes", "classes", "The classes of the RTTI: name, bases, and each vtable with its functions.", &[]),
+        tool(
+            "replay_trace",
+            "trace",
+            "The port's run against the reference's, call by call, with the first place they part.",
+            &[
+                ("function", "string", "the calls of this function alone", false),
+                ("from", "integer", "from this call on", false),
+                ("limit", "integer", "at most this many calls, 500 by default", false),
+            ],
+        ),
+        tool(
+            "annotate_function",
+            "annotate",
+            "Changes the project's annotation of a function: its name, type, comment or notes; an empty text clears one.",
+            &[
+                QUERY,
+                ("name", "string", "the new name", false),
+                ("type", "string", "the C type of the function", false),
+                ("comment", "string", "the comment above it in the source", false),
+                ("notes", "string", "the notes of the person", false),
+            ],
+        ),
+    ]})
 }
 
 /// The text of a function in a source file: from `line` (1-based) to the closing brace in column 0,
