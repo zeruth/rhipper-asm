@@ -166,6 +166,7 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
                 step: Step::Frame,
                 kind: Kind::PrivateLocal,
                 site: first_use.get(k).copied(),
+                discharged: None,
             });
         }
     }

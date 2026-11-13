@@ -27,6 +27,10 @@ pub struct Table {
     pub index: Register,
     /// The address of the instruction that reads the entry.
     pub load_at: u64,
+    /// The address of the compare that bounds the index, when one was found. Without it the
+    /// table ends where its entries stop pointing at code, and the index is assumed to stay
+    /// inside what was read.
+    pub bound: Option<u64>,
 }
 
 /// The most entries a table is read for when no compare bounds it.
@@ -96,9 +100,9 @@ impl Place {
 }
 
 /// The upper bound of the index from `cmp idx, n` followed by a conditional jump: the number of
-/// entries. The index may have moved between registers, or through a stack slot, since the
-/// compare.
-fn bound_of(blocks: &[&[Instr]], index: Register) -> Option<usize> {
+/// entries, with the address of the compare. The index may have moved between registers, or
+/// through a stack slot, since the compare.
+fn bound_of(blocks: &[&[Instr]], index: Register) -> Option<(usize, u64)> {
     let mut aliases = vec![Place::Reg(index)];
     for block in blocks {
         for i in block.iter().rev() {
@@ -110,11 +114,12 @@ fn bound_of(blocks: &[&[Instr]], index: Register) -> Option<usize> {
                     // The jump after the compare says which side is the table.
                     let jump = block.last()?;
                     let n = *value;
-                    return match jump.mnemonic.as_str() {
+                    let entries = match jump.mnemonic.as_str() {
                         "ja" | "jbe" | "jg" | "jle" => usize::try_from(n + 1).ok(),
                         "jae" | "jb" | "jge" | "jl" => usize::try_from(n).ok(),
                         _ => None,
                     };
+                    return entries.map(|entries| (entries, i.address));
                 }
                 continue;
             }
@@ -153,9 +158,10 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
                 cases = Some((cm.disp as u64, cm.bits, load.address));
                 index = real;
             }
-            let count = bound_of(&context, index);
+            let (count, bound) = bound_of(&context, index).unzip();
             let Some((cases_address, case_bits, load_at)) = cases else {
-                return read_table(image, address, m.scale.max(1), count, Relative::Absolute, index, jump.address);
+                let table = read_table(image, address, m.scale.max(1), count, Relative::Absolute, index, jump.address)?;
+                return Some(Table { bound, ..table });
             };
             // The case of each index, then the target of each case.
             let count = count?.min(MAX_ENTRIES);
@@ -168,7 +174,7 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
             let entries = numbers.iter().max().copied()? + 1;
             let table = read_table(image, address, m.scale.max(1), Some(entries), Relative::Absolute, index, load_at)?;
             let targets = numbers.iter().map(|&c| table.targets[c]).collect();
-            Some(Table { targets, ..table })
+            Some(Table { targets, bound, ..table })
         }
         // x64: jmp v, where v = base + entry
         Operand::Reg(value) => {
@@ -201,8 +207,9 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
             let address = table_base.wrapping_add(load.disp as u64);
             let mut context: Vec<&[Instr]> = vec![block];
             context.extend_from_slice(predecessors);
-            let count = bound_of(&context, index);
-            read_table(image, address, load.scale.max(1), count, Relative::To(add_base), index, block[load_at].address)
+            let (count, bound) = bound_of(&context, index).unzip();
+            let table = read_table(image, address, load.scale.max(1), count, Relative::To(add_base), index, block[load_at].address)?;
+            Some(Table { bound, ..table })
         }
         _ => None,
     }
@@ -245,5 +252,5 @@ fn read_table(
         }
         targets.push(target);
     }
-    (!targets.is_empty()).then_some(Table { address, entry_size, targets, index, load_at })
+    (!targets.is_empty()).then_some(Table { address, entry_size, targets, index, load_at, bound: None })
 }

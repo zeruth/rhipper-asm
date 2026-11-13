@@ -434,7 +434,7 @@ impl Builder<'_> {
                 self.tail_calls.push(target);
             }
         }
-        Terminator::Switch { table: table.address, targets, index: table.index, load_at: table.load_at, cases }
+        Terminator::Switch { table: table.address, targets, index: table.index, load_at: table.load_at, cases, bound: table.bound }
     }
 
     fn finish(self) -> Built {

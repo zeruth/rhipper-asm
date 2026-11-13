@@ -594,7 +594,7 @@ fn assumed(f: &Function, signatures: &HashMap<String, Signature>, target: Target
             if kind == assume::Kind::ReturnAddress && !returns_through_stack {
                 continue;
             }
-            out.push(Assumption { function: f.name.clone(), step: Step::Abi, kind, site: i.address });
+            out.push(Assumption { function: f.name.clone(), step: Step::Abi, kind, site: i.address, discharged: None });
         }
     }
 }

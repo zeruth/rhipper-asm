@@ -152,7 +152,13 @@ pub fn assumptions(f: &Function) -> Vec<Assumption> {
     for i in f.blocks.iter().flat_map(|b| &b.instrs) {
         let Inst::Call { callee: Callee::Direct(name), .. } = &i.inst else { continue };
         if name.starts_with("F_") || name == "ra_call" {
-            out.push(Assumption { function: f.name.clone(), step: Step::Promote, kind: assume::Kind::PrivateLocal, site: i.address });
+            out.push(Assumption {
+                function: f.name.clone(),
+                step: Step::Promote,
+                kind: assume::Kind::PrivateLocal,
+                site: i.address,
+                discharged: None,
+            });
         }
     }
     out

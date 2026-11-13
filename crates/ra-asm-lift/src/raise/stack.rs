@@ -382,7 +382,7 @@ pub fn analyze(
     // of `ret N`.
     let at_return = pushed + if target.is_64() { 0 } else { info.pops.max(0) };
     let mut assumed = |kind: assume::Kind, site: Option<u64>| {
-        info.assumptions.push(Assumption { function: f.name.clone(), step: Step::Stack, kind, site });
+        info.assumptions.push(Assumption { function: f.name.clone(), step: Step::Stack, kind, site, discharged: None });
     };
     for (bi, block) in f.blocks.iter().enumerate() {
         let Some(regs) = exit[bi] else { continue };

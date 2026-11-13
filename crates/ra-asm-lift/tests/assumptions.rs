@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FnType, Function, FunctionBuilder, Inst, Module, Operand, Terminator, Type, ValueId};
 use ra_asm_lift::raise::Target;
 use ra_asm_lift::raise::abi::{Inferred, Signature, assumptions, infer_assuming};
-use ra_asm_lift::raise::assume::{Assumption, Kind, Step};
+use ra_asm_lift::raise::assume::{self, Assumption, Kind, Step};
 use ra_asm_lift::raise::liveness::slot_pointers;
 use ra_asm_lift::raise::{frame, promote, simplify, stack};
 
@@ -382,4 +382,128 @@ fn frame_lists_nothing_for_a_function_without_a_frame() {
     let (changed, list) = frame::run_assuming(&mut f);
     assert!(!changed);
     assert!(list.is_empty(), "{list:?}");
+}
+
+/// `classify` at 0x140001430 is the control fixture's dense switch: `cmp ecx, 8; ja` at
+/// 0x140001434 bounds the index of the `jmp rax` at 0x14000144d.
+const CLASSIFY: u64 = 0x1_4000_1430;
+const CLASSIFY_COMPARE: u64 = 0x1_4000_1434;
+const CLASSIFY_JUMP: u64 = 0x1_4000_144d;
+
+#[test]
+fn tables_with_a_bound_check_are_listed_discharged() {
+    let image = ra_asm_pe::load(&fixture("control64.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let list = assume::tables(analysis.functions.values());
+    let classify = ra_asm_lift::function_name(CLASSIFY);
+    let of_classify: Vec<&Assumption> = list.iter().filter(|a| a.function == classify).collect();
+    let [table] = of_classify.as_slice() else { panic!("classify has one table: {list:?}") };
+    assert_eq!((table.step, table.kind, table.site), (Step::JumpTable, Kind::TableIndex, Some(CLASSIFY_JUMP)));
+    assert_eq!(table.discharged, Some(CLASSIFY_COMPARE));
+    assert!(table.is_discharged());
+    assert!(list.iter().all(|a| a.step == Step::JumpTable && a.kind == Kind::TableIndex), "{list:?}");
+    assert_eq!(list, assume::tables(analysis.functions.values().rev()), "the order is the list's own");
+}
+
+/// The same table as the analysis leaves one whose compare it did not find: read while its
+/// entries point at code, with the index assumed inside.
+#[test]
+fn tables_without_a_bound_check_stay_assumed() {
+    let image = ra_asm_pe::load(&fixture("control64.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let mut classify = analysis.functions[&CLASSIFY].clone();
+    for block in &mut classify.blocks {
+        if let ra_asm_analysis::Terminator::Switch { bound, .. } = &mut block.terminator {
+            *bound = None;
+        }
+    }
+    let list = assume::tables([&classify]);
+    let [table] = list.as_slice() else { panic!("classify has one table: {list:?}") };
+    assert_eq!((table.kind, table.site, table.discharged), (Kind::TableIndex, Some(CLASSIFY_JUMP), None));
+    assert!(!table.is_discharged());
+}
+
+/// Neither program has a jump table: the `jmp rax` of `dispatch` goes to a handler its table of
+/// pointers holds and the `jmp [rax+8]` of `describe_named` through a vtable slot, and neither
+/// resolves as one.
+#[test]
+fn tables_of_dispatch64_and_classes64_are_none() {
+    for binary in ["dispatch64.exe", "classes64.exe"] {
+        let image = ra_asm_pe::load(&fixture(binary)).unwrap();
+        let analysis = ra_asm_analysis::analyze(&image);
+        let list = assume::tables(analysis.functions.values());
+        assert!(list.is_empty(), "{binary}: {list:?}");
+    }
+}
+
+/// What devirtualization assumes of the function at `address` of `lifted`, with the calls a run
+/// resolved, as the raise sees the function: its constants folded.
+fn call_assumptions(lifted: &ra_asm_lift::Lifted, address: u64, traced: &BTreeMap<u64, Vec<u64>>) -> Vec<Assumption> {
+    let mut f = lifted.module.function(&ra_asm_lift::function_name(address)).expect("the function is lifted").clone();
+    simplify::run(&mut f);
+    assume::calls(&f, &lifted.vtables, Target::WIN64, traced, &|name: &str| lifted.module.function(name).is_some())
+}
+
+/// `describe` at 0x140001070 calls `name`, `area` and `scale` through the vtable of a `Shape`
+/// whose class it does not know, and `describe_named` at 0x1400010c0 calls `label` and jumps to
+/// `weight` through that of a `Named`: each is resolved to the functions the vtables fill the
+/// slot with, and nothing in the code checks that the receiver is one of those classes.
+#[test]
+fn calls_of_classes64_list_the_candidate_sets() {
+    let image = ra_asm_pe::load(&fixture("classes64.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    let describe = call_assumptions(&lifted, 0x1_4000_1070, &BTreeMap::new());
+    let name = ra_asm_lift::function_name(0x1_4000_1070);
+    assert_eq!(
+        sites(&describe, &name, Kind::CompleteCandidates),
+        [Some(0x1_4000_107b), Some(0x1_4000_1098), Some(0x1_4000_10ac)],
+        "{describe:?}"
+    );
+    assert!(describe.iter().all(|a| a.step == Step::Devirtualize && !a.is_discharged()), "{describe:?}");
+    assert_eq!(describe.len(), 3, "{describe:?}");
+    let named = call_assumptions(&lifted, 0x1_4000_10c0, &BTreeMap::new());
+    let name = ra_asm_lift::function_name(0x1_4000_10c0);
+    let named_sites = sites(&named, &name, Kind::CompleteCandidates);
+    assert_eq!(named_sites.len(), 2, "{named:?}");
+    assert_eq!(named_sites[0], Some(0x1_4000_10cb), "{named:?}");
+    // A function with no call through a slot: `Square::area`.
+    let leaf = call_assumptions(&lifted, 0x1_4000_11d0, &BTreeMap::new());
+    assert!(leaf.is_empty(), "{leaf:?}");
+}
+
+/// A call a run resolved keeps the indirect call for a target the run did not see, so its
+/// candidates are not assumed complete: the call to `name` in `describe`, once a run saw it reach
+/// `Square::name`, and the jump of `dispatch` at 0x1400011e0 to its four handlers.
+#[test]
+fn calls_a_run_resolved_assume_no_complete_set() {
+    let image = ra_asm_pe::load(&fixture("classes64.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    let traced = BTreeMap::from([(0x1_4000_107b, vec![0x1_4000_11e0])]);
+    let describe = call_assumptions(&lifted, 0x1_4000_1070, &traced);
+    let name = ra_asm_lift::function_name(0x1_4000_1070);
+    assert_eq!(sites(&describe, &name, Kind::CompleteCandidates), [Some(0x1_4000_1098), Some(0x1_4000_10ac)], "{describe:?}");
+
+    let image = ra_asm_pe::load(&fixture("dispatch64.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    let dispatch = lifted.module.function(&ra_asm_lift::function_name(0x1_4000_11e0)).expect("dispatch is lifted");
+    let indirect: Vec<u64> = dispatch
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instrs)
+        .filter(|i| matches!(&i.inst, Inst::Call { callee: Callee::Direct(name), .. } if name == "ra_call"))
+        .filter_map(|i| i.address)
+        .collect();
+    assert!(!indirect.is_empty(), "dispatch reaches its handlers through the runtime");
+    let handlers = vec![0x1_4000_1110, 0x1_4000_1120, 0x1_4000_1130, 0x1_4000_1140];
+    let traced: BTreeMap<u64, Vec<u64>> = indirect.iter().map(|&site| (site, handlers.clone())).collect();
+    let is_lifted = |name: &str| lifted.module.function(name).is_some();
+    let resolved = ra_asm_lift::raise::abi::traced_calls(dispatch, &traced, &is_lifted);
+    assert!(!resolved.is_empty(), "the run's targets are lifted functions");
+    for traced in [&BTreeMap::new(), &traced] {
+        let list = call_assumptions(&lifted, 0x1_4000_11e0, traced);
+        assert!(list.is_empty(), "{list:?}");
+    }
 }

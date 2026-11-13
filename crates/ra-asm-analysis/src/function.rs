@@ -62,13 +62,15 @@ pub enum Terminator {
     /// An indirect jump through a table with the targets it resolved to. `cases` maps each index
     /// to its target; `index` is the register that holds the index at `load_at`, the instruction
     /// that reads the table entry (the jump itself on x86), so a lift can switch on the index and
-    /// never read the table.
+    /// never read the table. `bound` is the address of the compare that keeps the index inside
+    /// the table, when one was found: without it the index is assumed to stay inside.
     Switch {
         table: u64,
         targets: Vec<u64>,
         index: ra_asm_arch::Register,
         load_at: u64,
         cases: Vec<(u64, u64)>,
+        bound: Option<u64>,
     },
     /// An indirect jump the analysis could not resolve.
     IndirectJump,
