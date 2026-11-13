@@ -2,6 +2,7 @@
 //! person, or JSON with `--json` for the workbench and the agents.
 
 mod annotations;
+mod cards;
 mod diff;
 mod disasm;
 mod doctor;
@@ -323,6 +324,20 @@ enum Command {
         #[arg(long)]
         quiet: bool,
     },
+    /// The backlog as roadmap cards, in the outline `rc import` reads. With `--pending`, a card
+    /// per ten lines of each pending list (`PENDING.txt`, `*_PENDING.txt`) at or under the
+    /// paths, `testdata` without any: the title is the line, the acceptance the list's replay
+    /// with the lines removed, the files the list and the source its kind points at.
+    Cards {
+        /// Write the cards of the pending lists.
+        #[arg(long)]
+        pending: bool,
+        /// A pending list, or a directory searched for them.
+        paths: Vec<PathBuf>,
+        /// The milestone the sections go under: printed as the outline's first heading.
+        #[arg(long, value_name = "TITLE")]
+        milestone: Option<String>,
+    },
     /// One file of `ras smoke`, in the process it starts for the file.
     #[command(hide = true)]
     SmokeFile { pe: PathBuf },
@@ -414,6 +429,10 @@ fn main() -> anyhow::Result<()> {
             let budget = budget.map(std::time::Duration::from_secs);
             let options = smoke::Options { timeout, jobs, budget, depth, extensions, signatures: sigs.clone(), out, quiet, json };
             smoke::smoke(&dir, &options)
+        }
+        Command::Cards { pending, paths, milestone } => {
+            anyhow::ensure!(pending, "`ras cards` writes the cards of the pending lists: pass --pending");
+            cards::pending(&paths, milestone.as_deref())
         }
         Command::SmokeFile { pe } => {
             smoke::file(&pe, sigs);
