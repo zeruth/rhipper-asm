@@ -258,6 +258,10 @@ enum Command {
         /// outputs before the build.
         #[arg(long)]
         rebuild: bool,
+        /// Print the wall time and the peak working set of every step, and keep them in
+        /// `build/pipeline/status.json`.
+        #[arg(long)]
+        stats: bool,
     },
     /// The tools a port needs on this machine, each with its version or `missing` and what it is
     /// needed for; fails when a required one is missing. With `--host <exe>`, the imports of a
@@ -393,8 +397,8 @@ fn main() -> anyhow::Result<()> {
             let options = diff::Options { symbols: !structure, ir: ir.then_some(context), json };
             diff::diff(&load(&old, sigs)?, &load(&new, sigs)?, &options)
         }
-        Command::Pipeline { project, from, only, timeout, config, rebuild } => {
-            let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild };
+        Command::Pipeline { project, from, only, timeout, config, rebuild, stats } => {
+            let options = pipeline::Options { from: step(from)?, only: step(only)?, timeout, config, rebuild, stats };
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
         Command::Plugins { project } => plugins::list(project.as_deref(), json),

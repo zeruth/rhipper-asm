@@ -21,7 +21,10 @@
 //! step's analysis and the emit the lift's program. The build step writes the project of the
 //! build system `build.generator` names when the root has none (`CMakeLists.txt`, a Visual Studio
 //! solution or `meson.build`) and drives it, or compiles the port with the host's clang alone; a
-//! Rust port is built by cargo. `--rebuild` runs every step again.
+//! Rust port is built by cargo. `--rebuild` runs every step again. With `--stats`, every step that
+//! works prints its wall time and the peak working set of the process when it ended,
+//! `analyze took 0.012 s, peak 23.4 MB`, and `build/pipeline/status.json` keeps the last numbers
+//! of each step with their totals; a step its stamp skips keeps the numbers of the run that did it.
 
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, HashMap};
@@ -82,6 +85,8 @@ pub(crate) struct Options {
     pub config: Option<String>,
     /// Runs every step whatever its stamp says, and deletes the build outputs before the build.
     pub rebuild: bool,
+    /// Prints the wall time and the peak working set of every step and keeps them in the status file.
+    pub stats: bool,
 }
 
 /// Runs the pipeline of the project at `root`.
@@ -97,6 +102,7 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
     };
     fs::create_dir_all(project.log_dir())?;
     let progress = Progress { started: Instant::now() };
+    let mut stats = options.stats.then(|| Stats::load(project.status_file()));
     let image = OnceCell::new();
     let mut pipeline =
         Pipeline { project, progress, image: &image, analysis: None, ported: None, timeout: options.timeout, rebuild: options.rebuild };
@@ -118,6 +124,7 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
         // A step that fails part way leaves outputs its stamp no longer vouches for.
         let _ = fs::remove_file(&stamp);
         let mut log = File::create(&log).with_context(|| format!("cannot write {}", log.display()))?;
+        let started = Instant::now();
         let result = match step {
             Step::Analyze => pipeline.analyze(&mut log).map(Some),
             Step::Lift => pipeline.lift(&mut log).map(Some),
@@ -125,6 +132,13 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
             Step::Build => pipeline.build(&mut log).map(|()| None),
             Step::Run => pipeline.run_port(&mut log).map(|()| None),
         };
+        // A step that fails is measured too: what it cost before it stopped is what a person asks.
+        if let Some(stats) = &mut stats {
+            let line = stats.record(step, started.elapsed());
+            let _ = writeln!(log, "{line}");
+            println!("{line}");
+            stats.write()?;
+        }
         match result {
             Ok(done) => {
                 if let (Some(key), Some(done)) = (key, done) {
@@ -152,6 +166,81 @@ impl Progress {
         println!("[{:>4}s] {text}", self.started.elapsed().as_secs());
         let _ = std::io::stdout().flush();
     }
+}
+
+/// The measures of `--stats`: per step, the wall time of its last run and the peak working set of
+/// the process when it ended, as the status file holds them. The peak is the process's, so a
+/// step's is never under that of the step before it in one run.
+struct Stats {
+    file: PathBuf,
+    steps: BTreeMap<String, serde_json::Value>,
+}
+
+impl Stats {
+    /// The measures the status file at `file` holds, which this run's steps replace one by one.
+    fn load(file: PathBuf) -> Stats {
+        let held = fs::read_to_string(&file).ok().and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+        let steps =
+            held.as_ref().and_then(|v| v["steps"].as_object()).map(|steps| steps.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+        Stats { file, steps: steps.unwrap_or_default() }
+    }
+
+    /// Takes the measure of `step`, which ran for `elapsed`, and gives the line that says it.
+    fn record(&mut self, step: Step, elapsed: Duration) -> String {
+        let peak = peak_working_set();
+        self.steps.insert(step.id().to_owned(), serde_json::json!({ "seconds": elapsed.as_secs_f64(), "peak_bytes": peak }));
+        let peak = peak.map_or_else(
+            || "peak unknown on this host".to_owned(),
+            |bytes| format!("peak {}.{} MB", bytes >> 20, ((bytes & 0xf_ffff) * 10) >> 20),
+        );
+        format!("{} took {:.3} s, {peak}", step.id(), elapsed.as_secs_f64())
+    }
+
+    /// Writes the status file: the steps, the sum of their times and the highest of their peaks.
+    fn write(&self) -> Result<()> {
+        let seconds: f64 = self.steps.values().filter_map(|s| s["seconds"].as_f64()).sum();
+        let peak = self.steps.values().filter_map(|s| s["peak_bytes"].as_u64()).max();
+        let status = serde_json::json!({ "steps": self.steps, "seconds": seconds, "peak_bytes": peak });
+        let text = serde_json::to_string_pretty(&status)?;
+        fs::write(&self.file, text + "\n").with_context(|| format!("cannot write {}", self.file.display()))
+    }
+}
+
+/// The peak working set of this process in bytes, where the host tells it.
+#[cfg(windows)]
+fn peak_working_set() -> Option<u64> {
+    use std::ffi::c_void;
+
+    /// `PROCESS_MEMORY_COUNTERS`: the layout is the system's, and only the peak is read.
+    #[repr(C)]
+    #[allow(dead_code)]
+    struct Counters {
+        size: u32,
+        page_faults: u32,
+        peak_working_set: usize,
+        rest: [usize; 7],
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> *mut c_void;
+        fn K32GetProcessMemoryInfo(process: *mut c_void, counters: *mut Counters, size: u32) -> i32;
+    }
+
+    let size = size_of::<Counters>() as u32;
+    let mut counters = Counters { size, page_faults: 0, peak_working_set: 0, rest: [0; 7] };
+    // SAFETY: the handle is the process's own, and `counters` is as large as the size says and
+    // outlives the call.
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &raw mut counters, size) };
+    (ok != 0).then_some(counters.peak_working_set as u64)
+}
+
+/// The peak resident set of this process in bytes, where `/proc` tells it.
+#[cfg(not(windows))]
+fn peak_working_set() -> Option<u64> {
+    let status = fs::read_to_string("/proc/self/status").ok()?;
+    let kilobytes = status.lines().find_map(|line| line.strip_prefix("VmHWM:"))?.trim().strip_suffix("kB")?.trim().parse::<u64>().ok()?;
+    Some(kilobytes * 1024)
 }
 
 /// What a step that stamps its work did: its summary line, and every file it wrote with the

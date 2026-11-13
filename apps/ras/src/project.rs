@@ -315,6 +315,14 @@ impl Project {
         self.build_dir().join("pipeline")
     }
 
+    /// The status of the pipeline, which `ras pipeline --stats` writes: per step the wall time of
+    /// its last run and the peak working set of the process when it ended, and their totals, as
+    /// `{ "steps": { "analyze": { "seconds": 0.012, "peak_bytes": 24510464 } }, "seconds": 0.012,
+    /// "peak_bytes": 24510464 }`; a peak is `null` on a host that does not tell it.
+    pub(crate) fn status_file(&self) -> PathBuf {
+        self.log_dir().join("status.json")
+    }
+
     /// The facts of a traced run of the reference: `build/facts.json`.
     pub(crate) fn facts_file(&self) -> PathBuf {
         self.build_dir().join("facts.json")
