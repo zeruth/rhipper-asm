@@ -38,10 +38,11 @@ fn forms(count: usize) -> String {
     text
 }
 
-/// A list of every kind, with one entry or two.
-fn every_kind() -> PathBuf {
+/// A list of every kind, with one entry or two, in the directory of the test `name`: two tests
+/// that shared one would remove each other's lists while the other's `ras` read them.
+fn every_kind(name: &str) -> PathBuf {
     testdata(
-        "kinds",
+        name,
         &[
             ("vectors/x86_64/PENDING.txt", "shld_r64_r64_cl rflags: 0x246 for 0x247\n"),
             ("vectors/i386/PENDING.txt", "aam_imm8 eflags: 0x202 for 0x206\nfprem st0: differs\n"),
@@ -89,7 +90,7 @@ fn a_pending_list_of_25_forms_gives_3_cards() {
 
 #[test]
 fn each_card_has_the_four_fields() {
-    let outline = cards(&every_kind());
+    let outline = cards(&every_kind("fields"));
     let cards = split(&outline);
     assert_eq!(cards.len(), 6, "{outline}");
     assert_eq!(outline.lines().filter(|l| l.starts_with("### ")).count(), 6, "{outline}");
@@ -121,7 +122,7 @@ fn each_card_has_the_four_fields() {
 
 #[test]
 fn each_acceptance_is_a_cargo_command_in_backticks() {
-    let outline = cards(&every_kind());
+    let outline = cards(&every_kind("acceptance"));
     let mut commands = Vec::new();
     for card in split(&outline) {
         let acceptance = card[2].strip_prefix("  acceptance: `").unwrap_or_else(|| panic!("{card:#?}"));
