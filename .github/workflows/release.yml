@@ -104,7 +104,8 @@ jobs:
         with:
           workspaces: fuzz
       - name: Build
-        run: cargo fuzz build
+        # the installed cargo-fuzz is a musl build and targets musl unless told, which the sanitizer refuses
+        run: cargo fuzz build --target x86_64-unknown-linux-gnu
 
   # the fuzz targets' build reports beside the release and does not hold it: the nightly fuzz
   # workflow is where a broken target is fixed
