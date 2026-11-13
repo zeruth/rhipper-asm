@@ -10,6 +10,14 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The slow tier: the oracle compiles every fixture's C, C++ and Rust with clang and runs it.
+oracle = []
+
+[[test]]
+name = "oracle"
+required-features = ["oracle"]
+
 [dependencies]
 anyhow.workspace = true
 ra-asm-analysis.workspace = true
