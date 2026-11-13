@@ -14,8 +14,29 @@ fn fixture(name: &str) -> PathBuf {
     root().join("testdata/bin").join(name)
 }
 
-fn clang_available() -> bool {
-    Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success())
+/// The one skip a missing tool does not explain: a program of another system, which this host
+/// cannot run. On a host that is not `native` it says on stderr why `what` is skipped, and answers
+/// whether it is.
+fn foreign_host(native: bool, program: &str, why: &str, what: &str) -> bool {
+    if !native {
+        eprintln!("SKIPPED: {program}: {why}: {what} is skipped");
+    }
+    !native
+}
+
+/// The digest's comparison of a run's output with the native program's, the two whole sides and
+/// the digest line written under `failed`. The blank end of either side does not count.
+fn compare_output(failed: &Path, test: &str, expected: &str, actual: &str) -> Result<(), String> {
+    ra_asm_testing::digest::compare_in(failed, test, expected.trim_end(), actual.trim_end())
+}
+
+/// Fails `test` with the digest's one line when its output differs from the expected one; how
+/// the run ended goes to stderr before it, and both whole sides are under `out/failed`.
+fn assert_output(test: &str, expected: &str, actual: &str, ended: &str) {
+    if let Err(line) = compare_output(&ra_asm_testing::digest::failed_dir(), test, expected, actual) {
+        eprintln!("{test}: {ended}");
+        panic!("{line}");
+    }
 }
 
 /// A test's own directory under the system temp, removed when the guard drops; `RA_KEEP_SCRATCH`
@@ -75,9 +96,8 @@ fn lift_to(binary: &str, tag: &str) -> (ra_asm_testing::Scratch, ra_asm_lift::Li
 /// stopped at another one says so and is skipped there.
 fn stopped_for_dlls(binary: &str, outcome: &ra_asm_lift::run::Outcome) -> bool {
     match &outcome.stop {
-        Some(stop) if !cfg!(windows) && stop.starts_with("no binding for ") => {
-            eprintln!("{binary}: {stop}; this host has no Windows DLLs: the interpreted run is skipped");
-            true
+        Some(stop) if stop.starts_with("no binding for ") => {
+            foreign_host(cfg!(windows), binary, &format!("{stop}; this host has no Windows DLLs"), "the interpreted run")
         }
         _ => false,
     }
@@ -93,24 +113,14 @@ fn run_interpreted(binary: &str, expected: &str, tag: &str) {
     if stopped_for_dlls(binary, &outcome) {
         return;
     }
-    let stdout = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
-    // An expected file written by the native run on Windows ends its lines in CRLF.
-    let expected = expected.replace("\r\n", "\n");
-    assert_eq!(
-        stdout.trim_end(),
-        expected.trim_end(),
-        "{binary} ({tag}): the interpreted program's output (exit {:#x}, stop: {:?}, {} steps)",
-        outcome.exit,
-        outcome.stop,
-        outcome.steps
-    );
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output(&format!("{binary} ({tag}): interpreted"), expected, &String::from_utf8_lossy(&outcome.output), &ended);
     assert_eq!(outcome.exit, 0, "{binary} ({tag}): the interpreted program's exit (stop: {:?})", outcome.stop);
 }
 
 #[test]
 fn the_lifted_fixtures_pass_the_ir_gate() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the IR gate is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     for (binary, tag) in [
@@ -143,8 +153,7 @@ fn the_lifted_fixtures_pass_the_ir_gate() {
 /// passes the gate. The run is [`helloa64_runs_interpreted`].
 #[test]
 fn the_arm64_fixture_lifts_and_passes_the_ir_gate() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the IR gate is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let image = ra_asm_pe::load(&fixture("helloa64.exe")).unwrap();
@@ -203,7 +212,7 @@ fn floata64_lifts_and_runs_interpreted() {
     let lifted = ra_asm_lift::lift(&image, &analysis);
     let coverage = ra_asm_lift::coverage(&analysis, &lifted);
     assert_eq!(coverage.traps(), 0, "unsupported instructions: {:?}", coverage.uncovered);
-    if clang_available() {
+    if ra_asm_testing::tool("clang").is_some() {
         let Raised { lifted, .. } = raise("floata64.exe", "gate-abi");
         assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
         let dir = scratch("gate-arm64-abi-floata64");
@@ -211,8 +220,6 @@ fn floata64_lifts_and_runs_interpreted() {
         let check =
             Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
         assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
-    } else {
-        eprintln!("clang is not on the PATH: the IR gate is skipped");
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/float.txt")).unwrap();
     for tag in ["run-machine", "run-abi"] {
@@ -236,15 +243,13 @@ fn thumb32_lifts_and_runs_interpreted() {
     for entry in [0x20118u64, 0x2011c, 0x20124, 0x2013c, 0x20184] {
         assert!(lifted.functions.contains_key(&entry), "no function at {entry:#x}: {:?}", lifted.functions);
     }
-    if clang_available() {
+    if ra_asm_testing::tool("clang").is_some() {
         let Raised { lifted, .. } = raise("thumb32", "gate-machine");
         let dir = scratch("gate-machine-thumb32");
         std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
         let check =
             Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
         assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
-    } else {
-        eprintln!("clang is not on the PATH: the IR gate is skipped");
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/thumb.txt")).unwrap();
     run_interpreted("thumb32", &expected, "run-machine");
@@ -255,8 +260,7 @@ fn thumb32_lifts_and_runs_interpreted() {
 /// IR passes the gate. The run is [`hello_linux64_runs_lifted`], on a Linux host.
 #[test]
 fn the_linux_fixture_lifts_and_passes_the_ir_gate() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the IR gate is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let image = ra_asm_pe::load(&fixture("hello_linux64")).unwrap();
@@ -292,10 +296,7 @@ fn the_linux_fixture_lifts_and_passes_the_ir_gate() {
 /// The Linux fixture's port runs on an x86-64 Linux host, as the program itself does there.
 fn linux_host(what: &str) -> bool {
     let linux = cfg!(all(target_os = "linux", target_arch = "x86_64"));
-    if !linux {
-        eprintln!("hello_linux64: a Linux x86-64 program, and the host is another: {what} is skipped");
-    }
-    linux
+    !foreign_host(linux, "hello_linux64", "a Linux x86-64 program, and the host is another", what)
 }
 
 /// The reference of the Linux fixture is what the program prints on Linux, over the host's C
@@ -316,7 +317,8 @@ fn hello_linux64_expected_is_the_native_output() {
     }
     let run = Command::new(&exe).output().unwrap();
     let expected = std::fs::read_to_string(root().join("testdata/expected/hello_linux.txt")).unwrap();
-    assert_eq!(String::from_utf8_lossy(&run.stdout).trim_end(), expected.replace("\r\n", "\n").trim_end());
+    let ended = format!("exit {:?}, stderr: {}", run.status.code(), String::from_utf8_lossy(&run.stderr));
+    assert_output("hello_linux64: native", &expected, &String::from_utf8_lossy(&run.stdout), &ended);
     assert!(run.status.success(), "hello_linux64: exit {:?}", run.status.code());
 }
 
@@ -328,8 +330,7 @@ fn hello_linux64_runs_lifted() {
     if !linux_host("the port's run") {
         return;
     }
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let binary = "hello_linux64";
@@ -351,12 +352,8 @@ fn hello_linux64_runs_lifted() {
     let run = Command::new(&exe).arg(dir.join("image.bin")).current_dir(&dir).output().unwrap();
     let expected = std::fs::read_to_string(root().join("testdata/expected/hello_linux.txt")).unwrap();
     let stderr = String::from_utf8_lossy(&run.stderr);
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout).trim_end(),
-        expected.replace("\r\n", "\n").trim_end(),
-        "{binary}: the lifted program's output (exit {:?}, stderr: {stderr})",
-        run.status.code()
-    );
+    let ended = format!("exit {:?}, stderr: {stderr}", run.status.code());
+    assert_output(&format!("{binary}: lifted"), &expected, &String::from_utf8_lossy(&run.stdout), &ended);
     assert!(run.status.success(), "{binary}: exit {:?}, stderr: {stderr}", run.status.code());
 }
 
@@ -378,8 +375,7 @@ fn gate_arm64_elf(binary: &str, imports: &[&str]) {
         }
         let ll = lifted.module.to_ll();
         assert!(ll.contains("target triple = \"aarch64-unknown-linux-gnu\""), "{binary}: the Linux triple");
-        if !clang_available() {
-            eprintln!("clang is not on the PATH: the IR gate is skipped");
+        if ra_asm_testing::tool("clang").is_none() {
             continue;
         }
         let dir = scratch(&format!("gate-elf-{standalone}-{binary}"));
@@ -458,8 +454,7 @@ fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
     assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
     // The port links the Windows system libraries and runs as a Windows process; elsewhere the
     // interpreter's run above is the proof.
-    if !cfg!(windows) {
-        eprintln!("{binary} ({tag}): the port of a Windows program runs on a Windows host: the clang run is skipped");
+    if foreign_host(cfg!(windows), &format!("{binary} ({tag})"), "the port of a Windows program runs on a Windows host", "the clang run") {
         return;
     }
     let exe = dir.join("lifted.exe");
@@ -495,23 +490,15 @@ fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
         panic!("{binary}: clang link:\n{text}");
     }
     let run = Command::new(&exe).arg(dir.join("image.bin")).current_dir(&dir).output().unwrap();
-    let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
-    let expected = expected.replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&run.stderr);
-    let expected = expected.replace("\r\n", "\n");
-    assert_eq!(
-        stdout.trim_end(),
-        expected.trim_end(),
-        "{binary}: the lifted program's output (exit {:?}, stderr: {stderr})",
-        run.status.code()
-    );
+    let ended = format!("exit {:?}, stderr: {stderr}", run.status.code());
+    assert_output(&format!("{binary} ({tag}): lifted"), expected, &String::from_utf8_lossy(&run.stdout), &ended);
     assert!(run.status.success(), "{binary}: exit {:?}, stderr: {stderr}", run.status.code());
 }
 
 #[test]
 fn hello64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/hello.txt")).unwrap();
@@ -520,8 +507,7 @@ fn hello64_runs_lifted() {
 
 #[test]
 fn float64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/float.txt")).unwrap();
@@ -553,8 +539,7 @@ fn xbe32_runs_interpreted() {
 /// strings decrypted at lift time and the bogus branch folded.
 #[test]
 fn obfusc64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/obfusc.txt")).unwrap();
@@ -563,8 +548,7 @@ fn obfusc64_runs_lifted() {
 
 #[test]
 fn obfusc32_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/obfusc.txt")).unwrap();
@@ -573,8 +557,7 @@ fn obfusc32_runs_lifted() {
 
 #[test]
 fn hello32_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/hello.txt")).unwrap();
@@ -583,8 +566,7 @@ fn hello32_runs_lifted() {
 
 #[test]
 fn control32_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
@@ -593,8 +575,7 @@ fn control32_runs_lifted() {
 
 #[test]
 fn float32_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/float.txt")).unwrap();
@@ -605,8 +586,7 @@ fn float32_runs_lifted() {
 /// tbyte round trip, all to 17 digits.
 #[test]
 fn extended32_runs_lifted_exact() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/extended.txt")).unwrap();
@@ -617,8 +597,7 @@ fn extended32_runs_lifted_exact() {
 
 #[test]
 fn classes32_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/classes.txt")).unwrap();
@@ -627,8 +606,7 @@ fn classes32_runs_lifted() {
 
 #[test]
 fn classes64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/classes.txt")).unwrap();
@@ -640,8 +618,7 @@ fn classes64_runs_lifted() {
 /// all from the unwind data and the frame handler's tables.
 #[test]
 fn throws64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/throws.txt")).unwrap();
@@ -650,8 +627,7 @@ fn throws64_runs_lifted() {
 
 #[test]
 fn control64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
@@ -662,8 +638,7 @@ fn control64_runs_lifted() {
 /// again into one function; the port must still print what the native program does.
 #[test]
 fn inline64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/inline.txt")).unwrap();
@@ -672,8 +647,7 @@ fn inline64_runs_lifted() {
 
 #[test]
 fn inline32_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/inline.txt")).unwrap();
@@ -684,8 +658,7 @@ fn inline32_runs_lifted() {
 /// pushed and vector-stored arguments the raise forwards into the calls.
 #[test]
 fn files64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/files.txt")).unwrap();
@@ -698,8 +671,7 @@ fn files64_runs_lifted() {
 /// the gate takes the machine IR.
 #[test]
 fn tls64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/tls.txt")).unwrap();
@@ -711,8 +683,7 @@ fn tls64_runs_lifted() {
 /// a `main` to call and a host runtime to call into.
 #[test]
 fn crt64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/crt.txt")).unwrap();
@@ -721,8 +692,7 @@ fn crt64_runs_lifted() {
 
 #[test]
 fn tls32_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/tls.txt")).unwrap();
@@ -734,8 +704,7 @@ fn tls32_runs_lifted() {
 /// tables of integers, strings and doubles read by index.
 #[test]
 fn resources64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/resources.txt")).unwrap();
@@ -746,8 +715,7 @@ fn resources64_runs_lifted() {
 /// type recovery turns into a named struct at the ABI level.
 #[test]
 fn structs64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/structs.txt")).unwrap();
@@ -756,8 +724,7 @@ fn structs64_runs_lifted() {
 
 #[test]
 fn structs32_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/structs.txt")).unwrap();
@@ -768,8 +735,7 @@ fn structs32_runs_lifted() {
 /// which runs at every level.
 #[test]
 fn dispatch64_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/dispatch.txt")).unwrap();
@@ -778,8 +744,7 @@ fn dispatch64_runs_lifted() {
 
 #[test]
 fn dispatch32_runs_lifted() {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let expected = std::fs::read_to_string(root().join("testdata/expected/dispatch.txt")).unwrap();
@@ -842,8 +807,28 @@ fn a_traced_run_resolves_the_dispatch() {
             lifted.module.to_ll()
         );
         let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
-        let stdout = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
-        assert_eq!(stdout.trim_end(), expected.trim_end(), "{binary}: the resolved program's output (stop: {:?})", outcome.stop);
+        let ended = format!("exit {:#x}, stop: {:?}", outcome.exit, outcome.stop);
+        assert_output(&format!("{binary} ({level}): resolved"), &expected, &String::from_utf8_lossy(&outcome.output), &ended);
         assert_eq!(outcome.exit, 0, "{binary}: the resolved program's exit (stop: {:?})", outcome.stop);
     }
+}
+
+/// A run that prints the wrong text fails in the digest's one line, which names the test, the
+/// line and its two sides; the line is in the digest file and both whole sides are beside it.
+#[test]
+fn a_difference_is_one_line() {
+    let failed = scratch("a-difference-is-one-line");
+    let test = "hello64.exe (run-abi): interpreted";
+    let actual = "one\ntwo\nthree\nfour\nfive\n";
+    // The expected file of a Windows run ends its lines in CRLF, and its blank end does not count.
+    assert_eq!(compare_output(&failed, test, "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n\r\n", actual), Ok(()));
+    assert!(!failed.join("digest.txt").exists());
+    let wrong = "one\r\ntwo\r\nthree\r\nfour\r\nsix\r\n";
+    let message = compare_output(&failed, test, wrong, actual).unwrap_err();
+    assert_eq!(message, r#"hello64.exe (run-abi): interpreted: line 5: expected "six" got "five" after "two" | "three" | "four""#);
+    assert!(!message.contains('\n') && message.chars().count() < ra_asm_testing::digest::LIMIT, "{message}");
+    assert_eq!(std::fs::read_to_string(failed.join("digest.txt")).unwrap(), format!("{message}\n"));
+    let sides = failed.join("hello64.exe__run-abi___interpreted");
+    assert_eq!(std::fs::read_to_string(sides.join("expected.txt")).unwrap(), wrong.trim_end());
+    assert_eq!(std::fs::read_to_string(sides.join("actual.txt")).unwrap(), actual.trim_end());
 }
