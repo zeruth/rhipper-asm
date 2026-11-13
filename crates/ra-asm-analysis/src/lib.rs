@@ -29,6 +29,7 @@ pub mod jumptable;
 pub mod matching;
 pub mod noreturn;
 pub mod rtti;
+pub mod seh32;
 pub mod signatures;
 pub mod symbols;
 
@@ -41,6 +42,7 @@ pub use facts::Facts;
 pub use function::{Block, Function, Kind, Origin, Terminator, VirtualSlot};
 pub use identity::Identity;
 pub use rtti::{Class, Vtable};
+pub use seh32::{Scope, SehFrame};
 pub use signatures::{Signature, SignatureSet};
 
 /// The decoder of an image's machine.
@@ -65,6 +67,12 @@ pub struct Analysis<'a> {
     /// The x64 functions under the C++ frame handler, by entry: their tables and their funclets,
     /// which are blocks of the function.
     pub cxx_frames: BTreeMap<u64, CxxFrame>,
+    /// The 32-bit x86 functions that register a structured exception frame, by entry: their
+    /// scope table and the ranges each `__try` protects ([`seh32`]).
+    pub seh_frames: BTreeMap<u64, SehFrame>,
+    /// The functions whose structured exception frame was found and not read, with the reason:
+    /// their `__try` ranges are unknown.
+    pub seh_unread: BTreeMap<u64, String>,
     /// The function a port starts at: the image's entry point, or `main` when the entry is the
     /// startup of a C runtime linked into the image, whose work the host's own startup does.
     pub program_entry: Option<u64>,
@@ -323,8 +331,24 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     name_virtual_functions(&classes, &mut functions);
     let program_entry = symbols::program_entry(image, &functions);
     symbols::finish_names(&mut functions);
+    // The x64 unwind data names a function's scope table; on 32-bit x86 its prologue does.
+    let (seh_frames, seh_unread) =
+        if matches!(image.machine(), Machine::I386) { seh32::frames(image, &functions) } else { (BTreeMap::new(), BTreeMap::new()) };
     let (noreturn, warnings) = (state.noreturn, state.warnings);
-    Analysis { image, arch, functions, noreturn, classes, cxx_frames, program_entry, facts: facts.clone(), toolset, warnings }
+    Analysis {
+        image,
+        arch,
+        functions,
+        noreturn,
+        classes,
+        cxx_frames,
+        seh_frames,
+        seh_unread,
+        program_entry,
+        facts: facts.clone(),
+        toolset,
+        warnings,
+    }
 }
 
 /// The string literals a function addresses: each operand that names an address where printable
