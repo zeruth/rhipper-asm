@@ -1,6 +1,6 @@
 [package]
 name = "ra-asm-testing"
-description = "The scratch directory guard of the tests: made under the system temp, removed when the test ends"
+description = "The scratch directory guard of the tests and the one-line digest of a failed comparison"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

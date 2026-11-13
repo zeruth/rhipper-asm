@@ -5,6 +5,8 @@
 //! wants to read a test's output sets `RA_KEEP_SCRATCH` to any value: every scratch directory then
 //! stays and names its path on stderr.
 
+pub mod digest;
+
 use std::ffi::OsStr;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
