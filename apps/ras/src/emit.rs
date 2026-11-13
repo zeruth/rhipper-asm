@@ -97,6 +97,9 @@ pub(crate) struct Options<'a> {
     pub hand: &'a [String],
     /// The person's annotations of the project, by address, which the function table carries.
     pub annotations: &'a BTreeMap<u64, Annotation>,
+    /// Writes a C or C++ translation checked: each open assumption the translation can watch is
+    /// a `ra_assume` at its site (see [`checks`]).
+    pub checked: bool,
 }
 
 /// Translates the raised module of `lifted` as `options` ask. `signatures` (by the final function
@@ -108,7 +111,7 @@ pub(crate) fn translate(
     signatures: &HashMap<String, ra_asm_lift::raise::abi::Signature>,
     options: &Options<'_>,
 ) -> Result<Translation> {
-    let Options { lang, package, trace, hand, annotations } = *options;
+    let Options { lang, package, trace, hand, annotations, checked } = *options;
     let mut infos = ra_asm_emit::functions::infos(analysis);
     for info in infos.values_mut() {
         if let Some(annotation) = annotations.get(&info.address) {
@@ -128,6 +131,9 @@ pub(crate) fn translate(
         }
         if !hand.is_empty() {
             warnings.push(format!("{} hand-written functions are named, which a Rust port does not take: they are translated", hand.len()));
+        }
+        if checked {
+            warnings.push("a Rust port is not written checked: its assumptions are not watched".to_owned());
         }
         let imports = image.imports.iter().filter_map(|i| i.name.clone().map(|n| (n, i.dll.clone()))).collect();
         let entry = lifted.entry.and_then(|e| lifted.functions.get(&e).cloned());
@@ -155,7 +161,11 @@ pub(crate) fn translate(
         bail!("the language `{lang}` is not `c`, `cpp` or `rust`");
     };
     let classes = ra_asm_emit::classes(analysis, signatures);
-    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace, hand });
+    let checks = if checked { checks(analysis, lifted) } else { Vec::new() };
+    let unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace, hand, checks });
+    for id in &unit.unwatched {
+        warnings.push(format!("assumption {id} has no site in the translation: it is not watched"));
+    }
     // The modules of the build, when its symbols name two object files or more; else by size.
     let objects = ra_asm_emit::functions::objects(&infos);
     let files = unit.module_files(&objects).unwrap_or_else(|| unit.files(ra_asm_emit::FUNCTIONS_PER_FILE));
@@ -168,6 +178,30 @@ pub(crate) fn translate(
         exports,
         warnings,
     })
+}
+
+/// The checks of a checked translation, numbered in the order of the functions' addresses: the
+/// jump tables whose index no compare bounds, each at its jump. What the raise assumes of a call
+/// (the registers its callee keeps) and of a return (the stack pointer there) is not among them:
+/// the raised module no longer holds those registers, so there is no value to compare until the
+/// raise keeps them for a checked build.
+fn checks(analysis: &Analysis<'_>, lifted: &Lifted) -> Vec<ra_asm_emit::Check> {
+    let mut out = Vec::new();
+    for f in analysis.functions.values() {
+        let Some(function) = lifted.functions.get(&f.entry) else { continue };
+        for assumption in ra_asm_lift::raise::assume::tables([f]) {
+            if let (false, Some(site)) = (assumption.is_discharged(), assumption.site) {
+                out.push(ra_asm_emit::Check {
+                    id: out.len() as u32,
+                    function: function.clone(),
+                    kind: assumption.kind.name().to_owned(),
+                    site,
+                    watch: ra_asm_emit::Watch::Index,
+                });
+            }
+        }
+    }
+    out
 }
 
 /// The IR names of the functions `hand` names, each by its source name, its IR name or its
@@ -494,7 +528,10 @@ fn resource_files(image: &Image) -> Vec<(String, Vec<u8>)> {
 
 /// Writes the translation, the runtime and `functions.json` into `out`, or the translation to
 /// stdout without `out`. `hand` names the functions left to hand-written sources; the annotations
-/// of the project at `project` rename functions and leave more to the sources.
+/// of the project at `project` rename functions and leave more to the sources. `checked` writes
+/// the open assumptions as checks.
+// The arguments are the command's own flags, one each.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit(
     image: &Image,
     language: &str,
@@ -503,6 +540,7 @@ pub(crate) fn emit(
     x87: ra_asm_lift::X87Unit,
     hand: &[String],
     project: Option<&Path>,
+    checked: bool,
 ) -> Result<()> {
     let mut analysis = ra_asm_analysis::analyze(image);
     let (annotations, warnings) = project.map(|root| crate::annotations::annotate(root, &mut analysis)).unwrap_or_default();
@@ -513,7 +551,7 @@ pub(crate) fn emit(
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
-    let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations };
+    let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations, checked };
     let mut translation = translate(image, &analysis, &lifted, &signatures, &options)?;
     translation.format();
     match out {

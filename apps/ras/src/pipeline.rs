@@ -415,7 +415,7 @@ impl<'a> Pipeline<'a> {
         let image = self.image()?;
         let Ported { analysis, annotations, annotated, lifted, signatures } = self.ported(log)?;
         let hand = crate::annotations::hand_list(&hand, annotations);
-        let options = crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations };
+        let options = crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations, checked: false };
         let translation = crate::emit::translate(image, analysis, lifted, signatures, &options)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;

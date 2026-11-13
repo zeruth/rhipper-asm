@@ -12,10 +12,10 @@
 //! over a plain value reads over an `enum` of its cases.
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 
-use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Type, ValueId};
+use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Terminator, Type, ValueId};
 use ra_asm_lift::raise::prototypes;
 
 use crate::common::{Defs, identifiers, parenthesized, strip_parens, trap_count};
@@ -67,6 +67,40 @@ pub struct Options {
     /// its declaration under its C name and linkage, and its body is left to them. In the C++
     /// dialect such a function is no method of its class either.
     pub hand: HashSet<String>,
+    /// The open assumptions of a checked build: each is written as `ra_assume(<id>, <condition>)`
+    /// at its site, and the unit defines the table the runtime names a failed one from.
+    pub checks: Vec<Check>,
+}
+
+/// One open assumption a checked build watches: what a raise step relied on and nothing proved,
+/// by the function and the address it was relied on at.
+#[derive(Debug, Clone)]
+pub struct Check {
+    /// The number `ra_assume` names it by: its row in the unit's table.
+    pub id: u32,
+    /// The IR name of the function it was made in.
+    pub function: String,
+    /// What was assumed, as the reports name it (`callee-saved`).
+    pub kind: String,
+    /// The address of the instruction it was made at.
+    pub site: u64,
+    pub watch: Watch,
+}
+
+/// What a check compares, and by that where it is written. The values are the function's own: a
+/// check reads them by name, so each is computed once, where the code computes it, and a value
+/// read after a call is defined in the call's block or before it.
+#[derive(Debug, Clone)]
+pub enum Watch {
+    /// After the call at the site: each register the callee is taken to keep, by its type, the
+    /// value it held before the call and the one it holds after.
+    Saved(Vec<(Type, Operand, Operand)>),
+    /// Before the `switch` at the site: its subject against the length of the table that was
+    /// read, one past the highest case.
+    Index,
+    /// Before the return at the site: the stack pointer there, by its type, against the one the
+    /// signature says the function returns with.
+    Stack(Type, Operand, Operand),
 }
 
 /// One function's C: the comment naming it, the definition line and the body; or, for a
@@ -118,6 +152,10 @@ pub struct Unit {
     pub prototype_of: HashMap<String, String>,
     pub functions: Vec<EmittedFunction>,
     pub dialect: Dialect,
+    /// The checks of the options that are written nowhere, by their numbers: the site is in no
+    /// function of the module, in a hand-written one, or at no call, `switch` or return of its
+    /// function. Such an assumption stays unwatched.
+    pub unwatched: Vec<u32>,
 }
 
 /// One file of the output, and the 1-based definition line of each function in it.
@@ -432,6 +470,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
     if !init.is_empty() {
         let _ = writeln!(global_defs, "RA_CONSTRUCTOR(ra_init_data) {{\n{init}}}");
     }
+    global_defs.push_str(&assumption_table(&options.checks, &options.names));
     let global_rest = global_defs[globals_end..].to_owned();
     let global_users = global_users(module);
     // In C++ the imports, the functions and the data keep C linkage: the driver is C, the imports
@@ -460,6 +499,8 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
         })
         .collect();
     let mut sdk_names: BTreeMap<String, String> = BTreeMap::new();
+    let mut watched: HashSet<u32> = HashSet::new();
+    let shared = Shared { types: &module.types, layouts: &layouts, trace: options.trace, checks: &options.checks };
     let functions = module
         .functions
         .iter()
@@ -480,17 +521,9 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
                     text,
                 };
             }
-            let (header_lines, copies, gotos, end) = emit_function(
-                &mut text,
-                f,
-                &prototypes[&f.name],
-                source_name,
-                &module.types,
-                &layouts,
-                method,
-                &mut sdk_names,
-                options.trace,
-            );
+            let (header_lines, copies, gotos, end, written) =
+                emit_function(&mut text, f, &prototypes[&f.name], source_name, method, &mut sdk_names, &shared);
+            watched.extend(written);
             // A method's grade is its definition's: the vtable's entry after it is the engine's.
             let definition = &text[..end];
             let grade = crate::functions::Grade::of(f, gotos, casts(definition), definition.lines().count() - header_lines);
@@ -535,7 +568,29 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
         prototype_of: prototypes,
         functions,
         dialect: options.dialect,
+        unwatched: options.checks.iter().map(|c| c.id).filter(|id| !watched.contains(id)).collect(),
     }
+}
+
+/// The table of a checked build: one row per check, at the index that is its number, with the
+/// function (by its source name where `names` has one), what was assumed and the site, which the
+/// runtime prints when the check fails. A number no check has is an empty row. Nothing without
+/// checks: an unchecked build names no row.
+fn assumption_table(checks: &[Check], names: &HashMap<String, String>) -> String {
+    let Some(last) = checks.iter().map(|c| c.id).max() else { return String::new() };
+    let mut out = String::from("// The open assumptions the checked build watches, by the number `ra_assume` names each by.\n");
+    out.push_str("const struct ra_assumption ra_assumptions[] = {\n");
+    for id in 0..=last {
+        match checks.iter().find(|c| c.id == id) {
+            Some(c) => {
+                let function = names.get(&c.function).unwrap_or(&c.function);
+                let _ = writeln!(out, "    {{\"{function}\", \"{}\", {:#x}ull}},", c.kind, c.site);
+            }
+            None => out.push_str("    {0, 0, 0},\n"),
+        }
+    }
+    out.push_str("};\n");
+    out
 }
 
 /// The functions that address each data global of `module`, by the global's name.
@@ -1000,22 +1055,36 @@ fn emit_bytes(out: &mut String, bytes: &[u8]) {
     out.push('\n');
 }
 
+/// What every function of a unit is written with: the module's and the options' parts.
+#[derive(Clone, Copy)]
+struct Shared<'a> {
+    /// The named structs of the module.
+    types: &'a [(String, Vec<Type>)],
+    /// The layouts of the data globals, by name.
+    layouts: &'a HashMap<String, Layout>,
+    /// Whether the trace hooks are written.
+    trace: bool,
+    /// The checks of the whole unit; a function writes its own.
+    checks: &'a [Check],
+}
+
 /// Writes one function, with one comment line above it naming it: the source name when the image
 /// gives one, and its address. As a `method` of a C++ class, the body is the method's definition,
 /// its first parameter recovered from `this`, and the function under its own name follows as the
-/// vtable's entry. Returns the number of lines above the definition, the number of blocks
-/// written twice, the number of `goto`s and where in `out` the definition ends.
+/// vtable's entry. Each of the function's own checks is written at its site. Returns the
+/// number of lines above the definition, the number of blocks written twice, the number of
+/// `goto`s, where in `out` the definition ends and the numbers of the checks that were written.
 fn emit_function(
     out: &mut String,
     f: &Function,
     prototype: &str,
     source_name: Option<&str>,
-    types: &[(String, Vec<Type>)],
-    layouts: &HashMap<String, Layout>,
     method: Option<(&crate::cpp::Class, &crate::cpp::Method)>,
     sdk_names: &mut BTreeMap<String, String>,
-    trace: bool,
-) -> (usize, usize, usize, usize) {
+    shared: &Shared<'_>,
+) -> (usize, usize, usize, usize, Vec<u32>) {
+    let Shared { types, layouts, trace, .. } = *shared;
+    let checks: Vec<&Check> = shared.checks.iter().filter(|c| c.function == f.name).collect();
     let mut header_lines = 0;
     if let Some(address) = f.address {
         match source_name {
@@ -1062,11 +1131,12 @@ fn emit_function(
     }
     let graph = Graph::of(f);
     let structured = structure(f, &graph);
-    let mut e = Emitter::new(f, &structured.labels, types, layouts, std::mem::take(sdk_names), traced);
+    let mut e = Emitter::new(f, &structured.labels, types, layouts, std::mem::take(sdk_names), traced, checks);
     e.plan_loops(&structured.body, &graph);
     let locals = e.declare_locals();
     let mut body = String::new();
     e.stmts(&mut body, &structured.body, 1);
+    let written: Vec<u32> = e.written.iter().map(|n| e.checks[*n].id).collect();
     *sdk_names = e.names.into_inner();
     let declarations = prune_locals(&locals, &mut body);
     // A parameter the body does not read is one the convention passes and the function ignores.
@@ -1092,7 +1162,7 @@ fn emit_function(
         out.push('\n');
         crate::cpp::trampoline(out, f, class, m, prototype);
     }
-    (header_lines, structured.copies(), structured.gotos(), end)
+    (header_lines, structured.copies(), structured.gotos(), end, written)
 }
 
 /// A local of a function's C, by the names it declares.
@@ -1310,6 +1380,81 @@ struct Emitter<'a> {
     switches: Cell<usize>,
     /// The name every return records its result under, when the function is traced.
     traced: Option<String>,
+    /// The checks of the function, in the order of the options.
+    checks: Vec<&'a Check>,
+    /// The values the checks read: each keeps its name, so a check reads what the code computed
+    /// where it computed it, not an expression evaluated again at the check.
+    watched: HashSet<ValueId>,
+    /// The checks written after an instruction, by block: the instruction's index and the check's.
+    after: HashMap<BlockId, Vec<(usize, usize)>>,
+    /// The checks written before the `switch` or the return a block ends in, by block.
+    at_end: HashMap<BlockId, Vec<usize>>,
+    /// The checks written so far, by index.
+    written: BTreeSet<usize>,
+}
+
+/// Where the checks of a function are written, and the values they read (see [`place_checks`]).
+#[derive(Default)]
+struct Placement {
+    watched: HashSet<ValueId>,
+    after: HashMap<BlockId, Vec<(usize, usize)>>,
+    at_end: HashMap<BlockId, Vec<usize>>,
+}
+
+/// Places each of `checks` in `f`. A check of the saved registers follows the call at its site,
+/// in every block that calls there (the arms of a dispatch each do): after the last instruction
+/// of the site, and after the values it reads that the block defines later. A check of a table's
+/// index goes before the `switch` of the block that holds an instruction of the site, or whose
+/// default does: the lift's trap there names the jump. A check of the stack pointer goes before
+/// the return of the block that holds an instruction of the site or, where the raise left none,
+/// of the block the site lies in by its address. A check with no such place is written nowhere.
+fn place_checks(f: &Function, defs: &Defs<'_>, checks: &[&Check]) -> Placement {
+    let mut placed = Placement::default();
+    let holds = |b: &Block, site: u64| b.instrs.iter().any(|i| i.address == Some(site));
+    let returns = |b: &&Block| matches!(b.terminator, Terminator::Ret(_));
+    for (n, check) in checks.iter().enumerate() {
+        let site = check.site;
+        match &check.watch {
+            Watch::Saved(pairs) => {
+                let read: Vec<ValueId> = pairs.iter().flat_map(|(_, was, is)| [was, is]).filter_map(Operand::local).collect();
+                for b in &f.blocks {
+                    if !b.instrs.iter().any(|i| i.address == Some(site) && matches!(i.inst, Inst::Call { .. })) {
+                        continue;
+                    }
+                    let Some(mut at) = b.instrs.iter().rposition(|i| i.address == Some(site)) else { continue };
+                    for v in &read {
+                        if let Some((block, index, _)) = defs.def(*v)
+                            && block.id == b.id
+                        {
+                            at = at.max(index);
+                        }
+                    }
+                    placed.after.entry(b.id).or_default().push((at, n));
+                }
+                placed.watched.extend(read);
+            }
+            Watch::Index => {
+                for b in &f.blocks {
+                    let Terminator::Switch { default, .. } = &b.terminator else { continue };
+                    if holds(b, site) || f.block(*default).is_some_and(|d| holds(d, site)) {
+                        placed.at_end.entry(b.id).or_default().push(n);
+                    }
+                }
+            }
+            Watch::Stack(_, at, expected) => {
+                placed.watched.extend([at, expected].into_iter().filter_map(Operand::local));
+                let mut blocks: Vec<&Block> = f.blocks.iter().filter(returns).filter(|b| holds(b, site)).collect();
+                if blocks.is_empty() {
+                    let inside = f.blocks.iter().filter(|b| b.address.is_some_and(|a| a <= site)).max_by_key(|b| b.address);
+                    blocks.extend(inside.filter(returns));
+                }
+                for b in blocks {
+                    placed.at_end.entry(b.id).or_default().push(n);
+                }
+            }
+        }
+    }
+    placed
 }
 
 /// A `do ... while` loop written as `for (init; cond; step)` over the phis of its header, which
@@ -1356,8 +1501,10 @@ impl<'a> Emitter<'a> {
         layouts: &'a HashMap<String, Layout>,
         names: BTreeMap<String, String>,
         traced: Option<String>,
+        checks: Vec<&'a Check>,
     ) -> Self {
         let defs = Defs::new(f);
+        let Placement { watched, after, at_end } = place_checks(f, &defs, &checks);
         let mut struct_of = HashMap::new();
         for i in f.blocks.iter().flat_map(|b| &b.instrs) {
             if let Inst::Gep { base_ty: Type::Named(name), ptr: Operand::Local(v), indices, .. } = &i.inst
@@ -1385,6 +1532,11 @@ impl<'a> Emitter<'a> {
             names: RefCell::new(names),
             switches: Cell::new(0),
             traced,
+            checks,
+            watched,
+            after,
+            at_end,
+            written: BTreeSet::new(),
         }
     }
 
@@ -1808,7 +1960,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn inlinable(&self, v: ValueId) -> bool {
-        self.defs.inlinable(v)
+        !self.watched.contains(&v) && self.defs.inlinable(v)
     }
 
     fn declare_locals(&self) -> Vec<Local> {
@@ -2228,9 +2380,51 @@ impl<'a> Emitter<'a> {
     }
 
     fn stmts(&mut self, out: &mut String, stmts: &[Stmt], depth: usize) {
+        // The block whose instructions were just written: a `switch` or a return right after it
+        // is the block's own end, where its checks go.
+        let mut ended = None;
         for s in stmts {
+            if let (Some(block), Stmt::Switch { .. } | Stmt::Return(_)) = (ended, s) {
+                self.checks_at_end(out, block, depth);
+            }
+            ended = match s {
+                Stmt::Block(b) | Stmt::Copy(b) => Some(*b),
+                _ => None,
+            };
             self.stmt(out, s, depth);
         }
+    }
+
+    /// The checks before the `switch` or the return the block `id` ends in.
+    fn checks_at_end(&mut self, out: &mut String, id: BlockId, depth: usize) {
+        for n in self.at_end.get(&id).cloned().unwrap_or_default() {
+            self.check(out, n, id, depth);
+        }
+    }
+
+    /// The check `n` as `ra_assume(<id>, <condition>)`, written in or after the block `id`. A
+    /// check with nothing to compare (no register, a `switch` without a case) is not written.
+    fn check(&mut self, out: &mut String, n: usize, id: BlockId, depth: usize) {
+        let check = self.checks[n];
+        let same = |ty: &Type, a: &Operand, b: &Operand| format!("{} == {}", self.operand(ty, a), self.operand(ty, b));
+        let condition = match &check.watch {
+            Watch::Saved(pairs) => pairs.iter().map(|(ty, was, is)| same(ty, was, is)).collect::<Vec<_>>().join(" && "),
+            Watch::Stack(ty, at, expected) => same(ty, at, expected),
+            Watch::Index => match self.f.block(id).map(|b| &b.terminator) {
+                Some(Terminator::Switch { ty, value, cases, .. }) => cases
+                    .iter()
+                    .map(|(v, _)| *v)
+                    .max()
+                    .map(|last| format!("{} < {}", self.operand(ty, value), Self::int_constant(ty, last + 1)))
+                    .unwrap_or_default(),
+                _ => String::new(),
+            },
+        };
+        if condition.is_empty() {
+            return;
+        }
+        let _ = writeln!(out, "{}ra_assume({}, {condition});", "    ".repeat(depth), check.id);
+        self.written.insert(n);
     }
 
     /// An `if`, opened after `lead`: the block's indentation, or `} else ` when it continues a
@@ -2422,7 +2616,8 @@ impl<'a> Emitter<'a> {
         if labeled && self.labels.contains(&id) {
             let _ = writeln!(out, "{}:;", label(id, f));
         }
-        for i in &block.instrs {
+        let checks = self.after.get(&id).cloned().unwrap_or_default();
+        for (index, i) in block.instrs.iter().enumerate() {
             match (&i.inst, i.result) {
                 (Inst::Phi { .. }, Some(v)) if self.hoisted.contains(&v) => {}
                 (Inst::Phi { .. }, Some(v)) => {
@@ -2444,6 +2639,9 @@ impl<'a> Emitter<'a> {
                 (inst, None) => {
                     let _ = writeln!(out, "{pad}{};", self.expr(inst));
                 }
+            }
+            for &(_, n) in checks.iter().filter(|(at, _)| *at == index) {
+                self.check(out, n, id, depth);
             }
         }
         self.moves(out, id, depth);

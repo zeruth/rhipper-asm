@@ -102,6 +102,9 @@ RA_UNALIGNED(ra_v2i16, ra_ua_v2i16)
 
 struct ra_opaque { uint8_t byte; };
 struct ra_function_entry { uint64_t address; void *function; };
+// One open assumption of a port emitted checked: the function it was made in, what was assumed
+// and the address of the instruction it was made at.
+struct ra_assumption { const char *function; const char *kind; uint64_t site; };
 
 // The entry hook of every function: nothing, unless the port is built with RA_TRACE, when each
 // function names itself on stderr as it starts, for finding where a port goes wrong.
@@ -117,6 +120,16 @@ extern "C" {
 #endif
 RA_NORETURN void ra_trap(uint64_t address, uint64_t code);
 RA_NORETURN void ra_unsupported(uint64_t address, uint64_t code);
+// The checks of a port emitted checked. What the raise relied on and nothing proved is tested
+// where it was relied on: `ra_assume(id, condition)` goes on when the condition holds, and
+// otherwise prints the function, what was assumed and the site, and stops. The translation
+// defines the table, one row per assumption at the index that is its number; a port emitted
+// unchecked names neither the table nor the check.
+extern const struct ra_assumption ra_assumptions[];
+RA_NORETURN void ra_assume_failed(uint64_t id, const char *function, const char *kind, uint64_t site);
+#define ra_assume(id, condition) \
+    ((condition) ? (void)0 \
+                 : ra_assume_failed((id), ra_assumptions[(id)].function, ra_assumptions[(id)].kind, ra_assumptions[(id)].site))
 void ra_call(void *state, uint64_t target);
 // What the x86 function a pointer named popped beyond its return address.
 uint64_t ra_pops_of(uint64_t target);

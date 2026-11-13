@@ -112,6 +112,15 @@ _Noreturn void ra_trap(uint64_t address, uint64_t code) {
     host_exit(0xE0000001);
 }
 
+// A check of a port emitted checked that did not hold: the assumption by its number, with the
+// function it was made in, what was assumed and the address it was made at, from the port's table.
+_Noreturn void ra_assume_failed(uint64_t id, const char *function, const char *kind, uint64_t site) {
+    fprintf(stderr, "ra: assumption %llu does not hold: %s in %s at 0x%llx\n", (unsigned long long)id, kind, function,
+            (unsigned long long)site);
+    fflush(stderr);
+    host_exit(0xE0000005);
+}
+
 // The entry hook of a port built with RA_TRACE: each function names itself as it starts.
 void ra_enter(const char *name) {
     fputs("> ", stderr);

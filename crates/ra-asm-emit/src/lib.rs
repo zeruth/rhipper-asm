@@ -19,7 +19,9 @@ mod safety;
 pub mod structure;
 pub mod tree;
 
-pub use c::{Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, MODULE_MARK, Options as COptions, Unit, emit_c, emit_unit};
+pub use c::{
+    Check, Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, MODULE_MARK, Options as COptions, Unit, Watch, emit_c, emit_unit,
+};
 pub use cpp::{Class, Method, classes};
 pub use format::format_files;
 pub use functions::{FunctionInfo, Grade, format_address, table};
