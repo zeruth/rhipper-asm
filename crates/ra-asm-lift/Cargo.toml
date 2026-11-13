@@ -10,6 +10,14 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The slow tier: the oracle lifts every fixture at each level, compiles the IR with clang and runs it.
+oracle = []
+
+[[test]]
+name = "oracle"
+required-features = ["oracle"]
+
 [dependencies]
 anyhow.workspace = true
 ra-asm-analysis.workspace = true
