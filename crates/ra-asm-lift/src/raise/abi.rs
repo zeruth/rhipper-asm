@@ -21,6 +21,7 @@ use ra_asm_analysis::rtti::{self, Vtable};
 use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Module, Operand, Type, ValueId};
 
 use super::Target;
+use super::assume::{self, Assumption, Step};
 use super::liveness::{CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, call_kind, reverse_post_order, slot_pointers};
 use super::stack::{CalleeStack, StackInfo, analyze as analyze_stack};
 
@@ -394,6 +395,25 @@ pub fn infer_with(
     vtables: &[Vtable],
     traced: &BTreeMap<u64, Vec<u64>>,
 ) -> HashMap<String, Signature> {
+    infer_assuming(module, roots, target, vtables, traced).signatures
+}
+
+/// What the ABI step infers and what it assumed on the way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Inferred {
+    pub signatures: HashMap<String, Signature>,
+    /// What the signatures and the calls rewritten by them rely on (see [`assumptions`]).
+    pub assumptions: Vec<Assumption>,
+}
+
+/// [`infer_with`], with the assumptions the step made beside the signatures.
+pub fn infer_assuming(
+    module: &Module,
+    roots: &BTreeSet<String>,
+    target: Target,
+    vtables: &[Vtable],
+    traced: &BTreeMap<u64, Vec<u64>>,
+) -> Inferred {
     // The stack analysis reads constants; the machine IR materializes them, so fold them first.
     let functions: Vec<Function> = module
         .functions
@@ -533,7 +553,50 @@ pub fn infer_with(
             break;
         }
     }
-    signatures
+    let mut assumptions = Vec::new();
+    for f in &functions {
+        assumed(f, &signatures, target, &mut assumptions);
+    }
+    assume::sort(&mut assumptions);
+    Inferred { signatures, assumptions }
+}
+
+/// What the ABI step assumes of the `F_` functions of `module` under `signatures`, in a stable
+/// order. At every call of the machine (to a lifted function, or through `ra_call` to whatever
+/// the target is) that returns: the callee keeps the callee-saved registers, since the call
+/// writes only the others in [`call_model`]; it leaves the return address the call pushed alone,
+/// where the target pushes one; and it returns with the stack pointer restored, past what its
+/// signature pops. An import is called as a function of the host, which cannot reach the lifted
+/// registers or the lifted stack, so its call assumes nothing; a function without calls assumes
+/// nothing either.
+pub fn assumptions(module: &Module, signatures: &HashMap<String, Signature>, target: Target) -> Vec<Assumption> {
+    let mut out = Vec::new();
+    for f in module.functions.iter().filter(|f| f.name.starts_with("F_")) {
+        assumed(f, signatures, target, &mut out);
+    }
+    assume::sort(&mut out);
+    out
+}
+
+/// The assumptions of one function, in the order of its calls.
+fn assumed(f: &Function, signatures: &HashMap<String, Signature>, target: Target, out: &mut Vec<Assumption>) {
+    for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+        let Inst::Call { callee: Callee::Direct(name), .. } = &i.inst else { continue };
+        if !name.starts_with("F_") && name != "ra_call" {
+            continue;
+        }
+        // Nothing is read after a call that never returns.
+        if signatures.get(name).is_some_and(|s| s.noreturn) {
+            continue;
+        }
+        let returns_through_stack = target.pushed_return() != 0;
+        for kind in [assume::Kind::CalleeSaved, assume::Kind::ReturnAddress, assume::Kind::StackPointer] {
+            if kind == assume::Kind::ReturnAddress && !returns_through_stack {
+                continue;
+            }
+            out.push(Assumption { function: f.name.clone(), step: Step::Abi, kind, site: i.address });
+        }
+    }
 }
 
 /// [`call_model`] for the promotion pass.

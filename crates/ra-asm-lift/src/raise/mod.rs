@@ -7,6 +7,7 @@
 //! clean up after either.
 
 pub mod abi;
+pub mod assume;
 pub mod conditions;
 pub mod dce;
 pub mod flatten;
