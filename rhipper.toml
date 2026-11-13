@@ -100,4 +100,4 @@ threshold = 1.0
 
 # The implementer of every card here is Fable; the reviewer and the cheap roles keep theirs.
 [[route]]
-model = "claude-fable-5-1"
+model = "claude-fable-5-2"
