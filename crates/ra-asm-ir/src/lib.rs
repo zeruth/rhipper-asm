@@ -10,7 +10,8 @@
 //! [`interp`] runs a module directly: a value per type, the instruction subset over a flat memory,
 //! and the calls the module cannot answer handed to a host; a run can keep a record of its calls
 //! and returns with their values, in the shape a port's trace hooks write, for the replay of one
-//! against the other. [`diff`] sets the printed IR of two builds of a function line against line.
+//! against the other. [`parse`] reads the printer's text back: the header of a module so far, its
+//! types, globals and declarations. [`diff`] sets the printed IR of two builds of a function line against line.
 
 pub mod builder;
 pub mod diff;
@@ -18,6 +19,7 @@ pub mod dom;
 pub mod inst;
 pub mod interp;
 pub mod module;
+pub mod parse;
 pub mod printer;
 pub mod types;
 
