@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ra_asm_ir::{BinOp, Cast, Function, Inst, Instruction, Operand, Type, ValueId};
 
+use super::assume::{self, Assumption, Kind, Step};
+
 /// How a frame slot is used: the types of its loads and stores, and whether its address escapes.
 #[derive(Default)]
 struct Use {
@@ -16,6 +18,21 @@ struct Use {
 }
 
 pub fn run(f: &mut Function) -> bool {
+    run_assuming(f).0
+}
+
+/// [`run`], with what the pass assumed beside whether it changed `f`: for each slot it made a
+/// local of its own, at the address of the slot's first use, that no pointer to another slot
+/// reaches it. The slots at or above an address that escapes stay in the frame, so the pointers
+/// assumed of are the ones that would have to run down the frame, or come from outside it.
+pub fn run_assuming(f: &mut Function) -> (bool, Vec<Assumption>) {
+    let mut assumptions = Vec::new();
+    let changed = rewrite(f, &mut assumptions);
+    assume::sort(&mut assumptions);
+    (changed, assumptions)
+}
+
+fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
     // The frame top: `%rsp0 = ptrtoint %frame.top`, as the ABI rewrite names them.
     let mut rsp0 = None;
     let mut top = None;
@@ -43,23 +60,24 @@ pub fn run(f: &mut Function) -> bool {
     // prologue's own geps from the frame top (the stack parameter slots).
     let mut slots: BTreeMap<i64, Use> = BTreeMap::new();
     let mut pointer_offsets: HashMap<ValueId, i64> = HashMap::new();
+    // Where the code first names each slot: the prologue's own pointers have no address.
+    let mut first_use: HashMap<i64, u64> = HashMap::new();
     for b in &f.blocks {
         for i in &b.instrs {
             let Some(v) = i.result else { continue };
-            match &i.inst {
-                Inst::Cast { cast: Cast::IntToPtr, .. } => {
-                    if let Some(&k) = offsets.get(&v) {
-                        pointer_offsets.insert(v, k);
-                        slots.entry(k).or_default();
-                    }
-                }
-                Inst::Gep { base_ty: Type::I8, ptr: Operand::Local(p), indices, .. } if *p == top => {
-                    if let [(_, Operand::Int(k))] = indices.as_slice() {
-                        pointer_offsets.insert(v, *k as i64);
-                        slots.entry(*k as i64).or_default();
-                    }
-                }
-                _ => {}
+            let k = match &i.inst {
+                Inst::Cast { cast: Cast::IntToPtr, .. } => offsets.get(&v).copied(),
+                Inst::Gep { base_ty: Type::I8, ptr: Operand::Local(p), indices, .. } if *p == top => match indices.as_slice() {
+                    [(_, Operand::Int(k))] => Some(*k as i64),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(k) = k else { continue };
+            pointer_offsets.insert(v, k);
+            slots.entry(k).or_default();
+            if let Some(address) = i.address {
+                first_use.entry(k).or_insert(address);
             }
         }
     }
@@ -143,6 +161,12 @@ pub fn run(f: &mut Function) -> bool {
                 address: None,
             });
             allocas.insert(*k, (v, ty));
+            assumptions.push(Assumption {
+                function: f.name.clone(),
+                step: Step::Frame,
+                kind: Kind::PrivateLocal,
+                site: first_use.get(k).copied(),
+            });
         }
     }
     for b in &mut f.blocks {

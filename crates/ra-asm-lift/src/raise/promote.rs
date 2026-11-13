@@ -26,6 +26,7 @@ use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, FnType, Function, ICond, In
 
 use super::Target;
 use super::abi::{Candidates, Kind, Signature};
+use super::assume::{self, Assumption, Step};
 use super::liveness::{
     CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, all_registers, call_kind, reverse_post_order, slot_pointers,
 };
@@ -132,8 +133,29 @@ pub fn promote(f: &mut Function, target: Target) {
 }
 
 /// Rewrites `f` by its signature: parameters, frame, calls with arguments, a returned value.
-pub fn promote_abi(f: &mut Function, abi: &Abi<'_>) {
+/// Returns what the rewrite assumed (see [`assumptions`]).
+pub fn promote_abi(f: &mut Function, abi: &Abi<'_>) -> Vec<Assumption> {
+    let assumed = assumptions(f);
     run(f, Some(abi), abi.target);
+    assumed
+}
+
+/// What the ABI mode assumes of the machine function `f`, in the order of its calls. The stack
+/// becomes a frame of the function's own, a local, and a callee gets its arguments by value and a
+/// frame of its own: at every call into lifted code, direct or through `ra_call`, the callee is
+/// assumed to reach the caller's frame only through an address it was handed, never by its own
+/// stack pointer past its arguments. An import is a function of the host, which has no lifted
+/// stack pointer to reach by; the machine mode keeps the one stack of the state and assumes
+/// nothing.
+pub fn assumptions(f: &Function) -> Vec<Assumption> {
+    let mut out = Vec::new();
+    for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+        let Inst::Call { callee: Callee::Direct(name), .. } = &i.inst else { continue };
+        if name.starts_with("F_") || name == "ra_call" {
+            out.push(Assumption { function: f.name.clone(), step: Step::Promote, kind: assume::Kind::PrivateLocal, site: i.address });
+        }
+    }
+    out
 }
 
 /// The local array the vector registers live in, in ABI mode: as many as the target's state has.

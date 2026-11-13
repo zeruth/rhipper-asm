@@ -11,6 +11,12 @@
 pub enum Step {
     /// The signatures and the calls by the target's convention (see [`super::abi`]).
     Abi,
+    /// The rewrite of a function by its signature (see [`super::promote`]).
+    Promote,
+    /// The stack pointer as a symbol (see [`super::stack`]).
+    Stack,
+    /// The frame as locals (see [`super::frame`]).
+    Frame,
 }
 
 impl Step {
@@ -18,6 +24,9 @@ impl Step {
     pub fn name(self) -> &'static str {
         match self {
             Self::Abi => "abi",
+            Self::Promote => "promote",
+            Self::Stack => "stack",
+            Self::Frame => "frame",
         }
     }
 }
@@ -31,6 +40,15 @@ pub enum Kind {
     ReturnAddress,
     /// The callee returns with the stack pointer restored, past what its signature says it pops.
     StackPointer,
+    /// A local whose address is not taken is not reached by another pointer: a function's frame
+    /// by a callee that was not handed its address, a frame slot by a pointer to another slot.
+    PrivateLocal,
+    /// Pushes and pops balance on every path: the paths into a block arrive, and every return
+    /// leaves, with the stack at the one depth the step works with.
+    BalancedStack,
+    /// The frame pointer is a frame pointer: the register that holds an address of the frame at
+    /// a call holds it after, so what the function reads through it later is its frame.
+    FramePointer,
 }
 
 impl Kind {
@@ -40,6 +58,9 @@ impl Kind {
             Self::CalleeSaved => "callee-saved",
             Self::ReturnAddress => "return-address",
             Self::StackPointer => "stack-pointer",
+            Self::PrivateLocal => "private-local",
+            Self::BalancedStack => "balanced-stack",
+            Self::FramePointer => "frame-pointer",
         }
     }
 }

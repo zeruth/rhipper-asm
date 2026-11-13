@@ -26,6 +26,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Operand, Terminator, Type, ValueId};
 
 use super::Target;
+use super::assume::{self, Assumption, Step};
 use super::liveness::{CallKind, GPRS, Slot, call_kind, reverse_post_order};
 
 /// What the stack analysis found.
@@ -53,6 +54,14 @@ pub struct StackInfo {
     pub call_offsets: HashMap<(usize, usize), i64>,
     /// The bytes the function pops on return beyond the return address: the `N` of `ret N`.
     pub pops: i64,
+    /// What the analysis relied on without seeing it hold, in the order of the function's code.
+    /// That pushes and pops balance, where they do not visibly: at a block the paths reach with
+    /// the stack at different depths, after which the analysis no longer knows the depth, and at
+    /// a return whose depth is unknown or is not the one `pops` says, which the signature takes
+    /// for every return. That the frame pointer is one, at a call into lifted code made while a
+    /// callee-saved register holds an address of the frame: the register is taken to hold it
+    /// after, and what is read through it later to be the frame and the arguments.
+    pub assumptions: Vec<Assumption>,
 }
 
 /// What a lifted callee does to the stack of its caller, as far as the inference knows it so far.
@@ -100,6 +109,9 @@ pub fn analyze(
     let mut symbolic: HashMap<ValueId, i64> = HashMap::new();
     // The values that are a callee-saved register's value from the entry.
     let mut entry_values: HashSet<ValueId> = HashSet::new();
+    // The calls into lifted code, by block and index: whether a callee-saved register holds a
+    // frame address there, as of the last round.
+    let mut frame_pointers: BTreeMap<(usize, usize), bool> = BTreeMap::new();
     let _ = state;
 
     for _round in 0..8 {
@@ -244,6 +256,11 @@ pub fn analyze(
                             if let Some(k) = regs[sp] {
                                 info.call_offsets.insert((bi, ii), k);
                             }
+                            // A host function cannot write a lifted register; lifted code can.
+                            if callee.is_none_or(|name| name.starts_with("F_") || name == "ra_call") {
+                                let held = (0..GPRS).any(|r| r != sp && target.callee_saved(Slot::Gpr(r as u8)) && regs[r].is_some());
+                                frame_pointers.insert((bi, ii), held);
+                            }
                             // The callee keeps the callee-saved registers and may write the rest.
                             for (r, offset) in regs.iter_mut().enumerate() {
                                 if r != sp && !target.callee_saved(Slot::Gpr(r as u8)) {
@@ -359,6 +376,30 @@ pub fn analyze(
             if let Terminator::Ret(_) = f.blocks[bi].terminator {
                 info.pops = info.pops.max(k - pushed);
             }
+        }
+    }
+    // What the signature says of every return: the return address popped, and on x86 the bytes
+    // of `ret N`.
+    let at_return = pushed + if target.is_64() { 0 } else { info.pops.max(0) };
+    let mut assumed = |kind: assume::Kind, site: Option<u64>| {
+        info.assumptions.push(Assumption { function: f.name.clone(), step: Step::Stack, kind, site });
+    };
+    for (bi, block) in f.blocks.iter().enumerate() {
+        let Some(regs) = exit[bi] else { continue };
+        let mut depths = preds.get(&block.id).into_iter().flatten().filter_map(|p| exit[index_of[p]]).filter_map(|regs| regs[sp]);
+        if bi != 0
+            && let Some(first) = depths.next()
+            && depths.any(|k| k != first)
+        {
+            assumed(assume::Kind::BalancedStack, block.address.or_else(|| block.instrs.iter().find_map(|i| i.address)));
+        }
+        for (ii, i) in block.instrs.iter().enumerate() {
+            if frame_pointers.get(&(bi, ii)).copied().unwrap_or(false) {
+                assumed(assume::Kind::FramePointer, i.address);
+            }
+        }
+        if matches!(block.terminator, Terminator::Ret(_)) && regs[sp] != Some(at_return) {
+            assumed(assume::Kind::BalancedStack, block.instrs.iter().rev().find_map(|i| i.address).or(block.address));
         }
     }
     info
