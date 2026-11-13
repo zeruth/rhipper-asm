@@ -1,7 +1,7 @@
-//! The execution oracle: a fixture is lifted, run through the IR interpreter, then compiled with
-//! clang against the driver and run again, and each output is compared with the native program's.
-//! The IR gate (`clang -c -x ir`) runs on every fixture; the clang run needs the C runtime and
-//! skips without it.
+//! The execution oracle: a fixture is lifted, compiled with clang against the driver and run, and
+//! its output is compared with the native program's. The IR gate (`clang -c -x ir`) runs on every
+//! fixture; the clang run needs the C runtime and skips without it. The runs of the same fixtures
+//! through the IR interpreter, which need no clang, are in `interp.rs`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -103,21 +103,6 @@ fn stopped_for_dlls(binary: &str, outcome: &ra_asm_lift::run::Outcome) -> bool {
     }
 }
 
-/// Runs `binary` at the tag's level through the IR interpreter and compares its output with the
-/// native program's: the same proof as the clang run, without clang.
-fn run_interpreted(binary: &str, expected: &str, tag: &str) {
-    let Raised { image, lifted, signatures, .. } = raise(binary, tag);
-    assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
-    let options = ra_asm_lift::run::Options::default();
-    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &options).unwrap();
-    if stopped_for_dlls(binary, &outcome) {
-        return;
-    }
-    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
-    assert_output(&format!("{binary} ({tag}): interpreted"), expected, &String::from_utf8_lossy(&outcome.output), &ended);
-    assert_eq!(outcome.exit, 0, "{binary} ({tag}): the interpreted program's exit (stop: {:?})", outcome.stop);
-}
-
 #[test]
 fn the_lifted_fixtures_pass_the_ir_gate() {
     if ra_asm_testing::tool("clang").is_none() {
@@ -150,7 +135,7 @@ fn the_lifted_fixtures_pass_the_ir_gate() {
 }
 
 /// The ARM64 build of hello lifts without a trap, over the mapped image and standalone, and its IR
-/// passes the gate. The run is [`helloa64_runs_interpreted`].
+/// passes the gate. The run is `helloa64_runs_interpreted` in `interp.rs`.
 #[test]
 fn the_arm64_fixture_lifts_and_passes_the_ir_gate() {
     if ra_asm_testing::tool("clang").is_none() {
@@ -191,21 +176,10 @@ fn the_arm64_fixture_lifts_and_passes_the_ir_gate() {
     assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
 }
 
-/// The ARM64 build of hello runs lifted through the IR interpreter, over the mapped image and
-/// standalone: the host is x64, so the interpreter is its ARM64 machine. The standalone run is
-/// the ABI level, raised by AAPCS64.
+/// The ARM64 build of the float fixture: the scalar floating point lifts without a trap and
+/// passes the gate at the ABI level. The run is `floata64_runs_interpreted` in `interp.rs`.
 #[test]
-fn helloa64_runs_interpreted() {
-    let expected = std::fs::read_to_string(root().join("testdata/expected/hello.txt")).unwrap();
-    for tag in ["run-machine", "run-abi"] {
-        run_interpreted("helloa64.exe", &expected, tag);
-    }
-}
-
-/// The ARM64 build of the float fixture: the scalar floating point lifts without a trap, passes
-/// the gate at the ABI level, and runs through the interpreter with the native program's output.
-#[test]
-fn floata64_lifts_and_runs_interpreted() {
+fn floata64_lifts_and_passes_the_ir_gate() {
     let image = ra_asm_pe::load(&fixture("floata64.exe")).unwrap();
     assert_eq!(image.machine(), ra_asm_pe::Machine::Arm64);
     let analysis = ra_asm_analysis::analyze(&image);
@@ -221,17 +195,13 @@ fn floata64_lifts_and_runs_interpreted() {
             Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
         assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
     }
-    let expected = std::fs::read_to_string(root().join("testdata/expected/float.txt")).unwrap();
-    for tag in ["run-machine", "run-abi"] {
-        run_interpreted("floata64.exe", &expected, tag);
-    }
 }
 
 /// The Thumb-2 fixture, a static 32-bit ARM Linux program: it lifts without a trap (its IT block,
-/// its literal pool, its long multiply and its `svc`s included), its IR passes the gate, and it
-/// runs through the interpreter over the mapped image with the output its source prints.
+/// its literal pool, its long multiply and its `svc`s included) and its IR passes the gate. The
+/// run is `thumb32_runs_interpreted` in `interp.rs`.
 #[test]
-fn thumb32_lifts_and_runs_interpreted() {
+fn thumb32_lifts_and_passes_the_ir_gate() {
     let image = ra_asm_pe::load(&fixture("thumb32")).unwrap();
     assert_eq!(image.machine(), ra_asm_pe::Machine::Arm);
     let analysis = ra_asm_analysis::analyze(&image);
@@ -251,8 +221,6 @@ fn thumb32_lifts_and_runs_interpreted() {
             Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
         assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
     }
-    let expected = std::fs::read_to_string(root().join("testdata/expected/thumb.txt")).unwrap();
-    run_interpreted("thumb32", &expected, "run-machine");
 }
 
 /// The Linux build of hello lifts without a trap at the machine level, over the mapped image and
@@ -391,15 +359,11 @@ fn gate_arm64_elf(binary: &str, imports: &[&str]) {
     }
 }
 
-/// The ARM64 Linux hello: `bl write` and `bl exit` reach the C library through their PLT stubs,
-/// and the program runs through the interpreter with the x64 build's native output.
+/// The ARM64 Linux hello: `bl write` and `bl exit` reach the C library through their PLT stubs.
+/// The run is `hello_linux_a64_runs_interpreted` in `interp.rs`.
 #[test]
-fn hello_linux_a64_lifts_and_runs_interpreted() {
+fn hello_linux_a64_lifts_and_passes_the_ir_gate() {
     gate_arm64_elf("hello_linux_a64", &["write", "exit"]);
-    let expected = std::fs::read_to_string(root().join("testdata/expected/hello_linux.txt")).unwrap();
-    for tag in ["run-machine", "run-abi"] {
-        run_interpreted("hello_linux_a64", &expected, tag);
-    }
 }
 
 /// The Android fixture, a game's `libmain.so` in small: its functions port, and a host that loads
@@ -449,11 +413,10 @@ fn run_oracle(binary: &str, expected: &str) {
 }
 
 fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
-    run_interpreted(binary, expected, tag);
     let (dir, lifted) = lift_to(binary, tag);
     assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
     // The port links the Windows system libraries and runs as a Windows process; elsewhere the
-    // interpreter's run above is the proof.
+    // interpreter's run in `interp.rs` is the proof.
     if foreign_host(cfg!(windows), &format!("{binary} ({tag})"), "the port of a Windows program runs on a Windows host", "the clang run") {
         return;
     }
@@ -517,21 +480,6 @@ fn float64_runs_lifted() {
 /// The 32-bit fixtures at every level.
 fn run_oracle_32(binary: &str, expected: &str) {
     run_oracle(binary, expected);
-}
-
-/// The homebrew XBE: a 32-bit x86 program whose imports are the kernel's, by ordinal, named from
-/// the loader's table; the interpreter runs it at every level and answers the kernel calls. The
-/// clang run waits for the kernel's platform runtime.
-#[test]
-fn xbe32_runs_interpreted() {
-    let expected = std::fs::read_to_string(root().join("testdata/expected/xbe.txt")).unwrap();
-    let raised = raise("xbe32.xbe", "run-abi");
-    for name in ["DbgPrint", "ExAllocatePool", "ExFreePool", "HalReturnToFirmware"] {
-        assert!(raised.lifted.imports.contains(name), "the lift names the kernel import {name}: {:?}", raised.lifted.imports);
-    }
-    for tag in ["run-machine", "run-promoted", "run-abi"] {
-        run_interpreted("xbe32.xbe", &expected, tag);
-    }
 }
 
 /// The obfuscated fixture: a flattened function, encrypted strings and an opaque predicate. The
