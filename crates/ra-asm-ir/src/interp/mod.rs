@@ -11,12 +11,14 @@
 #![allow(clippy::many_single_char_names)]
 
 pub mod memory;
+pub mod observe;
 pub mod value;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 
 pub use memory::{Memory, Region};
+pub use observe::Observer;
 pub use value::{Layout, Value, mask, sext};
 
 use crate::inst::{BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand, Terminator};
@@ -113,6 +115,9 @@ pub struct Vm<'m> {
     /// Called at each entry of a recorded function, when set: the stops of a run stepped in
     /// lockstep with another.
     pub pause: Option<Pause>,
+    /// Told of every call as it is entered and left, when set: the module's functions and the
+    /// host's alike.
+    pub observer: Option<Box<dyn Observer>>,
     functions: HashMap<String, usize>,
     named: HashMap<String, Vec<Type>>,
     /// The index of each block of each function, by id.
@@ -122,6 +127,9 @@ pub struct Vm<'m> {
     statics: Bump,
     frames: Bump,
     depth: usize,
+    /// The host calls open, which the observer counts in a call's depth and the depth limit of
+    /// the module's own recursion does not.
+    hosted: usize,
 }
 
 impl<'m> Vm<'m> {
@@ -140,6 +148,7 @@ impl<'m> Vm<'m> {
             record: None,
             recorded: HashSet::new(),
             pause: None,
+            observer: None,
             functions,
             named,
             blocks,
@@ -148,6 +157,7 @@ impl<'m> Vm<'m> {
             statics: Bump::default(),
             frames: Bump::default(),
             depth: 0,
+            hosted: 0,
         }
     }
 
@@ -335,11 +345,29 @@ impl<'m> Vm<'m> {
         match self.by_address.get(&address).cloned() {
             Some(Symbol::Function(i)) => self.invoke(host, i, ty, args),
             Some(Symbol::External(name)) => {
-                let v = host.call(self, &name, ty, &args)?;
+                let v = self.call_host(host, &name, ty, &args)?;
                 Ok(v.coerce(&ty.ret, &self.layout()))
             }
             None => Err(Stop::fault(format!("a call to {address:#x}, which is no function"))),
         }
+    }
+
+    /// Hands the call of `name` to the host, between the observer's entry and exit.
+    fn call_host(&mut self, host: &mut dyn Host, name: &str, ty: &FnType, args: &[Value]) -> Result<Value, Stop> {
+        if self.observer.is_none() {
+            return host.call(self, name, ty, args);
+        }
+        let depth = self.depth + self.hosted;
+        if let Some(observer) = &mut self.observer {
+            observer.enter(name, depth);
+        }
+        self.hosted += 1;
+        let result = host.call(self, name, ty, args);
+        self.hosted -= 1;
+        if let Some(observer) = &mut self.observer {
+            observer.leave(name, depth);
+        }
+        result
     }
 
     /// Runs function `index` with the arguments adapted to its parameters and the result to what
@@ -375,6 +403,11 @@ impl<'m> Vm<'m> {
         if watched && let Some(pause) = self.pause.clone() {
             pause(f, &args, &mut self.memory);
         }
+        // The depth of this call: `depth` counts it already.
+        let level = self.depth + self.hosted - 1;
+        if let Some(observer) = &mut self.observer {
+            observer.enter(&f.name, level);
+        }
         let mark = self.frames.at;
         let mut values: Vec<Option<Value>> = vec![None; f.value_names.len()];
         for (p, a) in f.params.iter().zip(args) {
@@ -383,6 +416,9 @@ impl<'m> Vm<'m> {
         let result = self.run_blocks(host, index, f, &mut values);
         self.frames.at = mark;
         self.depth -= 1;
+        if let Some(observer) = &mut self.observer {
+            observer.leave(&f.name, level);
+        }
         // A function that never returns (an exit, a fault) leaves no return in the record, as the
         // port's hooks leave none.
         if recorded && let Ok(value) = &result {
@@ -669,7 +705,7 @@ impl<'m> Vm<'m> {
                         if let Some(result) = self.intrinsic(name, fn_ty, &evaluated)? {
                             return Ok(result);
                         }
-                        let v = host.call(self, name, fn_ty, &evaluated)?;
+                        let v = self.call_host(host, name, fn_ty, &evaluated)?;
                         Ok(v.coerce(&fn_ty.ret, &self.layout()))
                     }
                     Callee::Indirect(op) => {
