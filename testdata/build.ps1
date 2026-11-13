@@ -128,6 +128,25 @@ if (Wanted 'resources') {
   Build-Exe 'resources' @($res, '-luser32')
 }
 
+# The packed fixtures: hello (both widths) and control32 through upx --best, the images whose code
+# is the unpacking stub. They print what their unpacked twins print. upx is the one on the PATH or
+# winget's; without it the committed binaries stay.
+if (Wanted 'upx') {
+  $upx = Get-Command upx -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
+  if (-not $upx) {
+    $upx = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages\UPX.UPX_Microsoft.Winget.Source_8wekyb3d8bbwe\upx-5.3.0-win64\upx.exe'
+  }
+  if (Test-Path $upx) {
+    foreach ($name in @('hello32', 'hello64', 'control32')) {
+      Write-Host "upx $name" -ForegroundColor Cyan
+      & $upx --best -q -f -o (Join-Path $bin "$name-upx.exe") (Join-Path $bin "$name.exe")
+      if ($LASTEXITCODE -ne 0) { throw "upx failed for $name" }
+    }
+  } else {
+    Write-Host "upx not found: the packed fixtures are left as committed" -ForegroundColor Yellow
+  }
+}
+
 # xbe is a homebrew program of the original Xbox: a PE linked at the Xbox's base without
 # relocations, which the writer test in crates/ra-asm-pe/tests/xbe.rs rewrites as the XBE; the
 # map is the PE's. Its expected output comes from the same source built for this machine

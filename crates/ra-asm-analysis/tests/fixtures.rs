@@ -478,3 +478,14 @@ fn the_linux_hello_has_its_functions_and_its_plt_thunks() {
     assert_eq!(thunks, ["write", "exit"]);
     assert!(!analysis.functions.values().any(|f| f.origins.iter().any(|o| matches!(o, Origin::Pointer(_)))), "a slot seeded a function");
 }
+
+/// The fixtures packed by UPX are named by the sections its stub leaves, and their unpacked twins
+/// are not: what is in a packed image's code is the stub, not the program.
+#[test]
+fn the_upx_fixtures_are_named_by_their_packer() {
+    use ra_asm_analysis::protector_of;
+    for name in ["hello32", "hello64", "control32"] {
+        assert_eq!(protector_of(&load(&format!("{name}-upx.exe"))), Some("UPX"), "{name}-upx.exe");
+        assert_eq!(protector_of(&load(&format!("{name}.exe"))), None, "{name}.exe");
+    }
+}

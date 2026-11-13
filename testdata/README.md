@@ -8,6 +8,7 @@ no compiler. `build.ps1` rebuilds them; `/Brepro` keeps a rebuild byte-identical
 |---|---|---|
 | `src/hello.c` | `hello64.exe`, `hello32.exe` | Three imports, two leaf functions, one caller |
 | `src/control.c` | `control64.exe`, `control32.exe` | Loops, if-else, a dense switch, recursion, a table of function pointers, globals, a no-return call mid-function; a CodeView record |
+| the three binaries above | `hello32-upx.exe`, `hello64-upx.exe`, `control32-upx.exe` | The same programs packed by `upx --best` (5.3.0): sections `UPX0`, `UPX1`, `UPX2`, the code is the unpacking stub; they print what their twins print, so `expected/hello.txt` and `expected/control.txt` are theirs too |
 | `src/float.c` | `float64.exe`, `float32.exe` | Floating-point arithmetic, conversions and compares |
 | `src/classes.cpp` | `classes64.exe`, `classes32.exe` | C++ with RTTI: a base, a derived class, a second base and a class with two vtables, called through base pointers; no C++ runtime |
 | `src/throws.cpp` | `throws64.exe` | C++ exceptions: a throw caught by value and one by reference to a base through a function without a handler, a rethrow into a catch-all, and a local destroyed on the way out; vcruntime's throw and frame handler, nothing else of a runtime |
