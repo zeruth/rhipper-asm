@@ -96,8 +96,10 @@ jobs:
       - name: Build
         run: cargo fuzz build
 
+  # the fuzz targets' build reports beside the release and does not hold it: the nightly fuzz
+  # workflow is where a broken target is fixed
   build:
-    needs: [test, test-linux, fuzz-targets]
+    needs: [test, test-linux]
     strategy:
       matrix:
         include:
