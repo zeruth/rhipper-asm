@@ -10,17 +10,86 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn clang_available() -> bool {
-    Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success())
+/// The one skip a missing tool does not explain: a program of another system, which this host
+/// cannot run. On a host that is not `native` it says on stderr why `what` is skipped, and answers
+/// whether it is.
+fn foreign_host(native: bool, program: &str, why: &str, what: &str) -> bool {
+    if !native {
+        eprintln!("SKIPPED: {program}: {why}: {what} is skipped");
+    }
+    !native
 }
 
 /// The port of a Windows program links the Windows system libraries and runs as a Windows
 /// process: on another host the emit and its checks still run, the build and the run skip.
 fn windows_host(binary: &str) -> bool {
-    if !cfg!(windows) {
-        eprintln!("{binary}: the port of a Windows program runs on a Windows host: the build and the run are skipped");
+    !foreign_host(cfg!(windows), binary, "the port of a Windows program runs on a Windows host", "the build and the run")
+}
+
+/// The digest's comparison of a port's output with the native program's, the two whole sides and
+/// the digest line written under `failed`. The blank end of either side does not count.
+fn compare_output(failed: &Path, test: &str, expected: &str, actual: &str) -> Result<(), String> {
+    ra_asm_testing::digest::compare_in(failed, test, expected.trim_end(), actual.trim_end())
+}
+
+/// Fails `test` with the digest's one line when its output differs from the expected one; how
+/// the run ended goes to stderr before it, and both whole sides are under `out/failed`.
+fn assert_output(test: &str, expected: &str, actual: &str, ended: &str) {
+    if let Err(line) = compare_output(&ra_asm_testing::digest::failed_dir(), test, expected, actual) {
+        eprintln!("{test}: {ended}");
+        panic!("{line}");
     }
-    cfg!(windows)
+}
+
+/// The directory of `test` under `failed`, named as the digest names the one of its two sides.
+fn failed_sides(failed: &Path, test: &str) -> PathBuf {
+    let name: String = test.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' }).collect();
+    failed.join(name)
+}
+
+/// The one line of a build of `test`'s port that `tool` failed: the test, which names the fixture
+/// and the language, the tool, and the first line of its stderr that says `error` (the first line
+/// when none does), without the port's directory `dir` and in fewer than the digest's limit of
+/// characters. The whole stderr goes to `<failed>/<test>/build.txt` and the line to the digest
+/// file, as a difference's does.
+fn build_failure(failed: &Path, test: &str, tool: &str, dir: &Path, stderr: &str) -> String {
+    use std::io::Write as _;
+    let lines = || stderr.lines().map(str::trim);
+    let first = lines().find(|l| l.contains("error")).or_else(|| lines().find(|l| !l.is_empty())).unwrap_or("no message on stderr");
+    let first = first.replace(&format!("{}{}", dir.display(), std::path::MAIN_SEPARATOR), "");
+    let mut line = format!("{test}: {tool}: {first}");
+    let room = ra_asm_testing::digest::LIMIT - 1;
+    if line.chars().count() > room {
+        line = line.chars().take(room - 1).collect();
+        line.push('…');
+    }
+    let sides = failed_sides(failed, test);
+    let written = std::fs::create_dir_all(&sides)
+        .and_then(|()| std::fs::write(sides.join("build.txt"), stderr))
+        .and_then(|()| std::fs::OpenOptions::new().create(true).append(true).open(failed.join("digest.txt")))
+        .and_then(|mut digest| digest.write_all(format!("{line}\n").as_bytes()));
+    if let Err(e) = written {
+        eprintln!("{}: not written: {e}", sides.display());
+    }
+    line
+}
+
+/// Fails `test` with [`build_failure`]'s one line when `tool` did not build the port in `dir`;
+/// a build that succeeded removes the stderr an earlier failure of the test left.
+fn assert_built(test: &str, tool: &str, dir: &Path, build: &std::process::Output) {
+    let failed = ra_asm_testing::digest::failed_dir();
+    if build.status.success() {
+        let _ = std::fs::remove_file(failed_sides(&failed, test).join("build.txt"));
+        return;
+    }
+    let line = build_failure(&failed, test, tool, dir, &String::from_utf8_lossy(&build.stderr));
+    panic!("{line}");
+}
+
+/// The name a comparison or a build of a port fails under: the fixture, the language of the port
+/// and what tells two ports of one fixture in one language apart.
+fn port_test(binary: &str, language: &str, tag: &str) -> String {
+    format!("{binary} ({language}, {tag})")
 }
 
 /// The Windows programs whose ports x86-64 Linux builds and runs over the runtime's Win32 layer:
@@ -98,32 +167,20 @@ impl Fixture {
         image
     }
 
-    /// The port's output against the reference: a mismatch names the run's exit code and stderr,
-    /// and a crash the function and line of the host address, when `exe` carries debug
-    /// information and llvm-symbolizer is on the PATH.
-    fn compare(&self, run: &std::process::Output, exe: &Path) {
+    /// The port's output against the reference, as `test`: a mismatch fails in the digest's one
+    /// line, after the run's exit code and stderr on stderr, and a crash's function and line of
+    /// the host address, when `exe` carries debug information and llvm-symbolizer is on the PATH.
+    fn compare(&self, test: &str, run: &std::process::Output, exe: &Path) {
         let mut stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
         if self.exit_line {
             stdout.push_str("exit = ");
             stdout.push_str(&run.status.code().unwrap_or(-1).to_string());
             stdout.push('\n');
         }
-        let expected = std::fs::read_to_string(root().join("testdata").join(&self.expected)).unwrap().replace("\r\n", "\n");
+        let expected = std::fs::read_to_string(root().join("testdata").join(&self.expected)).unwrap();
         let stderr = String::from_utf8_lossy(&run.stderr);
-        if stdout.trim_end() != expected.trim_end() {
-            let (got, want): (Vec<&str>, Vec<&str>) = (stdout.lines().collect(), expected.lines().collect());
-            let first = (0..got.len().max(want.len())).find(|&n| got.get(n) != want.get(n)).unwrap_or(0);
-            panic!(
-                "{}: the output differs at line {} (`{}` for `{}`; exit {:?}, stderr {}{})",
-                self.binary,
-                first + 1,
-                got.get(first).unwrap_or(&"<end>"),
-                want.get(first).unwrap_or(&"<end>"),
-                run.status.code(),
-                stderr,
-                symbolize(&stderr, exe).unwrap_or_default()
-            );
-        }
+        let ended = format!("exit {:?}, stderr {}{}", run.status.code(), stderr, symbolize(&stderr, exe).unwrap_or_default());
+        assert_output(test, &expected, &stdout, &ended);
     }
 }
 
@@ -176,21 +233,17 @@ fn write_resources(dir: &Path, image: &ra_asm_pe::Image) {
     }
 }
 
-fn cargo_available() -> bool {
-    Command::new("cargo").arg("--version").output().is_ok_and(|o| o.status.success())
-}
-
 /// The Rust package of a fixture, built by cargo and run; its output must match the reference's.
 fn run_rust_oracle(binary: &str, expected_name: &str, functions_per_file: usize) {
     run_rust_oracle_with(&fixture(binary, expected_name), functions_per_file);
 }
 
 fn run_rust_oracle_with(fixture: &Fixture, functions_per_file: usize) {
-    if !cargo_available() {
-        eprintln!("cargo is not on the PATH: the Rust oracle is skipped");
+    if ra_asm_testing::tool("cargo").is_none() {
         return;
     }
     let binary = fixture.name();
+    let test = port_test(binary, "Rust", &functions_per_file.to_string());
     let image = ra_asm_pe::load(&fixture.binary_path()).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
     let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: fixture.x87 });
@@ -236,9 +289,15 @@ fn run_rust_oracle_with(fixture: &Fixture, functions_per_file: usize) {
             .args(["--", "-D", "warnings"])
             .output()
             .unwrap();
-        assert!(clippy.status.success(), "{binary}: cargo clippy in {}:\n{}", dir.display(), String::from_utf8_lossy(&clippy.stderr));
+        assert_built(&test, "cargo clippy", &dir, &clippy);
     } else {
-        eprintln!("cargo clippy is not installed: the lint of {binary}'s Rust is skipped");
+        // The lint is a cargo component, not a file of the PATH: it is required as a tool is.
+        assert!(
+            ra_asm_testing::tools::skip_allowed(),
+            "cargo clippy is not installed and the test needs it: install it, or set {}=1 to skip",
+            ra_asm_testing::tools::ALLOW_SKIP
+        );
+        eprintln!("SKIPPED: cargo clippy is not installed: the lint of {binary}'s Rust is skipped");
     }
     let build = Command::new("cargo")
         .args(["build", "--release", "--manifest-path"])
@@ -247,10 +306,10 @@ fn run_rust_oracle_with(fixture: &Fixture, functions_per_file: usize) {
         .arg(&target)
         .output()
         .unwrap();
-    assert!(build.status.success(), "{binary}: cargo build in {}:\n{}", dir.display(), String::from_utf8_lossy(&build.stderr));
+    assert_built(&test, "cargo build", &dir, &build);
     let exe = target.join("release").join(format!("{package}.exe"));
     let run = Command::new(&exe).current_dir(&dir).output().unwrap();
-    fixture.compare(&run, &exe);
+    fixture.compare(&test, &run, &exe);
 }
 
 #[test]
@@ -314,11 +373,15 @@ fn run_fixture_as_c(fixture: &Fixture, tag: &str, functions_per_file: usize, dia
 /// With `trace`, the port names every lifted function it enters on stderr (`RA_TRACE`): the
 /// ignored `_traced` tests, for a port that crashes in the clang-less shell of a worker.
 fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect, trace: bool) {
-    if !clang_available() {
-        eprintln!("clang is not on the PATH: the oracle is skipped");
+    if ra_asm_testing::tool("clang").is_none() {
         return;
     }
     let binary = fixture.name();
+    let language = match dialect {
+        ra_asm_emit::Dialect::C => "C",
+        ra_asm_emit::Dialect::Cpp => "C++",
+    };
+    let test = port_test(binary, language, tag);
     let (dir, c, bits) = emit(fixture, tag, functions_per_file, dialect);
     check_table(binary, &dir);
     assert!(!fixture.no_goto || !c.contains("goto "), "{binary}: the C has a goto:\n{c}");
@@ -364,9 +427,9 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
         build.args(["-rdynamic", "-pthread", "-ldl", "-lm"]);
     }
     let build = build.output().unwrap();
-    assert!(build.status.success(), "{binary}: clang on {}:\n{}", dir.join("program.c").display(), String::from_utf8_lossy(&build.stderr));
+    assert_built(&test, "clang", &dir, &build);
     let run = Command::new(&exe).current_dir(&dir).output().unwrap();
-    fixture.compare(&run, &exe);
+    fixture.compare(&test, &run, &exe);
 }
 
 /// An rhtest program, MSVC-built for x86 with its static C runtime, as `<name>-<variant>.exe`;
@@ -708,7 +771,7 @@ fn crt64_expected_is_the_native_output() {
     let run = Command::new(root().join("testdata/bin/crt64.exe")).output().unwrap();
     let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
     let expected = std::fs::read_to_string(root().join("testdata/expected/crt.txt")).unwrap().replace("\r\n", "\n");
-    assert_eq!(stdout.trim_end(), expected.trim_end());
+    assert_output("crt64.exe: native", &expected, &stdout, &format!("exit {:?}", run.status.code()));
     assert!(run.status.success());
 }
 
@@ -770,7 +833,7 @@ fn files64_expected_is_the_native_output() {
     let run = Command::new(root().join("testdata/bin/files64.exe")).output().unwrap();
     let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
     let expected = std::fs::read_to_string(root().join("testdata/expected/files.txt")).unwrap().replace("\r\n", "\n");
-    assert_eq!(stdout.trim_end(), expected.trim_end());
+    assert_output("files64.exe: native", &expected, &stdout, &format!("exit {:?}", run.status.code()));
     assert!(run.status.success());
 }
 
@@ -866,7 +929,7 @@ fn resources64_expected_is_the_native_output() {
     let run = Command::new(root().join("testdata/bin/resources64.exe")).output().unwrap();
     let stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
     let expected = std::fs::read_to_string(root().join("testdata/expected/resources.txt")).unwrap().replace("\r\n", "\n");
-    assert_eq!(stdout.trim_end(), expected.trim_end());
+    assert_output("resources64.exe: native", &expected, &stdout, &format!("exit {:?}", run.status.code()));
     assert!(run.status.success());
 }
 
@@ -904,10 +967,9 @@ fn a_traced_run_makes_the_dispatch_direct() {
         let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
         // A host without the Windows DLLs answers only the imports the interpreter runs itself.
         if let Some(stop) = &outcome.stop
-            && !cfg!(windows)
             && stop.starts_with("no binding for ")
+            && foreign_host(cfg!(windows), binary, &format!("{stop}; this host has no Windows DLLs"), "the traced run")
         {
-            eprintln!("{binary}: {stop}; this host has no Windows DLLs: the traced run is skipped");
             continue;
         }
         assert_eq!(outcome.exit, 0, "{binary}: the traced run (stop: {:?})", outcome.stop);
@@ -1600,4 +1662,46 @@ fn rhtest_engine_clang_runs_as_c() {
 #[ignore = "ports but goes wrong at `stream len`: the C++ object model under the x64 runtime, with task 49's exceptions"]
 fn rhtest_engine_clang_runs_as_rust() {
     run_rhtest_as_rust("engine", "clang");
+}
+
+/// A port that prints the wrong text fails in the digest's one line, which names the fixture, the
+/// language, the line and its two sides; a port that does not build fails in one line too, with
+/// the first error of the build, whose whole stderr is beside the two sides. Both lines are in
+/// the digest file.
+#[test]
+fn a_difference_is_one_line() {
+    let limit = ra_asm_testing::digest::LIMIT;
+    let failed = scratch("a-difference-is-one-line");
+    let test = port_test("hello64.exe", "C", "one");
+    let actual = "one\ntwo\nthree\nfour\nfive\n";
+    // The expected file of a Windows run ends its lines in CRLF, and its blank end does not count.
+    assert_eq!(compare_output(&failed, &test, "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n\r\n", actual), Ok(()));
+    assert!(!failed.join("digest.txt").exists());
+    let wrong = "one\r\ntwo\r\nthree\r\nfour\r\nsix\r\n";
+    let message = compare_output(&failed, &test, wrong, actual).unwrap_err();
+    assert_eq!(message, r#"hello64.exe (C, one): line 5: expected "six" got "five" after "two" | "three" | "four""#);
+    assert!(!message.contains('\n') && message.chars().count() < limit, "{message}");
+    let sides = failed.join("hello64.exe__C__one_");
+    assert_eq!(std::fs::read_to_string(sides.join("expected.txt")).unwrap(), wrong.trim_end());
+    assert_eq!(std::fs::read_to_string(sides.join("actual.txt")).unwrap(), actual.trim_end());
+
+    // The first error, not the line that leads to it, and without the port's directory.
+    let port = Path::new("scratch").join("hello64.exe-one");
+    let header = port.join("program.h");
+    let stderr = format!(
+        "In file included from program.c:1:\r\n{}:7:3: error: unknown type name 'uint99_t'\r\nprogram.c:12:5: error: second\r\n2 errors generated.\r\n",
+        header.display()
+    );
+    let build = build_failure(&failed, &test, "clang", &port, &stderr);
+    assert_eq!(build, "hello64.exe (C, one): clang: program.h:7:3: error: unknown type name 'uint99_t'");
+    assert_eq!(std::fs::read_to_string(sides.join("build.txt")).unwrap(), stderr);
+    assert_eq!(std::fs::read_to_string(failed.join("digest.txt")).unwrap(), format!("{message}\n{build}\n"));
+
+    // A build that names no error fails in its first line with text, cut under the digest's limit.
+    let rust = port_test("control64.exe", "Rust", "4");
+    let long = format!("\n   process didn't exit successfully: {}\n   Compiling control64 v0.1.0\n", "rustc ".repeat(60));
+    let build = build_failure(&failed, &rust, "cargo build", &port, &long);
+    assert!(build.starts_with("control64.exe (Rust, 4): cargo build: process didn't exit successfully: rustc rustc "), "{build}");
+    assert!(!build.contains('\n') && build.chars().count() == limit - 1 && build.ends_with('…'), "{build}");
+    assert_eq!(std::fs::read_to_string(failed.join("control64.exe__Rust__4_").join("build.txt")).unwrap(), long);
 }
