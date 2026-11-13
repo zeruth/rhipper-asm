@@ -1,0 +1,47 @@
+# The machine coverage report on GitHub Pages: on every push to main, docs/coverage/build.py
+# measures the workspace (the roadmap's cards, the crates' lines and tests, the lifts' forms, the
+# fixtures, the commits) into docs/coverage/index.html, and the page is deployed as the site's root.
+# The repository's Pages source must be "GitHub Actions" (Settings, Pages).
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# one deployment at a time; a newer push replaces a queued one, never a running one
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the commits-per-day chart reads the whole history
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: python docs/coverage/build.py --out site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,608 @@
+<title>Rhipper Asm Machine Coverage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oxanium:wght@400;600;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: the dashboard's Blood Moon console. A moon-lit header, then a coverage matrix, then one deep panel per CPU family, then the engine and the road. */
+:root {
+  --bg: rgb(23 7 9); --deep: rgb(16 5 7); --panel: rgb(38 14 18); --raised: rgb(48 18 23);
+  --rule: rgb(75 34 40); --dim: rgb(140 91 98); --text: rgb(233 213 211); --accent: rgb(230 57 53);
+  --err: rgb(255 138 122); --warn: rgb(210 153 34); --warn-t: rgb(242 204 96); --debug: rgb(57 197 207);
+  --trace: rgb(188 140 255); --ok: rgb(63 185 80); --sel: rgb(120 30 34); --hover: rgb(70 26 31);
+  --moon-a: rgb(255 215 208); --moon-b: rgb(229 115 115); --moon-c: rgb(120 20 26);
+  --l0: rgb(30 11 14); --l1: rgb(72 28 34); --l2: rgb(120 40 46); --l3: rgb(176 62 52); --l4: rgb(230 96 70); --l5: rgb(255 170 140);
+  --f-display: "Oxanium", "Bahnschrift", "Segoe UI", sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: rgb(250 246 243); --deep: rgb(255 252 250); --panel: rgb(242 235 231); --raised: rgb(255 255 255);
+  --rule: rgb(214 200 196); --dim: rgb(138 112 116); --text: rgb(44 24 28); --accent: rgb(200 40 46);
+  --err: rgb(190 40 30); --warn: rgb(196 128 10); --warn-t: rgb(160 104 0); --debug: rgb(0 130 142);
+  --trace: rgb(112 70 200); --ok: rgb(28 140 52); --sel: rgb(250 208 204); --hover: rgb(244 224 220);
+  --moon-a: rgb(255 236 230); --moon-b: rgb(214 80 80); --moon-c: rgb(150 30 36);
+  --l0: rgb(240 230 226); --l1: rgb(244 212 206); --l2: rgb(236 170 160); --l3: rgb(222 118 104); --l4: rgb(200 60 54); --l5: rgb(140 20 30);
+  color-scheme: light } }
+:root[data-theme="light"] {
+  --bg: rgb(250 246 243); --deep: rgb(255 252 250); --panel: rgb(242 235 231); --raised: rgb(255 255 255);
+  --rule: rgb(214 200 196); --dim: rgb(138 112 116); --text: rgb(44 24 28); --accent: rgb(200 40 46);
+  --err: rgb(190 40 30); --warn: rgb(196 128 10); --warn-t: rgb(160 104 0); --debug: rgb(0 130 142);
+  --trace: rgb(112 70 200); --ok: rgb(28 140 52); --sel: rgb(250 208 204); --hover: rgb(244 224 220);
+  --moon-a: rgb(255 236 230); --moon-b: rgb(214 80 80); --moon-c: rgb(150 30 36);
+  --l0: rgb(240 230 226); --l1: rgb(244 212 206); --l2: rgb(236 170 160); --l3: rgb(222 118 104); --l4: rgb(200 60 54); --l5: rgb(140 20 30);
+  color-scheme: light }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--text); font: 15px/1.55 var(--f-body); padding-inline: 16px; padding-block: 0 64px }
+.wrap { max-width: 1240px; margin-inline: auto; display: grid; gap: 40px }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: .01em }
+h2 { font-size: 1.55rem; font-weight: 600 }
+h3 { font-size: 1.15rem; font-weight: 600 }
+p { margin: 0; max-width: 68ch }
+.mono, td.n, .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums }
+.eyebrow { font: 600 .72rem/1 var(--f-mono); text-transform: uppercase; letter-spacing: .14em; color: var(--dim) }
+.dim { color: var(--dim) }
+a { color: var(--accent) }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+
+/* top bar, like the window's */
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--deep); border-bottom: 1px solid var(--rule);
+  margin-inline: -16px; padding: 10px 16px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font: 500 .82rem var(--f-mono) }
+.bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim) }
+.bar .proj { color: var(--text); font-weight: 600 }
+.bar nav { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto }
+.bar nav a { color: var(--dim); text-decoration: none; padding: 3px 8px; border-radius: 4px }
+.bar nav a:hover { background: var(--hover); color: var(--text) }
+
+/* hero */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 32px; align-items: center; padding-top: 36px }
+.hero h1 { font-size: clamp(2.2rem, 6vw, 4.2rem); font-weight: 800; line-height: .98; text-transform: uppercase }
+.hero h1 span { color: var(--accent) }
+.hero p { margin-top: 14px; color: var(--dim); font-size: 1.02rem }
+.moon { width: clamp(120px, 20vw, 210px); aspect-ratio: 1; max-width: 100%; border-radius: 50%; position: relative;
+  background: radial-gradient(circle at 36% 32%, var(--moon-a) 0%, var(--moon-b) 34%, var(--moon-c) 78%, var(--deep) 100%);
+  box-shadow: 0 0 60px 6px color-mix(in srgb, var(--accent) 35%, transparent), inset -18px -14px 40px rgb(0 0 0 / .45) }
+.moon::after { content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 62% 58%, rgb(0 0 0 / .18) 0 9%, transparent 10%), radial-gradient(circle at 40% 70%, rgb(0 0 0 / .14) 0 6%, transparent 7%), radial-gradient(circle at 70% 30%, rgb(0 0 0 / .12) 0 5%, transparent 6%) }
+@media (prefers-reduced-motion: no-preference) { .moon { animation: glow 6s ease-in-out infinite alternate } }
+@keyframes glow { to { box-shadow: 0 0 90px 14px color-mix(in srgb, var(--accent) 45%, transparent), inset -18px -14px 40px rgb(0 0 0 / .45) } }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden }
+.kpi { background: var(--panel); padding: 14px 16px; display: grid; gap: 4px }
+.kpi b { font: 600 1.7rem/1.1 var(--f-display) }
+.kpi b small { font-size: .9rem; color: var(--dim); font-weight: 400 }
+.kpi span { font-size: .8rem; color: var(--dim) }
+
+section { display: grid; gap: 16px; scroll-margin-top: 60px }
+.head { display: grid; gap: 6px }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 18px }
+
+/* level legend + cells */
+.legend { display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: .8rem; color: var(--dim) }
+.legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; border: 1px solid var(--rule) }
+.L0 { background: var(--l0) } .L1 { background: var(--l1) } .L2 { background: var(--l2) } .L3 { background: var(--l3) } .L4 { background: var(--l4) } .L5 { background: var(--l5) }
+
+/* matrix */
+.scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel) }
+table { border-collapse: collapse; width: 100%; font-size: .85rem }
+.matrix { min-width: 860px }
+.matrix th, .matrix td { padding: 6px 8px; border-bottom: 1px solid var(--rule); text-align: left }
+.matrix thead th { font: 600 .7rem var(--f-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--dim); background: var(--deep); position: sticky; top: 0 }
+.matrix td.cell { width: 76px; padding: 4px }
+.matrix td.cell div { height: 24px; border-radius: 3px; display: grid; place-items: center; font: 600 .7rem var(--f-mono); color: var(--text) }
+.matrix td.cell .L4, .matrix td.cell .L5 { color: rgb(30 6 8) }
+.matrix tr.fam td { background: var(--raised); font: 600 .78rem var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--accent) }
+.matrix td.plat b { font-weight: 600 }
+.matrix td.plat small { display: block; color: var(--dim); font-size: .74rem }
+.matrix td.score { width: 120px }
+.blk { font: 600 .66rem var(--f-mono); color: var(--err); border: 1px solid var(--err); border-radius: 3px; padding: 0 4px; margin-left: 6px; vertical-align: 1px }
+
+/* bars */
+.meter { height: 8px; background: var(--l0); border-radius: 4px; overflow: hidden; border: 1px solid var(--rule) }
+.meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--l3), var(--accent)) }
+.rank { display: grid; gap: 10px }
+.rank .row { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) 54px; gap: 12px; align-items: center }
+.rank .row .meter { height: 16px }
+.rank .row span:last-child { text-align: right }
+
+/* family panels */
+.fams { display: grid; gap: 22px }
+.fam { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 22px; background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 20px; border-top: 3px solid var(--fc, var(--accent)) }
+.fam > * { min-width: 0 }
+.fam .side { display: grid; gap: 14px; align-content: start }
+.fam .tag { font: 600 .72rem var(--f-mono); color: var(--fc); letter-spacing: .1em; text-transform: uppercase }
+.fam h3 { font-size: 1.45rem }
+.fam .big { font: 800 2.6rem/1 var(--f-display); color: var(--fc) }
+.fam .big small { font-size: .95rem; color: var(--dim); font-weight: 400 }
+.radar { width: 100%; max-width: 280px; aspect-ratio: 1 }
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px }
+.fact { background: var(--deep); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; display: grid; gap: 2px }
+.fact b { font: 600 1.05rem var(--f-mono) }
+.fact span { font-size: .74rem; color: var(--dim) }
+.plats { display: grid; gap: 6px }
+.plat { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 8px 10px; background: var(--deep); border: 1px solid var(--rule); border-radius: 6px }
+.plat .strip { display: grid; grid-template-columns: repeat(8, 14px); gap: 3px }
+.plat .strip i { height: 14px; border-radius: 2px; border: 1px solid var(--rule) }
+.plat small { grid-column: 1 / -1; color: var(--dim); font-size: .78rem }
+.cards { display: grid; gap: 6px }
+.stack { display: flex; height: 18px; border-radius: 4px; overflow: hidden; border: 1px solid var(--rule); background: var(--l0) }
+.stack i { display: block; height: 100% }
+.s-acc { background: var(--ok) } .s-def { background: var(--l2) } .s-blk { background: var(--err) } .s-rev { background: var(--warn) } .s-env { background: repeating-linear-gradient(45deg, var(--l1) 0 6px, var(--l0) 6px 12px) }
+.keys { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .76rem; color: var(--dim) }
+.keys i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px }
+.list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: .84rem }
+.list li { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 8px; align-items: baseline }
+.list li .id { font-family: var(--f-mono); color: var(--dim) }
+.pill { font: 600 .66rem var(--f-mono); text-transform: uppercase; letter-spacing: .06em; padding: 1px 6px; border-radius: 10px; border: 1px solid currentColor }
+.p-acc { color: var(--ok) } .p-def { color: var(--dim) } .p-blk { color: var(--err) } .p-env { color: var(--trace) }
+.note { font-size: .86rem; color: var(--text); border-left: 2px solid var(--fc, var(--accent)); padding-left: 10px }
+
+/* charts */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 18px }
+.grid2 > * { min-width: 0 }
+.hbars { display: grid; gap: 7px }
+.hbars .r { display: grid; grid-template-columns: 130px minmax(0, 1fr) 70px; gap: 10px; align-items: center; font-size: .8rem }
+.hbars .r .t { height: 14px; background: var(--l0); border-radius: 3px; overflow: hidden }
+.hbars .r .t i { display: block; height: 100% }
+.hbars .r span:last-child { text-align: right; font-family: var(--f-mono) }
+.hbars .r span:first-child { font-family: var(--f-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+svg text { fill: var(--dim); font: 11px var(--f-mono) }
+svg .lbl { fill: var(--text) }
+.fixt { min-width: 640px }
+.fixt th, .fixt td { padding: 6px 8px; border-bottom: 1px solid var(--rule); text-align: center }
+.fixt th:first-child, .fixt td:first-child { text-align: left }
+.fixt thead th { font: 600 .7rem var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--dim); background: var(--deep) }
+.yes { color: var(--ok); font-weight: 600 } .no { color: var(--rule) }
+
+.road { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px }
+.phase { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; display: grid; gap: 6px; align-content: start }
+.phase .eyebrow { color: var(--accent) }
+.phase b { font-family: var(--f-display); font-size: 1rem }
+.phase p { font-size: .8rem; color: var(--dim) }
+.chips { display: flex; flex-wrap: wrap; gap: 4px }
+.chip { font: 500 .68rem var(--f-mono); padding: 1px 6px; border-radius: 3px; background: var(--deep); border: 1px solid var(--rule); color: var(--text) }
+.method { font-size: .86rem; color: var(--dim); display: grid; gap: 8px }
+.method li { margin-bottom: 4px }
+
+@media (max-width: 860px) {
+  .fam { grid-template-columns: 1fr }
+  .radar { max-width: 240px; justify-self: center }
+  .hero { grid-template-columns: 1fr }
+  .moon { justify-self: start; order: -1 }
+  .rank .row { grid-template-columns: minmax(0, 130px) minmax(0, 1fr) 46px }
+  .hbars .r { grid-template-columns: 96px minmax(0, 1fr) 56px }
+}
+</style>
+
+<div class="bar">
+  <span class="dot" title="idle"></span><span class="proj">rhipper-asm</span>
+  <span class="dim">main @ <span id="head">?</span> · <span id="date">?</span> · rebuilt on every push</span>
+  <nav aria-label="Sections">
+    <a href="#matrix">Matrix</a><a href="#families">Families</a><a href="#engine">Engine</a><a href="#road">Road</a><a href="#method">Method</a>
+  </nav>
+</div>
+
+<div class="wrap">
+  <header class="hero">
+    <div>
+      <div class="eyebrow">Rhipper Asm · coverage report</div>
+      <h1>Every machine,<br><span>by its CPU</span></h1>
+      <p>How far each processor family and each console or platform on it gets through asm's pipeline: from reading the container to a C port that runs and checks itself against the original. Measured from the code, the fixtures and the roadmap at <span class="mono" id="head2">?</span>.</p>
+    </div>
+    <div class="moon" role="img" aria-label="A blood moon"></div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section id="families-rank">
+    <div class="head">
+      <div class="eyebrow">At a glance</div>
+      <h2>Coverage by CPU family</h2>
+      <p class="dim">Each family's score is its best platform's average across the eight stages, out of 5. Families below 1.5 exist only as roadmap sections or cards so far.</p>
+    </div>
+    <div class="panel rank" id="rank"></div>
+  </section>
+
+  <section id="matrix">
+    <div class="head">
+      <div class="eyebrow">The matrix</div>
+      <h2>Every platform, every stage</h2>
+      <p class="dim">Rows are platforms grouped by CPU. Columns are the stages a program passes through on its way to a port.</p>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="scroll"><table class="matrix" id="mx"></table></div>
+  </section>
+
+  <section id="families">
+    <div class="head">
+      <div class="eyebrow">In depth</div>
+      <h2>The families</h2>
+      <p class="dim">One panel per CPU family. The radar shows the family's best level at each stage. Under each platform, the eight boxes follow the matrix's column order.</p>
+    </div>
+    <div class="fams" id="fams"></div>
+  </section>
+
+  <section id="engine">
+    <div class="head">
+      <div class="eyebrow">The engine</div>
+      <h2>What the coverage stands on</h2>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h3>Rust lines by crate</h3><p class="dim" style="margin:4px 0 12px">Source and tests together. The ARM decoders are thin because the ARM64 decoder wraps <span class="mono">yaxpeax-arm</span>. x86 wraps <span class="mono">iced-x86</span>.</p><div class="hbars" id="loc"></div></div>
+      <div class="panel"><h3>Tests by crate</h3><p class="dim" style="margin:4px 0 12px">The count of <span class="mono">#[test]</span> functions: <span id="ntests">?</span> in all. The instruction oracle runs x86 forms on the host CPU.</p><div class="hbars" id="tests"></div></div>
+      <div class="panel"><h3>Instruction forms the lifts name</h3><p class="dim" style="margin:4px 0 12px">The distinct decoder opcodes each lift handles. Each architecture is counted its own way, so these are scale, not exact parity.</p><div class="hbars" id="forms"></div></div>
+      <div class="panel"><h3>Boundary knowledge</h3><p class="dim" style="margin:4px 0 12px">What asm knows about the platform a program calls into. Win32 is the only full boundary today. The console boundaries are roadmap sections.</p><div class="hbars" id="boundary"></div></div>
+    </div>
+    <div class="panel">
+      <h3>Committed fixtures: container × machine</h3>
+      <p class="dim" style="margin:4px 0 12px">The binaries in <span class="mono">testdata/bin</span>, with the <span id="ngolden">?</span> golden outputs in <span class="mono">testdata/expected</span>. Each one checks that a ported program prints what the original printed.</p>
+      <div class="scroll" style="border:0"><table class="fixt" id="fixt"></table></div>
+    </div>
+  </section>
+
+  <section id="road">
+    <div class="head">
+      <div class="eyebrow">The road</div>
+      <h2>Cards, phases and pace</h2>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h3>Every card by state</h3><p class="dim" style="margin:4px 0 8px"><span id="ncards">?</span> tasks across <span class="mono">rhipper.md</span> and <span class="mono">rhipper.done.md</span>. Phases 4–11 are sections, not cards yet.</p><svg id="donut" viewBox="0 0 320 200" role="img" aria-label="Cards by state"></svg></div>
+      <div class="panel"><h3>Complexity: done and open</h3><p class="dim" style="margin:4px 0 8px">Accepted and open cards at each complexity rating, c1 to c5.</p><svg id="cx" viewBox="0 0 420 210" role="img" aria-label="Cards by complexity"></svg></div>
+      <div class="panel"><h3>Machine cards by family</h3><p class="dim" style="margin:4px 0 12px">Cards that name a specific machine. The hatched width marks endgame sections that have no cards yet.</p><div id="famcards" class="hbars"></div></div>
+      <div class="panel"><h3>Commits per day</h3><p class="dim" style="margin:4px 0 8px"><span id="ncommits">?</span> commits on <span class="mono">main</span>; the last 30 days with commits.</p><svg id="pace" viewBox="0 0 420 210" role="img" aria-label="Commits per day"></svg></div>
+    </div>
+    <div class="road" id="phases"></div>
+  </section>
+
+  <section id="method">
+    <div class="head">
+      <div class="eyebrow">Method</div>
+      <h2>How the levels were set</h2>
+    </div>
+    <div class="panel method">
+      <ul>
+        <li><b>5 · verified</b>: committed fixtures pass through this stage and an oracle (objdump, the host CPU, the original program's output) agrees.</li>
+        <li><b>4 · working</b>: the code exists and is exercised by tests, but nothing outside asm checks the answer yet.</li>
+        <li><b>3 · partial</b>: the code exists for part of the stage, or only for a related target (for example the ARM64 decoder that the Switch would reuse).</li>
+        <li><b>2 · carded</b>: defined cards with acceptance criteria are on the roadmap. <span class="blk">blocked</span> marks cards waiting on a missing tool or a decision.</li>
+        <li><b>1 · envisioned</b>: an endgame section names it (phases 4–11), with no cards yet.</li>
+        <li><b>0</b>: nothing yet.</li>
+      </ul>
+      <p>Line, test and card counts are measured. Levels are judged from those counts plus the accepted cards' acceptance criteria, so treat them as ±1. The "retail" column means one commercial program from your own copy, carried from boot to its title screen (card 100, §422). No platform has reached it.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+const STAGES = ["Container", "Decode", "Lift", "Raise · ABI", "Emit C", "Verified", "Runtime", "Retail"];
+const STAGE_TIPS = ["the image format is read", "bytes become instructions", "instructions become IR", "registers become variables, calls get prototypes", "C (and C++ / Rust) is written", "an oracle agrees with the port", "the platform the program calls into is provided", "a commercial program reaches its title screen"];
+const LEVELS = ["none", "envisioned", "carded", "partial", "working", "verified"];
+
+const FAMILIES = [
+  { id: "x86", name: "x86 · IA-32 and x86-64", tag: "shipped", color: "var(--accent)",
+    blurb: "The home machine. Every stage up to a running port works on 32-bit and 64-bit Windows programs, with the x87 at its full 80 bits, SEH and C++ exceptions, TLS, MSVC's CRT shapes and UPX-packed images. The original Xbox's XBE loads and its fixture prints \"hello from the xbox\".",
+    facts: [["{x86}", "x86 opcodes in the lift"], ["{x87}", "x87 opcodes"], ["{win32}", "Win32 prototype and name lines"], ["{pe_x86}", "PE fixtures"], ["4", "XBE · ELF · Mach-O · PE"], ["iced-x86", "decoder"]],
+    scope: { milestones: [40, 214], ids: [92], sections: [420, 440] },
+    keyCards: [[41, "The 32-bit lift", "acc"], [58, "The x87 unit at 80 bits", "acc"], [56, "Visual Studio 2010 builds: a statically linked CRT", "acc"], [92, "The original Xbox: XBE", "acc"], [267, "Packed programs: card 53 in four", "def"], [256, "The Win32 boundary as a file", "def"], [440, "x86 beyond Windows: DOS, the Xbox's kernel, Linux, macOS", "env"]],
+    platforms: [
+      { n: "Windows x86 (PE32)", s: [5, 5, 5, 4, 4, 5, 4, 2], d: "18 fixtures; the instruction oracle runs on the host CPU; driver.c and rhipper.h provide the Win32 host" },
+      { n: "Windows x64 (PE32+)", s: [5, 5, 5, 4, 4, 5, 4, 2], d: "19 fixtures including PDB, C++ throw and SEH; the -O1 control build" },
+      { n: "Original Xbox (XBE)", s: [5, 5, 4, 3, 3, 4, 1, 1], d: "xbe.rs is 743 lines with 237 lines of tests; the fixture's port prints its expected output; the kernel exports are §440" },
+      { n: "Linux x86-64 (ELF)", s: [4, 5, 5, 3, 3, 4, 1, 0], d: "hello_linux64 with a golden output; the libc and syscall boundary is §440" },
+      { n: "macOS x86-64 (Mach-O)", s: [4, 5, 5, 3, 3, 3, 1, 0], d: "hello_macos_x64; macho.rs is 1 071 lines in ra-asm-format" },
+      { n: "DOS (real mode)", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "Segments, real mode and DOS extenders as loaders: §440" },
+    ],
+    note: "Next for x86: card 214, \"The real program, proven\". It moves the port from the fixtures to a real XP-era game, with the Win32 boundary as a data file." },
+  { id: "arm", name: "ARM · AArch64, ARM32 and Thumb-2", tag: "lifting", color: "var(--warn-t)",
+    blurb: "64-bit ARM lifts and raises from PE, ELF and Mach-O, including NEON, Android .so libraries and Apple Silicon binaries. 32-bit ARM runs through a hand-written Thumb-2 decoder and lift. Neither lift has instruction vectors yet: cards 364–366 are next.",
+    facts: [["~{a64}", "AArch64 opcodes in the lift"], ["{a64_adapter}", "opcodes in the AArch64 adapter"], ["{thumb}", "Thumb-2 op groups"], ["{thumb_decoder_lines}", "Thumb-2 decoder lines"], ["{arm_fixtures}", "ARM fixtures"], ["yaxpeax", "AArch64 decoder"]],
+    scope: { milestones: [74], ids: [364, 365, 366], sections: [439, 441] },
+    keyCards: [[38, "ARM64 PE", "acc"], [75, "The ARM64 raise", "acc"], [76, "ARM64 ELF and Mach-O: Linux, Android, macOS", "acc"], [77, "NEON and the vector lift", "acc"], [78, "ARM32 and Thumb-2", "acc"], [365, "ARM64 vectors from qemu-aarch64-static", "def"], [439, "ARM before Thumb-2: the GBA, the DS, the 3DS", "env"], [441, "The phone, the Switch, the current consoles", "env"]],
+    platforms: [
+      { n: "Windows on ARM64 (PE)", s: [5, 4, 4, 4, 3, 3, 2, 0], d: "helloa64 and floata64; the raise is shared with ELF and Mach-O" },
+      { n: "Linux / Android AArch64 (ELF, .so)", s: [4, 4, 4, 4, 3, 4, 1, 0], d: "libmain_a64.so has a golden output; hello_linux_a64" },
+      { n: "macOS / iOS arm64 (Mach-O)", s: [4, 4, 4, 3, 3, 3, 1, 0], d: "hello_macos_arm64; app packages are §441" },
+      { n: "ARM32 Thumb-2 (Linux ELF)", s: [4, 4, 4, 3, 3, 4, 1, 0], d: "The thumb32 fixture has a golden output; svc goes through @ra_svc" },
+      { n: "Nintendo Switch (NSO / NRO)", s: [1, 4, 4, 3, 3, 1, 1, 1], d: "The machine is lifted already; the containers and the Horizon boundary are §441" },
+      { n: "Game Boy Advance (ARM7TDMI)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "ARMv4T as a table beside the hand-written lifts: §439" },
+      { n: "Nintendo DS (ARM9 + ARM7)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "A program of two images: §439" },
+      { n: "Nintendo 3DS (ARM11)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "ARMv6: §439" },
+    ],
+    note: "The ARM lifts were checked against outputs only, not instruction by instruction. Cards 364–366 add assembled cases and qemu vectors, so they get the same per-form proof x86 has." },
+  { id: "mips", name: "MIPS · R3000, R5900, Allegrex, VR4300", tag: "fully carded", color: "var(--debug)",
+    blurb: "The most planned family and the first one built from a machine description instead of hand-written code. The 79-card \"Machines from descriptions\" milestone builds a table mechanism, a qemu-user reference harness, big-endian support, the PlayStation with its GTE, and the Emotion Engine with MMI. No MIPS code exists yet.",
+    facts: [["{cards}", "cards on the roadmap"], ["{accepted}", "accepted"], ["{s333}", "PlayStation cards"], ["{s347}", "Emotion Engine cards"], ["{s313}", "image-to-C cards"], ["qemu", "reference oracle"]],
+    scope: { milestones: [79, 278], exclude: [364, 365, 366], sections: [414, 415, 416, 417, 418, 419, 434] },
+    keyCards: [[288, "A row, and a decoder built from rows", "def"], [297, "The harness and its MIPS trampoline", "def"], [313, "A MIPS program, from image to C (13 cards)", "def"], [335, "A PSX-EXE is an Image, with the memory map", "def"], [339, "The GTE's registers, as a sub-machine", "def"], [348, "The R5900 machine: 128-bit registers", "def"], [417, "The PlayStation 2: vector units", "env"], [434, "The PSP and the Nintendo 64", "env"]],
+    platforms: [
+      { n: "Linux MIPS (mipsel / mips ELF)", s: [2, 2, 2, 2, 2, 2, 2, 0], d: "Freestanding fixtures, o32 as an Abi constant, Linux syscalls in the interpreter (cards 314–325)" },
+      { n: "PlayStation (R3000A + GTE)", s: [2, 2, 2, 2, 2, 2, 2, 2], d: "PSX-EXE, BIOS A0/B0/C0 tables as rows, two independent GTEs (cards 334–346); GPU and SPU are §414–416" },
+      { n: "PlayStation 2 (EE R5900 · VU · IOP)", s: [2, 2, 2, 2, 2, 2, 2, 2], d: "EE ELF and memory map, MMI, non-IEEE float, kernel syscalls (cards 348–362); VU and IOP are §417–419" },
+      { n: "PSP (Allegrex + VFPU)", s: [2, 2, 2, 1, 1, 1, 1, 1], d: "PRX module info and NIDs (cards 86, 147); §434" },
+      { n: "Nintendo 64 (VR4300 + RSP)", s: [2, 2, 2, 1, 1, 1, 1, 1], d: "ROM byte orders, libdragon, RSP microcode as epochs (cards 87, 148, 152)" },
+    ],
+    note: "This family proves the bet. If the table mechanism makes the second and third MIPS machines cheap, every family after it is mostly data." },
+  { id: "ppc", name: "PowerPC · Gekko, Broadway, Xenon, Cell PPU", tag: "carded", color: "var(--trace)",
+    blurb: "One table is planned for the whole family: Gekko's and Broadway's paired singles, VMX and VMX128, and the Cell's PPU. DOL and REL for the GameCube and Wii have cards. The Xbox 360's XEX is blocked, and XEX and SELF are limited to images you have already decrypted.",
+    facts: [["{cards}", "cards on the roadmap"], ["{blocked}", "blocked"], ["4", "consoles named"], ["BE", "needs big-endian (cards 326–332)"], ["§435", "endgame section"]],
+    scope: { ids: [89, 149, 90, 91], sections: [435] },
+    keyCards: [[89, "The PowerPC decoder", "def"], [149, "The PowerPC lift and the SysV raise", "def"], [90, "GameCube and Wii: DOL and REL", "def"], [91, "Xbox 360: XEX", "blk"], [435, "One table for the family", "env"]],
+    platforms: [
+      { n: "GameCube (Gekko)", s: [2, 2, 2, 2, 1, 1, 1, 1], d: "DOL and REL (card 90); paired singles" },
+      { n: "Wii (Broadway)", s: [2, 2, 2, 2, 1, 1, 1, 1], d: "Same containers and core as the GameCube" },
+      { n: "Xbox 360 (Xenon · VMX128)", s: [2, 2, 2, 1, 1, 1, 1, 1], d: "XEX (card 91, blocked); decrypted images only", blocked: true },
+      { n: "PlayStation 3 (Cell PPU)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "SELF, decrypted only; the SPUs are not named yet" },
+    ],
+    note: "Waits on the big-endian work in MIPS's milestone, which is shared by every big-endian family after it." },
+  { id: "sh", name: "SuperH · SH-4 and SH-2", tag: "blocked", color: "var(--err)",
+    blurb: "The Dreamcast's cards exist (the SH-4 decoder, its lift and the KallistiOS raise, and 1ST_READ.BIN), but all three are blocked. They reuse the delay-slot lifter the MIPS phase builds. The Saturn and 32X use SH-2 in the same table.",
+    facts: [["{cards}", "cards on the roadmap"], ["{blocked}", "blocked"], ["3", "consoles named"], ["delay", "slots shared with MIPS"], ["KOS", "signatures for Dreamcast"], ["§436", "endgame section"]],
+    scope: { ids: [143, 93, 153], sections: [436] },
+    keyCards: [[143, "The SH-4 decoder", "blk"], [93, "Dreamcast: 1ST_READ.BIN and the KallistiOS signatures", "blk"], [153, "The SH-4 lift and the KOS raise", "blk"], [436, "SH-4 and SH-2 as one table", "env"]],
+    platforms: [
+      { n: "Dreamcast (SH-4)", s: [2, 2, 2, 2, 1, 1, 1, 1], d: "Cards 93, 143, 153, all blocked", blocked: true },
+      { n: "Sega Saturn (2× SH-2)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "§436" },
+      { n: "Sega 32X (SH-2)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "§436" },
+    ],
+    note: "Card 93 also has a review asking for substantive revision. Unblocking SH-4 should wait until the MIPS table mechanism lands." },
+  { id: "m68k", name: "Motorola 68000", tag: "envisioned", color: "var(--moon-b)",
+    blurb: "The first variable-length machine the table format has to describe, built from extension words. Planned containers: ROM images, Amiga Hunk files and the classic Mac's resource forks.",
+    facts: [["0", "cards"], ["4", "platforms named"], ["v2", "row format needed"], ["§437", "endgame section"]],
+    scope: { sections: [437] }, keyCards: [[437, "68000: the Mega Drive, the Amiga, the classic Mac, the arcade boards", "env"]],
+    platforms: [
+      { n: "Sega Mega Drive / Genesis", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "ROM image" },
+      { n: "Amiga", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "Hunk executables" },
+      { n: "Classic Macintosh", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "Resource forks" },
+      { n: "Arcade boards", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "ROM sets" },
+    ] },
+  { id: "8bit", name: "8- and 16-bit · 6502, 65816, Z80, SM83", tag: "envisioned", color: "var(--warn)",
+    blurb: "Machines where code and data share one bank-switched address space, and programs count their own cycles. Banks become epochs, the mapper becomes a device, and the port's clock is exact because the table carries cycle counts.",
+    facts: [["0", "cards"], ["4", "CPUs named"], ["cycles", "carried in rows"], ["§438", "endgame section"]],
+    scope: { sections: [438] }, keyCards: [[438, "6502, 65816, Z80, the Game Boy's processor", "env"]],
+    platforms: [
+      { n: "NES / Famicom (6502)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "Mappers as devices" },
+      { n: "SNES (65816)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "" },
+      { n: "Master System / ZX (Z80)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "" },
+      { n: "Game Boy / Color (SM83)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "" },
+    ] },
+  { id: "riscv", name: "RISC-V and microcontrollers", tag: "envisioned", color: "var(--ok)",
+    blurb: "RV32 and RV64 with their extensions, plus Cortex-M, AVR, MSP430 and Xtensa. Firmware is treated as a flat image with a vector table, and the memory map comes from vendor description files. Cortex-M starts ahead because it is Thumb-2, which asm already decodes.",
+    facts: [["0", "cards"], ["6", "ISAs named"], ["Thumb-2", "Cortex-M reuse"], ["§442", "endgame section"]],
+    scope: { sections: [442, 443] }, keyCards: [[442, "RISC-V and the microcontrollers", "env"], [443, "Firmware containers and the blob", "env"]],
+    platforms: [
+      { n: "RISC-V RV32 / RV64", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "" },
+      { n: "Cortex-M (ARMv7-M)", s: [1, 3, 3, 2, 1, 1, 1, 0], d: "The Thumb-2 decoder and lift cover most of it" },
+      { n: "AVR · MSP430 · Xtensa", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "" },
+      { n: "Headerless firmware blobs", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "Machine and base guessed from statistics: §443" },
+    ] },
+];
+
+const M = /*@MEASURED@*/null;
+const $ = (s) => document.querySelector(s);
+const h = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.innerHTML = html; return e; };
+const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+const fmt = (v) => Number(v).toLocaleString("en-US");
+const famScore = (f) => Math.max(...f.platforms.map((p) => avg(p.s)));
+const famBest = (f) => STAGES.map((_, i) => Math.max(...f.platforms.map((p) => p.s[i])));
+const STATE = { accepted: "acc", defined: "def", blocked: "blk", review: "rev", failed: "blk", in_progress: "rev" };
+
+if (!M) {
+  document.querySelector(".wrap").prepend(h("p", { class: "panel" }, "This is the page's template. Build the report with <span class=\"mono\">python docs/coverage/build.py</span> and open <span class=\"mono\">site/index.html</span>."));
+  throw new Error("no measurements");
+}
+
+// the measurements the page names
+const crateMap = Object.fromEntries(M.crates.map(([n, loc, t]) => [n, { loc, t }]));
+const fxRow = (name) => (M.fixtures.rows.find((r) => r[0] === name) || [name, [0, 0, 0, 0]])[1];
+const pe = fxRow("PE"), elf = fxRow("ELF"), macho = fxRow("Mach-O");
+const boundary = Object.fromEntries(M.boundary);
+const GLOBAL = { ...M.forms, win32: fmt((boundary["Win32 protos"] || 0) + (boundary["Win32 names"] || 0)),
+  pe_x86: pe[0] + pe[1], arm_fixtures: pe[2] + pe[3] + elf[2] + elf[3] + macho[2] + macho[3], thumb_decoder_lines: fmt(M.forms.thumb_decoder_lines) };
+const milestone = (id) => M.milestones.find((m) => m.id === id) || { tasks: [], sections: [] };
+const sectionTasks = (id) => { // the tasks under a section: the ids that follow it in its milestone up to the next section
+  for (const m of M.milestones) { const i = m.sections.indexOf(id); if (i >= 0) { const next = m.sections[i + 1] ?? Infinity; return m.tasks.filter((t) => t > id && t < next); } }
+  return [];
+};
+function famCards(f) {
+  const s = f.scope || {}, ids = new Set(s.ids || []);
+  (s.milestones || []).forEach((m) => milestone(m).tasks.forEach((t) => ids.add(t)));
+  (s.exclude || []).forEach((t) => ids.delete(t));
+  const c = { acc: 0, def: 0, blk: 0, rev: 0, env: (s.sections || []).length, ids: [...ids] };
+  ids.forEach((id) => { const n = M.nodes[id]; if (n) c[STATE[n.state] || "def"]++; });
+  return c;
+}
+FAMILIES.forEach((f) => { f.cards = famCards(f); });
+const fill = (str, f) => str.replace(/\{(\w+)\}/g, (_, k) => {
+  if (k === "cards") return f.cards.ids.length;
+  if (k === "accepted") return f.cards.acc;
+  if (k === "blocked") return f.cards.blk;
+  if (/^s\d+$/.test(k)) return sectionTasks(+k.slice(1)).length;
+  return k in GLOBAL ? GLOBAL[k] : `{${k}}`;
+});
+
+// header numbers
+const totalTasks = Object.values(M.states).reduce((a, b) => a + b, 0);
+const totalTests = M.crates.reduce((a, r) => a + r[2], 0);
+const totalLoc = M.crates.reduce((a, r) => a + r[1], 0);
+["head", "head2"].forEach((id) => { $("#" + id).textContent = M.head; });
+$("#date").textContent = M.date;
+$("#ntests").textContent = fmt(totalTests);
+$("#ngolden").textContent = M.golden;
+$("#ncards").textContent = fmt(totalTasks);
+$("#ncommits").textContent = fmt(M.total_commits);
+
+// KPIs
+const plats = FAMILIES.flatMap((f) => f.platforms);
+const working = plats.filter((p) => avg(p.s) >= 3).length;
+[[String(FAMILIES.length), "", "CPU families on the map"], [String(plats.length), "", "platforms and consoles"], [String(working), "/" + plats.length, "platforms with a working lift"],
+ [fmt(M.states.accepted || 0), "/" + fmt(totalTasks), "cards accepted"], [fmt(totalTests), "", "tests"], [String(M.golden), "", "golden outputs"], [(totalLoc / 1000).toFixed(1) + "k", "", "lines of Rust"]]
+  .forEach(([b, sm, s]) => $("#kpis").append(h("div", { class: "kpi" }, `<b>${b}<small>${sm}</small></b><span>${s}</span>`)));
+
+// rank
+[...FAMILIES].sort((a, b) => famScore(b) - famScore(a)).forEach((f) => {
+  const sc = famScore(f);
+  $("#rank").append(h("div", { class: "row" }, `<span><a href="#f-${f.id}" style="color:var(--text);text-decoration:none">${f.name.split(" · ")[0]}</a> <span class="dim" style="font-size:.78rem">${f.tag}</span></span><div class="meter"><i style="width:${sc / 5 * 100}%;background:linear-gradient(90deg, var(--l2), ${f.color})"></i></div><span class="num">${sc.toFixed(2)}</span>`));
+});
+
+// legend
+LEVELS.forEach((l, i) => $("#legend").append(h("span", {}, `<i class="L${i}"></i>${i} · ${l}`)));
+$("#legend").append(h("span", {}, `<span class="blk" style="margin:0 6px 0 0">blocked</span>cards waiting on a decision or a tool`));
+
+// matrix
+const mx = $("#mx");
+mx.append(h("thead", {}, `<tr><th>Platform</th>${STAGES.map((s, i) => `<th title="${STAGE_TIPS[i]}">${s}</th>`).join("")}<th>Score</th></tr>`));
+const tb = h("tbody");
+FAMILIES.forEach((f) => {
+  tb.append(h("tr", { class: "fam" }, `<td colspan="10">${f.name}</td>`));
+  f.platforms.forEach((p) => {
+    const sc = avg(p.s);
+    tb.append(h("tr", {}, `<td class="plat"><b>${p.n}</b>${p.blocked ? '<span class="blk">blocked</span>' : ""}${p.d ? `<small>${p.d}</small>` : ""}</td>` +
+      p.s.map((v, i) => `<td class="cell"><div class="L${v}" title="${STAGES[i]}: ${LEVELS[v]}">${v || "·"}</div></td>`).join("") +
+      `<td class="score"><div class="meter"><i style="width:${sc / 5 * 100}%"></i></div><span class="num dim" style="font-size:.75rem">${sc.toFixed(2)} / 5</span></td>`));
+  });
+});
+mx.append(tb);
+
+// radar
+function radar(vals, color) {
+  const cx = 140, cy = 140, R = 96, n = vals.length;
+  const pt = (i, r) => { const a = -Math.PI / 2 + i * 2 * Math.PI / n; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; };
+  let s = `<svg class="radar" viewBox="0 0 280 280" role="img" aria-label="Best level per stage">`;
+  for (let k = 1; k <= 5; k++) s += `<polygon points="${vals.map((_, i) => pt(i, R * k / 5).join(",")).join(" ")}" fill="none" stroke="var(--rule)" stroke-width="${k === 5 ? 1.2 : .6}"/>`;
+  vals.forEach((_, i) => { const [x, y] = pt(i, R); s += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--rule)" stroke-width=".6"/>`; });
+  s += `<polygon points="${vals.map((v, i) => pt(i, R * v / 5).join(",")).join(" ")}" fill="${color}" fill-opacity=".28" stroke="${color}" stroke-width="2"/>`;
+  vals.forEach((v, i) => { const [x, y] = pt(i, R * v / 5); s += `<circle cx="${x}" cy="${y}" r="3" fill="${color}"/>`; });
+  STAGES.forEach((st, i) => { const [x, y] = pt(i, R + 22); s += `<text x="${x}" y="${y + 4}" text-anchor="middle" class="lbl" style="font-size:10px">${st}</text>`; });
+  return s + "</svg>";
+}
+
+// family panels
+const PILL = { acc: "accepted", def: "defined", blk: "blocked", rev: "review", env: "section" };
+FAMILIES.forEach((f) => {
+  const c = f.cards, tot = Math.max(1, c.acc + c.def + c.blk + c.rev + c.env * 4);
+  const seg = (v, cls) => v ? `<i class="${cls}" style="width:${v / tot * 100}%"></i>` : "";
+  const keyState = (id, s) => s === "env" ? "env" : (STATE[(M.nodes[id] || {}).state] || "def");
+  const el = h("article", { class: "fam", id: `f-${f.id}`, style: `--fc:${f.color}` });
+  el.innerHTML = `
+    <div class="side">
+      <div class="tag">${f.tag}</div>
+      <h3>${f.name}</h3>
+      <div class="big">${famScore(f).toFixed(2)}<small> / 5 best platform</small></div>
+      ${radar(famBest(f), f.color)}
+      <div class="cards">
+        <div class="eyebrow">Cards</div>
+        <div class="stack">${seg(c.acc, "s-acc")}${seg(c.rev, "s-rev")}${seg(c.def, "s-def")}${seg(c.blk, "s-blk")}${seg(c.env * 4, "s-env")}</div>
+        <div class="keys"><span><i class="s-acc"></i>${c.acc} accepted</span>${c.rev ? `<span><i class="s-rev"></i>${c.rev} in review</span>` : ""}<span><i class="s-def"></i>${c.def} defined</span>${c.blk ? `<span><i class="s-blk"></i>${c.blk} blocked or failed</span>` : ""}<span><i class="s-env"></i>${c.env} sections</span></div>
+      </div>
+    </div>
+    <div style="display:grid;gap:16px;align-content:start">
+      <p>${f.blurb}</p>
+      <div class="facts">${f.facts.map(([b, s]) => `<div class="fact"><b>${fill(b, f)}</b><span>${s}</span></div>`).join("")}</div>
+      <div><div class="eyebrow" style="margin-bottom:8px">Platforms</div><div class="plats">${f.platforms.map((p) => `
+        <div class="plat"><span><b>${p.n}</b>${p.blocked ? '<span class="blk">blocked</span>' : ""}</span>
+        <span class="strip" aria-label="levels ${p.s.join(", ")}">${p.s.map((v, i) => `<i class="L${v}" title="${STAGES[i]}: ${v} ${LEVELS[v]}"></i>`).join("")}</span>
+        ${p.d ? `<small>${p.d}</small>` : ""}</div>`).join("")}</div></div>
+      <div><div class="eyebrow" style="margin-bottom:8px">Key cards</div><ul class="list">${f.keyCards.map(([id, t, s]) => { const st = keyState(id, s);
+        return `<li><span class="id">${st === "env" ? "§" : "#"}${id}</span><span>${t}</span><span class="pill p-${st === "rev" ? "def" : st}">${PILL[st]}</span></li>`; }).join("")}</ul></div>
+      ${f.note ? `<p class="note">${f.note}</p>` : ""}
+    </div>`;
+  $("#fams").append(el);
+});
+
+// hbars
+function hbars(sel, rows, show = fmt, color = "linear-gradient(90deg, var(--l3), var(--accent))") {
+  const max = Math.max(1, ...rows.map((r) => r[1]));
+  rows.forEach(([k, v, c]) => $(sel).append(h("div", { class: "r" }, `<span title="${k}">${k}</span><div class="t"><i style="width:${v / max * 100}%;background:${c || color}"></i></div><span>${show(v)}</span>`)));
+}
+hbars("#loc", [...M.crates].sort((a, b) => b[1] - a[1]).map(([n, loc]) => [n, loc]));
+hbars("#tests", [...M.crates].filter((r) => r[2]).sort((a, b) => b[2] - a[2]).map(([n, , t]) => [n, t]));
+hbars("#forms", [["x86 lift", M.forms.x86, "var(--accent)"], ["AArch64 lift", M.forms.a64, "var(--warn-t)"], ["x87 lift", M.forms.x87, "var(--accent)"], ["AArch64 adapter", M.forms.a64_adapter, "var(--warn-t)"], ["Thumb-2 lift", M.forms.thumb, "var(--warn-t)"]].sort((a, b) => b[1] - a[1]));
+hbars("#boundary", M.boundary.map(([k, v]) => [k, v, "var(--accent)"]).sort((a, b) => b[1] - a[1]), (v) => v ? fmt(v) + " ln" : "—");
+
+// fixtures matrix
+$("#fixt").innerHTML = `<thead><tr><th>Container</th>${M.fixtures.cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${M.fixtures.rows.map(([n, v]) => `<tr><td>${n}</td>${v.map((x) => `<td class="${x ? "yes" : "no"} num">${x || "·"}</td>`).join("")}</tr>`).join("")}</tbody>`;
+
+// donut
+(function () {
+  const colors = { accepted: "var(--ok)", defined: "var(--l3)", blocked: "var(--err)", review: "var(--warn)", failed: "var(--trace)", in_progress: "var(--debug)" };
+  const data = Object.entries(M.states).sort((a, b) => b[1] - a[1]).map(([k, v]) => [k || "unset", v, colors[k] || "var(--dim)"]);
+  const tot = Math.max(1, data.reduce((a, d) => a + d[1], 0)), cx = 100, cy = 100, r = 70, w = 26;
+  let a0 = -Math.PI / 2, s = "";
+  data.forEach(([, v, c]) => {
+    const a1 = a0 + v / tot * Math.PI * 2 - 1e-6, big = a1 - a0 > Math.PI ? 1 : 0;
+    s += `<path d="M ${cx + r * Math.cos(a0)} ${cy + r * Math.sin(a0)} A ${r} ${r} 0 ${big} 1 ${cx + r * Math.cos(a1)} ${cy + r * Math.sin(a1)}" fill="none" stroke="${c}" stroke-width="${w}"/>`;
+    a0 = a1 + 1e-6;
+  });
+  s += `<text x="${cx}" y="${cy - 2}" text-anchor="middle" class="lbl" style="font:600 26px var(--f-display)">${Math.round((M.states.accepted || 0) / tot * 100)}%</text><text x="${cx}" y="${cy + 16}" text-anchor="middle">accepted</text>`;
+  data.forEach(([k, v, c], i) => { s += `<rect x="200" y="${30 + i * 24}" width="12" height="12" rx="2" fill="${c}"/><text x="218" y="${40 + i * 24}" class="lbl">${k.replace("_", " ")}</text><text x="315" y="${40 + i * 24}" text-anchor="end">${v}</text>`; });
+  $("#donut").innerHTML = s;
+})();
+
+// a nice axis maximum and its ticks
+function axis(max) {
+  const step = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find((s) => max / s <= 5) || Math.ceil(max / 5);
+  const top = Math.max(step, Math.ceil(max / step) * step);
+  return { top, ticks: Array.from({ length: top / step + 1 }, (_, i) => i * step) };
+}
+
+// complexity grouped bars
+(function () {
+  const d = M.complexity, { top, ticks } = axis(Math.max(...d.flatMap((r) => [r[1], r[2]]))), x0 = 40, y0 = 180, H = 150, bw = 26;
+  let s = "";
+  ticks.forEach((t) => { const y = y0 - t / top * H; s += `<line x1="${x0}" x2="410" y1="${y}" y2="${y}" stroke="var(--rule)" stroke-width=".6"/><text x="${x0 - 6}" y="${y + 4}" text-anchor="end">${t}</text>`; });
+  d.forEach(([c, acc, open], i) => {
+    const gx = x0 + 20 + i * 74;
+    s += `<rect x="${gx}" y="${y0 - acc / top * H}" width="${bw}" height="${acc / top * H}" fill="var(--ok)" rx="2"/><rect x="${gx + bw + 4}" y="${y0 - open / top * H}" width="${bw}" height="${open / top * H}" fill="var(--l3)" rx="2"/>`;
+    s += `<text x="${gx + bw / 2}" y="${y0 - acc / top * H - 4}" text-anchor="middle" class="lbl">${acc}</text><text x="${gx + bw * 1.5 + 4}" y="${y0 - open / top * H - 4}" text-anchor="middle" class="lbl">${open}</text><text x="${gx + bw + 2}" y="${y0 + 16}" text-anchor="middle">c${c}</text>`;
+  });
+  s += `<rect x="290" y="0" width="10" height="10" fill="var(--ok)" rx="2"/><text x="305" y="9">accepted</text><rect x="350" y="0" width="10" height="10" fill="var(--l3)" rx="2"/><text x="365" y="9">open</text>`;
+  $("#cx").innerHTML = s;
+})();
+
+// family cards
+(function () {
+  const max = Math.max(1, ...FAMILIES.map(({ cards: c }) => c.acc + c.rev + c.def + c.blk + c.env * 4));
+  FAMILIES.forEach(({ name, cards: c }) => {
+    const seg = (v, cls) => v ? `<i class="${cls}" style="display:inline-block;width:${v / max * 100}%;height:100%"></i>` : "";
+    $("#famcards").append(h("div", { class: "r" }, `<span>${name.split(" · ")[0]}</span><div class="t" style="display:flex">${seg(c.acc, "s-acc")}${seg(c.rev, "s-rev")}${seg(c.def, "s-def")}${seg(c.blk, "s-blk")}${seg(c.env * 4, "s-env")}</div><span>${c.ids.length}</span>`));
+  });
+})();
+
+// pace
+(function () {
+  const d = M.commits, { top, ticks } = axis(Math.max(...d.map((r) => r[1]))), x0 = 40, y0 = 180, H = 150, W = 370;
+  const slot = W / Math.max(1, d.length), bw = Math.min(60, slot * .7), peak = Math.max(...d.map((r) => r[1]));
+  let s = "";
+  ticks.forEach((t) => { const y = y0 - t / top * H; s += `<line x1="${x0}" x2="410" y1="${y}" y2="${y}" stroke="var(--rule)" stroke-width=".6"/><text x="${x0 - 6}" y="${y + 4}" text-anchor="end">${t}</text>`; });
+  const every = Math.ceil(d.length / 8);
+  d.forEach(([k, v], i) => {
+    const x = x0 + i * slot + (slot - bw) / 2, hh = v / top * H;
+    s += `<rect x="${x}" y="${y0 - hh}" width="${bw}" height="${hh}" rx="2" fill="${v === peak ? "var(--accent)" : "var(--l3)"}"><title>${k}: ${v}</title></rect>`;
+    if (d.length <= 10) s += `<text x="${x + bw / 2}" y="${y0 - hh - 5}" text-anchor="middle" class="lbl">${v}</text>`;
+    if (i % every === 0 || i === d.length - 1) s += `<text x="${x + bw / 2}" y="${y0 + 16}" text-anchor="middle">${k.slice(5)}</text>`;
+  });
+  $("#pace").innerHTML = s;
+})();
+
+// phases: cards for the first three, sections for the rest
+(function () {
+  const P = [[154, "Phase 1", "Fast tiers, instruction and function vectors, level checkers, the scoreboard. Exists to cut reruns.", ["all"]],
+    [214, "Phase 2", "A real XP-era program, end to end, on x86.", ["x86", "Win32"]],
+    [278, "Phase 3", "The table mechanism, a qemu harness, MIPS, big-endian, the PlayStation, the EE, ARM vectors.", ["MIPS", "PS1", "PS2", "ARM"]],
+    [367, "Phase 4", "Constraint-solved types, classes, unions, globals.", ["all"]],
+    [381, "Phase 5", "Idioms with proofs, structuring without goto, names, toolchain packs.", ["all"]],
+    [399, "Phase 6", "Query store, incremental sessions, programs of many images.", ["all"]],
+    [409, "Phase 7", "Devices as descriptions, GPU, SPU, VU, IOP, GS, Direct3D.", ["PS1", "PS2", "Win32", "web"]],
+    [424, "Phase 8", "Epochs, packers, JITs, bytecode machines inside programs.", ["all"]],
+    [433, "Phase 9", "PSP, N64, PowerPC, SH, 68000, 8-bit, GBA/DS/3DS, Switch, RISC-V, firmware.", ["MIPS", "PPC", "SH", "68k", "6502", "Z80", "ARM", "RISC-V"]],
+    [447, "Phase 10", "Pointers, stack and heap leave the original address space; byte order; width.", ["all"]],
+    [458, "Phase 11", "The model as an interface, agents on the program, the archive.", ["all"]]];
+  P.forEach(([id, p, d, chips]) => {
+    const m = milestone(id), acc = m.tasks.filter((t) => (M.nodes[t] || {}).state === "accepted").length;
+    const n = m.tasks.length ? `${m.tasks.length} cards · ${acc} accepted` : `${m.sections.length} sections`;
+    const pct = m.tasks.length ? acc / m.tasks.length * 100 : 0;
+    $("#phases").append(h("div", { class: "phase" }, `<div class="eyebrow">${p}</div><b>${m.title || ""}</b><span class="mono dim" style="font-size:.74rem">${n}</span><div class="meter"><i style="width:${pct}%"></i></div><p>${d}</p><div class="chips">${chips.map((c) => `<span class="chip">${c}</span>`).join("")}</div>`));
+  });
+})();
+</script>

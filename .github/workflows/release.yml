@@ -216,7 +216,9 @@ jobs:
         with:
           tag_name: v${{ env.VERSION }}
           name: ras ${{ env.VERSION }}
-          # the notes: what changed since the last release, from the commits, written by GitHub
+          # the notes: what changed since the last release, from the commits, written by GitHub,
+          # after a line to the machine coverage report that pages.yml keeps current
+          body: "Machine coverage: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
