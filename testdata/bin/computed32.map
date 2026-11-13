@@ -1,0 +1,33 @@
+ computed32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 0000019eH .text                   CODE
+ 0002:00000000 0000000cH .rdata                  DATA
+ 0003:00000000 00000004H .data                   DATA
+ 0003:00000004 00000004H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _print_int                 0000000000401000     computed-d49ee3.o
+ 0001:000000b0       _mainCRTStartup            00000000004010b0     computed-d49ee3.o
+ 0002:00000000       _masked_offsets            0000000000402000     computed-d49ee3.o
+ 0002:00000064       __imp__ExitProcess@4       0000000000402064     kernel32:KERNEL32.dll
+ 0002:00000068       __imp__GetModuleHandleW@4  0000000000402068     kernel32:KERNEL32.dll
+ 0002:0000006c       __imp__GetStdHandle@4      000000000040206c     kernel32:KERNEL32.dll
+ 0002:00000070       __imp__WriteFile@20        0000000000402070     kernel32:KERNEL32.dll
+
+ entry point at         0001:000000b0
+
+ Static symbols
+
+ 0001:00000083       _h_blend                   0000000000401083     computed-d49ee3.o
+ 0001:0000008d       _h_fold                    000000000040108d     computed-d49ee3.o
+ 0001:0000009c       _h_weigh                   000000000040109c     computed-d49ee3.o
+ 0001:00000160       _apply                     0000000000401160     computed-d49ee3.o
+ 0001:00000180       _resolve                   0000000000401180     computed-d49ee3.o
+ 0003:00000000       _key                       0000000000403000     computed-d49ee3.o
+ 0003:00000004       _out                       0000000000403004     computed-d49ee3.o

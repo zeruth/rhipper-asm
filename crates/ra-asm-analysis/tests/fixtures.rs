@@ -115,6 +115,32 @@ fn finds_exactly_the_functions_of_the_linker_maps() {
     }
 }
 
+/// computed reaches three functions only through addresses it computes at run time, and nothing
+/// in the image refers to them: the analysis finds every other function of the map and not these.
+#[test]
+fn the_functions_computed_reaches_by_arithmetic_are_not_found() {
+    for (binary, map) in [("computed64.exe", "computed64.map"), ("computed32.exe", "computed32.map")] {
+        let image = load(binary);
+        let analysis = analyze(&image);
+        let expected = map_functions(map);
+        let hidden = ["h_blend", "h_fold", "h_weigh"].map(|name| expected[name]);
+        for (name, address) in &expected {
+            assert_eq!(
+                analysis.function(*address).is_some(),
+                !hidden.contains(address),
+                "{binary}: {name} at {address:#x} (found: {:x?})",
+                analysis.functions.keys().collect::<Vec<_>>()
+            );
+        }
+        assert_eq!(
+            analysis.functions.len(),
+            expected.len() - hidden.len(),
+            "{binary}: {:x?}",
+            analysis.functions.keys().collect::<Vec<_>>()
+        );
+    }
+}
+
 /// The MSVC map beside `core-O2.exe` names its functions: each map function keeps its symbol as
 /// the map has it, and its name is the source's.
 #[test]

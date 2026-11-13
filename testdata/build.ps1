@@ -103,6 +103,9 @@ if (Wanted 'structs') { Build-Exe 'structs' @() }
 # dispatch calls through a table of function pointers filled at run time: the fixture of the
 # trace-driven facts, resolved by a run through the IR interpreter.
 if (Wanted 'dispatch') { Build-Exe 'dispatch' @() }
+# computed calls three functions through addresses it computes at run time from a table of masked
+# offsets, and nothing in the image refers to them: the fixture of the code no analysis finds.
+if (Wanted 'computed') { Build-Exe 'computed' @() }
 # obfusc is obfuscated by hand in the shapes of the common tools: a flattened function, encrypted
 # strings with their decryptor, an opaque predicate; the fixture of the passes that undo them.
 if (Wanted 'obfusc') { Build-Exe 'obfusc' @() }
