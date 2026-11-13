@@ -5,15 +5,30 @@
 //! The machine level is what the lift writes: `F_x(ptr %state)` with every register in memory.
 //! Its rules: every block ends in a terminator; the state is touched only through a field its
 //! layout names; a call is direct, to a lifted function with the caller's state or to the
-//! runtime, and a computed target goes through `ra_call`; no value is `undef`. The raised levels
-//! have no rule written yet, and [`check`] passes them.
+//! runtime, and a computed target goes through `ra_call`; no value is `undef`.
+//!
+//! The promoted level keeps the `%State` interface, so the machine level's rules hold, and the
+//! general registers and the flags travel in values: the state is read and written only where
+//! the function meets code that reads the state itself. A register is loaded where the block does
+//! not hold its value yet (at most once between two calls that take the state), and stored only
+//! in the run of stores right before such a call, a stop or the return; a flag is never stored,
+//! since no convention carries one across a call. The vector registers stay in memory.
+//!
+//! The ABI level has no state: no `%State` parameter and no field of one. A direct call passes
+//! what the function or the declaration it names takes, which needs the module ([`check_in`]). The
+//! stack is the frame the function allocates: an access at a known offset lies inside it, and
+//! every access through the frame, rather than through a local of its own, is flagged. The count
+//! of the flagged accesses is what a passing check returns, since they are what the raise left
+//! of the machine's stack; the levels below flag nothing.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use ra_asm_ir::{Block, BlockId, Callee, Function, Inst, Instruction, Operand, Terminator, Type, ValueId};
+use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, FnType, Function, Inst, Instruction, Module, Operand, Terminator, Type, ValueId};
 
 use super::Level;
+use super::frame::signed;
+use super::liveness::{CallKind, Slot, call_kind, slot_pointers};
 use crate::state::{STATE_TYPE, state_fields};
 
 /// The rule a function broke.
@@ -27,6 +42,14 @@ pub enum Rule {
     Call,
     /// Nothing is `undef`.
     Undef,
+    /// Promoted: a register is loaded and stored only where the state is synchronized.
+    Sync,
+    /// ABI: the function has no state, neither the parameter nor a field of one.
+    State,
+    /// ABI: a direct call passes what its callee takes and takes what it returns.
+    Signature,
+    /// ABI: a stack access at a known offset lies inside the frame.
+    Stack,
 }
 
 /// The first place a function breaks a rule of its level.
@@ -48,16 +71,30 @@ impl fmt::Display for Violation {
 impl std::error::Error for Violation {}
 
 /// Checks `function` against the invariants of `level`, with the x86 `%State`: the first
-/// violation in block order, then instruction order, with its block.
-pub fn check(function: &Function, level: Level) -> Result<(), Violation> {
+/// violation in block order, then instruction order, with its block, or the count of the stack
+/// accesses the level flags. Alone, a function's direct calls at the ABI level have no callee to
+/// be judged against: [`check_in`] has the module.
+pub fn check(function: &Function, level: Level) -> Result<usize, Violation> {
     check_with(function, level, &state_fields())
 }
 
 /// [`check`] against the state whose fields are `state` (see [`crate::state::state_fields_for`]).
-pub fn check_with(function: &Function, level: Level, state: &[Type]) -> Result<(), Violation> {
+pub fn check_with(function: &Function, level: Level, state: &[Type]) -> Result<usize, Violation> {
+    rules(function, level, state, None)
+}
+
+/// [`check`] of a function of `module`: the state is the module's `%State`, and at the ABI level
+/// a direct call is judged against the function or the declaration it names.
+pub fn check_in(module: &Module, function: &Function, level: Level) -> Result<usize, Violation> {
+    let state = module.types.iter().find(|(name, _)| name == STATE_TYPE).map_or_else(state_fields, |(_, fields)| fields.clone());
+    rules(function, level, &state, Some(module))
+}
+
+fn rules(f: &Function, level: Level, state: &[Type], module: Option<&Module>) -> Result<usize, Violation> {
     match level {
-        Level::Machine => machine(function, state),
-        Level::Promoted | Level::Abi => Ok(()),
+        Level::Machine => machine(f, state).map(|()| 0),
+        Level::Promoted => machine(f, state).and_then(|()| promoted(f)).map(|()| 0),
+        Level::Abi => abi(f, module),
     }
 }
 
@@ -194,4 +231,204 @@ fn terminator(f: &Function, block: &Block, preds: &HashMap<BlockId, Vec<BlockId>
     let after_call = calls(block)
         || (block.instrs.is_empty() && preds.get(&block.id).is_some_and(|from| from.iter().all(|id| f.block(*id).is_some_and(calls))));
     (!after_call).then(|| "the block has no terminator: its `unreachable` follows no call".to_owned())
+}
+
+/// The promoted level's own rule, over a function the machine level's rules pass: the general
+/// registers and the flags meet the state only where it is synchronized.
+fn promoted(f: &Function) -> Result<(), Violation> {
+    let Some(&state) = f.params.first() else { return Ok(()) };
+    let pointers = slot_pointers(f, state);
+    let register = |ptr: &Operand| ptr.local().and_then(|p| pointers.get(&p)).copied().filter(|slot| !slot.is_xmm());
+    for block in &f.blocks {
+        // The registers whose value the block has, loaded or stored, since the state last changed
+        // under it.
+        let mut held: HashSet<Slot> = HashSet::new();
+        for (at, i) in block.instrs.iter().enumerate() {
+            let fault = match &i.inst {
+                Inst::Load { ptr, .. } => register(ptr)
+                    .filter(|slot| !held.insert(*slot))
+                    .map(|slot| format!("`{}` is loaded where the block already holds its value", slot.name())),
+                Inst::Store { ptr, .. } => register(ptr).and_then(|slot| {
+                    held.insert(slot);
+                    if slot.is_flag() {
+                        Some(format!("the flag `{}` is stored, and no call or return takes a flag", slot.name()))
+                    } else if flushed(block, at, &pointers) {
+                        None
+                    } else {
+                        Some(format!("`{}` is stored away from a call that takes the state and from the return", slot.name()))
+                    }
+                }),
+                inst => {
+                    if call_kind(inst) == Some(CallKind::State) {
+                        held.clear();
+                    }
+                    None
+                }
+            };
+            if let Some(what) = fault {
+                return Err(Violation { block: block.name.clone(), rule: Rule::Sync, what: format!("{}: {what}", subject(f, i)) });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether the store at `at` is one of the run of register stores that ends in a call that reads
+/// the state, a stop, or the block's return.
+fn flushed(block: &Block, at: usize, pointers: &HashMap<ValueId, Slot>) -> bool {
+    let names_register = |v: ValueId| pointers.contains_key(&v);
+    for i in &block.instrs[at + 1..] {
+        match &i.inst {
+            Inst::Gep { .. } if i.result.is_some_and(names_register) => {}
+            Inst::Store { ptr, .. } if ptr.local().is_some_and(names_register) => {}
+            inst => return matches!(call_kind(inst), Some(CallKind::State | CallKind::NoReturn)),
+        }
+    }
+    matches!(block.terminator, Terminator::Ret(_))
+}
+
+/// The ABI level's rules, and the count of the stack accesses that stay in the frame.
+fn abi(f: &Function, module: Option<&Module>) -> Result<usize, Violation> {
+    if f.params.iter().any(|p| f.value_name(*p) == "state") {
+        let block = f.blocks.first().map_or_else(String::new, |b| b.name.clone());
+        return Err(Violation { block, rule: Rule::State, what: "the function takes the state".to_owned() });
+    }
+    let frame = Frame::of(f);
+    let mut flagged = 0;
+    for block in &f.blocks {
+        for i in &block.instrs {
+            let fault = match &i.inst {
+                Inst::Gep { base_ty: Type::Named(name), .. } if name == STATE_TYPE => {
+                    Some((Rule::State, "a field of `%State`, which the level does not have".to_owned()))
+                }
+                Inst::Call { fn_ty, callee: Callee::Direct(name), args, .. } => {
+                    module.and_then(|m| signature(m, name, fn_ty, args)).map(|what| (Rule::Signature, what))
+                }
+                Inst::Load { ty, ptr, .. } | Inst::Store { ty, ptr, .. } => match frame.access(ptr, ty) {
+                    Ok(in_frame) => {
+                        flagged += usize::from(in_frame);
+                        None
+                    }
+                    Err(what) => Some((Rule::Stack, what)),
+                },
+                _ => None,
+            };
+            if let Some((rule, what)) = fault {
+                return Err(Violation { block: block.name.clone(), rule, what: format!("{}: {what}", subject(f, i)) });
+            }
+        }
+    }
+    Ok(flagged)
+}
+
+/// What is wrong with a direct call against the function or the declaration of `module` it
+/// names, if anything: the arguments are the callee's parameters, with more after them only for
+/// a variadic one, and the result is what it returns.
+fn signature(module: &Module, name: &str, fn_ty: &FnType, args: &[(Type, Operand)]) -> Option<String> {
+    let Some(callee) = module.function(name).map(|f| &f.ty).or_else(|| module.declaration(name).map(|d| &d.ty)) else {
+        return Some(format!("`@{name}` is neither a function nor a declaration of the module"));
+    };
+    let arity = if callee.varargs { args.len() >= callee.params.len() } else { args.len() == callee.params.len() };
+    let fits = arity && fn_ty.ret == callee.ret && callee.params.iter().zip(args).all(|(param, (arg, _))| param == arg);
+    (!fits).then(|| {
+        let called = FnType::new(fn_ty.ret.clone(), args.iter().map(|(ty, _)| ty.clone()).collect());
+        format!("`@{name}` is called as `{called}` and is `{callee}`")
+    })
+}
+
+/// The frame of an ABI function: the block of bytes the rewrite allocates for the machine's
+/// stack, the only `[n x i8]` a function allocates, with the values that are addresses into it
+/// and, for those at a constant distance from its start, the distance.
+struct Frame {
+    size: u64,
+    derived: HashSet<ValueId>,
+    offsets: HashMap<ValueId, i64>,
+}
+
+impl Frame {
+    fn of(f: &Function) -> Self {
+        let mut frame = Self { size: 0, derived: HashSet::new(), offsets: HashMap::new() };
+        let instrs = || f.blocks.iter().flat_map(|b| &b.instrs);
+        let found = instrs().find_map(|i| match (&i.inst, i.result) {
+            (Inst::Alloca { ty: Type::Array(size, element), .. }, Some(v)) if **element == Type::I8 => Some((v, *size)),
+            _ => None,
+        });
+        let Some((base, size)) = found else { return frame };
+        frame.size = size;
+        frame.derived.insert(base);
+        frame.offsets.insert(base, 0);
+        // An address into the frame is whatever the frame's own address flows into: the casts and
+        // the arithmetic of the machine's stack pointer, and the joins of those.
+        loop {
+            let mut changed = false;
+            for i in instrs() {
+                let Some(v) = i.result.filter(|v| !frame.derived.contains(v)) else { continue };
+                let from = |o: &Operand| o.local().is_some_and(|l| frame.derived.contains(&l));
+                let carries = match &i.inst {
+                    Inst::Gep { ptr, .. } => from(ptr),
+                    Inst::Cast { value, .. } | Inst::Freeze { value, .. } => from(value),
+                    Inst::Bin { op: BinOp::Add | BinOp::Sub | BinOp::And | BinOp::Or, lhs, rhs, .. } => from(lhs) || from(rhs),
+                    Inst::Select { then, els, .. } => from(then) || from(els),
+                    Inst::Phi { incoming, .. } => incoming.iter().any(|(o, _)| from(o)),
+                    _ => false,
+                };
+                if carries {
+                    frame.derived.insert(v);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        // The distance, where every step is a constant; a join keeps it when its paths agree.
+        loop {
+            let mut changed = false;
+            for i in instrs() {
+                let Some(v) = i.result.filter(|v| frame.derived.contains(v) && !frame.offsets.contains_key(v)) else { continue };
+                let at = |o: &Operand| o.local().and_then(|l| frame.offsets.get(&l).copied());
+                let offset = match &i.inst {
+                    Inst::Gep { base_ty: Type::I8, ptr, indices, .. } => match indices.as_slice() {
+                        [(_, Operand::Int(k))] => at(ptr).zip(i64::try_from(*k).ok()).and_then(|(base, k)| base.checked_add(k)),
+                        _ => None,
+                    },
+                    Inst::Cast { cast: Cast::IntToPtr | Cast::PtrToInt | Cast::Trunc | Cast::ZExt | Cast::SExt, value, .. } => at(value),
+                    Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs, rhs: Operand::Int(c) }
+                    | Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Int(c), rhs: lhs } => {
+                        at(lhs).and_then(|base| base.checked_add(signed(*c, *bits)))
+                    }
+                    Inst::Bin { op: BinOp::Sub, ty: Type::Int(bits), lhs, rhs: Operand::Int(c) } => {
+                        at(lhs).and_then(|base| base.checked_sub(signed(*c, *bits)))
+                    }
+                    Inst::Phi { incoming, .. } => {
+                        let mut paths = incoming.iter().map(|(o, _)| at(o));
+                        paths.next().flatten().filter(|first| paths.all(|path| path == Some(*first)))
+                    }
+                    _ => None,
+                };
+                if let Some(offset) = offset {
+                    frame.offsets.insert(v, offset);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        frame
+    }
+
+    /// Whether a load or a store of a `ty` through `ptr` is an access of the frame, or what is
+    /// wrong with it: its bytes, at a known offset, are not all the frame's.
+    fn access(&self, ptr: &Operand, ty: &Type) -> Result<bool, String> {
+        let Some(p) = ptr.local().filter(|p| self.derived.contains(p)) else { return Ok(false) };
+        if let Some(&offset) = self.offsets.get(&p) {
+            let bytes = ty.size(8).unwrap_or(1);
+            let inside = u64::try_from(offset).ok().and_then(|start| start.checked_add(bytes)).is_some_and(|end| end <= self.size);
+            if !inside {
+                return Err(format!("{bytes} bytes at offset {offset} of the frame, which has {}", self.size));
+            }
+        }
+        Ok(true)
+    }
 }
