@@ -15,7 +15,7 @@ context = 160000
 # One Fable worker since the new week (the person, 2026-11-12): the roadmap is pruned and
 # regenerated around the WSL console toolchains and the other architectures, then walked one
 # card at a time, outside the Opus pool.
-parallel = 1
+parallel = 2
 builds = 0
 # The emit oracle suite builds and runs every reference program: a card's check gets half an
 # hour here, not the ten minutes of the default.
@@ -101,3 +101,8 @@ threshold = 1.0
 # The implementer of every card here is Fable; the reviewer and the cheap roles keep theirs.
 [[route]]
 model = "claude-fable-5-2"
+
+# Every card starts on Fable, the small ones too (the default ladder starts c1 and c2 one rung
+# down, on Opus); a rejection still steps up, and the reviewer stays one rung below.
+[ladder]
+start = []
