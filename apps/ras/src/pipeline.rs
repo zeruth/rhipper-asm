@@ -731,7 +731,7 @@ fn inputs_key(project: &Project, step: Step) -> Option<String> {
     }
     let mut hasher = DefaultHasher::new();
     step.id().hash(&mut hasher);
-    env!("CARGO_PKG_VERSION").hash(&mut hasher);
+    env!("RAS_VERSION").hash(&mut hasher);
     let engine = std::env::current_exe().and_then(fs::metadata).ok();
     engine.as_ref().map(|m| (m.len(), m.modified().ok())).hash(&mut hasher);
     let mut files = vec![project.root.join(crate::project::RHIPPER_JSON), project.exe.clone()];

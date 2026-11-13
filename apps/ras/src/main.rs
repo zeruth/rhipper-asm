@@ -27,7 +27,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "ras", version, about = "Rhipper Asm: disassembly to the Rhipper IR")]
+#[command(name = "ras", version = env!("RAS_VERSION"), about = "Rhipper Asm: disassembly to the Rhipper IR")]
 struct Options {
     /// Print JSON instead of a table.
     #[arg(long, global = true)]

@@ -1,4 +1,5 @@
-# The release of ras: on a tag v<version>, test on Windows and Linux, build the release binary for
+# The release of ras: on a tag v<version>, where the version is the one `ras --version` prints
+# (<major>.<minor>.<commits>, apps/ras/build.rs) for the tagged commit, test on Windows and Linux, build the release binary for
 # each host, pack it with its runtime files, and publish version.txt and ras-<version>-<host>.zip
 # with its .sha256 for windows-x64, linux-x64, macos-x64 and macos-arm64, which the Rhipper
 # Workbench downloads into its tools directory, and ras-signatures-<version>.zip, the signature
@@ -124,6 +125,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the version counts the commits: the whole history, not a shallow one
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -135,9 +139,11 @@ jobs:
       - name: Pack
         shell: pwsh
         run: |
-          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          # the version ras prints: the workspace's major and minor, then the commit count (apps/ras/build.rs)
+          $base = (Select-String -Path Cargo.toml -Pattern '^version = "(\d+\.\d+)\.' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $version = "$base.$(git rev-list --count HEAD)"
           if ("${{ github.ref_name }}" -ne "v$version" -and "${{ github.event_name }}" -eq "push") {
-            throw "the tag ${{ github.ref_name }} does not match the workspace version $version"
+            throw "the tag ${{ github.ref_name }} is not v$version, the version of its commit"
           }
           $exe = "target/${{ matrix.target }}/release/${{ matrix.exe }}"
           # The workbench shows this line under Tools: the binary must answer with the released version.
@@ -177,6 +183,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
@@ -184,7 +192,8 @@ jobs:
       - name: Store
         shell: pwsh
         run: |
-          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $base = (Select-String -Path Cargo.toml -Pattern '^version = "(\d+\.\d+)\.' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $version = "$base.$(git rev-list --count HEAD)"
           & target/release/ras.exe signatures --build --installed --store dist/signatures
           if ($LASTEXITCODE -ne 0) { throw "ras signatures --build failed" }
           $name = "ras-signatures-$version.zip"
@@ -202,13 +211,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - name: Version
         run: |
-          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)
+          base=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\)\..*"/\1/p' Cargo.toml | head -n 1)
+          version="$base.$(git rev-list --count HEAD)"
           printf '%s' "$version" > dist/version.txt
           echo "VERSION=$version" >> "$GITHUB_ENV"
       - name: Publish
