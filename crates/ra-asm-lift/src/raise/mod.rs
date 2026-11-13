@@ -8,6 +8,7 @@
 
 pub mod abi;
 pub mod assume;
+pub mod check;
 pub mod conditions;
 pub mod dce;
 pub mod flatten;
