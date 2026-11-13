@@ -6,6 +6,7 @@
 //! statements (`if`, `else`, loops, `switch`, with `goto` only where the graph is not reducible),
 //! and the printer writes them in the language's syntax, inlining a value into its one use where
 //! that keeps the meaning. The function table says where each function landed, for the workbench.
+//! [`tree`] runs a function's statements on the IR's interpreter, beside a run of its graph.
 
 pub mod c;
 mod common;
@@ -16,6 +17,7 @@ mod layout;
 pub mod rust;
 mod safety;
 pub mod structure;
+pub mod tree;
 
 pub use c::{Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, MODULE_MARK, Options as COptions, Unit, emit_c, emit_unit};
 pub use cpp::{Class, Method, classes};
