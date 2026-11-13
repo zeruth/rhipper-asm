@@ -10,6 +10,7 @@
 
 #![allow(clippy::many_single_char_names)]
 
+pub mod block;
 pub mod memory;
 pub mod observe;
 pub mod value;
@@ -17,11 +18,12 @@ pub mod value;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 
+pub use block::{Exit, Frame};
 pub use memory::{Memory, Region};
 pub use observe::Observer;
 pub use value::{Layout, Value, mask, sext};
 
-use crate::inst::{BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand, Terminator};
+use crate::inst::{BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand};
 use crate::module::{BlockId, Const, Function, Module};
 use crate::types::{FnType, Type};
 
@@ -374,14 +376,19 @@ impl<'m> Vm<'m> {
     /// the call site expects.
     fn invoke(&mut self, host: &mut dyn Host, index: usize, site: &FnType, args: Vec<Value>) -> Result<Value, Stop> {
         let module = self.module;
-        let f = &module.functions[index];
+        let args = self.adapt(&module.functions[index], args);
+        let result = self.run_function(host, index, args)?;
+        Ok(result.coerce(&site.ret, &Layout { named: &self.named }))
+    }
+
+    /// `args` as the parameters of `f` take them: one per parameter, zero for a missing one, each
+    /// at its parameter's type.
+    fn adapt(&self, f: &Function, args: Vec<Value>) -> Vec<Value> {
         let layout = Layout { named: &self.named };
         let mut args = args;
         args.resize(f.ty.params.len().max(args.len()), Value::Int(0));
         args.truncate(f.ty.params.len());
-        let args = args.into_iter().zip(&f.ty.params).map(|(a, p)| a.coerce(p, &layout)).collect();
-        let result = self.run_function(host, index, args)?;
-        Ok(result.coerce(&site.ret, &Layout { named: &self.named }))
+        args.into_iter().zip(&f.ty.params).map(|(a, p)| a.coerce(p, &layout)).collect()
     }
 
     fn run_function(&mut self, host: &mut dyn Host, index: usize, args: Vec<Value>) -> Result<Value, Stop> {
@@ -408,13 +415,9 @@ impl<'m> Vm<'m> {
         if let Some(observer) = &mut self.observer {
             observer.enter(&f.name, level);
         }
-        let mark = self.frames.at;
-        let mut values: Vec<Option<Value>> = vec![None; f.value_names.len()];
-        for (p, a) in f.params.iter().zip(args) {
-            values[p.0 as usize] = Some(a);
-        }
-        let result = self.run_blocks(host, index, f, &mut values);
-        self.frames.at = mark;
+        let mut frame = Frame::new(index, f, args, self.frames.at);
+        let result = self.run_blocks(host, &mut frame);
+        self.release(&frame);
         self.depth -= 1;
         if let Some(observer) = &mut self.observer {
             observer.leave(&f.name, level);
@@ -476,64 +479,15 @@ impl<'m> Vm<'m> {
         Ok(())
     }
 
-    fn run_blocks(&mut self, host: &mut dyn Host, index: usize, f: &'m Function, values: &mut [Option<Value>]) -> Result<Value, Stop> {
-        let mut block = 0usize;
-        let mut prev: Option<BlockId> = None;
+    /// Runs the function of `frame` from its entry, block after block, to its return.
+    fn run_blocks(&mut self, host: &mut dyn Host, frame: &mut Frame<'m>) -> Result<Value, Stop> {
+        let f = frame.function;
+        let mut block = f.blocks.first().ok_or_else(|| Stop::fault(format!("@{} has no block to run", f.name)))?.id;
         loop {
-            let b = f.blocks.get(block).ok_or_else(|| Stop::fault(format!("@{} has no block to run", f.name)))?;
-            // The phis read their incoming values together, before any is written.
-            let mut first = 0;
-            let mut phis = Vec::new();
-            while let Some(i) = b.instrs.get(first)
-                && let Inst::Phi { ty, incoming } = &i.inst
-            {
-                let from = prev.ok_or_else(|| Stop::fault(format!("a phi in the entry block of @{}", f.name)))?;
-                let (op, _) = incoming
-                    .iter()
-                    .find(|(_, p)| *p == from)
-                    .ok_or_else(|| Stop::fault(format!("a phi in @{} without a value from {}", f.name, from.0)))?;
-                phis.push((i.result, self.eval(f, values, op, ty)?));
-                first += 1;
-            }
-            for (result, v) in phis {
-                if let Some(r) = result {
-                    values[r.0 as usize] = Some(v);
-                }
-            }
-            for i in &b.instrs[first..] {
-                self.steps += 1;
-                if self.limit != 0 && self.steps > self.limit {
-                    return Err(Stop::Limit(self.steps));
-                }
-                self.site = i.address;
-                let v = self.exec(host, f, values, i).map_err(|s| s.at(i.address))?;
-                if let Some(r) = i.result {
-                    values[r.0 as usize] = Some(v);
-                }
-            }
-            prev = Some(b.id);
-            let next = match &b.terminator {
-                Terminator::Ret(None) => return Ok(Value::Int(0)),
-                Terminator::Ret(Some((ty, op))) => return self.eval(f, values, op, ty),
-                Terminator::Br(t) => *t,
-                Terminator::CondBr { cond, then, els } => {
-                    if self.eval(f, values, cond, &Type::I1)?.as_bool() {
-                        *then
-                    } else {
-                        *els
-                    }
-                }
-                Terminator::Switch { ty, value, default, cases } => {
-                    let bits = self.layout().bits(ty);
-                    let v = self.eval(f, values, value, ty)?.as_u128() & mask(bits);
-                    cases.iter().find(|(c, _)| (*c as u128) & mask(bits) == v).map_or(*default, |(_, t)| *t)
-                }
-                Terminator::Unreachable => {
-                    let at = b.instrs.last().and_then(|i| i.address).or(b.address);
-                    return Err(Stop::fault(format!("unreachable code in @{} was reached", f.name)).at(at));
-                }
+            block = match self.run_block(host, frame, block)? {
+                Exit::Return(value) => return Ok(value),
+                Exit::Jump(target) | Exit::Branch { target, .. } | Exit::Switch { target, .. } => target,
             };
-            block = *self.blocks[index].get(&next).ok_or_else(|| Stop::fault(format!("@{} has no block {}", f.name, next.0)))?;
         }
     }
 
