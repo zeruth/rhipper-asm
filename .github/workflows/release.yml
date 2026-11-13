@@ -1,21 +1,31 @@
-# The release of ras: on a tag v<version>, where the version is the one `ras --version` prints
-# (<major>.<minor>.<commits>, apps/ras/build.rs) for the tagged commit, test on Windows and Linux, build the release binary for
-# each host, pack it with its runtime files, and publish version.txt and ras-<version>-<host>.zip
-# with its .sha256 for windows-x64, linux-x64, macos-x64 and macos-arm64, which the Rhipper
-# Workbench downloads into its tools directory, and ras-signatures-<version>.zip, the signature
-# store of the MSVC runtime the Windows runner has. Nightly, and on a dispatch, the smoke corpus
-# instead: `ras smoke` over the runner's Windows system directory.
+# The release of ras: on every push to main that changes the engine (and on a tag v<version>),
+# as v<version>, the version `ras --version` prints for the commit (<major>.<minor>.<commits>,
+# apps/ras/build.rs), which the workflow tags. It tests on Windows and Linux, builds the release
+# binary for each host, packs it with its runtime files, and publishes version.txt and
+# ras-<version>-<host>.zip with its .sha256 for windows-x64, linux-x64, macos-x64 and macos-arm64,
+# which the Rhipper Workbench downloads into its tools directory, and ras-signatures-<version>.zip,
+# the signature store of the MSVC runtime the Windows runner has, when that job succeeds. Nightly,
+# and on a dispatch, the smoke corpus instead: `ras smoke` over the runner's Windows system
+# directory.
 name: release
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+    # the roadmap's and the docs' commits change no binary
+    paths-ignore: ["rhipper.md", "rhipper.done.md", "rhipper.context.md", "docs/**", "*.md"]
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# a newer push to main replaces a release still building; a tag's or the night's run is its own
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
 
 jobs:
   # every executable and library of the system directory through the analysis, the lift and the
@@ -144,7 +154,7 @@ jobs:
           # the version ras prints: the workspace's major and minor, then the commit count (apps/ras/build.rs)
           $base = (Select-String -Path Cargo.toml -Pattern '^version = "(\d+\.\d+)\.' | Select-Object -First 1).Matches[0].Groups[1].Value
           $version = "$base.$(git rev-list --count HEAD)"
-          if ("${{ github.ref_name }}" -ne "v$version" -and "${{ github.event_name }}" -eq "push") {
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$version") {
             throw "the tag ${{ github.ref_name }} is not v$version, the version of its commit"
           }
           $exe = "target/${{ matrix.target }}/release/${{ matrix.exe }}"
@@ -208,8 +218,10 @@ jobs:
           name: ras-signatures
           path: dist/
 
+  # the binaries are the release; the signature store joins it when its job succeeded
   publish:
     needs: [build, signatures]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -225,16 +237,25 @@ jobs:
           version="$base.$(git rev-list --count HEAD)"
           printf '%s' "$version" > dist/version.txt
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          for host in windows-x64 linux-x64 macos-x64 macos-arm64; do
+            for file in "dist/ras-$version-$host.zip" "dist/ras-$version-$host.zip.sha256"; do
+              test -f "$file" || { echo "missing $file"; exit 1; }
+            done
+          done
+          test -f "dist/ras-signatures-$version.zip" || echo "::warning::the signature store did not build; the release goes without it"
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
+          # the tag of a push to main is made here, at the commit the binaries are of
           tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
           name: ras ${{ env.VERSION }}
           # the notes: what changed since the last release, from the commits, written by GitHub,
           # after a line to the machine coverage report that pages.yml keeps current
           body: "Machine coverage: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
           generate_release_notes: true
-          fail_on_unmatched_files: true
+          # the binaries were checked above; only the signature store may be missing
+          fail_on_unmatched_files: false
           files: |
             dist/version.txt
             dist/ras-${{ env.VERSION }}-windows-x64.zip
