@@ -6,6 +6,9 @@
 //! stays and names its path on stderr.
 
 pub mod digest;
+pub mod tools;
+
+pub use tools::tool;
 
 use std::ffi::OsStr;
 use std::ops::Deref;
