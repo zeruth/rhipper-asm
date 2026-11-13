@@ -118,7 +118,7 @@ pub fn parse_object(name: &str, bytes: &[u8]) -> Result<Option<Object>> {
 const ARCHIVE_MAGIC: &[u8] = b"!<arch>\n";
 
 /// The members of an archive, with their names resolved: the linker's own members (`/`, `//`,
-/// `__.SYMDEF`) are left out.
+/// `__.SYMDEF`, `/<ECSYMBOLS>/`) are left out.
 fn archive_members(bytes: &[u8]) -> Result<Vec<(String, &[u8])>> {
     let reader = Reader::new(bytes);
     let mut members = Vec::new();
@@ -136,7 +136,9 @@ fn archive_members(bytes: &[u8]) -> Result<Vec<(String, &[u8])>> {
             long_names = data;
             continue;
         }
-        if name_field == "/" || name_field.starts_with("__.SYMDEF") {
+        // the linker's tables: the symbol index `/`, BSD's `__.SYMDEF`, and the bracketed members
+        // of an ARM64 or ARM64EC library (`/<ECSYMBOLS>/`, `/<HYBRIDMAP>/`)
+        if name_field == "/" || name_field.starts_with("__.SYMDEF") || name_field.starts_with("/<") {
             continue;
         }
         let (name, data) = if let Some(rest) = name_field.strip_prefix("#1/") {

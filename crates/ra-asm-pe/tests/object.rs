@@ -126,3 +126,26 @@ fn reads_an_archive_member_by_member() {
     let error = object::read(&dir.join("obj.c")).expect_err("a C file is no object");
     assert!(format!("{error:#}").contains("neither"), "{error:#}");
 }
+
+/// An archive member header: the name, padded fields, the size and the terminator.
+fn member(name: &str, data: &[u8]) -> Vec<u8> {
+    let mut bytes = format!("{name:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n", 0, 0, 0, 644, data.len()).into_bytes();
+    bytes.extend_from_slice(data);
+    if data.len() % 2 == 1 {
+        bytes.push(b'\n');
+    }
+    bytes
+}
+
+#[test]
+fn the_linker_tables_of_an_arm64_library_are_no_members() {
+    // MSVC's ARM64 runtime libraries carry `/<ECSYMBOLS>/` beside `/`; `/<HYBRIDMAP>/` is its kin
+    let mut bytes = b"!<arch>\n".to_vec();
+    for name in ["/", "/<ECSYMBOLS>/", "/<HYBRIDMAP>/"] {
+        bytes.extend(member(name, b"\0\0\0\0tables"));
+    }
+    bytes.extend(member("notes.txt/", b"no object"));
+    let library = object::parse("libcmt.lib", &bytes).unwrap();
+    assert!(library.objects.is_empty());
+    assert_eq!(library.skipped, ["notes.txt"]);
+}
