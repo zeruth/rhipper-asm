@@ -1,7 +1,7 @@
 //! What the raise steps say they assumed, against functions whose calls are known: hand-built
 //! machine functions, and the control fixture, whose disassembly says where its calls are.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FnType, Function, FunctionBuilder, Inst, Module, Operand, Terminator, Type, ValueId};
@@ -506,4 +506,150 @@ fn calls_a_run_resolved_assume_no_complete_set() {
         let list = call_assumptions(&lifted, 0x1_4000_11e0, traced);
         assert!(list.is_empty(), "{list:?}");
     }
+}
+
+const RBX: i128 = 3;
+
+/// `push reg`.
+fn push(b: &mut FunctionBuilder, block: BlockId, n: i128) {
+    let sp = register(b, block, RSP);
+    let top = b.load(block, Type::I64, sp, "sp");
+    let below = b.bin(block, BinOp::Add, Type::I64, top, Operand::Int(-8), "sp");
+    let slot = b.cast(block, Cast::IntToPtr, Type::I64, below, Type::Ptr, "slot");
+    let source = register(b, block, n);
+    let v = b.load(block, Type::I64, source, "v");
+    b.store(block, Type::I64, v, slot);
+    b.store(block, Type::I64, below, sp);
+}
+
+/// `pop reg`.
+fn pop(b: &mut FunctionBuilder, block: BlockId, n: i128) {
+    let sp = register(b, block, RSP);
+    let top = b.load(block, Type::I64, sp, "sp");
+    let slot = b.cast(block, Cast::IntToPtr, Type::I64, top, Type::Ptr, "slot");
+    let v = b.load(block, Type::I64, slot, "v");
+    let destination = register(b, block, n);
+    b.store(block, Type::I64, v, destination);
+    let above = b.bin(block, BinOp::Add, Type::I64, top, Operand::Int(8), "sp");
+    b.store(block, Type::I64, above, sp);
+}
+
+/// A machine function that writes `rbx` and returns: `mov rbx, 7; ret`, between a `push rbx` and
+/// a `pop rbx` when it `saves` the register.
+fn writer(name: &str, address: u64, saves: bool) -> Function {
+    let (mut b, entry) = machine_builder(name, address);
+    if saves {
+        push(&mut b, entry, RBX);
+    }
+    let rbx = register(&mut b, entry, RBX);
+    b.store(entry, Type::I64, Operand::Int(7), rbx);
+    if saves {
+        pop(&mut b, entry, RBX);
+    }
+    adjust(&mut b, entry, RSP, 8);
+    b.terminate(entry, Terminator::Ret(None));
+    b.finish()
+}
+
+/// The callee-saved assumptions of `list` as the function, the call and the callee that proves it.
+fn proofs(list: &[Assumption]) -> Vec<(&str, Option<u64>, Option<u64>)> {
+    list.iter().filter(|a| a.kind == Kind::CalleeSaved).map(|a| (a.function.as_str(), a.site, a.discharged)).collect()
+}
+
+/// A callee that writes no callee-saved register keeps them, and so does one that reloads the one
+/// it writes from where it pushed it; one that writes `rbx` and returns does not.
+#[test]
+fn discharge_proves_the_call_to_a_callee_that_keeps_the_registers() {
+    let (module, signatures) = module_of(vec![
+        machine_function("F_00001000", 0x1000, &[(0x1005, "F_00002000"), (0x100a, "F_00003000"), (0x100f, "F_00004000")]),
+        machine_function("F_00002000", 0x2000, &[]),
+        writer("F_00003000", 0x3000, true),
+        writer("F_00004000", 0x4000, false),
+    ]);
+    let mut list = assumptions(&module, &signatures, Target::WIN64);
+    assert!(list.iter().all(|a| !a.is_discharged()), "{list:?}");
+    assume::discharge(&module.functions, &signatures, Target::WIN64, &mut list);
+    assert_eq!(
+        proofs(&list),
+        [("F_00001000", Some(0x1005), Some(0x2000)), ("F_00001000", Some(0x100a), Some(0x3000)), ("F_00001000", Some(0x100f), None)],
+        "{list:?}"
+    );
+    // The return address and the stack pointer are not what the registers' summary proves.
+    assert!(list.iter().filter(|a| a.kind != Kind::CalleeSaved).all(|a| !a.is_discharged()), "{list:?}");
+    assert_eq!(list.len(), 9, "{list:?}");
+}
+
+/// A callee keeps the registers as far as what it calls does: not through a function that writes
+/// one, through itself and through an import. A function that calls through the runtime keeps
+/// them as far as that call, whose own assumption is the one that stays open.
+#[test]
+fn discharge_follows_what_the_callee_calls() {
+    let (module, signatures) = module_of(vec![
+        machine_function("F_00001000", 0x1000, &[(0x1005, "F_00002000"), (0x100a, "F_00003000"), (0x100f, "F_00005000")]),
+        machine_function("F_00002000", 0x2000, &[(0x2004, "F_00004000")]),
+        machine_function("F_00003000", 0x3000, &[(0x3004, "F_00003000"), (0x3009, "imp_GetTickCount")]),
+        writer("F_00004000", 0x4000, false),
+        machine_function("F_00005000", 0x5000, &[(0x5004, "ra_call")]),
+    ]);
+    let mut list = assumptions(&module, &signatures, Target::WIN64);
+    assume::discharge(&module.functions, &signatures, Target::WIN64, &mut list);
+    assert_eq!(
+        proofs(&list),
+        [
+            ("F_00001000", Some(0x1005), None),
+            ("F_00001000", Some(0x100a), Some(0x3000)),
+            ("F_00001000", Some(0x100f), Some(0x5000)),
+            ("F_00002000", Some(0x2004), None),
+            ("F_00003000", Some(0x3004), Some(0x3000)),
+            ("F_00005000", Some(0x5004), None),
+        ],
+        "{list:?}"
+    );
+}
+
+/// The frame pointer at a call is one callee-saved register: the callee that keeps them all
+/// proves it, and an indirect call's callee proves nothing.
+#[test]
+fn discharge_proves_the_frame_pointer_with_the_registers() {
+    for (callee, proof) in [("F_00002000", Some(0x2000)), ("ra_call", None)] {
+        let caller = framed_caller(callee);
+        let mut list = stack_assumptions(&caller, Target::WIN64);
+        assert_eq!(sites(&list, "F_00001000", Kind::FramePointer), [Some(0x1004)], "{list:?}");
+        let (module, signatures) = module_of(vec![caller, machine_function("F_00002000", 0x2000, &[])]);
+        assume::discharge(&module.functions, &signatures, Target::WIN64, &mut list);
+        assert_eq!(list[0].discharged, proof, "{callee}: {list:?}");
+    }
+}
+
+/// The 32-bit control fixture calls its functions directly and writes through two pointers it
+/// got from `GetProcAddress` (`call eax` at 0x4012bf and 0x4012ef). Every function it calls
+/// directly keeps `ebx`, `ebp`, `esi` and `edi`: `collatz` at 0x401380 pushes `esi` and pops it,
+/// `fib` at 0x4013b0 does so with `edi` and `esi` around a call to itself, `print_int` at
+/// 0x401300 with all four. Only the calls through the runtime are left assuming it.
+#[test]
+fn discharge_leaves_only_the_indirect_calls_of_control32_open() {
+    let image = ra_asm_pe::load(&fixture("control32.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    let inferred = infer_assuming(&lifted.module, &lifted.roots, Target::X86, &lifted.vtables, &BTreeMap::new());
+    let indirect: BTreeSet<u64> = lifted
+        .module
+        .functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.instrs)
+        .filter(|i| matches!(&i.inst, Inst::Call { callee: Callee::Direct(name), .. } if name == "ra_call"))
+        .filter_map(|i| i.address)
+        .collect();
+    let saved: Vec<&Assumption> = inferred.assumptions.iter().filter(|a| a.kind == Kind::CalleeSaved).collect();
+    assert!(saved.iter().any(|a| a.is_discharged()), "{saved:?}");
+    for a in &saved {
+        let through_the_runtime = a.site.is_some_and(|site| indirect.contains(&site));
+        assert_eq!(a.is_discharged(), !through_the_runtime, "{a:?}");
+    }
+    let proof = |site: u64| saved.iter().find(|a| a.site == Some(site)).and_then(|a| a.discharged);
+    assert_eq!(proof(0x40_1046), Some(0x40_1380), "collatz reloads esi");
+    assert_eq!(proof(0x40_13c3), Some(0x40_13b0), "fib calls itself");
+    assert_eq!(proof(0x40_104d), Some(0x40_1300), "print_int reloads all four");
+    assert_eq!(proof(0x40_103c), Some(0x40_12a0), "a function that calls through a pointer keeps them as far as that call");
 }

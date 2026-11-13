@@ -443,6 +443,63 @@ impl Liveness {
     }
 }
 
+/// What a function's own code does to the registers a caller holds across a call to it: the ones
+/// it writes, and the ones among them it puts back. What the functions it calls do is asked of
+/// each of them (see [`super::assume::discharge`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Summary {
+    /// The slots the function stores to in a block a return is reached from. A store on a path
+    /// that ends in a call that never returns hands nothing back.
+    pub writes: SlotSet,
+    /// The slots among them that hold their value from the entry again at every return: the
+    /// general registers the function saved to its stack and reloaded from it (see
+    /// [`super::stack::StackInfo::kept`]). A vector register's save is not followed, so one the
+    /// function writes is never among them.
+    pub restores: SlotSet,
+}
+
+impl Summary {
+    /// The summary of the machine function `f`, with what the stack analysis found of it.
+    pub fn of(f: &Function, pointers: &HashMap<ValueId, Slot>, stack: &super::stack::StackInfo) -> Self {
+        let index_of: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
+        let mut returns: Vec<bool> = f.blocks.iter().map(|b| matches!(b.terminator, Terminator::Ret(_))).collect();
+        loop {
+            let mut changed = false;
+            for (bi, b) in f.blocks.iter().enumerate() {
+                if !returns[bi] && b.terminator.successors().iter().any(|s| returns[index_of[s]]) {
+                    returns[bi] = true;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let mut writes = NO_SLOTS;
+        for b in f.blocks.iter().zip(&returns).filter_map(|(b, reached)| reached.then_some(b)) {
+            for i in &b.instrs {
+                if let Inst::Store { ptr: Operand::Local(p), .. } = &i.inst
+                    && let Some(slot) = pointers.get(p)
+                {
+                    writes[slot.index()] = true;
+                }
+            }
+        }
+        let mut restores = NO_SLOTS;
+        for slot in Slot::all() {
+            if let Slot::Gpr(r) = slot {
+                restores[slot.index()] = writes[slot.index()] && stack.kept & (1u64 << r) != 0;
+            }
+        }
+        Self { writes, restores }
+    }
+
+    /// Whether the function's own code hands `slot` back as it got it.
+    pub fn keeps(&self, slot: Slot) -> bool {
+        !self.writes[slot.index()] || self.restores[slot.index()]
+    }
+}
+
 /// The blocks reachable from the entry, in reverse post-order, as indexes into `f.blocks`.
 pub fn reverse_post_order(f: &Function) -> Vec<usize> {
     let index_of: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();

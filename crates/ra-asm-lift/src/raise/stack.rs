@@ -21,7 +21,7 @@
 //! the function's parameters, as many as the widest of its possible callees takes, even when a
 //! runtime class's method shares the slot and keeps the call indirect.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Operand, Terminator, Type, ValueId};
 
@@ -62,6 +62,13 @@ pub struct StackInfo {
     /// callee-saved register holds an address of the frame: the register is taken to hold it
     /// after, and what is read through it later to be the frame and the arguments.
     pub assumptions: Vec<Assumption>,
+    /// The callee-saved registers, as a mask by number, that hold their value from the entry at
+    /// every return: the ones no path to a return writes, and the ones it writes after a save to
+    /// the stack and reloads from it. A save is taken to stay as it was stored: a store through a
+    /// pointer the analysis cannot place, and a callee, are taken not to reach it, which is the
+    /// privacy of the frame the promotion lists on its own. None when the analysis did not
+    /// settle; all of them for a function no path of which returns.
+    pub kept: u64,
 }
 
 /// What a lifted callee does to the stack of its caller, as far as the inference knows it so far.
@@ -104,11 +111,14 @@ pub fn analyze(
     let mut saves_entry: Vec<Option<Saves>> = vec![None; n];
     let mut saves_exit: Vec<Option<Saves>> = vec![None; n];
     let intact = (0..GPRS).filter(|&r| r != sp && target.callee_saved(Slot::Gpr(r as u8))).fold(0u64, |m, r| m | 1 << r);
-    saves_entry[0] = Some(Saves { intact, bytes: BTreeSet::new() });
+    saves_entry[0] = Some(Saves { intact, kept: intact, bytes: BTreeSet::new(), slots: BTreeMap::new() });
     let mut info = StackInfo::default();
     let mut symbolic: HashMap<ValueId, i64> = HashMap::new();
-    // The values that are a callee-saved register's value from the entry.
-    let mut entry_values: HashSet<ValueId> = HashSet::new();
+    // The values that are a callee-saved register's value from the entry, by the register.
+    let mut entry_values: HashMap<ValueId, u8> = HashMap::new();
+    // The values read back from where such a value was saved, by the register it was.
+    let mut restored: HashMap<ValueId, u8> = HashMap::new();
+    let mut settled = false;
     // The calls into lifted code, by block and index: whether a callee-saved register holds a
     // frame address there, as of the last round.
     let mut frame_pointers: BTreeMap<(usize, usize), bool> = BTreeMap::new();
@@ -170,7 +180,7 @@ pub fn analyze(
                                 None => symbolic.remove(&result),
                             };
                             if saves.intact & (1u64 << *r) != 0 {
-                                entry_values.insert(result);
+                                entry_values.insert(result, *r);
                             } else {
                                 entry_values.remove(&result);
                             }
@@ -184,10 +194,17 @@ pub fn analyze(
                         };
                         regs[usize::from(*r)] = k;
                         saves.intact &= !(1u64 << *r);
+                        // A register reloaded from where its entry value was saved holds it again.
+                        if matches!(value, Operand::Local(v) if restored.get(v) == Some(r)) {
+                            saves.kept |= 1u64 << *r;
+                        } else {
+                            saves.kept &= !(1u64 << *r);
+                        }
                         if usize::from(*r) == sp && k.is_none() {
                             info.dynamic = true;
                             // A push through a stack pointer the analysis lost writes where it cannot see.
                             saves.bytes.clear();
+                            saves.slots.clear();
                         }
                     }
                     Inst::Bin {
@@ -215,14 +232,26 @@ pub fn analyze(
                         }
                         // The 32-bit push of a register stores its low dword.
                         if let Some(result) = i.result {
-                            if matches!(cast, Cast::Trunc | Cast::ZExt) && entry_values.contains(v) {
-                                entry_values.insert(result);
-                            } else {
-                                entry_values.remove(&result);
-                            }
+                            match entry_values.get(v).copied().filter(|_| matches!(cast, Cast::Trunc | Cast::ZExt)) {
+                                Some(r) => entry_values.insert(result, r),
+                                None => entry_values.remove(&result),
+                            };
+                            // The 32-bit pop widens the dword it read; nothing reads the half above.
+                            match restored.get(v).copied().filter(|_| matches!(cast, Cast::ZExt)) {
+                                Some(r) => restored.insert(result, r),
+                                None => restored.remove(&result),
+                            };
                         }
                     }
                     Inst::Load { ty, ptr: Operand::Local(p), .. } => {
+                        // A read of a whole save: the register's value from the entry.
+                        if let Some(result) = i.result {
+                            let whole = ty.bits().is_some_and(|bits| i64::from(bits) == ptr * 8);
+                            match symbolic.get(p).and_then(|k| saves.slots.get(k)).copied().filter(|_| whole) {
+                                Some(r) => restored.insert(result, r),
+                                None => restored.remove(&result),
+                            };
+                        }
                         if let Some(&k) = symbolic.get(p) {
                             let bits = ty.bits().unwrap_or(64) as u16;
                             touch(&mut info, k, bits);
@@ -240,8 +269,15 @@ pub fn analyze(
                                 info.argument_area_written = true;
                             }
                             let bytes = k..k + i64::from(bits.div_ceil(8));
-                            if i64::from(bits / 8) == ptr && matches!(value, Operand::Local(v) if entry_values.contains(v)) {
+                            let saved = match value {
+                                Operand::Local(v) if i64::from(bits / 8) == ptr => entry_values.get(v).copied(),
+                                _ => None,
+                            };
+                            // A store over a save, or over a part of one, ends it.
+                            saves.slots.retain(|&at, _| at + ptr <= bytes.start || at >= bytes.end);
+                            if let Some(r) = saved {
                                 saves.bytes.extend(bytes);
+                                saves.slots.insert(k, r);
                             } else {
                                 saves.bytes.retain(|b| !bytes.contains(b));
                             }
@@ -347,9 +383,12 @@ pub fn analyze(
                                 }
                             }
                             // The callee's own frame lies below the stack pointer it returns with.
-                            match regs[sp] {
-                                Some(top) => saves.bytes.retain(|&b| b >= top),
-                                None => saves.bytes.clear(),
+                            if let Some(top) = regs[sp] {
+                                saves.bytes.retain(|&b| b >= top);
+                                saves.slots.retain(|&at, _| at >= top);
+                            } else {
+                                saves.bytes.clear();
+                                saves.slots.clear();
                             }
                         }
                     }
@@ -365,7 +404,18 @@ pub fn analyze(
             }
         }
         if !changed {
+            settled = true;
             break;
+        }
+    }
+    // What every return leaves as the entry had it. A round that still changed something left
+    // the blocks' states half joined, which proves nothing.
+    if settled {
+        info.kept = intact;
+        for &bi in &order {
+            if let Terminator::Ret(_) = f.blocks[bi].terminator {
+                info.kept &= saves_exit[bi].as_ref().map_or(0, |saves| saves.kept);
+            }
         }
     }
     // The lowest stack pointer value itself counts: a push writes below it. The offset at a
@@ -420,16 +470,25 @@ fn join(a: Regs, b: Regs) -> Regs {
 }
 
 /// The callee-saved registers that still hold their value from the entry, as a mask by number,
-/// and the stack bytes that hold a copy of one: what the prologue saved.
+/// and the stack bytes that hold a copy of one: what the prologue saved. Beside them, the
+/// registers that hold that value now, intact or reloaded from their save (`kept`), and each
+/// save by its offset with the register it is of (`slots`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Saves {
     intact: u64,
+    kept: u64,
     bytes: BTreeSet<i64>,
+    slots: BTreeMap<i64, u8>,
 }
 
 impl Saves {
     fn join(&self, other: &Self) -> Self {
-        Self { intact: self.intact & other.intact, bytes: self.bytes.intersection(&other.bytes).copied().collect() }
+        Self {
+            intact: self.intact & other.intact,
+            kept: self.kept & other.kept,
+            bytes: self.bytes.intersection(&other.bytes).copied().collect(),
+            slots: self.slots.iter().filter(|&(at, r)| other.slots.get(at) == Some(r)).map(|(&at, &r)| (at, r)).collect(),
+        }
     }
 }
 

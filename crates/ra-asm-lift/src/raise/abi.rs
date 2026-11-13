@@ -402,7 +402,8 @@ pub fn infer_with(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Inferred {
     pub signatures: HashMap<String, Signature>,
-    /// What the signatures and the calls rewritten by them rely on (see [`assumptions`]).
+    /// What the signatures and the calls rewritten by them rely on (see [`assumptions`]), those
+    /// the lifted callees prove discharged (see [`assume::discharge`]).
     pub assumptions: Vec<Assumption>,
 }
 
@@ -558,6 +559,7 @@ pub fn infer_assuming(
         assumed(f, &signatures, target, &mut assumptions);
     }
     assume::sort(&mut assumptions);
+    assume::discharge(&functions, &signatures, target, &mut assumptions);
     Inferred { signatures, assumptions }
 }
 
