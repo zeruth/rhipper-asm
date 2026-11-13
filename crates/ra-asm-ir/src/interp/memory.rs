@@ -6,6 +6,8 @@
 //! probe, which the host answers from its own knowledge of the process (a page a DLL handed the
 //! program), and faults when nothing is there, naming the address.
 
+use std::collections::BTreeMap;
+
 use super::Stop;
 
 /// A range of the address space the program may touch.
@@ -29,12 +31,42 @@ impl Region {
 /// What the host answers for an address outside every region: the committed range it lies in.
 pub type Probe = Box<dyn FnMut(u64) -> Option<Region>>;
 
+/// What the program did to the memory while it was armed, as runs of adjacent bytes in address
+/// order: `reads` holds the bytes it read before writing them itself, as they were at their first
+/// read, and `writes` the bytes it wrote, as it left them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Access {
+    pub reads: Vec<(u64, Vec<u8>)>,
+    pub writes: Vec<(u64, Vec<u8>)>,
+}
+
+/// The log of an armed memory, by byte: an access may overlap any earlier one.
+#[derive(Default)]
+struct Log {
+    reads: BTreeMap<u64, u8>,
+    writes: BTreeMap<u64, u8>,
+}
+
+/// The bytes of a log joined into runs of adjacent addresses.
+fn runs(bytes: &BTreeMap<u64, u8>) -> Vec<(u64, Vec<u8>)> {
+    let mut out: Vec<(u64, Vec<u8>)> = Vec::new();
+    for (&address, &byte) in bytes {
+        match out.last_mut() {
+            Some((start, run)) if start.checked_add(run.len() as u64) == Some(address) => run.push(byte),
+            _ => out.push((address, vec![byte])),
+        }
+    }
+    out
+}
+
 #[derive(Default)]
 pub struct Memory {
     regions: Vec<Region>,
     probe: Option<Probe>,
     /// The region of the last access: the next one is usually in it.
     last: usize,
+    /// The log of the accesses, while armed.
+    log: Option<Log>,
 }
 
 impl Memory {
@@ -62,6 +94,17 @@ impl Memory {
     /// The region holding `address`, by name.
     pub fn region_of(&mut self, address: u64) -> Option<&Region> {
         self.locate(address, 1).ok().map(|i| &self.regions[i])
+    }
+
+    /// Starts a log of the accesses: the bytes read before they were written, and the bytes
+    /// written. There is one log: arming again starts it over.
+    pub fn arm(&mut self) {
+        self.log = Some(Log::default());
+    }
+
+    /// Ends the log and returns it; empty when the memory was not armed.
+    pub fn disarm(&mut self) -> Access {
+        self.log.take().map_or_else(Access::default, |log| Access { reads: runs(&log.reads), writes: runs(&log.writes) })
     }
 
     fn locate(&mut self, address: u64, len: u64) -> Result<usize, Stop> {
@@ -95,6 +138,14 @@ impl Memory {
         // The region is the host's own memory, mapped and committed: the check above is the
         // whole safety argument.
         unsafe { std::ptr::copy_nonoverlapping(address as usize as *const u8, buf.as_mut_ptr(), buf.len()) };
+        if let Some(log) = &mut self.log {
+            // `locate` held the whole range, so the addresses do not wrap.
+            for (at, &byte) in (address..).zip(buf.iter()) {
+                if !log.writes.contains_key(&at) {
+                    log.reads.entry(at).or_insert(byte);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -105,6 +156,9 @@ impl Memory {
         }
         self.locate(address, bytes.len() as u64)?;
         unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), address as usize as *mut u8, bytes.len()) };
+        if let Some(log) = &mut self.log {
+            log.writes.extend((address..).zip(bytes.iter().copied()));
+        }
         Ok(())
     }
 
@@ -195,5 +249,83 @@ impl Memory {
             at += 2;
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod armed {
+    use super::{Access, Memory, Region};
+
+    /// A memory over one region of 16 bytes holding 0..16, with the region's address; the buffer
+    /// is returned so it outlives the accesses.
+    fn memory() -> (Memory, u64, Vec<u8>) {
+        let mut bytes: Vec<u8> = (0..16).collect();
+        let base = bytes.as_mut_ptr() as u64;
+        let mut memory = Memory::new();
+        memory.add_region(Region::new(base, 16, "test"));
+        (memory, base, bytes)
+    }
+
+    #[test]
+    fn a_read_is_logged_once() {
+        let (mut memory, base, _bytes) = memory();
+        memory.arm();
+        assert_eq!(memory.read_u32(base + 4).unwrap(), 0x0706_0504);
+        assert_eq!(memory.read_u32(base + 4).unwrap(), 0x0706_0504);
+        let access = memory.disarm();
+        assert_eq!(access.reads, [(base + 4, vec![4, 5, 6, 7])]);
+        assert!(access.writes.is_empty());
+    }
+
+    #[test]
+    fn a_read_after_a_write_is_not_logged() {
+        let (mut memory, base, _bytes) = memory();
+        memory.arm();
+        memory.write_u16(base + 2, 0xbbaa).unwrap();
+        assert_eq!(memory.read_u16(base + 2).unwrap(), 0xbbaa);
+        // Only the two bytes the write did not cover are the function's input.
+        assert_eq!(memory.read_u32(base).unwrap(), 0xbbaa_0100);
+        let access = memory.disarm();
+        assert_eq!(access.reads, [(base, vec![0, 1])]);
+        assert_eq!(access.writes, [(base + 2, vec![0xaa, 0xbb])]);
+    }
+
+    #[test]
+    fn a_first_read_keeps_its_bytes_over_a_later_write() {
+        let (mut memory, base, _bytes) = memory();
+        memory.arm();
+        assert_eq!(memory.read_u8(base + 8).unwrap(), 8);
+        memory.write_u8(base + 8, 0xff).unwrap();
+        memory.write_u8(base + 8, 0xee).unwrap();
+        assert_eq!(memory.read_u8(base + 8).unwrap(), 0xee);
+        let access = memory.disarm();
+        assert_eq!(access.reads, [(base + 8, vec![8])]);
+        assert_eq!(access.writes, [(base + 8, vec![0xee])]);
+    }
+
+    #[test]
+    fn overlapping_reads_are_merged() {
+        let (mut memory, base, _bytes) = memory();
+        memory.arm();
+        memory.read_u32(base + 2).unwrap();
+        memory.read_u32(base).unwrap();
+        // Adjacent to the run above, and one apart from it.
+        memory.read_u16(base + 6).unwrap();
+        memory.read_u8(base + 12).unwrap();
+        let access = memory.disarm();
+        assert_eq!(access.reads, [(base, vec![0, 1, 2, 3, 4, 5, 6, 7]), (base + 12, vec![12])]);
+    }
+
+    #[test]
+    fn the_log_is_empty_when_not_armed() {
+        let (mut memory, base, _bytes) = memory();
+        memory.read_u32(base).unwrap();
+        memory.write_u32(base + 4, 1).unwrap();
+        assert_eq!(memory.disarm(), Access::default());
+        // A log ends with its disarm: what follows is not in the next one.
+        memory.arm();
+        memory.disarm();
+        memory.read_u32(base).unwrap();
+        assert_eq!(memory.disarm(), Access::default());
     }
 }
