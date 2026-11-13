@@ -424,7 +424,12 @@ pub(crate) fn debug(image: &Image, json: bool) -> Result<()> {
 pub(crate) fn coverage_json(coverage: &ra_asm_lift::Coverage) -> serde_json::Value {
     json!({
         "traps": coverage.traps(),
-        "uncovered": coverage.uncovered.iter().map(|u| json!({"mnemonic": u.mnemonic, "count": u.count, "example": hex(u.example)})).collect::<Vec<_>>(),
+        "uncovered": coverage.uncovered.iter().map(|u| json!({
+            "mnemonic": u.mnemonic,
+            "count": u.count,
+            "functions": u.functions,
+            "example": hex(u.example),
+        })).collect::<Vec<_>>(),
         "functions": coverage.functions.iter().map(|(entry, name, traps)| json!({"addr": hex(*entry), "name": name, "traps": traps})).collect::<Vec<_>>(),
         "unknown_imports": coverage.unknown_imports,
         "unresolved_jumps": coverage.unresolved_jumps.iter().map(|(at, entry)| json!({"addr": hex(*at), "function": hex(*entry)})).collect::<Vec<_>>(),

@@ -46,6 +46,9 @@ pub(crate) struct Options {
     pub quiet: bool,
     /// The report on stdout as JSON.
     pub json: bool,
+    /// The census on stdout instead of the tables: the mnemonics the lift traps on as a pending
+    /// list. The JSON report carries the same counts, so `json` wins over it.
+    pub census: bool,
 }
 
 /// How one file ended.
@@ -108,6 +111,8 @@ pub(crate) fn smoke(dir: &Path, options: &Options) -> Result<()> {
         let mut stdout = std::io::stdout().lock();
         serde_json::to_writer_pretty(&mut stdout, &report)?;
         writeln!(stdout)?;
+    } else if options.census {
+        print!("{}", census(&report));
     } else {
         print!("{}", text(&report));
     }
@@ -339,10 +344,12 @@ fn round(seconds: f64) -> f64 {
     (seconds * 1000.0).round() / 1000.0
 }
 
-/// One mnemonic over the corpus: its traps, the files it traps in, and the first instance.
+/// One mnemonic over the corpus: its traps, the functions and the files it traps in, and the
+/// first instance.
 #[derive(Default)]
 struct Mnemonic {
     count: u64,
+    functions: u64,
     files: usize,
     example: Option<(String, String)>,
 }
@@ -354,6 +361,7 @@ fn report(dir: &Path, timeout: Duration, elapsed: Duration, outcomes: &[Outcome]
     let mut functions = 0;
     let mut traps = 0;
     let mut trapping = 0;
+    let mut function_traps = 0;
     let mut unresolved = 0;
     let mut mnemonics: BTreeMap<String, Mnemonic> = BTreeMap::new();
     let mut imports: BTreeMap<String, usize> = BTreeMap::new();
@@ -364,11 +372,13 @@ fn report(dir: &Path, timeout: Duration, elapsed: Duration, outcomes: &[Outcome]
         let coverage = &o.result["coverage"];
         traps += coverage["traps"].as_u64().unwrap_or(0);
         trapping += coverage["functions"].as_array().map_or(0, Vec::len);
+        function_traps += coverage["functions"].as_array().into_iter().flatten().filter_map(|f| f["traps"].as_u64()).sum::<u64>();
         unresolved += coverage["unresolved_jumps"].as_array().map_or(0, Vec::len);
         for u in coverage["uncovered"].as_array().into_iter().flatten() {
             let Some(name) = u["mnemonic"].as_str() else { continue };
             let m = mnemonics.entry(name.to_owned()).or_default();
             m.count += u["count"].as_u64().unwrap_or(0);
+            m.functions += u["functions"].as_u64().unwrap_or(0);
             m.files += 1;
             if m.example.is_none() {
                 m.example = Some((file.clone(), u["example"].as_str().unwrap_or_default().to_owned()));
@@ -397,10 +407,12 @@ fn report(dir: &Path, timeout: Duration, elapsed: Duration, outcomes: &[Outcome]
             "functions": functions,
             "traps": traps,
             "trapping_functions": trapping,
+            "function_traps": function_traps,
             "unresolved_jumps": unresolved,
             "uncovered": uncovered.iter().map(|(name, m)| json!({
                 "mnemonic": name,
                 "count": m.count,
+                "functions": m.functions,
                 "files": m.files,
                 "example": m.example.as_ref().map(|(file, addr)| json!({"file": file, "addr": addr})),
             })).collect::<Vec<_>>(),
@@ -488,6 +500,41 @@ fn text(report: &Value) -> String {
         let _ = writeln!(out, "  {} in {}: {}", s(&e["file"]), s(&e["stage"]), s(&e["message"]));
     });
     out
+}
+
+/// The census of a run: a line per mnemonic the lift traps on, the one that affects the most
+/// functions first, so the lift's remaining work is ordered by what it frees. The shape is a
+/// pending list's: `#` lines of comment, then an entry a line whose first word is its name.
+fn census(report: &Value) -> String {
+    let c = &report["coverage"];
+    let n = |value: &Value| value.as_u64().unwrap_or(0);
+    let mut rows = c["uncovered"].as_array().cloned().unwrap_or_default();
+    rows.sort_by(|a, b| {
+        let by_functions = n(&b["functions"]).cmp(&n(&a["functions"]));
+        by_functions.then_with(|| n(&b["count"]).cmp(&n(&a["count"]))).then_with(|| s(&a["mnemonic"]).cmp(&s(&b["mnemonic"])))
+    });
+    let mut out = String::new();
+    let _ = writeln!(out, "# The mnemonics the lift traps on under {}, the most functions affected first.", s(&report["directory"]));
+    let _ = writeln!(
+        out,
+        "# {} in {} of {}, {} lifted.",
+        counted(n(&c["traps"]), "trap"),
+        counted(n(&c["trapping_functions"]), "function"),
+        counted(n(&report["status"]["ok"]), "file"),
+        counted(n(&c["functions"]), "function")
+    );
+    for u in &rows {
+        let (functions, traps, files) =
+            (counted(n(&u["functions"]), "function"), counted(n(&u["count"]), "trap"), counted(n(&u["files"]), "file"));
+        let (addr, file) = (s(&u["example"]["addr"]), s(&u["example"]["file"]));
+        let _ = writeln!(out, "{}: {functions}, {traps}, {files}, first {addr} in {file}", s(&u["mnemonic"]));
+    }
+    out
+}
+
+/// A count with its noun, in the plural unless it is one.
+fn counted(count: u64, noun: &str) -> String {
+    if count == 1 { format!("1 {noun}") } else { format!("{count} {noun}s") }
 }
 
 /// One table of the text report: its heading with the row count, `none` or a line per row.

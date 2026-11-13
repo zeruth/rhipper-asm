@@ -378,6 +378,8 @@ pub struct Coverage {
 pub struct Uncovered {
     pub mnemonic: String,
     pub count: usize,
+    /// The functions with a trap of this mnemonic.
+    pub functions: usize,
     pub example: u64,
 }
 
@@ -393,11 +395,12 @@ impl Coverage {
 pub fn coverage(analysis: &Analysis<'_>, lifted: &Lifted) -> Coverage {
     use ra_asm_ir::{Callee, Inst, Operand};
     use ra_asm_x86::iced_x86::Code;
-    let mut by_mnemonic: BTreeMap<String, (usize, u64)> = BTreeMap::new();
+    let mut by_mnemonic: BTreeMap<String, (usize, u64, usize)> = BTreeMap::new();
     let mut functions = Vec::new();
     for f in &lifted.module.functions {
         let Some(entry) = f.address else { continue };
         let mut traps = 0;
+        let mut seen = std::collections::BTreeSet::new();
         for block in &f.blocks {
             for i in &block.instrs {
                 let Inst::Call { callee: Callee::Direct(name), args, .. } = &i.inst else { continue };
@@ -419,9 +422,11 @@ pub fn coverage(analysis: &Analysis<'_>, lifted: &Lifted) -> Coverage {
                         .and_then(|c| Code::try_from(c).ok())
                         .map_or_else(|| format!("code {code}"), |c| format!("{:?}", c.mnemonic()).to_ascii_lowercase()),
                 };
-                let slot = by_mnemonic.entry(mnemonic).or_insert((0, *address as u64));
+                let first = seen.insert(mnemonic.clone());
+                let slot = by_mnemonic.entry(mnemonic).or_insert((0, *address as u64, 0));
                 slot.0 += 1;
                 slot.1 = slot.1.min(*address as u64);
+                slot.2 += usize::from(first);
                 traps += 1;
             }
         }
@@ -430,7 +435,7 @@ pub fn coverage(analysis: &Analysis<'_>, lifted: &Lifted) -> Coverage {
         }
     }
     let mut uncovered: Vec<Uncovered> =
-        by_mnemonic.into_iter().map(|(mnemonic, (count, example))| Uncovered { mnemonic, count, example }).collect();
+        by_mnemonic.into_iter().map(|(mnemonic, (count, example, functions))| Uncovered { mnemonic, count, functions, example }).collect();
     uncovered.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.mnemonic.cmp(&b.mnemonic)));
     functions.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
     let unknown_imports = lifted

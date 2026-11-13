@@ -323,6 +323,10 @@ enum Command {
         /// Print no line per file on stderr.
         #[arg(long)]
         quiet: bool,
+        /// Print the census instead of the report: a line per mnemonic the lift traps on, the
+        /// most functions affected first, as a pending list.
+        #[arg(long)]
+        census: bool,
     },
     /// The backlog as roadmap cards, in the outline `rc import` reads. With `--pending`, a card
     /// per ten lines of each pending list (`PENDING.txt`, `*_PENDING.txt`) at or under the
@@ -424,10 +428,10 @@ fn main() -> anyhow::Result<()> {
         Command::Doctor { lang: _, host: Some(exe) } => doctor::host(&exe, json),
         Command::Doctor { lang, host: None } => doctor::doctor(doctor::Port::of(&lang), json),
         Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
-        Command::Smoke { dir, timeout, jobs, budget, depth, extensions, out, quiet } => {
+        Command::Smoke { dir, timeout, jobs, budget, depth, extensions, out, quiet, census } => {
             let timeout = std::time::Duration::from_secs(timeout);
             let budget = budget.map(std::time::Duration::from_secs);
-            let options = smoke::Options { timeout, jobs, budget, depth, extensions, signatures: sigs.clone(), out, quiet, json };
+            let options = smoke::Options { timeout, jobs, budget, depth, extensions, signatures: sigs.clone(), out, quiet, json, census };
             smoke::smoke(&dir, &options)
         }
         Command::Cards { pending, paths, milestone } => {
