@@ -14,6 +14,18 @@ workspace = true
 name = "ras"
 path = "src/main.rs"
 
+[features]
+# The slow tier: the pipeline test builds and runs ports with clang, the smoke test walks System32.
+oracle = []
+
+[[test]]
+name = "pipeline"
+required-features = ["oracle"]
+
+[[test]]
+name = "smoke"
+required-features = ["oracle"]
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
