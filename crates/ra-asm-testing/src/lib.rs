@@ -1,9 +1,10 @@
 //! The scratch directory of a test: `<temp>/<suite>/<build>-<pid>-<name>`, made by
 //! [`Scratch::new`] and removed, with its suite directory once that is empty, when the guard
-//! drops, whether the test passed or failed. `<build>` names the directory the test binaries were
-//! built in, so the runs of several checkouts at once tell their directories apart. A person who
-//! wants to read a test's output sets `RA_KEEP_SCRATCH` to any value: every scratch directory then
-//! stays and names its path on stderr.
+//! drops after a passing test. A failing test keeps its scratch and ends its output with
+//! `scratch kept: <path>`, so the port it was looking at can be read. `<build>` names the
+//! directory the test binaries were built in, so the runs of several checkouts at once tell their
+//! directories apart. A person who wants to read a passing test's output too sets
+//! `RA_KEEP_SCRATCH` to any value: every scratch directory then stays and names its path on stderr.
 
 pub mod digest;
 pub mod manifest;
@@ -134,6 +135,12 @@ impl Drop for Scratch {
             eprintln!("{KEEP} is set: {} is kept", self.path.display());
             return;
         }
+        // A failing check keeps what it was looking at: the panic message has been printed by
+        // now, so this line closes the failure's output.
+        if std::thread::panicking() {
+            eprintln!("scratch kept: {}", self.path.display());
+            return;
+        }
         // A program the test just ran may still be held open for a moment on Windows.
         let mut removed = std::fs::remove_dir_all(&self.path);
         for _ in 0..20 {
@@ -147,8 +154,6 @@ impl Drop for Scratch {
             && self.path.exists()
         {
             eprintln!("{}: not removed: {e}", self.path.display());
-        } else if std::thread::panicking() {
-            eprintln!("{} is removed; set {KEEP} to keep a test's output", self.path.display());
         }
         // The suite directory goes with its last scratch; a sibling of another test keeps it.
         if let Some(suite) = self.path.parent() {

@@ -52,7 +52,8 @@ fn ras(dir: &Path, args: &[&str]) -> (bool, String) {
 /// other checkouts, under way at the same time, are not looked at. A directory of another process
 /// written since this binary was built is a leftover of a test that wrote without a guard; an
 /// older one is from the time before the guards, and is only named. A run that keeps its scratch
-/// keeps it on purpose and is not checked.
+/// keeps it on purpose and is not checked; a failed check of this run keeps its own and is named
+/// here as well.
 #[test]
 fn the_tests_leave_nothing_under_temp() {
     if std::env::var_os(ra_asm_testing::KEEP).is_some() {
@@ -69,7 +70,7 @@ fn the_tests_leave_nothing_under_temp() {
         }
         assert!(
             new.is_empty(),
-            "{suite}: left under the system temp since this test was built (or kept by a run with {} set):\n{new:#?}",
+            "{suite}: left under the system temp since this test was built (or kept by a failed check or a run with {} set):\n{new:#?}",
             ra_asm_testing::KEEP
         );
     }
