@@ -8,6 +8,7 @@
 pub mod digest;
 pub mod manifest;
 pub mod tools;
+pub mod vectors;
 
 pub use tools::tool;
 
