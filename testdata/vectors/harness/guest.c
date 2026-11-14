@@ -1,9 +1,9 @@
 // The guest of the vector harness: a freestanding program with no C library, built by clang in
-// WSL for AArch64 Linux (run under qemu-aarch64-static) or for 32-bit ARM Linux (run under
-// qemu-arm-static). It maps the case page and the data region at the addresses the vectors name,
-// reads cases from a file named on the command line (or standard input), runs each through the
-// trampoline of aarch64.S or arm.S and writes the machine's state after it to the output file (or
-// standard output). Every case ends in a signal: the breakpoint after the instruction, the
+// WSL for AArch64 Linux (run under qemu-aarch64-static), for 32-bit ARM Linux (run under
+// qemu-arm-static) or for little-endian MIPS32 Linux (run under qemu-mipsel-static). It maps the
+// case page and the data region at the addresses the vectors name, reads cases from a file named
+// on the command line (or standard input), runs each through the trampoline of aarch64.S, arm.S
+// or mipsel.S and writes the machine's state after it to the output file (or standard output). Every case ends in a signal: the breakpoint after the instruction, the
 // breakpoint fill a branch lands on, or the fault the instruction itself raises. The handler
 // copies the registers out of the signal context, so the state is the machine's at the moment the
 // case stopped, and resumes the trampoline with the host's registers.
@@ -20,6 +20,9 @@
 //         -nostdlib -static -fno-stack-protector -O1 -fuse-ld=lld -Wl,--image-base=0x0a000000
 //         guest.c arm.S -o guest32
 //   qemu-arm-static -cpu max guest32 cases.bin results.bin
+// And for mipsel by run.sh beside it, which `mipsel_runs_three_cases` in
+// crates/ra-asm-machine/tests/harness.rs calls:
+//   wsl -d Ubuntu-24.04 -- bash testdata/vectors/harness/run.sh mipsel <dir> cases.bin results.bin
 
 typedef unsigned long long u64;
 typedef unsigned int u32;
@@ -123,6 +126,11 @@ _Static_assert(__builtin_offsetof(struct ucontext, mc.reserved) == 464, "uc_mcon
 #define SYS_rt_sigaction 134
 #define SYS_mmap 222
 
+#define SIGBUS 7
+#define SA_SIGINFO 4ul
+#define SIGSET_BYTES 8
+#define OPEN_WRITE 0x241
+
 #define SAVED_WORDS 13
 
 #elif defined(__arm__)
@@ -214,19 +222,121 @@ _Static_assert(__builtin_offsetof(struct ucontext, mc.cpsr) == 96, "uc_mcontext.
 #define SYS_exit_group 248
 #define SYS_openat 322
 
+#define SIGBUS 7
+#define SA_SIGINFO 4ul
+#define SIGSET_BYTES 8
+#define OPEN_WRITE 0x241
+
 #define SAVED_WORDS 10
 
+#elif defined(__mips__) && defined(__MIPSEL__) && _MIPS_SIM == _ABIO32
+
+// `break`, the fill, and the prologue `lw $1, 4($4); lw $4, 16($4)` before the case, see mipsel.S.
+#define BREAK 0x0000000du
+#define PROLOGUE_0 0x8c810004u
+#define PROLOGUE_1 0x8c840010u
+
+// One case in: the registers ($0..$31, $0 unused), hi and lo, the length of the code, the
+// window's address, the code's bytes (a branch and its delay slot are eight) and the window of
+// data bytes.
+struct case_in {
+    u32 r[32];
+    u32 hi;
+    u32 lo;
+    u32 len;
+    u32 window_at;
+    u8 code[16];
+    u8 window[WINDOW];
+};
+
+// One case out: the signal that ended it and the pc it ended at (a fault in a delay slot names
+// its branch), the registers, hi and lo as the context held them, the first address outside the
+// window a store reached (plus one, zero for none) and the window as the case left it.
+struct case_out {
+    u32 sig;
+    u32 pc;
+    u32 r[32];
+    u32 hi;
+    u32 lo;
+    u32 stray;
+    u8 window[WINDOW];
+};
+
+_Static_assert(sizeof(struct case_in) == 224, "the layout mipsel.S and the generator share");
+_Static_assert(__builtin_offsetof(struct case_in, hi) == 128, "IN_HI");
+_Static_assert(__builtin_offsetof(struct case_in, lo) == 132, "IN_LO");
+_Static_assert(__builtin_offsetof(struct case_in, code) == 144, "the code");
+_Static_assert(sizeof(struct case_out) == 212, "the layout the generator reads");
+
+// The signal context of o32 MIPS Linux, as the kernel and qemu lay it out: the stack's size
+// comes before its flags, the action's flags before its handler, and every register is a
+// doubleword whose low half is the o32 register.
+struct kernel_stack {
+    void *sp;
+    u32 size;
+    int flags;
+};
+
+struct kernel_sigaction {
+    u32 flags;
+    void (*handler)(int, void *, void *);
+    u32 mask[4];
+};
+
+struct sigcontext {
+    u32 regmask;
+    u32 status;
+    u64 pc;
+    u64 regs[32];
+    u64 fpregs[32];
+    u32 ownedfp;
+    u32 fpc_csr;
+    u32 fpc_eir;
+    u32 used_math;
+    u32 dsp;
+    u64 mdhi;
+    u64 mdlo;
+};
+
+struct ucontext {
+    u32 flags;
+    void *link;
+    struct kernel_stack stack;
+    struct sigcontext mc;
+};
+
+_Static_assert(__builtin_offsetof(struct ucontext, mc) == 24, "uc_mcontext");
+_Static_assert(__builtin_offsetof(struct ucontext, mc.pc) == 32, "uc_mcontext.sc_pc");
+_Static_assert(__builtin_offsetof(struct ucontext, mc.regs) == 40, "uc_mcontext.sc_regs");
+_Static_assert(__builtin_offsetof(struct ucontext, mc.mdhi) == 576, "uc_mcontext.sc_mdhi");
+
+// The o32 syscall numbers: Linux's `asm/unistd_o32.h`.
+#define SYS_read 4003
+#define SYS_write 4004
+#define SYS_mmap 4090
+#define SYS_cacheflush 4147
+#define SYS_rt_sigaction 4194
+#define SYS_sigaltstack 4206
+#define SYS_exit_group 4246
+#define SYS_openat 4288
+
+#define SIGBUS 10
+#define SA_SIGINFO 8ul
+#define SIGSET_BYTES 16
+// O_WRONLY | O_CREAT | O_TRUNC, which MIPS numbers apart.
+#define OPEN_WRITE 0x301
+
+#define SAVED_WORDS 12
+
 #else
-#error "the guest is AArch64 or 32-bit ARM"
+#error "the guest is AArch64, 32-bit ARM or o32 little-endian MIPS"
 #endif
 
 #define SIGILL 4
 #define SIGTRAP 5
-#define SIGBUS 7
 #define SIGFPE 8
 #define SIGSEGV 11
 
-#define SA_SIGINFO 4ul
 #define SA_ONSTACK 0x08000000ul
 #define SA_NODEFER 0x40000000ul
 
@@ -415,6 +525,54 @@ static void place_case(volatile u32 *page) {
     flush_code(CASE_IP & ~63ul, (CASE_IP & ~63ul) + 64);
 }
 
+#elif defined(__mips__)
+
+// The case stopped: its state out of the context, and the trampoline resumed at run_case_done,
+// which takes the host's registers back itself.
+static void handler(int sig, void *info, void *context) {
+    struct ucontext *uc = context;
+    (void)info;
+    g_out.sig = (u32)sig;
+    g_out.pc = (u32)uc->mc.pc;
+    for (int i = 0; i < 32; i++) {
+        g_out.r[i] = (u32)uc->mc.regs[i];
+    }
+    g_out.hi = (u32)uc->mc.mdhi;
+    g_out.lo = (u32)uc->mc.mdlo;
+    uc->mc.pc = (u64)(uw)run_case_done;
+}
+
+// MAP_FIXED | MAP_ANONYMOUS | MAP_PRIVATE, in MIPS's numbers.
+static void map_fixed(uw at, uw len, long prot) {
+    long got = sys_call(SYS_mmap, (long)at, (long)len, prot, 0x2 | 0x800 | 0x10, -1, 0);
+    if ((uw)got != at) {
+        exit_with(4);
+    }
+}
+
+// The page: the fill with the prologue before the case.
+static void fill_page(volatile u32 *page) {
+    for (uw i = 0; i < CODE_LEN / 4; i++) {
+        page[i] = BREAK;
+    }
+    page[(CASE_IP - CODE_BASE) / 4 - 2] = PROLOGUE_0;
+    page[(CASE_IP - CODE_BASE) / 4 - 1] = PROLOGUE_1;
+    flush_code(CODE_BASE, CODE_BASE + CODE_LEN);
+}
+
+// The case's bytes into the page, the fill restored after a longer case before.
+static void place_case(volatile u32 *page) {
+    uw at = (CASE_IP - CODE_BASE) / 4;
+    for (uw i = 0; i < sizeof g_in.code / 4; i++) {
+        page[at + i] = BREAK;
+    }
+    volatile u8 *bytes = (volatile u8 *)CASE_IP;
+    for (u32 i = 0; i < g_in.len && i < sizeof g_in.code; i++) {
+        bytes[i] = g_in.code[i];
+    }
+    flush_code(CASE_IP & ~63ul, (CASE_IP & ~63ul) + 64);
+}
+
 #endif
 
 static void install(int sig) {
@@ -422,8 +580,7 @@ static void install(int sig) {
     memset(&act, 0, sizeof act);
     act.handler = handler;
     act.flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
-    act.mask = 0;
-    if (sys_call(SYS_rt_sigaction, sig, (long)&act, 0, 8, 0, 0) != 0) {
+    if (sys_call(SYS_rt_sigaction, sig, (long)&act, 0, SIGSET_BYTES, 0, 0) != 0) {
         exit_with(6);
     }
 }
@@ -433,7 +590,7 @@ int guest_main(long argc, char **argv) {
     int out_fd = 1;
     if (argc >= 3) {
         in_fd = (int)sys_call(SYS_openat, -100, (long)argv[1], 0, 0, 0, 0);
-        out_fd = (int)sys_call(SYS_openat, -100, (long)argv[2], 0x241, 0644, 0, 0);
+        out_fd = (int)sys_call(SYS_openat, -100, (long)argv[2], OPEN_WRITE, 0644, 0, 0);
         if (in_fd < 0 || out_fd < 0) {
             exit_with(2);
         }
@@ -455,7 +612,7 @@ int guest_main(long argc, char **argv) {
     install(SIGSEGV);
 
     volatile u32 *page = (volatile u32 *)CODE_BASE;
-#if defined(__aarch64__)
+#if !defined(__arm__)
     fill_page(page);
 #endif
 

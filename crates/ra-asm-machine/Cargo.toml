@@ -1,0 +1,16 @@
+[package]
+name = "ra-asm-machine"
+description = "The machines described by rows, and the guest harness their reference vectors come from"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+ra-asm-testing.workspace = true
