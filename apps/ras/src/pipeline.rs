@@ -314,7 +314,7 @@ impl<'a> Pipeline<'a> {
             };
             let (annotations, annotated) = annotate(&self.project.root, &mut analysis);
             let options = ra_asm_lift::LiftOptions { standalone: true, x87: self.project.x87 };
-            let mut lifted = ra_asm_lift::lift_with(image, &analysis, options);
+            let mut lifted = ra_asm_lift::lift_frozen(image, &analysis, options);
             let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
             let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
             lifted.apply_names(&analysis, Some(&mut signatures));
@@ -356,7 +356,7 @@ impl<'a> Pipeline<'a> {
         let (args, x87, file) = (self.project.run.args.clone(), self.project.x87, self.project.facts_file());
         let image = self.image()?;
         let analysis = ra_asm_analysis::analyze(image);
-        let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
+        let mut lifted = ra_asm_lift::lift_frozen(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
         let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
         let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         lifted.apply_names(&analysis, Some(&mut signatures));
@@ -699,7 +699,7 @@ pub(crate) fn interpret(
     run: &ra_asm_lift::run::Options,
 ) -> Result<ra_asm_lift::run::Outcome> {
     let analysis = ra_asm_analysis::analyze_with(image, facts);
-    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: project.x87 });
+    let mut lifted = ra_asm_lift::lift_frozen(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: project.x87 });
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));

@@ -610,7 +610,7 @@ pub(crate) fn emit(
     let (annotations, warnings) = project.map(|root| crate::annotations::annotate(root, &mut analysis)).unwrap_or_default();
     let hand = crate::annotations::hand_list(hand, &annotations);
     let hand = hand.as_slice();
-    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
+    let mut lifted = ra_asm_lift::lift_frozen(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));

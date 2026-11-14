@@ -219,6 +219,10 @@ fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm
     ra_asm_emit::format_files(&mut files, &unit.functions);
     let dir = scratch(&format!("{binary}-{tag}"));
     ra_asm_emit::write_files(&dir, &files).unwrap();
+    // The bytes of the data sections the source embeds, beside it.
+    for (name, bytes) in &unit.blobs {
+        std::fs::write(dir.join(name), bytes).unwrap();
+    }
     std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted, Some(&signatures))).unwrap();
     std::fs::write(dir.join("functions.json"), ra_asm_emit::table(&unit.functions, &files, &infos)).unwrap();
     write_resources(&dir, &image);
@@ -400,6 +404,11 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
     // and the driver build warning-free under the strict flags.
     let mut build = Command::new("clang");
     build.args(["-O1", "-g", "-Wall", "-Wextra", "-Werror"]);
+    // A C translation embeds its large data sections (`#embed`, C23), as the port's build compiles
+    // it; a C++ one keeps their initializers, and one -std cannot name both languages.
+    if sources.iter().all(|p| p.extension().is_some_and(|x| x == "c")) {
+        build.arg("-std=c23");
+    }
     if cfg!(windows) {
         // A 32-bit program's port keeps its 32-bit pointers: the binary is not large-address-aware.
         build.args(["-gcodeview", "-fuse-ld=lld"]);

@@ -193,6 +193,74 @@ impl Function {
         }
     }
 
+    /// Drops the names and types of the values nothing defines or reads any more, numbering the
+    /// rest again in their order, and gives back the room the passes left in the vectors. A pass
+    /// that removes an instruction leaves its value's entry behind: after the raise of a large
+    /// function four values in five are such leftovers, which outweigh the instructions.
+    pub fn compact(&mut self) {
+        let n = self.value_names.len();
+        let mut keep = vec![false; n];
+        let mut mark = |v: ValueId| {
+            if let Some(k) = keep.get_mut(v.0 as usize) {
+                *k = true;
+            }
+        };
+        self.params.iter().copied().for_each(&mut mark);
+        for b in &self.blocks {
+            for i in &b.instrs {
+                i.result.into_iter().chain(i.inst.uses()).for_each(&mut mark);
+            }
+            b.terminator.uses().into_iter().for_each(&mut mark);
+        }
+        if keep.iter().all(|k| *k) {
+            self.shrink();
+            return;
+        }
+        let mut renumber = vec![u32::MAX; n];
+        let (mut names, mut types) = (Vec::new(), Vec::new());
+        for (old, kept) in keep.iter().enumerate() {
+            if *kept {
+                renumber[old] = names.len() as u32;
+                names.push(std::mem::take(&mut self.value_names[old]));
+                types.push(std::mem::replace(&mut self.value_types[old], Type::Void));
+            }
+        }
+        let at = |v: ValueId| ValueId(renumber[v.0 as usize]);
+        for p in &mut self.params {
+            *p = at(*p);
+        }
+        for b in &mut self.blocks {
+            for i in &mut b.instrs {
+                if let Some(v) = &mut i.result {
+                    *v = at(*v);
+                }
+                for o in i.inst.operands_mut() {
+                    if let crate::inst::Operand::Local(v) = o {
+                        *v = at(*v);
+                    }
+                }
+            }
+            for o in b.terminator.operands_mut() {
+                if let crate::inst::Operand::Local(v) = o {
+                    *v = at(*v);
+                }
+            }
+        }
+        self.value_names = names;
+        self.value_types = types;
+        self.shrink();
+    }
+
+    /// Gives back the room the vectors hold beyond their contents.
+    fn shrink(&mut self) {
+        self.value_names.shrink_to_fit();
+        self.value_types.shrink_to_fit();
+        self.blocks.shrink_to_fit();
+        for b in &mut self.blocks {
+            b.instrs.shrink_to_fit();
+        }
+    }
+
     /// The number of uses of each value.
     pub fn use_counts(&self) -> HashMap<ValueId, usize> {
         let mut counts: HashMap<ValueId, usize> = HashMap::new();
@@ -221,6 +289,9 @@ pub struct Module {
     pub globals: Vec<Global>,
     pub declarations: Vec<Declaration>,
     pub functions: Vec<Function>,
+    /// Functions the lift froze ([`crate::freeze`]) for a pass to thaw one at a time: the raise
+    /// takes them back into `functions`, in their order and before the others.
+    pub frozen: Vec<crate::freeze::Frozen>,
 }
 
 impl Module {
@@ -288,6 +359,7 @@ impl Module {
 
     /// The text of the module in LLVM's syntax.
     pub fn to_ll(&self) -> String {
+        assert!(self.frozen.is_empty(), "a module with frozen functions is printed only once the raise has thawed them");
         crate::printer::print(self)
     }
 }

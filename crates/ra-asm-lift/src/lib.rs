@@ -466,11 +466,19 @@ pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
 
 /// Lifts every function of `analysis` with `options`.
 pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -> Lifted {
-    lift_on(image, analysis, options, None)
+    lift_on(image, analysis, options, None, false)
 }
 
-/// [`lift_with`] on `threads` threads, or on as many as the host and the program's size call for.
-fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads: Option<usize>) -> Lifted {
+/// [`lift_with`], each function frozen as it is lifted ([`ra_asm_ir::freeze`]) into the module's
+/// `frozen`: the machine IR of a large program is never all in memory, and [`raise`] thaws one
+/// function at a time. The module prints only once raised.
+pub fn lift_frozen(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -> Lifted {
+    lift_on(image, analysis, options, None, true)
+}
+
+/// [`lift_with`] on `threads` threads, or on as many as the host and the program's size call for,
+/// each function frozen with `freeze`.
+fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads: Option<usize>, freeze: bool) -> Lifted {
     let isa = match image.machine() {
         ra_asm_pe::Machine::Arm64 => Isa::Arm64,
         ra_asm_pe::Machine::Arm => Isa::Arm32,
@@ -567,7 +575,7 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
     }
     let tls = state::tls_global(image, &lifted);
     lifted.module.globals.push(tls);
-    lift_functions(image, analysis, &mut lifted, threads);
+    lift_functions(image, analysis, &mut lifted, threads, freeze);
     // A function whose address the code or the data holds is a root as well: a window procedure
     // or a thread's start the system calls back, whose callers the raise never sees, so it keeps
     // the result it writes.
@@ -643,14 +651,21 @@ const PARALLEL_FROM: usize = 64;
 /// analysis and the lift's tables, so each thread lifts a run of consecutive functions into a
 /// worker of its own and the runs join in address order: the module, the warnings, the imports
 /// and every other output are the ones a lift on one thread writes.
-fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, threads: Option<usize>) {
+fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, threads: Option<usize>, freeze: bool) {
     let lift_one = |lifted: &mut Lifted, f: &ra_asm_analysis::Function| {
         let built = match lifted.isa {
             Isa::X86 => x86::lift_function(image, analysis, lifted, f),
             Isa::Arm64 => arm64::lift_function(image, analysis, lifted, f),
             Isa::Arm32 => thumb::lift_function(image, analysis, lifted, f),
         };
-        lifted.module.functions.push(built);
+        if freeze {
+            // A function whose address this one takes is a root, as the lift finds over the
+            // module's functions when it keeps them: frozen, it is found here, before the freeze.
+            raise::stubs::function_addresses(&built, &mut lifted.roots);
+            lifted.module.frozen.push(ra_asm_ir::freeze::freeze(&built));
+        } else {
+            lifted.module.functions.push(built);
+        }
     };
     let ported: Vec<&ra_asm_analysis::Function> = analysis.ported().collect();
     let threads = threads.unwrap_or_else(|| {
@@ -703,11 +718,12 @@ fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, t
             traced_calls,
             warnings,
         } = worker;
-        let Module { name: _, triple: _, data_layout: _, types, globals, declarations, functions: built } = module;
+        let Module { name: _, triple: _, data_layout: _, types, globals, declarations, functions: built, frozen } = module;
         lifted.module.types.extend(types);
         lifted.module.globals.extend(globals);
         lifted.module.declarations.extend(declarations);
         lifted.module.functions.extend(built);
+        lifted.module.frozen.extend(frozen);
         lifted.imports.extend(imports);
         lifted.roots.extend(roots);
         lifted.wrappers.extend(wrappers);
@@ -968,8 +984,8 @@ mod parallel_tests {
             let image = ra_asm_pe::load(&bin.join(fixture)).unwrap();
             let analysis = ra_asm_analysis::analyze(&image);
             let options = || LiftOptions { standalone, x87: X87Unit::Double };
-            let one = lift_on(&image, &analysis, options(), Some(1));
-            let many = lift_on(&image, &analysis, options(), Some(5));
+            let one = lift_on(&image, &analysis, options(), Some(1), false);
+            let many = lift_on(&image, &analysis, options(), Some(5), false);
             assert!(analysis.ported().count() >= 5, "{fixture}: too few functions to spread over the threads");
             assert_eq!(one.module.to_ll(), many.module.to_ll(), "{fixture}: the IR differs");
             assert_eq!(one.warnings, many.warnings, "{fixture}");
@@ -978,6 +994,30 @@ mod parallel_tests {
             assert_eq!(one.fastcall, many.fastcall, "{fixture}");
             assert_eq!(one.roots, many.roots, "{fixture}");
             assert_eq!(one.data.len(), many.data.len(), "{fixture}");
+        }
+    }
+
+    /// A lift that freezes its functions raises to what a lift that keeps them raises to: the same
+    /// roots, the same signatures, the same IR, at every level.
+    #[test]
+    fn a_frozen_lift_raises_as_a_kept_one() {
+        let bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin");
+        for fixture in ["control64.exe", "control32.exe", "classes32.exe", "float32.exe", "throws64.exe"] {
+            let image = ra_asm_pe::load(&bin.join(fixture)).unwrap();
+            let analysis = ra_asm_analysis::analyze(&image);
+            for level in [RaiseLevel::Machine, RaiseLevel::Promoted, RaiseLevel::Abi] {
+                let options = LiftOptions { standalone: level == RaiseLevel::Abi, x87: X87Unit::Double };
+                let mut kept = lift_on(&image, &analysis, options, None, false);
+                let mut frozen = lift_on(&image, &analysis, options, None, true);
+                assert!(frozen.module.functions.len() < kept.module.functions.len(), "{fixture}: the lift froze nothing");
+                assert_eq!(kept.roots, frozen.roots, "{fixture}");
+                let (kept_options, frozen_options) = (kept.raise_options(level), frozen.raise_options(level));
+                let kept_signatures = raise(&mut kept.module, &kept.roots, kept_options);
+                let frozen_signatures = raise(&mut frozen.module, &frozen.roots, frozen_options);
+                assert!(frozen.module.frozen.is_empty(), "{fixture}: the raise left functions frozen");
+                assert_eq!(kept_signatures, frozen_signatures, "{fixture} at {level:?}");
+                assert_eq!(kept.module.to_ll(), frozen.module.to_ll(), "{fixture} at {level:?}: the IR differs");
+            }
         }
     }
 }

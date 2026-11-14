@@ -395,7 +395,103 @@ pub fn infer_with(
     vtables: &[Vtable],
     traced: &BTreeMap<u64, Vec<u64>>,
 ) -> HashMap<String, Signature> {
-    infer_assuming(module, roots, target, vtables, traced).signatures
+    infer_from(&Source::of(module), roots, target, vtables, traced)
+}
+
+/// [`infer_with`] over functions already simplified in place (the `F_` ones of `functions`, and
+/// `frozen`): the raise simplifies them first, so the inference reads them without a copy.
+pub(crate) fn infer_simplified(
+    functions: &[Function],
+    frozen: &[ra_asm_ir::freeze::Frozen],
+    roots: &BTreeSet<String>,
+    target: Target,
+    vtables: &[Vtable],
+    traced: &BTreeMap<u64, Vec<u64>>,
+) -> HashMap<String, Signature> {
+    let owned: Vec<&Function> = functions.iter().filter(|f| f.name.starts_with("F_")).collect();
+    let source = if frozen.is_empty() {
+        Source::Borrowed(owned)
+    } else {
+        // A lift that freezes freezes every function it lifts: the module's own are its wrappers.
+        let mut all: Vec<ra_asm_ir::freeze::Frozen> = owned.into_iter().map(ra_asm_ir::freeze::freeze).collect();
+        if all.is_empty() {
+            return infer_from(&Source::FrozenRef(frozen), roots, target, vtables, traced);
+        }
+        all.extend_from_slice(frozen);
+        Source::Frozen(all)
+    };
+    infer_from(&source, roots, target, vtables, traced)
+}
+
+/// The lifted functions the inference reads, each simplified: the stack analysis reads constants,
+/// and the machine IR materializes them. Owned, borrowed, or frozen and thawed one at a time when
+/// the lift froze them, so the machine IR of a large program is never all in memory at once.
+pub(crate) enum Source<'a> {
+    Owned(Vec<Function>),
+    Borrowed(Vec<&'a Function>),
+    Frozen(Vec<ra_asm_ir::freeze::Frozen>),
+    FrozenRef(&'a [ra_asm_ir::freeze::Frozen]),
+}
+
+impl Source<'_> {
+    /// The `F_` functions of `module`, its frozen ones included, simplified copies.
+    pub(crate) fn of(module: &Module) -> Source<'static> {
+        let simplified = |f: &Function| {
+            let mut f = f.clone();
+            super::simplify::run(&mut f);
+            f
+        };
+        let owned = module.functions.iter().filter(|f| f.name.starts_with("F_"));
+        if module.frozen.is_empty() {
+            return Source::Owned(owned.map(simplified).collect());
+        }
+        let mut frozen: Vec<_> = owned.map(|f| ra_asm_ir::freeze::freeze(&simplified(f))).collect();
+        frozen.extend(par_map(&module.frozen, |_, frozen| {
+            let mut f = ra_asm_ir::freeze::thaw(frozen);
+            super::simplify::run(&mut f);
+            ra_asm_ir::freeze::freeze(&f)
+        }));
+        Source::Frozen(frozen)
+    }
+
+    fn names(&self) -> Vec<String> {
+        match self {
+            Self::Owned(functions) => functions.iter().map(|f| f.name.clone()).collect(),
+            Self::Borrowed(functions) => functions.iter().map(|f| f.name.clone()).collect(),
+            Self::Frozen(frozen) => frozen.iter().map(|f| f.name.clone()).collect(),
+            Self::FrozenRef(frozen) => frozen.iter().map(|f| f.name.clone()).collect(),
+        }
+    }
+
+    /// `each` of every function, in order, on the host's threads.
+    fn map<T: Send>(&self, each: impl Fn(usize, &Function) -> T + Sync) -> Vec<T> {
+        let thawed = |i: usize, frozen: &ra_asm_ir::freeze::Frozen| each(i, &ra_asm_ir::freeze::thaw(frozen));
+        match self {
+            Self::Owned(functions) => par_map(functions, |i, f| each(i, f)),
+            Self::Borrowed(functions) => par_map(functions, |i, f| each(i, f)),
+            Self::Frozen(frozen) => par_map(frozen, thawed),
+            Self::FrozenRef(frozen) => par_map(frozen, thawed),
+        }
+    }
+}
+
+/// `each` of every item of `items` with its index, in order, on the host's threads: a run of
+/// consecutive items a thread.
+pub(crate) fn par_map<I: Sync, T: Send>(items: &[I], each: impl Fn(usize, &I) -> T + Sync) -> Vec<T> {
+    let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).min(items.len().max(1));
+    if threads <= 1 {
+        return items.iter().enumerate().map(|(i, x)| each(i, x)).collect();
+    }
+    let run = items.len().div_ceil(threads);
+    let each = &each;
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .chunks(run)
+            .enumerate()
+            .map(|(c, chunk)| scope.spawn(move || chunk.iter().enumerate().map(|(i, x)| each(c * run + i, x)).collect::<Vec<T>>()))
+            .collect();
+        handles.into_iter().flat_map(|h| h.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+    })
 }
 
 /// What the ABI step infers and what it assumed on the way.
@@ -415,33 +511,58 @@ pub fn infer_assuming(
     vtables: &[Vtable],
     traced: &BTreeMap<u64, Vec<u64>>,
 ) -> Inferred {
-    // The stack analysis reads constants; the machine IR materializes them, so fold them first.
-    let functions: Vec<Function> = module
-        .functions
-        .iter()
-        .filter(|f| f.name.starts_with("F_"))
-        .map(|f| {
-            let mut f = f.clone();
-            super::simplify::run(&mut f);
-            f
-        })
-        .collect();
-    let mut signatures: HashMap<String, Signature> = functions.iter().map(|f| (f.name.clone(), Signature::default())).collect();
-    let lifted = |name: &str| signatures.contains_key(name);
-    let virtuals: Vec<HashMap<ValueId, Candidates>> = functions
-        .iter()
-        .map(|f| {
+    let source = Source::of(module);
+    let signatures = infer_from(&source, roots, target, vtables, traced);
+    let Source::Owned(functions) = source else { unreachable!("a module the lift did not freeze is read as it is") };
+    let mut assumptions = Vec::new();
+    for f in &functions {
+        assumed(f, &signatures, target, &mut assumptions);
+    }
+    assume::sort(&mut assumptions);
+    assume::discharge(&functions, &signatures, target, &mut assumptions);
+    Inferred { signatures, assumptions }
+}
+
+/// `each` of every item of `items` with its index, in place, on the host's threads.
+pub(crate) fn par_each_mut<I: Send>(items: &mut [I], each: impl Fn(usize, &mut I) + Sync) {
+    let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).min(items.len().max(1));
+    if threads <= 1 {
+        items.iter_mut().enumerate().for_each(|(i, x)| each(i, x));
+        return;
+    }
+    let run = items.len().div_ceil(threads);
+    let each = &each;
+    std::thread::scope(|scope| {
+        for (c, chunk) in items.chunks_mut(run).enumerate() {
+            scope.spawn(move || chunk.iter_mut().enumerate().for_each(|(i, x)| each(c * run + i, x)));
+        }
+    });
+}
+
+/// The signatures of the functions of `source`, to the fixpoint of their calls.
+fn infer_from(
+    source: &Source,
+    roots: &BTreeSet<String>,
+    target: Target,
+    vtables: &[Vtable],
+    traced: &BTreeMap<u64, Vec<u64>>,
+) -> HashMap<String, Signature> {
+    let names = source.names();
+    let mut signatures: HashMap<String, Signature> = names.iter().map(|n| (n.clone(), Signature::default())).collect();
+    let lifted_names: std::collections::HashSet<&str> = names.iter().map(String::as_str).collect();
+    let lifted = |name: &str| lifted_names.contains(name);
+    let (virtuals, slots): (Vec<HashMap<ValueId, Candidates>>, Vec<HashMap<ValueId, Candidates>>) = source
+        .map(|_, f| {
             let mut calls = virtual_calls(f, vtables, target, &lifted);
             calls.extend(traced_calls(f, traced, &lifted));
-            calls
+            (calls, virtual_calls(f, vtables, target, &|_: &str| true))
         })
-        .collect();
-    let slots: Vec<HashMap<ValueId, Candidates>> = functions.iter().map(|f| virtual_calls(f, vtables, target, &|_: &str| true)).collect();
+        .into_iter()
+        .unzip();
     let ints = target.int_param_slots().len();
     let floats = target.float_params();
     for _round in 0..8 {
-        let facts: Vec<Facts> =
-            functions.iter().zip(&virtuals).zip(&slots).map(|((f, v), s)| gather(f, v, s, &signatures, target)).collect();
+        let facts: Vec<Facts> = source.map(|i, f| gather(f, &virtuals[i], &slots[i], &signatures, target));
         let xmm0_kinds: HashMap<&str, Option<Kind>> = facts.iter().map(|f| (f.name.as_str(), f.writes_xmm0)).collect();
         // Through the callees as well: `call _allrem; ret` hands back the 64 bits its callee left.
         let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[RDX.index()])).collect();
@@ -554,13 +675,7 @@ pub fn infer_assuming(
             break;
         }
     }
-    let mut assumptions = Vec::new();
-    for f in &functions {
-        assumed(f, &signatures, target, &mut assumptions);
-    }
-    assume::sort(&mut assumptions);
-    assume::discharge(&functions, &signatures, target, &mut assumptions);
-    Inferred { signatures, assumptions }
+    signatures
 }
 
 /// What the ABI step assumes of the `F_` functions of `module` under `signatures`, in a stable

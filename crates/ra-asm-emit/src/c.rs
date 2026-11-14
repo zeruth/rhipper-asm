@@ -1804,9 +1804,12 @@ impl<'a> Emitter<'a> {
         // A `for` tests before its first round, so to a C compiler a variable the body assigns
         // may be unset after the loop, though the condition holds on entry: a loop whose body
         // defines a value the code after it reads stays a `do ... while`, which says the body
-        // runs. The header's phis are the `for`'s own, which its first clause assigns.
+        // runs. The header's phis are the `for`'s own, which its first clause assigns, and a phi's
+        // next-round value reads after the loop as the phi itself.
+        let nexts: Vec<ValueId> = phis.iter().filter_map(|(_, _, next)| next.local()).collect();
         let escapes = self.f.blocks.iter().filter(|b| !members.contains(&b.id)).any(|b| {
-            let read = |o: &Operand| o.local().is_some_and(|v| !names.contains(&v) && defined_in(v) && !self.inlinable(v));
+            let read =
+                |o: &Operand| o.local().is_some_and(|v| !names.contains(&v) && !nexts.contains(&v) && defined_in(v) && !self.inlinable(v));
             b.instrs.iter().any(|i| match &i.inst {
                 Inst::Phi { incoming, .. } => incoming.iter().any(|(o, from)| !members.contains(from) && read(o)),
                 inst => inst.operands().into_iter().any(read),

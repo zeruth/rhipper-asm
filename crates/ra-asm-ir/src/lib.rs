@@ -16,6 +16,7 @@
 pub mod builder;
 pub mod diff;
 pub mod dom;
+pub mod freeze;
 pub mod inst;
 pub mod interp;
 pub mod module;

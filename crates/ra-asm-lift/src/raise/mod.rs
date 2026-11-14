@@ -311,57 +311,64 @@ impl Options {
 /// callers the lift does not see (see [`abi::infer`]).
 pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) -> HashMap<String, abi::Signature> {
     let target = options.target();
-    let signatures = abi::infer_with(module, roots, target, &options.vtables, &options.traced_calls);
+    // The functions the lift froze come back as the raise reaches them, ahead of the module's
+    // own (the import wrappers and stubs the lift added after them), in their order.
+    let mut frozen = std::mem::take(&mut module.frozen);
     match options.level {
-        Level::Machine => return signatures,
-        Level::Promoted => {
+        Level::Machine | Level::Promoted => {
+            let mut functions = abi::par_map(&frozen, |_, f| ra_asm_ir::freeze::thaw(f));
+            drop(frozen);
+            functions.append(&mut module.functions);
+            module.functions = functions;
+            let signatures = abi::infer_with(module, roots, target, &options.vtables, &options.traced_calls);
+            if options.level == Level::Machine {
+                return signatures;
+            }
             for f in &mut module.functions {
                 promote::promote(f, target);
                 clean(f);
             }
+            signatures
         }
         Level::Abi => {
+            // The constants first, in place: the inference's stack analysis reads them, and so
+            // does the rewrite, which recognizes a pushed return address by its value. The
+            // inference then reads the functions as they are, without a copy of the module.
+            abi::par_each_mut(&mut frozen, |_, z| {
+                let mut f = ra_asm_ir::freeze::thaw(z);
+                simplify::run(&mut f);
+                *z = ra_asm_ir::freeze::freeze(&f);
+            });
+            abi::par_each_mut(&mut module.functions, |_, f| {
+                if f.name.starts_with("F_") {
+                    simplify::run(f);
+                }
+            });
+            let signatures = abi::infer_simplified(&module.functions, &frozen, roots, target, &options.vtables, &options.traced_calls);
             let globals = &module.globals;
-            for f in &mut module.functions {
-                let Some(own) = signatures.get(&f.name) else { continue };
-                // The constants first: the rewrite recognizes a pushed return address by its value.
-                simplify::run(f);
-                let lifted = |name: &str| signatures.contains_key(name);
-                let mut virtual_calls = abi::virtual_calls(f, &options.vtables, target, &lifted);
-                let traced = abi::traced_calls(f, &options.traced_calls, &lifted);
-                let seen: HashSet<_> = traced.keys().copied().collect();
-                virtual_calls.extend(traced);
-                let abi = promote::Abi { own, all: &signatures, target, x87: options.x87, virtual_calls: &virtual_calls, seen: &seen };
-                promote::promote_abi(f, &abi);
-                if own.noreturn && !f.attrs.iter().any(|a| a == "noreturn") {
-                    f.attrs.push("noreturn".into());
+            // A function's raise reads the signatures, the vtables and the data, and writes the
+            // function alone: the functions raise side by side, each compacted as it finishes.
+            let raise_one = |f: &mut ra_asm_ir::Function| {
+                if let Some(own) = signatures.get(&f.name) {
+                    raise_function(f, own, &signatures, &options, globals);
                 }
-                clean(f);
-                conditions::run(f);
-                clean(f);
-                frame::run(f);
-                clean(f);
-                // Known values and branches, to a fixpoint with the cleanup.
-                for _ in 0..4 {
-                    if !known::run(f, globals) {
-                        break;
-                    }
-                    clean(f);
+                f.compact();
+            };
+            // Each frozen function gives way to its raise as the raise reaches it: the frozen bytes
+            // and the raised module are never both whole.
+            let mut slots: Vec<Result<ra_asm_ir::Function, ra_asm_ir::freeze::Frozen>> = frozen.into_iter().map(Err).collect();
+            abi::par_each_mut(&mut slots, |_, slot| {
+                if let Err(z) = slot {
+                    let mut f = ra_asm_ir::freeze::thaw(z);
+                    raise_one(&mut f);
+                    *slot = Ok(f);
                 }
-                // A flattened function is rebuilt; the known values settle again over the
-                // graph each rebuild exposes.
-                for _ in 0..4 {
-                    if !flatten::run(f) {
-                        break;
-                    }
-                    for _ in 0..4 {
-                        if !known::run(f, globals) {
-                            break;
-                        }
-                        clean(f);
-                    }
-                }
-            }
+            });
+            let mut functions: Vec<ra_asm_ir::Function> = slots.into_iter().map(|s| s.expect("every slot is raised")).collect();
+            let mut own = std::mem::take(&mut module.functions);
+            abi::par_each_mut(&mut own, |_, f| raise_one(f));
+            functions.append(&mut own);
+            module.functions = functions;
             // The strings a decryptor would compute at run time are computed here.
             for index in strings::run(module, !target.is_64()) {
                 clean(&mut module.functions[index]);
@@ -372,9 +379,7 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
             // The helpers the compiler inlined, read back as functions: a loop whose shape repeats
             // across the functions becomes one, and each copy a call to it.
             if outline::run(module) {
-                for f in &mut module.functions {
-                    clean(f);
-                }
+                abi::par_each_mut(&mut module.functions, |_, f| clean(f));
             }
             // An x86 function a pointer reaches gets its universal entry point.
             if !target.is_64() {
@@ -385,16 +390,12 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
                 if !widths::run(module, roots) {
                     break;
                 }
-                for f in &mut module.functions {
-                    clean(f);
-                }
+                abi::par_each_mut(&mut module.functions, |_, f| clean(f));
             }
             // The structs behind the pointers, once the widths are settled; the address
             // arithmetic the field pointers replace goes with the cleanup.
             if types::run(module) {
-                for f in &mut module.functions {
-                    clean(f);
-                }
+                abi::par_each_mut(&mut module.functions, |_, f| clean(f));
             }
             for d in &mut module.declarations {
                 if let Some(arity) = prototypes::arity(&d.name)
@@ -403,9 +404,58 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
                     d.ty = ra_asm_ir::FnType::new(ra_asm_ir::Type::I64, vec![ra_asm_ir::Type::I64; arity]);
                 }
             }
+            signatures
         }
     }
-    signatures
+}
+
+/// The raise of one function to the ABI level under its signature `own`: the registers become its
+/// parameters, results and locals, and the cleanups run to their fixpoints.
+fn raise_function(
+    f: &mut ra_asm_ir::Function,
+    own: &abi::Signature,
+    signatures: &HashMap<String, abi::Signature>,
+    options: &Options,
+    globals: &[ra_asm_ir::Global],
+) {
+    let target = options.target();
+    // The constants first: the rewrite recognizes a pushed return address by its value.
+    simplify::run(f);
+    let lifted = |name: &str| signatures.contains_key(name);
+    let mut virtual_calls = abi::virtual_calls(f, &options.vtables, target, &lifted);
+    let traced = abi::traced_calls(f, &options.traced_calls, &lifted);
+    let seen: HashSet<_> = traced.keys().copied().collect();
+    virtual_calls.extend(traced);
+    let abi = promote::Abi { own, all: signatures, target, x87: options.x87, virtual_calls: &virtual_calls, seen: &seen };
+    promote::promote_abi(f, &abi);
+    if own.noreturn && !f.attrs.iter().any(|a| a == "noreturn") {
+        f.attrs.push("noreturn".into());
+    }
+    clean(f);
+    conditions::run(f);
+    clean(f);
+    frame::run(f);
+    clean(f);
+    // Known values and branches, to a fixpoint with the cleanup.
+    for _ in 0..4 {
+        if !known::run(f, globals) {
+            break;
+        }
+        clean(f);
+    }
+    // A flattened function is rebuilt; the known values settle again over the graph each rebuild
+    // exposes.
+    for _ in 0..4 {
+        if !flatten::run(f) {
+            break;
+        }
+        for _ in 0..4 {
+            if !known::run(f, globals) {
+                break;
+            }
+            clean(f);
+        }
+    }
 }
 
 fn clean(f: &mut ra_asm_ir::Function) {

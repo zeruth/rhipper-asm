@@ -157,21 +157,27 @@ pub(crate) fn address_taken(module: &Module) -> HashSet<String> {
         }
     }
     for f in &module.functions {
-        for b in &f.blocks {
-            for i in &b.instrs {
-                let mut inst = i.inst.clone();
-                for o in inst.operands_mut() {
-                    match o {
-                        Operand::Address { global, .. } | Operand::Global(global) => {
-                            out.insert(global.clone());
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+        out.extend(named_in(f).cloned());
     }
     out
+}
+
+/// The globals and functions the operands of `f` name: what [`address_taken`] finds in a function.
+fn named_in(f: &ra_asm_ir::Function) -> impl Iterator<Item = &String> {
+    f.blocks.iter().flat_map(|b| &b.instrs).flat_map(|i| i.inst.operands()).filter_map(|o| match o {
+        Operand::Address { global, .. } | Operand::Global(global) => Some(global),
+        _ => None,
+    })
+}
+
+/// Adds to `roots` the lifted functions whose address `f` takes: what [`address_taken`] would find
+/// in `f`, for a lift that freezes `f` before the module is whole.
+pub(crate) fn function_addresses(f: &ra_asm_ir::Function, roots: &mut std::collections::BTreeSet<String>) {
+    for name in named_in(f) {
+        if name.starts_with("F_") {
+            roots.insert(name.clone());
+        }
+    }
 }
 
 pub(crate) fn rename_const(c: &mut Const, renamed: &HashMap<String, String>) {
