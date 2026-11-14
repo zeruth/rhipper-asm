@@ -269,6 +269,13 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "__p___argv" => "ra_x86_p_argv",
         "_get_initial_narrow_environment" => "ra_x86_initial_narrow_environment",
         "InitializeSListHead" => "ra_x86_initialize_slist_head",
+        // The 32-bit kernel32 exports the interlocked operations on a 32-bit value; the 64-bit one
+        // exports none of them, since they are the compiler's intrinsics there.
+        "InterlockedIncrement" => "ra_x86_interlocked_increment",
+        "InterlockedDecrement" => "ra_x86_interlocked_decrement",
+        "InterlockedExchange" => "ra_x86_interlocked_exchange",
+        "InterlockedExchangeAdd" => "ra_x86_interlocked_exchange_add",
+        "InterlockedCompareExchange" => "ra_x86_interlocked_compare_exchange",
         "_controlfp" | "_control87" => "ra_x86_controlfp",
         "_controlfp_s" => "ra_x86_controlfp_s",
         "_clearfp" => "ra_x86_clearfp",
@@ -426,6 +433,9 @@ pub fn arity(name: &str) -> Option<usize> {
         return None;
     }
     Some(match name {
+        "ra_x86_interlocked_increment" | "ra_x86_interlocked_decrement" => 1,
+        "ra_x86_interlocked_exchange" | "ra_x86_interlocked_exchange_add" => 2,
+        "ra_x86_interlocked_compare_exchange" => 3,
         "ra_x86_p_argv"
         | "ra_x86_initial_narrow_environment"
         | "__current_exception"

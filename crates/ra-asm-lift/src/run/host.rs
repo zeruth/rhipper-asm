@@ -810,6 +810,26 @@ impl<'a> Runtime<'a> {
                 vm.memory.fill(a(0), 8, 0)?;
                 int(0)
             }
+            // The interpreter runs one thread at a time: each is a plain read and write.
+            "ra_x86_interlocked_increment" | "ra_x86_interlocked_decrement" => {
+                let old = vm.memory.read_u32(a(0))?;
+                let new = if name == "ra_x86_interlocked_increment" { old.wrapping_add(1) } else { old.wrapping_sub(1) };
+                vm.memory.write_u32(a(0), new)?;
+                int(u64::from(new))
+            }
+            "ra_x86_interlocked_exchange" | "ra_x86_interlocked_exchange_add" => {
+                let old = vm.memory.read_u32(a(0))?;
+                let new = if name == "ra_x86_interlocked_exchange" { a(1) as u32 } else { old.wrapping_add(a(1) as u32) };
+                vm.memory.write_u32(a(0), new)?;
+                int(u64::from(old))
+            }
+            "ra_x86_interlocked_compare_exchange" => {
+                let old = vm.memory.read_u32(a(0))?;
+                if old == a(2) as u32 {
+                    vm.memory.write_u32(a(0), a(1) as u32)?;
+                }
+                int(u64::from(old))
+            }
             "ra_x86_operator_new" => int(self.allocate(vm, a(0).max(1), 16)?),
             "ra_x86_operator_delete" => int(0),
             "ra_x86_p_argv" => {

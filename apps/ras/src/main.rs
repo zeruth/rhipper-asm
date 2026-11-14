@@ -145,6 +145,10 @@ enum Command {
         /// with the function, what was assumed and the site when it does not hold. A C or C++ translation only.
         #[arg(long)]
         checked: bool,
+        /// Translate only this function and the functions it calls, directly or not: a slice of a large program that builds by
+        /// itself. Repeatable; by address.
+        #[arg(long, value_name = "ADDRESS")]
+        only: Vec<String>,
     },
     /// The IR of every function. With `--out`, writes `program.ll`, `image.bin` and `image.h` there.
     Lift {
@@ -398,8 +402,8 @@ fn main() -> anyhow::Result<()> {
             signatures::recognize(&mut image, &from, write.as_deref(), json)
         }
         Command::Signatures { pe, .. } => signatures::signatures(&load(&pe.context("a PE image is required")?, sigs)?, json),
-        Command::Emit { pe, lang, out, quiet, x87, hand, project, checked } => {
-            emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref(), checked)
+        Command::Emit { pe, lang, out, quiet, x87, hand, project, checked, only } => {
+            emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref(), checked, &only)
         }
         Command::Run { pe, args, level, x87, trace, limit, quiet, facts, record } => {
             let code = run::run(&load(&pe, sigs)?, &run::Options { level, x87, trace, limit, args, quiet, facts, record })?;

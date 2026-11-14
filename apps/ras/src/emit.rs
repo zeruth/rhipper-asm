@@ -526,10 +526,35 @@ fn resource_files(image: &Image) -> Vec<(String, Vec<u8>)> {
     files
 }
 
+/// Keeps of `analysis` the functions at `only` and every function they reach by a call or a tail
+/// call, so a slice of a large program translates and builds by itself; nothing when `only` is
+/// empty. A function outside the slice that the slice names by address stays an address.
+fn keep_reached(analysis: &mut ra_asm_analysis::Analysis<'_>, only: &[String]) -> Result<()> {
+    if only.is_empty() {
+        return Ok(());
+    }
+    let mut todo = Vec::new();
+    for entry in only {
+        let va = crate::project::hand_address(entry).with_context(|| format!("`--only {entry}` is no address"))?;
+        anyhow::ensure!(analysis.functions.contains_key(&va), "`--only {entry}`: no function starts at {va:#x}");
+        todo.push(va);
+    }
+    let mut kept = std::collections::BTreeSet::new();
+    while let Some(va) = todo.pop() {
+        let Some(f) = analysis.functions.get(&va) else { continue };
+        if kept.insert(va) {
+            todo.extend(f.calls.iter().chain(&f.tail_calls).copied());
+        }
+    }
+    analysis.functions.retain(|va, _| kept.contains(va));
+    Ok(())
+}
+
 /// Writes the translation, the runtime and `functions.json` into `out`, or the translation to
 /// stdout without `out`. `hand` names the functions left to hand-written sources; the annotations
 /// of the project at `project` rename functions and leave more to the sources. `checked` writes
-/// the open assumptions as checks.
+/// the open assumptions as checks. `only`, when it names functions, translates them and what they
+/// call alone.
 // The arguments are the command's own flags, one each.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit(
@@ -541,8 +566,10 @@ pub(crate) fn emit(
     hand: &[String],
     project: Option<&Path>,
     checked: bool,
+    only: &[String],
 ) -> Result<()> {
     let mut analysis = ra_asm_analysis::analyze(image);
+    keep_reached(&mut analysis, only)?;
     let (annotations, warnings) = project.map(|root| crate::annotations::annotate(root, &mut analysis)).unwrap_or_default();
     let hand = crate::annotations::hand_list(hand, &annotations);
     let hand = hand.as_slice();

@@ -753,6 +753,15 @@ pub fn image_header(
     if dll {
         let _ = writeln!(out, "#define RA_DLL 1");
     }
+    // The raised IR and a standalone translation are properties of the whole output, whatever its
+    // entry is: every function has its own parameters, and the driver maps no image for data
+    // that are the program's own.
+    if signatures.is_some() {
+        let _ = writeln!(out, "#define RA_ABI 1");
+    }
+    if lifted.standalone {
+        let _ = writeln!(out, "#define RA_STANDALONE 1");
+    }
     if let Some(entry) = lifted.entry.or_else(|| image.entry_point()) {
         let name = lifted.functions.get(&entry).cloned().unwrap_or_else(|| function_name(entry));
         let is_main = lifted.entry.is_some() && lifted.entry != image.entry_point();
@@ -760,10 +769,6 @@ pub fn image_header(
         match signatures.and_then(|s| s.get(&name)) {
             Some(sig) => {
                 let (ret, params) = abi_prototype(sig);
-                let _ = writeln!(out, "#define RA_ABI 1");
-                if lifted.standalone {
-                    let _ = writeln!(out, "#define RA_STANDALONE 1");
-                }
                 let _ = writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
                 // `main(argc, argv)` takes the driver's; the argv of a 32-bit program is the
                 // runtime's table of dword pointers. A DLL's entry takes the loader's three.
@@ -809,6 +814,13 @@ pub fn image_header(
                         let _ = writeln!(out, "#define RA_INITIALIZE ra_initialize");
                     }
                 }
+            }
+            // The machine IR's entry takes the state. A raised translation without its entry (a
+            // slice of the program) calls one the build supplies, with no arguments.
+            None if signatures.is_some() => {
+                let _ = writeln!(out, "void {name}(void);");
+                let macro_params = if dll { "instance, reason, reserved" } else { "" };
+                let _ = writeln!(out, "#define RA_ENTRY_CALL({macro_params}) {name}()");
             }
             None => {
                 let _ = writeln!(out, "void {name}(void *state);");

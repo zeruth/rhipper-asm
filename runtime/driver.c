@@ -473,6 +473,31 @@ uint64_t ra_x86_initialize_slist_head(uint64_t head) {
     return 0;
 }
 
+// The interlocked operations of the 32-bit kernel32, on the program's 32-bit value at `target`:
+// the 64-bit kernel32 exports none of them. Each is a full barrier, as kernel32's is, and returns
+// what kernel32's does: the new value for the increment and the decrement, the old one otherwise.
+uint64_t ra_x86_interlocked_increment(uint64_t target) {
+    return (uint32_t)__atomic_add_fetch((volatile int32_t *)(uintptr_t)target, 1, __ATOMIC_SEQ_CST);
+}
+
+uint64_t ra_x86_interlocked_decrement(uint64_t target) {
+    return (uint32_t)__atomic_sub_fetch((volatile int32_t *)(uintptr_t)target, 1, __ATOMIC_SEQ_CST);
+}
+
+uint64_t ra_x86_interlocked_exchange(uint64_t target, uint64_t value) {
+    return (uint32_t)__atomic_exchange_n((volatile int32_t *)(uintptr_t)target, (int32_t)value, __ATOMIC_SEQ_CST);
+}
+
+uint64_t ra_x86_interlocked_exchange_add(uint64_t target, uint64_t value) {
+    return (uint32_t)__atomic_fetch_add((volatile int32_t *)(uintptr_t)target, (int32_t)value, __ATOMIC_SEQ_CST);
+}
+
+uint64_t ra_x86_interlocked_compare_exchange(uint64_t target, uint64_t exchange, uint64_t comparand) {
+    int32_t expected = (int32_t)comparand;
+    __atomic_compare_exchange_n((volatile int32_t *)(uintptr_t)target, &expected, (int32_t)exchange, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    return (uint32_t)expected;
+}
+
 // `operator new` never returns null and gives a distinct block for a size of zero; the bad_alloc
 // it would throw ends the program, as an unhandled one does.
 uint64_t ra_x86_operator_new(uint64_t size) {
@@ -3465,7 +3490,12 @@ int main(int argc, char **argv) {
 #endif
 #else
     const char *image_path = argc > 1 ? argv[1] : "image.bin";
+#ifdef _WIN32
+    FILE *f = NULL;
+    if (fopen_s(&f, image_path, "rb") != 0) f = NULL;
+#else
     FILE *f = fopen(image_path, "rb");
+#endif
     if (!f) {
         fprintf(stderr, "ra: cannot open %s\n", image_path);
         return 2;

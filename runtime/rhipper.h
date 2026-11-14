@@ -164,6 +164,13 @@ uint64_t ra_x86_execute_onexit_table(uint64_t table);
 uint64_t ra_x86_p_argv(void);
 uint64_t ra_x86_initial_narrow_environment(void);
 uint64_t ra_x86_initialize_slist_head(uint64_t head);
+// The interlocked operations of the 32-bit kernel32 on a 32-bit value, which the 64-bit one does
+// not export.
+uint64_t ra_x86_interlocked_increment(uint64_t target);
+uint64_t ra_x86_interlocked_decrement(uint64_t target);
+uint64_t ra_x86_interlocked_exchange(uint64_t target, uint64_t value);
+uint64_t ra_x86_interlocked_exchange_add(uint64_t target, uint64_t value);
+uint64_t ra_x86_interlocked_compare_exchange(uint64_t target, uint64_t exchange, uint64_t comparand);
 // The C++ runtime's `operator new` and `operator delete` a 32-bit program links statically,
 // over the host's heap.
 uint64_t ra_x86_operator_new(uint64_t size);

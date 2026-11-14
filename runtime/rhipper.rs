@@ -750,6 +750,35 @@ pub unsafe fn ra_x86_initialize_slist_head(head: u64) -> u64 {
     0
 }
 
+/// The value at `target`, a 32-bit program's 32-bit `LONG`, as an atomic.
+unsafe fn interlocked(target: u64) -> &'static core::sync::atomic::AtomicI32 {
+    core::sync::atomic::AtomicI32::from_ptr(target as usize as *mut i32)
+}
+
+/// The interlocked operations of the 32-bit kernel32, which the 64-bit one does not export: each a
+/// full barrier, the increment and the decrement returning the new value, the others the old one.
+pub unsafe fn ra_x86_interlocked_increment(target: u64) -> u64 {
+    u64::from(interlocked(target).fetch_add(1, core::sync::atomic::Ordering::SeqCst).wrapping_add(1) as u32)
+}
+
+pub unsafe fn ra_x86_interlocked_decrement(target: u64) -> u64 {
+    u64::from(interlocked(target).fetch_sub(1, core::sync::atomic::Ordering::SeqCst).wrapping_sub(1) as u32)
+}
+
+pub unsafe fn ra_x86_interlocked_exchange(target: u64, value: u64) -> u64 {
+    u64::from(interlocked(target).swap(value as i32, core::sync::atomic::Ordering::SeqCst) as u32)
+}
+
+pub unsafe fn ra_x86_interlocked_exchange_add(target: u64, value: u64) -> u64 {
+    u64::from(interlocked(target).fetch_add(value as i32, core::sync::atomic::Ordering::SeqCst) as u32)
+}
+
+pub unsafe fn ra_x86_interlocked_compare_exchange(target: u64, exchange: u64, comparand: u64) -> u64 {
+    let ordering = core::sync::atomic::Ordering::SeqCst;
+    let old = interlocked(target).compare_exchange(comparand as i32, exchange as i32, ordering, ordering).unwrap_or_else(|v| v);
+    u64::from(old as u32)
+}
+
 unsafe extern "C" {
     fn malloc(size: usize) -> *mut u8;
     fn free(block: *mut u8);
