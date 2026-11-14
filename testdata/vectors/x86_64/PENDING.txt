@@ -1,0 +1,6 @@
+# The x86-64 forms whose vectors differ from the lift today, one a line: the group (the .vec
+# file's name) and the form (the iced `Code` of the case's bytes, as the replay's message names
+# it), then after `:` the first difference the replay saw. The x86_64 test of
+# crates/ra-asm-lift/tests/vectors/x86_64.rs passes when exactly these forms differ: an unlisted
+# form that differs fails it with a line to paste here, and a listed form that passes fails it
+# with "remove from PENDING.txt", so the card that fixes an arm removes its line.

@@ -14,7 +14,7 @@
 //! `write_arm32_vectors` (ignored: it needs `wsl`) regenerates the files with the guest built for
 //! ARM and run under `qemu-arm-static`.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,9 +25,9 @@ use ra_asm_ir::interp::{Memory, Region, Value, Vm};
 use super::common::arm32::{self, arm32_dir, is_arm_group};
 use super::common::{read_templates, wsl_path};
 use super::{
-    BASE_PIN, CODE_BASE, CODE_LEN, CODE_MAP_LEN, DATA_BASE, DATA_LEN, End, Ends, FRAMES_AT, IMAGE_BASE, INDEX_PIN, IP, LiftedCase, Rng,
-    SCRATCH_LEN, STATES, STATICS_AT, WINDOW, end_of, ensure_fixed, group_seed, parse_int, parse_u64, read_pending, replay_turn,
-    signal_name, tokens, wsl_args,
+    BASE_PIN, CODE_BASE, CODE_LEN, CODE_MAP_LEN, DATA_BASE, DATA_LEN, End, Ends, FRAMES_AT, Forms, IMAGE_BASE, INDEX_PIN, IP, LiftedCase,
+    Rng, SCRATCH_LEN, STATES, STATICS_AT, WINDOW, end_of, ensure_fixed, group_seed, parse_int, parse_u64, pending_failures, read_pending,
+    replay_turn, signal_name, tokens, wsl_args,
 };
 
 // region The layout the guest and the replay share
@@ -462,7 +462,7 @@ fn arm32() {
 
     let mut lifts: HashMap<Vec<u8>, LiftedCase> = HashMap::new();
     let mut scratch = vec![0u8; SCRATCH_LEN];
-    let mut forms: BTreeMap<String, (usize, Vec<String>)> = BTreeMap::new();
+    let mut forms = Forms::new();
     let mut order: Vec<String> = Vec::new();
     let (mut replayed, mut recorded) = (0, 0);
     for file in &files {
@@ -489,20 +489,7 @@ fn arm32() {
         }
     }
 
-    let mut failures = Vec::new();
-    for key in &order {
-        let (_, found) = &forms[key];
-        match (found.first(), pending.contains_key(key)) {
-            (Some(first), false) => failures.push(format!("{key}: {first}")),
-            (None, true) => failures.push(format!("remove from PENDING.txt: {key}")),
-            _ => {}
-        }
-    }
-    for key in pending.keys() {
-        if !forms.contains_key(key) {
-            failures.push(format!("PENDING.txt names a form without vectors: {key}"));
-        }
-    }
+    let failures = pending_failures(&order, &forms, &pending);
     let differing = forms.values().filter(|(_, found)| !found.is_empty()).count();
     println!(
         "arm32 vectors: {replayed} Thumb cases replayed over {} forms, {recorded} ARM cases recorded; {differing} forms differ, {} pending",

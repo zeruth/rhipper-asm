@@ -21,7 +21,8 @@
 //!
 //! The x86-64 vectors (`testdata/vectors/x86_64`, written from the processor by the instruction
 //! oracle's `write_vectors`) replay through the x86 lift in `x86_64.rs`, a group as one image
-//! and the files' arena as host memory at its own address, with no pending list.
+//! and the files' arena as host memory at its own address, under the same pending-list rule with
+//! `testdata/vectors/x86_64/PENDING.txt`.
 
 // A test target's root is `tests/vectors.rs`, so its modules are named by path.
 #[path = "vectors/arm32.rs"]
@@ -627,6 +628,74 @@ fn read_pending(path: &Path) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// The forms a replay saw, by the key `PENDING.txt` names them with: the count of their cases and
+/// the first difference of each case that differed.
+type Forms = BTreeMap<String, (usize, Vec<String>)>;
+
+/// What is not as `PENDING.txt` says, in `order` (the forms as first seen): an unlisted form that
+/// differs, with its first difference as a line to paste; a listed form that passes, so the card
+/// that fixed it removes its line; a listed form the files do not hold.
+fn pending_failures(order: &[String], forms: &Forms, pending: &BTreeMap<String, String>) -> Vec<String> {
+    let mut failures = Vec::new();
+    for key in order {
+        let (_, found) = &forms[key];
+        match (found.first(), pending.contains_key(key)) {
+            (Some(first), false) => failures.push(format!("{key}: {first}")),
+            (None, true) => failures.push(format!("remove from PENDING.txt: {key}")),
+            _ => {}
+        }
+    }
+    for key in pending.keys() {
+        if !forms.contains_key(key) {
+            failures.push(format!("PENDING.txt names a form without vectors: {key}"));
+        }
+    }
+    failures
+}
+
+mod pending {
+    use std::collections::BTreeMap;
+
+    use super::{Forms, pending_failures};
+
+    fn seen(forms: &[(&str, &[&str])]) -> (Vec<String>, Forms) {
+        let order: Vec<String> = forms.iter().map(|(key, _)| (*key).to_owned()).collect();
+        let forms = forms.iter().map(|(key, found)| ((*key).to_owned(), (11, found.iter().map(|s| (*s).to_owned()).collect()))).collect();
+        (order, forms)
+    }
+
+    fn listed(keys: &[&str]) -> BTreeMap<String, String> {
+        keys.iter().map(|k| ((*k).to_owned(), "why".to_owned())).collect()
+    }
+
+    #[test]
+    fn pending_accepts_a_listed_form_that_differs() {
+        let (order, forms) = seen(&[("arith Adc_r32_imm32", &["eax: expected 0x1, lifted 0x2"]), ("arith Add_r64_rm64", &[])]);
+        assert!(pending_failures(&order, &forms, &listed(&["arith Adc_r32_imm32"])).is_empty());
+    }
+
+    #[test]
+    fn pending_rejects_a_listed_form_that_passes() {
+        let (order, forms) = seen(&[("arith Add_r64_rm64", &[])]);
+        let failures = pending_failures(&order, &forms, &listed(&["arith Add_r64_rm64"]));
+        assert_eq!(failures, ["remove from PENDING.txt: arith Add_r64_rm64"]);
+    }
+
+    #[test]
+    fn pending_rejects_an_unlisted_form_that_differs() {
+        let (order, forms) = seen(&[("arith Adc_r32_imm32", &["eax: expected 0x1, lifted 0x2", "a second case"])]);
+        let failures = pending_failures(&order, &forms, &listed(&[]));
+        assert_eq!(failures, ["arith Adc_r32_imm32: eax: expected 0x1, lifted 0x2"]);
+    }
+
+    #[test]
+    fn pending_rejects_a_listed_form_without_vectors() {
+        let (order, forms) = seen(&[("arith Add_r64_rm64", &[])]);
+        let failures = pending_failures(&order, &forms, &listed(&["misc Cpuid"]));
+        assert_eq!(failures, ["PENDING.txt names a form without vectors: misc Cpuid"]);
+    }
+}
+
 // endregion
 
 /// Every `AArch64` vector replays through the lift and the interpreter, and exactly the forms of
@@ -647,7 +716,7 @@ fn arm64() {
 
     let mut lifts: HashMap<u32, LiftedCase> = HashMap::new();
     let mut scratch = vec![0u8; SCRATCH_LEN];
-    let mut forms: BTreeMap<String, (usize, Vec<String>)> = BTreeMap::new();
+    let mut forms = Forms::new();
     let mut order: Vec<String> = Vec::new();
     let mut total = 0;
     for file in &files {
@@ -670,20 +739,7 @@ fn arm64() {
         }
     }
 
-    let mut failures = Vec::new();
-    for key in &order {
-        let (_, found) = &forms[key];
-        match (found.first(), pending.contains_key(key)) {
-            (Some(first), false) => failures.push(format!("{key}: {first}")),
-            (None, true) => failures.push(format!("remove from PENDING.txt: {key}")),
-            _ => {}
-        }
-    }
-    for key in pending.keys() {
-        if !forms.contains_key(key) {
-            failures.push(format!("PENDING.txt names a form without vectors: {key}"));
-        }
-    }
+    let failures = pending_failures(&order, &forms, &pending);
     let differing = forms.values().filter(|(_, found)| !found.is_empty()).count();
     println!("arm64 vectors: {total} cases replayed over {} forms; {differing} forms differ, {} pending", forms.len(), pending.len());
     assert!(total >= 4000, "{total} vectors replayed, at least 4000 expected");

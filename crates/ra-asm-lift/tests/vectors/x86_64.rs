@@ -9,7 +9,8 @@
 //! address the files and the oracle's own run gave it: a value the processor computed from a
 //! pointer (a sum, a flag, a `moffs` encoding) holds the address's own bits, so no rebasing
 //! reproduces it. A difference names the form, the bytes and the first register, flag or chunk
-//! that differs. There is no pending list: the lift is exact or it stops.
+//! that differs. The pending-list rule is the `AArch64` one: exactly the forms of
+//! `x86_64/PENDING.txt`, keyed `<group> <iced Code>`, differ.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -23,7 +24,7 @@ use ra_asm_ir::interp::{Memory, Region, Stop, Value, Vm};
 use ra_asm_testing::vectors::{self, Case, Outcome, State};
 use ra_asm_x86::iced_x86::{Decoder, DecoderOptions, Formatter, IntelFormatter};
 
-use super::{Ends, FRAMES_AT, SCRATCH_LEN, STATICS_AT, map_fixed};
+use super::{Ends, FRAMES_AT, Forms, SCRATCH_LEN, STATICS_AT, leading_hex, map_fixed, pending_failures, read_pending};
 
 // region The layout the files and the replay share
 
@@ -238,8 +239,23 @@ fn run_case(vm: &mut Vm<'_>, name: &str, case: &Case, fields: &Fields) -> Option
     None
 }
 
-/// Lifts a group as one image and runs every case of it; the differences, one line a case.
-fn replay(group: &str, cases: &[Case], scratch: u64) -> Vec<String> {
+/// A case replayed: its form's key in `PENDING.txt` and its first difference, if any.
+struct Replayed {
+    key: String,
+    found: Option<String>,
+}
+
+/// The slot a lift warning names by the address it starts with, so the warning is a finding of
+/// that case's form and not of the whole group.
+fn slot_of(warning: &str) -> Option<usize> {
+    let at = leading_hex(warning)?;
+    let offset = at.checked_sub(IMAGE_BASE + TEXT_RVA)?;
+    usize::try_from(offset / SLOT as u64).ok()
+}
+
+/// Lifts a group as one image and runs every case of it: each case with what differed, and the
+/// lift's warnings that name no slot, which are failures of the group.
+fn replay(group: &str, cases: &[Case], scratch: u64) -> (Vec<Replayed>, Vec<String>) {
     let mut text = vec![0xCCu8; cases.len() * SLOT];
     let mut forms = Vec::with_capacity(cases.len());
     let mut slots = Vec::with_capacity(cases.len());
@@ -259,7 +275,16 @@ fn replay(group: &str, cases: &[Case], scratch: u64) -> Vec<String> {
     let analysis = ra_asm_analysis::analyze_with(&image, &facts);
     let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
     let lifted = ra_asm_lift::lift_with(&image, &analysis, options);
-    let mut failures: Vec<String> = lifted.warnings.iter().map(|w| format!("{group}: the lift warned: {w}")).collect();
+    let mut warned: BTreeMap<usize, String> = BTreeMap::new();
+    let mut failures = Vec::new();
+    for w in &lifted.warnings {
+        match slot_of(w) {
+            Some(slot) if slot < cases.len() => {
+                warned.entry(slot).or_insert_with(|| format!("the lift warned: {w}"));
+            }
+            _ => failures.push(format!("{group}: the lift warned: {w}")),
+        }
+    }
 
     let mut memory = Memory::new();
     memory.add_region(Region::new(VECTOR_BASE, ARENA_LEN, "arena"));
@@ -278,18 +303,25 @@ fn replay(group: &str, cases: &[Case], scratch: u64) -> Vec<String> {
     let fields = Fields { gprs: offsets[0] as usize, flags: offsets[2] as usize, xmm: offsets[3] as usize, size: size as usize };
     assert!(size <= DATA, "the state ({size} bytes) runs into the data buffer");
 
+    let mut replayed = Vec::with_capacity(cases.len());
     for (i, (case, form)) in cases.iter().zip(&forms).enumerate() {
         let name = ra_asm_lift::function_name(slots[i]);
-        if let Some(found) = run_case(&mut vm, &name, case, &fields) {
-            failures.push(format!("{group} case {i}: {} `{}` ({}): {found}", form.code, form.asm, vectors::hex(&case.bytes)));
-        }
+        // A run that differs says more than the warning that foretold it.
+        let found = run_case(&mut vm, &name, case, &fields).or_else(|| warned.remove(&i));
+        replayed.push(Replayed {
+            key: format!("{group} {}", form.code),
+            found: found.map(|found| format!("case {i} `{}` ({}): {found}", form.asm, vectors::hex(&case.bytes))),
+        });
     }
-    failures
+    (replayed, failures)
 }
 
+/// Every x86-64 vector replays through the lift and the interpreter, and exactly the forms of
+/// `x86_64/PENDING.txt` differ.
 #[test]
 fn x86_64() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/vectors/x86_64");
+    let pending = read_pending(&dir.join("PENDING.txt"));
     let mut files: Vec<PathBuf> = fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
         .flatten()
@@ -305,26 +337,37 @@ fn x86_64() {
     let scratch = scratch_buffer.as_ptr() as usize as u64;
 
     let mut total = 0;
+    let mut forms = Forms::new();
+    let mut order: Vec<String> = Vec::new();
     let mut failures = Vec::new();
     for file in &files {
         let group = file.file_stem().map_or_else(String::new, |s| s.to_string_lossy().into_owned());
         let text = fs::read_to_string(file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
         let cases = vectors::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
         total += cases.len();
-        failures.extend(replay(&group, &cases, scratch));
+        let (replayed, unplaced) = replay(&group, &cases, scratch);
+        failures.extend(unplaced);
+        for case in replayed {
+            let entry = forms.entry(case.key.clone()).or_insert_with(|| {
+                order.push(case.key);
+                (0, Vec::new())
+            });
+            entry.0 += 1;
+            entry.1.extend(case.found);
+        }
     }
     drop(scratch_buffer);
 
-    println!("x86_64 vectors: {total} cases replayed in {} groups; {} differ", files.len(), failures.len());
-    assert!(total >= 8000, "{total} cases replayed, at least 8000 expected");
-    let shown: Vec<&String> = failures.iter().take(50).collect();
-    let more = if failures.len() > shown.len() { format!("\n... and {} more", failures.len() - shown.len()) } else { String::new() };
-    assert!(
-        failures.is_empty(),
-        "{} cases differ from the processor:\n{}{more}",
-        failures.len(),
-        shown.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n")
+    failures.extend(pending_failures(&order, &forms, &pending));
+    let differing = forms.values().filter(|(_, found)| !found.is_empty()).count();
+    println!(
+        "x86_64 vectors: {total} cases replayed over {} forms in {} groups; {differing} forms differ, {} pending",
+        forms.len(),
+        files.len(),
+        pending.len()
     );
+    assert!(total >= 8000, "{total} cases replayed, at least 8000 expected");
+    assert!(failures.is_empty(), "{} forms are not as PENDING.txt says:\n{}", failures.len(), failures.join("\n"));
 }
 
 // endregion
