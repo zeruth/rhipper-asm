@@ -23,7 +23,9 @@
 //! oracle's `write_vectors`) replay through the x86 lift in `x86_64.rs`, a group as one image
 //! and the files' arena as host memory at its own address, under the same pending-list rule with
 //! `testdata/vectors/x86_64/PENDING.txt`. The 32-bit x86 vectors (`testdata/vectors/x86`,
-//! written by the WOW64 harness through `common/x86_32.rs`) replay the same way in `x86_32.rs`.
+//! written by the WOW64 harness through `common/x86_32.rs`) replay the same way in `x86_32.rs`,
+//! and the x87 vectors (`testdata/vectors/x87`, the same harness carrying the unit as an fsave
+//! image) through the exact 80-bit unit of the lift in `x87.rs`.
 
 // A test target's root is `tests/vectors.rs`, so its modules are named by path.
 #[path = "vectors/arm32.rs"]
@@ -33,6 +35,8 @@ mod common;
 mod x86_32;
 #[path = "vectors/x86_64.rs"]
 mod x86_64;
+#[path = "vectors/x87.rs"]
+mod x87;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::c_void;

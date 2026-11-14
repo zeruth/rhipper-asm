@@ -10,6 +10,10 @@
 //! `.vec` file the test writes them first with clang and the harness, then writes `PENDING.txt`
 //! from the forms that differ on that first replay. A committed set replays with no tool but
 //! cargo.
+//!
+//! The x87 vectors (`x87.rs`) replay through the same image, run and files, with a [`Unit`] that
+//! sets the x87 globals before a case and checks them after; the integer replay's unit is `Ends`
+//! itself, which keeps nothing.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -19,13 +23,39 @@ use std::path::{Path, PathBuf};
 use ra_asm_analysis::Facts;
 use ra_asm_analysis::facts::SeenCall;
 use ra_asm_ir::Type;
-use ra_asm_ir::interp::{Memory, Region, Stop, Value, Vm};
-use ra_asm_testing::vectors::{self, Case, Outcome};
+use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
+use ra_asm_lift::X87Unit;
+use ra_asm_testing::vectors::{self, Case, Outcome, State};
 use ra_asm_x86::iced_x86::{Decoder, DecoderOptions, Formatter, IntelFormatter};
 
 use super::common::x86_32::{self as x86, FLAG_BITS, FLAG_NAMES, GPR_NAMES32};
 use super::x86_64::{ARENA_LEN, DATA, Fields, Replayed, STACK_END, VECTOR_BASE, arena_turn, ensure_arena, number, number_of, overlay};
 use super::{Ends, FRAMES_AT, Forms, SCRATCH_LEN, STATICS_AT, leading_hex, pending_failures, read_pending};
+
+/// What a replay keeps beside the integer machine and answers the lifted code's calls with:
+/// nothing for the integer vectors, the x87 globals and the runtime's software `f80` for the x87
+/// ones.
+pub(super) trait Unit: Host {
+    /// The x87 unit the lift models.
+    fn x87(&self) -> X87Unit;
+
+    /// The module is placed: where the unit's globals lie.
+    fn placed(&mut self, _vm: &Vm<'_>) {}
+
+    /// Sets the unit's state from the case's input, before the run.
+    fn load(&mut self, _vm: &mut Vm<'_>, _input: &State) {}
+
+    /// The first difference of the unit's state from the case's output, after the run.
+    fn check(&mut self, _vm: &mut Vm<'_>, _input: &State, _output: &State) -> Option<String> {
+        None
+    }
+}
+
+impl Unit for Ends {
+    fn x87(&self) -> X87Unit {
+        X87Unit::Double
+    }
+}
 
 // region The image
 
@@ -99,7 +129,7 @@ fn pe_with_text(text: &[u8]) -> Vec<u8> {
 // region The replay
 
 /// Runs one case over its state: the first difference from the file, if any.
-fn run_case(vm: &mut Vm<'_>, name: &str, case: &Case, fields: &Fields) -> Option<String> {
+fn run_case(vm: &mut Vm<'_>, name: &str, case: &Case, fields: &Fields, unit: &mut dyn Unit) -> Option<String> {
     let input = &case.input;
     // What the files do not name is zero, between the cases too.
     vm.memory.fill(VECTOR_BASE, ARENA_LEN, 0).expect("the arena");
@@ -119,9 +149,10 @@ fn run_case(vm: &mut Vm<'_>, name: &str, case: &Case, fields: &Fields) -> Option
     for (&at, bytes) in &input.memory {
         vm.memory.write(at, bytes).expect("a cell of the input");
     }
+    unit.load(vm, input);
 
     vm.steps = 0;
-    let stopped = match vm.call_named(&mut Ends, name, vec![Value::Int(u128::from(VECTOR_BASE))]) {
+    let stopped = match vm.call_named(&mut *unit, name, vec![Value::Int(u128::from(VECTOR_BASE))]) {
         Ok(_) => None,
         Err(Stop::Fault(m)) => Some(m),
         Err(Stop::Limit(n)) => Some(format!("the limit of {n} instructions")),
@@ -164,6 +195,9 @@ fn run_case(vm: &mut Vm<'_>, name: &str, case: &Case, fields: &Fields) -> Option
             return Some(format!("xmm{i}: expected 0, lifted {got:#034x}"));
         }
     }
+    if let Some(found) = unit.check(vm, input, output) {
+        return Some(found);
+    }
 
     if let Err(e) = overlay(&mut expected, &output.memory) {
         return Some(e);
@@ -189,9 +223,9 @@ fn slot_of(warning: &str) -> Option<usize> {
     usize::try_from(offset / SLOT as u64).ok()
 }
 
-/// Lifts a group as one image and runs every case of it: each case with what differed, and the
-/// lift's warnings that name no slot, which are failures of the group.
-fn replay(group: &str, cases: &[Case], scratch: u64) -> (Vec<Replayed>, Vec<String>) {
+/// Lifts a group as one image and runs every case of it over `unit`: each case with what
+/// differed, and the lift's warnings that name no slot, which are failures of the group.
+fn replay(group: &str, cases: &[Case], scratch: u64, unit: &mut dyn Unit) -> (Vec<Replayed>, Vec<String>) {
     let mut text = vec![0xCCu8; cases.len() * SLOT];
     let mut forms = Vec::with_capacity(cases.len());
     let mut slots = Vec::with_capacity(cases.len());
@@ -209,7 +243,7 @@ fn replay(group: &str, cases: &[Case], scratch: u64) -> (Vec<Replayed>, Vec<Stri
     // Nothing in the image names a slot but the first: the facts of a traced run name the rest.
     let facts = Facts { calls: vec![SeenCall { site: IMAGE_BASE, targets: slots.clone() }], ..Facts::default() };
     let analysis = ra_asm_analysis::analyze_with(&image, &facts);
-    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let options = ra_asm_lift::LiftOptions { standalone: false, x87: unit.x87() };
     let lifted = ra_asm_lift::lift_with(&image, &analysis, options);
     let mut warned: BTreeMap<usize, String> = BTreeMap::new();
     let mut failures = Vec::new();
@@ -230,6 +264,7 @@ fn replay(group: &str, cases: &[Case], scratch: u64) -> (Vec<Replayed>, Vec<Stri
     vm.set_frame_region(scratch + FRAMES_AT, SCRATCH_LEN as u64 - FRAMES_AT);
     vm.limit = 1_000_000;
     vm.place().expect("the module places");
+    unit.placed(&vm);
     let state_ty = Type::Named(ra_asm_lift::state::STATE_TYPE.to_owned());
     let (offsets, size) = {
         let layout = vm.layout();
@@ -243,7 +278,7 @@ fn replay(group: &str, cases: &[Case], scratch: u64) -> (Vec<Replayed>, Vec<Stri
     for (i, (case, form)) in cases.iter().zip(&forms).enumerate() {
         let name = ra_asm_lift::function_name(slots[i]);
         // A run that differs says more than the warning that foretold it.
-        let found = run_case(&mut vm, &name, case, &fields).or_else(|| warned.remove(&i));
+        let found = run_case(&mut vm, &name, case, &fields, unit).or_else(|| warned.remove(&i));
         replayed.push(Replayed {
             key: format!("{group} {}", form.code),
             found: found.map(|found| format!("case {i} `{}` ({}): {found}", form.asm, vectors::hex(&case.bytes))),
@@ -269,17 +304,23 @@ fn vec_files(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
+/// The head of a `PENDING.txt`: what the file lists and how its test reads it, for the `label`
+/// test of `file`.
+pub(super) fn pending_header(label: &str, file: &str, what: &str) -> String {
+    format!(
+        "# The {what} whose vectors differ from the lift today, one a line: the group (the .vec\n\
+         # file's name) and the form (the iced `Code` of the case's bytes, as the replay's message names\n\
+         # it), then after `:` the first difference the replay saw. The {label} test of\n\
+         # crates/ra-asm-lift/tests/vectors/{file} passes when exactly these forms differ: an unlisted\n\
+         # form that differs fails it with a line to paste here, and a listed form that passes fails it\n\
+         # with \"remove from PENDING.txt\", so the card that fixes an arm removes its line.\n"
+    )
+}
+
 /// Writes `PENDING.txt` from the first replay of freshly written files: every form that differs,
 /// with its first difference; the list it wrote, as `read_pending` would read it.
-fn write_pending(path: &Path, order: &[String], forms: &Forms) -> BTreeMap<String, String> {
-    let mut text = String::from(
-        "# The 32-bit x86 forms whose vectors differ from the lift today, one a line: the group (the .vec\n\
-         # file's name) and the form (the iced `Code` of the case's bytes, as the replay's message names\n\
-         # it), then after `:` the first difference the replay saw. The x86_32 test of\n\
-         # crates/ra-asm-lift/tests/vectors/x86_32.rs passes when exactly these forms differ: an unlisted\n\
-         # form that differs fails it with a line to paste here, and a listed form that passes fails it\n\
-         # with \"remove from PENDING.txt\", so the card that fixes an arm removes its line.\n",
-    );
+fn write_pending(path: &Path, header: &str, order: &[String], forms: &Forms) -> BTreeMap<String, String> {
+    let mut text = header.to_owned();
     let mut pending = BTreeMap::new();
     for key in order {
         if let Some(first) = forms[key].1.first() {
@@ -291,22 +332,32 @@ fn write_pending(path: &Path, order: &[String], forms: &Forms) -> BTreeMap<Strin
     pending
 }
 
-// endregion
+/// The generator of a directory's files: the cases it wrote, by group, with `clang` for the
+/// harness.
+type Writer = fn(&Path, &Path) -> BTreeMap<&'static str, usize>;
 
-/// Every 32-bit x86 vector replays through the lift and the interpreter, and exactly the forms
-/// of `x86/PENDING.txt` differ; the files are written first when there are none.
-#[test]
-fn x86_32() {
-    let dir = x86::x86_dir();
-    let mut files = vec_files(&dir);
+/// What a replay of a directory found.
+pub(super) struct Replay {
+    pub(super) total: usize,
+    pub(super) forms: Forms,
+    /// What is not as `PENDING.txt` says, with the lift's warnings that named no case.
+    pub(super) failures: Vec<String>,
+}
+
+/// Replays every `.vec` file of `dir` through the lift over `unit` under the pending-list rule,
+/// and prints the count for the `label` test. When the directory holds no `.vec` file, `write`
+/// writes them first with clang and the harness, and `PENDING.txt` is written from the forms that
+/// differ on that first replay (unless most do, which is a broken replay and not a lift to list).
+pub(super) fn replay_dir(label: &str, dir: &Path, unit: &mut dyn Unit, write: Writer, header: &str) -> Replay {
+    let mut files = vec_files(dir);
     let bootstrap = files.is_empty();
     if bootstrap {
         let clang = ra_asm_testing::tools::tool("clang")
             .unwrap_or_else(|| panic!("no .vec files under {} and no clang on the PATH to write them with the harness", dir.display()));
-        for (group, n) in x86::write_vectors(&clang, &dir) {
-            println!("x86/{group}.vec: {n} cases written by the harness");
+        for (group, n) in write(&clang, dir) {
+            println!("{label}: {group}.vec: {n} cases written by the harness");
         }
-        files = vec_files(&dir);
+        files = vec_files(dir);
     }
     assert!(!files.is_empty(), "no .vec files under {}", dir.display());
 
@@ -326,7 +377,7 @@ fn x86_32() {
         let text = fs::read_to_string(file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
         let cases = vectors::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
         total += cases.len();
-        let (replayed, unplaced) = replay(&group, &cases, scratch);
+        let (replayed, unplaced) = replay(&group, &cases, scratch, unit);
         failures.extend(unplaced);
         for case in replayed {
             let entry = forms.entry(case.key.clone()).or_insert_with(|| {
@@ -342,25 +393,40 @@ fn x86_32() {
     let differing = forms.values().filter(|(_, found)| !found.is_empty()).count();
     let pending_path = dir.join("PENDING.txt");
     let pending = if bootstrap {
-        // A first replay where most forms differ is a broken replay, not a lift to list.
         assert!(differing * 2 < forms.len(), "{differing} of {} forms differ on the first replay; PENDING.txt is not written", forms.len());
-        write_pending(&pending_path, &order, &forms)
+        write_pending(&pending_path, header, &order, &forms)
     } else {
         read_pending(&pending_path)
     };
     failures.extend(pending_failures(&order, &forms, &pending));
     println!(
-        "x86_32 vectors: {total} cases replayed over {} forms in {} groups; {differing} forms differ, {} pending{}",
+        "{label} vectors: {total} cases replayed over {} forms in {} groups; {differing} forms differ, {} pending{}",
         forms.len(),
         files.len(),
         pending.len(),
         if bootstrap { " (written by this run)" } else { "" }
     );
+    Replay { total, forms, failures }
+}
+
+/// Whether a form of the name (the iced `Code`) is among the forms replayed.
+pub(super) fn has_form(forms: &Forms, form: &str) -> bool {
+    forms.keys().any(|key| key.rsplit(' ').next() == Some(form))
+}
+
+// endregion
+
+/// Every 32-bit x86 vector replays through the lift and the interpreter, and exactly the forms
+/// of `x86/PENDING.txt` differ; the files are written first when there are none.
+#[test]
+fn x86_32() {
+    let header = pending_header("x86_32", "x86_32.rs", "32-bit x86 forms");
+    let Replay { total, forms, failures } = replay_dir("x86_32", &x86::x86_dir(), &mut Ends, x86::write_vectors, &header);
     assert!(total >= 6000, "{total} cases replayed, at least 6000 expected");
     // The forms the 64-bit oracle cannot run and the one-byte inc and dec are the point of the
     // 32-bit files.
     for form in ["Pushad", "Popad", "Pushfd", "Popfd", "Inc_r32", "Dec_r32"] {
-        assert!(forms.keys().any(|key| key.rsplit(' ').next() == Some(form)), "no case of {form} among the vectors");
+        assert!(has_form(&forms, form), "no case of {form} among the vectors");
     }
     assert!(failures.is_empty(), "{} forms are not as PENDING.txt says:\n{}", failures.len(), failures.join("\n"));
 }

@@ -18,7 +18,8 @@
 //! oracle cannot (its `NOT_RUN` list and the x87 unit). `harness_runs_three_cases` (ignored: it
 //! needs `clang`) builds it and checks three cases against the states written here;
 //! `write_x86_32_vectors` (ignored too) rewrites `testdata/vectors/x86` from iced's 32-bit code
-//! table through it, by the generator of `common/x86_32.rs`.
+//! table through it, by the generator of `common/x86_32.rs`, and `write_x87_vectors` rewrites
+//! `testdata/vectors/x87` the same way by the x87 generator of `common/x87.rs`.
 
 mod common;
 
@@ -29,8 +30,9 @@ use std::process::Command;
 
 use common::x86_32::{
     self as x86, CASE_IP32, DATA32, EAX, EBX, ESP, HarnessIn, HarnessOut, OUT32_LEN, STACK32_END, STATUS_ACCESS_VIOLATION,
-    STATUS_BREAKPOINT, WINDOW32, build_harness32, pack_in32, run_harness32, unpack_out32,
+    STATUS_BREAKPOINT, WINDOW32, X87Image, build_harness32, pack_in32, run_harness32, unpack_out32,
 };
+use common::x87;
 use common::{Case, Template, arm32, arm64_dir, expand, read_cases, read_templates, write_cases, wsl_path};
 use ra_asm_arm64::Arm64;
 use ra_asm_arm64::thumb::{self, Op};
@@ -359,12 +361,13 @@ fn harness_runs_three_cases() {
     let mut regs = [0u32; 8];
     regs[ESP] = esp;
 
-    let mut add = HarnessIn { r: regs, eflags: 0, code: vec![0x01, 0xD8], window_at: DATA32, window: zeros };
+    let x87 = X87Image::init();
+    let mut add = HarnessIn { r: regs, eflags: 0, code: vec![0x01, 0xD8], window_at: DATA32, window: zeros, x87 };
     add.r[EAX] = 1;
     add.r[EBX] = 2;
     let pushed = [0x1111_1111, 0x2222_2222, 0x3333_3333, 0x4444_4444, esp, 0x5555_5555, 0x6666_6666, 0x7777_7777];
-    let pushad = HarnessIn { r: pushed, eflags: 0, code: vec![0x60], window_at: esp - 32, window: zeros };
-    let load = HarnessIn { r: regs, eflags: 0, code: vec![0xA1, 0, 0, 0, 0], window_at: DATA32, window: zeros };
+    let pushad = HarnessIn { r: pushed, eflags: 0, code: vec![0x60], window_at: esp - 32, window: zeros, x87 };
+    let load = HarnessIn { r: regs, eflags: 0, code: vec![0xA1, 0, 0, 0, 0], window_at: DATA32, window: zeros, x87 };
 
     let mut blob = Vec::new();
     for case in [&add, &pushad, &load] {
@@ -375,13 +378,14 @@ fn harness_runs_three_cases() {
     assert_eq!(results.len(), 3 * OUT32_LEN, "the harness answered {} bytes", results.len());
     let outs: Vec<HarnessOut> = results.chunks_exact(OUT32_LEN).map(unpack_out32).collect();
 
-    // 1 + 2 = 3: two bits set in the low byte, so PF alone.
+    // 1 + 2 = 3: two bits set in the low byte, so PF alone. The unit comes back as it went in: the
+    // integer cases leave it initialized.
     let mut after_add = regs;
     after_add[EAX] = 3;
     after_add[EBX] = 2;
     assert_eq!(
         outs[0],
-        HarnessOut { code: STATUS_BREAKPOINT, eip: CASE_IP32 + 2, fault_at: 0, eflags: 1 << 2, r: after_add, stray: 0, window: zeros },
+        HarnessOut { code: STATUS_BREAKPOINT, eip: CASE_IP32 + 2, fault_at: 0, eflags: 1 << 2, r: after_add, stray: 0, window: zeros, x87 },
         "add eax, ebx"
     );
 
@@ -395,16 +399,30 @@ fn harness_runs_three_cases() {
     }
     assert_eq!(
         outs[1],
-        HarnessOut { code: STATUS_BREAKPOINT, eip: CASE_IP32 + 1, fault_at: 0, eflags: 0, r: after_pushad, stray: 0, window },
+        HarnessOut { code: STATUS_BREAKPOINT, eip: CASE_IP32 + 1, fault_at: 0, eflags: 0, r: after_pushad, stray: 0, window, x87 },
         "pushad"
     );
 
     assert_eq!(
         outs[2],
-        HarnessOut { code: STATUS_ACCESS_VIOLATION, eip: CASE_IP32, fault_at: 0, eflags: 0, r: regs, stray: 0, window: zeros },
+        HarnessOut { code: STATUS_ACCESS_VIOLATION, eip: CASE_IP32, fault_at: 0, eflags: 0, r: regs, stray: 0, window: zeros, x87 },
         "mov eax, [0]"
     );
     println!("x86_32 harness: 3 cases as expected");
+}
+
+/// Rewrites `testdata/vectors/x87/<group>.vec` from iced's 32-bit code table: every x87 form over
+/// the generator's stacks and states, run by the harness under WOW64. The `x87` test of
+/// `vectors.rs` then says which forms differ, for `PENDING.txt`.
+#[test]
+#[ignore = "rewrites testdata/vectors/x87/*.vec with the harness under WOW64"]
+fn write_x87_vectors() {
+    let Some(clang) = ra_asm_testing::tools::tool("clang") else { return };
+    let written = x87::write_vectors(&clang, &x87::x87_dir());
+    for (group, n) in &written {
+        println!("x87/{group}.vec: {n} cases");
+    }
+    println!("x87 vectors: {} cases in {} groups", written.values().sum::<usize>(), written.len());
 }
 
 /// Rewrites `testdata/vectors/x86/<group>.vec` from iced's 32-bit code table: every integer

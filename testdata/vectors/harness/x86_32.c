@@ -18,6 +18,11 @@
 // Windows delivers an exception on the stack the case left: the dispatcher writes its context
 // below the case's final esp, so the arena below that esp (up to DISPATCH_LEN) is not the case's
 // and is zeroed uncounted; a window must lie at or above the final esp, or away from the stack.
+//
+// The x87 unit goes along as a 108-byte fsave image: the prologue loads the case's with frstor,
+// and once the handler has resumed the host, fnsave takes the unit as the case left it (the
+// exception's round trip through the kernel keeps the thread's floating state, and nothing on the
+// way touches the unit) and reinitializes it for the next case.
 
 #include <windows.h>
 
@@ -35,13 +40,17 @@ typedef unsigned char u8;
 
 #define WINDOW 64
 #define CODE_MAX 16
+// The 32-bit protected-mode fsave image: the control, status and tag words and the pointers in
+// seven dwords, then the eight registers of ten bytes, st(0) first.
+#define FSAVE_LEN 108
 
 // The flags a case sets and reads: CF, PF, AF, ZF, SF, DF and OF. The rest of EFLAGS is the host's.
 #define FLAG_MASK 0x0cd5u
 #define HOST_EFLAGS 0x202u
 
 // One case in: the registers (eax, ecx, edx, ebx, esp, ebp, esi, edi), the flags, the length of
-// the encoding, the window's address, the encoding's bytes and the window of data bytes.
+// the encoding, the window's address, the encoding's bytes, the window of data bytes and the x87
+// unit's fsave image.
 struct case_in {
     u32 r[8];
     u32 eflags;
@@ -50,12 +59,14 @@ struct case_in {
     u32 pad;
     u8 code[CODE_MAX];
     u8 window[WINDOW];
+    u8 fpu[FSAVE_LEN];
+    u32 pad2;
 };
 
 // One case out: the exception that ended it, the address it ended at (the breakpoint the case ran
 // into, or the faulting instruction), the address a faulting access touched, the flags and the
 // registers as the context held them, the first address outside the window a store reached (plus
-// one, zero for none) and the window as the case left it.
+// one, zero for none), the window as the case left it and the x87 unit's fsave image after it.
 struct case_out {
     u32 code;
     u32 eip;
@@ -65,11 +76,14 @@ struct case_out {
     u32 stray;
     u32 pad;
     u8 window[WINDOW];
+    u8 fpu[FSAVE_LEN];
+    u32 pad2;
 };
 
-_Static_assert(sizeof(struct case_in) == 128, "the layout the generator writes");
+_Static_assert(sizeof(struct case_in) == 240, "the layout the generator writes");
 _Static_assert(__builtin_offsetof(struct case_in, eflags) == 32, "the prologue's flags load");
-_Static_assert(sizeof(struct case_out) == 120, "the layout the generator reads");
+_Static_assert(__builtin_offsetof(struct case_in, fpu) == 128, "the prologue's frstor");
+_Static_assert(sizeof(struct case_out) == 232, "the layout the generator reads");
 
 static struct case_in g_in;
 static struct case_out g_out;
@@ -168,9 +182,9 @@ static void map_fixed(u32 at, u32 len, DWORD protect) {
 // region The prologue
 
 // The machine code before the case, hand-assembled into the page: the host's callee-saved
-// registers and esp into `saved` (the return address of the call sits at that esp), the flags
-// through popfd while the host stack is still in place, then every register from the case, eax
-// last since it holds the case's address.
+// registers and esp into `saved` (the return address of the call sits at that esp), the x87 unit
+// from the case's fsave image, the flags through popfd while the host stack is still in place,
+// then every register from the case, eax last since it holds the case's address.
 static u8 *emit;
 
 static void emit_u32(u32 v) {
@@ -202,7 +216,7 @@ static void emit_load_eax(u32 reg, u8 disp) {
 #define ESI 6
 #define EDI 7
 
-#define PROLOGUE_LEN 62
+#define PROLOGUE_LEN 68
 
 static void write_prologue(void) {
     emit = (u8 *)(CASE_IP - PROLOGUE_LEN);
@@ -211,6 +225,10 @@ static void write_prologue(void) {
     emit_store_abs(EDI, (u32)&saved[2]);
     emit_store_abs(EBP, (u32)&saved[3]);
     emit_store_abs(ESP, (u32)&saved[4]);
+    // frstor [g_in.fpu]
+    *emit++ = 0xdd;
+    *emit++ = 0x25;
+    emit_u32((u32)g_in.fpu);
     // mov eax, g_in
     *emit++ = 0xb8;
     emit_u32((u32)&g_in);
@@ -329,6 +347,9 @@ int mainCRTStartup(void) {
 
         running = 1;
         prologue();
+        // The unit as the case left it; fnsave then reinitializes it, so nothing pends into the
+        // next case's frstor.
+        __asm__ __volatile__("fnsave %0" : "=m"(g_out.fpu));
 
         for (int i = 0; i < WINDOW; i++) {
             g_out.window[i] = window[i];

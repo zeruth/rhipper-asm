@@ -3,12 +3,14 @@
 //! `cases/<group>.cases` files, and the path WSL sees for a Windows path. `vectors_gen.rs` writes
 //! and checks the cases; `vectors.rs` runs them under the harness and replays the vectors. The
 //! 32-bit ARM model, with its own classes and byte-string cases, is `arm32`; the 32-bit x86
-//! generator, which runs iced's code table through the WOW64 harness, is `x86_32`. The random
-//! states of every generator come from [`Rng`], seeded per group.
+//! generator, which runs iced's code table through the WOW64 harness, is `x86_32`, and the x87
+//! generator over the same harness is `x87`. The random states of every generator come from
+//! [`Rng`], seeded per group.
 #![allow(dead_code)]
 
 pub(crate) mod arm32;
 pub(crate) mod x86_32;
+pub(crate) mod x87;
 
 use std::fmt::Write as _;
 use std::fs;

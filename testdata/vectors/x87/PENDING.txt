@@ -1,0 +1,35 @@
+# The x87 forms whose vectors differ from the lift today, one a line: the group (the .vec
+# file's name) and the form (the iced `Code` of the case's bytes, as the replay's message names
+# it), then after `:` the first difference the replay saw. The x87 test of
+# crates/ra-asm-lift/tests/vectors/x87.rs passes when exactly these forms differ: an unlisted
+# form that differs fails it with a line to paste here, and a listed form that passes fails it
+# with "remove from PENDING.txt", so the card that fixes an arm removes its line.
+compare Fcmovb_st0_sti: case 162 `fcmovb st,st(2)` (dac2): fr2: expected 0x00000000000000000000, lifted 0xbfedc6744c343cfbf403
+compare Fcmove_st0_sti: case 181 `fcmove st,st(3)` (dacb): fr1: expected 0xbffcda066d9035ef03fe, lifted 0x3fe1a25c61ee36c212b9
+compare Fcmovbe_st0_sti: case 200 `fcmovbe st,st(6)` (dad6): fr5: expected 0x4001d8fbc814b7ea8eb9, lifted 0x3feac578c860335a5800
+compare Fcmovu_st0_sti: case 220 `fcmovu st,st(1)` (dad9): fr1: expected 0xbff68a8746ef87725000, lifted 0x00000000000000000000
+compare Fcmovnb_st0_sti: case 263 `fcmovnb st,st(7)` (dbc7): fr6: expected 0x3fffeec65187a9fcc2cf, lifted 0x80000000000000000000
+compare Fcmovne_st0_sti: case 280 `fcmovne st,st(2)` (dbca): fr2: expected 0x3fe2a1da5cf0ef7252c5, lifted 0x4013eac30b17495c66bb
+compare Fcmovnbe_st0_sti: case 301 `fcmovnbe st,st(4)` (dbd4): fr0: expected 0x3ffcd4b795d06fa15367, lifted 0x4014a1a0bd34a08aaf37
+compare Fcmovnu_st0_sti: case 324 `fcmovnu st,st(6)` (dbde): fr6: expected 0xbffabaf8a57978d1d64a, lifted 0xc01b940c2b0ba0fdb28a
+compare Fucomi_st0_sti: case 340 `fucomi st,st(7)` (dbef): af: expected 0, lifted 1
+compare Fcomi_st0_sti: case 360 `fcomi st,st(4)` (dbf4): sf: expected 0, lifted 1
+compare Fucomip_st0_sti: case 520 `fucomip st,st(7)` (dfef): sf: expected 0, lifted 1
+compare Fcomip_st0_sti: case 540 `fcomip st,st(6)` (dff6): of: expected 0, lifted 1
+load Fldl2t: case 60 `fldl2t` (d9e9): fr2: expected 0x4000d49a784bcd1b8aff, lifted 0x4000d49a784bcd1b8afe
+load Fldl2e: case 83 `fldl2e` (d9ea): fr3: expected 0x3fffb8aa3b295c17f0bb, lifted 0x3fffb8aa3b295c17f0bc
+load Fldpi: case 100 `fldpi` (d9eb): fr6: expected 0x4000c90fdaa22168c234, lifted 0x4000c90fdaa22168c235
+load Fldlg2: case 121 `fldlg2` (d9ec): fr3: expected 0x3ffd9a209a84fbcff798, lifted 0x3ffd9a209a84fbcff799
+load Fldln2: case 140 `fldln2` (d9ed): fr1: expected 0x3ffeb17217f7d1cf79ab, lifted 0x3ffeb17217f7d1cf79ac
+transcendental F2xm1: case 0 `f2xm1` (d9f0): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001000
+transcendental Fyl2x: case 20 `fyl2x` (d9f1): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001280
+transcendental Fptan: case 40 `fptan` (d9f2): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001500
+transcendental Fpatan: case 60 `fpatan` (d9f3): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001780
+transcendental Fxtract: case 80 `fxtract` (d9f4): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001a00
+transcendental Fprem1: case 100 `fprem1` (d9f5): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001c80
+transcendental Fprem: case 120 `fprem` (d9f8): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001f00
+transcendental Fyl2xp1: case 140 `fyl2xp1` (d9f9): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30002180
+transcendental Fsincos: case 160 `fsincos` (d9fb): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30002400
+transcendental Fscale: case 180 `fscale` (d9fd): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30002680
+transcendental Fsin: case 200 `fsin` (d9fe): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30002900
+transcendental Fcos: case 220 `fcos` (d9ff): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30002b80

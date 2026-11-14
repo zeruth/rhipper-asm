@@ -28,6 +28,18 @@ use crate::Lifted;
 use crate::raise::abi::{Kind, Signature};
 use host::Runtime;
 
+/// The software `f80` of the exact x87 unit for a host of its own: answers a `ra_f80_*` call over
+/// the interpreter's memory with its value and the status-word flags it raised, for the host to
+/// merge into the program's status word; `None` for any other name. The instruction vectors
+/// replay the x87 lift through this.
+pub fn f80_call(vm: &mut Vm<'_>, name: &str, args: &[Value]) -> Option<Result<(Value, u16), Stop>> {
+    if !name.starts_with("ra_f80_") {
+        return None;
+    }
+    let mut unit = f80::Unit::default();
+    Some(host::f80_dispatch(&mut unit, vm, name, args).map(|value| (value, unit.flags)))
+}
+
 /// The exit code of a run a fault stopped, as the driver's `ra_trap` ends a port.
 pub const FAULT_EXIT: i32 = 0xE000_0001u32 as i32;
 /// The exit code of a run that reached its limit.

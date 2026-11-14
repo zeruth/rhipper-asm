@@ -140,6 +140,69 @@ fn farg(args: &[Value], n: usize) -> f64 {
     args.get(n).map_or(0.0, Value::as_f64)
 }
 
+fn slot(vm: &mut Vm<'_>, address: u64) -> Result<f80::Slot, Stop> {
+    let bytes = vm.memory.read_vec(address, 16)?;
+    Ok(bytes.try_into().unwrap())
+}
+
+/// A call to the software `f80` (`ra_f80_*`) over the interpreter's memory, answered by `unit`,
+/// which keeps the flags the call raised for the caller to merge into the status word.
+pub(super) fn f80_dispatch(unit: &mut f80::Unit, vm: &mut Vm<'_>, name: &str, args: &[Value]) -> Result<Value, Stop> {
+    let a = |n: usize| arg(args, n);
+    Ok(match name {
+        "ra_f80_load" => {
+            let bytes = vm.memory.read_vec(a(1), 10)?;
+            vm.memory.write(a(0), &f80::Unit::load(&bytes))?;
+            Value::Int(0)
+        }
+        "ra_f80_store" => {
+            let x = slot(vm, a(1))?;
+            vm.memory.write(a(0), &f80::Unit::store(&x))?;
+            Value::Int(0)
+        }
+        "ra_f80_pack" => {
+            vm.memory.write(a(0), &f80::Unit::pack(a(1), a(2)))?;
+            Value::Int(0)
+        }
+        "ra_f80_from_f64" => {
+            vm.memory.write(a(0), &f80::Unit::from_f64(farg(args, 1)))?;
+            Value::Int(0)
+        }
+        "ra_f80_from_i64" => {
+            vm.memory.write(a(0), &f80::Unit::from_i64(a(1)))?;
+            Value::Int(0)
+        }
+        "ra_f80_to_f64" => Value::F64(unit.f64_of(&slot(vm, a(0))?, a(1))),
+        "ra_f80_to_f32" => Value::F32(unit.f32_of(&slot(vm, a(0))?, a(1))),
+        "ra_f80_to_int" => Value::Int(u128::from(unit.int_of(&slot(vm, a(0))?, a(1), a(2)))),
+        "ra_f80_add" | "ra_f80_sub" | "ra_f80_mul" | "ra_f80_div" => {
+            let (x, y) = (slot(vm, a(1))?, slot(vm, a(2))?);
+            let r = match name {
+                "ra_f80_add" => unit.add(&x, &y, a(3)),
+                "ra_f80_sub" => unit.sub(&x, &y, a(3)),
+                "ra_f80_mul" => unit.mul(&x, &y, a(3)),
+                _ => unit.div(&x, &y, a(3)),
+            };
+            vm.memory.write(a(0), &r)?;
+            Value::Int(0)
+        }
+        "ra_f80_sqrt" | "ra_f80_rndint" => {
+            let x = slot(vm, a(1))?;
+            let r = if name == "ra_f80_sqrt" { unit.sqrt(&x, a(2)) } else { unit.rndint(&x, a(2)) };
+            vm.memory.write(a(0), &r)?;
+            Value::Int(0)
+        }
+        "ra_f80_chs" | "ra_f80_abs" => {
+            let x = slot(vm, a(1))?;
+            let r = if name == "ra_f80_chs" { f80::Unit::chs(&x) } else { f80::Unit::abs(&x) };
+            vm.memory.write(a(0), &r)?;
+            Value::Int(0)
+        }
+        "ra_f80_cmp" => Value::Int(u128::from(f80::Unit::cmp(&slot(vm, a(0))?, &slot(vm, a(1))?))),
+        _ => return Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
+    })
+}
+
 // The arms of the host's big matches all answer with a `Result`; this one wraps for them.
 #[allow(clippy::unnecessary_wraps)]
 fn int(v: u64) -> Result<Value, Stop> {
@@ -616,65 +679,8 @@ impl<'a> Runtime<'a> {
         prototypes::stdcall_pops(dll, name)
     }
 
-    fn slot(vm: &mut Vm<'_>, address: u64) -> Result<f80::Slot, Stop> {
-        let bytes = vm.memory.read_vec(address, 16)?;
-        Ok(bytes.try_into().unwrap())
-    }
-
     fn f80_call(&mut self, vm: &mut Vm<'_>, name: &str, args: &[Value]) -> Result<Value, Stop> {
-        let a = |n: usize| arg(args, n);
-        let result = match name {
-            "ra_f80_load" => {
-                let bytes = vm.memory.read_vec(a(1), 10)?;
-                vm.memory.write(a(0), &f80::Unit::load(&bytes))?;
-                Value::Int(0)
-            }
-            "ra_f80_store" => {
-                let slot = Self::slot(vm, a(1))?;
-                vm.memory.write(a(0), &f80::Unit::store(&slot))?;
-                Value::Int(0)
-            }
-            "ra_f80_pack" => {
-                vm.memory.write(a(0), &f80::Unit::pack(a(1), a(2)))?;
-                Value::Int(0)
-            }
-            "ra_f80_from_f64" => {
-                vm.memory.write(a(0), &f80::Unit::from_f64(farg(args, 1)))?;
-                Value::Int(0)
-            }
-            "ra_f80_from_i64" => {
-                vm.memory.write(a(0), &f80::Unit::from_i64(a(1)))?;
-                Value::Int(0)
-            }
-            "ra_f80_to_f64" => Value::F64(self.f80.f64_of(&Self::slot(vm, a(0))?, a(1))),
-            "ra_f80_to_f32" => Value::F32(self.f80.f32_of(&Self::slot(vm, a(0))?, a(1))),
-            "ra_f80_to_int" => Value::Int(u128::from(self.f80.int_of(&Self::slot(vm, a(0))?, a(1), a(2)))),
-            "ra_f80_add" | "ra_f80_sub" | "ra_f80_mul" | "ra_f80_div" => {
-                let (x, y) = (Self::slot(vm, a(1))?, Self::slot(vm, a(2))?);
-                let r = match name {
-                    "ra_f80_add" => self.f80.add(&x, &y, a(3)),
-                    "ra_f80_sub" => self.f80.sub(&x, &y, a(3)),
-                    "ra_f80_mul" => self.f80.mul(&x, &y, a(3)),
-                    _ => self.f80.div(&x, &y, a(3)),
-                };
-                vm.memory.write(a(0), &r)?;
-                Value::Int(0)
-            }
-            "ra_f80_sqrt" | "ra_f80_rndint" => {
-                let x = Self::slot(vm, a(1))?;
-                let r = if name == "ra_f80_sqrt" { self.f80.sqrt(&x, a(2)) } else { self.f80.rndint(&x, a(2)) };
-                vm.memory.write(a(0), &r)?;
-                Value::Int(0)
-            }
-            "ra_f80_chs" | "ra_f80_abs" => {
-                let x = Self::slot(vm, a(1))?;
-                let r = if name == "ra_f80_chs" { f80::Unit::chs(&x) } else { f80::Unit::abs(&x) };
-                vm.memory.write(a(0), &r)?;
-                Value::Int(0)
-            }
-            "ra_f80_cmp" => Value::Int(u128::from(f80::Unit::cmp(&Self::slot(vm, a(0))?, &Self::slot(vm, a(1))?))),
-            _ => return Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
-        };
+        let result = f80_dispatch(&mut self.f80, vm, name, args)?;
         let flags = std::mem::take(&mut self.f80.flags);
         if flags != 0 && self.sw != 0 {
             let sw = vm.memory.read_u16(self.sw)?;

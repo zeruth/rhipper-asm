@@ -15,6 +15,10 @@
 //! just above it. Windows dispatches the exception that ends a case on the case's own stack, so
 //! the bytes of a stack window below the final `esp` are the dispatcher's, not the case's: the
 //! generator records them as unchanged.
+//!
+//! The x87 unit rides along as an fsave image in both records ([`X87Image`]); the integer forms
+//! give the harness a freshly initialized unit and read nothing back. The x87 generator, which
+//! builds on the instances, states and cases of this file, is `x87.rs`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -43,8 +47,11 @@ pub(crate) const STACK32_END: u32 = ARENA32 + 0x8000;
 pub(crate) const CASE_IP32: u32 = 0x3000_2000;
 pub(crate) const WINDOW32: usize = 64;
 pub(crate) const CODE32_MAX: usize = 16;
-pub(crate) const IN32_LEN: usize = 128;
-pub(crate) const OUT32_LEN: usize = 120;
+/// The 32-bit protected-mode fsave image: seven dwords of words and pointers, then the eight
+/// registers of ten bytes in stack order.
+pub(crate) const FSAVE_LEN: usize = 108;
+pub(crate) const IN32_LEN: usize = 240;
+pub(crate) const OUT32_LEN: usize = 232;
 
 pub(crate) const STATUS_BREAKPOINT: u32 = 0x8000_0003;
 pub(crate) const STATUS_ACCESS_VIOLATION: u32 = 0xC000_0005;
@@ -64,14 +71,53 @@ pub(crate) const FLAG_BITS: [u32; 7] = [0, 2, 4, 6, 7, 10, 11];
 const FLAG_RFLAGS: [u32; 7] =
     [RflagsBits::CF, RflagsBits::PF, RflagsBits::AF, RflagsBits::ZF, RflagsBits::SF, RflagsBits::DF, RflagsBits::OF];
 
-/// One case in: the registers in the record's order, the flags as EFLAGS bits, the encoding and
-/// the window of data bytes with its address.
+/// The x87 unit of a case as its fsave image carries it: the control, status and tag words and
+/// the eight registers in stack order (`st(0)` first), ten bytes each as the `tbyte` form lays
+/// them, the significand first. The instruction and data pointers of the image are not kept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct X87Image {
+    pub(crate) cw: u16,
+    pub(crate) sw: u16,
+    pub(crate) tw: u16,
+    pub(crate) st: [[u8; 10]; 8],
+}
+
+impl X87Image {
+    /// The unit as `fninit` leaves it: every register empty, the default control word.
+    pub(crate) fn init() -> Self {
+        Self { cw: 0x037f, sw: 0, tw: 0xffff, st: [[0; 10]; 8] }
+    }
+
+    fn pack(&self, blob: &mut Vec<u8>) {
+        for word in [self.cw, self.sw, self.tw] {
+            blob.extend_from_slice(&u32::from(word).to_le_bytes());
+        }
+        blob.extend_from_slice(&[0u8; 16]);
+        for st in &self.st {
+            blob.extend_from_slice(st);
+        }
+    }
+
+    fn unpack(image: &[u8]) -> Self {
+        assert_eq!(image.len(), FSAVE_LEN);
+        let word = |i: usize| u16::from_le_bytes([image[4 * i], image[4 * i + 1]]);
+        let mut st = [[0u8; 10]; 8];
+        for (i, reg) in st.iter_mut().enumerate() {
+            reg.copy_from_slice(&image[28 + 10 * i..38 + 10 * i]);
+        }
+        Self { cw: word(0), sw: word(1), tw: word(2), st }
+    }
+}
+
+/// One case in: the registers in the record's order, the flags as EFLAGS bits, the encoding, the
+/// window of data bytes with its address and the x87 unit.
 pub(crate) struct HarnessIn {
     pub(crate) r: [u32; 8],
     pub(crate) eflags: u32,
     pub(crate) code: Vec<u8>,
     pub(crate) window_at: u32,
     pub(crate) window: [u8; WINDOW32],
+    pub(crate) x87: X87Image,
 }
 
 /// One case out, as `struct case_out` of `x86_32.c` holds it.
@@ -84,6 +130,7 @@ pub(crate) struct HarnessOut {
     pub(crate) r: [u32; 8],
     pub(crate) stray: u32,
     pub(crate) window: [u8; WINDOW32],
+    pub(crate) x87: X87Image,
 }
 
 pub(crate) fn pack_in32(blob: &mut Vec<u8>, case: &HarnessIn) {
@@ -97,9 +144,10 @@ pub(crate) fn pack_in32(blob: &mut Vec<u8>, case: &HarnessIn) {
     blob.extend_from_slice(&case.window_at.to_le_bytes());
     blob.extend_from_slice(&0u32.to_le_bytes());
     blob.extend_from_slice(&case.code);
-    blob.resize(start + IN32_LEN - WINDOW32, 0);
+    blob.resize(start + 128 - WINDOW32, 0);
     blob.extend_from_slice(&case.window);
-    assert_eq!(blob.len() - start, IN32_LEN);
+    case.x87.pack(blob);
+    blob.resize(start + IN32_LEN, 0);
 }
 
 pub(crate) fn unpack_out32(record: &[u8]) -> HarnessOut {
@@ -110,8 +158,9 @@ pub(crate) fn unpack_out32(record: &[u8]) -> HarnessOut {
         *slot = word(4 + k);
     }
     let mut window = [0u8; WINDOW32];
-    window.copy_from_slice(&record[OUT32_LEN - WINDOW32..]);
-    HarnessOut { code: word(0), eip: word(1), fault_at: word(2), eflags: word(3), r, stray: word(12), window }
+    window.copy_from_slice(&record[56..56 + WINDOW32]);
+    let x87 = X87Image::unpack(&record[120..120 + FSAVE_LEN]);
+    HarnessOut { code: word(0), eip: word(1), fault_at: word(2), eflags: word(3), r, stray: word(12), window, x87 }
 }
 
 /// Builds the harness with clang for i686 into `scratch`, as `harness/build.ps1` does.
@@ -314,7 +363,7 @@ pub(crate) fn group32(code: Code) -> &'static str {
 // region An instance
 
 /// The registers a sample pins to a value before it runs, by register number.
-type Pins = Vec<(usize, u32)>;
+pub(super) type Pins = Vec<(usize, u32)>;
 
 /// A random instance of `code`: the instruction, and the registers it needs at certain values
 /// (the bases of its memory operands, the string registers, a divisor's high half).
@@ -434,7 +483,7 @@ fn instance32(code: Code, rng: &mut Rng) -> Option<(Instruction, Pins)> {
 /// A memory operand `[base + index * scale + disp]` sixteen-aligned inside the data buffer, or
 /// just above the stack pointer one time in eight (and always for a push or a pop): never below
 /// it, where the dispatcher writes once the case ends.
-fn memory32(ins: &mut Instruction, n: u32, rng: &mut Rng, pins: &mut Pins, data_mid: u32, on_stack: bool) {
+pub(super) fn memory32(ins: &mut Instruction, n: u32, rng: &mut Rng, pins: &mut Pins, data_mid: u32, on_stack: bool) {
     ins.set_op_kind(n, OpKind::Memory);
     let disp = if on_stack || rng.chance(8) {
         ins.set_memory_base(R::ESP);
@@ -470,7 +519,7 @@ fn immediate8_32(code: Code, rng: &mut Rng) -> u8 {
     }
 }
 
-fn encode32(ins: &Instruction) -> Result<Vec<u8>, String> {
+pub(super) fn encode32(ins: &Instruction) -> Result<Vec<u8>, String> {
     let mut encoder = Encoder::new(32);
     encoder.encode(ins, u64::from(CASE_IP32)).map_err(|e| e.to_string())?;
     Ok(encoder.take_buffer())
@@ -488,21 +537,21 @@ pub(crate) fn format32(ins: &Instruction) -> String {
 
 /// A machine state of the harness: the registers, the flags one byte each in `FLAG_NAMES`
 /// order, and the window of data bytes with its address.
-struct Picture32 {
-    r: [u32; 8],
-    flags: [u8; 7],
-    window_at: u32,
-    window: [u8; WINDOW32],
+pub(super) struct Picture32 {
+    pub(super) r: [u32; 8],
+    pub(super) flags: [u8; 7],
+    pub(super) window_at: u32,
+    pub(super) window: [u8; WINDOW32],
 }
 
 impl Picture32 {
-    fn flags_word(&self) -> u32 {
+    pub(super) fn flags_word(&self) -> u32 {
         FLAG_BITS.iter().zip(self.flags).fold(0u32, |w, (&bit, f)| w | u32::from(f) << bit)
     }
 }
 
 /// The address a memory operand names in the state.
-fn effective_address32(ins: &Instruction, r: &[u32; 8]) -> Option<u32> {
+pub(super) fn effective_address32(ins: &Instruction, r: &[u32; 8]) -> Option<u32> {
     (0..ins.op_count()).find(|&n| ins.op_kind(n) == OpKind::Memory)?;
     let mut at = ins.memory_displacement32();
     if ins.memory_base() != R::None {
@@ -572,7 +621,7 @@ fn window_for(ranges: &[(u32, u32)]) -> Option<u32> {
 /// A state for `ins`: every register random but for the pins and `esp`, the flags random, the
 /// window of random bytes over what the instruction touches. `None` when the operands do not fit
 /// one window.
-fn picture32(rng: &mut Rng, ins: &Instruction, pins: &Pins) -> Option<Picture32> {
+pub(super) fn picture32(rng: &mut Rng, ins: &Instruction, pins: &Pins) -> Option<Picture32> {
     let mut r = [0u32; 8];
     for v in &mut r {
         *v = rng.value32();
@@ -612,6 +661,7 @@ impl Sample {
             code: self.bytes.clone(),
             window_at: self.picture.window_at,
             window: self.picture.window,
+            x87: X87Image::init(),
         }
     }
 }
@@ -680,7 +730,7 @@ fn state32(p: &Picture32) -> State {
 /// in; what changed out, the flags the manual leaves undefined left out of it and named in
 /// `undefined`, the EFLAGS mask of those flags; or the fault. A case that ended anywhere but at
 /// the breakpoint after its own bytes is a fault.
-fn vector_case32(ins: &Instruction, bytes: Vec<u8>, input: &Picture32, out: &HarnessOut) -> Case {
+pub(super) fn vector_case32(ins: &Instruction, bytes: Vec<u8>, input: &Picture32, out: &HarnessOut) -> Case {
     let before = state32(input);
     let outcome = if out.code == STATUS_BREAKPOINT && out.eip == CASE_IP32 + bytes.len() as u32 {
         assert!(
