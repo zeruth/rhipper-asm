@@ -1,0 +1,123 @@
+ seed26_32_O2
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000103faH .text                   CODE
+ 0001:00010400 00000003H .text$mn                CODE
+ 0002:00000000 00001258H .rdata                  DATA
+ 0002:000012b0 00000008H .00cfg                  DATA
+ 0003:00000000 00003dc4H .data                   DATA
+ 0003:00003dc8 00000408H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_table   0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_count   0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_table        0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_count        0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_table         0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_count         0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     0000000000000000     <absolute>
+ 0000:00000000       ___enclave_config          0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     0000000000000000     <absolute>
+ 0000:00000000       ___volatile_metadata       0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       ___guard_flags             0000000000000100     <absolute>
+ 0001:00000000       _main                      0000000000401000     seed26-a08c4d.o
+ 0001:0000fc20       _mainCRTStartup            0000000000410c20     windows-7cd11f.o
+ 0001:0000fc30       _memcpy                    0000000000410c30     windows-7cd11f.o
+ 0001:0000fd80       _memmove                   0000000000410d80     windows-7cd11f.o
+ 0001:0000fff0       _memset                    0000000000410ff0     windows-7cd11f.o
+ 0001:000100c0       _printf                    00000000004110c0     windows-7cd11f.o
+ 0001:00010400       @_guard_check_icall_nop@4  0000000000411400     libcmt:guard_support.obj
+ 0002:000010e0       __xmm@00000003000000020000000100000000 00000000004130e0     seed26-a08c4d.o
+ 0002:000010f0       __xmm@edb88320edb88320edb88320edb88320 00000000004130f0     seed26-a08c4d.o
+ 0002:00001100       __xmm@00000004000000040000000400000004 0000000000413100     seed26-a08c4d.o
+ 0002:00001198       __load_config_used         0000000000413198     libcmt:loadcfg.obj
+ 0002:00001258       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 0000000000413258     windows-7cd11f.o
+ 0002:00001269       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 0000000000413269     windows-7cd11f.o
+ 0002:0000127a       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 000000000041327a     windows-7cd11f.o
+ 0002:00001285       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 0000000000413285     seed26-a08c4d.o
+ 0002:000012b0       ___guard_check_icall_fptr  00000000004132b0     libcmt:guard_support.obj
+ 0002:000012b4       ___castguard_check_failure_os_handled_fptr 00000000004132b4     libcmt:guard_support.obj
+ 0002:000012f0       __imp__ExitProcess@4       00000000004132f0     kernel32:KERNEL32.dll
+ 0002:000012f4       __imp__GetStdHandle@4      00000000004132f4     kernel32:KERNEL32.dll
+ 0002:000012f8       __imp__WriteFile@20        00000000004132f8     kernel32:KERNEL32.dll
+ 0003:00003d80       ___security_cookie         0000000000417d80     libcmt:gs_cookie.obj
+ 0003:00003dc0       ___security_cookie_complement 0000000000417dc0     libcmt:gs_cookie.obj
+
+ entry point at         0001:0000fc20
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000000400000     libcmt:guard_support.obj
+ 0002:00000000       _g_27                      0000000000412000     seed26-a08c4d.o
+ 0002:000003f0       _g_90                      00000000004123f0     seed26-a08c4d.o
+ 0002:00000570       _g_280                     0000000000412570     seed26-a08c4d.o
+ 0002:00000688       _g_590                     0000000000412688     seed26-a08c4d.o
+ 0002:000006a8       _g_2905                    00000000004126a8     seed26-a08c4d.o
+ 0002:00000d68       _g_3865                    0000000000412d68     seed26-a08c4d.o
+ 0002:00000d88       _g_3979                    0000000000412d88     seed26-a08c4d.o
+ 0002:00000fc8       _g_598                     0000000000412fc8     seed26-a08c4d.o
+ 0002:00000fe9       _g_602                     0000000000412fe9     seed26-a08c4d.o
+ 0002:0000100a       _g_747                     000000000041300a     seed26-a08c4d.o
+ 0002:0000102b       _g_2355                    000000000041302b     seed26-a08c4d.o
+ 0002:0000108e       _g_2678                    000000000041308e     seed26-a08c4d.o
+ 0002:000010b0       _g_3377                    00000000004130b0     seed26-a08c4d.o
+ 0003:00000000       _g_3                       0000000000414000     seed26-a08c4d.o
+ 0003:00000004       _g_5                       0000000000414004     seed26-a08c4d.o
+ 0003:00000008       _g_28                      0000000000414008     seed26-a08c4d.o
+ 0003:00000098       _g_181                     0000000000414098     seed26-a08c4d.o
+ 0003:000000a0       _g_183                     00000000004140a0     seed26-a08c4d.o
+ 0003:000000a4       _g_400                     00000000004140a4     seed26-a08c4d.o
+ 0003:000000b0       _g_964                     00000000004140b0     seed26-a08c4d.o
+ 0003:000000b8       _g_2403                    00000000004140b8     seed26-a08c4d.o
+ 0003:000000c0       _g_2667                    00000000004140c0     seed26-a08c4d.o
+ 0003:0000013e       _g_2908                    000000000041413e     seed26-a08c4d.o
+ 0003:00000140       _g_3078                    0000000000414140     seed26-a08c4d.o
+ 0003:00000144       _g_3248                    0000000000414144     seed26-a08c4d.o
+ 0003:00000148       _g_3668                    0000000000414148     seed26-a08c4d.o
+ 0003:00000150       _g_3846                    0000000000414150     seed26-a08c4d.o
+ 0003:00000158       _g_3913                    0000000000414158     seed26-a08c4d.o
+ 0003:00000428       _g_3967                    0000000000414428     seed26-a08c4d.o
+ 0003:00000430       _crc32_context             0000000000414430     seed26-a08c4d.o
+ 0003:00000434       _g_85                      0000000000414434     seed26-a08c4d.o
+ 0003:00000455       _g_232                     0000000000414455     seed26-a08c4d.o
+ 0003:00000498       _g_540                     0000000000414498     seed26-a08c4d.o
+ 0003:000004b9       _g_604                     00000000004144b9     seed26-a08c4d.o
+ 0003:000023a9       _g_638                     00000000004163a9     seed26-a08c4d.o
+ 0003:000026e2       _g_662                     00000000004166e2     seed26-a08c4d.o
+ 0003:00003554       _g_699                     0000000000417554     seed26-a08c4d.o
+ 0003:00003575       _g_701                     0000000000417575     seed26-a08c4d.o
+ 0003:000036a0       _g_718                     00000000004176a0     seed26-a08c4d.o
+ 0003:000036c4       _g_724                     00000000004176c4     seed26-a08c4d.o
+ 0003:000036e8       _g_885                     00000000004176e8     seed26-a08c4d.o
+ 0003:0000370c       _g_1061                    000000000041770c     seed26-a08c4d.o
+ 0003:00003730       _g_1719                    0000000000417730     seed26-a08c4d.o
+ 0003:00003754       _g_1816                    0000000000417754     seed26-a08c4d.o
+ 0003:00003778       _g_1940                    0000000000417778     seed26-a08c4d.o
+ 0003:00003799       _g_2130                    0000000000417799     seed26-a08c4d.o
+ 0003:0000385f       _g_2163                    000000000041785f     seed26-a08c4d.o
+ 0003:00003967       _g_2392                    0000000000417967     seed26-a08c4d.o
+ 0003:00003a70       _g_2704                    0000000000417a70     seed26-a08c4d.o
+ 0003:00003a94       _g_2774                    0000000000417a94     seed26-a08c4d.o
+ 0003:00003ab8       _g_2915                    0000000000417ab8     seed26-a08c4d.o
+ 0003:00003adc       _g_2945                    0000000000417adc     seed26-a08c4d.o
+ 0003:00003b00       _g_3094                    0000000000417b00     seed26-a08c4d.o
+ 0003:00003b24       _g_3119                    0000000000417b24     seed26-a08c4d.o
+ 0003:00003b48       _g_3157                    0000000000417b48     seed26-a08c4d.o
+ 0003:00003b6c       _g_3289                    0000000000417b6c     seed26-a08c4d.o
+ 0003:00003b90       _g_3305                    0000000000417b90     seed26-a08c4d.o
+ 0003:00003bb1       _g_3388                    0000000000417bb1     seed26-a08c4d.o
+ 0003:00003cfc       _g_3752                    0000000000417cfc     seed26-a08c4d.o
+ 0003:00003d20       _g_3829                    0000000000417d20     seed26-a08c4d.o
+ 0003:00003dc8       _g_2400                    0000000000417dc8     seed26-a08c4d.o
+ 0003:00003dd0       _crc32_tab                 0000000000417dd0     seed26-a08c4d.o

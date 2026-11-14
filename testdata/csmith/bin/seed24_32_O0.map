@@ -1,0 +1,145 @@
+ seed24_32_O0
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00001b45H .text                   CODE
+ 0001:00001b50 00000003H .text$mn                CODE
+ 0002:00000000 000004d0H .rdata                  DATA
+ 0002:0000066c 00000008H .00cfg                  DATA
+ 0003:00000000 00000184H .data                   DATA
+ 0003:00000188 0000041cH .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_table   0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_count   0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_table        0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_count        0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_table         0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_count         0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     0000000000000000     <absolute>
+ 0000:00000000       ___enclave_config          0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     0000000000000000     <absolute>
+ 0000:00000000       ___volatile_metadata       0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       ___guard_flags             0000000000000100     <absolute>
+ 0001:00000000       _main                      0000000000401000     seed24-f6c760.o
+ 0001:000014b0       _mainCRTStartup            00000000004024b0     windows-5419b0.o
+ 0001:000014d0       _memcpy                    00000000004024d0     windows-5419b0.o
+ 0001:00001520       _memmove                   0000000000402520     windows-5419b0.o
+ 0001:000015b0       _memset                    00000000004025b0     windows-5419b0.o
+ 0001:000015f0       _printf                    00000000004025f0     windows-5419b0.o
+ 0001:00001b50       @_guard_check_icall_nop@4  0000000000402b50     libcmt:guard_support.obj
+ 0002:00000410       __load_config_used         0000000000403410     libcmt:loadcfg.obj
+ 0002:000004d0       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 00000000004034d0     windows-5419b0.o
+ 0002:000004e1       ??_C@_0P@HPLGIMM@g_942?$FLi?$FN?$FLj?$FN?$FLk?$FN?$AA@ 00000000004034e1     seed24-f6c760.o
+ 0002:000004f0       ??_C@_09BBBEFPFA@g_3?$FLi?$FN?$FLj?$FN?$AA@ 00000000004034f0     seed24-f6c760.o
+ 0002:000004fa       ??_C@_08KHOBEILJ@g_782?$FLi?$FN?$AA@ 00000000004034fa     seed24-f6c760.o
+ 0002:00000503       ??_C@_09LEOGIFEE@g_1212?$FLi?$FN?$AA@ 0000000000403503     seed24-f6c760.o
+ 0002:0000050d       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 000000000040350d     windows-5419b0.o
+ 0002:0000051e       ??_C@_04KEJPOPOO@g_99?$AA@ 000000000040351e     seed24-f6c760.o
+ 0002:00000523       ??_C@_05JOJDFKCL@g_299?$AA@ 0000000000403523     seed24-f6c760.o
+ 0002:00000529       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 0000000000403529     windows-5419b0.o
+ 0002:00000534       ??_C@_05IFDMAMKB@g_159?$AA@ 0000000000403534     seed24-f6c760.o
+ 0002:0000053a       ??_C@_04LDJHIPBH@g_18?$AA@ 000000000040353a     seed24-f6c760.o
+ 0002:0000053f       ??_C@_05CFHLCIHJ@g_497?$AA@ 000000000040353f     seed24-f6c760.o
+ 0002:00000545       ??_C@_04CLNPGAHC@g_46?$AA@ 0000000000403545     seed24-f6c760.o
+ 0002:0000054a       ??_C@_05KNOCMOGA@g_326?$AA@ 000000000040354a     seed24-f6c760.o
+ 0002:00000550       ??_C@_05JIHKIAAL@g_616?$AA@ 0000000000403550     seed24-f6c760.o
+ 0002:00000556       ??_C@_05FPIOFBF@g_795?$AA@ 0000000000403556     seed24-f6c760.o
+ 0002:0000055c       ??_C@_04JOIMKNF@g_85?$AA@  000000000040355c     seed24-f6c760.o
+ 0002:00000561       ??_C@_05BNNDGHPB@g_475?$AA@ 0000000000403561     seed24-f6c760.o
+ 0002:00000567       ??_C@_05CJIJEDKN@g_155?$AA@ 0000000000403567     seed24-f6c760.o
+ 0002:0000056d       ??_C@_04EHPEPAD@g_25?$AA@  000000000040356d     seed24-f6c760.o
+ 0002:00000572       ??_C@_05OJHCHNMH@g_925?$AA@ 0000000000403572     seed24-f6c760.o
+ 0002:00000578       ??_C@_03KEIAHFCD@g_4?$AA@  0000000000403578     seed24-f6c760.o
+ 0002:0000057c       ??_C@_05DJIIILII@g_194?$AA@ 000000000040357c     seed24-f6c760.o
+ 0002:00000582       ??_C@_05BGHNPJFO@g_774?$AA@ 0000000000403582     seed24-f6c760.o
+ 0002:00000588       ??_C@_04FEOOCKGO@g_73?$AA@ 0000000000403588     seed24-f6c760.o
+ 0002:0000058d       ??_C@_06GMPCGLMI@g_1013?$AA@ 000000000040358d     seed24-f6c760.o
+ 0002:00000594       ??_C@_03PCNKNCKF@g_2?$AA@  0000000000403594     seed24-f6c760.o
+ 0002:00000598       ??_C@_05PMBGEFAP@g_612?$AA@ 0000000000403598     seed24-f6c760.o
+ 0002:0000059e       ??_C@_08HIJHKLFA@g_225?4f1?$AA@ 000000000040359e     seed24-f6c760.o
+ 0002:000005a7       ??_C@_05GLAKANBL@g_771?$AA@ 00000000004035a7     seed24-f6c760.o
+ 0002:000005ad       ??_C@_05GIIONJHF@g_751?$AA@ 00000000004035ad     seed24-f6c760.o
+ 0002:000005b3       ??_C@_06PCAGADCK@g_1241?$AA@ 00000000004035b3     seed24-f6c760.o
+ 0002:000005ba       ??_C@_05OBCHIMMJ@g_301?$AA@ 00000000004035ba     seed24-f6c760.o
+ 0002:000005c0       ??_C@_05FJJLOLKM@g_201?$AA@ 00000000004035c0     seed24-f6c760.o
+ 0002:000005c6       ??_C@_08GBIMJKBB@g_225?4f0?$AA@ 00000000004035c6     seed24-f6c760.o
+ 0002:000005cf       ??_C@_08FJLAAHIC@g_113?4f0?$AA@ 00000000004035cf     seed24-f6c760.o
+ 0002:000005d8       ??_C@_05FHHKGDIG@g_170?$AA@ 00000000004035d8     seed24-f6c760.o
+ 0002:000005de       ??_C@_05MIOLOFGG@g_640?$AA@ 00000000004035de     seed24-f6c760.o
+ 0002:000005e4       ??_C@_0BG@DLOCNKMA@index?5?$DN?5?$FL?$CFd?$FN?$FL?$CFd?$FN?$FL?$CFd?$FN?6?$AA@ 00000000004035e4     seed24-f6c760.o
+ 0002:000005fa       ??_C@_0BC@JFOANKFM@index?5?$DN?5?$FL?$CFd?$FN?$FL?$CFd?$FN?6?$AA@ 00000000004035fa     seed24-f6c760.o
+ 0002:0000060c       ??_C@_0O@BLABIDA@index?5?$DN?5?$FL?$CFd?$FN?6?$AA@ 000000000040360c     seed24-f6c760.o
+ 0002:0000061a       ??_C@_0CE@GECPOG@?4?4?4checksum?5after?5hashing?5?$CFs?5?3?5?$CF@ 000000000040361a     seed24-f6c760.o
+ 0002:0000063e       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 000000000040363e     seed24-f6c760.o
+ 0002:0000066c       ___guard_check_icall_fptr  000000000040366c     libcmt:guard_support.obj
+ 0002:00000670       ___castguard_check_failure_os_handled_fptr 0000000000403670     libcmt:guard_support.obj
+ 0002:000006ac       __imp__ExitProcess@4       00000000004036ac     kernel32:KERNEL32.dll
+ 0002:000006b0       __imp__GetStdHandle@4      00000000004036b0     kernel32:KERNEL32.dll
+ 0002:000006b4       __imp__WriteFile@20        00000000004036b4     kernel32:KERNEL32.dll
+ 0003:00000140       ___security_cookie         0000000000404140     libcmt:gs_cookie.obj
+ 0003:00000180       ___security_cookie_complement 0000000000404180     libcmt:gs_cookie.obj
+
+ entry point at         0001:000014b0
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000000400000     libcmt:guard_support.obj
+ 0001:000006b0       _platform_main_begin       00000000004016b0     seed24-f6c760.o
+ 0001:000006c0       _crc32_gentab              00000000004016c0     seed24-f6c760.o
+ 0001:00000740       _func_1                    0000000000401740     seed24-f6c760.o
+ 0001:00001310       _transparent_crc           0000000000402310     seed24-f6c760.o
+ 0001:00001370       _platform_main_end         0000000000402370     seed24-f6c760.o
+ 0001:000013a0       _safe_add_func_uint64_t_u_u 00000000004023a0     seed24-f6c760.o
+ 0001:000013e0       _crc32_8bytes              00000000004023e0     seed24-f6c760.o
+ 0001:00001470       _crc32_byte                0000000000402470     seed24-f6c760.o
+ 0001:00001a60       _put                       0000000000402a60     windows-5419b0.o
+ 0001:00001aa0       _put_str                   0000000000402aa0     windows-5419b0.o
+ 0001:00001af0       _format_unsigned           0000000000402af0     windows-5419b0.o
+ 0002:00000000       _g_942                     0000000000403000     seed24-f6c760.o
+ 0003:00000000       _g_2                       0000000000404000     seed24-f6c760.o
+ 0003:00000004       _g_3                       0000000000404004     seed24-f6c760.o
+ 0003:00000094       _g_4                       0000000000404094     seed24-f6c760.o
+ 0003:00000098       _g_18                      0000000000404098     seed24-f6c760.o
+ 0003:000000a0       _g_25                      00000000004040a0     seed24-f6c760.o
+ 0003:000000a8       _g_46                      00000000004040a8     seed24-f6c760.o
+ 0003:000000aa       _g_73                      00000000004040aa     seed24-f6c760.o
+ 0003:000000ac       _g_85                      00000000004040ac     seed24-f6c760.o
+ 0003:000000b0       _g_99                      00000000004040b0     seed24-f6c760.o
+ 0003:000000b1       _g_113                     00000000004040b1     seed24-f6c760.o
+ 0003:000000b8       _g_155                     00000000004040b8     seed24-f6c760.o
+ 0003:000000c0       _g_159                     00000000004040c0     seed24-f6c760.o
+ 0003:000000c8       _g_170                     00000000004040c8     seed24-f6c760.o
+ 0003:000000d0       _g_194                     00000000004040d0     seed24-f6c760.o
+ 0003:000000d8       _g_201                     00000000004040d8     seed24-f6c760.o
+ 0003:000000e0       _g_225                     00000000004040e0     seed24-f6c760.o
+ 0003:000000e4       _g_299                     00000000004040e4     seed24-f6c760.o
+ 0003:000000e6       _g_301                     00000000004040e6     seed24-f6c760.o
+ 0003:000000e8       _g_475                     00000000004040e8     seed24-f6c760.o
+ 0003:000000ec       _g_616                     00000000004040ec     seed24-f6c760.o
+ 0003:000000ee       _g_751                     00000000004040ee     seed24-f6c760.o
+ 0003:000000f0       _g_771                     00000000004040f0     seed24-f6c760.o
+ 0003:000000f2       _g_774                     00000000004040f2     seed24-f6c760.o
+ 0003:000000f4       _g_782                     00000000004040f4     seed24-f6c760.o
+ 0003:00000114       _g_795                     0000000000404114     seed24-f6c760.o
+ 0003:00000118       _g_925                     0000000000404118     seed24-f6c760.o
+ 0003:0000011c       _g_1013                    000000000040411c     seed24-f6c760.o
+ 0003:00000120       _g_1241                    0000000000404120     seed24-f6c760.o
+ 0003:00000128       _crc32_context             0000000000404128     seed24-f6c760.o
+ 0003:0000012c       _g_1259                    000000000040412c     seed24-f6c760.o
+ 0003:00000188       _g_326                     0000000000404188     seed24-f6c760.o
+ 0003:0000018c       _g_497                     000000000040418c     seed24-f6c760.o
+ 0003:0000018e       _g_612                     000000000040418e     seed24-f6c760.o
+ 0003:00000190       _g_1212                    0000000000404190     seed24-f6c760.o
+ 0003:000001a0       _crc32_tab                 00000000004041a0     seed24-f6c760.o
+ 0003:000005a0       _g_1260                    00000000004045a0     seed24-f6c760.o

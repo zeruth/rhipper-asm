@@ -1,0 +1,87 @@
+ seed23_32_O2
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000024eaH .text                   CODE
+ 0001:000024f0 00000003H .text$mn                CODE
+ 0002:00000000 00000338H .rdata                  DATA
+ 0002:00000390 00000008H .00cfg                  DATA
+ 0003:00000000 000004c4H .data                   DATA
+ 0003:000004c4 00000404H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_table   0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_count   0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_table        0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_count        0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_table         0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_count         0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     0000000000000000     <absolute>
+ 0000:00000000       ___enclave_config          0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     0000000000000000     <absolute>
+ 0000:00000000       ___volatile_metadata       0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       ___guard_flags             0000000000000100     <absolute>
+ 0001:00000000       _main                      0000000000401000     seed23-3c312f.o
+ 0001:00001d10       _mainCRTStartup            0000000000402d10     windows-5199f1.o
+ 0001:00001d20       _memcpy                    0000000000402d20     windows-5199f1.o
+ 0001:00001e70       _memmove                   0000000000402e70     windows-5199f1.o
+ 0001:000020e0       _memset                    00000000004030e0     windows-5199f1.o
+ 0001:000021b0       _printf                    00000000004031b0     windows-5199f1.o
+ 0001:000024f0       @_guard_check_icall_nop@4  00000000004034f0     libcmt:guard_support.obj
+ 0002:000001c0       __xmm@00000003000000020000000100000000 00000000004041c0     seed23-3c312f.o
+ 0002:000001d0       __xmm@edb88320edb88320edb88320edb88320 00000000004041d0     seed23-3c312f.o
+ 0002:000001e0       __xmm@00000004000000040000000400000004 00000000004041e0     seed23-3c312f.o
+ 0002:00000278       __load_config_used         0000000000404278     libcmt:loadcfg.obj
+ 0002:00000338       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 0000000000404338     windows-5199f1.o
+ 0002:00000349       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 0000000000404349     windows-5199f1.o
+ 0002:0000035a       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 000000000040435a     windows-5199f1.o
+ 0002:00000365       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 0000000000404365     seed23-3c312f.o
+ 0002:00000390       ___guard_check_icall_fptr  0000000000404390     libcmt:guard_support.obj
+ 0002:00000394       ___castguard_check_failure_os_handled_fptr 0000000000404394     libcmt:guard_support.obj
+ 0002:000003d0       __imp__ExitProcess@4       00000000004043d0     kernel32:KERNEL32.dll
+ 0002:000003d4       __imp__GetStdHandle@4      00000000004043d4     kernel32:KERNEL32.dll
+ 0002:000003d8       __imp__WriteFile@20        00000000004043d8     kernel32:KERNEL32.dll
+ 0003:00000480       ___security_cookie         0000000000405480     libcmt:gs_cookie.obj
+ 0003:000004c0       ___security_cookie_complement 00000000004054c0     libcmt:gs_cookie.obj
+
+ entry point at         0001:00001d10
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000000400000     libcmt:guard_support.obj
+ 0002:00000000       _g_133                     0000000000404000     seed23-3c312f.o
+ 0002:00000030       _g_146                     0000000000404030     seed23-3c312f.o
+ 0003:00000000       _g_2                       0000000000405000     seed23-3c312f.o
+ 0003:00000004       _g_117                     0000000000405004     seed23-3c312f.o
+ 0003:00000008       _g_130                     0000000000405008     seed23-3c312f.o
+ 0003:0000000c       _g_138                     000000000040500c     seed23-3c312f.o
+ 0003:00000030       _g_278                     0000000000405030     seed23-3c312f.o
+ 0003:000003f0       _g_329                     00000000004053f0     seed23-3c312f.o
+ 0003:00000404       _g_416                     0000000000405404     seed23-3c312f.o
+ 0003:00000408       _g_573                     0000000000405408     seed23-3c312f.o
+ 0003:0000040c       _g_658                     000000000040540c     seed23-3c312f.o
+ 0003:0000040d       _g_1488                    000000000040540d     seed23-3c312f.o
+ 0003:00000410       _g_1559                    0000000000405410     seed23-3c312f.o
+ 0003:00000414       _g_2158                    0000000000405414     seed23-3c312f.o
+ 0003:00000416       _g_2591                    0000000000405416     seed23-3c312f.o
+ 0003:00000454       _g_2922                    0000000000405454     seed23-3c312f.o
+ 0003:00000458       _crc32_context             0000000000405458     seed23-3c312f.o
+ 0003:0000045c       _g_89                      000000000040545c     seed23-3c312f.o
+ 0003:00000460       _g_2134                    0000000000405460     seed23-3c312f.o
+ 0003:00000464       _g_88                      0000000000405464     seed23-3c312f.o
+ 0003:00000468       _g_3004                    0000000000405468     seed23-3c312f.o
+ 0003:0000046c       _g_3232                    000000000040546c     seed23-3c312f.o
+ 0003:00000470       _g_3005                    0000000000405470     seed23-3c312f.o
+ 0003:00000474       _g_3231                    0000000000405474     seed23-3c312f.o
+ 0003:000004c4       _g_2509                    00000000004054c4     seed23-3c312f.o
+ 0003:000004c8       _crc32_tab                 00000000004054c8     seed23-3c312f.o

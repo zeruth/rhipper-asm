@@ -1,0 +1,116 @@
+ seed16_64_O2
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000140000000
+
+ Start         Length     Name                   Class
+ 0001:00000000 0000396bH .text                   CODE
+ 0001:00003970 00000010H .text$mn                CODE
+ 0001:00003980 00000036H .text$mn$00             CODE
+ 0002:00000000 00000c80H .rdata                  DATA
+ 0002:00000cd8 00000030H .00cfg                  DATA
+ 0002:00000da8 0000005cH .xdata                  DATA
+ 0003:00000000 00000510H .data                   DATA
+ 0003:00000510 00000420H .bss                    DATA
+ 0004:00000000 00000060H .pdata                  DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       __AbsoluteZero             0000000000000000     <absolute>
+ 0000:00000000       __guard_fids_table         0000000000000000     <absolute>
+ 0000:00000000       __guard_fids_count         0000000000000000     <absolute>
+ 0000:00000000       __guard_iat_table          0000000000000000     <absolute>
+ 0000:00000000       __guard_iat_count          0000000000000000     <absolute>
+ 0000:00000000       __guard_longjmp_table      0000000000000000     <absolute>
+ 0000:00000000       __guard_longjmp_count      0000000000000000     <absolute>
+ 0000:00000000       __enclave_config           0000000000000000     <absolute>
+ 0000:00000000       __guard_eh_cont_table      0000000000000000     <absolute>
+ 0000:00000000       __guard_eh_cont_count      0000000000000000     <absolute>
+ 0000:00000000       __volatile_metadata        0000000000000000     <absolute>
+ 0000:00000000       __guard_memcpy_fptr        0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       __guard_flags              0000000000000100     <absolute>
+ 0001:00000000       main                       0000000140001000     seed16-1e8871.o
+ 0001:00002ff0       mainCRTStartup             0000000140003ff0     windows-684634.o
+ 0001:00003010       memcpy                     0000000140004010     windows-684634.o
+ 0001:00003190       memmove                    0000000140004190     windows-684634.o
+ 0001:00003470       memset                     0000000140004470     windows-684634.o
+ 0001:00003550       printf                     0000000140004550     windows-684634.o
+ 0001:00003970       _guard_check_icall_nop     0000000140004970     libcmt:guard_support.obj
+ 0001:00003990       _guard_dispatch_icall_nop  0000000140004990     libcmt:guard_dispatch.obj
+ 0001:000039b0       _guard_xfg_dispatch_icall_nop 00000001400049b0     libcmt:guard_xfg_dispatch.obj
+ 0002:00000a80       __xmm@00000003000000020000000100000000 0000000140005a80     seed16-1e8871.o
+ 0002:00000a90       __xmm@edb88320edb88320edb88320edb88320 0000000140005a90     seed16-1e8871.o
+ 0002:00000aa0       __xmm@00000004000000040000000400000004 0000000140005aa0     seed16-1e8871.o
+ 0002:00000b40       _load_config_used          0000000140005b40     libcmt:loadcfg.obj
+ 0002:00000c80       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 0000000140005c80     windows-684634.o
+ 0002:00000c91       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 0000000140005c91     windows-684634.o
+ 0002:00000ca2       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 0000000140005ca2     windows-684634.o
+ 0002:00000cad       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 0000000140005cad     seed16-1e8871.o
+ 0002:00000cd8       __guard_check_icall_fptr   0000000140005cd8     libcmt:guard_support.obj
+ 0002:00000ce0       __guard_xfg_check_icall_fptr 0000000140005ce0     libcmt:guard_support.obj
+ 0002:00000ce8       __guard_dispatch_icall_fptr 0000000140005ce8     libcmt:guard_support.obj
+ 0002:00000cf0       __guard_xfg_dispatch_icall_fptr 0000000140005cf0     libcmt:guard_support.obj
+ 0002:00000cf8       __guard_xfg_table_dispatch_icall_fptr 0000000140005cf8     libcmt:guard_support.obj
+ 0002:00000d00       __castguard_check_failure_os_handled_fptr 0000000140005d00     libcmt:guard_support.obj
+ 0002:00000d50       __imp_ExitProcess          0000000140005d50     kernel32:KERNEL32.dll
+ 0002:00000d58       __imp_GetStdHandle         0000000140005d58     kernel32:KERNEL32.dll
+ 0002:00000d60       __imp_WriteFile            0000000140005d60     kernel32:KERNEL32.dll
+ 0003:000004c0       __security_cookie          00000001400064c0     libcmt:gs_cookie.obj
+ 0003:00000500       __security_cookie_complement 0000000140006500     libcmt:gs_cookie.obj
+
+ entry point at         0001:00002ff0
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000140000000     libcmt:guard_support.obj
+ 0000:00000000       __guard_fids__             0000000140000000     libcmt:guard_support.obj
+ 0001:00003980       $$000000                   0000000140004980     libcmt:guard_dispatch.obj
+ 0001:000039a0       $$000000                   00000001400049a0     libcmt:guard_xfg_dispatch.obj
+ 0002:00000000       g_77                       0000000140005000     seed16-1e8871.o
+ 0002:000006c0       g_202                      00000001400056c0     seed16-1e8871.o
+ 0002:000008e0       g_995                      00000001400058e0     seed16-1e8871.o
+ 0002:00000970       g_1155                     0000000140005970     seed16-1e8871.o
+ 0002:00000980       g_2661                     0000000140005980     seed16-1e8871.o
+ 0002:000009d0       g_3851                     00000001400059d0     seed16-1e8871.o
+ 0002:00000a20       g_3880                     0000000140005a20     seed16-1e8871.o
+ 0002:00000df8       $xdatasym                  0000000140005df8     libcmt:guard_dispatch.obj
+ 0002:00000e00       $xdatasym                  0000000140005e00     libcmt:guard_xfg_dispatch.obj
+ 0003:00000000       g_5                        0000000140006000     seed16-1e8871.o
+ 0003:00000002       g_28                       0000000140006002     seed16-1e8871.o
+ 0003:00000004       g_84                       0000000140006004     seed16-1e8871.o
+ 0003:00000008       g_158                      0000000140006008     seed16-1e8871.o
+ 0003:00000010       g_309                      0000000140006010     seed16-1e8871.o
+ 0003:00000050       g_405                      0000000140006050     seed16-1e8871.o
+ 0003:00000058       g_579                      0000000140006058     seed16-1e8871.o
+ 0003:00000060       g_697                      0000000140006060     seed16-1e8871.o
+ 0003:00000070       g_1240                     0000000140006070     seed16-1e8871.o
+ 0003:00000080       g_1298                     0000000140006080     seed16-1e8871.o
+ 0003:00000084       g_1299                     0000000140006084     seed16-1e8871.o
+ 0003:00000088       g_1300                     0000000140006088     seed16-1e8871.o
+ 0003:0000008c       g_1302                     000000014000608c     seed16-1e8871.o
+ 0003:00000090       g_1303                     0000000140006090     seed16-1e8871.o
+ 0003:000000a0       g_1336                     00000001400060a0     seed16-1e8871.o
+ 0003:00000180       g_2046                     0000000140006180     seed16-1e8871.o
+ 0003:00000182       g_2149                     0000000140006182     seed16-1e8871.o
+ 0003:00000188       g_2269                     0000000140006188     seed16-1e8871.o
+ 0003:00000190       g_4100                     0000000140006190     seed16-1e8871.o
+ 0003:00000490       crc32_context              0000000140006490     seed16-1e8871.o
+ 0003:00000498       g_2654                     0000000140006498     seed16-1e8871.o
+ 0003:000004a0       g_2731                     00000001400064a0     seed16-1e8871.o
+ 0003:000004a8       g_83                       00000001400064a8     seed16-1e8871.o
+ 0003:000004b0       g_403                      00000001400064b0     seed16-1e8871.o
+ 0003:00000510       g_100                      0000000140006510     seed16-1e8871.o
+ 0003:00000511       g_138                      0000000140006511     seed16-1e8871.o
+ 0003:00000518       g_165                      0000000140006518     seed16-1e8871.o
+ 0003:0000051c       g_189.1                    000000014000651c     seed16-1e8871.o
+ 0003:0000051e       g_219                      000000014000651e     seed16-1e8871.o
+ 0003:0000051f       g_704                      000000014000651f     seed16-1e8871.o
+ 0003:00000520       g_1086                     0000000140006520     seed16-1e8871.o
+ 0003:00000524       g_1301                     0000000140006524     seed16-1e8871.o
+ 0003:00000528       g_2618                     0000000140006528     seed16-1e8871.o
+ 0003:0000052a       g_3981                     000000014000652a     seed16-1e8871.o
+ 0003:00000530       crc32_tab                  0000000140006530     seed16-1e8871.o

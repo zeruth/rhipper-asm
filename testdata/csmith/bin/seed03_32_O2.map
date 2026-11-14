@@ -1,0 +1,95 @@
+ seed03_32_O2
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00002b9aH .text                   CODE
+ 0001:00002ba0 00000003H .text$mn                CODE
+ 0002:00000000 00000398H .rdata                  DATA
+ 0002:000003f0 00000008H .00cfg                  DATA
+ 0003:00000000 00000284H .data                   DATA
+ 0003:00000284 0000040cH .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_table   0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_count   0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_table        0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_count        0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_table         0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_count         0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     0000000000000000     <absolute>
+ 0000:00000000       ___enclave_config          0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     0000000000000000     <absolute>
+ 0000:00000000       ___volatile_metadata       0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       ___guard_flags             0000000000000100     <absolute>
+ 0001:00000000       _main                      0000000000401000     seed03-120a25.o
+ 0001:000023c0       _mainCRTStartup            00000000004033c0     windows-77badc.o
+ 0001:000023d0       _memcpy                    00000000004033d0     windows-77badc.o
+ 0001:00002520       _memmove                   0000000000403520     windows-77badc.o
+ 0001:00002790       _memset                    0000000000403790     windows-77badc.o
+ 0001:00002860       _printf                    0000000000403860     windows-77badc.o
+ 0001:00002ba0       @_guard_check_icall_nop@4  0000000000403ba0     libcmt:guard_support.obj
+ 0002:00000210       __xmm@00000003000000020000000100000000 0000000000404210     seed03-120a25.o
+ 0002:00000220       __xmm@edb88320edb88320edb88320edb88320 0000000000404220     seed03-120a25.o
+ 0002:00000230       __xmm@00000004000000040000000400000004 0000000000404230     seed03-120a25.o
+ 0002:00000240       __xmm@00000006000000060000000600000006 0000000000404240     seed03-120a25.o
+ 0002:000002d8       __load_config_used         00000000004042d8     libcmt:loadcfg.obj
+ 0002:00000398       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 0000000000404398     windows-77badc.o
+ 0002:000003a9       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 00000000004043a9     windows-77badc.o
+ 0002:000003ba       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 00000000004043ba     windows-77badc.o
+ 0002:000003c5       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 00000000004043c5     seed03-120a25.o
+ 0002:000003f0       ___guard_check_icall_fptr  00000000004043f0     libcmt:guard_support.obj
+ 0002:000003f4       ___castguard_check_failure_os_handled_fptr 00000000004043f4     libcmt:guard_support.obj
+ 0002:00000430       __imp__ExitProcess@4       0000000000404430     kernel32:KERNEL32.dll
+ 0002:00000434       __imp__GetStdHandle@4      0000000000404434     kernel32:KERNEL32.dll
+ 0002:00000438       __imp__WriteFile@20        0000000000404438     kernel32:KERNEL32.dll
+ 0003:00000240       ___security_cookie         0000000000405240     libcmt:gs_cookie.obj
+ 0003:00000280       ___security_cookie_complement 0000000000405280     libcmt:gs_cookie.obj
+
+ entry point at         0001:000023c0
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000000400000     libcmt:guard_support.obj
+ 0002:00000000       _g_149                     0000000000404000     seed03-120a25.o
+ 0002:000000fc       _g_151                     00000000004040fc     seed03-120a25.o
+ 0002:00000138       _g_375                     0000000000404138     seed03-120a25.o
+ 0002:00000178       _g_1594                    0000000000404178     seed03-120a25.o
+ 0002:00000208       _g_69                      0000000000404208     seed03-120a25.o
+ 0003:00000000       _g_4                       0000000000405000     seed03-120a25.o
+ 0003:00000004       _g_50                      0000000000405004     seed03-120a25.o
+ 0003:00000010       _g_51                      0000000000405010     seed03-120a25.o
+ 0003:000000b0       _g_54                      00000000004050b0     seed03-120a25.o
+ 0003:000000b4       _g_61                      00000000004050b4     seed03-120a25.o
+ 0003:000000b8       _g_78                      00000000004050b8     seed03-120a25.o
+ 0003:000001a8       _g_176.0                   00000000004051a8     seed03-120a25.o
+ 0003:000001ac       _g_259                     00000000004051ac     seed03-120a25.o
+ 0003:000001d0       _g_280                     00000000004051d0     seed03-120a25.o
+ 0003:000001d4       _g_943                     00000000004051d4     seed03-120a25.o
+ 0003:000001d8       _g_1302                    00000000004051d8     seed03-120a25.o
+ 0003:00000200       _g_1917                    0000000000405200     seed03-120a25.o
+ 0003:00000204       _crc32_context             0000000000405204     seed03-120a25.o
+ 0003:00000208       _g_421                     0000000000405208     seed03-120a25.o
+ 0003:0000020c       _g_348                     000000000040520c     seed03-120a25.o
+ 0003:00000210       _g_420                     0000000000405210     seed03-120a25.o
+ 0003:00000214       _g_160                     0000000000405214     seed03-120a25.o
+ 0003:00000218       _g_274                     0000000000405218     seed03-120a25.o
+ 0003:0000021c       _g_562                     000000000040521c     seed03-120a25.o
+ 0003:00000220       _g_764                     0000000000405220     seed03-120a25.o
+ 0003:00000224       _g_924                     0000000000405224     seed03-120a25.o
+ 0003:00000228       _g_1005                    0000000000405228     seed03-120a25.o
+ 0003:0000022c       _g_1237                    000000000040522c     seed03-120a25.o
+ 0003:00000230       _g_1790                    0000000000405230     seed03-120a25.o
+ 0003:00000284       _g_145                     0000000000405284     seed03-120a25.o
+ 0003:00000288       _g_1893                    0000000000405288     seed03-120a25.o
+ 0003:0000028c       _crc32_tab                 000000000040528c     seed03-120a25.o
+ 0003:0000068c       _g_346                     000000000040568c     seed03-120a25.o

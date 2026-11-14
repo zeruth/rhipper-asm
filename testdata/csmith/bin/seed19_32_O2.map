@@ -1,0 +1,79 @@
+ seed19_32_O2
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00002e0aH .text                   CODE
+ 0001:00002e10 00000003H .text$mn                CODE
+ 0002:00000000 000006e8H .rdata                  DATA
+ 0002:00000740 00000008H .00cfg                  DATA
+ 0003:00000000 000000c4H .data                   DATA
+ 0003:000000c4 00000400H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_table   0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_count   0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_table        0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_count        0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_table         0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_count         0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     0000000000000000     <absolute>
+ 0000:00000000       ___enclave_config          0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     0000000000000000     <absolute>
+ 0000:00000000       ___volatile_metadata       0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       ___guard_flags             0000000000000100     <absolute>
+ 0001:00000000       _main                      0000000000401000     seed19-63923c.o
+ 0001:00002630       _mainCRTStartup            0000000000403630     windows-9f314c.o
+ 0001:00002640       _memcpy                    0000000000403640     windows-9f314c.o
+ 0001:00002790       _memmove                   0000000000403790     windows-9f314c.o
+ 0001:00002a00       _memset                    0000000000403a00     windows-9f314c.o
+ 0001:00002ad0       _printf                    0000000000403ad0     windows-9f314c.o
+ 0001:00002e10       @_guard_check_icall_nop@4  0000000000403e10     libcmt:guard_support.obj
+ 0002:00000570       __xmm@00000003000000020000000100000000 0000000000404570     seed19-63923c.o
+ 0002:00000580       __xmm@edb88320edb88320edb88320edb88320 0000000000404580     seed19-63923c.o
+ 0002:00000590       __xmm@00000004000000040000000400000004 0000000000404590     seed19-63923c.o
+ 0002:00000628       __load_config_used         0000000000404628     libcmt:loadcfg.obj
+ 0002:000006e8       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 00000000004046e8     windows-9f314c.o
+ 0002:000006f9       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 00000000004046f9     windows-9f314c.o
+ 0002:0000070a       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 000000000040470a     windows-9f314c.o
+ 0002:00000715       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 0000000000404715     seed19-63923c.o
+ 0002:00000740       ___guard_check_icall_fptr  0000000000404740     libcmt:guard_support.obj
+ 0002:00000744       ___castguard_check_failure_os_handled_fptr 0000000000404744     libcmt:guard_support.obj
+ 0002:00000780       __imp__ExitProcess@4       0000000000404780     kernel32:KERNEL32.dll
+ 0002:00000784       __imp__GetStdHandle@4      0000000000404784     kernel32:KERNEL32.dll
+ 0002:00000788       __imp__WriteFile@20        0000000000404788     kernel32:KERNEL32.dll
+ 0003:00000080       ___security_cookie         0000000000405080     libcmt:gs_cookie.obj
+ 0003:000000c0       ___security_cookie_complement 00000000004050c0     libcmt:gs_cookie.obj
+
+ entry point at         0001:00002630
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000000400000     libcmt:guard_support.obj
+ 0002:00000000       _g_74                      0000000000404000     seed19-63923c.o
+ 0002:00000028       _g_137                     0000000000404028     seed19-63923c.o
+ 0002:00000094       _g_142                     0000000000404094     seed19-63923c.o
+ 0002:00000176       _g_344                     0000000000404176     seed19-63923c.o
+ 0002:00000208       _g_377                     0000000000404208     seed19-63923c.o
+ 0002:00000568       _g_727                     0000000000404568     seed19-63923c.o
+ 0003:00000000       _g_3                       0000000000405000     seed19-63923c.o
+ 0003:00000004       _g_4                       0000000000405004     seed19-63923c.o
+ 0003:00000008       _g_6                       0000000000405008     seed19-63923c.o
+ 0003:0000000c       _g_7                       000000000040500c     seed19-63923c.o
+ 0003:00000010       _g_31                      0000000000405010     seed19-63923c.o
+ 0003:00000018       _g_79                      0000000000405018     seed19-63923c.o
+ 0003:00000020       _g_1384                    0000000000405020     seed19-63923c.o
+ 0003:00000028       _g_1446                    0000000000405028     seed19-63923c.o
+ 0003:00000044       _crc32_context             0000000000405044     seed19-63923c.o
+ 0003:00000048       _g_108                     0000000000405048     seed19-63923c.o
+ 0003:0000004c       _g_1383                    000000000040504c     seed19-63923c.o
+ 0003:000000c4       _crc32_tab                 00000000004050c4     seed19-63923c.o

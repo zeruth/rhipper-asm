@@ -1,0 +1,104 @@
+ seed29_32_O2
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000029faH .text                   CODE
+ 0001:00002a00 00000003H .text$mn                CODE
+ 0002:00000000 00000578H .rdata                  DATA
+ 0002:000005d0 00000008H .00cfg                  DATA
+ 0003:00000000 000001c4H .data                   DATA
+ 0003:000001c8 00000420H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_table   0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_count   0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_table        0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_count        0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_table         0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_count         0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     0000000000000000     <absolute>
+ 0000:00000000       ___enclave_config          0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     0000000000000000     <absolute>
+ 0000:00000000       ___volatile_metadata       0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       ___guard_flags             0000000000000100     <absolute>
+ 0001:00000000       _main                      0000000000401000     seed29-aa8f14.o
+ 0001:00002220       _mainCRTStartup            0000000000403220     windows-99bc61.o
+ 0001:00002230       _memcpy                    0000000000403230     windows-99bc61.o
+ 0001:00002380       _memmove                   0000000000403380     windows-99bc61.o
+ 0001:000025f0       _memset                    00000000004035f0     windows-99bc61.o
+ 0001:000026c0       _printf                    00000000004036c0     windows-99bc61.o
+ 0001:00002a00       @_guard_check_icall_nop@4  0000000000403a00     libcmt:guard_support.obj
+ 0002:00000400       __xmm@00000003000000020000000100000000 0000000000404400     seed29-aa8f14.o
+ 0002:00000410       __xmm@edb88320edb88320edb88320edb88320 0000000000404410     seed29-aa8f14.o
+ 0002:00000420       __xmm@00000004000000040000000400000004 0000000000404420     seed29-aa8f14.o
+ 0002:000004b8       __load_config_used         00000000004044b8     libcmt:loadcfg.obj
+ 0002:00000578       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 0000000000404578     windows-99bc61.o
+ 0002:00000589       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 0000000000404589     windows-99bc61.o
+ 0002:0000059a       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 000000000040459a     windows-99bc61.o
+ 0002:000005a5       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 00000000004045a5     seed29-aa8f14.o
+ 0002:000005d0       ___guard_check_icall_fptr  00000000004045d0     libcmt:guard_support.obj
+ 0002:000005d4       ___castguard_check_failure_os_handled_fptr 00000000004045d4     libcmt:guard_support.obj
+ 0002:00000610       __imp__ExitProcess@4       0000000000404610     kernel32:KERNEL32.dll
+ 0002:00000614       __imp__GetStdHandle@4      0000000000404614     kernel32:KERNEL32.dll
+ 0002:00000618       __imp__WriteFile@20        0000000000404618     kernel32:KERNEL32.dll
+ 0003:00000180       ___security_cookie         0000000000405180     libcmt:gs_cookie.obj
+ 0003:000001c0       ___security_cookie_complement 00000000004051c0     libcmt:gs_cookie.obj
+
+ entry point at         0001:00002220
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000000400000     libcmt:guard_support.obj
+ 0002:00000000       _g_770                     0000000000404000     seed29-aa8f14.o
+ 0002:000000f6       _g_1572                    00000000004040f6     seed29-aa8f14.o
+ 0002:00000288       _g_2452                    0000000000404288     seed29-aa8f14.o
+ 0002:00000290       _g_2764                    0000000000404290     seed29-aa8f14.o
+ 0002:00000294       _g_2854                    0000000000404294     seed29-aa8f14.o
+ 0002:000003fc       _g_939                     00000000004043fc     seed29-aa8f14.o
+ 0003:00000000       _g_2                       0000000000405000     seed29-aa8f14.o
+ 0003:00000004       _g_70                      0000000000405004     seed29-aa8f14.o
+ 0003:00000006       _g_106                     0000000000405006     seed29-aa8f14.o
+ 0003:00000010       _g_145                     0000000000405010     seed29-aa8f14.o
+ 0003:00000018       _g_152                     0000000000405018     seed29-aa8f14.o
+ 0003:0000001a       _g_165                     000000000040501a     seed29-aa8f14.o
+ 0003:000000b0       _g_203                     00000000004050b0     seed29-aa8f14.o
+ 0003:000000bc       _g_288                     00000000004050bc     seed29-aa8f14.o
+ 0003:000000c8       _g_318                     00000000004050c8     seed29-aa8f14.o
+ 0003:000000d0       _g_805                     00000000004050d0     seed29-aa8f14.o
+ 0003:000000d4       _g_1751                    00000000004050d4     seed29-aa8f14.o
+ 0003:000000d8       _g_2001                    00000000004050d8     seed29-aa8f14.o
+ 0003:000000da       _g_2301                    00000000004050da     seed29-aa8f14.o
+ 0003:000000dc       _g_2391                    00000000004050dc     seed29-aa8f14.o
+ 0003:000000e0       _g_2455                    00000000004050e0     seed29-aa8f14.o
+ 0003:000000e8       _g_2457                    00000000004050e8     seed29-aa8f14.o
+ 0003:000000ea       _g_2537                    00000000004050ea     seed29-aa8f14.o
+ 0003:000000f0       _g_2895                    00000000004050f0     seed29-aa8f14.o
+ 0003:000000f8       _crc32_context             00000000004050f8     seed29-aa8f14.o
+ 0003:000000fc       _g_894                     00000000004050fc     seed29-aa8f14.o
+ 0003:00000100       _g_2500                    0000000000405100     seed29-aa8f14.o
+ 0003:00000104       _g_884                     0000000000405104     seed29-aa8f14.o
+ 0003:00000108       _g_883                     0000000000405108     seed29-aa8f14.o
+ 0003:0000010c       _g_691                     000000000040510c     seed29-aa8f14.o
+ 0003:00000110       _g_1482                    0000000000405110     seed29-aa8f14.o
+ 0003:00000114       _g_2248                    0000000000405114     seed29-aa8f14.o
+ 0003:00000130       _g_2928                    0000000000405130     seed29-aa8f14.o
+ 0003:00000134       _g_2501                    0000000000405134     seed29-aa8f14.o
+ 0003:00000138       _g_2536                    0000000000405138     seed29-aa8f14.o
+ 0003:0000015c       _g_526                     000000000040515c     seed29-aa8f14.o
+ 0003:00000160       _g_403                     0000000000405160     seed29-aa8f14.o
+ 0003:00000164       _g_2929                    0000000000405164     seed29-aa8f14.o
+ 0003:00000168       _g_527                     0000000000405168     seed29-aa8f14.o
+ 0003:000001c8       _g_969                     00000000004051c8     seed29-aa8f14.o
+ 0003:000001cc       _g_1272                    00000000004051cc     seed29-aa8f14.o
+ 0003:000001e4       _g_1444                    00000000004051e4     seed29-aa8f14.o
+ 0003:000001e8       _crc32_tab                 00000000004051e8     seed29-aa8f14.o

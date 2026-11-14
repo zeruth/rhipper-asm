@@ -1,0 +1,84 @@
+ seed31_32_O2
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000034baH .text                   CODE
+ 0001:000034c0 00000003H .text$mn                CODE
+ 0002:00000000 000001d8H .rdata                  DATA
+ 0002:00000230 00000008H .00cfg                  DATA
+ 0003:00000000 00000544H .data                   DATA
+ 0003:00000548 00000498H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_table   0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_count   0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_table        0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_count        0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_table         0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_count         0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     0000000000000000     <absolute>
+ 0000:00000000       ___enclave_config          0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     0000000000000000     <absolute>
+ 0000:00000000       ___volatile_metadata       0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       ___guard_flags             0000000000000100     <absolute>
+ 0001:00000000       _main                      0000000000401000     seed31-7e1850.o
+ 0001:00002ce0       _mainCRTStartup            0000000000403ce0     windows-c0995a.o
+ 0001:00002cf0       _memcpy                    0000000000403cf0     windows-c0995a.o
+ 0001:00002e40       _memmove                   0000000000403e40     windows-c0995a.o
+ 0001:000030b0       _memset                    00000000004040b0     windows-c0995a.o
+ 0001:00003180       _printf                    0000000000404180     windows-c0995a.o
+ 0001:000034c0       @_guard_check_icall_nop@4  00000000004044c0     libcmt:guard_support.obj
+ 0002:00000060       __xmm@00000003000000020000000100000000 0000000000405060     seed31-7e1850.o
+ 0002:00000070       __xmm@edb88320edb88320edb88320edb88320 0000000000405070     seed31-7e1850.o
+ 0002:00000080       __xmm@00000004000000040000000400000004 0000000000405080     seed31-7e1850.o
+ 0002:00000118       __load_config_used         0000000000405118     libcmt:loadcfg.obj
+ 0002:000001d8       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 00000000004051d8     windows-c0995a.o
+ 0002:000001e9       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 00000000004051e9     windows-c0995a.o
+ 0002:000001fa       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 00000000004051fa     windows-c0995a.o
+ 0002:00000205       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 0000000000405205     seed31-7e1850.o
+ 0002:00000230       ___guard_check_icall_fptr  0000000000405230     libcmt:guard_support.obj
+ 0002:00000234       ___castguard_check_failure_os_handled_fptr 0000000000405234     libcmt:guard_support.obj
+ 0002:00000270       __imp__ExitProcess@4       0000000000405270     kernel32:KERNEL32.dll
+ 0002:00000274       __imp__GetStdHandle@4      0000000000405274     kernel32:KERNEL32.dll
+ 0002:00000278       __imp__WriteFile@20        0000000000405278     kernel32:KERNEL32.dll
+ 0003:00000500       ___security_cookie         0000000000406500     libcmt:gs_cookie.obj
+ 0003:00000540       ___security_cookie_complement 0000000000406540     libcmt:gs_cookie.obj
+
+ entry point at         0001:00002ce0
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000000400000     libcmt:guard_support.obj
+ 0002:00000000       _g_599                     0000000000405000     seed31-7e1850.o
+ 0003:00000000       _g_2                       0000000000406000     seed31-7e1850.o
+ 0003:000003f0       _g_3                       00000000004063f0     seed31-7e1850.o
+ 0003:0000040c       _g_7                       000000000040640c     seed31-7e1850.o
+ 0003:00000410       _g_8                       0000000000406410     seed31-7e1850.o
+ 0003:00000418       _g_865                     0000000000406418     seed31-7e1850.o
+ 0003:00000420       _g_976                     0000000000406420     seed31-7e1850.o
+ 0003:00000424       _g_1034                    0000000000406424     seed31-7e1850.o
+ 0003:00000426       _g_1316                    0000000000406426     seed31-7e1850.o
+ 0003:00000428       _g_1807                    0000000000406428     seed31-7e1850.o
+ 0003:0000042c       _g_2013                    000000000040642c     seed31-7e1850.o
+ 0003:00000430       _g_2081                    0000000000406430     seed31-7e1850.o
+ 0003:00000438       _crc32_context             0000000000406438     seed31-7e1850.o
+ 0003:00000440       _g_704                     0000000000406440     seed31-7e1850.o
+ 0003:00000448       _g_802                     0000000000406448     seed31-7e1850.o
+ 0003:00000450       _g_1502                    0000000000406450     seed31-7e1850.o
+ 0003:00000458       _g_1516                    0000000000406458     seed31-7e1850.o
+ 0003:000004d0       _g_1649                    00000000004064d0     seed31-7e1850.o
+ 0003:000004d8       _g_1827                    00000000004064d8     seed31-7e1850.o
+ 0003:00000548       _g_956                     0000000000406548     seed31-7e1850.o
+ 0003:000005d8       _g_1342                    00000000004065d8     seed31-7e1850.o
+ 0003:000005dc       _g_2191                    00000000004065dc     seed31-7e1850.o
+ 0003:000005e0       _crc32_tab                 00000000004065e0     seed31-7e1850.o

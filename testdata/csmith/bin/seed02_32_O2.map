@@ -1,0 +1,146 @@
+ seed02_32_O2
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000062eaH .text                   CODE
+ 0001:000062f0 00000083H .text$mn                CODE
+ 0002:00000000 000005c8H .rdata                  DATA
+ 0002:00000620 00000008H .00cfg                  DATA
+ 0003:00000000 00001944H .data                   DATA
+ 0003:00001944 00000410H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_table   0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_count   0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_table        0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_count        0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_table         0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_count         0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     0000000000000000     <absolute>
+ 0000:00000000       ___enclave_config          0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     0000000000000000     <absolute>
+ 0000:00000000       ___volatile_metadata       0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       ___guard_flags             0000000000000100     <absolute>
+ 0001:00000000       _main                      0000000000401000     seed02-eabcc9.o
+ 0001:00005b10       _mainCRTStartup            0000000000406b10     windows-964cd7.o
+ 0001:00005b20       _memcpy                    0000000000406b20     windows-964cd7.o
+ 0001:00005c70       _memmove                   0000000000406c70     windows-964cd7.o
+ 0001:00005ee0       _memset                    0000000000406ee0     windows-964cd7.o
+ 0001:00005fb0       _printf                    0000000000406fb0     windows-964cd7.o
+ 0001:000062f0       __aullrem                  00000000004072f0     libcmt:ullrem.obj
+ 0001:00006370       @_guard_check_icall_nop@4  0000000000407370     libcmt:guard_support.obj
+ 0002:00000450       __xmm@00000003000000020000000100000000 0000000000408450     seed02-eabcc9.o
+ 0002:00000460       __xmm@edb88320edb88320edb88320edb88320 0000000000408460     seed02-eabcc9.o
+ 0002:00000470       __xmm@00000004000000040000000400000004 0000000000408470     seed02-eabcc9.o
+ 0002:00000508       __load_config_used         0000000000408508     libcmt:loadcfg.obj
+ 0002:000005c8       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 00000000004085c8     windows-964cd7.o
+ 0002:000005d9       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 00000000004085d9     windows-964cd7.o
+ 0002:000005ea       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 00000000004085ea     windows-964cd7.o
+ 0002:000005f5       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 00000000004085f5     seed02-eabcc9.o
+ 0002:00000620       ___guard_check_icall_fptr  0000000000408620     libcmt:guard_support.obj
+ 0002:00000624       ___castguard_check_failure_os_handled_fptr 0000000000408624     libcmt:guard_support.obj
+ 0002:00000660       __imp__ExitProcess@4       0000000000408660     kernel32:KERNEL32.dll
+ 0002:00000664       __imp__GetStdHandle@4      0000000000408664     kernel32:KERNEL32.dll
+ 0002:00000668       __imp__WriteFile@20        0000000000408668     kernel32:KERNEL32.dll
+ 0003:00001900       ___security_cookie         000000000040a900     libcmt:gs_cookie.obj
+ 0003:00001940       ___security_cookie_complement 000000000040a940     libcmt:gs_cookie.obj
+
+ entry point at         0001:00005b10
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000000400000     libcmt:guard_support.obj
+ 0001:000062f0       $$000000                   00000000004072f0     libcmt:ullrem.obj
+ 0001:00006311       L1                         0000000000407311     libcmt:ullrem.obj
+ 0001:0000631f       L3                         000000000040731f     libcmt:ullrem.obj
+ 0001:0000634a       L4                         000000000040734a     libcmt:ullrem.obj
+ 0001:00006352       L5                         0000000000407352     libcmt:ullrem.obj
+ 0001:00006361       L2                         0000000000407361     libcmt:ullrem.obj
+ 0002:00000000       _g_84                      0000000000408000     seed02-eabcc9.o
+ 0002:00000048       _g_1198                    0000000000408048     seed02-eabcc9.o
+ 0002:00000070       _g_488                     0000000000408070     seed02-eabcc9.o
+ 0002:00000438       _g_1792                    0000000000408438     seed02-eabcc9.o
+ 0002:0000043c       _g_1253                    000000000040843c     seed02-eabcc9.o
+ 0003:00000000       _g_14                      0000000000409000     seed02-eabcc9.o
+ 0003:00000002       _g_40                      0000000000409002     seed02-eabcc9.o
+ 0003:00000004       _g_79                      0000000000409004     seed02-eabcc9.o
+ 0003:00000008       _g_96                      0000000000409008     seed02-eabcc9.o
+ 0003:00000010       _g_106                     0000000000409010     seed02-eabcc9.o
+ 0003:00000018       _g_108                     0000000000409018     seed02-eabcc9.o
+ 0003:0000001c       _g_131                     000000000040901c     seed02-eabcc9.o
+ 0003:00000020       _g_158                     0000000000409020     seed02-eabcc9.o
+ 0003:00000024       _g_177                     0000000000409024     seed02-eabcc9.o
+ 0003:00000028       _g_178                     0000000000409028     seed02-eabcc9.o
+ 0003:0000002c       _g_187                     000000000040902c     seed02-eabcc9.o
+ 0003:00000030       _g_215                     0000000000409030     seed02-eabcc9.o
+ 0003:00000034       _g_218                     0000000000409034     seed02-eabcc9.o
+ 0003:00000038       _g_246                     0000000000409038     seed02-eabcc9.o
+ 0003:0000003a       _g_248                     000000000040903a     seed02-eabcc9.o
+ 0003:00000058       _g_251.0                   0000000000409058     seed02-eabcc9.o
+ 0003:00000060       _g_251.1                   0000000000409060     seed02-eabcc9.o
+ 0003:00000068       _g_252                     0000000000409068     seed02-eabcc9.o
+ 0003:0000006c       _g_254                     000000000040906c     seed02-eabcc9.o
+ 0003:00000070       _g_295                     0000000000409070     seed02-eabcc9.o
+ 0003:00000090       _g_312                     0000000000409090     seed02-eabcc9.o
+ 0003:00000094       _g_313                     0000000000409094     seed02-eabcc9.o
+ 0003:000000cc       _g_362                     00000000004090cc     seed02-eabcc9.o
+ 0003:000000dc       _g_458                     00000000004090dc     seed02-eabcc9.o
+ 0003:000000e0       _g_520                     00000000004090e0     seed02-eabcc9.o
+ 0003:000000e1       _g_743                     00000000004090e1     seed02-eabcc9.o
+ 0003:000000e8       _g_854                     00000000004090e8     seed02-eabcc9.o
+ 0003:000000ec       _g_871                     00000000004090ec     seed02-eabcc9.o
+ 0003:000000f8       _g_891                     00000000004090f8     seed02-eabcc9.o
+ 0003:00000100       _g_1314                    0000000000409100     seed02-eabcc9.o
+ 0003:00000108       _g_1784                    0000000000409108     seed02-eabcc9.o
+ 0003:0000010c       _g_1793                    000000000040910c     seed02-eabcc9.o
+ 0003:000002cc       _crc32_context             00000000004092cc     seed02-eabcc9.o
+ 0003:000002d0       _g_454                     00000000004092d0     seed02-eabcc9.o
+ 0003:000002d4       _g_453                     00000000004092d4     seed02-eabcc9.o
+ 0003:000002d8       _g_1741                    00000000004092d8     seed02-eabcc9.o
+ 0003:00000378       _g_887                     0000000000409378     seed02-eabcc9.o
+ 0003:0000037c       _g_1790                    000000000040937c     seed02-eabcc9.o
+ 0003:0000039c       _g_137                     000000000040939c     seed02-eabcc9.o
+ 0003:0000063c       _g_139                     000000000040963c     seed02-eabcc9.o
+ 0003:00000640       _g_138                     0000000000409640     seed02-eabcc9.o
+ 0003:00000644       _g_503                     0000000000409644     seed02-eabcc9.o
+ 0003:00000648       _g_1118                    0000000000409648     seed02-eabcc9.o
+ 0003:0000064c       _g_258                     000000000040964c     seed02-eabcc9.o
+ 0003:00000a34       _g_224                     0000000000409a34     seed02-eabcc9.o
+ 0003:00000e08       _g_888                     0000000000409e08     seed02-eabcc9.o
+ 0003:00000ea8       _g_461                     0000000000409ea8     seed02-eabcc9.o
+ 0003:00000eac       _g_591                     0000000000409eac     seed02-eabcc9.o
+ 0003:00000eb0       _g_590                     0000000000409eb0     seed02-eabcc9.o
+ 0003:00000eb4       _g_255                     0000000000409eb4     seed02-eabcc9.o
+ 0003:00000eb8       _g_595                     0000000000409eb8     seed02-eabcc9.o
+ 0003:00000ebc       _g_620                     0000000000409ebc     seed02-eabcc9.o
+ 0003:00000ec0       _g_261                     0000000000409ec0     seed02-eabcc9.o
+ 0003:00000ec4       _g_136                     0000000000409ec4     seed02-eabcc9.o
+ 0003:00000fdc       _g_140                     0000000000409fdc     seed02-eabcc9.o
+ 0003:00000fe0       _g_1742                    0000000000409fe0     seed02-eabcc9.o
+ 0003:00000fe4       _g_474                     0000000000409fe4     seed02-eabcc9.o
+ 0003:00000fec       _g_1791                    0000000000409fec     seed02-eabcc9.o
+ 0003:00000ff0       _g_103                     0000000000409ff0     seed02-eabcc9.o
+ 0003:00000ffc       _g_659                     0000000000409ffc     seed02-eabcc9.o
+ 0003:00001254       _g_719                     000000000040a254     seed02-eabcc9.o
+ 0003:00001260       _g_914                     000000000040a260     seed02-eabcc9.o
+ 0003:0000126c       _g_1409                    000000000040a26c     seed02-eabcc9.o
+ 0003:00001278       _g_1532                    000000000040a278     seed02-eabcc9.o
+ 0003:00001284       _g_1636                    000000000040a284     seed02-eabcc9.o
+ 0003:00001644       _g_1637                    000000000040a644     seed02-eabcc9.o
+ 0003:000018cc       _g_1727                    000000000040a8cc     seed02-eabcc9.o
+ 0003:00001944       _g_160                     000000000040a944     seed02-eabcc9.o
+ 0003:00001945       _g_206                     000000000040a945     seed02-eabcc9.o
+ 0003:00001948       _crc32_tab                 000000000040a948     seed02-eabcc9.o
+ 0003:00001d48       _g_1360                    000000000040ad48     seed02-eabcc9.o
+ 0003:00001d4c       _g_274                     000000000040ad4c     seed02-eabcc9.o
+ 0003:00001d50       _g_596                     000000000040ad50     seed02-eabcc9.o

@@ -1,0 +1,70 @@
+ seed24_32_O2
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00001e1aH .text                   CODE
+ 0001:00001e20 00000003H .text$mn                CODE
+ 0002:00000000 00000208H .rdata                  DATA
+ 0002:00000260 00000008H .00cfg                  DATA
+ 0003:00000000 00000104H .data                   DATA
+ 0003:00000108 00000418H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_table   0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_count   0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_table        0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_count        0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_table         0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_count         0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     0000000000000000     <absolute>
+ 0000:00000000       ___enclave_config          0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     0000000000000000     <absolute>
+ 0000:00000000       ___volatile_metadata       0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       ___guard_flags             0000000000000100     <absolute>
+ 0001:00000000       _main                      0000000000401000     seed24-ec4a33.o
+ 0001:00001640       _mainCRTStartup            0000000000402640     windows-17864a.o
+ 0001:00001650       _memcpy                    0000000000402650     windows-17864a.o
+ 0001:000017a0       _memmove                   00000000004027a0     windows-17864a.o
+ 0001:00001a10       _memset                    0000000000402a10     windows-17864a.o
+ 0001:00001ae0       _printf                    0000000000402ae0     windows-17864a.o
+ 0001:00001e20       @_guard_check_icall_nop@4  0000000000402e20     libcmt:guard_support.obj
+ 0002:00000090       __xmm@00000003000000020000000100000000 0000000000403090     seed24-ec4a33.o
+ 0002:000000a0       __xmm@edb88320edb88320edb88320edb88320 00000000004030a0     seed24-ec4a33.o
+ 0002:000000b0       __xmm@00000004000000040000000400000004 00000000004030b0     seed24-ec4a33.o
+ 0002:00000148       __load_config_used         0000000000403148     libcmt:loadcfg.obj
+ 0002:00000208       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 0000000000403208     windows-17864a.o
+ 0002:00000219       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 0000000000403219     windows-17864a.o
+ 0002:0000022a       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 000000000040322a     windows-17864a.o
+ 0002:00000235       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 0000000000403235     seed24-ec4a33.o
+ 0002:00000260       ___guard_check_icall_fptr  0000000000403260     libcmt:guard_support.obj
+ 0002:00000264       ___castguard_check_failure_os_handled_fptr 0000000000403264     libcmt:guard_support.obj
+ 0002:000002a0       __imp__ExitProcess@4       00000000004032a0     kernel32:KERNEL32.dll
+ 0002:000002a4       __imp__GetStdHandle@4      00000000004032a4     kernel32:KERNEL32.dll
+ 0002:000002a8       __imp__WriteFile@20        00000000004032a8     kernel32:KERNEL32.dll
+ 0003:000000c0       ___security_cookie         00000000004040c0     libcmt:gs_cookie.obj
+ 0003:00000100       ___security_cookie_complement 0000000000404100     libcmt:gs_cookie.obj
+
+ entry point at         0001:00001640
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000000400000     libcmt:guard_support.obj
+ 0002:00000000       _g_942                     0000000000403000     seed24-ec4a33.o
+ 0003:00000000       _g_2                       0000000000404000     seed24-ec4a33.o
+ 0003:00000004       _g_3                       0000000000404004     seed24-ec4a33.o
+ 0003:00000094       _g_795                     0000000000404094     seed24-ec4a33.o
+ 0003:00000098       _g_925                     0000000000404098     seed24-ec4a33.o
+ 0003:0000009c       _crc32_context             000000000040409c     seed24-ec4a33.o
+ 0003:00000108       _g_497                     0000000000404108     seed24-ec4a33.o
+ 0003:00000110       _g_1212                    0000000000404110     seed24-ec4a33.o
+ 0003:00000120       _crc32_tab                 0000000000404120     seed24-ec4a33.o

@@ -1,0 +1,74 @@
+ seed18_32_O0
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000009d5H .text                   CODE
+ 0001:000009e0 00000003H .text$mn                CODE
+ 0002:00000000 000000c0H .rdata                  DATA
+ 0002:00000160 00000008H .00cfg                  DATA
+ 0003:00000000 00000204H .data                   DATA
+ 0003:00000204 00000400H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0000:00000000       ___AbsoluteZero            0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_table   0000000000000000     <absolute>
+ 0000:00000000       ___safe_se_handler_count   0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_table        0000000000000000     <absolute>
+ 0000:00000000       ___guard_fids_count        0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_table         0000000000000000     <absolute>
+ 0000:00000000       ___guard_iat_count         0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_longjmp_count     0000000000000000     <absolute>
+ 0000:00000000       ___enclave_config          0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_table     0000000000000000     <absolute>
+ 0000:00000000       ___guard_eh_cont_count     0000000000000000     <absolute>
+ 0000:00000000       ___volatile_metadata       0000000000000000     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000003       @vol.md                    0000000000000003     <absolute>
+ 0000:00000100       ___guard_flags             0000000000000100     <absolute>
+ 0001:00000000       _main                      0000000000401000     seed18-fb43bc.o
+ 0001:00000340       _mainCRTStartup            0000000000401340     windows-e7d7d0.o
+ 0001:00000360       _memcpy                    0000000000401360     windows-e7d7d0.o
+ 0001:000003b0       _memmove                   00000000004013b0     windows-e7d7d0.o
+ 0001:00000440       _memset                    0000000000401440     windows-e7d7d0.o
+ 0001:00000480       _printf                    0000000000401480     windows-e7d7d0.o
+ 0001:000009e0       @_guard_check_icall_nop@4  00000000004019e0     libcmt:guard_support.obj
+ 0002:00000000       __load_config_used         0000000000402000     libcmt:loadcfg.obj
+ 0002:000000c0       ??_C@_0BB@JCEFLFJE@0123456789abcdef?$AA@ 00000000004020c0     windows-e7d7d0.o
+ 0002:000000d1       ??_C@_0N@NNFAOLPM@g_2?$FLi?$FN?$FLj?$FN?$FLk?$FN?$AA@ 00000000004020d1     seed18-fb43bc.o
+ 0002:000000de       ??_C@_0BB@JGGOGLEG@0123456789ABCDEF?$AA@ 00000000004020de     windows-e7d7d0.o
+ 0002:000000ef       ??_C@_0L@FPFMPDDA@0123456789?$AA@ 00000000004020ef     windows-e7d7d0.o
+ 0002:000000fa       ??_C@_0BG@DLOCNKMA@index?5?$DN?5?$FL?$CFd?$FN?$FL?$CFd?$FN?$FL?$CFd?$FN?6?$AA@ 00000000004020fa     seed18-fb43bc.o
+ 0002:00000110       ??_C@_0CE@GECPOG@?4?4?4checksum?5after?5hashing?5?$CFs?5?3?5?$CF@ 0000000000402110     seed18-fb43bc.o
+ 0002:00000134       ??_C@_0P@KOJOEDFK@checksum?5?$DN?5?$CFX?6?$AA@ 0000000000402134     seed18-fb43bc.o
+ 0002:00000160       ___guard_check_icall_fptr  0000000000402160     libcmt:guard_support.obj
+ 0002:00000164       ___castguard_check_failure_os_handled_fptr 0000000000402164     libcmt:guard_support.obj
+ 0002:000001a0       __imp__ExitProcess@4       00000000004021a0     kernel32:KERNEL32.dll
+ 0002:000001a4       __imp__GetStdHandle@4      00000000004021a4     kernel32:KERNEL32.dll
+ 0002:000001a8       __imp__WriteFile@20        00000000004021a8     kernel32:KERNEL32.dll
+ 0003:000001c0       ___security_cookie         00000000004031c0     libcmt:gs_cookie.obj
+ 0003:00000200       ___security_cookie_complement 0000000000403200     libcmt:gs_cookie.obj
+
+ entry point at         0001:00000340
+
+ Static symbols
+
+ 0000:00000000       __guard_fids__             0000000000400000     libcmt:guard_support.obj
+ 0001:00000110       _platform_main_begin       0000000000401110     seed18-fb43bc.o
+ 0001:00000120       _crc32_gentab              0000000000401120     seed18-fb43bc.o
+ 0001:000001a0       _func_1                    00000000004011a0     seed18-fb43bc.o
+ 0001:000001e0       _transparent_crc           00000000004011e0     seed18-fb43bc.o
+ 0001:00000240       _platform_main_end         0000000000401240     seed18-fb43bc.o
+ 0001:00000270       _crc32_8bytes              0000000000401270     seed18-fb43bc.o
+ 0001:00000300       _crc32_byte                0000000000401300     seed18-fb43bc.o
+ 0001:000008f0       _put                       00000000004018f0     windows-e7d7d0.o
+ 0001:00000930       _put_str                   0000000000401930     windows-e7d7d0.o
+ 0001:00000980       _format_unsigned           0000000000401980     windows-e7d7d0.o
+ 0003:00000000       _g_2                       0000000000403000     seed18-fb43bc.o
+ 0003:00000190       _crc32_context             0000000000403190     seed18-fb43bc.o
+ 0003:00000204       _crc32_tab                 0000000000403204     seed18-fb43bc.o
