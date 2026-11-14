@@ -3,6 +3,7 @@
 
 mod annotations;
 mod cards;
+mod case;
 mod diff;
 mod disasm;
 mod doctor;
@@ -369,6 +370,19 @@ enum Command {
         #[arg(long, value_name = "TITLE")]
         milestone: Option<String>,
     },
+    /// A function as a step of the raise is handed it, printed as a pass case: the function and
+    /// what it references as a module, under a header that names the step and one `call:` for
+    /// each vector an interpreted run of the image kept of the function. The text is a file of
+    /// `testdata/cases`, which `cargo test -p ra-asm-lift --test cases` runs.
+    Case {
+        pe: PathBuf,
+        /// The function, by name or by address: `fib`, `0x140001000` or `F_140001000`.
+        function: String,
+        /// The step the case is of, which is handed the function and does not run: one after
+        /// `promote` in the raise to the abi level, such as `conditions`.
+        #[arg(long, value_name = "STEP")]
+        pass: String,
+    },
     /// One file of `ras smoke`, in the process it starts for the file.
     #[command(hide = true)]
     SmokeFile { pe: PathBuf },
@@ -466,6 +480,7 @@ fn main() -> anyhow::Result<()> {
             anyhow::ensure!(pending, "`ras cards` writes the cards of the pending lists: pass --pending");
             cards::pending(&paths, milestone.as_deref())
         }
+        Command::Case { pe, function, pass } => case::case(&load(&pe, sigs)?, &function, &pass),
         Command::SmokeFile { pe } => {
             smoke::file(&pe, sigs);
             Ok(())

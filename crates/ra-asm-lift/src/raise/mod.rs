@@ -311,14 +311,29 @@ impl Options {
 /// Runs the raising passes over every function of `module`: the steps of the level, in the order
 /// [`steps::steps`] gives. `roots` are the functions whose callers the lift does not see (see
 /// [`abi::infer`]).
+pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) -> HashMap<String, abi::Signature> {
+    raise_before(module, roots, options, None)
+}
+
+/// [`raise`], stopped ahead of the step called `before`: neither it nor any step after it runs,
+/// so the module is what that step is handed. `before` is a step of the level's order past the
+/// inference, which every raise makes; a name the order does not hold stops nothing.
 // The options are the raise's own, as its callers across the crates hand them: the steps borrow
 // them through the context.
 #[allow(clippy::needless_pass_by_value)]
-pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) -> HashMap<String, abi::Signature> {
+pub fn raise_before(
+    module: &mut Module,
+    roots: &BTreeSet<String>,
+    options: Options,
+    before: Option<&str>,
+) -> HashMap<String, abi::Signature> {
     use steps::{Context, Pass};
     // The order, in the three runs the raise makes of it: the function steps ahead of the
     // inference, the ones each function goes through after it, and the module's.
-    let order = steps::steps(options.level);
+    let mut order = steps::steps(options.level);
+    if let Some(at) = before.and_then(|name| order.iter().position(|s| s.name == name)) {
+        order.truncate(at);
+    }
     let inference = order.iter().position(|s| matches!(s.pass, Pass::Signatures(_))).expect("every level infers the signatures");
     let (ahead, rest) = order.split_at(inference);
     let Pass::Signatures(infer) = rest[0].pass else { unreachable!() };

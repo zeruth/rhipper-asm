@@ -106,7 +106,7 @@ impl Call {
 
 /// A case file, read.
 #[derive(Debug, Clone, PartialEq)]
-struct Case {
+pub(crate) struct Case {
     /// The path under `testdata/cases` without its extension: `simplify/identities`.
     name: String,
     pass: String,
@@ -119,7 +119,7 @@ struct Case {
 }
 
 impl Case {
-    fn parse(name: &str, text: &str) -> Result<Self, String> {
+    pub(crate) fn parse(name: &str, text: &str) -> Result<Self, String> {
         let (mut pass, mut calls, mut source, mut after) = (None, Vec::new(), String::new(), None::<String>);
         for line in text.lines() {
             if let Some(expected) = &mut after {
@@ -311,7 +311,7 @@ fn apply(step: Step, module: &mut Module, roots: &BTreeSet<String>) {
 }
 
 /// Runs `case` with the step it names; the functions it calls are the roots.
-fn run(case: &Case) -> Result<(), String> {
+pub(crate) fn run(case: &Case) -> Result<(), String> {
     let step = step(&case.pass).ok_or_else(|| format!("{}: there is no pass `{}`", case.name, case.pass))?;
     let roots: BTreeSet<String> = case.calls.iter().map(|call| call.function.clone()).collect();
     check(case, &|module| apply(step, module, &roots))
