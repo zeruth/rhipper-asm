@@ -12,12 +12,17 @@
 //! `Op` kinds for opcodes and byte strings for encodings, an IT block and the instructions it
 //! predicates being one case; the groups named `arm_*` are ARM code, assembled for the record and
 //! not held against the Thumb lift.
+//!
+//! The 32-bit x86 cases run on this machine's own processor: `testdata/vectors/harness/x86_32.c`
+//! is a program clang builds for i686 that WOW64 runs, with the forms the 64-bit instruction
+//! oracle cannot (its `NOT_RUN` list and the x87 unit). `harness_runs_three_cases` (ignored: it
+//! needs `clang`) builds it and checks three cases against the states written here.
 
 mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use common::arm32;
@@ -329,6 +334,166 @@ fn write_arm32_cases() {
             println!("arm32/cases/{group}.cases: {} cases", cases.len());
         }
     }
+}
+
+// endregion
+
+// region The 32-bit x86 harness
+
+/// The layout `x86_32.c` maps: the arena of the loads, stores and the stack, with the data at
+/// `+0x2000` and the stack's end at `+0x8000` as the x86-64 vectors have them, and the page the
+/// case runs in.
+const ARENA32: u32 = 0x2000_0000;
+const DATA32: u32 = ARENA32 + 0x2000;
+const STACK32_END: u32 = ARENA32 + 0x8000;
+const CASE_IP32: u32 = 0x3000_2000;
+const WINDOW32: usize = 64;
+const CODE32_MAX: usize = 16;
+const IN32_LEN: usize = 128;
+const OUT32_LEN: usize = 120;
+
+const STATUS_BREAKPOINT: u32 = 0x8000_0003;
+const STATUS_ACCESS_VIOLATION: u32 = 0xC000_0005;
+/// The index of each register in the harness's record.
+const EAX: usize = 0;
+const EBX: usize = 3;
+const ESP: usize = 4;
+
+/// One case in: the registers in the record's order (eax, ecx, edx, ebx, esp, ebp, esi, edi),
+/// the flags as EFLAGS bits, the encoding and the window of data bytes with its address.
+struct HarnessIn {
+    r: [u32; 8],
+    eflags: u32,
+    code: Vec<u8>,
+    window_at: u32,
+    window: [u8; WINDOW32],
+}
+
+/// One case out, as `struct case_out` of `x86_32.c` holds it.
+#[derive(Debug, PartialEq, Eq)]
+struct HarnessOut {
+    code: u32,
+    eip: u32,
+    fault_at: u32,
+    eflags: u32,
+    r: [u32; 8],
+    stray: u32,
+    window: [u8; WINDOW32],
+}
+
+fn pack_in32(blob: &mut Vec<u8>, case: &HarnessIn) {
+    assert!(case.code.len() <= CODE32_MAX, "an encoding of up to {CODE32_MAX} bytes");
+    let start = blob.len();
+    for r in case.r {
+        blob.extend_from_slice(&r.to_le_bytes());
+    }
+    blob.extend_from_slice(&case.eflags.to_le_bytes());
+    blob.extend_from_slice(&(case.code.len() as u32).to_le_bytes());
+    blob.extend_from_slice(&case.window_at.to_le_bytes());
+    blob.extend_from_slice(&0u32.to_le_bytes());
+    blob.extend_from_slice(&case.code);
+    blob.resize(start + IN32_LEN - WINDOW32, 0);
+    blob.extend_from_slice(&case.window);
+    assert_eq!(blob.len() - start, IN32_LEN);
+}
+
+fn unpack_out32(record: &[u8]) -> HarnessOut {
+    assert_eq!(record.len(), OUT32_LEN);
+    let word = |i: usize| u32::from_le_bytes(record[4 * i..4 * i + 4].try_into().unwrap());
+    let mut r = [0u32; 8];
+    for (k, slot) in r.iter_mut().enumerate() {
+        *slot = word(4 + k);
+    }
+    let mut window = [0u8; WINDOW32];
+    window.copy_from_slice(&record[OUT32_LEN - WINDOW32..]);
+    HarnessOut { code: word(0), eip: word(1), fault_at: word(2), eflags: word(3), r, stray: word(12), window }
+}
+
+/// Builds the harness with clang for i686 into `scratch`, as `harness/build.ps1` does.
+fn build_harness32(clang: &Path, scratch: &Path) -> PathBuf {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/vectors/harness/x86_32.c");
+    let exe = scratch.join("x86_32.exe");
+    let output = Command::new(clang)
+        .args(["-target", "i686-pc-windows-msvc", "-O1", "-nostdlib", "-fno-builtin", "-fuse-ld=lld"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .args(["-lkernel32", "-Wl,/entry:mainCRTStartup", "-Wl,/subsystem:console"])
+        .output()
+        .expect("clang runs");
+    assert!(output.status.success(), "the harness did not build:\n{}", String::from_utf8_lossy(&output.stderr));
+    exe
+}
+
+/// Runs the cases of `blob` through the harness under WOW64; the records it wrote.
+fn run_harness32(exe: &Path, scratch: &Path, group: &str, blob: &[u8]) -> Vec<u8> {
+    let input = scratch.join(format!("{group}.in"));
+    let output = scratch.join(format!("{group}.out"));
+    fs::write(&input, blob).unwrap();
+    let run = Command::new(exe).arg(&input).arg(&output).output().expect("the harness runs");
+    assert!(run.status.success(), "the harness failed on {group}: {}", run.status);
+    fs::read(&output).unwrap_or_else(|e| panic!("{}: {e}", output.display()))
+}
+
+/// The harness gives the states of `add eax, ebx`, `pushad` and a load from an unmapped address:
+/// the breakpoint after the first two with their flags, registers and stack bytes, the access
+/// violation of the third at the case's own address with every register as it was.
+#[test]
+#[ignore = "builds testdata/vectors/harness/x86_32.c with clang and runs it under WOW64"]
+fn harness_runs_three_cases() {
+    let Some(clang) = ra_asm_testing::tools::tool("clang") else { return };
+    let scratch = ra_asm_testing::Scratch::new("ra-asm-lift-tests", "harness32");
+    let exe = build_harness32(&clang, &scratch);
+    let esp = STACK32_END - 0x100;
+    let zeros = [0u8; WINDOW32];
+    let mut regs = [0u32; 8];
+    regs[ESP] = esp;
+
+    let mut add = HarnessIn { r: regs, eflags: 0, code: vec![0x01, 0xD8], window_at: DATA32, window: zeros };
+    add.r[EAX] = 1;
+    add.r[EBX] = 2;
+    let pushed = [0x1111_1111, 0x2222_2222, 0x3333_3333, 0x4444_4444, esp, 0x5555_5555, 0x6666_6666, 0x7777_7777];
+    let pushad = HarnessIn { r: pushed, eflags: 0, code: vec![0x60], window_at: esp - 32, window: zeros };
+    let load = HarnessIn { r: regs, eflags: 0, code: vec![0xA1, 0, 0, 0, 0], window_at: DATA32, window: zeros };
+
+    let mut blob = Vec::new();
+    for case in [&add, &pushad, &load] {
+        pack_in32(&mut blob, case);
+    }
+    let results = run_harness32(&exe, &scratch, "three", &blob);
+    assert_eq!(results.len(), 3 * OUT32_LEN, "the harness answered {} bytes", results.len());
+    let outs: Vec<HarnessOut> = results.chunks_exact(OUT32_LEN).map(unpack_out32).collect();
+
+    // 1 + 2 = 3: two bits set in the low byte, so PF alone.
+    let mut after_add = regs;
+    after_add[EAX] = 3;
+    after_add[EBX] = 2;
+    assert_eq!(
+        outs[0],
+        HarnessOut { code: STATUS_BREAKPOINT, eip: CASE_IP32 + 2, fault_at: 0, eflags: 1 << 2, r: after_add, stray: 0, window: zeros },
+        "add eax, ebx"
+    );
+
+    // pushad stores eax first at the top, so the window from the new esp reads edi up to eax, and
+    // the esp it stores is the one before the push.
+    let mut after_pushad = pushed;
+    after_pushad[ESP] = esp - 32;
+    let mut window = zeros;
+    for (i, value) in pushed.iter().rev().enumerate() {
+        window[4 * i..4 * i + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    assert_eq!(
+        outs[1],
+        HarnessOut { code: STATUS_BREAKPOINT, eip: CASE_IP32 + 1, fault_at: 0, eflags: 0, r: after_pushad, stray: 0, window },
+        "pushad"
+    );
+
+    assert_eq!(
+        outs[2],
+        HarnessOut { code: STATUS_ACCESS_VIOLATION, eip: CASE_IP32, fault_at: 0, eflags: 0, r: regs, stray: 0, window: zeros },
+        "mov eax, [0]"
+    );
+    println!("x86_32 harness: 3 cases as expected");
 }
 
 // endregion
