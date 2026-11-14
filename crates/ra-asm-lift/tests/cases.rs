@@ -396,6 +396,12 @@ fn every_case_passes() {
     for seed in ["simplify/folds", "simplify/identities", "simplify/memory"] {
         assert!(names.iter().any(|name| name == seed), "the seed case {seed} did not run: {names:?}");
     }
+    // The passes a change most often touches each keep the six shapes they exist for.
+    for pass in ["conditions", "simplify", "dce", "widths"] {
+        let ran = names.iter().filter(|name| name.strip_prefix(pass).is_some_and(|rest| rest.starts_with('/'))).count();
+        assert!(ran >= 6, "{ran} cases of {pass} ran, not six: {names:?}");
+    }
+    assert!(names.len() >= 24, "{} cases ran, not 24: {names:?}", names.len());
 }
 
 /// A pass that changes what a function returns is caught, and the failure names the case, the
