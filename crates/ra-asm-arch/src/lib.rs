@@ -4,6 +4,8 @@
 //! architecture keeps its decoder's own instruction beside the record, because the semantics are
 //! not neutral.
 
+pub mod abi;
+
 use serde::Serialize;
 
 /// A register, or a part of one. `full` names the register that holds it, and `shift` and `bits`
