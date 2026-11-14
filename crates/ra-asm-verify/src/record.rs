@@ -19,8 +19,9 @@
 //! - a call to a function over the state (a function of the image, an import's wrapper) has no
 //!   arguments, since the callee reads them where its convention puts them; any other call has
 //!   the values it was called with, each by its low 64 bits;
-//! - a call's results are the registers of the caller's state it changed, and `return` for the
-//!   value a callee outside the state's shape returned;
+//! - a call's results are the registers of the caller's state it changed, the result registers
+//!   of the convention whether it changed them or not (a level without a state has no old value
+//!   to fall back on), and `return` for the value a callee outside the state's shape returned;
 //! - a call's effects are the bytes written through the interpreter's memory. What a DLL of the
 //!   host wrote on its own (a buffer `ReadFile` filled) is not seen.
 
@@ -64,6 +65,13 @@ struct Slot {
 pub struct Shape {
     slots: Vec<Slot>,
     size: usize,
+    /// How many of the first slots are the general registers, and where the vector registers
+    /// start among the slots.
+    general: usize,
+    vectors: usize,
+    /// The slots a callee answers in by its convention: a call's results hold them changed or
+    /// not, so a level that has no state to keep the old value in can still be answered.
+    answers: Vec<usize>,
 }
 
 impl Shape {
@@ -89,11 +97,33 @@ impl Shape {
         let vectors_at = flags_at + 8;
         let size = vectors_at + 16 * vectors.len();
         let mut slots = Vec::new();
+        let general_count = general.len();
         slots.extend(general.into_iter().enumerate().map(|(n, name)| Slot { name, offset: 8 * n, size: 8 }));
         slots.push(Slot { name: counter.to_owned(), offset: counter_at, size: 8 });
         slots.extend(flags.into_iter().enumerate().map(|(n, name)| Slot { name, offset: flags_at + n, size: 1 }));
+        let vectors_from = slots.len();
         slots.extend(vectors.into_iter().enumerate().map(|(n, name)| Slot { name, offset: vectors_at + 16 * n, size: 16 }));
-        Self { slots, size }
+        // The result registers: `rax` and `rdx` (the high half of a wide x86 result) and `xmm0`;
+        // the first two general registers and the first vector register on ARM.
+        let second = if isa == Isa::X86 { 2 } else { 1 };
+        Self { slots, size, general: general_count, vectors: vectors_from, answers: vec![0, second, vectors_from] }
+    }
+
+    /// The name of the register the raise knows as `slot`; none for a flag, or for a register
+    /// the state of this machine does not have.
+    pub(crate) fn name(&self, slot: ra_asm_lift::raise::liveness::Slot) -> Option<&str> {
+        use ra_asm_lift::raise::liveness::Slot as Raised;
+        let index = match slot {
+            Raised::Gpr(n) if usize::from(n) < self.general => usize::from(n),
+            Raised::Xmm(n) => self.vectors + usize::from(n),
+            Raised::Gpr(_) | Raised::Flag(_) => return None,
+        };
+        self.slots.get(index).map(|slot| slot.name.as_str())
+    }
+
+    /// How many general registers the state has.
+    pub(crate) fn general(&self) -> usize {
+        self.general
     }
 
     /// The bytes a state takes.
@@ -128,13 +158,15 @@ impl Shape {
         self.slots.iter().map(|slot| (slot.name.clone(), Self::value(snapshot, slot))).collect()
     }
 
-    /// The registers that differ between two snapshots, with their values in `after`.
-    fn changed(&self, before: &[u8], after: &[u8]) -> Vec<Register> {
+    /// What a call answered: the registers that differ between two snapshots and the result
+    /// registers of the convention, with their values in `after`.
+    fn answered(&self, before: &[u8], after: &[u8]) -> Vec<Register> {
         self.slots
             .iter()
-            .filter_map(|slot| {
+            .enumerate()
+            .filter_map(|(n, slot)| {
                 let value = Self::value(after, slot);
-                (value != Self::value(before, slot)).then(|| (slot.name.clone(), value))
+                (self.answers.contains(&n) || value != Self::value(before, slot)).then(|| (slot.name.clone(), value))
             })
             .collect()
     }
@@ -315,7 +347,7 @@ impl Observer for Recorder {
                 && let Some(call) = caller.calls.last_mut()
             {
                 if let (Some(before), Some(after)) = (&done.entry, &exit) {
-                    call.results = self.shape.changed(before, after);
+                    call.results = self.shape.answered(before, after);
                 }
                 if done.returns
                     && let Ok(value) = result
