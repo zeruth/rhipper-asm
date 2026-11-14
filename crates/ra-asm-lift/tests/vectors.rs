@@ -705,6 +705,41 @@ mod pending {
 
 // endregion
 
+// region The forms count
+
+/// The forms the x86-64 vector files hold: a worker reads this constant instead of running the
+/// suite, and `forms_count` keeps it true to the committed files.
+const FORMS: usize = 733;
+
+/// The states a form has in `testdata/vectors/x86_64/*.vec`, one case line each (the
+/// `VECTOR_SAMPLES` of the instruction oracle's `write_vectors`).
+const SAMPLES: usize = 11;
+
+/// The committed x86-64 vector files hold `FORMS` forms: their non-`#` lines, `SAMPLES` a form.
+#[test]
+fn forms_count() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/vectors/x86_64");
+    let mut files: Vec<PathBuf> = fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "vec"))
+        .collect();
+    files.sort();
+    assert!(!files.is_empty(), "no .vec files under {}", dir.display());
+    let mut lines = 0;
+    for file in &files {
+        let text = fs::read_to_string(file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+        lines += text.lines().filter(|line| !line.trim().is_empty() && !line.starts_with('#')).count();
+    }
+    assert_eq!(lines % SAMPLES, 0, "{lines} case lines are not a whole number of forms at {SAMPLES} states each");
+    let forms = lines / SAMPLES;
+    println!("{forms} forms");
+    assert_eq!(forms, FORMS, "the files hold {forms} forms; set FORMS in tests/vectors.rs to match");
+}
+
+// endregion
+
 /// Every `AArch64` vector replays through the lift and the interpreter, and exactly the forms of
 /// `PENDING.txt` differ.
 #[test]
