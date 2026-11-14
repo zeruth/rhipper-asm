@@ -1,0 +1,33 @@
+ linked32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 0000014bH .text                   CODE
+ 0003:00000000 00000000H .data                   DATA
+ 0003:00000000 00000004H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     linked-233771.o
+ 0002:00000000       ??_C@_0O@PEEJIIIA@ra_counter?5?$DN?5?$AA@ 0000000000402000     linked-233771.o
+ 0002:0000000e       ??_C@_0BA@LDPHFCHK@ra_add?$CI2?0?53?$CJ?5?$DN?5?$AA@ 000000000040200e     linked-233771.o
+ 0002:0000001e       ??_C@_0BA@ODGHMHEG@ra_twice?$CI21?$CJ?5?$DN?5?$AA@ 000000000040201e     linked-233771.o
+ 0002:0000002e       ??_C@_0CE@OHNOLKBJ@ra_add?$CIra_counter?0?5ra_twice?$CI?94?$CJ?$CJ@ 000000000040202e     linked-233771.o
+ 0002:00000052       ??_C@_02PCIJFNDE@?$AN?6?$AA@ 0000000000402052     linked-233771.o
+ 0002:000000d4       __imp__ExitProcess@4       00000000004020d4     kernel32:KERNEL32.dll
+ 0002:000000d8       __imp__GetStdHandle@4      00000000004020d8     kernel32:KERNEL32.dll
+ 0002:000000dc       __imp__WriteFile@20        00000000004020dc     kernel32:KERNEL32.dll
+ 0002:000000e0       __imp__lstrlenA@4          00000000004020e0     kernel32:KERNEL32.dll
+ 0002:000000e8       __imp__ra_add              00000000004020e8     exports32:exports32.dll
+ 0002:000000ec       __imp__ra_counter          00000000004020ec     exports32:exports32.dll
+ 0002:000000f0       __imp__ra_twice            00000000004020f0     exports32:exports32.dll
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:00000080       _line                      0000000000401080     linked-233771.o
+ 0003:00000000       _out                       0000000000403000     linked-233771.o

@@ -321,7 +321,8 @@ pub(crate) fn file(pe: &Path, signatures: &[PathBuf]) {
     let signatures = crate::lift::raise(&mut lifted, &analysis, ra_asm_lift::RaiseLevel::Abi);
     clock.enter(5);
     let annotations = BTreeMap::new();
-    let options = crate::emit::Options { lang: "c", package: "smoke", trace: false, hand: &[], annotations: &annotations, checked: false };
+    let options =
+        crate::emit::Options { lang: "c", package: "smoke", trace: false, hand: &[], annotations: &annotations, checked: false, with: &[] };
     let translation = match crate::emit::translate(&image, &analysis, &lifted, &signatures, &options) {
         Ok(translation) => translation,
         Err(e) => {

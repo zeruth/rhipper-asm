@@ -331,15 +331,16 @@ pub fn tls_global(image: &ra_asm_pe::Image, lifted: &crate::Lifted) -> ra_asm_ir
     }
 }
 
-/// The [`IMPORT_POPS`] table and its [`IMPORT_NAMES`] for the imports `lifted` calls.
-pub fn import_pops_globals(image: &ra_asm_pe::Image, lifted: &crate::Lifted) -> [ra_asm_ir::Global; 2] {
+/// The [`IMPORT_POPS`] table and its [`IMPORT_NAMES`] for the imports `lifted` calls, from the
+/// import tables of `images` (the program's and its second images').
+pub fn import_pops_globals(images: &[&ra_asm_pe::Image], lifted: &crate::Lifted) -> [ra_asm_ir::Global; 2] {
     use ra_asm_ir::{Const, Global, Linkage};
     let mut names: Vec<u8> = Vec::new();
     let mut items: Vec<Const> = Vec::new();
     for symbol in &lifted.imports {
         // A function of the host's runtime (a shim, a linked-in C runtime's) is no DLL's export
         // and pops nothing; an import of unknown arity is taken as cdecl, as its direct call is.
-        let import = image.imports.iter().find(|i| crate::x86::import_symbol(&i.display_name()) == *symbol);
+        let import = images.iter().flat_map(|i| &i.imports).find(|i| crate::x86::import_symbol(&i.display_name()) == *symbol);
         let (name, pops) = match import {
             Some(import) => {
                 let offset = names.len() as i64;

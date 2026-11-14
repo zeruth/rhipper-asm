@@ -235,6 +235,12 @@ impl Lifter<'_, '_> {
                 }
             }
             T::ImportTailCall(import) => {
+                // An export of a second image is a lifted function: the tail call is a lifted one's.
+                if let Some(&target) = self.lifted.bound.get(import) {
+                    self.call_lifted(block, target);
+                    self.ret(block);
+                    return;
+                }
                 // The caller's return address is on the stack; the import sees the arguments past it.
                 self.import_call(block, import, true);
                 self.m.pop(block, "ret.addr");
@@ -570,6 +576,11 @@ impl Lifter<'_, '_> {
                     && let Some(address) = Self::absolute_address(i)
                     && let Some(import) = self.image.import_at(address)
                 {
+                    // The slot of an export of a second image holds the lifted function or the
+                    // global there.
+                    if let Some(bound) = self.lifted.bound.get(&import.display_name()).and_then(|va| self.lifted.address_of(*va)) {
+                        return self.m.value_of(block, Type::I64, bound);
+                    }
                     let symbol = import_symbol(&import.display_name());
                     self.lifted.imports.insert(symbol.clone());
                     return self.m.value_of(block, Type::I64, Operand::Address { global: symbol, offset: 0 });
@@ -1406,6 +1417,12 @@ impl Lifter<'_, '_> {
                             .map(ra_asm_pe::Import::display_name)
                             .or_else(|| self.register_import_calls.get(&ip).cloned());
                         if let Some(name) = import {
+                            // An export of a second image is a lifted function, called as one.
+                            if let Some(&target) = self.lifted.bound.get(&name) {
+                                self.m.push(block, ret);
+                                self.call_lifted(block, target);
+                                return self.after_call(block, ip);
+                            }
                             self.import_call(block, &name, false);
                         } else {
                             let target = self.read(block, i, 0);
@@ -1419,6 +1436,11 @@ impl Lifter<'_, '_> {
                         // `call reg` with the register holding an import's slot value: the
                         // analysis resolved it, and the import's own convention applies.
                         if let Some(import) = self.register_import_calls.get(&ip).cloned() {
+                            if let Some(&target) = self.lifted.bound.get(&import) {
+                                self.m.push(block, ret);
+                                self.call_lifted(block, target);
+                                return self.after_call(block, ip);
+                            }
                             self.import_call(block, &import, false);
                         } else {
                             let target = self.read(block, i, 0);

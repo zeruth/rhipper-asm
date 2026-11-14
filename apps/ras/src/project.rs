@@ -4,6 +4,7 @@
 //! {
 //!   "name": "Game",
 //!   "exe": "ref/Game.exe",
+//!   "with": ["ref/Engine.dll"],
 //!   "map": "ref/Game.map",
 //!   "signatures": ["sig/libcmt-14.51-x86.sig"],
 //!   "store": true,
@@ -18,6 +19,10 @@
 //! ```
 //!
 //! `exe` is the reference binary and the only required key. Every path is relative to the root.
+//! `with` lists the DLLs the reference imports that port with it as one program (`ras emit
+//! --with`): a boundary that carries C++ object layouts is not adapted to the host's DLL but
+//! lifted, the reference's calls of the DLL's exports reach the lifted functions, and the port
+//! loads no DLL for them.
 //! `map` is the link map of the reference build, which names its functions; without the key, the
 //! PDB or the `<exe>.map` beside the binary does, when there is one. `signatures` lists library
 //! signatures (`ras signatures` files, or `.lib`/`.a`/`.obj` files to make them from) applied to
@@ -146,6 +151,8 @@ pub(crate) struct Project {
     pub root: PathBuf,
     pub name: String,
     pub exe: PathBuf,
+    /// The DLLs the reference imports that port with it as one program.
+    pub with: Vec<PathBuf>,
     /// The link map that names the reference's functions, when the project names one.
     pub map: Option<PathBuf>,
     /// The library signatures applied to the reference before the analysis.
@@ -226,6 +233,7 @@ impl Project {
         };
         Ok(Self {
             exe: resolve(&exe),
+            with: strings(obj.get("with")).iter().map(|w| resolve(w)).collect(),
             map: string("map").map(|m| resolve(&m)),
             signatures: strings(obj.get("signatures")).iter().map(|s| resolve(s)).collect(),
             store: obj.get("store").and_then(Value::as_bool).unwrap_or(true),

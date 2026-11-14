@@ -28,6 +28,8 @@
 //! (they are in `calls` as well): what the workbench shows as seen at run time. A function the
 //! person annotated (the project's `rhipper/annotations/`) has `"annotated": true`, its `name`
 //! the annotation's, and the annotation's `type` and `comment` when it gives them.
+//! In a port of two images or more (`ras emit --with`), every function names its image in
+//! `image`, by file name (`game.exe`, `engine.dll`).
 //! A function with source has a `grade`, the readability figures beside the trap count ([`Grade`]):
 //!
 //! ```json
@@ -149,6 +151,8 @@ pub struct FunctionInfo {
     /// The object file the build's symbols say holds the function (`core.obj`,
     /// `msvcrt.lib:gs_report.obj`): its module, which the split output follows.
     pub object: Option<String>,
+    /// The file name of the image the function is in, in a port of two images or more.
+    pub image: Option<String>,
 }
 
 /// What the analysis knows of every function, by IR name: the analysis's name, which the lift
@@ -272,6 +276,9 @@ fn facts(entry: &mut Map<String, Value>, info: &FunctionInfo) {
     entry.insert("strings".into(), json!(info.strings));
     if let Some(object) = &info.object {
         entry.insert("object".into(), json!(object));
+    }
+    if let Some(image) = &info.image {
+        entry.insert("image".into(), json!(image));
     }
     if let Some((class, slot)) = &info.class {
         entry.insert("class".into(), json!(class));

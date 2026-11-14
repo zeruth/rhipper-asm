@@ -1,0 +1,4 @@
+ra_add(2, 3) = 5
+ra_twice(21) = 42
+ra_counter = 7
+ra_add(ra_counter, ra_twice(-4)) = -1

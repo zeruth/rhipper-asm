@@ -95,6 +95,22 @@ if (Wanted 'exports') { Build-Dll 'exports' }
 # pipeline runs over the port of exports and over exports itself. Its 64-bit build keeps every
 # address below 4 GB, so it can host the port of the 32-bit DLL too.
 if (Wanted 'exports_host') { Build-Exe 'exports_host' @('-Wl,/largeaddressaware:no') }
+# linked imports the exports DLL through its import table: the program of the second-image
+# fixture, which `ras emit --with` ports together with the DLL. The DLL is built again under
+# out/ for its import library (the same bytes as the fixture's: the build is reproducible).
+if (Wanted 'linked') {
+  $out = Join-Path $PSScriptRoot '..\out\linked'
+  New-Item -ItemType Directory -Force $out | Out-Null
+  foreach ($t in ($targets | Where-Object { $_.Suffix -ne 'a64' })) {
+    $args = @('-target', $t.Triple, '-O2', '-nostdlib', '-fno-builtin', '-funwind-tables', '-shared', '-fuse-ld=lld',
+      (Join-Path $src 'exports.c'), '-o', (Join-Path $out "exports$($t.Suffix).dll"), '-lkernel32',
+      '-Wl,/entry:DllMainCRTStartup', '-Wl,/Brepro', "-Wl,/def:$(Join-Path $src 'exports.def')")
+    Write-Host "clang exports$($t.Suffix) (import library)" -ForegroundColor Cyan
+    & clang @args
+    if ($LASTEXITCODE -ne 0) { throw "clang failed for the import library of exports$($t.Suffix)" }
+    Build-Exe 'linked' @((Join-Path $out "exports$($t.Suffix).lib")) 'c' @() @($t.Suffix)
+  }
+}
 # tls has a TLS directory of its own making: a __declspec(thread) variable, the index, the template
 # bounds and a callback, which a program without the C runtime must define itself.
 if (Wanted 'tls') { Build-Exe 'tls' @() }

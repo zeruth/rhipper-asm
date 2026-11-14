@@ -1,11 +1,12 @@
 //! The data sections of an image as globals, for a lift that stands without the image.
 //!
-//! Each readable, non-code section becomes one global named after it (`sec_rdata`, `sec_data`),
-//! a packed structure of byte runs and pointer-sized words. A word that a base relocation names
-//! holds an address: of a function (then it is that function's address), of a byte of a data
-//! section (then it is that global's byte), or of something else (then the raw number). An import
-//! slot holds the import's own address, which binds it at link time. An uninitialized section is
-//! zero.
+//! Each readable, non-code section becomes one global named after it (`sec_rdata`, `sec_data`;
+//! `sec_<image>_data` in a second image ported with the program), a packed structure of byte runs
+//! and pointer-sized words. A word that a base relocation names holds an address: of a function
+//! (then it is that function's address), of a byte of a data section (then it is that global's
+//! byte), or of something else (then the raw number). An import slot holds the import's own
+//! address, which binds it at link time, or the address of the lifted function or global when a
+//! second image exports it. An uninitialized section is zero.
 
 use std::collections::BTreeMap;
 
@@ -16,15 +17,17 @@ use crate::{DataSection, Lifted};
 
 /// Adds the data sections of `image` to `lifted` as globals, and the headers as one more: the C
 /// runtime's startup reads the image's own PE headers (`__ImageBase`, the section table) to find
-/// its writable range, and a program reads them for its own resources.
-pub fn add_sections(image: &Image, lifted: &mut Lifted) {
+/// its writable range, and a program reads them for its own resources. `tag` goes into the
+/// globals' names after `sec_`: empty for the program, the image's own for a second image.
+pub fn add_sections(image: &Image, lifted: &mut Lifted, tag: &str) {
     let headers = u64::from(image.headers.optional.size_of_headers).min(u64::from(image.size_of_image()));
     if headers > 0 {
         let start = image.image_base();
-        lifted.data.push(DataSection { global: "sec_headers".to_owned(), start, end: start + headers });
+        let name = format!("sec_{tag}headers");
+        lifted.data.push(DataSection { global: name.clone(), start, end: start + headers });
         if let Ok(bytes) = image.read(start, headers as usize) {
             lifted.module.globals.push(Global {
-                name: "sec_headers".to_owned(),
+                name,
                 ty: Type::array(headers, Type::I8),
                 init: Some(Const::Bytes(bytes.to_vec())),
                 constant: true,
@@ -43,7 +46,7 @@ pub fn add_sections(image: &Image, lifted: &mut Lifted) {
             continue; // the unwinder's, the loader's and the resource compiler's: no code reads them
         }
         let start = image.va(section.virtual_address);
-        lifted.data.push(DataSection { global: global_name(&section.name), start, end: start + u64::from(section.mapped_size()) });
+        lifted.data.push(DataSection { global: global_name(&section.name, tag), start, end: start + u64::from(section.mapped_size()) });
     }
     let width = u64::from(image.pointer_size());
 
@@ -103,6 +106,14 @@ pub fn add_sections(image: &Image, lifted: &mut Lifted) {
         }
         for import in &image.imports {
             if import.iat_va >= data.start && import.iat_va + width <= data.end {
+                // The slot of an import a second image exports holds the lifted function or the
+                // global there, as the loader would have filled it.
+                if let Some(ra_asm_ir::Operand::Address { global, offset }) =
+                    lifted.bound.get(&import.display_name()).and_then(|va| lifted.address_of(*va))
+                {
+                    words.insert(import.iat_va - data.start, Const::Address { global, offset });
+                    continue;
+                }
                 let mut symbol = crate::x86::import_symbol(&import.display_name());
                 // The slot of an import the runtime shims for a 32-bit program names the shim, as
                 // a call through it would.
@@ -156,8 +167,8 @@ pub fn add_sections(image: &Image, lifted: &mut Lifted) {
     }
 }
 
-/// `sec_rdata` for `.rdata`.
-fn global_name(section: &str) -> String {
+/// `sec_rdata` for `.rdata`; `sec_<tag>rdata` with a tag.
+fn global_name(section: &str, tag: &str) -> String {
     let body: String = section.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
-    format!("sec_{}", body.trim_start_matches('_'))
+    format!("sec_{tag}{}", body.trim_start_matches('_'))
 }

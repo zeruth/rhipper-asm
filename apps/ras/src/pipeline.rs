@@ -104,8 +104,17 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
     let progress = Progress { started: Instant::now() };
     let mut stats = options.stats.then(|| Stats::load(project.status_file()));
     let image = OnceCell::new();
-    let mut pipeline =
-        Pipeline { project, progress, image: &image, analysis: None, ported: None, timeout: options.timeout, rebuild: options.rebuild };
+    let with = OnceCell::new();
+    let mut pipeline = Pipeline {
+        project,
+        progress,
+        image: &image,
+        with: &with,
+        analysis: None,
+        ported: None,
+        timeout: options.timeout,
+        rebuild: options.rebuild,
+    };
     for step in steps {
         pipeline.progress.line(step.id());
         let log = pipeline.project.log_dir().join(format!("{}.log", step.id()));
@@ -274,6 +283,9 @@ fn digest(bytes: &[u8]) -> u64 {
 /// annotations, lifted standalone, raised to the ABI level and named. A run makes it once.
 struct Ported<'a> {
     analysis: ra_asm_analysis::Analysis<'a>,
+    /// The analyses of the project's `with` images, in the project's order, named apart from the
+    /// program's functions.
+    with: Vec<ra_asm_analysis::Analysis<'a>>,
     annotations: BTreeMap<u64, crate::annotations::Annotation>,
     /// What the annotations could not apply.
     annotated: Vec<String>,
@@ -286,6 +298,8 @@ struct Pipeline<'a> {
     progress: Progress,
     /// The reference image, loaded by the first step that needs it.
     image: &'a OnceCell<ra_asm_pe::Image>,
+    /// The project's `with` images, the DLLs ported with the reference, loaded with it.
+    with: &'a OnceCell<Vec<ra_asm_pe::Image>>,
     /// The analyze step's analysis, which the lift takes over rather than analyzing again.
     analysis: Option<ra_asm_analysis::Analysis<'a>>,
     /// The lift step's program, which the emit translates rather than lifting again.
@@ -304,21 +318,37 @@ impl<'a> Pipeline<'a> {
         Ok(cell.get_or_init(|| image))
     }
 
+    /// The project's `with` images, loaded against the reference.
+    fn with_images(&self) -> Result<&'a [ra_asm_pe::Image]> {
+        let cell: &'a OnceCell<Vec<ra_asm_pe::Image>> = self.with;
+        if let Some(images) = cell.get() {
+            return Ok(images);
+        }
+        let images = crate::emit::load_companions(self.image()?, &self.project.with)?;
+        Ok(cell.get_or_init(|| images))
+    }
+
     /// The program the lift and the emit share, made by the first of them that runs.
     fn ported(&mut self, log: &mut File) -> Result<&Ported<'a>> {
         if self.ported.is_none() {
             let image = self.image()?;
+            let with_images = self.with_images()?;
             let mut analysis = match self.analysis.take() {
                 Some(analysis) => analysis,
                 None => ra_asm_analysis::analyze_with(image, &self.facts(log)?),
             };
             let (annotations, annotated) = annotate(&self.project.root, &mut analysis);
+            let with = crate::emit::analyze_companions(&analysis, with_images);
+            let companions = crate::emit::companions_of(with_images, &with);
             let options = ra_asm_lift::LiftOptions { standalone: true, x87: self.project.x87 };
-            let mut lifted = ra_asm_lift::lift_frozen(image, &analysis, options);
+            let mut lifted = ra_asm_lift::lift_frozen_with(image, &analysis, &companions, options);
             let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
             let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
             lifted.apply_names(&analysis, Some(&mut signatures));
-            self.ported = Some(Ported { analysis, annotations, annotated, lifted, signatures });
+            for analysis in &with {
+                lifted.apply_names(analysis, Some(&mut signatures));
+            }
+            self.ported = Some(Ported { analysis, with, annotations, annotated, lifted, signatures });
         }
         Ok(self.ported.as_ref().expect("ported"))
     }
@@ -413,9 +443,12 @@ impl<'a> Pipeline<'a> {
         let (lang, package) = (self.project.lang.clone(), self.project.build.target.clone());
         let (trace, hand) = (self.project.run.trace, self.project.hand.clone());
         let image = self.image()?;
-        let Ported { analysis, annotations, annotated, lifted, signatures } = self.ported(log)?;
+        let with_images = self.with_images()?;
+        let Ported { analysis, with, annotations, annotated, lifted, signatures } = self.ported(log)?;
+        let companions = crate::emit::companions_of(with_images, with);
         let hand = crate::annotations::hand_list(&hand, annotations);
-        let options = crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations, checked: false };
+        let options =
+            crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations, checked: false, with: &companions };
         let translation = crate::emit::translate(image, analysis, lifted, signatures, &options)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
@@ -434,8 +467,16 @@ impl<'a> Pipeline<'a> {
             .chain([("image.h", header.as_bytes())]);
         let mut outputs: Vec<(PathBuf, u64)> = written.map(|(path, bytes)| (gen_dir.join(path), digest(bytes))).collect();
         outputs.push((build_dir.join("functions.json"), digest(table.as_bytes())));
-        let regenerated = crate::emit::regenerate(&build_dir, &ra_asm_analysis::identity::identities(analysis), &translation)?;
-        let warnings = log_warnings(log, analysis.warnings.iter().chain(annotated).chain(&lifted.warnings).chain(&translation.warnings));
+        let mut identities = ra_asm_analysis::identity::identities(analysis);
+        for analysis in with {
+            identities.extend(ra_asm_analysis::identity::identities(analysis));
+        }
+        let regenerated = crate::emit::regenerate(&build_dir, &identities, &translation)?;
+        let with_warnings = with.iter().flat_map(|a| &a.warnings);
+        let warnings = log_warnings(
+            log,
+            analysis.warnings.iter().chain(with_warnings).chain(annotated).chain(&lifted.warnings).chain(&translation.warnings),
+        );
         if let Some(line) = regenerated {
             writeln!(log, "{line}")?;
             println!("{line}");
@@ -735,6 +776,7 @@ fn inputs_key(project: &Project, step: Step) -> Option<String> {
     let engine = std::env::current_exe().and_then(fs::metadata).ok();
     engine.as_ref().map(|m| (m.len(), m.modified().ok())).hash(&mut hasher);
     let mut files = vec![project.root.join(crate::project::RHIPPER_JSON), project.exe.clone()];
+    files.extend(project.with.iter().cloned());
     files.extend(project.map.iter().cloned());
     files.extend(project.signatures.iter().cloned());
     files.extend(crate::signatures::store_files(&project.signature_stores()));

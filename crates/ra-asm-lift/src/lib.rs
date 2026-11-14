@@ -84,7 +84,44 @@ pub struct Lifted {
     /// `(first, last, checked)`: read at the lift, from the instructions the analysis may release
     /// after it.
     pub initializer_tables: Vec<(u64, u64, bool)>,
+    /// The imports a second image ([`Companion`]) answers, by display name, with the address of
+    /// the export in that image: a call to one is a call to the lifted function there, a read of
+    /// its slot the address of the global, and no host import is left for it.
+    pub bound: HashMap<String, u64>,
+    /// The entries of the second images, each with the global of the image's headers (its
+    /// instance), which the port calls with `DLL_PROCESS_ATTACH` before the program's entry, as
+    /// the loader would have.
+    pub attach: Vec<(u64, Option<String>)>,
     pub warnings: Vec<String>,
+}
+
+/// A second image ported with the program: a DLL the program imports whose exports carry what
+/// the host's own DLL cannot answer (C++ objects of another layout, the x86 mangled names the
+/// 64-bit DLL lacks). Its functions and data join the program's module, and an import of the
+/// program that one of its exports answers binds to the lifted function or the global.
+#[derive(Clone, Copy)]
+pub struct Companion<'a> {
+    pub image: &'a Image,
+    pub analysis: &'a Analysis<'a>,
+}
+
+impl Companion<'_> {
+    /// The prefix of the image's globals (`exports64_` for `exports64.dll`): a second image's
+    /// sections are named apart from the program's.
+    pub fn tag(&self) -> String {
+        let stem =
+            self.image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "with".to_owned(), |s| s.to_string_lossy().into_owned());
+        let body: String = stem.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        format!("{body}_")
+    }
+
+    /// Whether the image is the DLL an import names (`exports64.dll`), by its file name or the
+    /// name its export table carries.
+    pub fn is_named(&self, dll: &str) -> bool {
+        let file = self.image.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
+        let linked = self.image.exports.as_ref().map(|t| t.dll_name.clone());
+        file.into_iter().chain(linked).any(|name| name.eq_ignore_ascii_case(dll))
+    }
 }
 
 /// The IR name of the lifted function at `va`: `F_<address>`, as the old pipeline named them.
@@ -344,6 +381,8 @@ impl Lifted {
             relocated: self.relocated.clone(),
             traced_calls: self.traced_calls.clone(),
             initializer_tables: Vec::new(),
+            bound: self.bound.clone(),
+            attach: Vec::new(),
             warnings: Vec::new(),
         }
     }
@@ -471,25 +510,44 @@ pub fn lift(image: &Image, analysis: &Analysis<'_>) -> Lifted {
 
 /// Lifts every function of `analysis` with `options`.
 pub fn lift_with(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -> Lifted {
-    lift_on(image, analysis, options, None, false)
+    lift_on(image, analysis, &[], options, None, false)
 }
 
 /// [`lift_with`], each function frozen as it is lifted ([`ra_asm_ir::freeze`]) into the module's
 /// `frozen`: the machine IR of a large program is never all in memory, and [`raise`] thaws one
 /// function at a time. The module prints only once raised.
 pub fn lift_frozen(image: &Image, analysis: &Analysis<'_>, options: LiftOptions) -> Lifted {
-    lift_on(image, analysis, options, None, true)
+    lift_on(image, analysis, &[], options, None, true)
+}
+
+/// [`lift_frozen`] of the program and the second images `with` as one module: the functions and
+/// the data of every image, the program's imports that one of them exports bound to the lifted
+/// functions and globals ([`Lifted::bound`]), and each one's entry among the attaches the port
+/// runs first ([`Lifted::attach`]). The images are of one machine and one address width, and
+/// their ranges do not overlap: the caller checks.
+pub fn lift_frozen_with(image: &Image, analysis: &Analysis<'_>, with: &[Companion<'_>], options: LiftOptions) -> Lifted {
+    lift_on(image, analysis, with, options, None, true)
 }
 
 /// [`lift_with`] on `threads` threads, or on as many as the host and the program's size call for,
 /// each function frozen with `freeze`.
-fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads: Option<usize>, freeze: bool) -> Lifted {
+fn lift_on(
+    image: &Image,
+    analysis: &Analysis<'_>,
+    with: &[Companion<'_>],
+    options: LiftOptions,
+    threads: Option<usize>,
+    freeze: bool,
+) -> Lifted {
+    // The program first: its tables lead, and a second image's join them.
+    let images: Vec<(&Image, &Analysis<'_>)> =
+        std::iter::once((image, analysis)).chain(with.iter().map(|c| (c.image, c.analysis))).collect();
     let isa = match image.machine() {
         ra_asm_pe::Machine::Arm64 => Isa::Arm64,
         ra_asm_pe::Machine::Arm => Isa::Arm32,
         _ => Isa::X86,
     };
-    let name = image.path.as_ref().map_or_else(|| "image".to_owned(), |p| p.file_name().unwrap().to_string_lossy().into_owned());
+    let name = image_name(image);
     let mut module = match isa {
         Isa::X86 if image.elf.is_some() => Module::x86_64_linux(&name),
         // A 32-bit program's port is a program of the 64-bit host that keeps its 32-bit pointers.
@@ -503,17 +561,14 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
         state::declare_svc(&mut module);
     }
     state::define_runtime_globals(&mut module, options.x87);
-    let runtime: BTreeMap<u64, String> = analysis
-        .functions
-        .values()
+    let functions = || images.iter().flat_map(|(_, a)| a.functions.values());
+    let runtime: BTreeMap<u64, String> = functions()
         .filter_map(|f| match &f.kind {
             Kind::Runtime(name) => Some((f.entry, name.clone())),
             _ => None,
         })
         .collect();
-    let thunks: BTreeMap<u64, String> = analysis
-        .functions
-        .values()
+    let thunks: BTreeMap<u64, String> = functions()
         .filter_map(|f| match &f.kind {
             Kind::ImportThunk(name) => Some((f.entry, name.clone())),
             _ => None,
@@ -523,10 +578,10 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
     // handler's registration frames are not lifted yet.
     let throws = |name: &String| name == "_CxxThrowException";
     let eh = image.is_64()
-        && (!analysis.cxx_frames.is_empty()
+        && (images.iter().any(|(_, a)| !a.cxx_frames.is_empty())
             || thunks.values().any(throws)
             || runtime.values().any(throws)
-            || image.imports.iter().any(|i| throws(&i.display_name())));
+            || images.iter().flat_map(|(i, _)| &i.imports).any(|i| throws(&i.display_name())));
     if eh {
         state::declare_eh_runtime(&mut module);
     }
@@ -544,31 +599,38 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
         fastcall: BTreeSet::new(),
         sysv: image.elf.is_some() || image.macho.is_some(),
         data: Vec::new(),
-        vtables: ra_asm_analysis::rtti::vtables(&analysis.classes),
+        vtables: images.iter().flat_map(|(_, a)| ra_asm_analysis::rtti::vtables(&a.classes)).collect(),
         standalone: options.standalone,
         bits: if image.is_64() { 64 } else { 32 },
         isa,
         x87: options.x87,
-        relocated: image.relocations.iter().map(|r| r.va).collect(),
+        relocated: images.iter().flat_map(|(i, _)| &i.relocations).map(|r| r.va).collect(),
         traced_calls: BTreeMap::new(),
         initializer_tables: initializer_tables(image, analysis),
+        bound: HashMap::new(),
+        attach: Vec::new(),
         warnings: Vec::new(),
     };
-    for f in analysis.ported() {
-        let name = function_name(f.entry);
-        // The program entry is a root too: `main`'s caller is the runtime's startup, which is not lifted.
-        let root = f
-            .origins
-            .iter()
-            .any(|o| matches!(o, Origin::Entry | Origin::Export(_) | Origin::TlsCallback | Origin::Pointer(_) | Origin::Vtable(_)));
-        if root || matches!(f.kind, Kind::ImportThunk(_)) || analysis.program_entry == Some(f.entry) {
-            lifted.roots.insert(name.clone());
+    for (image, analysis) in &images {
+        for f in analysis.ported() {
+            let name = function_name(f.entry);
+            // The program entry is a root too: `main`'s caller is the runtime's startup, which is
+            // not lifted; a second image's entry is its `DllMain`, which the attach calls.
+            let root = f
+                .origins
+                .iter()
+                .any(|o| matches!(o, Origin::Entry | Origin::Export(_) | Origin::TlsCallback | Origin::Pointer(_) | Origin::Vtable(_)));
+            if root || matches!(f.kind, Kind::ImportThunk(_)) || analysis.program_entry == Some(f.entry) {
+                lifted.roots.insert(name.clone());
+            }
+            if let Some(other) = lifted.functions.insert(f.entry, name) {
+                lifted.warnings.push(format!("{}: a function at {:#x} is also {other} of another image", image_name(image), f.entry));
+            }
         }
-        lifted.functions.insert(f.entry, name);
     }
     // A traced call resolves to the targets that are lifted: a runtime function or an import the
     // run reached stays with the indirect call, which the host answers.
-    for f in analysis.ported() {
+    for f in functions() {
         for (&site, targets) in &f.traced_calls {
             let lifted_targets: Vec<u64> = targets.iter().copied().filter(|t| lifted.functions.contains_key(t)).collect();
             if !lifted_targets.is_empty() {
@@ -576,12 +638,35 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
             }
         }
     }
+    lifted.bound = bind_imports(&images, with);
     if options.standalone {
-        data::add_sections(image, &mut lifted);
+        // The second images' sections first: the program's import slots name their globals.
+        for companion in with {
+            data::add_sections(companion.image, &mut lifted, &companion.tag());
+        }
+        data::add_sections(image, &mut lifted, "");
+    }
+    for companion in with {
+        let name = image_name(companion.image);
+        if companion.image.tls.is_some() {
+            lifted.warnings.push(format!("{name}: the thread-local storage of a second image is not ported"));
+        }
+        if !companion.image.resources.is_empty() {
+            lifted.warnings.push(format!("{name}: the resources of a second image are not ported"));
+        }
+        let Some(entry) = companion.analysis.program_entry.or_else(|| companion.image.entry_point()) else { continue };
+        if !lifted.functions.contains_key(&entry) {
+            lifted.warnings.push(format!("{name}: the entry at {entry:#x} is no lifted function: the image is not attached"));
+            continue;
+        }
+        let headers = format!("sec_{}headers", companion.tag());
+        lifted.attach.push((entry, lifted.data.iter().any(|d| d.global == headers).then_some(headers)));
     }
     let tls = state::tls_global(image, &lifted);
     lifted.module.globals.push(tls);
-    lift_functions(image, analysis, &mut lifted, threads, freeze);
+    for (image, analysis) in &images {
+        lift_functions(image, analysis, &mut lifted, threads, freeze);
+    }
     // A function whose address the code or the data holds is a root as well: a window procedure
     // or a thread's start the system calls back, whose callers the raise never sees, so it keeps
     // the result it writes.
@@ -626,7 +711,8 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
     // A 32-bit callee reached through a pointer pops what its convention says: the runtime finds
     // an import's pops in the binding table.
     if lifted.bits == 32 {
-        lifted.module.globals.extend(state::import_pops_globals(image, &lifted));
+        let images: Vec<&Image> = images.iter().map(|(i, _)| *i).collect();
+        lifted.module.globals.extend(state::import_pops_globals(&images, &lifted));
     }
     for (symbol, offset, tail) in &lifted.wrappers {
         let wrapper = match isa {
@@ -647,6 +733,31 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
         lifted.module.functions.push(wrapper);
     }
     lifted
+}
+
+/// The file name of `image`, `image` for one with no path.
+fn image_name(image: &Image) -> String {
+    image.path.as_ref().and_then(|p| p.file_name()).map_or_else(|| "image".to_owned(), |n| n.to_string_lossy().into_owned())
+}
+
+/// The imports of `images` that a second image among `with` exports, by display name, with the
+/// export's address there. An import of a second image's DLL that no export answers (a forwarder,
+/// a name the DLL lacks) stays a host import.
+fn bind_imports(images: &[(&Image, &Analysis<'_>)], with: &[Companion<'_>]) -> HashMap<String, u64> {
+    let mut bound = HashMap::new();
+    for import in images.iter().flat_map(|(i, _)| &i.imports) {
+        let Some(companion) = with.iter().find(|c| c.is_named(&import.dll)) else { continue };
+        let Some(table) = &companion.image.exports else { continue };
+        let export = table.exports.iter().find(|e| match (&import.name, import.ordinal) {
+            (Some(name), _) => e.name.as_deref() == Some(name.as_str()),
+            (None, Some(ordinal)) => e.ordinal == u32::from(ordinal),
+            (None, None) => false,
+        });
+        if let Some(va) = export.and_then(|e| e.va) {
+            bound.entry(import.display_name()).or_insert(va);
+        }
+    }
+    bound
 }
 
 /// The fewest functions a lift spreads over threads: below it a thread costs more than it saves.
@@ -723,6 +834,8 @@ fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, t
             relocated,
             traced_calls,
             initializer_tables: _,
+            bound,
+            attach: _,
             warnings,
         } = worker;
         let Module { name: _, triple: _, data_layout: _, types, globals, declarations, functions: built, frozen } = module;
@@ -745,6 +858,7 @@ fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, t
         debug_assert_eq!(thunks.len(), lifted.thunks.len());
         debug_assert_eq!(relocated.len(), lifted.relocated.len());
         debug_assert_eq!(traced_calls.len(), lifted.traced_calls.len());
+        debug_assert_eq!(bound.len(), lifted.bound.len());
     }
 }
 
@@ -815,27 +929,53 @@ pub fn image_header(
                 if (is_main || dll) && sig.returns.is_some() {
                     let _ = writeln!(out, "#define RA_ENTRY_RETURNS 1");
                 }
-                // The runtime's startup the driver's replaces ran the program's initializers before
-                // `main`; the driver runs them in its place.
-                if is_main && !dll {
-                    let initializers = startup_initializers(image, lifted);
-                    if !initializers.is_empty() {
-                        let mut calls = String::new();
-                        for (name, checked) in &initializers {
-                            let Some(sig) = signatures.and_then(|s| s.get(name)) else { continue };
-                            let (ret, params) = abi_prototype(sig);
-                            let _ =
-                                writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
-                            let call = format!("{name}({})", vec!["0"; params.len()].join(", "));
-                            let _ = if *checked && sig.returns.is_some() {
-                                writeln!(calls, "    if ((int){call}) return 1;")
-                            } else {
-                                writeln!(calls, "    {call};")
-                            };
+                // What runs before the entry: the loader's attach of each second image (its
+                // `DllMain` with its headers as the instance; one that refuses fails the start as
+                // the load would have), then, when the runtime's startup the driver's replaces ran
+                // the program's initializers before `main`, those in its place.
+                let mut calls = String::new();
+                if !dll {
+                    for (entry, headers) in &lifted.attach {
+                        let Some(name) = lifted.functions.get(entry) else { continue };
+                        let Some(sig) = signatures.and_then(|s| s.get(name)) else { continue };
+                        let (ret, params) = abi_prototype(sig);
+                        if let Some(headers) = headers {
+                            let _ = writeln!(out, "extern const unsigned char {headers}[];");
                         }
-                        let _ = writeln!(out, "static int ra_initialize(void) {{\n{calls}    return 0;\n}}");
-                        let _ = writeln!(out, "#define RA_INITIALIZE ra_initialize");
+                        let _ = writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
+                        let args: Vec<String> = params
+                            .iter()
+                            .enumerate()
+                            .map(|(i, _)| match (i, headers) {
+                                (0, Some(headers)) => format!("(unsigned long long)(uintptr_t){headers}"),
+                                (1, _) => "1".to_owned(), // DLL_PROCESS_ATTACH
+                                _ => "0".to_owned(),
+                            })
+                            .collect();
+                        let call = format!("{name}({})", args.join(", "));
+                        let _ = if sig.returns.is_some() {
+                            writeln!(calls, "    if (!(int){call}) return 1;")
+                        } else {
+                            writeln!(calls, "    {call};")
+                        };
                     }
+                }
+                if is_main && !dll {
+                    for (name, checked) in &startup_initializers(image, lifted) {
+                        let Some(sig) = signatures.and_then(|s| s.get(name)) else { continue };
+                        let (ret, params) = abi_prototype(sig);
+                        let _ = writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
+                        let call = format!("{name}({})", vec!["0"; params.len()].join(", "));
+                        let _ = if *checked && sig.returns.is_some() {
+                            writeln!(calls, "    if ((int){call}) return 1;")
+                        } else {
+                            writeln!(calls, "    {call};")
+                        };
+                    }
+                }
+                if !calls.is_empty() {
+                    let _ = writeln!(out, "static int ra_initialize(void) {{\n{calls}    return 0;\n}}");
+                    let _ = writeln!(out, "#define RA_INITIALIZE ra_initialize");
                 }
             }
             // The machine IR's entry takes the state. A raised translation without its entry (a
@@ -998,8 +1138,8 @@ mod parallel_tests {
             let image = ra_asm_pe::load(&bin.join(fixture)).unwrap();
             let analysis = ra_asm_analysis::analyze(&image);
             let options = || LiftOptions { standalone, x87: X87Unit::Double };
-            let one = lift_on(&image, &analysis, options(), Some(1), false);
-            let many = lift_on(&image, &analysis, options(), Some(5), false);
+            let one = lift_on(&image, &analysis, &[], options(), Some(1), false);
+            let many = lift_on(&image, &analysis, &[], options(), Some(5), false);
             assert!(analysis.ported().count() >= 5, "{fixture}: too few functions to spread over the threads");
             assert_eq!(one.module.to_ll(), many.module.to_ll(), "{fixture}: the IR differs");
             assert_eq!(one.warnings, many.warnings, "{fixture}");
@@ -1021,8 +1161,8 @@ mod parallel_tests {
             let analysis = ra_asm_analysis::analyze(&image);
             for level in [RaiseLevel::Machine, RaiseLevel::Promoted, RaiseLevel::Abi] {
                 let options = LiftOptions { standalone: level == RaiseLevel::Abi, x87: X87Unit::Double };
-                let mut kept = lift_on(&image, &analysis, options, None, false);
-                let mut frozen = lift_on(&image, &analysis, options, None, true);
+                let mut kept = lift_on(&image, &analysis, &[], options, None, false);
+                let mut frozen = lift_on(&image, &analysis, &[], options, None, true);
                 assert!(frozen.module.functions.len() < kept.module.functions.len(), "{fixture}: the lift froze nothing");
                 assert_eq!(kept.roots, frozen.roots, "{fixture}");
                 let (kept_options, frozen_options) = (kept.raise_options(level), frozen.raise_options(level));

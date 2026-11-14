@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use ra_asm_analysis::{Analysis, Identity};
 use ra_asm_emit::functions::format_address;
 use ra_asm_emit::{EmittedFile, EmittedFunction, FunctionInfo};
-use ra_asm_lift::Lifted;
+use ra_asm_lift::{Companion, Lifted};
 use ra_asm_pe::Image;
 use serde_json::{Value, json};
 
@@ -100,6 +100,9 @@ pub(crate) struct Options<'a> {
     /// Writes a C or C++ translation checked: each open assumption the translation can watch is
     /// a `ra_assume` at its site (see [`checks`]).
     pub checked: bool,
+    /// The second images `lifted` holds beside the program's ([`ra_asm_lift::lift_frozen_with`]),
+    /// whose functions the table lists under their image.
+    pub with: &'a [Companion<'a>],
 }
 
 /// Translates the raised module of `lifted` as `options` ask. `signatures` (by the final function
@@ -111,7 +114,7 @@ pub(crate) fn translate(
     signatures: &HashMap<String, ra_asm_lift::raise::abi::Signature>,
     options: &Options<'_>,
 ) -> Result<Translation> {
-    let Options { lang, package, trace, hand, annotations, checked } = *options;
+    let Options { lang, package, trace, hand, annotations, checked, with } = *options;
     let mut infos = ra_asm_emit::functions::infos(analysis);
     for info in infos.values_mut() {
         if let Some(annotation) = annotations.get(&info.address) {
@@ -119,10 +122,30 @@ pub(crate) fn translate(
             info.ty.clone_from(&annotation.ty);
             info.comment.clone_from(&annotation.comment);
         }
+        // An import a second image answers is a call of its lifted function, not an import.
+        for bound in info.imports.iter().filter_map(|i| lifted.bound.get(i)).filter_map(|va| lifted.functions.get(va)) {
+            if !info.calls.contains(bound) {
+                info.calls.push(bound.clone());
+            }
+        }
+        info.imports.retain(|i| !lifted.bound.contains_key(i));
+    }
+    if !with.is_empty() {
+        for info in infos.values_mut() {
+            info.image = Some(image_name(image));
+        }
+        for companion in with {
+            let name = image_name(companion.image);
+            infos.extend(ra_asm_emit::functions::infos(companion.analysis).into_iter().map(|(ir, mut info)| {
+                info.image = Some(name.clone());
+                (ir, info)
+            }));
+        }
     }
     let names: HashMap<String, String> = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
+    let images: Vec<&Image> = std::iter::once(image).chain(with.iter().map(|c| c.image)).collect();
     let mut resources = resource_files(image);
-    resources.extend(import_defs(image));
+    resources.extend(import_defs(&images, &lifted.bound));
     let mut warnings = Vec::new();
     let hand = hand_functions(&infos, hand, &mut warnings);
     let exports = image.headers.coff.is_dll().then(|| exports_def(image, lifted, &mut warnings));
@@ -136,7 +159,12 @@ pub(crate) fn translate(
         if checked {
             warnings.push("a Rust port is not written checked: its assumptions are not watched".to_owned());
         }
-        let imports = image.imports.iter().filter_map(|i| i.name.clone().map(|n| (n, i.dll.clone()))).collect();
+        let imports = images
+            .iter()
+            .flat_map(|i| &i.imports)
+            .filter(|i| !lifted.bound.contains_key(&i.display_name()))
+            .filter_map(|i| i.name.clone().map(|n| (n, i.dll.clone())))
+            .collect();
         let entry = lifted.entry.and_then(|e| lifted.functions.get(&e).cloned());
         let options = ra_asm_emit::RustOptions {
             names,
@@ -161,8 +189,9 @@ pub(crate) fn translate(
     let Some(dialect) = ra_asm_emit::Dialect::parse(lang) else {
         bail!("the language `{lang}` is not `c`, `cpp` or `rust`");
     };
-    let classes = ra_asm_emit::classes(analysis, signatures);
-    let checks = if checked { checks(analysis, lifted) } else { Vec::new() };
+    let analyses: Vec<&Analysis<'_>> = std::iter::once(analysis).chain(with.iter().map(|c| c.analysis)).collect();
+    let classes = analyses.iter().flat_map(|a| ra_asm_emit::classes(a, signatures)).collect();
+    let checks = if checked { checks(&analyses, lifted) } else { Vec::new() };
     let mut unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace, hand, checks });
     // The bytes of the large data globals the source embeds go beside it, as the resources do.
     let mut resources = resources;
@@ -189,9 +218,9 @@ pub(crate) fn translate(
 /// (the registers its callee keeps) and of a return (the stack pointer there) is not among them:
 /// the raised module no longer holds those registers, so there is no value to compare until the
 /// raise keeps them for a checked build.
-fn checks(analysis: &Analysis<'_>, lifted: &Lifted) -> Vec<ra_asm_emit::Check> {
+fn checks(analyses: &[&Analysis<'_>], lifted: &Lifted) -> Vec<ra_asm_emit::Check> {
     let mut out = Vec::new();
-    for f in analysis.functions.values() {
+    for f in analyses.iter().flat_map(|a| a.functions.values()) {
         let Some(function) = lifted.functions.get(&f.entry) else { continue };
         for assumption in ra_asm_lift::raise::assume::tables([f]) {
             if let (false, Some(site)) = (assumption.is_discharged(), assumption.site) {
@@ -528,19 +557,21 @@ fn line_ops<'t>(a: &[&'t str], b: &[&'t str]) -> Vec<(char, &'t str)> {
 /// export as the global that starts at its address. An export at no symbol of the port (a
 /// function the analysis did not find, data inside a section's global) is left out with a warning.
 /// The module definition file of each DLL a Windows program imports by name, `imports/<dll>.def`,
-/// from the image's own import table: the build makes the import library of each, so a DLL no
-/// SDK at hand has a library for (`d3dx9_43`, `xinput1_3`) links as `kernel32` does. The C
-/// runtime's DLLs are left out: the host's C library answers their functions, and a library made
-/// here would bind them to the program's old runtime instead. An import by ordinal binds at run
-/// time and needs no library.
-fn import_defs(image: &Image) -> Vec<(String, Vec<u8>)> {
+/// from the import tables of `images` (the program's and its second images'): the build makes
+/// the import library of each, so a DLL no SDK at hand has a library for (`d3dx9_43`,
+/// `xinput1_3`) links as `kernel32` does. The C runtime's DLLs are left out: the host's C library
+/// answers their functions, and a library made here would bind them to the program's old runtime
+/// instead. An import `bound` to a second image's export is the port's own function and no
+/// library's. An import by ordinal binds at run time and needs no library.
+fn import_defs(images: &[&Image], bound: &HashMap<String, u64>) -> Vec<(String, Vec<u8>)> {
+    let image = images[0];
     if image.elf.is_some() || image.macho.is_some() || image.xbe.is_some() {
         return Vec::new();
     }
     let mut by_dll: std::collections::BTreeMap<String, (String, std::collections::BTreeSet<&str>)> = std::collections::BTreeMap::new();
-    for import in &image.imports {
+    for import in images.iter().flat_map(|i| &i.imports) {
         let Some(name) = import.name.as_deref() else { continue };
-        if ra_asm_lift::raise::prototypes::is_crt_dll(&import.dll) {
+        if ra_asm_lift::raise::prototypes::is_crt_dll(&import.dll) || bound.contains_key(name) {
             continue;
         }
         let stem = import.dll.to_ascii_lowercase().trim_end_matches(".dll").to_owned();
@@ -643,11 +674,64 @@ pub(crate) fn keep_reached(analysis: &mut ra_asm_analysis::Analysis<'_>, only: &
     Ok(())
 }
 
+/// The file name of `image`, as the function table names it.
+fn image_name(image: &Image) -> String {
+    image.path.as_ref().and_then(|p| p.file_name()).map_or_else(|| "image".to_owned(), |n| n.to_string_lossy().into_owned())
+}
+
+/// Loads the second images at `paths`, each a PE of the program's machine and address width whose
+/// range is apart from the program's and the others'.
+pub(crate) fn load_companions(image: &Image, paths: &[std::path::PathBuf]) -> Result<Vec<Image>> {
+    let mut images: Vec<Image> = Vec::with_capacity(paths.len());
+    for path in paths {
+        let with = ra_asm_pe::load(path)?;
+        let name = image_name(&with);
+        if with.elf.is_some() || with.macho.is_some() || with.xbe.is_some() {
+            bail!("{name}: a second image is a Windows PE");
+        }
+        if with.machine() != image.machine() || with.is_64() != image.is_64() {
+            bail!("{name}: a second image is of the program's machine and address width");
+        }
+        let range = |i: &Image| i.image_base()..i.image_base() + u64::from(i.size_of_image());
+        let (lo, hi) = (range(&with).start, range(&with).end);
+        if std::iter::once(image).chain(&images).any(|other| lo < range(other).end && range(other).start < hi) {
+            bail!("{name}: a second image is linked at {lo:#x}, where another image of the port already is");
+        }
+        images.push(with);
+    }
+    Ok(images)
+}
+
+/// The analyses of the second images `with`, each named apart from the program's functions and
+/// the other images': a name two images share (`entry`, a thunk's) takes its image's stem, so the
+/// one module defines each once.
+pub(crate) fn analyze_companions<'a>(analysis: &Analysis<'_>, with: &'a [Image]) -> Vec<Analysis<'a>> {
+    let mut taken: HashSet<String> = analysis.functions.values().map(|f| f.name.clone()).collect();
+    let mut analyses = Vec::with_capacity(with.len());
+    for image in with {
+        let mut analysis = ra_asm_analysis::analyze(image);
+        let stem = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "with".to_owned(), |s| s.to_string_lossy().into_owned());
+        for f in analysis.functions.values_mut() {
+            if !taken.insert(f.name.clone()) {
+                f.name = format!("{}_{stem}", f.name);
+                taken.insert(f.name.clone());
+            }
+        }
+        analyses.push(analysis);
+    }
+    analyses
+}
+
+/// The second images with their analyses, as the lift and the translation take them.
+pub(crate) fn companions_of<'a>(images: &'a [Image], analyses: &'a [Analysis<'a>]) -> Vec<Companion<'a>> {
+    images.iter().zip(analyses).map(|(image, analysis)| Companion { image, analysis }).collect()
+}
+
 /// Writes the translation, the runtime and `functions.json` into `out`, or the translation to
 /// stdout without `out`. `hand` names the functions left to hand-written sources; the annotations
 /// of the project at `project` rename functions and leave more to the sources. `checked` writes
 /// the open assumptions as checks. `only`, when it names functions, translates them and what they
-/// call alone.
+/// call alone. `with` names the second images ported with the program (`--with`).
 // The arguments are the command's own flags, one each.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit(
@@ -660,30 +744,50 @@ pub(crate) fn emit(
     project: Option<&Path>,
     checked: bool,
     only: &[String],
+    with: &[std::path::PathBuf],
 ) -> Result<()> {
     let mut analysis = ra_asm_analysis::analyze(image);
     keep_reached(&mut analysis, only)?;
     let (annotations, warnings) = project.map(|root| crate::annotations::annotate(root, &mut analysis)).unwrap_or_default();
     let hand = crate::annotations::hand_list(hand, &annotations);
     let hand = hand.as_slice();
-    let mut lifted = ra_asm_lift::lift_frozen(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
+    let with_images = load_companions(image, with)?;
+    let mut with_analyses = analyze_companions(&analysis, &with_images);
+    let companions = companions_of(&with_images, &with_analyses);
+    let mut lifted = ra_asm_lift::lift_frozen_with(image, &analysis, &companions, ra_asm_lift::LiftOptions { standalone: true, x87 });
+    drop(companions);
     // Past the lift the translation reads the IR: the decoded instructions go, unless a checked
     // translation's assumptions still read them.
     if !checked {
         analysis.release_instructions();
+        for with in &mut with_analyses {
+            with.release_instructions();
+        }
     }
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));
+    for with in &with_analyses {
+        lifted.apply_names(with, Some(&mut signatures));
+    }
+    let companions = companions_of(&with_images, &with_analyses);
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
-    let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations, checked };
+    let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations, checked, with: &companions };
     let mut translation = translate(image, &analysis, &lifted, &signatures, &options)?;
     // What the rest reads of the analysis and the raised module, taken now: the two go before the
     // formatters start, which on a large program need the memory they held.
     let header = out.map(|_| ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)));
-    let identities = out.map(|_| ra_asm_analysis::identity::identities(&analysis));
+    let identities = out.map(|_| {
+        let mut identities = ra_asm_analysis::identity::identities(&analysis);
+        for with in &with_analyses {
+            identities.extend(ra_asm_analysis::identity::identities(with));
+        }
+        identities
+    });
     let mut warnings: Vec<String> = analysis.warnings.iter().chain(&warnings).chain(&lifted.warnings).cloned().collect();
-    drop((analysis, lifted, signatures));
+    warnings.extend(with_analyses.iter().flat_map(|a| a.warnings.iter().cloned()));
+    drop(companions);
+    drop((analysis, with_analyses, lifted, signatures));
     translation.format();
     match out {
         None => print!("{}", translation.text()),
