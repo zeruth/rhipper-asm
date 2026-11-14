@@ -223,7 +223,7 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     for class in &classes {
         for vtable in &class.vtables {
             for &va in &vtable.functions {
-                if !state.functions.values().any(|f| f.entry != va && f.contains(va)) {
+                if !state.cover.owners(va).iter().any(|&f| f != va) {
                     state.seed(va, Origin::Vtable(vtable.address));
                 }
             }
@@ -237,7 +237,7 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     // code names is built whole, with the switch tables of its own, before the entries of those
     // tables (relocated code addresses in `.rdata` too) could pass for functions.
     for _ in 0..4 {
-        let seeds = immediate_seeds(image, &state.functions);
+        let seeds = immediate_seeds(image, &state.functions, &state.cover);
         if seeds.is_empty() {
             break;
         }
@@ -249,7 +249,7 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
 
     // Pointers in data: a function only a pointer reaches, such as a callback in a table.
     for (va, origin) in pointer_seeds(image) {
-        if state.functions.values().any(|f| f.contains(va)) || state.functions.contains_key(&va) {
+        if state.cover.covered(va) || state.functions.contains_key(&va) {
             continue;
         }
         state.seed(va, origin);
@@ -258,7 +258,7 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
 
     // The immediates of the functions the pointers named.
     for _ in 0..4 {
-        let seeds = immediate_seeds(image, &state.functions);
+        let seeds = immediate_seeds(image, &state.functions, &state.cover);
         if seeds.is_empty() {
             break;
         }
@@ -271,7 +271,7 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     // The targets a traced run reached: a function only a computed address names.
     for call in &facts.calls {
         for &va in &call.targets {
-            if !state.functions.values().any(|f| f.contains(va)) {
+            if !state.cover.covered(va) {
                 state.seed(va, Origin::Trace(call.site));
             }
         }
@@ -314,7 +314,7 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
         if targets.is_empty() {
             continue;
         }
-        if let Some(f) = functions.values_mut().find(|f| f.contains(call.site)) {
+        if let Some(f) = state.cover.owners(call.site).first().and_then(|entry| functions.get_mut(entry)) {
             for &t in &targets {
                 if !f.calls.contains(&t) {
                     f.calls.push(t);
@@ -381,7 +381,7 @@ fn strings_of(image: &Image, function: &Function) -> Vec<(u64, String)> {
 /// The code addresses the instructions of the built functions hold, outside every function: the
 /// callbacks a program hands out by `push offset f` (an immediate of the address width) or by
 /// `lea r8, [rip + f]` (x64, where a leaf callback has no unwind entry to find it by).
-fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>) -> Vec<(u64, Origin)> {
+fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>, cover: &Cover) -> Vec<(u64, Origin)> {
     let bits = u16::from(image.pointer_size()) * 8;
     let mut seeds = Vec::new();
     for f in functions.values() {
@@ -401,7 +401,7 @@ fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>) -> Vec<(u
                     },
                     _ => continue,
                 };
-                if !image.is_code(va) || functions.contains_key(&va) || functions.values().any(|g| g.contains(va)) {
+                if !image.is_code(va) || functions.contains_key(&va) || cover.covered(va) {
                     continue;
                 }
                 seeds.push((va, Origin::Pointer(i.address)));
@@ -453,10 +453,7 @@ fn gap_seeds(image: &Image, state: &State<'_>) -> Vec<(u64, Origin)> {
             if !va.is_multiple_of(16) || pair[1] == 0xcc || (pair[0] != 0xcc && !nop_fill_ends_at(bytes, offset + 1)) {
                 continue;
             }
-            if state.known_starts.contains(&va)
-                || accepted.iter().any(|&(b, e)| va >= b && va < e)
-                || state.functions.values().any(|f| f.contains(va))
-            {
+            if state.known_starts.contains(&va) || accepted.iter().any(|&(b, e)| va >= b && va < e) || state.cover.covered(va) {
                 continue;
             }
             let ranges = state.ranges_of(va);
@@ -506,11 +503,59 @@ fn name_virtual_functions(classes: &[Class], functions: &mut BTreeMap<u64, Funct
     }
 }
 
+/// Which functions own an address: the blocks of every built function by their start, kept in
+/// step with the functions as they are built, split and rebuilt. Asking costs the blocks that start
+/// within one block's length below the address, where asking every function cost the whole
+/// program: an image of 87,000 functions spent most of its analysis there.
+#[derive(Default)]
+struct Cover {
+    /// (start, owner) to end, for every block.
+    blocks: BTreeMap<(u64, u64), u64>,
+    /// The length of the longest block, which bounds how far below an address a block that holds
+    /// it can start.
+    longest: u64,
+}
+
+impl Cover {
+    fn add(&mut self, f: &Function) {
+        for b in &f.blocks {
+            self.blocks.insert((b.start, f.entry), b.end);
+            self.longest = self.longest.max(b.end.saturating_sub(b.start));
+        }
+    }
+
+    fn remove(&mut self, f: &Function) {
+        for b in &f.blocks {
+            self.blocks.remove(&(b.start, f.entry));
+        }
+    }
+
+    /// The entries of the functions with a block that holds `va`, each once, lowest first.
+    fn owners(&self, va: u64) -> Vec<u64> {
+        let mut owners: Vec<u64> = self
+            .blocks
+            .range((va.saturating_sub(self.longest), 0)..=(va, u64::MAX))
+            .filter(|&(&(start, _), &end)| start <= va && va < end)
+            .map(|(&(_, owner), _)| owner)
+            .collect();
+        owners.sort_unstable();
+        owners.dedup();
+        owners
+    }
+
+    /// Whether a function holds `va`: [`Function::contains`] of any of them.
+    fn covered(&self, va: u64) -> bool {
+        !self.owners(va).is_empty()
+    }
+}
+
 /// The working state of the fixpoint.
 struct State<'a> {
     image: &'a Image,
     arch: &'a dyn Arch,
+    /// Changed only through [`State::insert`] and [`State::take`], which keep `cover` in step.
     functions: BTreeMap<u64, Function>,
+    cover: Cover,
     /// Every address that starts a function, built or pending: a descent stops at these.
     known_starts: BTreeSet<u64>,
     pending: Vec<u64>,
@@ -535,6 +580,7 @@ impl<'a> State<'a> {
             image,
             arch,
             functions: BTreeMap::new(),
+            cover: Cover::default(),
             known_starts,
             pending: Vec::new(),
             origins: HashMap::new(),
@@ -545,6 +591,20 @@ impl<'a> State<'a> {
             runtime: symbols::RuntimeRanges::of(image),
             warnings: Vec::new(),
         }
+    }
+
+    fn insert(&mut self, function: Function) {
+        if let Some(old) = self.functions.remove(&function.entry) {
+            self.cover.remove(&old);
+        }
+        self.cover.add(&function);
+        self.functions.insert(function.entry, function);
+    }
+
+    fn take(&mut self, entry: u64) -> Option<Function> {
+        let function = self.functions.remove(&entry)?;
+        self.cover.remove(&function);
+        Some(function)
     }
 
     fn seed(&mut self, va: u64, origin: Origin) {
@@ -572,7 +632,7 @@ impl<'a> State<'a> {
                 // Every caller falls through after the call today; it must not.
                 let callers: Vec<u64> = self.functions.values().filter(|f| f.calls.contains(&callee)).map(|f| f.entry).collect();
                 for caller in callers {
-                    self.functions.remove(&caller);
+                    self.take(caller);
                     self.pending.push(caller);
                 }
             }
@@ -589,9 +649,9 @@ impl<'a> State<'a> {
         }
         // A start inside a built function splits it: that function builds again with the new
         // boundary in `known_starts`.
-        let split: Vec<u64> = self.functions.values().filter(|f| f.entry != entry && f.contains(entry)).map(|f| f.entry).collect();
+        let split: Vec<u64> = self.cover.owners(entry).into_iter().filter(|&f| f != entry).collect();
         for other in split {
-            self.functions.remove(&other);
+            self.take(other);
             self.pending.push(other);
         }
 
@@ -613,7 +673,8 @@ impl<'a> State<'a> {
                 self.origins.entry(target).or_default().push(origin);
             }
         }
-        self.functions.insert(entry, function);
+        debug_assert_eq!(function.entry, entry);
+        self.insert(function);
     }
 
     /// The byte ranges a function may own: its exception table extent with its pieces, else from
