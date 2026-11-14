@@ -1416,6 +1416,12 @@ impl Lifter<'_, '_> {
                                 moved
                             };
                             self.m.write_sp(block, aligned);
+                        } else if self.m.bits == 64 && self.lifted.runtime.get(&target).is_some_and(|s| s == "__chkstk") {
+                            // x64's probe only touches the pages below rsp, and the caller moves
+                            // rsp itself after it; it keeps every register but r10 and r11. The
+                            // machine's stack is the interpreter's memory, so the call is nothing:
+                            // the host's own `__chkstk` would probe the host thread's stack by the
+                            // program's frame size and overflow it (the csmith seeds, card #208).
                         } else if let Some(symbol) = self.lifted.runtime.get(&target).cloned() {
                             // The host's runtime takes the call, as it takes an import's.
                             self.import_call_as(block, &symbol, false, true);

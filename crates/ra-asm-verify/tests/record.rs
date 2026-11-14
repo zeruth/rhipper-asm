@@ -75,7 +75,7 @@ fn control64_yields_a_vector_for_every_function_its_run_enters() {
 }
 
 #[test]
-fn a_function_called_a_thousand_times_keeps_at_most_eight() {
+fn a_function_called_a_thousand_times_keeps_at_most_sixteen() {
     let Some(recorded) = control() else { return };
     let (busiest, activations) =
         recorded.recording.activations.iter().max_by_key(|(_, activations)| **activations).expect("the run entered a function");

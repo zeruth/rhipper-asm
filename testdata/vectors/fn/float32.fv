@@ -1,0 +1,3299 @@
+ra-asm-verify vectors 1
+# kept: the first 8 activations of each function, then each that ran a new block, 16 at most
+
+vector mean at 0x401340
+entry
+  eax = 0x248
+  ecx = 0x120fff90
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40080000000000003fc0000000000000
+  xmm1 = 0x0
+  xmm2 = 0x0
+  xmm3 = 0x0
+  xmm4 = 0x0
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402088: 00 00 00 00 00 00 14 40
+  0x120fff7c: 47 10 40 00
+  0x120fff90: 00 00 00 00 00 00 f8 3f 00 00 00 00 00 00 02 c0
+    00 00 00 00 00 00 24 40 00 00 00 00 00 00 c0 3f
+    00 00 00 00 00 00 08 40
+exit
+  eax = 0x248
+  ecx = 0x120fff90
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4003cccccccccccd
+  xmm1 = 0x0
+  xmm2 = 0x0
+  xmm3 = 0x0
+  xmm4 = 0x0
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+left return
+
+vector milli at 0x4012f0
+entry
+  eax = 0x248
+  ecx = 0x120fff90
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4003cccccccccccd
+  xmm1 = 0x0
+  xmm2 = 0x0
+  xmm3 = 0x0
+  xmm4 = 0x0
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402080: 00 00 00 00 00 40 8f 40
+  0x10000510: 00 00 00 00 00 00 00 00 7f 02
+  0x120fff7c: 4c 10 40 00
+exit
+  eax = 0x9ab
+  ecx = 0x120fff90
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40a3560000000000
+  xmm1 = 0x0
+  xmm2 = 0x0
+  xmm3 = 0x0
+  xmm4 = 0x0
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x10000508: 00 00 00 00 00 56 a3 40 00 00 00 00 00 00 00 00
+    7f 02
+  0x120fff6c: 7f 02 7f 0e ab 09 00 00 00 00 00 00 b8 ff 0f 12
+left return
+
+vector print_int at 0x401210
+entry
+  eax = 0x9ab
+  ecx = 0x9ab
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40a3560000000000
+  xmm1 = 0x0
+  xmm2 = 0x0
+  xmm3 = 0x0
+  xmm4 = 0x0
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x403008: 48 02 00 00
+  0x120fff7c: 53 10 40 00
+call imp_WriteFile
+  result eax = 0x1
+  result edx = 0x0
+  result xmm0 = 0x40a3560000000000
+  effect 0x120fff50: 06 00 00 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40a3560000000000
+  xmm1 = 0x0
+  xmm2 = 0x0
+  xmm3 = 0x0
+  xmm4 = 0x0
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x120fff34: 48 02 00 00 66 ff 0f 12 06 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 66 ff 0f 12 06 00 00 00
+  0x120fff66: 32 34 37 35 0d 0a 00 00 00 00 00 00 00 00 00 00
+    00 00 b8 ff 0f 12
+left return
+
+vector newton_sqrt at 0x401370
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4000000000000000
+  xmm1 = 0x0
+  xmm2 = 0x0
+  xmm3 = 0x0
+  xmm4 = 0x0
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402040: 00 00 00 00 00 00 f0 3f
+  0x402090: 00 00 00 00 00 00 e0 3f
+  0x120fff7c: 60 10 40 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x3ff6a09e667f3bcc
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x3ff6a09e667f3bcc
+  xmm3 = 0x3ff6a09e667f3bcc
+  xmm4 = 0x3ff0000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+left return
+
+vector milli at 0x4012f0
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x3ff6a09e667f3bcc
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x3ff6a09e667f3bcc
+  xmm3 = 0x3ff6a09e667f3bcc
+  xmm4 = 0x3ff0000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402080: 00 00 00 00 00 40 8f 40
+  0x10000510: 00 00 00 00 00 00 00 00 7f 02
+  0x120fff7c: 65 10 40 00
+exit
+  eax = 0x586
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x409618dab0184065
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x3ff6a09e667f3bcc
+  xmm3 = 0x3ff6a09e667f3bcc
+  xmm4 = 0x3ff0000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x10000508: 65 40 18 b0 da 18 96 40 00 00 00 00 00 00 00 00
+    7f 02
+  0x120fff6c: 7f 02 7f 0e 86 05 00 00 00 00 00 00 b8 ff 0f 12
+left return
+
+vector print_int at 0x401210
+entry
+  eax = 0x586
+  ecx = 0x586
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x409618dab0184065
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x3ff6a09e667f3bcc
+  xmm3 = 0x3ff6a09e667f3bcc
+  xmm4 = 0x3ff0000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x403008: 48 02 00 00
+  0x120fff7c: 6c 10 40 00
+call imp_WriteFile
+  result eax = 0x1
+  result edx = 0x0
+  result xmm0 = 0x409618dab0184065
+  effect 0x120fff50: 06 00 00 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x409618dab0184065
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x3ff6a09e667f3bcc
+  xmm3 = 0x3ff6a09e667f3bcc
+  xmm4 = 0x3ff0000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x120fff34: 48 02 00 00 66 ff 0f 12 06 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 66 ff 0f 12 06 00 00 00
+  0x120fff66: 31 34 31 34 0d 0a 00 00 00 00 00 00 00 00 00 00
+    00 00 b8 ff 0f 12
+left return
+
+vector newton_sqrt at 0x401370
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4062000000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x3ff6a09e667f3bcc
+  xmm3 = 0x3ff6a09e667f3bcc
+  xmm4 = 0x3ff0000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402040: 00 00 00 00 00 00 f0 3f
+  0x402090: 00 00 00 00 00 00 e0 3f
+  0x120fff7c: 79 10 40 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4028000000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+left return
+
+vector milli at 0x4012f0
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4028000000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402080: 00 00 00 00 00 40 8f 40
+  0x10000510: 00 00 00 00 00 00 00 00 7f 02
+  0x120fff7c: 7e 10 40 00
+exit
+  eax = 0x2ee0
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40c7700000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x10000508: 00 00 00 00 00 70 c7 40 00 00 00 00 00 00 00 00
+    7f 02
+  0x120fff6c: 7f 02 7f 0e e0 2e 00 00 00 00 00 00 b8 ff 0f 12
+left return
+
+vector print_int at 0x401210
+entry
+  eax = 0x2ee0
+  ecx = 0x2ee0
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40c7700000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x403008: 48 02 00 00
+  0x120fff7c: 85 10 40 00
+call imp_WriteFile
+  result eax = 0x1
+  result edx = 0x0
+  result xmm0 = 0x40c7700000000000
+  effect 0x120fff50: 07 00 00 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40c7700000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x120fff34: 48 02 00 00 65 ff 0f 12 07 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 65 ff 0f 12 07 00 00 00
+  0x120fff65: 31 32 30 30 30 0d 0a 00 00 00 00 00 00 00 00 00
+    00 00 00 b8 ff 0f 12
+left return
+
+vector milli at 0x4012f0
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4028000000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402080: 00 00 00 00 00 40 8f 40
+  0x10000510: 00 00 00 00 00 00 00 00 7f 02
+  0x120fff7c: 92 10 40 00
+exit
+  eax = 0x2ee0
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40c7700000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x10000508: 00 00 00 00 00 70 c7 40 00 00 00 00 00 00 00 00
+    7f 02
+  0x120fff6c: 7f 02 7f 0e e0 2e 00 00 00 00 00 00 b8 ff 0f 12
+left return
+
+vector print_int at 0x401210
+entry
+  eax = 0x2ee0
+  ecx = 0x2ee0
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40c7700000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x403008: 48 02 00 00
+  0x120fff7c: 99 10 40 00
+call imp_WriteFile
+  result eax = 0x1
+  result edx = 0x0
+  result xmm0 = 0x40c7700000000000
+  effect 0x120fff50: 07 00 00 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40c7700000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x120fff34: 48 02 00 00 65 ff 0f 12 07 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 65 ff 0f 12 07 00 00 00
+  0x120fff65: 31 32 30 30 30 0d 0a 00 00 00 00 00 00 00 00 00
+    00 00 00 b8 ff 0f 12
+left return
+
+vector milli at 0x4012f0
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4029000000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402080: 00 00 00 00 00 40 8f 40
+  0x10000510: 00 00 00 00 00 00 00 00 7f 02
+  0x120fff7c: a6 10 40 00
+exit
+  eax = 0x30d4
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40c86a0000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x10000508: 00 00 00 00 00 6a c8 40 00 00 00 00 00 00 00 00
+    7f 02
+  0x120fff6c: 7f 02 7f 0e d4 30 00 00 00 00 00 00 b8 ff 0f 12
+left return
+
+vector print_int at 0x401210
+entry
+  eax = 0x30d4
+  ecx = 0x30d4
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40c86a0000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x403008: 48 02 00 00
+  0x120fff7c: ad 10 40 00
+call imp_WriteFile
+  result eax = 0x1
+  result edx = 0x0
+  result xmm0 = 0x40c86a0000000000
+  effect 0x120fff50: 07 00 00 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40c86a0000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x120fff34: 48 02 00 00 65 ff 0f 12 07 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 65 ff 0f 12 07 00 00 00
+  0x120fff65: 31 32 35 30 30 0d 0a 00 00 00 00 00 00 00 00 00
+    00 00 00 b8 ff 0f 12
+left return
+
+vector classify at 0x401580
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0xfff8000000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x120fff7c: c2 10 40 00
+exit
+  eax = 0x0
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x1
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0xfff8000000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+left return
+
+vector print_int at 0x401210
+entry
+  eax = 0x0
+  ecx = 0x0
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x1
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0xfff8000000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x403008: 48 02 00 00
+  0x120fff7c: cb 10 40 00
+call imp_WriteFile
+  result eax = 0x1
+  result edx = 0x0
+  result xmm0 = 0xfff8000000000000
+  effect 0x120fff50: 03 00 00 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0xfff8000000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  0x120fff69: 30 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+left return
+
+vector classify at 0x401580
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x7ff0000000000000
+  xmm1 = 0x3fe0000000000000
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x120fff7c: e0 10 40 00
+exit
+  eax = 0x5
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x7ff0000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+left return
+
+vector print_int at 0x401210
+entry
+  eax = 0x5
+  ecx = 0x5
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x1
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x7ff0000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x403008: 48 02 00 00
+  0x120fff7c: e9 10 40 00
+call imp_WriteFile
+  result eax = 0x1
+  result edx = 0x0
+  result xmm0 = 0x7ff0000000000000
+  effect 0x120fff50: 03 00 00 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x7ff0000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  0x120fff69: 35 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+left return
+
+vector classify at 0x401580
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0xfff0000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x120fff7c: fe 10 40 00
+exit
+  eax = 0x4
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0xfff0000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+left return
+
+vector print_int at 0x401210
+entry
+  eax = 0x4
+  ecx = 0x4
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x1
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0xfff0000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x403008: 48 02 00 00
+  0x120fff7c: 07 11 40 00
+call imp_WriteFile
+  result eax = 0x1
+  result edx = 0x0
+  result xmm0 = 0xfff0000000000000
+  effect 0x120fff50: 03 00 00 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0xfff0000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  0x120fff69: 34 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+left return
+
+vector classify at 0x401580
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x0
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x120fff7c: 14 11 40 00
+exit
+  eax = 0x3
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x1
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x0
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+left return
+
+vector classify at 0x401580
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0xbfe0000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x120fff7c: 2a 11 40 00
+exit
+  eax = 0x4
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0xbfe0000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+left return
+
+vector classify at 0x401580
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4004000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x120fff7c: 40 11 40 00
+exit
+  eax = 0x5
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4004000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+left return
+
+vector milli at 0x4012f0
+entry
+  eax = 0x7
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4002aaaaa0000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402080: 00 00 00 00 00 40 8f 40
+  0x10000510: 00 00 00 00 00 00 00 00 7f 02
+  0x120fff7c: b4 11 40 00
+exit
+  eax = 0x91d
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40a23aaaa0400000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x10000508: 00 00 40 a0 aa 3a a2 40 00 00 00 00 00 00 00 00
+    7f 02
+  0x120fff6c: 7f 02 7f 0e 1d 09 00 00 00 00 00 00 b8 ff 0f 12
+left return
+
+vector print_int at 0x401210
+entry
+  eax = 0x1
+  ecx = 0xfffffff9
+  edx = 0xffffffff
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40a23aaaa0400000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x403008: 48 02 00 00
+  0x120fff7c: ca 11 40 00
+call imp_WriteFile
+  result eax = 0x1
+  result edx = 0x0
+  result xmm0 = 0x40a23aaaa0400000
+  effect 0x120fff50: 04 00 00 00
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40a23aaaa0400000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x120fff34: 48 02 00 00 68 ff 0f 12 04 00 00 00 50 ff 0f 12
+    00 00 00 00 ff ff ff ff 69 ff 0f 12 04 00 00 00
+  0x120fff68: 2d 37 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00
+    b8 ff 0f 12
+left return
+
+vector milli at 0x4012f0
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40a7700000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402080: 00 00 00 00 00 40 8f 40
+  0x10000510: 00 00 00 00 00 00 00 00 7f 02
+  0x120fff7c: e3 11 40 00
+exit
+  eax = 0x2dc6c0
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x4146e36000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x10000508: 00 00 00 00 60 e3 46 41 00 00 00 00 00 00 00 00
+    7f 02
+  0x120fff6c: 7f 02 7f 0e c0 c6 2d 00 00 00 00 00 b8 ff 0f 12
+left return
+
+vector milli at 0x4012f0
+entry
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x400e000000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402080: 00 00 00 00 00 40 8f 40
+  0x10000510: 00 00 00 00 00 00 00 00 7f 02
+  0x120fff7c: 00 12 40 00
+exit
+  eax = 0xea6
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff80
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40ad4c0000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x10000508: 00 00 00 00 00 4c ad 40 00 00 00 00 00 00 00 00
+    7f 02
+  0x120fff6c: 7f 02 7f 0e a6 0e 00 00 00 00 00 00 b8 ff 0f 12
+left return
+
+vector mainCRTStartup_ at 0x401000
+entry
+  eax = 0x0
+  ecx = 0x0
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fffbc
+  ebp = 0x0
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x0
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x0
+  xmm1 = 0x0
+  xmm2 = 0x0
+  xmm3 = 0x0
+  xmm4 = 0x0
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory in
+  0x402000: 00 00 00 00 00 00 02 c0 00 00 00 00 00 00 24 40
+    00 00 00 00 00 00 c0 3f 00 00 00 00 00 00 08 40
+    00 00 00 00 00 00 00 40 00 00 00 00 00 00 62 40
+    00 00 00 00 00 00 28 40 00 00 00 00 00 00 29 40
+    00 00 00 00 00 00 f0 3f 00 00 00 00 00 00 f0 bf
+    00 00 00 00 00 00 e0 bf 00 00 00 00 00 00 04 40
+    00 00 00 00 00 00 f8 3f 00 00 00 00 00 00 08 40
+    00 00 00 00 00 70 a7 40 00 00 00 00 00 00 0e 40
+  0x403004: 07 00 00 00
+  0x403010: 00 00 00 00 00 00 00 00
+call imp_GetStdHandle
+  result eax = 0x248
+  result edx = 0x0
+  result xmm0 = 0x0
+call mean
+  result eax = 0x248
+  result edx = 0x0
+  result esp = 0x120fff80
+  result xmm0 = 0x4003cccccccccccd
+call milli
+  result eax = 0x9ab
+  result edx = 0x0
+  result esp = 0x120fff80
+  result xmm0 = 0x40a3560000000000
+  effect 0x10000508: 00 00 00 00 00 56 a3 40 00 00 00 00 00 00 00 00
+    7f 02
+  effect 0x120fff6c: 7f 02 7f 0e ab 09 00 00 00 00 00 00 b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x1
+  result xmm0 = 0x40a3560000000000
+  effect 0x120fff34: 48 02 00 00 66 ff 0f 12 06 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 66 ff 0f 12 06 00 00 00
+  effect 0x120fff66: 32 34 37 35 0d 0a 00 00 00 00 00 00 00 00 00 00
+    00 00 b8 ff 0f 12
+call newton_sqrt
+  result eax = 0x1
+  result edx = 0x0
+  result esp = 0x120fff80
+  result xmm0 = 0x3ff6a09e667f3bcc
+  result xmm1 = 0x3fe0000000000000
+  result xmm2 = 0x3ff6a09e667f3bcc
+  result xmm3 = 0x3ff6a09e667f3bcc
+  result xmm4 = 0x3ff0000000000000
+call milli
+  result eax = 0x586
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x0
+  result xmm0 = 0x409618dab0184065
+  effect 0x10000508: 65 40 18 b0 da 18 96 40 00 00 00 00 00 00 00 00
+    7f 02
+  effect 0x120fff6c: 7f 02 7f 0e 86 05 00 00 00 00 00 00 b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x1
+  result xmm0 = 0x409618dab0184065
+  effect 0x120fff34: 48 02 00 00 66 ff 0f 12 06 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 66 ff 0f 12 06 00 00 00
+  effect 0x120fff66: 31 34 31 34 0d 0a 00 00 00 00 00 00 00 00 00 00
+    00 00 b8 ff 0f 12
+call newton_sqrt
+  result eax = 0x1
+  result edx = 0x0
+  result esp = 0x120fff80
+  result xmm0 = 0x4028000000000000
+  result xmm2 = 0x4028000000000000
+  result xmm3 = 0x4028000000000000
+  result xmm4 = 0x4052000000000000
+call milli
+  result eax = 0x2ee0
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x0
+  result xmm0 = 0x40c7700000000000
+  effect 0x10000508: 00 00 00 00 00 70 c7 40 00 00 00 00 00 00 00 00
+    7f 02
+  effect 0x120fff6c: 7f 02 7f 0e e0 2e 00 00 00 00 00 00 b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x1
+  result xmm0 = 0x40c7700000000000
+  effect 0x120fff34: 48 02 00 00 65 ff 0f 12 07 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 65 ff 0f 12 07 00 00 00
+  effect 0x120fff65: 31 32 30 30 30 0d 0a 00 00 00 00 00 00 00 00 00
+    00 00 00 b8 ff 0f 12
+call milli
+  result eax = 0x2ee0
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x0
+  result xmm0 = 0x40c7700000000000
+  effect 0x10000508: 00 00 00 00 00 70 c7 40 00 00 00 00 00 00 00 00
+    7f 02
+  effect 0x120fff6c: 7f 02 7f 0e e0 2e 00 00 00 00 00 00 b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x1
+  result xmm0 = 0x40c7700000000000
+  effect 0x120fff34: 48 02 00 00 65 ff 0f 12 07 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 65 ff 0f 12 07 00 00 00
+  effect 0x120fff65: 31 32 30 30 30 0d 0a 00 00 00 00 00 00 00 00 00
+    00 00 00 b8 ff 0f 12
+call milli
+  result eax = 0x30d4
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x0
+  result xmm0 = 0x40c86a0000000000
+  effect 0x10000508: 00 00 00 00 00 6a c8 40 00 00 00 00 00 00 00 00
+    7f 02
+  effect 0x120fff6c: 7f 02 7f 0e d4 30 00 00 00 00 00 00 b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x1
+  result xmm0 = 0x40c86a0000000000
+  effect 0x120fff34: 48 02 00 00 65 ff 0f 12 07 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 65 ff 0f 12 07 00 00 00
+  effect 0x120fff65: 31 32 35 30 30 0d 0a 00 00 00 00 00 00 00 00 00
+    00 00 00 b8 ff 0f 12
+call classify
+  result eax = 0x0
+  result edx = 0x0
+  result esp = 0x120fff80
+  result zf = 0x1
+  result xmm0 = 0xfff8000000000000
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result zf = 0x0
+  result xmm0 = 0xfff8000000000000
+  effect 0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  effect 0x120fff69: 30 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+call classify
+  result eax = 0x5
+  result edx = 0x0
+  result esp = 0x120fff80
+  result xmm0 = 0x7ff0000000000000
+  result xmm1 = 0x0
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result zf = 0x0
+  result xmm0 = 0x7ff0000000000000
+  effect 0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  effect 0x120fff69: 35 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+call classify
+  result eax = 0x4
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x0
+  result xmm0 = 0xfff0000000000000
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result zf = 0x0
+  result xmm0 = 0xfff0000000000000
+  effect 0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  effect 0x120fff69: 34 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+call classify
+  result eax = 0x3
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x0
+  result zf = 0x1
+  result xmm0 = 0x0
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result zf = 0x0
+  result xmm0 = 0x0
+  effect 0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  effect 0x120fff69: 33 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+call classify
+  result eax = 0x4
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x0
+  result xmm0 = 0xbfe0000000000000
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result zf = 0x0
+  result xmm0 = 0xbfe0000000000000
+  effect 0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  effect 0x120fff69: 34 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+call classify
+  result eax = 0x5
+  result edx = 0x0
+  result esp = 0x120fff80
+  result xmm0 = 0x4004000000000000
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result zf = 0x0
+  result xmm0 = 0x4004000000000000
+  effect 0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  effect 0x120fff69: 35 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x1
+  result xmm0 = 0x4025000000000000
+  effect 0x120fff34: 48 02 00 00 68 ff 0f 12 04 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 68 ff 0f 12 04 00 00 00
+  effect 0x120fff68: 31 30 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00
+    b8 ff 0f 12
+call milli
+  result eax = 0x91d
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x0
+  result xmm0 = 0x40a23aaaa0400000
+  effect 0x10000508: 00 00 40 a0 aa 3a a2 40 00 00 00 00 00 00 00 00
+    7f 02
+  effect 0x120fff6c: 7f 02 7f 0e 1d 09 00 00 00 00 00 00 b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x1
+  result xmm0 = 0x40a23aaaa0400000
+  effect 0x120fff34: 48 02 00 00 66 ff 0f 12 06 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 66 ff 0f 12 06 00 00 00
+  effect 0x120fff66: 32 33 33 33 0d 0a 00 00 00 00 00 00 00 00 00 00
+    00 00 b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result xmm0 = 0x40a23aaaa0400000
+  effect 0x120fff34: 48 02 00 00 68 ff 0f 12 04 00 00 00 50 ff 0f 12
+    00 00 00 00 ff ff ff ff 69 ff 0f 12 04 00 00 00
+  effect 0x120fff68: 2d 37 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00
+    b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result zf = 0x0
+  result xmm0 = 0x40a23aaaa0400000
+  effect 0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  effect 0x120fff69: 37 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+call milli
+  result eax = 0x2dc6c0
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x0
+  result xmm0 = 0x4146e36000000000
+  effect 0x10000508: 00 00 00 00 60 e3 46 41 00 00 00 00 00 00 00 00
+    7f 02
+  effect 0x120fff6c: 7f 02 7f 0e c0 c6 2d 00 00 00 00 00 b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x1
+  result xmm0 = 0x4146e36000000000
+  effect 0x120fff34: 48 02 00 00 63 ff 0f 12 09 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 63 ff 0f 12 09 00 00 00
+  effect 0x120fff63: 33 30 30 30 30 30 30 0d 0a 00 00 00 00 00 00 00
+    00 00 00 00 00 b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result zf = 0x0
+  result xmm0 = 0x4146e36000000000
+  effect 0x120fff34: 48 02 00 00 69 ff 0f 12 03 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 69 ff 0f 12 03 00 00 00
+  effect 0x120fff69: 30 0d 0a 00 00 00 00 00 00 00 00 00 00 00 00 b8
+    ff 0f 12
+call milli
+  result eax = 0xea6
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x0
+  result xmm0 = 0x40ad4c0000000000
+  effect 0x10000508: 00 00 00 00 00 4c ad 40 00 00 00 00 00 00 00 00
+    7f 02
+  effect 0x120fff6c: 7f 02 7f 0e a6 0e 00 00 00 00 00 00 b8 ff 0f 12
+call print_int
+  result eax = 0x1
+  result ecx = 0x120fff50
+  result edx = 0x0
+  result esp = 0x120fff80
+  result pf = 0x1
+  result xmm0 = 0x40ad4c0000000000
+  effect 0x120fff34: 48 02 00 00 66 ff 0f 12 06 00 00 00 50 ff 0f 12
+    00 00 00 00 00 00 00 00 66 ff 0f 12 06 00 00 00
+  effect 0x120fff66: 33 37 35 30 0d 0a 00 00 00 00 00 00 00 00 00 00
+    00 00 b8 ff 0f 12
+call imp_ExitProcess
+  result eax = 0x1
+  result edx = 0x0
+  result xmm0 = 0x40ad4c0000000000
+exit
+  eax = 0x1
+  ecx = 0x120fff50
+  edx = 0x0
+  ebx = 0x0
+  esp = 0x120fff7c
+  ebp = 0x120fffb8
+  esi = 0x0
+  edi = 0x0
+  eip = 0x0
+  cf = 0x0
+  pf = 0x1
+  af = 0x0
+  zf = 0x0
+  sf = 0x0
+  df = 0x0
+  of = 0x0
+  xmm0 = 0x40ad4c0000000000
+  xmm1 = 0x0
+  xmm2 = 0x4028000000000000
+  xmm3 = 0x4028000000000000
+  xmm4 = 0x4052000000000000
+  xmm5 = 0x0
+  xmm6 = 0x0
+  xmm7 = 0x0
+  xmm8 = 0x0
+  xmm9 = 0x0
+  xmm10 = 0x0
+  xmm11 = 0x0
+  xmm12 = 0x0
+  xmm13 = 0x0
+  xmm14 = 0x0
+  xmm15 = 0x0
+  ymm0h = 0x0
+  ymm1h = 0x0
+  ymm2h = 0x0
+  ymm3h = 0x0
+  ymm4h = 0x0
+  ymm5h = 0x0
+  ymm6h = 0x0
+  ymm7h = 0x0
+  ymm8h = 0x0
+  ymm9h = 0x0
+  ymm10h = 0x0
+  ymm11h = 0x0
+  ymm12h = 0x0
+  ymm13h = 0x0
+  ymm14h = 0x0
+  ymm15h = 0x0
+memory out
+  0x403008: 48 02 00 00
+  0x10000508: 00 00 00 00 00 4c ad 40 00 00 00 00 00 00 00 00
+    7f 02
+  0x120fff7c: 00 00 00 00
+  0x120fff84: 7f 02 7f 0e 0a 00 00 00 00 00 00 00 00 00 00 00
+    00 00 f8 3f 00 00 00 00 00 00 02 c0 00 00 00 00
+    00 00 24 40 00 00 00 00 00 00 c0 3f 00 00 00 00
+    00 00 08 40 00 00 00 00
+left exit 0x0

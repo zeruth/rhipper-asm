@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use ra_asm_analysis::Analysis;
@@ -20,9 +20,13 @@ use ra_asm_verify::{Replayer, Vector};
 
 /// Where the vectors come from and which of them replay.
 pub(crate) struct Options<'a> {
+    /// The program the image was loaded from, whose name a vector file in a directory takes.
+    pub program: &'a Path,
     /// A vector file to read instead of recording a run.
     pub vectors: Option<&'a Path>,
-    /// Where to write the vectors the run recorded.
+    /// Where to write the vectors the run recorded: a vector file, or a directory that keeps
+    /// them as `<program's name>.fv`, as `testdata/vectors/fn` keeps the fixtures', with the
+    /// comment of how the recorder kept them.
     pub write: Option<&'a Path>,
     /// The one function to verify, by name or by address.
     pub function: Option<&'a str>,
@@ -59,7 +63,10 @@ fn verify_here(image: &Image, options: &Options<'_>) -> Result<bool> {
         None => recorded(image, &machine)?,
     };
     if let Some(path) = options.write {
-        std::fs::write(path, ra_asm_verify::write(&vectors)?).with_context(|| format!("writing {}", path.display()))?;
+        let path = vector_file(path, options.program);
+        // Only a run's own vectors are kept as the recorder keeps them.
+        let text = if options.vectors.is_some() { ra_asm_verify::write(&vectors)? } else { ra_asm_verify::record::file(&vectors)? };
+        std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
     }
 
     let mut functions: BTreeMap<u64, Function<'_>> = BTreeMap::new();
@@ -131,6 +138,16 @@ fn replay(
             }
         };
     }
+}
+
+/// The vector file `write` names for `program`: itself, or in a directory the program's name
+/// without its extension, `.fv` after it.
+fn vector_file(write: &Path, program: &Path) -> PathBuf {
+    if !write.is_dir() {
+        return write.to_owned();
+    }
+    let name = program.file_stem().unwrap_or(program.as_os_str());
+    write.join(format!("{}.fv", name.to_string_lossy()))
 }
 
 /// The vectors of one run of `lifted`, the machine level, through the interpreter. A run that

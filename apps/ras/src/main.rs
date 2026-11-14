@@ -393,8 +393,9 @@ enum Command {
         /// Read the vectors from this vector file instead of recording a run.
         #[arg(long, value_name = "FILE")]
         vectors: Option<PathBuf>,
-        /// Write the vectors to this vector file.
-        #[arg(long, value_name = "FILE")]
+        /// Write the vectors to this vector file, or to `<program>.fv` in this directory:
+        /// `--write testdata/vectors/fn` stores a fixture's.
+        #[arg(long, value_name = "PATH")]
         write: Option<PathBuf>,
         /// The one function to verify, by name or by address: `fib`, `0x140001000` or `F_140001000`.
         #[arg(long)]
@@ -511,7 +512,8 @@ fn command() -> anyhow::Result<()> {
         }
         Command::Case { pe, function, pass } => case::case(&load(&pe, sigs)?, &function, &pass),
         Command::Verify { pe, vectors, write, function } => {
-            let options = verify::Options { vectors: vectors.as_deref(), write: write.as_deref(), function: function.as_deref() };
+            let options =
+                verify::Options { program: &pe, vectors: vectors.as_deref(), write: write.as_deref(), function: function.as_deref() };
             if !verify::verify(&load(&pe, sigs)?, &options)? {
                 std::process::exit(1)
             }

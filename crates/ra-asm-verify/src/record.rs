@@ -9,8 +9,10 @@
 //! activation in its own right, so a recursive function's inner activations are calls of the
 //! outer one and candidates of their own.
 //!
-//! A run enters some functions a million times. A vector is kept when its activation ran a block
-//! no kept vector of its function ran, and a function keeps at most [`KEPT`].
+//! A run enters some functions a million times. A function keeps the vectors of its first
+//! [`FIRST`] activations, which run its blocks over other values, and after them one whose
+//! activation ran a block no kept vector of its function ran, [`KEPT`] at most. A file of the
+//! vectors a run kept says so in a comment after its header ([`keeping`], [`file`]).
 //!
 //! What a vector holds, at this level:
 //! - the registers are every register of the state, at the entry and at the exit; the bytes of
@@ -38,7 +40,10 @@ use ra_asm_pe::Image;
 use crate::vector::{Call, Left, Register, Run, Vector};
 
 /// The vectors a function keeps at most.
-pub const KEPT: usize = 8;
+pub const KEPT: usize = 16;
+
+/// The activations of a function whose vectors are kept whatever blocks they ran.
+pub const FIRST: usize = 8;
 
 /// The name of the result a callee outside the state's shape returned, among a call's results.
 pub const RETURN: &str = "return";
@@ -324,7 +329,7 @@ impl Observer for Recorder {
         if let Some(address) = done.address {
             *self.recording.activations.entry(done.name.clone()).or_default() += 1;
             let coverage = self.coverage.entry(done.name.clone()).or_default();
-            if coverage.kept < KEPT && done.blocks.iter().any(|block| !coverage.covered.contains(block)) {
+            if coverage.kept < KEPT && (coverage.kept < FIRST || done.blocks.iter().any(|block| !coverage.covered.contains(block))) {
                 coverage.kept += 1;
                 coverage.covered.extend(done.blocks.iter().copied());
                 // What the function wrote itself, as the activation left it: a callee may have
@@ -399,6 +404,19 @@ pub(crate) fn left(result: &Result<Value, Stop>) -> Left {
             Left::Trap { address, reason: reason.to_owned() }
         }
     }
+}
+
+/// The comment a file of the vectors a run kept holds after its header: which of them the
+/// recorder keeps. A committed file without the comment of this recorder was kept otherwise.
+pub fn keeping() -> String {
+    format!("# kept: the first {FIRST} activations of each function, then each that ran a new block, {KEPT} at most")
+}
+
+/// The text of a vector file of the vectors a run kept, [`keeping`] after its header.
+pub fn file(vectors: &[Vector]) -> Result<String, crate::vector::Error> {
+    let text = crate::vector::write(vectors)?;
+    let (header, rest) = text.split_once('\n').unwrap_or((&text, ""));
+    Ok(format!("{header}\n{}\n{rest}", keeping()))
 }
 
 /// Runs `lifted`, raised to the machine level, through the interpreter as
