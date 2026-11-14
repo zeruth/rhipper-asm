@@ -11,7 +11,8 @@ use crate::image::Image;
 #[derive(Debug, Clone, Serialize)]
 pub struct Import {
     pub dll: String,
-    /// The name, or `None` for an import by ordinal.
+    /// The name, or `None` for an import by ordinal; an ordinal of a DLL whose ordinals are fixed
+    /// has its name ([`fixed_ordinal`]), the ordinal kept beside it.
     pub name: Option<String>,
     pub hint: u16,
     /// The ordinal of an import by ordinal.
@@ -42,6 +43,70 @@ pub(crate) fn parse(image: &Image) -> Result<Vec<Import>> {
         parse_delay_directory(image, va, &mut imports)?;
     }
     Ok(imports)
+}
+
+/// The exports of Winsock whose ordinals are fixed: the Winsock 1.1 functions, which `ws2_32.lib`
+/// and `wsock32.lib` import by ordinal alone (`NONAME`), as every Windows since has exported them
+/// at the same numbers. An import of one has a name the prototype tables know, as a kernel import
+/// of an Xbox image has ([`crate::xbe::kernel_export`]); the DLL exports each by name as well, so
+/// the host resolves the name.
+const WINSOCK_ORDINALS: &[(u16, &str)] = &[
+    (1, "accept"),
+    (2, "bind"),
+    (3, "closesocket"),
+    (4, "connect"),
+    (5, "getpeername"),
+    (6, "getsockname"),
+    (7, "getsockopt"),
+    (8, "htonl"),
+    (9, "htons"),
+    (10, "ioctlsocket"),
+    (11, "inet_addr"),
+    (12, "inet_ntoa"),
+    (13, "listen"),
+    (14, "ntohl"),
+    (15, "ntohs"),
+    (16, "recv"),
+    (17, "recvfrom"),
+    (18, "select"),
+    (19, "send"),
+    (20, "sendto"),
+    (21, "setsockopt"),
+    (22, "shutdown"),
+    (23, "socket"),
+    (51, "gethostbyaddr"),
+    (52, "gethostbyname"),
+    (53, "getprotobyname"),
+    (54, "getprotobynumber"),
+    (55, "getservbyname"),
+    (56, "getservbyport"),
+    (57, "gethostname"),
+    (101, "WSAAsyncSelect"),
+    (102, "WSAAsyncGetHostByAddr"),
+    (103, "WSAAsyncGetHostByName"),
+    (104, "WSAAsyncGetProtoByNumber"),
+    (105, "WSAAsyncGetProtoByName"),
+    (106, "WSAAsyncGetServByPort"),
+    (107, "WSAAsyncGetServByName"),
+    (108, "WSACancelAsyncRequest"),
+    (109, "WSASetBlockingHook"),
+    (110, "WSAUnhookBlockingHook"),
+    (111, "WSAGetLastError"),
+    (112, "WSASetLastError"),
+    (113, "WSACancelBlockingCall"),
+    (114, "WSAIsBlocking"),
+    (115, "WSAStartup"),
+    (116, "WSACleanup"),
+    (151, "__WSAFDIsSet"),
+];
+
+/// The name of an import by ordinal of a DLL whose ordinals are fixed ([`WINSOCK_ORDINALS`]);
+/// `None` for any other DLL or ordinal, whose name the file does not tell.
+pub fn fixed_ordinal(dll: &str, ordinal: u16) -> Option<&'static str> {
+    if !(dll.eq_ignore_ascii_case("ws2_32.dll") || dll.eq_ignore_ascii_case("wsock32.dll")) {
+        return None;
+    }
+    WINSOCK_ORDINALS.iter().find(|(o, _)| *o == ordinal).map(|(_, name)| *name)
 }
 
 /// The ordinal flag of a thunk: the top bit of its width.
@@ -99,7 +164,9 @@ fn read_thunks(image: &Image, dll: &str, lookup_va: u64, iat_va: u64, delayed: b
         }
         let slot = iat_va + index * width;
         if entry & flag != 0 {
-            out.push(Import { dll: dll.to_owned(), name: None, hint: 0, ordinal: Some((entry & 0xffff) as u16), iat_va: slot, delayed });
+            let ordinal = (entry & 0xffff) as u16;
+            let name = fixed_ordinal(dll, ordinal).map(str::to_owned);
+            out.push(Import { dll: dll.to_owned(), name, hint: 0, ordinal: Some(ordinal), iat_va: slot, delayed });
         } else {
             let hint_name_va = image.va((entry & 0x7fff_ffff) as u32);
             let hint = image.u16(hint_name_va).with_context(|| format!("hint of an import of {dll} at {hint_name_va:#x}"))?;

@@ -349,7 +349,9 @@ enum Command {
         #[arg(long)]
         quiet: bool,
         /// Print the census instead of the report: a line per mnemonic the lift traps on, the
-        /// most functions affected first, as a pending list.
+        /// most functions affected first, then the boundary (the imports without a prototype,
+        /// the structures without an adapter row, the COM interfaces without a row), the most
+        /// call sites first, each as a pending list.
         #[arg(long)]
         census: bool,
     },

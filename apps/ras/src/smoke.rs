@@ -26,6 +26,87 @@ const SLOWEST: usize = 20;
 /// The end of a crashed child's stderr the report keeps.
 const STDERR_TAIL: usize = 2000;
 
+/// The Win32 structures laid out apart at the two pointer widths (a pointer or a handle among
+/// their fields), each with the imports that always take one. An import whose structure may be
+/// null (`WriteFile`'s `OVERLAPPED`, a `SECURITY_ATTRIBUTES`) is no line of the census, since a
+/// static count cannot tell a null from a record; `CREATESTRUCTA` reaches the window procedure
+/// through `CreateWindowExA`. A 32-bit program that calls one of these needs the runtime's adapter
+/// of the structure, and has it when the runtime shims the import under its own name
+/// ([`ra_asm_lift::raise::prototypes::x86_shim`]): a shimmed import is not in the IR under its
+/// Win32 name, so it never matches here. The rows the roadmap's conformance table names come
+/// first, then the process structures a program's startup reads.
+const STRUCTURES: &[(&str, &[&str])] = &[
+    ("WNDCLASSA", &["RegisterClassA"]),
+    ("WNDCLASSW", &["RegisterClassW"]),
+    ("WNDCLASSEXA", &["RegisterClassExA"]),
+    ("WNDCLASSEXW", &["RegisterClassExW"]),
+    ("CREATESTRUCTA", &["CreateWindowExA"]),
+    ("CREATESTRUCTW", &["CreateWindowExW"]),
+    ("MSG", &["GetMessageA", "GetMessageW", "PeekMessageA", "PeekMessageW", "TranslateMessage", "DispatchMessageA", "DispatchMessageW"]),
+    ("PAINTSTRUCT", &["BeginPaint", "EndPaint"]),
+    ("OVERLAPPED", &["GetOverlappedResult", "GetOverlappedResultEx", "GetQueuedCompletionStatus"]),
+    ("MEMORY_BASIC_INFORMATION", &["VirtualQuery", "VirtualQueryEx"]),
+    (
+        "SLIST_HEADER",
+        &["InitializeSListHead", "InterlockedPushEntrySList", "InterlockedPopEntrySList", "InterlockedFlushSList", "QueryDepthSList"],
+    ),
+    ("INIT_ONCE", &["InitOnceInitialize", "InitOnceExecuteOnce", "InitOnceBeginInitialize", "InitOnceComplete"]),
+    ("WSADATA", &["WSAStartup"]),
+    (
+        "CRITICAL_SECTION",
+        &[
+            "InitializeCriticalSection",
+            "InitializeCriticalSectionAndSpinCount",
+            "InitializeCriticalSectionEx",
+            "EnterCriticalSection",
+            "TryEnterCriticalSection",
+            "LeaveCriticalSection",
+            "DeleteCriticalSection",
+        ],
+    ),
+    ("STARTUPINFOA", &["GetStartupInfoA", "CreateProcessA"]),
+    ("STARTUPINFOW", &["GetStartupInfoW", "CreateProcessW"]),
+    ("PROCESS_INFORMATION", &["CreateProcessA", "CreateProcessW"]),
+    ("SYSTEM_INFO", &["GetSystemInfo", "GetNativeSystemInfo"]),
+];
+
+/// The COM interfaces a program reaches through an import that creates an object, by the creator.
+/// A 32-bit program calls the object through an x86 vtable, which needs a row of the runtime's
+/// COM thunks ([`COM_ROWS`]). `CoCreateInstance` names its interface by an IID the census does
+/// not read: its line is `IUnknown`, which every object is. The DirectX creators are the ones a
+/// game of the Direct3D 8 and 9 years links.
+const INTERFACES: &[(&str, &[&str])] = &[
+    ("IUnknown", &["CoCreateInstance", "CoCreateInstanceEx", "CoGetClassObject"]),
+    ("IMalloc", &["CoGetMalloc", "SHGetMalloc"]),
+    (
+        "IStream",
+        &["CreateStreamOnHGlobal", "SHCreateMemStream", "SHCreateStreamOnFileA", "SHCreateStreamOnFileW", "SHCreateStreamOnFileEx"],
+    ),
+    ("IDirect3D8", &["Direct3DCreate8"]),
+    ("IDirect3D9", &["Direct3DCreate9", "Direct3DCreate9Ex"]),
+    ("IDirectDraw", &["DirectDrawCreate"]),
+    ("IDirectDraw7", &["DirectDrawCreateEx"]),
+    ("IDirectDrawClipper", &["DirectDrawCreateClipper"]),
+    ("IDirectSound", &["DirectSoundCreate"]),
+    ("IDirectSound8", &["DirectSoundCreate8"]),
+    ("IDirectSoundCapture", &["DirectSoundCaptureCreate", "DirectSoundCaptureCreate8"]),
+    ("IDirectInput", &["DirectInputCreateA", "DirectInputCreateW", "DirectInputCreateEx"]),
+    ("IDirectInput8", &["DirectInput8Create"]),
+    ("IXAudio2", &["XAudio2Create"]),
+];
+
+/// The interfaces the runtime answers behind an x86 vtable: none yet. The host COM thunks fill
+/// the list, and an interface on it leaves the census.
+const COM_ROWS: &[&str] = &[];
+
+/// The three lists of the boundary, in the order the census prints them: the key in the report,
+/// the census's heading and the text report's.
+const BOUNDARY: [(&str, &str, &str); 3] = [
+    ("imports", "The imports without a prototype", "imports without a prototype"),
+    ("structures", "The structure parameters without an adapter row", "structure parameters without an adapter row"),
+    ("interfaces", "The COM interfaces without a row", "COM interfaces without a row"),
+];
+
 /// What `ras smoke` was asked for.
 pub(crate) struct Options {
     /// The time limit of one file.
@@ -46,8 +127,10 @@ pub(crate) struct Options {
     pub quiet: bool,
     /// The report on stdout as JSON.
     pub json: bool,
-    /// The census on stdout instead of the tables: the mnemonics the lift traps on as a pending
-    /// list. The JSON report carries the same counts, so `json` wins over it.
+    /// The census on stdout instead of the tables: the mnemonics the lift traps on, then the
+    /// boundary (the imports without a prototype, the structures without an adapter row, the COM
+    /// interfaces without a row), each as a pending list. The JSON report carries the same
+    /// counts, so `json` wins over it.
     pub census: bool,
 }
 
@@ -317,6 +400,7 @@ pub(crate) fn file(pe: &Path, signatures: &[PathBuf]) {
     let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
     clock.enter(3);
     let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+    let boundary = boundary(&lifted, &coverage);
     clock.enter(4);
     let signatures = crate::lift::raise(&mut lifted, &analysis, ra_asm_lift::RaiseLevel::Abi);
     clock.enter(5);
@@ -338,11 +422,109 @@ pub(crate) fn file(pe: &Path, signatures: &[PathBuf]) {
         "functions": lifted.functions.len(),
         "bytes": translation.bytes() + header.len(),
         "coverage": crate::report::coverage_json(&coverage),
+        "boundary": boundary,
     }));
 }
 
 fn round(seconds: f64) -> f64 {
     (seconds * 1000.0).round() / 1000.0
+}
+
+/// The call sites of an import, or of the imports of one structure or interface, in one image.
+#[derive(Default)]
+struct Sites {
+    count: u64,
+    /// The entries of the functions the sites lie in.
+    functions: BTreeSet<u64>,
+    /// The lowest address of a site.
+    first: Option<u64>,
+}
+
+impl Sites {
+    fn merge(&mut self, other: &Self) {
+        self.count += other.count;
+        self.functions.extend(&other.functions);
+        self.first = match (self.first, other.first) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+    }
+}
+
+/// The call sites of every import in the machine IR, by the import's symbol: each call of the
+/// import's wrapper, counted before the raise, at the address of the instruction it was lifted from.
+fn import_sites(lifted: &ra_asm_lift::Lifted) -> BTreeMap<String, Sites> {
+    use ra_asm_ir::{Callee, Inst};
+    let mut sites: BTreeMap<String, Sites> = BTreeMap::new();
+    for f in &lifted.module.functions {
+        let Some(entry) = f.address else { continue };
+        for block in &f.blocks {
+            for i in &block.instrs {
+                let Inst::Call { callee: Callee::Direct(name), .. } = &i.inst else { continue };
+                let Some(import) = ra_asm_lift::import_of_wrapper(name) else { continue };
+                let s = sites.entry(import.to_owned()).or_default();
+                s.count += 1;
+                s.functions.insert(entry);
+                let address = i.address.or(block.address).unwrap_or(entry);
+                s.first = Some(s.first.map_or(address, |a| a.min(address)));
+            }
+        }
+    }
+    sites
+}
+
+/// One line of the boundary: `name`, the sites of the `imports` the image calls among those
+/// given, and which they are.
+fn boundary_entry(sites: &BTreeMap<String, Sites>, name: &str, imports: &[&str]) -> Value {
+    let mut total = Sites::default();
+    let mut through = Vec::new();
+    for import in imports {
+        if let Some(s) = sites.get(*import) {
+            total.merge(s);
+            through.push(*import);
+        }
+    }
+    json!({
+        "name": name,
+        "sites": total.count,
+        "functions": total.functions.len(),
+        "through": through,
+        "example": total.first.map(|a| format!("{a:#x}")),
+    })
+}
+
+/// What the image asks at the boundary that the host cannot answer, each with its call sites: the
+/// imports without a prototype (the coverage's, with the sites counted here; one only the data
+/// names has none), and, for a 32-bit image, the structures handed to an import with no adapter
+/// row and the COM interfaces created with no row.
+fn boundary(lifted: &ra_asm_lift::Lifted, coverage: &ra_asm_lift::Coverage) -> Value {
+    let sites = import_sites(lifted);
+    let none = Sites::default();
+    let imports: Vec<Value> = coverage
+        .unknown_imports
+        .iter()
+        .map(|name| {
+            let s = sites.get(name).unwrap_or(&none);
+            json!({
+                "name": name,
+                "sites": s.count,
+                "functions": s.functions.len(),
+                "through": [],
+                "example": s.first.map(|a| format!("{a:#x}")),
+            })
+        })
+        .collect();
+    let table = |rows: &[(&str, &[&str])], with_row: &[&str]| -> Vec<Value> {
+        if lifted.bits != 32 {
+            return Vec::new();
+        }
+        rows.iter()
+            .filter(|(name, _)| !with_row.contains(name))
+            .map(|(name, imports)| boundary_entry(&sites, name, imports))
+            .filter(|e| e["sites"].as_u64().unwrap_or(0) > 0)
+            .collect()
+    };
+    json!({"imports": imports, "structures": table(STRUCTURES, &[]), "interfaces": table(INTERFACES, COM_ROWS)})
 }
 
 /// One mnemonic over the corpus: its traps, the functions and the files it traps in, and the
@@ -355,8 +537,20 @@ struct Mnemonic {
     example: Option<(String, String)>,
 }
 
-/// The report of a run as JSON: the files by status, the coverage summed over the files that
-/// went through, the slowest files, and every panic, crash, timeout and refused image.
+/// One name of the boundary over the corpus: its call sites, the functions and the files they lie
+/// in, the imports they go through, and the first instance.
+#[derive(Default)]
+struct Boundary {
+    sites: u64,
+    functions: u64,
+    files: usize,
+    through: BTreeSet<String>,
+    example: Option<(String, String)>,
+}
+
+/// The report of a run as JSON: the files by status, the coverage and the boundary summed over
+/// the files that went through, the slowest files, and every panic, crash, timeout and refused
+/// image.
 fn report(dir: &Path, timeout: Duration, elapsed: Duration, outcomes: &[Outcome]) -> Value {
     let mut statuses: BTreeMap<&str, usize> = ["ok", "error", "panic", "crash", "timeout", "skipped"].into_iter().map(|s| (s, 0)).collect();
     let mut functions = 0;
@@ -366,6 +560,7 @@ fn report(dir: &Path, timeout: Duration, elapsed: Duration, outcomes: &[Outcome]
     let mut unresolved = 0;
     let mut mnemonics: BTreeMap<String, Mnemonic> = BTreeMap::new();
     let mut imports: BTreeMap<String, usize> = BTreeMap::new();
+    let mut boundary: [BTreeMap<String, Boundary>; 3] = Default::default();
     for o in outcomes {
         *statuses.entry(o.status).or_default() += 1;
         let file = o.file.display().to_string();
@@ -389,11 +584,46 @@ fn report(dir: &Path, timeout: Duration, elapsed: Duration, outcomes: &[Outcome]
         for name in names {
             *imports.entry(name.to_owned()).or_default() += 1;
         }
+        for ((key, ..), names) in BOUNDARY.iter().zip(&mut boundary) {
+            for e in o.result["boundary"][key].as_array().into_iter().flatten() {
+                let Some(name) = e["name"].as_str() else { continue };
+                let b = names.entry(name.to_owned()).or_default();
+                b.sites += e["sites"].as_u64().unwrap_or(0);
+                b.functions += e["functions"].as_u64().unwrap_or(0);
+                b.files += 1;
+                b.through.extend(e["through"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned));
+                if b.example.is_none()
+                    && let Some(addr) = e["example"].as_str()
+                {
+                    b.example = Some((file.clone(), addr.to_owned()));
+                }
+            }
+        }
     }
     let mut uncovered: Vec<_> = mnemonics.into_iter().collect();
     uncovered.sort_by(|a, b| b.1.count.cmp(&a.1.count).then_with(|| a.0.cmp(&b.0)));
     let mut imports: Vec<_> = imports.into_iter().collect();
     imports.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    // The most call sites first: the order of the remaining boundary work.
+    let boundary: serde_json::Map<String, Value> = BOUNDARY
+        .iter()
+        .zip(&boundary)
+        .map(|((key, ..), names)| {
+            let mut rows: Vec<_> = names.iter().collect();
+            rows.sort_by(|a, b| b.1.sites.cmp(&a.1.sites).then_with(|| b.1.functions.cmp(&a.1.functions)).then_with(|| a.0.cmp(b.0)));
+            let rows = rows.into_iter().map(|(name, b)| {
+                json!({
+                    "name": name,
+                    "sites": b.sites,
+                    "functions": b.functions,
+                    "files": b.files,
+                    "through": b.through,
+                    "example": b.example.as_ref().map(|(file, addr)| json!({"file": file, "addr": addr})),
+                })
+            });
+            ((*key).to_owned(), Value::Array(rows.collect()))
+        })
+        .collect();
     let mut slowest: Vec<&Outcome> = outcomes.iter().collect();
     slowest.sort_by(|a, b| b.seconds.total_cmp(&a.seconds));
     slowest.truncate(SLOWEST);
@@ -419,6 +649,7 @@ fn report(dir: &Path, timeout: Duration, elapsed: Duration, outcomes: &[Outcome]
             })).collect::<Vec<_>>(),
             "unknown_imports": imports.iter().map(|(name, files)| json!({"name": name, "files": files})).collect::<Vec<_>>(),
         },
+        "boundary": boundary,
         "slowest": slowest.iter().map(|o| json!({
             "file": o.file.display().to_string(),
             "seconds": round(o.seconds),
@@ -474,10 +705,24 @@ fn text(report: &Value) -> String {
         let (addr, file) = (s(&example["addr"]), s(&example["file"]));
         let _ = writeln!(out, "  {mnemonic:<12} {:>8} in {:>5} files  {addr} in {file}", u["count"], u["files"]);
     });
-    let imports = c["unknown_imports"].as_array().cloned().unwrap_or_default();
-    table(&mut out, "imports without a prototype", &imports, |out, i| {
-        let _ = writeln!(out, "  {:<40} {:>5} files", s(&i["name"]), i["files"]);
-    });
+    for (key, _, heading) in BOUNDARY {
+        let rows = report["boundary"][key].as_array().cloned().unwrap_or_default();
+        table(&mut out, heading, &rows, |out, b| {
+            let _ = write!(
+                out,
+                "  {:<28} {:>7} call sites in {:>6} functions, {:>5} files",
+                s(&b["name"]),
+                b["sites"],
+                b["functions"],
+                b["files"]
+            );
+            let through: Vec<String> = b["through"].as_array().into_iter().flatten().map(s).collect();
+            if !through.is_empty() {
+                let _ = write!(out, "  through {}", through.join(", "));
+            }
+            let _ = writeln!(out);
+        });
+    }
     table(&mut out, "slowest files", &rows("slowest"), |out, o| {
         let seconds = o["seconds"].as_f64().unwrap_or(0.0);
         let _ = writeln!(out, "  {seconds:>8.1}s  {:<7}  {}  ({})", s(&o["status"]), s(&o["file"]), s(&o["stage"]));
@@ -504,8 +749,11 @@ fn text(report: &Value) -> String {
 }
 
 /// The census of a run: a line per mnemonic the lift traps on, the one that affects the most
-/// functions first, so the lift's remaining work is ordered by what it frees. The shape is a
-/// pending list's: `#` lines of comment, then an entry a line whose first word is its name.
+/// functions first, so the lift's remaining work is ordered by what it frees; then the boundary's
+/// three lists ([`BOUNDARY`]), each a line per import, structure or interface the host cannot
+/// answer, the most call sites first, so the remaining Win32 work is ordered by what a program
+/// calls. The shape is a pending list's: `#` lines of comment, then an entry a line whose first
+/// word is its name; each list opens with a `# The ...` line.
 fn census(report: &Value) -> String {
     let c = &report["coverage"];
     let n = |value: &Value| value.as_u64().unwrap_or(0);
@@ -529,6 +777,23 @@ fn census(report: &Value) -> String {
             (counted(n(&u["functions"]), "function"), counted(n(&u["count"]), "trap"), counted(n(&u["files"]), "file"));
         let (addr, file) = (s(&u["example"]["addr"]), s(&u["example"]["file"]));
         let _ = writeln!(out, "{}: {functions}, {traps}, {files}, first {addr} in {file}", s(&u["mnemonic"]));
+    }
+    for (key, what, _) in BOUNDARY {
+        let _ = writeln!(out, "# {what} under {}, the most call sites first.", s(&report["directory"]));
+        for b in report["boundary"][key].as_array().into_iter().flatten() {
+            let (sites, functions, files) =
+                (counted(n(&b["sites"]), "call site"), counted(n(&b["functions"]), "function"), counted(n(&b["files"]), "file"));
+            let through: Vec<String> = b["through"].as_array().into_iter().flatten().map(s).collect();
+            let through = if through.is_empty() { String::new() } else { format!(", through {}", through.join(" ")) };
+            // An import no code calls is named by the data alone: its address is taken.
+            let example = &b["example"];
+            let instance = if example.is_null() {
+                "no call site, its address taken".to_owned()
+            } else {
+                format!("first {} in {}", s(&example["addr"]), s(&example["file"]))
+            };
+            let _ = writeln!(out, "{}: {sites}, {functions}, {files}{through}, {instance}", s(&b["name"]));
+        }
     }
     out
 }
