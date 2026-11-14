@@ -64,12 +64,24 @@ fn the_program_calls_the_dll_lifted_export(bits: u32) {
     let Some(clang) = ra_asm_testing::tool("clang") else { return };
     let exe = dir.join("port.exe");
     let mut build = Command::new(clang);
-    build.args(["-O1", "-g", "-gcodeview", "-Wall", "-Wextra", "-Werror", "-std=c23", "-fuse-ld=lld"]);
-    if bits == 32 {
-        build.arg("-Wl,/largeaddressaware:no");
+    build.args(["-O1", "-g", "-Wall", "-Wextra", "-Werror", "-std=c23"]);
+    // The flags of the host, as the oracle builds a port: on Linux the imports are the driver's
+    // Win32 layer, which dlsym finds among the executable's own exports.
+    if cfg!(windows) {
+        build.args(["-gcodeview", "-fuse-ld=lld"]);
+        if bits == 32 {
+            build.arg("-Wl,/largeaddressaware:no");
+        }
+    } else if bits == 32 {
+        build.args(["-fno-pie", "-no-pie"]);
     }
     build.args(sources(&dir)).arg(root().join("runtime/driver.c"));
-    build.arg("-I").arg(dir.path()).arg("-I").arg(root().join("runtime")).arg("-o").arg(&exe).arg("-lkernel32");
+    build.arg("-I").arg(dir.path()).arg("-I").arg(root().join("runtime")).arg("-o").arg(&exe);
+    if cfg!(windows) {
+        build.arg("-lkernel32");
+    } else {
+        build.args(["-rdynamic", "-pthread", "-ldl", "-lm"]);
+    }
     let built = build.output().unwrap();
     assert!(built.status.success(), "{bits}: the port does not build:\n{}", String::from_utf8_lossy(&built.stderr));
     let run = Command::new(&exe).current_dir(dir.path()).output().unwrap();

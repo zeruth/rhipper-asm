@@ -1578,6 +1578,9 @@ static int64_t import_pops(uint64_t target) {
     while (ra_import_pops[3 * count]) count++;
     if (!import_addresses) {
         import_addresses = calloc(count + 1, sizeof(uint64_t));
+        // A DLL's own addresses are Windows' to give; elsewhere the Win32 layer links each import
+        // by its symbol, which the table's first word already is.
+#ifdef _WIN32
         for (size_t i = 0; i < count; i++) {
             const char *dll = (const char *)(uintptr_t)ra_import_pops[3 * i + 1];
             if (!dll) continue;
@@ -1587,6 +1590,7 @@ static int64_t import_pops(uint64_t target) {
             FARPROC f = name[0] == '#' ? GetProcAddress(module, MAKEINTRESOURCEA(atoi(name + 1))) : GetProcAddress(module, name);
             import_addresses[i] = (uint64_t)(uintptr_t)f;
         }
+#endif
     }
     for (size_t i = 0; i < count; i++) {
         if (ra_import_pops[3 * i] == target || (import_addresses[i] && import_addresses[i] == target)) return (int64_t)ra_import_pops[3 * i + 2];
@@ -2136,6 +2140,11 @@ uint64_t GetLastError(void) {
 uint64_t SetLastError(uint64_t error) {
     win32_last_error = (uint32_t)error;
     return 0;
+}
+
+// The length of a narrow string, without its terminator; a null string is empty.
+uint64_t lstrlenA(uint64_t text) {
+    return text ? (uint32_t)strlen((const char *)W_PTR(text)) : 0;
 }
 
 uint64_t GetStdHandle(uint64_t which) {
@@ -3391,6 +3400,7 @@ static int ra_entry(void) {
 }
 
 #if !defined(_WIN32) && defined(RA_WIN32)
+#if RA_POINTER_SIZE == 4
 // A 32-bit program runs on a thread whose stack and thread block its pointers reach, and exits
 // there, so the functions it registered for the exit run on that stack as well.
 static void *win32_main_thread(void *unused) {
@@ -3399,6 +3409,7 @@ static void *win32_main_thread(void *unused) {
     attach_process();
     exit(ra_entry());
 }
+#endif
 
 static int win32_main(void) {
     win32_prepare();
