@@ -1,0 +1,216 @@
+Alu 01f10000 add.w r0, r1, #0
+Alu 08f1ff05 add.w r5, r8, #0xff
+Alu 0bf1ff29 add.w r9, r11, #0xff00ff00
+Alu 0ef1004c add.w r12, r14, #0x80000000
+Alu 11f10000 adds.w r0, r1, #0
+Alu 18f1ff05 adds.w r5, r8, #0xff
+Alu 1bf1ff29 adds.w r9, r11, #0xff00ff00
+Alu 1ef1004c adds.w r12, r14, #0x80000000
+Alu a1f10000 sub.w r0, r1, #0
+Alu a8f1ff05 sub.w r5, r8, #0xff
+Alu abf1ff29 sub.w r9, r11, #0xff00ff00
+Alu aef1004c sub.w r12, r14, #0x80000000
+Alu b1f10000 subs.w r0, r1, #0
+Alu b8f1ff05 subs.w r5, r8, #0xff
+Alu bbf1ff29 subs.w r9, r11, #0xff00ff00
+Alu bef1004c subs.w r12, r14, #0x80000000
+Alu 01f20000 addw r0, r1, #0
+Alu 08f20105 addw r5, r8, #1
+Alu 0bf6ff79 addw r9, r11, #0xfff
+Alu 0ef6000c addw r12, r14, #0x800
+Alu a1f20000 subw r0, r1, #0
+Alu a8f20105 subw r5, r8, #1
+Alu abf6ff79 subw r9, r11, #0xfff
+Alu aef6000c subw r12, r14, #0x800
+Alu c1f10000 rsb.w r0, r1, #0
+Alu c8f1ff05 rsb.w r5, r8, #0xff
+Alu cbf1ff29 rsb.w r9, r11, #0xff00ff00
+Alu cef1004c rsb.w r12, r14, #0x80000000
+Alu d1f10000 rsbs.w r0, r1, #0
+Alu d8f1ff05 rsbs.w r5, r8, #0xff
+Alu dbf1ff29 rsbs.w r9, r11, #0xff00ff00
+Alu def1004c rsbs.w r12, r14, #0x80000000
+Alu 41f10000 adc r0, r1, #0
+Alu 48f1ff05 adc r5, r8, #0xff
+Alu 4bf1ff29 adc r9, r11, #0xff00ff00
+Alu 4ef1004c adc r12, r14, #0x80000000
+Alu 51f10000 adcs r0, r1, #0
+Alu 58f1ff05 adcs r5, r8, #0xff
+Alu 5bf1ff29 adcs r9, r11, #0xff00ff00
+Alu 5ef1004c adcs r12, r14, #0x80000000
+Alu 61f10000 sbc r0, r1, #0
+Alu 68f1ff05 sbc r5, r8, #0xff
+Alu 6bf1ff29 sbc r9, r11, #0xff00ff00
+Alu 6ef1004c sbc r12, r14, #0x80000000
+Alu 71f10000 sbcs r0, r1, #0
+Alu 78f1ff05 sbcs r5, r8, #0xff
+Alu 7bf1ff29 sbcs r9, r11, #0xff00ff00
+Alu 7ef1004c sbcs r12, r14, #0x80000000
+Alu 01f00000 and.w r0, r1, #0
+Alu 08f0ff05 and.w r5, r8, #0xff
+Alu 0bf0ff29 and.w r9, r11, #0xff00ff00
+Alu 0ef0004c and.w r12, r14, #0x80000000
+Alu 11f00000 ands.w r0, r1, #0
+Alu 18f0ff05 ands.w r5, r8, #0xff
+Alu 1bf0ff29 ands.w r9, r11, #0xff00ff00
+Alu 1ef0004c ands.w r12, r14, #0x80000000
+Alu 41f00000 orr.w r0, r1, #0
+Alu 48f0ff05 orr.w r5, r8, #0xff
+Alu 4bf0ff29 orr.w r9, r11, #0xff00ff00
+Alu 4ef0004c orr.w r12, r14, #0x80000000
+Alu 51f00000 orrs.w r0, r1, #0
+Alu 58f0ff05 orrs.w r5, r8, #0xff
+Alu 5bf0ff29 orrs.w r9, r11, #0xff00ff00
+Alu 5ef0004c orrs.w r12, r14, #0x80000000
+Alu 61f00000 orn r0, r1, #0
+Alu 68f0ff05 orn r5, r8, #0xff
+Alu 6bf0ff29 orn r9, r11, #0xff00ff00
+Alu 6ef0004c orn r12, r14, #0x80000000
+Alu 71f00000 orns r0, r1, #0
+Alu 78f0ff05 orns r5, r8, #0xff
+Alu 7bf0ff29 orns r9, r11, #0xff00ff00
+Alu 7ef0004c orns r12, r14, #0x80000000
+Alu 81f00000 eor.w r0, r1, #0
+Alu 88f0ff05 eor.w r5, r8, #0xff
+Alu 8bf0ff29 eor.w r9, r11, #0xff00ff00
+Alu 8ef0004c eor.w r12, r14, #0x80000000
+Alu 91f00000 eors.w r0, r1, #0
+Alu 98f0ff05 eors.w r5, r8, #0xff
+Alu 9bf0ff29 eors.w r9, r11, #0xff00ff00
+Alu 9ef0004c eors.w r12, r14, #0x80000000
+Alu 21f00000 bic.w r0, r1, #0
+Alu 28f0ff05 bic.w r5, r8, #0xff
+Alu 2bf0ff29 bic.w r9, r11, #0xff00ff00
+Alu 2ef0004c bic.w r12, r14, #0x80000000
+Alu 31f00000 bics.w r0, r1, #0
+Alu 38f0ff05 bics.w r5, r8, #0xff
+Alu 3bf0ff29 bics.w r9, r11, #0xff00ff00
+Alu 3ef0004c bics.w r12, r14, #0x80000000
+Alu 4ff00000 mov.w r0, #0
+Alu 4ff0ff05 mov.w r5, #0xff
+Alu 4ff0ff29 mov.w r9, #0xff00ff00
+Alu 4ff0004c mov.w r12, #0x80000000
+Alu 5ff00000 movs.w r0, #0
+Alu 5ff0ff05 movs.w r5, #0xff
+Alu 5ff0ff29 movs.w r9, #0xff00ff00
+Alu 5ff0004c movs.w r12, #0x80000000
+Alu 6ff00000 mvn.w r0, #0
+Alu 6ff0ff05 mvn.w r5, #0xff
+Alu 6ff0ff29 mvn.w r9, #0xff00ff00
+Alu 6ff0004c mvn.w r12, #0x80000000
+Alu 7ff00000 mvns.w r0, #0
+Alu 7ff0ff05 mvns.w r5, #0xff
+Alu 7ff0ff29 mvns.w r9, #0xff00ff00
+Alu 7ff0004c mvns.w r12, #0x80000000
+Alu 11f0000f tst.w r1, #0
+Alu 18f0ff0f tst.w r8, #0xff
+Alu 1bf0ff2f tst.w r11, #0xff00ff00
+Alu 1ef0004f tst.w r14, #0x80000000
+Alu 91f0000f teq.w r1, #0
+Alu 98f0ff0f teq.w r8, #0xff
+Alu 9bf0ff2f teq.w r11, #0xff00ff00
+Alu 9ef0004f teq.w r14, #0x80000000
+Alu b1f1000f cmp.w r1, #0
+Alu b8f1ff0f cmp.w r8, #0xff
+Alu bbf1ff2f cmp.w r11, #0xff00ff00
+Alu bef1004f cmp.w r14, #0x80000000
+Alu 11f1000f cmn.w r1, #0
+Alu 18f1ff0f cmn.w r8, #0xff
+Alu 1bf1ff2f cmn.w r11, #0xff00ff00
+Alu 1ef1004f cmn.w r14, #0x80000000
+Alu 0df10000 add.w r0, sp, #0
+Alu 0df1ff05 add.w r5, sp, #0xff
+Alu 0df1ff29 add.w r9, sp, #0xff00ff00
+Alu 0df1004c add.w r12, sp, #0x80000000
+Alu 01eb0200 add.w r0, r1, r2
+Alu 08eb0a05 add.w r5, r8, r10
+Alu 0beb0c09 add.w r9, r11, r12
+Alu 0eeb060c add.w r12, r14, r6
+Alu 11eb0200 adds.w r0, r1, r2, lsl #0
+Alu 18eb4a05 adds.w r5, r8, r10, lsl #1
+Alu 1bebcc79 adds.w r9, r11, r12, lsl #31
+Alu 1eeb064c adds.w r12, r14, r6, lsl #16
+Alu 11eb5200 adds.w r0, r1, r2, lsr #1
+Alu 18ebda15 adds.w r5, r8, r10, lsr #7
+Alu 1bebdc79 adds.w r9, r11, r12, lsr #31
+Alu 1eeb164c adds.w r12, r14, r6, lsr #16
+Alu 01eb6200 add.w r0, r1, r2, asr #1
+Alu 08ebea15 add.w r5, r8, r10, asr #7
+Alu 0bebec79 add.w r9, r11, r12, asr #31
+Alu 0eeb264c add.w r12, r14, r6, asr #16
+Alu 11eb7200 adds.w r0, r1, r2, ror #1
+Alu 18ebfa15 adds.w r5, r8, r10, ror #7
+Alu 1bebfc79 adds.w r9, r11, r12, ror #31
+Alu 1eeb364c adds.w r12, r14, r6, ror #16
+Alu 11eb3200 adds.w r0, r1, r2, rrx
+Alu 18eb3a05 adds.w r5, r8, r10, rrx
+Alu 1beb3c09 adds.w r9, r11, r12, rrx
+Alu 1eeb360c adds.w r12, r14, r6, rrx
+Alu b1eb0200 subs.w r0, r1, r2, lsl #0
+Alu b8eb4a05 subs.w r5, r8, r10, lsl #1
+Alu bbebcc79 subs.w r9, r11, r12, lsl #31
+Alu beeb064c subs.w r12, r14, r6, lsl #16
+Alu a1eb5200 sub.w r0, r1, r2, lsr #1
+Alu a8ebda15 sub.w r5, r8, r10, lsr #7
+Alu abebdc79 sub.w r9, r11, r12, lsr #31
+Alu aeeb164c sub.w r12, r14, r6, lsr #16
+Alu d1eb6200 rsbs.w r0, r1, r2, asr #1
+Alu d8ebea15 rsbs.w r5, r8, r10, asr #7
+Alu dbebec79 rsbs.w r9, r11, r12, asr #31
+Alu deeb264c rsbs.w r12, r14, r6, asr #16
+Alu 51eb3200 adcs.w r0, r1, r2, rrx
+Alu 58eb3a05 adcs.w r5, r8, r10, rrx
+Alu 5beb3c09 adcs.w r9, r11, r12, rrx
+Alu 5eeb360c adcs.w r12, r14, r6, rrx
+Alu 71eb7200 sbcs.w r0, r1, r2, ror #1
+Alu 78ebfa15 sbcs.w r5, r8, r10, ror #7
+Alu 7bebfc79 sbcs.w r9, r11, r12, ror #31
+Alu 7eeb364c sbcs.w r12, r14, r6, ror #16
+Alu 11ea4200 ands.w r0, r1, r2, lsl #1
+Alu 18eaca15 ands.w r5, r8, r10, lsl #7
+Alu 1beacc79 ands.w r9, r11, r12, lsl #31
+Alu 1eea064c ands.w r12, r14, r6, lsl #16
+Alu 11ea5200 ands.w r0, r1, r2, lsr #1
+Alu 18eada15 ands.w r5, r8, r10, lsr #7
+Alu 1beadc79 ands.w r9, r11, r12, lsr #31
+Alu 1eea164c ands.w r12, r14, r6, lsr #16
+Alu 51ea6200 orrs.w r0, r1, r2, asr #1
+Alu 58eaea15 orrs.w r5, r8, r10, asr #7
+Alu 5beaec79 orrs.w r9, r11, r12, asr #31
+Alu 5eea264c orrs.w r12, r14, r6, asr #16
+Alu 51ea7200 orrs.w r0, r1, r2, ror #1
+Alu 58eafa15 orrs.w r5, r8, r10, ror #7
+Alu 5beafc79 orrs.w r9, r11, r12, ror #31
+Alu 5eea364c orrs.w r12, r14, r6, ror #16
+Alu 91ea3200 eors.w r0, r1, r2, rrx
+Alu 98ea3a05 eors.w r5, r8, r10, rrx
+Alu 9bea3c09 eors.w r9, r11, r12, rrx
+Alu 9eea360c eors.w r12, r14, r6, rrx
+Alu 71ea4200 orns r0, r1, r2, lsl #1
+Alu 78eaca15 orns r5, r8, r10, lsl #7
+Alu 7beacc79 orns r9, r11, r12, lsl #31
+Alu 7eea064c orns r12, r14, r6, lsl #16
+Alu 31ea5200 bics.w r0, r1, r2, lsr #1
+Alu 38eada15 bics.w r5, r8, r10, lsr #7
+Alu 3beadc79 bics.w r9, r11, r12, lsr #31
+Alu 3eea164c bics.w r12, r14, r6, lsr #16
+Alu 7fea6200 mvns.w r0, r2, asr #1
+Alu 7feaea15 mvns.w r5, r10, asr #7
+Alu 7feaec79 mvns.w r9, r12, asr #31
+Alu 7fea264c mvns.w r12, r6, asr #16
+Alu 11ea720f tst.w r1, r2, ror #1
+Alu 18eafa1f tst.w r8, r10, ror #7
+Alu 1beafc7f tst.w r11, r12, ror #31
+Alu 1eea364f tst.w r14, r6, ror #16
+Alu 91ea420f teq.w r1, r2, lsl #1
+Alu 98eaca1f teq.w r8, r10, lsl #7
+Alu 9beacc7f teq.w r11, r12, lsl #31
+Alu 9eea064f teq.w r14, r6, lsl #16
+Alu b1eb520f cmp.w r1, r2, lsr #1
+Alu b8ebda1f cmp.w r8, r10, lsr #7
+Alu bbebdc7f cmp.w r11, r12, lsr #31
+Alu beeb164f cmp.w r14, r6, lsr #16
+Alu 11eb320f cmn.w r1, r2, rrx
+Alu 18eb3a0f cmn.w r8, r10, rrx
+Alu 1beb3c0f cmn.w r11, r12, rrx
+Alu 1eeb360f cmn.w r14, r6, rrx

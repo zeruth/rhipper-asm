@@ -1,0 +1,100 @@
+Alu 5000 lsls r0, r2, #1
+Alu fb01 lsls r3, r7, #7
+Alu c507 lsls r5, r0, #31
+Alu 2f04 lsls r7, r5, #16
+Alu 5008 lsrs r0, r2, #1
+Alu fb09 lsrs r3, r7, #7
+Alu c50f lsrs r5, r0, #31
+Alu 2f08 lsrs r7, r5, #32
+Alu 5010 asrs r0, r2, #1
+Alu fb11 asrs r3, r7, #7
+Alu c517 asrs r5, r0, #31
+Alu 2f10 asrs r7, r5, #32
+Alu 9040 lsls r0, r2
+Alu bb40 lsls r3, r7
+Alu 8540 lsls r5, r0
+Alu af40 lsls r7, r5
+Alu d040 lsrs r0, r2
+Alu fb40 lsrs r3, r7
+Alu c540 lsrs r5, r0
+Alu ef40 lsrs r7, r5
+Alu 1041 asrs r0, r2
+Alu 3b41 asrs r3, r7
+Alu 0541 asrs r5, r0
+Alu 2f41 asrs r7, r5
+Alu d041 rors r0, r2
+Alu fb41 rors r3, r7
+Alu c541 rors r5, r0
+Alu ef41 rors r7, r5
+Alu 4fea4100 lsl.w r0, r1, #1
+Alu 4feac815 lsl.w r5, r8, #7
+Alu 4feacb79 lsl.w r9, r11, #31
+Alu 4fea0e4c lsl.w r12, r14, #16
+Alu 5fea4100 lsls.w r0, r1, #1
+Alu 5feac815 lsls.w r5, r8, #7
+Alu 5feacb79 lsls.w r9, r11, #31
+Alu 5fea0e4c lsls.w r12, r14, #16
+Alu 4fea5100 lsr.w r0, r1, #1
+Alu 4fead815 lsr.w r5, r8, #7
+Alu 4feadb79 lsr.w r9, r11, #31
+Alu 4fea1e0c lsr.w r12, r14, #32
+Alu 5fea5100 lsrs.w r0, r1, #1
+Alu 5fead815 lsrs.w r5, r8, #7
+Alu 5feadb79 lsrs.w r9, r11, #31
+Alu 5fea1e0c lsrs.w r12, r14, #32
+Alu 4fea6100 asr.w r0, r1, #1
+Alu 4feae815 asr.w r5, r8, #7
+Alu 4feaeb79 asr.w r9, r11, #31
+Alu 4fea2e0c asr.w r12, r14, #32
+Alu 5fea6100 asrs.w r0, r1, #1
+Alu 5feae815 asrs.w r5, r8, #7
+Alu 5feaeb79 asrs.w r9, r11, #31
+Alu 5fea2e0c asrs.w r12, r14, #32
+Alu 4fea7100 ror.w r0, r1, #1
+Alu 4feaf815 ror.w r5, r8, #7
+Alu 4feafb79 ror.w r9, r11, #31
+Alu 4fea3e4c ror.w r12, r14, #16
+Alu 5fea7100 rors.w r0, r1, #1
+Alu 5feaf815 rors.w r5, r8, #7
+Alu 5feafb79 rors.w r9, r11, #31
+Alu 5fea3e4c rors.w r12, r14, #16
+Alu 4fea3100 rrx r0, r1
+Alu 4fea3805 rrx r5, r8
+Alu 4fea3b09 rrx r9, r11
+Alu 4fea3e0c rrx r12, r14
+Alu 5fea3100 rrxs r0, r1
+Alu 5fea3805 rrxs r5, r8
+Alu 5fea3b09 rrxs r9, r11
+Alu 5fea3e0c rrxs r12, r14
+Alu 01fa03f0 lsl.w r0, r1, r3
+Alu 08fa09f5 lsl.w r5, r8, r9
+Alu 0bfa06f9 lsl.w r9, r11, r6
+Alu 0efa0cfc lsl.w r12, r14, r12
+Alu 11fa03f0 lsls.w r0, r1, r3
+Alu 18fa09f5 lsls.w r5, r8, r9
+Alu 1bfa06f9 lsls.w r9, r11, r6
+Alu 1efa0cfc lsls.w r12, r14, r12
+Alu 21fa03f0 lsr.w r0, r1, r3
+Alu 28fa09f5 lsr.w r5, r8, r9
+Alu 2bfa06f9 lsr.w r9, r11, r6
+Alu 2efa0cfc lsr.w r12, r14, r12
+Alu 31fa03f0 lsrs.w r0, r1, r3
+Alu 38fa09f5 lsrs.w r5, r8, r9
+Alu 3bfa06f9 lsrs.w r9, r11, r6
+Alu 3efa0cfc lsrs.w r12, r14, r12
+Alu 41fa03f0 asr.w r0, r1, r3
+Alu 48fa09f5 asr.w r5, r8, r9
+Alu 4bfa06f9 asr.w r9, r11, r6
+Alu 4efa0cfc asr.w r12, r14, r12
+Alu 51fa03f0 asrs.w r0, r1, r3
+Alu 58fa09f5 asrs.w r5, r8, r9
+Alu 5bfa06f9 asrs.w r9, r11, r6
+Alu 5efa0cfc asrs.w r12, r14, r12
+Alu 61fa03f0 ror.w r0, r1, r3
+Alu 68fa09f5 ror.w r5, r8, r9
+Alu 6bfa06f9 ror.w r9, r11, r6
+Alu 6efa0cfc ror.w r12, r14, r12
+Alu 71fa03f0 rors.w r0, r1, r3
+Alu 78fa09f5 rors.w r5, r8, r9
+Alu 7bfa06f9 rors.w r9, r11, r6
+Alu 7efa0cfc rors.w r12, r14, r12

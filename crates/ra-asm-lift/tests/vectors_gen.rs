@@ -7,6 +7,11 @@
 //! and that each encoding decodes back to the opcode its template names. The output half, the
 //! processor's state after each case, comes from the harness in `vectors.rs`. The case model
 //! (templates, classes, cases) is `common/mod.rs`, which `vectors.rs` shares.
+//!
+//! The 32-bit ARM cases (`testdata/vectors/arm32`) follow the same shape with the Thumb-2 lift's
+//! `Op` kinds for opcodes and byte strings for encodings, an IT block and the instructions it
+//! predicates being one case; the groups named `arm_*` are ARM code, assembled for the record and
+//! not held against the Thumb lift.
 
 mod common;
 
@@ -15,10 +20,30 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use common::arm32;
 use common::{Case, Template, arm64_dir, expand, read_cases, read_templates, write_cases, wsl_path};
 use ra_asm_arm64::Arm64;
+use ra_asm_arm64::thumb::{self, Op};
 
 // region The arm list
+
+/// The identifiers that follow `prefix` in `text`: the variants a `match` names. The prefix must
+/// start a path, so `Op::` does not match inside `BinOp::`.
+fn idents_after(text: &str, prefix: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let mut rest = text;
+    let mut consumed = 0;
+    while let Some(at) = rest.find(prefix) {
+        let starts_path = text[..consumed + at].chars().next_back().is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+        let ident: String = rest[at + prefix.len()..].chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        if starts_path && !ident.is_empty() {
+            out.insert(ident);
+        }
+        consumed += at + prefix.len();
+        rest = &text[consumed..];
+    }
+    out
+}
 
 /// The yaxpeax opcodes with an arm in `lift_instr`, read off the source as the x86 oracle reads
 /// `x86.rs`: every `O::Name` between the function's head and the helper that follows it.
@@ -26,20 +51,25 @@ fn lifted_opcodes() -> BTreeSet<String> {
     let source = include_str!("../src/arm64.rs");
     let start = source.find("fn lift_instr(").expect("lift_instr");
     let end = source[start..].find("fn narrow_access(").expect("the end of lift_instr") + start;
-    let mut out = BTreeSet::new();
-    let mut rest = &source[start..end];
-    while let Some(at) = rest.find("O::") {
-        let ident: String = rest[at + 3..].chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-        if !ident.is_empty() {
-            out.insert(ident);
-        }
-        rest = &rest[at + 3..];
-    }
-    out
+    idents_after(&source[start..end], "O::")
 }
 
 /// The arms no template can name, each with its reason.
 const NOT_ASSEMBLED: &[(&str, &str)] = &[("Invalid", "the decoder's answer to an undefined word, which has no assembly")];
+
+/// The `Op` kinds with an arm in the Thumb-2 lift's `lift_instr`, read off `thumb.rs` the same way.
+fn lifted_kinds() -> BTreeSet<String> {
+    let source = include_str!("../src/thumb.rs");
+    let start = source.find("fn lift_instr(").expect("lift_instr");
+    let end = source[start..].find("// endregion").expect("the end of lift_instr") + start;
+    idents_after(&source[start..end], "Op::")
+}
+
+/// The Thumb-2 arms no template names, each with its reason.
+const NOT_TEMPLATED: &[(&str, &str)] = &[
+    ("Svc", "a system call runs the host's kernel"),
+    ("It", "an IT block is written with the instruction it predicates, whose kind the template names"),
+];
 
 // endregion
 
@@ -50,7 +80,67 @@ fn decoded_opcode(code: u32) -> Option<String> {
     Some(name.split('(').next().unwrap_or(&name).to_owned())
 }
 
+/// The kind of the last instruction of a Thumb case, as the lift's `Op` names it: an IT block's
+/// condition is carried to the instructions it predicates, as the analysis carries it.
+fn decoded_kind(bytes: &[u8]) -> Option<String> {
+    let mut at = 0;
+    let mut it: Option<(u8, u8, usize)> = None;
+    let mut last = None;
+    while at < bytes.len() {
+        let cond = it.map(|(first, mask, position)| thumb::it_condition_at(first, mask, position));
+        let d = thumb::decode(&bytes[at..], arm32::IP + at as u64, cond)?;
+        at += usize::from(d.len);
+        if let Op::It { first, mask } = d.op {
+            it = Some((first, mask, 0));
+        } else if let Some(state) = &mut it {
+            state.2 += 1;
+            if state.2 >= thumb::it_len(state.1) {
+                it = None;
+            }
+        }
+        last = Some(d.op);
+    }
+    let name = format!("{:?}", last?);
+    Some(name.split([' ', '(', '{']).next().unwrap_or(&name).to_owned())
+}
+
 // region Assembling
+
+/// The encodings `llvm-mc` printed, one per line of input, in memory order.
+fn encodings(stdout: &str, lines: usize, stderr: &str) -> Vec<Vec<u8>> {
+    let codes: Vec<Vec<u8>> = stdout
+        .lines()
+        .filter_map(|line| line.split_once("encoding: [").map(|(_, rest)| rest))
+        .map(|rest| {
+            rest.trim_end_matches(']')
+                .split(',')
+                .map(|byte| {
+                    u8::from_str_radix(byte.trim().trim_start_matches("0x"), 16)
+                        .unwrap_or_else(|_| panic!("llvm-mc left a fixup in `{rest}`: a branch or literal takes an immediate target"))
+                })
+                .collect()
+        })
+        .collect();
+    assert_eq!(codes.len(), lines, "llvm-mc encoded {} of {lines} lines:\n{stderr}", codes.len());
+    codes
+}
+
+/// Assembles `lines` of ARM or Thumb-2 code with `llvm-mc` in WSL; the divide extension is on,
+/// as the `-cpu max` of qemu has it.
+fn assemble32(wsl: &Path, scratch: &Path, lines: &[String], arm: bool) -> Vec<Vec<u8>> {
+    let source = scratch.join(if arm { "arm.s" } else { "thumb.s" });
+    fs::write(&source, lines.join("\n") + "\n").unwrap();
+    let source_wsl = wsl_path(&source);
+    let (triple, attrs) =
+        if arm { ("-triple=armv7-linux-gnueabi", "-mattr=+hwdiv-arm") } else { ("-triple=thumbv7-linux-gnueabi", "-mattr=+hwdiv") };
+    let output = Command::new(wsl)
+        .args(["-d", "Ubuntu-24.04", "--", "llvm-mc", triple, attrs, "-show-encoding", source_wsl.as_str()])
+        .output()
+        .expect("wsl runs");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "llvm-mc failed:\n{stderr}");
+    encodings(&String::from_utf8_lossy(&output.stdout), lines.len(), &stderr)
+}
 
 /// Assembles `lines` with `llvm-mc` in WSL and returns their encodings, in order. Every
 /// architecture extension is on, so a `bc.cond` or a pointer-authentication hint assembles.
@@ -64,22 +154,13 @@ fn assemble(wsl: &Path, scratch: &Path, lines: &[String]) -> Vec<u32> {
         .expect("wsl runs");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "llvm-mc failed:\n{stderr}");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let codes: Vec<u32> = stdout
-        .lines()
-        .filter_map(|line| line.split_once("// encoding: [").map(|(_, rest)| rest))
-        .map(|rest| {
-            let bytes: Vec<u32> = rest
-                .trim_end_matches(']')
-                .split(',')
-                .map(|byte| u32::from_str_radix(byte.trim().trim_start_matches("0x"), 16).expect("an encoding byte"))
-                .collect();
-            assert_eq!(bytes.len(), 4, "a four-byte encoding: {rest}");
-            bytes.iter().rev().fold(0, |acc, byte| (acc << 8) | byte)
+    encodings(&String::from_utf8_lossy(&output.stdout), lines.len(), &stderr)
+        .into_iter()
+        .map(|bytes| {
+            assert_eq!(bytes.len(), 4, "a four-byte encoding: {bytes:02x?}");
+            bytes.iter().rev().fold(0u32, |acc, byte| (acc << 8) | u32::from(*byte))
         })
-        .collect();
-    assert_eq!(codes.len(), lines.len(), "llvm-mc encoded {} of {} lines:\n{stderr}", codes.len(), lines.len());
-    codes
+        .collect()
 }
 
 // endregion
@@ -159,3 +240,95 @@ fn write_arm64_cases() {
         println!("cases/{group}.cases: {} cases", cases.len());
     }
 }
+
+// region 32-bit ARM
+
+/// The committed 32-bit ARM cases are the templates' expansion, every arm of the Thumb-2 lift has
+/// a template or a reason not to, and every Thumb case decodes to the kind its template names.
+#[test]
+fn arm32_cases() {
+    let templates = read_templates(&arm32::arm32_dir().join("templates.txt"));
+    let lifted = lifted_kinds();
+    let named: BTreeSet<&str> = templates.iter().filter(|t| !arm32::is_arm_group(&t.group)).map(|t| t.opcode.as_str()).collect();
+    let excused: BTreeSet<&str> = NOT_TEMPLATED.iter().map(|(name, _)| *name).collect();
+
+    let unknown: Vec<_> = named.iter().filter(|name| !lifted.contains(**name)).collect();
+    assert!(unknown.is_empty(), "templates name kinds lift_instr has no arm for: {unknown:?}");
+    let stale: Vec<_> = excused.iter().filter(|name| !lifted.contains(**name) || named.contains(*name)).collect();
+    assert!(stale.is_empty(), "NOT_TEMPLATED names kinds without an arm or with a template: {stale:?}");
+    let missing: Vec<_> = lifted.iter().filter(|name| !named.contains(name.as_str()) && !excused.contains(name.as_str())).collect();
+    assert!(missing.is_empty(), "arms of thumb.rs's lift_instr without a template in templates.txt: {missing:?}");
+
+    let mut groups: BTreeMap<&str, Vec<&Template>> = BTreeMap::new();
+    for template in &templates {
+        groups.entry(template.group.as_str()).or_default().push(template);
+    }
+    let (mut thumb, mut arm) = (0, 0);
+    for (group, templates) in &groups {
+        let cases = arm32::read_cases(group);
+        let expected: Vec<(&str, String)> =
+            templates.iter().flat_map(|t| arm32::expand(&t.asm).into_iter().map(move |asm| (t.opcode.as_str(), asm))).collect();
+        let committed: Vec<(&str, String)> = cases.iter().map(|c| (c.opcode.as_str(), c.asm.clone())).collect();
+        if committed != expected {
+            let first = committed.iter().zip(&expected).position(|(c, e)| c != e).unwrap_or_else(|| committed.len().min(expected.len()));
+            panic!(
+                "cases/{group}.cases is not the expansion of its templates (run write_arm32_cases): line {} has {:?}, the templates give {:?}",
+                first + 1,
+                committed.get(first),
+                expected.get(first)
+            );
+        }
+        if arm32::is_arm_group(group) {
+            arm += cases.len();
+            continue;
+        }
+        for case in &cases {
+            let decoded = decoded_kind(&case.bytes);
+            assert_eq!(
+                decoded.as_deref(),
+                Some(case.opcode.as_str()),
+                "{group}: `{}` ({}) decodes to {decoded:?}, the template says {}",
+                case.asm,
+                arm32::hex(&case.bytes),
+                case.opcode
+            );
+        }
+        thumb += cases.len();
+    }
+    println!("arm32 cases: {thumb} Thumb cases and {arm} ARM cases in {} groups over {} kinds", groups.len(), named.len());
+}
+
+/// Rewrites `arm32/cases/<group>.cases` from the templates: `llvm-mc` in WSL assembles every
+/// expansion, as Thumb-2 or as ARM by the group, an IT block's instructions one line each.
+#[test]
+#[ignore = "rewrites testdata/vectors/arm32/cases with llvm-mc in WSL"]
+fn write_arm32_cases() {
+    let Some(wsl) = ra_asm_testing::tools::tool("wsl") else { return };
+    let scratch = ra_asm_testing::Scratch::new("ra-asm-lift-tests", "arm32_cases");
+    let templates = read_templates(&arm32::arm32_dir().join("templates.txt"));
+    let mut groups: BTreeMap<&str, Vec<(&str, String)>> = BTreeMap::new();
+    for template in &templates {
+        let expanded = arm32::expand(&template.asm).into_iter().map(|asm| (template.opcode.as_str(), asm));
+        groups.entry(template.group.as_str()).or_default().extend(expanded);
+    }
+    for arm in [false, true] {
+        let selected: Vec<(&str, &Vec<(&str, String)>)> =
+            groups.iter().filter(|(group, _)| arm32::is_arm_group(group) == arm).map(|(group, expanded)| (*group, expanded)).collect();
+        let lines: Vec<String> =
+            selected.iter().flat_map(|(_, expanded)| expanded.iter()).flat_map(|(_, asm)| asm.split("; ").map(str::to_owned)).collect();
+        let mut codes = assemble32(&wsl, &scratch, &lines, arm).into_iter();
+        for (group, expanded) in selected {
+            let cases: Vec<arm32::Case> = expanded
+                .iter()
+                .map(|(kind, asm)| {
+                    let bytes = asm.split("; ").flat_map(|_| codes.next().expect("an encoding per instruction")).collect();
+                    arm32::Case { opcode: (*kind).to_owned(), bytes, asm: asm.clone() }
+                })
+                .collect();
+            arm32::write_cases(group, &cases);
+            println!("arm32/cases/{group}.cases: {} cases", cases.len());
+        }
+    }
+}
+
+// endregion

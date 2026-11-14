@@ -1,0 +1,378 @@
+# The 32-bit ARM forms, one template a line: the kind of instruction (the `Op` variant an arm of
+# `lift_instr` in crates/ra-asm-lift/src/thumb.rs matches), then the assembly with its operands as
+# classes in braces; the instructions of an IT block are separated by `; `. `[name]` opens the
+# group whose cases go to cases/<name>.cases; a group named `arm_*` is ARM code, every other group
+# Thumb-2, and the writer (`write_arm32_cases` in crates/ra-asm-lift/tests/vectors_gen.rs) expands
+# every class over its sample values, assembles the lines with llvm-mc in WSL (thumbv7 or armv7)
+# and writes the cases. `arm32_cases` checks the committed Thumb cases against this file and the
+# lift's arm list, and that each case decodes to the kind its template names; the ARM groups are
+# recorded for the A32 lift to come and only replayed by it. Every arm of the lift is named here
+# but `Svc` (a system call runs the host's kernel) and `It` (an IT block is written with the
+# instruction it predicates).
+
+[alu16]
+Alu     adds {Ld}, {Ln}, #{imm3}
+Alu     subs {Ld}, {Ln}, #{imm3}
+Alu     adds {Ld}, #{imm8}
+Alu     subs {Ld}, #{imm8}
+Alu     movs {Ld}, #{imm8}
+Alu     cmp {Ld}, #{imm8}
+Alu     adds {Ld}, {Ln}, {Lm}
+Alu     subs {Ld}, {Ln}, {Lm}
+Alu     ands {Ld}, {Lm}
+Alu     eors {Ld}, {Lm}
+Alu     adcs {Ld}, {Lm}
+Alu     sbcs {Ld}, {Lm}
+Alu     tst {Ld}, {Lm}
+Alu     rsbs {Ld}, {Lm}, #0
+Alu     cmp {Ld}, {Lm}
+Alu     cmn {Ld}, {Lm}
+Alu     orrs {Ld}, {Lm}
+Alu     bics {Ld}, {Lm}
+Alu     mvns {Ld}, {Lm}
+Alu     movs {Ld}, {Lm}
+Alu     add {Rd}, {Rm}
+Alu     mov {Rd}, {Rm}
+Alu     cmp {Rd}, {Rm}
+Alu     add {Ld}, sp, #{imm8x4}
+Alu     add sp, sp, #{imm7x4}
+Alu     sub sp, sp, #{imm7x4}
+Alu     add {Ld}, pc
+Alu     mov {Ld}, pc
+Alu     add {Rd}, sp, {Rd}
+
+[alu32]
+Alu     add.w {Rd}, {Rn}, #{modimm}
+Alu     adds.w {Rd}, {Rn}, #{modimm}
+Alu     sub.w {Rd}, {Rn}, #{modimm}
+Alu     subs.w {Rd}, {Rn}, #{modimm}
+Alu     addw {Rd}, {Rn}, #{imm12}
+Alu     subw {Rd}, {Rn}, #{imm12}
+Alu     rsb.w {Rd}, {Rn}, #{modimm}
+Alu     rsbs.w {Rd}, {Rn}, #{modimm}
+Alu     adc {Rd}, {Rn}, #{modimm}
+Alu     adcs {Rd}, {Rn}, #{modimm}
+Alu     sbc {Rd}, {Rn}, #{modimm}
+Alu     sbcs {Rd}, {Rn}, #{modimm}
+Alu     and.w {Rd}, {Rn}, #{modimm}
+Alu     ands.w {Rd}, {Rn}, #{modimm}
+Alu     orr.w {Rd}, {Rn}, #{modimm}
+Alu     orrs.w {Rd}, {Rn}, #{modimm}
+Alu     orn {Rd}, {Rn}, #{modimm}
+Alu     orns {Rd}, {Rn}, #{modimm}
+Alu     eor.w {Rd}, {Rn}, #{modimm}
+Alu     eors.w {Rd}, {Rn}, #{modimm}
+Alu     bic.w {Rd}, {Rn}, #{modimm}
+Alu     bics.w {Rd}, {Rn}, #{modimm}
+Alu     mov.w {Rd}, #{modimm}
+Alu     movs.w {Rd}, #{modimm}
+Alu     mvn.w {Rd}, #{modimm}
+Alu     mvns.w {Rd}, #{modimm}
+Alu     tst.w {Rn}, #{modimm}
+Alu     teq.w {Rn}, #{modimm}
+Alu     cmp.w {Rn}, #{modimm}
+Alu     cmn.w {Rn}, #{modimm}
+Alu     add.w {Rd}, sp, #{modimm}
+Alu     add.w {Rd}, {Rn}, {Rm}
+Alu     adds.w {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+Alu     adds.w {Rd}, {Rn}, {Rm}, lsr #{shift5}
+Alu     add.w {Rd}, {Rn}, {Rm}, asr #{shift5}
+Alu     adds.w {Rd}, {Rn}, {Rm}, ror #{shift5}
+Alu     adds.w {Rd}, {Rn}, {Rm}, rrx
+Alu     subs.w {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+Alu     sub.w {Rd}, {Rn}, {Rm}, lsr #{shift5}
+Alu     rsbs.w {Rd}, {Rn}, {Rm}, asr #{shift5}
+Alu     adcs.w {Rd}, {Rn}, {Rm}, rrx
+Alu     sbcs.w {Rd}, {Rn}, {Rm}, ror #{shift5}
+Alu     ands.w {Rd}, {Rn}, {Rm}, lsl #{shift5}
+Alu     ands.w {Rd}, {Rn}, {Rm}, lsr #{shift5}
+Alu     orrs.w {Rd}, {Rn}, {Rm}, asr #{shift5}
+Alu     orrs.w {Rd}, {Rn}, {Rm}, ror #{shift5}
+Alu     eors.w {Rd}, {Rn}, {Rm}, rrx
+Alu     orns {Rd}, {Rn}, {Rm}, lsl #{shift5}
+Alu     bics.w {Rd}, {Rn}, {Rm}, lsr #{shift5}
+Alu     mvns.w {Rd}, {Rm}, asr #{shift5}
+Alu     tst.w {Rn}, {Rm}, ror #{shift5}
+Alu     teq.w {Rn}, {Rm}, lsl #{shift5}
+Alu     cmp.w {Rn}, {Rm}, lsr #{shift5}
+Alu     cmn.w {Rn}, {Rm}, rrx
+
+[shift]
+Alu     lsls {Ld}, {Lm}, #{shift5}
+Alu     lsrs {Ld}, {Lm}, #{shift5s}
+Alu     asrs {Ld}, {Lm}, #{shift5s}
+Alu     lsls {Ld}, {Lm}
+Alu     lsrs {Ld}, {Lm}
+Alu     asrs {Ld}, {Lm}
+Alu     rors {Ld}, {Lm}
+Alu     lsl.w {Rd}, {Rn}, #{shift5}
+Alu     lsls.w {Rd}, {Rn}, #{shift5}
+Alu     lsr.w {Rd}, {Rn}, #{shift5s}
+Alu     lsrs.w {Rd}, {Rn}, #{shift5s}
+Alu     asr.w {Rd}, {Rn}, #{shift5s}
+Alu     asrs.w {Rd}, {Rn}, #{shift5s}
+Alu     ror.w {Rd}, {Rn}, #{shift5}
+Alu     rors.w {Rd}, {Rn}, #{shift5}
+Alu     rrx {Rd}, {Rn}
+Alu     rrxs {Rd}, {Rn}
+Alu     lsl.w {Rd}, {Rn}, {Rs}
+Alu     lsls.w {Rd}, {Rn}, {Rs}
+Alu     lsr.w {Rd}, {Rn}, {Rs}
+Alu     lsrs.w {Rd}, {Rn}, {Rs}
+Alu     asr.w {Rd}, {Rn}, {Rs}
+Alu     asrs.w {Rd}, {Rn}, {Rs}
+Alu     ror.w {Rd}, {Rn}, {Rs}
+Alu     rors.w {Rd}, {Rn}, {Rs}
+
+[moves]
+MovWide movw {Rd}, #{imm16}
+MovWide movt {Rd}, #{imm16}
+
+[muldiv]
+Mul     muls {Ld}, {Lm}, {Ld}
+Mul     mul {Rd}, {Rn}, {Rm}
+Mul     mla {Rd}, {Rn}, {Rm}, {Ra}
+Mul     mls {Rd}, {Rn}, {Rm}, {Ra}
+LongMul umull {Rd}, {Ra}, {Rn}, {Rm}
+LongMul smull {Rd}, {Ra}, {Rn}, {Rm}
+LongMul umlal {Rd}, {Ra}, {Rn}, {Rm}
+LongMul smlal {Rd}, {Ra}, {Rn}, {Rm}
+Div     sdiv {Rd}, {Rn}, {Rm}
+Div     udiv {Rd}, {Rn}, {Rm}
+
+[extend]
+Extend  sxtb {Ld}, {Lm}
+Extend  sxth {Ld}, {Lm}
+Extend  uxtb {Ld}, {Lm}
+Extend  uxth {Ld}, {Lm}
+Extend  sxtb.w {Rd}, {Rm}, ror #{rot}
+Extend  sxth.w {Rd}, {Rm}, ror #{rot}
+Extend  uxtb.w {Rd}, {Rm}, ror #{rot}
+Extend  uxth.w {Rd}, {Rm}, ror #{rot}
+
+[bitfield]
+Field   sbfx {Rd}, {Rn}, #{lsb}, #{width}
+Field   ubfx {Rd}, {Rn}, #{lsb}, #{width}
+Insert  bfi {Rd}, {Rn}, #{lsb}, #{width}
+Insert  bfc {Rd}, #{lsb}, #{width}
+
+[loads]
+Mem     ldr {Lt}, [{Lb}, #{off5x4}]
+Mem     ldrb {Lt}, [{Lb}, #{off5}]
+Mem     ldrh {Lt}, [{Lb}, #{off5x2}]
+Mem     ldr {Lt}, [{Lb}, {Li}]
+Mem     ldrb {Lt}, [{Lb}, {Li}]
+Mem     ldrh {Lt}, [{Lb}, {Li}]
+Mem     ldrsb {Lt}, [{Lb}, {Li}]
+Mem     ldrsh {Lt}, [{Lb}, {Li}]
+Mem     ldr {Lt}, [sp, #{imm8x4}]
+Mem     ldr {Lt}, [pc, #{lit8}]
+Mem     ldr.w {Rt}, [{Rb}, #{off12}]
+Mem     ldrb.w {Rt}, [{Rb}, #{off12}]
+Mem     ldrh.w {Rt}, [{Rb}, #{off12}]
+Mem     ldrsb.w {Rt}, [{Rb}, #{off12}]
+Mem     ldrsh.w {Rt}, [{Rb}, #{off12}]
+Mem     ldr {Rt}, [{Rb}, #{off8}]
+Mem     ldr {Rt}, [{Rb}, #{off8}]!
+Mem     ldr {Rt}, [{Rb}], #{off8}
+Mem     ldrb {Rt}, [{Rb}, #{off8}]!
+Mem     ldrb {Rt}, [{Rb}], #{off8}
+Mem     ldrh {Rt}, [{Rb}, #{off8}]!
+Mem     ldrh {Rt}, [{Rb}], #{off8}
+Mem     ldrsb {Rt}, [{Rb}, #{off8}]
+Mem     ldrsb {Rt}, [{Rb}, #{off8}]!
+Mem     ldrsh {Rt}, [{Rb}], #{off8}
+Mem     ldr.w {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+Mem     ldrb.w {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+Mem     ldrh.w {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+Mem     ldrsb.w {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+Mem     ldrsh.w {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+Mem     ldr.w {Rt}, [pc, #{lit12}]
+Mem     ldrb.w {Rt}, [pc, #{lit12}]
+Mem     ldrsh.w {Rt}, [pc, #{lit12}]
+
+[stores]
+Mem     str {Lt}, [{Lb}, #{off5x4}]
+Mem     strb {Lt}, [{Lb}, #{off5}]
+Mem     strh {Lt}, [{Lb}, #{off5x2}]
+Mem     str {Lt}, [{Lb}, {Li}]
+Mem     strb {Lt}, [{Lb}, {Li}]
+Mem     strh {Lt}, [{Lb}, {Li}]
+Mem     str {Lt}, [sp, #{imm8x4}]
+Mem     str.w {Rt}, [{Rb}, #{off12}]
+Mem     strb.w {Rt}, [{Rb}, #{off12}]
+Mem     strh.w {Rt}, [{Rb}, #{off12}]
+Mem     str {Rt}, [{Rb}, #{off8}]!
+Mem     str {Rt}, [{Rb}], #{off8}
+Mem     strb {Rt}, [{Rb}, #{off8}]!
+Mem     strb {Rt}, [{Rb}], #{off8}
+Mem     strh {Rt}, [{Rb}, #{off8}]!
+Mem     strh {Rt}, [{Rb}], #{off8}
+Mem     str.w {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+Mem     strb.w {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+Mem     strh.w {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+
+[pairs]
+Dual    ldrd {Rt}, {Rt2}, [{Rb}, #{dual}]
+Dual    ldrd {Rt}, {Rt2}, [{Rb}, #{dualw}]!
+Dual    ldrd {Rt}, {Rt2}, [{Rb}], #{dualw}
+Dual    strd {Rt}, {Rt2}, [{Rb}, #{dual}]
+Dual    strd {Rt}, {Rt2}, [{Rb}, #{dualw}]!
+Dual    strd {Rt}, {Rt2}, [{Rb}], #{dualw}
+Dual    ldrd {Rt}, {Rt2}, [pc, #{lit8}]
+
+[multiple]
+Multiple ldm {Lb}!, {list}
+Multiple ldm {Lb}, {list}
+Multiple stm {Lb}!, {list}
+Multiple ldm.w {Rb}!, {wlist}
+Multiple ldm.w {Rb}, {wlist}
+Multiple stm.w {Rb}!, {wlist}
+Multiple stm.w {Rb}, {wlist}
+Multiple ldmdb {Rb}!, {wlist}
+Multiple ldmdb {Rb}, {wlist}
+Multiple stmdb {Rb}!, {wlist}
+Multiple stmdb {Rb}, {wlist}
+Multiple push {list}
+Multiple push {listlr}
+Multiple pop {list}
+Multiple pop {listpc}
+Multiple push.w {wlist}
+Multiple push.w {wlistlr}
+Multiple pop.w {wlist}
+Multiple pop.w {wlistpc}
+Multiple ldm.w {Rb}!, {wlistpc}
+Multiple ldmdb {Rb}!, {wlistpc}
+
+[branch]
+Branch  b #{label11}
+Branch  b.w #{label20}
+Branch  b{cond} #{label8}
+Branch  b{cond}.w #{label20}
+Call    bl #{label20}
+Call    blx #{label20}
+BranchReg bx {Rm}
+BranchReg blx {Rm}
+BranchReg bx lr
+CompareBranch cbz {Ld}, #{cb}
+CompareBranch cbnz {Ld}, #{cb}
+Adr     adr {Ld}, #{adr8}
+Adr     adr.w {Rd}, #{adr12}
+
+[it]
+Alu     it {cond}; add{cond} {Ld}, {Ln}, {Lm}
+Alu     it {cond}; mov{cond} {Ld}, #{imm8}
+Alu     it {cond}; sub{cond}.w {Rd}, {Rn}, #{modimm}
+Alu     it {cond}; cmp{cond} {Ld}, {Lm}
+Alu     it {cond}; adds{cond}.w {Rd}, {Rn}, {Rm}
+Alu     it {cond}; lsl{cond}.w {Rd}, {Rn}, {Rs}
+Alu     it {cond}; mvn{cond}.w {Rd}, {Rm}, lsr #{shift5}
+Alu     it al; add {Ld}, {Ln}, {Lm}
+Alu     ite {cond}; add{cond} {Ld}, {Ln}, {Lm}; sub{ncond} {Ld}, {Ln}, {Lm}
+Alu     itt {cond}; mov{cond} {Ld}, #{imm8}; add{cond} {Ld}, {Ln}
+Alu     itete {cond}; add{cond} {Ld}, {Ln}, {Lm}; sub{ncond} {Ld}, {Ln}, {Lm}; mov{cond} {Ld}, #{imm8}; mvn{ncond} {Ld}, {Lm}
+Alu     ittee {cond}; and{cond} {Ld}, {Lm}; orr{cond} {Ld}, {Ln}; eor{ncond} {Ld}, {Lm}; bic{ncond} {Ld}, {Ln}
+MovWide it {cond}; movw{cond} {Rd}, #{imm16}
+Mul     it {cond}; mul{cond} {Rd}, {Rn}, {Rm}
+Extend  it {cond}; uxtb{cond} {Ld}, {Lm}
+Field   it {cond}; ubfx{cond} {Rd}, {Rn}, #{lsb}, #{width}
+Mem     it {cond}; ldr{cond} {Lt}, [{Lb}, #{off5x4}]
+Mem     it {cond}; str{cond}.w {Rt}, [{Rb}, #{off12}]
+Mem     it {cond}; ldr{cond} {Rt}, [{Rb}], #{off8}
+Mem     ite {cond}; ldr{cond} {Lt}, [{Lb}, #{off5x4}]; str{ncond} {Lt}, [{Lb}, #{off5x4}]
+Dual    it {cond}; ldrd{cond} {Rt}, {Rt2}, [{Rb}, #{dual}]
+Multiple it {cond}; push{cond} {list}
+Multiple it {cond}; pop{cond} {listpc}
+Branch  it {cond}; b{cond} #{itlabel}
+BranchReg it {cond}; bx{cond} lr
+
+[system]
+Nop     nop
+Nop     nop.w
+Trap    bkpt #{bkpt}
+Trap    udf #{imm8}
+Trap    udf.w #{imm16}
+Unsupported clz {Rd}, {Rm}
+Unsupported rev {Ld}, {Lm}
+Unsupported rbit {Rd}, {Rm}
+Unsupported rev16 {Ld}, {Lm}
+Unsupported revsh {Ld}, {Lm}
+Unsupported ssat {Rd}, #8, {Rn}
+Unsupported qadd {Rd}, {Rn}, {Rm}
+Unsupported ldrex {Rt}, [{Rb}]
+Unsupported pld [{Rb}]
+
+# ARM code, recorded for the A32 lift to come; the kinds are the ones its arms will match.
+[arm_data]
+Alu     add{cond} {Rd}, {Rn}, {Rm}
+Alu     adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+Alu     subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+Alu     adds {Rd}, {Rn}, {Rm}, ror {Rs}
+Alu     movs {Rd}, {Rm}, rrx
+Alu     adds{cond} {Rd}, {Rn}, #{aimm}
+Alu     cmp {Rn}, {Rm}, asr #{shift5s}
+Alu     mvn{cond} {Rd}, #{aimm}
+Alu     orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+Alu     bics {Rd}, {Rn}, #{aimm}
+Alu     tst {Rn}, #{aimm}
+Alu     rsbs {Rd}, {Rn}, #{aimm}
+Alu     rscs {Rd}, {Rn}, {Rm}
+Alu     adcs {Rd}, {Rn}, {Rm}
+MovWide movw{cond} {Rd}, #{imm16}
+MovWide movt {Rd}, #{imm16}
+Mul     mul{cond} {Rd}, {Rn}, {Rm}
+Mul     mla {Rd}, {Rn}, {Rm}, {Ra}
+LongMul umull {Rd}, {Ra}, {Rn}, {Rm}
+LongMul smlal {Rd}, {Ra}, {Rn}, {Rm}
+Div     sdiv {Rd}, {Rn}, {Rm}
+Div     udiv {Rd}, {Rn}, {Rm}
+Extend  sxtb {Rd}, {Rm}, ror #{rot}
+Extend  uxth{cond} {Rd}, {Rm}, ror #{rot}
+Field   ubfx {Rd}, {Rn}, #{lsb}, #{width}
+Field   sbfx {Rd}, {Rn}, #{lsb}, #{width}
+Insert  bfi {Rd}, {Rn}, #{lsb}, #{width}
+Unsupported clz {Rd}, {Rm}
+Unsupported rev {Rd}, {Rm}
+Unsupported mrs {Rd}, apsr
+
+[arm_mem]
+Mem     ldr{cond} {Rt}, [{Rb}, #{off12}]
+Mem     ldr {Rt}, [{Rb}, #{off12n}]
+Mem     ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+Mem     ldr {Rt}, [{Rb}, -{Ri}]
+Mem     ldrh {Rt}, [{Rb}, #{off8}]
+Mem     ldrsb {Rt}, [{Rb}], #{off8}
+Mem     ldrsh {Rt}, [{Rb}, #{off8}]!
+Mem     ldr {Rt}, [{Rb}], {Ri}
+Mem     ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+Mem     str{cond} {Rt}, [{Rb}, #{off12}]
+Mem     strb {Rt}, [{Rb}, {Ri}]
+Mem     strh {Rt}, [{Rb}], #{off8}
+Mem     str {Rt}, [{Rb}, #{off8}]!
+Mem     ldr {Rt}, [pc, #{lit12}]
+Dual    ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+Dual    strd {Re}, {Ro}, [{Rbd}], #{dual8}
+Multiple ldm {Rb}!, {wlist}
+Multiple ldmib {Rb}, {wlist}
+Multiple ldmda {Rb}!, {wlist}
+Multiple stmdb {Rb}!, {wlist}
+Multiple stmib {Rb}!, {wlist}
+Multiple stmda {Rb}, {wlist}
+Multiple push{cond} {wlistlr}
+Multiple pop {wlistpc}
+Multiple pop{cond} {wlist}
+
+[arm_flow]
+Branch  b #{alabel}
+Branch  b{cond} #{alabel}
+Call    bl #{alabel}
+Call    bl{cond} #{alabel}
+BranchReg bx {Rm}
+BranchReg blx {Rm}
+BranchReg bx lr
+BranchReg bx{cond} lr
+Adr     adr {Rd}, #{adr12}
+Adr     adr{cond} {Rd}, #{adr12}
+Nop     nop
+Trap    bkpt #{bkpt}
+Trap    udf #{imm16}

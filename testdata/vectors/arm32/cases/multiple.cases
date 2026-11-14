@@ -1,0 +1,84 @@
+Multiple 09c9 ldm r1!, {r0, r3}
+Multiple a8cc ldm r4!, {r3, r5, r7}
+Multiple 20ce ldm r6!, {r5}
+Multiple a9ca ldm r2!, {r0, r3, r5, r7}
+Multiple 91e80900 ldm r1, {r0, r3}
+Multiple 94e8a800 ldm r4, {r3, r5, r7}
+Multiple 96e82000 ldm r6, {r5}
+Multiple 92e8a900 ldm r2, {r0, r3, r5, r7}
+Multiple 09c1 stm r1!, {r0, r3}
+Multiple a8c4 stm r4!, {r3, r5, r7}
+Multiple 20c6 stm r6!, {r5}
+Multiple a9c2 stm r2!, {r0, r3, r5, r7}
+Multiple b1e80006 ldm.w r1!, {r9, r10}
+Multiple b8e80110 ldm.w r8!, {r0, r12}
+Multiple bbe82402 ldm.w r11!, {r2, r5, r9}
+Multiple b4e88814 ldm.w r4!, {r3, r7, r10, r12}
+Multiple 91e80006 ldm.w r1, {r9, r10}
+Multiple 98e80110 ldm.w r8, {r0, r12}
+Multiple 9be82402 ldm.w r11, {r2, r5, r9}
+Multiple 94e88814 ldm.w r4, {r3, r7, r10, r12}
+Multiple a1e80006 stm.w r1!, {r9, r10}
+Multiple a8e80110 stm.w r8!, {r0, r12}
+Multiple abe82402 stm.w r11!, {r2, r5, r9}
+Multiple a4e88814 stm.w r4!, {r3, r7, r10, r12}
+Multiple 81e80006 stm.w r1, {r9, r10}
+Multiple 88e80110 stm.w r8, {r0, r12}
+Multiple 8be82402 stm.w r11, {r2, r5, r9}
+Multiple 84e88814 stm.w r4, {r3, r7, r10, r12}
+Multiple 31e90006 ldmdb r1!, {r9, r10}
+Multiple 38e90110 ldmdb r8!, {r0, r12}
+Multiple 3be92402 ldmdb r11!, {r2, r5, r9}
+Multiple 34e98814 ldmdb r4!, {r3, r7, r10, r12}
+Multiple 11e90006 ldmdb r1, {r9, r10}
+Multiple 18e90110 ldmdb r8, {r0, r12}
+Multiple 1be92402 ldmdb r11, {r2, r5, r9}
+Multiple 14e98814 ldmdb r4, {r3, r7, r10, r12}
+Multiple 21e90006 stmdb r1!, {r9, r10}
+Multiple 28e90110 stmdb r8!, {r0, r12}
+Multiple 2be92402 stmdb r11!, {r2, r5, r9}
+Multiple 24e98814 stmdb r4!, {r3, r7, r10, r12}
+Multiple 01e90006 stmdb r1, {r9, r10}
+Multiple 08e90110 stmdb r8, {r0, r12}
+Multiple 0be92402 stmdb r11, {r2, r5, r9}
+Multiple 04e98814 stmdb r4, {r3, r7, r10, r12}
+Multiple 09b4 push {r0, r3}
+Multiple a8b4 push {r3, r5, r7}
+Multiple 20b4 push {r5}
+Multiple a9b4 push {r0, r3, r5, r7}
+Multiple 20b5 push {r5, lr}
+Multiple 00b5 push {lr}
+Multiple 89b5 push {r0, r3, r7, lr}
+Multiple 28b5 push {r3, r5, lr}
+Multiple 09bc pop {r0, r3}
+Multiple a8bc pop {r3, r5, r7}
+Multiple 20bc pop {r5}
+Multiple a9bc pop {r0, r3, r5, r7}
+Multiple 20bd pop {r5, pc}
+Multiple 00bd pop {pc}
+Multiple 89bd pop {r0, r3, r7, pc}
+Multiple 28bd pop {r3, r5, pc}
+Multiple 2de90006 push.w {r9, r10}
+Multiple 2de90110 push.w {r0, r12}
+Multiple 2de92402 push.w {r2, r5, r9}
+Multiple 2de98814 push.w {r3, r7, r10, r12}
+Multiple 2de90042 push.w {r9, lr}
+Multiple 2de90150 push.w {r0, r12, lr}
+Multiple 2de92442 push.w {r2, r5, r9, lr}
+Multiple 2de90044 push.w {r10, lr}
+Multiple bde80006 pop.w {r9, r10}
+Multiple bde80110 pop.w {r0, r12}
+Multiple bde82402 pop.w {r2, r5, r9}
+Multiple bde88814 pop.w {r3, r7, r10, r12}
+Multiple bde80082 pop.w {r9, pc}
+Multiple bde80190 pop.w {r0, r12, pc}
+Multiple bde82482 pop.w {r2, r5, r9, pc}
+Multiple bde80084 pop.w {r10, pc}
+Multiple b1e80082 ldm.w r1!, {r9, pc}
+Multiple b8e80190 ldm.w r8!, {r0, r12, pc}
+Multiple bbe82482 ldm.w r11!, {r2, r5, r9, pc}
+Multiple b4e80084 ldm.w r4!, {r10, pc}
+Multiple 31e90082 ldmdb r1!, {r9, pc}
+Multiple 38e90190 ldmdb r8!, {r0, r12, pc}
+Multiple 3be92482 ldmdb r11!, {r2, r5, r9, pc}
+Multiple 34e90084 ldmdb r4!, {r10, pc}

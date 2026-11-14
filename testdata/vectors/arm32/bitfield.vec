@@ -1,0 +1,150 @@
+# arm32 vectors of the bitfield group (Thumb-2 code): the state after each case of
+# cases/bitfield.cases under qemu-arm-static (-cpu max) over 3 states a case, written by
+# write_arm32_vectors in crates/ra-asm-lift/tests/vectors/arm32.rs and replayed by its arm32 test.
+# case <kind> <bytes> <assembly> <- <template>; in: the registers the case sets (the rest are
+# zero), the flags as NZCV bits, the window of data bytes; out: where the case stopped and
+# what it changed.
+case Field 41f31f00 sbfx r0, r1, #0, #32 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0100 r0=0x7fff r1=0x7ffffff7
+out pc=0x30002004 sig=trap r0=0x7ffffff7
+case Field 41f31f00 sbfx r0, r1, #0, #32 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1001 r0=0x1ffff r1=0x8000
+out pc=0x30002004 sig=trap r0=0x8000
+case Field 41f31f00 sbfx r0, r1, #0, #32 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1111 r0=0x80000006 r1=0xa383967a
+out pc=0x30002004 sig=trap r0=0xa383967a
+case Field 48f30715 sbfx r5, r8, #4, #8 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0001 r5=0xed367a16 r8=0x100000
+out pc=0x30002004 sig=trap r5=0x0
+case Field 48f30715 sbfx r5, r8, #4, #8 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0001 r5=0x80000000 r8=0x20000000
+out pc=0x30002004 sig=trap r5=0x0
+case Field 48f30715 sbfx r5, r8, #4, #8 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0010 r5=0x7ffffff3 r8=0x7ffffff1
+out pc=0x30002004 sig=trap r5=0xffffffff
+case Field 4bf30f49 sbfx r9, r11, #16, #16 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1100 r9=0xa927d100 r11=0x100000
+out pc=0x30002004 sig=trap r9=0x10
+case Field 4bf30f49 sbfx r9, r11, #16, #16 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0010 r9=0x80000 r11=0x7ffffff1
+out pc=0x30002004 sig=trap r9=0x7fff
+case Field 4bf30f49 sbfx r9, r11, #16, #16 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r9=0xfffffff2 r11=0x2
+out pc=0x30002004 sig=trap r9=0x0
+case Field 4ef3c07c sbfx r12, r14, #31, #1 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0010 r12=0x99766c83 lr=0xc
+out pc=0x30002004 sig=trap r12=0x0
+case Field 4ef3c07c sbfx r12, r14, #31, #1 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0100 r12=0x7ffffff0 lr=0xd1f0c6
+out pc=0x30002004 sig=trap r12=0x0
+case Field 4ef3c07c sbfx r12, r14, #31, #1 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r12=0x7ffffff5 lr=0x7ffffff5
+out pc=0x30002004 sig=trap r12=0x0
+case Field c1f31f00 ubfx r0, r1, #0, #32 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1010 r0=0x7ffffff r1=0xfffffff0
+out pc=0x30002004 sig=trap r0=0xfffffff0
+case Field c1f31f00 ubfx r0, r1, #0, #32 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0101 r0=0x2000 r1=0x7fffffff
+out pc=0x30002004 sig=trap r0=0x7fffffff
+case Field c1f31f00 ubfx r0, r1, #0, #32 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0111 r0=0x5ca75a63 r1=0x200000
+out pc=0x30002004 sig=trap r0=0x200000
+case Field c8f30715 ubfx r5, r8, #4, #8 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1001 r5=0x7ffffff7 r8=0x46f52b8c
+out pc=0x30002004 sig=trap r5=0xb8
+case Field c8f30715 ubfx r5, r8, #4, #8 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0001 r5=0xd r8=0x4
+out pc=0x30002004 sig=trap r5=0x0
+case Field c8f30715 ubfx r5, r8, #4, #8 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1011 r5=0xfffff r8=0x1fffffff
+out pc=0x30002004 sig=trap r5=0xff
+case Field cbf30f49 ubfx r9, r11, #16, #16 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1010 r9=0x80000005 r11=0x80000000
+out pc=0x30002004 sig=trap r9=0x8000
+case Field cbf30f49 ubfx r9, r11, #16, #16 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0101 r9=0x4 r11=0x80000007
+out pc=0x30002004 sig=trap r9=0x8000
+case Field cbf30f49 ubfx r9, r11, #16, #16 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0101 r9=0xfffffff4 r11=0x7ffffff9
+out pc=0x30002004 sig=trap r9=0x7fff
+case Field cef3c07c ubfx r12, r14, #31, #1 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1111 r12=0x80f5fe9c lr=0xfffffff3
+out pc=0x30002004 sig=trap r12=0x1
+case Field cef3c07c ubfx r12, r14, #31, #1 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0011 r12=0x80000009 lr=0xf8053d99
+out pc=0x30002004 sig=trap r12=0x1
+case Field cef3c07c ubfx r12, r14, #31, #1 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1010 r12=0x80000000 lr=0xfffffff7
+out pc=0x30002004 sig=trap r12=0x1
+case Insert 61f31f00 bfi r0, r1, #0, #32 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1011 r0=0x100 r1=0x7ffffff6
+out pc=0x30002004 sig=trap r0=0x7ffffff6
+case Insert 61f31f00 bfi r0, r1, #0, #32 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1111 r0=0xb11d86af r1=0x80000001
+out pc=0x30002004 sig=trap r0=0x80000001
+case Insert 61f31f00 bfi r0, r1, #0, #32 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1110 r0=0x7ffffff7 r1=0x0
+out pc=0x30002004 sig=trap r0=0x0
+case Insert 68f30b15 bfi r5, r8, #4, #8 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1100 r5=0x3 r8=0x10
+out pc=0x30002004 sig=trap r5=0x103
+case Insert 68f30b15 bfi r5, r8, #4, #8 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1010 r5=0x7ffffffe r8=0x1fffff
+out pc=0x30002004 sig=trap
+case Insert 68f30b15 bfi r5, r8, #4, #8 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0100 r5=0x7 r8=0x55f0f5a1
+out pc=0x30002004 sig=trap r5=0xa17
+case Insert 6bf31f49 bfi r9, r11, #16, #16 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0010 r9=0x80000000 r11=0xffff
+out pc=0x30002004 sig=trap r9=0xffff0000
+case Insert 6bf31f49 bfi r9, r11, #16, #16 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r9=0x3a94d078 r11=0xf
+out pc=0x30002004 sig=trap r9=0xfd078
+case Insert 6bf31f49 bfi r9, r11, #16, #16 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r9=0x18ccd9ef r11=0xae5fd063
+out pc=0x30002004 sig=trap r9=0xd063d9ef
+case Insert 6ef3df7c bfi r12, r14, #31, #1 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1100 r12=0xb lr=0x1000000
+out pc=0x30002004 sig=trap
+case Insert 6ef3df7c bfi r12, r14, #31, #1 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1110 r12=0x5 lr=0x80000005
+out pc=0x30002004 sig=trap r12=0x80000005
+case Insert 6ef3df7c bfi r12, r14, #31, #1 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0100 r12=0x80000003 lr=0xffff
+out pc=0x30002004 sig=trap
+case Insert 6ff31f00 bfc r0, #0, #32 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=1110 r0=0x80000004
+out pc=0x30002004 sig=trap r0=0x0
+case Insert 6ff31f00 bfc r0, #0, #32 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=1000 r0=0x1000000
+out pc=0x30002004 sig=trap r0=0x0
+case Insert 6ff31f00 bfc r0, #0, #32 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=1000 r0=0x1ff
+out pc=0x30002004 sig=trap r0=0x0
+case Insert 6ff30b15 bfc r5, #4, #8 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=0010 r5=0x200
+out pc=0x30002004 sig=trap r5=0x0
+case Insert 6ff30b15 bfc r5, #4, #8 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=1100 r5=0x40000000
+out pc=0x30002004 sig=trap
+case Insert 6ff30b15 bfc r5, #4, #8 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=1110 r5=0xa
+out pc=0x30002004 sig=trap
+case Insert 6ff31f49 bfc r9, #16, #16 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=1100 r9=0xfffffffe
+out pc=0x30002004 sig=trap r9=0xfffe
+case Insert 6ff31f49 bfc r9, #16, #16 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=1011 r9=0x80000008
+out pc=0x30002004 sig=trap r9=0x8
+case Insert 6ff31f49 bfc r9, #16, #16 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=0111 r9=0x96ed5d2c
+out pc=0x30002004 sig=trap r9=0x5d2c
+case Insert 6ff3df7c bfc r12, #31, #1 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=1111 r12=0x80000006
+out pc=0x30002004 sig=trap r12=0x6
+case Insert 6ff3df7c bfc r12, #31, #1 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=0010 r12=0x80000002
+out pc=0x30002004 sig=trap r12=0x2
+case Insert 6ff3df7c bfc r12, #31, #1 <- bfc {Rd}, #{lsb}, #{width}
+in nzcv=1101 r12=0x7ffffff2
+out pc=0x30002004 sig=trap

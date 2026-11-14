@@ -1,0 +1,86 @@
+Branch 020000ea b #8
+Branch fcffffea b #-16
+Branch 000200ea b #2048
+Branch 00feffea b #-2048
+Branch 0200000a beq #8
+Branch fcffff1a bne #-16
+Branch 0002002a bcs #2048
+Branch 00feff3a bcc #-2048
+Branch 0200004a bmi #8
+Branch fcffff5a bpl #-16
+Branch 0002006a bvs #2048
+Branch 00feff7a bvc #-2048
+Branch 0200008a bhi #8
+Branch fcffff9a bls #-16
+Branch 000200aa bge #2048
+Branch 00feffba blt #-2048
+Branch 020000ca bgt #8
+Branch fcffffda ble #-16
+Call 020000eb bl #8
+Call fcffffeb bl #-16
+Call 000200eb bl #2048
+Call 00feffeb bl #-2048
+Call 0200000b bleq #8
+Call fcffff1b blne #-16
+Call 0002002b blcs #2048
+Call 00feff3b blcc #-2048
+Call 0200004b blmi #8
+Call fcffff5b blpl #-16
+Call 0002006b blvs #2048
+Call 00feff7b blvc #-2048
+Call 0200008b blhi #8
+Call fcffff9b blls #-16
+Call 000200ab blge #2048
+Call 00feffbb bllt #-2048
+Call 020000cb blgt #8
+Call fcffffdb blle #-16
+BranchReg 12ff2fe1 bx r2
+BranchReg 1aff2fe1 bx r10
+BranchReg 1cff2fe1 bx r12
+BranchReg 16ff2fe1 bx r6
+BranchReg 32ff2fe1 blx r2
+BranchReg 3aff2fe1 blx r10
+BranchReg 3cff2fe1 blx r12
+BranchReg 36ff2fe1 blx r6
+BranchReg 1eff2fe1 bx lr
+BranchReg 1eff2f01 bxeq lr
+BranchReg 1eff2f11 bxne lr
+BranchReg 1eff2f21 bxcs lr
+BranchReg 1eff2f31 bxcc lr
+BranchReg 1eff2f41 bxmi lr
+BranchReg 1eff2f51 bxpl lr
+BranchReg 1eff2f61 bxvs lr
+BranchReg 1eff2f71 bxvc lr
+BranchReg 1eff2f81 bxhi lr
+BranchReg 1eff2f91 bxls lr
+BranchReg 1eff2fa1 bxge lr
+BranchReg 1eff2fb1 bxlt lr
+BranchReg 1eff2fc1 bxgt lr
+BranchReg 1eff2fd1 bxle lr
+Adr 08008fe2 adr r0, #8
+Adr 08504fe2 adr r5, #-8
+Adr 019b8fe2 adr r9, #1024
+Adr 01cb4fe2 adr r12, #-1024
+Adr 08008f02 adreq r0, #8
+Adr 08504f12 adrne r5, #-8
+Adr 019b8f22 adrcs r9, #1024
+Adr 01cb4f32 adrcc r12, #-1024
+Adr 08008f42 adrmi r0, #8
+Adr 08504f52 adrpl r5, #-8
+Adr 019b8f62 adrvs r9, #1024
+Adr 01cb4f72 adrvc r12, #-1024
+Adr 08008f82 adrhi r0, #8
+Adr 08504f92 adrls r5, #-8
+Adr 019b8fa2 adrge r9, #1024
+Adr 01cb4fb2 adrlt r12, #-1024
+Adr 08008fc2 adrgt r0, #8
+Adr 08504fd2 adrle r5, #-8
+Nop 00f020e3 nop
+Trap 700020e1 bkpt #0
+Trap 750520e1 bkpt #0x55
+Trap 7f0f20e1 bkpt #0xff
+Trap 710020e1 bkpt #1
+Trap f000f0e7 udf #0
+Trap ffffffe7 udf #0xffff
+Trap f423f1e7 udf #0x1234
+Trap f000f8e7 udf #0x8000

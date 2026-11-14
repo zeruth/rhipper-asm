@@ -1,0 +1,8 @@
+MovWide 40f20000 movw r0, #0
+MovWide 4ff6ff75 movw r5, #0xffff
+MovWide 41f23429 movw r9, #0x1234
+MovWide 48f2000c movw r12, #0x8000
+MovWide c0f20000 movt r0, #0
+MovWide cff6ff75 movt r5, #0xffff
+MovWide c1f23429 movt r9, #0x1234
+MovWide c8f2000c movt r12, #0x8000

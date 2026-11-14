@@ -1,0 +1,132 @@
+Mem 0868 ldr r0, [r1, #0]
+Mem 6368 ldr r3, [r4, #4]
+Mem 356c ldr r5, [r6, #64]
+Mem d76f ldr r7, [r2, #124]
+Mem 0878 ldrb r0, [r1, #0]
+Mem 6378 ldrb r3, [r4, #1]
+Mem 357c ldrb r5, [r6, #16]
+Mem d77f ldrb r7, [r2, #31]
+Mem 0888 ldrh r0, [r1, #0]
+Mem 6388 ldrh r3, [r4, #2]
+Mem 358c ldrh r5, [r6, #32]
+Mem d78f ldrh r7, [r2, #62]
+Mem 8858 ldr r0, [r1, r2]
+Mem e359 ldr r3, [r4, r7]
+Mem 3558 ldr r5, [r6, r0]
+Mem 5759 ldr r7, [r2, r5]
+Mem 885c ldrb r0, [r1, r2]
+Mem e35d ldrb r3, [r4, r7]
+Mem 355c ldrb r5, [r6, r0]
+Mem 575d ldrb r7, [r2, r5]
+Mem 885a ldrh r0, [r1, r2]
+Mem e35b ldrh r3, [r4, r7]
+Mem 355a ldrh r5, [r6, r0]
+Mem 575b ldrh r7, [r2, r5]
+Mem 8856 ldrsb r0, [r1, r2]
+Mem e357 ldrsb r3, [r4, r7]
+Mem 3556 ldrsb r5, [r6, r0]
+Mem 5757 ldrsb r7, [r2, r5]
+Mem 885e ldrsh r0, [r1, r2]
+Mem e35f ldrsh r3, [r4, r7]
+Mem 355e ldrsh r5, [r6, r0]
+Mem 575f ldrsh r7, [r2, r5]
+Mem 0098 ldr r0, [sp, #0]
+Mem 019b ldr r3, [sp, #4]
+Mem ff9d ldr r5, [sp, #1020]
+Mem 809f ldr r7, [sp, #512]
+Mem 0048 ldr r0, [pc, #0]
+Mem 024b ldr r3, [pc, #8]
+Mem 804d ldr r5, [pc, #512]
+Mem ff4f ldr r7, [pc, #1020]
+Mem d1f80000 ldr.w r0, [r1, #0]
+Mem d8f80450 ldr.w r5, [r8, #4]
+Mem dbf8ff97 ldr.w r9, [r11, #0x7ff]
+Mem d4f8ffcf ldr.w r12, [r4, #0xfff]
+Mem 91f80000 ldrb.w r0, [r1, #0]
+Mem 98f80450 ldrb.w r5, [r8, #4]
+Mem 9bf8ff97 ldrb.w r9, [r11, #0x7ff]
+Mem 94f8ffcf ldrb.w r12, [r4, #0xfff]
+Mem b1f80000 ldrh.w r0, [r1, #0]
+Mem b8f80450 ldrh.w r5, [r8, #4]
+Mem bbf8ff97 ldrh.w r9, [r11, #0x7ff]
+Mem b4f8ffcf ldrh.w r12, [r4, #0xfff]
+Mem 91f90000 ldrsb.w r0, [r1, #0]
+Mem 98f90450 ldrsb.w r5, [r8, #4]
+Mem 9bf9ff97 ldrsb.w r9, [r11, #0x7ff]
+Mem 94f9ffcf ldrsb.w r12, [r4, #0xfff]
+Mem b1f90000 ldrsh.w r0, [r1, #0]
+Mem b8f90450 ldrsh.w r5, [r8, #4]
+Mem bbf9ff97 ldrsh.w r9, [r11, #0x7ff]
+Mem b4f9ffcf ldrsh.w r12, [r4, #0xfff]
+Mem 51f8ff0c ldr r0, [r1, #-255]
+Mem 58f8085c ldr r5, [r8, #-8]
+Mem dbf80090 ldr r9, [r11, #0]
+Mem d4f8ffc0 ldr r12, [r4, #255]
+Mem 51f8ff0d ldr r0, [r1, #-255]!
+Mem 58f8085d ldr r5, [r8, #-8]!
+Mem 5bf8009f ldr r9, [r11, #0]!
+Mem 54f8ffcf ldr r12, [r4, #255]!
+Mem 51f8ff09 ldr r0, [r1], #-255
+Mem 58f80859 ldr r5, [r8], #-8
+Mem 5bf8009b ldr r9, [r11], #0
+Mem 54f8ffcb ldr r12, [r4], #255
+Mem 11f8ff0d ldrb r0, [r1, #-255]!
+Mem 18f8085d ldrb r5, [r8, #-8]!
+Mem 1bf8009f ldrb r9, [r11, #0]!
+Mem 14f8ffcf ldrb r12, [r4, #255]!
+Mem 11f8ff09 ldrb r0, [r1], #-255
+Mem 18f80859 ldrb r5, [r8], #-8
+Mem 1bf8009b ldrb r9, [r11], #0
+Mem 14f8ffcb ldrb r12, [r4], #255
+Mem 31f8ff0d ldrh r0, [r1, #-255]!
+Mem 38f8085d ldrh r5, [r8, #-8]!
+Mem 3bf8009f ldrh r9, [r11, #0]!
+Mem 34f8ffcf ldrh r12, [r4, #255]!
+Mem 31f8ff09 ldrh r0, [r1], #-255
+Mem 38f80859 ldrh r5, [r8], #-8
+Mem 3bf8009b ldrh r9, [r11], #0
+Mem 34f8ffcb ldrh r12, [r4], #255
+Mem 11f9ff0c ldrsb r0, [r1, #-255]
+Mem 18f9085c ldrsb r5, [r8, #-8]
+Mem 9bf90090 ldrsb r9, [r11, #0]
+Mem 94f9ffc0 ldrsb r12, [r4, #255]
+Mem 11f9ff0d ldrsb r0, [r1, #-255]!
+Mem 18f9085d ldrsb r5, [r8, #-8]!
+Mem 1bf9009f ldrsb r9, [r11, #0]!
+Mem 14f9ffcf ldrsb r12, [r4, #255]!
+Mem 31f9ff09 ldrsh r0, [r1], #-255
+Mem 38f90859 ldrsh r5, [r8], #-8
+Mem 3bf9009b ldrsh r9, [r11], #0
+Mem 34f9ffcb ldrsh r12, [r4], #255
+Mem 51f80200 ldr.w r0, [r1, r2, lsl #0]
+Mem 58f81a50 ldr.w r5, [r8, r10, lsl #1]
+Mem 5bf82c90 ldr.w r9, [r11, r12, lsl #2]
+Mem 54f836c0 ldr.w r12, [r4, r6, lsl #3]
+Mem 11f80200 ldrb.w r0, [r1, r2, lsl #0]
+Mem 18f81a50 ldrb.w r5, [r8, r10, lsl #1]
+Mem 1bf82c90 ldrb.w r9, [r11, r12, lsl #2]
+Mem 14f836c0 ldrb.w r12, [r4, r6, lsl #3]
+Mem 31f80200 ldrh.w r0, [r1, r2, lsl #0]
+Mem 38f81a50 ldrh.w r5, [r8, r10, lsl #1]
+Mem 3bf82c90 ldrh.w r9, [r11, r12, lsl #2]
+Mem 34f836c0 ldrh.w r12, [r4, r6, lsl #3]
+Mem 11f90200 ldrsb.w r0, [r1, r2, lsl #0]
+Mem 18f91a50 ldrsb.w r5, [r8, r10, lsl #1]
+Mem 1bf92c90 ldrsb.w r9, [r11, r12, lsl #2]
+Mem 14f936c0 ldrsb.w r12, [r4, r6, lsl #3]
+Mem 31f90200 ldrsh.w r0, [r1, r2, lsl #0]
+Mem 38f91a50 ldrsh.w r5, [r8, r10, lsl #1]
+Mem 3bf92c90 ldrsh.w r9, [r11, r12, lsl #2]
+Mem 34f936c0 ldrsh.w r12, [r4, r6, lsl #3]
+Mem dff80800 ldr.w r0, [pc, #8]
+Mem 5ff80850 ldr.w r5, [pc, #-8]
+Mem dff80094 ldr.w r9, [pc, #1024]
+Mem 5ff800c4 ldr.w r12, [pc, #-1024]
+Mem 9ff80800 ldrb.w r0, [pc, #8]
+Mem 1ff80850 ldrb.w r5, [pc, #-8]
+Mem 9ff80094 ldrb.w r9, [pc, #1024]
+Mem 1ff800c4 ldrb.w r12, [pc, #-1024]
+Mem bff90800 ldrsh.w r0, [pc, #8]
+Mem 3ff90850 ldrsh.w r5, [pc, #-8]
+Mem bff90094 ldrsh.w r9, [pc, #1024]
+Mem 3ff900c4 ldrsh.w r12, [pc, #-1024]

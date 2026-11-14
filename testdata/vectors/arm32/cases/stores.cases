@@ -1,0 +1,76 @@
+Mem 0860 str r0, [r1, #0]
+Mem 6360 str r3, [r4, #4]
+Mem 3564 str r5, [r6, #64]
+Mem d767 str r7, [r2, #124]
+Mem 0870 strb r0, [r1, #0]
+Mem 6370 strb r3, [r4, #1]
+Mem 3574 strb r5, [r6, #16]
+Mem d777 strb r7, [r2, #31]
+Mem 0880 strh r0, [r1, #0]
+Mem 6380 strh r3, [r4, #2]
+Mem 3584 strh r5, [r6, #32]
+Mem d787 strh r7, [r2, #62]
+Mem 8850 str r0, [r1, r2]
+Mem e351 str r3, [r4, r7]
+Mem 3550 str r5, [r6, r0]
+Mem 5751 str r7, [r2, r5]
+Mem 8854 strb r0, [r1, r2]
+Mem e355 strb r3, [r4, r7]
+Mem 3554 strb r5, [r6, r0]
+Mem 5755 strb r7, [r2, r5]
+Mem 8852 strh r0, [r1, r2]
+Mem e353 strh r3, [r4, r7]
+Mem 3552 strh r5, [r6, r0]
+Mem 5753 strh r7, [r2, r5]
+Mem 0090 str r0, [sp, #0]
+Mem 0193 str r3, [sp, #4]
+Mem ff95 str r5, [sp, #1020]
+Mem 8097 str r7, [sp, #512]
+Mem c1f80000 str.w r0, [r1, #0]
+Mem c8f80450 str.w r5, [r8, #4]
+Mem cbf8ff97 str.w r9, [r11, #0x7ff]
+Mem c4f8ffcf str.w r12, [r4, #0xfff]
+Mem 81f80000 strb.w r0, [r1, #0]
+Mem 88f80450 strb.w r5, [r8, #4]
+Mem 8bf8ff97 strb.w r9, [r11, #0x7ff]
+Mem 84f8ffcf strb.w r12, [r4, #0xfff]
+Mem a1f80000 strh.w r0, [r1, #0]
+Mem a8f80450 strh.w r5, [r8, #4]
+Mem abf8ff97 strh.w r9, [r11, #0x7ff]
+Mem a4f8ffcf strh.w r12, [r4, #0xfff]
+Mem 41f8ff0d str r0, [r1, #-255]!
+Mem 48f8085d str r5, [r8, #-8]!
+Mem 4bf8009f str r9, [r11, #0]!
+Mem 44f8ffcf str r12, [r4, #255]!
+Mem 41f8ff09 str r0, [r1], #-255
+Mem 48f80859 str r5, [r8], #-8
+Mem 4bf8009b str r9, [r11], #0
+Mem 44f8ffcb str r12, [r4], #255
+Mem 01f8ff0d strb r0, [r1, #-255]!
+Mem 08f8085d strb r5, [r8, #-8]!
+Mem 0bf8009f strb r9, [r11, #0]!
+Mem 04f8ffcf strb r12, [r4, #255]!
+Mem 01f8ff09 strb r0, [r1], #-255
+Mem 08f80859 strb r5, [r8], #-8
+Mem 0bf8009b strb r9, [r11], #0
+Mem 04f8ffcb strb r12, [r4], #255
+Mem 21f8ff0d strh r0, [r1, #-255]!
+Mem 28f8085d strh r5, [r8, #-8]!
+Mem 2bf8009f strh r9, [r11, #0]!
+Mem 24f8ffcf strh r12, [r4, #255]!
+Mem 21f8ff09 strh r0, [r1], #-255
+Mem 28f80859 strh r5, [r8], #-8
+Mem 2bf8009b strh r9, [r11], #0
+Mem 24f8ffcb strh r12, [r4], #255
+Mem 41f80200 str.w r0, [r1, r2, lsl #0]
+Mem 48f81a50 str.w r5, [r8, r10, lsl #1]
+Mem 4bf82c90 str.w r9, [r11, r12, lsl #2]
+Mem 44f836c0 str.w r12, [r4, r6, lsl #3]
+Mem 01f80200 strb.w r0, [r1, r2, lsl #0]
+Mem 08f81a50 strb.w r5, [r8, r10, lsl #1]
+Mem 0bf82c90 strb.w r9, [r11, r12, lsl #2]
+Mem 04f836c0 strb.w r12, [r4, r6, lsl #3]
+Mem 21f80200 strh.w r0, [r1, r2, lsl #0]
+Mem 28f81a50 strh.w r5, [r8, r10, lsl #1]
+Mem 2bf82c90 strh.w r9, [r11, r12, lsl #2]
+Mem 24f836c0 strh.w r12, [r4, r6, lsl #3]

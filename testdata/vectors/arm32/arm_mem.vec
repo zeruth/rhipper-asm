@@ -1,0 +1,1266 @@
+# arm32 vectors of the arm_mem group (ARM code): the state after each case of
+# cases/arm_mem.cases under qemu-arm-static (-cpu max) over 3 states a case, written by
+# write_arm32_vectors in crates/ra-asm-lift/tests/vectors/arm32.rs and replayed by its arm32 test.
+# case <kind> <bytes> <assembly> <- <template>; in: the registers the case sets (the rest are
+# zero), the flags as NZCV bits, the window of data bytes; out: where the case stopped and
+# what it changed.
+case Mem 00009105 ldreq r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0011 r0=0x40 r1=0x40010000 mem=0x4000fff0:1e1a995cbe3e39884247355210ebe19572277f23f02465eefb97c5b5ef86420d6d6bddbe61c02b9994274ba25d98029c63ad86285efe15456a7f47cca2c774d6
+out pc=0x30002004 sig=trap
+case Mem 00009105 ldreq r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0101 r0=0x100 r1=0x40010000 mem=0x4000fff0:8f9e2eef1cc098b3acb2be837d44bea8b79f44621ddcb40bd4209a3c09d8ec0eb7c0f14615e86f3b330b435b7f80903ef6d8f219def87b1336be7aadd88c3bfd
+out pc=0x30002004 sig=trap r0=0x62449fb7
+case Mem 00009105 ldreq r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1001 r0=0x55125d8f r1=0x40010000 mem=0x4000fff0:58b3d88aba2e438be4f13a6738ca61c75944531dddcfb2db31149b712305affffc591baa796ecce237bc93acc972fb067881fe92b8cde37d6a8ca216c061f694
+out pc=0x30002004 sig=trap
+case Mem 04509815 ldrne r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1111 r5=0x9 r8=0x40010000 mem=0x4000fff0:259ac5e03e58eb8d010010ed98223e8c6d9455dfdacc8b0f71282f7c60b866ff4769e2b90074daed47c8adc22efaf8347af007c313a4c26ddadafcd81bffc869
+out pc=0x30002004 sig=trap
+case Mem 04509815 ldrne r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1111 r5=0xfffff r8=0x40010000 mem=0x4000fff0:477b6e8f116fb13e3480ca32bce2943bd966a9dbea6d877886dcf8d63d775a52da3214f5bd7ac056dd5ee136d310d2550487cca5d43799471a48902a4e5baf26
+out pc=0x30002004 sig=trap
+case Mem 04509815 ldrne r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r5=0x80000001 r8=0x40010000 mem=0x4000fff0:9f1bbf49b7d1710e06e0720ef44e3133264fdcc4b0b98bed6bcb8a4c4fb1ef1a78af1aed257beccdc7df7f9ca8fb8c9b8b210aaebdc6bf197b35f248b326d01a
+out pc=0x30002004 sig=trap
+case Mem ff979b25 ldrcs r9, [r11, #0x7ff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0000 r9=0x80000008 r11=0x40010000 mem=0x400107e0:fb71f90f58c630c6a3cf83cf227d389cfdc6659a455eebb142bcc249822c962534a5eb3c249b15a5b7359fde28b71df379c61093e5599c3f9cec1f3f272fb783
+out pc=0x30002004 sig=trap
+case Mem ff979b25 ldrcs r9, [r11, #0x7ff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1011 r9=0x3fffff r11=0x40010000 mem=0x400107e0:d8f711f6e6a0c0c51ad2a168e1807710c2e3fbb54ebb21bc4a839292cdd263d873db6b72a86c1e8322241ed6b4f6e33410e1c4bbace7f0d18dc0868b9aa9d0b9
+out pc=0x30002004 sig=trap r9=0x6bdb73d8
+case Mem ff979b25 ldrcs r9, [r11, #0x7ff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1110 r9=0xfffffff2 r11=0x40010000 mem=0x400107e0:329a2a4a9498bfc877728bfd3ca619121ed3cc84ec84da656e477e0ce7af2379030ab38191ccdd91fdfa99e7a6c65a51c5102ad230431917e5f1be6df31443d9
+out pc=0x30002004 sig=trap r9=0xb30a0379
+case Mem ffcf9435 ldrcc r12, [r4, #0xfff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1011 r4=0x40010000 r12=0x6e435a7d mem=0x40010fe0:b99d19fcde0d4dec8112139150ca562d86e99b1205fe4dfd285b34b607cc4005645a06550c07ea7419dde98ca7ce3e14af1da9a45d1d35364bb18c073c6890a1
+out pc=0x30002004 sig=trap
+case Mem ffcf9435 ldrcc r12, [r4, #0xfff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r4=0x40010000 r12=0x10000000 mem=0x40010fe0:049d4f208c2394f732f0832e5ac55b07e04b3b523d5255085a021faecb73a9f3d59627a5b6fe5a2b320f9a62dce38c5dd6903d708a034d9bcfeeb864794cd05b
+out pc=0x30002004 sig=trap r12=0x2796d5f3
+case Mem ffcf9435 ldrcc r12, [r4, #0xfff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0011 r4=0x40010000 r12=0x80000003 mem=0x40010fe0:3947b461955bb96a918fb0d9a627bb79fa8f1b0a4edc21baf31c6c0b1acffa4df47f46f06cf56774c8a61fe9581ea56763fe14e31df47b644b4dfb36e84749e6
+out pc=0x30002004 sig=trap
+case Mem 00009145 ldrmi r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1000 r0=0xfffffff9 r1=0x40010000 mem=0x4000fff0:1ce52f1f24a81529f7d563a7cbdb10a17c1d5b06085d2475ac41831d7f936091c93ac8d4bcba450b96a90f7092227fb42e3f4c03ea40bd79a458f9709e773687
+out pc=0x30002004 sig=trap r0=0x65b1d7c
+case Mem 00009145 ldrmi r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1110 r0=0x1595377 r1=0x40010000 mem=0x4000fff0:faa2dbbc3fcea63d919fe4b90064384e0104b39aa85da1d2c90d66f5b619b9a861b59a765b9e9997fdaf52c1e0385c240a4c9b8fff317a24dbb385975a72e0d4
+out pc=0x30002004 sig=trap r0=0x9ab30401
+case Mem 00009145 ldrmi r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1111 r0=0xfffffff1 r1=0x40010000 mem=0x4000fff0:cab0aa072863f995d60186b21e78d9be0657d729947909cde64aebfb7e2e2680fb013f19e44cb6010a7c5249dd069878724b80f1dc1af6cbcc397fb6358dee27
+out pc=0x30002004 sig=trap r0=0x29d75706
+case Mem 04509855 ldrpl r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1010 r5=0x10 r8=0x40010000 mem=0x4000fff0:5af871b0fefbcc01033a206ab8e70011f7f47016a19b82eae276fe41da09367bcdfb6d12d5c4acc7df6e0d20e010abc21751b012e9950255ae3e8b425a44df1b
+out pc=0x30002004 sig=trap
+case Mem 04509855 ldrpl r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0101 r5=0x3fffffff r8=0x40010000 mem=0x4000fff0:5f3de239ef36dbbd6dbe8c4174b3443dfa6f8767b4ae8340390b59b2f6d9539968259eaf234cdcfa92b5ef7b2504cf9ba9ba14720792b5055cf2fdeabe656fcc
+out pc=0x30002004 sig=trap r5=0x4083aeb4
+case Mem 04509855 ldrpl r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0000 r5=0xfffffff5 r8=0x40010000 mem=0x4000fff0:a2d1a0692ea696ffdf42bed64fb6042d0466043908f0f312643514e513a759e847260886feaee752be8f71be206fcfe58a3f2ee1462af59e861f2638ac11d3da
+out pc=0x30002004 sig=trap r5=0x12f3f008
+case Mem ff979b65 ldrvs r9, [r11, #0x7ff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0000 r9=0x8000000d r11=0x40010000 mem=0x400107e0:06d87ea34cea3f804c09eaaec67f0c9562506bedf0d4e9f1ec4ffdef3aacfe04a6343173c012360d5f308e683022ad92f1865d24d637887c6907423fac67903e
+out pc=0x30002004 sig=trap
+case Mem ff979b65 ldrvs r9, [r11, #0x7ff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0010 r9=0x7ff r11=0x40010000 mem=0x400107e0:0be857bf8e17b2e465e5d41387a4e541d61e24b337b336203d2ec0ca299ff6ce54ab7ad51d78846e687f19ba0253fadb2a280e1880ab1c597158045e28653751
+out pc=0x30002004 sig=trap
+case Mem ff979b65 ldrvs r9, [r11, #0x7ff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0100 r9=0x80 r11=0x40010000 mem=0x400107e0:df70be53c20f0d1f41e83ce45bd403bb41ae0bce1f99b263f849b518f3a97b11e79040b896561b12756bf2f5d8d086b2149260082b48f3d23863ca947548531c
+out pc=0x30002004 sig=trap
+case Mem ffcf9475 ldrvc r12, [r4, #0xfff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0011 r4=0x40010000 r12=0x2326815b mem=0x40010fe0:4f0e6afc83721ce51ec19291a5845867f7772c360b05861a61cab1946a5c56a174428c47a61ad65820cf377dcf1a5854267498887c17c0bed2c268a91e9d9822
+out pc=0x30002004 sig=trap
+case Mem ffcf9475 ldrvc r12, [r4, #0xfff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0000 r4=0x40010000 r12=0x80000006 mem=0x40010fe0:25f8bb2b2438667919ad40c017b4f870890a6eb77208ad9081901e27838bf86791b25aa5f3753ac7916581db94d87c72a5f51287f137523b51ec34d6d02e31a4
+out pc=0x30002004 sig=trap r12=0x5ab29167
+case Mem ffcf9475 ldrvc r12, [r4, #0xfff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0110 r4=0x40010000 r12=0x4000000 mem=0x40010fe0:81126650cccd8f5a79a8769e647a9832e7b894e2c4f7ad8b219a17d4a0f90a73b4dc57b750d09af6915bb11b22727695156dbd9e1a85322cfb4948200ce3fbff
+out pc=0x30002004 sig=trap r12=0x57dcb473
+case Mem 00009185 ldrhi r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0010 r0=0x7fffffff r1=0x40010000 mem=0x4000fff0:6a4c29a1aa978200500f147f674eda8fce4f10e9d326e2f09814233e8bed32773f6563a37da16bf9c7da3cf7cdb042f9b4cedff64f1a5262ffe7a78e44665160
+out pc=0x30002004 sig=trap r0=0xe9104fce
+case Mem 00009185 ldrhi r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r0=0x5 r1=0x40010000 mem=0x4000fff0:d544f2023fa77b4fbe5c2fc3faaa4d6a7d4557c232f20ecfc6ecb35d003fc7ecb6fc9bcb55627407e109e05f002b91ccedb5da4de4f68c0b4bcd46a67146e315
+out pc=0x30002004 sig=trap
+case Mem 00009185 ldrhi r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1001 r0=0x2000000 r1=0x40010000 mem=0x4000fff0:ee773c723d4521510975b947dda15653b4259fde0f23aa5869e116c4f87ae30059898a380036dacdd8a86a996e9598a7e5a34608b0adcc8d43fbb0ad4e09e683
+out pc=0x30002004 sig=trap
+case Mem 04509895 ldrls r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0001 r5=0x3ffffff r8=0x40010000 mem=0x4000fff0:f4342fc28b3ef684523645424527f677f906280dfa81e9644bb2819c32f758d68dff350ae4f47f20328e683f85fb1201e34728eb5b49865c55770d8fc6c70f8b
+out pc=0x30002004 sig=trap r5=0x64e981fa
+case Mem 04509895 ldrls r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0001 r5=0x3 r8=0x40010000 mem=0x4000fff0:1b56db1e2969702e581b6158870cccdfabc6683ad18a114cce6a834f7b7da6e020db69ecefd88fd3080b138f168b141bf67d252045762890574e8676904792f1
+out pc=0x30002004 sig=trap r5=0x4c118ad1
+case Mem 04509895 ldrls r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0010 r5=0x3 r8=0x40010000 mem=0x4000fff0:f24485d79d20cc8e45b5f666f943ce848c7fa73d51c903eba169f85ef75cb1fbdd7e3d8ae4ba0ec9f156519ffadb47cfbba4bdeb25695683a06c8f53a268b558
+out pc=0x30002004 sig=trap
+case Mem ff979ba5 ldrge r9, [r11, #0x7ff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0111 r9=0xff56ac92 r11=0x40010000 mem=0x400107e0:5515d161ceda4882add325b3a53e7ea20d746ed521fead8d102be8afd3700e1a58d81becfa639edbdc72c7e84da10588332e10f5682a958eb0a5891913c1b042
+out pc=0x30002004 sig=trap
+case Mem ff979ba5 ldrge r9, [r11, #0x7ff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r9=0x7 r11=0x40010000 mem=0x400107e0:4c807bf0660172eac3eace611a4a8e20ca89d259c0c518ddffd6b41cebcb9145721a16a75433ed6f79d285352ff5dea697f3d74065d7d8fdb0cbaf5b0f025bd1
+out pc=0x30002004 sig=trap
+case Mem ff979ba5 ldrge r9, [r11, #0x7ff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0101 r9=0x1ff r11=0x40010000 mem=0x400107e0:24e1513817dafff21373bfee134ce6560f676f6c9cd16a9e5182e3cabf3c3fca9b09485df9b33bc852a7187e5d481480ff8bf17811ffe08bc1b5956b3b2d0478
+out pc=0x30002004 sig=trap
+case Mem ffcf94b5 ldrlt r12, [r4, #0xfff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1010 r4=0x40010000 r12=0xfffffff9 mem=0x40010fe0:5f70c9f097d3a017f4b4743da41fbac450ad9ba18d05fadb05e42aaf3279f116fb398cd85be8293849788f42cb0c121c9912382b2db6b6127a182ad103cf07f6
+out pc=0x30002004 sig=trap r12=0x8c39fb16
+case Mem ffcf94b5 ldrlt r12, [r4, #0xfff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r4=0x40010000 r12=0x7ffffff7 mem=0x40010fe0:068d2ecccc0fb7a4404abfa10fbd0b5b9ecfc6fe8e7da30f240156e7e713ca964660bc6823f937109e3a94dc62daa02ecba2f1be8ffcc6a7f527a6cc1a99de33
+out pc=0x30002004 sig=trap r12=0xbc604696
+case Mem ffcf94b5 ldrlt r12, [r4, #0xfff] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1001 r4=0x40010000 r12=0x3fff mem=0x40010fe0:ff65f5e012c22de2f1435cb48e5ef1d988fadbf61d1c1fecc505f4d2aff64ff8408332d1b36c0381fc5d4cf3eabe214f95575c1b4a690ca065bc768991e3dfca
+out pc=0x30002004 sig=trap
+case Mem 000091c5 ldrgt r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r0=0x2a92c6bb r1=0x40010000 mem=0x4000fff0:b45cee6dbb71414fd61c680fbf03f3805a8d6da6910ff4c4cb21b5ecdeaa4929a7ec0662b86ef3dafd4601d9c95f41323ea52bc0058e30eb651f2ac5fd6a1ecc
+out pc=0x30002004 sig=trap
+case Mem 000091c5 ldrgt r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1110 r0=0xc r1=0x40010000 mem=0x4000fff0:360d537d1a4488ce27583cca479d7faaa89715a01edb39e7b51e8752e022b656ab50ef75234c97e457ba1686dcd33326e92e06f8e307216c903c4ca8cc953ab8
+out pc=0x30002004 sig=trap
+case Mem 000091c5 ldrgt r0, [r1, #0] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1010 r0=0x80000005 r1=0x40010000 mem=0x4000fff0:36361c57cda89a6b6594972a267718a7413d51af346707b51b06667672a12292b74a5af6b443ef5e960184618f2b39d9cff373854f47ecf965a9e2a6c7278020
+out pc=0x30002004 sig=trap
+case Mem 045098d5 ldrle r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0010 r5=0x4000 r8=0x40010000 mem=0x4000fff0:36391a489eda70d998d6ec3b15e410f038eaec2e7b250dd3c0f9762449e5fd894bcad2ebb4b910bdc23a38f9c85bc55fe458180ad6698138ec678f4630c9b089
+out pc=0x30002004 sig=trap
+case Mem 045098d5 ldrle r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1110 r5=0x4000 r8=0x40010000 mem=0x4000fff0:f99d83193c81bf626c80b47456521a3ea22868ce4951419d670d1381361b5146bd153e18c07c55a40ad5655ae8ccc17ceea50eee8fbfa5fa580a4b2989109f8a
+out pc=0x30002004 sig=trap r5=0x9d415149
+case Mem 045098d5 ldrle r5, [r8, #4] <- ldr{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1001 r5=0x7ffffffb r8=0x40010000 mem=0x4000fff0:e76e3d82097a08fdc2e91aad2b171ddfe11d2c9f9393347cdac780fd72fb881ff291c13df1e64a92262de5a554a5d9723c4c476fa7d46b3c86c6fc39393f2801
+out pc=0x30002004 sig=trap
+case Mem 040011e5 ldr r0, [r1, #-4] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=0011 r0=0xfffffff2 r1=0x40010000 mem=0x4000ffe0:178e836190baeec3f8f3913a292f7407b283becb1aab244622051fe37142496679fb279af8c1a0e1907ce60fb27a93e8db0c042bedf551fb6f5504914a399b55
+out pc=0x30002004 sig=trap r0=0x66494271
+case Mem 040011e5 ldr r0, [r1, #-4] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=0011 r0=0x7ffffff9 r1=0x40010000 mem=0x4000ffe0:172515006a51f07caef2119f362474324e8088bc25d433f6d2bd450ed3ceaa95fee9078a191b7255477fac0e6ac8798108f12e610dc2558c8beafc50d90c1c69
+out pc=0x30002004 sig=trap r0=0x95aaced3
+case Mem 040011e5 ldr r0, [r1, #-4] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=1101 r0=0x689da672 r1=0x40010000 mem=0x4000ffe0:db5200c9959000a3073d7dc7363545c21e1eeeaf58ebadacf23b66be461aeacfb25471efd4ae67f63295aa833b72683e22858a50130f9b7df29dc54e64ae2a0a
+out pc=0x30002004 sig=trap r0=0xcfea1a46
+case Mem 085018e5 ldr r5, [r8, #-8] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=1000 r5=0x80000000 r8=0x40010000 mem=0x4000ffe0:14f1e1bc1c38e5e340bbc7583973e129c349d8cb071accbbd067faf1a9ca1af91c36fdf310a4583dfa7ce3b20050b4ecb565a594e5026777073ad1b609793e4d
+out pc=0x30002004 sig=trap r5=0xf1fa67d0
+case Mem 085018e5 ldr r5, [r8, #-8] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=0111 r5=0x8000000 r8=0x40010000 mem=0x4000ffe0:50be94a80d53c809ed398e6530f5d7cf3c05b5b8a21ffe5e9efc0f94e30ac7ddb2097211ea7d117b488930520d45d06bf00ba9ea62dba13ac4c971f238262491
+out pc=0x30002004 sig=trap r5=0x940ffc9e
+case Mem 085018e5 ldr r5, [r8, #-8] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=1001 r5=0x400000 r8=0x40010000 mem=0x4000ffe0:895ee700402ae7d0e76c4dd259e43b59a92f92710327165abb95bf10dfe3fe3dc4ab83387a4db8655a78aace5a97f1863b95ea0a9ba568cab782888e73d0df97
+out pc=0x30002004 sig=trap r5=0x10bf95bb
+case Mem ff971be5 ldr r9, [r11, #-0x7ff] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=1010 r9=0xa6f65 r11=0x40010000 mem=0x4000f7f0:18bc5eebbe01aeee258081ed081d9af8fc0a916ab2f671083dd09e8b85a73d0aee655223a6567a4530813615ac8ed417b382ef350c93626ef3c397cae3cf144f
+out pc=0x30002004 sig=trap r9=0xb26a910a
+case Mem ff971be5 ldr r9, [r11, #-0x7ff] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=0110 r9=0x3fffffff r11=0x40010000 mem=0x4000f7f0:d91100b1d4d961b86334e996ac113f4b54b22d9387c2cab66a4fb75b5109675debeff5e6c9c545b0c111a207f0d12437bb09c1d07cc948a678aec9d30017c259
+out pc=0x30002004 sig=trap r9=0x87932db2
+case Mem ff971be5 ldr r9, [r11, #-0x7ff] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=0101 r9=0x1fffffff r11=0x40010000 mem=0x4000f7f0:473f8b700fc2ae40d65d1e8f0de1e1ade10bed625f654f0b366e5d95452fae12c4a52bfbc45c9d8c079fcc16f5f119d06e3b1c33d7d078e97a21465773e7f881
+out pc=0x30002004 sig=trap r9=0x5f62ed0b
+case Mem ffcf14e5 ldr r12, [r4, #-0xfff] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=0001 r4=0x40010000 r12=0x7fffffff mem=0x4000eff0:dc8bf558916ab7ed844f546ecfd1fd7335bd365e1011cb8b14e45a8af1c48a7a7fb0f80acebbd9e94153f5cdb4ab1ac1cd76180fa2435aba789bf9d2044bd7d4
+out pc=0x30002004 sig=trap r12=0x105e36bd
+case Mem ffcf14e5 ldr r12, [r4, #-0xfff] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=0001 r4=0x40010000 r12=0x6 mem=0x4000eff0:0b7b6531d34599c6791b20687f597163eedfb34a181ba45660f26c750d8f0841ea801250374ad32b540bf7f6fe521bdb1b22ebf8590fdf5cb32975558971465b
+out pc=0x30002004 sig=trap r12=0x184ab3df
+case Mem ffcf14e5 ldr r12, [r4, #-0xfff] <- ldr {Rt}, [{Rb}, #{off12n}]
+in nzcv=0101 r4=0x40010000 r12=0x3cd7d888 mem=0x4000eff0:37c42e7b305c467b957c23e4e953fd6ea50955035f617475f5d1bd202b11d65f121f82f3ec0c3fbf5cb17d26d2558f1667038a7e820ba022462252a240ce9893
+out pc=0x30002004 sig=trap r12=0x5f035509
+case Mem 0200d1e7 ldrb r0, [r1, r2, lsl #0] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=0111 r0=0x80000006 r1=0x40010000 r2=0x18 mem=0x40010000:6190253ba0a5309af65c0a09e8dfb8925edf0ea1dcc8ecacd1109e0c6e11e94be2c1737c14e95dd6929a5f60d241345a01074572fd084d4affa74f2679bbab0a
+out pc=0x30002004 sig=trap r0=0xd1
+case Mem 0200d1e7 ldrb r0, [r1, r2, lsl #0] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=0011 r0=0x3af761ad r1=0x40010000 r2=0x18 mem=0x40010000:c21e42eeb4fd8c883a13f577d55c4384b5cdc11c1c9ef91b2e48cdd092a505d8359e597354737a0591322bdde6348b985ad10402ee626c8db76485dc62967db9
+out pc=0x30002004 sig=trap r0=0x2e
+case Mem 0200d1e7 ldrb r0, [r1, r2, lsl #0] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=1101 r0=0x4d8edcf2 r1=0x40010000 r2=0x18 mem=0x40010000:b3f6689c6a387afc147fe8b9999a0b4627a8080f4b90f4e488366fdec5038d8165a7af4eae69a35b584ccd2287700734079e96ec91a4fb0bae086677ca19f4cd
+out pc=0x30002004 sig=trap r0=0x88
+case Mem 8a50d8e7 ldrb r5, [r8, r10, lsl #1] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=0011 r5=0x800 r8=0x40010000 r10=0x18 mem=0x40010020:6a026ea865f7a46ac96013e91375b44ecaca88c0a30e9af9952dfdf8864713682ed2bbdc3b107a215e9d77ef2295dc4c95a668dd9959737534d408abd26f4102
+out pc=0x30002004 sig=trap r5=0xca
+case Mem 8a50d8e7 ldrb r5, [r8, r10, lsl #1] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=1100 r5=0x7ffffff6 r8=0x40010000 r10=0x18 mem=0x40010020:ad6e45e998d41ad545f3fb8bfda0c8ba4debb30b5e4988a19fd2a05349936f0e58fafbe49f9b67cb7abf81f1f3e98b7546fcbe99b999c3511bf61069d047c4c2
+out pc=0x30002004 sig=trap r5=0x4d
+case Mem 8a50d8e7 ldrb r5, [r8, r10, lsl #1] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=0011 r5=0x8cd1aa22 r8=0x40010000 r10=0x18 mem=0x40010020:f61ea04a50e6023febab24f4ebb8a03f89a7d08bdb1f93e2c9ea742f8ccfefdf453efd08303289c27993cb71efa039b6d438d0e56406b85c0ab72dc52e7d6bdc
+out pc=0x30002004 sig=trap r5=0x89
+case Mem 0c91dbe7 ldrb r9, [r11, r12, lsl #2] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=1110 r9=0x7ffffff9 r11=0x40010000 r12=0x18 mem=0x40010050:dc1c4c0ec14d32c0238ac9bb75a495e9dd17e1beab2accf4b520f18458eb0dc406381c90cbb7636870ac8b3b1ac79a4ba85ffe32563dd1e2c180669052776ca3
+out pc=0x30002004 sig=trap r9=0xdd
+case Mem 0c91dbe7 ldrb r9, [r11, r12, lsl #2] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=0000 r9=0x2000 r11=0x40010000 r12=0x18 mem=0x40010050:39340dfa4dc7133a69a81d240f0ca16c3937fb9e0beb3a17639fddf310941b7568dfc96856099d117f9cc460db515f28d5565998d1ed6cd7138067c2b4ea9f18
+out pc=0x30002004 sig=trap r9=0x39
+case Mem 0c91dbe7 ldrb r9, [r11, r12, lsl #2] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=1000 r9=0x8000000 r11=0x40010000 r12=0x18 mem=0x40010050:602b5439c46ee8aaa7c11469ef567ab86c57ee2be1972d9b67a83c3bcfbc597b33d9d8f8fe24f148540cf48b8d5b5d09bb86a35cc3c8e759e23702913ac8e3a1
+out pc=0x30002004 sig=trap r9=0x6c
+case Mem 86c1d4e7 ldrb r12, [r4, r6, lsl #3] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=1000 r4=0x40010000 r6=0x18 r12=0xfff mem=0x400100b0:7e9a7168103e9d2547a890dff769cd1e793f6133344985f6d450a416e5a86afe0c3040fd978760cc51d3e761da44b89e282d81569e27ad9aee7eb895a2801d5b
+out pc=0x30002004 sig=trap r12=0x79
+case Mem 86c1d4e7 ldrb r12, [r4, r6, lsl #3] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=0000 r4=0x40010000 r6=0x18 r12=0x9282fa47 mem=0x400100b0:a976a70c169f6b158e1b1bd4039597f495e6c2b6dbe3897430295d6d29c2a782ef283301da9cd9d9598814e72b6b45189697cb6d7d42e08264a71873eee43674
+out pc=0x30002004 sig=trap r12=0x95
+case Mem 86c1d4e7 ldrb r12, [r4, r6, lsl #3] <- ldrb {Rt}, [{Rb}, {Ri}, lsl #{sh2}]
+in nzcv=0110 r4=0x40010000 r6=0x18 r12=0x7ffffffb mem=0x400100b0:2f5788fc3f25529decceb10cd105b009472ddf680487079751c8551587313c7b7cac6ee5a1f9140a310a696fe63ed7c3d16bcb6a5076c27c636fe575951aff83
+out pc=0x30002004 sig=trap r12=0x47
+case Mem 020011e7 ldr r0, [r1, -r2] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=1101 r0=0x3 r1=0x40010000 r2=0x18 mem=0x4000ffd0:ade511eeca6663e3b1b6c947d3743dda2f5a2bfcc492a0115047d46d40d9e94ce084bd29a5f3e13ea09b72fec5838a462c06b989625b14fced7ada4c52d13a39
+out pc=0x30002004 sig=trap r0=0x6dd44750
+case Mem 020011e7 ldr r0, [r1, -r2] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=0101 r0=0x5 r1=0x40010000 r2=0x18 mem=0x4000ffd0:c869e2cf5b27abc40d9734d67e7a8d31d91a7a1dbfca87453f1af330b47796408582ba5e3fbd7931e9ba2fa6eef688901a2d52e7065f93e70871ea994cb80980
+out pc=0x30002004 sig=trap r0=0x30f31a3f
+case Mem 020011e7 ldr r0, [r1, -r2] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=0000 r0=0x23ae75a3 r1=0x40010000 r2=0x18 mem=0x4000ffd0:b5cb9af8c6ca550bf8d2e47646434a46d0c33b6bf3f246d82b87eb27935c5a6118a85db9de5b49a148737ff6f4ad2c8aa15b039c35e2b71c33373c7a29e61b31
+out pc=0x30002004 sig=trap r0=0x27eb872b
+case Mem 0a5018e7 ldr r5, [r8, -r10] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=1110 r5=0xe409695d r8=0x40010000 r10=0x18 mem=0x4000ffd0:85102e33db38325381314c354783b7fced2ddc25708d2bdcc14f97f4333815e9563bb6d5f203d30419a1371d41dc98885f6577f03be29277a4e5d80a8a1d0c14
+out pc=0x30002004 sig=trap r5=0xf4974fc1
+case Mem 0a5018e7 ldr r5, [r8, -r10] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=1001 r5=0x7f r8=0x40010000 r10=0x18 mem=0x4000ffd0:bc0fb52c6f4e14f3a6c03d259d49d750ec902ca2a6ffff01c26df1702bdf735fe5daf96ed3dc65c962bd72cf7754ab54ffc3cb51460637052ae999a327618df4
+out pc=0x30002004 sig=trap r5=0x70f16dc2
+case Mem 0a5018e7 ldr r5, [r8, -r10] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=1011 r5=0x40000 r8=0x40010000 r10=0x18 mem=0x4000ffd0:870837c3fefad7496051697908e54e6dd3cb7e8e0ee3113b5fa763c5348ed59e50bc9ef03f7df307effb237350371a17a67d256b64015514a8f151947025bd77
+out pc=0x30002004 sig=trap r5=0xc563a75f
+case Mem 0c901be7 ldr r9, [r11, -r12] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=1111 r9=0xcd43d774 r11=0x40010000 r12=0x18 mem=0x4000ffd0:d4e268e8b34d3782307ce5b5a69900019cb6cca63395311a825c3278ee28f638f1617422ebd3f45ba0079ee16257e6b77472dcff39d4f9ef8fd93e6a6c11c00f
+out pc=0x30002004 sig=trap r9=0x78325c82
+case Mem 0c901be7 ldr r9, [r11, -r12] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=1111 r9=0x4 r11=0x40010000 r12=0x18 mem=0x4000ffd0:450df4a6488a6f81745c4aec4721d251f945728524281ac3215b6c7690bbcf601746614cfd69d2f0914ca2edf29fbcc7758c0ce09006eefe1a91c2713fa15b67
+out pc=0x30002004 sig=trap r9=0x766c5b21
+case Mem 0c901be7 ldr r9, [r11, -r12] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=1010 r9=0x8000000b r11=0x40010000 r12=0x18 mem=0x4000ffd0:b9542d5d9a8b7b5742b09a65f5f39be5fc5a6ce6595b30eea3d057748a812e18a687b9925992ef5d45e39e5c8b1e7af99d3f7c0b3403b107edde548f2100308d
+out pc=0x30002004 sig=trap r9=0x7457d0a3
+case Mem 06c014e7 ldr r12, [r4, -r6] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=1010 r4=0x40010000 r6=0x18 r12=0x7f mem=0x4000ffd0:eac94f213873da89842b089b17ae4bcae173e0eb0c6e60ca99b4d127e2bbe6b06cfc29a32d384d1f710d012317d4f76855fcd36e189be8a00749b9bb951d1519
+out pc=0x30002004 sig=trap r12=0x27d1b499
+case Mem 06c014e7 ldr r12, [r4, -r6] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=0100 r4=0x40010000 r6=0x18 r12=0x8dc61f6c mem=0x4000ffd0:71febf1ce068fcae4e27d3404cb59f7c95d5b7d9f9ad164c6cf1d5748cc34cd7c32dd542727efb86a2c7c535d702ac8aac2f93ece589247b2ff9e0e09d49635b
+out pc=0x30002004 sig=trap r12=0x74d5f16c
+case Mem 06c014e7 ldr r12, [r4, -r6] <- ldr {Rt}, [{Rb}, -{Ri}]
+in nzcv=1000 r4=0x40010000 r6=0x18 r12=0x620ff247 mem=0x4000ffd0:548c0894ec58d330c070d5f8d34f24d92ec8d2e41f714718039f275efb1bcf992aa7ce801884a3bb88f19ecdf90d8360cb1e94e905ef84d1fb65e684577d35ac
+out pc=0x30002004 sig=trap r12=0x5e279f03
+case Mem bf0f51e1 ldrh r0, [r1, #-255] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=1011 r0=0xfd8e1b1c r1=0x40010000 mem=0x4000fef0:19c225b8b6cb1ce56fda332c963202fa4ccc56ff07e1f603ee9d3bb4d36e30de9cb0259439b6253dd8cf836d31a601bd205f10cee71191dc6688634f9794bdd8
+out pc=0x30002004 sig=trap r0=0x56cc
+case Mem bf0f51e1 ldrh r0, [r1, #-255] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=1010 r0=0x7ffffff4 r1=0x40010000 mem=0x4000fef0:b2f878867c64f3983a7f5e69d032d188c4680aaf539ff14699badf8d3fdb5b10258bb5fd39e35bf0b0540d30e58bfb243f8e26a4f1c0d298d0a7f68e8ca98844
+out pc=0x30002004 sig=trap r0=0xa68
+case Mem bf0f51e1 ldrh r0, [r1, #-255] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=1011 r0=0x80000004 r1=0x40010000 mem=0x4000fef0:38494cb6a82b85b381f71f9c3e0da6661a6533bfd620f5e74d9972d8b392138756a871d7907b976e6b128a01dd3f7822f251ead695d699f2a7a964a6d80f9764
+out pc=0x30002004 sig=trap r0=0x3365
+case Mem b85058e1 ldrh r5, [r8, #-8] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=0000 r5=0x4a770fcc r8=0x40010000 mem=0x4000ffe0:84195609e974c33f01a20ee39bc3547c05edd7d13791df9b44c32787f4330e2f386e3f8e95256ab28f1b13ac84a108514e40f0fec6af7e5e9c4aa0c2faac42e5
+out pc=0x30002004 sig=trap r5=0xc344
+case Mem b85058e1 ldrh r5, [r8, #-8] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=0000 r5=0xf9858baa r8=0x40010000 mem=0x4000ffe0:fd6d62b69f7305b22a5e34f4e88ca10b752a7d18ebe2ccb4f0ac8dae8e3d4859094b0b81e8295a378d9c6fc1ae7eb72d298f079197b2173aecaa7a64e9a224f5
+out pc=0x30002004 sig=trap r5=0xacf0
+case Mem b85058e1 ldrh r5, [r8, #-8] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=1010 r5=0x309624ad r8=0x40010000 mem=0x4000ffe0:955089edd9c52a1ab18dd29a10b73c74dca745f48073d2fe12d24d8740b4ae72588ae72a14dd2e455aad61681e3420ed6c4a598aab8973fdfc1cd9252a533667
+out pc=0x30002004 sig=trap r5=0xd212
+case Mem b090dbe1 ldrh r9, [r11, #0] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=0111 r9=0x7ffffff7 r11=0x40010000 mem=0x4000fff0:eed784eacccbabe40bafeb545833b9a8756369096b7996cc0f88aca67f93ffac26634da8b8010c3f6fae7761c5d0734428a7a43d61c26528006a007f277f3950
+out pc=0x30002004 sig=trap r9=0x6375
+case Mem b090dbe1 ldrh r9, [r11, #0] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=0001 r9=0x1f r11=0x40010000 mem=0x4000fff0:5c70da7ed94e2fb13a2ae761d4db479ca9b79ccfd8a1ab5c63ac580aa53924c65a936e6307dadc02a7a57a668ebde60ecf41f99df836512fe2c31beb0518998a
+out pc=0x30002004 sig=trap r9=0xb7a9
+case Mem b090dbe1 ldrh r9, [r11, #0] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=1000 r9=0xfffffff2 r11=0x40010000 mem=0x4000fff0:ace04ebb8ba3eaeaa528968af88fe91ef2cfef09b9cd6226cd8d409425ac67cbaff7dcd553a7ff017817089cf1f6a774251fc928ed2e142c7bd6b98bcdbe61f2
+out pc=0x30002004 sig=trap r9=0xcff2
+case Mem bfcfd4e1 ldrh r12, [r4, #255] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=0110 r4=0x40010000 r12=0x8000000f mem=0x400100e0:7a98ad5004a8a39cf8b5242a085617cd8c25d71121f3f2f6526ae78d154f0a96e72a8b98f00a8c44fe49711fb86cc9c8b34c88baaaa817ea8c7b2a625cea5e33
+out pc=0x30002004 sig=trap r12=0xe796
+case Mem bfcfd4e1 ldrh r12, [r4, #255] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=1001 r4=0x40010000 r12=0x8000000a mem=0x400100e0:3cdfe3c9a1b8b5e09354d2eff802363b1a14c8390d27089fc06aec2e13531cd9a0e03a7b81e895077a9458230ac8c7df70b464bd4d9c44360387505b7d8513a6
+out pc=0x30002004 sig=trap r12=0xa0d9
+case Mem bfcfd4e1 ldrh r12, [r4, #255] <- ldrh {Rt}, [{Rb}, #{off8}]
+in nzcv=0111 r4=0x40010000 r12=0xfffffff3 mem=0x400100e0:c735f73d3632fdfac7d981b8c7671629810914d9852f465acf3df1b28a8af885be9fce7afc35ab6476097b65403f44d9cfff7a41aa906fbe99c665d20659e82a
+out pc=0x30002004 sig=trap r12=0xbe85
+case Mem df0f51e0 ldrsb r0, [r1], #-255 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=0111 r0=0xfffffff8 r1=0x40010000 mem=0x4000fff0:e9988aa1660d3c8097cf8a2a0cb11b3a2c0887cd21562fb940467423a0bb5b51db8e6cc605ed5f75da0e7dd3f4642d58bc1f32ffb89bf519340e3804e7a94a78
+out pc=0x30002004 sig=trap r0=0x2c r1=0x4000ff01
+case Mem df0f51e0 ldrsb r0, [r1], #-255 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=0110 r0=0x1 r1=0x40010000 mem=0x4000fff0:dc4f79b42c98bd46b1ede2f39de8b51e089a4888d485a6fe4d36fc702f92a3792f561906333cbd9447e35d14ee37a87693f24933c5599092f0d6c2777c07f0bc
+out pc=0x30002004 sig=trap r0=0x8 r1=0x4000ff01
+case Mem df0f51e0 ldrsb r0, [r1], #-255 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=0000 r0=0x8 r1=0x40010000 mem=0x4000fff0:c796329c968f87dd0141ab4ae5aab85889a5a75e79aa0670a95c753fd00118d13353d71bae39895e3d868107b7d3135f2865d9ce1aed97d51a338717da87daec
+out pc=0x30002004 sig=trap r0=0xffffff89 r1=0x4000ff01
+case Mem d85058e0 ldrsb r5, [r8], #-8 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=0110 r5=0x800000 r8=0x40010000 mem=0x4000fff0:8fc329844f3cd2c0620ebb413dafa7ecebb6f668e337c5689c74a45f084c8df0cd9cd5610bb4a651261e58f1c5a14c2df6ccb461e47218cc830ee551e885f7e6
+out pc=0x30002004 sig=trap r5=0xffffffeb r8=0x4000fff8
+case Mem d85058e0 ldrsb r5, [r8], #-8 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=1011 r5=0x7ffffff9 r8=0x40010000 mem=0x4000fff0:0ecc093f057e70734a8ba9a7129e6862f5b93dbf3ae0e3866014f059be7835048b78550268b0616b1acf017944624389b7954c89827b06411dd40e6c05708386
+out pc=0x30002004 sig=trap r5=0xfffffff5 r8=0x4000fff8
+case Mem d85058e0 ldrsb r5, [r8], #-8 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=1111 r5=0x1f5df3f4 r8=0x40010000 mem=0x4000fff0:7f97ae1a758a2860f3b84665396bcf89c5e423bf9b593e6e45a61f0c5393267de6e6e28dd4905153c44baf112a4e96b1fc55484ca61d40636f1cfde04a500abc
+out pc=0x30002004 sig=trap r5=0xffffffc5 r8=0x4000fff8
+case Mem d090dbe0 ldrsb r9, [r11], #0 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=0011 r9=0x2 r11=0x40010000 mem=0x4000fff0:e8f861097d3ccecd23f6802d5da833534cf6e61887834efcbde7d9fcaf63a3b138237feb628ce711b25e56eba39589f28a7229cca0b4a0a58de1845e07f2fcc5
+out pc=0x30002004 sig=trap r9=0x4c
+case Mem d090dbe0 ldrsb r9, [r11], #0 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=0011 r9=0x7ffffff6 r11=0x40010000 mem=0x4000fff0:308ed5b22e74e92277d7a3d3afd2a09d26847cad5b028f9da57818c0c004f71345550d6cf9773765b86927b0d85652b67716cac09b4ff730eca225cfc9d78a7a
+out pc=0x30002004 sig=trap r9=0x26
+case Mem d090dbe0 ldrsb r9, [r11], #0 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=0011 r9=0x80000 r11=0x40010000 mem=0x4000fff0:4f9f194551468a0c650ae2822473b18427d1bec6576ad799d81510f935fb53300a93993d479033ba110bd412127442d4dcdee5a062ebe8fa6e2400bfdd981b81
+out pc=0x30002004 sig=trap r9=0x27
+case Mem dfcfd4e0 ldrsb r12, [r4], #255 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=0110 r4=0x40010000 r12=0x8000 mem=0x4000fff0:d9b9b6c71876c7254ab8fa7f32a444cae2be51803b4323215c339501582de9094a2161b9c0397bb783bf2aeb833e98bbababeba0405e3ba826c0dd1af6f73685
+out pc=0x30002004 sig=trap r4=0x400100ff r12=0xffffffe2
+case Mem dfcfd4e0 ldrsb r12, [r4], #255 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=1111 r4=0x40010000 r12=0x9debe22 mem=0x4000fff0:165db71899e2b5d7c73b56a2293f447bb14b7561ce569041e7121093386d3345f9f34749f8c18bb4787a633170a633159378dcf8bafc9354f2ee1ddd556072db
+out pc=0x30002004 sig=trap r4=0x400100ff r12=0xffffffb1
+case Mem dfcfd4e0 ldrsb r12, [r4], #255 <- ldrsb {Rt}, [{Rb}], #{off8}
+in nzcv=1001 r4=0x40010000 r12=0x7ffffff1 mem=0x4000fff0:7e5b46a33c61598c4f60c9c299b78a0b81f3deaaa7f78cdaab0dbec899667ac15830275985924cb7d98c5453b0b62c4c2add2aad3cfa62ec5b92f8c510b54e51
+out pc=0x30002004 sig=trap r4=0x400100ff r12=0xffffff81
+case Mem ff0f71e1 ldrsh r0, [r1, #-255]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=0000 r0=0xe r1=0x40010000 mem=0x4000fef0:da432fe8bed813a057d7230c79e8a1c92e2c898de1b364559bde5fd27688bbb2bc8454f462ff8a65c7636aa4a8b82b4aa89868bf3defb8912bd303713af8539f
+out pc=0x30002004 sig=trap r0=0xffff892c r1=0x4000ff01
+case Mem ff0f71e1 ldrsh r0, [r1, #-255]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=1011 r0=0xfffffff5 r1=0x40010000 mem=0x4000fef0:719e2ee7322311acb48c23ec077f041f79e6e09af12b2bf9a890a7aa7cd43c27df2c428a2e95feb89699b2146c790b512b3542710722c357efc776972482b5a5
+out pc=0x30002004 sig=trap r0=0xffffe0e6 r1=0x4000ff01
+case Mem ff0f71e1 ldrsh r0, [r1, #-255]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=1000 r0=0xf687d14d r1=0x40010000 mem=0x4000fef0:36f48871c3dd0d91c34b083929b008158be5815304f19852a77c48e0066f4b8a33538859f2a952a565be51f4006d46b1d6acc0b1fcba731992645418fc8bb739
+out pc=0x30002004 sig=trap r0=0xffff81e5 r1=0x4000ff01
+case Mem f85078e1 ldrsh r5, [r8, #-8]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=1001 r5=0x10000 r8=0x40010000 mem=0x4000ffe0:96a110d7ca735e8d727ad41b3ed61370de9d4ef497695fa139e827bbdf92d9869f87bb71e217ed8909f312099284b956060a7d22da280eefa6b4a4431e56f943
+out pc=0x30002004 sig=trap r5=0xffffe839 r8=0x4000fff8
+case Mem f85078e1 ldrsh r5, [r8, #-8]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=0011 r5=0x379f090e r8=0x40010000 mem=0x4000ffe0:f9212289a4b91c278463aaf574c185273c95ab43f110e871037bd1bd8d07b4f7852a4ec15a8ebec61b1590d14624188c914460e01818dbf377328f5b52643581
+out pc=0x30002004 sig=trap r5=0x7b03 r8=0x4000fff8
+case Mem f85078e1 ldrsh r5, [r8, #-8]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=1101 r5=0xc r8=0x40010000 mem=0x4000ffe0:b19e81abbc0f4bc77afcbf0e0cdd7cb92c9b1eb8435b2bf595232f408d9d2a959ac7e5fedfc7123a999cb18ac089b481e99dd61687114ac2959812edc06e9fa0
+out pc=0x30002004 sig=trap r5=0x2395 r8=0x4000fff8
+case Mem f090fbe1 ldrsh r9, [r11, #0]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=1110 r9=0x2000000 r11=0x40010000 mem=0x4000fff0:ac0c12f8fc522bd21bc93bf0698e5dd3b0b9d12fda22bf718fa0afcbe9f7abb252030a1e482c0f79082e4ff6d16fa892a1e6c3d8f6f09e5d18a95a94bc94f8eb
+out pc=0x30002004 sig=trap r9=0xffffb9b0
+case Mem f090fbe1 ldrsh r9, [r11, #0]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=0100 r9=0x4438286b r11=0x40010000 mem=0x4000fff0:bacc404aa2a6b798a413205cb2ceb7b475a5ab1da1b47e97230c0037fc3eefaf9aba4745618392243f96bdc2ff90e9e72ede432b2cfe77e8fd63209c95373ad4
+out pc=0x30002004 sig=trap r9=0xffffa575
+case Mem f090fbe1 ldrsh r9, [r11, #0]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=0011 r9=0x80000009 r11=0x40010000 mem=0x4000fff0:c6a34562aa23030fce47798a4f9211a7e2ca4d7caaf5a5e546adf1c3e821fd2375b6eaee92b12ff822c0874db5bbbe5559cb0a7d735b451f1c7267a5a75ca382
+out pc=0x30002004 sig=trap r9=0xffffcae2
+case Mem ffcff4e1 ldrsh r12, [r4, #255]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=1101 r4=0x40010000 r12=0x5 mem=0x400100e0:2f4b4200cc1932140746a1284a82168d8ef75131fe116dfb27d9b60761c603a98c4d2587e942d5e3512d6b20d2e4e21aa000384c38d67f1f9c6d4ca2998ad8d5
+out pc=0x30002004 sig=trap r4=0x400100ff r12=0xffff8ca9
+case Mem ffcff4e1 ldrsh r12, [r4, #255]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=0001 r4=0x40010000 r12=0x87acf1e1 mem=0x400100e0:7048682652eec28beb88c070b7f2f087cb95748f5d7fdff5c5c114803a7fc11aeb124200ecc178e711c87594a584c705ed7b4eb308c9f962119ef2c340256626
+out pc=0x30002004 sig=trap r4=0x400100ff r12=0xffffeb1a
+case Mem ffcff4e1 ldrsh r12, [r4, #255]! <- ldrsh {Rt}, [{Rb}, #{off8}]!
+in nzcv=1011 r4=0x40010000 r12=0x40000000 mem=0x400100e0:c02094d2a9894a3b318e63488af65d063dd0e42a99e3ba395c93a2d6b872ba2483afcb1eee694035b84978349d16de5214f0246e6e6d9dbcc9e2b3cb96affa4d
+out pc=0x30002004 sig=trap r4=0x400100ff r12=0xffff8324
+case Mem 020091e6 ldr r0, [r1], r2 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=0010 r0=0x8 r1=0x40010000 r2=0x7ffff mem=0x4000fff0:0ca296795a89647ce1aef415d6b8c3b7d0808a4cf5240826cb1b2885a246f9cad9ee3fba61f4806a98172873d0bd0aa19fb9b7aecd8e3aed8b4e0d6beb3d101d
+out pc=0x30002004 sig=trap r0=0x4c8a80d0 r1=0x4008ffff
+case Mem 020091e6 ldr r0, [r1], r2 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=1001 r0=0xfffffff0 r1=0x40010000 r2=0xffff mem=0x4000fff0:77ffb171c92089c32d144754aa20580d5680486101798be5c5a90ec942b0ac484567e9e50c09279ef6259b40194ecd1d8f14d5f69a5cf5b12601351a098c9cbd
+out pc=0x30002004 sig=trap r0=0x61488056 r1=0x4001ffff
+case Mem 020091e6 ldr r0, [r1], r2 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=0000 r0=0x7ffffff2 r1=0x40010000 r2=0xfffffffe mem=0x4000fff0:429bc4325915a40a65ff8c9730e0e7d2e614d3b3e346537a590ddd88ece04d8c977bdb40c2a31291d2103096546ece5abe57234ca0413cdd87463590f14db461
+out pc=0x30002004 sig=trap r0=0xb3d314e6 r1=0x4000fffe
+case Mem 0a5098e6 ldr r5, [r8], r10 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=1101 r5=0x200000 r8=0x40010000 r10=0xfffffff7 mem=0x4000fff0:2f0a8ade9775f56453dd732160ea4417e1d04ec9349b305e5e56b469d19a7d3c926799b053eecaef2a315ee0adb463550898240bdb5036dfa3544e9a05bd1aee
+out pc=0x30002004 sig=trap r5=0xc94ed0e1 r8=0x4000fff7
+case Mem 0a5098e6 ldr r5, [r8], r10 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=1011 r5=0xd r8=0x40010000 r10=0xf mem=0x4000fff0:322ee0bf993cb7f8aa56c2f84b4d9e26ad521091ed5863e1913425efeea818d43a1ad0d39cd5925f54d06d53669f554e10c696448c0c919b06d6205ef86cb3cc
+out pc=0x30002004 sig=trap r5=0x911052ad r8=0x4001000f
+case Mem 0a5098e6 ldr r5, [r8], r10 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=0101 r5=0xf r8=0x40010000 r10=0x7 mem=0x4000fff0:48e2ff8c98e75f28f2577badeba2715aef060188e927b890b9802060b2d443d9fd061c1d6fc241296efc8df0947c6069cc9096c20703f96e4089727915c190ef
+out pc=0x30002004 sig=trap r5=0x880106ef r8=0x40010007
+case Mem 0c909be6 ldr r9, [r11], r12 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=0011 r9=0x40000000 r11=0x40010000 r12=0x2 mem=0x4000fff0:70607a4ad129b66c5ad73f7d2e94c01a12ef9f7400f3e0bf56d80ee620dc5b8edf11028f33a3b81358866fa9c51c5bf6e0b9a1813a20aeceebc5136f39146e8c
+out pc=0x30002004 sig=trap r9=0x749fef12 r11=0x40010002
+case Mem 0c909be6 ldr r9, [r11], r12 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=0000 r9=0xeb7ac087 r11=0x40010000 r12=0x7ffffff6 mem=0x4000fff0:7505d1cb80b14cc1ebfa05662d636fd9ff388d2b69f2d2952e9f2068b91e615573cc2bacc0a211fc76a82188f561fc116defe59e7f3c0ccfe21131a98969730c
+out pc=0x30002004 sig=trap r9=0x2b8d38ff r11=0xc000fff6
+case Mem 0c909be6 ldr r9, [r11], r12 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=1011 r9=0x7ffffff4 r11=0x40010000 r12=0xfffffffe mem=0x4000fff0:b5e4cbe9816a4219e6f35213b1d125b3572e591823556515079adc84c7e3de5e9bf4a3fbb7ff934cd9e7c21455d3ccd528e8ab694915947dee9265de6b035b22
+out pc=0x30002004 sig=trap r9=0x18592e57 r11=0x4000fffe
+case Mem 06c094e6 ldr r12, [r4], r6 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=1100 r4=0x40010000 r6=0xfffffff8 r12=0xfffffff4 mem=0x4000fff0:67c58d1b0f130416c4a5c2721cb515881171bf78933c84c7e61d4c45cf00ab0982738b52ae22b08113a87b26504c8b3081793ceb40e85c7d74e4aa6c522abcb9
+out pc=0x30002004 sig=trap r4=0x4000fff8 r12=0x78bf7111
+case Mem 06c094e6 ldr r12, [r4], r6 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=0010 r4=0x40010000 r6=0x2 r12=0x8000000e mem=0x4000fff0:f4ef25b5b1b20d923d93031d8beeee17abcdc7d8c8809bc8ca65f1f59d2e61f19c9c72a79902e4aaf12d7a08e3992786dad689bd4b67536e50921c9ddae096fa
+out pc=0x30002004 sig=trap r4=0x40010002 r12=0xd8c7cdab
+case Mem 06c094e6 ldr r12, [r4], r6 <- ldr {Rt}, [{Rb}], {Ri}
+in nzcv=0100 r4=0x40010000 r6=0xd r12=0xffff mem=0x4000fff0:086cc1f63499cce01978591a11f79d06b35d180d3ca823266b5d366359da7416a88a2b2270f0f6c255b2bd5cd25f7914acc68e1317a31df96377470008747219
+out pc=0x30002004 sig=trap r4=0x4001000d r12=0xd185db3
+case Mem 0200b1e7 ldr r0, [r1, r2, lsl #0]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=0110 r0=0x1000000 r1=0x40010000 r2=0x18 mem=0x40010000:2f4eba252da89695ac44925adb71fd5abdcc75c528deae6d0cf72668d1100599654434450c26559cbd71f9bf5e2a88369dab6316d42bbbe6707545166a85299c
+out pc=0x30002004 sig=trap r0=0x6826f70c r1=0x40010018
+case Mem 0200b1e7 ldr r0, [r1, r2, lsl #0]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=0110 r0=0xa r1=0x40010000 r2=0x18 mem=0x40010000:a64de584c44a8b6235397a2de980c05c2054ff786dc516cdc589e0d07267c169692043c1cfbc12d9c1e3248e840e45f86e725866a75f6308bc7b285b2aaac0af
+out pc=0x30002004 sig=trap r0=0xd0e089c5 r1=0x40010018
+case Mem 0200b1e7 ldr r0, [r1, r2, lsl #0]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=0000 r0=0x7c41d6eb r1=0x40010000 r2=0x18 mem=0x40010000:d6f28adb837030e1cbd0ab48f330570edea81d522430e7d56fe50ed4c91ef82bc2305934cc5823d1b11968613480dbab0ee5096ebb49e37eab8588cc78c53b72
+out pc=0x30002004 sig=trap r0=0xd40ee56f r1=0x40010018
+case Mem 8a50b8e7 ldr r5, [r8, r10, lsl #1]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=0010 r5=0xfffffff7 r8=0x40010000 r10=0x18 mem=0x40010020:5508d8b062f1e9f999d15ab51490afae3dcdf21b07fa7195fcc58bdf7f2f6d50047a79123fc38fa18dfe626356d5d94fbef55648c338c17d3061c8a5e06c810d
+out pc=0x30002004 sig=trap r5=0x1bf2cd3d r8=0x40010030
+case Mem 8a50b8e7 ldr r5, [r8, r10, lsl #1]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=1110 r5=0x6ea76c54 r8=0x40010000 r10=0x18 mem=0x40010020:8d259303923d20d53aac808f5b72943222f334af9e37ae8946d93f591e2c36a1eaa8b37780a397432e5fbb730264a3dffe23208ee7abf1b57aca4bc966f35eb2
+out pc=0x30002004 sig=trap r5=0xaf34f322 r8=0x40010030
+case Mem 8a50b8e7 ldr r5, [r8, r10, lsl #1]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=1011 r5=0xfffffff3 r8=0x40010000 r10=0x18 mem=0x40010020:f33b9539d549f96704238fbc54e79dfaa3661b912edeee8886f3bb93491062f90323c77847de66778ba5a276f98c97a97727f534962d9ace1a3f29bdf7c2f507
+out pc=0x30002004 sig=trap r5=0x911b66a3 r8=0x40010030
+case Mem 0c91bbe7 ldr r9, [r11, r12, lsl #2]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=0100 r9=0xfffffffa r11=0x40010000 r12=0x18 mem=0x40010050:8105c6659d1c06147d65866b2a5f7b119089392867f4134e6c3c7ba8e114ffa0e966ee3911edda1da6d2de49d9320ab1b4aa727db6c6fbc3fc8e84a32132fbbb
+out pc=0x30002004 sig=trap r9=0x28398990 r11=0x40010060
+case Mem 0c91bbe7 ldr r9, [r11, r12, lsl #2]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=0111 r9=0xfffffffc r11=0x40010000 r12=0x18 mem=0x40010050:ab9c2fafe935bce64090dd2ed952e4e984a193ddf05876b13b63ae638d5a8a0bf06277536902fe9b389b88449081c52acde5cd9f7ba15944baa48e97acd64fbc
+out pc=0x30002004 sig=trap r9=0xdd93a184 r11=0x40010060
+case Mem 0c91bbe7 ldr r9, [r11, r12, lsl #2]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=1010 r9=0x2000 r11=0x40010000 r12=0x18 mem=0x40010050:c3a158e4819cda2f56f2e1a4819c911dd7da832c477ef468365d11259051e59078865fee71d9b8a1e671206e7538fdab28779ee6f4b0e706bf8a2c1800fd7141
+out pc=0x30002004 sig=trap r9=0x2c83dad7 r11=0x40010060
+case Mem 86c1b4e7 ldr r12, [r4, r6, lsl #3]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=0111 r4=0x40010000 r6=0x18 r12=0x80000002 mem=0x400100b0:c18b593e78c7856e747a3e53781dd8dce748bd576c43b9a707f8ad7d43b7a983086904186606a134e1aeaa73ce7225b9827d8f26d59a99fcdd5d69bbb06b2754
+out pc=0x30002004 sig=trap r4=0x400100c0 r12=0x57bd48e7
+case Mem 86c1b4e7 ldr r12, [r4, r6, lsl #3]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=1110 r4=0x40010000 r6=0x18 r12=0xfffffff5 mem=0x400100b0:ec9066734f143ad53b63420ce0baddeb5cb0c1c78fc51e3b3fce04bb430dedd3f7b8f26fc52a8bfb2549ddba1b646dff44169a8572ad45ad693ffc25939418fa
+out pc=0x30002004 sig=trap r4=0x400100c0 r12=0xc7c1b05c
+case Mem 86c1b4e7 ldr r12, [r4, r6, lsl #3]! <- ldr {Rt}, [{Rb}, {Ri}, lsl #{sh2}]!
+in nzcv=0010 r4=0x40010000 r6=0x18 r12=0x3fffffff mem=0x400100b0:821ffa4d0e00f67eebe08efb8103a5720858da9545b4dfbc6ca580940f3e3811a01924fb5eaab7dd87d5cf242f045ce588f4f904eddad8a839118c54f9a2dc6b
+out pc=0x30002004 sig=trap r4=0x400100c0 r12=0x95da5808
+case Mem 00008105 streq r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0100 r0=0x472159b7 r1=0x40010000 mem=0x4000fff0:a2063738efd24a52e1a3a6f11830ca16338bdbe5fa115532d55072e63baa04ad92aee80829d46fcbeb09673ec1cf8b15c48ef735f9e01f62c77325f897a4a3ec
+out pc=0x30002004 sig=trap mem=0x4000fff0:a2063738efd24a52e1a3a6f11830ca16b7592147fa115532d55072e63baa04ad92aee80829d46fcbeb09673ec1cf8b15c48ef735f9e01f62c77325f897a4a3ec
+case Mem 00008105 streq r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0000 r0=0x8000000b r1=0x40010000 mem=0x4000fff0:ed0903b38bf309e5aea3890564948853311a6600bebc14276e1e63f47929626b4281fe5be40f75d91d160b5b008568e21460107653b031fd4d5736987c57753f
+out pc=0x30002004 sig=trap
+case Mem 00008105 streq r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0010 r0=0xd6821a45 r1=0x40010000 mem=0x4000fff0:85b7f47e91ae8e7740b41f4eae76c44d41a37c6c29b4a8803a6d4403ec52cc47d3629a6864bde43500eba9c6c76d2d907e06509bffe2c894bc34dda347667a41
+out pc=0x30002004 sig=trap
+case Mem 04508815 strne r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0111 r5=0x7ffffff0 r8=0x40010000 mem=0x4000fff0:fb9baef7d909709e79e3746220a467b01bb2536294ea9ec021896d90045aa5de5401f30c23d81585a08d86d1cfeada80784ac1912927412b1bf59776d3ce4d42
+out pc=0x30002004 sig=trap
+case Mem 04508815 strne r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0001 r5=0xc8819892 r8=0x40010000 mem=0x4000fff0:3c169653d76778427e605df0cd66180f87f414680df9453deb99881383403cea8a0ebbfab4694f2b7e620564d406b44bded95f7ccfc85ac610948f2191d9447e
+out pc=0x30002004 sig=trap mem=0x4000fff0:3c169653d76778427e605df0cd66180f87f41468929881c8eb99881383403cea8a0ebbfab4694f2b7e620564d406b44bded95f7ccfc85ac610948f2191d9447e
+case Mem 04508815 strne r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1010 r5=0x80000 r8=0x40010000 mem=0x4000fff0:057c20d6d8d62ef4d5539659899b0898259d72f8b985a3882ab9206f286e6d7ee93cc41d2eb18a30302fe9e3741314cd28abe7215a90fd02dbda723e8f290d23
+out pc=0x30002004 sig=trap mem=0x4000fff0:057c20d6d8d62ef4d5539659899b0898259d72f8000008002ab9206f286e6d7ee93cc41d2eb18a30302fe9e3741314cd28abe7215a90fd02dbda723e8f290d23
+case Mem ff978b25 strcs r9, [r11, #0x7ff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1011 r9=0x80000 r11=0x40010000 mem=0x400107e0:e31a291b07085c19bc9c4e64794752b4c3de145c42524e836e163d953af7d58fdce1315164e7fb3d79b0332933a5bbeacb365b5074deda7c793414950e8dffbd
+out pc=0x30002004 sig=trap mem=0x400107e0:e31a291b07085c19bc9c4e64794752b4c3de145c42524e836e163d953af7d5000008005164e7fb3d79b0332933a5bbeacb365b5074deda7c793414950e8dffbd
+case Mem ff978b25 strcs r9, [r11, #0x7ff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1010 r9=0x7fffffff r11=0x40010000 mem=0x400107e0:3d7127c9b00eae742f53d03f6b36db571bce347ff54a6a568323264acea35a9ba9695f4e1ee0c4040c6be7e75f41445ee713100b385432407027a7e1a1246fd5
+out pc=0x30002004 sig=trap mem=0x400107e0:3d7127c9b00eae742f53d03f6b36db571bce347ff54a6a568323264acea35affffff7f4e1ee0c4040c6be7e75f41445ee713100b385432407027a7e1a1246fd5
+case Mem ff978b25 strcs r9, [r11, #0x7ff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0111 r9=0xa8554332 r11=0x40010000 mem=0x400107e0:8d989486b1b8b4e93f1cca4854f55cd750d67aef26f4e2e0adfb851615f224d12729b3e4fd127c3fcd35f53987a90c2f470b1bc8154a0fe5537014bf6971f938
+out pc=0x30002004 sig=trap mem=0x400107e0:8d989486b1b8b4e93f1cca4854f55cd750d67aef26f4e2e0adfb851615f224324355a8e4fd127c3fcd35f53987a90c2f470b1bc8154a0fe5537014bf6971f938
+case Mem ffcf8435 strcc r12, [r4, #0xfff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r4=0x40010000 r12=0xfffffff0 mem=0x40010fe0:1b485c98d63392089eb75c2859045aea3c5161c2968ce7dd40f31fedcb51ba775bc83e008e4da04256c13ddc3dc87edd095fd898c2a06012af3b190263ff958d
+out pc=0x30002004 sig=trap mem=0x40010fe0:1b485c98d63392089eb75c2859045aea3c5161c2968ce7dd40f31fedcb51baf0ffffff008e4da04256c13ddc3dc87edd095fd898c2a06012af3b190263ff958d
+case Mem ffcf8435 strcc r12, [r4, #0xfff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1110 r4=0x40010000 r12=0xb mem=0x40010fe0:e84b7a489d5a2d7e8945d0aa06ab0ade48d75a6051f5920c58f6f29599c5badd0cc62a8234998765bbfb31caf4e5db589d0b519c35bbf78e2cec0efe75ec72af
+out pc=0x30002004 sig=trap
+case Mem ffcf8435 strcc r12, [r4, #0xfff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0110 r4=0x40010000 r12=0xfffffffa mem=0x40010fe0:b8e903c1643d9d5083fd2e4e06c4171cc09eab7aed920122ff5ae3186020886c8b804135aff3a5a18beed5c0e0ac2a445746eddc7373b84dd85324ea95de3a22
+out pc=0x30002004 sig=trap
+case Mem 00008145 strmi r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1101 r0=0xd r1=0x40010000 mem=0x4000fff0:ce042f1a2aa39e5628d4b3f6a9107951e2aa50a97f4ec76e417208aea4bc5aa626486f431deb8e39bbd9a779f31dbca9cb82f04bbb40567a41b0b142484fad88
+out pc=0x30002004 sig=trap mem=0x4000fff0:ce042f1a2aa39e5628d4b3f6a91079510d0000007f4ec76e417208aea4bc5aa626486f431deb8e39bbd9a779f31dbca9cb82f04bbb40567a41b0b142484fad88
+case Mem 00008145 strmi r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0101 r0=0x8000000 r1=0x40010000 mem=0x4000fff0:1e57143892a90fba39ec0a87639583102080e193185a7295f57c41eae0748f319901eea317ed24dff9e68b9a6e1664b88aa9254a81bab924ad955a9aa35f647d
+out pc=0x30002004 sig=trap
+case Mem 00008145 strmi r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1010 r0=0x100ccd1e r1=0x40010000 mem=0x4000fff0:c256c129c95bcc23ab3da056723fa10bc72e67acc2ddafd8909d48e347e4e33b6b4776e22b96980e46df4972923cbd0f464346d89f119ae4c2c28fd2895a4906
+out pc=0x30002004 sig=trap mem=0x4000fff0:c256c129c95bcc23ab3da056723fa10b1ecd0c10c2ddafd8909d48e347e4e33b6b4776e22b96980e46df4972923cbd0f464346d89f119ae4c2c28fd2895a4906
+case Mem 04508855 strpl r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0100 r5=0x7bdbc914 r8=0x40010000 mem=0x4000fff0:956c4ca775f5ad97e2dd756fc5b82cc8f48e36fd30278d2a858fa23b668379f05492275012874cd3ca4e0c020a1ae699463c128f1c97e377fad4c3449772e9f7
+out pc=0x30002004 sig=trap mem=0x4000fff0:956c4ca775f5ad97e2dd756fc5b82cc8f48e36fd14c9db7b858fa23b668379f05492275012874cd3ca4e0c020a1ae699463c128f1c97e377fad4c3449772e9f7
+case Mem 04508855 strpl r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1111 r5=0xd r8=0x40010000 mem=0x4000fff0:9b3720a59b8d8d7dbaa15af31ea5d62a26a10cc96efa3972e0082f2891c9f9e48f3829c6f3fc2a15ce91f448fd5cd1cd1e6663fec83e0367a5185e1510ea0ba4
+out pc=0x30002004 sig=trap
+case Mem 04508855 strpl r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0000 r5=0x8c1124bf r8=0x40010000 mem=0x4000fff0:21a6a7da3f190d348059a68b1846e3f622c4688a65883420acf2a178874586184ae13b8f498f4dccf57c56530033c0ea8f6cfe182c3baddc188f4dacea7eb09a
+out pc=0x30002004 sig=trap mem=0x4000fff0:21a6a7da3f190d348059a68b1846e3f622c4688abf24118cacf2a178874586184ae13b8f498f4dccf57c56530033c0ea8f6cfe182c3baddc188f4dacea7eb09a
+case Mem ff978b65 strvs r9, [r11, #0x7ff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r9=0x7ffffffb r11=0x40010000 mem=0x400107e0:ed84e8f1fdebbfb85d2015e371b5a2def0d68e8fe2e8c04864042dab01281f7e5a37db0485a2a6289c7887cfb4ad01134ff3994b2cf2fefe227a9c0943187302
+out pc=0x30002004 sig=trap
+case Mem ff978b65 strvs r9, [r11, #0x7ff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0100 r9=0x0 r11=0x40010000 mem=0x400107e0:5c8a6f8696e90bcbff410322dedd6f03a34649f971a237338c3fa683ce126f5a4627fad5060de89eac689ce5c178e30c45427b555cf143d797d50b324f1d6ba5
+out pc=0x30002004 sig=trap
+case Mem ff978b65 strvs r9, [r11, #0x7ff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r9=0x20 r11=0x40010000 mem=0x400107e0:aa08c4d148545e178197c27226216d07f59f304635f59401ebb8f4d81a60fc2b638045f93a6939b5f860a0eebbba5ef72d256d47bbd25d6d007dbcbc702b6581
+out pc=0x30002004 sig=trap
+case Mem ffcf8475 strvc r12, [r4, #0xfff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0010 r4=0x40010000 r12=0xa1a133f9 mem=0x40010fe0:70f6d10634932c49c6d3e436d212e3708c7de91399860e06a45f03fdfd0599b59e05bc7410312f87bb634a22128b107e4a413c6762209b020a0b52aaae74d1ba
+out pc=0x30002004 sig=trap mem=0x40010fe0:70f6d10634932c49c6d3e436d212e3708c7de91399860e06a45f03fdfd0599f933a1a17410312f87bb634a22128b107e4a413c6762209b020a0b52aaae74d1ba
+case Mem ffcf8475 strvc r12, [r4, #0xfff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1000 r4=0x40010000 r12=0x1f mem=0x40010fe0:c6807339a42b703a3512558f041eb45a4e7635876fb74c836a74eab4e98da13935874ea4f0fe6418ef3b4673df8729953bdbcca7506a7f040d178755dfc7e7f7
+out pc=0x30002004 sig=trap mem=0x40010fe0:c6807339a42b703a3512558f041eb45a4e7635876fb74c836a74eab4e98da11f000000a4f0fe6418ef3b4673df8729953bdbcca7506a7f040d178755dfc7e7f7
+case Mem ffcf8475 strvc r12, [r4, #0xfff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1110 r4=0x40010000 r12=0x2a42f69c mem=0x40010fe0:a7289ec5bb63133e23af10cdbcc6f8274b516bed1714e7f96f85f8838a8ed5abab0c178f749b3283136301c2ea4c09ee6385cbd60030eee50d45744fd59a410c
+out pc=0x30002004 sig=trap mem=0x40010fe0:a7289ec5bb63133e23af10cdbcc6f8274b516bed1714e7f96f85f8838a8ed59cf6422a8f749b3283136301c2ea4c09ee6385cbd60030eee50d45744fd59a410c
+case Mem 00008185 strhi r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0011 r0=0xfffffffd r1=0x40010000 mem=0x4000fff0:26a43ae27ce58d0806d550311cecbea84e9a32b2267367737e7af7fb257239cd0b02f74323948c1e9c9729bacc1c9f58f632c823e938a37c4acc336c55188265
+out pc=0x30002004 sig=trap mem=0x4000fff0:26a43ae27ce58d0806d550311cecbea8fdffffff267367737e7af7fb257239cd0b02f74323948c1e9c9729bacc1c9f58f632c823e938a37c4acc336c55188265
+case Mem 00008185 strhi r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1011 r0=0x5d97087b r1=0x40010000 mem=0x4000fff0:d5b7a03734b887c0328cbd1ad2dead6c82020cc72284b9908a4c7251629fe17bc542e2b242bac2cd7ca1a2fbb9ac252353bdec00181237855aa19e32f09f10ba
+out pc=0x30002004 sig=trap mem=0x4000fff0:d5b7a03734b887c0328cbd1ad2dead6c7b08975d2284b9908a4c7251629fe17bc542e2b242bac2cd7ca1a2fbb9ac252353bdec00181237855aa19e32f09f10ba
+case Mem 00008185 strhi r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0000 r0=0x5eb14ced r1=0x40010000 mem=0x4000fff0:3ead692c4ad8c9c5f3694e220e85a48d3ee3e4aa2e6373427d2454d63b7df15a9b94bfb2b65d145b5f29dfd52182dc404b48843cbdd74aa84afe95fb82326c02
+out pc=0x30002004 sig=trap
+case Mem 04508895 strls r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1101 r5=0xde2e9982 r8=0x40010000 mem=0x4000fff0:343b695bcb658e261c635f50c3477228cfb6870e655fdd7d5746e467cd84acd7bb611be91ac432266328fbf34e37486082e805dee3233403e31df4cbee02e037
+out pc=0x30002004 sig=trap mem=0x4000fff0:343b695bcb658e261c635f50c3477228cfb6870e82992ede5746e467cd84acd7bb611be91ac432266328fbf34e37486082e805dee3233403e31df4cbee02e037
+case Mem 04508895 strls r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0010 r5=0x1f5c0820 r8=0x40010000 mem=0x4000fff0:b7f49cabfc377e559e359b81bee8ac3fb4ed850e202c0c05a566656b6882bfc0aedf13f7c8d7a0cde7ca11d00831aa0b716176d905303e2eb968012ba161460e
+out pc=0x30002004 sig=trap
+case Mem 04508895 strls r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0110 r5=0x7fff r8=0x40010000 mem=0x4000fff0:75111711b695aadfec9510af71923561e24892f3847f3702bdc0113ad7c63e29b44e8e08a7ec83ab2d141a08fc91d82aac02523ca7d778987ec9e3e479920d36
+out pc=0x30002004 sig=trap mem=0x4000fff0:75111711b695aadfec9510af71923561e24892f3ff7f0000bdc0113ad7c63e29b44e8e08a7ec83ab2d141a08fc91d82aac02523ca7d778987ec9e3e479920d36
+case Mem ff978ba5 strge r9, [r11, #0x7ff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0001 r9=0x297d3e6d r11=0x40010000 mem=0x400107e0:59954c6b0505a49e7b420c9494d9fd974fc42e8b539afa8a4d737d2e23b677d9da3a6999c306361496a9c91762ece99beaeb10f3167bc5b22e6ded397db243d4
+out pc=0x30002004 sig=trap
+case Mem ff978ba5 strge r9, [r11, #0x7ff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r9=0x40000000 r11=0x40010000 mem=0x400107e0:f7d93b94da9ac7ea71bc1cc3b41203dcaed946213ff7eccde563de29f32241a346e12e04a57435e92db9adf9e40126015eda78ed221533694473ad809b158904
+out pc=0x30002004 sig=trap
+case Mem ff978ba5 strge r9, [r11, #0x7ff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1110 r9=0xfffffffd r11=0x40010000 mem=0x400107e0:17258ad94b89071728daee91a5704545f3669f12bad9586acc777c5f2d6003b272959ebc146f0b9b1b1284fc21d6e4fbabc7bb59bb1d243bfb42d704355908cf
+out pc=0x30002004 sig=trap
+case Mem ffcf84b5 strlt r12, [r4, #0xfff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1001 r4=0x40010000 r12=0x7ffffff9 mem=0x40010fe0:745938fcac8ef4077faa6e95ff1a8549706905a72db04f243c8b84d05ddb7e8067843b5438354b55a62aa607860b839787169d9f1eedd87659a21f7e145103fc
+out pc=0x30002004 sig=trap
+case Mem ffcf84b5 strlt r12, [r4, #0xfff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1101 r4=0x40010000 r12=0x58a010ed mem=0x40010fe0:3a48c98a7266af3abd3c84f072f00822cd4baaf4fe89c839d1ac1aa3b786e609b9806034461c380573e1eaef4262d43d8103e2c461f6a567798019593ea097d0
+out pc=0x30002004 sig=trap
+case Mem ffcf84b5 strlt r12, [r4, #0xfff] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1100 r4=0x40010000 r12=0x3fff mem=0x40010fe0:51beb3122884fe7bd56e09aeb80616740c824140f783ec321f9f103cd47fe8335743cb6047393076d692c96d15ad267dada4a07626856db45bc0ad93042ff813
+out pc=0x30002004 sig=trap mem=0x40010fe0:51beb3122884fe7bd56e09aeb80616740c824140f783ec321f9f103cd47fe8ff3f00006047393076d692c96d15ad267dada4a07626856db45bc0ad93042ff813
+case Mem 000081c5 strgt r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1000 r0=0xf r1=0x40010000 mem=0x4000fff0:228ce3786ca30205f6768bf8da6fb7d4aa2604ad38c1e6e9735027836902f124cb24c64bac1e696f5722b7bc2867414c95357b306c5fa3f61adff62ef706d8ba
+out pc=0x30002004 sig=trap
+case Mem 000081c5 strgt r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0001 r0=0x7ffffffd r1=0x40010000 mem=0x4000fff0:ea0450204295c53d5b18408e01bcfb080d665c44db3b66151e87906a0331f6d85479c9e3e5e20452681e4d383fdc2d535328501d628064dd6b80f5ae100f1177
+out pc=0x30002004 sig=trap
+case Mem 000081c5 strgt r0, [r1, #0] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1110 r0=0x7ffffff6 r1=0x40010000 mem=0x4000fff0:47155d3879d95130fa827d2cf3eff1b664a6ec6655078bd34f02f9df9c90ebf586a883248b3aa9d7e177b00b748c0d981f0e837225a57afea164365a242a4878
+out pc=0x30002004 sig=trap
+case Mem 045088d5 strle r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=1111 r5=0xa r8=0x40010000 mem=0x4000fff0:f4d45a8790595fccb0c8ee55c6c14fb5cc74099f726f232ce225e477b49f58c5cc6b22469974396c4fc87d7ab717cd6b38b94d2cdbefea998c54c20c6b70b23e
+out pc=0x30002004 sig=trap mem=0x4000fff0:f4d45a8790595fccb0c8ee55c6c14fb5cc74099f0a000000e225e477b49f58c5cc6b22469974396c4fc87d7ab717cd6b38b94d2cdbefea998c54c20c6b70b23e
+case Mem 045088d5 strle r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0101 r5=0x80000 r8=0x40010000 mem=0x4000fff0:cf4b0101c21f39d962150ce4e096c2027f9232a9e8b93713dd8e12691491d85a40b44448047908de025b56ac73f9779be705baed736b2de3f296856de2adfd44
+out pc=0x30002004 sig=trap mem=0x4000fff0:cf4b0101c21f39d962150ce4e096c2027f9232a900000800dd8e12691491d85a40b44448047908de025b56ac73f9779be705baed736b2de3f296856de2adfd44
+case Mem 045088d5 strle r5, [r8, #4] <- str{cond} {Rt}, [{Rb}, #{off12}]
+in nzcv=0000 r5=0x0 r8=0x40010000 mem=0x4000fff0:6700e78ea7db8ad3cfc04b9dba13e09514c846f256719635917fcf6dc71d53f7de64bad362ccb9a91ef52554957a7cc70795c8376e271d8361e1e5da6576e7db
+out pc=0x30002004 sig=trap
+case Mem 0200c1e7 strb r0, [r1, r2] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=0110 r0=0x7ffffff2 r1=0x40010000 r2=0x18 mem=0x40010000:78ea239a18b3129afd1419cd02df794b292f03bbe54026eebae1ecb4de6451024f5dfe2e8f9bec47805bbd18360d39d4ad1cd39c5e2330fc3e2c58462bdfe1a8
+out pc=0x30002004 sig=trap mem=0x40010000:78ea239a18b3129afd1419cd02df794b292f03bbe54026eef2e1ecb4de6451024f5dfe2e8f9bec47805bbd18360d39d4ad1cd39c5e2330fc3e2c58462bdfe1a8
+case Mem 0200c1e7 strb r0, [r1, r2] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=0011 r0=0x3d904877 r1=0x40010000 r2=0x18 mem=0x40010000:ab6acc5a2465549f760e9a1085ba5b64042a17b9e159cb1ba37f6c61a85675ec2aec55711841e741c5419fb88adb98d3ea4ae452ba37da8cf757cadee9246f69
+out pc=0x30002004 sig=trap mem=0x40010000:ab6acc5a2465549f760e9a1085ba5b64042a17b9e159cb1b777f6c61a85675ec2aec55711841e741c5419fb88adb98d3ea4ae452ba37da8cf757cadee9246f69
+case Mem 0200c1e7 strb r0, [r1, r2] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=0100 r0=0x4000000 r1=0x40010000 r2=0x18 mem=0x40010000:21af8b00adf1125bbf4b14400ee05939caa35a73490143e2d057abbe91cff9cb97b8bde43dde82355775bea615f2e6173915eecd7d5b58098bf7a0a679d12b91
+out pc=0x30002004 sig=trap mem=0x40010000:21af8b00adf1125bbf4b14400ee05939caa35a73490143e20057abbe91cff9cb97b8bde43dde82355775bea615f2e6173915eecd7d5b58098bf7a0a679d12b91
+case Mem 0a50c8e7 strb r5, [r8, r10] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=1000 r5=0x0 r8=0x40010000 r10=0x18 mem=0x40010000:8d7702f67bc948b39f9c44e779ecb064e131e61b570acdb755f40cacecced24d2aba0996f83c1d7057543c94de2b9b1d0b59226e228edfa3a65b9dab41c15563
+out pc=0x30002004 sig=trap mem=0x40010000:8d7702f67bc948b39f9c44e779ecb064e131e61b570acdb700f40cacecced24d2aba0996f83c1d7057543c94de2b9b1d0b59226e228edfa3a65b9dab41c15563
+case Mem 0a50c8e7 strb r5, [r8, r10] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=0110 r5=0x10 r8=0x40010000 r10=0x18 mem=0x40010000:b569e0e68b874b3376a427b0bd697a28cf879949dff8d3157669d35922345fc360c287def1218bd47b9318364413e6d3799b2f73979d8638aa3f7bff5b525ba6
+out pc=0x30002004 sig=trap mem=0x40010000:b569e0e68b874b3376a427b0bd697a28cf879949dff8d3151069d35922345fc360c287def1218bd47b9318364413e6d3799b2f73979d8638aa3f7bff5b525ba6
+case Mem 0a50c8e7 strb r5, [r8, r10] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=0010 r5=0xfffffff2 r8=0x40010000 r10=0x18 mem=0x40010000:f5be16315186ae5ceb123d91933642e75b06fe0622c357938e615394e7234f27f508ac116b0ed1efbecf78dddedd9df747d6d0282783c07103742a105bc9e998
+out pc=0x30002004 sig=trap mem=0x40010000:f5be16315186ae5ceb123d91933642e75b06fe0622c35793f2615394e7234f27f508ac116b0ed1efbecf78dddedd9df747d6d0282783c07103742a105bc9e998
+case Mem 0c90cbe7 strb r9, [r11, r12] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=0010 r9=0xc1212b1d r11=0x40010000 r12=0x18 mem=0x40010000:75afb0c8b76e56bbdde02aee5da09dd07d605ca8abe079ad7ca360683d2ba724e1419f23cd65e025f138e300d54afe6c52cdf5d4a34be66b6ab5395f52d88680
+out pc=0x30002004 sig=trap mem=0x40010000:75afb0c8b76e56bbdde02aee5da09dd07d605ca8abe079ad1da360683d2ba724e1419f23cd65e025f138e300d54afe6c52cdf5d4a34be66b6ab5395f52d88680
+case Mem 0c90cbe7 strb r9, [r11, r12] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=1011 r9=0xfffffffa r11=0x40010000 r12=0x18 mem=0x40010000:050c5be6161f9d4237e305eb84f7efa4b6644a0562c5d677908fc1f6788858b51c5bd0e9db414f763b7ca5bf372fad0486b53334ab5b25e3f420a54d37748767
+out pc=0x30002004 sig=trap mem=0x40010000:050c5be6161f9d4237e305eb84f7efa4b6644a0562c5d677fa8fc1f6788858b51c5bd0e9db414f763b7ca5bf372fad0486b53334ab5b25e3f420a54d37748767
+case Mem 0c90cbe7 strb r9, [r11, r12] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=1000 r9=0x800 r11=0x40010000 r12=0x18 mem=0x40010000:f8112d45cd8e8aa13b51e1ea8f35eb1320551bcb276d2ad4d76882d2a6165cd4f868e625923908922a2ce810ce2e07679e98079444b6671b9eb892dae3dfb8c8
+out pc=0x30002004 sig=trap mem=0x40010000:f8112d45cd8e8aa13b51e1ea8f35eb1320551bcb276d2ad4006882d2a6165cd4f868e625923908922a2ce810ce2e07679e98079444b6671b9eb892dae3dfb8c8
+case Mem 06c0c4e7 strb r12, [r4, r6] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=0010 r4=0x40010000 r6=0x18 r12=0xd9891542 mem=0x40010000:f933d7e7b85f6975dd9e573b05d473f9dacd791196d3931cf4a7c8b1b9dd9c6734e831b4d2ab350c499457293a310d5f4b01f858edf338f0f676d02121140300
+out pc=0x30002004 sig=trap mem=0x40010000:f933d7e7b85f6975dd9e573b05d473f9dacd791196d3931c42a7c8b1b9dd9c6734e831b4d2ab350c499457293a310d5f4b01f858edf338f0f676d02121140300
+case Mem 06c0c4e7 strb r12, [r4, r6] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=0101 r4=0x40010000 r6=0x18 r12=0x41c0e8d5 mem=0x40010000:1d63b39e393deeea21772b32ed64328c86fb7cecb883ca3904c77d5c3be6a30b20dc14f172cfdc7db372dd101a122198f3c128a11607fee1486358803805b7f3
+out pc=0x30002004 sig=trap mem=0x40010000:1d63b39e393deeea21772b32ed64328c86fb7cecb883ca39d5c77d5c3be6a30b20dc14f172cfdc7db372dd101a122198f3c128a11607fee1486358803805b7f3
+case Mem 06c0c4e7 strb r12, [r4, r6] <- strb {Rt}, [{Rb}, {Ri}]
+in nzcv=0111 r4=0x40010000 r6=0x18 r12=0x7ffffff2 mem=0x40010000:2ded4362018a2cb9d935270115a6406a36ea45262a1f3e175e5a062f2bf2fffaef69c3f68058a62932dacc54b100b21e827b3d235f097faa959ce15d7828dbc7
+out pc=0x30002004 sig=trap mem=0x40010000:2ded4362018a2cb9d935270115a6406a36ea45262a1f3e17f25a062f2bf2fffaef69c3f68058a62932dacc54b100b21e827b3d235f097faa959ce15d7828dbc7
+case Mem bf0f41e0 strh r0, [r1], #-255 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=1001 r0=0x2 r1=0x40010000 mem=0x4000fff0:945165a9b2c8897d5e41ea705403aa751ca4c8378a5b4663030e549bbcd1cc316c17b97d42b8bfbfea860df7e574d7424876273fdb53d4a4484d013e24cee181
+out pc=0x30002004 sig=trap r1=0x4000ff01 mem=0x4000fff0:945165a9b2c8897d5e41ea705403aa750200c8378a5b4663030e549bbcd1cc316c17b97d42b8bfbfea860df7e574d7424876273fdb53d4a4484d013e24cee181
+case Mem bf0f41e0 strh r0, [r1], #-255 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=1000 r0=0x8000 r1=0x40010000 mem=0x4000fff0:eb4f7f5c8ea222bff5de5186411455fd45f871caf11364c2802ef227fbaf18b247a1942079c3f2dbcc981d1e1d34d8cc3728d792e66dc3e01c88018cb5d81756
+out pc=0x30002004 sig=trap r1=0x4000ff01 mem=0x4000fff0:eb4f7f5c8ea222bff5de5186411455fd008071caf11364c2802ef227fbaf18b247a1942079c3f2dbcc981d1e1d34d8cc3728d792e66dc3e01c88018cb5d81756
+case Mem bf0f41e0 strh r0, [r1], #-255 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=1100 r0=0xfffffffc r1=0x40010000 mem=0x4000fff0:3bcabd46589b1a5008aa60c88ab3c0c614b802e81857a7f390b9008cd363ce5ab987c071586459ad05c9892f343b4e1ae5f2266a18c525da0f1bca07636197a6
+out pc=0x30002004 sig=trap r1=0x4000ff01 mem=0x4000fff0:3bcabd46589b1a5008aa60c88ab3c0c6fcff02e81857a7f390b9008cd363ce5ab987c071586459ad05c9892f343b4e1ae5f2266a18c525da0f1bca07636197a6
+case Mem b85048e0 strh r5, [r8], #-8 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=1110 r5=0xfffffffd r8=0x40010000 mem=0x4000fff0:ee15435bddbe7ef711cae96a9490e2966748a9babc2f3c16b9c7cf180512ec2bb4f23daa53407e1e1ba10a450f002e8c86a3e7bff5aa1fff8f8203790e47731f
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000fff0:ee15435bddbe7ef711cae96a9490e296fdffa9babc2f3c16b9c7cf180512ec2bb4f23daa53407e1e1ba10a450f002e8c86a3e7bff5aa1fff8f8203790e47731f
+case Mem b85048e0 strh r5, [r8], #-8 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=0001 r5=0xfffffffd r8=0x40010000 mem=0x4000fff0:bd82b96131028d4e8208b437bd9fa0ae86e2e91bec5690f7b3d764e640a7d061b5950adc95cdc66560dbea18fac05ae1f966d2700bfac09bc35f796185c81bca
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000fff0:bd82b96131028d4e8208b437bd9fa0aefdffe91bec5690f7b3d764e640a7d061b5950adc95cdc66560dbea18fac05ae1f966d2700bfac09bc35f796185c81bca
+case Mem b85048e0 strh r5, [r8], #-8 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=1111 r5=0x7ffffffc r8=0x40010000 mem=0x4000fff0:c6978e28e6557f3233bb0179e479b1b0fe329aca6bd0040597f5fa580c43a8c03fa13b248f1b0f7235797e01f0005497015bf5ec0be0109021d2730516736290
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000fff0:c6978e28e6557f3233bb0179e479b1b0fcff9aca6bd0040597f5fa580c43a8c03fa13b248f1b0f7235797e01f0005497015bf5ec0be0109021d2730516736290
+case Mem b090cbe0 strh r9, [r11], #0 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=0111 r9=0xa r11=0x40010000 mem=0x4000fff0:7f7074e87ccdd83e861fd3940ddb2b2ae0e5b0a75972704b5a29a07a994004f02da44878246dca264ff963a06057d975b92e325aa8db20141052cad1a87716b1
+out pc=0x30002004 sig=trap mem=0x4000fff0:7f7074e87ccdd83e861fd3940ddb2b2a0a00b0a75972704b5a29a07a994004f02da44878246dca264ff963a06057d975b92e325aa8db20141052cad1a87716b1
+case Mem b090cbe0 strh r9, [r11], #0 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=0101 r9=0x7ffffff5 r11=0x40010000 mem=0x4000fff0:8babdb62394c54b0ed8c3fcc1ee641c9507eec59e478afc8d2b249047d10e01262169384faccb2327b62a2d128a7568162b4e510f82ad7755c08900b02281f5b
+out pc=0x30002004 sig=trap mem=0x4000fff0:8babdb62394c54b0ed8c3fcc1ee641c9f5ffec59e478afc8d2b249047d10e01262169384faccb2327b62a2d128a7568162b4e510f82ad7755c08900b02281f5b
+case Mem b090cbe0 strh r9, [r11], #0 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=0101 r9=0x7ffffff1 r11=0x40010000 mem=0x4000fff0:45f6e13ebc575776c98580f977237a77db8ef54c9cacfb60c1bfac2f01b20a6cdc155a0b7e5f12df272b56141d35f17a1502edd529ed6279789043d611046c3f
+out pc=0x30002004 sig=trap mem=0x4000fff0:45f6e13ebc575776c98580f977237a77f1fff54c9cacfb60c1bfac2f01b20a6cdc155a0b7e5f12df272b56141d35f17a1502edd529ed6279789043d611046c3f
+case Mem bfcfc4e0 strh r12, [r4], #255 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=0010 r4=0x40010000 r12=0x4c5de74d mem=0x4000fff0:8e4bdebcb23de267b7b62f81192240723c7c780b9e16da81cd4909d8d4015288534752483e120fe60c192cc32586638078d4294b540772ae6b026e55dcfb6a2f
+out pc=0x30002004 sig=trap r4=0x400100ff mem=0x4000fff0:8e4bdebcb23de267b7b62f81192240724de7780b9e16da81cd4909d8d4015288534752483e120fe60c192cc32586638078d4294b540772ae6b026e55dcfb6a2f
+case Mem bfcfc4e0 strh r12, [r4], #255 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=1101 r4=0x40010000 r12=0x0 mem=0x4000fff0:825438bdce77176e562e4dd26852c74464075dad51ec2cca52dbf7f27fe6ac962cc3f71217648c4fe95a95a5f344b89c6e60506f6cf10bb760d41443a2073763
+out pc=0x30002004 sig=trap r4=0x400100ff mem=0x4000fff0:825438bdce77176e562e4dd26852c74400005dad51ec2cca52dbf7f27fe6ac962cc3f71217648c4fe95a95a5f344b89c6e60506f6cf10bb760d41443a2073763
+case Mem bfcfc4e0 strh r12, [r4], #255 <- strh {Rt}, [{Rb}], #{off8}
+in nzcv=0110 r4=0x40010000 r12=0xa mem=0x4000fff0:4498b7a42f1b51a1b47e4e76305c47ed7b0b94db7a7c21aca639ffd712fd1f917555454df27926951188566db7c7f5143765ee274704ff8e7235d9990feafa1b
+out pc=0x30002004 sig=trap r4=0x400100ff mem=0x4000fff0:4498b7a42f1b51a1b47e4e76305c47ed0a0094db7a7c21aca639ffd712fd1f917555454df27926951188566db7c7f5143765ee274704ff8e7235d9990feafa1b
+case Mem ff0021e5 str r0, [r1, #-255]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=1010 r0=0x8000 r1=0x40010000 mem=0x4000fef0:d6f44049fd2cddf5c3e80853cad64605120a672f3b28113780742441cbe7fc1f3ee2a20e59864aedfe86daece8f4c114be3f01183ade05335ac7a8e5e539712e
+out pc=0x30002004 sig=trap r1=0x4000ff01 mem=0x4000fef0:d6f44049fd2cddf5c3e80853cad64605120080000028113780742441cbe7fc1f3ee2a20e59864aedfe86daece8f4c114be3f01183ade05335ac7a8e5e539712e
+case Mem ff0021e5 str r0, [r1, #-255]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=1100 r0=0x9dc2d44e r1=0x40010000 mem=0x4000fef0:c1ee984cf89f5338c6b38fcfc861933ed5dcb3d62ae2acb368b567e89d1746660cca40263fe175ecf76463482a521e12ba898a8c0c2e410252b2c61070dd6fd1
+out pc=0x30002004 sig=trap r1=0x4000ff01 mem=0x4000fef0:c1ee984cf89f5338c6b38fcfc861933ed54ed4c29de2acb368b567e89d1746660cca40263fe175ecf76463482a521e12ba898a8c0c2e410252b2c61070dd6fd1
+case Mem ff0021e5 str r0, [r1, #-255]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=1110 r0=0x7 r1=0x40010000 mem=0x4000fef0:967da1c96e911c665a9d3b0d35e57574a1d79b1c7fe7afb38c28eb58219c9890b73d13ec0a93443cb7fd7283ad98c82c186438aea4026dc69d0d34241dadc8a4
+out pc=0x30002004 sig=trap r1=0x4000ff01 mem=0x4000fef0:967da1c96e911c665a9d3b0d35e57574a107000000e7afb38c28eb58219c9890b73d13ec0a93443cb7fd7283ad98c82c186438aea4026dc69d0d34241dadc8a4
+case Mem 085028e5 str r5, [r8, #-8]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=0110 r5=0xca5cf5e1 r8=0x40010000 mem=0x4000ffe0:7feadee503f084b1c71bcdba5cff549095d2c1869c0c456c544e6b2e3075efb46d9fcd8a69ef575cb9cdf3be274028c6f28e1b0e88d20491cc1828b2aa052dd5
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000ffe0:7feadee503f084b1c71bcdba5cff549095d2c1869c0c456ce1f55cca3075efb46d9fcd8a69ef575cb9cdf3be274028c6f28e1b0e88d20491cc1828b2aa052dd5
+case Mem 085028e5 str r5, [r8, #-8]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=1011 r5=0x7ffffffc r8=0x40010000 mem=0x4000ffe0:528ee42b6d5baf1ee4578a855bdf49696e7153a50cc57d6cff6f94693a7244a35b5ff79d82021ced9323ef5cd31ebbd7eb01669e9559d156fe638e90085ffb3f
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000ffe0:528ee42b6d5baf1ee4578a855bdf49696e7153a50cc57d6cfcffff7f3a7244a35b5ff79d82021ced9323ef5cd31ebbd7eb01669e9559d156fe638e90085ffb3f
+case Mem 085028e5 str r5, [r8, #-8]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=0100 r5=0xfffffffb r8=0x40010000 mem=0x4000ffe0:15d53709f94e22067052d3f93f64e98e70e97eeb445b445425a08de4a590ac8cb3ab3209c2f2e5a0b141d60bf9ae0b1f00996886637d393a7b16e1835838bea3
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000ffe0:15d53709f94e22067052d3f93f64e98e70e97eeb445b4454fbffffffa590ac8cb3ab3209c2f2e5a0b141d60bf9ae0b1f00996886637d393a7b16e1835838bea3
+case Mem 0090abe5 str r9, [r11, #0]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=0111 r9=0x80000 r11=0x40010000 mem=0x4000fff0:1ceccc5ba298b205538cab8b50a032eda318e53050cf240a36d63a3fc24a4383f1d6a4ed0c73fe627842bfcf5819f3f8f34c0f93a2a9b2d74cc62327a6673f5c
+out pc=0x30002004 sig=trap mem=0x4000fff0:1ceccc5ba298b205538cab8b50a032ed0000080050cf240a36d63a3fc24a4383f1d6a4ed0c73fe627842bfcf5819f3f8f34c0f93a2a9b2d74cc62327a6673f5c
+case Mem 0090abe5 str r9, [r11, #0]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=0110 r9=0x80000000 r11=0x40010000 mem=0x4000fff0:c663f7caee813d2fb226b2edae87e3126e44f68321ad21174a809e84e222f751a9a3791ea677f1d40e444730f0a9606b0f944a082ff32919f42510bdf1499022
+out pc=0x30002004 sig=trap mem=0x4000fff0:c663f7caee813d2fb226b2edae87e3120000008021ad21174a809e84e222f751a9a3791ea677f1d40e444730f0a9606b0f944a082ff32919f42510bdf1499022
+case Mem 0090abe5 str r9, [r11, #0]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=0001 r9=0x4 r11=0x40010000 mem=0x4000fff0:a49c82fa466c0bd9b6f44d5d6ad2798d6cb83c0de4ea104bab5116c668461ced1d6915ff7c889913d402d25b4a366e50d547ccb112e296a67027a399b56b90c9
+out pc=0x30002004 sig=trap mem=0x4000fff0:a49c82fa466c0bd9b6f44d5d6ad2798d04000000e4ea104bab5116c668461ced1d6915ff7c889913d402d25b4a366e50d547ccb112e296a67027a399b56b90c9
+case Mem ffc0a4e5 str r12, [r4, #255]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=0010 r4=0x40010000 r12=0x7ffffff1 mem=0x400100e0:6d534a918e600b144e9560c76d954eb1e4fe0193df45d61080af64414773c7720a57433a84963167f7182bf780c016d94faf33be80e66442ed580c5472752f74
+out pc=0x30002004 sig=trap r4=0x400100ff mem=0x400100e0:6d534a918e600b144e9560c76d954eb1e4fe0193df45d61080af64414773c7f1ffff7f3a84963167f7182bf780c016d94faf33be80e66442ed580c5472752f74
+case Mem ffc0a4e5 str r12, [r4, #255]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=1010 r4=0x40010000 r12=0x7fffffff mem=0x400100e0:1a39031fb90f983d0b7072f0b529428d3bf5e6771235f0725f023a7ac7783c0f3b8f86a5f85571adb3db7fb7ccc1cece77c1d3e846665a91d3d04e77738f2276
+out pc=0x30002004 sig=trap r4=0x400100ff mem=0x400100e0:1a39031fb90f983d0b7072f0b529428d3bf5e6771235f0725f023a7ac7783cffffff7fa5f85571adb3db7fb7ccc1cece77c1d3e846665a91d3d04e77738f2276
+case Mem ffc0a4e5 str r12, [r4, #255]! <- str {Rt}, [{Rb}, #{off8}]!
+in nzcv=1110 r4=0x40010000 r12=0x100 mem=0x400100e0:b8a72218f11c6ae37c328f60f43b9ec089837c08b8b2511a12a81a69f66a59ae4d29ef8eb3ddc7fa169863cd5f2403667d49c7d994a25ad4f91dd2cdede79283
+out pc=0x30002004 sig=trap r4=0x400100ff mem=0x400100e0:b8a72218f11c6ae37c328f60f43b9ec089837c08b8b2511a12a81a69f66a59000100008eb3ddc7fa169863cd5f2403667d49c7d994a25ad4f91dd2cdede79283
+case Mem 08009fe5 ldr r0, [pc, #8] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=1011 r0=0x1fffffff
+out pc=0x30002004 sig=trap r0=0xe1200070
+case Mem 08009fe5 ldr r0, [pc, #8] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=0110 r0=0xa39abcb8
+out pc=0x30002004 sig=trap r0=0xe1200070
+case Mem 08009fe5 ldr r0, [pc, #8] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=0100 r0=0x8000000b
+out pc=0x30002004 sig=trap r0=0xe1200070
+case Mem 08501fe5 ldr r5, [pc, #-8] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=0111 r5=0x2000
+out pc=0x30002004 sig=trap r5=0xe51f5008
+case Mem 08501fe5 ldr r5, [pc, #-8] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=0001 r5=0x3fffff
+out pc=0x30002004 sig=trap r5=0xe51f5008
+case Mem 08501fe5 ldr r5, [pc, #-8] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=1010 r5=0x397db305
+out pc=0x30002004 sig=trap r5=0xe51f5008
+case Mem 00949fe5 ldr r9, [pc, #1024] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=0110 r9=0x3f
+out pc=0x30002004 sig=trap r9=0xe1200070
+case Mem 00949fe5 ldr r9, [pc, #1024] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=1110 r9=0x4
+out pc=0x30002004 sig=trap r9=0xe1200070
+case Mem 00949fe5 ldr r9, [pc, #1024] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=0100 r9=0x8b5cdd3
+out pc=0x30002004 sig=trap r9=0xe1200070
+case Mem 00c41fe5 ldr r12, [pc, #-1024] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=0100 r12=0x59e12962
+out pc=0x30002004 sig=trap r12=0xe1200070
+case Mem 00c41fe5 ldr r12, [pc, #-1024] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=0110 r12=0xb609e8c2
+out pc=0x30002004 sig=trap r12=0xe1200070
+case Mem 00c41fe5 ldr r12, [pc, #-1024] <- ldr {Rt}, [pc, #{lit12}]
+in nzcv=1111 r12=0x20
+out pc=0x30002004 sig=trap r12=0xe1200070
+case Dual dc0f42e1 ldrd r0, r1, [r2, #-252] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=0111 r0=0xb r1=0xf1382cb8 r2=0x40010000 mem=0x4000fef0:bd7054e3045917ce76b8d75f8150524a44dbdad6c1e4b3c971bddb851dd9019b0edaafad2d3571f1a9aa982f2f079c9a53ba39ef9217ada1ce4f572c5357bec8
+out pc=0x30002004 sig=trap r0=0xc9b3e4c1 r1=0x85dbbd71
+case Dual dc0f42e1 ldrd r0, r1, [r2, #-252] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=0000 r0=0x80000007 r1=0xf1d52708 r2=0x40010000 mem=0x4000fef0:38c6761ac408d52ca25487d1a482d8a084e46984609865f22fd121b158ca25d04e27d90988ef1a09190c8a07270fa65b73ad860c750b94591075638259b03ae5
+out pc=0x30002004 sig=trap r0=0xf2659860 r1=0xb121d12f
+case Dual dc0f42e1 ldrd r0, r1, [r2, #-252] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=0001 r0=0x8 r1=0x20000000 r2=0x40010000 mem=0x4000fef0:1c871dbf9e83c7060c96aca2453cdecb3e7121658a11c03b5fbc1c09e8b40c1a1cf61336c39d8919b776be518012a33e0b4fb837461eeaf348d01ed1e085faed
+out pc=0x30002004 sig=trap r0=0x3bc0118a r1=0x91cbc5f
+case Dual d84048e1 ldrd r4, r5, [r8, #-8] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=0000 r4=0x80000001 r5=0x8000000a r8=0x40010000 mem=0x4000ffe0:581f0a5e7e9ac2d054765e356392e1e1d390a7ecd9aec68629577787bf70b89b112d30553beb21de3cfb8ca9e71e6c603ddf023999295a727e9d14b4731946ab
+out pc=0x30002004 sig=trap r4=0x87775729 r5=0x9bb870bf
+case Dual d84048e1 ldrd r4, r5, [r8, #-8] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=1101 r4=0x800000 r5=0x200 r8=0x40010000 mem=0x4000ffe0:5b0727eb77a659077939f27e258ef84d15a29534780095e0cb74ab59ce968495cf056ff0b930bb780dc911d6f072afdfd4bdc1cf99756575c6641c96354eebd1
+out pc=0x30002004 sig=trap r4=0x59ab74cb r5=0x958496ce
+case Dual d84048e1 ldrd r4, r5, [r8, #-8] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=0010 r4=0x328feb77 r5=0x7fffffff r8=0x40010000 mem=0x4000ffe0:105ad4f6058977fdcef77e7d1dbec949561876f2127b2fe41a19806a7a18bda55e3d60b0b6847e3aff6e6d5242f551877f174960cadbb408266383e1c503e791
+out pc=0x30002004 sig=trap r4=0x6a80191a r5=0xa5bd187a
+case Dual d060cce1 ldrd r6, r7, [r12, #0] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=0000 r6=0xc14c5d25 r7=0xfffffffa r12=0x40010000 mem=0x4000fff0:938c0db5c2e07f6a058fe9fe260520240bfb2a788c49cd080bd9864d0d1a97794b9d96a5572a00dc48d60ea4f4373b3cb3a23ac6fe255c704bae3f8ec2cde020
+out pc=0x30002004 sig=trap r6=0x782afb0b r7=0x8cd498c
+case Dual d060cce1 ldrd r6, r7, [r12, #0] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=1111 r6=0x7ffffff7 r7=0x7ffffffb r12=0x40010000 mem=0x4000fff0:6062c1dfd276d73eb073cb89b288e8a3fa86bada366a9065703d8a2ef82e674a8a28089ba89d762d75062d8ccbfa0dd025384bceb0a012b1e06c648ef0357fd2
+out pc=0x30002004 sig=trap r6=0xdaba86fa r7=0x65906a36
+case Dual d060cce1 ldrd r6, r7, [r12, #0] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=0010 r6=0x72dcaaa6 r7=0xda9f1aeb r12=0x40010000 mem=0x4000fff0:4e9c51a9625a6f20fa968bcc2d4fdb9c43958b437fdbfdb6d6ee255794c32f052925079574d2b33109ac77f226cc5b385a49cc005001b98bebbcd19b4d64d315
+out pc=0x30002004 sig=trap r6=0x438b9543 r7=0xb6fddb7f
+case Dual dcafc3e1 ldrd r10, r11, [r3, #252] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=0101 r3=0x40010000 r10=0xdda5674d r11=0xffffffff mem=0x400100e0:528d5b89019736e86aae099375c634defa883fac3a9717447d99bdb54fa6f069f45e6d2091a2c7897d699d0986a61768b562c58a7477de91699e70d6a3dc7757
+out pc=0x30002004 sig=trap r10=0x69f0a64f r11=0x206d5ef4
+case Dual dcafc3e1 ldrd r10, r11, [r3, #252] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=1101 r3=0x40010000 r10=0x80000000 r11=0x8000000 mem=0x400100e0:0a85ff326c1935e36ed705937984df3cdf6c66922b391019c49709582a328f55394499e67732e132876d5a4ce2979ccb8a5c9165f22fcbff303eee30f397d023
+out pc=0x30002004 sig=trap r10=0x558f322a r11=0xe6994439
+case Dual dcafc3e1 ldrd r10, r11, [r3, #252] <- ldrd {Re}, {Ro}, [{Rbd}, #{dual8}]
+in nzcv=0110 r3=0x40010000 r10=0xe4a359c6 r11=0xa21948ff mem=0x400100e0:74a23179772755eca92858c36fc5aa784325f8241fee66fe435f2c9d0d74c47fc3a9430bafca27047ab469ea5971fef836ee0cc34aaa3ea4e214755373b45ff5
+out pc=0x30002004 sig=trap r10=0x7fc4740d r11=0xb43a9c3
+case Dual fc0f42e0 strd r0, r1, [r2], #-252 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=1100 r0=0x800000 r1=0x778b3dee r2=0x40010000 mem=0x4000fff0:25d1eed309e2769c12f3e1d4f6e964fb712b7226ab35d1b382dd7300479e667f8d6625321bc5ffed3d85cb9f09a3f149ab30e8bee8363a98dd785516c6d82907
+out pc=0x30002004 sig=trap r2=0x4000ff04 mem=0x4000fff0:25d1eed309e2769c12f3e1d4f6e964fb00008000ee3d8b7782dd7300479e667f8d6625321bc5ffed3d85cb9f09a3f149ab30e8bee8363a98dd785516c6d82907
+case Dual fc0f42e0 strd r0, r1, [r2], #-252 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=0101 r0=0xfffffff8 r1=0x7ffffffe r2=0x40010000 mem=0x4000fff0:7d6aa89eec61f9e62b16c0d59464093a3ef122af18e237be605ed62c17a6c2056a5d445e5517109c75c6feadbc12365b9ad3fdd5c190292cbb52be14b615f344
+out pc=0x30002004 sig=trap r2=0x4000ff04 mem=0x4000fff0:7d6aa89eec61f9e62b16c0d59464093af8fffffffeffff7f605ed62c17a6c2056a5d445e5517109c75c6feadbc12365b9ad3fdd5c190292cbb52be14b615f344
+case Dual fc0f42e0 strd r0, r1, [r2], #-252 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=0001 r0=0x8 r1=0x6 r2=0x40010000 mem=0x4000fff0:c8702c59c670d751382be7cd7acf44a82fc91c369d2d24bb20432bc06497c82153d456dbdab1c9dd51dbecb09f23dcca060b27892895d2144526f74e1422f5cd
+out pc=0x30002004 sig=trap r2=0x4000ff04 mem=0x4000fff0:c8702c59c670d751382be7cd7acf44a8080000000600000020432bc06497c82153d456dbdab1c9dd51dbecb09f23dcca060b27892895d2144526f74e1422f5cd
+case Dual f84048e0 strd r4, r5, [r8], #-8 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=1001 r4=0x7ffff r5=0x7fff r8=0x40010000 mem=0x4000fff0:2aaa09943f58839f286168fcad97732298fa2a65b40760157ba2f079e270a9a6ad7c86800582409b45cee332a7a1ec3acba5f37b7af311c5d4007e1856faeb18
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000fff0:2aaa09943f58839f286168fcad977322ffff0700ff7f00007ba2f079e270a9a6ad7c86800582409b45cee332a7a1ec3acba5f37b7af311c5d4007e1856faeb18
+case Dual f84048e0 strd r4, r5, [r8], #-8 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=0100 r4=0x6 r5=0xf8c2da9e r8=0x40010000 mem=0x4000fff0:6976557e80ac11e564e3bd67017d9e481a570bae438eded32cf4dc0dd8661223aa7321f52f63a161550175dae3bd80e59daa7d2d94909de7b0cabe5a99252f48
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000fff0:6976557e80ac11e564e3bd67017d9e48060000009edac2f82cf4dc0dd8661223aa7321f52f63a161550175dae3bd80e59daa7d2d94909de7b0cabe5a99252f48
+case Dual f84048e0 strd r4, r5, [r8], #-8 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=1101 r4=0xff555753 r5=0x7ffffffe r8=0x40010000 mem=0x4000fff0:84b71df9514fc9b62c115cd15aa4da5d15292f2dcb98d5f8d67bed8c4f9f73a8aeda91dc4604fde2e5df0e403bace9a822ff7666c1a1be3844570631d8c1204a
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000fff0:84b71df9514fc9b62c115cd15aa4da5d535755fffeffff7fd67bed8c4f9f73a8aeda91dc4604fde2e5df0e403bace9a822ff7666c1a1be3844570631d8c1204a
+case Dual f060cce0 strd r6, r7, [r12], #0 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=0011 r6=0x4c2b703e r7=0x8cb87da7 r12=0x40010000 mem=0x4000fff0:b1047db287493b97d742dd48f822f5983d3ad73e115eb603c7118be548d70c3d462cf5a3e4708d3ac50bb859ceb3c06def342130abf9dbcc974858b8a7145ea9
+out pc=0x30002004 sig=trap mem=0x4000fff0:b1047db287493b97d742dd48f822f5983e702b4ca77db88cc7118be548d70c3d462cf5a3e4708d3ac50bb859ceb3c06def342130abf9dbcc974858b8a7145ea9
+case Dual f060cce0 strd r6, r7, [r12], #0 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=0011 r6=0x5bda8ebf r7=0x0 r12=0x40010000 mem=0x4000fff0:109e1550a9078a81a76f0e8a8c84f239f9fb72a24939f74c6a3805d6fe801fcf617129e2ec6fbbbaedd73e46db337184d15c6819f78497eda77d4bea373cca03
+out pc=0x30002004 sig=trap mem=0x4000fff0:109e1550a9078a81a76f0e8a8c84f239bf8eda5b000000006a3805d6fe801fcf617129e2ec6fbbbaedd73e46db337184d15c6819f78497eda77d4bea373cca03
+case Dual f060cce0 strd r6, r7, [r12], #0 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=1100 r6=0xf r7=0x1597bd45 r12=0x40010000 mem=0x4000fff0:eccc66250546f8d7081f81000c5d8160f3b718f2a2e7f59e6421ed3b45f9a971da0d7efa47fe689702b5ab7b4e74de8aabcefd383aaed9ec7c5bd5e66ec78f31
+out pc=0x30002004 sig=trap mem=0x4000fff0:eccc66250546f8d7081f81000c5d81600f00000045bd97156421ed3b45f9a971da0d7efa47fe689702b5ab7b4e74de8aabcefd383aaed9ec7c5bd5e66ec78f31
+case Dual fcafc3e0 strd r10, r11, [r3], #252 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=1010 r3=0x40010000 r10=0x5 r11=0x24116c17 mem=0x4000fff0:e7b716506301e0ce692a4423d7073149d41115b5741a64a5f48b0735dc37076dbd04504c52452235816b6b80ffa102544c951825fd84772a1f5544c06007b799
+out pc=0x30002004 sig=trap r3=0x400100fc mem=0x4000fff0:e7b716506301e0ce692a4423d707314905000000176c1124f48b0735dc37076dbd04504c52452235816b6b80ffa102544c951825fd84772a1f5544c06007b799
+case Dual fcafc3e0 strd r10, r11, [r3], #252 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=0111 r3=0x40010000 r10=0x2 r11=0xbdf5154a mem=0x4000fff0:423043c7750b4eaec0d0ba095b8c118bca913d3fa1ae395d40034a8f03e672bce9f60e8cc6300f42fa62efd4fcab83ef3b3b53f64ea769e564819744a508e49b
+out pc=0x30002004 sig=trap r3=0x400100fc mem=0x4000fff0:423043c7750b4eaec0d0ba095b8c118b020000004a15f5bd40034a8f03e672bce9f60e8cc6300f42fa62efd4fcab83ef3b3b53f64ea769e564819744a508e49b
+case Dual fcafc3e0 strd r10, r11, [r3], #252 <- strd {Re}, {Ro}, [{Rbd}], #{dual8}
+in nzcv=1010 r3=0x40010000 r10=0xfffffff5 r11=0xab4d05f0 mem=0x4000fff0:dc6178b5ed8041efc42b67816038cd67c20a659fbb64c30880e81934f977f935f74447ac6ae6d3ec113162b308f9e66454e8b612488aa4ca0ef6d67a648d246a
+out pc=0x30002004 sig=trap r3=0x400100fc mem=0x4000fff0:dc6178b5ed8041efc42b67816038cd67f5fffffff0054dab80e81934f977f935f74447ac6ae6d3ec113162b308f9e66454e8b612488aa4ca0ef6d67a648d246a
+case Multiple 0006b1e8 ldm r1!, {r9, r10} <- ldm {Rb}!, {wlist}
+in nzcv=1001 r1=0x40010000 r9=0xfffffff0 r10=0x7ffffff1 mem=0x4000fff0:cd89603168a2ee40ff5e80f80093fe6ae54fb2e168a4f52bd6469e2cd4aa7b705829d40aa57b4a9b25cacf741457ccb9c6fecfeaedc0a8fa552e924950cc568c
+out pc=0x30002004 sig=trap r1=0x40010008 r9=0xe1b24fe5 r10=0x2bf5a468
+case Multiple 0006b1e8 ldm r1!, {r9, r10} <- ldm {Rb}!, {wlist}
+in nzcv=0001 r1=0x40010000 r9=0x80000000 r10=0x80 mem=0x4000fff0:f1906249ae87f845b9b86f4570060a9fe9961d7695755fda0e1815e6f3bbd9459625960f90a58ae990696d365f420929b7183355c2cbc184cdf305d7a81f2dd8
+out pc=0x30002004 sig=trap r1=0x40010008 r9=0x761d96e9 r10=0xda5f7595
+case Multiple 0006b1e8 ldm r1!, {r9, r10} <- ldm {Rb}!, {wlist}
+in nzcv=1110 r1=0x40010000 r9=0x8000000d r10=0x80000006 mem=0x4000fff0:966b9e4b005ae55d0895ea7694e17f1013cfda24bbf6306f2629befb5e41916f3adec1d86064442ee4dfc9b15027b34e4e3021a5d7bff88330518784541e40cb
+out pc=0x30002004 sig=trap r1=0x40010008 r9=0x24dacf13 r10=0x6f30f6bb
+case Multiple 0110b8e8 ldm r8!, {r0, r12} <- ldm {Rb}!, {wlist}
+in nzcv=0101 r0=0x200 r8=0x40010000 r12=0x80000009 mem=0x4000fff0:b483d5812c61d4fb64850408ac082919169cd896b5af1b4d95ee48f031a2cdb2e7eb5b9ab39d83810f5cb8865cd73e2b84d3e40ff348616cd02163d1da37f0eb
+out pc=0x30002004 sig=trap r0=0x96d89c16 r8=0x40010008 r12=0x4d1bafb5
+case Multiple 0110b8e8 ldm r8!, {r0, r12} <- ldm {Rb}!, {wlist}
+in nzcv=1011 r0=0x40 r8=0x40010000 r12=0x62d73f7 mem=0x4000fff0:e10bbc030448b697c3d1db0a38b036be430294425c60f45ec55c3e11559256aef0e86419e3a7a882008d20306bb8d846474f73223e8c05652d7eb1698b15c860
+out pc=0x30002004 sig=trap r0=0x42940243 r8=0x40010008 r12=0x5ef4605c
+case Multiple 0110b8e8 ldm r8!, {r0, r12} <- ldm {Rb}!, {wlist}
+in nzcv=0111 r0=0xff r8=0x40010000 r12=0xcf9aff5e mem=0x4000fff0:07abe4a9851cb5ba31099c9910c5ea6f615ef37a31971c3da586bae395ddb5c01efa4684f7105c03c92c31e151a1e8d9a0ee69b75aa96a1cce53a0fa5a1c09c9
+out pc=0x30002004 sig=trap r0=0x7af35e61 r8=0x40010008 r12=0x3d1c9731
+case Multiple 2402bbe8 ldm r11!, {r2, r5, r9} <- ldm {Rb}!, {wlist}
+in nzcv=0001 r2=0x8000000f r5=0xfffffff2 r9=0xfffffff4 r11=0x40010000 mem=0x4000fff0:f7ffff3b677d3fc74858bc97fbe35fbef501db5d9bab4c81464c6ead2e1685a395ddd2cb98746cedeef38ab191ebe3f22c4ac96e47742128361ff00d0607c102
+out pc=0x30002004 sig=trap r2=0x5ddb01f5 r5=0x814cab9b r9=0xad6e4c46 r11=0x4001000c
+case Multiple 2402bbe8 ldm r11!, {r2, r5, r9} <- ldm {Rb}!, {wlist}
+in nzcv=1110 r2=0xc8c0ffc9 r5=0x1000 r9=0xf0364e93 r11=0x40010000 mem=0x4000fff0:ee1341779cd636d55b45abf7db78f0dda44a1fb33e8ed66db891f21a1c8bcb308bbc6d25bd59d48b6a51d319e01c14c35744167884b1c1d473ea2d7341d4055f
+out pc=0x30002004 sig=trap r2=0xb31f4aa4 r5=0x6dd68e3e r9=0x1af291b8 r11=0x4001000c
+case Multiple 2402bbe8 ldm r11!, {r2, r5, r9} <- ldm {Rb}!, {wlist}
+in nzcv=0010 r2=0xffff r5=0x96194be5 r9=0x80000 r11=0x40010000 mem=0x4000fff0:2e8678270e93d51258a6b2cdcb5f389ba8ea4e7f342ac2e18a46d69e7cea2fdf5235ea46acdbc4c07743bd96b4a7463c31818d539ecbcc2a58a88354e125a482
+out pc=0x30002004 sig=trap r2=0x7f4eeaa8 r5=0xe1c22a34 r9=0x9ed6468a r11=0x4001000c
+case Multiple 8814b4e8 ldm r4!, {r3, r7, r10, r12} <- ldm {Rb}!, {wlist}
+in nzcv=0011 r3=0x8000000e r4=0x40010000 r7=0xfd28cb3b r10=0x7ffffff5 r12=0x8000000f mem=0x4000fff0:dc7ec3406ede6f0c45e6c14f3f79726c232045d85300e6fa250a8105b06910ed9278789a962a2ff7dd632995e9a057d76724dc0761a703e089c2b2b4093f9339
+out pc=0x30002004 sig=trap r3=0xd8452023 r4=0x40010010 r7=0xfae60053 r10=0x5810a25 r12=0xed1069b0
+case Multiple 8814b4e8 ldm r4!, {r3, r7, r10, r12} <- ldm {Rb}!, {wlist}
+in nzcv=1110 r3=0x9e5c9144 r4=0x40010000 r7=0xfffffff5 r10=0x81b4cb35 r12=0x7ffffff7 mem=0x4000fff0:cdcaa81bd76d4a4282971d6d73a743d1b8d13a434f74a021e3d723c2e6741d0902b44cf26de81f1216bf1d8e586371406c95b9fffceb15b5a0a841492beb58fa
+out pc=0x30002004 sig=trap r3=0x433ad1b8 r4=0x40010010 r7=0x21a0744f r10=0xc223d7e3 r12=0x91d74e6
+case Multiple 8814b4e8 ldm r4!, {r3, r7, r10, r12} <- ldm {Rb}!, {wlist}
+in nzcv=1100 r3=0xeb2dab2c r4=0x40010000 r7=0xf r10=0x10000 r12=0x0 mem=0x4000fff0:f2e01931460ec18a2d2192e8b488b7bb80a24380535e03deb4836de72e916e4721eb4b8abf4b5eff6f78ffd3b18ac16cd2f4766f295c2a4e908eaf301e0769b0
+out pc=0x30002004 sig=trap r3=0x8043a280 r4=0x40010010 r7=0xde035e53 r10=0xe76d83b4 r12=0x476e912e
+case Multiple 000691e9 ldmib r1, {r9, r10} <- ldmib {Rb}, {wlist}
+in nzcv=1011 r1=0x40010000 r9=0xb45f1550 r10=0x97127387 mem=0x4000fff0:b91b64e7995f6d79611e6472fe8f01df901f44583353a0b4125e97341941fdbad9ddf153d71b107c99283bc5ef35e00714c09c5ae61063ca0b9feec80b5f5213
+out pc=0x30002004 sig=trap r9=0xb4a05333 r10=0x34975e12
+case Multiple 000691e9 ldmib r1, {r9, r10} <- ldmib {Rb}, {wlist}
+in nzcv=0000 r1=0x40010000 r9=0x7ffffff1 r10=0x5 mem=0x4000fff0:5e6423007bfe33421d606e32d9d27fdcd9db38d9866d7ca35ac6e160c2d5fe70e740106a34bc023c1ae79f8285b6245fb58b7f52f5a2bfa27394811c42d2c141
+out pc=0x30002004 sig=trap r9=0xa37c6d86 r10=0x60e1c65a
+case Multiple 000691e9 ldmib r1, {r9, r10} <- ldmib {Rb}, {wlist}
+in nzcv=1011 r1=0x40010000 r9=0x6ba52451 r10=0x8000000f mem=0x4000fff0:6268b6d70cfa235041a6467b446b784f0003eb0f8d3483d0dfa29f13f0146b9b5ebf77dfe3575ddb470bb15525ac1aabab737c1fdea1d4d9b46b0df0906f7836
+out pc=0x30002004 sig=trap r9=0xd083348d r10=0x139fa2df
+case Multiple 011098e9 ldmib r8, {r0, r12} <- ldmib {Rb}, {wlist}
+in nzcv=1011 r0=0xffffff r8=0x40010000 r12=0x1 mem=0x4000fff0:2912041fc94e55b7e1a496c8b7c61ba8b975bbfe12fd2e82a46f721bc975fb7bb5715e2513059a93a344659ab491ba47f11d967809e7b4d5611235f1d5318f1f
+out pc=0x30002004 sig=trap r0=0x822efd12 r12=0x1b726fa4
+case Multiple 011098e9 ldmib r8, {r0, r12} <- ldmib {Rb}, {wlist}
+in nzcv=1000 r0=0x7fffffff r8=0x40010000 r12=0xfffffffb mem=0x4000fff0:c4d5c85bea8d3d5169e4a34dbe5f08dd217aad63404f58e5dc4558fe6c8094f4ff5e961c6f65eea38002a30daafb36e69e825ec2a5591de15254bdbbb4d888f8
+out pc=0x30002004 sig=trap r0=0xe5584f40 r12=0xfe5845dc
+case Multiple 011098e9 ldmib r8, {r0, r12} <- ldmib {Rb}, {wlist}
+in nzcv=1000 r0=0xd43614f1 r8=0x40010000 r12=0x3d5a46a mem=0x4000fff0:a29109d72124e425d623a9843eea9a1eea738435dbb1785b91822f2ad410fe56f9435b4031491ac4bfcb106ea60aa1294d1c093a27cf8504a734542603d8d662
+out pc=0x30002004 sig=trap r0=0x5b78b1db r12=0x2a2f8291
+case Multiple 24029be9 ldmib r11, {r2, r5, r9} <- ldmib {Rb}, {wlist}
+in nzcv=0010 r2=0xed032cc6 r5=0x80000007 r9=0x8000000 r11=0x40010000 mem=0x4000fff0:b757362b783448fc26ff1ca8b6526eeeed399422938db47b89f31313c1ac0158bffbc60e55e7a54c21191f27461141eb9ddffe7149f5e317fe89edec22083da0
+out pc=0x30002004 sig=trap r2=0x7bb48d93 r5=0x1313f389 r9=0x5801acc1
+case Multiple 24029be9 ldmib r11, {r2, r5, r9} <- ldmib {Rb}, {wlist}
+in nzcv=0001 r2=0xe4de52 r5=0x3e01db50 r9=0x20 r11=0x40010000 mem=0x4000fff0:6629f09a22988b37254bcf13b2f7aef6f6a43a84177eeacbcf916018352f9ea7bc7d34e99795d345f4bcfe08d641fa227501cd23dfa0f7a14842c1e43b084081
+out pc=0x30002004 sig=trap r2=0xcbea7e17 r5=0x186091cf r9=0xa79e2f35
+case Multiple 24029be9 ldmib r11, {r2, r5, r9} <- ldmib {Rb}, {wlist}
+in nzcv=1110 r2=0x1fffffff r5=0x7ffffff8 r9=0x66a6ad14 r11=0x40010000 mem=0x4000fff0:9c095b4aed5ad2443c7b68acee0816d4692f0c19b7a9de5b46614302ba381c5d244443d170e8ad44334731901ed91503763e6414ad07986b813d7eb086f72901
+out pc=0x30002004 sig=trap r2=0x5bdea9b7 r5=0x2436146 r9=0x5d1c38ba
+case Multiple 881494e9 ldmib r4, {r3, r7, r10, r12} <- ldmib {Rb}, {wlist}
+in nzcv=0010 r3=0x1ff r4=0x40010000 r7=0x400000 r10=0x80000002 r12=0x40 mem=0x4000fff0:9c675b8a1e8c472fd1006ffb7b3a947fd4d769e930d3761f653c18ef3d4ebfdab0a822bac75d5fa578891401842926507f496f42caa13740c55e661337381152
+out pc=0x30002004 sig=trap r3=0x1f76d330 r7=0xef183c65 r10=0xdabf4e3d r12=0xba22a8b0
+case Multiple 881494e9 ldmib r4, {r3, r7, r10, r12} <- ldmib {Rb}, {wlist}
+in nzcv=1110 r3=0x7ffffff7 r4=0x40010000 r7=0x80000006 r10=0xffffffff r12=0x3ffffff mem=0x4000fff0:65f6858aa310620b68926d765c37bc0c580c337c2e92000079cf76dbd6cfc7b5e7df2fb5e507ee0fc702af2a97b04ae0650c4e0647e9bea6456251131a2522dc
+out pc=0x30002004 sig=trap r3=0x922e r7=0xdb76cf79 r10=0xb5c7cfd6 r12=0xb52fdfe7
+case Multiple 881494e9 ldmib r4, {r3, r7, r10, r12} <- ldmib {Rb}, {wlist}
+in nzcv=1000 r3=0xf231faf7 r4=0x40010000 r7=0x141bdb2e r10=0x80000006 r12=0x80000002 mem=0x4000fff0:1355bb0bc1cdd04cfa14b523d6ee3c3bbdab549e7a745332b04c38ddcd86601afb177dc684a9e1e0590c847c31739909fc4fa4293481bfa6fed57b3a7a0416b9
+out pc=0x30002004 sig=trap r3=0x3253747a r7=0xdd384cb0 r10=0x1a6086cd r12=0xc67d17fb
+case Multiple 000631e8 ldmda r1!, {r9, r10} <- ldmda {Rb}!, {wlist}
+in nzcv=0001 r1=0x40010000 r9=0x3 r10=0xf9b472ac mem=0x4000fff0:b3773b0d32b753b08fab4b17e95d7ac0c2b13213fbfeaccf572b690d648159f9b2e54a15d96900f50ba78c1dc4068794b8e07cfe92585b440c8efa58045cc3bd
+out pc=0x30002004 sig=trap r1=0x4000fff8 r9=0xc07a5de9 r10=0x1332b1c2
+case Multiple 000631e8 ldmda r1!, {r9, r10} <- ldmda {Rb}!, {wlist}
+in nzcv=0111 r1=0x40010000 r9=0xfffffff4 r10=0x3f2f7b2b mem=0x4000fff0:94095d2d7481d18d3d5c8ec0510745685dcfe962efffdcf268e384449957c92afc0dca22dc4ee9a74feb1cdeb27e8d68020eb9e78fa356c21d8d482490e36ab9
+out pc=0x30002004 sig=trap r1=0x4000fff8 r9=0x68450751 r10=0x62e9cf5d
+case Multiple 000631e8 ldmda r1!, {r9, r10} <- ldmda {Rb}!, {wlist}
+in nzcv=0111 r1=0x40010000 r9=0x80000 r10=0x447adaae mem=0x4000fff0:e0443069344dc725669cc36e0949fdbe15161bc0f25fcd0ad056e429427c32e69290e717c5f80920b586c6b11bc049d722c14838d5226896afc3077f139908dc
+out pc=0x30002004 sig=trap r1=0x4000fff8 r9=0xbefd4909 r10=0xc01b1615
+case Multiple 011038e8 ldmda r8!, {r0, r12} <- ldmda {Rb}!, {wlist}
+in nzcv=0100 r0=0x80000004 r8=0x40010000 r12=0x80000004 mem=0x4000fff0:9f7947c1afcb2d485683b3007aae3cd2b6ea4745e2e1b071adc8771c4beb1ca6793646c879ffe1e1f6c158f9c3a6ec44b27671664ec755e3b69b3361d5f18656
+out pc=0x30002004 sig=trap r0=0xd23cae7a r8=0x4000fff8 r12=0x4547eab6
+case Multiple 011038e8 ldmda r8!, {r0, r12} <- ldmda {Rb}!, {wlist}
+in nzcv=0111 r0=0x7ffffffa r8=0x40010000 r12=0xfffffff2 mem=0x4000fff0:22cec9e136c44e809cdaa801c79f9e7fe85213572d9a47fc84ed154c52ddc2fe62825727792bbb6a6cf7d073615877a3973ad64eb35d885833feccfdca6905ef
+out pc=0x30002004 sig=trap r0=0x7f9e9fc7 r8=0x4000fff8 r12=0x571352e8
+case Multiple 011038e8 ldmda r8!, {r0, r12} <- ldmda {Rb}!, {wlist}
+in nzcv=1111 r0=0xfffffff6 r8=0x40010000 r12=0x7ffffffa mem=0x4000fff0:1a10d2471e58b1cf27016ce31dba532bab9f8b52789b9f5696f49c243fb4c5f4b1edd5266f6e92695b27c1dc468e1b2fa1e8be398b04e61e4c721c3b8a2f6dbd
+out pc=0x30002004 sig=trap r0=0x2b53ba1d r8=0x4000fff8 r12=0x528b9fab
+case Multiple 24023be8 ldmda r11!, {r2, r5, r9} <- ldmda {Rb}!, {wlist}
+in nzcv=1011 r2=0xcfcc37d4 r5=0x52851d83 r9=0x80000004 r11=0x40010000 mem=0x4000fff0:4c26ad3577b0ee541b57ce31c38c1f772464abd80d72c21ae35d83255ca7725e89fdf0f6434fce3bf69e9c4b3380e89f25033979c42b9428417fb15e834753f0
+out pc=0x30002004 sig=trap r2=0x31ce571b r5=0x771f8cc3 r9=0xd8ab6424 r11=0x4000fff4
+case Multiple 24023be8 ldmda r11!, {r2, r5, r9} <- ldmda {Rb}!, {wlist}
+in nzcv=1110 r2=0x80000001 r5=0xd28574f7 r9=0x7fffffff r11=0x40010000 mem=0x4000fff0:5c131eb689cfbee2d6a54ead7f8fe7a0e05a815170484a83638d552bcbead5a8987d82a6f71ced62e994a56afc0d52c84daf5e4a46ac6e1408d2d1ba8bc1c071
+out pc=0x30002004 sig=trap r2=0xad4ea5d6 r5=0xa0e78f7f r9=0x51815ae0 r11=0x4000fff4
+case Multiple 24023be8 ldmda r11!, {r2, r5, r9} <- ldmda {Rb}!, {wlist}
+in nzcv=1110 r2=0x80000007 r5=0xc80287f9 r9=0xe r11=0x40010000 mem=0x4000fff0:1df62c516dbddf5459ea589a0604b7a757dfb10aa1ce2b571537b500a10acde3864882c6a3e0e755f7b57398db18fc473535bf3a1540125bd5cf27a25c8296f7
+out pc=0x30002004 sig=trap r2=0x9a58ea59 r5=0xa7b70406 r9=0xab1df57 r11=0x4000fff4
+case Multiple 881434e8 ldmda r4!, {r3, r7, r10, r12} <- ldmda {Rb}!, {wlist}
+in nzcv=1011 r3=0xfffffff3 r4=0x40010000 r7=0x9 r10=0xfffffff3 r12=0x80000009 mem=0x4000fff0:b438ac03ea12d9172b0de5e5020a25919363029156b7c8c8b03c056ced7c3585f4ffc2a3d333009ff6c0ae8c4707d026c7f312c09ce87390e7463921d2f81870
+out pc=0x30002004 sig=trap r3=0x17d912ea r4=0x4000fff0 r7=0xe5e50d2b r10=0x91250a02 r12=0x91026393
+case Multiple 881434e8 ldmda r4!, {r3, r7, r10, r12} <- ldmda {Rb}!, {wlist}
+in nzcv=0100 r3=0x8000000a r4=0x40010000 r7=0x80000007 r10=0x1ffff r12=0x7f mem=0x4000fff0:e5700bb41a626423f6ff6393f934abd7b01f250b43bbb838f39e076c9af33ca7c58f6d78d4f725bd0918cdaa236bf6b171002cceccf5afa23b1cf784c8ea2559
+out pc=0x30002004 sig=trap r3=0x2364621a r4=0x4000fff0 r7=0x9363fff6 r10=0xd7ab34f9 r12=0xb251fb0
+case Multiple 881434e8 ldmda r4!, {r3, r7, r10, r12} <- ldmda {Rb}!, {wlist}
+in nzcv=0011 r3=0x80000009 r4=0x40010000 r7=0x1000000 r10=0xfffffff7 r12=0xfffffff8 mem=0x4000fff0:b1f2a1d5ef59bd6270eddf72edcc38ee7b354c36a6f5ff88c7869a32dadf2366d34bde11ca7cc0006d98785a03f8e2c038c4776e6f877a24374b7b2e50cdd103
+out pc=0x30002004 sig=trap r3=0x62bd59ef r4=0x4000fff0 r7=0x72dfed70 r10=0xee38cced r12=0x364c357b
+case Multiple 000621e9 stmdb r1!, {r9, r10} <- stmdb {Rb}!, {wlist}
+in nzcv=1011 r1=0x40010000 r9=0xfffffff9 r10=0x7450f7f8 mem=0x4000fff0:a99d22a061c892c1fd85b0efad9ef49e9e4aae0ddbdb3eb69df50a95a97d31e70dae81b71aefb411c96cc774cb81971605d61492fc3269dd6cfab8e823947056
+out pc=0x30002004 sig=trap r1=0x4000fff8 mem=0x4000fff0:a99d22a061c892c1f9fffffff8f750749e4aae0ddbdb3eb69df50a95a97d31e70dae81b71aefb411c96cc774cb81971605d61492fc3269dd6cfab8e823947056
+case Multiple 000621e9 stmdb r1!, {r9, r10} <- stmdb {Rb}!, {wlist}
+in nzcv=1100 r1=0x40010000 r9=0xfffffff8 r10=0xae76069e mem=0x4000fff0:e3d4b3d07b1140c74ae974c947ffff546fb62310fb4e2ff0a6b41beac4dca94907f54555579e37a740781b530c8930426f83ab107d4fb615fbd03792f9c9a90d
+out pc=0x30002004 sig=trap r1=0x4000fff8 mem=0x4000fff0:e3d4b3d07b1140c7f8ffffff9e0676ae6fb62310fb4e2ff0a6b41beac4dca94907f54555579e37a740781b530c8930426f83ab107d4fb615fbd03792f9c9a90d
+case Multiple 000621e9 stmdb r1!, {r9, r10} <- stmdb {Rb}!, {wlist}
+in nzcv=1001 r1=0x40010000 r9=0x9b313ce8 r10=0x80000007 mem=0x4000fff0:20d3141ca7488de8cdba6f80e29a44eb351c7772d823e5b28b8a45310efd0b703b17eb095f81f241a88150ccbae314c6f16e24d756980549adcb05a7aa4c4d3b
+out pc=0x30002004 sig=trap r1=0x4000fff8 mem=0x4000fff0:20d3141ca7488de8e83c319b07000080351c7772d823e5b28b8a45310efd0b703b17eb095f81f241a88150ccbae314c6f16e24d756980549adcb05a7aa4c4d3b
+case Multiple 011028e9 stmdb r8!, {r0, r12} <- stmdb {Rb}!, {wlist}
+in nzcv=1110 r0=0xceba8909 r8=0x40010000 r12=0x80000004 mem=0x4000fff0:3a2811e1374c189a3bce96ccbbb5539cebcede061e14700dc365bfdf1ff4146a32ae2f817b4fbe1de0f7c7119e965e9f2bf3fd8aa51a4dd713cac0ab3f68346e
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000fff0:3a2811e1374c189a0989bace04000080ebcede061e14700dc365bfdf1ff4146a32ae2f817b4fbe1de0f7c7119e965e9f2bf3fd8aa51a4dd713cac0ab3f68346e
+case Multiple 011028e9 stmdb r8!, {r0, r12} <- stmdb {Rb}!, {wlist}
+in nzcv=1110 r0=0x7ffffff2 r8=0x40010000 r12=0xfffffff6 mem=0x4000fff0:5557c87b4bff2c5e58c46afa93ddc007bda6e4ac3a1bd22e3266d85aafb6dac5dadcd2614c5e002203cdd77787d46f8923be81b504e0cc07b8705b6abcfd8ecb
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000fff0:5557c87b4bff2c5ef2ffff7ff6ffffffbda6e4ac3a1bd22e3266d85aafb6dac5dadcd2614c5e002203cdd77787d46f8923be81b504e0cc07b8705b6abcfd8ecb
+case Multiple 011028e9 stmdb r8!, {r0, r12} <- stmdb {Rb}!, {wlist}
+in nzcv=1111 r0=0x7ffffffe r8=0x40010000 r12=0x3fffffff mem=0x4000fff0:809443d4336d6115f4ec57083136bfddf1d14eec1794359feef61d218a889cbd092e6b588820f1f7c101eadedc3cf24d7d3b6bc84b89d98f158b69b70afbb853
+out pc=0x30002004 sig=trap r8=0x4000fff8 mem=0x4000fff0:809443d4336d6115feffff7fffffff3ff1d14eec1794359feef61d218a889cbd092e6b588820f1f7c101eadedc3cf24d7d3b6bc84b89d98f158b69b70afbb853
+case Multiple 24022be9 stmdb r11!, {r2, r5, r9} <- stmdb {Rb}!, {wlist}
+in nzcv=0001 r2=0x200 r5=0x1ffffff r9=0x80000005 r11=0x40010000 mem=0x4000fff0:78d000ab2eba1902f1124d4efdb42b933cdc158bb9014a3a82c36e8c72c0d583bc0cef22125c6e2a486a99ba6fa2fdcbf214dc7160e4fc05e0e9f004fafa989a
+out pc=0x30002004 sig=trap r11=0x4000fff4 mem=0x4000fff0:78d000ab00020000ffffff01050000803cdc158bb9014a3a82c36e8c72c0d583bc0cef22125c6e2a486a99ba6fa2fdcbf214dc7160e4fc05e0e9f004fafa989a
+case Multiple 24022be9 stmdb r11!, {r2, r5, r9} <- stmdb {Rb}!, {wlist}
+in nzcv=1011 r2=0x7ffffffb r5=0xd r9=0x1000000 r11=0x40010000 mem=0x4000fff0:2dddb3ad8fc3d799281484be150e84410c4a6b38bcd1a749d511c06e7a9e94654d663248c62a7bc695b9aec7f9a597765c1f08d8475a342afd91b117733972ed
+out pc=0x30002004 sig=trap r11=0x4000fff4 mem=0x4000fff0:2dddb3adfbffff7f0d000000000000010c4a6b38bcd1a749d511c06e7a9e94654d663248c62a7bc695b9aec7f9a597765c1f08d8475a342afd91b117733972ed
+case Multiple 24022be9 stmdb r11!, {r2, r5, r9} <- stmdb {Rb}!, {wlist}
+in nzcv=1000 r2=0x400 r5=0xd7171cbd r9=0x4 r11=0x40010000 mem=0x4000fff0:0b1698a958eb67211431803b2d683b81a45de0718f07460bb6c482f2076130bd0514d173583034650bf5184aa96aa0bc77e507c6ef6f7968edeb27e5794b3981
+out pc=0x30002004 sig=trap r11=0x4000fff4 mem=0x4000fff0:0b1698a900040000bd1c17d704000000a45de0718f07460bb6c482f2076130bd0514d173583034650bf5184aa96aa0bc77e507c6ef6f7968edeb27e5794b3981
+case Multiple 881424e9 stmdb r4!, {r3, r7, r10, r12} <- stmdb {Rb}!, {wlist}
+in nzcv=1110 r3=0xfffffffc r4=0x40010000 r7=0xb756cb97 r10=0xeb03f76 r12=0xf mem=0x4000fff0:644a0f14e4dd0a2e66a90c682bf8b533dbcf7a036ca70d549175ed4fd8d1d63b19f7ccb23c7a16d17177f5c3d70038e5fe651dac6104e6f8b9d725692cf16c07
+out pc=0x30002004 sig=trap r4=0x4000fff0 mem=0x4000fff0:fcffffff97cb56b7763fb00e0f000000dbcf7a036ca70d549175ed4fd8d1d63b19f7ccb23c7a16d17177f5c3d70038e5fe651dac6104e6f8b9d725692cf16c07
+case Multiple 881424e9 stmdb r4!, {r3, r7, r10, r12} <- stmdb {Rb}!, {wlist}
+in nzcv=1011 r3=0x825b4ff5 r4=0x40010000 r7=0x6 r10=0xfffffff2 r12=0x7ffffff3 mem=0x4000fff0:2a62caff6b9a981c0e86f9da61de67ea04c963e47a853663418f01ba71fdf021c8b8dd6ccf93c8ab984983896192963b0a06feb6bc9593e7ff13913d2d7437c6
+out pc=0x30002004 sig=trap r4=0x4000fff0 mem=0x4000fff0:f54f5b8206000000f2fffffff3ffff7f04c963e47a853663418f01ba71fdf021c8b8dd6ccf93c8ab984983896192963b0a06feb6bc9593e7ff13913d2d7437c6
+case Multiple 881424e9 stmdb r4!, {r3, r7, r10, r12} <- stmdb {Rb}!, {wlist}
+in nzcv=0101 r3=0xa93ed45a r4=0x40010000 r7=0xfffffff6 r10=0x80000004 r12=0x8000000 mem=0x4000fff0:077684f1052d4eedb349483cc968f8fc84a5b1b114df46c499efa851c74196815e46e09d6c362e934430bc238c9ca548d302f35d3e06f3f54cbc43dbdbfd0fb6
+out pc=0x30002004 sig=trap r4=0x4000fff0 mem=0x4000fff0:5ad43ea9f6ffffff040000800000000884a5b1b114df46c499efa851c74196815e46e09d6c362e934430bc238c9ca548d302f35d3e06f3f54cbc43dbdbfd0fb6
+case Multiple 0006a1e9 stmib r1!, {r9, r10} <- stmib {Rb}!, {wlist}
+in nzcv=0111 r1=0x40010000 r9=0x5d0251d7 r10=0xa77b16cd mem=0x4000fff0:11d8ec8bdbcaaab812d06badd41fd46c6a91e25f9c010b2185b088227661623baab93f5dde9def945bd2187efd5580d1801b92417932c638fd9cd77ccdf17e42
+out pc=0x30002004 sig=trap r1=0x40010008 mem=0x4000fff0:11d8ec8bdbcaaab812d06badd41fd46c6a91e25fd751025dcd167ba77661623baab93f5dde9def945bd2187efd5580d1801b92417932c638fd9cd77ccdf17e42
+case Multiple 0006a1e9 stmib r1!, {r9, r10} <- stmib {Rb}!, {wlist}
+in nzcv=0101 r1=0x40010000 r9=0xfffffff9 r10=0xe mem=0x4000fff0:3466f7ee6deddcd407d62bec913c003a23c5258ee1aa4425a8f5d353798b8479080f9d49afd5c506aab21ebd9acf7fe21408a90f6ca0fa7fbbfcc90d1535f30c
+out pc=0x30002004 sig=trap r1=0x40010008 mem=0x4000fff0:3466f7ee6deddcd407d62bec913c003a23c5258ef9ffffff0e000000798b8479080f9d49afd5c506aab21ebd9acf7fe21408a90f6ca0fa7fbbfcc90d1535f30c
+case Multiple 0006a1e9 stmib r1!, {r9, r10} <- stmib {Rb}!, {wlist}
+in nzcv=1111 r1=0x40010000 r9=0x550103e9 r10=0x80000001 mem=0x4000fff0:476c12c801592be76bed0ce7f7e892de406f9a6307acd232107e064c1fa6967c168b9d54b5f08d6479b995e0e26569895f017594d624b33f7f24cffab7b1ed96
+out pc=0x30002004 sig=trap r1=0x40010008 mem=0x4000fff0:476c12c801592be76bed0ce7f7e892de406f9a63e9030155010000801fa6967c168b9d54b5f08d6479b995e0e26569895f017594d624b33f7f24cffab7b1ed96
+case Multiple 0110a8e9 stmib r8!, {r0, r12} <- stmib {Rb}!, {wlist}
+in nzcv=1100 r0=0xfffffff0 r8=0x40010000 r12=0x660ed93a mem=0x4000fff0:4e027d692180c7cbf26088998edcb872675f5d591029fd87c2e7ab13c82e7fcf93c5130d22b20fb50bfcde24002628327136dc03b971aaf7eccb1888b70ca2e6
+out pc=0x30002004 sig=trap r8=0x40010008 mem=0x4000fff0:4e027d692180c7cbf26088998edcb872675f5d59f0ffffff3ad90e66c82e7fcf93c5130d22b20fb50bfcde24002628327136dc03b971aaf7eccb1888b70ca2e6
+case Multiple 0110a8e9 stmib r8!, {r0, r12} <- stmib {Rb}!, {wlist}
+in nzcv=0111 r0=0xe4ce2e16 r8=0x40010000 r12=0x7fffffff mem=0x4000fff0:b22e488c30827daaaa2373e670167e27426fcf7f58519f855de38f80417fe3af8c0ac8432373148cffc1109c09fa4e941e2261a94693982069a733b42bf5cf07
+out pc=0x30002004 sig=trap r8=0x40010008 mem=0x4000fff0:b22e488c30827daaaa2373e670167e27426fcf7f162ecee4ffffff7f417fe3af8c0ac8432373148cffc1109c09fa4e941e2261a94693982069a733b42bf5cf07
+case Multiple 0110a8e9 stmib r8!, {r0, r12} <- stmib {Rb}!, {wlist}
+in nzcv=1111 r0=0xfffffff9 r8=0x40010000 r12=0xfffffff0 mem=0x4000fff0:7fe39ff8ccb489affffe7dc72616a20feeaf5ba1f6dbf2cbf84fdcf8a8ebd711e168fe0b03548305e6d184eb04037d86110177d94585fd91c399db9b2d829112
+out pc=0x30002004 sig=trap r8=0x40010008 mem=0x4000fff0:7fe39ff8ccb489affffe7dc72616a20feeaf5ba1f9fffffff0ffffffa8ebd711e168fe0b03548305e6d184eb04037d86110177d94585fd91c399db9b2d829112
+case Multiple 2402abe9 stmib r11!, {r2, r5, r9} <- stmib {Rb}!, {wlist}
+in nzcv=1011 r2=0x7b06ed1f r5=0x3ffffff r9=0xa57050c7 r11=0x40010000 mem=0x4000fff0:1ac5830269539f40b946b64a41b2843e462d7c90ac6051cc778762b4b68573239c342b4d5042b86e0cf64a838f25afed3450829d7acc5634802c06fd7f5f9d01
+out pc=0x30002004 sig=trap r11=0x4001000c mem=0x4000fff0:1ac5830269539f40b946b64a41b2843e462d7c901fed067bffffff03c75070a59c342b4d5042b86e0cf64a838f25afed3450829d7acc5634802c06fd7f5f9d01
+case Multiple 2402abe9 stmib r11!, {r2, r5, r9} <- stmib {Rb}!, {wlist}
+in nzcv=1001 r2=0x2 r5=0xeea1f801 r9=0x8000000f r11=0x40010000 mem=0x4000fff0:84b8ede7553d3ace40210fbb5bc7bb3dbd06298f28a37be0080889259a4482df5f27728ea54953f9f87154f155df6e14df9f8aa6f36f8b67d4da1e006f8f5536
+out pc=0x30002004 sig=trap r11=0x4001000c mem=0x4000fff0:84b8ede7553d3ace40210fbb5bc7bb3dbd06298f0200000001f8a1ee0f0000805f27728ea54953f9f87154f155df6e14df9f8aa6f36f8b67d4da1e006f8f5536
+case Multiple 2402abe9 stmib r11!, {r2, r5, r9} <- stmib {Rb}!, {wlist}
+in nzcv=1011 r2=0x9fb9fd6 r5=0xfffffffa r9=0x1 r11=0x40010000 mem=0x4000fff0:6d823b23ef84ea5dd7f1b3819c8844d37a4814d7749206066bfbeed5f82992a0f5792f3b09732e39908c25db1276da0bd7a89f39042cdc5a47cee0e1f706db99
+out pc=0x30002004 sig=trap r11=0x4001000c mem=0x4000fff0:6d823b23ef84ea5dd7f1b3819c8844d37a4814d7d69ffb09faffffff01000000f5792f3b09732e39908c25db1276da0bd7a89f39042cdc5a47cee0e1f706db99
+case Multiple 8814a4e9 stmib r4!, {r3, r7, r10, r12} <- stmib {Rb}!, {wlist}
+in nzcv=0010 r3=0x200 r4=0x40010000 r7=0x9 r10=0x48787e9 r12=0x1fff mem=0x4000fff0:e77d75cd4241e421597f152f2471e0ebc3331eabf620277c55f9c1939fdf5d6c0a2e26c23fb62861fa6b334160230b4535b12d8673a814f72cabb90d0b75103b
+out pc=0x30002004 sig=trap r4=0x40010010 mem=0x4000fff0:e77d75cd4241e421597f152f2471e0ebc3331eab0002000009000000e9878704ff1f00003fb62861fa6b334160230b4535b12d8673a814f72cabb90d0b75103b
+case Multiple 8814a4e9 stmib r4!, {r3, r7, r10, r12} <- stmib {Rb}!, {wlist}
+in nzcv=1110 r3=0x3ffff r4=0x40010000 r7=0x7ffffffb r10=0xfffffff0 r12=0xfffffff8 mem=0x4000fff0:83b1e2f6d061d0b023d192d9352382dee1a5f717567d5614c0e65e5c9a9549e151d1ee560ad1c01047c9955c39978304a55fc01fbd80a35caa1c7037fc60e19e
+out pc=0x30002004 sig=trap r4=0x40010010 mem=0x4000fff0:83b1e2f6d061d0b023d192d9352382dee1a5f717ffff0300fbffff7ff0fffffff8ffffff0ad1c01047c9955c39978304a55fc01fbd80a35caa1c7037fc60e19e
+case Multiple 8814a4e9 stmib r4!, {r3, r7, r10, r12} <- stmib {Rb}!, {wlist}
+in nzcv=0011 r3=0xfffffff1 r4=0x40010000 r7=0x6d6b1067 r10=0x100000 r12=0x7f mem=0x4000fff0:85e168f410bd4748406c72008f32d4d9124a81d9125f9aface8817bc0a0dd2eb4355815f00235aeabf18bec76774396cf9aa31cd663d7520461653cc39ee723c
+out pc=0x30002004 sig=trap r4=0x40010010 mem=0x4000fff0:85e168f410bd4748406c72008f32d4d9124a81d9f1ffffff67106b6d000010007f00000000235aeabf18bec76774396cf9aa31cd663d7520461653cc39ee723c
+case Multiple 000601e8 stmda r1, {r9, r10} <- stmda {Rb}, {wlist}
+in nzcv=0000 r1=0x40010000 r9=0x7ffffffc r10=0x1 mem=0x4000fff0:ddfafd5287e0ee7c237764066fd99625c64fd7be47105c5490db94c27804077312b5cdb2e3e68a900c775e021813c3aeb08f88e7e54e4fd6fcfacc306355f769
+out pc=0x30002004 sig=trap mem=0x4000fff0:ddfafd5287e0ee7c23776406fcffff7f0100000047105c5490db94c27804077312b5cdb2e3e68a900c775e021813c3aeb08f88e7e54e4fd6fcfacc306355f769
+case Multiple 000601e8 stmda r1, {r9, r10} <- stmda {Rb}, {wlist}
+in nzcv=0111 r1=0x40010000 r9=0xb571c41f r10=0x7ffffff9 mem=0x4000fff0:da07cb35d34300e5a20f2bd21efa0a74f7db76bacb01885210de9ee37193a51a1e9a3b227d8d22bf63c2e84b975ef664c98d442ba1308c2b33afb0f3bc3ff547
+out pc=0x30002004 sig=trap mem=0x4000fff0:da07cb35d34300e5a20f2bd21fc471b5f9ffff7fcb01885210de9ee37193a51a1e9a3b227d8d22bf63c2e84b975ef664c98d442ba1308c2b33afb0f3bc3ff547
+case Multiple 000601e8 stmda r1, {r9, r10} <- stmda {Rb}, {wlist}
+in nzcv=1001 r1=0x40010000 r9=0x1fff r10=0x7ffffffc mem=0x4000fff0:71edb0c0816eca2af3da379487232d4b90b50d89400314a7430ef9f433d282f93267acd69806f1b9fe59ca6490548342bd3b50b80a03c593b4aabe9318fd67e0
+out pc=0x30002004 sig=trap mem=0x4000fff0:71edb0c0816eca2af3da3794ff1f0000fcffff7f400314a7430ef9f433d282f93267acd69806f1b9fe59ca6490548342bd3b50b80a03c593b4aabe9318fd67e0
+case Multiple 011008e8 stmda r8, {r0, r12} <- stmda {Rb}, {wlist}
+in nzcv=1010 r0=0xfffff r8=0x40010000 r12=0x5f166826 mem=0x4000fff0:eedaf8439b4900ccdf77a90467308d874b12b4a00dc644d507295bffc7536d7a04c66a73552490d5cfe82d4c964ff37578cae499785d9748b5c8d5e4a82692db
+out pc=0x30002004 sig=trap mem=0x4000fff0:eedaf8439b4900ccdf77a904ffff0f002668165f0dc644d507295bffc7536d7a04c66a73552490d5cfe82d4c964ff37578cae499785d9748b5c8d5e4a82692db
+case Multiple 011008e8 stmda r8, {r0, r12} <- stmda {Rb}, {wlist}
+in nzcv=0101 r0=0x3f r8=0x40010000 r12=0x7ffffff3 mem=0x4000fff0:65472bdd806985659f24bbab6a3d3aecd8b7ee3da41ce9e60c88dd15b8f8fbf8fd2319e56ba699cf0cdd3e459f95084907c494de30ef323a2c5885d31cfc48d4
+out pc=0x30002004 sig=trap mem=0x4000fff0:65472bdd806985659f24bbab3f000000f3ffff7fa41ce9e60c88dd15b8f8fbf8fd2319e56ba699cf0cdd3e459f95084907c494de30ef323a2c5885d31cfc48d4
+case Multiple 011008e8 stmda r8, {r0, r12} <- stmda {Rb}, {wlist}
+in nzcv=0110 r0=0x1 r8=0x40010000 r12=0xfffffff3 mem=0x4000fff0:33d9849aa7437a8684d7bfcabdbfa3f62056da28acff7fbe3e86310d3e85b815ff74cbdb19682472297952ffc7946cb2cade6d1bd29e34aac4226bd7821cd776
+out pc=0x30002004 sig=trap mem=0x4000fff0:33d9849aa7437a8684d7bfca01000000f3ffffffacff7fbe3e86310d3e85b815ff74cbdb19682472297952ffc7946cb2cade6d1bd29e34aac4226bd7821cd776
+case Multiple 24020be8 stmda r11, {r2, r5, r9} <- stmda {Rb}, {wlist}
+in nzcv=1110 r2=0xfffffff5 r5=0x8000000 r9=0x7ffffff2 r11=0x40010000 mem=0x4000fff0:b2c5a8669fc760348a2da5c130d8c01b801bdf2a0e4a3873ec522353033df8d10c2ff9ebc707a6aac201c122ac422da83382a7ece5952b3664f9d39b28e3f4df
+out pc=0x30002004 sig=trap mem=0x4000fff0:b2c5a8669fc76034f5ffffff00000008f2ffff7f0e4a3873ec522353033df8d10c2ff9ebc707a6aac201c122ac422da83382a7ece5952b3664f9d39b28e3f4df
+case Multiple 24020be8 stmda r11, {r2, r5, r9} <- stmda {Rb}, {wlist}
+in nzcv=1101 r2=0xff5487c1 r5=0xa r9=0xb61b5371 r11=0x40010000 mem=0x4000fff0:cf296f18891bdd95279f7f51fd09b4c6545ed3fa8e990175471ae23296e0c3d2a6cdeae8a64ffadd76a0e4abc50f0f1a627aa43d05a443148cb95df2bd15f26c
+out pc=0x30002004 sig=trap mem=0x4000fff0:cf296f18891bdd95c18754ff0a00000071531bb68e990175471ae23296e0c3d2a6cdeae8a64ffadd76a0e4abc50f0f1a627aa43d05a443148cb95df2bd15f26c
+case Multiple 24020be8 stmda r11, {r2, r5, r9} <- stmda {Rb}, {wlist}
+in nzcv=1100 r2=0x7ffff r5=0x20000000 r9=0xffffffff r11=0x40010000 mem=0x4000fff0:34637f5bb57c8e801077923acccdbe9b8b9dbf0370ece33b71112a1c62db4584943019ff1112146d4c11fd7b41b3323bad1e25e83c01b074cba4ee9235645845
+out pc=0x30002004 sig=trap mem=0x4000fff0:34637f5bb57c8e80ffff070000000020ffffffff70ece33b71112a1c62db4584943019ff1112146d4c11fd7b41b3323bad1e25e83c01b074cba4ee9235645845
+case Multiple 881404e8 stmda r4, {r3, r7, r10, r12} <- stmda {Rb}, {wlist}
+in nzcv=1000 r3=0x7 r4=0x40010000 r7=0x7ffffff r10=0xf23eb3d2 r12=0x89ece3a0 mem=0x4000fff0:ac2042edb98bf4b7603d3c99e7a047632e047fe37e936a45c826c345862256ac504652005b07957e08ed43928045d48980fae684d4558e03fbe8d7b7ccae51ec
+out pc=0x30002004 sig=trap mem=0x4000fff0:ac2042ed07000000ffffff07d2b33ef2a0e3ec897e936a45c826c345862256ac504652005b07957e08ed43928045d48980fae684d4558e03fbe8d7b7ccae51ec
+case Multiple 881404e8 stmda r4, {r3, r7, r10, r12} <- stmda {Rb}, {wlist}
+in nzcv=1111 r3=0x1980dedc r4=0x40010000 r7=0x11950d02 r10=0x400 r12=0xfffffff2 mem=0x4000fff0:5b695f9ce849ac9f1bb80457cba058268976c93d21b3c510584f39430c46000c73cc61ec82616a117f1000bf88aaba71c8af147461e30eca6c89e6bc6859729b
+out pc=0x30002004 sig=trap mem=0x4000fff0:5b695f9cdcde8019020d951100040000f2ffffff21b3c510584f39430c46000c73cc61ec82616a117f1000bf88aaba71c8af147461e30eca6c89e6bc6859729b
+case Multiple 881404e8 stmda r4, {r3, r7, r10, r12} <- stmda {Rb}, {wlist}
+in nzcv=1010 r3=0xc r4=0x40010000 r7=0x5bd7e5af r10=0xfffffffe r12=0x7ffffffa mem=0x4000fff0:bc881080c4f85160688544a0387f61d5973a5869c2ed3e984dabe7b6eded17c793cda53d30bbe5ff3c69cb70bed7bd01b27e8dbfdb083d682736e46bf07ab95f
+out pc=0x30002004 sig=trap mem=0x4000fff0:bc8810800c000000afe5d75bfefffffffaffff7fc2ed3e984dabe7b6eded17c793cda53d30bbe5ff3c69cb70bed7bd01b27e8dbfdb083d682736e46bf07ab95f
+case Multiple 00422d09 pusheq {r9, lr} <- push{cond} {wlistlr}
+in nzcv=0010 r9=0x1fffff sp=0x40010000 lr=0xfffffff3 mem=0x4000fff0:b33a8a06fba98f8bd995b8abb8c8bc92f22d20b6b892fbbbb4b2fbb19ba1b64811bc2cf797c4de191891c51091f0df6cf6e78479ac772efe11f64bbc29a3d841
+out pc=0x30002004 sig=trap
+case Multiple 00422d09 pusheq {r9, lr} <- push{cond} {wlistlr}
+in nzcv=0000 r9=0xe sp=0x40010000 lr=0xfffffffb mem=0x4000fff0:34c0196152ba03c3d583447fb3b3f94e8da6131f5f199369ccfbfb3ffd85f0652a569d277181362836a997e36b8fc764d3dbcada9282a598bde953710d05d6af
+out pc=0x30002004 sig=trap
+case Multiple 00422d09 pusheq {r9, lr} <- push{cond} {wlistlr}
+in nzcv=0011 r9=0xc sp=0x40010000 lr=0x3ff mem=0x4000fff0:def838cd00e99606d8aafc24c64b14a0714421574ee471ceb4b53ff0fd54234603653d843981a1f69825117360103bbcd72e086e5f30b4fca6655aa62762dde0
+out pc=0x30002004 sig=trap
+case Multiple 01502d19 pushne {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=0011 r0=0x80000006 r12=0x1 sp=0x40010000 lr=0x200 mem=0x4000fff0:9a0bbeb9922fdb30c620ed662a1693f3931943075cbb60f5743ebf9ec67e2ddb2f289d4169978c6fbee0bb3e63a2509fd4117b9b3302a81a7a38df6b3676f5ae
+out pc=0x30002004 sig=trap sp=0x4000fff4 mem=0x4000fff0:9a0bbeb9060000800100000000020000931943075cbb60f5743ebf9ec67e2ddb2f289d4169978c6fbee0bb3e63a2509fd4117b9b3302a81a7a38df6b3676f5ae
+case Multiple 01502d19 pushne {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=0100 r0=0x80000000 r12=0x7ffffffb sp=0x40010000 lr=0x2 mem=0x4000fff0:18c90aaee8a59cb804a2a525e6a1a0826b936b4c8065a262c3a5a97cfe8f625d94a290c2b6102bb3831fe7bd2223dc7f07feb59e43132f47979bba811a930aac
+out pc=0x30002004 sig=trap
+case Multiple 01502d19 pushne {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=0110 r0=0x7ffffffd r12=0x4fe5af8d sp=0x40010000 lr=0x80000009 mem=0x4000fff0:9f4a328ea83fb9fcf443fd4be8fddbb4ece8209108181f4ba727aeffbd5f2b692824d6640d23a0395fe0d26407f6fa722a861d6dbf3cc49fffaa5f50b9fa54fe
+out pc=0x30002004 sig=trap
+case Multiple 24422d29 pushcs {r2, r5, r9, lr} <- push{cond} {wlistlr}
+in nzcv=0111 r2=0x3fffff r5=0x7ffffff9 r9=0x7ffffff8 sp=0x40010000 lr=0x4 mem=0x4000fff0:a6e187e51f2e1b14ceeda1db14211aeff59278ea09fbd07919a2281c5335343ac6c9c340dc7e857470d3dc124491758e86366dc3a0baa29b235069200b00066e
+out pc=0x30002004 sig=trap sp=0x4000fff0 mem=0x4000fff0:ffff3f00f9ffff7ff8ffff7f04000000f59278ea09fbd07919a2281c5335343ac6c9c340dc7e857470d3dc124491758e86366dc3a0baa29b235069200b00066e
+case Multiple 24422d29 pushcs {r2, r5, r9, lr} <- push{cond} {wlistlr}
+in nzcv=0011 r2=0x8000000a r5=0x1fffffff r9=0xfffffff4 sp=0x40010000 lr=0xa7129d4a mem=0x4000fff0:8f7c6997efa3f6c0c068807bb948f2ac267fab4202bbbf02fcee238904a676dcdffd9f1c3398e63c57c5bc9540e579a65a507eac96e8644c1c74b660b93571a0
+out pc=0x30002004 sig=trap sp=0x4000fff0 mem=0x4000fff0:0a000080ffffff1ff4ffffff4a9d12a7267fab4202bbbf02fcee238904a676dcdffd9f1c3398e63c57c5bc9540e579a65a507eac96e8644c1c74b660b93571a0
+case Multiple 24422d29 pushcs {r2, r5, r9, lr} <- push{cond} {wlistlr}
+in nzcv=0110 r2=0x7ffffff5 r5=0xa1ea2e7 r9=0x1 sp=0x40010000 lr=0x9f13d50c mem=0x4000fff0:0d3bb889aed71bb98a7603b137ae21803e723484b865bab3e7fc68bbad038310da43f45cee70c7847c53de4e0a8045d84cc603211be02720d78b5541e9757937
+out pc=0x30002004 sig=trap sp=0x4000fff0 mem=0x4000fff0:f5ffff7fe7a21e0a010000000cd5139f3e723484b865bab3e7fc68bbad038310da43f45cee70c7847c53de4e0a8045d84cc603211be02720d78b5541e9757937
+case Multiple 00442d39 pushcc {r10, lr} <- push{cond} {wlistlr}
+in nzcv=1100 r10=0x9fe9794 sp=0x40010000 lr=0x80000000 mem=0x4000fff0:7313422ed8372e42ca8c59c98ab24ac8062d99db78223a2f219ea9f32e65d022d04722ea210d1a61c0a27fcbeb0a67693c909472d68cdc9298d40029e7570b52
+out pc=0x30002004 sig=trap sp=0x4000fff8 mem=0x4000fff0:7313422ed8372e429497fe0900000080062d99db78223a2f219ea9f32e65d022d04722ea210d1a61c0a27fcbeb0a67693c909472d68cdc9298d40029e7570b52
+case Multiple 00442d39 pushcc {r10, lr} <- push{cond} {wlistlr}
+in nzcv=0010 r10=0xb816290c sp=0x40010000 lr=0x7 mem=0x4000fff0:ae5157e24dd9503d5d08ce4787a48b5eedd42203c50074fdfa2e3cd82cdd101f622de73aae9aa369049b52f7d4c50ce4b774adb63b83bab6f4f3bc8b3c1d1408
+out pc=0x30002004 sig=trap
+case Multiple 00442d39 pushcc {r10, lr} <- push{cond} {wlistlr}
+in nzcv=1001 r10=0x423ffc5b sp=0x40010000 lr=0xfffffff0 mem=0x4000fff0:5a12d4a5b7525e6b2e39d8b9b369fd0c4ed8afab411541945338d8a628b86853e5eb3f5431ce4f1e7356d768d01d88b1e8f244d5becd576a4da826e200217ba7
+out pc=0x30002004 sig=trap sp=0x4000fff8 mem=0x4000fff0:5a12d4a5b7525e6b5bfc3f42f0ffffff4ed8afab411541945338d8a628b86853e5eb3f5431ce4f1e7356d768d01d88b1e8f244d5becd576a4da826e200217ba7
+case Multiple 00422d49 pushmi {r9, lr} <- push{cond} {wlistlr}
+in nzcv=1110 r9=0x8000000f sp=0x40010000 lr=0x3ffffff mem=0x4000fff0:ddda547fa13b3bd76ca52db2459129a37e22c93b5b80822136f017cc60532c46ea1f673243446453b2e2194984c472acd0fef46ffd7903451c93ad53ce9c4bc9
+out pc=0x30002004 sig=trap sp=0x4000fff8 mem=0x4000fff0:ddda547fa13b3bd70f000080ffffff037e22c93b5b80822136f017cc60532c46ea1f673243446453b2e2194984c472acd0fef46ffd7903451c93ad53ce9c4bc9
+case Multiple 00422d49 pushmi {r9, lr} <- push{cond} {wlistlr}
+in nzcv=0101 r9=0x307894c8 sp=0x40010000 lr=0x4000 mem=0x4000fff0:ae72d71462746618e955f569748a7d836474a125e8997e9ec1b3083061275cc5bf54d5f92cce54496e7f63cfa741a1a176f0cd58fb6c51d8e9726da7b9070cbc
+out pc=0x30002004 sig=trap
+case Multiple 00422d49 pushmi {r9, lr} <- push{cond} {wlistlr}
+in nzcv=1001 r9=0x20000000 sp=0x40010000 lr=0xfffffff8 mem=0x4000fff0:abc25f00ed3bdcd7fedb3b1a8f746aa293226ded37c6274c29897c62551963d51b9525e1c9f68bceee7e4bef914898b264bab8913ef5e032f713519492cfe91b
+out pc=0x30002004 sig=trap sp=0x4000fff8 mem=0x4000fff0:abc25f00ed3bdcd700000020f8ffffff93226ded37c6274c29897c62551963d51b9525e1c9f68bceee7e4bef914898b264bab8913ef5e032f713519492cfe91b
+case Multiple 01502d59 pushpl {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=0001 r0=0x1000 r12=0x9f0b9b03 sp=0x40010000 lr=0x8000000b mem=0x4000fff0:f9bfa7414ed9d702e8417f505f68b08c6b81e8fd3ca30ef7682ffcb0a14a66193a0cfc60941d9b70691f7cf9071bf8e1fde356d2022f5f2c1fdc4c8b34518ea9
+out pc=0x30002004 sig=trap sp=0x4000fff4 mem=0x4000fff0:f9bfa74100100000039b0b9f0b0000806b81e8fd3ca30ef7682ffcb0a14a66193a0cfc60941d9b70691f7cf9071bf8e1fde356d2022f5f2c1fdc4c8b34518ea9
+case Multiple 01502d59 pushpl {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=0100 r0=0xaee1f8b7 r12=0xa11ef9d3 sp=0x40010000 lr=0x19eaedcc mem=0x4000fff0:e785c9e419597cff2f685b6040dc9ac915898f443d913c9823488782e5f65568ac25eb06d4494b7a8c8a27fa1dda1b7b603441c0ea4fcead6a7b9fd986124180
+out pc=0x30002004 sig=trap sp=0x4000fff4 mem=0x4000fff0:e785c9e4b7f8e1aed3f91ea1ccedea1915898f443d913c9823488782e5f65568ac25eb06d4494b7a8c8a27fa1dda1b7b603441c0ea4fcead6a7b9fd986124180
+case Multiple 01502d59 pushpl {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=0011 r0=0x5b7e77a1 r12=0x7 sp=0x40010000 lr=0x200000 mem=0x4000fff0:6f4c044e2b745003048d38e002147404e51f119a60a87a1c5734ebed626788d926e9c4cbdc3b99f1078331ad9582b959def30dd77f55c8a310003f62748838d1
+out pc=0x30002004 sig=trap sp=0x4000fff4 mem=0x4000fff0:6f4c044ea1777e5b0700000000002000e51f119a60a87a1c5734ebed626788d926e9c4cbdc3b99f1078331ad9582b959def30dd77f55c8a310003f62748838d1
+case Multiple 24422d69 pushvs {r2, r5, r9, lr} <- push{cond} {wlistlr}
+in nzcv=1011 r2=0x2 r5=0x40000000 r9=0x7f sp=0x40010000 lr=0xed818699 mem=0x4000fff0:8cc333ce4c485b03e16a4331311e3543d7fb8f517a3c9106a83087b5614057ead7b47062036c18d7c54189752849d9930d116765440d475914677a7aff891e97
+out pc=0x30002004 sig=trap sp=0x4000fff0 mem=0x4000fff0:02000000000000407f000000998681edd7fb8f517a3c9106a83087b5614057ead7b47062036c18d7c54189752849d9930d116765440d475914677a7aff891e97
+case Multiple 24422d69 pushvs {r2, r5, r9, lr} <- push{cond} {wlistlr}
+in nzcv=0011 r2=0x3ff r5=0xffffff r9=0x1e74b2d5 sp=0x40010000 lr=0x65f4dc6f mem=0x4000fff0:5ee9d58b84735796cfa0ae81c84d6155eeafd4e2cab2c88935ef736670836b349140b200580206683f5c904741c65fd2dba3c688dd889f8a0aa41133db4b1800
+out pc=0x30002004 sig=trap sp=0x4000fff0 mem=0x4000fff0:ff030000ffffff00d5b2741e6fdcf465eeafd4e2cab2c88935ef736670836b349140b200580206683f5c904741c65fd2dba3c688dd889f8a0aa41133db4b1800
+case Multiple 24422d69 pushvs {r2, r5, r9, lr} <- push{cond} {wlistlr}
+in nzcv=0111 r2=0x8000000f r5=0xb90e45cb r9=0xbe910c76 sp=0x40010000 lr=0x7ffffff7 mem=0x4000fff0:a4bc93ecb6ad1f17334784c6c0a550d4fb628105cc2f2a9c78824a7655a195edba00ea1bbfa7a44fdf2278addfaad98657b2c58e967c443823d00023f6605f37
+out pc=0x30002004 sig=trap sp=0x4000fff0 mem=0x4000fff0:0f000080cb450eb9760c91bef7ffff7ffb628105cc2f2a9c78824a7655a195edba00ea1bbfa7a44fdf2278addfaad98657b2c58e967c443823d00023f6605f37
+case Multiple 00442d79 pushvc {r10, lr} <- push{cond} {wlistlr}
+in nzcv=0101 r10=0xf956e39f sp=0x40010000 lr=0x1 mem=0x4000fff0:33f445a78c690db5b845178a573cdcccdb910d4d93294f81ef3776c1c8df6e3babebb0c40970d3307c1d592af894715a4c3319adf09bb6497532dbe20d5ec54c
+out pc=0x30002004 sig=trap
+case Multiple 00442d79 pushvc {r10, lr} <- push{cond} {wlistlr}
+in nzcv=0011 r10=0xfffffff sp=0x40010000 lr=0x20000000 mem=0x4000fff0:72b37196cad7a341d27981a79100705a995c68bfb0939f6c388706fe31c1c2e6cfc3fab5e8ed56ffc9e37998823699050974b302fa91c007a797fedac93c58bc
+out pc=0x30002004 sig=trap
+case Multiple 00442d79 pushvc {r10, lr} <- push{cond} {wlistlr}
+in nzcv=0010 r10=0x80000001 sp=0x40010000 lr=0xfffffff5 mem=0x4000fff0:e15d1f3019b73ed9284bc5aa658cfd497c476e250be23fd8219bb6322237f344c3127035e7fe018f16d3cc5de1949c333d74d1844b9f443c744abc0c67e24c1f
+out pc=0x30002004 sig=trap sp=0x4000fff8 mem=0x4000fff0:e15d1f3019b73ed901000080f5ffffff7c476e250be23fd8219bb6322237f344c3127035e7fe018f16d3cc5de1949c333d74d1844b9f443c744abc0c67e24c1f
+case Multiple 00422d89 pushhi {r9, lr} <- push{cond} {wlistlr}
+in nzcv=1100 r9=0x40 sp=0x40010000 lr=0x7ffffff2 mem=0x4000fff0:fdf2a31aad31b7ce3e8610e33d1459a93e08539308bdc5dddcb111a38297dedef891fef2b0c09205bf4cc0f2941b3d134b9eacb5ba02c985f8e463937e6d43ba
+out pc=0x30002004 sig=trap
+case Multiple 00422d89 pushhi {r9, lr} <- push{cond} {wlistlr}
+in nzcv=1011 r9=0x841c4bcf sp=0x40010000 lr=0x2912f91 mem=0x4000fff0:b02ab0bbf79a4273d2f82fb0a2a316faaf6f644210db649133fe3f9625fd42dace9ad13f84a411c9377bd388d549242ea678ecb36e82ebee755a9de70fdaac19
+out pc=0x30002004 sig=trap sp=0x4000fff8 mem=0x4000fff0:b02ab0bbf79a4273cf4b1c84912f9102af6f644210db649133fe3f9625fd42dace9ad13f84a411c9377bd388d549242ea678ecb36e82ebee755a9de70fdaac19
+case Multiple 00422d89 pushhi {r9, lr} <- push{cond} {wlistlr}
+in nzcv=0110 r9=0x8000000a sp=0x40010000 lr=0x7ffffff7 mem=0x4000fff0:6f75d5cf7ab974d8d7c2eacfdcbe6afc278d947b41a9a5459fc3477631a21ae9a1bc3a35fa8eb7560f7b5cf96c1445bdcadeab08f813243cc328c69b92b6ae87
+out pc=0x30002004 sig=trap
+case Multiple 01502d99 pushls {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=0011 r0=0xb6324903 r12=0x7ffffffc sp=0x40010000 lr=0x5c59488d mem=0x4000fff0:fcd83349c2fc25b662d58641c2c405ee483485fa039dfadd2f008ca798c4eb9ebf2a5ff131cf742f9a8a4e05b6bee1784f5c9098b0367c044185c699153c40e2
+out pc=0x30002004 sig=trap
+case Multiple 01502d99 pushls {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=1000 r0=0x3a98bf57 r12=0x7ffffff8 sp=0x40010000 lr=0x7fff mem=0x4000fff0:6cd2783009e5c5398a76b9a0ac50f2e4430a5ae3a8f5837ba9582488fd73a9d9432412909452c39154faf9eb1c3e109eaa254c9da6b8cb09169653c505179022
+out pc=0x30002004 sig=trap sp=0x4000fff4 mem=0x4000fff0:6cd2783057bf983af8ffff7fff7f0000430a5ae3a8f5837ba9582488fd73a9d9432412909452c39154faf9eb1c3e109eaa254c9da6b8cb09169653c505179022
+case Multiple 01502d99 pushls {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=0011 r0=0x3f r12=0x7ffffffa sp=0x40010000 lr=0x3ff mem=0x4000fff0:38d4c1000092758290fab31c94433ebbd894be4d182e0ee9ba9f4ef9671ef2b187b0844202cee65d1c5d15e4e6788ecc26e79ddb16b55c73e4b14954a5bc77e4
+out pc=0x30002004 sig=trap
+case Multiple 24422da9 pushge {r2, r5, r9, lr} <- push{cond} {wlistlr}
+in nzcv=0001 r2=0xffffffff r5=0x8000000b r9=0x47bae90b sp=0x40010000 lr=0xaac990e6 mem=0x4000fff0:866f4c377093cc7a13a0ed6e888b23beabef994547d7ef288a02f7ebbb33bc33b56f80e2f4f363e78d4d6e5abd11bf9e81e85ffef49f48601c494f22a52c4efe
+out pc=0x30002004 sig=trap
+case Multiple 24422da9 pushge {r2, r5, r9, lr} <- push{cond} {wlistlr}
+in nzcv=0110 r2=0xf r5=0x9 r9=0xbd18043 sp=0x40010000 lr=0x4 mem=0x4000fff0:ce0920754231b0401ea70b3c4ce2ae5b5670cbf8221d903df4e5a0b3471ce6bc91785e60f13ca8b64e5506d20ff1803b62c79edd5fb29cb97446d4315cfaf154
+out pc=0x30002004 sig=trap sp=0x4000fff0 mem=0x4000fff0:0f000000090000004380d10b040000005670cbf8221d903df4e5a0b3471ce6bc91785e60f13ca8b64e5506d20ff1803b62c79edd5fb29cb97446d4315cfaf154
+case Multiple 24422da9 pushge {r2, r5, r9, lr} <- push{cond} {wlistlr}
+in nzcv=0111 r2=0x80000001 r5=0x7ffffff0 r9=0x1000000 sp=0x40010000 lr=0xfffffff7 mem=0x4000fff0:e05ba24c1d01086555b7fce06242bdd7e4006d5a3f5a9c7dc6f1f094cb34a93a3aaa98a87b4e0f492874bce83262014d51762f83fcf7508b9c8b04d20b5365fb
+out pc=0x30002004 sig=trap
+case Multiple 00442db9 pushlt {r10, lr} <- push{cond} {wlistlr}
+in nzcv=1111 r10=0x10000000 sp=0x40010000 lr=0x7ffffff5 mem=0x4000fff0:76421e90e9a118cd3c2c674e94e0db73f950b1b4c01426f41e4dc227c7809da59cd16aa3c4bbc26cb0019529cb8be332739c4f4a77132c825907dcfa8e12c34d
+out pc=0x30002004 sig=trap
+case Multiple 00442db9 pushlt {r10, lr} <- push{cond} {wlistlr}
+in nzcv=0001 r10=0x80000002 sp=0x40010000 lr=0xc mem=0x4000fff0:b9568f62ac6db20f5091f8cbf120838f3db669bef26f0e227b46aba655e0e4d56091b5a16a8ded45840db2cae017b26bc5bea703418de34faba83554d51f00fa
+out pc=0x30002004 sig=trap sp=0x4000fff8 mem=0x4000fff0:b9568f62ac6db20f020000800c0000003db669bef26f0e227b46aba655e0e4d56091b5a16a8ded45840db2cae017b26bc5bea703418de34faba83554d51f00fa
+case Multiple 00442db9 pushlt {r10, lr} <- push{cond} {wlistlr}
+in nzcv=1101 r10=0x4 sp=0x40010000 lr=0xfffffffd mem=0x4000fff0:7bbb99be2c60b376f31bae17b019b8a9102efbe88bdd4d755e30774649d6b987023b79b0c0a7910bce81c166f0c755ef72fab15186f9d0e3dbc906081a864187
+out pc=0x30002004 sig=trap
+case Multiple 00422dc9 pushgt {r9, lr} <- push{cond} {wlistlr}
+in nzcv=1100 r9=0x7ffffff5 sp=0x40010000 lr=0x22795f5c mem=0x4000fff0:f8c19c5552a3c125f5ba52e658028325ea31e18d1da5b33dc6ed75fc64d790d46b41164eab799249b67350755bd8e7a49db70d66f826e5d34277de3b0d6e7c47
+out pc=0x30002004 sig=trap
+case Multiple 00422dc9 pushgt {r9, lr} <- push{cond} {wlistlr}
+in nzcv=1000 r9=0x6a1b9cb0 sp=0x40010000 lr=0x10 mem=0x4000fff0:76612c7076fccd4ac355e32b88422b06b41b623ebb11d60c01ddf0271a6cf886d1f5497fc6ff5884dd21160cd103640c757c340c238c924b637089433eb3dd0b
+out pc=0x30002004 sig=trap
+case Multiple 00422dc9 pushgt {r9, lr} <- push{cond} {wlistlr}
+in nzcv=1001 r9=0x4000000 sp=0x40010000 lr=0xcf3c3e30 mem=0x4000fff0:59d237d5beb22f9084d281ef51aac1c005f695b49a7f51966ea03e540cd866eb8e9e5315e9ef2f9fa58a93149b8981238fe9c9b9403e7cf1bd6c89439b04f898
+out pc=0x30002004 sig=trap sp=0x4000fff8 mem=0x4000fff0:59d237d5beb22f9000000004303e3ccf05f695b49a7f51966ea03e540cd866eb8e9e5315e9ef2f9fa58a93149b8981238fe9c9b9403e7cf1bd6c89439b04f898
+case Multiple 01502dd9 pushle {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=1111 r0=0xfffffff7 r12=0xffffffff sp=0x40010000 lr=0x8000000e mem=0x4000fff0:0531631f4845a4b0fe9b910e6ca72547092dc98b7661f37c7f2d0cf057b0ff4dcc6ebf9dbfafd6438a8b1d5654b1f63c4bec11abf6737790e35a31d382076ea3
+out pc=0x30002004 sig=trap sp=0x4000fff4 mem=0x4000fff0:0531631ff7ffffffffffffff0e000080092dc98b7661f37c7f2d0cf057b0ff4dcc6ebf9dbfafd6438a8b1d5654b1f63c4bec11abf6737790e35a31d382076ea3
+case Multiple 01502dd9 pushle {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=0110 r0=0x7ffffffe r12=0x7 sp=0x40010000 lr=0x71f49638 mem=0x4000fff0:2e8168bbd224a55c2af3ed1e673a15a64f1b4dc54d007d766ea3020ab75a44350110d9970b3727b1074c93a3a0e8cdaf72b1d8ac5ef608ca5e781f2d57b36f8f
+out pc=0x30002004 sig=trap sp=0x4000fff4 mem=0x4000fff0:2e8168bbfeffff7f070000003896f4714f1b4dc54d007d766ea3020ab75a44350110d9970b3727b1074c93a3a0e8cdaf72b1d8ac5ef608ca5e781f2d57b36f8f
+case Multiple 01502dd9 pushle {r0, r12, lr} <- push{cond} {wlistlr}
+in nzcv=1110 r0=0xf9c3f97e r12=0x3 sp=0x40010000 lr=0x1 mem=0x4000fff0:e95aeb1402a302d0272838c6db0d7a00d3c06a86b2c43755b3a0284fd8a59f4380e1d9e9b2c042d05e322c4a3ce43e1dc5154bee05022a3850fceae92c18bf01
+out pc=0x30002004 sig=trap sp=0x4000fff4 mem=0x4000fff0:e95aeb147ef9c3f90300000001000000d3c06a86b2c43755b3a0284fd8a59f4380e1d9e9b2c042d05e322c4a3ce43e1dc5154bee05022a3850fceae92c18bf01
+case Multiple 0082bde8 pop {r9, pc} <- pop {wlistpc}
+in nzcv=0100 r9=0xff sp=0x40010000 mem=0x4000fff0:98584b1d6bc87587a1023eddc866d4bbfe7fc062002400307e70e4d9d2bb8f3824630e27e826859765adf8d653a642cf912f3f6745d37e0739185c7b5e791011
+out pc=0x30002400 sig=trap r9=0x62c07ffe sp=0x40010008
+case Multiple 0082bde8 pop {r9, pc} <- pop {wlistpc}
+in nzcv=1111 r9=0xf sp=0x40010000 mem=0x4000fff0:d51150cd2872eb58bd75abca49151f0da107356f00240030880c90092cd32c98fc9c0b77e46eb8d6d8c0737937d2e98a93e9936f46b39dccff7eb18c435056d5
+out pc=0x30002400 sig=trap r9=0x6f3507a1 sp=0x40010008
+case Multiple 0082bde8 pop {r9, pc} <- pop {wlistpc}
+in nzcv=0000 r9=0x978d021f sp=0x40010000 mem=0x4000fff0:158fd2c7fd6e22f79359cc2ea5bb29863a73bc3a0024003008514503f3411753d91cdfb70cbde03616bcb69b4de1bef4d96f399b02959c7e87531687eb1f2bad
+out pc=0x30002400 sig=trap r9=0x3abc733a sp=0x40010008
+case Multiple 0190bde8 pop {r0, r12, pc} <- pop {wlistpc}
+in nzcv=1100 r0=0xfffffff3 r12=0xd4835039 sp=0x40010000 mem=0x4000fff0:729664ea40faa95cdaf2018dedecc2c697a02797d4ea1db4002400300c5e5f5ef4cc56429539c03757c6c8d4c908b1624589de4e1f044b919af33fcaed49d4ea
+out pc=0x30002400 sig=trap r0=0x9727a097 r12=0xb41dead4 sp=0x4001000c
+case Multiple 0190bde8 pop {r0, r12, pc} <- pop {wlistpc}
+in nzcv=0101 r0=0x65110c24 r12=0x59ade9a1 sp=0x40010000 mem=0x4000fff0:9c1f5d2db9c96f8ca38a8a49cd07e8ba2b17d56020b66d6300240030264ecf627012511a7889e3e0092754afd4b825c033d7c888fe5877b39beb1ad0db9e29f9
+out pc=0x30002400 sig=trap r0=0x60d5172b r12=0x636db620 sp=0x4001000c
+case Multiple 0190bde8 pop {r0, r12, pc} <- pop {wlistpc}
+in nzcv=1011 r0=0x3fffffff r12=0x3 sp=0x40010000 mem=0x4000fff0:3f7421cc708b72908a3ac29cbe95fc07d52722a786d00d2700240030c353d25befb102ffa31693a7597f00c2febb374e7f38932c89257031eaa9e9f9fdb65e5b
+out pc=0x30002400 sig=trap r0=0xa72227d5 r12=0x270dd086 sp=0x4001000c
+case Multiple 2482bde8 pop {r2, r5, r9, pc} <- pop {wlistpc}
+in nzcv=1110 r2=0x7ffffffc r5=0xb46dee59 r9=0x80923e57 sp=0x40010000 mem=0x4000fff0:d8011be19ef4e09bac9fc4e7ab3bad072799fce6ccc5a2f45b73aeb7002400304dadbec583fedaff30b0169b71352eae7aebf66d206b3af3098a3f153c916a12
+out pc=0x30002400 sig=trap r2=0xe6fc9927 r5=0xf4a2c5cc r9=0xb7ae735b sp=0x40010010
+case Multiple 2482bde8 pop {r2, r5, r9, pc} <- pop {wlistpc}
+in nzcv=1001 r2=0x7ffffff1 r5=0x4000 r9=0x7ffffffd sp=0x40010000 mem=0x4000fff0:e65505abf8f993c866923b3ab9d5b105744aa4e02aa452895ca0e7950024003022053f29d26bea723a4f795b9484e284f36c06c5a1f9f6dca378ae5aa3e989ba
+out pc=0x30002400 sig=trap r2=0xe0a44a74 r5=0x8952a42a r9=0x95e7a05c sp=0x40010010
+case Multiple 2482bde8 pop {r2, r5, r9, pc} <- pop {wlistpc}
+in nzcv=0011 r2=0x80000005 r5=0xc30256b6 r9=0x7ffffff4 sp=0x40010000 mem=0x4000fff0:2e4d6a74117bfb80f1da6d3710a5ab896bfca4e97dca810c1992ecbe00240030acb816250e23c3ff2ac2c0334f85fdd54141595de352117495aa87990fb5c09b
+out pc=0x30002400 sig=trap r2=0xe9a4fc6b r5=0xc81ca7d r9=0xbeec9219 sp=0x40010010
+case Multiple 0084bde8 pop {r10, pc} <- pop {wlistpc}
+in nzcv=1010 r10=0x1f sp=0x40010000 mem=0x4000fff0:6412805f55a9324211791a5df521e6841390b2bb00240030874f9f95c775cb93fe69e5d458d78d29fd97cdf92611d489995c14f34847a67512d353b68d96d3b8
+out pc=0x30002400 sig=trap r10=0xbbb29013 sp=0x40010008
+case Multiple 0084bde8 pop {r10, pc} <- pop {wlistpc}
+in nzcv=1011 r10=0xfffffffc sp=0x40010000 mem=0x4000fff0:6e0daccd53b40bfe0ba794d00e9110668e5d29e100240030cea1180f7d10c48e2428592de1ba620eea6bb78fff9022a6588c111864ea3189c33d6ca07bd1d570
+out pc=0x30002400 sig=trap r10=0xe1295d8e sp=0x40010008
+case Multiple 0084bde8 pop {r10, pc} <- pop {wlistpc}
+in nzcv=1000 r10=0x7ffffff8 sp=0x40010000 mem=0x4000fff0:eb8f5d1ab3d1d1b76c5ec0a3d60397433b6aae15002400302583622cec7fa8dcf5933ff31b0c08d2978b9ae8f8eb255fcc01d4a38139a56d3da5a2c0b36b80b2
+out pc=0x30002400 sig=trap r10=0x15ae6a3b sp=0x40010008
+case Multiple 0006bd08 popeq {r9, r10} <- pop{cond} {wlist}
+in nzcv=1000 r9=0x80000 r10=0x10 sp=0x40010000 mem=0x4000fff0:f2a09c6b39a868117333c5a58a49ca932e20f921e9940f2741f6afbd3cc460cd5b9904257f33cdf556d9bdeedbd7e0eb6975269da37bc37c97951976eef37741
+out pc=0x30002004 sig=trap
+case Multiple 0006bd08 popeq {r9, r10} <- pop{cond} {wlist}
+in nzcv=1110 r9=0xe12d3b1e r10=0x0 sp=0x40010000 mem=0x4000fff0:d11e846d782dc771e9fb119a44ab8b467f72aad16b3d073a15f0736929f6a604f35de0e4cac3171df1901aae245d2767cf969cf40edc7c4d5356317dfc7b394c
+out pc=0x30002004 sig=trap r9=0xd1aa727f r10=0x3a073d6b sp=0x40010008
+case Multiple 0006bd08 popeq {r9, r10} <- pop{cond} {wlist}
+in nzcv=1010 r9=0x7ffffffa r10=0x7 sp=0x40010000 mem=0x4000fff0:9635833190f00429105fd6e2edc6d8aa678a932c997b8587fcf947aadd157bc8e254ae417c81d2984b2c5f23e11aff29b7ecf924074846ae26dbdf145ff910d3
+out pc=0x30002004 sig=trap
+case Multiple 0110bd18 popne {r0, r12} <- pop{cond} {wlist}
+in nzcv=1001 r0=0xa76aa7c0 r12=0x80000007 sp=0x40010000 mem=0x4000fff0:46d89586aeb67636d62612b2b95c7e2ed6798df0027ab89b93f39b6e2d99760d786005dc69356f7f365838202513057bb9fe2e5a01c076c032b81ddb13f31fb7
+out pc=0x30002004 sig=trap r0=0xf08d79d6 r12=0x9bb87a02 sp=0x40010008
+case Multiple 0110bd18 popne {r0, r12} <- pop{cond} {wlist}
+in nzcv=1010 r0=0x8000000b r12=0x1ffffff sp=0x40010000 mem=0x4000fff0:ab9b0f50b1eafc416be616c5fd2e34e0f4e96665366d0017aaca0e587a236dd42d68a953f070304e8d09f993994cfdf04c8011f3606bad30ee35bf7220350180
+out pc=0x30002004 sig=trap r0=0x6566e9f4 r12=0x17006d36 sp=0x40010008
+case Multiple 0110bd18 popne {r0, r12} <- pop{cond} {wlist}
+in nzcv=0100 r0=0x7ffffff3 r12=0x8000000b sp=0x40010000 mem=0x4000fff0:621f3343605a5aaf19780269047f9d72cdde2b5af91d3dfcc86e08feeabdf029f05080f15ddf5248e2d59ca4a23dab2f7339c47c1d8d75c688d0a47400120e97
+out pc=0x30002004 sig=trap
+case Multiple 2402bd28 popcs {r2, r5, r9} <- pop{cond} {wlist}
+in nzcv=1101 r2=0xfffffff5 r5=0x15d7c21d r9=0x80000002 sp=0x40010000 mem=0x4000fff0:27ac92aec5d7d0bc3ed56a5dbd39906fbbae645567fb8f04dd7deeb72026ef3228e4d1d73a2ca56b6ff4c19d36588ddd9633236483a9eef3f37cc877a4f03420
+out pc=0x30002004 sig=trap
+case Multiple 2402bd28 popcs {r2, r5, r9} <- pop{cond} {wlist}
+in nzcv=1101 r2=0x38db6940 r5=0xcc71c55 r9=0xfffffffd sp=0x40010000 mem=0x4000fff0:b258efa72031a2fc4bc9f709989ecad4166587cfe77f64bed6eab60b053e193466e60b997320e9ff0c7255104aba10eeb2e69a246d6e39dbfb2e0137b0eca949
+out pc=0x30002004 sig=trap
+case Multiple 2402bd28 popcs {r2, r5, r9} <- pop{cond} {wlist}
+in nzcv=0110 r2=0x80000005 r5=0xffffff r9=0xa3d77bbb sp=0x40010000 mem=0x4000fff0:652f5f645a10d0030e7d47dd6ffb0bcefedf5f9cf8702a51e965a3bb5a581b85c23b6eb529f4c1bd6a04e7b74f454e7b80f5b134f69e8a64ed046c8ed2077963
+out pc=0x30002004 sig=trap r2=0x9c5fdffe r5=0x512a70f8 r9=0xbba365e9 sp=0x4001000c
+case Multiple 8814bd38 popcc {r3, r7, r10, r12} <- pop{cond} {wlist}
+in nzcv=0001 r3=0xfffffff6 r7=0x5 r10=0x825c984a r12=0x1000 sp=0x40010000 mem=0x4000fff0:63da321d5e5e0261fad23a57e2918701548551d20437c275a26380c069dab8cb4ae21644f7fa72a4e0f282a9ea82f1098a59e420cfbd309a5929f2b26ded1210
+out pc=0x30002004 sig=trap r3=0xd2518554 r7=0x75c23704 r10=0xc08063a2 r12=0xcbb8da69 sp=0x40010010
+case Multiple 8814bd38 popcc {r3, r7, r10, r12} <- pop{cond} {wlist}
+in nzcv=1011 r3=0x5 r7=0xb r10=0x3ff r12=0x7ffffffc sp=0x40010000 mem=0x4000fff0:a5a860aa75ea591b944ce959ecb9614dfd52c22a7158f659ee59caf9b5442ab0b0207230e113344acfdbc7c03fceb2a2808e47033bf661ce9fb5997c9c305bf6
+out pc=0x30002004 sig=trap
+case Multiple 8814bd38 popcc {r3, r7, r10, r12} <- pop{cond} {wlist}
+in nzcv=1111 r3=0xfffffff8 r7=0x1f r10=0xfffffff2 r12=0x9 sp=0x40010000 mem=0x4000fff0:58ae1656694a6b77ce1d7ee75f7243e907aa3c6f44197aa5151215447c2f658bacc0cff0a9a7fd201ace083888648c6e996311b2f952ebc0d5e7ffb103919f2f
+out pc=0x30002004 sig=trap
+case Multiple 0006bd48 popmi {r9, r10} <- pop{cond} {wlist}
+in nzcv=1111 r9=0x80000003 r10=0x7fffffff sp=0x40010000 mem=0x4000fff0:4bc971b53c243046d9926c6f1e32f1ab42ebec1a2b43156e6daaf02772fa02894bc99af57b4ea664568c1f7cbd1df482908d101fb6deeefaf7a2fb5f92664696
+out pc=0x30002004 sig=trap r9=0x1aeceb42 r10=0x6e15432b sp=0x40010008
+case Multiple 0006bd48 popmi {r9, r10} <- pop{cond} {wlist}
+in nzcv=0110 r9=0x20 r10=0x3fffff sp=0x40010000 mem=0x4000fff0:a8388e8cf295dd8bdaa70aef7247c1ddc73564ca13b2641be1fb327f64732cc74d4edc8470db7241c87f89c1c8b99a2ea8a5da3f59430ee201c7f0a667414a86
+out pc=0x30002004 sig=trap
+case Multiple 0006bd48 popmi {r9, r10} <- pop{cond} {wlist}
+in nzcv=0111 r9=0xb r10=0xfffffff5 sp=0x40010000 mem=0x4000fff0:661e0bee4260fe7cb2f89ab5db3e38c0bc973f8bff5b3a4a320f9176fd9f05898a284eddf7013371b897395e42cbc19dd88e1b50a0024b0c7ba6a1387d632c6a
+out pc=0x30002004 sig=trap
+case Multiple 0110bd58 poppl {r0, r12} <- pop{cond} {wlist}
+in nzcv=0001 r0=0x3 r12=0x4c12ef47 sp=0x40010000 mem=0x4000fff0:c3ada7e3e47124414bda295298c4944519e6af296120f4675223c0ca419eacabb3985e9aaac44e07615e861f9f9bab384d9a81060e2d95c8be4085668baa6a6c
+out pc=0x30002004 sig=trap r0=0x29afe619 r12=0x67f42061 sp=0x40010008
+case Multiple 0110bd58 poppl {r0, r12} <- pop{cond} {wlist}
+in nzcv=1111 r0=0x80000009 r12=0xe sp=0x40010000 mem=0x4000fff0:936e9d51b7aee8b7eff32118fadea8b6528032167bc601cedb25a59497eb06a7884f7b4fb7f0859cd59eb720e5fcebb21a627057787a4adc8473973b6471d344
+out pc=0x30002004 sig=trap
+case Multiple 0110bd58 poppl {r0, r12} <- pop{cond} {wlist}
+in nzcv=1001 r0=0x2 r12=0xe4a10212 sp=0x40010000 mem=0x4000fff0:ef568d1fc9ea8ee6d2d2a457a7f61196ef09c2fd0aa1096e1d58c6d4bff6ee598ff2ac1aadfbdbd39eb67c6a1f8d8c99810910a15863d3aea80a0230aae2ebe6
+out pc=0x30002004 sig=trap
+case Multiple 2402bd68 popvs {r2, r5, r9} <- pop{cond} {wlist}
+in nzcv=1011 r2=0x8ef035e6 r5=0x21dcd8af r9=0xfffffff6 sp=0x40010000 mem=0x4000fff0:adcf855e818d7b435c28eafffc8d605e4f470ce5a8f7c0cbbd0cff40f58ea738a48bc256b2a38191518b92bc1be2989ec52baf31b208d90f756e69881a63e21c
+out pc=0x30002004 sig=trap r2=0xe50c474f r5=0xcbc0f7a8 r9=0x40ff0cbd sp=0x4001000c
+case Multiple 2402bd68 popvs {r2, r5, r9} <- pop{cond} {wlist}
+in nzcv=1101 r2=0x148371b3 r5=0x400000 r9=0x80000007 sp=0x40010000 mem=0x4000fff0:28dd411db6cef7940f4ffc2c8392eb6202cc06389be27cb14a81f9df2636ac1c908648b9424907feeb3c0cc5049b34e0f7f34137aaabddff325e96a84ac94c9f
+out pc=0x30002004 sig=trap r2=0x3806cc02 r5=0xb17ce29b r9=0xdff9814a sp=0x4001000c
+case Multiple 2402bd68 popvs {r2, r5, r9} <- pop{cond} {wlist}
+in nzcv=1000 r2=0x4 r5=0x1 r9=0x80000006 sp=0x40010000 mem=0x4000fff0:27e6a3296cf3618f565ac08ea12554672cb72a27058dfce932d23a470605d46e8a34555851e97096d3776f69fbcb6aca2cf0be125fa12ceaf4caed18937f2e32
+out pc=0x30002004 sig=trap
+case Multiple 8814bd78 popvc {r3, r7, r10, r12} <- pop{cond} {wlist}
+in nzcv=0001 r3=0x7ffffff1 r7=0xd91b3a2e r10=0x2 r12=0x7fffffff sp=0x40010000 mem=0x4000fff0:4cbf513f5019465a25e8693ea35ff544436958ded99e39aa0f270d017a40e6ef034e0dc5979f5756b3a51f20540203546fda9855f908e6a6c205110f58345c75
+out pc=0x30002004 sig=trap
+case Multiple 8814bd78 popvc {r3, r7, r10, r12} <- pop{cond} {wlist}
+in nzcv=1111 r3=0xe r7=0x800b2974 r10=0xcaea02b8 r12=0x80000005 sp=0x40010000 mem=0x4000fff0:aa3106b2869e940376b72eb7643312c8988145ac41dcc233eeaf6c706cfc02d7cafb0ae11e5fe5c812346d262a6ae036903658e919b24561466d08ba6a2bf87b
+out pc=0x30002004 sig=trap
+case Multiple 8814bd78 popvc {r3, r7, r10, r12} <- pop{cond} {wlist}
+in nzcv=1010 r3=0xfffffff2 r7=0x8000000c r10=0xdfbfdfee r12=0x80 sp=0x40010000 mem=0x4000fff0:9914868b7024b5f0102a8704dc26382baa038744262b8216ea434d2bbd219c79d5a8b1f2477da2912d3db5004b5313b39d1b53c9e874257b806baa1acc83469c
+out pc=0x30002004 sig=trap r3=0x448703aa r7=0x16822b26 r10=0x2b4d43ea r12=0x799c21bd sp=0x40010010
+case Multiple 0006bd88 pophi {r9, r10} <- pop{cond} {wlist}
+in nzcv=1000 r9=0xfffffffc r10=0x2 sp=0x40010000 mem=0x4000fff0:f5b4242d97c76677a306698508402f3f3a5acef7cccb7bed4de3b74dcba56128a9ea8ad456fb04447bd2c5568a1d939ac4e0ac7885d4f0d05f1599b56bf82b9c
+out pc=0x30002004 sig=trap
+case Multiple 0006bd88 pophi {r9, r10} <- pop{cond} {wlist}
+in nzcv=0011 r9=0x3fffffff r10=0xe21cbcef sp=0x40010000 mem=0x4000fff0:cf5c2250a0c0283652f940e78641cf63b8b6def2563a429a484490e583b380f5434bdff1b6ec0d4272fa57d6eb459af9588de888f4d2da851b34bf225df5aed3
+out pc=0x30002004 sig=trap r9=0xf2deb6b8 r10=0x9a423a56 sp=0x40010008
+case Multiple 0006bd88 pophi {r9, r10} <- pop{cond} {wlist}
+in nzcv=1011 r9=0x22d8759c r10=0x8 sp=0x40010000 mem=0x4000fff0:d2fd9db4e04f604e243ff919266fe831f1c547d32fa0ceb99f5f043d4a0cfa18505b70806eca725421d1614dd14901568c19218dceeae5225c0d00a9ad766676
+out pc=0x30002004 sig=trap r9=0xd347c5f1 r10=0xb9cea02f sp=0x40010008
+case Multiple 0110bd98 popls {r0, r12} <- pop{cond} {wlist}
+in nzcv=0000 r0=0x80000004 r12=0x66ebe1ba sp=0x40010000 mem=0x4000fff0:dd59ec408c81ec56707dd3cff1ba1c52e9e0b681b8420b0abd728ea2ee7b07196f56472505f02605047458bbff51f4f7c73f7e8cd56fd3737e653d4fe92aa4c8
+out pc=0x30002004 sig=trap r0=0x81b6e0e9 r12=0xa0b42b8 sp=0x40010008
+case Multiple 0110bd98 popls {r0, r12} <- pop{cond} {wlist}
+in nzcv=1001 r0=0x8000000a r12=0x7ffffff5 sp=0x40010000 mem=0x4000fff0:0f0c7edf867fa13bb2fbc71b617567616a360661762519117f50e945e97480848a7b724966d2c1de1f19c872fe9f793d4c48eb91d0dfa6625b7bfc263e641a46
+out pc=0x30002004 sig=trap r0=0x6106366a r12=0x11192576 sp=0x40010008
+case Multiple 0110bd98 popls {r0, r12} <- pop{cond} {wlist}
+in nzcv=1011 r0=0x40000 r12=0x7ffffffe sp=0x40010000 mem=0x4000fff0:091bb8ca4d9bd21df24d21406de3ca7d7330c170dc0032f9220f6f605ac3ac1c8aad9d86b74dca67c7a0a40b32e0b1a4649bec839bf001cc6544451bcaa98057
+out pc=0x30002004 sig=trap
+case Multiple 2402bda8 popge {r2, r5, r9} <- pop{cond} {wlist}
+in nzcv=0000 r2=0xfffffff0 r5=0x0 r9=0xd946b6ed sp=0x40010000 mem=0x4000fff0:ca1973e4c3d974f3ac59caec01cb5367cc30b540beee6b7051a369b677cef7e09622759f88aac758f4463555bc767f5b8b44d77eb4b6394ce6150eb3b6007528
+out pc=0x30002004 sig=trap r2=0x40b530cc r5=0x706beebe r9=0xb669a351 sp=0x4001000c
+case Multiple 2402bda8 popge {r2, r5, r9} <- pop{cond} {wlist}
+in nzcv=1101 r2=0xb4ba3cca r5=0x80000000 r9=0x9 sp=0x40010000 mem=0x4000fff0:bcfee8d07d943d398aca47f7e1e545baca3e215fa21d8284a69b26f4bfbaa59f45100a4881a6631c640ab876b1ecec98888eca97a5f243306e46631b0adb3907
+out pc=0x30002004 sig=trap r2=0x5f213eca r5=0x84821da2 r9=0xf4269ba6 sp=0x4001000c
+case Multiple 2402bda8 popge {r2, r5, r9} <- pop{cond} {wlist}
+in nzcv=1101 r2=0xfffffff9 r5=0x8 r9=0x5 sp=0x40010000 mem=0x4000fff0:d19321d61430eae7af5a28f05d8ef87065d80bfb9207c60f4b8da1560bee491b34f1280eeb91c1208c466d0d8b7e49d3ca3ba90fd6259e2636202bebbb12e80b
+out pc=0x30002004 sig=trap r2=0xfb0bd865 r5=0xfc60792 r9=0x56a18d4b sp=0x4001000c
+case Multiple 8814bdb8 poplt {r3, r7, r10, r12} <- pop{cond} {wlist}
+in nzcv=0010 r3=0x7ffffff1 r7=0x8 r10=0x80000005 r12=0x8000000a sp=0x40010000 mem=0x4000fff0:b15a75696468e39cee0a109c54fe07e0a42638e2da046b2908faee4b5ad325c6480afd2a0e37e712cb62a4213e6c9a471498afaff967574cfb24ef058c29145c
+out pc=0x30002004 sig=trap
+case Multiple 8814bdb8 poplt {r3, r7, r10, r12} <- pop{cond} {wlist}
+in nzcv=0110 r3=0x7ffffffd r7=0xfffffff5 r10=0xfffffff6 r12=0x200000 sp=0x40010000 mem=0x4000fff0:268ecf79e95a7f309992c294759968b3759bda74da484c3419f550119f2158415bff8cc1f2cfe5d47f6343e99f60fcb59e174dcb7db335e76c8dac99a945f24a
+out pc=0x30002004 sig=trap
+case Multiple 8814bdb8 poplt {r3, r7, r10, r12} <- pop{cond} {wlist}
+in nzcv=0101 r3=0xffff r7=0xffe158ed r10=0xb59d9b34 r12=0x20000000 sp=0x40010000 mem=0x4000fff0:f913aa6ca483cc5e7f259816b107019b0add7b08a45a2b8dd3d46414ae5e809caa1a90b3df45ef38e4f7c0b5575f9cbb205375b17ce50823e4c1d41a8ad0ef00
+out pc=0x30002004 sig=trap r3=0x87bdd0a r7=0x8d2b5aa4 r10=0x1464d4d3 r12=0x9c805eae sp=0x40010010
+case Multiple 0006bdc8 popgt {r9, r10} <- pop{cond} {wlist}
+in nzcv=1011 r9=0x80000008 r10=0x8000000f sp=0x40010000 mem=0x4000fff0:a713942a2bfb14de48f41d4b28c570f966db4d3de3ddc0fec192d6f9c1a67f4763607af505a88d63adf1d9722bf6a8d90749ef58d3e265e8b4bb62eaf12f0541
+out pc=0x30002004 sig=trap r9=0x3d4ddb66 r10=0xfec0dde3 sp=0x40010008
+case Multiple 0006bdc8 popgt {r9, r10} <- pop{cond} {wlist}
+in nzcv=0100 r9=0xfffffff6 r10=0xe809f72 sp=0x40010000 mem=0x4000fff0:ff6448c1f62147f0cafeec2d20ad0fc219ff364cd9c6341a097f2a94c0870113f67d70b12e74506d2e46f39fbb1b1da5a28a6047deeb026c65bbcca3ffbfb813
+out pc=0x30002004 sig=trap
+case Multiple 0006bdc8 popgt {r9, r10} <- pop{cond} {wlist}
+in nzcv=1011 r9=0x1000000 r10=0xe5ee857e sp=0x40010000 mem=0x4000fff0:a8ec09617d7d2bdaf10511b5510f759e7ca4960fc44f9c8ce5d256840beda3ff6f11196bd9fd05eb6d8c52ad7a7f0aa37c04480f38b9822bc4decad953b47129
+out pc=0x30002004 sig=trap r9=0xf96a47c r10=0x8c9c4fc4 sp=0x40010008
+case Multiple 0110bdd8 pople {r0, r12} <- pop{cond} {wlist}
+in nzcv=0110 r0=0x10000 r12=0xb7df48e6 sp=0x40010000 mem=0x4000fff0:4b3c4d4e619043d118753e3d12054f28829e72fe3cec81c7d5527ebd03bac206c4b7e91aa2ee5a8691bf719cc04811810be2132ff379bbc722a168fc4843ad2a
+out pc=0x30002004 sig=trap r0=0xfe729e82 r12=0xc781ec3c sp=0x40010008
+case Multiple 0110bdd8 pople {r0, r12} <- pop{cond} {wlist}
+in nzcv=1001 r0=0x80000007 r12=0x7fffffff sp=0x40010000 mem=0x4000fff0:68d4333a404c158d1183c4cb79a9fa0c2c454e789b37f15158c3fe72cf794c0fe30027ae1a7a13e7c9b497781761e069a75fbe2f7d9518e92b186badf3279ddc
+out pc=0x30002004 sig=trap
+case Multiple 0110bdd8 pople {r0, r12} <- pop{cond} {wlist}
+in nzcv=1010 r0=0xfffffff7 r12=0x200000 sp=0x40010000 mem=0x4000fff0:3563fb684acf846938cc46d921957b623c68974f3ca154dbf6274a2d0aa012b3a5773a63e683280fe2a1232ec96dac89aa2954d839acbbbb80ff474cee0c7f46
+out pc=0x30002004 sig=trap r0=0x4f97683c r12=0xdb54a13c sp=0x40010008

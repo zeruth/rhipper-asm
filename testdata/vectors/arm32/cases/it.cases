@@ -1,0 +1,340 @@
+Alu 08bf8818 it eq; addeq r0, r1, r2
+Alu 18bfe319 it ne; addne r3, r4, r7
+Alu 28bf3518 it cs; addcs r5, r6, r0
+Alu 38bf5719 it cc; addcc r7, r2, r5
+Alu 48bf8818 it mi; addmi r0, r1, r2
+Alu 58bfe319 it pl; addpl r3, r4, r7
+Alu 68bf3518 it vs; addvs r5, r6, r0
+Alu 78bf5719 it vc; addvc r7, r2, r5
+Alu 88bf8818 it hi; addhi r0, r1, r2
+Alu 98bfe319 it ls; addls r3, r4, r7
+Alu a8bf3518 it ge; addge r5, r6, r0
+Alu b8bf5719 it lt; addlt r7, r2, r5
+Alu c8bf8818 it gt; addgt r0, r1, r2
+Alu d8bfe319 it le; addle r3, r4, r7
+Alu 08bf0020 it eq; moveq r0, #0
+Alu 18bf0123 it ne; movne r3, #1
+Alu 28bfff25 it cs; movcs r5, #0xff
+Alu 38bf8027 it cc; movcc r7, #0x80
+Alu 48bf0020 it mi; movmi r0, #0
+Alu 58bf0123 it pl; movpl r3, #1
+Alu 68bfff25 it vs; movvs r5, #0xff
+Alu 78bf8027 it vc; movvc r7, #0x80
+Alu 88bf0020 it hi; movhi r0, #0
+Alu 98bf0123 it ls; movls r3, #1
+Alu a8bfff25 it ge; movge r5, #0xff
+Alu b8bf8027 it lt; movlt r7, #0x80
+Alu c8bf0020 it gt; movgt r0, #0
+Alu d8bf0123 it le; movle r3, #1
+Alu 08bfa1f10000 it eq; subeq.w r0, r1, #0
+Alu 18bfa8f1ff05 it ne; subne.w r5, r8, #0xff
+Alu 28bfabf1ff29 it cs; subcs.w r9, r11, #0xff00ff00
+Alu 38bfaef1004c it cc; subcc.w r12, r14, #0x80000000
+Alu 48bfa1f10000 it mi; submi.w r0, r1, #0
+Alu 58bfa8f1ff05 it pl; subpl.w r5, r8, #0xff
+Alu 68bfabf1ff29 it vs; subvs.w r9, r11, #0xff00ff00
+Alu 78bfaef1004c it vc; subvc.w r12, r14, #0x80000000
+Alu 88bfa1f10000 it hi; subhi.w r0, r1, #0
+Alu 98bfa8f1ff05 it ls; subls.w r5, r8, #0xff
+Alu a8bfabf1ff29 it ge; subge.w r9, r11, #0xff00ff00
+Alu b8bfaef1004c it lt; sublt.w r12, r14, #0x80000000
+Alu c8bfa1f10000 it gt; subgt.w r0, r1, #0
+Alu d8bfa8f1ff05 it le; suble.w r5, r8, #0xff
+Alu 08bf9042 it eq; cmpeq r0, r2
+Alu 18bfbb42 it ne; cmpne r3, r7
+Alu 28bf8542 it cs; cmpcs r5, r0
+Alu 38bfaf42 it cc; cmpcc r7, r5
+Alu 48bf9042 it mi; cmpmi r0, r2
+Alu 58bfbb42 it pl; cmppl r3, r7
+Alu 68bf8542 it vs; cmpvs r5, r0
+Alu 78bfaf42 it vc; cmpvc r7, r5
+Alu 88bf9042 it hi; cmphi r0, r2
+Alu 98bfbb42 it ls; cmpls r3, r7
+Alu a8bf8542 it ge; cmpge r5, r0
+Alu b8bfaf42 it lt; cmplt r7, r5
+Alu c8bf9042 it gt; cmpgt r0, r2
+Alu d8bfbb42 it le; cmple r3, r7
+Alu 08bf11eb0200 it eq; addseq.w r0, r1, r2
+Alu 18bf18eb0a05 it ne; addsne.w r5, r8, r10
+Alu 28bf1beb0c09 it cs; addscs.w r9, r11, r12
+Alu 38bf1eeb060c it cc; addscc.w r12, r14, r6
+Alu 48bf11eb0200 it mi; addsmi.w r0, r1, r2
+Alu 58bf18eb0a05 it pl; addspl.w r5, r8, r10
+Alu 68bf1beb0c09 it vs; addsvs.w r9, r11, r12
+Alu 78bf1eeb060c it vc; addsvc.w r12, r14, r6
+Alu 88bf11eb0200 it hi; addshi.w r0, r1, r2
+Alu 98bf18eb0a05 it ls; addsls.w r5, r8, r10
+Alu a8bf1beb0c09 it ge; addsge.w r9, r11, r12
+Alu b8bf1eeb060c it lt; addslt.w r12, r14, r6
+Alu c8bf11eb0200 it gt; addsgt.w r0, r1, r2
+Alu d8bf18eb0a05 it le; addsle.w r5, r8, r10
+Alu 08bf01fa03f0 it eq; lsleq.w r0, r1, r3
+Alu 18bf08fa09f5 it ne; lslne.w r5, r8, r9
+Alu 28bf0bfa06f9 it cs; lslcs.w r9, r11, r6
+Alu 38bf0efa0cfc it cc; lslcc.w r12, r14, r12
+Alu 48bf01fa03f0 it mi; lslmi.w r0, r1, r3
+Alu 58bf08fa09f5 it pl; lslpl.w r5, r8, r9
+Alu 68bf0bfa06f9 it vs; lslvs.w r9, r11, r6
+Alu 78bf0efa0cfc it vc; lslvc.w r12, r14, r12
+Alu 88bf01fa03f0 it hi; lslhi.w r0, r1, r3
+Alu 98bf08fa09f5 it ls; lslls.w r5, r8, r9
+Alu a8bf0bfa06f9 it ge; lslge.w r9, r11, r6
+Alu b8bf0efa0cfc it lt; lsllt.w r12, r14, r12
+Alu c8bf01fa03f0 it gt; lslgt.w r0, r1, r3
+Alu d8bf08fa09f5 it le; lslle.w r5, r8, r9
+Alu 08bf6fea5200 it eq; mvneq.w r0, r2, lsr #1
+Alu 18bf6feada15 it ne; mvnne.w r5, r10, lsr #7
+Alu 28bf6feadc79 it cs; mvncs.w r9, r12, lsr #31
+Alu 38bf6fea164c it cc; mvncc.w r12, r6, lsr #16
+Alu 48bf6fea5200 it mi; mvnmi.w r0, r2, lsr #1
+Alu 58bf6feada15 it pl; mvnpl.w r5, r10, lsr #7
+Alu 68bf6feadc79 it vs; mvnvs.w r9, r12, lsr #31
+Alu 78bf6fea164c it vc; mvnvc.w r12, r6, lsr #16
+Alu 88bf6fea5200 it hi; mvnhi.w r0, r2, lsr #1
+Alu 98bf6feada15 it ls; mvnls.w r5, r10, lsr #7
+Alu a8bf6feadc79 it ge; mvnge.w r9, r12, lsr #31
+Alu b8bf6fea164c it lt; mvnlt.w r12, r6, lsr #16
+Alu c8bf6fea5200 it gt; mvngt.w r0, r2, lsr #1
+Alu d8bf6feada15 it le; mvnle.w r5, r10, lsr #7
+Alu e8bf8818 it al; add r0, r1, r2
+Alu e8bfe319 it al; add r3, r4, r7
+Alu e8bf3518 it al; add r5, r6, r0
+Alu e8bf5719 it al; add r7, r2, r5
+Alu 0cbf8818881a ite eq; addeq r0, r1, r2; subne r0, r1, r2
+Alu 14bfe319e31b ite ne; addne r3, r4, r7; subeq r3, r4, r7
+Alu 2cbf3518351a ite cs; addcs r5, r6, r0; subcc r5, r6, r0
+Alu 34bf5719571b ite cc; addcc r7, r2, r5; subcs r7, r2, r5
+Alu 4cbf8818881a ite mi; addmi r0, r1, r2; subpl r0, r1, r2
+Alu 54bfe319e31b ite pl; addpl r3, r4, r7; submi r3, r4, r7
+Alu 6cbf3518351a ite vs; addvs r5, r6, r0; subvc r5, r6, r0
+Alu 74bf5719571b ite vc; addvc r7, r2, r5; subvs r7, r2, r5
+Alu 8cbf8818881a ite hi; addhi r0, r1, r2; subls r0, r1, r2
+Alu 94bfe319e31b ite ls; addls r3, r4, r7; subhi r3, r4, r7
+Alu acbf3518351a ite ge; addge r5, r6, r0; sublt r5, r6, r0
+Alu b4bf5719571b ite lt; addlt r7, r2, r5; subge r7, r2, r5
+Alu ccbf8818881a ite gt; addgt r0, r1, r2; suble r0, r1, r2
+Alu d4bfe319e31b ite le; addle r3, r4, r7; subgt r3, r4, r7
+Alu 04bf00200844 itt eq; moveq r0, #0; addeq r0, r1
+Alu 1cbf01232344 itt ne; movne r3, #1; addne r3, r4
+Alu 24bfff253544 itt cs; movcs r5, #0xff; addcs r5, r6
+Alu 3cbf80271744 itt cc; movcc r7, #0x80; addcc r7, r2
+Alu 44bf00200844 itt mi; movmi r0, #0; addmi r0, r1
+Alu 5cbf01232344 itt pl; movpl r3, #1; addpl r3, r4
+Alu 64bfff253544 itt vs; movvs r5, #0xff; addvs r5, r6
+Alu 7cbf80271744 itt vc; movvc r7, #0x80; addvc r7, r2
+Alu 84bf00200844 itt hi; movhi r0, #0; addhi r0, r1
+Alu 9cbf01232344 itt ls; movls r3, #1; addls r3, r4
+Alu a4bfff253544 itt ge; movge r5, #0xff; addge r5, r6
+Alu bcbf80271744 itt lt; movlt r7, #0x80; addlt r7, r2
+Alu c4bf00200844 itt gt; movgt r0, #0; addgt r0, r1
+Alu dcbf01232344 itt le; movle r3, #1; addle r3, r4
+Alu 0bbf8818881a0020d043 itete eq; addeq r0, r1, r2; subne r0, r1, r2; moveq r0, #0; mvnne r0, r2
+Alu 15bfe319e31b0123fb43 itete ne; addne r3, r4, r7; subeq r3, r4, r7; movne r3, #1; mvneq r3, r7
+Alu 2bbf3518351aff25c543 itete cs; addcs r5, r6, r0; subcc r5, r6, r0; movcs r5, #0xff; mvncc r5, r0
+Alu 35bf5719571b8027ef43 itete cc; addcc r7, r2, r5; subcs r7, r2, r5; movcc r7, #0x80; mvncs r7, r5
+Alu 4bbf8818881a0020d043 itete mi; addmi r0, r1, r2; subpl r0, r1, r2; movmi r0, #0; mvnpl r0, r2
+Alu 55bfe319e31b0123fb43 itete pl; addpl r3, r4, r7; submi r3, r4, r7; movpl r3, #1; mvnmi r3, r7
+Alu 6bbf3518351aff25c543 itete vs; addvs r5, r6, r0; subvc r5, r6, r0; movvs r5, #0xff; mvnvc r5, r0
+Alu 75bf5719571b8027ef43 itete vc; addvc r7, r2, r5; subvs r7, r2, r5; movvc r7, #0x80; mvnvs r7, r5
+Alu 8bbf8818881a0020d043 itete hi; addhi r0, r1, r2; subls r0, r1, r2; movhi r0, #0; mvnls r0, r2
+Alu 95bfe319e31b0123fb43 itete ls; addls r3, r4, r7; subhi r3, r4, r7; movls r3, #1; mvnhi r3, r7
+Alu abbf3518351aff25c543 itete ge; addge r5, r6, r0; sublt r5, r6, r0; movge r5, #0xff; mvnlt r5, r0
+Alu b5bf5719571b8027ef43 itete lt; addlt r7, r2, r5; subge r7, r2, r5; movlt r7, #0x80; mvnge r7, r5
+Alu cbbf8818881a0020d043 itete gt; addgt r0, r1, r2; suble r0, r1, r2; movgt r0, #0; mvnle r0, r2
+Alu d5bfe319e31b0123fb43 itete le; addle r3, r4, r7; subgt r3, r4, r7; movle r3, #1; mvngt r3, r7
+Alu 07bf1040084350408843 ittee eq; andeq r0, r2; orreq r0, r1; eorne r0, r2; bicne r0, r1
+Alu 19bf3b4023437b40a343 ittee ne; andne r3, r7; orrne r3, r4; eoreq r3, r7; biceq r3, r4
+Alu 27bf054035434540b543 ittee cs; andcs r5, r0; orrcs r5, r6; eorcc r5, r0; biccc r5, r6
+Alu 39bf2f4017436f409743 ittee cc; andcc r7, r5; orrcc r7, r2; eorcs r7, r5; biccs r7, r2
+Alu 47bf1040084350408843 ittee mi; andmi r0, r2; orrmi r0, r1; eorpl r0, r2; bicpl r0, r1
+Alu 59bf3b4023437b40a343 ittee pl; andpl r3, r7; orrpl r3, r4; eormi r3, r7; bicmi r3, r4
+Alu 67bf054035434540b543 ittee vs; andvs r5, r0; orrvs r5, r6; eorvc r5, r0; bicvc r5, r6
+Alu 79bf2f4017436f409743 ittee vc; andvc r7, r5; orrvc r7, r2; eorvs r7, r5; bicvs r7, r2
+Alu 87bf1040084350408843 ittee hi; andhi r0, r2; orrhi r0, r1; eorls r0, r2; bicls r0, r1
+Alu 99bf3b4023437b40a343 ittee ls; andls r3, r7; orrls r3, r4; eorhi r3, r7; bichi r3, r4
+Alu a7bf054035434540b543 ittee ge; andge r5, r0; orrge r5, r6; eorlt r5, r0; biclt r5, r6
+Alu b9bf2f4017436f409743 ittee lt; andlt r7, r5; orrlt r7, r2; eorge r7, r5; bicge r7, r2
+Alu c7bf1040084350408843 ittee gt; andgt r0, r2; orrgt r0, r1; eorle r0, r2; bicle r0, r1
+Alu d9bf3b4023437b40a343 ittee le; andle r3, r7; orrle r3, r4; eorgt r3, r7; bicgt r3, r4
+MovWide 08bf40f20000 it eq; movweq r0, #0
+MovWide 18bf4ff6ff75 it ne; movwne r5, #0xffff
+MovWide 28bf41f23429 it cs; movwcs r9, #0x1234
+MovWide 38bf48f2000c it cc; movwcc r12, #0x8000
+MovWide 48bf40f20000 it mi; movwmi r0, #0
+MovWide 58bf4ff6ff75 it pl; movwpl r5, #0xffff
+MovWide 68bf41f23429 it vs; movwvs r9, #0x1234
+MovWide 78bf48f2000c it vc; movwvc r12, #0x8000
+MovWide 88bf40f20000 it hi; movwhi r0, #0
+MovWide 98bf4ff6ff75 it ls; movwls r5, #0xffff
+MovWide a8bf41f23429 it ge; movwge r9, #0x1234
+MovWide b8bf48f2000c it lt; movwlt r12, #0x8000
+MovWide c8bf40f20000 it gt; movwgt r0, #0
+MovWide d8bf4ff6ff75 it le; movwle r5, #0xffff
+Mul 08bf01fb02f0 it eq; muleq r0, r1, r2
+Mul 18bf08fb0af5 it ne; mulne r5, r8, r10
+Mul 28bf0bfb0cf9 it cs; mulcs r9, r11, r12
+Mul 38bf0efb06fc it cc; mulcc r12, r14, r6
+Mul 48bf01fb02f0 it mi; mulmi r0, r1, r2
+Mul 58bf08fb0af5 it pl; mulpl r5, r8, r10
+Mul 68bf0bfb0cf9 it vs; mulvs r9, r11, r12
+Mul 78bf0efb06fc it vc; mulvc r12, r14, r6
+Mul 88bf01fb02f0 it hi; mulhi r0, r1, r2
+Mul 98bf08fb0af5 it ls; mulls r5, r8, r10
+Mul a8bf0bfb0cf9 it ge; mulge r9, r11, r12
+Mul b8bf0efb06fc it lt; mullt r12, r14, r6
+Mul c8bf01fb02f0 it gt; mulgt r0, r1, r2
+Mul d8bf08fb0af5 it le; mulle r5, r8, r10
+Extend 08bfd0b2 it eq; uxtbeq r0, r2
+Extend 18bffbb2 it ne; uxtbne r3, r7
+Extend 28bfc5b2 it cs; uxtbcs r5, r0
+Extend 38bfefb2 it cc; uxtbcc r7, r5
+Extend 48bfd0b2 it mi; uxtbmi r0, r2
+Extend 58bffbb2 it pl; uxtbpl r3, r7
+Extend 68bfc5b2 it vs; uxtbvs r5, r0
+Extend 78bfefb2 it vc; uxtbvc r7, r5
+Extend 88bfd0b2 it hi; uxtbhi r0, r2
+Extend 98bffbb2 it ls; uxtbls r3, r7
+Extend a8bfc5b2 it ge; uxtbge r5, r0
+Extend b8bfefb2 it lt; uxtblt r7, r5
+Extend c8bfd0b2 it gt; uxtbgt r0, r2
+Extend d8bffbb2 it le; uxtble r3, r7
+Field 08bfc1f31f00 it eq; ubfxeq r0, r1, #0, #32
+Field 18bfc8f30715 it ne; ubfxne r5, r8, #4, #8
+Field 28bfcbf30f49 it cs; ubfxcs r9, r11, #16, #16
+Field 38bfcef3c07c it cc; ubfxcc r12, r14, #31, #1
+Field 48bfc1f31f00 it mi; ubfxmi r0, r1, #0, #32
+Field 58bfc8f30715 it pl; ubfxpl r5, r8, #4, #8
+Field 68bfcbf30f49 it vs; ubfxvs r9, r11, #16, #16
+Field 78bfcef3c07c it vc; ubfxvc r12, r14, #31, #1
+Field 88bfc1f31f00 it hi; ubfxhi r0, r1, #0, #32
+Field 98bfc8f30715 it ls; ubfxls r5, r8, #4, #8
+Field a8bfcbf30f49 it ge; ubfxge r9, r11, #16, #16
+Field b8bfcef3c07c it lt; ubfxlt r12, r14, #31, #1
+Field c8bfc1f31f00 it gt; ubfxgt r0, r1, #0, #32
+Field d8bfc8f30715 it le; ubfxle r5, r8, #4, #8
+Mem 08bf0868 it eq; ldreq r0, [r1, #0]
+Mem 18bf6368 it ne; ldrne r3, [r4, #4]
+Mem 28bf356c it cs; ldrcs r5, [r6, #64]
+Mem 38bfd76f it cc; ldrcc r7, [r2, #124]
+Mem 48bf0868 it mi; ldrmi r0, [r1, #0]
+Mem 58bf6368 it pl; ldrpl r3, [r4, #4]
+Mem 68bf356c it vs; ldrvs r5, [r6, #64]
+Mem 78bfd76f it vc; ldrvc r7, [r2, #124]
+Mem 88bf0868 it hi; ldrhi r0, [r1, #0]
+Mem 98bf6368 it ls; ldrls r3, [r4, #4]
+Mem a8bf356c it ge; ldrge r5, [r6, #64]
+Mem b8bfd76f it lt; ldrlt r7, [r2, #124]
+Mem c8bf0868 it gt; ldrgt r0, [r1, #0]
+Mem d8bf6368 it le; ldrle r3, [r4, #4]
+Mem 08bfc1f80000 it eq; streq.w r0, [r1, #0]
+Mem 18bfc8f80450 it ne; strne.w r5, [r8, #4]
+Mem 28bfcbf8ff97 it cs; strcs.w r9, [r11, #0x7ff]
+Mem 38bfc4f8ffcf it cc; strcc.w r12, [r4, #0xfff]
+Mem 48bfc1f80000 it mi; strmi.w r0, [r1, #0]
+Mem 58bfc8f80450 it pl; strpl.w r5, [r8, #4]
+Mem 68bfcbf8ff97 it vs; strvs.w r9, [r11, #0x7ff]
+Mem 78bfc4f8ffcf it vc; strvc.w r12, [r4, #0xfff]
+Mem 88bfc1f80000 it hi; strhi.w r0, [r1, #0]
+Mem 98bfc8f80450 it ls; strls.w r5, [r8, #4]
+Mem a8bfcbf8ff97 it ge; strge.w r9, [r11, #0x7ff]
+Mem b8bfc4f8ffcf it lt; strlt.w r12, [r4, #0xfff]
+Mem c8bfc1f80000 it gt; strgt.w r0, [r1, #0]
+Mem d8bfc8f80450 it le; strle.w r5, [r8, #4]
+Mem 08bf51f8ff09 it eq; ldreq r0, [r1], #-255
+Mem 18bf58f80859 it ne; ldrne r5, [r8], #-8
+Mem 28bf5bf8009b it cs; ldrcs r9, [r11], #0
+Mem 38bf54f8ffcb it cc; ldrcc r12, [r4], #255
+Mem 48bf51f8ff09 it mi; ldrmi r0, [r1], #-255
+Mem 58bf58f80859 it pl; ldrpl r5, [r8], #-8
+Mem 68bf5bf8009b it vs; ldrvs r9, [r11], #0
+Mem 78bf54f8ffcb it vc; ldrvc r12, [r4], #255
+Mem 88bf51f8ff09 it hi; ldrhi r0, [r1], #-255
+Mem 98bf58f80859 it ls; ldrls r5, [r8], #-8
+Mem a8bf5bf8009b it ge; ldrge r9, [r11], #0
+Mem b8bf54f8ffcb it lt; ldrlt r12, [r4], #255
+Mem c8bf51f8ff09 it gt; ldrgt r0, [r1], #-255
+Mem d8bf58f80859 it le; ldrle r5, [r8], #-8
+Mem 0cbf08680860 ite eq; ldreq r0, [r1, #0]; strne r0, [r1, #0]
+Mem 14bf63686360 ite ne; ldrne r3, [r4, #4]; streq r3, [r4, #4]
+Mem 2cbf356c3564 ite cs; ldrcs r5, [r6, #64]; strcc r5, [r6, #64]
+Mem 34bfd76fd767 ite cc; ldrcc r7, [r2, #124]; strcs r7, [r2, #124]
+Mem 4cbf08680860 ite mi; ldrmi r0, [r1, #0]; strpl r0, [r1, #0]
+Mem 54bf63686360 ite pl; ldrpl r3, [r4, #4]; strmi r3, [r4, #4]
+Mem 6cbf356c3564 ite vs; ldrvs r5, [r6, #64]; strvc r5, [r6, #64]
+Mem 74bfd76fd767 ite vc; ldrvc r7, [r2, #124]; strvs r7, [r2, #124]
+Mem 8cbf08680860 ite hi; ldrhi r0, [r1, #0]; strls r0, [r1, #0]
+Mem 94bf63686360 ite ls; ldrls r3, [r4, #4]; strhi r3, [r4, #4]
+Mem acbf356c3564 ite ge; ldrge r5, [r6, #64]; strlt r5, [r6, #64]
+Mem b4bfd76fd767 ite lt; ldrlt r7, [r2, #124]; strge r7, [r2, #124]
+Mem ccbf08680860 ite gt; ldrgt r0, [r1, #0]; strle r0, [r1, #0]
+Mem d4bf63686360 ite le; ldrle r3, [r4, #4]; strgt r3, [r4, #4]
+Dual 08bf51e9ff03 it eq; ldrdeq r0, r3, [r1, #-1020]
+Dual 18bf58e90254 it ne; ldrdne r5, r4, [r8, #-8]
+Dual 28bfdbe90097 it cs; ldrdcs r9, r7, [r11, #0]
+Dual 38bfd4e9ffcb it cc; ldrdcc r12, r11, [r4, #1020]
+Dual 48bf51e9ff03 it mi; ldrdmi r0, r3, [r1, #-1020]
+Dual 58bf58e90254 it pl; ldrdpl r5, r4, [r8, #-8]
+Dual 68bfdbe90097 it vs; ldrdvs r9, r7, [r11, #0]
+Dual 78bfd4e9ffcb it vc; ldrdvc r12, r11, [r4, #1020]
+Dual 88bf51e9ff03 it hi; ldrdhi r0, r3, [r1, #-1020]
+Dual 98bf58e90254 it ls; ldrdls r5, r4, [r8, #-8]
+Dual a8bfdbe90097 it ge; ldrdge r9, r7, [r11, #0]
+Dual b8bfd4e9ffcb it lt; ldrdlt r12, r11, [r4, #1020]
+Dual c8bf51e9ff03 it gt; ldrdgt r0, r3, [r1, #-1020]
+Dual d8bf58e90254 it le; ldrdle r5, r4, [r8, #-8]
+Multiple 08bf09b4 it eq; pusheq {r0, r3}
+Multiple 18bfa8b4 it ne; pushne {r3, r5, r7}
+Multiple 28bf20b4 it cs; pushcs {r5}
+Multiple 38bfa9b4 it cc; pushcc {r0, r3, r5, r7}
+Multiple 48bf09b4 it mi; pushmi {r0, r3}
+Multiple 58bfa8b4 it pl; pushpl {r3, r5, r7}
+Multiple 68bf20b4 it vs; pushvs {r5}
+Multiple 78bfa9b4 it vc; pushvc {r0, r3, r5, r7}
+Multiple 88bf09b4 it hi; pushhi {r0, r3}
+Multiple 98bfa8b4 it ls; pushls {r3, r5, r7}
+Multiple a8bf20b4 it ge; pushge {r5}
+Multiple b8bfa9b4 it lt; pushlt {r0, r3, r5, r7}
+Multiple c8bf09b4 it gt; pushgt {r0, r3}
+Multiple d8bfa8b4 it le; pushle {r3, r5, r7}
+Multiple 08bf20bd it eq; popeq {r5, pc}
+Multiple 18bf00bd it ne; popne {pc}
+Multiple 28bf89bd it cs; popcs {r0, r3, r7, pc}
+Multiple 38bf28bd it cc; popcc {r3, r5, pc}
+Multiple 48bf20bd it mi; popmi {r5, pc}
+Multiple 58bf00bd it pl; poppl {pc}
+Multiple 68bf89bd it vs; popvs {r0, r3, r7, pc}
+Multiple 78bf28bd it vc; popvc {r3, r5, pc}
+Multiple 88bf20bd it hi; pophi {r5, pc}
+Multiple 98bf00bd it ls; popls {pc}
+Multiple a8bf89bd it ge; popge {r0, r3, r7, pc}
+Multiple b8bf28bd it lt; poplt {r3, r5, pc}
+Multiple c8bf20bd it gt; popgt {r5, pc}
+Multiple d8bf00bd it le; pople {pc}
+Branch 08bf04e0 it eq; beq #8
+Branch 18bff8e7 it ne; bne #-16
+Branch 28bf00e2 it cs; bcs #1024
+Branch 38bf00e4 it cc; bcc #-2048
+Branch 48bf04e0 it mi; bmi #8
+Branch 58bff8e7 it pl; bpl #-16
+Branch 68bf00e2 it vs; bvs #1024
+Branch 78bf00e4 it vc; bvc #-2048
+Branch 88bf04e0 it hi; bhi #8
+Branch 98bff8e7 it ls; bls #-16
+Branch a8bf00e2 it ge; bge #1024
+Branch b8bf00e4 it lt; blt #-2048
+Branch c8bf04e0 it gt; bgt #8
+Branch d8bff8e7 it le; ble #-16
+BranchReg 08bf7047 it eq; bxeq lr
+BranchReg 18bf7047 it ne; bxne lr
+BranchReg 28bf7047 it cs; bxcs lr
+BranchReg 38bf7047 it cc; bxcc lr
+BranchReg 48bf7047 it mi; bxmi lr
+BranchReg 58bf7047 it pl; bxpl lr
+BranchReg 68bf7047 it vs; bxvs lr
+BranchReg 78bf7047 it vc; bxvc lr
+BranchReg 88bf7047 it hi; bxhi lr
+BranchReg 98bf7047 it ls; bxls lr
+BranchReg a8bf7047 it ge; bxge lr
+BranchReg b8bf7047 it lt; bxlt lr
+BranchReg c8bf7047 it gt; bxgt lr
+BranchReg d8bf7047 it le; bxle lr

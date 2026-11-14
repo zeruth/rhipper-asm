@@ -1,0 +1,294 @@
+# arm32 vectors of the extend group (Thumb-2 code): the state after each case of
+# cases/extend.cases under qemu-arm-static (-cpu max) over 3 states a case, written by
+# write_arm32_vectors in crates/ra-asm-lift/tests/vectors/arm32.rs and replayed by its arm32 test.
+# case <kind> <bytes> <assembly> <- <template>; in: the registers the case sets (the rest are
+# zero), the flags as NZCV bits, the window of data bytes; out: where the case stopped and
+# what it changed.
+case Extend 50b2 sxtb r0, r2 <- sxtb {Ld}, {Lm}
+in nzcv=1000 r0=0x80000007 r2=0x7fffffff
+out pc=0x30002002 sig=trap r0=0xffffffff
+case Extend 50b2 sxtb r0, r2 <- sxtb {Ld}, {Lm}
+in nzcv=0100 r0=0x7ffffff1 r2=0x34e01ad2
+out pc=0x30002002 sig=trap r0=0xffffffd2
+case Extend 50b2 sxtb r0, r2 <- sxtb {Ld}, {Lm}
+in nzcv=1100 r0=0x66d6e0bb r2=0x7ffffffb
+out pc=0x30002002 sig=trap r0=0xfffffffb
+case Extend 7bb2 sxtb r3, r7 <- sxtb {Ld}, {Lm}
+in nzcv=0011 r3=0x200000 r7=0x10
+out pc=0x30002002 sig=trap r3=0x10
+case Extend 7bb2 sxtb r3, r7 <- sxtb {Ld}, {Lm}
+in nzcv=1001 r3=0x0 r7=0x9
+out pc=0x30002002 sig=trap r3=0x9
+case Extend 7bb2 sxtb r3, r7 <- sxtb {Ld}, {Lm}
+in nzcv=0100 r3=0x7ffffff r7=0xfffffff0
+out pc=0x30002002 sig=trap r3=0xfffffff0
+case Extend 45b2 sxtb r5, r0 <- sxtb {Ld}, {Lm}
+in nzcv=0110 r0=0x7ffffff2 r5=0x1fff
+out pc=0x30002002 sig=trap r5=0xfffffff2
+case Extend 45b2 sxtb r5, r0 <- sxtb {Ld}, {Lm}
+in nzcv=0010 r0=0x90a54bed r5=0x7ffffffb
+out pc=0x30002002 sig=trap r5=0xffffffed
+case Extend 45b2 sxtb r5, r0 <- sxtb {Ld}, {Lm}
+in nzcv=1101 r0=0x9 r5=0x7ffffffc
+out pc=0x30002002 sig=trap r5=0x9
+case Extend 6fb2 sxtb r7, r5 <- sxtb {Ld}, {Lm}
+in nzcv=1101 r5=0xbdb08e58 r7=0x80000001
+out pc=0x30002002 sig=trap r7=0x58
+case Extend 6fb2 sxtb r7, r5 <- sxtb {Ld}, {Lm}
+in nzcv=1101 r5=0x813a61d5 r7=0xc
+out pc=0x30002002 sig=trap r7=0xffffffd5
+case Extend 6fb2 sxtb r7, r5 <- sxtb {Ld}, {Lm}
+in nzcv=0011 r5=0xfffffff0 r7=0x491d685b
+out pc=0x30002002 sig=trap r7=0xfffffff0
+case Extend 10b2 sxth r0, r2 <- sxth {Ld}, {Lm}
+in nzcv=1111 r0=0x80000009 r2=0x3
+out pc=0x30002002 sig=trap r0=0x3
+case Extend 10b2 sxth r0, r2 <- sxth {Ld}, {Lm}
+in nzcv=1110 r0=0x80000005 r2=0xfffffff1
+out pc=0x30002002 sig=trap r0=0xfffffff1
+case Extend 10b2 sxth r0, r2 <- sxth {Ld}, {Lm}
+in nzcv=0100 r0=0x1f r2=0x80000000
+out pc=0x30002002 sig=trap r0=0x0
+case Extend 3bb2 sxth r3, r7 <- sxth {Ld}, {Lm}
+in nzcv=0111 r3=0x10 r7=0x7ffffff9
+out pc=0x30002002 sig=trap r3=0xfffffff9
+case Extend 3bb2 sxth r3, r7 <- sxth {Ld}, {Lm}
+in nzcv=0001 r3=0xc r7=0x7ffffff7
+out pc=0x30002002 sig=trap r3=0xfffffff7
+case Extend 3bb2 sxth r3, r7 <- sxth {Ld}, {Lm}
+in nzcv=1010 r3=0x1000000 r7=0x620c78ef
+out pc=0x30002002 sig=trap r3=0x78ef
+case Extend 05b2 sxth r5, r0 <- sxth {Ld}, {Lm}
+in nzcv=0110 r0=0x8000000e r5=0x9
+out pc=0x30002002 sig=trap r5=0xe
+case Extend 05b2 sxth r5, r0 <- sxth {Ld}, {Lm}
+in nzcv=1011 r0=0xfffffff0 r5=0x7ffffff8
+out pc=0x30002002 sig=trap r5=0xfffffff0
+case Extend 05b2 sxth r5, r0 <- sxth {Ld}, {Lm}
+in nzcv=1010 r0=0x3ffffff r5=0x850a3c09
+out pc=0x30002002 sig=trap r5=0xffffffff
+case Extend 2fb2 sxth r7, r5 <- sxth {Ld}, {Lm}
+in nzcv=1110 r5=0x478d086b r7=0x7ffffff6
+out pc=0x30002002 sig=trap r7=0x86b
+case Extend 2fb2 sxth r7, r5 <- sxth {Ld}, {Lm}
+in nzcv=1011 r5=0x7ffffff1 r7=0x80000004
+out pc=0x30002002 sig=trap r7=0xfffffff1
+case Extend 2fb2 sxth r7, r5 <- sxth {Ld}, {Lm}
+in nzcv=1110 r5=0x10000000 r7=0x7ffffff9
+out pc=0x30002002 sig=trap r7=0x0
+case Extend d0b2 uxtb r0, r2 <- uxtb {Ld}, {Lm}
+in nzcv=1101 r0=0x10 r2=0xfffffffd
+out pc=0x30002002 sig=trap r0=0xfd
+case Extend d0b2 uxtb r0, r2 <- uxtb {Ld}, {Lm}
+in nzcv=0001 r0=0xda993c5f r2=0xb
+out pc=0x30002002 sig=trap r0=0xb
+case Extend d0b2 uxtb r0, r2 <- uxtb {Ld}, {Lm}
+in nzcv=0000 r0=0x8000000b r2=0x7c54c002
+out pc=0x30002002 sig=trap r0=0x2
+case Extend fbb2 uxtb r3, r7 <- uxtb {Ld}, {Lm}
+in nzcv=1011 r3=0x8000000 r7=0x8000000d
+out pc=0x30002002 sig=trap r3=0xd
+case Extend fbb2 uxtb r3, r7 <- uxtb {Ld}, {Lm}
+in nzcv=1011 r3=0xfffffff2 r7=0x4c388107
+out pc=0x30002002 sig=trap r3=0x7
+case Extend fbb2 uxtb r3, r7 <- uxtb {Ld}, {Lm}
+in nzcv=1010 r3=0xfffffff8 r7=0x3fff
+out pc=0x30002002 sig=trap r3=0xff
+case Extend c5b2 uxtb r5, r0 <- uxtb {Ld}, {Lm}
+in nzcv=1101 r0=0xfffffff2 r5=0x1b66481c
+out pc=0x30002002 sig=trap r5=0xf2
+case Extend c5b2 uxtb r5, r0 <- uxtb {Ld}, {Lm}
+in nzcv=1101 r0=0xe25dcd8e r5=0xfba4c1e0
+out pc=0x30002002 sig=trap r5=0x8e
+case Extend c5b2 uxtb r5, r0 <- uxtb {Ld}, {Lm}
+in nzcv=1111 r0=0x3fffff r5=0x800
+out pc=0x30002002 sig=trap r5=0xff
+case Extend efb2 uxtb r7, r5 <- uxtb {Ld}, {Lm}
+in nzcv=1110 r5=0xc r7=0x7bc77c1b
+out pc=0x30002002 sig=trap r7=0xc
+case Extend efb2 uxtb r7, r5 <- uxtb {Ld}, {Lm}
+in nzcv=0100 r5=0x4770116e r7=0xefe7a301
+out pc=0x30002002 sig=trap r7=0x6e
+case Extend efb2 uxtb r7, r5 <- uxtb {Ld}, {Lm}
+in nzcv=0010 r5=0xfffffff6 r7=0xda372809
+out pc=0x30002002 sig=trap r7=0xf6
+case Extend 90b2 uxth r0, r2 <- uxth {Ld}, {Lm}
+in nzcv=0011 r0=0x7ff r2=0x1ffffff
+out pc=0x30002002 sig=trap r0=0xffff
+case Extend 90b2 uxth r0, r2 <- uxth {Ld}, {Lm}
+in nzcv=0100 r0=0xfffffffc r2=0xfffffff6
+out pc=0x30002002 sig=trap r0=0xfff6
+case Extend 90b2 uxth r0, r2 <- uxth {Ld}, {Lm}
+in nzcv=0100 r0=0x2 r2=0xff70982f
+out pc=0x30002002 sig=trap r0=0x982f
+case Extend bbb2 uxth r3, r7 <- uxth {Ld}, {Lm}
+in nzcv=1010 r3=0x40000 r7=0xbfb66e9a
+out pc=0x30002002 sig=trap r3=0x6e9a
+case Extend bbb2 uxth r3, r7 <- uxth {Ld}, {Lm}
+in nzcv=1000 r3=0x7ffffff5 r7=0x3ffff
+out pc=0x30002002 sig=trap r3=0xffff
+case Extend bbb2 uxth r3, r7 <- uxth {Ld}, {Lm}
+in nzcv=1000 r3=0xc1690273 r7=0x7ffffffb
+out pc=0x30002002 sig=trap r3=0xfffb
+case Extend 85b2 uxth r5, r0 <- uxth {Ld}, {Lm}
+in nzcv=1011 r0=0x80000009 r5=0x6
+out pc=0x30002002 sig=trap r5=0x9
+case Extend 85b2 uxth r5, r0 <- uxth {Ld}, {Lm}
+in nzcv=1110 r0=0x1f r5=0x40000
+out pc=0x30002002 sig=trap r5=0x1f
+case Extend 85b2 uxth r5, r0 <- uxth {Ld}, {Lm}
+in nzcv=1010 r0=0x80000003 r5=0x1ffff
+out pc=0x30002002 sig=trap r5=0x3
+case Extend afb2 uxth r7, r5 <- uxth {Ld}, {Lm}
+in nzcv=1111 r5=0x7ffffff r7=0xc
+out pc=0x30002002 sig=trap r7=0xffff
+case Extend afb2 uxth r7, r5 <- uxth {Ld}, {Lm}
+in nzcv=1010 r5=0x7ffffff6 r7=0xfb2d06e1
+out pc=0x30002002 sig=trap r7=0xfff6
+case Extend afb2 uxth r7, r5 <- uxth {Ld}, {Lm}
+in nzcv=1101 r5=0x1000000 r7=0xfffffff1
+out pc=0x30002002 sig=trap r7=0x0
+case Extend 4ffa82f0 sxtb.w r0, r2, ror #0 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1010 r0=0x7ffffffb r2=0x7ffffff8
+out pc=0x30002004 sig=trap r0=0xfffffff8
+case Extend 4ffa82f0 sxtb.w r0, r2, ror #0 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1000 r0=0xffffff r2=0xd0712f87
+out pc=0x30002004 sig=trap r0=0xffffff87
+case Extend 4ffa82f0 sxtb.w r0, r2, ror #0 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0010 r0=0x80000007 r2=0xea739cce
+out pc=0x30002004 sig=trap r0=0xffffffce
+case Extend 4ffa9af5 sxtb.w r5, r10, ror #8 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0100 r5=0xd129906e r10=0x80000000
+out pc=0x30002004 sig=trap r5=0x0
+case Extend 4ffa9af5 sxtb.w r5, r10, ror #8 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1010 r5=0x8000000f r10=0x7ffff
+out pc=0x30002004 sig=trap r5=0xffffffff
+case Extend 4ffa9af5 sxtb.w r5, r10, ror #8 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1101 r5=0xf65a35ee r10=0x9a6fb357
+out pc=0x30002004 sig=trap r5=0xffffffb3
+case Extend 4ffaacf9 sxtb.w r9, r12, ror #16 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0000 r9=0x8000000 r12=0x7ffffffa
+out pc=0x30002004 sig=trap r9=0xffffffff
+case Extend 4ffaacf9 sxtb.w r9, r12, ror #16 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0110 r9=0xfffffffe r12=0x9962cbd8
+out pc=0x30002004 sig=trap r9=0x62
+case Extend 4ffaacf9 sxtb.w r9, r12, ror #16 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0000 r9=0x80 r12=0xd
+out pc=0x30002004 sig=trap r9=0x0
+case Extend 4ffab6fc sxtb.w r12, r6, ror #24 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0110 r6=0x7ffffff8 r12=0xc195085d
+out pc=0x30002004 sig=trap r12=0x7f
+case Extend 4ffab6fc sxtb.w r12, r6, ror #24 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0100 r6=0xff r12=0x80000009
+out pc=0x30002004 sig=trap r12=0x0
+case Extend 4ffab6fc sxtb.w r12, r6, ror #24 <- sxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0100 r6=0xbf850862 r12=0x3e25086b
+out pc=0x30002004 sig=trap r12=0xffffffbf
+case Extend 0ffa82f0 sxth.w r0, r2, ror #0 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0010 r0=0x3 r2=0x8000000f
+out pc=0x30002004 sig=trap r0=0xf
+case Extend 0ffa82f0 sxth.w r0, r2, ror #0 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0100 r0=0x80000007 r2=0xb0a83588
+out pc=0x30002004 sig=trap r0=0x3588
+case Extend 0ffa82f0 sxth.w r0, r2, ror #0 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1111 r0=0x2fafd089 r2=0x200000
+out pc=0x30002004 sig=trap r0=0x0
+case Extend 0ffa9af5 sxth.w r5, r10, ror #8 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0100 r5=0xcf2f08a1 r10=0x88ea5bce
+out pc=0x30002004 sig=trap r5=0xffffea5b
+case Extend 0ffa9af5 sxth.w r5, r10, ror #8 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0101 r5=0x69c3fc35 r10=0xa
+out pc=0x30002004 sig=trap r5=0x0
+case Extend 0ffa9af5 sxth.w r5, r10, ror #8 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0110 r5=0x400 r10=0x1fff
+out pc=0x30002004 sig=trap r5=0x1f
+case Extend 0ffaacf9 sxth.w r9, r12, ror #16 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1011 r9=0x8000000c r12=0x1fffff
+out pc=0x30002004 sig=trap r9=0x1f
+case Extend 0ffaacf9 sxth.w r9, r12, ror #16 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1111 r9=0x80000004 r12=0xf
+out pc=0x30002004 sig=trap r9=0x0
+case Extend 0ffaacf9 sxth.w r9, r12, ror #16 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1011 r9=0xaf79cc10 r12=0x6
+out pc=0x30002004 sig=trap r9=0x0
+case Extend 0ffab6fc sxth.w r12, r6, ror #24 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0111 r6=0x7fffffff r12=0x200000
+out pc=0x30002004 sig=trap r12=0xffffff7f
+case Extend 0ffab6fc sxth.w r12, r6, ror #24 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0010 r6=0xa r12=0x7fffffff
+out pc=0x30002004 sig=trap r12=0xa00
+case Extend 0ffab6fc sxth.w r12, r6, ror #24 <- sxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0000 r6=0x80000001 r12=0x7ffffff4
+out pc=0x30002004 sig=trap r12=0x180
+case Extend 5ffa82f0 uxtb.w r0, r2, ror #0 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1010 r0=0x80000007 r2=0x80000003
+out pc=0x30002004 sig=trap r0=0x3
+case Extend 5ffa82f0 uxtb.w r0, r2, ror #0 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1111 r0=0x6efa6af8 r2=0x80000006
+out pc=0x30002004 sig=trap r0=0x6
+case Extend 5ffa82f0 uxtb.w r0, r2, ror #0 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0100 r0=0x1ffff r2=0xfffffff3
+out pc=0x30002004 sig=trap r0=0xf3
+case Extend 5ffa9af5 uxtb.w r5, r10, ror #8 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1110 r5=0x8 r10=0xa291b6f4
+out pc=0x30002004 sig=trap r5=0xb6
+case Extend 5ffa9af5 uxtb.w r5, r10, ror #8 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0011 r5=0xa r10=0x2
+out pc=0x30002004 sig=trap r5=0x0
+case Extend 5ffa9af5 uxtb.w r5, r10, ror #8 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1101 r5=0x5f73c377 r10=0x13e7325b
+out pc=0x30002004 sig=trap r5=0x32
+case Extend 5ffaacf9 uxtb.w r9, r12, ror #16 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0101 r9=0x3fffffff r12=0x7ffffffe
+out pc=0x30002004 sig=trap r9=0xff
+case Extend 5ffaacf9 uxtb.w r9, r12, ror #16 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1100 r9=0x27410b9a r12=0x4
+out pc=0x30002004 sig=trap r9=0x0
+case Extend 5ffaacf9 uxtb.w r9, r12, ror #16 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1001 r9=0x100 r12=0x80000002
+out pc=0x30002004 sig=trap r9=0x0
+case Extend 5ffab6fc uxtb.w r12, r6, ror #24 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1111 r6=0x8 r12=0xffffffff
+out pc=0x30002004 sig=trap r12=0x0
+case Extend 5ffab6fc uxtb.w r12, r6, ror #24 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1001 r6=0x7ffffff4 r12=0x7ffffff9
+out pc=0x30002004 sig=trap r12=0x7f
+case Extend 5ffab6fc uxtb.w r12, r6, ror #24 <- uxtb.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1110 r6=0x4 r12=0xfffffff0
+out pc=0x30002004 sig=trap r12=0x0
+case Extend 1ffa82f0 uxth.w r0, r2, ror #0 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0100 r0=0x40000000 r2=0xd8bb3c75
+out pc=0x30002004 sig=trap r0=0x3c75
+case Extend 1ffa82f0 uxth.w r0, r2, ror #0 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0111 r0=0x1 r2=0xfff
+out pc=0x30002004 sig=trap r0=0xfff
+case Extend 1ffa82f0 uxth.w r0, r2, ror #0 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0110 r0=0xe5ef70ac r2=0x8000000
+out pc=0x30002004 sig=trap r0=0x0
+case Extend 1ffa9af5 uxth.w r5, r10, ror #8 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0111 r5=0xfff r10=0x2759e4e6
+out pc=0x30002004 sig=trap r5=0x59e4
+case Extend 1ffa9af5 uxth.w r5, r10, ror #8 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=0001 r5=0x800000 r10=0x40000
+out pc=0x30002004 sig=trap r5=0x400
+case Extend 1ffa9af5 uxth.w r5, r10, ror #8 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1000 r5=0xf951907d r10=0x5
+out pc=0x30002004 sig=trap r5=0x0
+case Extend 1ffaacf9 uxth.w r9, r12, ror #16 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1011 r9=0xce1f2bae r12=0xd935f5c3
+out pc=0x30002004 sig=trap r9=0xd935
+case Extend 1ffaacf9 uxth.w r9, r12, ror #16 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1000 r9=0x6502c848 r12=0x10000
+out pc=0x30002004 sig=trap r9=0x1
+case Extend 1ffaacf9 uxth.w r9, r12, ror #16 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1000 r9=0xdb4f6e32 r12=0x80000000
+out pc=0x30002004 sig=trap r9=0x8000
+case Extend 1ffab6fc uxth.w r12, r6, ror #24 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1000 r6=0x80000007 r12=0xa
+out pc=0x30002004 sig=trap r12=0x780
+case Extend 1ffab6fc uxth.w r12, r6, ror #24 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1001 r6=0x8000000b r12=0x3fffffff
+out pc=0x30002004 sig=trap r12=0xb80
+case Extend 1ffab6fc uxth.w r12, r6, ror #24 <- uxth.w {Rd}, {Rm}, ror #{rot}
+in nzcv=1000 r6=0x40 r12=0x740eda65
+out pc=0x30002004 sig=trap r12=0x4000

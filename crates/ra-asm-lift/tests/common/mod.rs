@@ -1,8 +1,11 @@
 //! The `AArch64` case model the vector tests share: the templates of
 //! `testdata/vectors/arm64/templates.txt`, their expansion over the operand classes, the committed
 //! `cases/<group>.cases` files, and the path WSL sees for a Windows path. `vectors_gen.rs` writes
-//! and checks the cases; `vectors.rs` runs them under the harness and replays the vectors.
+//! and checks the cases; `vectors.rs` runs them under the harness and replays the vectors. The
+//! 32-bit ARM model, with its own classes and byte-string cases, is `arm32`.
 #![allow(dead_code)]
+
+pub(crate) mod arm32;
 
 use std::fmt::Write as _;
 use std::fs;
@@ -89,8 +92,14 @@ pub(crate) const CLASSES: &[(&str, &str)] = &[
 ];
 
 pub(crate) fn class_values(name: &str) -> Vec<&'static str> {
-    let (_, values) = CLASSES.iter().find(|(class, _)| *class == name).unwrap_or_else(|| panic!("no operand class {{{name}}}"));
-    values.split_whitespace().collect()
+    class_values_in(CLASSES, name)
+}
+
+/// The sample values of class `name` in `classes`: separated by whitespace, or by `|` when a
+/// value has spaces of its own (a register list).
+pub(crate) fn class_values_in(classes: &[(&str, &'static str)], name: &str) -> Vec<&'static str> {
+    let (_, values) = classes.iter().find(|(class, _)| *class == name).unwrap_or_else(|| panic!("no operand class {{{name}}}"));
+    if values.contains('|') { values.split('|').map(str::trim).collect() } else { values.split_whitespace().collect() }
 }
 
 /// One line of `templates.txt`: the group it is under, the opcode and the assembly with classes.
@@ -135,7 +144,12 @@ pub(crate) fn classes_of(asm: &str) -> Vec<&str> {
 
 /// The template's assembly lines, one per sample.
 pub(crate) fn expand(asm: &str) -> Vec<String> {
-    let classes: Vec<(&str, Vec<&str>)> = classes_of(asm).into_iter().map(|name| (name, class_values(name))).collect();
+    expand_with(asm, CLASSES)
+}
+
+/// The template's assembly lines over the classes of `table`, one per sample.
+pub(crate) fn expand_with(asm: &str, table: &[(&str, &'static str)]) -> Vec<String> {
+    let classes: Vec<(&str, Vec<&str>)> = classes_of(asm).into_iter().map(|name| (name, class_values_in(table, name))).collect();
     let samples = classes.iter().map(|(_, values)| values.len()).max().unwrap_or(1);
     (0..samples)
         .map(|k| {

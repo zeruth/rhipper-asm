@@ -1,0 +1,180 @@
+Alu 02008100 addeq r0, r1, r2
+Alu 0a508810 addne r5, r8, r10
+Alu 0c908b20 addcs r9, r11, r12
+Alu 06c08e30 addcc r12, r14, r6
+Alu 02008140 addmi r0, r1, r2
+Alu 0a508850 addpl r5, r8, r10
+Alu 0c908b60 addvs r9, r11, r12
+Alu 06c08e70 addvc r12, r14, r6
+Alu 02008180 addhi r0, r1, r2
+Alu 0a508890 addls r5, r8, r10
+Alu 0c908ba0 addge r9, r11, r12
+Alu 06c08eb0 addlt r12, r14, r6
+Alu 020081c0 addgt r0, r1, r2
+Alu 0a5088d0 addle r5, r8, r10
+Alu 020091e0 adds r0, r1, r2, lsl #0
+Alu 8a5098e0 adds r5, r8, r10, lsl #1
+Alu 8c9f9be0 adds r9, r11, r12, lsl #31
+Alu 06c89ee0 adds r12, r14, r6, lsl #16
+Alu a20051e0 subs r0, r1, r2, lsr #1
+Alu aa5358e0 subs r5, r8, r10, lsr #7
+Alu ac9f5be0 subs r9, r11, r12, lsr #31
+Alu 26c05ee0 subs r12, r14, r6, lsr #32
+Alu 720391e0 adds r0, r1, r2, ror r3
+Alu 7a5998e0 adds r5, r8, r10, ror r9
+Alu 7c969be0 adds r9, r11, r12, ror r6
+Alu 76cc9ee0 adds r12, r14, r6, ror r12
+Alu 6200b0e1 movs r0, r2, rrx
+Alu 6a50b0e1 movs r5, r10, rrx
+Alu 6c90b0e1 movs r9, r12, rrx
+Alu 66c0b0e1 movs r12, r6, rrx
+Alu 00009102 addseq r0, r1, #0
+Alu ff509812 addsne r5, r8, #0xff
+Alu ff9c9b22 addscs r9, r11, #0xff00
+Alu 02c19e32 addscc r12, r14, #0x80000000
+Alu 00009142 addsmi r0, r1, #0
+Alu ff509852 addspl r5, r8, #0xff
+Alu ff9c9b62 addsvs r9, r11, #0xff00
+Alu 02c19e72 addsvc r12, r14, #0x80000000
+Alu 00009182 addshi r0, r1, #0
+Alu ff509892 addsls r5, r8, #0xff
+Alu ff9c9ba2 addsge r9, r11, #0xff00
+Alu 02c19eb2 addslt r12, r14, #0x80000000
+Alu 000091c2 addsgt r0, r1, #0
+Alu ff5098d2 addsle r5, r8, #0xff
+Alu c20051e1 cmp r1, r2, asr #1
+Alu ca0358e1 cmp r8, r10, asr #7
+Alu cc0f5be1 cmp r11, r12, asr #31
+Alu 46005ee1 cmp r14, r6, asr #32
+Alu 0000e003 mvneq r0, #0
+Alu ff50e013 mvnne r5, #0xff
+Alu ff9ce023 mvncs r9, #0xff00
+Alu 02c1e033 mvncc r12, #0x80000000
+Alu 0000e043 mvnmi r0, #0
+Alu ff50e053 mvnpl r5, #0xff
+Alu ff9ce063 mvnvs r9, #0xff00
+Alu 02c1e073 mvnvc r12, #0x80000000
+Alu 0000e083 mvnhi r0, #0
+Alu ff50e093 mvnls r5, #0xff
+Alu ff9ce0a3 mvnge r9, #0xff00
+Alu 02c1e0b3 mvnlt r12, #0x80000000
+Alu 0000e0c3 mvngt r0, #0
+Alu ff50e0d3 mvnle r5, #0xff
+Alu 120381e1 orr r0, r1, r2, lsl r3
+Alu 1a5988e1 orr r5, r8, r10, lsl r9
+Alu 1c968be1 orr r9, r11, r12, lsl r6
+Alu 16cc8ee1 orr r12, r14, r6, lsl r12
+Alu 0000d1e3 bics r0, r1, #0
+Alu ff50d8e3 bics r5, r8, #0xff
+Alu ff9cdbe3 bics r9, r11, #0xff00
+Alu 02c1dee3 bics r12, r14, #0x80000000
+Alu 000011e3 tst r1, #0
+Alu ff0018e3 tst r8, #0xff
+Alu ff0c1be3 tst r11, #0xff00
+Alu 02011ee3 tst r14, #0x80000000
+Alu 000071e2 rsbs r0, r1, #0
+Alu ff5078e2 rsbs r5, r8, #0xff
+Alu ff9c7be2 rsbs r9, r11, #0xff00
+Alu 02c17ee2 rsbs r12, r14, #0x80000000
+Alu 0200f1e0 rscs r0, r1, r2
+Alu 0a50f8e0 rscs r5, r8, r10
+Alu 0c90fbe0 rscs r9, r11, r12
+Alu 06c0fee0 rscs r12, r14, r6
+Alu 0200b1e0 adcs r0, r1, r2
+Alu 0a50b8e0 adcs r5, r8, r10
+Alu 0c90bbe0 adcs r9, r11, r12
+Alu 06c0bee0 adcs r12, r14, r6
+MovWide 00000003 movweq r0, #0
+MovWide ff5f0f13 movwne r5, #0xffff
+MovWide 34920123 movwcs r9, #0x1234
+MovWide 00c00833 movwcc r12, #0x8000
+MovWide 00000043 movwmi r0, #0
+MovWide ff5f0f53 movwpl r5, #0xffff
+MovWide 34920163 movwvs r9, #0x1234
+MovWide 00c00873 movwvc r12, #0x8000
+MovWide 00000083 movwhi r0, #0
+MovWide ff5f0f93 movwls r5, #0xffff
+MovWide 349201a3 movwge r9, #0x1234
+MovWide 00c008b3 movwlt r12, #0x8000
+MovWide 000000c3 movwgt r0, #0
+MovWide ff5f0fd3 movwle r5, #0xffff
+MovWide 000040e3 movt r0, #0
+MovWide ff5f4fe3 movt r5, #0xffff
+MovWide 349241e3 movt r9, #0x1234
+MovWide 00c048e3 movt r12, #0x8000
+Mul 91020000 muleq r0, r1, r2
+Mul 980a0510 mulne r5, r8, r10
+Mul 9b0c0920 mulcs r9, r11, r12
+Mul 9e060c30 mulcc r12, r14, r6
+Mul 91020040 mulmi r0, r1, r2
+Mul 980a0550 mulpl r5, r8, r10
+Mul 9b0c0960 mulvs r9, r11, r12
+Mul 9e060c70 mulvc r12, r14, r6
+Mul 91020080 mulhi r0, r1, r2
+Mul 980a0590 mulls r5, r8, r10
+Mul 9b0c09a0 mulge r9, r11, r12
+Mul 9e060cb0 mullt r12, r14, r6
+Mul 910200c0 mulgt r0, r1, r2
+Mul 980a05d0 mulle r5, r8, r10
+Mul 913220e0 mla r0, r1, r2, r3
+Mul 984a25e0 mla r5, r8, r10, r4
+Mul 9b7c29e0 mla r9, r11, r12, r7
+Mul 9eb62ce0 mla r12, r14, r6, r11
+LongMul 910283e0 umull r0, r3, r1, r2
+LongMul 985a84e0 umull r5, r4, r8, r10
+LongMul 9b9c87e0 umull r9, r7, r11, r12
+LongMul 9ec68be0 umull r12, r11, r14, r6
+LongMul 9102e3e0 smlal r0, r3, r1, r2
+LongMul 985ae4e0 smlal r5, r4, r8, r10
+LongMul 9b9ce7e0 smlal r9, r7, r11, r12
+LongMul 9ec6ebe0 smlal r12, r11, r14, r6
+Div 11f210e7 sdiv r0, r1, r2
+Div 18fa15e7 sdiv r5, r8, r10
+Div 1bfc19e7 sdiv r9, r11, r12
+Div 1ef61ce7 sdiv r12, r14, r6
+Div 11f230e7 udiv r0, r1, r2
+Div 18fa35e7 udiv r5, r8, r10
+Div 1bfc39e7 udiv r9, r11, r12
+Div 1ef63ce7 udiv r12, r14, r6
+Extend 7200afe6 sxtb r0, r2, ror #0
+Extend 7a54afe6 sxtb r5, r10, ror #8
+Extend 7c98afe6 sxtb r9, r12, ror #16
+Extend 76ccafe6 sxtb r12, r6, ror #24
+Extend 7200ff06 uxtheq r0, r2, ror #0
+Extend 7a54ff16 uxthne r5, r10, ror #8
+Extend 7c98ff26 uxthcs r9, r12, ror #16
+Extend 76ccff36 uxthcc r12, r6, ror #24
+Extend 7200ff46 uxthmi r0, r2, ror #0
+Extend 7a54ff56 uxthpl r5, r10, ror #8
+Extend 7c98ff66 uxthvs r9, r12, ror #16
+Extend 76ccff76 uxthvc r12, r6, ror #24
+Extend 7200ff86 uxthhi r0, r2, ror #0
+Extend 7a54ff96 uxthls r5, r10, ror #8
+Extend 7c98ffa6 uxthge r9, r12, ror #16
+Extend 76ccffb6 uxthlt r12, r6, ror #24
+Extend 7200ffc6 uxthgt r0, r2, ror #0
+Extend 7a54ffd6 uxthle r5, r10, ror #8
+Field 5100ffe7 ubfx r0, r1, #0, #32
+Field 5852e7e7 ubfx r5, r8, #4, #8
+Field 5b98efe7 ubfx r9, r11, #16, #16
+Field decfe0e7 ubfx r12, r14, #31, #1
+Field 5100bfe7 sbfx r0, r1, #0, #32
+Field 5852a7e7 sbfx r5, r8, #4, #8
+Field 5b98afe7 sbfx r9, r11, #16, #16
+Field decfa0e7 sbfx r12, r14, #31, #1
+Insert 1100dfe7 bfi r0, r1, #0, #32
+Insert 1852cbe7 bfi r5, r8, #4, #8
+Insert 1b98dfe7 bfi r9, r11, #16, #16
+Insert 9ecfdfe7 bfi r12, r14, #31, #1
+Unsupported 120f6fe1 clz r0, r2
+Unsupported 1a5f6fe1 clz r5, r10
+Unsupported 1c9f6fe1 clz r9, r12
+Unsupported 16cf6fe1 clz r12, r6
+Unsupported 320fbfe6 rev r0, r2
+Unsupported 3a5fbfe6 rev r5, r10
+Unsupported 3c9fbfe6 rev r9, r12
+Unsupported 36cfbfe6 rev r12, r6
+Unsupported 00000fe1 mrs r0, apsr
+Unsupported 00500fe1 mrs r5, apsr
+Unsupported 00900fe1 mrs r9, apsr
+Unsupported 00c00fe1 mrs r12, apsr

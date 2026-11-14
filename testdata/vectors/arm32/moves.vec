@@ -1,0 +1,78 @@
+# arm32 vectors of the moves group (Thumb-2 code): the state after each case of
+# cases/moves.cases under qemu-arm-static (-cpu max) over 3 states a case, written by
+# write_arm32_vectors in crates/ra-asm-lift/tests/vectors/arm32.rs and replayed by its arm32 test.
+# case <kind> <bytes> <assembly> <- <template>; in: the registers the case sets (the rest are
+# zero), the flags as NZCV bits, the window of data bytes; out: where the case stopped and
+# what it changed.
+case MovWide 40f20000 movw r0, #0 <- movw {Rd}, #{imm16}
+in nzcv=1011 r0=0xfffffff5
+out pc=0x30002004 sig=trap r0=0x0
+case MovWide 40f20000 movw r0, #0 <- movw {Rd}, #{imm16}
+in nzcv=0100 r0=0x80000006
+out pc=0x30002004 sig=trap r0=0x0
+case MovWide 40f20000 movw r0, #0 <- movw {Rd}, #{imm16}
+in nzcv=1111 r0=0x7
+out pc=0x30002004 sig=trap r0=0x0
+case MovWide 4ff6ff75 movw r5, #0xffff <- movw {Rd}, #{imm16}
+in nzcv=1001 r5=0x1000000
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide 4ff6ff75 movw r5, #0xffff <- movw {Rd}, #{imm16}
+in nzcv=1010 r5=0xfffffff1
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide 4ff6ff75 movw r5, #0xffff <- movw {Rd}, #{imm16}
+in nzcv=1101 r5=0x85afa93
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide 41f23429 movw r9, #0x1234 <- movw {Rd}, #{imm16}
+in nzcv=0010 r9=0x80000009
+out pc=0x30002004 sig=trap r9=0x1234
+case MovWide 41f23429 movw r9, #0x1234 <- movw {Rd}, #{imm16}
+in nzcv=1000 r9=0x8000000
+out pc=0x30002004 sig=trap r9=0x1234
+case MovWide 41f23429 movw r9, #0x1234 <- movw {Rd}, #{imm16}
+in nzcv=0110 r9=0xb
+out pc=0x30002004 sig=trap r9=0x1234
+case MovWide 48f2000c movw r12, #0x8000 <- movw {Rd}, #{imm16}
+in nzcv=0000 r12=0x7ffffff0
+out pc=0x30002004 sig=trap r12=0x8000
+case MovWide 48f2000c movw r12, #0x8000 <- movw {Rd}, #{imm16}
+in nzcv=0000 r12=0x80000002
+out pc=0x30002004 sig=trap r12=0x8000
+case MovWide 48f2000c movw r12, #0x8000 <- movw {Rd}, #{imm16}
+in nzcv=0011 r12=0x7ffffff9
+out pc=0x30002004 sig=trap r12=0x8000
+case MovWide c0f20000 movt r0, #0 <- movt {Rd}, #{imm16}
+in nzcv=1011 r0=0x5625c10a
+out pc=0x30002004 sig=trap r0=0xc10a
+case MovWide c0f20000 movt r0, #0 <- movt {Rd}, #{imm16}
+in nzcv=0110 r0=0xfffffff2
+out pc=0x30002004 sig=trap r0=0xfff2
+case MovWide c0f20000 movt r0, #0 <- movt {Rd}, #{imm16}
+in nzcv=0010 r0=0xfffffffc
+out pc=0x30002004 sig=trap r0=0xfffc
+case MovWide cff6ff75 movt r5, #0xffff <- movt {Rd}, #{imm16}
+in nzcv=1101 r5=0x3fff
+out pc=0x30002004 sig=trap r5=0xffff3fff
+case MovWide cff6ff75 movt r5, #0xffff <- movt {Rd}, #{imm16}
+in nzcv=0011 r5=0x96635371
+out pc=0x30002004 sig=trap r5=0xffff5371
+case MovWide cff6ff75 movt r5, #0xffff <- movt {Rd}, #{imm16}
+in nzcv=0110 r5=0x7ffffffc
+out pc=0x30002004 sig=trap r5=0xfffffffc
+case MovWide c1f23429 movt r9, #0x1234 <- movt {Rd}, #{imm16}
+in nzcv=1100 r9=0x2
+out pc=0x30002004 sig=trap r9=0x12340002
+case MovWide c1f23429 movt r9, #0x1234 <- movt {Rd}, #{imm16}
+in nzcv=0000 r9=0x2000000
+out pc=0x30002004 sig=trap r9=0x12340000
+case MovWide c1f23429 movt r9, #0x1234 <- movt {Rd}, #{imm16}
+in nzcv=1101 r9=0x7fffffff
+out pc=0x30002004 sig=trap r9=0x1234ffff
+case MovWide c8f2000c movt r12, #0x8000 <- movt {Rd}, #{imm16}
+in nzcv=0100 r12=0xfffffff0
+out pc=0x30002004 sig=trap r12=0x8000fff0
+case MovWide c8f2000c movt r12, #0x8000 <- movt {Rd}, #{imm16}
+in nzcv=0010 r12=0xae01f4a3
+out pc=0x30002004 sig=trap r12=0x8000f4a3
+case MovWide c8f2000c movt r12, #0x8000 <- movt {Rd}, #{imm16}
+in nzcv=0001 r12=0x7ffffff
+out pc=0x30002004 sig=trap r12=0x8000ffff

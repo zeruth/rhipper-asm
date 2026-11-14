@@ -1,0 +1,1626 @@
+# arm32 vectors of the arm_data group (ARM code): the state after each case of
+# cases/arm_data.cases under qemu-arm-static (-cpu max) over 3 states a case, written by
+# write_arm32_vectors in crates/ra-asm-lift/tests/vectors/arm32.rs and replayed by its arm32 test.
+# case <kind> <bytes> <assembly> <- <template>; in: the registers the case sets (the rest are
+# zero), the flags as NZCV bits, the window of data bytes; out: where the case stopped and
+# what it changed.
+case Alu 02008100 addeq r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1100 r0=0xfffffffc r1=0xd3bf789a r2=0x8
+out pc=0x30002004 sig=trap r0=0xd3bf78a2
+case Alu 02008100 addeq r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1110 r0=0x7ff r1=0x9231557d r2=0xf
+out pc=0x30002004 sig=trap r0=0x9231558c
+case Alu 02008100 addeq r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r0=0xa79d8c54 r1=0x7ff r2=0x1ffffff
+out pc=0x30002004 sig=trap
+case Alu 0a508810 addne r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1110 r5=0x965b05dd r8=0x288068e4 r10=0xc0561b21
+out pc=0x30002004 sig=trap
+case Alu 0a508810 addne r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0010 r5=0xfffffff1 r8=0x6d104dd0 r10=0x8000000a
+out pc=0x30002004 sig=trap r5=0xed104dda
+case Alu 0a508810 addne r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1010 r5=0x1 r8=0xfffffff1 r10=0xe5009b72
+out pc=0x30002004 sig=trap r5=0xe5009b63
+case Alu 0c908b20 addcs r9, r11, r12 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0110 r9=0x80000004 r11=0xfffffff9 r12=0x85cb691e
+out pc=0x30002004 sig=trap r9=0x85cb6917
+case Alu 0c908b20 addcs r9, r11, r12 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0101 r9=0xe2919ef r11=0x2 r12=0x80000004
+out pc=0x30002004 sig=trap
+case Alu 0c908b20 addcs r9, r11, r12 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1011 r9=0x592e7dee r11=0x13d391fd r12=0x1f
+out pc=0x30002004 sig=trap r9=0x13d3921c
+case Alu 06c08e30 addcc r12, r14, r6 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0010 r6=0xfffffff4 r12=0x20000 lr=0x6657f16
+out pc=0x30002004 sig=trap
+case Alu 06c08e30 addcc r12, r14, r6 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0111 r6=0xa41e7fd4 r12=0x3ffff lr=0x100000
+out pc=0x30002004 sig=trap
+case Alu 06c08e30 addcc r12, r14, r6 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0000 r6=0xfffffffb r12=0x1 lr=0x3b0e4a7b
+out pc=0x30002004 sig=trap r12=0x3b0e4a76
+case Alu 02008140 addmi r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0010 r0=0xffff r1=0x12051da5 r2=0x8000000f
+out pc=0x30002004 sig=trap
+case Alu 02008140 addmi r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1000 r0=0x1 r1=0xffffffff r2=0x80000000
+out pc=0x30002004 sig=trap r0=0x7fffffff
+case Alu 02008140 addmi r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r0=0x1ff r1=0xfffffffd r2=0x7ffff
+out pc=0x30002004 sig=trap
+case Alu 0a508850 addpl r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1101 r5=0x7ffffff4 r8=0xb0b5597b r10=0xb16cafbe
+out pc=0x30002004 sig=trap
+case Alu 0a508850 addpl r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r5=0x9945e78a r8=0x40000000 r10=0x40
+out pc=0x30002004 sig=trap r5=0x40000040
+case Alu 0a508850 addpl r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1110 r5=0x7fffff r8=0x106302c4 r10=0x4
+out pc=0x30002004 sig=trap
+case Alu 0c908b60 addvs r9, r11, r12 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r9=0xb r11=0x400000 r12=0x83d57fbc
+out pc=0x30002004 sig=trap r9=0x84157fbc
+case Alu 0c908b60 addvs r9, r11, r12 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0000 r9=0x8000000a r11=0xfffffffa r12=0xfffffffb
+out pc=0x30002004 sig=trap
+case Alu 0c908b60 addvs r9, r11, r12 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1100 r9=0xddf25074 r11=0x8000000d r12=0xb
+out pc=0x30002004 sig=trap
+case Alu 06c08e70 addvc r12, r14, r6 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1110 r6=0x85be49f9 r12=0x7fffff lr=0x7ff
+out pc=0x30002004 sig=trap r12=0x85be51f8
+case Alu 06c08e70 addvc r12, r14, r6 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1110 r6=0x7ffffff4 r12=0x7ffffffa lr=0x3fff
+out pc=0x30002004 sig=trap r12=0x80003ff3
+case Alu 06c08e70 addvc r12, r14, r6 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0111 r6=0x7ffffffe r12=0x100000 lr=0xec3742
+out pc=0x30002004 sig=trap
+case Alu 02008180 addhi r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0111 r0=0xf3304257 r1=0x7ffffff8 r2=0x7a021022
+out pc=0x30002004 sig=trap
+case Alu 02008180 addhi r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0001 r0=0x8000000e r1=0xb3fcc0c6 r2=0x5718e9d
+out pc=0x30002004 sig=trap
+case Alu 02008180 addhi r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1101 r0=0xe r1=0xf6fb0f19 r2=0x8000000
+out pc=0x30002004 sig=trap
+case Alu 0a508890 addls r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0110 r5=0xffffff r8=0xaa33c291 r10=0xfffffff6
+out pc=0x30002004 sig=trap r5=0xaa33c287
+case Alu 0a508890 addls r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0001 r5=0xa r8=0x0 r10=0x8000000f
+out pc=0x30002004 sig=trap r5=0x8000000f
+case Alu 0a508890 addls r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1000 r5=0x80000001 r8=0x1bcfbaca r10=0xb
+out pc=0x30002004 sig=trap r5=0x1bcfbad5
+case Alu 0c908ba0 addge r9, r11, r12 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1000 r9=0x52189c55 r11=0xfffff r12=0xade22efc
+out pc=0x30002004 sig=trap
+case Alu 0c908ba0 addge r9, r11, r12 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1000 r9=0x7fff r11=0x7ffffffe r12=0x7ffffff8
+out pc=0x30002004 sig=trap
+case Alu 0c908ba0 addge r9, r11, r12 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1000 r9=0x80000007 r11=0xb r12=0xfffffff2
+out pc=0x30002004 sig=trap
+case Alu 06c08eb0 addlt r12, r14, r6 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1110 r6=0x7ffffffd r12=0x400 lr=0xb
+out pc=0x30002004 sig=trap r12=0x80000008
+case Alu 06c08eb0 addlt r12, r14, r6 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0000 r6=0x8000000 r12=0x3f lr=0x7ffffff9
+out pc=0x30002004 sig=trap
+case Alu 06c08eb0 addlt r12, r14, r6 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1000 r6=0x8000000a r12=0x2000000 lr=0x7ffffff6
+out pc=0x30002004 sig=trap r12=0x0
+case Alu 020081c0 addgt r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1010 r0=0x80000001 r1=0xc r2=0x7ffffffb
+out pc=0x30002004 sig=trap
+case Alu 020081c0 addgt r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0001 r0=0xa r1=0xffff r2=0xfffffff2
+out pc=0x30002004 sig=trap
+case Alu 020081c0 addgt r0, r1, r2 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1110 r0=0xfffffffc r1=0x7ffffffa r2=0x5cbca57a
+out pc=0x30002004 sig=trap
+case Alu 0a5088d0 addle r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0100 r5=0x1ffffff r8=0xfffffffe r10=0xfffffffb
+out pc=0x30002004 sig=trap r5=0xfffffff9
+case Alu 0a5088d0 addle r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r5=0x1 r8=0x8000000a r10=0xa721c9e9
+out pc=0x30002004 sig=trap r5=0x2721c9f3
+case Alu 0a5088d0 addle r5, r8, r10 <- add{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0110 r5=0xfffffff9 r8=0xb0028c13 r10=0xad5d0c6e
+out pc=0x30002004 sig=trap r5=0x5d5f9881
+case Alu 020091e0 adds r0, r1, r2, lsl #0 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=1100 r0=0xfffffffc r1=0xfffffffd r2=0x200
+out pc=0x30002004 sig=trap r0=0x1fd nzcv=0010
+case Alu 020091e0 adds r0, r1, r2, lsl #0 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=1111 r0=0xca514575 r1=0xc7d66c4e r2=0x0
+out pc=0x30002004 sig=trap r0=0xc7d66c4e nzcv=1000
+case Alu 020091e0 adds r0, r1, r2, lsl #0 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=0000 r0=0x1fff r1=0x1 r2=0xd5d632bf
+out pc=0x30002004 sig=trap r0=0xd5d632c0 nzcv=1000
+case Alu 8a5098e0 adds r5, r8, r10, lsl #1 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=1110 r5=0x7ffffff7 r8=0xa r10=0xffffffff
+out pc=0x30002004 sig=trap r5=0x8 nzcv=0010
+case Alu 8a5098e0 adds r5, r8, r10, lsl #1 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=1110 r5=0x66ed1b r8=0x800 r10=0xfffffffd
+out pc=0x30002004 sig=trap r5=0x7fa nzcv=0010
+case Alu 8a5098e0 adds r5, r8, r10, lsl #1 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=1111 r5=0xf r8=0x17c5e5de r10=0x7a0af35d
+out pc=0x30002004 sig=trap r5=0xbdbcc98 nzcv=0010
+case Alu 8c9f9be0 adds r9, r11, r12, lsl #31 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=0011 r9=0x80000003 r11=0xd14b72ea r12=0x4
+out pc=0x30002004 sig=trap r9=0xd14b72ea nzcv=1000
+case Alu 8c9f9be0 adds r9, r11, r12, lsl #31 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=1010 r9=0xff r11=0x7 r12=0xa
+out pc=0x30002004 sig=trap r9=0x7 nzcv=0000
+case Alu 8c9f9be0 adds r9, r11, r12, lsl #31 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=0011 r9=0xfffffff5 r11=0xff r12=0xfffffff6
+out pc=0x30002004 sig=trap r9=0xff nzcv=0000
+case Alu 06c89ee0 adds r12, r14, r6, lsl #16 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=1111 r6=0xc r12=0xfffffff7 lr=0x8
+out pc=0x30002004 sig=trap r12=0xc0008 nzcv=0000
+case Alu 06c89ee0 adds r12, r14, r6, lsl #16 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=1100 r6=0x334000ae r12=0x1ffffff lr=0x7ffffff4
+out pc=0x30002004 sig=trap r12=0x80adfff4 nzcv=1001
+case Alu 06c89ee0 adds r12, r14, r6, lsl #16 <- adds {Rd}, {Rn}, {Rm}, lsl #{shift5z}
+in nzcv=1111 r6=0x80000007 r12=0x1ffff lr=0x3c209a88
+out pc=0x30002004 sig=trap r12=0x3c279a88 nzcv=0000
+case Alu a20051e0 subs r0, r1, r2, lsr #1 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=0001 r0=0x5c364633 r1=0x3 r2=0x400
+out pc=0x30002004 sig=trap r0=0xfffffe03 nzcv=1000
+case Alu a20051e0 subs r0, r1, r2, lsr #1 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=1110 r0=0x80000009 r1=0x8000000f r2=0x7ffffffc
+out pc=0x30002004 sig=trap r0=0x40000011 nzcv=0011
+case Alu a20051e0 subs r0, r1, r2, lsr #1 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=1000 r0=0x2000 r1=0x7d5cbb19 r2=0x80000000
+out pc=0x30002004 sig=trap r0=0x3d5cbb19 nzcv=0010
+case Alu aa5358e0 subs r5, r8, r10, lsr #7 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=1001 r5=0xe r8=0xc r10=0x8
+out pc=0x30002004 sig=trap r5=0xc nzcv=0010
+case Alu aa5358e0 subs r5, r8, r10, lsr #7 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=0100 r5=0x6 r8=0x80000002 r10=0x7ff
+out pc=0x30002004 sig=trap r5=0x7ffffff3 nzcv=0011
+case Alu aa5358e0 subs r5, r8, r10, lsr #7 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=1000 r5=0xa97b5702 r8=0x43d71f9f r10=0x80000008
+out pc=0x30002004 sig=trap r5=0x42d71f9f nzcv=0010
+case Alu ac9f5be0 subs r9, r11, r12, lsr #31 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=1011 r9=0x9341b9b9 r11=0x38591038 r12=0x7ffffffe
+out pc=0x30002004 sig=trap r9=0x38591038 nzcv=0010
+case Alu ac9f5be0 subs r9, r11, r12, lsr #31 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=1000 r9=0x8000000c r11=0x0 r12=0xd990aece
+out pc=0x30002004 sig=trap r9=0xffffffff
+case Alu ac9f5be0 subs r9, r11, r12, lsr #31 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=1100 r9=0x100000 r11=0xf1fa7ee3 r12=0xffffffff
+out pc=0x30002004 sig=trap r9=0xf1fa7ee2 nzcv=1010
+case Alu 26c05ee0 subs r12, r14, r6, lsr #32 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=1001 r6=0xfffffff5 r12=0xfffffff4 lr=0xe2fc836
+out pc=0x30002004 sig=trap r12=0xe2fc836 nzcv=0010
+case Alu 26c05ee0 subs r12, r14, r6, lsr #32 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=1011 r6=0xfffff r12=0x8000000d lr=0x8000000a
+out pc=0x30002004 sig=trap r12=0x8000000a nzcv=1010
+case Alu 26c05ee0 subs r12, r14, r6, lsr #32 <- subs {Rd}, {Rn}, {Rm}, lsr #{shift5s}
+in nzcv=0011 r6=0x80000004 r12=0x7ffffff7 lr=0xda4e45e8
+out pc=0x30002004 sig=trap r12=0xda4e45e8 nzcv=1010
+case Alu 720391e0 adds r0, r1, r2, ror r3 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=0010 r0=0xff67337a r1=0xfffffff0 r2=0x1ffffff r3=0x7fffff
+out pc=0x30002004 sig=trap r0=0x3ffffee
+case Alu 720391e0 adds r0, r1, r2, ror r3 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=0011 r0=0x1fffff r1=0x63b9cce1 r2=0x97750f94 r3=0x737b0de7
+out pc=0x30002004 sig=trap r0=0x8ce8b700 nzcv=1001
+case Alu 720391e0 adds r0, r1, r2, ror r3 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=1101 r0=0xab010df8 r1=0x906a0c47 r2=0x80000001 r3=0x8ee3fe93
+out pc=0x30002004 sig=trap r0=0x906a3c47 nzcv=1000
+case Alu 7a5998e0 adds r5, r8, r10, ror r9 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=0010 r5=0x8000000e r8=0x167b1818 r9=0x40000000 r10=0xfffffff9
+out pc=0x30002004 sig=trap r5=0x167b1811
+case Alu 7a5998e0 adds r5, r8, r10, ror r9 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=1111 r5=0x7ffffff9 r8=0x8 r9=0xe29d7500 r10=0x200
+out pc=0x30002004 sig=trap r5=0x208 nzcv=0000
+case Alu 7a5998e0 adds r5, r8, r10, ror r9 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=1010 r5=0x7ffffff8 r8=0x8000000c r9=0x8 r10=0x56067691
+out pc=0x30002004 sig=trap r5=0x11560682 nzcv=0011
+case Alu 7c969be0 adds r9, r11, r12, ror r6 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=1010 r6=0xcdfcce18 r9=0xe64f55ed r11=0x1fffff r12=0x46eb298c
+out pc=0x30002004 sig=trap r9=0xeb498c45 nzcv=1000
+case Alu 7c969be0 adds r9, r11, r12, ror r6 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=1000 r6=0xb r9=0x80000000 r11=0x577b0fff r12=0x707df05b
+out pc=0x30002004 sig=trap r9=0x62e91fbd nzcv=0000
+case Alu 7c969be0 adds r9, r11, r12, ror r6 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=1010 r6=0x7ffffff4 r9=0x1f r11=0xe5c50a52 r12=0x7ffffff3
+out pc=0x30002004 sig=trap r9=0xe5c44251
+case Alu 76cc9ee0 adds r12, r14, r6, ror r12 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=0001 r6=0x7ffffffb r12=0x1 lr=0x7
+out pc=0x30002004 sig=trap r12=0xc0000004 nzcv=1000
+case Alu 76cc9ee0 adds r12, r14, r6, ror r12 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=0100 r6=0x7f r12=0xfffffff6 lr=0x15747068
+out pc=0x30002004 sig=trap r12=0x15766c68 nzcv=0000
+case Alu 76cc9ee0 adds r12, r14, r6, ror r12 <- adds {Rd}, {Rn}, {Rm}, ror {Rs}
+in nzcv=1010 r6=0xdf5ec75 r12=0xfffffff6 lr=0xfffffffa
+out pc=0x30002004 sig=trap r12=0xd7b1d431
+case Alu 6200b0e1 movs r0, r2, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=1101 r0=0xfffffff4 r2=0x80000000
+out pc=0x30002004 sig=trap r0=0x40000000 nzcv=0001
+case Alu 6200b0e1 movs r0, r2, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=0110 r0=0x2000 r2=0x8000000a
+out pc=0x30002004 sig=trap r0=0xc0000005 nzcv=1000
+case Alu 6200b0e1 movs r0, r2, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=0001 r0=0x2 r2=0x323ac3a8
+out pc=0x30002004 sig=trap r0=0x191d61d4
+case Alu 6a50b0e1 movs r5, r10, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=0011 r5=0x8000000 r10=0x200
+out pc=0x30002004 sig=trap r5=0x80000100 nzcv=1001
+case Alu 6a50b0e1 movs r5, r10, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=0111 r5=0x3 r10=0x4b588061
+out pc=0x30002004 sig=trap r5=0xa5ac4030 nzcv=1011
+case Alu 6a50b0e1 movs r5, r10, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=1101 r5=0x7ffffff2 r10=0xfffffff6
+out pc=0x30002004 sig=trap r5=0x7ffffffb nzcv=0001
+case Alu 6c90b0e1 movs r9, r12, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=0111 r9=0x41e66b21 r12=0xf
+out pc=0x30002004 sig=trap r9=0x80000007 nzcv=1011
+case Alu 6c90b0e1 movs r9, r12, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=1011 r9=0x7f r12=0x7ff
+out pc=0x30002004 sig=trap r9=0x800003ff
+case Alu 6c90b0e1 movs r9, r12, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=1111 r9=0x4 r12=0x7ffffffa
+out pc=0x30002004 sig=trap r9=0xbffffffd nzcv=1001
+case Alu 66c0b0e1 movs r12, r6, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=1100 r6=0xbb839fd1 r12=0x7e170cb5
+out pc=0x30002004 sig=trap r12=0x5dc1cfe8 nzcv=0010
+case Alu 66c0b0e1 movs r12, r6, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=0101 r6=0xfffffff5 r12=0x7ffffff6
+out pc=0x30002004 sig=trap r12=0x7ffffffa nzcv=0011
+case Alu 66c0b0e1 movs r12, r6, rrx <- movs {Rd}, {Rm}, rrx
+in nzcv=0010 r6=0x7ffff r12=0x80000004
+out pc=0x30002004 sig=trap r12=0x8003ffff nzcv=1010
+case Alu 00009102 addseq r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0000 r0=0x7ffffff4 r1=0x1ffffff
+out pc=0x30002004 sig=trap
+case Alu 00009102 addseq r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1111 r0=0x80000002 r1=0x8bbbd441
+out pc=0x30002004 sig=trap r0=0x8bbbd441 nzcv=1000
+case Alu 00009102 addseq r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1100 r0=0x80000009 r1=0x20000
+out pc=0x30002004 sig=trap r0=0x20000 nzcv=0000
+case Alu ff509812 addsne r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1111 r5=0x7ffffff2 r8=0xff
+out pc=0x30002004 sig=trap
+case Alu ff509812 addsne r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0110 r5=0xffffffff r8=0xfffffff4
+out pc=0x30002004 sig=trap
+case Alu ff509812 addsne r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0011 r5=0x7 r8=0x7ffffff1
+out pc=0x30002004 sig=trap r5=0x800000f0 nzcv=1001
+case Alu ff9c9b22 addscs r9, r11, #0xff00 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1111 r9=0x1fffffff r11=0x100
+out pc=0x30002004 sig=trap r9=0x10000 nzcv=0000
+case Alu ff9c9b22 addscs r9, r11, #0xff00 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1011 r9=0x8000000b r11=0x40
+out pc=0x30002004 sig=trap r9=0xff40 nzcv=0000
+case Alu ff9c9b22 addscs r9, r11, #0xff00 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0001 r9=0x7ffffffa r11=0x2b75d119
+out pc=0x30002004 sig=trap
+case Alu 02c19e32 addscc r12, r14, #0x80000000 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1011 r12=0x10000 lr=0x8
+out pc=0x30002004 sig=trap
+case Alu 02c19e32 addscc r12, r14, #0x80000000 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1001 r12=0x20000 lr=0x7ffffff7
+out pc=0x30002004 sig=trap r12=0xfffffff7 nzcv=1000
+case Alu 02c19e32 addscc r12, r14, #0x80000000 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0010 r12=0x6f8b3f17 lr=0x856beff
+out pc=0x30002004 sig=trap
+case Alu 00009142 addsmi r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1001 r0=0x7ffffff8 r1=0x0
+out pc=0x30002004 sig=trap r0=0x0 nzcv=0100
+case Alu 00009142 addsmi r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0000 r0=0xe r1=0x1ff
+out pc=0x30002004 sig=trap
+case Alu 00009142 addsmi r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0110 r0=0x20000 r1=0xff
+out pc=0x30002004 sig=trap
+case Alu ff509852 addspl r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1001 r5=0x3ffffff r8=0x7ffffff5
+out pc=0x30002004 sig=trap
+case Alu ff509852 addspl r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0110 r5=0x4000000 r8=0x7ffffffb
+out pc=0x30002004 sig=trap r5=0x800000fa nzcv=1001
+case Alu ff509852 addspl r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0000 r5=0xfffffffa r8=0x80000009
+out pc=0x30002004 sig=trap r5=0x80000108 nzcv=1000
+case Alu ff9c9b62 addsvs r9, r11, #0xff00 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0011 r9=0x42dba7b1 r11=0x7ffffffd
+out pc=0x30002004 sig=trap r9=0x8000fefd nzcv=1001
+case Alu ff9c9b62 addsvs r9, r11, #0xff00 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1101 r9=0x6 r11=0xe
+out pc=0x30002004 sig=trap r9=0xff0e nzcv=0000
+case Alu ff9c9b62 addsvs r9, r11, #0xff00 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1001 r9=0x4000 r11=0xb
+out pc=0x30002004 sig=trap r9=0xff0b nzcv=0000
+case Alu 02c19e72 addsvc r12, r14, #0x80000000 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1001 r12=0xfffffff6 lr=0x421d5f7
+out pc=0x30002004 sig=trap
+case Alu 02c19e72 addsvc r12, r14, #0x80000000 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1101 r12=0x34f297c7 lr=0xde646578
+out pc=0x30002004 sig=trap
+case Alu 02c19e72 addsvc r12, r14, #0x80000000 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1110 r12=0x8000000f lr=0x7ffffff4
+out pc=0x30002004 sig=trap r12=0xfffffff4 nzcv=1000
+case Alu 00009182 addshi r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1010 r0=0x927cb44f r1=0x2
+out pc=0x30002004 sig=trap r0=0x2 nzcv=0000
+case Alu 00009182 addshi r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0101 r0=0x7ffffffd r1=0x3fff
+out pc=0x30002004 sig=trap
+case Alu 00009182 addshi r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0001 r0=0x80000005 r1=0x80000003
+out pc=0x30002004 sig=trap
+case Alu ff509892 addsls r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1001 r5=0x7ffffffe r8=0xfffffff4
+out pc=0x30002004 sig=trap r5=0xf3 nzcv=0010
+case Alu ff509892 addsls r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1000 r5=0x837a1067 r8=0x8000000d
+out pc=0x30002004 sig=trap r5=0x8000010c
+case Alu ff509892 addsls r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1000 r5=0x73f2b645 r8=0xe
+out pc=0x30002004 sig=trap r5=0x10d nzcv=0000
+case Alu ff9c9ba2 addsge r9, r11, #0xff00 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0011 r9=0x7ef45141 r11=0x5c5000cc
+out pc=0x30002004 sig=trap
+case Alu ff9c9ba2 addsge r9, r11, #0xff00 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0000 r9=0xf r11=0xe3c9355d
+out pc=0x30002004 sig=trap r9=0xe3ca345d nzcv=1000
+case Alu ff9c9ba2 addsge r9, r11, #0xff00 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0110 r9=0xfffffffa r11=0x5442e3eb
+out pc=0x30002004 sig=trap r9=0x5443e2eb nzcv=0000
+case Alu 02c19eb2 addslt r12, r14, #0x80000000 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1010 r12=0xfffffff2 lr=0xcb0a43ad
+out pc=0x30002004 sig=trap r12=0x4b0a43ad nzcv=0011
+case Alu 02c19eb2 addslt r12, r14, #0x80000000 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1001 r12=0xfffffffe lr=0x2
+out pc=0x30002004 sig=trap
+case Alu 02c19eb2 addslt r12, r14, #0x80000000 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0110 r12=0x20 lr=0x800000
+out pc=0x30002004 sig=trap
+case Alu 000091c2 addsgt r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0110 r0=0x631831c1 r1=0x8000000
+out pc=0x30002004 sig=trap
+case Alu 000091c2 addsgt r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0001 r0=0xfffffff4 r1=0x0
+out pc=0x30002004 sig=trap
+case Alu 000091c2 addsgt r0, r1, #0 <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0100 r0=0x80000008 r1=0xd04b918f
+out pc=0x30002004 sig=trap
+case Alu ff5098d2 addsle r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1010 r5=0xc r8=0x7ffffffb
+out pc=0x30002004 sig=trap r5=0x800000fa nzcv=1001
+case Alu ff5098d2 addsle r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=0100 r5=0x80000006 r8=0x2af7e32e
+out pc=0x30002004 sig=trap r5=0x2af7e42d nzcv=0000
+case Alu ff5098d2 addsle r5, r8, #0xff <- adds{cond} {Rd}, {Rn}, #{aimm}
+in nzcv=1101 r5=0xfffffff4 r8=0xc
+out pc=0x30002004 sig=trap r5=0x10b nzcv=0000
+case Alu c20051e1 cmp r1, r2, asr #1 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=0010 r1=0x4 r2=0x32a01bf2
+out pc=0x30002004 sig=trap nzcv=1000
+case Alu c20051e1 cmp r1, r2, asr #1 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=0010 r1=0xffffffff r2=0x4d60069d
+out pc=0x30002004 sig=trap nzcv=1010
+case Alu c20051e1 cmp r1, r2, asr #1 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=1011 r1=0x80000002 r2=0xf
+out pc=0x30002004 sig=trap nzcv=0011
+case Alu ca0358e1 cmp r8, r10, asr #7 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=0001 r8=0x7ffffff1 r10=0xb
+out pc=0x30002004 sig=trap nzcv=0010
+case Alu ca0358e1 cmp r8, r10, asr #7 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=1101 r8=0x1ff r10=0x100000
+out pc=0x30002004 sig=trap nzcv=1000
+case Alu ca0358e1 cmp r8, r10, asr #7 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=1000 r8=0x7ffffff5 r10=0x10000
+out pc=0x30002004 sig=trap nzcv=0010
+case Alu cc0f5be1 cmp r11, r12, asr #31 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=0011 r11=0x8000000a r12=0x7fffff
+out pc=0x30002004 sig=trap nzcv=1010
+case Alu cc0f5be1 cmp r11, r12, asr #31 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=1011 r11=0x8000000f r12=0x7ca3b8d1
+out pc=0x30002004 sig=trap nzcv=1010
+case Alu cc0f5be1 cmp r11, r12, asr #31 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=1010 r11=0xfffffffe r12=0x4
+out pc=0x30002004 sig=trap
+case Alu 46005ee1 cmp r14, r6, asr #32 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=0001 r6=0x3fffffff lr=0xfffffffc
+out pc=0x30002004 sig=trap nzcv=1010
+case Alu 46005ee1 cmp r14, r6, asr #32 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=0011 r6=0x10 lr=0xe94e7e34
+out pc=0x30002004 sig=trap nzcv=1010
+case Alu 46005ee1 cmp r14, r6, asr #32 <- cmp {Rn}, {Rm}, asr #{shift5s}
+in nzcv=0111 r6=0x10000000 lr=0xfffffffb
+out pc=0x30002004 sig=trap nzcv=1010
+case Alu 0000e003 mvneq r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0011 r0=0x8000000b
+out pc=0x30002004 sig=trap
+case Alu 0000e003 mvneq r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1001 r0=0x7ffffffb
+out pc=0x30002004 sig=trap
+case Alu 0000e003 mvneq r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1110 r0=0xc
+out pc=0x30002004 sig=trap r0=0xffffffff
+case Alu ff50e013 mvnne r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1100 r5=0xd3969e01
+out pc=0x30002004 sig=trap
+case Alu ff50e013 mvnne r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1001 r5=0x0
+out pc=0x30002004 sig=trap r5=0xffffff00
+case Alu ff50e013 mvnne r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0011 r5=0x432d7163
+out pc=0x30002004 sig=trap r5=0xffffff00
+case Alu ff9ce023 mvncs r9, #0xff00 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1000 r9=0x82ce0e71
+out pc=0x30002004 sig=trap
+case Alu ff9ce023 mvncs r9, #0xff00 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1001 r9=0xdd219e5
+out pc=0x30002004 sig=trap
+case Alu ff9ce023 mvncs r9, #0xff00 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0010 r9=0xfffffff4
+out pc=0x30002004 sig=trap r9=0xffff00ff
+case Alu 02c1e033 mvncc r12, #0x80000000 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1010 r12=0x7ff
+out pc=0x30002004 sig=trap
+case Alu 02c1e033 mvncc r12, #0x80000000 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0111 r12=0x0
+out pc=0x30002004 sig=trap
+case Alu 02c1e033 mvncc r12, #0x80000000 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0011 r12=0xf968b55c
+out pc=0x30002004 sig=trap
+case Alu 0000e043 mvnmi r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0110 r0=0x8000
+out pc=0x30002004 sig=trap
+case Alu 0000e043 mvnmi r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1001 r0=0x3b0d5312
+out pc=0x30002004 sig=trap r0=0xffffffff
+case Alu 0000e043 mvnmi r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1011 r0=0x400000
+out pc=0x30002004 sig=trap r0=0xffffffff
+case Alu ff50e053 mvnpl r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0110 r5=0x80000009
+out pc=0x30002004 sig=trap r5=0xffffff00
+case Alu ff50e053 mvnpl r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0111 r5=0xfffffff6
+out pc=0x30002004 sig=trap r5=0xffffff00
+case Alu ff50e053 mvnpl r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0101 r5=0xa
+out pc=0x30002004 sig=trap r5=0xffffff00
+case Alu ff9ce063 mvnvs r9, #0xff00 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0011 r9=0x7ff
+out pc=0x30002004 sig=trap r9=0xffff00ff
+case Alu ff9ce063 mvnvs r9, #0xff00 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0010 r9=0xafd06d12
+out pc=0x30002004 sig=trap
+case Alu ff9ce063 mvnvs r9, #0xff00 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0100 r9=0x7ffffff2
+out pc=0x30002004 sig=trap
+case Alu 02c1e073 mvnvc r12, #0x80000000 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1101 r12=0x80000005
+out pc=0x30002004 sig=trap
+case Alu 02c1e073 mvnvc r12, #0x80000000 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1001 r12=0x7ffffff4
+out pc=0x30002004 sig=trap
+case Alu 02c1e073 mvnvc r12, #0x80000000 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0000 r12=0x1
+out pc=0x30002004 sig=trap r12=0x7fffffff
+case Alu 0000e083 mvnhi r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0000 r0=0x7ffffff8
+out pc=0x30002004 sig=trap
+case Alu 0000e083 mvnhi r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1100 r0=0x7ffffff
+out pc=0x30002004 sig=trap
+case Alu 0000e083 mvnhi r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1001 r0=0x80000004
+out pc=0x30002004 sig=trap
+case Alu ff50e093 mvnls r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1010 r5=0x80000000
+out pc=0x30002004 sig=trap
+case Alu ff50e093 mvnls r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1111 r5=0xa3c799e8
+out pc=0x30002004 sig=trap r5=0xffffff00
+case Alu ff50e093 mvnls r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1101 r5=0xffffffff
+out pc=0x30002004 sig=trap r5=0xffffff00
+case Alu ff9ce0a3 mvnge r9, #0xff00 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0111 r9=0x80000007
+out pc=0x30002004 sig=trap
+case Alu ff9ce0a3 mvnge r9, #0xff00 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1001 r9=0x3d2a3da8
+out pc=0x30002004 sig=trap r9=0xffff00ff
+case Alu ff9ce0a3 mvnge r9, #0xff00 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0011 r9=0x4
+out pc=0x30002004 sig=trap
+case Alu 02c1e0b3 mvnlt r12, #0x80000000 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1011 r12=0xfffffff3
+out pc=0x30002004 sig=trap
+case Alu 02c1e0b3 mvnlt r12, #0x80000000 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1101 r12=0x1ffffff
+out pc=0x30002004 sig=trap
+case Alu 02c1e0b3 mvnlt r12, #0x80000000 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0110 r12=0x8000000c
+out pc=0x30002004 sig=trap
+case Alu 0000e0c3 mvngt r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1010 r0=0x20000
+out pc=0x30002004 sig=trap
+case Alu 0000e0c3 mvngt r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0110 r0=0x5
+out pc=0x30002004 sig=trap
+case Alu 0000e0c3 mvngt r0, #0 <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0110 r0=0x7ffffff9
+out pc=0x30002004 sig=trap
+case Alu ff50e0d3 mvnle r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0001 r5=0x1
+out pc=0x30002004 sig=trap r5=0xffffff00
+case Alu ff50e0d3 mvnle r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=1101 r5=0xfffffffa
+out pc=0x30002004 sig=trap r5=0xffffff00
+case Alu ff50e0d3 mvnle r5, #0xff <- mvn{cond} {Rd}, #{aimm}
+in nzcv=0100 r5=0x30f83f52
+out pc=0x30002004 sig=trap r5=0xffffff00
+case Alu 120381e1 orr r0, r1, r2, lsl r3 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=0101 r0=0x80000007 r1=0xb4815a58 r2=0x1 r3=0x1ff
+out pc=0x30002004 sig=trap r0=0xb4815a58
+case Alu 120381e1 orr r0, r1, r2, lsl r3 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=0001 r0=0xfffffff9 r1=0x40000000 r2=0xee85adfc r3=0x9b6bf4e4
+out pc=0x30002004 sig=trap r0=0x40000000
+case Alu 120381e1 orr r0, r1, r2, lsl r3 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=1000 r0=0x8000 r1=0xfffffff5 r2=0x7ffffffc r3=0xf
+out pc=0x30002004 sig=trap r0=0xfffffff5
+case Alu 1a5988e1 orr r5, r8, r10, lsl r9 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=1010 r5=0x80000008 r8=0x9122a6f8 r9=0x3fff r10=0xf3bf4c18
+out pc=0x30002004 sig=trap r5=0x9122a6f8
+case Alu 1a5988e1 orr r5, r8, r10, lsl r9 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=1111 r5=0x1f r8=0x873b7b88 r9=0x4000 r10=0x339756c5
+out pc=0x30002004 sig=trap r5=0xb7bf7fcd
+case Alu 1a5988e1 orr r5, r8, r10, lsl r9 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=1010 r5=0x1 r8=0x80000005 r9=0x4 r10=0x7ffffff4
+out pc=0x30002004 sig=trap r5=0xffffff45
+case Alu 1c968be1 orr r9, r11, r12, lsl r6 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=0000 r6=0xfffffffe r9=0xc94d8695 r11=0x11d6d620 r12=0x4000000
+out pc=0x30002004 sig=trap r9=0x11d6d620
+case Alu 1c968be1 orr r9, r11, r12, lsl r6 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=0110 r6=0xfffffffb r9=0x6284af1a r11=0x2 r12=0xfffffffd
+out pc=0x30002004 sig=trap r9=0x2
+case Alu 1c968be1 orr r9, r11, r12, lsl r6 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=1111 r6=0xfffffff1 r9=0x40000 r11=0x0 r12=0x7
+out pc=0x30002004 sig=trap r9=0x0
+case Alu 16cc8ee1 orr r12, r14, r6, lsl r12 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=1000 r6=0x854a930b r12=0x8000000f lr=0x1f
+out pc=0x30002004 sig=trap r12=0x4985801f
+case Alu 16cc8ee1 orr r12, r14, r6, lsl r12 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=0110 r6=0x2ad76513 r12=0x6b1cd2ed lr=0xd
+out pc=0x30002004 sig=trap r12=0xd
+case Alu 16cc8ee1 orr r12, r14, r6, lsl r12 <- orr {Rd}, {Rn}, {Rm}, lsl {Rs}
+in nzcv=0100 r6=0x63a7b68c r12=0x3fff lr=0x400
+out pc=0x30002004 sig=trap r12=0x400
+case Alu 0000d1e3 bics r0, r1, #0 <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=1011 r0=0x80000000 r1=0x7fffffff
+out pc=0x30002004 sig=trap r0=0x7fffffff nzcv=0011
+case Alu 0000d1e3 bics r0, r1, #0 <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=1110 r0=0x5 r1=0x3fffff
+out pc=0x30002004 sig=trap r0=0x3fffff nzcv=0010
+case Alu 0000d1e3 bics r0, r1, #0 <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=1101 r0=0x7ffffffb r1=0x8000000b
+out pc=0x30002004 sig=trap r0=0x8000000b nzcv=1001
+case Alu ff50d8e3 bics r5, r8, #0xff <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=1100 r5=0x80000006 r8=0xfffffffe
+out pc=0x30002004 sig=trap r5=0xffffff00 nzcv=1000
+case Alu ff50d8e3 bics r5, r8, #0xff <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=1000 r5=0x307c0ffe r8=0x1fffffff
+out pc=0x30002004 sig=trap r5=0x1fffff00 nzcv=0000
+case Alu ff50d8e3 bics r5, r8, #0xff <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=1100 r5=0x1ffff r8=0x330df7f1
+out pc=0x30002004 sig=trap r5=0x330df700 nzcv=0000
+case Alu ff9cdbe3 bics r9, r11, #0xff00 <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=0001 r9=0x8 r11=0x401d5c1
+out pc=0x30002004 sig=trap r9=0x40100c1
+case Alu ff9cdbe3 bics r9, r11, #0xff00 <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=0111 r9=0x7ff r11=0xffffff
+out pc=0x30002004 sig=trap r9=0xff00ff nzcv=0001
+case Alu ff9cdbe3 bics r9, r11, #0xff00 <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=1101 r9=0x80 r11=0x40ba9025
+out pc=0x30002004 sig=trap r9=0x40ba0025 nzcv=0001
+case Alu 02c1dee3 bics r12, r14, #0x80000000 <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=0101 r12=0xe959795b lr=0xa
+out pc=0x30002004 sig=trap r12=0xa nzcv=0011
+case Alu 02c1dee3 bics r12, r14, #0x80000000 <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=1111 r12=0x402712b7 lr=0x40
+out pc=0x30002004 sig=trap r12=0x40 nzcv=0011
+case Alu 02c1dee3 bics r12, r14, #0x80000000 <- bics {Rd}, {Rn}, #{aimm}
+in nzcv=1010 r12=0x7ffffff0 lr=0x7ffffffd
+out pc=0x30002004 sig=trap r12=0x7ffffffd nzcv=0010
+case Alu 000011e3 tst r1, #0 <- tst {Rn}, #{aimm}
+in nzcv=1111 r1=0x1
+out pc=0x30002004 sig=trap nzcv=0111
+case Alu 000011e3 tst r1, #0 <- tst {Rn}, #{aimm}
+in nzcv=1110 r1=0x7ffff
+out pc=0x30002004 sig=trap nzcv=0110
+case Alu 000011e3 tst r1, #0 <- tst {Rn}, #{aimm}
+in nzcv=0101 r1=0x80f39e36
+out pc=0x30002004 sig=trap
+case Alu ff0018e3 tst r8, #0xff <- tst {Rn}, #{aimm}
+in nzcv=0111 r8=0xd
+out pc=0x30002004 sig=trap nzcv=0011
+case Alu ff0018e3 tst r8, #0xff <- tst {Rn}, #{aimm}
+in nzcv=0000 r8=0x7fffffff
+out pc=0x30002004 sig=trap
+case Alu ff0018e3 tst r8, #0xff <- tst {Rn}, #{aimm}
+in nzcv=0010 r8=0x8000000d
+out pc=0x30002004 sig=trap
+case Alu ff0c1be3 tst r11, #0xff00 <- tst {Rn}, #{aimm}
+in nzcv=0111 r11=0xc5647b69
+out pc=0x30002004 sig=trap nzcv=0001
+case Alu ff0c1be3 tst r11, #0xff00 <- tst {Rn}, #{aimm}
+in nzcv=0010 r11=0xdcbf4b68
+out pc=0x30002004 sig=trap nzcv=0000
+case Alu ff0c1be3 tst r11, #0xff00 <- tst {Rn}, #{aimm}
+in nzcv=1110 r11=0x8000000c
+out pc=0x30002004 sig=trap nzcv=0100
+case Alu 02011ee3 tst r14, #0x80000000 <- tst {Rn}, #{aimm}
+in nzcv=0001 lr=0x47804c98
+out pc=0x30002004 sig=trap nzcv=0111
+case Alu 02011ee3 tst r14, #0x80000000 <- tst {Rn}, #{aimm}
+in nzcv=1000 lr=0x7ffffffe
+out pc=0x30002004 sig=trap nzcv=0110
+case Alu 02011ee3 tst r14, #0x80000000 <- tst {Rn}, #{aimm}
+in nzcv=0011 lr=0x79c01a5f
+out pc=0x30002004 sig=trap nzcv=0111
+case Alu 000071e2 rsbs r0, r1, #0 <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=0011 r0=0x1fff r1=0x4
+out pc=0x30002004 sig=trap r0=0xfffffffc nzcv=1000
+case Alu 000071e2 rsbs r0, r1, #0 <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=1110 r0=0xa r1=0x7ffffff6
+out pc=0x30002004 sig=trap r0=0x8000000a nzcv=1000
+case Alu 000071e2 rsbs r0, r1, #0 <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=1010 r0=0x80000007 r1=0x3ff
+out pc=0x30002004 sig=trap r0=0xfffffc01 nzcv=1000
+case Alu ff5078e2 rsbs r5, r8, #0xff <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=0001 r5=0x7ffffff5 r8=0x3ffff
+out pc=0x30002004 sig=trap r5=0xfffc0100 nzcv=1000
+case Alu ff5078e2 rsbs r5, r8, #0xff <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=0000 r5=0x3ff r8=0xfffffff2
+out pc=0x30002004 sig=trap r5=0x10d
+case Alu ff5078e2 rsbs r5, r8, #0xff <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=1001 r5=0x1c745919 r8=0xfd21acb6
+out pc=0x30002004 sig=trap r5=0x2de5449 nzcv=0000
+case Alu ff9c7be2 rsbs r9, r11, #0xff00 <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=1110 r9=0x7ffff r11=0x40000000
+out pc=0x30002004 sig=trap r9=0xc000ff00 nzcv=1000
+case Alu ff9c7be2 rsbs r9, r11, #0xff00 <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=0111 r9=0x3c5c3903 r11=0x262e0d2e
+out pc=0x30002004 sig=trap r9=0xd9d2f1d2 nzcv=1000
+case Alu ff9c7be2 rsbs r9, r11, #0xff00 <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=0000 r9=0x80000008 r11=0x3fffffff
+out pc=0x30002004 sig=trap r9=0xc000ff01 nzcv=1000
+case Alu 02c17ee2 rsbs r12, r14, #0x80000000 <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=1100 r12=0xd lr=0x80000004
+out pc=0x30002004 sig=trap r12=0xfffffffc nzcv=1000
+case Alu 02c17ee2 rsbs r12, r14, #0x80000000 <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=1101 r12=0x2000 lr=0x80000008
+out pc=0x30002004 sig=trap r12=0xfffffff8 nzcv=1000
+case Alu 02c17ee2 rsbs r12, r14, #0x80000000 <- rsbs {Rd}, {Rn}, #{aimm}
+in nzcv=0111 r12=0xe118c82c lr=0x4000000
+out pc=0x30002004 sig=trap r12=0x7c000000 nzcv=0011
+case Alu 0200f1e0 rscs r0, r1, r2 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=1100 r0=0x5 r1=0x80000002 r2=0x7720e5ae
+out pc=0x30002004 sig=trap r0=0xf720e5ab nzcv=1001
+case Alu 0200f1e0 rscs r0, r1, r2 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=0111 r0=0x3a01833e r1=0x7ffffff5 r2=0x100
+out pc=0x30002004 sig=trap r0=0x8000010b nzcv=1000
+case Alu 0200f1e0 rscs r0, r1, r2 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=1101 r0=0x400000 r1=0xc r2=0xfffffff3
+out pc=0x30002004 sig=trap r0=0xffffffe6 nzcv=1010
+case Alu 0a50f8e0 rscs r5, r8, r10 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=0011 r5=0x7ffffff3 r8=0x9 r10=0x7ffffff1
+out pc=0x30002004 sig=trap r5=0x7fffffe8 nzcv=0010
+case Alu 0a50f8e0 rscs r5, r8, r10 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=1100 r5=0x8 r8=0xfffffff4 r10=0xb6df585
+out pc=0x30002004 sig=trap r5=0xb6df590 nzcv=0000
+case Alu 0a50f8e0 rscs r5, r8, r10 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=1001 r5=0x64e9f r8=0x80000009 r10=0x9bf1d100
+out pc=0x30002004 sig=trap r5=0x1bf1d0f6 nzcv=0010
+case Alu 0c90fbe0 rscs r9, r11, r12 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=1110 r9=0x1 r11=0x80000 r12=0x7ffffffb
+out pc=0x30002004 sig=trap r9=0x7ff7fffb nzcv=0010
+case Alu 0c90fbe0 rscs r9, r11, r12 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=1001 r9=0x7ffffffd r11=0x100000 r12=0x100
+out pc=0x30002004 sig=trap r9=0xfff000ff nzcv=1000
+case Alu 0c90fbe0 rscs r9, r11, r12 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=0000 r9=0x1fffff r11=0x2000000 r12=0x8000000f
+out pc=0x30002004 sig=trap r9=0x7e00000e nzcv=0011
+case Alu 06c0fee0 rscs r12, r14, r6 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=1111 r6=0x1000 r12=0x7ffffffa lr=0x8000000
+out pc=0x30002004 sig=trap r12=0xf8001000 nzcv=1000
+case Alu 06c0fee0 rscs r12, r14, r6 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=0000 r6=0x200000 r12=0xfae758fd lr=0x100
+out pc=0x30002004 sig=trap r12=0x1ffeff nzcv=0010
+case Alu 06c0fee0 rscs r12, r14, r6 <- rscs {Rd}, {Rn}, {Rm}
+in nzcv=1110 r6=0x9 r12=0xf lr=0x7ffffffd
+out pc=0x30002004 sig=trap r12=0x8000000c nzcv=1000
+case Alu 0200b1e0 adcs r0, r1, r2 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=0010 r0=0x1 r1=0x5631c09b r2=0x4
+out pc=0x30002004 sig=trap r0=0x5631c0a0 nzcv=0000
+case Alu 0200b1e0 adcs r0, r1, r2 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=1001 r0=0x3fffffff r1=0x7fffff r2=0x7fffffff
+out pc=0x30002004 sig=trap r0=0x807ffffe
+case Alu 0200b1e0 adcs r0, r1, r2 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=0101 r0=0x10000000 r1=0xb r2=0x800
+out pc=0x30002004 sig=trap r0=0x80b nzcv=0000
+case Alu 0a50b8e0 adcs r5, r8, r10 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=1100 r5=0x7ffffffd r8=0x4ca90dca r10=0x3
+out pc=0x30002004 sig=trap r5=0x4ca90dcd nzcv=0000
+case Alu 0a50b8e0 adcs r5, r8, r10 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=0001 r5=0xf18e5a8a r8=0x3ff r10=0xfffffffa
+out pc=0x30002004 sig=trap r5=0x3f9 nzcv=0010
+case Alu 0a50b8e0 adcs r5, r8, r10 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=1001 r5=0xdf0b72b0 r8=0xa r10=0xf
+out pc=0x30002004 sig=trap r5=0x19 nzcv=0000
+case Alu 0c90bbe0 adcs r9, r11, r12 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=0010 r9=0x1ff r11=0xfffffff5 r12=0x2d93096c
+out pc=0x30002004 sig=trap r9=0x2d930962
+case Alu 0c90bbe0 adcs r9, r11, r12 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=1011 r9=0x7ffffffa r11=0xfffffff9 r12=0x7ffffff0
+out pc=0x30002004 sig=trap r9=0x7fffffea nzcv=0010
+case Alu 0c90bbe0 adcs r9, r11, r12 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=0010 r9=0x2a4a4f60 r11=0xf r12=0x4d58ada5
+out pc=0x30002004 sig=trap r9=0x4d58adb5 nzcv=0000
+case Alu 06c0bee0 adcs r12, r14, r6 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=0100 r6=0x1 r12=0xd4292390 lr=0x800
+out pc=0x30002004 sig=trap r12=0x801 nzcv=0000
+case Alu 06c0bee0 adcs r12, r14, r6 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=1001 r6=0xfffffffc r12=0xdae5f661 lr=0x8000000f
+out pc=0x30002004 sig=trap r12=0x8000000b nzcv=1010
+case Alu 06c0bee0 adcs r12, r14, r6 <- adcs {Rd}, {Rn}, {Rm}
+in nzcv=0001 r6=0x72847ee6 r12=0x1 lr=0xfffffffe
+out pc=0x30002004 sig=trap r12=0x72847ee4 nzcv=0010
+case MovWide 00000003 movweq r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1110 r0=0x349c747c
+out pc=0x30002004 sig=trap r0=0x0
+case MovWide 00000003 movweq r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1110 r0=0x800000
+out pc=0x30002004 sig=trap r0=0x0
+case MovWide 00000003 movweq r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=0100 r0=0xea4a4245
+out pc=0x30002004 sig=trap r0=0x0
+case MovWide ff5f0f13 movwne r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=1000 r5=0xfffffff6
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide ff5f0f13 movwne r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=0101 r5=0x1000
+out pc=0x30002004 sig=trap
+case MovWide ff5f0f13 movwne r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=1011 r5=0x10
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide 34920123 movwcs r9, #0x1234 <- movw{cond} {Rd}, #{imm16}
+in nzcv=0110 r9=0xfffffffd
+out pc=0x30002004 sig=trap r9=0x1234
+case MovWide 34920123 movwcs r9, #0x1234 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1101 r9=0x7ffffff8
+out pc=0x30002004 sig=trap
+case MovWide 34920123 movwcs r9, #0x1234 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1010 r9=0x5
+out pc=0x30002004 sig=trap r9=0x1234
+case MovWide 00c00833 movwcc r12, #0x8000 <- movw{cond} {Rd}, #{imm16}
+in nzcv=0111 r12=0x80000005
+out pc=0x30002004 sig=trap
+case MovWide 00c00833 movwcc r12, #0x8000 <- movw{cond} {Rd}, #{imm16}
+in nzcv=0011 r12=0x40
+out pc=0x30002004 sig=trap
+case MovWide 00c00833 movwcc r12, #0x8000 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1100 r12=0x10
+out pc=0x30002004 sig=trap r12=0x8000
+case MovWide 00000043 movwmi r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1110 r0=0x7ffffff5
+out pc=0x30002004 sig=trap r0=0x0
+case MovWide 00000043 movwmi r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=0010 r0=0x7ffffffb
+out pc=0x30002004 sig=trap
+case MovWide 00000043 movwmi r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1010 r0=0x7ffffff9
+out pc=0x30002004 sig=trap r0=0x0
+case MovWide ff5f0f53 movwpl r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=1000 r5=0x40417ee7
+out pc=0x30002004 sig=trap
+case MovWide ff5f0f53 movwpl r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=1011 r5=0x7ffffff
+out pc=0x30002004 sig=trap
+case MovWide ff5f0f53 movwpl r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=0100 r5=0xfffffff2
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide 34920163 movwvs r9, #0x1234 <- movw{cond} {Rd}, #{imm16}
+in nzcv=0010 r9=0x7fffffff
+out pc=0x30002004 sig=trap
+case MovWide 34920163 movwvs r9, #0x1234 <- movw{cond} {Rd}, #{imm16}
+in nzcv=0110 r9=0xa
+out pc=0x30002004 sig=trap
+case MovWide 34920163 movwvs r9, #0x1234 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1000 r9=0x4c5fff17
+out pc=0x30002004 sig=trap
+case MovWide 00c00873 movwvc r12, #0x8000 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1110 r12=0x7f
+out pc=0x30002004 sig=trap r12=0x8000
+case MovWide 00c00873 movwvc r12, #0x8000 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1011 r12=0x80000008
+out pc=0x30002004 sig=trap
+case MovWide 00c00873 movwvc r12, #0x8000 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1110 r12=0x7ffffff7
+out pc=0x30002004 sig=trap r12=0x8000
+case MovWide 00000083 movwhi r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1101 r0=0x7ffffffa
+out pc=0x30002004 sig=trap
+case MovWide 00000083 movwhi r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1101 r0=0x7ffffffa
+out pc=0x30002004 sig=trap
+case MovWide 00000083 movwhi r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1111 r0=0x8000000b
+out pc=0x30002004 sig=trap
+case MovWide ff5f0f93 movwls r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=1110 r5=0x1fffffff
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide ff5f0f93 movwls r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=1000 r5=0xef5f0bcd
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide ff5f0f93 movwls r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=1010 r5=0x3d7a071b
+out pc=0x30002004 sig=trap
+case MovWide 349201a3 movwge r9, #0x1234 <- movw{cond} {Rd}, #{imm16}
+in nzcv=0100 r9=0x53cd1241
+out pc=0x30002004 sig=trap r9=0x1234
+case MovWide 349201a3 movwge r9, #0x1234 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1010 r9=0x88227464
+out pc=0x30002004 sig=trap
+case MovWide 349201a3 movwge r9, #0x1234 <- movw{cond} {Rd}, #{imm16}
+in nzcv=0000 r9=0x10000000
+out pc=0x30002004 sig=trap r9=0x1234
+case MovWide 00c008b3 movwlt r12, #0x8000 <- movw{cond} {Rd}, #{imm16}
+in nzcv=0111 r12=0x7ffffff0
+out pc=0x30002004 sig=trap r12=0x8000
+case MovWide 00c008b3 movwlt r12, #0x8000 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1010 r12=0xd82f7d46
+out pc=0x30002004 sig=trap r12=0x8000
+case MovWide 00c008b3 movwlt r12, #0x8000 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1010 r12=0x557b4193
+out pc=0x30002004 sig=trap r12=0x8000
+case MovWide 000000c3 movwgt r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1000 r0=0x1000000
+out pc=0x30002004 sig=trap
+case MovWide 000000c3 movwgt r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1011 r0=0xb06d2c4
+out pc=0x30002004 sig=trap r0=0x0
+case MovWide 000000c3 movwgt r0, #0 <- movw{cond} {Rd}, #{imm16}
+in nzcv=1101 r0=0xced4d2d7
+out pc=0x30002004 sig=trap
+case MovWide ff5f0fd3 movwle r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=1110 r5=0xb732b83e
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide ff5f0fd3 movwle r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=1010 r5=0x7ffffff4
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide ff5f0fd3 movwle r5, #0xffff <- movw{cond} {Rd}, #{imm16}
+in nzcv=1010 r5=0x9f2bc8e0
+out pc=0x30002004 sig=trap r5=0xffff
+case MovWide 000040e3 movt r0, #0 <- movt {Rd}, #{imm16}
+in nzcv=1101 r0=0x7ffffffa
+out pc=0x30002004 sig=trap r0=0xfffa
+case MovWide 000040e3 movt r0, #0 <- movt {Rd}, #{imm16}
+in nzcv=0010 r0=0x1ffff
+out pc=0x30002004 sig=trap r0=0xffff
+case MovWide 000040e3 movt r0, #0 <- movt {Rd}, #{imm16}
+in nzcv=1111 r0=0x9a256ea3
+out pc=0x30002004 sig=trap r0=0x6ea3
+case MovWide ff5f4fe3 movt r5, #0xffff <- movt {Rd}, #{imm16}
+in nzcv=1011 r5=0x4ff2635f
+out pc=0x30002004 sig=trap r5=0xffff635f
+case MovWide ff5f4fe3 movt r5, #0xffff <- movt {Rd}, #{imm16}
+in nzcv=0111 r5=0x1fff
+out pc=0x30002004 sig=trap r5=0xffff1fff
+case MovWide ff5f4fe3 movt r5, #0xffff <- movt {Rd}, #{imm16}
+in nzcv=0011 r5=0xfffffff7
+out pc=0x30002004 sig=trap
+case MovWide 349241e3 movt r9, #0x1234 <- movt {Rd}, #{imm16}
+in nzcv=1000 r9=0xd8099162
+out pc=0x30002004 sig=trap r9=0x12349162
+case MovWide 349241e3 movt r9, #0x1234 <- movt {Rd}, #{imm16}
+in nzcv=0100 r9=0x74828bb3
+out pc=0x30002004 sig=trap r9=0x12348bb3
+case MovWide 349241e3 movt r9, #0x1234 <- movt {Rd}, #{imm16}
+in nzcv=0001 r9=0x77be3b98
+out pc=0x30002004 sig=trap r9=0x12343b98
+case MovWide 00c048e3 movt r12, #0x8000 <- movt {Rd}, #{imm16}
+in nzcv=1001 r12=0xfffffff8
+out pc=0x30002004 sig=trap r12=0x8000fff8
+case MovWide 00c048e3 movt r12, #0x8000 <- movt {Rd}, #{imm16}
+in nzcv=1000 r12=0x3fffffff
+out pc=0x30002004 sig=trap r12=0x8000ffff
+case MovWide 00c048e3 movt r12, #0x8000 <- movt {Rd}, #{imm16}
+in nzcv=1111 r12=0x80000008
+out pc=0x30002004 sig=trap
+case Mul 91020000 muleq r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r0=0x7ffffff9 r1=0x31788e6e r2=0x7ff
+out pc=0x30002004 sig=trap
+case Mul 91020000 muleq r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1111 r0=0x7ffffffb r1=0x7ffffff7 r2=0x7ffffff
+out pc=0x30002004 sig=trap r0=0x38000009
+case Mul 91020000 muleq r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1111 r0=0xfffffff5 r1=0x80000009 r2=0x4
+out pc=0x30002004 sig=trap r0=0x24
+case Mul 980a0510 mulne r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0100 r5=0xdba03e25 r8=0x9745e4af r10=0x8
+out pc=0x30002004 sig=trap
+case Mul 980a0510 mulne r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0010 r5=0x8000000a r8=0x7ffffff7 r10=0xb08a9092
+out pc=0x30002004 sig=trap r5=0xcb20eade
+case Mul 980a0510 mulne r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1011 r5=0x7fffffff r8=0x1 r10=0xefcb7527
+out pc=0x30002004 sig=trap r5=0xefcb7527
+case Mul 9b0c0920 mulcs r9, r11, r12 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0101 r9=0x100 r11=0xa2222829 r12=0x8000000c
+out pc=0x30002004 sig=trap
+case Mul 9b0c0920 mulcs r9, r11, r12 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1111 r9=0x7ffffff3 r11=0x7ffffff r12=0xfffffff3
+out pc=0x30002004 sig=trap r9=0x9800000d
+case Mul 9b0c0920 mulcs r9, r11, r12 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0001 r9=0xaa80e2e7 r11=0xa r12=0x7ffffffb
+out pc=0x30002004 sig=trap
+case Mul 9e060c30 mulcc r12, r14, r6 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1000 r6=0x8000000d r12=0xe lr=0xfffffff6
+out pc=0x30002004 sig=trap r12=0xffffff7e
+case Mul 9e060c30 mulcc r12, r14, r6 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r6=0x7ffffffb r12=0xfffffff1 lr=0xe
+out pc=0x30002004 sig=trap
+case Mul 9e060c30 mulcc r12, r14, r6 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1011 r6=0x7cc80d6c r12=0x1f lr=0xc
+out pc=0x30002004 sig=trap
+case Mul 91020040 mulmi r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0111 r0=0x7ffffffb r1=0x80000000 r2=0x7ffffffa
+out pc=0x30002004 sig=trap
+case Mul 91020040 mulmi r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0111 r0=0x8000000c r1=0x8000000c r2=0xfffffff8
+out pc=0x30002004 sig=trap
+case Mul 91020040 mulmi r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0000 r0=0x8000000d r1=0x7fffffff r2=0x80000009
+out pc=0x30002004 sig=trap
+case Mul 980a0550 mulpl r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0100 r5=0x64faac37 r8=0xf269b653 r10=0x8000000
+out pc=0x30002004 sig=trap r5=0x98000000
+case Mul 980a0550 mulpl r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1011 r5=0xfffffffd r8=0x8000000f r10=0x80000008
+out pc=0x30002004 sig=trap
+case Mul 980a0550 mulpl r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r5=0x7ffffff8 r8=0x3fff r10=0x200
+out pc=0x30002004 sig=trap r5=0x7ffe00
+case Mul 9b0c0960 mulvs r9, r11, r12 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1101 r9=0x7ffffff6 r11=0xafc787b9 r12=0x8ef2b26e
+out pc=0x30002004 sig=trap r9=0x2efcf37e
+case Mul 9b0c0960 mulvs r9, r11, r12 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0111 r9=0x77c299d9 r11=0xfffffffb r12=0xfffffff3
+out pc=0x30002004 sig=trap r9=0x41
+case Mul 9b0c0960 mulvs r9, r11, r12 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0110 r9=0x7ffffff4 r11=0x80000002 r12=0xb4c40e00
+out pc=0x30002004 sig=trap
+case Mul 9e060c70 mulvc r12, r14, r6 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1101 r6=0x33b1dbe0 r12=0xfffffff8 lr=0x7ffffff9
+out pc=0x30002004 sig=trap
+case Mul 9e060c70 mulvc r12, r14, r6 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1100 r6=0x8000000c r12=0xf3de1ddf lr=0x2000
+out pc=0x30002004 sig=trap r12=0x18000
+case Mul 9e060c70 mulvc r12, r14, r6 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1011 r6=0x56137f19 r12=0x80000000 lr=0xff
+out pc=0x30002004 sig=trap
+case Mul 91020080 mulhi r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1110 r0=0xbf070288 r1=0x7ffffff3 r2=0x80070a64
+out pc=0x30002004 sig=trap
+case Mul 91020080 mulhi r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0111 r0=0x7ffffff9 r1=0x7ffffffb r2=0xc96143e5
+out pc=0x30002004 sig=trap
+case Mul 91020080 mulhi r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0010 r0=0x34fa0be9 r1=0x7ffffff1 r2=0x10000
+out pc=0x30002004 sig=trap r0=0xfff10000
+case Mul 980a0590 mulls r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1010 r5=0xfffffffe r8=0xc0bdd23f r10=0xfffffff5
+out pc=0x30002004 sig=trap
+case Mul 980a0590 mulls r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0001 r5=0xfffffff0 r8=0xfffffff9 r10=0x38e53b64
+out pc=0x30002004 sig=trap r5=0x71bb6044
+case Mul 980a0590 mulls r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1010 r5=0x8000000a r8=0xfffffff2 r10=0x8000000f
+out pc=0x30002004 sig=trap
+case Mul 9b0c09a0 mulge r9, r11, r12 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r9=0x7fffffff r11=0x1fffffff r12=0x7ffffffb
+out pc=0x30002004 sig=trap
+case Mul 9b0c09a0 mulge r9, r11, r12 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1100 r9=0x12d00bcf r11=0x8 r12=0xbb23a1cc
+out pc=0x30002004 sig=trap
+case Mul 9b0c09a0 mulge r9, r11, r12 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0111 r9=0x744e7292 r11=0x8000 r12=0xfffffff8
+out pc=0x30002004 sig=trap
+case Mul 9e060cb0 mullt r12, r14, r6 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1000 r6=0xfffffff5 r12=0x3 lr=0xbf642c83
+out pc=0x30002004 sig=trap r12=0xc6b2165f
+case Mul 9e060cb0 mullt r12, r14, r6 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r6=0x6482f6d9 r12=0x6 lr=0xc883d244
+out pc=0x30002004 sig=trap r12=0xfa5293a4
+case Mul 9e060cb0 mullt r12, r14, r6 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1011 r6=0xfffffff2 r12=0x8000000a lr=0x7ffffff8
+out pc=0x30002004 sig=trap
+case Mul 910200c0 mulgt r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0110 r0=0x0 r1=0xfffffff0 r2=0xfffffff
+out pc=0x30002004 sig=trap
+case Mul 910200c0 mulgt r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1011 r0=0xf r1=0x80000004 r2=0x10
+out pc=0x30002004 sig=trap r0=0x40
+case Mul 910200c0 mulgt r0, r1, r2 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1000 r0=0x1 r1=0xb446943d r2=0x7fffffff
+out pc=0x30002004 sig=trap
+case Mul 980a05d0 mulle r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0011 r5=0xfffffff9 r8=0x8000000c r10=0x8
+out pc=0x30002004 sig=trap r5=0x60
+case Mul 980a05d0 mulle r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=0101 r5=0x8000000e r8=0x35369afc r10=0x4707fd99
+out pc=0x30002004 sig=trap r5=0xe5b1ac9c
+case Mul 980a05d0 mulle r5, r8, r10 <- mul{cond} {Rd}, {Rn}, {Rm}
+in nzcv=1000 r5=0x7fff r8=0xa7a8439e r10=0x3ff
+out pc=0x30002004 sig=trap r5=0xf9663462
+case Mul 913220e0 mla r0, r1, r2, r3 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=1000 r0=0xaf0a9dc2 r1=0x7ffff r2=0x9b6336df r3=0x7ffffff9
+out pc=0x30002004 sig=trap r0=0x9b94c91a
+case Mul 913220e0 mla r0, r1, r2, r3 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=0011 r0=0x80000008 r1=0x2220b863 r2=0x8000000b r3=0x7ffffffd
+out pc=0x30002004 sig=trap r0=0x7767ec3e
+case Mul 913220e0 mla r0, r1, r2, r3 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=1010 r0=0xfffffff9 r1=0x2000 r2=0xfffffff1 r3=0x7ffffff2
+out pc=0x30002004 sig=trap r0=0x7ffe1ff2
+case Mul 984a25e0 mla r5, r8, r10, r4 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=1000 r4=0xd r5=0x7ffffff8 r8=0x42121615 r10=0x109024db
+out pc=0x30002004 sig=trap r5=0xcc63d804
+case Mul 984a25e0 mla r5, r8, r10, r4 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=1000 r4=0x8000000e r5=0x7bb9c528 r8=0x4000 r10=0x7ffffff7
+out pc=0x30002004 sig=trap r5=0x7ffdc00e
+case Mul 984a25e0 mla r5, r8, r10, r4 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=0010 r4=0x7ffffff2 r5=0x4000 r8=0x0 r10=0x80000009
+out pc=0x30002004 sig=trap r5=0x7ffffff2
+case Mul 9b7c29e0 mla r9, r11, r12, r7 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=1101 r7=0x80000005 r9=0xf r11=0x27f7dd83 r12=0x3
+out pc=0x30002004 sig=trap r9=0xf7e7988e
+case Mul 9b7c29e0 mla r9, r11, r12, r7 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=1110 r7=0x3fffff r9=0x8000000d r11=0xfffffff6 r12=0x7fff
+out pc=0x30002004 sig=trap r9=0x3b0009
+case Mul 9b7c29e0 mla r9, r11, r12, r7 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=0000 r7=0xeeb141b9 r9=0x48beb3e4 r11=0x80000002 r12=0xfffffffa
+out pc=0x30002004 sig=trap r9=0xeeb141ad
+case Mul 9eb62ce0 mla r12, r14, r6, r11 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=1001 r6=0x8000000a r11=0xfffffff2 r12=0xd lr=0x63e74146
+out pc=0x30002004 sig=trap r12=0xe7088cae
+case Mul 9eb62ce0 mla r12, r14, r6, r11 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=1111 r6=0x3fffff r11=0x8000000f r12=0xf lr=0x7ffffffa
+out pc=0x30002004 sig=trap r12=0xfe800015
+case Mul 9eb62ce0 mla r12, r14, r6, r11 <- mla {Rd}, {Rn}, {Rm}, {Ra}
+in nzcv=1111 r6=0xc2e5be07 r11=0x3 r12=0x1fffff lr=0x3fffffff
+out pc=0x30002004 sig=trap r12=0xfd1a41fc
+case LongMul 910283e0 umull r0, r3, r1, r2 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0000 r0=0xfffffff4 r1=0x7fffffff r2=0x3dafdc1d r3=0x80
+out pc=0x30002004 sig=trap r0=0x425023e3 r3=0x1ed7ee0e
+case LongMul 910283e0 umull r0, r3, r1, r2 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0111 r0=0xf r1=0x1 r2=0xfffffff6 r3=0x989ee402
+out pc=0x30002004 sig=trap r0=0xfffffff6 r3=0x0
+case LongMul 910283e0 umull r0, r3, r1, r2 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0001 r0=0xd56d087f r1=0x80000003 r2=0xfa2ade2d r3=0x80000004
+out pc=0x30002004 sig=trap r0=0x6e809a87 r3=0x7d156f19
+case LongMul 985a84e0 umull r5, r4, r8, r10 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=1001 r4=0xfffffff8 r5=0xcdd68653 r8=0xffffff r10=0x6
+out pc=0x30002004 sig=trap r4=0x0 r5=0x5fffffa
+case LongMul 985a84e0 umull r5, r4, r8, r10 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0001 r4=0x80000003 r5=0x905c715e r8=0x847f20d3 r10=0x1f
+out pc=0x30002004 sig=trap r4=0x10 r5=0xb64f98d
+case LongMul 985a84e0 umull r5, r4, r8, r10 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0101 r4=0x7ffffff1 r5=0x8000000e r8=0xfffffffd r10=0x6536a87a
+out pc=0x30002004 sig=trap r4=0x6536a878 r5=0xd05c0692
+case LongMul 9b9c87e0 umull r9, r7, r11, r12 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0000 r7=0x8000000e r9=0xfffffff1 r11=0x7fffffff r12=0x10
+out pc=0x30002004 sig=trap r7=0x7 r9=0xfffffff0
+case LongMul 9b9c87e0 umull r9, r7, r11, r12 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0101 r7=0x6d5f9b4 r9=0x8000000b r11=0xdd11f930 r12=0x38de3738
+out pc=0x30002004 sig=trap r7=0x311bd3c7 r9=0xd017d280
+case LongMul 9b9c87e0 umull r9, r7, r11, r12 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=1011 r7=0x8 r9=0xb2d5338d r11=0x10000 r12=0x6b1a2c35
+out pc=0x30002004 sig=trap r7=0x6b1a r9=0x2c350000
+case LongMul 9ec68be0 umull r12, r11, r14, r6 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0110 r6=0x9441d418 r11=0x35a048f8 r12=0x2 lr=0x80000000
+out pc=0x30002004 sig=trap r11=0x4a20ea0c r12=0x0
+case LongMul 9ec68be0 umull r12, r11, r14, r6 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=1010 r6=0x7ffffff4 r11=0xb8de23ac r12=0xffffffff lr=0xfffffff5
+out pc=0x30002004 sig=trap r11=0x7fffffee r12=0x80000084
+case LongMul 9ec68be0 umull r12, r11, r14, r6 <- umull {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0110 r6=0x7ffffff6 r11=0x8 r12=0x1000 lr=0xfffffffc
+out pc=0x30002004 sig=trap r11=0x7ffffff4 r12=0x28
+case LongMul 9102e3e0 smlal r0, r3, r1, r2 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0000 r0=0x4 r1=0x3 r2=0xfffffffa r3=0x2000000
+out pc=0x30002004 sig=trap r0=0xfffffff2 r3=0x1ffffff
+case LongMul 9102e3e0 smlal r0, r3, r1, r2 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0000 r0=0x9 r1=0x800000 r2=0x1d9a8a7a r3=0x7ffffff1
+out pc=0x30002004 sig=trap r0=0x3d000009 r3=0x800ecd36
+case LongMul 9102e3e0 smlal r0, r3, r1, r2 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=1110 r0=0x40000000 r1=0xcd3f3aeb r2=0xb r3=0x8000000d
+out pc=0x30002004 sig=trap r0=0x11b78819 r3=0x8000000b
+case LongMul 985ae4e0 smlal r5, r4, r8, r10 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0101 r4=0x20000 r5=0x7ff r8=0x7 r10=0x80000004
+out pc=0x30002004 sig=trap r4=0x1fffc r5=0x8000081b
+case LongMul 985ae4e0 smlal r5, r4, r8, r10 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=1001 r4=0x4fcfeac7 r5=0xa r8=0x924c0068 r10=0xc
+out pc=0x30002004 sig=trap r4=0x4fcfeac1 r5=0xdb9004ea
+case LongMul 985ae4e0 smlal r5, r4, r8, r10 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=1001 r4=0x7ffffffc r5=0x7fffff r8=0xbbb04c52 r10=0x33914d39
+out pc=0x30002004 sig=trap r4=0x723d5970 r5=0x6227a841
+case LongMul 9b9ce7e0 smlal r9, r7, r11, r12 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0011 r7=0x7fffffff r9=0x80000002 r11=0x1fff r12=0xd
+out pc=0x30002004 sig=trap r9=0x80019ff5
+case LongMul 9b9ce7e0 smlal r9, r7, r11, r12 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=1110 r7=0xfffffff4 r9=0xcc4f9a9f r11=0xfffffff5 r12=0x8000000f
+out pc=0x30002004 sig=trap r7=0xfffffffa r9=0x4c4f99fa
+case LongMul 9b9ce7e0 smlal r9, r7, r11, r12 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=1110 r7=0x7ffffffc r9=0x20000000 r11=0x543bc8ae r12=0x27e8e632
+out pc=0x30002004 sig=trap r7=0x8d21bd7a r9=0xa9a985fc
+case LongMul 9ec6ebe0 smlal r12, r11, r14, r6 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0100 r6=0x8 r11=0x7610c047 r12=0x8000000a lr=0xfffffffc
+out pc=0x30002004 sig=trap r12=0x7fffffea
+case LongMul 9ec6ebe0 smlal r12, r11, r14, r6 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0010 r6=0x800000 r11=0x0 r12=0x160089e7 lr=0xad93f73a
+out pc=0x30002004 sig=trap r11=0xffd6c9fb r12=0xb30089e7
+case LongMul 9ec6ebe0 smlal r12, r11, r14, r6 <- smlal {Rd}, {Ra}, {Rn}, {Rm}
+in nzcv=0001 r6=0x3ffff r11=0xa r12=0xfffffff7 lr=0x4
+out pc=0x30002004 sig=trap r11=0xb r12=0xffff3
+case Div 11f210e7 sdiv r0, r1, r2 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=0000 r0=0x80000000 r1=0x7ffffff7 r2=0x7ffffffd
+out pc=0x30002004 sig=trap r0=0x0
+case Div 11f210e7 sdiv r0, r1, r2 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=1101 r0=0x9bf278bc r1=0xfffffff7 r2=0xdfe4abd5
+out pc=0x30002004 sig=trap r0=0x0
+case Div 11f210e7 sdiv r0, r1, r2 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=1100 r0=0x52e3cd90 r1=0xfffffff2 r2=0x3d06e5
+out pc=0x30002004 sig=trap r0=0x0
+case Div 18fa15e7 sdiv r5, r8, r10 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=0000 r5=0x7 r8=0xb r10=0x0
+out pc=0x30002004 sig=trap r5=0x0
+case Div 18fa15e7 sdiv r5, r8, r10 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=1111 r5=0x3fff r8=0xe0ddc20 r10=0x3
+out pc=0x30002004 sig=trap r5=0x4af4960
+case Div 18fa15e7 sdiv r5, r8, r10 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=1011 r5=0x4 r8=0x80000000 r10=0x0
+out pc=0x30002004 sig=trap r5=0x0
+case Div 1bfc19e7 sdiv r9, r11, r12 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=0100 r9=0x44c7529a r11=0x1fff r12=0x0
+out pc=0x30002004 sig=trap r9=0x0
+case Div 1bfc19e7 sdiv r9, r11, r12 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=0111 r9=0xfffffffa r11=0x7e25362a r12=0x0
+out pc=0x30002004 sig=trap r9=0x0
+case Div 1bfc19e7 sdiv r9, r11, r12 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=0010 r9=0x8f8e685f r11=0x80000005 r12=0x0
+out pc=0x30002004 sig=trap r9=0x0
+case Div 1ef61ce7 sdiv r12, r14, r6 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=0101 r6=0x0 r12=0x8d4f7f0a lr=0xff
+out pc=0x30002004 sig=trap r12=0x0
+case Div 1ef61ce7 sdiv r12, r14, r6 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=0011 r6=0x80000002 r12=0x7fffffff lr=0x1fff
+out pc=0x30002004 sig=trap r12=0x0
+case Div 1ef61ce7 sdiv r12, r14, r6 <- sdiv {Rd}, {Rn}, {Rm}
+in nzcv=1101 r6=0xfffffffd r12=0x20000000 lr=0x80000000
+out pc=0x30002004 sig=trap r12=0x2aaaaaaa
+case Div 11f230e7 udiv r0, r1, r2 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=0111 r0=0x80000003 r1=0xfffffffc r2=0x1fffffff
+out pc=0x30002004 sig=trap r0=0x8
+case Div 11f230e7 udiv r0, r1, r2 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=1110 r0=0x2000 r1=0xfffffff6 r2=0xfffffff9
+out pc=0x30002004 sig=trap r0=0x0
+case Div 11f230e7 udiv r0, r1, r2 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=0101 r0=0x20000000 r1=0x400000 r2=0x7
+out pc=0x30002004 sig=trap r0=0x92492
+case Div 18fa35e7 udiv r5, r8, r10 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=0000 r5=0x78e96af6 r8=0xa0556ec0 r10=0x429476d7
+out pc=0x30002004 sig=trap r5=0x2
+case Div 18fa35e7 udiv r5, r8, r10 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=0000 r5=0xea4243e1 r8=0x7ffffff7 r10=0x0
+out pc=0x30002004 sig=trap r5=0x0
+case Div 18fa35e7 udiv r5, r8, r10 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=0111 r5=0x7fffffff r8=0xfffff r10=0x7ffffffd
+out pc=0x30002004 sig=trap r5=0x0
+case Div 1bfc39e7 udiv r9, r11, r12 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=0011 r9=0xfffffff6 r11=0xfcd15cf6 r12=0xdec5cc13
+out pc=0x30002004 sig=trap r9=0x1
+case Div 1bfc39e7 udiv r9, r11, r12 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=1111 r9=0x1fffffff r11=0x7ffffffb r12=0x0
+out pc=0x30002004 sig=trap r9=0x0
+case Div 1bfc39e7 udiv r9, r11, r12 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=1111 r9=0x7ffffff6 r11=0x200000 r12=0x0
+out pc=0x30002004 sig=trap r9=0x0
+case Div 1ef63ce7 udiv r12, r14, r6 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=1000 r6=0x6 r12=0x2 lr=0x400000
+out pc=0x30002004 sig=trap r12=0xaaaaa
+case Div 1ef63ce7 udiv r12, r14, r6 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=1011 r6=0xdba9e0c3 r12=0x2 lr=0x80000009
+out pc=0x30002004 sig=trap r12=0x0
+case Div 1ef63ce7 udiv r12, r14, r6 <- udiv {Rd}, {Rn}, {Rm}
+in nzcv=1010 r6=0xb05fec59 r12=0x7fffffff lr=0xa
+out pc=0x30002004 sig=trap r12=0x0
+case Extend 7200afe6 sxtb r0, r2, ror #0 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=0111 r0=0x4 r2=0x31be4040
+out pc=0x30002004 sig=trap r0=0x40
+case Extend 7200afe6 sxtb r0, r2, ror #0 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=1100 r0=0x5d3b4b8f r2=0x80000007
+out pc=0x30002004 sig=trap r0=0x7
+case Extend 7200afe6 sxtb r0, r2, ror #0 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=1100 r0=0xf r2=0x80000000
+out pc=0x30002004 sig=trap r0=0x0
+case Extend 7a54afe6 sxtb r5, r10, ror #8 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=1010 r5=0x3ffffff r10=0x100
+out pc=0x30002004 sig=trap r5=0x1
+case Extend 7a54afe6 sxtb r5, r10, ror #8 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=1011 r5=0x40000000 r10=0xc
+out pc=0x30002004 sig=trap r5=0x0
+case Extend 7a54afe6 sxtb r5, r10, ror #8 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=1110 r5=0x7fff r10=0x200
+out pc=0x30002004 sig=trap r5=0x2
+case Extend 7c98afe6 sxtb r9, r12, ror #16 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=1101 r9=0xa r12=0xfffffffd
+out pc=0x30002004 sig=trap r9=0xffffffff
+case Extend 7c98afe6 sxtb r9, r12, ror #16 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=0000 r9=0x7 r12=0x9f60d1c3
+out pc=0x30002004 sig=trap r9=0x60
+case Extend 7c98afe6 sxtb r9, r12, ror #16 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=0101 r9=0xfffffff3 r12=0x80000003
+out pc=0x30002004 sig=trap r9=0x0
+case Extend 76ccafe6 sxtb r12, r6, ror #24 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=1100 r6=0x80000006 r12=0x80000000
+out pc=0x30002004 sig=trap r12=0xffffff80
+case Extend 76ccafe6 sxtb r12, r6, ror #24 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=0011 r6=0xfffffff7 r12=0x7fffffff
+out pc=0x30002004 sig=trap r12=0xffffffff
+case Extend 76ccafe6 sxtb r12, r6, ror #24 <- sxtb {Rd}, {Rm}, ror #{rot}
+in nzcv=1100 r6=0x80000004 r12=0x1ff
+out pc=0x30002004 sig=trap r12=0xffffff80
+case Extend 7200ff06 uxtheq r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1111 r0=0x7ffffffa r2=0xd
+out pc=0x30002004 sig=trap r0=0xd
+case Extend 7200ff06 uxtheq r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0100 r0=0x8000 r2=0x2a24f994
+out pc=0x30002004 sig=trap r0=0xf994
+case Extend 7200ff06 uxtheq r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0010 r0=0x6 r2=0x51531b52
+out pc=0x30002004 sig=trap
+case Extend 7a54ff16 uxthne r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0010 r5=0x962f02ad r10=0xb9e3e795
+out pc=0x30002004 sig=trap r5=0xe3e7
+case Extend 7a54ff16 uxthne r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1110 r5=0x368c2a1c r10=0xfff
+out pc=0x30002004 sig=trap
+case Extend 7a54ff16 uxthne r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0100 r5=0xa398ab53 r10=0x8000000c
+out pc=0x30002004 sig=trap
+case Extend 7c98ff26 uxthcs r9, r12, ror #16 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0011 r9=0xfffffffe r12=0xffff
+out pc=0x30002004 sig=trap r9=0x0
+case Extend 7c98ff26 uxthcs r9, r12, ror #16 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0100 r9=0x7ffffff2 r12=0x9
+out pc=0x30002004 sig=trap
+case Extend 7c98ff26 uxthcs r9, r12, ror #16 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1101 r9=0x8000000b r12=0x8000000e
+out pc=0x30002004 sig=trap
+case Extend 76ccff36 uxthcc r12, r6, ror #24 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1011 r6=0x8000000d r12=0x8000000b
+out pc=0x30002004 sig=trap
+case Extend 76ccff36 uxthcc r12, r6, ror #24 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0011 r6=0x7ffffff1 r12=0xa499ecf3
+out pc=0x30002004 sig=trap
+case Extend 76ccff36 uxthcc r12, r6, ror #24 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1111 r6=0xa27c75a5 r12=0x7ffffff0
+out pc=0x30002004 sig=trap
+case Extend 7200ff46 uxthmi r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1001 r0=0xfffffff5 r2=0x20000
+out pc=0x30002004 sig=trap r0=0x0
+case Extend 7200ff46 uxthmi r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1101 r0=0x2b075cc8 r2=0x303eadf2
+out pc=0x30002004 sig=trap r0=0xadf2
+case Extend 7200ff46 uxthmi r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0111 r0=0xce3ef416 r2=0xa0cef705
+out pc=0x30002004 sig=trap
+case Extend 7a54ff56 uxthpl r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0111 r5=0x5 r10=0x8000000f
+out pc=0x30002004 sig=trap r5=0x0
+case Extend 7a54ff56 uxthpl r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0111 r5=0x8000000c r10=0x7ffffff8
+out pc=0x30002004 sig=trap r5=0xffff
+case Extend 7a54ff56 uxthpl r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1110 r5=0xfffffffc r10=0x4000
+out pc=0x30002004 sig=trap
+case Extend 7c98ff66 uxthvs r9, r12, ror #16 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1110 r9=0x2 r12=0x7ffffff8
+out pc=0x30002004 sig=trap
+case Extend 7c98ff66 uxthvs r9, r12, ror #16 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1011 r9=0x7ffffff1 r12=0xfd32769
+out pc=0x30002004 sig=trap r9=0xfd3
+case Extend 7c98ff66 uxthvs r9, r12, ror #16 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0011 r9=0x35d80641 r12=0x1
+out pc=0x30002004 sig=trap r9=0x0
+case Extend 76ccff76 uxthvc r12, r6, ror #24 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0111 r6=0x97a3117a r12=0x10c5e40
+out pc=0x30002004 sig=trap
+case Extend 76ccff76 uxthvc r12, r6, ror #24 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0000 r6=0x800 r12=0x8000000b
+out pc=0x30002004 sig=trap r12=0x0
+case Extend 76ccff76 uxthvc r12, r6, ror #24 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0000 r6=0x1 r12=0x2000000
+out pc=0x30002004 sig=trap r12=0x100
+case Extend 7200ff86 uxthhi r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1110 r0=0xc8c12b90 r2=0xb
+out pc=0x30002004 sig=trap
+case Extend 7200ff86 uxthhi r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0001 r0=0xd6b2ccf2 r2=0x7ffffffa
+out pc=0x30002004 sig=trap
+case Extend 7200ff86 uxthhi r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1111 r0=0xfffffff7 r2=0x3ff
+out pc=0x30002004 sig=trap
+case Extend 7a54ff96 uxthls r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0001 r5=0xd62a404c r10=0x8000000d
+out pc=0x30002004 sig=trap r5=0x0
+case Extend 7a54ff96 uxthls r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0010 r5=0x79bbb7f9 r10=0x10000000
+out pc=0x30002004 sig=trap
+case Extend 7a54ff96 uxthls r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1100 r5=0xffffff r10=0x59900890
+out pc=0x30002004 sig=trap r5=0x9008
+case Extend 7c98ffa6 uxthge r9, r12, ror #16 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1000 r9=0x1 r12=0x6e6f33cc
+out pc=0x30002004 sig=trap
+case Extend 7c98ffa6 uxthge r9, r12, ror #16 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1011 r9=0xbc1ee3cb r12=0x43c146d3
+out pc=0x30002004 sig=trap r9=0x43c1
+case Extend 7c98ffa6 uxthge r9, r12, ror #16 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1011 r9=0x800000 r12=0x8000000f
+out pc=0x30002004 sig=trap r9=0x8000
+case Extend 76ccffb6 uxthlt r12, r6, ror #24 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0111 r6=0x8000000a r12=0x4000000
+out pc=0x30002004 sig=trap r12=0xa80
+case Extend 76ccffb6 uxthlt r12, r6, ror #24 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0110 r6=0xc19bfd3 r12=0x3fffff
+out pc=0x30002004 sig=trap
+case Extend 76ccffb6 uxthlt r12, r6, ror #24 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0101 r6=0x9 r12=0xd42df020
+out pc=0x30002004 sig=trap r12=0x900
+case Extend 7200ffc6 uxthgt r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1111 r0=0x396894f4 r2=0x572cb740
+out pc=0x30002004 sig=trap
+case Extend 7200ffc6 uxthgt r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1011 r0=0x65f1a746 r2=0x54ed0f78
+out pc=0x30002004 sig=trap r0=0xf78
+case Extend 7200ffc6 uxthgt r0, r2, ror #0 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=0001 r0=0xfffffff7 r2=0x7ef2d984
+out pc=0x30002004 sig=trap
+case Extend 7a54ffd6 uxthle r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1011 r5=0xfffffff0 r10=0x2000
+out pc=0x30002004 sig=trap
+case Extend 7a54ffd6 uxthle r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1101 r5=0x80000002 r10=0x200
+out pc=0x30002004 sig=trap r5=0x2
+case Extend 7a54ffd6 uxthle r5, r10, ror #8 <- uxth{cond} {Rd}, {Rm}, ror #{rot}
+in nzcv=1101 r5=0x61ecf984 r10=0xc3bc70f5
+out pc=0x30002004 sig=trap r5=0xbc70
+case Field 5100ffe7 ubfx r0, r1, #0, #32 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0101 r0=0x7241a286 r1=0x5000a2e5
+out pc=0x30002004 sig=trap r0=0x5000a2e5
+case Field 5100ffe7 ubfx r0, r1, #0, #32 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r0=0xfffffffe r1=0x4bd80deb
+out pc=0x30002004 sig=trap r0=0x4bd80deb
+case Field 5100ffe7 ubfx r0, r1, #0, #32 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1100 r0=0x80000006 r1=0x7ffffff1
+out pc=0x30002004 sig=trap r0=0x7ffffff1
+case Field 5852e7e7 ubfx r5, r8, #4, #8 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0101 r5=0xac9b99a6 r8=0xfffffff9
+out pc=0x30002004 sig=trap r5=0xff
+case Field 5852e7e7 ubfx r5, r8, #4, #8 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1101 r5=0x1ffff r8=0x3
+out pc=0x30002004 sig=trap r5=0x0
+case Field 5852e7e7 ubfx r5, r8, #4, #8 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0010 r5=0x3fffff r8=0x7fffffff
+out pc=0x30002004 sig=trap r5=0xff
+case Field 5b98efe7 ubfx r9, r11, #16, #16 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0010 r9=0x7 r11=0x3ffffff
+out pc=0x30002004 sig=trap r9=0x3ff
+case Field 5b98efe7 ubfx r9, r11, #16, #16 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1111 r9=0x7ffffff6 r11=0x8
+out pc=0x30002004 sig=trap r9=0x0
+case Field 5b98efe7 ubfx r9, r11, #16, #16 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1101 r9=0xfffffff9 r11=0x40000000
+out pc=0x30002004 sig=trap r9=0x4000
+case Field decfe0e7 ubfx r12, r14, #31, #1 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1100 r12=0x7ffffff6 lr=0x3ffffff
+out pc=0x30002004 sig=trap r12=0x0
+case Field decfe0e7 ubfx r12, r14, #31, #1 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0111 r12=0x4 lr=0x7ffffffa
+out pc=0x30002004 sig=trap r12=0x0
+case Field decfe0e7 ubfx r12, r14, #31, #1 <- ubfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r12=0x80000 lr=0x40000000
+out pc=0x30002004 sig=trap r12=0x0
+case Field 5100bfe7 sbfx r0, r1, #0, #32 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r0=0xfffff r1=0xfffffff3
+out pc=0x30002004 sig=trap r0=0xfffffff3
+case Field 5100bfe7 sbfx r0, r1, #0, #32 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r0=0x7fff r1=0x7ffffff5
+out pc=0x30002004 sig=trap r0=0x7ffffff5
+case Field 5100bfe7 sbfx r0, r1, #0, #32 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1101 r0=0x7ffffff4 r1=0x7ffffff7
+out pc=0x30002004 sig=trap r0=0x7ffffff7
+case Field 5852a7e7 sbfx r5, r8, #4, #8 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0100 r5=0x40000000 r8=0x7
+out pc=0x30002004 sig=trap r5=0x0
+case Field 5852a7e7 sbfx r5, r8, #4, #8 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0010 r5=0xfffffffc r8=0xd63a376b
+out pc=0x30002004 sig=trap r5=0x76
+case Field 5852a7e7 sbfx r5, r8, #4, #8 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0001 r5=0x80000006 r8=0x3
+out pc=0x30002004 sig=trap r5=0x0
+case Field 5b98afe7 sbfx r9, r11, #16, #16 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0011 r9=0x50306965 r11=0x7ffffffb
+out pc=0x30002004 sig=trap r9=0x7fff
+case Field 5b98afe7 sbfx r9, r11, #16, #16 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1001 r9=0x4723456a r11=0x407ef9d0
+out pc=0x30002004 sig=trap r9=0x407e
+case Field 5b98afe7 sbfx r9, r11, #16, #16 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1001 r9=0x3fff r11=0x1ffff
+out pc=0x30002004 sig=trap r9=0x1
+case Field decfa0e7 sbfx r12, r14, #31, #1 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1001 r12=0x0 lr=0x6ac73caa
+out pc=0x30002004 sig=trap
+case Field decfa0e7 sbfx r12, r14, #31, #1 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1111 r12=0x91da7adf lr=0x7
+out pc=0x30002004 sig=trap r12=0x0
+case Field decfa0e7 sbfx r12, r14, #31, #1 <- sbfx {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1110 r12=0xf5772606 lr=0x4
+out pc=0x30002004 sig=trap r12=0x0
+case Insert 1100dfe7 bfi r0, r1, #0, #32 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1000 r0=0xfffffff7 r1=0x7ffffff0
+out pc=0x30002004 sig=trap r0=0x7ffffff0
+case Insert 1100dfe7 bfi r0, r1, #0, #32 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1000 r0=0x80 r1=0x80000004
+out pc=0x30002004 sig=trap r0=0x80000004
+case Insert 1100dfe7 bfi r0, r1, #0, #32 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0100 r0=0x479c12ed r1=0xfffffff9
+out pc=0x30002004 sig=trap r0=0xfffffff9
+case Insert 1852cbe7 bfi r5, r8, #4, #8 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r5=0x80000002 r8=0x37543583
+out pc=0x30002004 sig=trap r5=0x80000832
+case Insert 1852cbe7 bfi r5, r8, #4, #8 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1001 r5=0xafb3401c r8=0x8000000
+out pc=0x30002004 sig=trap r5=0xafb3400c
+case Insert 1852cbe7 bfi r5, r8, #4, #8 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r5=0x7ffffff4 r8=0x9
+out pc=0x30002004 sig=trap r5=0x7ffff094
+case Insert 1b98dfe7 bfi r9, r11, #16, #16 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1011 r9=0x7ffffffb r11=0xfffff
+out pc=0x30002004 sig=trap r9=0xfffffffb
+case Insert 1b98dfe7 bfi r9, r11, #16, #16 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0110 r9=0x80000000 r11=0xc1ea15d6
+out pc=0x30002004 sig=trap r9=0x15d60000
+case Insert 1b98dfe7 bfi r9, r11, #16, #16 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=0100 r9=0x40 r11=0x8000000c
+out pc=0x30002004 sig=trap r9=0xc0040
+case Insert 9ecfdfe7 bfi r12, r14, #31, #1 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1110 r12=0xf2422bca lr=0x7f863d0
+out pc=0x30002004 sig=trap r12=0x72422bca
+case Insert 9ecfdfe7 bfi r12, r14, #31, #1 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1010 r12=0x4429b24b lr=0x9b6714fc
+out pc=0x30002004 sig=trap
+case Insert 9ecfdfe7 bfi r12, r14, #31, #1 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
+in nzcv=1001 r12=0x2 lr=0xe
+out pc=0x30002004 sig=trap
+case Unsupported 120f6fe1 clz r0, r2 <- clz {Rd}, {Rm}
+in nzcv=0111 r0=0x4 r2=0xf8e47d1b
+out pc=0x30002004 sig=trap r0=0x0
+case Unsupported 120f6fe1 clz r0, r2 <- clz {Rd}, {Rm}
+in nzcv=1001 r0=0x7ffffffa r2=0xffffffff
+out pc=0x30002004 sig=trap r0=0x0
+case Unsupported 120f6fe1 clz r0, r2 <- clz {Rd}, {Rm}
+in nzcv=0000 r0=0xffffff r2=0x7ffffff1
+out pc=0x30002004 sig=trap r0=0x1
+case Unsupported 1a5f6fe1 clz r5, r10 <- clz {Rd}, {Rm}
+in nzcv=1101 r5=0xfffffff3 r10=0x80000001
+out pc=0x30002004 sig=trap r5=0x0
+case Unsupported 1a5f6fe1 clz r5, r10 <- clz {Rd}, {Rm}
+in nzcv=1011 r5=0xd678ccee r10=0xc2b3f878
+out pc=0x30002004 sig=trap r5=0x0
+case Unsupported 1a5f6fe1 clz r5, r10 <- clz {Rd}, {Rm}
+in nzcv=0111 r5=0x80000 r10=0xfffffff0
+out pc=0x30002004 sig=trap r5=0x0
+case Unsupported 1c9f6fe1 clz r9, r12 <- clz {Rd}, {Rm}
+in nzcv=1001 r9=0x3f r12=0x3fffff
+out pc=0x30002004 sig=trap r9=0xa
+case Unsupported 1c9f6fe1 clz r9, r12 <- clz {Rd}, {Rm}
+in nzcv=0101 r9=0xe59cd1ba r12=0xfffffff8
+out pc=0x30002004 sig=trap r9=0x0
+case Unsupported 1c9f6fe1 clz r9, r12 <- clz {Rd}, {Rm}
+in nzcv=1001 r9=0xca11d699 r12=0x80000007
+out pc=0x30002004 sig=trap r9=0x0
+case Unsupported 16cf6fe1 clz r12, r6 <- clz {Rd}, {Rm}
+in nzcv=0001 r6=0x1ffff r12=0x8
+out pc=0x30002004 sig=trap r12=0xf
+case Unsupported 16cf6fe1 clz r12, r6 <- clz {Rd}, {Rm}
+in nzcv=1001 r6=0x7ffffffd r12=0xfffffff5
+out pc=0x30002004 sig=trap r12=0x1
+case Unsupported 16cf6fe1 clz r12, r6 <- clz {Rd}, {Rm}
+in nzcv=1011 r6=0xfffffff6 r12=0x8000000c
+out pc=0x30002004 sig=trap r12=0x0
+case Unsupported 320fbfe6 rev r0, r2 <- rev {Rd}, {Rm}
+in nzcv=1010 r0=0x2 r2=0x1
+out pc=0x30002004 sig=trap r0=0x1000000
+case Unsupported 320fbfe6 rev r0, r2 <- rev {Rd}, {Rm}
+in nzcv=1010 r0=0xa1c33cba r2=0x3ffff
+out pc=0x30002004 sig=trap r0=0xffff0300
+case Unsupported 320fbfe6 rev r0, r2 <- rev {Rd}, {Rm}
+in nzcv=1100 r0=0x7fff r2=0x4000000
+out pc=0x30002004 sig=trap r0=0x4
+case Unsupported 3a5fbfe6 rev r5, r10 <- rev {Rd}, {Rm}
+in nzcv=1000 r5=0xfffffff4 r10=0xfffffff0
+out pc=0x30002004 sig=trap r5=0xf0ffffff
+case Unsupported 3a5fbfe6 rev r5, r10 <- rev {Rd}, {Rm}
+in nzcv=1111 r5=0x200000 r10=0x922de360
+out pc=0x30002004 sig=trap r5=0x60e32d92
+case Unsupported 3a5fbfe6 rev r5, r10 <- rev {Rd}, {Rm}
+in nzcv=1100 r5=0x6 r10=0x8000000e
+out pc=0x30002004 sig=trap r5=0xe000080
+case Unsupported 3c9fbfe6 rev r9, r12 <- rev {Rd}, {Rm}
+in nzcv=1101 r9=0xff r12=0x80000005
+out pc=0x30002004 sig=trap r9=0x5000080
+case Unsupported 3c9fbfe6 rev r9, r12 <- rev {Rd}, {Rm}
+in nzcv=1101 r9=0x52b7f83b r12=0x40000000
+out pc=0x30002004 sig=trap r9=0x40
+case Unsupported 3c9fbfe6 rev r9, r12 <- rev {Rd}, {Rm}
+in nzcv=1010 r9=0x40000000 r12=0xf
+out pc=0x30002004 sig=trap r9=0xf000000
+case Unsupported 36cfbfe6 rev r12, r6 <- rev {Rd}, {Rm}
+in nzcv=1010 r6=0x800 r12=0x7ffffffc
+out pc=0x30002004 sig=trap r12=0x80000
+case Unsupported 36cfbfe6 rev r12, r6 <- rev {Rd}, {Rm}
+in nzcv=0110 r6=0x97218ec8 r12=0x7ffffffa
+out pc=0x30002004 sig=trap r12=0xc88e2197
+case Unsupported 36cfbfe6 rev r12, r6 <- rev {Rd}, {Rm}
+in nzcv=1011 r6=0x7ffffffa r12=0x3
+out pc=0x30002004 sig=trap r12=0xfaffff7f
+case Unsupported 00000fe1 mrs r0, apsr <- mrs {Rd}, apsr
+in nzcv=0111 r0=0x8000000e
+out pc=0x30002004 sig=trap r0=0x70000010
+case Unsupported 00000fe1 mrs r0, apsr <- mrs {Rd}, apsr
+in nzcv=0100 r0=0xaf8a888
+out pc=0x30002004 sig=trap r0=0x40000010
+case Unsupported 00000fe1 mrs r0, apsr <- mrs {Rd}, apsr
+in nzcv=1100 r0=0x10000000
+out pc=0x30002004 sig=trap r0=0xc0000010
+case Unsupported 00500fe1 mrs r5, apsr <- mrs {Rd}, apsr
+in nzcv=0100 r5=0x7ffffff4
+out pc=0x30002004 sig=trap r5=0x40000010
+case Unsupported 00500fe1 mrs r5, apsr <- mrs {Rd}, apsr
+in nzcv=1000 r5=0x3f
+out pc=0x30002004 sig=trap r5=0x80000010
+case Unsupported 00500fe1 mrs r5, apsr <- mrs {Rd}, apsr
+in nzcv=0110 r5=0x80000009
+out pc=0x30002004 sig=trap r5=0x60000010
+case Unsupported 00900fe1 mrs r9, apsr <- mrs {Rd}, apsr
+in nzcv=1110 r9=0x3ff
+out pc=0x30002004 sig=trap r9=0xe0000010
+case Unsupported 00900fe1 mrs r9, apsr <- mrs {Rd}, apsr
+in nzcv=1100 r9=0xfffffff7
+out pc=0x30002004 sig=trap r9=0xc0000010
+case Unsupported 00900fe1 mrs r9, apsr <- mrs {Rd}, apsr
+in nzcv=1110 r9=0x2
+out pc=0x30002004 sig=trap r9=0xe0000010
+case Unsupported 00c00fe1 mrs r12, apsr <- mrs {Rd}, apsr
+in nzcv=0010 r12=0x55d35d17
+out pc=0x30002004 sig=trap r12=0x20000010
+case Unsupported 00c00fe1 mrs r12, apsr <- mrs {Rd}, apsr
+in nzcv=0111 r12=0x7ffffff5
+out pc=0x30002004 sig=trap r12=0x70000010
+case Unsupported 00c00fe1 mrs r12, apsr <- mrs {Rd}, apsr
+in nzcv=1000 r12=0xdaa54436
+out pc=0x30002004 sig=trap r12=0x80000010

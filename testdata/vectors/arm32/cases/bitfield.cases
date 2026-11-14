@@ -1,0 +1,16 @@
+Field 41f31f00 sbfx r0, r1, #0, #32
+Field 48f30715 sbfx r5, r8, #4, #8
+Field 4bf30f49 sbfx r9, r11, #16, #16
+Field 4ef3c07c sbfx r12, r14, #31, #1
+Field c1f31f00 ubfx r0, r1, #0, #32
+Field c8f30715 ubfx r5, r8, #4, #8
+Field cbf30f49 ubfx r9, r11, #16, #16
+Field cef3c07c ubfx r12, r14, #31, #1
+Insert 61f31f00 bfi r0, r1, #0, #32
+Insert 68f30b15 bfi r5, r8, #4, #8
+Insert 6bf31f49 bfi r9, r11, #16, #16
+Insert 6ef3df7c bfi r12, r14, #31, #1
+Insert 6ff31f00 bfc r0, #0, #32
+Insert 6ff30b15 bfc r5, #4, #8
+Insert 6ff31f49 bfc r9, #16, #16
+Insert 6ff3df7c bfc r12, #31, #1

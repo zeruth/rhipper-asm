@@ -1,0 +1,140 @@
+Mem 00009105 ldreq r0, [r1, #0]
+Mem 04509815 ldrne r5, [r8, #4]
+Mem ff979b25 ldrcs r9, [r11, #0x7ff]
+Mem ffcf9435 ldrcc r12, [r4, #0xfff]
+Mem 00009145 ldrmi r0, [r1, #0]
+Mem 04509855 ldrpl r5, [r8, #4]
+Mem ff979b65 ldrvs r9, [r11, #0x7ff]
+Mem ffcf9475 ldrvc r12, [r4, #0xfff]
+Mem 00009185 ldrhi r0, [r1, #0]
+Mem 04509895 ldrls r5, [r8, #4]
+Mem ff979ba5 ldrge r9, [r11, #0x7ff]
+Mem ffcf94b5 ldrlt r12, [r4, #0xfff]
+Mem 000091c5 ldrgt r0, [r1, #0]
+Mem 045098d5 ldrle r5, [r8, #4]
+Mem 040011e5 ldr r0, [r1, #-4]
+Mem 085018e5 ldr r5, [r8, #-8]
+Mem ff971be5 ldr r9, [r11, #-0x7ff]
+Mem ffcf14e5 ldr r12, [r4, #-0xfff]
+Mem 0200d1e7 ldrb r0, [r1, r2, lsl #0]
+Mem 8a50d8e7 ldrb r5, [r8, r10, lsl #1]
+Mem 0c91dbe7 ldrb r9, [r11, r12, lsl #2]
+Mem 86c1d4e7 ldrb r12, [r4, r6, lsl #3]
+Mem 020011e7 ldr r0, [r1, -r2]
+Mem 0a5018e7 ldr r5, [r8, -r10]
+Mem 0c901be7 ldr r9, [r11, -r12]
+Mem 06c014e7 ldr r12, [r4, -r6]
+Mem bf0f51e1 ldrh r0, [r1, #-255]
+Mem b85058e1 ldrh r5, [r8, #-8]
+Mem b090dbe1 ldrh r9, [r11, #0]
+Mem bfcfd4e1 ldrh r12, [r4, #255]
+Mem df0f51e0 ldrsb r0, [r1], #-255
+Mem d85058e0 ldrsb r5, [r8], #-8
+Mem d090dbe0 ldrsb r9, [r11], #0
+Mem dfcfd4e0 ldrsb r12, [r4], #255
+Mem ff0f71e1 ldrsh r0, [r1, #-255]!
+Mem f85078e1 ldrsh r5, [r8, #-8]!
+Mem f090fbe1 ldrsh r9, [r11, #0]!
+Mem ffcff4e1 ldrsh r12, [r4, #255]!
+Mem 020091e6 ldr r0, [r1], r2
+Mem 0a5098e6 ldr r5, [r8], r10
+Mem 0c909be6 ldr r9, [r11], r12
+Mem 06c094e6 ldr r12, [r4], r6
+Mem 0200b1e7 ldr r0, [r1, r2, lsl #0]!
+Mem 8a50b8e7 ldr r5, [r8, r10, lsl #1]!
+Mem 0c91bbe7 ldr r9, [r11, r12, lsl #2]!
+Mem 86c1b4e7 ldr r12, [r4, r6, lsl #3]!
+Mem 00008105 streq r0, [r1, #0]
+Mem 04508815 strne r5, [r8, #4]
+Mem ff978b25 strcs r9, [r11, #0x7ff]
+Mem ffcf8435 strcc r12, [r4, #0xfff]
+Mem 00008145 strmi r0, [r1, #0]
+Mem 04508855 strpl r5, [r8, #4]
+Mem ff978b65 strvs r9, [r11, #0x7ff]
+Mem ffcf8475 strvc r12, [r4, #0xfff]
+Mem 00008185 strhi r0, [r1, #0]
+Mem 04508895 strls r5, [r8, #4]
+Mem ff978ba5 strge r9, [r11, #0x7ff]
+Mem ffcf84b5 strlt r12, [r4, #0xfff]
+Mem 000081c5 strgt r0, [r1, #0]
+Mem 045088d5 strle r5, [r8, #4]
+Mem 0200c1e7 strb r0, [r1, r2]
+Mem 0a50c8e7 strb r5, [r8, r10]
+Mem 0c90cbe7 strb r9, [r11, r12]
+Mem 06c0c4e7 strb r12, [r4, r6]
+Mem bf0f41e0 strh r0, [r1], #-255
+Mem b85048e0 strh r5, [r8], #-8
+Mem b090cbe0 strh r9, [r11], #0
+Mem bfcfc4e0 strh r12, [r4], #255
+Mem ff0021e5 str r0, [r1, #-255]!
+Mem 085028e5 str r5, [r8, #-8]!
+Mem 0090abe5 str r9, [r11, #0]!
+Mem ffc0a4e5 str r12, [r4, #255]!
+Mem 08009fe5 ldr r0, [pc, #8]
+Mem 08501fe5 ldr r5, [pc, #-8]
+Mem 00949fe5 ldr r9, [pc, #1024]
+Mem 00c41fe5 ldr r12, [pc, #-1024]
+Dual dc0f42e1 ldrd r0, r1, [r2, #-252]
+Dual d84048e1 ldrd r4, r5, [r8, #-8]
+Dual d060cce1 ldrd r6, r7, [r12, #0]
+Dual dcafc3e1 ldrd r10, r11, [r3, #252]
+Dual fc0f42e0 strd r0, r1, [r2], #-252
+Dual f84048e0 strd r4, r5, [r8], #-8
+Dual f060cce0 strd r6, r7, [r12], #0
+Dual fcafc3e0 strd r10, r11, [r3], #252
+Multiple 0006b1e8 ldm r1!, {r9, r10}
+Multiple 0110b8e8 ldm r8!, {r0, r12}
+Multiple 2402bbe8 ldm r11!, {r2, r5, r9}
+Multiple 8814b4e8 ldm r4!, {r3, r7, r10, r12}
+Multiple 000691e9 ldmib r1, {r9, r10}
+Multiple 011098e9 ldmib r8, {r0, r12}
+Multiple 24029be9 ldmib r11, {r2, r5, r9}
+Multiple 881494e9 ldmib r4, {r3, r7, r10, r12}
+Multiple 000631e8 ldmda r1!, {r9, r10}
+Multiple 011038e8 ldmda r8!, {r0, r12}
+Multiple 24023be8 ldmda r11!, {r2, r5, r9}
+Multiple 881434e8 ldmda r4!, {r3, r7, r10, r12}
+Multiple 000621e9 stmdb r1!, {r9, r10}
+Multiple 011028e9 stmdb r8!, {r0, r12}
+Multiple 24022be9 stmdb r11!, {r2, r5, r9}
+Multiple 881424e9 stmdb r4!, {r3, r7, r10, r12}
+Multiple 0006a1e9 stmib r1!, {r9, r10}
+Multiple 0110a8e9 stmib r8!, {r0, r12}
+Multiple 2402abe9 stmib r11!, {r2, r5, r9}
+Multiple 8814a4e9 stmib r4!, {r3, r7, r10, r12}
+Multiple 000601e8 stmda r1, {r9, r10}
+Multiple 011008e8 stmda r8, {r0, r12}
+Multiple 24020be8 stmda r11, {r2, r5, r9}
+Multiple 881404e8 stmda r4, {r3, r7, r10, r12}
+Multiple 00422d09 pusheq {r9, lr}
+Multiple 01502d19 pushne {r0, r12, lr}
+Multiple 24422d29 pushcs {r2, r5, r9, lr}
+Multiple 00442d39 pushcc {r10, lr}
+Multiple 00422d49 pushmi {r9, lr}
+Multiple 01502d59 pushpl {r0, r12, lr}
+Multiple 24422d69 pushvs {r2, r5, r9, lr}
+Multiple 00442d79 pushvc {r10, lr}
+Multiple 00422d89 pushhi {r9, lr}
+Multiple 01502d99 pushls {r0, r12, lr}
+Multiple 24422da9 pushge {r2, r5, r9, lr}
+Multiple 00442db9 pushlt {r10, lr}
+Multiple 00422dc9 pushgt {r9, lr}
+Multiple 01502dd9 pushle {r0, r12, lr}
+Multiple 0082bde8 pop {r9, pc}
+Multiple 0190bde8 pop {r0, r12, pc}
+Multiple 2482bde8 pop {r2, r5, r9, pc}
+Multiple 0084bde8 pop {r10, pc}
+Multiple 0006bd08 popeq {r9, r10}
+Multiple 0110bd18 popne {r0, r12}
+Multiple 2402bd28 popcs {r2, r5, r9}
+Multiple 8814bd38 popcc {r3, r7, r10, r12}
+Multiple 0006bd48 popmi {r9, r10}
+Multiple 0110bd58 poppl {r0, r12}
+Multiple 2402bd68 popvs {r2, r5, r9}
+Multiple 8814bd78 popvc {r3, r7, r10, r12}
+Multiple 0006bd88 pophi {r9, r10}
+Multiple 0110bd98 popls {r0, r12}
+Multiple 2402bda8 popge {r2, r5, r9}
+Multiple 8814bdb8 poplt {r3, r7, r10, r12}
+Multiple 0006bdc8 popgt {r9, r10}
+Multiple 0110bdd8 pople {r0, r12}

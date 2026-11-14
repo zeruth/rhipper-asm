@@ -551,7 +551,8 @@ fn decode32(h1: u32, h2: u32, address: u64) -> Op {
                 let (load, wback) = (bit(h1, 4), bit(h1, 5));
                 let list = h2 as u16;
                 match field(h1, 8, 7) {
-                    0b01 | 0b10 if !(load && wback && list & (1 << rn) != 0) && (list & (1 << PC) == 0 || load && rn == SP) => {
+                    // A `pc` in a load list is a return from any base, as `pop {.., pc}` is; a store of `pc` is deprecated.
+                    0b01 | 0b10 if !(load && wback && list & (1 << rn) != 0) && (list & (1 << PC) == 0 || load) => {
                         Op::Multiple { load, rn, list, wback, before: field(h1, 8, 7) == 0b10 }
                     }
                     _ => Op::Unsupported,

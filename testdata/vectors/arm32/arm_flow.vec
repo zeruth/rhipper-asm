@@ -1,0 +1,780 @@
+# arm32 vectors of the arm_flow group (ARM code): the state after each case of
+# cases/arm_flow.cases under qemu-arm-static (-cpu max) over 3 states a case, written by
+# write_arm32_vectors in crates/ra-asm-lift/tests/vectors/arm32.rs and replayed by its arm32 test.
+# case <kind> <bytes> <assembly> <- <template>; in: the registers the case sets (the rest are
+# zero), the flags as NZCV bits, the window of data bytes; out: where the case stopped and
+# what it changed.
+case Branch 020000ea b #8 <- b #{alabel}
+in nzcv=1110
+out pc=0x30002010 sig=trap
+case Branch 020000ea b #8 <- b #{alabel}
+in nzcv=1001
+out pc=0x30002010 sig=trap
+case Branch 020000ea b #8 <- b #{alabel}
+in nzcv=1101
+out pc=0x30002010 sig=trap
+case Branch fcffffea b #-16 <- b #{alabel}
+in nzcv=1011
+out pc=0x30001ff8 sig=segv
+case Branch fcffffea b #-16 <- b #{alabel}
+in nzcv=1001
+out pc=0x30001ff8 sig=segv
+case Branch fcffffea b #-16 <- b #{alabel}
+in nzcv=0010
+out pc=0x30001ff8 sig=segv
+case Branch 000200ea b #2048 <- b #{alabel}
+in nzcv=0010
+out pc=0x30002808 sig=trap
+case Branch 000200ea b #2048 <- b #{alabel}
+in nzcv=1010
+out pc=0x30002808 sig=trap
+case Branch 000200ea b #2048 <- b #{alabel}
+in nzcv=1001
+out pc=0x30002808 sig=trap
+case Branch 00feffea b #-2048 <- b #{alabel}
+in nzcv=0011
+out pc=0x30001808 sig=trap
+case Branch 00feffea b #-2048 <- b #{alabel}
+in nzcv=1111
+out pc=0x30001808 sig=trap
+case Branch 00feffea b #-2048 <- b #{alabel}
+in nzcv=1010
+out pc=0x30001808 sig=trap
+case Branch 0200000a beq #8 <- b{cond} #{alabel}
+in nzcv=0110
+out pc=0x30002010 sig=trap
+case Branch 0200000a beq #8 <- b{cond} #{alabel}
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case Branch 0200000a beq #8 <- b{cond} #{alabel}
+in nzcv=1100
+out pc=0x30002010 sig=trap
+case Branch fcffff1a bne #-16 <- b{cond} #{alabel}
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case Branch fcffff1a bne #-16 <- b{cond} #{alabel}
+in nzcv=1110
+out pc=0x30002004 sig=trap
+case Branch fcffff1a bne #-16 <- b{cond} #{alabel}
+in nzcv=1000
+out pc=0x30001ff8 sig=segv
+case Branch 0002002a bcs #2048 <- b{cond} #{alabel}
+in nzcv=0011
+out pc=0x30002808 sig=trap
+case Branch 0002002a bcs #2048 <- b{cond} #{alabel}
+in nzcv=0010
+out pc=0x30002808 sig=trap
+case Branch 0002002a bcs #2048 <- b{cond} #{alabel}
+in nzcv=1101
+out pc=0x30002004 sig=trap
+case Branch 00feff3a bcc #-2048 <- b{cond} #{alabel}
+in nzcv=1001
+out pc=0x30001808 sig=trap
+case Branch 00feff3a bcc #-2048 <- b{cond} #{alabel}
+in nzcv=1100
+out pc=0x30001808 sig=trap
+case Branch 00feff3a bcc #-2048 <- b{cond} #{alabel}
+in nzcv=1000
+out pc=0x30001808 sig=trap
+case Branch 0200004a bmi #8 <- b{cond} #{alabel}
+in nzcv=1000
+out pc=0x30002010 sig=trap
+case Branch 0200004a bmi #8 <- b{cond} #{alabel}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case Branch 0200004a bmi #8 <- b{cond} #{alabel}
+in nzcv=1110
+out pc=0x30002010 sig=trap
+case Branch fcffff5a bpl #-16 <- b{cond} #{alabel}
+in nzcv=0001
+out pc=0x30001ff8 sig=segv
+case Branch fcffff5a bpl #-16 <- b{cond} #{alabel}
+in nzcv=0011
+out pc=0x30001ff8 sig=segv
+case Branch fcffff5a bpl #-16 <- b{cond} #{alabel}
+in nzcv=1111
+out pc=0x30002004 sig=trap
+case Branch 0002006a bvs #2048 <- b{cond} #{alabel}
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case Branch 0002006a bvs #2048 <- b{cond} #{alabel}
+in nzcv=1001
+out pc=0x30002808 sig=trap
+case Branch 0002006a bvs #2048 <- b{cond} #{alabel}
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case Branch 00feff7a bvc #-2048 <- b{cond} #{alabel}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case Branch 00feff7a bvc #-2048 <- b{cond} #{alabel}
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case Branch 00feff7a bvc #-2048 <- b{cond} #{alabel}
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case Branch 0200008a bhi #8 <- b{cond} #{alabel}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case Branch 0200008a bhi #8 <- b{cond} #{alabel}
+in nzcv=0101
+out pc=0x30002004 sig=trap
+case Branch 0200008a bhi #8 <- b{cond} #{alabel}
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case Branch fcffff9a bls #-16 <- b{cond} #{alabel}
+in nzcv=0110
+out pc=0x30001ff8 sig=segv
+case Branch fcffff9a bls #-16 <- b{cond} #{alabel}
+in nzcv=0111
+out pc=0x30001ff8 sig=segv
+case Branch fcffff9a bls #-16 <- b{cond} #{alabel}
+in nzcv=1110
+out pc=0x30001ff8 sig=segv
+case Branch 000200aa bge #2048 <- b{cond} #{alabel}
+in nzcv=1110
+out pc=0x30002004 sig=trap
+case Branch 000200aa bge #2048 <- b{cond} #{alabel}
+in nzcv=1100
+out pc=0x30002004 sig=trap
+case Branch 000200aa bge #2048 <- b{cond} #{alabel}
+in nzcv=0000
+out pc=0x30002808 sig=trap
+case Branch 00feffba blt #-2048 <- b{cond} #{alabel}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case Branch 00feffba blt #-2048 <- b{cond} #{alabel}
+in nzcv=0111
+out pc=0x30001808 sig=trap
+case Branch 00feffba blt #-2048 <- b{cond} #{alabel}
+in nzcv=0101
+out pc=0x30001808 sig=trap
+case Branch 020000ca bgt #8 <- b{cond} #{alabel}
+in nzcv=1011
+out pc=0x30002010 sig=trap
+case Branch 020000ca bgt #8 <- b{cond} #{alabel}
+in nzcv=0010
+out pc=0x30002010 sig=trap
+case Branch 020000ca bgt #8 <- b{cond} #{alabel}
+in nzcv=0000
+out pc=0x30002010 sig=trap
+case Branch fcffffda ble #-16 <- b{cond} #{alabel}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case Branch fcffffda ble #-16 <- b{cond} #{alabel}
+in nzcv=0001
+out pc=0x30001ff8 sig=segv
+case Branch fcffffda ble #-16 <- b{cond} #{alabel}
+in nzcv=1110
+out pc=0x30001ff8 sig=segv
+case Call 020000eb bl #8 <- bl #{alabel}
+in nzcv=0011
+out pc=0x30002010 sig=trap lr=0x30002004
+case Call 020000eb bl #8 <- bl #{alabel}
+in nzcv=1111
+out pc=0x30002010 sig=trap lr=0x30002004
+case Call 020000eb bl #8 <- bl #{alabel}
+in nzcv=1101
+out pc=0x30002010 sig=trap lr=0x30002004
+case Call fcffffeb bl #-16 <- bl #{alabel}
+in nzcv=1010
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call fcffffeb bl #-16 <- bl #{alabel}
+in nzcv=0110
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call fcffffeb bl #-16 <- bl #{alabel}
+in nzcv=0000
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call 000200eb bl #2048 <- bl #{alabel}
+in nzcv=1111
+out pc=0x30002808 sig=trap lr=0x30002004
+case Call 000200eb bl #2048 <- bl #{alabel}
+in nzcv=1110
+out pc=0x30002808 sig=trap lr=0x30002004
+case Call 000200eb bl #2048 <- bl #{alabel}
+in nzcv=1010
+out pc=0x30002808 sig=trap lr=0x30002004
+case Call 00feffeb bl #-2048 <- bl #{alabel}
+in nzcv=0000
+out pc=0x30001808 sig=trap lr=0x30002004
+case Call 00feffeb bl #-2048 <- bl #{alabel}
+in nzcv=0100
+out pc=0x30001808 sig=trap lr=0x30002004
+case Call 00feffeb bl #-2048 <- bl #{alabel}
+in nzcv=1011
+out pc=0x30001808 sig=trap lr=0x30002004
+case Call 0200000b bleq #8 <- bl{cond} #{alabel}
+in nzcv=1111
+out pc=0x30002010 sig=trap lr=0x30002004
+case Call 0200000b bleq #8 <- bl{cond} #{alabel}
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case Call 0200000b bleq #8 <- bl{cond} #{alabel}
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case Call fcffff1b blne #-16 <- bl{cond} #{alabel}
+in nzcv=0011
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call fcffff1b blne #-16 <- bl{cond} #{alabel}
+in nzcv=1011
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call fcffff1b blne #-16 <- bl{cond} #{alabel}
+in nzcv=0011
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call 0002002b blcs #2048 <- bl{cond} #{alabel}
+in nzcv=1010
+out pc=0x30002808 sig=trap lr=0x30002004
+case Call 0002002b blcs #2048 <- bl{cond} #{alabel}
+in nzcv=1110
+out pc=0x30002808 sig=trap lr=0x30002004
+case Call 0002002b blcs #2048 <- bl{cond} #{alabel}
+in nzcv=1111
+out pc=0x30002808 sig=trap lr=0x30002004
+case Call 00feff3b blcc #-2048 <- bl{cond} #{alabel}
+in nzcv=1110
+out pc=0x30002004 sig=trap
+case Call 00feff3b blcc #-2048 <- bl{cond} #{alabel}
+in nzcv=0110
+out pc=0x30002004 sig=trap
+case Call 00feff3b blcc #-2048 <- bl{cond} #{alabel}
+in nzcv=1111
+out pc=0x30002004 sig=trap
+case Call 0200004b blmi #8 <- bl{cond} #{alabel}
+in nzcv=0010
+out pc=0x30002004 sig=trap
+case Call 0200004b blmi #8 <- bl{cond} #{alabel}
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case Call 0200004b blmi #8 <- bl{cond} #{alabel}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case Call fcffff5b blpl #-16 <- bl{cond} #{alabel}
+in nzcv=0110
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call fcffff5b blpl #-16 <- bl{cond} #{alabel}
+in nzcv=0101
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call fcffff5b blpl #-16 <- bl{cond} #{alabel}
+in nzcv=0100
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call 0002006b blvs #2048 <- bl{cond} #{alabel}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case Call 0002006b blvs #2048 <- bl{cond} #{alabel}
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case Call 0002006b blvs #2048 <- bl{cond} #{alabel}
+in nzcv=1001
+out pc=0x30002808 sig=trap lr=0x30002004
+case Call 00feff7b blvc #-2048 <- bl{cond} #{alabel}
+in nzcv=1011
+out pc=0x30002004 sig=trap
+case Call 00feff7b blvc #-2048 <- bl{cond} #{alabel}
+in nzcv=1010
+out pc=0x30001808 sig=trap lr=0x30002004
+case Call 00feff7b blvc #-2048 <- bl{cond} #{alabel}
+in nzcv=1010
+out pc=0x30001808 sig=trap lr=0x30002004
+case Call 0200008b blhi #8 <- bl{cond} #{alabel}
+in nzcv=0110
+out pc=0x30002004 sig=trap
+case Call 0200008b blhi #8 <- bl{cond} #{alabel}
+in nzcv=1101
+out pc=0x30002004 sig=trap
+case Call 0200008b blhi #8 <- bl{cond} #{alabel}
+in nzcv=0010
+out pc=0x30002010 sig=trap lr=0x30002004
+case Call fcffff9b blls #-16 <- bl{cond} #{alabel}
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case Call fcffff9b blls #-16 <- bl{cond} #{alabel}
+in nzcv=0000
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call fcffff9b blls #-16 <- bl{cond} #{alabel}
+in nzcv=0100
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call 000200ab blge #2048 <- bl{cond} #{alabel}
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case Call 000200ab blge #2048 <- bl{cond} #{alabel}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case Call 000200ab blge #2048 <- bl{cond} #{alabel}
+in nzcv=1101
+out pc=0x30002808 sig=trap lr=0x30002004
+case Call 00feffbb bllt #-2048 <- bl{cond} #{alabel}
+in nzcv=0111
+out pc=0x30001808 sig=trap lr=0x30002004
+case Call 00feffbb bllt #-2048 <- bl{cond} #{alabel}
+in nzcv=1110
+out pc=0x30001808 sig=trap lr=0x30002004
+case Call 00feffbb bllt #-2048 <- bl{cond} #{alabel}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case Call 020000cb blgt #8 <- bl{cond} #{alabel}
+in nzcv=1111
+out pc=0x30002004 sig=trap
+case Call 020000cb blgt #8 <- bl{cond} #{alabel}
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case Call 020000cb blgt #8 <- bl{cond} #{alabel}
+in nzcv=1111
+out pc=0x30002004 sig=trap
+case Call fcffffdb blle #-16 <- bl{cond} #{alabel}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case Call fcffffdb blle #-16 <- bl{cond} #{alabel}
+in nzcv=1010
+out pc=0x30001ff8 sig=segv lr=0x30002004
+case Call fcffffdb blle #-16 <- bl{cond} #{alabel}
+in nzcv=1011
+out pc=0x30002004 sig=trap
+case BranchReg 12ff2fe1 bx r2 <- bx {Rm}
+in nzcv=1111 r2=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 12ff2fe1 bx r2 <- bx {Rm}
+in nzcv=0101 r2=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 12ff2fe1 bx r2 <- bx {Rm}
+in nzcv=1010 r2=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1aff2fe1 bx r10 <- bx {Rm}
+in nzcv=0100 r10=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1aff2fe1 bx r10 <- bx {Rm}
+in nzcv=1000 r10=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1aff2fe1 bx r10 <- bx {Rm}
+in nzcv=1101 r10=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1cff2fe1 bx r12 <- bx {Rm}
+in nzcv=0111 r12=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1cff2fe1 bx r12 <- bx {Rm}
+in nzcv=1001 r12=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1cff2fe1 bx r12 <- bx {Rm}
+in nzcv=1111 r12=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 16ff2fe1 bx r6 <- bx {Rm}
+in nzcv=0011 r6=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 16ff2fe1 bx r6 <- bx {Rm}
+in nzcv=0101 r6=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 16ff2fe1 bx r6 <- bx {Rm}
+in nzcv=0000 r6=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 32ff2fe1 blx r2 <- blx {Rm}
+in nzcv=1110 r2=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 32ff2fe1 blx r2 <- blx {Rm}
+in nzcv=0111 r2=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 32ff2fe1 blx r2 <- blx {Rm}
+in nzcv=0001 r2=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 3aff2fe1 blx r10 <- blx {Rm}
+in nzcv=1010 r10=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 3aff2fe1 blx r10 <- blx {Rm}
+in nzcv=0111 r10=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 3aff2fe1 blx r10 <- blx {Rm}
+in nzcv=1111 r10=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 3cff2fe1 blx r12 <- blx {Rm}
+in nzcv=1000 r12=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 3cff2fe1 blx r12 <- blx {Rm}
+in nzcv=0001 r12=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 3cff2fe1 blx r12 <- blx {Rm}
+in nzcv=0001 r12=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 36ff2fe1 blx r6 <- blx {Rm}
+in nzcv=1000 r6=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 36ff2fe1 blx r6 <- blx {Rm}
+in nzcv=0010 r6=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 36ff2fe1 blx r6 <- blx {Rm}
+in nzcv=1011 r6=0x30002400
+out pc=0x30002400 sig=trap lr=0x30002004
+case BranchReg 1eff2fe1 bx lr <- bx lr
+in nzcv=1011 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fe1 bx lr <- bx lr
+in nzcv=1000 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fe1 bx lr <- bx lr
+in nzcv=1100 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f01 bxeq lr <- bx{cond} lr
+in nzcv=1010 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f01 bxeq lr <- bx{cond} lr
+in nzcv=0011 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f01 bxeq lr <- bx{cond} lr
+in nzcv=1100 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f11 bxne lr <- bx{cond} lr
+in nzcv=1000 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f11 bxne lr <- bx{cond} lr
+in nzcv=0110 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f11 bxne lr <- bx{cond} lr
+in nzcv=1001 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f21 bxcs lr <- bx{cond} lr
+in nzcv=1010 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f21 bxcs lr <- bx{cond} lr
+in nzcv=0111 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f21 bxcs lr <- bx{cond} lr
+in nzcv=1110 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f31 bxcc lr <- bx{cond} lr
+in nzcv=0000 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f31 bxcc lr <- bx{cond} lr
+in nzcv=1011 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f31 bxcc lr <- bx{cond} lr
+in nzcv=1100 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f41 bxmi lr <- bx{cond} lr
+in nzcv=0000 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f41 bxmi lr <- bx{cond} lr
+in nzcv=0101 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f41 bxmi lr <- bx{cond} lr
+in nzcv=0000 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f51 bxpl lr <- bx{cond} lr
+in nzcv=0000 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f51 bxpl lr <- bx{cond} lr
+in nzcv=0010 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f51 bxpl lr <- bx{cond} lr
+in nzcv=1111 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f61 bxvs lr <- bx{cond} lr
+in nzcv=0100 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f61 bxvs lr <- bx{cond} lr
+in nzcv=1101 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f61 bxvs lr <- bx{cond} lr
+in nzcv=1110 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f71 bxvc lr <- bx{cond} lr
+in nzcv=1101 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f71 bxvc lr <- bx{cond} lr
+in nzcv=0110 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f71 bxvc lr <- bx{cond} lr
+in nzcv=0101 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f81 bxhi lr <- bx{cond} lr
+in nzcv=1001 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f81 bxhi lr <- bx{cond} lr
+in nzcv=0110 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f81 bxhi lr <- bx{cond} lr
+in nzcv=1100 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2f91 bxls lr <- bx{cond} lr
+in nzcv=1110 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f91 bxls lr <- bx{cond} lr
+in nzcv=1111 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2f91 bxls lr <- bx{cond} lr
+in nzcv=0110 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fa1 bxge lr <- bx{cond} lr
+in nzcv=1001 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fa1 bxge lr <- bx{cond} lr
+in nzcv=0000 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fa1 bxge lr <- bx{cond} lr
+in nzcv=1111 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fb1 bxlt lr <- bx{cond} lr
+in nzcv=1101 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2fb1 bxlt lr <- bx{cond} lr
+in nzcv=0111 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fb1 bxlt lr <- bx{cond} lr
+in nzcv=0111 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fc1 bxgt lr <- bx{cond} lr
+in nzcv=1111 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2fc1 bxgt lr <- bx{cond} lr
+in nzcv=0000 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fc1 bxgt lr <- bx{cond} lr
+in nzcv=1101 lr=0x30002400
+out pc=0x30002004 sig=trap
+case BranchReg 1eff2fd1 bxle lr <- bx{cond} lr
+in nzcv=0111 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fd1 bxle lr <- bx{cond} lr
+in nzcv=0110 lr=0x30002400
+out pc=0x30002400 sig=trap
+case BranchReg 1eff2fd1 bxle lr <- bx{cond} lr
+in nzcv=0011 lr=0x30002400
+out pc=0x30002400 sig=trap
+case Adr 08008fe2 adr r0, #8 <- adr {Rd}, #{adr12}
+in nzcv=1100 r0=0x80000003
+out pc=0x30002004 sig=trap r0=0x30002010
+case Adr 08008fe2 adr r0, #8 <- adr {Rd}, #{adr12}
+in nzcv=0000 r0=0xfffffff
+out pc=0x30002004 sig=trap r0=0x30002010
+case Adr 08008fe2 adr r0, #8 <- adr {Rd}, #{adr12}
+in nzcv=0101 r0=0x7ffffffd
+out pc=0x30002004 sig=trap r0=0x30002010
+case Adr 08504fe2 adr r5, #-8 <- adr {Rd}, #{adr12}
+in nzcv=0000 r5=0xafecdf0a
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 08504fe2 adr r5, #-8 <- adr {Rd}, #{adr12}
+in nzcv=1100 r5=0x7ffffff5
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 08504fe2 adr r5, #-8 <- adr {Rd}, #{adr12}
+in nzcv=0010 r5=0x20000000
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 019b8fe2 adr r9, #1024 <- adr {Rd}, #{adr12}
+in nzcv=0000 r9=0x7ffffff0
+out pc=0x30002004 sig=trap r9=0x30002408
+case Adr 019b8fe2 adr r9, #1024 <- adr {Rd}, #{adr12}
+in nzcv=1111 r9=0x1fffffff
+out pc=0x30002004 sig=trap r9=0x30002408
+case Adr 019b8fe2 adr r9, #1024 <- adr {Rd}, #{adr12}
+in nzcv=1100 r9=0x80000008
+out pc=0x30002004 sig=trap r9=0x30002408
+case Adr 01cb4fe2 adr r12, #-1024 <- adr {Rd}, #{adr12}
+in nzcv=1101 r12=0x7ffffff2
+out pc=0x30002004 sig=trap r12=0x30001c08
+case Adr 01cb4fe2 adr r12, #-1024 <- adr {Rd}, #{adr12}
+in nzcv=1010 r12=0x1ffffff
+out pc=0x30002004 sig=trap r12=0x30001c08
+case Adr 01cb4fe2 adr r12, #-1024 <- adr {Rd}, #{adr12}
+in nzcv=1100 r12=0x80000005
+out pc=0x30002004 sig=trap r12=0x30001c08
+case Adr 08008f02 adreq r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1001 r0=0xadfbbc8
+out pc=0x30002004 sig=trap
+case Adr 08008f02 adreq r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1010 r0=0x2000
+out pc=0x30002004 sig=trap
+case Adr 08008f02 adreq r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0001 r0=0x1fffffff
+out pc=0x30002004 sig=trap
+case Adr 08504f12 adrne r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0001 r5=0x9
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 08504f12 adrne r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0010 r5=0xfffffff6
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 08504f12 adrne r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1010 r5=0x7b765dc5
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 019b8f22 adrcs r9, #1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1100 r9=0x80000
+out pc=0x30002004 sig=trap
+case Adr 019b8f22 adrcs r9, #1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1001 r9=0x621dd7fb
+out pc=0x30002004 sig=trap
+case Adr 019b8f22 adrcs r9, #1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1001 r9=0x80000003
+out pc=0x30002004 sig=trap
+case Adr 01cb4f32 adrcc r12, #-1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0001 r12=0x3
+out pc=0x30002004 sig=trap r12=0x30001c08
+case Adr 01cb4f32 adrcc r12, #-1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1000 r12=0xa
+out pc=0x30002004 sig=trap r12=0x30001c08
+case Adr 01cb4f32 adrcc r12, #-1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1000 r12=0x7
+out pc=0x30002004 sig=trap r12=0x30001c08
+case Adr 08008f42 adrmi r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1100 r0=0x2a6f9be4
+out pc=0x30002004 sig=trap r0=0x30002010
+case Adr 08008f42 adrmi r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0001 r0=0x8000000d
+out pc=0x30002004 sig=trap
+case Adr 08008f42 adrmi r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1010 r0=0x2
+out pc=0x30002004 sig=trap r0=0x30002010
+case Adr 08504f52 adrpl r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1010 r5=0x2000
+out pc=0x30002004 sig=trap
+case Adr 08504f52 adrpl r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0010 r5=0xfffffffd
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 08504f52 adrpl r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1110 r5=0xfffffffc
+out pc=0x30002004 sig=trap
+case Adr 019b8f62 adrvs r9, #1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1101 r9=0x8000000b
+out pc=0x30002004 sig=trap r9=0x30002408
+case Adr 019b8f62 adrvs r9, #1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0001 r9=0x7345dc77
+out pc=0x30002004 sig=trap r9=0x30002408
+case Adr 019b8f62 adrvs r9, #1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1001 r9=0x100
+out pc=0x30002004 sig=trap r9=0x30002408
+case Adr 01cb4f72 adrvc r12, #-1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0101 r12=0x7ffffff6
+out pc=0x30002004 sig=trap
+case Adr 01cb4f72 adrvc r12, #-1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1011 r12=0x1ffff
+out pc=0x30002004 sig=trap
+case Adr 01cb4f72 adrvc r12, #-1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0000 r12=0xd36beb67
+out pc=0x30002004 sig=trap r12=0x30001c08
+case Adr 08008f82 adrhi r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1000 r0=0x343cf892
+out pc=0x30002004 sig=trap
+case Adr 08008f82 adrhi r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1100 r0=0x619295f4
+out pc=0x30002004 sig=trap
+case Adr 08008f82 adrhi r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0010 r0=0xfffffff
+out pc=0x30002004 sig=trap r0=0x30002010
+case Adr 08504f92 adrls r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0010 r5=0xf5e5f89d
+out pc=0x30002004 sig=trap
+case Adr 08504f92 adrls r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1100 r5=0xad3b9108
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 08504f92 adrls r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1000 r5=0x20000000
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 019b8fa2 adrge r9, #1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1001 r9=0xb
+out pc=0x30002004 sig=trap r9=0x30002408
+case Adr 019b8fa2 adrge r9, #1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1011 r9=0xfffffff7
+out pc=0x30002004 sig=trap r9=0x30002408
+case Adr 019b8fa2 adrge r9, #1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0100 r9=0xfffffffc
+out pc=0x30002004 sig=trap r9=0x30002408
+case Adr 01cb4fb2 adrlt r12, #-1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0000 r12=0xf
+out pc=0x30002004 sig=trap
+case Adr 01cb4fb2 adrlt r12, #-1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1100 r12=0xea89bb7f
+out pc=0x30002004 sig=trap r12=0x30001c08
+case Adr 01cb4fb2 adrlt r12, #-1024 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0101 r12=0x9
+out pc=0x30002004 sig=trap r12=0x30001c08
+case Adr 08008fc2 adrgt r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0101 r0=0x800
+out pc=0x30002004 sig=trap
+case Adr 08008fc2 adrgt r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0101 r0=0xfffffff0
+out pc=0x30002004 sig=trap
+case Adr 08008fc2 adrgt r0, #8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0111 r0=0x80000000
+out pc=0x30002004 sig=trap
+case Adr 08504fd2 adrle r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0011 r5=0x7ffffff1
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 08504fd2 adrle r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=0111 r5=0x39ade74f
+out pc=0x30002004 sig=trap r5=0x30002000
+case Adr 08504fd2 adrle r5, #-8 <- adr{cond} {Rd}, #{adr12}
+in nzcv=1101 r5=0x80000008
+out pc=0x30002004 sig=trap r5=0x30002000
+case Nop 00f020e3 nop <- nop
+in nzcv=0010
+out pc=0x30002004 sig=trap
+case Nop 00f020e3 nop <- nop
+in nzcv=0100
+out pc=0x30002004 sig=trap
+case Nop 00f020e3 nop <- nop
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case Trap 700020e1 bkpt #0 <- bkpt #{bkpt}
+in nzcv=0111
+out pc=0x30002000 sig=trap
+case Trap 700020e1 bkpt #0 <- bkpt #{bkpt}
+in nzcv=1111
+out pc=0x30002000 sig=trap
+case Trap 700020e1 bkpt #0 <- bkpt #{bkpt}
+in nzcv=0111
+out pc=0x30002000 sig=trap
+case Trap 750520e1 bkpt #0x55 <- bkpt #{bkpt}
+in nzcv=1010
+out pc=0x30002000 sig=trap
+case Trap 750520e1 bkpt #0x55 <- bkpt #{bkpt}
+in nzcv=0111
+out pc=0x30002000 sig=trap
+case Trap 750520e1 bkpt #0x55 <- bkpt #{bkpt}
+in nzcv=1111
+out pc=0x30002000 sig=trap
+case Trap 7f0f20e1 bkpt #0xff <- bkpt #{bkpt}
+in nzcv=0001
+out pc=0x30002000 sig=trap
+case Trap 7f0f20e1 bkpt #0xff <- bkpt #{bkpt}
+in nzcv=1110
+out pc=0x30002000 sig=trap
+case Trap 7f0f20e1 bkpt #0xff <- bkpt #{bkpt}
+in nzcv=0111
+out pc=0x30002000 sig=trap
+case Trap 710020e1 bkpt #1 <- bkpt #{bkpt}
+in nzcv=0010
+out pc=0x30002000 sig=trap
+case Trap 710020e1 bkpt #1 <- bkpt #{bkpt}
+in nzcv=0001
+out pc=0x30002000 sig=trap
+case Trap 710020e1 bkpt #1 <- bkpt #{bkpt}
+in nzcv=1110
+out pc=0x30002000 sig=trap
+case Trap f000f0e7 udf #0 <- udf #{imm16}
+in nzcv=1111
+out pc=0x30002000 sig=ill
+case Trap f000f0e7 udf #0 <- udf #{imm16}
+in nzcv=0000
+out pc=0x30002000 sig=ill
+case Trap f000f0e7 udf #0 <- udf #{imm16}
+in nzcv=0000
+out pc=0x30002000 sig=ill
+case Trap ffffffe7 udf #0xffff <- udf #{imm16}
+in nzcv=0100
+out pc=0x30002000 sig=ill
+case Trap ffffffe7 udf #0xffff <- udf #{imm16}
+in nzcv=0100
+out pc=0x30002000 sig=ill
+case Trap ffffffe7 udf #0xffff <- udf #{imm16}
+in nzcv=0100
+out pc=0x30002000 sig=ill
+case Trap f423f1e7 udf #0x1234 <- udf #{imm16}
+in nzcv=0000
+out pc=0x30002000 sig=ill
+case Trap f423f1e7 udf #0x1234 <- udf #{imm16}
+in nzcv=1100
+out pc=0x30002000 sig=ill
+case Trap f423f1e7 udf #0x1234 <- udf #{imm16}
+in nzcv=1110
+out pc=0x30002000 sig=ill
+case Trap f000f8e7 udf #0x8000 <- udf #{imm16}
+in nzcv=1100
+out pc=0x30002000 sig=ill
+case Trap f000f8e7 udf #0x8000 <- udf #{imm16}
+in nzcv=1101
+out pc=0x30002000 sig=ill
+case Trap f000f8e7 udf #0x8000 <- udf #{imm16}
+in nzcv=1101
+out pc=0x30002000 sig=ill

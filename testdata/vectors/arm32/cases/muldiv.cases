@@ -1,0 +1,40 @@
+Mul 5043 muls r0, r2, r0
+Mul 7b43 muls r3, r7, r3
+Mul 4543 muls r5, r0, r5
+Mul 6f43 muls r7, r5, r7
+Mul 01fb02f0 mul r0, r1, r2
+Mul 08fb0af5 mul r5, r8, r10
+Mul 0bfb0cf9 mul r9, r11, r12
+Mul 0efb06fc mul r12, r14, r6
+Mul 01fb0230 mla r0, r1, r2, r3
+Mul 08fb0a45 mla r5, r8, r10, r4
+Mul 0bfb0c79 mla r9, r11, r12, r7
+Mul 0efb06bc mla r12, r14, r6, r11
+Mul 01fb1230 mls r0, r1, r2, r3
+Mul 08fb1a45 mls r5, r8, r10, r4
+Mul 0bfb1c79 mls r9, r11, r12, r7
+Mul 0efb16bc mls r12, r14, r6, r11
+LongMul a1fb0203 umull r0, r3, r1, r2
+LongMul a8fb0a54 umull r5, r4, r8, r10
+LongMul abfb0c97 umull r9, r7, r11, r12
+LongMul aefb06cb umull r12, r11, r14, r6
+LongMul 81fb0203 smull r0, r3, r1, r2
+LongMul 88fb0a54 smull r5, r4, r8, r10
+LongMul 8bfb0c97 smull r9, r7, r11, r12
+LongMul 8efb06cb smull r12, r11, r14, r6
+LongMul e1fb0203 umlal r0, r3, r1, r2
+LongMul e8fb0a54 umlal r5, r4, r8, r10
+LongMul ebfb0c97 umlal r9, r7, r11, r12
+LongMul eefb06cb umlal r12, r11, r14, r6
+LongMul c1fb0203 smlal r0, r3, r1, r2
+LongMul c8fb0a54 smlal r5, r4, r8, r10
+LongMul cbfb0c97 smlal r9, r7, r11, r12
+LongMul cefb06cb smlal r12, r11, r14, r6
+Div 91fbf2f0 sdiv r0, r1, r2
+Div 98fbfaf5 sdiv r5, r8, r10
+Div 9bfbfcf9 sdiv r9, r11, r12
+Div 9efbf6fc sdiv r12, r14, r6
+Div b1fbf2f0 udiv r0, r1, r2
+Div b8fbfaf5 udiv r5, r8, r10
+Div bbfbfcf9 udiv r9, r11, r12
+Div befbf6fc udiv r12, r14, r6

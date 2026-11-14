@@ -1,0 +1,116 @@
+Alu 081c adds r0, r1, #0
+Alu 631c adds r3, r4, #1
+Alu f51d adds r5, r6, #7
+Alu 171d adds r7, r2, #4
+Alu 081e subs r0, r1, #0
+Alu 631e subs r3, r4, #1
+Alu f51f subs r5, r6, #7
+Alu 171f subs r7, r2, #4
+Alu 0030 adds r0, #0
+Alu 0133 adds r3, #1
+Alu ff35 adds r5, #0xff
+Alu 8037 adds r7, #0x80
+Alu 0038 subs r0, #0
+Alu 013b subs r3, #1
+Alu ff3d subs r5, #0xff
+Alu 803f subs r7, #0x80
+Alu 0020 movs r0, #0
+Alu 0123 movs r3, #1
+Alu ff25 movs r5, #0xff
+Alu 8027 movs r7, #0x80
+Alu 0028 cmp r0, #0
+Alu 012b cmp r3, #1
+Alu ff2d cmp r5, #0xff
+Alu 802f cmp r7, #0x80
+Alu 8818 adds r0, r1, r2
+Alu e319 adds r3, r4, r7
+Alu 3518 adds r5, r6, r0
+Alu 5719 adds r7, r2, r5
+Alu 881a subs r0, r1, r2
+Alu e31b subs r3, r4, r7
+Alu 351a subs r5, r6, r0
+Alu 571b subs r7, r2, r5
+Alu 1040 ands r0, r2
+Alu 3b40 ands r3, r7
+Alu 0540 ands r5, r0
+Alu 2f40 ands r7, r5
+Alu 5040 eors r0, r2
+Alu 7b40 eors r3, r7
+Alu 4540 eors r5, r0
+Alu 6f40 eors r7, r5
+Alu 5041 adcs r0, r2
+Alu 7b41 adcs r3, r7
+Alu 4541 adcs r5, r0
+Alu 6f41 adcs r7, r5
+Alu 9041 sbcs r0, r2
+Alu bb41 sbcs r3, r7
+Alu 8541 sbcs r5, r0
+Alu af41 sbcs r7, r5
+Alu 1042 tst r0, r2
+Alu 3b42 tst r3, r7
+Alu 0542 tst r5, r0
+Alu 2f42 tst r7, r5
+Alu 5042 rsbs r0, r2, #0
+Alu 7b42 rsbs r3, r7, #0
+Alu 4542 rsbs r5, r0, #0
+Alu 6f42 rsbs r7, r5, #0
+Alu 9042 cmp r0, r2
+Alu bb42 cmp r3, r7
+Alu 8542 cmp r5, r0
+Alu af42 cmp r7, r5
+Alu d042 cmn r0, r2
+Alu fb42 cmn r3, r7
+Alu c542 cmn r5, r0
+Alu ef42 cmn r7, r5
+Alu 1043 orrs r0, r2
+Alu 3b43 orrs r3, r7
+Alu 0543 orrs r5, r0
+Alu 2f43 orrs r7, r5
+Alu 9043 bics r0, r2
+Alu bb43 bics r3, r7
+Alu 8543 bics r5, r0
+Alu af43 bics r7, r5
+Alu d043 mvns r0, r2
+Alu fb43 mvns r3, r7
+Alu c543 mvns r5, r0
+Alu ef43 mvns r7, r5
+Alu 1000 movs r0, r2
+Alu 3b00 movs r3, r7
+Alu 0500 movs r5, r0
+Alu 2f00 movs r7, r5
+Alu 1044 add r0, r2
+Alu 5544 add r5, r10
+Alu e144 add r9, r12
+Alu b444 add r12, r6
+Alu 1046 mov r0, r2
+Alu 5546 mov r5, r10
+Alu e146 mov r9, r12
+Alu b446 mov r12, r6
+Alu 9042 cmp r0, r2
+Alu 5545 cmp r5, r10
+Alu e145 cmp r9, r12
+Alu b445 cmp r12, r6
+Alu 00a8 add r0, sp, #0
+Alu 01ab add r3, sp, #4
+Alu ffad add r5, sp, #1020
+Alu 80af add r7, sp, #512
+Alu 00b0 add sp, sp, #0
+Alu 01b0 add sp, sp, #4
+Alu 7fb0 add sp, sp, #508
+Alu 40b0 add sp, sp, #256
+Alu 80b0 sub sp, sp, #0
+Alu 81b0 sub sp, sp, #4
+Alu ffb0 sub sp, sp, #508
+Alu c0b0 sub sp, sp, #256
+Alu 7844 add r0, pc
+Alu 7b44 add r3, pc
+Alu 7d44 add r5, pc
+Alu 7f44 add r7, pc
+Alu 7846 mov r0, pc
+Alu 7b46 mov r3, pc
+Alu 7d46 mov r5, pc
+Alu 7f46 mov r7, pc
+Alu 6844 add r0, sp, r0
+Alu 6d44 add r5, sp, r5
+Alu e944 add r9, sp, r9
+Alu ec44 add r12, sp, r12

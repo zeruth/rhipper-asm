@@ -1,0 +1,69 @@
+Branch 04e0 b #8
+Branch fce7 b #-8
+Branch 00e2 b #1024
+Branch 00e4 b #-2048
+Branch 00f004b8 b.w #8
+Branch fff7fcbf b.w #-8
+Branch 00f000bc b.w #2048
+Branch fff700bc b.w #-2048
+Branch 04d0 beq #8
+Branch fcd1 bne #-8
+Branch 7fd2 bcs #254
+Branch 80d3 bcc #-256
+Branch 04d4 bmi #8
+Branch fcd5 bpl #-8
+Branch 7fd6 bvs #254
+Branch 80d7 bvc #-256
+Branch 04d8 bhi #8
+Branch fcd9 bls #-8
+Branch 7fda bge #254
+Branch 80db blt #-256
+Branch 04dc bgt #8
+Branch fcdd ble #-8
+Branch 00f00480 beq.w #8
+Branch 7ff4fcaf bne.w #-8
+Branch 80f00084 bcs.w #2048
+Branch fff400ac bcc.w #-2048
+Branch 00f10480 bmi.w #8
+Branch 7ff5fcaf bpl.w #-8
+Branch 80f10084 bvs.w #2048
+Branch fff500ac bvc.w #-2048
+Branch 00f20480 bhi.w #8
+Branch 7ff6fcaf bls.w #-8
+Branch 80f20084 bge.w #2048
+Branch fff600ac blt.w #-2048
+Branch 00f30480 bgt.w #8
+Branch 7ff7fcaf ble.w #-8
+Call 00f004f8 bl #8
+Call fff7fcff bl #-8
+Call 00f000fc bl #2048
+Call fff700fc bl #-2048
+Call 00f004e8 blx #8
+Call fff7fcef blx #-8
+Call 00f000ec blx #2048
+Call fff700ec blx #-2048
+BranchReg 1047 bx r2
+BranchReg 5047 bx r10
+BranchReg 6047 bx r12
+BranchReg 3047 bx r6
+BranchReg 9047 blx r2
+BranchReg d047 blx r10
+BranchReg e047 blx r12
+BranchReg b047 blx r6
+BranchReg 7047 bx lr
+CompareBranch 00b1 cbz r0, #0
+CompareBranch 23b1 cbz r3, #8
+CompareBranch 05b3 cbz r5, #64
+CompareBranch ffb3 cbz r7, #126
+CompareBranch 00b9 cbnz r0, #0
+CompareBranch 23b9 cbnz r3, #8
+CompareBranch 05bb cbnz r5, #64
+CompareBranch ffbb cbnz r7, #126
+Adr 00a0 adr r0, #0
+Adr 02a3 adr r3, #8
+Adr 80a5 adr r5, #512
+Adr ffa7 adr r7, #1020
+Adr 0ff20800 adr.w r0, #8
+Adr aff20805 adr.w r5, #-8
+Adr 0ff20049 adr.w r9, #1024
+Adr aff2004c adr.w r12, #-1024

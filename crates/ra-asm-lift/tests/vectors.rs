@@ -14,7 +14,14 @@
 //! `write_arm64_vectors` (ignored: it needs `wsl`) regenerates the files: it builds the guest
 //! with clang in WSL, writes the cases with their states, runs them under qemu and writes what
 //! came back.
+//!
+//! The 32-bit ARM vectors (`testdata/vectors/arm32`, recorded under `qemu-arm-static`) replay the
+//! same way through the Thumb-2 lift in `arm32.rs`, which shares the layout, the host, the
+//! generator's random states and the pending-list rule of this file.
 
+// A test target's root is `tests/vectors.rs`, so its modules are named by path.
+#[path = "vectors/arm32.rs"]
+mod arm32;
 mod common;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -23,7 +30,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 use common::{arm64_dir, expand, read_cases, read_templates, wsl_path};
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
@@ -401,6 +408,14 @@ fn ensure_fixed() {
     assert!(mapped, "the replay needs host memory at {IMAGE_BASE:#x} and {DATA_BASE:#x}, the guest's addresses");
 }
 
+/// The fixed memory is one per process, so the replays of the architectures take turns: the test
+/// harness runs them on threads of its own, and a failed one must not keep the others out.
+static REPLAY: Mutex<()> = Mutex::new(());
+
+fn replay_turn() -> MutexGuard<'static, ()> {
+    REPLAY.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// The state block, the interpreter's statics and its frames, in one allocation of the test's.
 const SCRATCH_LEN: usize = 0x40000;
 const STATICS_AT: u64 = 0x1000;
@@ -612,6 +627,7 @@ fn read_pending(path: &Path) -> BTreeMap<String, String> {
 /// `PENDING.txt` differ.
 #[test]
 fn arm64() {
+    let _turn = replay_turn();
     let dir = arm64_dir();
     let pending = read_pending(&pending_file());
     let mut files: Vec<PathBuf> = fs::read_dir(&dir)

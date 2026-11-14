@@ -1,0 +1,32 @@
+Extend 50b2 sxtb r0, r2
+Extend 7bb2 sxtb r3, r7
+Extend 45b2 sxtb r5, r0
+Extend 6fb2 sxtb r7, r5
+Extend 10b2 sxth r0, r2
+Extend 3bb2 sxth r3, r7
+Extend 05b2 sxth r5, r0
+Extend 2fb2 sxth r7, r5
+Extend d0b2 uxtb r0, r2
+Extend fbb2 uxtb r3, r7
+Extend c5b2 uxtb r5, r0
+Extend efb2 uxtb r7, r5
+Extend 90b2 uxth r0, r2
+Extend bbb2 uxth r3, r7
+Extend 85b2 uxth r5, r0
+Extend afb2 uxth r7, r5
+Extend 4ffa82f0 sxtb.w r0, r2, ror #0
+Extend 4ffa9af5 sxtb.w r5, r10, ror #8
+Extend 4ffaacf9 sxtb.w r9, r12, ror #16
+Extend 4ffab6fc sxtb.w r12, r6, ror #24
+Extend 0ffa82f0 sxth.w r0, r2, ror #0
+Extend 0ffa9af5 sxth.w r5, r10, ror #8
+Extend 0ffaacf9 sxth.w r9, r12, ror #16
+Extend 0ffab6fc sxth.w r12, r6, ror #24
+Extend 5ffa82f0 uxtb.w r0, r2, ror #0
+Extend 5ffa9af5 uxtb.w r5, r10, ror #8
+Extend 5ffaacf9 uxtb.w r9, r12, ror #16
+Extend 5ffab6fc uxtb.w r12, r6, ror #24
+Extend 1ffa82f0 uxth.w r0, r2, ror #0
+Extend 1ffa9af5 uxth.w r5, r10, ror #8
+Extend 1ffaacf9 uxth.w r9, r12, ror #16
+Extend 1ffab6fc uxth.w r12, r6, ror #24

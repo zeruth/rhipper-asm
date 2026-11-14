@@ -1,0 +1,50 @@
+Nop 00bf nop
+Nop aff30080 nop.w
+Trap 00be bkpt #0
+Trap 55be bkpt #0x55
+Trap ffbe bkpt #0xff
+Trap 01be bkpt #1
+Trap 00de udf #0
+Trap 01de udf #1
+Trap ffde udf #0xff
+Trap 80de udf #0x80
+Trap f0f700a0 udf.w #0
+Trap fff7ffaf udf.w #0xffff
+Trap f1f734a2 udf.w #0x1234
+Trap f8f700a0 udf.w #0x8000
+Unsupported b2fa82f0 clz r0, r2
+Unsupported bafa8af5 clz r5, r10
+Unsupported bcfa8cf9 clz r9, r12
+Unsupported b6fa86fc clz r12, r6
+Unsupported 10ba rev r0, r2
+Unsupported 3bba rev r3, r7
+Unsupported 05ba rev r5, r0
+Unsupported 2fba rev r7, r5
+Unsupported 92faa2f0 rbit r0, r2
+Unsupported 9afaaaf5 rbit r5, r10
+Unsupported 9cfaacf9 rbit r9, r12
+Unsupported 96faa6fc rbit r12, r6
+Unsupported 50ba rev16 r0, r2
+Unsupported 7bba rev16 r3, r7
+Unsupported 45ba rev16 r5, r0
+Unsupported 6fba rev16 r7, r5
+Unsupported d0ba revsh r0, r2
+Unsupported fbba revsh r3, r7
+Unsupported c5ba revsh r5, r0
+Unsupported efba revsh r7, r5
+Unsupported 01f30700 ssat r0, #8, r1
+Unsupported 08f30705 ssat r5, #8, r8
+Unsupported 0bf30709 ssat r9, #8, r11
+Unsupported 0ef3070c ssat r12, #8, r14
+Unsupported 82fa81f0 qadd r0, r1, r2
+Unsupported 8afa88f5 qadd r5, r8, r10
+Unsupported 8cfa8bf9 qadd r9, r11, r12
+Unsupported 86fa8efc qadd r12, r14, r6
+Unsupported 51e8000f ldrex r0, [r1]
+Unsupported 58e8005f ldrex r5, [r8]
+Unsupported 5be8009f ldrex r9, [r11]
+Unsupported 54e800cf ldrex r12, [r4]
+Unsupported 91f800f0 pld [r1]
+Unsupported 98f800f0 pld [r8]
+Unsupported 9bf800f0 pld [r11]
+Unsupported 94f800f0 pld [r4]
