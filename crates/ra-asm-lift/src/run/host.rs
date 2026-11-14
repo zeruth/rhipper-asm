@@ -30,8 +30,9 @@ const MODULE_HANDLES: u64 = 0x5a30_0000;
 /// it: a statically linked runtime's functions, which the lift leaves to the host's.
 const RUNTIME_DLLS: [&str; 6] = ["ucrtbase.dll", "msvcrt.dll", "vcruntime140.dll", "kernel32.dll", "ntdll.dll", "user32.dll"];
 
-/// The bytes of an x86 `%State`: the general registers, `rip`, the flags, the vectors.
-pub(super) const STATE_SIZE: u64 = 16 * 8 + 8 + 8 + 16 * 16;
+/// The bytes of an x86 `%State`: the general registers, `rip`, the flags, the vectors (`xmm0..15`
+/// and the upper halves of `ymm0..15`).
+pub(super) const STATE_SIZE: u64 = 16 * 8 + 8 + 8 + 32 * 16;
 /// The bytes of an ARM64 `%State`: `x0..x30` and `sp`, `pc`, the flags, `v0..v31`.
 const ARM64_STATE_SIZE: u64 = 32 * 8 + 8 + 8 + 32 * 16;
 

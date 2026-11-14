@@ -141,6 +141,12 @@ fn number(state: &State, name: &str) -> u128 {
     state.registers.get(name).map_or(0, |v| number_of(v))
 }
 
+/// The vector slots of the state with the names the files give them: `xmm<n>` in the first
+/// sixteen, the upper halves of the `ymm` as `ymm<n>.hi` in the sixteen above.
+fn vector_names() -> impl Iterator<Item = (usize, String)> {
+    (0..16).map(|i| (i, format!("xmm{i}"))).chain((0..16).map(|i| (16 + i, format!("ymm{i}.hi"))))
+}
+
 /// Lays the cells over the image of the data and the stack; a cell outside them is a difference.
 fn overlay(image: &mut [u8], cells: &BTreeMap<u64, Vec<u8>>) -> Result<(), String> {
     for (&at, bytes) in cells {
@@ -165,8 +171,8 @@ fn run_case(vm: &mut Vm<'_>, name: &str, case: &Case, fields: &Fields) -> Option
     for (i, flag) in FLAG_NAMES.iter().enumerate() {
         state[fields.flags + i] = number(input, flag) as u8;
     }
-    for i in 0..16 {
-        let v = number(input, &format!("xmm{i}"));
+    for (i, name) in vector_names() {
+        let v = number(input, &name);
         state[fields.xmm + 16 * i..fields.xmm + 16 * i + 16].copy_from_slice(&v.to_le_bytes());
     }
     vm.memory.write(VECTOR_BASE, &state).expect("the state");
@@ -215,8 +221,7 @@ fn run_case(vm: &mut Vm<'_>, name: &str, case: &Case, fields: &Fields) -> Option
             return Some(format!("{flag}: expected {}, lifted {got}", want(flag)));
         }
     }
-    for i in 0..16 {
-        let reg = format!("xmm{i}");
+    for (i, reg) in vector_names() {
         let got = u128::from_le_bytes(state[fields.xmm + 16 * i..fields.xmm + 16 * i + 16].try_into().unwrap());
         if got != want(&reg) {
             return Some(format!("{reg}: expected {:#034x}, lifted {got:#034x}", want(&reg)));
@@ -302,6 +307,14 @@ fn replay(group: &str, cases: &[Case], scratch: u64) -> (Vec<Replayed>, Vec<Stri
     assert_eq!(offsets.len(), 4, "the state has four fields");
     let fields = Fields { gprs: offsets[0] as usize, flags: offsets[2] as usize, xmm: offsets[3] as usize, size: size as usize };
     assert!(size <= DATA, "the state ({size} bytes) runs into the data buffer");
+    // A state short of the thirty-two slots is a lift library built before `state_fields_for` grew them.
+    assert!(
+        fields.xmm + 32 * 16 <= fields.size,
+        "the state holds the sixteen xmm and the upper halves of the ymm: {} bytes from {}, {} in all",
+        fields.size - fields.xmm,
+        fields.xmm,
+        fields.size
+    );
 
     let mut replayed = Vec::with_capacity(cases.len());
     for (i, (case, form)) in cases.iter().zip(&forms).enumerate() {

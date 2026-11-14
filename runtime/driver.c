@@ -76,12 +76,13 @@ enum { DLL_PROCESS_ATTACH = 1, DLL_THREAD_ATTACH = 2 };
 #define host_exit(code) _Exit((int)((code) & 0xff))
 #endif
 
-// The machine state, as %State in the IR: 16 general registers, rip, 8 flag bytes, 16 vectors.
+// The machine state, as %State in the IR: 16 general registers, rip, 8 flag bytes, 32 vector
+// slots (xmm0..15, then the upper halves of ymm0..15).
 struct State {
     uint64_t gpr[16];
     uint64_t rip;
     uint8_t flags[8];
-    _Alignas(16) uint8_t xmm[16][16];
+    _Alignas(16) uint8_t xmm[32][16];
 };
 
 enum { RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8, R9 };

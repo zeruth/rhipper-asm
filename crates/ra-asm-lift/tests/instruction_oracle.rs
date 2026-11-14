@@ -44,10 +44,11 @@ const FRAMES: u64 = 0xC000;
 const PAGE_LEN: u64 = 0x1000;
 
 /// The offsets of `%State`: sixteen general registers, `rip` at 128, the flag bytes, sixteen
-/// vectors.
+/// vectors, then the upper halves of the sixteen `ymm`.
 const FLAGS_AT: u64 = 136;
 const XMM_AT: u64 = 144;
-const STATE_LEN: usize = 400;
+const YMMH_AT: u64 = XMM_AT + 16 * 16;
+const STATE_LEN: usize = 656;
 
 const FLAG_NAMES: [&str; 7] = ["cf", "pf", "af", "zf", "sf", "df", "of"];
 const FLAG_BITS: [u32; 7] = [0, 2, 4, 6, 7, 10, 11];
@@ -164,6 +165,17 @@ impl Asm {
         self.disp(d);
     }
 
+    /// `vinsertf128 ymm, ymm, [rax + disp], 1` or `vextractf128 [rax + disp], ymm, 1`: the upper
+    /// half of a `ymm` from or to memory, the lower half untouched. A three-byte VEX prefix with
+    /// the 0F3A map, `L` set and the `66` prefix bits.
+    fn vhalf(&mut self, load: bool, ymm: u32, d: u32) {
+        let r_bar = if ymm & 8 != 0 { 0 } else { 0x80 };
+        let vvvv = if load { ((!ymm & 0xF) as u8) << 3 } else { 0 };
+        self.bytes(&[0xC4, r_bar | 0x63, vvvv | 0x05, if load { 0x18 } else { 0x19 }, 0x80 | ((ymm & 7) as u8) << 3]);
+        self.disp(d);
+        self.0.push(1);
+    }
+
     fn push(&mut self, reg: u32) {
         self.rex(false, 0, reg);
         self.0.push(0x50 | (reg & 7) as u8);
@@ -186,9 +198,10 @@ impl Asm {
 }
 
 /// Writes the trampoline around `instr` into the code page: the callee-saved registers and
-/// `xmm6..15` saved, the host stack pointer parked in the scratch, the state loaded (flags through
-/// `popfq`, `rax` last), the instruction, the state stored (`rax` through a `moffs` store before
-/// anything else moves, the flags after the host stack is back), and the epilogue the fault
+/// `xmm6..15` saved (the upper halves of the `ymm` are the caller's to lose), the host stack
+/// pointer parked in the scratch, the state loaded (the `ymm` upper halves over the `xmm`, flags
+/// through `popfq`, `rax` last), the instruction, the state stored (`rax` through a `moffs` store
+/// before anything else moves, the flags after the host stack is back), and the epilogue the fault
 /// handler also lands in.
 fn build_trampoline(arena: &Arena, instr: &[u8]) -> extern "C" fn() {
     let state = arena.base + STATE;
@@ -206,6 +219,7 @@ fn build_trampoline(arena: &Arena, instr: &[u8]) -> extern "C" fn() {
     a.mov_rax_imm(state);
     for x in 0..16 {
         a.movdqu(true, x, false, (XMM_AT + 16 * u64::from(x)) as u32);
+        a.vhalf(true, x, (YMMH_AT + 16 * u64::from(x)) as u32);
     }
     a.bytes(&[0xFF, 0xB0]);
     a.disp(FLAGS_AT as u32);
@@ -232,6 +246,7 @@ fn build_trampoline(arena: &Arena, instr: &[u8]) -> extern "C" fn() {
     a.bytes(&[0x48, 0x8B, 0x49, 0x08, 0x48, 0x89, 0x08]);
     for x in 0..16 {
         a.movdqu(false, x, false, (XMM_AT + 16 * u64::from(x)) as u32);
+        a.vhalf(false, x, (YMMH_AT + 16 * u64::from(x)) as u32);
     }
     let epilogue = a.0.len() as u64;
     a.0.push(0xFC);
@@ -467,6 +482,24 @@ const XMM: [R; 16] = [
     R::XMM14,
     R::XMM15,
 ];
+const YMM: [R; 16] = [
+    R::YMM0,
+    R::YMM1,
+    R::YMM2,
+    R::YMM3,
+    R::YMM4,
+    R::YMM5,
+    R::YMM6,
+    R::YMM7,
+    R::YMM8,
+    R::YMM9,
+    R::YMM10,
+    R::YMM11,
+    R::YMM12,
+    R::YMM13,
+    R::YMM14,
+    R::YMM15,
+];
 
 /// The mnemonics of `lift_instr` the oracle does not run, each with its reason: control flow
 /// (the harness runs one instruction and returns), the environment (another answer every run or
@@ -552,6 +585,13 @@ fn operand_kind_supported(k: K) -> bool {
             | K::xmm_reg
             | K::xmm_rm
             | K::xmm_or_mem
+            | K::xmm_vvvv
+            | K::xmm_is4
+            | K::ymm_reg
+            | K::ymm_rm
+            | K::ymm_or_mem
+            | K::ymm_vvvv
+            | K::ymm_is4
             | K::mem
             | K::mem_offs
             | K::imm8
@@ -574,8 +614,8 @@ fn operand_kind_supported(k: K) -> bool {
     )
 }
 
-/// The forms the oracle runs: every legacy-encoded code of 64-bit mode whose mnemonic the lift
-/// has an arm for and whose operands the generator can produce.
+/// The forms the oracle runs: every legacy- or VEX-encoded code of 64-bit mode whose mnemonic the
+/// lift has an arm for and whose operands the generator can produce.
 fn forms(lifted: &BTreeSet<String>) -> Vec<Code> {
     let skipped: BTreeSet<&str> = NOT_RUN.iter().map(|(m, _)| *m).collect();
     Code::values()
@@ -583,7 +623,7 @@ fn forms(lifted: &BTreeSet<String>) -> Vec<Code> {
             let op = code.op_code();
             let name = mnemonic_name(code.mnemonic());
             op.is_instruction()
-                && op.encoding() == EncodingKind::Legacy
+                && matches!(op.encoding(), EncodingKind::Legacy | EncodingKind::VEX)
                 && op.is_available_in_mode(64)
                 && lifted.contains(&name)
                 && !skipped.contains(name.as_str())
@@ -625,12 +665,14 @@ fn instance(code: Code, rng: &mut Rng, arena: &Arena) -> Option<(Instruction, Pi
             K::r16_reg | K::r16_rm | K::r16_opcode => reg(&mut ins, rng.pick(&GPR16)),
             K::r32_reg | K::r32_rm | K::r32_opcode => reg(&mut ins, rng.pick(&GPR32)),
             K::r64_reg | K::r64_rm | K::r64_opcode => reg(&mut ins, rng.pick(&GPR64)),
-            K::xmm_reg | K::xmm_rm => reg(&mut ins, rng.pick(&XMM)),
+            K::xmm_reg | K::xmm_rm | K::xmm_vvvv | K::xmm_is4 => reg(&mut ins, rng.pick(&XMM)),
+            K::ymm_reg | K::ymm_rm | K::ymm_vvvv | K::ymm_is4 => reg(&mut ins, rng.pick(&YMM)),
             K::r8_or_mem => rm(&mut ins, rng, &mut pins, &GPR8),
             K::r16_or_mem => rm(&mut ins, rng, &mut pins, &GPR16),
             K::r32_or_mem => rm(&mut ins, rng, &mut pins, &GPR32),
             K::r64_or_mem => rm(&mut ins, rng, &mut pins, &GPR64),
             K::xmm_or_mem => rm(&mut ins, rng, &mut pins, &XMM),
+            K::ymm_or_mem => rm(&mut ins, rng, &mut pins, &YMM),
             K::mem => memory(&mut ins, n, rng, &mut pins, data_mid),
             K::mem_offs => {
                 ins.set_op_kind(n, OpKind::Memory);
@@ -725,6 +767,19 @@ fn instance(code: Code, rng: &mut Rng, arena: &Arena) -> Option<(Instruction, Pi
         }
         Mnemonic::Div if !rng.chance(4) => pins.push((R::RDX, rng.below(4))),
         Mnemonic::Idiv if !rng.chance(4) => pins.push((R::RDX, if rng.chance(2) { 0 } else { u64::MAX })),
+        // The string lengths in `eax` and `edx`: short ones, negative ones, and now and then a
+        // whole register, which saturates to the vector's width.
+        Mnemonic::Pcmpestri => {
+            for r in [R::RAX, R::RDX] {
+                let length = if rng.chance(5) {
+                    rng.value()
+                } else {
+                    let n = rng.below(20) as i64;
+                    (if rng.chance(3) { -n } else { n }) as u64
+                };
+                pins.push((r, length));
+            }
+        }
         // A 16-bit double shift by more than 16 is undefined.
         Mnemonic::Shld | Mnemonic::Shrd if kinds[0] == K::r16_or_mem && kinds[2] == K::cl => {
             pins.push((R::RCX, (rng.next() & !0xFF) | rng.below(17)));
@@ -787,14 +842,22 @@ fn encode(ins: &Instruction) -> Result<Vec<u8>, String> {
 
 // region The samples
 
-/// A machine state: what the arena holds before and after a run.
+/// A machine state: what the arena holds before and after a run. `ymm_high` is the upper half of
+/// each `ymm`, above its `xmm`.
 #[derive(Clone)]
 struct Picture {
     gprs: [u64; 16],
     flags: [u8; 7],
     xmm: [u128; 16],
+    ymm_high: [u128; 16],
     data: Vec<u8>,
     stack: Vec<u8>,
+}
+
+/// The number of the `xmm` or `ymm` register operand `n` of `ins` names.
+fn vector_operand(ins: &Instruction, n: u32) -> Option<usize> {
+    let r = ins.op_register(n);
+    (ins.op_kind(n) == OpKind::Register && (r.is_xmm() || r.is_ymm())).then_some(r.number())
 }
 
 impl Picture {
@@ -815,6 +878,10 @@ impl Picture {
         for x in &mut xmm {
             *x = (u128::from(rng.value()) << 64) | u128::from(rng.value());
         }
+        let mut ymm_high = [0u128; 16];
+        for x in &mut ymm_high {
+            *x = (u128::from(rng.value()) << 64) | u128::from(rng.value());
+        }
         let mut data = vec![0u8; DATA_LEN as usize];
         rng.fill(&mut data);
         let mut stack = vec![0u8; STACK_LEN as usize];
@@ -824,7 +891,7 @@ impl Picture {
         let safe = (rng.next() & 0xCD5) | 2;
         let sp = (STACK_LEN / 2) as usize;
         stack[sp..sp + 8].copy_from_slice(&safe.to_le_bytes());
-        Self { gprs, flags, xmm, data, stack }
+        Self { gprs, flags, xmm, ymm_high, data, stack }
     }
 
     fn flags_word(&self) -> u64 {
@@ -845,6 +912,10 @@ impl Picture {
         }
         for (i, x) in self.xmm.iter().enumerate() {
             let at = XMM_AT as usize + 16 * i;
+            state[at..at + 16].copy_from_slice(&x.to_le_bytes());
+        }
+        for (i, x) in self.ymm_high.iter().enumerate() {
+            let at = YMMH_AT as usize + 16 * i;
             state[at..at + 16].copy_from_slice(&x.to_le_bytes());
         }
         arena.write(STATE, &state);
@@ -872,7 +943,12 @@ impl Picture {
             let at = XMM_AT as usize + 16 * i;
             *x = u128::from_le_bytes(state[at..at + 16].try_into().unwrap());
         }
-        Self { gprs, flags, xmm, data: arena.read(DATA, DATA_LEN as usize), stack: arena.read(STACK, STACK_LEN as usize) }
+        let mut ymm_high = [0u128; 16];
+        for (i, x) in ymm_high.iter_mut().enumerate() {
+            let at = YMMH_AT as usize + 16 * i;
+            *x = u128::from_le_bytes(state[at..at + 16].try_into().unwrap());
+        }
+        Self { gprs, flags, xmm, ymm_high, data: arena.read(DATA, DATA_LEN as usize), stack: arena.read(STACK, STACK_LEN as usize) }
     }
 
     fn describe(&self, ins: &Instruction, arena: &Arena) -> String {
@@ -885,8 +961,11 @@ impl Picture {
             out.push_str(&format!("{name}{f} "));
         }
         for n in 0..ins.op_count() {
-            if ins.op_kind(n) == OpKind::Register && ins.op_register(n).is_xmm() {
-                out.push_str(&format!("xmm{}={:#034x} ", ins.op_register(n).number(), self.xmm[ins.op_register(n).number()]));
+            if let Some(number) = vector_operand(ins, n) {
+                out.push_str(&format!("xmm{number}={:#034x} ", self.xmm[number]));
+                if ins.op_register(n).is_ymm() {
+                    out.push_str(&format!("ymm{number}.hi={:#034x} ", self.ymm_high[number]));
+                }
             }
         }
         if let Some(at) = effective_address(ins, self)
@@ -969,6 +1048,9 @@ fn differences(native: &Picture, lifted: &Picture, undefined: u32) -> Vec<String
     for i in 0..16 {
         if native.xmm[i] != lifted.xmm[i] {
             out.push(format!("xmm{i}: native {:#034x}, lifted {:#034x}", native.xmm[i], lifted.xmm[i]));
+        }
+        if native.ymm_high[i] != lifted.ymm_high[i] {
+            out.push(format!("ymm{i}.hi: native {:#034x}, lifted {:#034x}", native.ymm_high[i], lifted.ymm_high[i]));
         }
     }
     for (what, a, b) in [("data", &native.data, &lifted.data), ("stack", &native.stack, &lifted.stack)] {
@@ -1132,8 +1214,8 @@ fn vectors_dir() -> PathBuf {
 }
 
 /// The mnemonic groups of the files, by name. A form over `rsi`/`rdi` is a string one, a form with
-/// an xmm operand is SSE (integer when its mnemonic starts with `P`), a `setcc` or `cmovcc` a
-/// condition; what no group names is `misc`.
+/// an xmm or ymm operand is AVX when its mnemonic starts with `V` and SSE otherwise (integer when
+/// it starts with `P`), a `setcc` or `cmovcc` a condition; what no group names is `misc`.
 const GROUPS: &[(&str, &[&str])] = &[
     (
         "arith",
@@ -1152,8 +1234,29 @@ fn group(code: Code) -> &'static str {
         return "string";
     }
     let name = mnemonic_name(code.mnemonic());
-    if kinds.iter().any(|k| matches!(k, K::xmm_reg | K::xmm_rm | K::xmm_or_mem)) {
-        return if name.starts_with('P') { "sse_int" } else { "sse" };
+    let vector = kinds.iter().any(|k| {
+        matches!(
+            k,
+            K::xmm_reg
+                | K::xmm_rm
+                | K::xmm_or_mem
+                | K::xmm_vvvv
+                | K::xmm_is4
+                | K::ymm_reg
+                | K::ymm_rm
+                | K::ymm_or_mem
+                | K::ymm_vvvv
+                | K::ymm_is4
+        )
+    });
+    if vector {
+        return if name.starts_with('V') {
+            "avx"
+        } else if name.starts_with('P') {
+            "sse_int"
+        } else {
+            "sse"
+        };
     }
     if name.starts_with("Set") || name.starts_with("Cmov") {
         return "conditions";
@@ -1178,7 +1281,7 @@ fn fault_kind(code: u32) -> String {
 }
 
 /// The registers of a picture as the files name them: the general registers, one byte a flag,
-/// the vectors.
+/// the vectors as `xmm<n>` and the upper half of each `ymm` as `ymm<n>.hi`.
 fn vector_registers(p: &Picture, arena: &Arena) -> BTreeMap<String, Vec<u8>> {
     let mut out = BTreeMap::new();
     for (name, g) in GPR_NAMES.iter().zip(p.gprs) {
@@ -1189,6 +1292,9 @@ fn vector_registers(p: &Picture, arena: &Arena) -> BTreeMap<String, Vec<u8>> {
     }
     for (i, x) in p.xmm.iter().enumerate() {
         out.insert(format!("xmm{i}"), x.to_be_bytes().to_vec());
+    }
+    for (i, x) in p.ymm_high.iter().enumerate() {
+        out.insert(format!("ymm{i}.hi"), x.to_be_bytes().to_vec());
     }
     out
 }
@@ -1332,14 +1438,18 @@ fn write_vectors() {
             };
             let entry = build_trampoline(&arena, &bytes);
             let mut input = Picture::random(&mut rng, &arena, &pins);
-            // A vector register the form does not name is zero, so the line lists what matters.
-            let named: Vec<usize> = (0..ins.op_count())
-                .filter(|&n| ins.op_kind(n) == OpKind::Register && ins.op_register(n).is_xmm())
-                .map(|n| ins.op_register(n).number())
-                .collect();
-            for (i, x) in input.xmm.iter_mut().enumerate() {
+            // A vector register the form does not name is zero, so the line lists what matters;
+            // a named one keeps its upper half too, which a VEX form clears and a legacy one leaves.
+            let mut named: Vec<usize> = (0..ins.op_count()).filter_map(|n| vector_operand(&ins, n)).collect();
+            // The legacy blends take their control from `xmm0`, an operand iced leaves implied
+            // (`Pblendvb_xmm_xmmm128` counts two): a zero control would never blend.
+            if matches!(ins.mnemonic(), Mnemonic::Pblendvb | Mnemonic::Blendvps | Mnemonic::Blendvpd) {
+                named.push(0);
+            }
+            for (i, (x, high)) in input.xmm.iter_mut().zip(&mut input.ymm_high).enumerate() {
                 if !named.contains(&i) {
                     *x = 0;
+                    *high = 0;
                 }
             }
             input.write(&arena, true);

@@ -12,7 +12,7 @@ use ra_asm_analysis::{Analysis, Block, Function, Terminator as T};
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, ICond, Inst, Operand, Terminator, Type, ValueId};
 use ra_asm_pe::Image;
 use ra_asm_x86::X86;
-use ra_asm_x86::iced_x86::{Code, ConditionCode, Instruction, Mnemonic, OpKind, Register as R};
+use ra_asm_x86::iced_x86::{Code, ConditionCode, EncodingKind, Instruction, Mnemonic, OpKind, Register as R};
 
 use crate::state::{Flag, Machine};
 use crate::{Lifted, eh, function_name};
@@ -2068,6 +2068,32 @@ impl Lifter<'_, '_> {
                 let r = self.m.b.bin(block, op, ty.clone(), a, b, "fp");
                 self.write_vec(block, i, 0, ty, r);
             }
+            // SSE4 and AVX2: the forms clang's vector loops and the C++ runtime use.
+            M::Pshufb
+            | M::Vpshufb
+            | M::Pblendvb
+            | M::Vpblendvb
+            | M::Pminud
+            | M::Vpminud
+            | M::Pminsd
+            | M::Vpminsd
+            | M::Pmaxsd
+            | M::Vpmaxsd
+            | M::Vpand
+            | M::Vpxor
+            | M::Vpsubd
+            | M::Vpcmpeqb
+            | M::Vpcmpeqd
+            | M::Vpcmpgtd
+            | M::Vmovups
+            | M::Vmovupd
+            | M::Vmovdqu
+            | M::Vinsertf128
+            | M::Vpermq
+            | M::Vpmaskmovd
+            | M::Ptest
+            | M::Vptest
+            | M::Pcmpestri => return self.vector_wide(block, i),
 
             m if crate::x87::is_x87(m) => self.x87(block, i),
 
@@ -2591,6 +2617,415 @@ impl Lifter<'_, '_> {
             self.m.trunc(block, ty, value, want, "n")
         };
         self.write(block, i, n, v);
+    }
+
+    // endregion
+
+    // region SSE4 and AVX
+
+    /// The SSE4.1 and AVX2 vector forms clang's vector loops and the C++ runtime use. A `ymm`
+    /// form works on two 128-bit halves, the upper one in the vector slot sixteen above the
+    /// register's; a VEX-encoded form that writes an `xmm` clears that upper half, a legacy one
+    /// leaves it. An EVEX form, or one over `mm` registers, is not lifted.
+    fn vector_wide(&mut self, block: BlockId, i: &Instruction) -> BlockId {
+        use Mnemonic as M;
+        let other_registers =
+            (0..i.op_count()).any(|n| i.op_kind(n) == OpKind::Register && !(i.op_register(n).is_xmm() || i.op_register(n).is_ymm()));
+        if !matches!(i.encoding(), EncodingKind::Legacy | EncodingKind::VEX) || other_registers {
+            self.warn(format!("{:#x}: {:?} is not lifted in this form ({:?})", i.ip(), i.mnemonic(), i.code()));
+            self.m.unsupported(block, i.ip(), i.code() as u64);
+            return block;
+        }
+        let v16 = Type::vector(16, Type::I8);
+        let v4 = Type::vector(4, Type::I32);
+        let v2 = Type::vector(2, Type::I64);
+        match i.mnemonic() {
+            M::Vmovups | M::Vmovupd | M::Vmovdqu => self.lanes(block, i, &Type::I128, |_, _, s| s[0]),
+            M::Pshufb | M::Vpshufb => self.lanes(block, i, &v16, |this, b, s| this.byte_shuffle(b, s[0], s[1])),
+            // The legacy blend takes its control from `xmm0`, an operand iced leaves implied.
+            M::Pblendvb => {
+                let control = self.m.read_xmm(block, R::XMM0, v16.clone());
+                self.lanes(block, i, &v16, |this, b, s| this.blend_by_sign(b, &v16, control, s[1], s[0]));
+            }
+            M::Vpblendvb => self.lanes(block, i, &v16, |this, b, s| this.blend_by_sign(b, &v16, s[2], s[1], s[0])),
+            M::Pminud | M::Vpminud | M::Pminsd | M::Vpminsd | M::Pmaxsd | M::Vpmaxsd => {
+                let cond = match i.mnemonic() {
+                    M::Pminud | M::Vpminud => ICond::Ult,
+                    M::Pminsd | M::Vpminsd => ICond::Slt,
+                    _ => ICond::Sgt,
+                };
+                self.lanes(block, i, &v4, |this, b, s| {
+                    let first = this.compare_mask(b, cond, &v4, s[0], s[1]);
+                    this.blend(b, &v4, first, s[0], s[1])
+                });
+            }
+            // The zeroing and all-ones idioms, with no read of the register.
+            M::Vpxor | M::Vpsubd if Self::same_sources(i) => self.lanes_const(block, i, 0),
+            M::Vpcmpeqb | M::Vpcmpeqd if Self::same_sources(i) => self.lanes_const(block, i, -1),
+            M::Vpand => self.lanes(block, i, &v2, |this, b, s| this.m.b.bin(b, BinOp::And, v2.clone(), s[0], s[1], "pand")),
+            M::Vpxor => self.lanes(block, i, &v2, |this, b, s| this.m.b.bin(b, BinOp::Xor, v2.clone(), s[0], s[1], "pxor")),
+            M::Vpsubd => self.lanes(block, i, &v4, |this, b, s| this.m.b.bin(b, BinOp::Sub, v4.clone(), s[0], s[1], "psub")),
+            M::Vpcmpeqb => self.lanes(block, i, &v16, |this, b, s| this.compare_mask(b, ICond::Eq, &v16, s[0], s[1])),
+            M::Vpcmpeqd => self.lanes(block, i, &v4, |this, b, s| this.compare_mask(b, ICond::Eq, &v4, s[0], s[1])),
+            M::Vpcmpgtd => self.lanes(block, i, &v4, |this, b, s| this.compare_mask(b, ICond::Sgt, &v4, s[0], s[1])),
+            M::Vinsertf128 => self.insert_half(block, i),
+            M::Vpermq => self.permute_quads(block, i),
+            M::Vpmaskmovd => return self.masked_move(block, i),
+            M::Ptest | M::Vptest => self.ptest(block, i),
+            _ => self.pcmpestri(block, i),
+        }
+        block
+    }
+
+    /// The 128-bit halves an instruction's vector operands have: two for a `ymm` form.
+    fn halves(i: &Instruction) -> u32 {
+        let ymm = (0..i.op_count()).any(|n| i.op_kind(n) == OpKind::Register && i.op_register(n).is_ymm());
+        if ymm { 2 } else { 1 }
+    }
+
+    /// The operands a form reads: all but the destination for a VEX form, the destination too for
+    /// a legacy one, which writes over its first source.
+    fn sources(i: &Instruction) -> std::ops::Range<u32> {
+        u32::from(i.encoding() == EncodingKind::VEX)..i.op_count()
+    }
+
+    /// Whether a three-operand form names the same register as both sources.
+    fn same_sources(i: &Instruction) -> bool {
+        i.op_count() == 3 && i.op_kind(1) == OpKind::Register && i.op_kind(2) == OpKind::Register && i.op_register(1) == i.op_register(2)
+    }
+
+    /// A lane-wise operation over every half: `f` maps the halves of the sources to the
+    /// destination's.
+    fn lanes(&mut self, block: BlockId, i: &Instruction, ty: &Type, f: impl Fn(&mut Self, BlockId, &[ValueId]) -> ValueId) {
+        let halves = Self::halves(i);
+        for h in 0..halves {
+            let sources: Vec<ValueId> = Self::sources(i).map(|n| self.read_half(block, i, n, h, ty.clone())).collect();
+            let r = f(self, block, &sources);
+            self.write_half(block, i, 0, h, ty.clone(), r);
+        }
+        self.clear_upper(block, i, halves);
+    }
+
+    /// Every half of the destination set to a constant.
+    fn lanes_const(&mut self, block: BlockId, i: &Instruction, value: i64) {
+        let halves = Self::halves(i);
+        for h in 0..halves {
+            let v = self.m.value_of(block, Type::I128, value);
+            self.write_half(block, i, 0, h, Type::I128, v);
+        }
+        self.clear_upper(block, i, halves);
+    }
+
+    /// Half `h` of vector operand `n` as `ty`: the register's slot, or the memory sixteen bytes a
+    /// half in.
+    fn read_half(&mut self, block: BlockId, i: &Instruction, n: u32, h: u32, ty: Type) -> ValueId {
+        if i.op_kind(n) == OpKind::Register {
+            let slot = i.op_register(n).number() as u32 + 16 * h;
+            self.m.read_vreg(block, slot, ty)
+        } else {
+            let addr = self.half_address(block, i, h);
+            self.m.load(block, ty, addr, "vm")
+        }
+    }
+
+    fn write_half(&mut self, block: BlockId, i: &Instruction, n: u32, h: u32, ty: Type, value: ValueId) {
+        if i.op_kind(n) == OpKind::Register {
+            let slot = i.op_register(n).number() as u32 + 16 * h;
+            self.m.write_vreg(block, slot, ty, value, true);
+        } else {
+            let addr = self.half_address(block, i, h);
+            self.m.store(block, ty, value, addr);
+        }
+    }
+
+    fn half_address(&mut self, block: BlockId, i: &Instruction, h: u32) -> ValueId {
+        let addr = self.mem_address(block, i);
+        if h == 0 {
+            addr
+        } else {
+            let ty = self.addr_ty();
+            self.m.b.bin(block, BinOp::Add, ty, addr, 16i64 * i64::from(h), "vm.hi")
+        }
+    }
+
+    /// After a VEX form wrote an `xmm`: the upper half of its `ymm` clears.
+    fn clear_upper(&mut self, block: BlockId, i: &Instruction, halves: u32) {
+        if halves == 1 && i.encoding() == EncodingKind::VEX && i.op_kind(0) == OpKind::Register && i.op_register(0).is_xmm() {
+            let zero = self.m.value_of(block, Type::I128, 0i64);
+            self.m.write_vreg(block, i.op_register(0).number() as u32 + 16, Type::I128, zero, true);
+        }
+    }
+
+    /// The all-ones lanes where `cond` holds between `a` and `b`.
+    fn compare_mask(&mut self, block: BlockId, cond: ICond, ty: &Type, a: ValueId, b: ValueId) -> ValueId {
+        let Type::Vector(n, _) = ty else { unreachable!() };
+        let bits = self.m.b.icmp(block, cond, ty.clone(), a, b, "pcmp");
+        self.m.b.cast(block, Cast::SExt, Type::vector(*n, Type::I1), bits, ty.clone(), "pcmp.m")
+    }
+
+    /// `a` in the lanes `mask` sets, `b` in the rest: a vector select spelled with masks, as the
+    /// packs are.
+    fn blend(&mut self, block: BlockId, ty: &Type, mask: ValueId, a: ValueId, b: ValueId) -> ValueId {
+        let kept = self.m.b.bin(block, BinOp::Xor, ty.clone(), mask, -1i64, "keep.m");
+        let own = self.m.b.bin(block, BinOp::And, ty.clone(), b, kept, "keep");
+        let taken = self.m.b.bin(block, BinOp::And, ty.clone(), a, mask, "take");
+        self.m.b.bin(block, BinOp::Or, ty.clone(), own, taken, "blend")
+    }
+
+    /// `a` in the lanes whose lane of `control` has its sign bit set, `b` in the rest.
+    fn blend_by_sign(&mut self, block: BlockId, ty: &Type, control: ValueId, a: ValueId, b: ValueId) -> ValueId {
+        let zero = self.m.value_of(block, ty.clone(), 0i64);
+        let mask = self.compare_mask(block, ICond::Slt, ty, control, zero);
+        self.blend(block, ty, mask, a, b)
+    }
+
+    /// `pshufb` on one half: byte `k` of the result is the byte of `a` the low four bits of
+    /// control byte `k` name, or zero when the control byte's sign bit is set.
+    fn byte_shuffle(&mut self, block: BlockId, a: ValueId, control: ValueId) -> ValueId {
+        let v16 = Type::vector(16, Type::I8);
+        let mut r = self.m.value_of(block, v16.clone(), 0i64);
+        for k in 0..16u32 {
+            let at = Operand::Int(i128::from(k));
+            let sel = self.m.b.value(block, Inst::ExtractElement { ty: v16.clone(), vector: control.into(), index: at.clone() }, "sel");
+            let low = self.m.b.bin(block, BinOp::And, Type::I8, sel, 15i64, "sel.i");
+            let index = self.m.zext(block, Type::I8, low, Type::I32, "sel.w");
+            let byte = self.m.b.value(block, Inst::ExtractElement { ty: v16.clone(), vector: a.into(), index: index.into() }, "byte");
+            let clear = self.m.b.icmp(block, ICond::Slt, Type::I8, sel, 0i64, "sel.z");
+            let lane = self.m.select(block, clear, Type::I8, 0i64, byte, "lane");
+            r = self.m.b.value(block, Inst::InsertElement { ty: v16.clone(), vector: r.into(), element: lane.into(), index: at }, "pshufb");
+        }
+        r
+    }
+
+    /// `vinsertf128`: the second source's 128 bits into the half the immediate names, the first
+    /// source's other half kept. Both are read before either half is written: a source may be
+    /// the destination.
+    fn insert_half(&mut self, block: BlockId, i: &Instruction) {
+        let which = Self::immediate(i, 3) as u32 & 1;
+        let inserted = self.read_half(block, i, 2, 0, Type::I128);
+        let kept = self.read_half(block, i, 1, 1 - which, Type::I128);
+        self.write_half(block, i, 0, which, Type::I128, inserted);
+        self.write_half(block, i, 0, 1 - which, Type::I128, kept);
+    }
+
+    /// `vpermq`: each quadword of the result is the one of the source's four that two bits of the
+    /// immediate name.
+    fn permute_quads(&mut self, block: BlockId, i: &Instruction) {
+        let imm = Self::immediate(i, 2);
+        let v2 = Type::vector(2, Type::I64);
+        let low = self.read_half(block, i, 1, 0, v2.clone());
+        let high = self.read_half(block, i, 1, 1, v2.clone());
+        let sel = |k: i64| ((imm >> (2 * k)) & 3) as i32;
+        let halves: Vec<ValueId> = (0..2i64)
+            .map(|h| {
+                let mask = vec![sel(2 * h), sel(2 * h + 1)];
+                self.m.b.value(block, Inst::ShuffleVector { ty: v2.clone(), a: low.into(), b: high.into(), mask }, "permq")
+            })
+            .collect();
+        for (h, v) in halves.into_iter().enumerate() {
+            self.write_half(block, i, 0, h as u32, v2.clone(), v);
+        }
+    }
+
+    /// `vpmaskmovd`: a dword lane moves when the sign bit of its mask lane is set; the memory of
+    /// a lane left out is never touched, so each lane's access is a branch of its own.
+    fn masked_move(&mut self, mut block: BlockId, i: &Instruction) -> BlockId {
+        let v4 = Type::vector(4, Type::I32);
+        let halves = Self::halves(i);
+        let load = i.op_kind(0) == OpKind::Register;
+        let ty = self.addr_ty();
+        for h in 0..halves {
+            let mask = self.read_half(block, i, 1, h, v4.clone());
+            let data = if load { None } else { Some(self.read_half(block, i, 2, h, v4.clone())) };
+            let base = self.half_address(block, i, h);
+            let mut acc = self.m.value_of(block, v4.clone(), 0i64);
+            for k in 0..4u32 {
+                let at = Operand::Int(i128::from(k));
+                let lane = self.m.b.value(block, Inst::ExtractElement { ty: v4.clone(), vector: mask.into(), index: at.clone() }, "vmask");
+                let set = self.m.b.icmp(block, ICond::Slt, Type::I32, lane, 0i64, "vmask.on");
+                let addr = if k == 0 { base } else { self.m.b.bin(block, BinOp::Add, ty.clone(), base, i64::from(4 * k), "vmask.a") };
+                let go = self.m.b.block("vmask.go");
+                let next = self.m.b.block("vmask.next");
+                self.m.b.terminate(block, Terminator::CondBr { cond: set.into(), then: go, els: next });
+                if let Some(data) = data {
+                    let v = self.m.b.value(go, Inst::ExtractElement { ty: v4.clone(), vector: data.into(), index: at }, "vmask.v");
+                    self.m.store(go, Type::I32, v, addr);
+                    self.m.b.terminate(go, Terminator::Br(next));
+                } else {
+                    let v = self.m.load(go, Type::I32, addr, "vmask.m");
+                    self.m.b.terminate(go, Terminator::Br(next));
+                    let lane = self.m.b.value(
+                        next,
+                        Inst::Phi { ty: Type::I32, incoming: vec![(v.into(), go), (Operand::Int(0), block)] },
+                        "vmask.l",
+                    );
+                    acc = self.m.b.value(
+                        next,
+                        Inst::InsertElement { ty: v4.clone(), vector: acc.into(), element: lane.into(), index: at },
+                        "vmask.r",
+                    );
+                }
+                block = next;
+            }
+            if load {
+                self.write_half(block, i, 0, h, v4.clone(), acc);
+            }
+        }
+        if load {
+            self.clear_upper(block, i, halves);
+        }
+        block
+    }
+
+    /// `ptest`: ZF when the source and the destination share no set bit, CF when the source sets
+    /// none the destination clears; the other flags clear.
+    fn ptest(&mut self, block: BlockId, i: &Instruction) {
+        let mut shared: Option<ValueId> = None;
+        let mut outside: Option<ValueId> = None;
+        for h in 0..Self::halves(i) {
+            let a = self.read_half(block, i, 0, h, Type::I128);
+            let b = self.read_half(block, i, 1, h, Type::I128);
+            let and = self.m.b.bin(block, BinOp::And, Type::I128, b, a, "ptest.and");
+            let not_a = self.m.b.bin(block, BinOp::Xor, Type::I128, a, -1i64, "ptest.not");
+            let andn = self.m.b.bin(block, BinOp::And, Type::I128, b, not_a, "ptest.andn");
+            shared = Some(match shared {
+                None => and,
+                Some(acc) => self.m.b.bin(block, BinOp::Or, Type::I128, acc, and, "ptest.and"),
+            });
+            outside = Some(match outside {
+                None => andn,
+                Some(acc) => self.m.b.bin(block, BinOp::Or, Type::I128, acc, andn, "ptest.andn"),
+            });
+        }
+        let zf = self.m.b.icmp(block, ICond::Eq, Type::I128, shared.unwrap(), 0i64, "zf");
+        let cf = self.m.b.icmp(block, ICond::Eq, Type::I128, outside.unwrap(), 0i64, "cf");
+        self.m.set_flag(block, Flag::Zf, zf);
+        self.m.set_flag(block, Flag::Cf, cf);
+        for flag in [Flag::Af, Flag::Of, Flag::Pf, Flag::Sf] {
+            self.m.set_flag_const(block, flag, false);
+        }
+    }
+
+    /// `|eax|` or `|edx|` (`rax`, `rdx` with REX.W) of a `pcmpestri` as a 64-bit count: the
+    /// negation of the most negative value stays large, and an element index compares below it
+    /// unsigned, so a length past the register saturates as the manual says.
+    fn string_length(&mut self, block: BlockId, reg: R, ty: Type) -> ValueId {
+        let v = self.m.read_gpr(block, reg);
+        let negative = self.m.b.icmp(block, ICond::Slt, ty.clone(), v, 0i64, "len.neg");
+        let negated = self.m.b.bin(block, BinOp::Sub, ty.clone(), 0i64, v, "len.n");
+        let magnitude = self.m.select(block, negative, ty.clone(), negated, v, "len");
+        self.m.zext(block, ty, magnitude, Type::I64, "len.w")
+    }
+
+    /// `pcmpestri`: the first operand's elements (`eax` of them valid) against the second's
+    /// (`edx` of them), aggregated as the immediate says (equal any, ranges, equal each, equal
+    /// ordered, over bytes or words), the result negated as its polarity says, the index of the
+    /// first or last set bit in `ecx`, and the flags from the result and the lengths. Each
+    /// comparison is spelled out: the immediate is a constant, so only the mode asked for is lifted.
+    fn pcmpestri(&mut self, block: BlockId, i: &Instruction) {
+        let imm = Self::immediate(i, 2);
+        let words = imm & 1 != 0;
+        let signed = imm & 2 != 0;
+        let (lanes, lane_ty) = if words { (8u32, Type::I16) } else { (16u32, Type::I8) };
+        let vty = Type::vector(lanes, lane_ty.clone());
+        let wide = i.code() == Code::Pcmpestri64_xmm_xmmm128_imm8;
+        let a = self.read_vec(block, i, 0, vty.clone());
+        let b = self.read_vec(block, i, 1, vty.clone());
+        let len_ty = if wide { Type::I64 } else { Type::I32 };
+        let len_a = self.string_length(block, if wide { R::RAX } else { R::EAX }, len_ty.clone());
+        let len_b = self.string_length(block, if wide { R::RDX } else { R::EDX }, len_ty);
+        let n = i64::from(lanes);
+        let mut ea = Vec::with_capacity(lanes as usize);
+        let mut eb = Vec::with_capacity(lanes as usize);
+        let mut va = Vec::with_capacity(lanes as usize);
+        let mut vb = Vec::with_capacity(lanes as usize);
+        for k in 0..lanes {
+            let at = Operand::Int(i128::from(k));
+            ea.push(self.m.b.value(block, Inst::ExtractElement { ty: vty.clone(), vector: a.into(), index: at.clone() }, "a"));
+            eb.push(self.m.b.value(block, Inst::ExtractElement { ty: vty.clone(), vector: b.into(), index: at }, "b"));
+            va.push(self.m.b.icmp(block, ICond::Ult, Type::I64, i64::from(k), len_a, "a.valid"));
+            vb.push(self.m.b.icmp(block, ICond::Ult, Type::I64, i64::from(k), len_b, "b.valid"));
+        }
+        let truth = self.m.value_of(block, Type::I1, 1i64);
+        let falsity = self.m.value_of(block, Type::I1, 0i64);
+        let mut res = Vec::with_capacity(lanes as usize);
+        for j in 0..lanes as usize {
+            let bit = match (imm >> 2) & 3 {
+                // Equal any: element j of the second operand is one of the first's.
+                0 => {
+                    let mut any = falsity;
+                    for (&ak, &valid_k) in ea.iter().zip(&va) {
+                        let eq = self.m.b.icmp(block, ICond::Eq, lane_ty.clone(), ak, eb[j], "eq");
+                        let both = self.m.b.bin(block, BinOp::And, Type::I1, valid_k, vb[j], "both");
+                        let hit = self.m.b.bin(block, BinOp::And, Type::I1, eq, both, "hit");
+                        any = self.m.b.bin(block, BinOp::Or, Type::I1, any, hit, "any");
+                    }
+                    any
+                }
+                // Ranges: element j of the second operand lies in one of the first's pairs.
+                1 => {
+                    let (ge, le) = if signed { (ICond::Sge, ICond::Sle) } else { (ICond::Uge, ICond::Ule) };
+                    let mut any = falsity;
+                    for k in (0..lanes as usize).step_by(2) {
+                        let above = self.m.b.icmp(block, ge, lane_ty.clone(), eb[j], ea[k], "ge");
+                        let below = self.m.b.icmp(block, le, lane_ty.clone(), eb[j], ea[k + 1], "le");
+                        let inside = self.m.b.bin(block, BinOp::And, Type::I1, above, below, "inside");
+                        let pair = self.m.b.bin(block, BinOp::And, Type::I1, va[k], va[k + 1], "pair");
+                        let valid = self.m.b.bin(block, BinOp::And, Type::I1, pair, vb[j], "valid");
+                        let hit = self.m.b.bin(block, BinOp::And, Type::I1, inside, valid, "hit");
+                        any = self.m.b.bin(block, BinOp::Or, Type::I1, any, hit, "any");
+                    }
+                    any
+                }
+                // Equal each: elements j of both; two invalid ones match, one does not.
+                2 => {
+                    let eq = self.m.b.icmp(block, ICond::Eq, lane_ty.clone(), ea[j], eb[j], "eq");
+                    let both = self.m.b.bin(block, BinOp::And, Type::I1, va[j], vb[j], "both");
+                    let hit = self.m.b.bin(block, BinOp::And, Type::I1, eq, both, "hit");
+                    let either = self.m.b.bin(block, BinOp::Or, Type::I1, va[j], vb[j], "either");
+                    let neither = self.m.b.bin(block, BinOp::Xor, Type::I1, either, 1i64, "neither");
+                    self.m.b.bin(block, BinOp::Or, Type::I1, hit, neither, "each")
+                }
+                // Equal ordered: the first operand matches the second from element j on; past
+                // the first's end every element matches, past the second's none does.
+                _ => {
+                    let mut all = truth;
+                    for k in 0..lanes as usize - j {
+                        let eq = self.m.b.icmp(block, ICond::Eq, lane_ty.clone(), ea[k], eb[j + k], "eq");
+                        let within = self.m.b.bin(block, BinOp::And, Type::I1, vb[j + k], eq, "within");
+                        let ended = self.m.b.bin(block, BinOp::Xor, Type::I1, va[k], 1i64, "ended");
+                        let ok = self.m.b.bin(block, BinOp::Or, Type::I1, ended, within, "ok");
+                        all = self.m.b.bin(block, BinOp::And, Type::I1, all, ok, "all");
+                    }
+                    all
+                }
+            };
+            let bit = match (imm >> 4) & 3 {
+                1 => self.m.b.bin(block, BinOp::Xor, Type::I1, bit, 1i64, "neg"),
+                3 => self.m.b.bin(block, BinOp::Xor, Type::I1, bit, vb[j], "neg.m"),
+                _ => bit,
+            };
+            res.push(bit);
+        }
+        // The index: the last select wins, so the lanes are visited from the far end.
+        let mut index = self.m.value_of(block, Type::I32, n);
+        let order: Vec<usize> = if imm & 0x40 != 0 { (0..lanes as usize).collect() } else { (0..lanes as usize).rev().collect() };
+        for j in order {
+            index = self.m.select(block, res[j], Type::I32, i64::from(j as u32), index, "index");
+        }
+        self.m.write_gpr(block, R::ECX, index);
+        let mut any = falsity;
+        for &bit in &res {
+            any = self.m.b.bin(block, BinOp::Or, Type::I1, any, bit, "any");
+        }
+        let zf = self.m.b.icmp(block, ICond::Ult, Type::I64, len_b, n, "zf");
+        let sf = self.m.b.icmp(block, ICond::Ult, Type::I64, len_a, n, "sf");
+        self.m.set_flag(block, Flag::Cf, any);
+        self.m.set_flag(block, Flag::Zf, zf);
+        self.m.set_flag(block, Flag::Sf, sf);
+        self.m.set_flag(block, Flag::Of, res[0]);
+        self.m.set_flag_const(block, Flag::Af, false);
+        self.m.set_flag_const(block, Flag::Pf, false);
     }
 
     // endregion

@@ -1,8 +1,9 @@
 //! The machine state and the helpers that read and write it: registers, flags and memory.
 //!
-//! `%State = type { [16 x i64], i64, [8 x i8], [16 x i128] }` on x86: the general registers in
-//! iced's order, `rip`, the flags as bytes (cf, pf, af, zf, sf, df, of), and the vector registers.
-//! The driver's C `struct State` has the same layout. On ARM64 the same four fields hold `x0..x30`
+//! `%State = type { [16 x i64], i64, [8 x i8], [32 x i128] }` on x86: the general registers in
+//! iced's order, `rip`, the flags as bytes (cf, pf, af, zf, sf, df, of), and the vector registers:
+//! `xmm0..xmm15` in the first sixteen slots, the upper halves of `ymm0..ymm15` in the sixteen
+//! above them. The driver's C `struct State` has the same layout. On ARM64 the same four fields hold `x0..x30`
 //! and `sp` (32 slots), `pc`, the flags as bytes (n, z, c, v) and `v0..v31`; on 32-bit ARM the
 //! x86 shape holds `r0..r15`, the flags as ARM64 keeps them and `q0..q15`.
 
@@ -42,7 +43,10 @@ pub fn state_fields() -> Vec<Type> {
 /// The fields of `%State` for `isa`.
 pub fn state_fields_for(isa: Isa) -> Vec<Type> {
     let (gprs, vectors) = match isa {
-        Isa::X86 | Isa::Arm32 => (16, 16),
+        // Slots 0..15 hold `xmm0..xmm15`, slots 16..31 the upper halves of `ymm0..ymm15`; the
+        // driver's `struct State` and the host's `STATE_SIZE` follow this count.
+        Isa::X86 => (16, 32),
+        Isa::Arm32 => (16, 16),
         Isa::Arm64 => (32, 32),
     };
     vec![Type::array(gprs, Type::I64), Type::I64, Type::array(8, Type::I8), Type::array(vectors, Type::I128)]
