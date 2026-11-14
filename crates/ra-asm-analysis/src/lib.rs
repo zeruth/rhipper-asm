@@ -437,20 +437,25 @@ fn fill_starts_at(image: &Image, va: u64) -> bool {
 }
 
 /// The functions in the gaps between the found ones: a 16-byte aligned address after `int 3` or
-/// `nop` fill in a code section, outside every function, whose trial build has no warning, covers
-/// the bytes from the address to the next fill, function or section end without a hole, and ends
-/// in returns and tail calls only, never in a trap or an unresolved jump. A jump table or a string
-/// in the code section fails the trial; a function does not.
+/// `nop` fill in a code section, or where a found function ends with no fill after it, outside
+/// every function, whose trial build has no warning, covers the bytes from the address to the next
+/// fill, function, 16-byte boundary or section end without a hole, and ends in returns and tail
+/// calls only, never in a trap or an unresolved jump. A jump table or a string in the code section
+/// fails the trial; a function does not. MSVC packs functions it aligns to 16 bytes end to end
+/// when the last one fills its slot, so a run of them has no fill between them: the end of one is
+/// where the next is tried.
 fn gap_seeds(image: &Image, state: &State<'_>) -> Vec<(u64, Origin)> {
     let mut seeds = Vec::new();
     let mut accepted: Vec<(u64, u64)> = Vec::new();
+    let mut ends: HashSet<u64> = state.functions.values().map(Function::end).collect();
     for section in image.sections.iter().filter(|s| s.is_code()) {
         let start = image.va(section.virtual_address);
         let Ok(bytes) = image.read_to_section_end(start) else { continue };
         let end = start + bytes.len() as u64;
         for (offset, pair) in bytes.windows(2).enumerate() {
             let va = start + offset as u64 + 1;
-            if !va.is_multiple_of(16) || pair[1] == 0xcc || (pair[0] != 0xcc && !nop_fill_ends_at(bytes, offset + 1)) {
+            if !va.is_multiple_of(16) || pair[1] == 0xcc || (pair[0] != 0xcc && !nop_fill_ends_at(bytes, offset + 1) && !ends.contains(&va))
+            {
                 continue;
             }
             if state.known_starts.contains(&va) || accepted.iter().any(|&(b, e)| va >= b && va < e) || state.cover.covered(va) {
@@ -461,7 +466,7 @@ fn gap_seeds(image: &Image, state: &State<'_>) -> Vec<(u64, Origin)> {
             let blocks = &built.function.blocks;
             let contiguous = blocks.first().is_some_and(|b| b.start == va) && blocks.windows(2).all(|w| w[0].end == w[1].start);
             let last = blocks.last().map_or(va, |b| b.end);
-            let bounded = last == end || state.known_starts.contains(&last) || fill_starts_at(image, last);
+            let bounded = last == end || state.known_starts.contains(&last) || fill_starts_at(image, last) || last.is_multiple_of(16);
             let ends_well = blocks
                 .iter()
                 .all(|b| !matches!(b.terminator, Terminator::Trap | Terminator::Halt | Terminator::Invalid | Terminator::IndirectJump));
@@ -470,6 +475,7 @@ fn gap_seeds(image: &Image, state: &State<'_>) -> Vec<(u64, Origin)> {
                 continue;
             }
             accepted.push((va, last));
+            ends.insert(last);
             let after = state.functions.range(..va).next_back().map_or(va, |(entry, _)| *entry);
             seeds.push((va, Origin::Gap(after)));
         }
