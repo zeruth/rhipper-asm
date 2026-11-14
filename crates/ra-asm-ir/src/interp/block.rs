@@ -7,7 +7,7 @@
 
 use super::{Host, Stop, Value, Vm, mask};
 use crate::inst::{Inst, Terminator};
-use crate::module::{BlockId, Function};
+use crate::module::{BlockId, Function, ValueId};
 use crate::types::Type;
 
 /// The locals of one activation of a function: its values, the block it ran last, which the
@@ -33,6 +33,18 @@ impl<'m> Frame<'m> {
 
     pub fn function(&self) -> &'m Function {
         self.function
+    }
+
+    /// The value `id` holds in this frame: a parameter from the start, a local once the
+    /// instruction that defines it ran, none before that or for an id the function has not.
+    pub fn value(&self, id: ValueId) -> Option<&Value> {
+        self.values.get(id.0 as usize)?.as_ref()
+    }
+
+    /// The value of the local or parameter called `name`, by [`Self::value`].
+    pub fn value_named(&self, name: &str) -> Option<&Value> {
+        let at = self.function.value_names.iter().position(|n| n == name)?;
+        self.value(ValueId(at as u32))
     }
 }
 

@@ -95,6 +95,15 @@ struct Bump {
 /// The call depth the interpreter allows before it stops a runaway recursion.
 const MAX_DEPTH: usize = 20_000;
 
+/// The machine: a module, its memory and the state of a run.
+///
+/// What a consumer outside the crate reaches: the fields below, the symbol table (`symbol`,
+/// `name_at`, `bind_external`, `alias`), the whole-function runs (`call_named`, `call_address`)
+/// and the block-at-a-time runs (`frame`, `run_block`, `release`), whose [`Frame`] gives its
+/// function and the values it holds so far ([`Frame::value`], [`Frame::value_named`]) and its
+/// [`Exit`] says where the block went. What stays inside: the evaluation of operands and
+/// instructions (`eval`, `exec`, `binary`, `cast`, `intrinsic`), the call machinery under the
+/// public runs, and the fields of a `Frame`, which only `run_block` writes.
 pub struct Vm<'m> {
     pub module: &'m Module,
     pub memory: Memory,
