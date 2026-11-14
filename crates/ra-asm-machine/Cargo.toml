@@ -11,6 +11,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+ra-asm-arch.workspace = true
 
 [dev-dependencies]
 ra-asm-testing.workspace = true

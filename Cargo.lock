@@ -311,6 +311,7 @@ dependencies = [
 name = "ra-asm-machine"
 version = "0.2.0"
 dependencies = [
+ "ra-asm-arch",
  "ra-asm-testing",
 ]
 

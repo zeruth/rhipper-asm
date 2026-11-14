@@ -7,7 +7,13 @@
 //! checks once that no word is claimed by two rows unless one is strictly more specific, builds a
 //! mask-and-match tree, and decodes a word to the most specific row that accepts it and the values
 //! of that row's fields.
+//!
+//! A [`Machine`] is a table with its register file and its syntax: it turns a decoded word into the
+//! neutral [`ra_asm_arch::Instr`], with the text its objdump prints, from what the fields' kinds
+//! say, so neither the analysis nor the disassembly knows anything of one machine.
 
+pub mod instr;
 pub mod table;
 
-pub use table::{Decoded, Error, Field, Flow, Row, Table};
+pub use instr::{Machine, Syntax};
+pub use table::{Decoded, Error, Field, Flow, Kind, Row, Table};

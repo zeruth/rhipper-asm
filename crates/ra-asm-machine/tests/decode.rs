@@ -1,18 +1,18 @@
 //! The table on a toy machine of eight instructions: a six-bit opcode on top, three five-bit
 //! registers below it, and `nop` as the one `add` that names register 0 three times.
 
-use ra_asm_machine::{Error, Field, Flow, Row, Table};
+use ra_asm_machine::{Error, Field, Flow, Kind, Row, Table};
 
-const RD: Field = Field { name: "rd", lo: 21, width: 5, signed: false };
-const RA: Field = Field { name: "ra", lo: 16, width: 5, signed: false };
-const RB: Field = Field { name: "rb", lo: 11, width: 5, signed: false };
-const IMM: Field = Field { name: "imm", lo: 0, width: 16, signed: true };
-const FAR: Field = Field { name: "offset", lo: 0, width: 26, signed: true };
-const NEAR: Field = Field { name: "offset", lo: 0, width: 16, signed: true };
-const BEQ_RA: Field = Field { name: "ra", lo: 21, width: 5, signed: false };
-const BEQ_RB: Field = Field { name: "rb", lo: 16, width: 5, signed: false };
+const RD: Field = Field { name: "rd", lo: 21, width: 5, signed: false, kind: Kind::Reg };
+const RA: Field = Field { name: "ra", lo: 16, width: 5, signed: false, kind: Kind::Reg };
+const RB: Field = Field { name: "rb", lo: 11, width: 5, signed: false, kind: Kind::Reg };
+const IMM: Field = Field { name: "imm", lo: 0, width: 16, signed: true, kind: Kind::Imm };
+const FAR: Field = Field { name: "offset", lo: 0, width: 26, signed: true, kind: Kind::Rel { shift: 2, from: 4 } };
+const NEAR: Field = Field { name: "offset", lo: 0, width: 16, signed: true, kind: Kind::Rel { shift: 2, from: 4 } };
+const BEQ_RA: Field = Field { name: "ra", lo: 21, width: 5, signed: false, kind: Kind::Reg };
+const BEQ_RB: Field = Field { name: "rb", lo: 16, width: 5, signed: false, kind: Kind::Reg };
 /// A field that runs past bit 31.
-const WIDE: Field = Field { name: "wide", lo: 20, width: 13, signed: false };
+const WIDE: Field = Field { name: "wide", lo: 20, width: 13, signed: false, kind: Kind::Imm };
 
 const OPCODE: u32 = 0xfc00_0000;
 

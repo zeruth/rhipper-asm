@@ -23,6 +23,22 @@ pub struct Field {
     pub width: u8,
     /// Whether the top bit of the field is its sign: an offset or an immediate that may be negative.
     pub signed: bool,
+    /// What the value is an operand of.
+    pub kind: Kind,
+}
+
+/// What a field's value means, which is all the neutral record and the text need of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// The number of a register of the machine's file.
+    Reg,
+    /// A constant.
+    Imm,
+    /// A code address relative to the instruction: `address + from + (value << shift)`.
+    Rel { shift: u8, from: i8 },
+    /// The displacement of a memory access of `bits` bits based on the register field named `base`,
+    /// which the access takes in and which is then no operand of its own.
+    Mem { base: &'static str, bits: u16 },
 }
 
 impl Field {
@@ -59,6 +75,8 @@ pub enum Error {
     Bits { row: &'static str },
     /// The field is empty or runs past bit 31.
     Field { row: &'static str, field: &'static str },
+    /// The memory field's base names no register field of its row.
+    Base { row: &'static str, field: &'static str },
 }
 
 impl fmt::Display for Error {
@@ -69,6 +87,7 @@ impl fmt::Display for Error {
             }
             Error::Bits { row } => write!(f, "row `{row}` sets bits outside its mask"),
             Error::Field { row, field } => write!(f, "field `{field}` of row `{row}` is not inside the 32-bit word"),
+            Error::Base { row, field } => write!(f, "the base of field `{field}` of row `{row}` is not one of its register fields"),
         }
     }
 }
@@ -116,6 +135,10 @@ impl Table {
             }
             if let Some(field) = row.fields.iter().find(|field| field.width == 0 || u32::from(field.lo) + u32::from(field.width) > 32) {
                 return Err(Error::Field { row: row.name, field: field.name });
+            }
+            let names_register = |name: &str| row.fields.iter().any(|field| field.name == name && field.kind == Kind::Reg);
+            if let Some(field) = row.fields.iter().find(|field| matches!(field.kind, Kind::Mem { base, .. } if !names_register(base))) {
+                return Err(Error::Base { row: row.name, field: field.name });
             }
         }
         for (at, first) in rows.iter().enumerate() {
