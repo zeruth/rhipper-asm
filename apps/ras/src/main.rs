@@ -15,6 +15,7 @@ mod plugins;
 mod project;
 mod report;
 mod run;
+mod score;
 mod serve;
 mod signatures;
 mod smoke;
@@ -307,6 +308,14 @@ enum Command {
         #[arg(long)]
         exe: Option<PathBuf>,
     },
+    /// The lexical half of the grade of any C tree: lines, gotos, casts and labels, each per
+    /// thousand lines, over the `.c` and `.h` files under a directory (or one file). Reads the
+    /// tree and writes nothing there, so the old pipeline's output is a baseline.
+    Score {
+        /// The directory of C, or one C file.
+        #[arg(long, value_name = "DIR")]
+        source: PathBuf,
+    },
     /// The analysis, the lift and the emit over every executable and library under a directory,
     /// each file in a process of its own with a time limit: the coverage summed, the traps by
     /// mnemonic, the slowest files, and the panics with their backtraces. Fails when a file
@@ -437,6 +446,7 @@ fn main() -> anyhow::Result<()> {
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
         Command::Plugins { project } => plugins::list(project.as_deref(), json),
+        Command::Score { source } => score::score(&source, json),
         Command::Doctor { lang: _, host: Some(exe) } => doctor::host(&exe, json),
         Command::Doctor { lang, host: None } => doctor::doctor(doctor::Port::of(&lang), json),
         Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
