@@ -96,6 +96,21 @@ impl Shape {
         Self { slots, size }
     }
 
+    /// The bytes a state takes.
+    pub(crate) fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Where the register `name` lies in a state: its offset and its bytes.
+    pub(crate) fn place(&self, name: &str) -> Option<(usize, usize)> {
+        self.slots.iter().find(|slot| slot.name == name).map(|slot| (slot.offset, slot.size))
+    }
+
+    /// Whether `name` is a flag of the state, which is one byte of it.
+    pub(crate) fn is_flag(&self, name: &str) -> bool {
+        self.place(name).is_some_and(|(_, size)| size == 1)
+    }
+
     /// The bytes of the state at `address`, or none when the memory does not hold one there.
     /// The memory must not be armed: the registers are no access of the program's.
     fn snapshot(&self, memory: &mut Memory, address: u64) -> Option<Vec<u8>> {
@@ -338,7 +353,7 @@ fn runs(bytes: &BTreeMap<u64, u8>) -> Vec<Run> {
 /// The way an activation ended, from what its call gave. The interpreter stops for a trap and
 /// for an exception it could not hand the program alike, with a message: both are a trap here,
 /// at the address the message names.
-fn left(result: &Result<Value, Stop>) -> Left {
+pub(crate) fn left(result: &Result<Value, Stop>) -> Left {
     match result {
         Ok(_) => Left::Return,
         Err(Stop::Exit(code)) => Left::Exit(*code as u32),

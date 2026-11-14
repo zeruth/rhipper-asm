@@ -5,6 +5,9 @@
 //! heap, the globals) are the host's allocations, registered here; an access outside them asks the
 //! probe, which the host answers from its own knowledge of the process (a page a DLL handed the
 //! program), and faults when nothing is there, naming the address.
+//!
+//! A region may instead hold its bytes itself ([`Region::owned`]), at addresses that are another
+//! process's: a replay of a recorded function runs over those, and calls no DLL.
 
 use std::collections::BTreeMap;
 
@@ -16,11 +19,19 @@ pub struct Region {
     pub start: u64,
     pub len: u64,
     pub name: String,
+    /// The bytes of a region the memory holds itself; none for a range of the host's own memory.
+    bytes: Option<Vec<u8>>,
 }
 
 impl Region {
     pub fn new(start: u64, len: u64, name: &str) -> Self {
-        Self { start, len, name: name.to_owned() }
+        Self { start, len, name: name.to_owned(), bytes: None }
+    }
+
+    /// A region whose bytes the memory holds itself, zeroed: a range of a program's addresses
+    /// that are not this process's to map, as a replay of a recorded function gives them back.
+    pub fn owned(start: u64, len: u64, name: &str) -> Self {
+        Self { start, len, name: name.to_owned(), bytes: Some(vec![0; len as usize]) }
     }
 
     fn holds(&self, address: u64, len: u64) -> bool {
@@ -134,10 +145,17 @@ impl Memory {
         if buf.is_empty() {
             return Ok(());
         }
-        self.locate(address, buf.len() as u64)?;
-        // The region is the host's own memory, mapped and committed: the check above is the
-        // whole safety argument.
-        unsafe { std::ptr::copy_nonoverlapping(address as usize as *const u8, buf.as_mut_ptr(), buf.len()) };
+        let region = self.locate(address, buf.len() as u64)?;
+        let region = &self.regions[region];
+        match &region.bytes {
+            Some(bytes) => {
+                let at = (address - region.start) as usize;
+                buf.copy_from_slice(&bytes[at..at + buf.len()]);
+            }
+            // The region is the host's own memory, mapped and committed: the check above is the
+            // whole safety argument.
+            None => unsafe { std::ptr::copy_nonoverlapping(address as usize as *const u8, buf.as_mut_ptr(), buf.len()) },
+        }
         if let Some(log) = &mut self.log {
             // `locate` held the whole range, so the addresses do not wrap.
             for (at, &byte) in (address..).zip(buf.iter()) {
@@ -154,8 +172,15 @@ impl Memory {
         if bytes.is_empty() {
             return Ok(());
         }
-        self.locate(address, bytes.len() as u64)?;
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), address as usize as *mut u8, bytes.len()) };
+        let region = self.locate(address, bytes.len() as u64)?;
+        let region = &mut self.regions[region];
+        match &mut region.bytes {
+            Some(held) => {
+                let at = (address - region.start) as usize;
+                held[at..at + bytes.len()].copy_from_slice(bytes);
+            }
+            None => unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), address as usize as *mut u8, bytes.len()) },
+        }
         if let Some(log) = &mut self.log {
             log.writes.extend((address..).zip(bytes.iter().copied()));
         }
@@ -314,6 +339,23 @@ mod armed {
         memory.read_u8(base + 12).unwrap();
         let access = memory.disarm();
         assert_eq!(access.reads, [(base, vec![0, 1, 2, 3, 4, 5, 6, 7]), (base + 12, vec![12])]);
+    }
+
+    #[test]
+    fn an_owned_region_holds_its_bytes_at_any_address() {
+        // An address no process maps: the bytes are the region's own.
+        let base = 0xffff_8000_0000_1000;
+        let mut memory = Memory::new();
+        memory.add_region(Region::owned(base, 16, "owned"));
+        assert_eq!(memory.read_u64(base + 8).unwrap(), 0);
+        memory.arm();
+        memory.write_u32(base + 4, 0xddcc_bbaa).unwrap();
+        assert_eq!(memory.read_u16(base + 5).unwrap(), 0xccbb);
+        assert!(memory.read_u8(base + 16).is_err());
+        assert!(memory.write_u16(base + 15, 1).is_err());
+        let access = memory.disarm();
+        assert!(access.reads.is_empty());
+        assert_eq!(access.writes, [(base + 4, vec![0xaa, 0xbb, 0xcc, 0xdd])]);
     }
 
     #[test]
