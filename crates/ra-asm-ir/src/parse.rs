@@ -3,15 +3,22 @@
 //! on one line, and the address the printer leaves in a trailing comment is read back with it.
 //! What it does not read it refuses, with the line and the token it stopped at.
 //!
-//! The header is covered: the module's name, layout and triple, the named struct types, the
-//! globals with their initializers, and the declarations with their attributes. A function with a
-//! body is refused.
+//! The header: the module's name, layout and triple, the named struct types, the globals with
+//! their initializers, and the declarations with their attributes. The functions, in [`body`]:
+//! every instruction, operand and terminator the printer writes, with the values and blocks
+//! numbered in the order of their definition, as the builder numbers them.
 //!
-//! Three things the printer writes do not come back as they were, because the text is the same
-//! for two modules: an internal global without an initializer is printed with `zeroinitializer`
-//! and reads as one that has it; the address of a global at offset zero, in a pointer field, is
-//! printed as the global and reads as [`Const::Global`]; and a float constant comes back as the
-//! value of its type, so one that the type cannot hold exactly comes back rounded.
+//! Some things the printer writes do not come back as they were, because the text is the same for
+//! two modules: an internal global without an initializer is printed with `zeroinitializer` and
+//! reads as one that has it; the address of a global at offset zero, in a pointer field or
+//! operand, is printed as the global and reads as [`Const::Global`] or [`crate::Operand::Global`];
+//! a float constant comes back as the value of its type, so one that the type cannot hold exactly
+//! comes back rounded; an integer operand comes back as the signed value of its type's bits, an
+//! integer zero on a vector type as [`crate::Operand::Zero`]; and a call that is not varargs
+//! spells only its return type, so its function type comes back with its arguments' types as
+//! parameters.
+
+mod body;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -65,7 +72,7 @@ pub fn parse(text: &str) -> Result<Module, ParseError> {
             Tok::Local(_) => module.types.push(p.named_type()?),
             Tok::Global(_) => module.globals.push(p.global()?),
             Tok::Word("declare") => module.declarations.push(p.declaration()?),
-            Tok::Word("define") => return Err(p.refuse("a function with a body is outside what the parser reads")),
+            Tok::Word("define") => module.functions.push(p.function()?),
             _ => return Err(p.refuse("does not start a type, a global, a declaration or a function")),
         }
     }
@@ -510,19 +517,8 @@ impl<'a> Parser<'a> {
             Some(Tok::Word("zeroinitializer")) => Const::Zero,
             Some(Tok::Word("null")) => Const::Null,
             Some(Tok::Global(name)) => Const::Global(name.clone()),
-            Some(Tok::Word("getelementptr")) if *ty == Type::Ptr => {
-                let (global, offset) = self.element_address()?;
-                return Ok(Const::Address { global, offset });
-            }
-            Some(Tok::Word("ptrtoint")) if *ty != Type::Ptr => {
-                self.at += 1;
-                self.expect(b'(')?;
-                self.expect_word("ptr")?;
-                let (global, offset) =
-                    if self.word() == Some("getelementptr") { self.element_address()? } else { (self.global_name()?, 0) };
-                self.expect_word("to")?;
-                self.typed(ty)?;
-                self.expect(b')')?;
+            Some(Tok::Word("getelementptr" | "ptrtoint")) => {
+                let (global, offset) = self.address(ty)?;
                 return Ok(Const::Address { global, offset });
             }
             Some(Tok::Punct(b'[')) => return self.array(ty),
@@ -532,6 +528,23 @@ impl<'a> Parser<'a> {
         };
         self.at += 1;
         Ok(constant)
+    }
+
+    /// The address of a byte of a global as the printer writes it for `ty`: `getelementptr (i8,
+    /// ptr @name, i64 offset)` for a pointer, and `ptrtoint (ptr … to T)` of that or of the global
+    /// itself for an integer.
+    fn address(&mut self, ty: &Type) -> Result<(String, i64), ParseError> {
+        if *ty == Type::Ptr {
+            return self.element_address();
+        }
+        self.expect_word("ptrtoint")?;
+        self.expect(b'(')?;
+        self.expect_word("ptr")?;
+        let (global, offset) = if self.word() == Some("getelementptr") { self.element_address()? } else { (self.global_name()?, 0) };
+        self.expect_word("to")?;
+        self.typed(ty)?;
+        self.expect(b')')?;
+        Ok((global, offset))
     }
 
     /// `getelementptr (i8, ptr @name, i64 offset)`: the global and the byte of it.
@@ -624,11 +637,12 @@ impl<'a> Parser<'a> {
         conv
     }
 
-    /// The attributes that close `line`, each as the text spells it: the tokens that touch are
-    /// one attribute, so `"key"="value"` and `memory(none)` stay whole.
+    /// The attributes that close `line`, or run to the `{` of a definition, each as the text
+    /// spells it: the tokens that touch are one attribute, so `"key"="value"` and `memory(none)`
+    /// stay whole.
     fn attributes(&mut self, line: usize) -> Vec<String> {
         let mut attrs = Vec::new();
-        while self.on_line(line) {
+        while self.on_line(line) && self.peek() != Some(&Tok::Punct(b'{')) {
             let start = self.tokens[self.at].start;
             let mut end = self.tokens[self.at].end;
             self.at += 1;
