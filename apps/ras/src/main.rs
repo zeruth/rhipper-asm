@@ -21,6 +21,7 @@ mod serve;
 mod signatures;
 mod smoke;
 mod trace;
+mod verify;
 mod xrefs;
 
 use std::path::{Path, PathBuf};
@@ -383,6 +384,22 @@ enum Command {
         #[arg(long, value_name = "STEP")]
         pass: String,
     },
+    /// The vectors of the image replayed at the machine, the promoted and the ABI level: a line
+    /// per function with the vectors each level replayed or the first difference, and a last line
+    /// with the functions verified. The vectors come from one interpreted run of the image, or
+    /// from a vector file. Fails when a function differs.
+    Verify {
+        pe: PathBuf,
+        /// Read the vectors from this vector file instead of recording a run.
+        #[arg(long, value_name = "FILE")]
+        vectors: Option<PathBuf>,
+        /// Write the vectors to this vector file.
+        #[arg(long, value_name = "FILE")]
+        write: Option<PathBuf>,
+        /// The one function to verify, by name or by address: `fib`, `0x140001000` or `F_140001000`.
+        #[arg(long)]
+        function: Option<String>,
+    },
     /// One file of `ras smoke`, in the process it starts for the file.
     #[command(hide = true)]
     SmokeFile { pe: PathBuf },
@@ -393,7 +410,19 @@ fn step(text: Option<String>) -> anyhow::Result<Option<pipeline::Step>> {
         .transpose()
 }
 
+/// The command line runs on a thread of its own stack: the derived parser of every subcommand and
+/// the frame of the dispatch outgrow the main thread's megabyte in a debug build.
 fn main() -> anyhow::Result<()> {
+    std::thread::Builder::new()
+        .name("ras".into())
+        .stack_size(64 << 20)
+        .spawn(command)
+        .context("cannot start the command's thread")?
+        .join()
+        .map_err(|_| anyhow::anyhow!("the command panicked"))?
+}
+
+fn command() -> anyhow::Result<()> {
     let options = Options::parse();
     let json = options.json;
     let sigs = &options.signatures;
@@ -481,6 +510,13 @@ fn main() -> anyhow::Result<()> {
             cards::pending(&paths, milestone.as_deref())
         }
         Command::Case { pe, function, pass } => case::case(&load(&pe, sigs)?, &function, &pass),
+        Command::Verify { pe, vectors, write, function } => {
+            let options = verify::Options { vectors: vectors.as_deref(), write: write.as_deref(), function: function.as_deref() };
+            if !verify::verify(&load(&pe, sigs)?, &options)? {
+                std::process::exit(1)
+            }
+            Ok(())
+        }
         Command::SmokeFile { pe } => {
             smoke::file(&pe, sigs);
             Ok(())

@@ -31,8 +31,10 @@
 //! [`crate::signature`]): the entry gives the arguments, and the comparison keeps to what the
 //! signature says outlives the activation, which is the result at the width its type keeps, the
 //! stack pointer the function leaves, the registers it keeps for its caller, and the memory
-//! outside its frame. A call is answered by the callee's signature in the same way, its result
-//! out of the registers the record holds. What this level does not decide beside the above:
+//! outside its frame, where a word that held an import's address in the record and holds the
+//! replay's own symbol of that import (a standalone lift reads it in place of the slot) is the
+//! same. A call is answered by the callee's signature in the same way, its result out of the
+//! registers the record holds. What this level does not decide beside the above:
 //! - the record was made over a state, where a callee reads its arguments itself, so a call of a
 //!   lifted function or an import is compared by its callee and its place in the order alone; a
 //!   call through a pointer is compared by the address called;
@@ -474,8 +476,13 @@ impl<'a> Replayer<'a> {
         for &address in host.written.iter().filter(|address| outlives(address)) {
             written.insert(address, vm.memory.read_u8(address).map_err(fault)?);
         }
-        let differing: BTreeSet<u64> =
-            recorded.keys().chain(written.keys()).copied().filter(|address| recorded.get(address) != written.get(address)).collect();
+        let imports = if self.abi.is_some() { self.same_imports(vector, &vm, &recorded, &written) } else { BTreeSet::new() };
+        let differing: BTreeSet<u64> = recorded
+            .keys()
+            .chain(written.keys())
+            .copied()
+            .filter(|address| !imports.contains(address) && recorded.get(address) != written.get(address))
+            .collect();
         if let Some(&address) = differing.first() {
             differences.push(Difference::Memory {
                 address,
@@ -551,6 +558,29 @@ impl<'a> Replayer<'a> {
             vm.memory.write(*address, bytes).map_err(fault)?;
         }
         Ok((vm, Ranges { state: (state, state + state_len), own: (own, own + own_len) }))
+    }
+
+    /// The bytes of the words that hold one import's address in both runs: the recorded run's
+    /// address of it, as its slot held it in the vector's `memory in`, and the replay's own
+    /// symbol of it, which a standalone lift reads in place of the slot.
+    fn same_imports(&self, vector: &Vector, vm: &Vm<'_>, recorded: &BTreeMap<u64, u8>, written: &BTreeMap<u64, u8>) -> BTreeSet<u64> {
+        let width = u64::from(self.bits / 8);
+        let memory_in: BTreeMap<u64, u8> =
+            vector.memory_in.iter().flat_map(|(start, bytes)| (*start..).zip(bytes.iter().copied())).collect();
+        let word = |bytes: &BTreeMap<u64, u8>, at: u64| {
+            (at..at + width).map(|address| bytes.get(&address).copied()).collect::<Option<Vec<u8>>>().map(|b| number(&b) as u64)
+        };
+        let slots: HashMap<u64, String> =
+            self.image.imports.iter().filter_map(|import| Some((word(&memory_in, import.iat_va)?, import.display_name()))).collect();
+        let words: BTreeSet<u64> = recorded.keys().chain(written.keys()).map(|address| address / width * width).collect();
+        words
+            .into_iter()
+            .filter(|&at| {
+                let (Some(was), Some(is)) = (word(recorded, at), word(written, at)) else { return false };
+                was != is && slots.get(&was).is_some_and(|name| vm.name_at(is) == Some(name.as_str()))
+            })
+            .flat_map(|at| at..at + width)
+            .collect()
     }
 
     /// Where a register the vector names lies in the state.
