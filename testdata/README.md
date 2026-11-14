@@ -20,13 +20,16 @@ no compiler. `build.ps1` rebuilds them; `/Brepro` keeps a rebuild byte-identical
 | `src/computed.c` | `computed64.exe`, `computed32.exe` | Three functions reached only through addresses computed at run time, the image's base plus an offset read from a table of masked offsets; nothing in the image refers to them (no call, no pointer, no relocation, no unwind entry), so the analysis does not find them and the call is a trap until a run supplies its target |
 | `src/window.c` | `window64.exe`, `window32.exe` | A window: a class whose procedure user32 calls back, a popup of a known client size, one paint through `BeginPaint`, and a message loop ended by `PostQuitMessage`; the log names the messages whose order is the window's own and the quit code |
 | `src/xbe.c` | `xbe32.xbe` | A homebrew program of the original Xbox: the kernel reached through the thunk table of the XBE header (`DbgPrint`, the pool, the return to the dashboard), no XAPI, no C runtime; the PE clang links at the Xbox's base, rewritten as an XBE by the writer in `crates/ra-asm-pe/tests/xbe.rs`, with the PE's map beside it; its expected output is the same source built for this machine with `-DXBE_HOST` |
+| `src/hello.c`, `src/control.c` over `src/freestanding` | `hello_mipsel`, `control_mipsel` | The same two programs as static MIPS32 little-endian Linux executables, built by `src/freestanding/build.sh` in WSL with no C library: `freestanding/` holds a start routine per machine, `write` and `exit` by syscall, a printf of `%d %u %x %s %c`, and a `windows.h` that puts the two sources' five API calls over those. They run in `qemu-mipsel-static`, which is where their output was checked against `expected/hello.txt` and `expected/control.txt` (across line endings); `MANIFEST.toml` records the hashes, the command and the tools |
 | `rhtest/src/core.c` | `rhtest/core-O2.exe`, `rhtest/core-Od.exe` | The old pipeline's test program: integers, branches, loops, recursion, switches, arrays, structs by value and through a hidden pointer, globals, strings, a linked list, packed and punned layouts |
 | `rhtest/src/<name>.c`, `.cpp` | `rhtest/<name>-clang.exe` | The other fifteen rhtest programs, built here by `rhtest/build.ps1` with clang-cl over the MSVC C runtime (`/O2 /MD`): `calls`, `int64`, `float`, `fpenv`, `crt` port and run; `misc`, `sys`, `win`, `seh`, `eh`, `cpp`, `com`, `stl`, `stlio`, `engine` wait for what the last paragraph below names |
 | `rhtest/src/core.c`, `int64.c` | `rhtest/core-static.exe`, `rhtest/int64-static.exe` | The same by clang-cl at `/O2 /MT`: the C runtime linked into the image, no PDB, only the map, as a VS2010 `/MT` program ships. The runtime's functions are recognized by the map's libraries and left to the host, the startup is the driver's, and the x86 helpers (`_alldiv`, the stack probe, the cookie check) stay the program's |
 
 Beside each binary is the linker map (`.map`): the analysis tests compare the functions they find
 with it. `expected/<name>.txt` is what the program prints when it runs natively; the execution
-oracle compares the lifted program with it.
+oracle compares the lifted program with it. `MANIFEST.toml` is the record of how a committed
+binary was made and what its expected output rests on (`native`, `emulator` or `source`);
+`cargo test -p ra-asm-testing --test manifest` checks the hashes of what it lists.
 
 `xbe32.xbe` runs through the IR interpreter only, which answers its kernel calls itself; its port
 over clang waits for a platform runtime that defines the kernel's exports for the host. The XDK's

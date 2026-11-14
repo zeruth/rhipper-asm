@@ -6,6 +6,7 @@
 //! stays and names its path on stderr.
 
 pub mod digest;
+pub mod manifest;
 pub mod tools;
 
 pub use tools::tool;

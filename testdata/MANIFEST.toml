@@ -1,0 +1,31 @@
+# The record of the committed fixtures: how each binary was made and what its expected output
+# rests on. `cargo test -p ra-asm-testing --test manifest` hashes every listed file and fails on
+# a wrong hash, a missing file or a missing expected output.
+#
+# Each [[file]] is one binary. `path`, `sha256` and `evidence` are required; `evidence` is
+#   native    the program ran on this machine,
+#   emulator  it ran in an emulator of its machine (the one `tools` names),
+#   source    nothing ran it: the output is derived from the source and the platform's documentation.
+# `expected` is the output it is compared with, `source` what it was built from, `command` what
+# made it and `tools` the versions the command ran with. Paths are relative to the workspace root.
+#
+# Only the fixtures of the foreign Linux machines are listed so far; the Windows fixtures of
+# build.ps1 and the rhtest programs join as their own entries.
+
+[[file]]
+path = "testdata/bin/hello_mipsel"
+sha256 = "21a20edea3576fc8b8cc78bc3ca5247bf5fd583c6cc8c94967fc3216638dc395"
+evidence = "emulator"
+expected = "testdata/expected/hello.txt"
+source = "testdata/src/hello.c"
+command = "testdata/src/freestanding/build.sh mipsel"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-mipsel 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/bin/control_mipsel"
+sha256 = "e27d64dd4706547bc59925d6de71d33afa9c3d1157da3b54cd14407e8a11e3e8"
+evidence = "emulator"
+expected = "testdata/expected/control.txt"
+source = "testdata/src/control.c"
+command = "testdata/src/freestanding/build.sh mipsel"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-mipsel 8.2.2 (WSL Ubuntu 24.04)"

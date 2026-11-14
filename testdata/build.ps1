@@ -8,6 +8,9 @@
 #
 #   ./testdata/build.ps1            build every fixture
 #   ./testdata/build.ps1 control    build one
+#
+# The fixtures of the foreign Linux machines (hello_mipsel, control_mipsel) are built and checked
+# in WSL by src/freestanding/build.sh, where clang carries every target and qemu runs the result.
 [CmdletBinding()]
 param([string[]]$Only)
 
