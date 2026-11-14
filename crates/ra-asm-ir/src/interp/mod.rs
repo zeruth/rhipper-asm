@@ -371,11 +371,13 @@ impl<'m> Vm<'m> {
         let depth = self.depth + self.hosted;
         if let Some(observer) = &mut self.observer {
             observer.enter(name, depth);
+            observer.begin(ty, args, &mut self.memory);
         }
         self.hosted += 1;
         let result = host.call(self, name, ty, args);
         self.hosted -= 1;
         if let Some(observer) = &mut self.observer {
+            observer.end(&result, &mut self.memory);
             observer.leave(name, depth);
         }
         result
@@ -423,12 +425,14 @@ impl<'m> Vm<'m> {
         let level = self.depth + self.hosted - 1;
         if let Some(observer) = &mut self.observer {
             observer.enter(&f.name, level);
+            observer.begin(&f.ty, &args, &mut self.memory);
         }
         let mut frame = Frame::new(index, f, args, self.frames.at);
         let result = self.run_blocks(host, &mut frame);
         self.release(&frame);
         self.depth -= 1;
         if let Some(observer) = &mut self.observer {
+            observer.end(&result, &mut self.memory);
             observer.leave(&f.name, level);
         }
         // A function that never returns (an exit, a fault) leaves no return in the record, as the
@@ -493,6 +497,9 @@ impl<'m> Vm<'m> {
         let f = frame.function;
         let mut block = f.blocks.first().ok_or_else(|| Stop::fault(format!("@{} has no block to run", f.name)))?.id;
         loop {
+            if let Some(observer) = &mut self.observer {
+                observer.block(block);
+            }
             block = match self.run_block(host, frame, block)? {
                 Exit::Return(value) => return Ok(value),
                 Exit::Jump(target) | Exit::Branch { target, .. } | Exit::Switch { target, .. } => target,

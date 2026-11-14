@@ -16,12 +16,12 @@ mod printf;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use anyhow::{Context, Result, anyhow};
 use ra_asm_analysis::facts::{Facts, Input, SeenCall};
-use ra_asm_ir::Type;
-use ra_asm_ir::interp::{Memory, Region, Stop, Value, Vm};
+use ra_asm_ir::interp::{Memory, Observer, Region, Stop, Value, Vm};
+use ra_asm_ir::{BlockId, FnType, Type};
 use ra_asm_pe::Image;
 
 use crate::Lifted;
@@ -61,11 +61,53 @@ pub struct Options {
     /// Stop at each entry of the image's functions (those the record covers): the run stepped in
     /// lockstep with a port.
     pub pause: Option<Pause>,
+    /// Tell this of every call the run makes, with its arguments, its blocks and its result: a
+    /// recorder of the run.
+    pub observer: Option<Watch>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { trace: false, limit: 2_000_000_000, args: Vec::new(), live: false, record: None, pause: None }
+        Self { trace: false, limit: 2_000_000_000, args: Vec::new(), live: false, record: None, pause: None, observer: None }
+    }
+}
+
+/// The interpreter's [`Observer`], as an option of a run: shared, since the run takes a thread of
+/// its own and the caller reads what the observer gathered once the run is over.
+#[derive(Clone)]
+pub struct Watch(pub Arc<Mutex<dyn Observer + Send>>);
+
+impl std::fmt::Debug for Watch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Watch")
+    }
+}
+
+impl Watch {
+    fn observer(&self) -> MutexGuard<'_, dyn Observer + Send + 'static> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Observer for Watch {
+    fn enter(&mut self, function: &str, depth: usize) {
+        self.observer().enter(function, depth);
+    }
+
+    fn leave(&mut self, function: &str, depth: usize) {
+        self.observer().leave(function, depth);
+    }
+
+    fn begin(&mut self, ty: &FnType, args: &[Value], memory: &mut Memory) {
+        self.observer().begin(ty, args, memory);
+    }
+
+    fn end(&mut self, result: &Result<Value, Stop>, memory: &mut Memory) {
+        self.observer().end(result, memory);
+    }
+
+    fn block(&mut self, block: BlockId) {
+        self.observer().block(block);
     }
 }
 
@@ -198,6 +240,7 @@ fn run_here(
         vm.recorded = lifted.module.functions.iter().enumerate().filter(|(_, f)| names.contains(f.name.as_str())).map(|(i, _)| i).collect();
     }
     vm.pause = options.pause.as_ref().map(|p| p.0.clone());
+    vm.observer = options.observer.clone().map(|watch| Box::new(watch) as Box<dyn Observer>);
     vm.set_static_region(statics.start, statics.len);
     vm.set_frame_region(frames.start, frames.len);
     if !lifted.standalone {

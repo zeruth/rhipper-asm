@@ -4,14 +4,34 @@
 //! host's alike, as it enters and as it leaves, with the depth of the call. A run without an
 //! observer pays one test of an empty option per call.
 
+use super::{Memory, Stop, Value};
+use crate::module::BlockId;
+use crate::types::FnType;
+
 /// What a run reports its calls to. `function` is the name of an IR function or the name the host
 /// answers a call under; `depth` is the number of calls open around this one, zero for the entry
 /// of the run. Every `enter` has its `leave` at the same depth, also when the call ended in a
 /// [`Stop`](super::Stop) rather than a return, so the calls an observer holds open are always the
 /// ones running.
+///
+/// An observer that records more than the names takes the rest from the three reports below,
+/// which say nothing by default: `begin` follows the `enter` of its call and `end` precedes its
+/// `leave`, both with the machine's memory, to read what the call was given and what it left;
+/// `block` names each block of the module's function entered last and not yet left, before the
+/// block runs.
 pub trait Observer {
     fn enter(&mut self, function: &str, depth: usize);
     fn leave(&mut self, function: &str, depth: usize);
+
+    /// The call just entered: the callee's type (the call site's, for a call the host answers),
+    /// its arguments and the memory, before the callee runs.
+    fn begin(&mut self, _ty: &FnType, _args: &[Value], _memory: &mut Memory) {}
+
+    /// The call about to be left: its result, or the stop that ended it, and the memory.
+    fn end(&mut self, _result: &Result<Value, Stop>, _memory: &mut Memory) {}
+
+    /// The block the function running is about to run.
+    fn block(&mut self, _block: BlockId) {}
 }
 
 #[cfg(test)]

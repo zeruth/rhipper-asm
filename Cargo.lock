@@ -322,6 +322,13 @@ version = "0.2.0"
 [[package]]
 name = "ra-asm-verify"
 version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "ra-asm-analysis",
+ "ra-asm-ir",
+ "ra-asm-lift",
+ "ra-asm-pe",
+]
 
 [[package]]
 name = "ra-asm-wasm"

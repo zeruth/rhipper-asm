@@ -49,6 +49,7 @@ pub(crate) fn run(image: &Image, options: &Options) -> Result<i32> {
         live: true,
         record: options.record.clone(),
         pause: None,
+        observer: None,
     };
     let outcome = ra_asm_lift::run::run(image, &lifted, &signatures, &run)?;
     if let Some(stop) = &outcome.stop {
