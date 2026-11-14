@@ -22,12 +22,15 @@
 //! The x86-64 vectors (`testdata/vectors/x86_64`, written from the processor by the instruction
 //! oracle's `write_vectors`) replay through the x86 lift in `x86_64.rs`, a group as one image
 //! and the files' arena as host memory at its own address, under the same pending-list rule with
-//! `testdata/vectors/x86_64/PENDING.txt`.
+//! `testdata/vectors/x86_64/PENDING.txt`. The 32-bit x86 vectors (`testdata/vectors/x86`,
+//! written by the WOW64 harness through `common/x86_32.rs`) replay the same way in `x86_32.rs`.
 
 // A test target's root is `tests/vectors.rs`, so its modules are named by path.
 #[path = "vectors/arm32.rs"]
 mod arm32;
 mod common;
+#[path = "vectors/x86_32.rs"]
+mod x86_32;
 #[path = "vectors/x86_64.rs"]
 mod x86_64;
 
@@ -39,7 +42,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
-use common::{arm64_dir, expand, read_cases, read_templates, wsl_path};
+use common::{Rng, arm64_dir, expand, group_seed, read_cases, read_templates, wsl_path};
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
 use ra_asm_ir::{FnType, Type};
 
@@ -747,74 +750,6 @@ fn arm64() {
 }
 
 // region Generating
-
-/// xorshift64*, as the x86 oracle's, so a group's states are the same on every regeneration.
-struct Rng(u64);
-
-impl Rng {
-    fn new(seed: u64) -> Self {
-        Self(if seed == 0 { 1 } else { seed })
-    }
-
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        self.0 = x;
-        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
-    }
-
-    fn below(&mut self, n: u64) -> u64 {
-        self.next() % n
-    }
-
-    fn chance(&mut self, out_of: u64) -> bool {
-        self.below(out_of) == 0
-    }
-
-    /// A value with interesting shapes as often as a uniform one: small, all ones, a sign bit,
-    /// a power of two, a byte pattern.
-    fn value(&mut self) -> u64 {
-        match self.below(8) {
-            0 => self.below(16),
-            1 => u64::MAX - self.below(16),
-            2 => 1u64 << self.below(64),
-            3 => (1u64 << self.below(64)).wrapping_sub(1),
-            4 => 0x8000_0000_0000_0000 | self.below(16),
-            5 => 0x7FFF_FFFF_FFFF_FFF0 | self.below(16),
-            _ => self.next(),
-        }
-    }
-
-    /// A finite double between about 1e-9 and 1e9 in magnitude: no NaN, no infinity, no
-    /// denormal, so the arithmetic forms compare values and not the machine's NaN rules.
-    fn f64_bits(&mut self, positive: bool) -> u64 {
-        let sign = if positive { 0 } else { self.below(2) };
-        let exponent = 1023 + self.below(61) - 30;
-        let mantissa = self.next() & ((1 << 52) - 1);
-        (sign << 63) | (exponent << 52) | mantissa
-    }
-
-    fn f32_bits(&mut self, positive: bool) -> u64 {
-        let sign = if positive { 0 } else { self.below(2) };
-        let exponent = 127 + self.below(41) - 20;
-        let mantissa = self.next() & ((1 << 23) - 1);
-        (sign << 31) | (exponent << 23) | mantissa
-    }
-
-    fn fill(&mut self, buf: &mut [u8]) {
-        for chunk in buf.chunks_mut(8) {
-            let v = self.next().to_le_bytes();
-            chunk.copy_from_slice(&v[..chunk.len()]);
-        }
-    }
-}
-
-/// The seed of a group's states: FNV-1a of its name over a nonzero offset.
-fn group_seed(group: &str) -> u64 {
-    group.bytes().fold(0x9E37_79B9_7F4A_7C15u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
-}
 
 /// A vector register's 128 bits with finite floats in the lanes the form reads.
 fn vector_value(rng: &mut Rng, kind: char, lanes: &str, positive: bool) -> u128 {

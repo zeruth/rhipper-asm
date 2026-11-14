@@ -10,12 +10,13 @@
 //! pointer (a sum, a flag, a `moffs` encoding) holds the address's own bits, so no rebasing
 //! reproduces it. A difference names the form, the bytes and the first register, flag or chunk
 //! that differs. The pending-list rule is the `AArch64` one: exactly the forms of
-//! `x86_64/PENDING.txt`, keyed `<group> <iced Code>`, differ.
+//! `x86_64/PENDING.txt`, keyed `<group> <iced Code>`, differ. The 32-bit replay (`x86_32.rs`)
+//! shares the arena, its field offsets and the value helpers of this file.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 use ra_asm_analysis::Facts;
 use ra_asm_analysis::facts::SeenCall;
@@ -30,10 +31,10 @@ use super::{Ends, FRAMES_AT, Forms, SCRATCH_LEN, STATICS_AT, leading_hex, map_fi
 
 /// The arena as the files address it and as the oracle laid it out: the state block at its
 /// start, the data buffer from `DATA`, the stack above it to `STACK_END`.
-const VECTOR_BASE: u64 = 0x2000_0000;
-const ARENA_LEN: u64 = 0x10000;
-const DATA: u64 = 0x2000;
-const STACK_END: u64 = 0x8000;
+pub(super) const VECTOR_BASE: u64 = 0x2000_0000;
+pub(super) const ARENA_LEN: u64 = 0x10000;
+pub(super) const DATA: u64 = 0x2000;
+pub(super) const STACK_END: u64 = 0x8000;
 
 /// The synthetic image: the oracle's base, so an encoding replays at the address it was made
 /// for, and one slot a case.
@@ -51,17 +52,25 @@ const FLAG_BITS: [u32; 7] = [0, 2, 4, 6, 7, 10, 11];
 /// The arena is mapped once a process; the interpreter's regions are the host's own memory.
 static ARENA: OnceLock<bool> = OnceLock::new();
 
-fn ensure_arena() {
+pub(super) fn ensure_arena() {
     let mapped = *ARENA.get_or_init(|| map_fixed(VECTOR_BASE, ARENA_LEN));
     assert!(mapped, "the replay needs host memory at {VECTOR_BASE:#x}, the files' arena");
 }
 
+/// The arena is one per process and the 32-bit replay uses the same one, so the two x86 replays
+/// take turns; a failed one must not keep the other out.
+static ARENA_TURN: Mutex<()> = Mutex::new(());
+
+pub(super) fn arena_turn() -> MutexGuard<'static, ()> {
+    ARENA_TURN.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Where the state's fields lie, from the interpreter's layout of `%State`.
-struct Fields {
-    gprs: usize,
-    flags: usize,
-    xmm: usize,
-    size: usize,
+pub(super) struct Fields {
+    pub(super) gprs: usize,
+    pub(super) flags: usize,
+    pub(super) xmm: usize,
+    pub(super) size: usize,
 }
 
 // endregion
@@ -133,11 +142,11 @@ fn pe_with_text(text: &[u8]) -> Vec<u8> {
 
 /// A register's value in a state, zero when absent; the files write a value's bytes most
 /// significant first.
-fn number_of(value: &[u8]) -> u128 {
+pub(super) fn number_of(value: &[u8]) -> u128 {
     value.iter().fold(0u128, |acc, &b| (acc << 8) | u128::from(b))
 }
 
-fn number(state: &State, name: &str) -> u128 {
+pub(super) fn number(state: &State, name: &str) -> u128 {
     state.registers.get(name).map_or(0, |v| number_of(v))
 }
 
@@ -148,7 +157,7 @@ fn vector_names() -> impl Iterator<Item = (usize, String)> {
 }
 
 /// Lays the cells over the image of the data and the stack; a cell outside them is a difference.
-fn overlay(image: &mut [u8], cells: &BTreeMap<u64, Vec<u8>>) -> Result<(), String> {
+pub(super) fn overlay(image: &mut [u8], cells: &BTreeMap<u64, Vec<u8>>) -> Result<(), String> {
     for (&at, bytes) in cells {
         match at.checked_sub(VECTOR_BASE + DATA).map(|o| o as usize) {
             Some(start) if start + bytes.len() <= image.len() => image[start..start + bytes.len()].copy_from_slice(bytes),
@@ -245,9 +254,9 @@ fn run_case(vm: &mut Vm<'_>, name: &str, case: &Case, fields: &Fields) -> Option
 }
 
 /// A case replayed: its form's key in `PENDING.txt` and its first difference, if any.
-struct Replayed {
-    key: String,
-    found: Option<String>,
+pub(super) struct Replayed {
+    pub(super) key: String,
+    pub(super) found: Option<String>,
 }
 
 /// The slot a lift warning names by the address it starts with, so the warning is a finding of
@@ -345,6 +354,7 @@ fn x86_64() {
     assert!(!files.is_empty(), "no .vec files under {}", dir.display());
 
     // The arena at the files' address; the interpreter's scratch is a buffer of the test's.
+    let _turn = arena_turn();
     ensure_arena();
     let scratch_buffer = vec![0u128; SCRATCH_LEN / 16];
     let scratch = scratch_buffer.as_ptr() as usize as u64;

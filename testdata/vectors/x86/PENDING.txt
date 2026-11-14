@@ -1,0 +1,9 @@
+# The 32-bit x86 forms whose vectors differ from the lift today, one a line: the group (the .vec
+# file's name) and the form (the iced `Code` of the case's bytes, as the replay's message names
+# it), then after `:` the first difference the replay saw. The x86_32 test of
+# crates/ra-asm-lift/tests/vectors/x86_32.rs passes when exactly these forms differ: an unlisted
+# form that differs fails it with a line to paste here, and a listed form that passes fails it
+# with "remove from PENDING.txt", so the card that fixes an arm removes its line.
+moves Xstore_32: case 420 `xstore` (660fa7c0): the lift does not cover the form: unsupported by the lift: the instruction at 0x30004480
+stack Pushad: case 64 `pushad` (60): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001800
+stack Popad: case 80 `popad` (61): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001a00

@@ -16,17 +16,22 @@
 //! The 32-bit x86 cases run on this machine's own processor: `testdata/vectors/harness/x86_32.c`
 //! is a program clang builds for i686 that WOW64 runs, with the forms the 64-bit instruction
 //! oracle cannot (its `NOT_RUN` list and the x87 unit). `harness_runs_three_cases` (ignored: it
-//! needs `clang`) builds it and checks three cases against the states written here.
+//! needs `clang`) builds it and checks three cases against the states written here;
+//! `write_x86_32_vectors` (ignored too) rewrites `testdata/vectors/x86` from iced's 32-bit code
+//! table through it, by the generator of `common/x86_32.rs`.
 
 mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
-use common::arm32;
-use common::{Case, Template, arm64_dir, expand, read_cases, read_templates, write_cases, wsl_path};
+use common::x86_32::{
+    self as x86, CASE_IP32, DATA32, EAX, EBX, ESP, HarnessIn, HarnessOut, OUT32_LEN, STACK32_END, STATUS_ACCESS_VIOLATION,
+    STATUS_BREAKPOINT, WINDOW32, build_harness32, pack_in32, run_harness32, unpack_out32,
+};
+use common::{Case, Template, arm32, arm64_dir, expand, read_cases, read_templates, write_cases, wsl_path};
 use ra_asm_arm64::Arm64;
 use ra_asm_arm64::thumb::{self, Op};
 
@@ -340,101 +345,6 @@ fn write_arm32_cases() {
 
 // region The 32-bit x86 harness
 
-/// The layout `x86_32.c` maps: the arena of the loads, stores and the stack, with the data at
-/// `+0x2000` and the stack's end at `+0x8000` as the x86-64 vectors have them, and the page the
-/// case runs in.
-const ARENA32: u32 = 0x2000_0000;
-const DATA32: u32 = ARENA32 + 0x2000;
-const STACK32_END: u32 = ARENA32 + 0x8000;
-const CASE_IP32: u32 = 0x3000_2000;
-const WINDOW32: usize = 64;
-const CODE32_MAX: usize = 16;
-const IN32_LEN: usize = 128;
-const OUT32_LEN: usize = 120;
-
-const STATUS_BREAKPOINT: u32 = 0x8000_0003;
-const STATUS_ACCESS_VIOLATION: u32 = 0xC000_0005;
-/// The index of each register in the harness's record.
-const EAX: usize = 0;
-const EBX: usize = 3;
-const ESP: usize = 4;
-
-/// One case in: the registers in the record's order (eax, ecx, edx, ebx, esp, ebp, esi, edi),
-/// the flags as EFLAGS bits, the encoding and the window of data bytes with its address.
-struct HarnessIn {
-    r: [u32; 8],
-    eflags: u32,
-    code: Vec<u8>,
-    window_at: u32,
-    window: [u8; WINDOW32],
-}
-
-/// One case out, as `struct case_out` of `x86_32.c` holds it.
-#[derive(Debug, PartialEq, Eq)]
-struct HarnessOut {
-    code: u32,
-    eip: u32,
-    fault_at: u32,
-    eflags: u32,
-    r: [u32; 8],
-    stray: u32,
-    window: [u8; WINDOW32],
-}
-
-fn pack_in32(blob: &mut Vec<u8>, case: &HarnessIn) {
-    assert!(case.code.len() <= CODE32_MAX, "an encoding of up to {CODE32_MAX} bytes");
-    let start = blob.len();
-    for r in case.r {
-        blob.extend_from_slice(&r.to_le_bytes());
-    }
-    blob.extend_from_slice(&case.eflags.to_le_bytes());
-    blob.extend_from_slice(&(case.code.len() as u32).to_le_bytes());
-    blob.extend_from_slice(&case.window_at.to_le_bytes());
-    blob.extend_from_slice(&0u32.to_le_bytes());
-    blob.extend_from_slice(&case.code);
-    blob.resize(start + IN32_LEN - WINDOW32, 0);
-    blob.extend_from_slice(&case.window);
-    assert_eq!(blob.len() - start, IN32_LEN);
-}
-
-fn unpack_out32(record: &[u8]) -> HarnessOut {
-    assert_eq!(record.len(), OUT32_LEN);
-    let word = |i: usize| u32::from_le_bytes(record[4 * i..4 * i + 4].try_into().unwrap());
-    let mut r = [0u32; 8];
-    for (k, slot) in r.iter_mut().enumerate() {
-        *slot = word(4 + k);
-    }
-    let mut window = [0u8; WINDOW32];
-    window.copy_from_slice(&record[OUT32_LEN - WINDOW32..]);
-    HarnessOut { code: word(0), eip: word(1), fault_at: word(2), eflags: word(3), r, stray: word(12), window }
-}
-
-/// Builds the harness with clang for i686 into `scratch`, as `harness/build.ps1` does.
-fn build_harness32(clang: &Path, scratch: &Path) -> PathBuf {
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/vectors/harness/x86_32.c");
-    let exe = scratch.join("x86_32.exe");
-    let output = Command::new(clang)
-        .args(["-target", "i686-pc-windows-msvc", "-O1", "-nostdlib", "-fno-builtin", "-fuse-ld=lld"])
-        .arg(&source)
-        .arg("-o")
-        .arg(&exe)
-        .args(["-lkernel32", "-Wl,/entry:mainCRTStartup", "-Wl,/subsystem:console"])
-        .output()
-        .expect("clang runs");
-    assert!(output.status.success(), "the harness did not build:\n{}", String::from_utf8_lossy(&output.stderr));
-    exe
-}
-
-/// Runs the cases of `blob` through the harness under WOW64; the records it wrote.
-fn run_harness32(exe: &Path, scratch: &Path, group: &str, blob: &[u8]) -> Vec<u8> {
-    let input = scratch.join(format!("{group}.in"));
-    let output = scratch.join(format!("{group}.out"));
-    fs::write(&input, blob).unwrap();
-    let run = Command::new(exe).arg(&input).arg(&output).output().expect("the harness runs");
-    assert!(run.status.success(), "the harness failed on {group}: {}", run.status);
-    fs::read(&output).unwrap_or_else(|e| panic!("{}: {e}", output.display()))
-}
-
 /// The harness gives the states of `add eax, ebx`, `pushad` and a load from an unmapped address:
 /// the breakpoint after the first two with their flags, registers and stack bytes, the access
 /// violation of the third at the case's own address with every register as it was.
@@ -460,7 +370,8 @@ fn harness_runs_three_cases() {
     for case in [&add, &pushad, &load] {
         pack_in32(&mut blob, case);
     }
-    let results = run_harness32(&exe, &scratch, "three", &blob);
+    let (status, results) = run_harness32(&exe, &scratch, "three", &blob);
+    assert!(status.success(), "the harness failed: {status}");
     assert_eq!(results.len(), 3 * OUT32_LEN, "the harness answered {} bytes", results.len());
     let outs: Vec<HarnessOut> = results.chunks_exact(OUT32_LEN).map(unpack_out32).collect();
 
@@ -494,6 +405,20 @@ fn harness_runs_three_cases() {
         "mov eax, [0]"
     );
     println!("x86_32 harness: 3 cases as expected");
+}
+
+/// Rewrites `testdata/vectors/x86/<group>.vec` from iced's 32-bit code table: every integer
+/// form the lift has an arm for over the generator's states, run by the harness under WOW64.
+/// The `x86_32` test of `vectors.rs` then says which forms differ, for `PENDING.txt`.
+#[test]
+#[ignore = "rewrites testdata/vectors/x86/*.vec with the harness under WOW64"]
+fn write_x86_32_vectors() {
+    let Some(clang) = ra_asm_testing::tools::tool("clang") else { return };
+    let written = x86::write_vectors(&clang, &x86::x86_dir());
+    for (group, n) in &written {
+        println!("x86/{group}.vec: {n} cases");
+    }
+    println!("x86_32 vectors: {} cases in {} groups", written.values().sum::<usize>(), written.len());
 }
 
 // endregion

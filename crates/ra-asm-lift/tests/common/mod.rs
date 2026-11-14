@@ -2,10 +2,13 @@
 //! `testdata/vectors/arm64/templates.txt`, their expansion over the operand classes, the committed
 //! `cases/<group>.cases` files, and the path WSL sees for a Windows path. `vectors_gen.rs` writes
 //! and checks the cases; `vectors.rs` runs them under the harness and replays the vectors. The
-//! 32-bit ARM model, with its own classes and byte-string cases, is `arm32`.
+//! 32-bit ARM model, with its own classes and byte-string cases, is `arm32`; the 32-bit x86
+//! generator, which runs iced's code table through the WOW64 harness, is `x86_32`. The random
+//! states of every generator come from [`Rng`], seeded per group.
 #![allow(dead_code)]
 
 pub(crate) mod arm32;
+pub(crate) mod x86_32;
 
 use std::fmt::Write as _;
 use std::fs;
@@ -217,3 +220,92 @@ pub(crate) fn wsl_path(path: &Path) -> String {
         _ => text,
     }
 }
+
+// region Random states
+
+/// xorshift64*, as the x86 oracle's, so a group's states are the same on every regeneration.
+pub(crate) struct Rng(u64);
+
+impl Rng {
+    pub(crate) fn new(seed: u64) -> Self {
+        Self(if seed == 0 { 1 } else { seed })
+    }
+
+    pub(crate) fn next(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.0 = x;
+        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    pub(crate) fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+
+    pub(crate) fn pick<T: Copy>(&mut self, items: &[T]) -> T {
+        items[self.below(items.len() as u64) as usize]
+    }
+
+    pub(crate) fn chance(&mut self, out_of: u64) -> bool {
+        self.below(out_of) == 0
+    }
+
+    /// A value with interesting shapes as often as a uniform one: small, all ones, a sign bit,
+    /// a power of two, a byte pattern.
+    pub(crate) fn value(&mut self) -> u64 {
+        match self.below(8) {
+            0 => self.below(16),
+            1 => u64::MAX - self.below(16),
+            2 => 1u64 << self.below(64),
+            3 => (1u64 << self.below(64)).wrapping_sub(1),
+            4 => 0x8000_0000_0000_0000 | self.below(16),
+            5 => 0x7FFF_FFFF_FFFF_FFF0 | self.below(16),
+            _ => self.next(),
+        }
+    }
+
+    /// [`Self::value`] at 32 bits: the same shapes over a 32-bit register.
+    pub(crate) fn value32(&mut self) -> u32 {
+        match self.below(8) {
+            0 => self.below(16) as u32,
+            1 => u32::MAX - self.below(16) as u32,
+            2 => 1u32 << self.below(32),
+            3 => (1u32 << self.below(32)).wrapping_sub(1),
+            4 => 0x8000_0000 | self.below(16) as u32,
+            5 => 0x7FFF_FFF0 | self.below(16) as u32,
+            _ => self.next() as u32,
+        }
+    }
+
+    /// A finite double between about 1e-9 and 1e9 in magnitude: no NaN, no infinity, no
+    /// denormal, so the arithmetic forms compare values and not the machine's NaN rules.
+    pub(crate) fn f64_bits(&mut self, positive: bool) -> u64 {
+        let sign = if positive { 0 } else { self.below(2) };
+        let exponent = 1023 + self.below(61) - 30;
+        let mantissa = self.next() & ((1 << 52) - 1);
+        (sign << 63) | (exponent << 52) | mantissa
+    }
+
+    pub(crate) fn f32_bits(&mut self, positive: bool) -> u64 {
+        let sign = if positive { 0 } else { self.below(2) };
+        let exponent = 127 + self.below(41) - 20;
+        let mantissa = self.next() & ((1 << 23) - 1);
+        (sign << 31) | (exponent << 23) | mantissa
+    }
+
+    pub(crate) fn fill(&mut self, buf: &mut [u8]) {
+        for chunk in buf.chunks_mut(8) {
+            let v = self.next().to_le_bytes();
+            chunk.copy_from_slice(&v[..chunk.len()]);
+        }
+    }
+}
+
+/// The seed of a group's states: FNV-1a of its name over a nonzero offset.
+pub(crate) fn group_seed(group: &str) -> u64 {
+    group.bytes().fold(0x9E37_79B9_7F4A_7C15u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
+}
+
+// endregion
