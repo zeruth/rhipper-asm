@@ -1,0 +1,396 @@
+# The AArch64 forms the lift covers, one template a line: the yaxpeax opcode an arm of
+# `lift_instr` in crates/ra-asm-lift/src/arm64.rs names, then the assembly with its operands as
+# classes in braces. `[name]` opens the group whose cases go to cases/<name>.cases. The writer
+# (`write_arm64_cases` in crates/ra-asm-lift/tests/vectors_gen.rs) expands every class over its
+# sample values, assembles the lines with llvm-mc in WSL and writes the cases; `arm64_cases`
+# checks the committed cases against this file and the lift's arm list. Every opcode listed here
+# has an arm, and every arm but `Invalid` (an undecodable word has no assembly) is listed.
+
+[system]
+B       b #{label}
+RET     ret
+RET     ret {Xn}
+HINT    hint #{hint}
+DMB     dmb {barrier}
+DSB     dsb {barrier}
+ISB     isb
+SB      sb
+SSBB    ssbb
+PSSBB   pssbb
+CLREX   clrex
+PRFM    prfm pldl1keep, [{XnSP}, #{pimm8}]
+PRFM    prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+PRFUM   prfum pldl1keep, [{XnSP}, #{simm9}]
+PACIASP paciasp
+PACIBSP pacibsp
+AUTIASP autiasp
+AUTIBSP autibsp
+PACIAZ  paciaz
+PACIBZ  pacibz
+AUTIAZ  autiaz
+AUTIBZ  autibz
+XPACLRI xpaclri
+BRK     brk #{imm16}
+UDF     udf #{imm16}
+HLT     hlt #{imm16}
+
+[moves]
+MOVZ    movz {Xd}, #{imm16}, lsl #{hw64}
+MOVZ    movz {Wd}, #{imm16}, lsl #{hw32}
+MOVN    movn {Xd}, #{imm16}, lsl #{hw64}
+MOVN    movn {Wd}, #{imm16}, lsl #{hw32}
+MOVK    movk {Xd}, #{imm16}, lsl #{hw64}
+MOVK    movk {Wd}, #{imm16}, lsl #{hw32}
+
+[arith]
+ADD     add {XdSP}, {XnSP}, #{imm12}
+ADD     add {XdSP}, {XnSP}, #{imm12}, lsl #12
+ADD     add {WdSP}, {WnSP}, #{imm12}
+ADD     add {Xd}, {Xn}, {Xm}
+ADD     add {Xd}, {Xn}, {Xm}, lsl #{shift6}
+ADD     add {Xd}, {Xn}, {Xm}, lsr #{shift6}
+ADD     add {Xd}, {Xn}, {Xm}, asr #{shift6}
+ADD     add {Wd}, {Wn}, {Wm}, lsl #{shift5}
+ADD     add {XdSP}, {XnSP}, {Wm}, uxtw #{imm3}
+ADD     add {XdSP}, {XnSP}, {Wm}, sxtw #{imm3}
+ADD     add {XdSP}, {XnSP}, {Xm}, sxtx #{imm3}
+ADD     add {WdSP}, {WnSP}, {Wm}, uxtb #{imm3}
+ADD     add {WdSP}, {WnSP}, {Wm}, sxth #{imm3}
+ADDS    adds {Xd}, {XnSP}, #{imm12}
+ADDS    adds {Wd}, {WnSP}, #{imm12}, lsl #12
+ADDS    adds {Xd}, {Xn}, {Xm}, lsl #{shift6}
+ADDS    adds {Wd}, {Wn}, {Wm}
+ADDS    adds {Xd}, {XnSP}, {Wm}, uxtw #{imm3}
+SUB     sub {XdSP}, {XnSP}, #{imm12}
+SUB     sub {XdSP}, {XnSP}, #{imm12}, lsl #12
+SUB     sub {Wd}, {Wn}, {Wm}, asr #{shift5}
+SUB     sub {Xd}, {Xn}, {Xm}, lsl #{shift6}
+SUB     sub {XdSP}, {XnSP}, {Wm}, uxtw #{imm3}
+SUBS    subs {Xd}, {XnSP}, #{imm12}
+SUBS    subs {Wd}, {WnSP}, #{imm12}, lsl #12
+SUBS    subs {Xd}, {Xn}, {Xm}
+SUBS    subs {Xd}, {Xn}, {Xm}, lsr #{shift6}
+SUBS    subs {Wd}, {Wn}, {Wm}, lsl #{shift5}
+SUBS    subs {Xd}, {XnSP}, {Wm}, sxtw #{imm3}
+ADC     adc {Xd}, {Xn}, {Xm}
+ADC     adc {Wd}, {Wn}, {Wm}
+ADCS    adcs {Xd}, {Xn}, {Xm}
+ADCS    adcs {Wd}, {Wn}, {Wm}
+SBC     sbc {Xd}, {Xn}, {Xm}
+SBC     sbc {Wd}, {Wn}, {Wm}
+SBCS    sbcs {Xd}, {Xn}, {Xm}
+SBCS    sbcs {Wd}, {Wn}, {Wm}
+
+[logic]
+AND     and {XdSP}, {Xn}, #{bimm64}
+AND     and {WdSP}, {Wn}, #{bimm32}
+AND     and {Xd}, {Xn}, {Xm}
+AND     and {Xd}, {Xn}, {Xm}, lsl #{shift6}
+AND     and {Xd}, {Xn}, {Xm}, lsr #{shift6}
+AND     and {Xd}, {Xn}, {Xm}, asr #{shift6}
+AND     and {Xd}, {Xn}, {Xm}, ror #{shift6}
+AND     and {Wd}, {Wn}, {Wm}, ror #{shift5}
+ANDS    ands {Xd}, {Xn}, #{bimm64}
+ANDS    ands {Wd}, {Wn}, #{bimm32}
+ANDS    ands {Xd}, {Xn}, {Xm}, lsr #{shift6}
+ANDS    ands {Wd}, {Wn}, {Wm}
+ORR     orr {XdSP}, {Xn}, #{bimm64}
+ORR     orr {WdSP}, {Wn}, #{bimm32}
+ORR     orr {Xd}, {Xn}, {Xm}
+ORR     orr {Xd}, {Xn}, {Xm}, lsl #{shift6}
+ORR     orr {Wd}, {Wn}, {Wm}, ror #{shift5}
+ORN     orn {Xd}, {Xn}, {Xm}
+ORN     orn {Wd}, {Wn}, {Wm}, lsl #{shift5}
+EOR     eor {XdSP}, {Xn}, #{bimm64}
+EOR     eor {Wd}, {Wn}, {Wm}
+EOR     eor {Xd}, {Xn}, {Xm}, ror #{shift6}
+EON     eon {Xd}, {Xn}, {Xm}
+EON     eon {Wd}, {Wn}, {Wm}, asr #{shift5}
+BIC     bic {Xd}, {Xn}, {Xm}
+BIC     bic {Wd}, {Wn}, {Wm}, lsl #{shift5}
+BICS    bics {Xd}, {Xn}, {Xm}, lsr #{shift6}
+BICS    bics {Wd}, {Wn}, {Wm}
+
+[bitfield]
+SBFM    sbfm {Xd}, {Xn}, #{immr64}, #{imms64}
+SBFM    sbfm {Wd}, {Wn}, #{immr32}, #{imms32}
+UBFM    ubfm {Xd}, {Xn}, #{immr64}, #{imms64}
+UBFM    ubfm {Wd}, {Wn}, #{immr32}, #{imms32}
+BFM     bfm {Xd}, {Xn}, #{immr64}, #{imms64}
+BFM     bfm {Wd}, {Wn}, #{immr32}, #{imms32}
+EXTR    extr {Xd}, {Xn}, {Xm}, #{shift6}
+EXTR    extr {Wd}, {Wn}, {Wm}, #{shift5}
+
+[shift]
+LSLV    lsl {Xd}, {Xn}, {Xm}
+LSLV    lsl {Wd}, {Wn}, {Wm}
+LSRV    lsr {Xd}, {Xn}, {Xm}
+LSRV    lsr {Wd}, {Wn}, {Wm}
+ASRV    asr {Xd}, {Xn}, {Xm}
+ASRV    asr {Wd}, {Wn}, {Wm}
+RORV    ror {Xd}, {Xn}, {Xm}
+RORV    ror {Wd}, {Wn}, {Wm}
+
+[select]
+CSEL    csel {Xd}, {Xn}, {Xm}, {cond}
+CSEL    csel {Wd}, {Wn}, {Wm}, {cond}
+CSINC   csinc {Xd}, {Xn}, {Xm}, {cond}
+CSINC   csinc {Wd}, {Wn}, {Wm}, {cond}
+CSINV   csinv {Xd}, {Xn}, {Xm}, {cond}
+CSINV   csinv {Wd}, {Wn}, {Wm}, {cond}
+CSNEG   csneg {Xd}, {Xn}, {Xm}, {cond}
+CSNEG   csneg {Wd}, {Wn}, {Wm}, {cond}
+CCMP    ccmp {Xn}, {Xm}, #{nzcv}, {cond}
+CCMP    ccmp {Wn}, #{imm5}, #{nzcv}, {cond}
+CCMN    ccmn {Xn}, {Xm}, #{nzcv}, {cond}
+CCMN    ccmn {Wn}, #{imm5}, #{nzcv}, {cond}
+
+[muldiv]
+MADD    madd {Xd}, {Xn}, {Xm}, {Xa}
+MADD    madd {Wd}, {Wn}, {Wm}, {Wa}
+MSUB    msub {Xd}, {Xn}, {Xm}, {Xa}
+MSUB    msub {Wd}, {Wn}, {Wm}, {Wa}
+SMADDL  smaddl {Xd}, {Wn}, {Wm}, {Xa}
+SMSUBL  smsubl {Xd}, {Wn}, {Wm}, {Xa}
+UMADDL  umaddl {Xd}, {Wn}, {Wm}, {Xa}
+UMSUBL  umsubl {Xd}, {Wn}, {Wm}, {Xa}
+SMULH   smulh {Xd}, {Xn}, {Xm}
+UMULH   umulh {Xd}, {Xn}, {Xm}
+UDIV    udiv {Xd}, {Xn}, {Xm}
+UDIV    udiv {Wd}, {Wn}, {Wm}
+SDIV    sdiv {Xd}, {Xn}, {Xm}
+SDIV    sdiv {Wd}, {Wn}, {Wm}
+
+[bits]
+CLZ     clz {Xd}, {Xn}
+CLZ     clz {Wd}, {Wn}
+CLS     cls {Xd}, {Xn}
+CLS     cls {Wd}, {Wn}
+RBIT    rbit {Xd}, {Xn}
+RBIT    rbit {Wd}, {Wn}
+REV     rev {Xd}, {Xn}
+REV     rev {Wd}, {Wn}
+REV16   rev16 {Xd}, {Xn}
+REV16   rev16 {Wd}, {Wn}
+REV32   rev32 {Xd}, {Xn}
+
+[branch]
+ADR     adr {Xd}, #{adr}
+ADRP    adrp {Xd}, #{adrp}
+BL      bl #{label}
+BLR     blr {Xi}
+BR      br {Xi}
+Bcc     b.{cond} #{label}
+BCcc    bc.{cond} #{label}
+CBZ     cbz {Xd}, #{label}
+CBZ     cbz {Wd}, #{label}
+CBNZ    cbnz {Xd}, #{label}
+CBNZ    cbnz {Wd}, #{label}
+TBZ     tbz {Xd}, #{bit64}, #{label}
+TBZ     tbz {Wd}, #{bit32}, #{label}
+TBNZ    tbnz {Xd}, #{bit64}, #{label}
+TBNZ    tbnz {Wd}, #{bit32}, #{label}
+
+[loads]
+LDR     ldr {Xd}, [{XnSP}, #{pimm8}]
+LDR     ldr {Wd}, [{XnSP}, #{pimm4}]
+LDR     ldr {Xd}, [{XnSP}, #{simm9}]!
+LDR     ldr {Xd}, [{XnSP}], #{simm9}
+LDR     ldr {Wd}, [{XnSP}], #{simm9}
+LDR     ldr {Xd}, [{XnSP}, {Xi}]
+LDR     ldr {Xd}, [{XnSP}, {Xi}, lsl #3]
+LDR     ldr {Wd}, [{XnSP}, {Xi}, lsl #2]
+LDR     ldr {Xd}, [{XnSP}, {Wi}, uxtw #3]
+LDR     ldr {Xd}, [{XnSP}, {Wi}, sxtw]
+LDR     ldr {Xd}, [{XnSP}, {Xi}, sxtx #3]
+LDR     ldr {Dd}, [{XnSP}, #{pimm8}]
+LDR     ldr {Sd}, [{XnSP}, #{pimm4}]
+LDR     ldr {Qd}, [{XnSP}, #{pimm16}]
+LDR     ldr {Dd}, [{XnSP}, {Xi}, lsl #3]
+LDR     ldr {Dd}, [{XnSP}], #{simm9}
+LDR     ldr {Xd}, #{label}
+LDR     ldr {Wd}, #{label}
+LDUR    ldur {Xd}, [{XnSP}, #{simm9}]
+LDUR    ldur {Wd}, [{XnSP}, #{simm9}]
+LDUR    ldur {Dd}, [{XnSP}, #{simm9}]
+LDUR    ldur {Sd}, [{XnSP}, #{simm9}]
+LDUR    ldur {Qd}, [{XnSP}, #{simm9}]
+LDAR    ldar {Xd}, [{XnSP}]
+LDAR    ldar {Wd}, [{XnSP}]
+LDAPR   ldapr {Xd}, [{XnSP}]
+LDAPR   ldapr {Wd}, [{XnSP}]
+LDRB    ldrb {Wd}, [{XnSP}, #{pimm1}]
+LDRB    ldrb {Wd}, [{XnSP}, {Xi}]
+LDRB    ldrb {Wd}, [{XnSP}, {Wi}, uxtw]
+LDRB    ldrb {Wd}, [{XnSP}], #{simm9}
+LDRB    ldrb {Wd}, [{XnSP}, #{simm9}]!
+LDURB   ldurb {Wd}, [{XnSP}, #{simm9}]
+LDARB   ldarb {Wd}, [{XnSP}]
+LDAPRB  ldaprb {Wd}, [{XnSP}]
+LDRH    ldrh {Wd}, [{XnSP}, #{pimm2}]
+LDRH    ldrh {Wd}, [{XnSP}, {Xi}, lsl #1]
+LDRH    ldrh {Wd}, [{XnSP}, {Wi}, sxtw #1]
+LDRH    ldrh {Wd}, [{XnSP}], #{simm9}
+LDURH   ldurh {Wd}, [{XnSP}, #{simm9}]
+LDARH   ldarh {Wd}, [{XnSP}]
+LDAPRH  ldaprh {Wd}, [{XnSP}]
+LDRSB   ldrsb {Xd}, [{XnSP}, #{pimm1}]
+LDRSB   ldrsb {Wd}, [{XnSP}, #{pimm1}]
+LDRSB   ldrsb {Xd}, [{XnSP}, {Xi}]
+LDRSB   ldrsb {Wd}, [{XnSP}], #{simm9}
+LDURSB  ldursb {Xd}, [{XnSP}, #{simm9}]
+LDURSB  ldursb {Wd}, [{XnSP}, #{simm9}]
+LDRSH   ldrsh {Xd}, [{XnSP}, #{pimm2}]
+LDRSH   ldrsh {Wd}, [{XnSP}, #{pimm2}]
+LDRSH   ldrsh {Xd}, [{XnSP}, {Wi}, uxtw #1]
+LDURSH  ldursh {Xd}, [{XnSP}, #{simm9}]
+LDURSH  ldursh {Wd}, [{XnSP}, #{simm9}]
+LDRSW   ldrsw {Xd}, [{XnSP}, #{pimm4}]
+LDRSW   ldrsw {Xd}, [{XnSP}, {Xi}, lsl #2]
+LDRSW   ldrsw {Xd}, [{XnSP}], #{simm9}
+LDRSW   ldrsw {Xd}, #{label}
+LDURSW  ldursw {Xd}, [{XnSP}, #{simm9}]
+
+[stores]
+STR     str {Xd}, [{XnSP}, #{pimm8}]
+STR     str {Wd}, [{XnSP}, #{pimm4}]
+STR     str {Xd}, [{XnSP}, #{simm9}]!
+STR     str {Xd}, [{XnSP}], #{simm9}
+STR     str {Xd}, [{XnSP}, {Xi}]
+STR     str {Xd}, [{XnSP}, {Xi}, lsl #3]
+STR     str {Wd}, [{XnSP}, {Wi}, uxtw #2]
+STR     str {Dd}, [{XnSP}, #{pimm8}]
+STR     str {Sd}, [{XnSP}, #{pimm4}]
+STR     str {Qd}, [{XnSP}, #{pimm16}]
+STR     str {Dd}, [{XnSP}], #{simm9}
+STR     str {Qd}, [{XnSP}, {Xi}, lsl #4]
+STUR    stur {Xd}, [{XnSP}, #{simm9}]
+STUR    stur {Wd}, [{XnSP}, #{simm9}]
+STUR    stur {Dd}, [{XnSP}, #{simm9}]
+STUR    stur {Sd}, [{XnSP}, #{simm9}]
+STUR    stur {Qd}, [{XnSP}, #{simm9}]
+STLR    stlr {Xd}, [{XnSP}]
+STLR    stlr {Wd}, [{XnSP}]
+STRB    strb {Wd}, [{XnSP}, #{pimm1}]
+STRB    strb {Wd}, [{XnSP}, {Xi}]
+STRB    strb {Wd}, [{XnSP}], #{simm9}
+STRB    strb {Wd}, [{XnSP}, #{simm9}]!
+STURB   sturb {Wd}, [{XnSP}, #{simm9}]
+STLRB   stlrb {Wd}, [{XnSP}]
+STRH    strh {Wd}, [{XnSP}, #{pimm2}]
+STRH    strh {Wd}, [{XnSP}, {Xi}, lsl #1]
+STRH    strh {Wd}, [{XnSP}, {Wi}, sxtw #1]
+STRH    strh {Wd}, [{XnSP}], #{simm9}
+STURH   sturh {Wd}, [{XnSP}, #{simm9}]
+STLRH   stlrh {Wd}, [{XnSP}]
+
+[pairs]
+LDP     ldp {Xd}, {Xa}, [{XnSP}, #{simm7x8}]
+LDP     ldp {Wd}, {Wa}, [{XnSP}, #{simm7x4}]
+LDP     ldp {Xd}, {Xa}, [{XnSP}, #{simm7x8}]!
+LDP     ldp {Xd}, {Xa}, [{XnSP}], #{simm7x8}
+LDP     ldp {Dd}, {Da}, [{XnSP}, #{simm7x8}]
+LDP     ldp {Sd}, {Sa}, [{XnSP}, #{simm7x4}]
+LDP     ldp {Qd}, {Qa}, [{XnSP}, #{simm7x16}]
+LDP     ldp {Dd}, {Da}, [{XnSP}], #{simm7x8}
+LDNP    ldnp {Xd}, {Xa}, [{XnSP}, #{simm7x8}]
+LDNP    ldnp {Wd}, {Wa}, [{XnSP}, #{simm7x4}]
+LDNP    ldnp {Dd}, {Da}, [{XnSP}, #{simm7x8}]
+LDNP    ldnp {Qd}, {Qa}, [{XnSP}, #{simm7x16}]
+LDPSW   ldpsw {Xd}, {Xa}, [{XnSP}, #{simm7x4}]
+LDPSW   ldpsw {Xd}, {Xa}, [{XnSP}, #{simm7x4}]!
+LDPSW   ldpsw {Xd}, {Xa}, [{XnSP}], #{simm7x4}
+STP     stp {Xd}, {Xa}, [{XnSP}, #{simm7x8}]
+STP     stp {Wd}, {Wa}, [{XnSP}, #{simm7x4}]
+STP     stp {Xd}, {Xa}, [{XnSP}, #{simm7x8}]!
+STP     stp {Xd}, {Xa}, [{XnSP}], #{simm7x8}
+STP     stp {Dd}, {Da}, [{XnSP}, #{simm7x8}]
+STP     stp {Sd}, {Sa}, [{XnSP}, #{simm7x4}]
+STP     stp {Qd}, {Qa}, [{XnSP}, #{simm7x16}]
+STP     stp {Dd}, {Da}, [{XnSP}], #{simm7x8}
+STNP    stnp {Xd}, {Xa}, [{XnSP}, #{simm7x8}]
+STNP    stnp {Wd}, {Wa}, [{XnSP}, #{simm7x4}]
+STNP    stnp {Dd}, {Da}, [{XnSP}, #{simm7x8}]
+STNP    stnp {Qd}, {Qa}, [{XnSP}, #{simm7x16}]
+
+[fp]
+FMOV    fmov {Dd}, {Xn}
+FMOV    fmov {Xd}, {Dn}
+FMOV    fmov {Sd}, {Wn}
+FMOV    fmov {Wd}, {Sn}
+FMOV    fmov {Dd}, {Dn}
+FMOV    fmov {Sd}, {Sn}
+FMOV    fmov {Dd}, #{fimm}
+FMOV    fmov {Sd}, #{fimm}
+MOVI    movi {Dd}, #{movi64}
+MOVI    movi {Vd}.2d, #{movi64}
+MOVI    movi {Vd}.8b, #{movi8}
+MOVI    movi {Vd}.16b, #{movi8}
+MOVI    movi {Vd}.4h, #{movi8}
+MOVI    movi {Vd}.8h, #{movi8}, lsl #8
+MOVI    movi {Vd}.2s, #{movi8}
+MOVI    movi {Vd}.4s, #{movi8}, lsl #16
+MOVI    movi {Vd}.2s, #{movi8}, msl #8
+MOVI    movi {Vd}.4s, #{movi8}, msl #16
+FADD    fadd {Dd}, {Dn}, {Dm}
+FADD    fadd {Sd}, {Sn}, {Sm}
+FADD    fadd {Vd}.2s, {Vn}.2s, {Vm}.2s
+FADD    fadd {Vd}.4s, {Vn}.4s, {Vm}.4s
+FADD    fadd {Vd}.2d, {Vn}.2d, {Vm}.2d
+FSUB    fsub {Dd}, {Dn}, {Dm}
+FSUB    fsub {Sd}, {Sn}, {Sm}
+FSUB    fsub {Vd}.2s, {Vn}.2s, {Vm}.2s
+FSUB    fsub {Vd}.4s, {Vn}.4s, {Vm}.4s
+FSUB    fsub {Vd}.2d, {Vn}.2d, {Vm}.2d
+FMUL    fmul {Dd}, {Dn}, {Dm}
+FMUL    fmul {Sd}, {Sn}, {Sm}
+FMUL    fmul {Vd}.2s, {Vn}.2s, {Vm}.2s
+FMUL    fmul {Vd}.4s, {Vn}.4s, {Vm}.4s
+FMUL    fmul {Vd}.2d, {Vn}.2d, {Vm}.2d
+FDIV    fdiv {Dd}, {Dn}, {Dm}
+FDIV    fdiv {Sd}, {Sn}, {Sm}
+FDIV    fdiv {Vd}.2s, {Vn}.2s, {Vm}.2s
+FDIV    fdiv {Vd}.4s, {Vn}.4s, {Vm}.4s
+FDIV    fdiv {Vd}.2d, {Vn}.2d, {Vm}.2d
+FNEG    fneg {Dd}, {Dn}
+FNEG    fneg {Sd}, {Sn}
+FABS    fabs {Dd}, {Dn}
+FABS    fabs {Sd}, {Sn}
+FSQRT   fsqrt {Dd}, {Dn}
+FSQRT   fsqrt {Sd}, {Sn}
+FMADD   fmadd {Dd}, {Dn}, {Dm}, {Da}
+FMADD   fmadd {Sd}, {Sn}, {Sm}, {Sa}
+FMSUB   fmsub {Dd}, {Dn}, {Dm}, {Da}
+FMSUB   fmsub {Sd}, {Sn}, {Sm}, {Sa}
+FNMADD  fnmadd {Dd}, {Dn}, {Dm}, {Da}
+FNMADD  fnmadd {Sd}, {Sn}, {Sm}, {Sa}
+FNMSUB  fnmsub {Dd}, {Dn}, {Dm}, {Da}
+FNMSUB  fnmsub {Sd}, {Sn}, {Sm}, {Sa}
+FCVT    fcvt {Dd}, {Sn}
+FCVT    fcvt {Sd}, {Dn}
+SCVTF   scvtf {Dd}, {Xn}
+SCVTF   scvtf {Dd}, {Wn}
+SCVTF   scvtf {Sd}, {Xn}
+SCVTF   scvtf {Sd}, {Wn}
+UCVTF   ucvtf {Dd}, {Xn}
+UCVTF   ucvtf {Dd}, {Wn}
+UCVTF   ucvtf {Sd}, {Xn}
+UCVTF   ucvtf {Sd}, {Wn}
+FCVTZS  fcvtzs {Xd}, {Dn}
+FCVTZS  fcvtzs {Wd}, {Dn}
+FCVTZS  fcvtzs {Xd}, {Sn}
+FCVTZS  fcvtzs {Wd}, {Sn}
+FCVTZU  fcvtzu {Xd}, {Dn}
+FCVTZU  fcvtzu {Wd}, {Dn}
+FCVTZU  fcvtzu {Xd}, {Sn}
+FCVTZU  fcvtzu {Wd}, {Sn}
+FCMP    fcmp {Dn}, {Dm}
+FCMP    fcmp {Sn}, {Sm}
+FCMP    fcmp {Dn}, #0.0
+FCMP    fcmp {Sn}, #0.0
+FCMPE   fcmpe {Dn}, {Dm}
+FCMPE   fcmpe {Sn}, {Sm}
+FCMPE   fcmpe {Dn}, #0.0
+FCMPE   fcmpe {Sn}, #0.0
+FCSEL   fcsel {Dd}, {Dn}, {Dm}, {cond}
+FCSEL   fcsel {Sd}, {Sn}, {Sm}, {cond}

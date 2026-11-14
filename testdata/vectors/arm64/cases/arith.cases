@@ -1,0 +1,148 @@
+ADD 91000020 add x0, x1, #0
+ADD 910007ff add sp, sp, #1
+ADD 911ffd31 add x17, x9, #0x7ff
+ADD 913ffede add x30, x22, #0xfff
+ADD 91400020 add x0, x1, #0, lsl #12
+ADD 914007ff add sp, sp, #1, lsl #12
+ADD 915ffd31 add x17, x9, #0x7ff, lsl #12
+ADD 917ffede add x30, x22, #0xfff, lsl #12
+ADD 11000020 add w0, w1, #0
+ADD 110007ff add wsp, wsp, #1
+ADD 111ffd31 add w17, w9, #0x7ff
+ADD 113ffede add w30, w22, #0xfff
+ADD 8b020020 add x0, x1, x2
+ADD 8b0d0125 add x5, x9, x13
+ADD 8b1c03f1 add x17, xzr, x28
+ADD 8b1f02de add x30, x22, xzr
+ADD 8b020020 add x0, x1, x2, lsl #0
+ADD 8b0d0525 add x5, x9, x13, lsl #1
+ADD 8b1c7ff1 add x17, xzr, x28, lsl #31
+ADD 8b1ffede add x30, x22, xzr, lsl #63
+ADD 8b420020 add x0, x1, x2, lsr #0
+ADD 8b4d0525 add x5, x9, x13, lsr #1
+ADD 8b5c7ff1 add x17, xzr, x28, lsr #31
+ADD 8b5ffede add x30, x22, xzr, lsr #63
+ADD 8b820020 add x0, x1, x2, asr #0
+ADD 8b8d0525 add x5, x9, x13, asr #1
+ADD 8b9c7ff1 add x17, xzr, x28, asr #31
+ADD 8b9ffede add x30, x22, xzr, asr #63
+ADD 0b020020 add w0, w1, w2, lsl #0
+ADD 0b0d0525 add w5, w9, w13, lsl #1
+ADD 0b1c1ff1 add w17, wzr, w28, lsl #7
+ADD 0b1f7ede add w30, w22, wzr, lsl #31
+ADD 8b224020 add x0, x1, w2, uxtw #0
+ADD 8b2d47ff add sp, sp, w13, uxtw #1
+ADD 8b3c4931 add x17, x9, w28, uxtw #2
+ADD 8b3f4ede add x30, x22, wzr, uxtw #3
+ADD 8b22c020 add x0, x1, w2, sxtw #0
+ADD 8b2dc7ff add sp, sp, w13, sxtw #1
+ADD 8b3cc931 add x17, x9, w28, sxtw #2
+ADD 8b3fcede add x30, x22, wzr, sxtw #3
+ADD 8b22e020 add x0, x1, x2, sxtx #0
+ADD 8b2de7ff add sp, sp, x13, sxtx #1
+ADD 8b3ce931 add x17, x9, x28, sxtx #2
+ADD 8b3feede add x30, x22, xzr, sxtx #3
+ADD 0b220020 add w0, w1, w2, uxtb #0
+ADD 0b2d07ff add wsp, wsp, w13, uxtb #1
+ADD 0b3c0931 add w17, w9, w28, uxtb #2
+ADD 0b3f0ede add w30, w22, wzr, uxtb #3
+ADD 0b22a020 add w0, w1, w2, sxth #0
+ADD 0b2da7ff add wsp, wsp, w13, sxth #1
+ADD 0b3ca931 add w17, w9, w28, sxth #2
+ADD 0b3faede add w30, w22, wzr, sxth #3
+ADDS b1000020 adds x0, x1, #0
+ADDS b10007e5 adds x5, sp, #1
+ADDS b11ffd31 adds x17, x9, #0x7ff
+ADDS b13ffede adds x30, x22, #0xfff
+ADDS 31400020 adds w0, w1, #0, lsl #12
+ADDS 314007e5 adds w5, wsp, #1, lsl #12
+ADDS 315ffd31 adds w17, w9, #0x7ff, lsl #12
+ADDS 317ffede adds w30, w22, #0xfff, lsl #12
+ADDS ab020020 adds x0, x1, x2, lsl #0
+ADDS ab0d0525 adds x5, x9, x13, lsl #1
+ADDS ab1c7ff1 adds x17, xzr, x28, lsl #31
+ADDS ab1ffede adds x30, x22, xzr, lsl #63
+ADDS 2b020020 adds w0, w1, w2
+ADDS 2b0d0125 adds w5, w9, w13
+ADDS 2b1c03f1 adds w17, wzr, w28
+ADDS 2b1f02de adds w30, w22, wzr
+ADDS ab224020 adds x0, x1, w2, uxtw #0
+ADDS ab2d47e5 adds x5, sp, w13, uxtw #1
+ADDS ab3c4931 adds x17, x9, w28, uxtw #2
+ADDS ab3f4ede adds x30, x22, wzr, uxtw #3
+SUB d1000020 sub x0, x1, #0
+SUB d10007ff sub sp, sp, #1
+SUB d11ffd31 sub x17, x9, #0x7ff
+SUB d13ffede sub x30, x22, #0xfff
+SUB d1400020 sub x0, x1, #0, lsl #12
+SUB d14007ff sub sp, sp, #1, lsl #12
+SUB d15ffd31 sub x17, x9, #0x7ff, lsl #12
+SUB d17ffede sub x30, x22, #0xfff, lsl #12
+SUB 4b820020 sub w0, w1, w2, asr #0
+SUB 4b8d0525 sub w5, w9, w13, asr #1
+SUB 4b9c1ff1 sub w17, wzr, w28, asr #7
+SUB 4b9f7ede sub w30, w22, wzr, asr #31
+SUB cb020020 sub x0, x1, x2, lsl #0
+SUB cb0d0525 sub x5, x9, x13, lsl #1
+SUB cb1c7ff1 sub x17, xzr, x28, lsl #31
+SUB cb1ffede sub x30, x22, xzr, lsl #63
+SUB cb224020 sub x0, x1, w2, uxtw #0
+SUB cb2d47ff sub sp, sp, w13, uxtw #1
+SUB cb3c4931 sub x17, x9, w28, uxtw #2
+SUB cb3f4ede sub x30, x22, wzr, uxtw #3
+SUBS f1000020 subs x0, x1, #0
+SUBS f10007e5 subs x5, sp, #1
+SUBS f11ffd31 subs x17, x9, #0x7ff
+SUBS f13ffede subs x30, x22, #0xfff
+SUBS 71400020 subs w0, w1, #0, lsl #12
+SUBS 714007e5 subs w5, wsp, #1, lsl #12
+SUBS 715ffd31 subs w17, w9, #0x7ff, lsl #12
+SUBS 717ffede subs w30, w22, #0xfff, lsl #12
+SUBS eb020020 subs x0, x1, x2
+SUBS eb0d0125 subs x5, x9, x13
+SUBS eb1c03f1 subs x17, xzr, x28
+SUBS eb1f02de subs x30, x22, xzr
+SUBS eb420020 subs x0, x1, x2, lsr #0
+SUBS eb4d0525 subs x5, x9, x13, lsr #1
+SUBS eb5c7ff1 subs x17, xzr, x28, lsr #31
+SUBS eb5ffede subs x30, x22, xzr, lsr #63
+SUBS 6b020020 subs w0, w1, w2, lsl #0
+SUBS 6b0d0525 subs w5, w9, w13, lsl #1
+SUBS 6b1c1ff1 subs w17, wzr, w28, lsl #7
+SUBS 6b1f7ede subs w30, w22, wzr, lsl #31
+SUBS eb22c020 subs x0, x1, w2, sxtw #0
+SUBS eb2dc7e5 subs x5, sp, w13, sxtw #1
+SUBS eb3cc931 subs x17, x9, w28, sxtw #2
+SUBS eb3fcede subs x30, x22, wzr, sxtw #3
+ADC 9a020020 adc x0, x1, x2
+ADC 9a0d0125 adc x5, x9, x13
+ADC 9a1c03f1 adc x17, xzr, x28
+ADC 9a1f02de adc x30, x22, xzr
+ADC 1a020020 adc w0, w1, w2
+ADC 1a0d0125 adc w5, w9, w13
+ADC 1a1c03f1 adc w17, wzr, w28
+ADC 1a1f02de adc w30, w22, wzr
+ADCS ba020020 adcs x0, x1, x2
+ADCS ba0d0125 adcs x5, x9, x13
+ADCS ba1c03f1 adcs x17, xzr, x28
+ADCS ba1f02de adcs x30, x22, xzr
+ADCS 3a020020 adcs w0, w1, w2
+ADCS 3a0d0125 adcs w5, w9, w13
+ADCS 3a1c03f1 adcs w17, wzr, w28
+ADCS 3a1f02de adcs w30, w22, wzr
+SBC da020020 sbc x0, x1, x2
+SBC da0d0125 sbc x5, x9, x13
+SBC da1c03f1 sbc x17, xzr, x28
+SBC da1f02de sbc x30, x22, xzr
+SBC 5a020020 sbc w0, w1, w2
+SBC 5a0d0125 sbc w5, w9, w13
+SBC 5a1c03f1 sbc w17, wzr, w28
+SBC 5a1f02de sbc w30, w22, wzr
+SBCS fa020020 sbcs x0, x1, x2
+SBCS fa0d0125 sbcs x5, x9, x13
+SBCS fa1c03f1 sbcs x17, xzr, x28
+SBCS fa1f02de sbcs x30, x22, xzr
+SBCS 7a020020 sbcs w0, w1, w2
+SBCS 7a0d0125 sbcs w5, w9, w13
+SBCS 7a1c03f1 sbcs w17, wzr, w28
+SBCS 7a1f02de sbcs w30, w22, wzr

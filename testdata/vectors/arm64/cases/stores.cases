@@ -1,0 +1,124 @@
+STR f9000020 str x0, [x1, #0]
+STR f90007e5 str x5, [sp, #8]
+STR f9000931 str x17, [x9, #16]
+STR f93ffede str x30, [x22, #32760]
+STR b9000020 str w0, [x1, #0]
+STR b90007e5 str w5, [sp, #4]
+STR b9001131 str w17, [x9, #16]
+STR b93ffede str w30, [x22, #16380]
+STR f8100c20 str x0, [x1, #-256]!
+STR f81fffe5 str x5, [sp, #-1]!
+STR f8000d31 str x17, [x9, #0]!
+STR f80ffede str x30, [x22, #255]!
+STR f8100420 str x0, [x1], #-256
+STR f81ff7e5 str x5, [sp], #-1
+STR f8000531 str x17, [x9], #0
+STR f80ff6de str x30, [x22], #255
+STR f8226820 str x0, [x1, x2]
+STR f82d6be5 str x5, [sp, x13]
+STR f83c6931 str x17, [x9, x28]
+STR f8276ade str x30, [x22, x7]
+STR f8227820 str x0, [x1, x2, lsl #3]
+STR f82d7be5 str x5, [sp, x13, lsl #3]
+STR f83c7931 str x17, [x9, x28, lsl #3]
+STR f8277ade str x30, [x22, x7, lsl #3]
+STR b8225820 str w0, [x1, w2, uxtw #2]
+STR b82d5be5 str w5, [sp, w13, uxtw #2]
+STR b83c5931 str w17, [x9, w28, uxtw #2]
+STR b8275ade str w30, [x22, w7, uxtw #2]
+STR fd000020 str d0, [x1, #0]
+STR fd0007e5 str d5, [sp, #8]
+STR fd000931 str d17, [x9, #16]
+STR fd3ffedf str d31, [x22, #32760]
+STR bd000020 str s0, [x1, #0]
+STR bd0007e5 str s5, [sp, #4]
+STR bd001131 str s17, [x9, #16]
+STR bd3ffedf str s31, [x22, #16380]
+STR 3d800020 str q0, [x1, #0]
+STR 3d8007e5 str q5, [sp, #16]
+STR 3d800931 str q17, [x9, #32]
+STR 3dbffedf str q31, [x22, #65520]
+STR fc100420 str d0, [x1], #-256
+STR fc1ff7e5 str d5, [sp], #-1
+STR fc000531 str d17, [x9], #0
+STR fc0ff6df str d31, [x22], #255
+STR 3ca27820 str q0, [x1, x2, lsl #4]
+STR 3cad7be5 str q5, [sp, x13, lsl #4]
+STR 3cbc7931 str q17, [x9, x28, lsl #4]
+STR 3ca77adf str q31, [x22, x7, lsl #4]
+STUR f8100020 stur x0, [x1, #-256]
+STUR f81ff3e5 stur x5, [sp, #-1]
+STUR f8000131 stur x17, [x9, #0]
+STUR f80ff2de stur x30, [x22, #255]
+STUR b8100020 stur w0, [x1, #-256]
+STUR b81ff3e5 stur w5, [sp, #-1]
+STUR b8000131 stur w17, [x9, #0]
+STUR b80ff2de stur w30, [x22, #255]
+STUR fc100020 stur d0, [x1, #-256]
+STUR fc1ff3e5 stur d5, [sp, #-1]
+STUR fc000131 stur d17, [x9, #0]
+STUR fc0ff2df stur d31, [x22, #255]
+STUR bc100020 stur s0, [x1, #-256]
+STUR bc1ff3e5 stur s5, [sp, #-1]
+STUR bc000131 stur s17, [x9, #0]
+STUR bc0ff2df stur s31, [x22, #255]
+STUR 3c900020 stur q0, [x1, #-256]
+STUR 3c9ff3e5 stur q5, [sp, #-1]
+STUR 3c800131 stur q17, [x9, #0]
+STUR 3c8ff2df stur q31, [x22, #255]
+STLR c89ffc20 stlr x0, [x1]
+STLR c89fffe5 stlr x5, [sp]
+STLR c89ffd31 stlr x17, [x9]
+STLR c89ffede stlr x30, [x22]
+STLR 889ffc20 stlr w0, [x1]
+STLR 889fffe5 stlr w5, [sp]
+STLR 889ffd31 stlr w17, [x9]
+STLR 889ffede stlr w30, [x22]
+STRB 39000020 strb w0, [x1, #0]
+STRB 390007e5 strb w5, [sp, #1]
+STRB 39002131 strb w17, [x9, #8]
+STRB 393ffede strb w30, [x22, #4095]
+STRB 38226820 strb w0, [x1, x2]
+STRB 382d6be5 strb w5, [sp, x13]
+STRB 383c6931 strb w17, [x9, x28]
+STRB 38276ade strb w30, [x22, x7]
+STRB 38100420 strb w0, [x1], #-256
+STRB 381ff7e5 strb w5, [sp], #-1
+STRB 38000531 strb w17, [x9], #0
+STRB 380ff6de strb w30, [x22], #255
+STRB 38100c20 strb w0, [x1, #-256]!
+STRB 381fffe5 strb w5, [sp, #-1]!
+STRB 38000d31 strb w17, [x9, #0]!
+STRB 380ffede strb w30, [x22, #255]!
+STURB 38100020 sturb w0, [x1, #-256]
+STURB 381ff3e5 sturb w5, [sp, #-1]
+STURB 38000131 sturb w17, [x9, #0]
+STURB 380ff2de sturb w30, [x22, #255]
+STLRB 089ffc20 stlrb w0, [x1]
+STLRB 089fffe5 stlrb w5, [sp]
+STLRB 089ffd31 stlrb w17, [x9]
+STLRB 089ffede stlrb w30, [x22]
+STRH 79000020 strh w0, [x1, #0]
+STRH 790007e5 strh w5, [sp, #2]
+STRH 79001131 strh w17, [x9, #8]
+STRH 793ffede strh w30, [x22, #8190]
+STRH 78227820 strh w0, [x1, x2, lsl #1]
+STRH 782d7be5 strh w5, [sp, x13, lsl #1]
+STRH 783c7931 strh w17, [x9, x28, lsl #1]
+STRH 78277ade strh w30, [x22, x7, lsl #1]
+STRH 7822d820 strh w0, [x1, w2, sxtw #1]
+STRH 782ddbe5 strh w5, [sp, w13, sxtw #1]
+STRH 783cd931 strh w17, [x9, w28, sxtw #1]
+STRH 7827dade strh w30, [x22, w7, sxtw #1]
+STRH 78100420 strh w0, [x1], #-256
+STRH 781ff7e5 strh w5, [sp], #-1
+STRH 78000531 strh w17, [x9], #0
+STRH 780ff6de strh w30, [x22], #255
+STURH 78100020 sturh w0, [x1, #-256]
+STURH 781ff3e5 sturh w5, [sp, #-1]
+STURH 78000131 sturh w17, [x9, #0]
+STURH 780ff2de sturh w30, [x22, #255]
+STLRH 489ffc20 stlrh w0, [x1]
+STLRH 489fffe5 stlrh w5, [sp]
+STLRH 489ffd31 stlrh w17, [x9]
+STLRH 489ffede stlrh w30, [x22]

@@ -1,0 +1,112 @@
+AND 92401c20 and x0, x1, #0xff
+AND 9200f13f and sp, x9, #0x5555555555555555
+AND 92607ff1 and x17, xzr, #0xffffffff00000000
+AND 924002de and x30, x22, #0x1
+AND 12001c20 and w0, w1, #0xff
+AND 1200f13f and wsp, w9, #0x55555555
+AND 12103ff1 and w17, wzr, #0xffff0000
+AND 120002de and w30, w22, #0x1
+AND 8a020020 and x0, x1, x2
+AND 8a0d0125 and x5, x9, x13
+AND 8a1c03f1 and x17, xzr, x28
+AND 8a1f02de and x30, x22, xzr
+AND 8a020020 and x0, x1, x2, lsl #0
+AND 8a0d0525 and x5, x9, x13, lsl #1
+AND 8a1c7ff1 and x17, xzr, x28, lsl #31
+AND 8a1ffede and x30, x22, xzr, lsl #63
+AND 8a420020 and x0, x1, x2, lsr #0
+AND 8a4d0525 and x5, x9, x13, lsr #1
+AND 8a5c7ff1 and x17, xzr, x28, lsr #31
+AND 8a5ffede and x30, x22, xzr, lsr #63
+AND 8a820020 and x0, x1, x2, asr #0
+AND 8a8d0525 and x5, x9, x13, asr #1
+AND 8a9c7ff1 and x17, xzr, x28, asr #31
+AND 8a9ffede and x30, x22, xzr, asr #63
+AND 8ac20020 and x0, x1, x2, ror #0
+AND 8acd0525 and x5, x9, x13, ror #1
+AND 8adc7ff1 and x17, xzr, x28, ror #31
+AND 8adffede and x30, x22, xzr, ror #63
+AND 0ac20020 and w0, w1, w2, ror #0
+AND 0acd0525 and w5, w9, w13, ror #1
+AND 0adc1ff1 and w17, wzr, w28, ror #7
+AND 0adf7ede and w30, w22, wzr, ror #31
+ANDS f2401c20 ands x0, x1, #0xff
+ANDS f200f125 ands x5, x9, #0x5555555555555555
+ANDS f2607ff1 ands x17, xzr, #0xffffffff00000000
+ANDS f24002de ands x30, x22, #0x1
+ANDS 72001c20 ands w0, w1, #0xff
+ANDS 7200f125 ands w5, w9, #0x55555555
+ANDS 72103ff1 ands w17, wzr, #0xffff0000
+ANDS 720002de ands w30, w22, #0x1
+ANDS ea420020 ands x0, x1, x2, lsr #0
+ANDS ea4d0525 ands x5, x9, x13, lsr #1
+ANDS ea5c7ff1 ands x17, xzr, x28, lsr #31
+ANDS ea5ffede ands x30, x22, xzr, lsr #63
+ANDS 6a020020 ands w0, w1, w2
+ANDS 6a0d0125 ands w5, w9, w13
+ANDS 6a1c03f1 ands w17, wzr, w28
+ANDS 6a1f02de ands w30, w22, wzr
+ORR b2401c20 orr x0, x1, #0xff
+ORR b200f13f orr sp, x9, #0x5555555555555555
+ORR b2607ff1 orr x17, xzr, #0xffffffff00000000
+ORR b24002de orr x30, x22, #0x1
+ORR 32001c20 orr w0, w1, #0xff
+ORR 3200f13f orr wsp, w9, #0x55555555
+ORR 32103ff1 orr w17, wzr, #0xffff0000
+ORR 320002de orr w30, w22, #0x1
+ORR aa020020 orr x0, x1, x2
+ORR aa0d0125 orr x5, x9, x13
+ORR aa1c03f1 orr x17, xzr, x28
+ORR aa1f02de orr x30, x22, xzr
+ORR aa020020 orr x0, x1, x2, lsl #0
+ORR aa0d0525 orr x5, x9, x13, lsl #1
+ORR aa1c7ff1 orr x17, xzr, x28, lsl #31
+ORR aa1ffede orr x30, x22, xzr, lsl #63
+ORR 2ac20020 orr w0, w1, w2, ror #0
+ORR 2acd0525 orr w5, w9, w13, ror #1
+ORR 2adc1ff1 orr w17, wzr, w28, ror #7
+ORR 2adf7ede orr w30, w22, wzr, ror #31
+ORN aa220020 orn x0, x1, x2
+ORN aa2d0125 orn x5, x9, x13
+ORN aa3c03f1 orn x17, xzr, x28
+ORN aa3f02de orn x30, x22, xzr
+ORN 2a220020 orn w0, w1, w2, lsl #0
+ORN 2a2d0525 orn w5, w9, w13, lsl #1
+ORN 2a3c1ff1 orn w17, wzr, w28, lsl #7
+ORN 2a3f7ede orn w30, w22, wzr, lsl #31
+EOR d2401c20 eor x0, x1, #0xff
+EOR d200f13f eor sp, x9, #0x5555555555555555
+EOR d2607ff1 eor x17, xzr, #0xffffffff00000000
+EOR d24002de eor x30, x22, #0x1
+EOR 4a020020 eor w0, w1, w2
+EOR 4a0d0125 eor w5, w9, w13
+EOR 4a1c03f1 eor w17, wzr, w28
+EOR 4a1f02de eor w30, w22, wzr
+EOR cac20020 eor x0, x1, x2, ror #0
+EOR cacd0525 eor x5, x9, x13, ror #1
+EOR cadc7ff1 eor x17, xzr, x28, ror #31
+EOR cadffede eor x30, x22, xzr, ror #63
+EON ca220020 eon x0, x1, x2
+EON ca2d0125 eon x5, x9, x13
+EON ca3c03f1 eon x17, xzr, x28
+EON ca3f02de eon x30, x22, xzr
+EON 4aa20020 eon w0, w1, w2, asr #0
+EON 4aad0525 eon w5, w9, w13, asr #1
+EON 4abc1ff1 eon w17, wzr, w28, asr #7
+EON 4abf7ede eon w30, w22, wzr, asr #31
+BIC 8a220020 bic x0, x1, x2
+BIC 8a2d0125 bic x5, x9, x13
+BIC 8a3c03f1 bic x17, xzr, x28
+BIC 8a3f02de bic x30, x22, xzr
+BIC 0a220020 bic w0, w1, w2, lsl #0
+BIC 0a2d0525 bic w5, w9, w13, lsl #1
+BIC 0a3c1ff1 bic w17, wzr, w28, lsl #7
+BIC 0a3f7ede bic w30, w22, wzr, lsl #31
+BICS ea620020 bics x0, x1, x2, lsr #0
+BICS ea6d0525 bics x5, x9, x13, lsr #1
+BICS ea7c7ff1 bics x17, xzr, x28, lsr #31
+BICS ea7ffede bics x30, x22, xzr, lsr #63
+BICS 6a220020 bics w0, w1, w2
+BICS 6a2d0125 bics w5, w9, w13
+BICS 6a3c03f1 bics w17, wzr, w28
+BICS 6a3f02de bics w30, w22, wzr

@@ -1,0 +1,340 @@
+FMOV 9e670020 fmov d0, x1
+FMOV 9e670125 fmov d5, x9
+FMOV 9e6703f1 fmov d17, xzr
+FMOV 9e6702df fmov d31, x22
+FMOV 9e660020 fmov x0, d1
+FMOV 9e660125 fmov x5, d9
+FMOV 9e660291 fmov x17, d20
+FMOV 9e6603fe fmov x30, d31
+FMOV 1e270020 fmov s0, w1
+FMOV 1e270125 fmov s5, w9
+FMOV 1e2703f1 fmov s17, wzr
+FMOV 1e2702df fmov s31, w22
+FMOV 1e260020 fmov w0, s1
+FMOV 1e260125 fmov w5, s9
+FMOV 1e260291 fmov w17, s20
+FMOV 1e2603fe fmov w30, s31
+FMOV 1e604020 fmov d0, d1
+FMOV 1e604125 fmov d5, d9
+FMOV 1e604291 fmov d17, d20
+FMOV 1e6043ff fmov d31, d31
+FMOV 1e204020 fmov s0, s1
+FMOV 1e204125 fmov s5, s9
+FMOV 1e204291 fmov s17, s20
+FMOV 1e2043ff fmov s31, s31
+FMOV 1e6e1000 fmov d0, #1.0
+FMOV 1e6c1005 fmov d5, #0.5
+FMOV 1e701011 fmov d17, #-2.0
+FMOV 1e67f01f fmov d31, #31.0
+FMOV 1e2e1000 fmov s0, #1.0
+FMOV 1e2c1005 fmov s5, #0.5
+FMOV 1e301011 fmov s17, #-2.0
+FMOV 1e27f01f fmov s31, #31.0
+MOVI 2f05e540 movi d0, #0xff00ff00ff00ff00
+MOVI 2f00e405 movi d5, #0
+MOVI 2f07e7f1 movi d17, #0xffffffffffffffff
+MOVI 2f02e53f movi d31, #0x00ff0000ff0000ff
+MOVI 6f05e540 movi v0.2d, #0xff00ff00ff00ff00
+MOVI 6f00e405 movi v5.2d, #0
+MOVI 6f07e7f1 movi v17.2d, #0xffffffffffffffff
+MOVI 6f02e53f movi v31.2d, #0x00ff0000ff0000ff
+MOVI 0f00e400 movi v0.8b, #0
+MOVI 0f00e425 movi v5.8b, #1
+MOVI 0f03e7f1 movi v17.8b, #0x7f
+MOVI 0f07e7ff movi v31.8b, #0xff
+MOVI 4f00e400 movi v0.16b, #0
+MOVI 4f00e425 movi v5.16b, #1
+MOVI 4f03e7f1 movi v17.16b, #0x7f
+MOVI 4f07e7ff movi v31.16b, #0xff
+MOVI 0f008400 movi v0.4h, #0
+MOVI 0f008425 movi v5.4h, #1
+MOVI 0f0387f1 movi v17.4h, #0x7f
+MOVI 0f0787ff movi v31.4h, #0xff
+MOVI 4f00a400 movi v0.8h, #0, lsl #8
+MOVI 4f00a425 movi v5.8h, #1, lsl #8
+MOVI 4f03a7f1 movi v17.8h, #0x7f, lsl #8
+MOVI 4f07a7ff movi v31.8h, #0xff, lsl #8
+MOVI 0f000400 movi v0.2s, #0
+MOVI 0f000425 movi v5.2s, #1
+MOVI 0f0307f1 movi v17.2s, #0x7f
+MOVI 0f0707ff movi v31.2s, #0xff
+MOVI 4f004400 movi v0.4s, #0, lsl #16
+MOVI 4f004425 movi v5.4s, #1, lsl #16
+MOVI 4f0347f1 movi v17.4s, #0x7f, lsl #16
+MOVI 4f0747ff movi v31.4s, #0xff, lsl #16
+MOVI 0f00c400 movi v0.2s, #0, msl #8
+MOVI 0f00c425 movi v5.2s, #1, msl #8
+MOVI 0f03c7f1 movi v17.2s, #0x7f, msl #8
+MOVI 0f07c7ff movi v31.2s, #0xff, msl #8
+MOVI 4f00d400 movi v0.4s, #0, msl #16
+MOVI 4f00d425 movi v5.4s, #1, msl #16
+MOVI 4f03d7f1 movi v17.4s, #0x7f, msl #16
+MOVI 4f07d7ff movi v31.4s, #0xff, msl #16
+FADD 1e622820 fadd d0, d1, d2
+FADD 1e6d2925 fadd d5, d9, d13
+FADD 1e7c2a91 fadd d17, d20, d28
+FADD 1e662bff fadd d31, d31, d6
+FADD 1e222820 fadd s0, s1, s2
+FADD 1e2d2925 fadd s5, s9, s13
+FADD 1e3c2a91 fadd s17, s20, s28
+FADD 1e262bff fadd s31, s31, s6
+FADD 0e22d420 fadd v0.2s, v1.2s, v2.2s
+FADD 0e2dd525 fadd v5.2s, v9.2s, v13.2s
+FADD 0e3cd691 fadd v17.2s, v20.2s, v28.2s
+FADD 0e26d7ff fadd v31.2s, v31.2s, v6.2s
+FADD 4e22d420 fadd v0.4s, v1.4s, v2.4s
+FADD 4e2dd525 fadd v5.4s, v9.4s, v13.4s
+FADD 4e3cd691 fadd v17.4s, v20.4s, v28.4s
+FADD 4e26d7ff fadd v31.4s, v31.4s, v6.4s
+FADD 4e62d420 fadd v0.2d, v1.2d, v2.2d
+FADD 4e6dd525 fadd v5.2d, v9.2d, v13.2d
+FADD 4e7cd691 fadd v17.2d, v20.2d, v28.2d
+FADD 4e66d7ff fadd v31.2d, v31.2d, v6.2d
+FSUB 1e623820 fsub d0, d1, d2
+FSUB 1e6d3925 fsub d5, d9, d13
+FSUB 1e7c3a91 fsub d17, d20, d28
+FSUB 1e663bff fsub d31, d31, d6
+FSUB 1e223820 fsub s0, s1, s2
+FSUB 1e2d3925 fsub s5, s9, s13
+FSUB 1e3c3a91 fsub s17, s20, s28
+FSUB 1e263bff fsub s31, s31, s6
+FSUB 0ea2d420 fsub v0.2s, v1.2s, v2.2s
+FSUB 0eadd525 fsub v5.2s, v9.2s, v13.2s
+FSUB 0ebcd691 fsub v17.2s, v20.2s, v28.2s
+FSUB 0ea6d7ff fsub v31.2s, v31.2s, v6.2s
+FSUB 4ea2d420 fsub v0.4s, v1.4s, v2.4s
+FSUB 4eadd525 fsub v5.4s, v9.4s, v13.4s
+FSUB 4ebcd691 fsub v17.4s, v20.4s, v28.4s
+FSUB 4ea6d7ff fsub v31.4s, v31.4s, v6.4s
+FSUB 4ee2d420 fsub v0.2d, v1.2d, v2.2d
+FSUB 4eedd525 fsub v5.2d, v9.2d, v13.2d
+FSUB 4efcd691 fsub v17.2d, v20.2d, v28.2d
+FSUB 4ee6d7ff fsub v31.2d, v31.2d, v6.2d
+FMUL 1e620820 fmul d0, d1, d2
+FMUL 1e6d0925 fmul d5, d9, d13
+FMUL 1e7c0a91 fmul d17, d20, d28
+FMUL 1e660bff fmul d31, d31, d6
+FMUL 1e220820 fmul s0, s1, s2
+FMUL 1e2d0925 fmul s5, s9, s13
+FMUL 1e3c0a91 fmul s17, s20, s28
+FMUL 1e260bff fmul s31, s31, s6
+FMUL 2e22dc20 fmul v0.2s, v1.2s, v2.2s
+FMUL 2e2ddd25 fmul v5.2s, v9.2s, v13.2s
+FMUL 2e3cde91 fmul v17.2s, v20.2s, v28.2s
+FMUL 2e26dfff fmul v31.2s, v31.2s, v6.2s
+FMUL 6e22dc20 fmul v0.4s, v1.4s, v2.4s
+FMUL 6e2ddd25 fmul v5.4s, v9.4s, v13.4s
+FMUL 6e3cde91 fmul v17.4s, v20.4s, v28.4s
+FMUL 6e26dfff fmul v31.4s, v31.4s, v6.4s
+FMUL 6e62dc20 fmul v0.2d, v1.2d, v2.2d
+FMUL 6e6ddd25 fmul v5.2d, v9.2d, v13.2d
+FMUL 6e7cde91 fmul v17.2d, v20.2d, v28.2d
+FMUL 6e66dfff fmul v31.2d, v31.2d, v6.2d
+FDIV 1e621820 fdiv d0, d1, d2
+FDIV 1e6d1925 fdiv d5, d9, d13
+FDIV 1e7c1a91 fdiv d17, d20, d28
+FDIV 1e661bff fdiv d31, d31, d6
+FDIV 1e221820 fdiv s0, s1, s2
+FDIV 1e2d1925 fdiv s5, s9, s13
+FDIV 1e3c1a91 fdiv s17, s20, s28
+FDIV 1e261bff fdiv s31, s31, s6
+FDIV 2e22fc20 fdiv v0.2s, v1.2s, v2.2s
+FDIV 2e2dfd25 fdiv v5.2s, v9.2s, v13.2s
+FDIV 2e3cfe91 fdiv v17.2s, v20.2s, v28.2s
+FDIV 2e26ffff fdiv v31.2s, v31.2s, v6.2s
+FDIV 6e22fc20 fdiv v0.4s, v1.4s, v2.4s
+FDIV 6e2dfd25 fdiv v5.4s, v9.4s, v13.4s
+FDIV 6e3cfe91 fdiv v17.4s, v20.4s, v28.4s
+FDIV 6e26ffff fdiv v31.4s, v31.4s, v6.4s
+FDIV 6e62fc20 fdiv v0.2d, v1.2d, v2.2d
+FDIV 6e6dfd25 fdiv v5.2d, v9.2d, v13.2d
+FDIV 6e7cfe91 fdiv v17.2d, v20.2d, v28.2d
+FDIV 6e66ffff fdiv v31.2d, v31.2d, v6.2d
+FNEG 1e614020 fneg d0, d1
+FNEG 1e614125 fneg d5, d9
+FNEG 1e614291 fneg d17, d20
+FNEG 1e6143ff fneg d31, d31
+FNEG 1e214020 fneg s0, s1
+FNEG 1e214125 fneg s5, s9
+FNEG 1e214291 fneg s17, s20
+FNEG 1e2143ff fneg s31, s31
+FABS 1e60c020 fabs d0, d1
+FABS 1e60c125 fabs d5, d9
+FABS 1e60c291 fabs d17, d20
+FABS 1e60c3ff fabs d31, d31
+FABS 1e20c020 fabs s0, s1
+FABS 1e20c125 fabs s5, s9
+FABS 1e20c291 fabs s17, s20
+FABS 1e20c3ff fabs s31, s31
+FSQRT 1e61c020 fsqrt d0, d1
+FSQRT 1e61c125 fsqrt d5, d9
+FSQRT 1e61c291 fsqrt d17, d20
+FSQRT 1e61c3ff fsqrt d31, d31
+FSQRT 1e21c020 fsqrt s0, s1
+FSQRT 1e21c125 fsqrt s5, s9
+FSQRT 1e21c291 fsqrt s17, s20
+FSQRT 1e21c3ff fsqrt s31, s31
+FMADD 1f420c20 fmadd d0, d1, d2, d3
+FMADD 1f4d2d25 fmadd d5, d9, d13, d11
+FMADD 1f5c4e91 fmadd d17, d20, d28, d19
+FMADD 1f466fff fmadd d31, d31, d6, d27
+FMADD 1f020c20 fmadd s0, s1, s2, s3
+FMADD 1f0d2d25 fmadd s5, s9, s13, s11
+FMADD 1f1c4e91 fmadd s17, s20, s28, s19
+FMADD 1f066fff fmadd s31, s31, s6, s27
+FMSUB 1f428c20 fmsub d0, d1, d2, d3
+FMSUB 1f4dad25 fmsub d5, d9, d13, d11
+FMSUB 1f5cce91 fmsub d17, d20, d28, d19
+FMSUB 1f46efff fmsub d31, d31, d6, d27
+FMSUB 1f028c20 fmsub s0, s1, s2, s3
+FMSUB 1f0dad25 fmsub s5, s9, s13, s11
+FMSUB 1f1cce91 fmsub s17, s20, s28, s19
+FMSUB 1f06efff fmsub s31, s31, s6, s27
+FNMADD 1f620c20 fnmadd d0, d1, d2, d3
+FNMADD 1f6d2d25 fnmadd d5, d9, d13, d11
+FNMADD 1f7c4e91 fnmadd d17, d20, d28, d19
+FNMADD 1f666fff fnmadd d31, d31, d6, d27
+FNMADD 1f220c20 fnmadd s0, s1, s2, s3
+FNMADD 1f2d2d25 fnmadd s5, s9, s13, s11
+FNMADD 1f3c4e91 fnmadd s17, s20, s28, s19
+FNMADD 1f266fff fnmadd s31, s31, s6, s27
+FNMSUB 1f628c20 fnmsub d0, d1, d2, d3
+FNMSUB 1f6dad25 fnmsub d5, d9, d13, d11
+FNMSUB 1f7cce91 fnmsub d17, d20, d28, d19
+FNMSUB 1f66efff fnmsub d31, d31, d6, d27
+FNMSUB 1f228c20 fnmsub s0, s1, s2, s3
+FNMSUB 1f2dad25 fnmsub s5, s9, s13, s11
+FNMSUB 1f3cce91 fnmsub s17, s20, s28, s19
+FNMSUB 1f26efff fnmsub s31, s31, s6, s27
+FCVT 1e22c020 fcvt d0, s1
+FCVT 1e22c125 fcvt d5, s9
+FCVT 1e22c291 fcvt d17, s20
+FCVT 1e22c3ff fcvt d31, s31
+FCVT 1e624020 fcvt s0, d1
+FCVT 1e624125 fcvt s5, d9
+FCVT 1e624291 fcvt s17, d20
+FCVT 1e6243ff fcvt s31, d31
+SCVTF 9e620020 scvtf d0, x1
+SCVTF 9e620125 scvtf d5, x9
+SCVTF 9e6203f1 scvtf d17, xzr
+SCVTF 9e6202df scvtf d31, x22
+SCVTF 1e620020 scvtf d0, w1
+SCVTF 1e620125 scvtf d5, w9
+SCVTF 1e6203f1 scvtf d17, wzr
+SCVTF 1e6202df scvtf d31, w22
+SCVTF 9e220020 scvtf s0, x1
+SCVTF 9e220125 scvtf s5, x9
+SCVTF 9e2203f1 scvtf s17, xzr
+SCVTF 9e2202df scvtf s31, x22
+SCVTF 1e220020 scvtf s0, w1
+SCVTF 1e220125 scvtf s5, w9
+SCVTF 1e2203f1 scvtf s17, wzr
+SCVTF 1e2202df scvtf s31, w22
+UCVTF 9e630020 ucvtf d0, x1
+UCVTF 9e630125 ucvtf d5, x9
+UCVTF 9e6303f1 ucvtf d17, xzr
+UCVTF 9e6302df ucvtf d31, x22
+UCVTF 1e630020 ucvtf d0, w1
+UCVTF 1e630125 ucvtf d5, w9
+UCVTF 1e6303f1 ucvtf d17, wzr
+UCVTF 1e6302df ucvtf d31, w22
+UCVTF 9e230020 ucvtf s0, x1
+UCVTF 9e230125 ucvtf s5, x9
+UCVTF 9e2303f1 ucvtf s17, xzr
+UCVTF 9e2302df ucvtf s31, x22
+UCVTF 1e230020 ucvtf s0, w1
+UCVTF 1e230125 ucvtf s5, w9
+UCVTF 1e2303f1 ucvtf s17, wzr
+UCVTF 1e2302df ucvtf s31, w22
+FCVTZS 9e780020 fcvtzs x0, d1
+FCVTZS 9e780125 fcvtzs x5, d9
+FCVTZS 9e780291 fcvtzs x17, d20
+FCVTZS 9e7803fe fcvtzs x30, d31
+FCVTZS 1e780020 fcvtzs w0, d1
+FCVTZS 1e780125 fcvtzs w5, d9
+FCVTZS 1e780291 fcvtzs w17, d20
+FCVTZS 1e7803fe fcvtzs w30, d31
+FCVTZS 9e380020 fcvtzs x0, s1
+FCVTZS 9e380125 fcvtzs x5, s9
+FCVTZS 9e380291 fcvtzs x17, s20
+FCVTZS 9e3803fe fcvtzs x30, s31
+FCVTZS 1e380020 fcvtzs w0, s1
+FCVTZS 1e380125 fcvtzs w5, s9
+FCVTZS 1e380291 fcvtzs w17, s20
+FCVTZS 1e3803fe fcvtzs w30, s31
+FCVTZU 9e790020 fcvtzu x0, d1
+FCVTZU 9e790125 fcvtzu x5, d9
+FCVTZU 9e790291 fcvtzu x17, d20
+FCVTZU 9e7903fe fcvtzu x30, d31
+FCVTZU 1e790020 fcvtzu w0, d1
+FCVTZU 1e790125 fcvtzu w5, d9
+FCVTZU 1e790291 fcvtzu w17, d20
+FCVTZU 1e7903fe fcvtzu w30, d31
+FCVTZU 9e390020 fcvtzu x0, s1
+FCVTZU 9e390125 fcvtzu x5, s9
+FCVTZU 9e390291 fcvtzu x17, s20
+FCVTZU 9e3903fe fcvtzu x30, s31
+FCVTZU 1e390020 fcvtzu w0, s1
+FCVTZU 1e390125 fcvtzu w5, s9
+FCVTZU 1e390291 fcvtzu w17, s20
+FCVTZU 1e3903fe fcvtzu w30, s31
+FCMP 1e622020 fcmp d1, d2
+FCMP 1e6d2120 fcmp d9, d13
+FCMP 1e7c2280 fcmp d20, d28
+FCMP 1e6623e0 fcmp d31, d6
+FCMP 1e222020 fcmp s1, s2
+FCMP 1e2d2120 fcmp s9, s13
+FCMP 1e3c2280 fcmp s20, s28
+FCMP 1e2623e0 fcmp s31, s6
+FCMP 1e602028 fcmp d1, #0.0
+FCMP 1e602128 fcmp d9, #0.0
+FCMP 1e602288 fcmp d20, #0.0
+FCMP 1e6023e8 fcmp d31, #0.0
+FCMP 1e202028 fcmp s1, #0.0
+FCMP 1e202128 fcmp s9, #0.0
+FCMP 1e202288 fcmp s20, #0.0
+FCMP 1e2023e8 fcmp s31, #0.0
+FCMPE 1e622030 fcmpe d1, d2
+FCMPE 1e6d2130 fcmpe d9, d13
+FCMPE 1e7c2290 fcmpe d20, d28
+FCMPE 1e6623f0 fcmpe d31, d6
+FCMPE 1e222030 fcmpe s1, s2
+FCMPE 1e2d2130 fcmpe s9, s13
+FCMPE 1e3c2290 fcmpe s20, s28
+FCMPE 1e2623f0 fcmpe s31, s6
+FCMPE 1e602038 fcmpe d1, #0.0
+FCMPE 1e602138 fcmpe d9, #0.0
+FCMPE 1e602298 fcmpe d20, #0.0
+FCMPE 1e6023f8 fcmpe d31, #0.0
+FCMPE 1e202038 fcmpe s1, #0.0
+FCMPE 1e202138 fcmpe s9, #0.0
+FCMPE 1e202298 fcmpe s20, #0.0
+FCMPE 1e2023f8 fcmpe s31, #0.0
+FCSEL 1e620c20 fcsel d0, d1, d2, eq
+FCSEL 1e6d1d25 fcsel d5, d9, d13, ne
+FCSEL 1e7c2e91 fcsel d17, d20, d28, cs
+FCSEL 1e663fff fcsel d31, d31, d6, cc
+FCSEL 1e624c20 fcsel d0, d1, d2, mi
+FCSEL 1e6d5d25 fcsel d5, d9, d13, pl
+FCSEL 1e7c6e91 fcsel d17, d20, d28, vs
+FCSEL 1e667fff fcsel d31, d31, d6, vc
+FCSEL 1e628c20 fcsel d0, d1, d2, hi
+FCSEL 1e6d9d25 fcsel d5, d9, d13, ls
+FCSEL 1e7cae91 fcsel d17, d20, d28, ge
+FCSEL 1e66bfff fcsel d31, d31, d6, lt
+FCSEL 1e62cc20 fcsel d0, d1, d2, gt
+FCSEL 1e6ddd25 fcsel d5, d9, d13, le
+FCSEL 1e220c20 fcsel s0, s1, s2, eq
+FCSEL 1e2d1d25 fcsel s5, s9, s13, ne
+FCSEL 1e3c2e91 fcsel s17, s20, s28, cs
+FCSEL 1e263fff fcsel s31, s31, s6, cc
+FCSEL 1e224c20 fcsel s0, s1, s2, mi
+FCSEL 1e2d5d25 fcsel s5, s9, s13, pl
+FCSEL 1e3c6e91 fcsel s17, s20, s28, vs
+FCSEL 1e267fff fcsel s31, s31, s6, vc
+FCSEL 1e228c20 fcsel s0, s1, s2, hi
+FCSEL 1e2d9d25 fcsel s5, s9, s13, ls
+FCSEL 1e3cae91 fcsel s17, s20, s28, ge
+FCSEL 1e26bfff fcsel s31, s31, s6, lt
+FCSEL 1e22cc20 fcsel s0, s1, s2, gt
+FCSEL 1e2ddd25 fcsel s5, s9, s13, le

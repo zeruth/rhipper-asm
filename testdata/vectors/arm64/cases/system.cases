@@ -1,0 +1,59 @@
+B 14000002 b #8
+B 17fffffe b #-8
+B 14000100 b #1024
+B 17fffc00 b #-4096
+RET d65f03c0 ret
+RET d65f0020 ret x1
+RET d65f0120 ret x9
+RET d65f03e0 ret xzr
+RET d65f02c0 ret x22
+HINT d503201f hint #0
+HINT d503203f hint #1
+HINT d503205f hint #2
+HINT d50320bf hint #5
+DMB d5033fbf dmb sy
+DMB d5033bbf dmb ish
+DMB d50339bf dmb ishld
+DMB d50336bf dmb nshst
+DSB d5033f9f dsb sy
+DSB d5033b9f dsb ish
+DSB d503399f dsb ishld
+DSB d503369f dsb nshst
+ISB d5033fdf isb
+SB d50330ff sb
+SSBB d503309f ssbb
+PSSBB d503349f pssbb
+CLREX d5033f5f clrex
+PRFM f9800020 prfm pldl1keep, [x1, #0]
+PRFM f98007e0 prfm pldl1keep, [sp, #8]
+PRFM f9800920 prfm pldl1keep, [x9, #16]
+PRFM f9bffec0 prfm pldl1keep, [x22, #32760]
+PRFM f8a27833 prfm pstl2strm, [x1, x2, lsl #3]
+PRFM f8ad7bf3 prfm pstl2strm, [sp, x13, lsl #3]
+PRFM f8bc7933 prfm pstl2strm, [x9, x28, lsl #3]
+PRFM f8a77ad3 prfm pstl2strm, [x22, x7, lsl #3]
+PRFUM f8900020 prfum pldl1keep, [x1, #-256]
+PRFUM f89ff3e0 prfum pldl1keep, [sp, #-1]
+PRFUM f8800120 prfum pldl1keep, [x9, #0]
+PRFUM f88ff2c0 prfum pldl1keep, [x22, #255]
+PACIASP d503233f paciasp
+PACIBSP d503237f pacibsp
+AUTIASP d50323bf autiasp
+AUTIBSP d50323ff autibsp
+PACIAZ d503231f paciaz
+PACIBZ d503235f pacibz
+AUTIAZ d503239f autiaz
+AUTIBZ d50323df autibz
+XPACLRI d50320ff xpaclri
+BRK d4200000 brk #0
+BRK d43fffe0 brk #0xffff
+BRK d4224680 brk #0x1234
+BRK d4300000 brk #0x8000
+UDF 00000000 udf #0
+UDF 0000ffff udf #0xffff
+UDF 00001234 udf #0x1234
+UDF 00008000 udf #0x8000
+HLT d4400000 hlt #0
+HLT d45fffe0 hlt #0xffff
+HLT d4424680 hlt #0x1234
+HLT d4500000 hlt #0x8000

@@ -1,0 +1,80 @@
+ADR 10000000 adr x0, #0
+ADR 30000005 adr x5, #1
+ADR 70fffff1 adr x17, #-1
+ADR 707ffffe adr x30, #0xfffff
+ADRP b0000000 adrp x0, #0x1000
+ADRP d0000005 adrp x5, #0x2000
+ADRP f0fffff1 adrp x17, #-0x1000
+ADRP f03ffffe adrp x30, #0x7ffff000
+BL 94000002 bl #8
+BL 97fffffe bl #-8
+BL 94000100 bl #1024
+BL 97fffc00 bl #-4096
+BLR d63f0040 blr x2
+BLR d63f01a0 blr x13
+BLR d63f0380 blr x28
+BLR d63f00e0 blr x7
+BR d61f0040 br x2
+BR d61f01a0 br x13
+BR d61f0380 br x28
+BR d61f00e0 br x7
+Bcc 54000040 b.eq #8
+Bcc 54ffffc1 b.ne #-8
+Bcc 54002002 b.cs #1024
+Bcc 54ff8003 b.cc #-4096
+Bcc 54000044 b.mi #8
+Bcc 54ffffc5 b.pl #-8
+Bcc 54002006 b.vs #1024
+Bcc 54ff8007 b.vc #-4096
+Bcc 54000048 b.hi #8
+Bcc 54ffffc9 b.ls #-8
+Bcc 5400200a b.ge #1024
+Bcc 54ff800b b.lt #-4096
+Bcc 5400004c b.gt #8
+Bcc 54ffffcd b.le #-8
+BCcc 54000050 bc.eq #8
+BCcc 54ffffd1 bc.ne #-8
+BCcc 54002012 bc.cs #1024
+BCcc 54ff8013 bc.cc #-4096
+BCcc 54000054 bc.mi #8
+BCcc 54ffffd5 bc.pl #-8
+BCcc 54002016 bc.vs #1024
+BCcc 54ff8017 bc.vc #-4096
+BCcc 54000058 bc.hi #8
+BCcc 54ffffd9 bc.ls #-8
+BCcc 5400201a bc.ge #1024
+BCcc 54ff801b bc.lt #-4096
+BCcc 5400005c bc.gt #8
+BCcc 54ffffdd bc.le #-8
+CBZ b4000040 cbz x0, #8
+CBZ b4ffffc5 cbz x5, #-8
+CBZ b4002011 cbz x17, #1024
+CBZ b4ff801e cbz x30, #-4096
+CBZ 34000040 cbz w0, #8
+CBZ 34ffffc5 cbz w5, #-8
+CBZ 34002011 cbz w17, #1024
+CBZ 34ff801e cbz w30, #-4096
+CBNZ b5000040 cbnz x0, #8
+CBNZ b5ffffc5 cbnz x5, #-8
+CBNZ b5002011 cbnz x17, #1024
+CBNZ b5ff801e cbnz x30, #-4096
+CBNZ 35000040 cbnz w0, #8
+CBNZ 35ffffc5 cbnz w5, #-8
+CBNZ 35002011 cbnz w17, #1024
+CBNZ 35ff801e cbnz w30, #-4096
+TBZ 36000040 tbz x0, #0, #8
+TBZ 36ffffc5 tbz x5, #31, #-8
+TBZ b6002011 tbz x17, #32, #1024
+TBZ b6ff801e tbz x30, #63, #-4096
+TBZ 36000040 tbz w0, #0, #8
+TBZ 360fffc5 tbz w5, #1, #-8
+TBZ 36782011 tbz w17, #15, #1024
+TBZ 36ff801e tbz w30, #31, #-4096
+TBNZ 37000040 tbnz x0, #0, #8
+TBNZ 37ffffc5 tbnz x5, #31, #-8
+TBNZ b7002011 tbnz x17, #32, #1024
+TBNZ b7ff801e tbnz x30, #63, #-4096
+TBNZ 37000040 tbnz w0, #0, #8
+TBNZ 370fffc5 tbnz w5, #1, #-8
+TBNZ 37782011 tbnz w17, #15, #1024
+TBNZ 37ff801e tbnz w30, #31, #-4096

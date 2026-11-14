@@ -1,0 +1,56 @@
+MADD 9b020c20 madd x0, x1, x2, x3
+MADD 9b0d2d25 madd x5, x9, x13, x11
+MADD 9b1c4ff1 madd x17, xzr, x28, x19
+MADD 9b1f6ede madd x30, x22, xzr, x27
+MADD 1b020c20 madd w0, w1, w2, w3
+MADD 1b0d2d25 madd w5, w9, w13, w11
+MADD 1b1c4ff1 madd w17, wzr, w28, w19
+MADD 1b1f6ede madd w30, w22, wzr, w27
+MSUB 9b028c20 msub x0, x1, x2, x3
+MSUB 9b0dad25 msub x5, x9, x13, x11
+MSUB 9b1ccff1 msub x17, xzr, x28, x19
+MSUB 9b1feede msub x30, x22, xzr, x27
+MSUB 1b028c20 msub w0, w1, w2, w3
+MSUB 1b0dad25 msub w5, w9, w13, w11
+MSUB 1b1ccff1 msub w17, wzr, w28, w19
+MSUB 1b1feede msub w30, w22, wzr, w27
+SMADDL 9b220c20 smaddl x0, w1, w2, x3
+SMADDL 9b2d2d25 smaddl x5, w9, w13, x11
+SMADDL 9b3c4ff1 smaddl x17, wzr, w28, x19
+SMADDL 9b3f6ede smaddl x30, w22, wzr, x27
+SMSUBL 9b228c20 smsubl x0, w1, w2, x3
+SMSUBL 9b2dad25 smsubl x5, w9, w13, x11
+SMSUBL 9b3ccff1 smsubl x17, wzr, w28, x19
+SMSUBL 9b3feede smsubl x30, w22, wzr, x27
+UMADDL 9ba20c20 umaddl x0, w1, w2, x3
+UMADDL 9bad2d25 umaddl x5, w9, w13, x11
+UMADDL 9bbc4ff1 umaddl x17, wzr, w28, x19
+UMADDL 9bbf6ede umaddl x30, w22, wzr, x27
+UMSUBL 9ba28c20 umsubl x0, w1, w2, x3
+UMSUBL 9badad25 umsubl x5, w9, w13, x11
+UMSUBL 9bbccff1 umsubl x17, wzr, w28, x19
+UMSUBL 9bbfeede umsubl x30, w22, wzr, x27
+SMULH 9b427c20 smulh x0, x1, x2
+SMULH 9b4d7d25 smulh x5, x9, x13
+SMULH 9b5c7ff1 smulh x17, xzr, x28
+SMULH 9b5f7ede smulh x30, x22, xzr
+UMULH 9bc27c20 umulh x0, x1, x2
+UMULH 9bcd7d25 umulh x5, x9, x13
+UMULH 9bdc7ff1 umulh x17, xzr, x28
+UMULH 9bdf7ede umulh x30, x22, xzr
+UDIV 9ac20820 udiv x0, x1, x2
+UDIV 9acd0925 udiv x5, x9, x13
+UDIV 9adc0bf1 udiv x17, xzr, x28
+UDIV 9adf0ade udiv x30, x22, xzr
+UDIV 1ac20820 udiv w0, w1, w2
+UDIV 1acd0925 udiv w5, w9, w13
+UDIV 1adc0bf1 udiv w17, wzr, w28
+UDIV 1adf0ade udiv w30, w22, wzr
+SDIV 9ac20c20 sdiv x0, x1, x2
+SDIV 9acd0d25 sdiv x5, x9, x13
+SDIV 9adc0ff1 sdiv x17, xzr, x28
+SDIV 9adf0ede sdiv x30, x22, xzr
+SDIV 1ac20c20 sdiv w0, w1, w2
+SDIV 1acd0d25 sdiv w5, w9, w13
+SDIV 1adc0ff1 sdiv w17, wzr, w28
+SDIV 1adf0ede sdiv w30, w22, wzr
