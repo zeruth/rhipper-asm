@@ -1,6 +1,7 @@
-# The build on every push: the workspace builds and its tests pass on Windows, where the
-# engine's reference programs are built and run. A later push to the same branch cancels a
-# run still going on the older one, so the queue never holds more than the newest state.
+# The build on every push: the workspace builds and the fast tier, `cargo test -q`, passes on
+# Windows without clang on the PATH. The slow tier (the oracles behind the `oracle` feature)
+# runs in nightly.yml. A later push to the same branch cancels a run still going on the older
+# one, so the queue never holds more than the newest state.
 name: build
 
 on:
@@ -39,25 +40,15 @@ jobs:
         with:
           shared-key: windows-build
 
-      # the reference programs and the ports are built with clang and read with the LLVM
-      # tools, as the release does
-      - name: install LLVM
-        run: choco install llvm --no-progress -y
-
-      - name: toolchain
-        shell: pwsh
-        run: |
-          clang --version
-          llvm-objdump --version | Select-Object -First 1
-
       - name: format
         run: cargo fmt --all -- --check
 
       - name: build
         run: cargo build --workspace --locked
 
+      # the fast tier: every test target the default features build, and no tool but cargo
       - name: test
-        run: cargo test --workspace --locked --no-fail-fast
+        run: cargo test -q --workspace --locked --no-fail-fast
 
       # the lint reports and does not fail the build
       - name: clippy

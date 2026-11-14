@@ -1,4 +1,7 @@
-# The nightly instruction oracle: the x86 forms against the processor at a seed of the night, with
+# The nightly slow tier. The oracles behind the `oracle` feature of ra-asm-lift, ra-asm-emit
+# and ras lift every fixture, compile the IR, the C, C++ and Rust and the ports with clang,
+# run them and compare with testdata/expected; build.yml's fast tier leaves them out. The
+# instruction oracle runs the x86 forms against the processor at a seed of the night, with
 # more states per form than the suite's fixed-seed run. A failure prints the seed, which
 # `RA_ORACLE_SEED=<seed> cargo test -p ra-asm-lift --test instruction_oracle` replays.
 name: nightly
@@ -8,7 +11,43 @@ on:
     - cron: "17 3 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  oracles:
+    name: oracles (windows)
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-build
+
+      # the fixtures and the ports are built with clang and read with the LLVM tools
+      - name: install LLVM
+        run: choco install llvm --no-progress -y
+
+      - name: toolchain
+        shell: pwsh
+        run: |
+          clang --version
+          llvm-objdump --version | Select-Object -First 1
+
+      # the feature is per package: each crate's oracle is its own run
+      - name: lift oracle
+        run: cargo test -q -p ra-asm-lift --locked --features oracle --test oracle
+
+      - name: emit oracle
+        run: cargo test -q -p ra-asm-emit --locked --features oracle --test oracle
+
+      - name: ras pipeline and smoke
+        run: cargo test -q -p ras --locked --features oracle --test pipeline --test smoke
+
   instruction-oracle:
     runs-on: windows-latest
     steps:
