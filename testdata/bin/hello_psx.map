@@ -1,0 +1,25 @@
+__text_start T ffffffff80010000 
+add.constprop.0 t ffffffff80010000 8
+square T ffffffff80010008 10
+main T ffffffff80010018 64
+printf T ffffffff8001007c 
+_start W ffffffff80010088 
+_start_inner T ffffffff80010098 118
+InitHeap W ffffffff800101b0 28
+__CTOR_LIST__ D ffffffff80010210 
+__CTOR_END__ D ffffffff80010218 
+__DTOR_LIST__ D ffffffff80010220 
+__DTOR_END__ D ffffffff80010228 
+__argv B ffffffff80010228 4
+__bss_start B ffffffff80010228 
+__argc B ffffffff8001022c 4
+_alloc_tail b ffffffff80010230 4
+_alloc_head b ffffffff80010234 4
+_alloc_start b ffffffff80010238 4
+_heap_alloc_max b ffffffff8001023c 4
+_heap_alloc b ffffffff80010240 4
+_heap_limit b ffffffff80010244 4
+_heap_end b ffffffff80010248 4
+_heap_start b ffffffff8001024c 4
+_end B ffffffff80010250 
+_gp d ffffffff80018220 

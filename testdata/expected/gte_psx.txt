@@ -1,0 +1,12 @@
+v0 sx=32 sy=-8 sz=512
+v1 sx=288 sy=-8 sz=512
+v2 sx=32 sy=248 sz=512
+flag=0 nclip=65536 otz=384
+v3 sx=288 sy=248 sz=512
+v4 sx=224 sy=56 sz=1024
+v5 sx=96 sy=56 sz=1024
+flag=0 nclip=-24576 otz=640
+v6 sx=224 sy=184 sz=1024 flag=0
+v7 sx=96 sy=184 sz=1024 flag=0
+near sx=671 sy=631 sz=68 flag=80020000
+wide sx=1023 sy=-1024 sz=68 flag=80026000

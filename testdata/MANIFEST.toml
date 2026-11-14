@@ -9,8 +9,13 @@
 # `expected` is the output it is compared with, `source` what it was built from, `command` what
 # made it and `tools` the versions the command ran with. Paths are relative to the workspace root.
 #
-# Only the fixtures of the foreign Linux machines are listed so far; the Windows fixtures of
-# build.ps1 and the rhtest programs join as their own entries.
+# Only the fixtures of the foreign machines are listed so far; the Windows fixtures of build.ps1
+# and the rhtest programs join as their own entries.
+#
+# A `source` entry's expected output is replaced by an emulator's once one is on the machine: for
+# the PlayStation fixtures a run under an emulator with TTY logging (DuckStation's or PCSX-Redux's
+# console output is the BIOS's printf), the entry's `evidence` turning `emulator` and `tools`
+# naming the emulator and its version.
 
 [[file]]
 path = "testdata/bin/hello_mipsel"
@@ -29,3 +34,25 @@ expected = "testdata/expected/control.txt"
 source = "testdata/src/control.c"
 command = "testdata/src/freestanding/build.sh mipsel"
 tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-mipsel 8.2.2 (WSL Ubuntu 24.04)"
+
+# The PlayStation fixtures: PS-EXEs built with PSn00bSDK, the output through the BIOS's printf.
+# hello_psx.txt is what the one printf of the source formats; gte_psx.txt is the GTE's documented
+# arithmetic (psx-spx: RTPS, RTPT, NCLIP, AVSZ3 and the FLAG register) over the inputs the source
+# chose so that every step is exact.
+[[file]]
+path = "testdata/bin/hello_psx.exe"
+sha256 = "799917cdcd9a512eb26cd01fdbd24d5d3dea9e6d19cbed482833278199c91291"
+evidence = "source"
+expected = "testdata/expected/hello_psx.txt"
+source = "testdata/src/psx/hello.c"
+command = "testdata/src/psx/build.sh"
+tools = "PSn00bSDK 0.24, mipsel-none-elf-gcc 12.3.0, elf2x (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/bin/gte_psx.exe"
+sha256 = "8fe8339030e450681b9d1b538aed3a9b13a23bfe741f4f529823c94f96b86110"
+evidence = "source"
+expected = "testdata/expected/gte_psx.txt"
+source = "testdata/src/psx/gte.c"
+command = "testdata/src/psx/build.sh"
+tools = "PSn00bSDK 0.24, mipsel-none-elf-gcc 12.3.0, elf2x (WSL Ubuntu 24.04)"

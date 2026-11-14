@@ -1,0 +1,30 @@
+__text_start T ffffffff80010000 
+triple t ffffffff80010000 160
+single t ffffffff80010160 7c
+main T ffffffff800101dc 114
+InitGeom T ffffffff800102f0 
+printf T ffffffff80010354 
+_start W ffffffff80010360 
+_start_inner T ffffffff80010370 118
+InitHeap W ffffffff80010488 28
+names.0 r ffffffff80010520 20
+__CTOR_LIST__ D ffffffff80010560 
+__CTOR_END__ D ffffffff80010568 
+__DTOR_LIST__ D ffffffff80010570 
+__DTOR_END__ D ffffffff80010578 
+cube d ffffffff80010578 40
+wide_vertex d ffffffff800105b8 8
+near_vertex d ffffffff800105c0 8
+__argv B ffffffff800105c8 4
+__bss_start B ffffffff800105c8 
+__argc B ffffffff800105cc 4
+_alloc_tail b ffffffff800105d0 4
+_alloc_head b ffffffff800105d4 4
+_alloc_start b ffffffff800105d8 4
+_heap_alloc_max b ffffffff800105dc 4
+_heap_alloc b ffffffff800105e0 4
+_heap_limit b ffffffff800105e4 4
+_heap_end b ffffffff800105e8 4
+_heap_start b ffffffff800105ec 4
+_end B ffffffff800105f0 
+_gp d ffffffff800185b0 

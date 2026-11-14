@@ -3,5 +3,6 @@ testdata/bin/*.exe binary
 testdata/bin/*.dll binary
 testdata/bin/*_mipsel binary
 testdata/src/freestanding/build.sh eol=lf
+testdata/src/psx/build.sh eol=lf
 testdata/bin/*.map -text
 testdata/expected/*.txt -text

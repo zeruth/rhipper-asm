@@ -44,3 +44,16 @@ fn the_mipsel_fixtures_ran_in_the_emulator() {
         assert!(entry.command.is_some() && entry.tools.is_some(), "{path}: no record of how it was made");
     }
 }
+
+#[test]
+fn the_psx_fixtures_rest_on_their_source() {
+    let entries = entries();
+    for program in ["hello", "gte"] {
+        let path = format!("testdata/bin/{program}_psx.exe");
+        let entry = entries.iter().find(|e| e.path == path).unwrap_or_else(|| panic!("{path} is not in the manifest"));
+        assert_eq!(entry.evidence, Evidence::Source, "{path}");
+        assert_eq!(entry.expected.as_deref(), Some(format!("testdata/expected/{program}_psx.txt").as_str()), "{path}");
+        assert_eq!(entry.source.as_deref(), Some(format!("testdata/src/psx/{program}.c").as_str()), "{path}");
+        assert!(entry.command.is_some() && entry.tools.is_some(), "{path}: no record of how it was made");
+    }
+}
