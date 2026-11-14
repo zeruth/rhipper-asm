@@ -148,6 +148,9 @@ pub struct Unit {
     pub global_rest: String,
     /// The functions that address each data global, by the global's name and their IR names.
     pub global_users: HashMap<String, HashSet<String>>,
+    /// The bytes of the data globals the source embeds (`#embed "<name>.bin"`), by file name,
+    /// which go beside the source.
+    pub blobs: Vec<(String, Vec<u8>)>,
     /// The prototype of each function, by IR name, without its `;`.
     pub prototype_of: HashMap<String, String>,
     pub functions: Vec<EmittedFunction>,
@@ -444,9 +447,22 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
     // The data sections as the code's uses type them: arrays, scalars and strings over the bytes.
     let layouts = crate::layout::layouts(module);
     let mut global_parts = Vec::with_capacity(module.globals.len());
+    let mut blobs = Vec::new();
     for g in &module.globals {
         let layout = layouts.get(&g.name);
         global_type(&mut global_types, g, layout);
+        // C23's `#embed` takes a large global's bytes from a file of them; C++ has no `#embed`
+        // before C++26, so a C++ translation keeps the initializer.
+        if options.dialect == Dialect::C
+            && let Some(e) = embedded(g, layout)
+        {
+            global_decls.push_str(&e.declaration);
+            init.push_str(&e.init);
+            global_defs.push_str(&e.definition);
+            global_parts.push((g.name.clone(), e.definition));
+            blobs.push((format!("{}.bin", g.name), e.bytes));
+            continue;
+        }
         declare_global(&mut global_decls, g, layout);
         let mut definition = String::new();
         define_global(&mut definition, &mut init, g, layout);
@@ -565,6 +581,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
         global_parts,
         global_rest,
         global_users,
+        blobs,
         prototype_of: prototypes,
         functions,
         dialect: options.dialect,
@@ -852,6 +869,98 @@ fn literal_text<'a>(g: &ra_asm_ir::Global, n: u64, bytes: &'a [u8]) -> Option<&'
     let (&0, text) = bytes.split_last()? else { return None };
     let printable = |&b: &u8| matches!(b, b'\t' | b'\n' | b'\r' | b' '..=b'~');
     (g.constant && g.address.is_none() && bytes.len() as u64 == n && !text.is_empty() && text.iter().all(printable)).then_some(text)
+}
+
+/// The size from which a data global's bytes go to a file of their own that the source embeds:
+/// below it the initializer reads in the source, above it the source would be the image again
+/// as text, ten times its size, which the compiler then reads back byte by byte.
+pub const EMBED_FROM: u64 = 64 * 1024;
+
+/// A data global written as a file of its bytes and an `#embed` of it: its bytes, its `extern`
+/// declaration, its definition, and the statements that write its address words before `main`.
+pub struct Embedded {
+    pub bytes: Vec<u8>,
+    pub declaration: String,
+    pub definition: String,
+    pub init: String,
+}
+
+/// `g` as an [`Embedded`] global, when it holds [`EMBED_FROM`] bytes or more of an initializer: the
+/// byte runs and the integer words as they are, each address word zero in the bytes and written
+/// by a statement before `main`, whatever its width. A global of a structure type is a union of
+/// its bytes and the structure under the global's name, so the code addresses its fields as it
+/// does when the source initializes them.
+fn embedded(g: &ra_asm_ir::Global, layout: Option<&Layout>) -> Option<Embedded> {
+    let (bytes, words): (Vec<u8>, Vec<(u64, Type, Const)>) = match (layout, &g.ty, &g.init) {
+        (Some(layout), _, Some(init)) if !matches!(init, Const::Zero) => {
+            let words = layout.words.iter().map(|(offset, (ty, item))| (*offset, ty.clone(), item.clone())).collect();
+            (layout.bytes.clone(), words)
+        }
+        (None, Type::Array(_, e), Some(Const::Bytes(bytes))) if **e == Type::I8 => (bytes.clone(), Vec::new()),
+        (None, Type::Packed(fields), Some(Const::Struct(items))) => {
+            let mut bytes = Vec::new();
+            let mut words = Vec::new();
+            for (item, field) in items.iter().zip(fields) {
+                match item {
+                    Const::Bytes(run) => bytes.extend_from_slice(run),
+                    other => {
+                        words.push((bytes.len() as u64, field.clone(), other.clone()));
+                        bytes.resize(bytes.len() + field.size(8).unwrap_or(0) as usize, 0);
+                    }
+                }
+            }
+            (bytes, words)
+        }
+        _ => return None,
+    };
+    if (bytes.len() as u64) < EMBED_FROM {
+        return None;
+    }
+    let mut bytes = bytes;
+    let mut init = String::new();
+    let mut addresses = false;
+    for (offset, field, item) in &words {
+        let at = *offset as usize;
+        let size = field.size(8).unwrap_or(0) as usize;
+        let target = match item {
+            Const::Int(v) => {
+                bytes[at..at + size].copy_from_slice(&v.to_le_bytes()[..size]);
+                continue;
+            }
+            Const::Address { global, offset } => format!("((uint8_t *)&{global} + {offset})"),
+            Const::Global(name) => format!("&{name}"),
+            _ => continue,
+        };
+        bytes[at..at + size].fill(0);
+        addresses = true;
+        let _ = writeln!(
+            init,
+            "    *({} *)((uint8_t *)&{} + {offset}) = ({})(uintptr_t){target};",
+            access_type(field, 1),
+            g.name,
+            c_type(field)
+        );
+    }
+    // A global the statements write cannot be `const`: the compiler would fold the zero it sees.
+    let storage = if g.constant && !addresses { "const " } else { "" };
+    let n = bytes.len();
+    let file = format!("{}.bin", g.name);
+    let structured = layout.is_some() || matches!(g.ty, Type::Packed(_));
+    let (declaration, definition) = if structured {
+        (
+            format!(
+                "union {name}_u {{ uint8_t bytes[{n}]; struct {name}_t value; }};\nextern {storage}union {name}_u {name}_storage;\n#define {name} ({name}_storage.value)\n",
+                name = g.name
+            ),
+            format!("{storage}union {name}_u {name}_storage RA_ALIGNED(16) = {{ .bytes = {{\n#embed \"{file}\"\n}} }};\n", name = g.name),
+        )
+    } else {
+        (
+            format!("extern {storage}uint8_t {}[{n}];\n", g.name),
+            format!("{storage}uint8_t {}[{n}] RA_ALIGNED(16) = {{\n#embed \"{file}\"\n}};\n", g.name),
+        )
+    };
+    Some(Embedded { bytes, declaration, definition, init })
 }
 
 /// The definition of a data global, with its initializer. The type of a packed global comes from
@@ -1692,6 +1801,20 @@ impl<'a> Emitter<'a> {
             return None;
         }
         let defined_in = |v: ValueId| self.def(v).is_some_and(|(b, ..)| members.contains(&b.id));
+        // A `for` tests before its first round, so to a C compiler a variable the body assigns
+        // may be unset after the loop, though the condition holds on entry: a loop whose body
+        // defines a value the code after it reads stays a `do ... while`, which says the body
+        // runs. The header's phis are the `for`'s own, which its first clause assigns.
+        let escapes = self.f.blocks.iter().filter(|b| !members.contains(&b.id)).any(|b| {
+            let read = |o: &Operand| o.local().is_some_and(|v| !names.contains(&v) && defined_in(v) && !self.inlinable(v));
+            b.instrs.iter().any(|i| match &i.inst {
+                Inst::Phi { incoming, .. } => incoming.iter().any(|(o, from)| !members.contains(from) && read(o)),
+                inst => inst.operands().into_iter().any(read),
+            }) || b.terminator.operands().into_iter().any(read)
+        });
+        if escapes {
+            return None;
+        }
         let mut aliases = Vec::new();
         let hoisted = phis
             .into_iter()
@@ -1917,6 +2040,11 @@ impl<'a> Emitter<'a> {
     /// of its type, the field's bytes through a cast when the types differ, a data section's
     /// typed field or element when `ptr` addresses one, the raw access else.
     fn access(&self, ty: &Type, align: u32, ptr: &Operand) -> String {
+        // An access at address zero is the program's deliberate fault (an assertion that stops it
+        // by writing to null): C may delete a plain one, so it is volatile and faults as it did.
+        if self.null_address(ptr) {
+            return format!("*(volatile {} *)0", access_type(ty, align));
+        }
         match self.field_access(ptr) {
             Some((field, field_ty)) if field_ty == ty => field,
             Some((field, _)) => format!("*({} *)&{field}", access_type(ty, align)),
@@ -1952,6 +2080,17 @@ impl<'a> Emitter<'a> {
                 Some(if base == 0 { format!("{name}[{i}]") } else { format!("{name}[{i} + {base}]") })
             }
             Some(_) => None,
+        }
+    }
+
+    /// Whether `ptr` is the constant address zero: null, or zero made a pointer.
+    fn null_address(&self, ptr: &Operand) -> bool {
+        match ptr {
+            Operand::Null | Operand::Int(0) => true,
+            Operand::Local(v) => {
+                matches!(self.def(*v), Some((_, _, Inst::Cast { cast: Cast::IntToPtr, value: Operand::Int(0), .. })))
+            }
+            _ => false,
         }
     }
 
@@ -2181,6 +2320,27 @@ impl<'a> Emitter<'a> {
             }
             Inst::FCmp { cond, ty, lhs, rhs } => {
                 let (a, b) = (self.operand(ty, lhs), self.operand(ty, rhs));
+                // A compare of vectors is a mask of lanes, all ones where it holds: C has no `!`,
+                // `||` or `&&` for one, so the unordered forms take their bitwise kin, and a lane is
+                // NaN where it differs from itself.
+                if matches!(ty, Type::Vector(..)) {
+                    return match cond {
+                        FCond::Oeq => format!("({a} == {b})"),
+                        FCond::Ogt => format!("({a} > {b})"),
+                        FCond::Oge => format!("({a} >= {b})"),
+                        FCond::Olt => format!("({a} < {b})"),
+                        FCond::Ole => format!("({a} <= {b})"),
+                        FCond::One => format!("(({a} < {b}) | ({a} > {b}))"),
+                        FCond::Ord => format!("(({a} == {a}) & ({b} == {b}))"),
+                        FCond::Ueq => format!("(~(({a} < {b}) | ({a} > {b})))"),
+                        FCond::Ugt => format!("(~({a} <= {b}))"),
+                        FCond::Uge => format!("(~({a} < {b}))"),
+                        FCond::Ult => format!("(~({a} >= {b}))"),
+                        FCond::Ule => format!("(~({a} > {b}))"),
+                        FCond::Une => format!("({a} != {b})"),
+                        FCond::Uno => format!("(({a} != {a}) | ({b} != {b}))"),
+                    };
+                }
                 match cond {
                     FCond::Oeq => format!("({a} == {b})"),
                     FCond::Ogt => format!("({a} > {b})"),

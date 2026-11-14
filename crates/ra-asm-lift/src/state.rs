@@ -736,11 +736,14 @@ impl Machine<'_> {
         self.b.cast(block, Cast::Trunc, from, value, to, hint)
     }
 
-    /// Materializes an operand as a value.
+    /// Materializes an operand as a value: an integer constant by `or` with zero, a floating one by
+    /// the bitcast of its bits, since `or` is no operation of a floating type.
     pub fn value_of(&mut self, block: BlockId, ty: Type, operand: impl Into<Operand>) -> ValueId {
-        match operand.into() {
-            Operand::Local(v) => v,
-            other => self.b.bin(block, BinOp::Or, ty, other, 0i64, "c"),
+        match (operand.into(), &ty) {
+            (Operand::Local(v), _) => v,
+            (Operand::Float(f), Type::Double) => self.b.cast(block, Cast::Bitcast, Type::I64, f.to_bits() as i64, ty, "c"),
+            (Operand::Float(f), Type::Float) => self.b.cast(block, Cast::Bitcast, Type::I32, i64::from((f as f32).to_bits()), ty, "c"),
+            (other, _) => self.b.bin(block, BinOp::Or, ty, other, 0i64, "c"),
         }
     }
 }

@@ -57,6 +57,19 @@ pub fn run(f: &mut Function) -> bool {
                 map.insert(result, replacement);
                 continue;
             }
+            // `(x | c) == 0` with a constant `c` that is not zero in the compare's width: never.
+            if let Inst::ICmp {
+                cond: cond @ (ra_asm_ir::ICond::Eq | ra_asm_ir::ICond::Ne),
+                ty: Type::Int(bits),
+                lhs: Operand::Local(v),
+                rhs: Operand::Int(0),
+            } = &i.inst
+                && let Some(Inst::Bin { op: BinOp::Or, lhs: a, rhs: b, .. }) = defs.get(v)
+                && [a, b].iter().any(|o| matches!(o, Operand::Int(c) if *c & width_mask(*bits) != 0))
+            {
+                map.insert(result, Operand::Int(i128::from(*cond == ra_asm_ir::ICond::Ne)));
+                continue;
+            }
             // `cdq`: `(zext (x >>s 31) << 32) | zext x` is `sext x`.
             if let Some(x) = sign_extension_idiom(&i.inst, &defs) {
                 rewrite.insert(result, Inst::Cast { cast: ra_asm_ir::Cast::SExt, from: Type::I32, value: x, to: Type::I64 });
@@ -347,6 +360,12 @@ fn simplify(inst: &Inst) -> Option<Operand> {
                 return folded.map(|v| Operand::Int(v & mask));
             }
             None
+        }
+        // A value against itself: `sbb r, r` and its kin compare a value with itself for a borrow
+        // that cannot happen.
+        Inst::ICmp { cond, lhs, rhs, .. } if lhs == rhs => {
+            use ra_asm_ir::ICond::{Eq, Sge, Sle, Uge, Ule};
+            Some(Operand::Int(i128::from(matches!(cond, Eq | Uge | Ule | Sge | Sle))))
         }
         Inst::Cast { from, value, to, .. } if from == to => Some(value.clone()),
         Inst::Cast { cast, from: Type::Int(from), value: Operand::Int(v), to: Type::Int(to) } => {

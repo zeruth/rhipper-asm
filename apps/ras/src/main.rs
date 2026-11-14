@@ -176,6 +176,9 @@ enum Command {
         /// The x87 unit: `double` (eight doubles) or `exact` (the 80-bit unit through the runtime's `f80`).
         #[arg(long, default_value = "double")]
         x87: ra_asm_lift::X87Unit,
+        /// Lift only this function and the functions it calls, directly or not. Repeatable; by address.
+        #[arg(long, value_name = "ADDRESS")]
+        only: Vec<String>,
     },
     /// The program through the IR interpreter: what it prints goes to stdout, its exit code is
     /// the command's. The lift traps and the faults of the machine stop the run with a message
@@ -371,9 +374,9 @@ fn main() -> anyhow::Result<()> {
         Command::Functions { pe, pdata: true } => report::functions(&load(&pe, sigs)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&load(&pe, sigs)?, json),
         Command::Cfg { pe, address } => functions::cfg(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),
-        Command::Lift { pe, out, quiet, level, standalone, report, x87 } => {
+        Command::Lift { pe, out, quiet, level, standalone, report, x87, only } => {
             let standalone = standalone || level == ra_asm_lift::RaiseLevel::Abi;
-            lift::lift(&load(&pe, sigs)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87 })
+            lift::lift(&load(&pe, sigs)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87, only })
         }
         Command::Signatures { pe, build: Some(libraries), installed, toolset, store, .. } => {
             let image = pe.as_deref().map(ra_asm_pe::load).transpose()?;
