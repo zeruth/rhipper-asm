@@ -229,7 +229,10 @@ mod tests {
         );
         let parts = pieces(&text);
         let ends: Vec<&str> = parts.iter().map(|p| &p[p.len().saturating_sub(12)..]).collect();
-        assert_eq!(ends, ["  return a;\n}\n", "nt g;\n#endif\n", "char *s = \"{\";\n", "int h;\n"].map(|e| &e[e.len().saturating_sub(12)..]));
+        assert_eq!(
+            ends,
+            ["  return a;\n}\n", "nt g;\n#endif\n", "char *s = \"{\";\n", "int h;\n"].map(|e| &e[e.len().saturating_sub(12)..])
+        );
         let back = joined(parts.iter().map(|p| (*p).to_owned()).collect());
         assert_eq!(back.replace("\n\n", "\n"), text.replace("\n\n", "\n"));
     }
