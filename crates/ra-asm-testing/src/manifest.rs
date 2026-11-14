@@ -46,6 +46,37 @@ impl Evidence {
     }
 }
 
+/// A raise level whose checker a fixture's lift is held to, lowest first: a fixture held to a
+/// level is held to every level below it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Level {
+    /// The machine IR as lifted.
+    Machine,
+    /// Registers and flags as SSA values.
+    Promoted,
+    /// The signatures applied.
+    Abi,
+}
+
+impl Level {
+    /// The three levels, lowest first.
+    pub const ALL: [Self; 3] = [Self::Machine, Self::Promoted, Self::Abi];
+
+    /// The word the manifest writes, which is the name the lift gives the level.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Machine => "machine",
+            Self::Promoted => "promoted",
+            Self::Abi => "abi",
+        }
+    }
+
+    fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|level| level.name() == word)
+    }
+}
+
 /// One `[[file]]` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
@@ -62,6 +93,9 @@ pub struct Entry {
     pub command: Option<String>,
     /// The tools and versions the command ran with.
     pub tools: Option<String>,
+    /// The highest level whose checker the lift of the file must pass; none when no checker is
+    /// held to it.
+    pub checker: Option<Level>,
 }
 
 /// What stops a manifest from being read: the line and what is wrong with it.
@@ -96,7 +130,7 @@ pub fn workspace() -> PathBuf {
 /// # Errors
 /// The first line that is not a `[[file]]` header, a string pair, a comment or blank; a key that
 /// is not known or repeats; a table missing `path`, `sha256` or `evidence`; an evidence word that
-/// is not one of the three; a hash that is not 64 hex digits.
+/// is not one of the three; a checker word that is not a level; a hash that is not 64 hex digits.
 pub fn parse(text: &str) -> Result<Vec<Entry>, Error> {
     let mut entries = Vec::new();
     let mut table: Option<(usize, Vec<(String, String)>)> = None;
@@ -166,7 +200,7 @@ fn entry(line: usize, pairs: &[(String, String)]) -> Result<Entry, Error> {
     let get = |key: &str| pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
     let required = |key: &str| get(key).ok_or_else(|| error(format!("[[file]] without `{key}`")));
     for (key, _) in pairs {
-        if !matches!(key.as_str(), "path" | "sha256" | "evidence" | "expected" | "source" | "command" | "tools") {
+        if !matches!(key.as_str(), "path" | "sha256" | "evidence" | "expected" | "source" | "command" | "tools" | "checker") {
             return Err(error(format!("`{key}` is not a key of a [[file]]")));
         }
     }
@@ -178,7 +212,42 @@ fn entry(line: usize, pairs: &[(String, String)]) -> Result<Entry, Error> {
     let evidence = required("evidence")?;
     let evidence =
         Evidence::parse(&evidence).ok_or_else(|| error(format!("`evidence` of {path} is `{evidence}`, not native, emulator or source")))?;
-    Ok(Entry { path, sha256, evidence, expected: get("expected"), source: get("source"), command: get("command"), tools: get("tools") })
+    let checker = match get("checker") {
+        Some(word) => {
+            Some(Level::parse(&word).ok_or_else(|| error(format!("`checker` of {path} is `{word}`, not machine, promoted or abi")))?)
+        }
+        None => None,
+    };
+    Ok(Entry {
+        path,
+        sha256,
+        evidence,
+        expected: get("expected"),
+        source: get("source"),
+        command: get("command"),
+        tools: get("tools"),
+        checker,
+    })
+}
+
+/// The files of `entries` whose lift must pass the checker of `level`, in the manifest's order:
+/// those whose `checker` is `level` or a level above it.
+#[must_use]
+pub fn checked(entries: &[Entry], level: Level) -> Vec<&str> {
+    entries.iter().filter(|entry| entry.checker.is_some_and(|held| held >= level)).map(|entry| entry.path.as_str()).collect()
+}
+
+/// The fixtures of the workspace's manifest whose lift must pass the checker of `level`, as
+/// paths relative to the workspace root: the set a test of a level's checker walks.
+///
+/// # Panics
+/// When the manifest cannot be read or does not parse: a test has nothing to walk without it.
+#[must_use]
+pub fn checked_fixtures(level: Level) -> Vec<String> {
+    let path = path();
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let entries = parse(&text).unwrap_or_else(|e| panic!("{e}"));
+    checked(&entries, level).into_iter().map(str::to_owned).collect()
 }
 
 /// The directories of `testdata` whose files the manifest lists.
@@ -354,7 +423,37 @@ pub fn sha256(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Evidence, parse, sha256};
+    use super::{Evidence, Level, checked, checked_fixtures, parse, sha256};
+
+    /// The set each level's checker is held to today: the two `hello` programs, at every level.
+    /// A fixture joins by its `checker` line in the manifest and by its path here.
+    #[test]
+    fn checked_fixtures_are_the_two_hello_programs() {
+        for level in Level::ALL {
+            assert_eq!(checked_fixtures(level), ["testdata/bin/hello32.exe", "testdata/bin/hello64.exe"], "{}", level.name());
+        }
+    }
+
+    #[test]
+    fn checked_fixtures_of_a_level_are_those_held_to_it_or_above() {
+        let table = |name: &str, checker: &str| {
+            format!("[[file]]\npath = \"{name}\"\nsha256 = \"{}\"\nevidence = \"native\"\n{checker}", "0".repeat(64))
+        };
+        let text = [
+            table("a.exe", "checker = \"abi\"\n"),
+            table("a.map", ""),
+            table("b.exe", "checker = \"machine\"\n"),
+            table("c.exe", "checker = \"promoted\"\n"),
+        ]
+        .concat();
+        let entries = parse(&text).unwrap();
+        assert_eq!(entries[1].checker, None);
+        assert_eq!(checked(&entries, Level::Machine), ["a.exe", "b.exe", "c.exe"]);
+        assert_eq!(checked(&entries, Level::Promoted), ["a.exe", "c.exe"]);
+        assert_eq!(checked(&entries, Level::Abi), ["a.exe"]);
+        let bad = parse(&table("d.exe", "checker = \"typed\"\n")).unwrap_err();
+        assert!(bad.message.contains("`checker` of d.exe is `typed`"), "{bad}");
+    }
 
     /// The two test vectors of FIPS 180-4 and the empty message.
     #[test]

@@ -51,6 +51,7 @@ fn an_unlisted_file_and_a_wrong_hash_are_failures() {
         source: None,
         command: None,
         tools: None,
+        checker: None,
     };
     write("testdata/bin/a.exe", b"MZ\0\r\n");
     write("testdata/expected/a.txt", b"1\r\n2\r\n");

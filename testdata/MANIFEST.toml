@@ -12,7 +12,10 @@
 #   source    nothing ran it: an output is derived from the source and the platform's
 #             documentation, a binary is only read, lifted and interpreted, a case file is assembled.
 # `expected` is the output a program is compared with, `source` what the file was made from,
-# `command` what made it and `tools` the versions the command ran with. Paths are relative to the
+# `command` what made it and `tools` the versions the command ran with. `checker` is the highest
+# raise level (machine, promoted, abi) whose checker the lift of a binary must pass, with every
+# level below it; a file without it is held to none, and `manifest::checked_fixtures(level)` is
+# the set a level's test walks. Paths are relative to the
 # workspace root. `sha256` is of the bytes git stores: a text file checked out with CRLF is
 # hashed with its line endings as LF. The test prints the hash of a file it finds wrong or
 # unlisted, so an entry is written by hand from its failure.
@@ -389,6 +392,7 @@ expected = "testdata/expected/hello.txt"
 source = "testdata/src/hello.c"
 command = "testdata/build.ps1 hello"
 tools = "clang 22.1.7, LLD 22.1.7"
+checker = "abi"
 
 [[file]]
 path = "testdata/bin/hello32.map"
@@ -406,6 +410,7 @@ expected = "testdata/expected/hello.txt"
 source = "testdata/src/hello.c"
 command = "testdata/build.ps1 hello"
 tools = "clang 22.1.7, LLD 22.1.7"
+checker = "abi"
 
 [[file]]
 path = "testdata/bin/hello64.map"
