@@ -28,8 +28,9 @@ pub mod widths;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use liveness::{R8, R9, RCX, RDX, RSP, Slot};
+use liveness::Slot;
 use ra_asm_analysis::rtti::Vtable;
+use ra_asm_arch::abi::{self as convention, Abi, Reg};
 use ra_asm_ir::{Module, Type};
 
 use crate::state::Isa;
@@ -46,10 +47,57 @@ pub struct Target {
 
 /// The slot of `x8`, where an AAPCS64 caller passes the address of a returned aggregate.
 pub const X8: Slot = Slot::Gpr(8);
-/// The ARM64 stack pointer's slot, the one after `x30`; on x86 the slot of `rsp` is [`RSP`].
-const ARM64_SP: Slot = Slot::Gpr(31);
-/// The 32-bit ARM stack pointer's slot, `r13`.
-const ARM32_SP: Slot = Slot::Gpr(13);
+
+/// What the raise reads of a target besides its pointer width: its calling convention and the
+/// registers its state holds.
+struct Machine {
+    abi: &'static Abi,
+    /// The convention's integer parameter registers as slots.
+    int_params: &'static [Slot],
+    gprs: u8,
+    xmms: u8,
+}
+
+/// The slot of a convention's register: a general or a vector register's own.
+const fn slot(reg: Reg) -> Slot {
+    match reg {
+        Reg::Gpr(n) => Slot::Gpr(n),
+        Reg::Vector(n) => Slot::Xmm(n),
+        Reg::X87(_) => panic!("an x87 register has no slot"),
+    }
+}
+
+/// `regs` as slots, so a table of them lives as long as the convention does.
+const fn slots<const N: usize>(regs: &[Reg]) -> [Slot; N] {
+    let mut out = [Slot::Gpr(0); N];
+    let mut i = 0;
+    while i < N {
+        out[i] = slot(regs[i]);
+        i += 1;
+    }
+    out
+}
+
+const WIN64_INTS: [Slot; convention::WIN64.int_params.len()] = slots(convention::WIN64.int_params);
+const X86_INTS: [Slot; convention::X86.int_params.len()] = slots(convention::X86.int_params);
+const AAPCS64_INTS: [Slot; convention::AAPCS64.int_params.len()] = slots(convention::AAPCS64.int_params);
+const AAPCS32_INTS: [Slot; convention::AAPCS32.int_params.len()] = slots(convention::AAPCS32.int_params);
+
+const WIN64_MACHINE: Machine = Machine { abi: &convention::WIN64, int_params: &WIN64_INTS, gprs: 16, xmms: 16 };
+const X86_MACHINE: Machine = Machine { abi: &convention::X86, int_params: &X86_INTS, gprs: 16, xmms: 16 };
+const ARM64_MACHINE: Machine = Machine { abi: &convention::AAPCS64, int_params: &AAPCS64_INTS, gprs: 32, xmms: 32 };
+const ARM32_MACHINE: Machine = Machine { abi: &convention::AAPCS32, int_params: &AAPCS32_INTS, gprs: 16, xmms: 16 };
+
+/// The one place a target's instruction set and width pick its convention: Win64 for 64-bit
+/// x86, the x86 conventions for 32-bit, AAPCS64 and AAPCS32 for the ARMs.
+fn machine(target: Target) -> &'static Machine {
+    match (target.isa, target.bits) {
+        (Isa::Arm64, _) => &ARM64_MACHINE,
+        (Isa::Arm32, _) => &ARM32_MACHINE,
+        (Isa::X86, 64) => &WIN64_MACHINE,
+        (Isa::X86, _) => &X86_MACHINE,
+    }
+}
 
 impl Target {
     pub const WIN64: Target = Target { bits: 64, isa: Isa::X86 };
@@ -71,15 +119,15 @@ impl Target {
         self.isa == Isa::Arm32
     }
 
-    /// Either ARM: a call leaves its return address in the link register and pushes nothing.
-    fn is_arm(self) -> bool {
-        self.is_arm64() || self.is_arm32()
+    /// The calling convention the raise applies.
+    pub fn abi(self) -> &'static Abi {
+        machine(self).abi
     }
 
     /// Whether a parameter's position is one register of either class, as on Win64; elsewhere
     /// the integers and the floats each count their own registers.
     pub fn shares_positions(self) -> bool {
-        self.is_64() && !self.is_arm64()
+        self.abi().shared_positions
     }
 
     /// The size of a pointer and of a stack slot, in bytes.
@@ -94,28 +142,22 @@ impl Target {
 
     /// The slot of the stack pointer: `rsp`, `sp` on ARM64, `r13` on 32-bit ARM.
     pub fn sp(self) -> Slot {
-        if self.is_arm64() {
-            ARM64_SP
-        } else if self.is_arm32() {
-            ARM32_SP
-        } else {
-            RSP
-        }
+        slot(self.abi().stack_pointer)
     }
 
     /// The bytes a call pushes for its return address and the callee's return pops: a pointer on
     /// x86, nothing on ARM, where `bl` leaves it in the link register.
     pub fn pushed_return(self) -> i64 {
-        if self.is_arm() { 0 } else { self.ptr() }
+        i64::from(self.abi().pushed_return())
     }
 
     /// The general and the vector registers of the target's state.
     pub fn gprs(self) -> u8 {
-        if self.is_arm64() { 32 } else { 16 }
+        machine(self).gprs
     }
 
     pub fn xmms(self) -> u8 {
-        if self.is_arm64() { 32 } else { 16 }
+        machine(self).xmms
     }
 
     /// The slots the target's state has: its general registers, the flags and its vector
@@ -134,36 +176,20 @@ impl Target {
     /// Also where a caller's outgoing arguments start above its stack pointer once the return
     /// address is pushed.
     pub fn first_stack_arg(self) -> i64 {
-        if self.is_arm() {
-            0
-        } else if self.is_64() {
-            0x28
-        } else {
-            4
-        }
+        i64::from(self.abi().first_stack_arg())
     }
 
     /// Where a caller's outgoing arguments start above its stack pointer at the call instruction,
     /// before any push: what an import called in place of the native call sees.
     pub fn outgoing_at_call(self) -> i64 {
-        if self.shares_positions() { 0x20 } else { 0 }
+        i64::from(self.abi().home_space)
     }
 
     /// The registers that carry integer arguments, by position: `rcx`, `rdx`, `r8`, `r9` on Win64;
     /// `ecx` and `edx` on x86, which `fastcall` and `thiscall` use; `x0` to `x7` on ARM64; `r0` to
     /// `r3` on 32-bit ARM.
     pub fn int_param_slots(self) -> &'static [Slot] {
-        const ARM64: [Slot; 8] =
-            [Slot::Gpr(0), Slot::Gpr(1), Slot::Gpr(2), Slot::Gpr(3), Slot::Gpr(4), Slot::Gpr(5), Slot::Gpr(6), Slot::Gpr(7)];
-        if self.is_arm64() {
-            &ARM64
-        } else if self.is_arm32() {
-            &ARM64[..4]
-        } else if self.is_64() {
-            &[RCX, RDX, R8, R9]
-        } else {
-            &[RCX, RDX]
-        }
+        machine(self).int_params
     }
 
     /// How many floats arrive in vector registers: four on Win64, where a position is a register
@@ -172,15 +198,7 @@ impl Target {
     /// ARM64, `v0` to `v7`, counted on their own too; none on 32-bit ARM, whose VFP registers the
     /// lift does not model yet.
     pub fn float_params(self) -> usize {
-        if self.is_arm32() {
-            0
-        } else if self.is_arm64() {
-            8
-        } else if self.is_64() {
-            4
-        } else {
-            3
-        }
+        self.abi().float_params.len()
     }
 
     /// The register of parameter `index` of `params`: by position on Win64, by its place among
@@ -193,25 +211,23 @@ impl Target {
         } else {
             params[..index].iter().filter(|k| matches!(k, abi::Kind::Float | abi::Kind::Double) == float).count()
         };
-        if float { (place < self.float_params()).then_some(Slot::Xmm(place as u8)) } else { self.int_param_slots().get(place).copied() }
+        if float { self.abi().float_params.get(place).copied().map(slot) } else { self.int_param_slots().get(place).copied() }
     }
 
     /// Whether the callee keeps the register: `rbx`, `rbp`, `rsp`, `rsi`, `rdi`, `r12` to `r15`
     /// and `xmm6` to `xmm15` on Win64; `ebx`, `ebp`, `esp`, `esi` and `edi` on x86; on ARM64
     /// `x19` to `x28`, the frame pointer `x29`, `sp`, the low halves of `v8` to `v15`, and `x18`,
     /// the thread's block, which no Windows function changes. The link register is the caller's
-    /// to lose: `bl` writes it. On 32-bit ARM `r4` to `r11` and `sp`.
+    /// to lose: `bl` writes it. On 32-bit ARM `r4` to `r11` and `sp`. A vector slot past the
+    /// state's vector registers, which no function of the target touches, answers as the last of
+    /// them does.
     pub fn callee_saved(self, slot: Slot) -> bool {
-        match slot {
-            Slot::Gpr(n) if self.is_arm64() => (18..=29).contains(&n) || n == 31,
-            Slot::Gpr(n) if self.is_arm32() => (4..=11).contains(&n) || n == 13,
-            Slot::Xmm(_) if self.is_arm32() => false,
-            Slot::Gpr(n) if self.is_64() => matches!(n, 3 | 4 | 5 | 6 | 7 | 12 | 13 | 14 | 15),
-            Slot::Gpr(n) => (3..=7).contains(&n),
-            Slot::Xmm(n) if self.is_arm64() => (8..=15).contains(&n),
-            Slot::Xmm(n) => self.is_64() && n >= 6,
-            Slot::Flag(_) => false,
-        }
+        let reg = match slot {
+            Slot::Gpr(n) => Reg::Gpr(n),
+            Slot::Xmm(n) => Reg::Vector(n.min(self.xmms() - 1)),
+            Slot::Flag(_) => return false,
+        };
+        self.abi().is_callee_saved(reg)
     }
 
     /// The entry stack pointer's offset past a 16-byte boundary: a native call pushes the return
@@ -219,13 +235,7 @@ impl Target {
     /// alignment is 4 and 12 is what a caller aligned to 16 leaves); on ARM64 the stack pointer
     /// is 16-byte aligned at every call and nothing is pushed, so 0.
     pub fn entry_misalignment(self) -> u64 {
-        if self.is_arm() {
-            0
-        } else if self.is_64() {
-            8
-        } else {
-            12
-        }
+        u64::from(self.abi().entry_misalignment())
     }
 }
 

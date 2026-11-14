@@ -85,3 +85,33 @@ fn snapshot() {
         );
     }
 }
+
+/// The methods of `Target` read its convention instead of asking for its instruction set: only
+/// `is_arm64` and `is_arm32`, which are that question, name the ISA.
+#[test]
+fn target_reads_its_abi() {
+    const ISA_TESTS: [&str; 5] = ["self.isa", "Isa::", "is_arm64(", "is_arm32(", "is_arm("];
+    const PREDICATES: [&str; 2] = ["is_arm64", "is_arm32"];
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/raise/mod.rs");
+    let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())).replace("\r\n", "\n");
+    let start = source.find("\nimpl Target {\n").unwrap_or_else(|| panic!("{} has no `impl Target`", path.display()));
+    let body = &source[start + 1..];
+    let body = &body[..body.find("\n}\n").expect("the end of `impl Target`")];
+    let mut method: Option<&str> = None;
+    let mut offenders = Vec::new();
+    for line in body.lines() {
+        let code = line.trim();
+        if code.starts_with("//") {
+            continue;
+        }
+        if let Some(rest) = code.strip_prefix("pub fn ").or_else(|| code.strip_prefix("fn ")) {
+            method = rest.split('(').next();
+        }
+        let Some(name) = method else { continue };
+        if !PREDICATES.contains(&name) && ISA_TESTS.iter().any(|test| code.contains(test)) {
+            offenders.push(format!("{name}: {code}"));
+        }
+    }
+    assert!(method.is_some(), "no method found in `impl Target`");
+    assert!(offenders.is_empty(), "methods of `Target` that test the ISA:\n  {}", offenders.join("\n  "));
+}
