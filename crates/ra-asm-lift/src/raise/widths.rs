@@ -249,6 +249,20 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
     }
     for _ in 0..16 {
         let analyses: HashMap<String, Analysis> = module.functions.iter().map(|f| (f.name.clone(), analyze(f, &plan))).collect();
+        // The widest of each callee's results its callers read, in one walk of the module: asked
+        // of every caller once per function, the walk was the module squared.
+        let mut read_by_callers: HashMap<&str, u16> = HashMap::new();
+        for g in &module.functions {
+            let ga = &analyses[&g.name];
+            for i in g.blocks.iter().flat_map(|b| &b.instrs) {
+                if let (Inst::Call { callee: Callee::Direct(name), .. }, Some(r)) = (&i.inst, i.result)
+                    && let Some(d) = ga.demand.get(&r)
+                {
+                    let widest = read_by_callers.entry(name.as_str()).or_insert(0);
+                    *widest = (*widest).max(round(*d));
+                }
+            }
+        }
         let mut next = Plan::default();
         for f in &module.functions {
             if !eligible(&f.name) {
@@ -273,15 +287,7 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
                     _ => None,
                 });
                 let w = round(returned.max().unwrap_or(FULL).max(1));
-                let callers_agree = module.functions.iter().all(|g| {
-                    let ga = &analyses[&g.name];
-                    g.blocks.iter().flat_map(|b| &b.instrs).all(|i| match (&i.inst, i.result) {
-                        (Inst::Call { callee: Callee::Direct(name), .. }, Some(r)) if *name == f.name => {
-                            ga.demand.get(&r).is_none_or(|d| round(*d) <= w)
-                        }
-                        _ => true,
-                    })
-                });
+                let callers_agree = read_by_callers.get(f.name.as_str()).is_none_or(|d| *d <= w);
                 if w < FULL && callers_agree {
                     next.results.insert(f.name.clone(), w);
                 }
