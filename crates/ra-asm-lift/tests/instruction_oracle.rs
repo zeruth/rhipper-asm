@@ -7,17 +7,21 @@
 //! field that differs, the flags by name. Flags the manual leaves undefined are not compared.
 //!
 //! The suite runs at a fixed seed; `RA_ORACLE_SEED=random` (or a number) picks another and prints
-//! it, `RA_ORACLE_SAMPLES` the states per form, for a nightly run.
+//! it, `RA_ORACLE_SAMPLES` the states per form, for a nightly run. The ignored `write_vectors`
+//! writes the processor's answers at the fixed seed as the vector files of
+//! `testdata/vectors/x86_64`, one a mnemonic group.
 
 #![cfg(all(windows, target_arch = "x86_64"))]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::c_void;
+use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 use ra_asm_ir::FnType;
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
+use ra_asm_testing::vectors::{self, Case, Outcome, State};
 use ra_asm_x86::iced_x86::{
     Code, Encoder, EncodingKind, Formatter, Instruction, IntelFormatter, Mnemonic, OpCodeOperandKind as K, OpKind, Register as R,
     RflagsBits,
@@ -46,6 +50,11 @@ const STATE_LEN: usize = 400;
 
 const FLAG_NAMES: [&str; 7] = ["cf", "pf", "af", "zf", "sf", "df", "of"];
 const FLAG_BITS: [u32; 7] = [0, 2, 4, 6, 7, 10, 11];
+const FLAG_RFLAGS: [u32; 7] =
+    [RflagsBits::CF, RflagsBits::PF, RflagsBits::AF, RflagsBits::ZF, RflagsBits::SF, RflagsBits::DF, RflagsBits::OF];
+
+/// The seed of the suite and of the vector files.
+const SEED: u64 = 0x5EED_0108;
 const GPR_NAMES: [&str; 16] =
     ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"];
 
@@ -951,9 +960,8 @@ fn differences(native: &Picture, lifted: &Picture, undefined: u32) -> Vec<String
             out.push(format!("{}: native {:#x}, lifted {l:#x}", GPR_NAMES[i], native.gprs[i]));
         }
     }
-    let undefined_bits = [RflagsBits::CF, RflagsBits::PF, RflagsBits::AF, RflagsBits::ZF, RflagsBits::SF, RflagsBits::DF, RflagsBits::OF];
     for (i, name) in FLAG_NAMES.iter().enumerate() {
-        if undefined & undefined_bits[i] == 0 && native.flags[i] != lifted.flags[i] {
+        if undefined & FLAG_RFLAGS[i] == 0 && native.flags[i] != lifted.flags[i] {
             out.push(format!("{name}: native {}, lifted {}", native.flags[i], lifted.flags[i]));
         }
     }
@@ -983,7 +991,7 @@ struct Settings {
 
 fn settings() -> Settings {
     let seed = match std::env::var("RA_ORACLE_SEED").ok().as_deref() {
-        None | Some("") => 0x5EED_0108,
+        None | Some("") => SEED,
         Some("random") => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64 | 1,
         Some(text) => text.parse().expect("RA_ORACLE_SEED is a number or `random`"),
     };
@@ -1102,6 +1110,261 @@ fn every_arm_has_a_form() {
     assert!(missing.is_empty(), "arms of lift_instr without a form: {missing:?}");
     let stale: Vec<&&str> = not_run.iter().filter(|m| !lifted.contains(**m)).collect();
     assert!(stale.is_empty(), "NOT_RUN names mnemonics lift_instr has no arm for: {stale:?}");
+}
+
+// endregion
+
+// region The vectors
+
+/// The samples a form gets in the vector files: the suite has 733 forms, and eleven a form
+/// puts the files over 8 000 cases where eight stops at 5 864.
+const VECTOR_SAMPLES: u32 = 11;
+
+/// The arena's address in the files: a register or a cell that points into the arena is rebased
+/// to it, so the files read the same whatever address this process got.
+const VECTOR_BASE: u64 = 0x2000_0000;
+
+fn vectors_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/vectors/x86_64")
+}
+
+/// The mnemonic groups of the files, by name. A form over `rsi`/`rdi` is a string one, a form with
+/// an xmm operand is SSE (integer when its mnemonic starts with `P`), a `setcc` or `cmovcc` a
+/// condition; what no group names is `misc`.
+const GROUPS: &[(&str, &[&str])] = &[
+    (
+        "arith",
+        &["Add", "Adc", "Sub", "Sbb", "Inc", "Dec", "Neg", "Cmp", "Mul", "Imul", "Div", "Idiv", "Cbw", "Cwde", "Cdqe", "Cwd", "Cdq", "Cqo"],
+    ),
+    ("logic", &["And", "Or", "Xor", "Not", "Test"]),
+    ("shift", &["Shl", "Shr", "Sar", "Sal", "Rol", "Ror", "Rcl", "Rcr", "Shld", "Shrd"]),
+    ("bits", &["Bt", "Bts", "Btr", "Btc", "Bsf", "Bsr", "Popcnt", "Lzcnt", "Tzcnt", "Bswap"]),
+    ("moves", &["Mov", "Movzx", "Movsx", "Movsxd", "Lea", "Xchg", "Xadd", "Cmpxchg", "Cmpxchg8b", "Cmpxchg16b"]),
+    ("stack", &["Push", "Pop", "Pushf", "Pushfq", "Popf", "Popfq", "Leave"]),
+];
+
+fn group(code: Code) -> &'static str {
+    let kinds = code.op_code().op_kinds();
+    if kinds.iter().any(|k| matches!(k, K::seg_rSI | K::es_rDI)) {
+        return "string";
+    }
+    let name = mnemonic_name(code.mnemonic());
+    if kinds.iter().any(|k| matches!(k, K::xmm_reg | K::xmm_rm | K::xmm_or_mem)) {
+        return if name.starts_with('P') { "sse_int" } else { "sse" };
+    }
+    if name.starts_with("Set") || name.starts_with("Cmov") {
+        return "conditions";
+    }
+    GROUPS.iter().find(|(_, names)| names.contains(&name.as_str())).map_or("misc", |(group, _)| *group)
+}
+
+/// `v` with the arena at `VECTOR_BASE` when it points into the arena.
+fn rebased(arena: &Arena, v: u64) -> u64 {
+    if (arena.base..arena.base + ARENA_LEN).contains(&v) { v - arena.base + VECTOR_BASE } else { v }
+}
+
+/// The name a fault takes in the files.
+fn fault_kind(code: u32) -> String {
+    match code {
+        0xC000_0005 => "access".to_owned(),
+        0xC000_001D => "illegal".to_owned(),
+        0xC000_0094 => "divide".to_owned(),
+        0xC000_0096 => "privileged".to_owned(),
+        _ => format!("exception_{code:x}"),
+    }
+}
+
+/// The registers of a picture as the files name them: the general registers, one byte a flag,
+/// the vectors.
+fn vector_registers(p: &Picture, arena: &Arena) -> BTreeMap<String, Vec<u8>> {
+    let mut out = BTreeMap::new();
+    for (name, g) in GPR_NAMES.iter().zip(p.gprs) {
+        out.insert((*name).to_owned(), rebased(arena, g).to_be_bytes().to_vec());
+    }
+    for (name, f) in FLAG_NAMES.iter().zip(p.flags) {
+        out.insert((*name).to_owned(), vec![f]);
+    }
+    for (i, x) in p.xmm.iter().enumerate() {
+        out.insert(format!("xmm{i}"), x.to_be_bytes().to_vec());
+    }
+    out
+}
+
+/// The byte ranges the instruction can read from `input`: its memory operand (a bit test's
+/// register offset followed to the byte it reaches), the string operands over their count and
+/// direction, and the stack around `rsp` or the frame at `rbp` for the forms that use them
+/// without naming them.
+fn reads(ins: &Instruction, input: &Picture) -> Vec<(u64, u64)> {
+    let mut out = Vec::new();
+    let width = ins.memory_size().size() as u64;
+    if let Some(at) = effective_address(ins, input)
+        && width != 0
+    {
+        let bit_test = matches!(ins.mnemonic(), Mnemonic::Bt | Mnemonic::Bts | Mnemonic::Btr | Mnemonic::Btc);
+        if bit_test && ins.op1_kind() == OpKind::Register {
+            let reg = ins.op1_register();
+            let shift = 64 - 8 * reg.size() as u32;
+            let offset = ((input.gprs[reg.number()] << shift) as i64) >> shift;
+            let byte = at.wrapping_add_signed(offset >> 3);
+            out.push((byte.wrapping_sub(8), byte.wrapping_add(16)));
+        } else {
+            out.push((at, at.wrapping_add(width)));
+        }
+    }
+    let kinds = ins.code().op_code().op_kinds();
+    let rep = ins.has_rep_prefix() || ins.has_repe_prefix() || ins.has_repne_prefix();
+    let count = if rep { input.gprs[1] } else { 1 };
+    for (kind, reg) in [(K::seg_rSI, 6), (K::es_rDI, 7)] {
+        if kinds.contains(&kind) && count != 0 {
+            let p = input.gprs[reg];
+            let total = count.wrapping_mul(width);
+            // Backwards, the last element is `total - width` below the pointer.
+            if input.flags[5] == 1 {
+                out.push((p.wrapping_add(width).wrapping_sub(total), p.wrapping_add(width)));
+            } else {
+                out.push((p, p.wrapping_add(total)));
+            }
+        }
+    }
+    match ins.mnemonic() {
+        Mnemonic::Push | Mnemonic::Pop | Mnemonic::Pushf | Mnemonic::Pushfq | Mnemonic::Popf | Mnemonic::Popfq => {
+            out.push((input.gprs[4].wrapping_sub(16), input.gprs[4].wrapping_add(16)));
+        }
+        Mnemonic::Leave => out.push((input.gprs[5], input.gprs[5].wrapping_add(16))),
+        _ => {}
+    }
+    out
+}
+
+/// Which buffer holds the sixteen-byte chunk at an arena address, and where in it.
+fn chunk_index(arena: &Arena, at: u64) -> Option<(bool, usize)> {
+    let off = at.checked_sub(arena.base)?;
+    if (DATA..DATA + DATA_LEN).contains(&off) {
+        Some((true, (off - DATA) as usize))
+    } else if (STACK..STACK + STACK_LEN).contains(&off) {
+        Some((false, (off - STACK) as usize))
+    } else {
+        None
+    }
+}
+
+/// The chunks of the data and the stack buffer a range touches.
+fn chunks(arena: &Arena, (start, end): (u64, u64)) -> impl Iterator<Item = u64> {
+    let first = start & !15;
+    let last = end.wrapping_add(15) & !15;
+    (first..last).step_by(16).filter(move |&at| chunk_index(arena, at).is_some())
+}
+
+fn chunk(p: &Picture, arena: &Arena, at: u64) -> Option<Vec<u8>> {
+    let (data, i) = chunk_index(arena, at)?;
+    let buf = if data { &p.data } else { &p.stack };
+    Some(buf[i..i + 16].to_vec())
+}
+
+/// The chunks that differ between two pictures.
+fn changed_chunks(before: &Picture, after: &Picture, arena: &Arena) -> BTreeSet<u64> {
+    let mut out = BTreeSet::new();
+    for (start, a, b) in [(DATA, &before.data, &after.data), (STACK, &before.stack, &after.stack)] {
+        for (i, (x, y)) in a.chunks_exact(16).zip(b.chunks_exact(16)).enumerate() {
+            if x != y {
+                out.insert(arena.base + start + 16 * i as u64);
+            }
+        }
+    }
+    out
+}
+
+/// One case from the processor's run of `ins` over `input`: the registers and the chunks the
+/// instruction can read (and the ones it changed, so a read-modify-write replays) in; what
+/// changed out, the flags the manual leaves undefined left out of it and named in `undefined`,
+/// the rflags mask of those flags; or the fault.
+fn vector_case(ins: &Instruction, bytes: Vec<u8>, input: &Picture, ran: &Ran, arena: &Arena) -> Case {
+    let mut cells: BTreeSet<u64> = reads(ins, input).into_iter().flat_map(|range| chunks(arena, range)).collect();
+    if let Ran::State(after) = ran {
+        cells.extend(changed_chunks(input, after, arena));
+    }
+    let state = |p: &Picture| State {
+        registers: vector_registers(p, arena),
+        memory: cells.iter().filter_map(|&at| chunk(p, arena, at).map(|v| (rebased(arena, at), v))).collect(),
+    };
+    let before = state(input);
+    let outcome = match ran {
+        Ran::Fault(kind) => Outcome::Fault(kind.clone()),
+        Ran::State(after) => {
+            let mut after = state(after);
+            let undefined = undefined_flags(ins, input);
+            let mut mask = 0u16;
+            for (i, name) in FLAG_NAMES.iter().enumerate() {
+                if undefined & FLAG_RFLAGS[i] != 0 {
+                    after.registers.remove(*name);
+                    mask |= 1 << FLAG_BITS[i];
+                }
+            }
+            if mask != 0 {
+                after.registers.insert("undefined".to_owned(), mask.to_be_bytes().to_vec());
+            }
+            Outcome::State(vectors::changed(&before, &after))
+        }
+    };
+    Case { bytes, input: before, outcome }
+}
+
+/// Writes `testdata/vectors/x86_64/<group>.vec`: every form over `VECTOR_SAMPLES` states at the
+/// fixed seed, the processor's answer as the outcome.
+#[test]
+#[ignore = "rewrites testdata/vectors/x86_64/*.vec from the processor"]
+fn write_vectors() {
+    let forms = forms(&lifted_mnemonics());
+    let arena = Arena::new();
+    let mut rng = Rng(SEED);
+    let mut groups: BTreeMap<&str, Vec<Case>> = BTreeMap::new();
+    for &code in &forms {
+        for _ in 0..VECTOR_SAMPLES {
+            let Some((ins, pins, bytes)) = (0..8).find_map(|_| {
+                let (ins, pins) = instance(code, &mut rng, &arena)?;
+                encode(&ins).ok().map(|bytes| (ins, pins, bytes))
+            }) else {
+                break;
+            };
+            let entry = build_trampoline(&arena, &bytes);
+            let mut input = Picture::random(&mut rng, &arena, &pins);
+            // A vector register the form does not name is zero, so the line lists what matters.
+            let named: Vec<usize> = (0..ins.op_count())
+                .filter(|&n| ins.op_kind(n) == OpKind::Register && ins.op_register(n).is_xmm())
+                .map(|n| ins.op_register(n).number())
+                .collect();
+            for (i, x) in input.xmm.iter_mut().enumerate() {
+                if !named.contains(&i) {
+                    *x = 0;
+                }
+            }
+            input.write(&arena, true);
+            let ran = match run_native(entry) {
+                None => Ran::State(Picture::read(&arena, true)),
+                Some(fault) => Ran::Fault(fault_kind(fault)),
+            };
+            groups.entry(group(code)).or_default().push(vector_case(&ins, bytes, &input, &ran, &arena));
+        }
+    }
+    let dir = vectors_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut total = 0;
+    for (group, cases) in &groups {
+        let text = format!(
+            "# x86-64 vectors of the {group} group: the processor's answer to every form of the group over\n\
+             # {VECTOR_SAMPLES} states at seed {SEED:#x}, written by write_vectors in\n\
+             # crates/ra-asm-lift/tests/instruction_oracle.rs. In: the general registers, the flags cf pf af\n\
+             # zf sf df of one byte each, the vector registers the form names, the sixteen-byte chunks the\n\
+             # form can read; the arena is at {VECTOR_BASE:#x}. Out: what changed; a flag the manual leaves\n\
+             # undefined is left out and `undefined` holds the rflags mask of those flags.\n{}",
+            vectors::write(cases)
+        );
+        let path = dir.join(format!("{group}.vec"));
+        std::fs::write(&path, text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        eprintln!("x86_64 vectors: {group}: {} cases", cases.len());
+        total += cases.len();
+    }
+    eprintln!("x86_64 vectors: {total} cases in {} groups", groups.len());
 }
 
 // endregion
