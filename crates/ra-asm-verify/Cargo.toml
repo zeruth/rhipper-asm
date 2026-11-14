@@ -1,0 +1,11 @@
+[package]
+name = "ra-asm-verify"
+description = "The evidence that a port behaves as its program: the function vector and its file"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

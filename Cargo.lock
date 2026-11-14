@@ -320,6 +320,10 @@ name = "ra-asm-testing"
 version = "0.2.0"
 
 [[package]]
+name = "ra-asm-verify"
+version = "0.2.0"
+
+[[package]]
 name = "ra-asm-wasm"
 version = "0.2.0"
 
