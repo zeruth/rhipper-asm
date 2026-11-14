@@ -16,14 +16,14 @@ const WIDE: Field = Field { name: "wide", lo: 20, width: 13, signed: false, kind
 
 const OPCODE: u32 = 0xfc00_0000;
 
-const NOP: Row = Row { name: "nop", mask: u32::MAX, bits: 0, fields: &[], flow: Flow::Next };
-const ADD: Row = Row { name: "add", mask: OPCODE | 0x7ff, bits: 0, fields: &[RD, RA, RB], flow: Flow::Next };
-const ADDI: Row = Row { name: "addi", mask: OPCODE, bits: 0x08 << 26, fields: &[RD, RA, IMM], flow: Flow::Next };
-const LD: Row = Row { name: "ld", mask: OPCODE, bits: 0x10 << 26, fields: &[RD, RA, IMM], flow: Flow::Next };
-const B: Row = Row { name: "b", mask: OPCODE, bits: 0x18 << 26, fields: &[FAR], flow: Flow::Jump };
-const BEQ: Row = Row { name: "beq", mask: OPCODE, bits: 0x19 << 26, fields: &[BEQ_RA, BEQ_RB, NEAR], flow: Flow::Branch };
-const CALL: Row = Row { name: "call", mask: OPCODE, bits: 0x1a << 26, fields: &[FAR], flow: Flow::Call };
-const RET: Row = Row { name: "ret", mask: u32::MAX, bits: 0x3f << 26, fields: &[], flow: Flow::Return };
+const NOP: Row = Row { name: "nop", mask: u32::MAX, bits: 0, fields: &[], flow: Flow::Next, sem: None };
+const ADD: Row = Row { name: "add", mask: OPCODE | 0x7ff, bits: 0, fields: &[RD, RA, RB], flow: Flow::Next, sem: None };
+const ADDI: Row = Row { name: "addi", mask: OPCODE, bits: 0x08 << 26, fields: &[RD, RA, IMM], flow: Flow::Next, sem: None };
+const LD: Row = Row { name: "ld", mask: OPCODE, bits: 0x10 << 26, fields: &[RD, RA, IMM], flow: Flow::Next, sem: None };
+const B: Row = Row { name: "b", mask: OPCODE, bits: 0x18 << 26, fields: &[FAR], flow: Flow::Jump, sem: None };
+const BEQ: Row = Row { name: "beq", mask: OPCODE, bits: 0x19 << 26, fields: &[BEQ_RA, BEQ_RB, NEAR], flow: Flow::Branch, sem: None };
+const CALL: Row = Row { name: "call", mask: OPCODE, bits: 0x1a << 26, fields: &[FAR], flow: Flow::Call, sem: None };
+const RET: Row = Row { name: "ret", mask: u32::MAX, bits: 0x3f << 26, fields: &[], flow: Flow::Return, sem: None };
 
 const TOY: [Row; 8] = [NOP, ADD, ADDI, LD, B, BEQ, CALL, RET];
 
@@ -87,7 +87,7 @@ fn the_order_of_the_rows_does_not_choose_the_winner() {
 fn an_overlap_is_refused_with_both_names() {
     // `mov` fixes `rb`, which `add` leaves open, and leaves the opcode open, which `add` fixes:
     // neither holds the other. `nop` holds both, so the overlap it meets first is theirs.
-    let mov = Row { name: "mov", mask: 0x7ff | 0x1f << 11, bits: 0, fields: &[RD, RA], flow: Flow::Next };
+    let mov = Row { name: "mov", mask: 0x7ff | 0x1f << 11, bits: 0, fields: &[RD, RA], flow: Flow::Next, sem: None };
     let rows = [NOP, ADD, mov];
     let error = Table::new(&rows).expect_err("add and mov overlap");
     let Error::Overlap { first, second, word } = error.clone() else { panic!("an overlap, not {error:?}") };
@@ -115,8 +115,8 @@ fn an_unknown_word_is_none() {
 
 #[test]
 fn a_malformed_row_is_refused() {
-    let loose = Row { name: "loose", mask: OPCODE, bits: 0x01, fields: &[], flow: Flow::Trap };
+    let loose = Row { name: "loose", mask: OPCODE, bits: 0x01, fields: &[], flow: Flow::Trap, sem: None };
     assert_eq!(Table::new(&[loose]).expect_err("a bit outside the mask"), Error::Bits { row: "loose" });
-    let wide = Row { name: "far", mask: OPCODE, bits: 0, fields: &[WIDE], flow: Flow::Next };
+    let wide = Row { name: "far", mask: OPCODE, bits: 0, fields: &[WIDE], flow: Flow::Next, sem: None };
     assert_eq!(Table::new(&[wide]).expect_err("a field past bit 31"), Error::Field { row: "far", field: "wide" });
 }

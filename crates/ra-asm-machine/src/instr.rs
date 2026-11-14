@@ -53,8 +53,7 @@ impl Machine {
                 Kind::Reg => Operand::Reg(self.register(value)?),
                 Kind::Imm => Operand::Imm { value, bits: u16::from(field.width) },
                 Kind::Rel { shift, from } => {
-                    let to =
-                        self.wrap(address.wrapping_add_signed(i64::from(from)).wrapping_add_signed(value.wrapping_shl(u32::from(shift))));
+                    let to = self.resolve(address, shift, from, value);
                     target.get_or_insert(to);
                     Operand::Addr(to)
                 }
@@ -106,7 +105,12 @@ impl Machine {
         usize::try_from(value).ok().and_then(|at| self.registers.get(at)).copied()
     }
 
-    fn wrap(&self, address: u64) -> u64 {
+    /// The code address a relative field of `value` names from the instruction at `address`.
+    pub(crate) fn resolve(&self, address: u64, shift: u8, from: i8, value: i64) -> u64 {
+        self.wrap(address.wrapping_add_signed(i64::from(from)).wrapping_add_signed(value.wrapping_shl(u32::from(shift))))
+    }
+
+    pub(crate) fn wrap(&self, address: u64) -> u64 {
         if self.address_bits >= 64 { address } else { address & ((1u64 << self.address_bits) - 1) }
     }
 

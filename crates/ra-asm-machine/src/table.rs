@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use crate::sem::Sem;
+
 /// One instruction of the machine: the word `w` is this row when `w & mask == bits`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Row {
@@ -13,6 +15,8 @@ pub struct Row {
     /// The operands the word carries, in the order [`Decoded::values`] gives them.
     pub fields: &'static [Field],
     pub flow: Flow,
+    /// What the instruction does, over a [`crate::sem::Builder`]; a row without it lifts to a trap.
+    pub sem: Option<Sem>,
 }
 
 /// An operand of a row: `width` bits of the word from bit `lo` up.

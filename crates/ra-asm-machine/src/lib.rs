@@ -11,9 +11,15 @@
 //! A [`Machine`] is a table with its register file and its syntax: it turns a decoded word into the
 //! neutral [`ra_asm_arch::Instr`], with the text its objdump prints, from what the fields' kinds
 //! say, so neither the analysis nor the disassembly knows anything of one machine.
+//!
+//! A row carries what its instruction does ([`Sem`]), a function over a [`Builder`]; the IR
+//! builder runs it over the state a [`StateSpec`] lays out, and [`Machine::lift`] turns a word
+//! into the function of that one instruction.
 
 pub mod instr;
+pub mod sem;
 pub mod table;
 
 pub use instr::{Machine, Syntax};
+pub use sem::{Builder, Cond, Fields, Lift, Op, STATE_TYPE, Sem, StateSpec, Val};
 pub use table::{Decoded, Error, Field, Flow, Kind, Row, Table};
