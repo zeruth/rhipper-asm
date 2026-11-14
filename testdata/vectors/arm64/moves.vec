@@ -1,0 +1,222 @@
+# arm64 vectors of the moves group: the state after each case of cases/moves.cases under
+# qemu-aarch64-static (-cpu max,pauth=off) over 3 states a case, written by
+# write_arm64_vectors in crates/ra-asm-lift/tests/vectors.rs and replayed by its arm64 test.
+# case <opcode> <encoding> <assembly> <- <template>; in: the registers the case sets (the
+# rest are zero), the flags as NZCV bits, the window of data bytes; out: where the case
+# stopped and what it changed.
+case MOVZ d2800000 movz x0, #0, lsl #0 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1011 x0=0xfffffffffffffff5
+out pc=0x30002004 sig=trap x0=0x0
+case MOVZ d2800000 movz x0, #0, lsl #0 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0100 x0=0x8000000000000006
+out pc=0x30002004 sig=trap x0=0x0
+case MOVZ d2800000 movz x0, #0, lsl #0 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1111 x0=0x7ffffffff
+out pc=0x30002004 sig=trap x0=0x0
+case MOVZ d2bfffe5 movz x5, #0xffff, lsl #16 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1001 x5=0x1000000
+out pc=0x30002004 sig=trap x5=0xffff0000
+case MOVZ d2bfffe5 movz x5, #0xffff, lsl #16 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1010 x5=0xfffffffffffffff1
+out pc=0x30002004 sig=trap x5=0xffff0000
+case MOVZ d2bfffe5 movz x5, #0xffff, lsl #16 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1101 x5=0x79c66c1b085afa93
+out pc=0x30002004 sig=trap x5=0xffff0000
+case MOVZ d2c24691 movz x17, #0x1234, lsl #32 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0010 x17=0x8000000000000009
+out pc=0x30002004 sig=trap x17=0x123400000000
+case MOVZ d2c24691 movz x17, #0x1234, lsl #32 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1000 x17=0x8000000
+out pc=0x30002004 sig=trap x17=0x123400000000
+case MOVZ d2c24691 movz x17, #0x1234, lsl #32 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0110 x17=0xb
+out pc=0x30002004 sig=trap x17=0x123400000000
+case MOVZ d2f0001e movz x30, #0x8000, lsl #48 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0000 x30=0x7ffffffffffffff0
+out pc=0x30002004 sig=trap x30=0x8000000000000000
+case MOVZ d2f0001e movz x30, #0x8000, lsl #48 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0000 x30=0x8000000000000002
+out pc=0x30002004 sig=trap x30=0x8000000000000000
+case MOVZ d2f0001e movz x30, #0x8000, lsl #48 <- movz {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0011 x30=0x7ffffffffffffff9
+out pc=0x30002004 sig=trap x30=0x8000000000000000
+case MOVZ 52800000 movz w0, #0, lsl #0 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1011 x0=0xf96a81245625c10a
+out pc=0x30002004 sig=trap x0=0x0
+case MOVZ 52800000 movz w0, #0, lsl #0 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0110 x0=0xfffffffffffffff2
+out pc=0x30002004 sig=trap x0=0x0
+case MOVZ 52800000 movz w0, #0, lsl #0 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0010 x0=0xfffffffffffffffc
+out pc=0x30002004 sig=trap x0=0x0
+case MOVZ 52bfffe5 movz w5, #0xffff, lsl #16 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1101 x5=0x3fff
+out pc=0x30002004 sig=trap x5=0xffff0000
+case MOVZ 52bfffe5 movz w5, #0xffff, lsl #16 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0011 x5=0x4deb1ca096635371
+out pc=0x30002004 sig=trap x5=0xffff0000
+case MOVZ 52bfffe5 movz w5, #0xffff, lsl #16 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0110 x5=0x7ffffffffffffffc
+out pc=0x30002004 sig=trap x5=0xffff0000
+case MOVZ 52824691 movz w17, #0x1234, lsl #0 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1100 x17=0x2
+out pc=0x30002004 sig=trap x17=0x1234
+case MOVZ 52824691 movz w17, #0x1234, lsl #0 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0000 x17=0x2000000
+out pc=0x30002004 sig=trap x17=0x1234
+case MOVZ 52824691 movz w17, #0x1234, lsl #0 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1101 x17=0x7fffffffffffffff
+out pc=0x30002004 sig=trap x17=0x1234
+case MOVZ 52b0001e movz w30, #0x8000, lsl #16 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0100 x30=0xfffffffffffffff0
+out pc=0x30002004 sig=trap x30=0x80000000
+case MOVZ 52b0001e movz w30, #0x8000, lsl #16 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0010 x30=0xc3455088ae01f4a3
+out pc=0x30002004 sig=trap x30=0x80000000
+case MOVZ 52b0001e movz w30, #0x8000, lsl #16 <- movz {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0001 x30=0x7ffffffffffffff
+out pc=0x30002004 sig=trap x30=0x80000000
+case MOVN 92800000 movn x0, #0, lsl #0 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0100 x0=0x200000000000
+out pc=0x30002004 sig=trap x0=0xffffffffffffffff
+case MOVN 92800000 movn x0, #0, lsl #0 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1010 x0=0x7ffffffffffffff1
+out pc=0x30002004 sig=trap x0=0xffffffffffffffff
+case MOVN 92800000 movn x0, #0, lsl #0 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0011 x0=0x7ffffffffffffff5
+out pc=0x30002004 sig=trap x0=0xffffffffffffffff
+case MOVN 92bfffe5 movn x5, #0xffff, lsl #16 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0011 x5=0x3
+out pc=0x30002004 sig=trap x5=0xffffffff0000ffff
+case MOVN 92bfffe5 movn x5, #0xffff, lsl #16 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0011 x5=0x7
+out pc=0x30002004 sig=trap x5=0xffffffff0000ffff
+case MOVN 92bfffe5 movn x5, #0xffff, lsl #16 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0101 x5=0x6
+out pc=0x30002004 sig=trap x5=0xffffffff0000ffff
+case MOVN 92c24691 movn x17, #0x1234, lsl #32 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0010 x17=0xb236f50406097c6b
+out pc=0x30002004 sig=trap x17=0xffffedcbffffffff
+case MOVN 92c24691 movn x17, #0x1234, lsl #32 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1010 x17=0x7dffb7088d11bcdb
+out pc=0x30002004 sig=trap x17=0xffffedcbffffffff
+case MOVN 92c24691 movn x17, #0x1234, lsl #32 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0011 x17=0x7ffffffffffffff2
+out pc=0x30002004 sig=trap x17=0xffffedcbffffffff
+case MOVN 92f0001e movn x30, #0x8000, lsl #48 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1100 x30=0xf1ed572803f27734
+out pc=0x30002004 sig=trap x30=0x7fffffffffffffff
+case MOVN 92f0001e movn x30, #0x8000, lsl #48 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0011 x30=0xf
+out pc=0x30002004 sig=trap x30=0x7fffffffffffffff
+case MOVN 92f0001e movn x30, #0x8000, lsl #48 <- movn {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1001 x30=0x800000000000000a
+out pc=0x30002004 sig=trap x30=0x7fffffffffffffff
+case MOVN 12800000 movn w0, #0, lsl #0 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0100 x0=0x8000000000000006
+out pc=0x30002004 sig=trap x0=0xffffffff
+case MOVN 12800000 movn w0, #0, lsl #0 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0101 x0=0x8000000000000003
+out pc=0x30002004 sig=trap x0=0xffffffff
+case MOVN 12800000 movn w0, #0, lsl #0 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0101 x0=0x3d15830f498e25ca
+out pc=0x30002004 sig=trap x0=0xffffffff
+case MOVN 12bfffe5 movn w5, #0xffff, lsl #16 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1100 x5=0x3ffffffffff
+out pc=0x30002004 sig=trap x5=0xffff
+case MOVN 12bfffe5 movn w5, #0xffff, lsl #16 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0010 x5=0xfffffff
+out pc=0x30002004 sig=trap x5=0xffff
+case MOVN 12bfffe5 movn w5, #0xffff, lsl #16 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1100 x5=0x400000000000
+out pc=0x30002004 sig=trap x5=0xffff
+case MOVN 12824691 movn w17, #0x1234, lsl #0 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0001 x17=0xffffffffffffffff
+out pc=0x30002004 sig=trap x17=0xffffedcb
+case MOVN 12824691 movn w17, #0x1234, lsl #0 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0000 x17=0x7ffffffffffffff4
+out pc=0x30002004 sig=trap x17=0xffffedcb
+case MOVN 12824691 movn w17, #0x1234, lsl #0 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1101 x17=0x7fff
+out pc=0x30002004 sig=trap x17=0xffffedcb
+case MOVN 12b0001e movn w30, #0x8000, lsl #16 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1010 x30=0xad72de78fa7c6f3f
+out pc=0x30002004 sig=trap x30=0x7fffffff
+case MOVN 12b0001e movn w30, #0x8000, lsl #16 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0110 x30=0xea9adfb6d9c06f71
+out pc=0x30002004 sig=trap x30=0x7fffffff
+case MOVN 12b0001e movn w30, #0x8000, lsl #16 <- movn {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0101 x30=0x400000000
+out pc=0x30002004 sig=trap x30=0x7fffffff
+case MOVK f2800000 movk x0, #0, lsl #0 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0010 x0=0x275245b2088f8d3e
+out pc=0x30002004 sig=trap x0=0x275245b2088f0000
+case MOVK f2800000 movk x0, #0, lsl #0 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0000 x0=0xfffffffffffffffc
+out pc=0x30002004 sig=trap x0=0xffffffffffff0000
+case MOVK f2800000 movk x0, #0, lsl #0 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1111 x0=0x4
+out pc=0x30002004 sig=trap x0=0x0
+case MOVK f2bfffe5 movk x5, #0xffff, lsl #16 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1110 x5=0x4000000000000
+out pc=0x30002004 sig=trap x5=0x40000ffff0000
+case MOVK f2bfffe5 movk x5, #0xffff, lsl #16 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1011 x5=0x200000000000000
+out pc=0x30002004 sig=trap x5=0x2000000ffff0000
+case MOVK f2bfffe5 movk x5, #0xffff, lsl #16 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1111 x5=0x1
+out pc=0x30002004 sig=trap x5=0xffff0001
+case MOVK f2c24691 movk x17, #0x1234, lsl #32 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0111 x17=0x8000000000000009
+out pc=0x30002004 sig=trap x17=0x8000123400000009
+case MOVK f2c24691 movk x17, #0x1234, lsl #32 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1001 x17=0xfffffffffffffff
+out pc=0x30002004 sig=trap x17=0xfff1234ffffffff
+case MOVK f2c24691 movk x17, #0x1234, lsl #32 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1101 x17=0x1b217e3a6210ec4a
+out pc=0x30002004 sig=trap x17=0x1b2112346210ec4a
+case MOVK f2f0001e movk x30, #0x8000, lsl #48 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0000 x30=0x800000000000000c
+out pc=0x30002004 sig=trap
+case MOVK f2f0001e movk x30, #0x8000, lsl #48 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=0010 x30=0x3fffffffffffffff
+out pc=0x30002004 sig=trap x30=0x8000ffffffffffff
+case MOVK f2f0001e movk x30, #0x8000, lsl #48 <- movk {Xd}, #{imm16}, lsl #{hw64}
+in nzcv=1001 x30=0xafbdce1ed70fb42b
+out pc=0x30002004 sig=trap x30=0x8000ce1ed70fb42b
+case MOVK 72800000 movk w0, #0, lsl #0 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1001 x0=0xdcebd510ceb1d1
+out pc=0x30002004 sig=trap x0=0x10ce0000
+case MOVK 72800000 movk w0, #0, lsl #0 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1000 x0=0xfffffffffffffff1
+out pc=0x30002004 sig=trap x0=0xffff0000
+case MOVK 72800000 movk w0, #0, lsl #0 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1000 x0=0x7ffffffffffffffa
+out pc=0x30002004 sig=trap x0=0xffff0000
+case MOVK 72bfffe5 movk w5, #0xffff, lsl #16 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1010 x5=0x3
+out pc=0x30002004 sig=trap x5=0xffff0003
+case MOVK 72bfffe5 movk w5, #0xffff, lsl #16 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0101 x5=0x3ff
+out pc=0x30002004 sig=trap x5=0xffff03ff
+case MOVK 72bfffe5 movk w5, #0xffff, lsl #16 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1000 x5=0x8
+out pc=0x30002004 sig=trap x5=0xffff0008
+case MOVK 72824691 movk w17, #0x1234, lsl #0 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0010 x17=0x6
+out pc=0x30002004 sig=trap x17=0x1234
+case MOVK 72824691 movk w17, #0x1234, lsl #0 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1001 x17=0xfffffffffffffff2
+out pc=0x30002004 sig=trap x17=0xffff1234
+case MOVK 72824691 movk w17, #0x1234, lsl #0 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0111 x17=0xfffffffffffffffc
+out pc=0x30002004 sig=trap x17=0xffff1234
+case MOVK 72b0001e movk w30, #0x8000, lsl #16 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0010 x30=0xff
+out pc=0x30002004 sig=trap x30=0x800000ff
+case MOVK 72b0001e movk w30, #0x8000, lsl #16 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=0011 x30=0xfffffffffffffff7
+out pc=0x30002004 sig=trap x30=0x8000fff7
+case MOVK 72b0001e movk w30, #0x8000, lsl #16 <- movk {Wd}, #{imm16}, lsl #{hw32}
+in nzcv=1101 x30=0x84536e1c2a813f0e
+out pc=0x30002004 sig=trap x30=0x80003f0e

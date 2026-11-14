@@ -1,0 +1,510 @@
+# arm64 vectors of the muldiv group: the state after each case of cases/muldiv.cases under
+# qemu-aarch64-static (-cpu max,pauth=off) over 3 states a case, written by
+# write_arm64_vectors in crates/ra-asm-lift/tests/vectors.rs and replayed by its arm64 test.
+# case <opcode> <encoding> <assembly> <- <template>; in: the registers the case sets (the
+# rest are zero), the flags as NZCV bits, the window of data bytes; out: where the case
+# stopped and what it changed.
+case MADD 9b020c20 madd x0, x1, x2, x3 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1100 x0=0x3ffffffffff x1=0xa0e1539acc6ebf72 x2=0xfffffffffffffffc x3=0x3fffffffffffff
+out pc=0x30002004 sig=trap x0=0x7cbab194ce450237
+case MADD 9b020c20 madd x0, x1, x2, x3 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1011 x0=0x7fd2053b2e93ce07 x1=0xd x2=0x800000000000 x3=0xf
+out pc=0x30002004 sig=trap x0=0x680000000000f
+case MADD 9b020c20 madd x0, x1, x2, x3 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1000 x0=0x400 x1=0x1000000000000000 x2=0x7ffffffffffffff1 x3=0x8000000000000009
+out pc=0x30002004 sig=trap x0=0x9000000000000009
+case MADD 9b0d2d25 madd x5, x9, x13, x11 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1000 x5=0x8000000000000005 x9=0xc x11=0x800000000000000 x13=0x3ff
+out pc=0x30002004 sig=trap x5=0x800000000002ff4
+case MADD 9b0d2d25 madd x5, x9, x13, x11 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1100 x5=0x8000000000000004 x9=0x1ffff x11=0xfffffff x13=0x1
+out pc=0x30002004 sig=trap x5=0x1001fffe
+case MADD 9b0d2d25 madd x5, x9, x13, x11 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0010 x5=0x54af08f15cc900cd x9=0x7f x11=0x8000000000000004 x13=0x7fffffffffffff
+out pc=0x30002004 sig=trap x5=0xbf7fffffffffff85
+case MADD 9b1c4ff1 madd x17, xzr, x28, x19 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0111 x17=0xffffffffffffffff x19=0x2000000 x28=0x194e624ffca6d416
+out pc=0x30002004 sig=trap x17=0x2000000
+case MADD 9b1c4ff1 madd x17, xzr, x28, x19 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0001 x17=0x8000000000000004 x19=0x27c77ffeb36f2f87 x28=0x3b6f68619fff9467
+out pc=0x30002004 sig=trap x17=0x27c77ffeb36f2f87
+case MADD 9b1c4ff1 madd x17, xzr, x28, x19 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1000 x17=0x1fffffffffff x19=0x7ffffffffffffff8 x28=0x7
+out pc=0x30002004 sig=trap x17=0x7ffffffffffffff8
+case MADD 9b1f6ede madd x30, x22, xzr, x27 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0101 x22=0x200 x27=0x60d48c6bd0def791 x30=0x5f3bcc391c703ce1
+out pc=0x30002004 sig=trap x30=0x60d48c6bd0def791
+case MADD 9b1f6ede madd x30, x22, xzr, x27 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0100 x22=0x6f7b0b251672feab x27=0x943370fab191960a x30=0x3fffffffffffffff
+out pc=0x30002004 sig=trap x30=0x943370fab191960a
+case MADD 9b1f6ede madd x30, x22, xzr, x27 <- madd {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0100 x22=0x1fffff x27=0x1fffff x30=0x580cb66718772528
+out pc=0x30002004 sig=trap x30=0x1fffff
+case MADD 1b020c20 madd w0, w1, w2, w3 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1110 x0=0x4000000000000 x1=0x800000000000000f x2=0x57ed9f03197922e x3=0x7
+out pc=0x30002004 sig=trap x0=0xe7e190b9
+case MADD 1b020c20 madd w0, w1, w2, w3 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0010 x0=0x8a26e3e78c59928c x1=0xc34482387e712cb8 x2=0xb5776fe171624001 x3=0x2000000000000000
+out pc=0x30002004 sig=trap x0=0x200f2cb8
+case MADD 1b020c20 madd w0, w1, w2, w3 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0101 x0=0xcbe4141ca7d2f5da x1=0xffffffffffffffff x2=0x7ffffffffffffff8 x3=0x7ffffffffffff
+out pc=0x30002004 sig=trap x0=0x7
+case MADD 1b0d2d25 madd w5, w9, w13, w11 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1111 x5=0xe521878c070fd3a3 x9=0x62005f2a87a5947c x11=0x82f083e07b8407b9 x13=0x7ffffffffffffff5
+out pc=0x30002004 sig=trap x5=0xa766a665
+case MADD 1b0d2d25 madd w5, w9, w13, w11 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0111 x5=0xf x9=0x800000000000000a x11=0x800000000000000c x13=0x7ffffffffffffff0
+out pc=0x30002004 sig=trap x5=0xffffff6c
+case MADD 1b0d2d25 madd w5, w9, w13, w11 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1101 x5=0x100000000000000 x9=0xfffffffffffffffb x11=0x8000000000 x13=0x20000
+out pc=0x30002004 sig=trap x5=0xfff60000
+case MADD 1b1c4ff1 madd w17, wzr, w28, w19 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0010 x17=0x3ffff x19=0x800 x28=0x7ffffffffffffff0
+out pc=0x30002004 sig=trap x17=0x800
+case MADD 1b1c4ff1 madd w17, wzr, w28, w19 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0000 x17=0x6 x19=0xee1fcef81d9332e5 x28=0x3ffffffffffffff
+out pc=0x30002004 sig=trap x17=0x1d9332e5
+case MADD 1b1c4ff1 madd w17, wzr, w28, w19 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1101 x17=0x10000 x19=0x5 x28=0xdcec9f7e62590551
+out pc=0x30002004 sig=trap x17=0x5
+case MADD 1b1f6ede madd w30, w22, wzr, w27 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0100 x22=0x8000000 x27=0x8000000000000 x30=0x800000000000000e
+out pc=0x30002004 sig=trap x30=0x0
+case MADD 1b1f6ede madd w30, w22, wzr, w27 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1000 x22=0xb x27=0x2 x30=0x1fffffffff
+out pc=0x30002004 sig=trap x30=0x2
+case MADD 1b1f6ede madd w30, w22, wzr, w27 <- madd {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1110 x22=0x764c06a1848bc542 x27=0xe x30=0x4
+out pc=0x30002004 sig=trap x30=0xe
+case MSUB 9b028c20 msub x0, x1, x2, x3 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1010 x0=0x885f6cb9001a341a x1=0x319b470c72936ebe x2=0x40000000 x3=0x4622d30d40010a18
+out pc=0x30002004 sig=trap x0=0x297df75dc0010a18
+case MSUB 9b028c20 msub x0, x1, x2, x3 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1111 x0=0x7ffffffffffffff1 x1=0xfffffffffffffff4 x2=0x7 x3=0x200000000
+out pc=0x30002004 sig=trap x0=0x200000054
+case MSUB 9b028c20 msub x0, x1, x2, x3 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0101 x0=0x69192a4ffe812a11 x1=0xfffffffffffffff4 x2=0x7ffffffffffffff5 x3=0xe829fb55927dc253
+out pc=0x30002004 sig=trap x0=0xe829fb55927dc1cf
+case MSUB 9b0dad25 msub x5, x9, x13, x11 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1111 x5=0x4000000000000 x9=0x4000000000000 x11=0xa1815ea337a79d75 x13=0xfffffffffffffff1
+out pc=0x30002004 sig=trap x5=0xa1bd5ea337a79d75
+case MSUB 9b0dad25 msub x5, x9, x13, x11 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0101 x5=0x1ffff x9=0x1fffffffffffffff x11=0x800000000000000f x13=0x8000000000000004
+out pc=0x30002004 sig=trap x5=0x8000000000000013
+case MSUB 9b0dad25 msub x5, x9, x13, x11 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1010 x5=0xd6f6d4b1197ad7d1 x9=0x800000000000000c x11=0x8000000000 x13=0x7ffffffffffffff2
+out pc=0x30002004 sig=trap x5=0x80000000a8
+case MSUB 9b1ccff1 msub x17, xzr, x28, x19 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1000 x17=0x7c21aae481c9c09 x19=0x800000000000000f x28=0x96532496a7f24bb0
+out pc=0x30002004 sig=trap x17=0x800000000000000f
+case MSUB 9b1ccff1 msub x17, xzr, x28, x19 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=1110 x17=0xb91cd7af8b8a6070 x19=0x7ffffffffffffff3 x28=0xd5bfcdafa2980e8
+out pc=0x30002004 sig=trap x17=0x7ffffffffffffff3
+case MSUB 9b1ccff1 msub x17, xzr, x28, x19 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0010 x17=0x8000000000000008 x19=0x8000000000000 x28=0xffffffffffffffff
+out pc=0x30002004 sig=trap x17=0x8000000000000
+case MSUB 9b1feede msub x30, x22, xzr, x27 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0001 x22=0x7ffffffffffffff8 x27=0xfffffffffffffff4 x30=0xfffffffffffffffa
+out pc=0x30002004 sig=trap x30=0xfffffffffffffff4
+case MSUB 9b1feede msub x30, x22, xzr, x27 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0001 x22=0x3f x27=0xfffffffffffffff2 x30=0x57ddc3b2c132b508
+out pc=0x30002004 sig=trap x30=0xfffffffffffffff2
+case MSUB 9b1feede msub x30, x22, xzr, x27 <- msub {Xd}, {Xn}, {Xm}, {Xa}
+in nzcv=0001 x22=0x8000000000000009 x27=0x8000000000000000 x30=0x9
+out pc=0x30002004 sig=trap x30=0x8000000000000000
+case MSUB 1b028c20 msub w0, w1, w2, w3 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1000 x0=0x1 x1=0xca8eefe8ac8f6b72 x2=0xc5ed815da3c13193 x3=0xea36030e1f4c0f91
+out pc=0x30002004 sig=trap x0=0xfe6e8b1b
+case MSUB 1b028c20 msub w0, w1, w2, w3 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1111 x0=0x9ed3412118d1ca3f x1=0x7ffffffffffffff6 x2=0x8000000000000004 x3=0x7ff
+out pc=0x30002004 sig=trap x0=0x827
+case MSUB 1b028c20 msub w0, w1, w2, w3 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0111 x0=0x8000000000000003 x1=0xf x2=0xfffffffffffffffc x3=0xfffffffffffffff1
+out pc=0x30002004 sig=trap x0=0x2d
+case MSUB 1b0dad25 msub w5, w9, w13, w11 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0101 x5=0x800000000000000a x9=0x7ffffffffffffffc x11=0xfffffffffffffffc x13=0x10
+out pc=0x30002004 sig=trap x5=0x3c
+case MSUB 1b0dad25 msub w5, w9, w13, w11 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0111 x5=0x10000000000000 x9=0x7ffffffffffffff7 x11=0x800000000 x13=0x2a4c1c13c683a0a1
+out pc=0x30002004 sig=trap x5=0xfaa0a5a9
+case MSUB 1b0dad25 msub w5, w9, w13, w11 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1011 x5=0xfffffffffffffff8 x9=0xffffff x11=0x80000 x13=0x8
+out pc=0x30002004 sig=trap x5=0xf8080008
+case MSUB 1b1ccff1 msub w17, wzr, w28, w19 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0111 x17=0x2000000000 x19=0x8000000000000000 x28=0xffffff
+out pc=0x30002004 sig=trap x17=0x0
+case MSUB 1b1ccff1 msub w17, wzr, w28, w19 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1101 x17=0x8000000000000005 x19=0x800000000000 x28=0xb
+out pc=0x30002004 sig=trap x17=0x0
+case MSUB 1b1ccff1 msub w17, wzr, w28, w19 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0011 x17=0x8000000000000002 x19=0x800000000000000c x28=0x65995a75d15eff86
+out pc=0x30002004 sig=trap x17=0xc
+case MSUB 1b1feede msub w30, w22, wzr, w27 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1001 x22=0x232188ebed7ed9e3 x27=0x20000 x30=0x800000000000000d
+out pc=0x30002004 sig=trap x30=0x20000
+case MSUB 1b1feede msub w30, w22, wzr, w27 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=1001 x22=0xfffffffffffffffe x27=0x2000 x30=0x4b82289668f78674
+out pc=0x30002004 sig=trap x30=0x2000
+case MSUB 1b1feede msub w30, w22, wzr, w27 <- msub {Wd}, {Wn}, {Wm}, {Wa}
+in nzcv=0001 x22=0x80000 x27=0xffffffffffffff x30=0x1f
+out pc=0x30002004 sig=trap x30=0xffffffff
+case SMADDL 9b220c20 smaddl x0, w1, w2, x3 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1110 x0=0xeb30c8c1a3ff8ac x1=0xfffffffffffffff9 x2=0x0 x3=0xe
+out pc=0x30002004 sig=trap x0=0xe
+case SMADDL 9b220c20 smaddl x0, w1, w2, x3 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1001 x0=0x40000000 x1=0x5a896099d394db44 x2=0x8000000000000009 x3=0x1ffffffffffff
+out pc=0x30002004 sig=trap x0=0x1fffe703bb563
+case SMADDL 9b220c20 smaddl x0, w1, w2, x3 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1110 x0=0x189197a39e7d71b x1=0x7 x2=0x80000000000000 x3=0x8203216f5755a9a4
+out pc=0x30002004 sig=trap x0=0x8203216f5755a9a4
+case SMADDL 9b2d2d25 smaddl x5, w9, w13, x11 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0010 x5=0xc x9=0x1 x11=0x1fffffffffffff x13=0x7ffffffffffffff8
+out pc=0x30002004 sig=trap x5=0x1ffffffffffff7
+case SMADDL 9b2d2d25 smaddl x5, w9, w13, x11 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1111 x5=0xd x9=0xe x11=0x3ffffffffffffff x13=0x7ffffffffffffff6
+out pc=0x30002004 sig=trap x5=0x3ffffffffffff73
+case SMADDL 9b2d2d25 smaddl x5, w9, w13, x11 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1000 x5=0x800000000000000c x9=0xb8d34311519de754 x11=0x274b5406a3141c33 x13=0xfffff
+out pc=0x30002004 sig=trap x5=0x27506de4c6b634df
+case SMADDL 9b3c4ff1 smaddl x17, wzr, w28, x19 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1001 x17=0xa660d5ead3a49d82 x19=0x400000000000 x28=0x2909049ff5b97bfe
+out pc=0x30002004 sig=trap x17=0x400000000000
+case SMADDL 9b3c4ff1 smaddl x17, wzr, w28, x19 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1001 x17=0xfffffffffffffffc x19=0x1 x28=0x9d7a8f009433a9d3
+out pc=0x30002004 sig=trap x17=0x1
+case SMADDL 9b3c4ff1 smaddl x17, wzr, w28, x19 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1110 x17=0xf85159b00d2ebbde x19=0xf x28=0x1fffffff
+out pc=0x30002004 sig=trap x17=0xf
+case SMADDL 9b3f6ede smaddl x30, w22, wzr, x27 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1011 x22=0x20000000 x27=0xfffffffffffffff4 x30=0x7ffffffffffffff7
+out pc=0x30002004 sig=trap x30=0xfffffffffffffff4
+case SMADDL 9b3f6ede smaddl x30, w22, wzr, x27 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1000 x22=0x100 x27=0x7ffffffffffffffa x30=0x8000000000000001
+out pc=0x30002004 sig=trap x30=0x7ffffffffffffffa
+case SMADDL 9b3f6ede smaddl x30, w22, wzr, x27 <- smaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1010 x22=0x8000000000000005 x27=0x400 x30=0xdedb0b99a46efe0d
+out pc=0x30002004 sig=trap x30=0x400
+case SMSUBL 9b228c20 smsubl x0, w1, w2, x3 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0111 x0=0x200000 x1=0x8000000000000007 x2=0x1fffffff x3=0x8000000000000009
+out pc=0x30002004 sig=trap x0=0x7fffffff20000010
+case SMSUBL 9b228c20 smsubl x0, w1, w2, x3 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1001 x0=0x7ffffffffffffffa x1=0x8000000000000007 x2=0x10000000000000 x3=0x8000000000000002
+out pc=0x30002004 sig=trap x0=0x8000000000000002
+case SMSUBL 9b228c20 smsubl x0, w1, w2, x3 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0010 x0=0xfffffffffffffffc x1=0xfffffffffffffff4 x2=0x0 x3=0x7ffffffffffffffa
+out pc=0x30002004 sig=trap x0=0x7ffffffffffffffa
+case SMSUBL 9b2dad25 smsubl x5, w9, w13, x11 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1011 x5=0x7ffffffffffffffa x9=0x3ffffffff x11=0xff x13=0x7fffffffffffffff
+out pc=0x30002004 sig=trap x5=0xfe
+case SMSUBL 9b2dad25 smsubl x5, w9, w13, x11 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1110 x5=0x7ffffffffffff x9=0x200 x11=0x6 x13=0x7885f074b470b062
+out pc=0x30002004 sig=trap x5=0x971e9f3c06
+case SMSUBL 9b2dad25 smsubl x5, w9, w13, x11 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0001 x5=0x7fffffffffff x9=0x92b495993c42575 x11=0x3fffffffffff x13=0x7ffffffffffffff7
+out pc=0x30002004 sig=trap x5=0x3ffc31e5511c
+case SMSUBL 9b3ccff1 smsubl x17, wzr, w28, x19 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1010 x17=0x8000000000000007 x19=0x7ffffffffffffffa x28=0xfffffffffffffffd
+out pc=0x30002004 sig=trap x17=0x7ffffffffffffffa
+case SMSUBL 9b3ccff1 smsubl x17, wzr, w28, x19 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0111 x17=0xfffffffffffff x19=0x1fffffffffff x28=0x7fffffffffffffff
+out pc=0x30002004 sig=trap x17=0x1fffffffffff
+case SMSUBL 9b3ccff1 smsubl x17, wzr, w28, x19 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0101 x17=0x675b299184d2c023 x19=0xb1354b7a09d6497d x28=0xfffffffffffffff5
+out pc=0x30002004 sig=trap x17=0xb1354b7a09d6497d
+case SMSUBL 9b3feede smsubl x30, w22, wzr, x27 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0000 x22=0x6 x27=0x1 x30=0x7ffffffffffffff4
+out pc=0x30002004 sig=trap x30=0x1
+case SMSUBL 9b3feede smsubl x30, w22, wzr, x27 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1001 x22=0xa18689ad18276859 x27=0xfffffffffffffff9 x30=0x9fd3251356634c22
+out pc=0x30002004 sig=trap x30=0xfffffffffffffff9
+case SMSUBL 9b3feede smsubl x30, w22, wzr, x27 <- smsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0001 x22=0x7e01df48b1b0b003 x27=0x1288a7f8e6c77373 x30=0x800000000000000c
+out pc=0x30002004 sig=trap x30=0x1288a7f8e6c77373
+case UMADDL 9ba20c20 umaddl x0, w1, w2, x3 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1011 x0=0x2000 x1=0x0 x2=0x3fff x3=0x1f
+out pc=0x30002004 sig=trap x0=0x1f
+case UMADDL 9ba20c20 umaddl x0, w1, w2, x3 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0011 x0=0x800000000000000e x1=0x800000000000000c x2=0x6f846c7d5ca78424 x3=0x5
+out pc=0x30002004 sig=trap x0=0x457da31b5
+case UMADDL 9ba20c20 umaddl x0, w1, w2, x3 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1000 x0=0x3 x1=0xfffffffffffffffd x2=0x800000 x3=0x4000000000
+out pc=0x30002004 sig=trap x0=0x80003ffe800000
+case UMADDL 9bad2d25 umaddl x5, w9, w13, x11 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1010 x5=0xfffffffffffffff2 x9=0x3e0412330da7ddec x11=0xfffffffffffffff3 x13=0x4
+out pc=0x30002004 sig=trap x5=0x369f77a3
+case UMADDL 9bad2d25 umaddl x5, w9, w13, x11 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0101 x5=0x8000000 x9=0x8000000000000002 x11=0xfffffffffffffff3 x13=0x4000000000000000
+out pc=0x30002004 sig=trap x5=0xfffffffffffffff3
+case UMADDL 9bad2d25 umaddl x5, w9, w13, x11 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0110 x5=0xfffffffffffffff1 x9=0x3381879eb5e08b22 x11=0xd x13=0x7ffffffffffffff3
+out pc=0x30002004 sig=trap x5=0xb5e08b18c398ef53
+case UMADDL 9bbc4ff1 umaddl x17, wzr, w28, x19 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1000 x17=0x972bcdac6c15af3e x19=0xed3495f4b401ecdf x28=0x19ab9b3b08a2d3cf
+out pc=0x30002004 sig=trap x17=0xed3495f4b401ecdf
+case UMADDL 9bbc4ff1 umaddl x17, wzr, w28, x19 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0011 x17=0x7883073fb86808ed x19=0xfffffffffffffffa x28=0xb7ac7bc773a14778
+out pc=0x30002004 sig=trap x17=0xfffffffffffffffa
+case UMADDL 9bbc4ff1 umaddl x17, wzr, w28, x19 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1010 x17=0x8000000000000002 x19=0xfffffffffffffff1 x28=0x800000000
+out pc=0x30002004 sig=trap x17=0xfffffffffffffff1
+case UMADDL 9bbf6ede umaddl x30, w22, wzr, x27 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1011 x22=0x400000000 x27=0x800000000000000c x30=0x7ffffffffffffffd
+out pc=0x30002004 sig=trap x30=0x800000000000000c
+case UMADDL 9bbf6ede umaddl x30, w22, wzr, x27 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1111 x22=0x3300b5b2dd942891 x27=0x1fffffffffffffff x30=0xfffffffffffffff9
+out pc=0x30002004 sig=trap x30=0x1fffffffffffffff
+case UMADDL 9bbf6ede umaddl x30, w22, wzr, x27 <- umaddl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1011 x22=0x8000000000000008 x27=0x8000000000000000 x30=0xac980a494efec6df
+out pc=0x30002004 sig=trap x30=0x8000000000000000
+case UMSUBL 9ba28c20 umsubl x0, w1, w2, x3 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1000 x0=0x1 x1=0xa1daac3862bf0062 x2=0x54e98f5f745c73df x3=0x2dee342f58247c94
+out pc=0x30002004 sig=trap x0=0x10bfeacfb5f2136
+case UMSUBL 9ba28c20 umsubl x0, w1, w2, x3 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0010 x0=0xfffffffffffffff6 x1=0x24e06840f2cddf02 x2=0x3fffffffffff x3=0x8000000000000000
+out pc=0x30002004 sig=trap x0=0x8d3220fef2cddf02
+case UMSUBL 9ba28c20 umsubl x0, w1, w2, x3 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0111 x0=0xbd06e1c243b9e642 x1=0x1ffffffffffffff x2=0x4ea58b825e4c5d x3=0x7ffffffffffffff7
+out pc=0x30002004 sig=trap x0=0xfda1b3a3825e4c54
+case UMSUBL 9badad25 umsubl x5, w9, w13, x11 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1101 x5=0x7ffffffffffffff5 x9=0xffffffffffffffff x11=0xe x13=0x1ffff
+out pc=0x30002004 sig=trap x5=0xfffe00010002000d
+case UMSUBL 9badad25 umsubl x5, w9, w13, x11 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1110 x5=0x8000000000000000 x9=0x7ffffffffffffffd x11=0x7ffffffffffffff9 x13=0x7f
+out pc=0x30002004 sig=trap x5=0x7fffff8100000176
+case UMSUBL 9badad25 umsubl x5, w9, w13, x11 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1001 x5=0x6 x9=0x7ffffffffffffff5 x11=0x7 x13=0xfffffffffffffff6
+out pc=0x30002004 sig=trap x5=0x14ffffff99
+case UMSUBL 9bbccff1 umsubl x17, wzr, w28, x19 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0100 x17=0xfffffffffffffffa x19=0x9149fc8f3b1f6c4f x28=0x7fffffffffffffff
+out pc=0x30002004 sig=trap x17=0x9149fc8f3b1f6c4f
+case UMSUBL 9bbccff1 umsubl x17, wzr, w28, x19 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0101 x17=0xfffffffffffffff0 x19=0x7ffffffffffffff x28=0x4
+out pc=0x30002004 sig=trap x17=0x7ffffffffffffff
+case UMSUBL 9bbccff1 umsubl x17, wzr, w28, x19 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0101 x17=0x8000000000000007 x19=0xfff x28=0xc04e32a0c98aecb4
+out pc=0x30002004 sig=trap x17=0xfff
+case UMSUBL 9bbfeede umsubl x30, w22, wzr, x27 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1000 x22=0x200000 x27=0x4000000000 x30=0x8000000000000
+out pc=0x30002004 sig=trap x30=0x4000000000
+case UMSUBL 9bbfeede umsubl x30, w22, wzr, x27 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=1011 x22=0x800000000000000b x27=0xfc02f1be9f4ef7f3 x30=0xec547784781d7a7b
+out pc=0x30002004 sig=trap x30=0xfc02f1be9f4ef7f3
+case UMSUBL 9bbfeede umsubl x30, w22, wzr, x27 <- umsubl {Xd}, {Wn}, {Wm}, {Xa}
+in nzcv=0100 x22=0xe339bfe4dfdc0667 x27=0x3442401c1809c70e x30=0x10000
+out pc=0x30002004 sig=trap x30=0x3442401c1809c70e
+case SMULH 9b427c20 smulh x0, x1, x2 <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=1110 x0=0xfff x1=0x800000000000000f x2=0x7fffffffffffffff
+out pc=0x30002004 sig=trap x0=0xc000000000000007
+case SMULH 9b427c20 smulh x0, x1, x2 <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=0100 x0=0x7ca8e862b9c2e96f x1=0x7ffffffffffffffb x2=0x5b77ebe194104596
+out pc=0x30002004 sig=trap x0=0x2dbbf5f0ca0822c9
+case SMULH 9b427c20 smulh x0, x1, x2 <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=0111 x0=0xae3f16fc64528bd0 x1=0x8000 x2=0x0
+out pc=0x30002004 sig=trap x0=0x0
+case SMULH 9b4d7d25 smulh x5, x9, x13 <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=0110 x5=0xfffffffffffffff5 x9=0xe790e14de13813bd x13=0xbcccb0464d421373
+out pc=0x30002004 sig=trap x5=0x669fac7bf5ffed6
+case SMULH 9b4d7d25 smulh x5, x9, x13 <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=1001 x5=0xffffff x9=0x80000 x13=0x543f76760a85c7f3
+out pc=0x30002004 sig=trap x5=0x2a1fb
+case SMULH 9b4d7d25 smulh x5, x9, x13 <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=0111 x5=0x62e7e660f62d333d x9=0x29fa7c88e4a55058 x13=0x7f
+out pc=0x30002004 sig=trap x5=0x14
+case SMULH 9b5c7ff1 smulh x17, xzr, x28 <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=0011 x17=0xb x28=0x7ffffffffffffff3
+out pc=0x30002004 sig=trap x17=0x0
+case SMULH 9b5c7ff1 smulh x17, xzr, x28 <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=1011 x17=0x1fff x28=0x8000000000000006
+out pc=0x30002004 sig=trap x17=0x0
+case SMULH 9b5c7ff1 smulh x17, xzr, x28 <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=0111 x17=0x8000000000000006 x28=0x800
+out pc=0x30002004 sig=trap x17=0x0
+case SMULH 9b5f7ede smulh x30, x22, xzr <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=0000 x22=0x7ffffffffffffff5 x30=0xe920e0e116397269
+out pc=0x30002004 sig=trap x30=0x0
+case SMULH 9b5f7ede smulh x30, x22, xzr <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=1100 x22=0xfffffffffffffff9 x30=0x8000000000000007
+out pc=0x30002004 sig=trap x30=0x0
+case SMULH 9b5f7ede smulh x30, x22, xzr <- smulh {Xd}, {Xn}, {Xm}
+in nzcv=1000 x22=0xe0a791c9e5bb69e x30=0xffffffffff
+out pc=0x30002004 sig=trap x30=0x0
+case UMULH 9bc27c20 umulh x0, x1, x2 <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=1100 x0=0x4 x1=0x8000000000000007 x2=0x7ffffffffffffff4
+out pc=0x30002004 sig=trap x0=0x3ffffffffffffffd
+case UMULH 9bc27c20 umulh x0, x1, x2 <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=0001 x0=0x40000 x1=0x89768023c8b9f49 x2=0x800000000000000e
+out pc=0x30002004 sig=trap x0=0x44bb4011e45cfa4
+case UMULH 9bc27c20 umulh x0, x1, x2 <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=1111 x0=0x9 x1=0x40000000000000 x2=0x8
+out pc=0x30002004 sig=trap x0=0x0
+case UMULH 9bcd7d25 umulh x5, x9, x13 <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=0111 x5=0xfffffffffffffff8 x9=0xff x13=0xfffffffffffffff4
+out pc=0x30002004 sig=trap x5=0xfe
+case UMULH 9bcd7d25 umulh x5, x9, x13 <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=1100 x5=0x8000000000000007 x9=0x8000000000000007 x13=0x10000000
+out pc=0x30002004 sig=trap x5=0x8000000
+case UMULH 9bcd7d25 umulh x5, x9, x13 <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=1011 x5=0x0 x9=0xfe58082452776aaf x13=0x7fffffffff
+out pc=0x30002004 sig=trap x5=0x7f2c041228
+case UMULH 9bdc7ff1 umulh x17, xzr, x28 <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=1011 x17=0x400000000000000 x28=0x7ffffffffffffff1
+out pc=0x30002004 sig=trap x17=0x0
+case UMULH 9bdc7ff1 umulh x17, xzr, x28 <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=1001 x17=0xfffffffffffffff7 x28=0xcd692926ba1997b2
+out pc=0x30002004 sig=trap x17=0x0
+case UMULH 9bdc7ff1 umulh x17, xzr, x28 <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=1001 x17=0x1fffff x28=0x41d72f96132f27b6
+out pc=0x30002004 sig=trap x17=0x0
+case UMULH 9bdf7ede umulh x30, x22, xzr <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=0101 x22=0xfffffffffffffffa x30=0x20
+out pc=0x30002004 sig=trap x30=0x0
+case UMULH 9bdf7ede umulh x30, x22, xzr <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=1110 x22=0xd x30=0x312357a3b4b02d2
+out pc=0x30002004 sig=trap x30=0x0
+case UMULH 9bdf7ede umulh x30, x22, xzr <- umulh {Xd}, {Xn}, {Xm}
+in nzcv=0100 x22=0xa x30=0xfffffffffffffff0
+out pc=0x30002004 sig=trap x30=0x0
+case UDIV 9ac20820 udiv x0, x1, x2 <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=0100 x0=0xffffffffffffffff x1=0xfffffffffffffff3 x2=0x40000
+out pc=0x30002004 sig=trap x0=0x3fffffffffff
+case UDIV 9ac20820 udiv x0, x1, x2 <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=1101 x0=0xfffffffffffffffc x1=0xfffffffffffffff5 x2=0x8e3d3b115802439d
+out pc=0x30002004 sig=trap x0=0x1
+case UDIV 9ac20820 udiv x0, x1, x2 <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=1011 x0=0xb x1=0x22596a926f4fad36 x2=0x1ffffff
+out pc=0x30002004 sig=trap x0=0x112cb551ce
+case UDIV 9acd0925 udiv x5, x9, x13 <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=0011 x5=0x4 x9=0x200000 x13=0x7ffffffffffffffc
+out pc=0x30002004 sig=trap x5=0x0
+case UDIV 9acd0925 udiv x5, x9, x13 <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=1110 x5=0x94d7d83cd885cdf0 x9=0xffffffffffffffff x13=0x20000000000000
+out pc=0x30002004 sig=trap x5=0x7ff
+case UDIV 9acd0925 udiv x5, x9, x13 <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=1101 x5=0x7fffffffffff x9=0x591c43b85341393a x13=0xddeff57654a72674
+out pc=0x30002004 sig=trap x5=0x0
+case UDIV 9adc0bf1 udiv x17, xzr, x28 <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=1000 x17=0x7ffffffffffffff8 x28=0x6
+out pc=0x30002004 sig=trap x17=0x0
+case UDIV 9adc0bf1 udiv x17, xzr, x28 <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=0000 x17=0x3fffffffffffff x28=0x7fffffffffffffff
+out pc=0x30002004 sig=trap x17=0x0
+case UDIV 9adc0bf1 udiv x17, xzr, x28 <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=1101 x17=0xfffffffffffffff9 x28=0x10000
+out pc=0x30002004 sig=trap x17=0x0
+case UDIV 9adf0ade udiv x30, x22, xzr <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=1111 x22=0x8000000000000007 x30=0x7ffffffffffffff6
+out pc=0x30002004 sig=trap x30=0x0
+case UDIV 9adf0ade udiv x30, x22, xzr <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=1001 x22=0xfffffffffffffffc x30=0xc
+out pc=0x30002004 sig=trap x30=0x0
+case UDIV 9adf0ade udiv x30, x22, xzr <- udiv {Xd}, {Xn}, {Xm}
+in nzcv=0110 x22=0x7 x30=0x3ffff
+out pc=0x30002004 sig=trap x30=0x0
+case UDIV 1ac20820 udiv w0, w1, w2 <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=1000 x0=0xb3d53c513411728d x1=0x76f07461c40d3d07 x2=0xc229055176b457aa
+out pc=0x30002004 sig=trap x0=0x1
+case UDIV 1ac20820 udiv w0, w1, w2 <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=0011 x0=0x100000 x1=0x3fffffffffffff x2=0xf35a4f076d9012f9
+out pc=0x30002004 sig=trap x0=0x2
+case UDIV 1ac20820 udiv w0, w1, w2 <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=0001 x0=0x4 x1=0x800000000000000b x2=0xd
+out pc=0x30002004 sig=trap x0=0x0
+case UDIV 1acd0925 udiv w5, w9, w13 <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=0000 x5=0x7ffffffffffffffb x9=0x6f2e3fd2cce05c88 x13=0x7fffffffffff
+out pc=0x30002004 sig=trap x5=0x0
+case UDIV 1acd0925 udiv w5, w9, w13 <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=0000 x5=0xbdfe5b2299083832 x9=0x7ffffffffffffff1 x13=0x800000000000000a
+out pc=0x30002004 sig=trap x5=0x19999998
+case UDIV 1acd0925 udiv w5, w9, w13 <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=0100 x5=0x1fffffffffffff x9=0x400000000 x13=0x40000000
+out pc=0x30002004 sig=trap x5=0x0
+case UDIV 1adc0bf1 udiv w17, wzr, w28 <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=1111 x17=0x8000000000000006 x28=0xfffffffffffffff6
+out pc=0x30002004 sig=trap x17=0x0
+case UDIV 1adc0bf1 udiv w17, wzr, w28 <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=1101 x17=0x8000000000000000 x28=0xe
+out pc=0x30002004 sig=trap x17=0x0
+case UDIV 1adc0bf1 udiv w17, wzr, w28 <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=0100 x17=0xb1df4248dd112a34 x28=0x8000000000000001
+out pc=0x30002004 sig=trap x17=0x0
+case UDIV 1adf0ade udiv w30, w22, wzr <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=1110 x22=0x200000 x30=0xa1ab98480a01707a
+out pc=0x30002004 sig=trap x30=0x0
+case UDIV 1adf0ade udiv w30, w22, wzr <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=1100 x22=0x9f821deaedd7bfe0 x30=0x35b968243c8ae5ce
+out pc=0x30002004 sig=trap x30=0x0
+case UDIV 1adf0ade udiv w30, w22, wzr <- udiv {Wd}, {Wn}, {Wm}
+in nzcv=1110 x22=0xfffffffffffffff1 x30=0xb7ba3365fbedb04a
+out pc=0x30002004 sig=trap x30=0x0
+case SDIV 9ac20c20 sdiv x0, x1, x2 <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=1110 x0=0x7ffffffffffffffd x1=0x3ffff x2=0x6
+out pc=0x30002004 sig=trap x0=0xaaaa
+case SDIV 9ac20c20 sdiv x0, x1, x2 <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=0110 x0=0xfffffffffffffff7 x1=0x10 x2=0xc
+out pc=0x30002004 sig=trap x0=0x1
+case SDIV 9ac20c20 sdiv x0, x1, x2 <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=0000 x0=0x40000000 x1=0xfffffffffffffffa x2=0x3fffffffffffff
+out pc=0x30002004 sig=trap x0=0x0
+case SDIV 9acd0d25 sdiv x5, x9, x13 <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=0101 x5=0x8000000000000002 x9=0x2000 x13=0x8f300447ef4445c3
+out pc=0x30002004 sig=trap x5=0x0
+case SDIV 9acd0d25 sdiv x5, x9, x13 <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=0111 x5=0x8000000000000000 x9=0x7ffffffffffffff8 x13=0x3a781f6a9b7f8195
+out pc=0x30002004 sig=trap x5=0x2
+case SDIV 9acd0d25 sdiv x5, x9, x13 <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=0000 x5=0x7ffffffffffffff8 x9=0xfffffffffffffff2 x13=0x7ffffffffffffff9
+out pc=0x30002004 sig=trap x5=0x0
+case SDIV 9adc0ff1 sdiv x17, xzr, x28 <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=1111 x17=0x800000000000000c x28=0x10000
+out pc=0x30002004 sig=trap x17=0x0
+case SDIV 9adc0ff1 sdiv x17, xzr, x28 <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=1100 x17=0x1ffffff x28=0x8000000000000003
+out pc=0x30002004 sig=trap x17=0x0
+case SDIV 9adc0ff1 sdiv x17, xzr, x28 <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=1111 x17=0xfffffffffffffff7 x28=0xfffffffffffffff5
+out pc=0x30002004 sig=trap x17=0x0
+case SDIV 9adf0ede sdiv x30, x22, xzr <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=0100 x22=0xfffffffffff x30=0xa6365994c6d5023e
+out pc=0x30002004 sig=trap x30=0x0
+case SDIV 9adf0ede sdiv x30, x22, xzr <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=0110 x22=0x7ffffffffffffff3 x30=0xf
+out pc=0x30002004 sig=trap x30=0x0
+case SDIV 9adf0ede sdiv x30, x22, xzr <- sdiv {Xd}, {Xn}, {Xm}
+in nzcv=0111 x22=0x8000000000000006 x30=0x100000000000000
+out pc=0x30002004 sig=trap x30=0x0
+case SDIV 1ac20c20 sdiv w0, w1, w2 <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=0111 x0=0xfffffffffffffffa x1=0xfffffffffff x2=0x800000000000000f
+out pc=0x30002004 sig=trap x0=0x0
+case SDIV 1ac20c20 sdiv w0, w1, w2 <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=1110 x0=0x3 x1=0xf4e2ca329afacb74 x2=0x4000000000000000
+out pc=0x30002004 sig=trap x0=0x0
+case SDIV 1ac20c20 sdiv w0, w1, w2 <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=0001 x0=0x1fa484e9e68e034c x1=0x3fffffffff x2=0x7ffffffffffffffb
+out pc=0x30002004 sig=trap x0=0x0
+case SDIV 1acd0d25 sdiv w5, w9, w13 <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=1111 x5=0xfffffffffffffff4 x9=0x400000000 x13=0x7ffffffffffffff3
+out pc=0x30002004 sig=trap x5=0x0
+case SDIV 1acd0d25 sdiv w5, w9, w13 <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=1101 x5=0xfffffffffffffff4 x9=0x1 x13=0x3fffffffffffff
+out pc=0x30002004 sig=trap x5=0xffffffff
+case SDIV 1acd0d25 sdiv w5, w9, w13 <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=0000 x5=0x1fffff x9=0x7ffffffffffffff6 x13=0xfffffffffffffff4
+out pc=0x30002004 sig=trap x5=0x0
+case SDIV 1adc0ff1 sdiv w17, wzr, w28 <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=0101 x17=0x1 x28=0xffffff
+out pc=0x30002004 sig=trap x17=0x0
+case SDIV 1adc0ff1 sdiv w17, wzr, w28 <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=1101 x17=0x7ffffffffffffff4 x28=0x7ffffffffffffff0
+out pc=0x30002004 sig=trap x17=0x0
+case SDIV 1adc0ff1 sdiv w17, wzr, w28 <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=1100 x17=0xfffffffffffffffb x28=0x8000000000
+out pc=0x30002004 sig=trap x17=0x0
+case SDIV 1adf0ede sdiv w30, w22, wzr <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=1101 x22=0x8000000000000001 x30=0x8c42ba69b5ae7db4
+out pc=0x30002004 sig=trap x30=0x0
+case SDIV 1adf0ede sdiv w30, w22, wzr <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=1010 x22=0x4000000000000000 x30=0x8000000000000003
+out pc=0x30002004 sig=trap x30=0x0
+case SDIV 1adf0ede sdiv w30, w22, wzr <- sdiv {Wd}, {Wn}, {Wm}
+in nzcv=1111 x22=0xf x30=0x62550f152b56cc7e
+out pc=0x30002004 sig=trap x30=0x0

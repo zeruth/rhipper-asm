@@ -1,0 +1,5 @@
+# The forms whose vectors differ from the lift today, one a line: the opcode and the template as
+# templates.txt writes them, then after `:` the first difference the replay saw. The arm64 test
+# of crates/ra-asm-lift/tests/vectors.rs passes when exactly these forms differ: an unlisted form
+# that differs fails it with a line to paste here, and a listed form that passes fails it with
+# "remove from PENDING.txt", so the card that fixes an arm removes its line.

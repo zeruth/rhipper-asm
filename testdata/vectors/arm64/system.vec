@@ -1,0 +1,537 @@
+# arm64 vectors of the system group: the state after each case of cases/system.cases under
+# qemu-aarch64-static (-cpu max,pauth=off) over 3 states a case, written by
+# write_arm64_vectors in crates/ra-asm-lift/tests/vectors.rs and replayed by its arm64 test.
+# case <opcode> <encoding> <assembly> <- <template>; in: the registers the case sets (the
+# rest are zero), the flags as NZCV bits, the window of data bytes; out: where the case
+# stopped and what it changed.
+case B 14000002 b #8 <- b #{label}
+in nzcv=1000
+out pc=0x30002008 sig=trap
+case B 14000002 b #8 <- b #{label}
+in nzcv=1100
+out pc=0x30002008 sig=trap
+case B 14000002 b #8 <- b #{label}
+in nzcv=0011
+out pc=0x30002008 sig=trap
+case B 17fffffe b #-8 <- b #{label}
+in nzcv=0010
+out pc=0x30001ff8 sig=segv
+case B 17fffffe b #-8 <- b #{label}
+in nzcv=1100
+out pc=0x30001ff8 sig=segv
+case B 17fffffe b #-8 <- b #{label}
+in nzcv=1001
+out pc=0x30001ff8 sig=segv
+case B 14000100 b #1024 <- b #{label}
+in nzcv=0011
+out pc=0x30002400 sig=trap
+case B 14000100 b #1024 <- b #{label}
+in nzcv=1000
+out pc=0x30002400 sig=trap
+case B 14000100 b #1024 <- b #{label}
+in nzcv=1011
+out pc=0x30002400 sig=trap
+case B 17fffc00 b #-4096 <- b #{label}
+in nzcv=1111
+out pc=0x30001000 sig=trap
+case B 17fffc00 b #-4096 <- b #{label}
+in nzcv=1000
+out pc=0x30001000 sig=trap
+case B 17fffc00 b #-4096 <- b #{label}
+in nzcv=0111
+out pc=0x30001000 sig=trap
+case RET d65f03c0 ret <- ret
+in nzcv=0000 x30=0xfffffffffffffff0
+out pc=0xfffffffffffffff0 sig=segv
+case RET d65f03c0 ret <- ret
+in nzcv=0010 x30=0xfffffffff
+out pc=0xfffffffff sig=segv
+case RET d65f03c0 ret <- ret
+in nzcv=0010 x30=0xfffffffffffffffa
+out pc=0xfffffffffffffffa sig=segv
+case RET d65f0020 ret x1 <- ret {Xn}
+in nzcv=0000 x1=0xfffffffffffffffb
+out pc=0xfffffffffffffffb sig=segv
+case RET d65f0020 ret x1 <- ret {Xn}
+in nzcv=1010 x1=0x4000
+out pc=0x4000 sig=segv
+case RET d65f0020 ret x1 <- ret {Xn}
+in nzcv=1100 x1=0x8
+out pc=0x8 sig=segv
+case RET d65f0120 ret x9 <- ret {Xn}
+in nzcv=0110 x9=0x7
+out pc=0x7 sig=segv
+case RET d65f0120 ret x9 <- ret {Xn}
+in nzcv=1110 x9=0x2000000000000
+out pc=0x2000000000000 sig=segv
+case RET d65f0120 ret x9 <- ret {Xn}
+in nzcv=0011 x9=0xfffffffffffffffd
+out pc=0xfffffffffffffffd sig=segv
+case RET d65f03e0 ret xzr <- ret {Xn}
+in nzcv=1110 x30=0x7ffffffffffffff4
+out pc=0x0 sig=segv
+case RET d65f03e0 ret xzr <- ret {Xn}
+in nzcv=0101 x30=0x7ffffffffffffffb
+out pc=0x0 sig=segv
+case RET d65f03e0 ret xzr <- ret {Xn}
+in nzcv=1001 x30=0x43a988d6829309cd
+out pc=0x0 sig=segv
+case RET d65f02c0 ret x22 <- ret {Xn}
+in nzcv=1001 x22=0xf391048d5a793fee
+out pc=0xf391048d5a793fee sig=segv
+case RET d65f02c0 ret x22 <- ret {Xn}
+in nzcv=1111 x22=0x8000000000000009
+out pc=0x9 sig=segv
+case RET d65f02c0 ret x22 <- ret {Xn}
+in nzcv=0100 x22=0x8000000000000002
+out pc=0x2 sig=segv
+case HINT d503201f hint #0 <- hint #{hint}
+in nzcv=1100
+out pc=0x30002004 sig=trap
+case HINT d503201f hint #0 <- hint #{hint}
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case HINT d503201f hint #0 <- hint #{hint}
+in nzcv=1011
+out pc=0x30002004 sig=trap
+case HINT d503203f hint #1 <- hint #{hint}
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case HINT d503203f hint #1 <- hint #{hint}
+in nzcv=1100
+out pc=0x30002004 sig=trap
+case HINT d503203f hint #1 <- hint #{hint}
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case HINT d503205f hint #2 <- hint #{hint}
+in nzcv=0100
+out pc=0x30002004 sig=trap
+case HINT d503205f hint #2 <- hint #{hint}
+in nzcv=1101
+out pc=0x30002004 sig=trap
+case HINT d503205f hint #2 <- hint #{hint}
+in nzcv=0110
+out pc=0x30002004 sig=trap
+case HINT d50320bf hint #5 <- hint #{hint}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case HINT d50320bf hint #5 <- hint #{hint}
+in nzcv=1011
+out pc=0x30002004 sig=trap
+case HINT d50320bf hint #5 <- hint #{hint}
+in nzcv=1011
+out pc=0x30002004 sig=trap
+case DMB d5033fbf dmb sy <- dmb {barrier}
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case DMB d5033fbf dmb sy <- dmb {barrier}
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case DMB d5033fbf dmb sy <- dmb {barrier}
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case DMB d5033bbf dmb ish <- dmb {barrier}
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case DMB d5033bbf dmb ish <- dmb {barrier}
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case DMB d5033bbf dmb ish <- dmb {barrier}
+in nzcv=0100
+out pc=0x30002004 sig=trap
+case DMB d50339bf dmb ishld <- dmb {barrier}
+in nzcv=1110
+out pc=0x30002004 sig=trap
+case DMB d50339bf dmb ishld <- dmb {barrier}
+in nzcv=0101
+out pc=0x30002004 sig=trap
+case DMB d50339bf dmb ishld <- dmb {barrier}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case DMB d50336bf dmb nshst <- dmb {barrier}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case DMB d50336bf dmb nshst <- dmb {barrier}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case DMB d50336bf dmb nshst <- dmb {barrier}
+in nzcv=1101
+out pc=0x30002004 sig=trap
+case DSB d5033f9f dsb sy <- dsb {barrier}
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case DSB d5033f9f dsb sy <- dsb {barrier}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case DSB d5033f9f dsb sy <- dsb {barrier}
+in nzcv=0110
+out pc=0x30002004 sig=trap
+case DSB d5033b9f dsb ish <- dsb {barrier}
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case DSB d5033b9f dsb ish <- dsb {barrier}
+in nzcv=0010
+out pc=0x30002004 sig=trap
+case DSB d5033b9f dsb ish <- dsb {barrier}
+in nzcv=0010
+out pc=0x30002004 sig=trap
+case DSB d503399f dsb ishld <- dsb {barrier}
+in nzcv=1100
+out pc=0x30002004 sig=trap
+case DSB d503399f dsb ishld <- dsb {barrier}
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case DSB d503399f dsb ishld <- dsb {barrier}
+in nzcv=1100
+out pc=0x30002004 sig=trap
+case DSB d503369f dsb nshst <- dsb {barrier}
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case DSB d503369f dsb nshst <- dsb {barrier}
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case DSB d503369f dsb nshst <- dsb {barrier}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case ISB d5033fdf isb <- isb
+in nzcv=0010
+out pc=0x30002004 sig=trap
+case ISB d5033fdf isb <- isb
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case ISB d5033fdf isb <- isb
+in nzcv=0101
+out pc=0x30002004 sig=trap
+case SB d50330ff sb <- sb
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case SB d50330ff sb <- sb
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case SB d50330ff sb <- sb
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case SSBB d503309f ssbb <- ssbb
+in nzcv=0110
+out pc=0x30002004 sig=trap
+case SSBB d503309f ssbb <- ssbb
+in nzcv=1101
+out pc=0x30002004 sig=trap
+case SSBB d503309f ssbb <- ssbb
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case PSSBB d503349f pssbb <- pssbb
+in nzcv=0110
+out pc=0x30002004 sig=trap
+case PSSBB d503349f pssbb <- pssbb
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case PSSBB d503349f pssbb <- pssbb
+in nzcv=0010
+out pc=0x30002004 sig=trap
+case CLREX d5033f5f clrex <- clrex
+in nzcv=0101
+out pc=0x30002004 sig=trap
+case CLREX d5033f5f clrex <- clrex
+in nzcv=1111
+out pc=0x30002004 sig=trap
+case CLREX d5033f5f clrex <- clrex
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case PRFM f9800020 prfm pldl1keep, [x1, #0] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=1100 x1=0x40010000 mem=0x4000fff0:6da0547728ceb4fc98e335d436138d8bc3eeb78fa276328984229901a31dda5c812fc53ab274d75e0eea8b1f0495dc2713cf560a7cebac75949fa844812d2adc
+out pc=0x30002004 sig=trap
+case PRFM f9800020 prfm pldl1keep, [x1, #0] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=1000 x1=0x40010000 mem=0x4000fff0:d6c58582c14dcf6a489c06dd68a9b8b62036f2e8c03183aa3e6ffd6c2ce4587770d33a71f999e3bb7679c7aaa76e0fdd87c466b190e99783df6ad3a1271afaef
+out pc=0x30002004 sig=trap
+case PRFM f9800020 prfm pldl1keep, [x1, #0] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=0101 x1=0x40010000 mem=0x4000fff0:2954ec1dd5a6f364d231ae8ef6c2d31cfa71f79ac1fe8aefe47597e54d238d0368b371e94304cfa6ca2bb9000d89ed8c7ca1db68771b0e6e7c3c747acbce72cf
+out pc=0x30002004 sig=trap
+case PRFM f98007e0 prfm pldl1keep, [sp, #8] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=0001 sp=0x40010000 mem=0x4000fff0:4ec334b47d1e0fc8221ccaebe85a0a2a5c6ae3f329d258e0763663d492581cdd33fb3bd2313533ae33f5b0bdbb5b0b7782b8cf8504381a935276ad4d0b1cf54c
+out pc=0x30002004 sig=trap
+case PRFM f98007e0 prfm pldl1keep, [sp, #8] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=1100 sp=0x40010000 mem=0x4000fff0:6fffd70cc8edbfdc235ebcf6ec464424d24a8875ade62a8daf211e0c0987d6a9d14d3692b9b40d746613eb618d70998537dfaceddff35b748d62f26e5410c3a7
+out pc=0x30002004 sig=trap
+case PRFM f98007e0 prfm pldl1keep, [sp, #8] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=0001 sp=0x40010000 mem=0x4000fff0:1be80f34ccad5907db129649a082e37d76f740a6a35197725187e44c933c6e4cb226928950c0ed69a0ab183ed2ade7ad605e3eecb864717aeb4b1c34b7a02095
+out pc=0x30002004 sig=trap
+case PRFM f9800920 prfm pldl1keep, [x9, #16] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=1110 x9=0x40010000 mem=0x40010000:e0b885541695b6cd575cf9caee516cdd71ae18e2c354cdcfd38b95bc7a0b98af28396f206288344a922de7fe5aa1f65aebd1b194cb21204408fb9717abbe73d0
+out pc=0x30002004 sig=trap
+case PRFM f9800920 prfm pldl1keep, [x9, #16] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=0110 x9=0x40010000 mem=0x40010000:e6978600d77017624464077aea772821d29af90cede2ccc395b652833dcf9fe2741b549d7b758de7df17c256c2f7bd0e3f2692685d80c11fb999b99c6d58ba45
+out pc=0x30002004 sig=trap
+case PRFM f9800920 prfm pldl1keep, [x9, #16] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=0111 x9=0x40010000 mem=0x40010000:4cb84e249c305c3d4aacf131c6ccd330d093f59e9914aa7ebc3f8cf4dc964917bc60d4dac37eced654e8d85c4c74fc7c9cd297c7ffacb2dfc68e1849744d7c3b
+out pc=0x30002004 sig=trap
+case PRFM f9bffec0 prfm pldl1keep, [x22, #32760] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=1011 x22=0x40010000 mem=0x40017fe0:76cfb89c2cf00a618091f4bba1005692f8e7b6a124d09d8162a55271b37ee0b8c847a5717f1569bb4a3de80ef6e36ed36f44bc6a25474fa92acd20b6d61fcf09
+out pc=0x30002004 sig=trap
+case PRFM f9bffec0 prfm pldl1keep, [x22, #32760] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=1100 x22=0x40010000 mem=0x40017fe0:60a3548c8db75805917531a7f695992b79da369bc12bfbc5fe97ad604f61bf88438d8d3f2ba2760d3f7721900fde06e8e7a16d8c1e26e22ab3c136cf5e36bb0d
+out pc=0x30002004 sig=trap
+case PRFM f9bffec0 prfm pldl1keep, [x22, #32760] <- prfm pldl1keep, [{XnSP}, #{pimm8}]
+in nzcv=1111 x22=0x40010000 mem=0x40017fe0:d141f8a7508c981176e03feffaf5484f81e7379a9f50ead14a48d1fecdcb0eca722143332cad6d14a85dff1f09444b997650464bcb938b7ad40a79060f9b0900
+out pc=0x30002004 sig=trap
+case PRFM f8a27833 prfm pstl2strm, [x1, x2, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=0011 x1=0x40010000 x2=0x18 mem=0x400100b0:05c3e96a9c5214dea77c8f40252db176dcaec5daebace397047ba01e00465d0fafa68a8e0d06790806e859f2698e8e604f904b0d6b2825e906130627069a5c0b
+out pc=0x30002004 sig=trap
+case PRFM f8a27833 prfm pstl2strm, [x1, x2, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=1110 x1=0x40010000 x2=0x18 mem=0x400100b0:f5293862570dc0f3b21619353122d0eede290cb77dc7df04403ce4a54c02ae08eb8375f0b9b844b033bc8466a6941b0a53fc084297bee5c3a6bf9bb1f79f65fa
+out pc=0x30002004 sig=trap
+case PRFM f8a27833 prfm pstl2strm, [x1, x2, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=0011 x1=0x40010000 x2=0x18 mem=0x400100b0:240b47d274e076e6def581bc31268dfc06c64c44da347baa70dc46b1593ea08ee61a24dd2bd2d4d5e83eee0900916b365cb70a2b5319269a5b35a8189327f187
+out pc=0x30002004 sig=trap
+case PRFM f8ad7bf3 prfm pstl2strm, [sp, x13, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=0111 x13=0x18 sp=0x40010000 mem=0x400100b0:d704322d4c4a5fab3c808fb692aa6ce4527a1b63bddff8c823ee0711ca10de5e735bc3cbfb020ebec6a8b2c47a4ed4196b062ef8ca347b8cf47c054b93008ee0
+out pc=0x30002004 sig=trap
+case PRFM f8ad7bf3 prfm pstl2strm, [sp, x13, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=1011 x13=0x18 sp=0x40010000 mem=0x400100b0:79bafd962e989d3d7b078bc324a4bb0a7642dc97f2cea860d0d6ddf4582ca45547022c1aca4bc6e2f755c6174d8926efd63dc7c23afe122a184243925c7309e0
+out pc=0x30002004 sig=trap
+case PRFM f8ad7bf3 prfm pstl2strm, [sp, x13, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=0101 x13=0x18 sp=0x40010000 mem=0x400100b0:8c47c11c500c459c9c58cf9d0bf752d40704b6bfda676c33c08b148a5878b29a1613ea0c30581511a2460052a5f2f94eab9a74204aab83419d66866afdaa9fd7
+out pc=0x30002004 sig=trap
+case PRFM f8bc7933 prfm pstl2strm, [x9, x28, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=1000 x9=0x40010000 x28=0x18 mem=0x400100b0:05f7a317d0c0a7ca493d4c276752971d1a7ceeb1bfe5a8872146613c20e92b1f7f5ffe9ad8c431470e8ad248c55d9a0bf05c6db1171eb0ea0605905baa036b7a
+out pc=0x30002004 sig=trap
+case PRFM f8bc7933 prfm pstl2strm, [x9, x28, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=1010 x9=0x40010000 x28=0x18 mem=0x400100b0:10ec80ebbfd0deaf1ca54ff93fbd6ee9e4f46dad2b22e9130427321a477adaf16aeff7721a49d5e7d5d53f049f53db63e1d90a04cefcd42a06166bef388d1960
+out pc=0x30002004 sig=trap
+case PRFM f8bc7933 prfm pstl2strm, [x9, x28, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=0001 x9=0x40010000 x28=0x18 mem=0x400100b0:d983c33f14685a810535b8b838c11684eb29393a23118f672944d74e5ab4356f5c36c08838bd9d0a44a422e0641fbb53549c3f3c7480b0954b1316ac4e35e9d1
+out pc=0x30002004 sig=trap
+case PRFM f8a77ad3 prfm pstl2strm, [x22, x7, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=0000 x7=0x18 x22=0x40010000 mem=0x400100b0:4f1a82d84ceeeb1563e27684ae81be763dda1e02a70b33d7ea099157ddbaf64b6848dfb73733977281db340fca7b83637d2813b44589f2f65be14daf9a176602
+out pc=0x30002004 sig=trap
+case PRFM f8a77ad3 prfm pstl2strm, [x22, x7, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=1110 x7=0x18 x22=0x40010000 mem=0x400100b0:fc65dc486755b15ed0a255f285b2552f9f3af86afa1eab08a12a8a2edeb46bacc5891d78c4eca714831e6d2a6c1ca1387e0003956cff1c07ceb941bd3d302dbe
+out pc=0x30002004 sig=trap
+case PRFM f8a77ad3 prfm pstl2strm, [x22, x7, lsl #3] <- prfm pstl2strm, [{XnSP}, {Xi}, lsl #3]
+in nzcv=0101 x7=0x18 x22=0x40010000 mem=0x400100b0:b206d6fc7127a71e919d0a70cad92e1808ebd760e78b14ec2fa6a0a0f34cbb0ef26ae04e9c41e68bc42077388cb9428666c858e897c56f5e01d0e68c2f2f7b61
+out pc=0x30002004 sig=trap
+case PRFUM f8900020 prfum pldl1keep, [x1, #-256] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=1100 x1=0x40010000 mem=0x4000fef0:3040de26ff4426d2cef88db98a05729d68df9250d3ab5b40ea182b3f21d3b4c0d36bd5a57770752f7b224c27beb9eec07a44e1be9a8d59413cf94aed1e7c7e1f
+out pc=0x30002004 sig=trap
+case PRFUM f8900020 prfum pldl1keep, [x1, #-256] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=1101 x1=0x40010000 mem=0x4000fef0:61f0ed66efbe1daa2652be0554ef7df4fe47e72a2822a06fcece63f57843e41eeed8db4a94da86d349ade9c2f0d822e5907a63ea5d00b8ae9ee6f7a8ea15b9da
+out pc=0x30002004 sig=trap
+case PRFUM f8900020 prfum pldl1keep, [x1, #-256] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=0010 x1=0x40010000 mem=0x4000fef0:a61461627c882e410585dce8ca3cdca3ce946ca1b1c142316de36cf2cf182ecc220aedf1ace7724ce15c53ce7d699cba21ccaf0ef1d89d12bd9dd9e25236e1fb
+out pc=0x30002004 sig=trap
+case PRFUM f89ff3e0 prfum pldl1keep, [sp, #-1] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=1010 sp=0x40010000 mem=0x4000ffe0:dab3b10da94ed832c7e1cb46396c16aeecccfc935148487f589c0027b62222fcd8e3b2e42ba2b5f14c6809e50daa977cd564dfa14a80bf7fc8cb1f02449075a0
+out pc=0x30002004 sig=trap
+case PRFUM f89ff3e0 prfum pldl1keep, [sp, #-1] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=0010 sp=0x40010000 mem=0x4000ffe0:d4f7bdce9c4ac010ede0a67342e659b25664c83b746aa66b0cbcd152fe1d3565497c028852d4d05ae5ea26dfc649217a71c371765773678ed32eb3daa204a393
+out pc=0x30002004 sig=trap
+case PRFUM f89ff3e0 prfum pldl1keep, [sp, #-1] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=0010 sp=0x40010000 mem=0x4000ffe0:8b8192b953342bca25a891a8543d4331dd75bbb3efda20f7e6394f43ee3a3b77d0bf50d41037098a754d1394e20156cf88f72ca4a1c3329181a5761714603b01
+out pc=0x30002004 sig=trap
+case PRFUM f8800120 prfum pldl1keep, [x9, #0] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=1010 x9=0x40010000 mem=0x4000fff0:8c381f1c01ab04b823e33f2a30972d1e27651ef1743a8b2f091663974f6236b4cc5d36b73d616a5f0b6695cc4dced8b737ae0c44eb75d0c4a9e33ab871e2b344
+out pc=0x30002004 sig=trap
+case PRFUM f8800120 prfum pldl1keep, [x9, #0] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=0100 x9=0x40010000 mem=0x4000fff0:8428413b2e0adf2c9ae87f997f9ea40163b478bc82edb6ed40294ad8ff3a3ea9c436e96db5e72d1b4ee392c17499d39bd81a5070b1c162afc714ccf0568f8ec8
+out pc=0x30002004 sig=trap
+case PRFUM f8800120 prfum pldl1keep, [x9, #0] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=0101 x9=0x40010000 mem=0x4000fff0:322081bc06a2c7336e3494cddde60f420a5c3682051c6a8c95c89ca5116ea5f4baac7dd6a699eacf9d2757e9acb7f369da01291aa87a5b3aecb66444f6b16bee
+out pc=0x30002004 sig=trap
+case PRFUM f88ff2c0 prfum pldl1keep, [x22, #255] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=0100 x22=0x40010000 mem=0x400100e0:d685f283250139e85c8d33bb157f00e83b5d19442bc395178eed143d8f2c498494292f82a528c807b395e0d7592966da9c97d838b6d75bea38079b384e232cf6
+out pc=0x30002004 sig=trap
+case PRFUM f88ff2c0 prfum pldl1keep, [x22, #255] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=0011 x22=0x40010000 mem=0x400100e0:58f433a3e30f50d9e1ee9e90aaf4681ca5c777e2e970169989ddef6ec8ea374ca7591c474d3e2c18171c747f55603ae8afa6cc535a2539955d14315ff85981e6
+out pc=0x30002004 sig=trap
+case PRFUM f88ff2c0 prfum pldl1keep, [x22, #255] <- prfum pldl1keep, [{XnSP}, #{simm9}]
+in nzcv=1001 x22=0x40010000 mem=0x400100e0:4553c1c0e9f0d6b437b81b9fde1f659231e635f7fcf052e9316a1e20ad554244561d360e7d0455b792650dd92ad0b00a62890facd1fb756b6e346c9e47184ccc
+out pc=0x30002004 sig=trap
+case PACIASP d503233f paciasp <- paciasp
+in nzcv=1011
+out pc=0x30002004 sig=trap
+case PACIASP d503233f paciasp <- paciasp
+in nzcv=1011
+out pc=0x30002004 sig=trap
+case PACIASP d503233f paciasp <- paciasp
+in nzcv=0100
+out pc=0x30002004 sig=trap
+case PACIBSP d503237f pacibsp <- pacibsp
+in nzcv=1011
+out pc=0x30002004 sig=trap
+case PACIBSP d503237f pacibsp <- pacibsp
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case PACIBSP d503237f pacibsp <- pacibsp
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case AUTIASP d50323bf autiasp <- autiasp
+in nzcv=1110
+out pc=0x30002004 sig=trap
+case AUTIASP d50323bf autiasp <- autiasp
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case AUTIASP d50323bf autiasp <- autiasp
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case AUTIBSP d50323ff autibsp <- autibsp
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case AUTIBSP d50323ff autibsp <- autibsp
+in nzcv=0101
+out pc=0x30002004 sig=trap
+case AUTIBSP d50323ff autibsp <- autibsp
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case PACIAZ d503231f paciaz <- paciaz
+in nzcv=0100
+out pc=0x30002004 sig=trap
+case PACIAZ d503231f paciaz <- paciaz
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case PACIAZ d503231f paciaz <- paciaz
+in nzcv=0101
+out pc=0x30002004 sig=trap
+case PACIBZ d503235f pacibz <- pacibz
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case PACIBZ d503235f pacibz <- pacibz
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case PACIBZ d503235f pacibz <- pacibz
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case AUTIAZ d503239f autiaz <- autiaz
+in nzcv=0100
+out pc=0x30002004 sig=trap
+case AUTIAZ d503239f autiaz <- autiaz
+in nzcv=0110
+out pc=0x30002004 sig=trap
+case AUTIAZ d503239f autiaz <- autiaz
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case AUTIBZ d50323df autibz <- autibz
+in nzcv=1100
+out pc=0x30002004 sig=trap
+case AUTIBZ d50323df autibz <- autibz
+in nzcv=1100
+out pc=0x30002004 sig=trap
+case AUTIBZ d50323df autibz <- autibz
+in nzcv=0100
+out pc=0x30002004 sig=trap
+case XPACLRI d50320ff xpaclri <- xpaclri
+in nzcv=0110
+out pc=0x30002004 sig=trap
+case XPACLRI d50320ff xpaclri <- xpaclri
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case XPACLRI d50320ff xpaclri <- xpaclri
+in nzcv=1111
+out pc=0x30002004 sig=trap
+case BRK d4200000 brk #0 <- brk #{imm16}
+in nzcv=0101
+out pc=0x30002000 sig=trap
+case BRK d4200000 brk #0 <- brk #{imm16}
+in nzcv=1111
+out pc=0x30002000 sig=trap
+case BRK d4200000 brk #0 <- brk #{imm16}
+in nzcv=1001
+out pc=0x30002000 sig=trap
+case BRK d43fffe0 brk #0xffff <- brk #{imm16}
+in nzcv=1110
+out pc=0x30002000 sig=trap
+case BRK d43fffe0 brk #0xffff <- brk #{imm16}
+in nzcv=1110
+out pc=0x30002000 sig=trap
+case BRK d43fffe0 brk #0xffff <- brk #{imm16}
+in nzcv=0101
+out pc=0x30002000 sig=trap
+case BRK d4224680 brk #0x1234 <- brk #{imm16}
+in nzcv=1010
+out pc=0x30002000 sig=trap
+case BRK d4224680 brk #0x1234 <- brk #{imm16}
+in nzcv=1100
+out pc=0x30002000 sig=trap
+case BRK d4224680 brk #0x1234 <- brk #{imm16}
+in nzcv=1101
+out pc=0x30002000 sig=trap
+case BRK d4300000 brk #0x8000 <- brk #{imm16}
+in nzcv=0010
+out pc=0x30002000 sig=trap
+case BRK d4300000 brk #0x8000 <- brk #{imm16}
+in nzcv=0111
+out pc=0x30002000 sig=trap
+case BRK d4300000 brk #0x8000 <- brk #{imm16}
+in nzcv=0101
+out pc=0x30002000 sig=trap
+case UDF 00000000 udf #0 <- udf #{imm16}
+in nzcv=0001
+out pc=0x30002000 sig=ill
+case UDF 00000000 udf #0 <- udf #{imm16}
+in nzcv=1101
+out pc=0x30002000 sig=ill
+case UDF 00000000 udf #0 <- udf #{imm16}
+in nzcv=1011
+out pc=0x30002000 sig=ill
+case UDF 0000ffff udf #0xffff <- udf #{imm16}
+in nzcv=0000
+out pc=0x30002000 sig=ill
+case UDF 0000ffff udf #0xffff <- udf #{imm16}
+in nzcv=0010
+out pc=0x30002000 sig=ill
+case UDF 0000ffff udf #0xffff <- udf #{imm16}
+in nzcv=1111
+out pc=0x30002000 sig=ill
+case UDF 00001234 udf #0x1234 <- udf #{imm16}
+in nzcv=0111
+out pc=0x30002000 sig=ill
+case UDF 00001234 udf #0x1234 <- udf #{imm16}
+in nzcv=0110
+out pc=0x30002000 sig=ill
+case UDF 00001234 udf #0x1234 <- udf #{imm16}
+in nzcv=0010
+out pc=0x30002000 sig=ill
+case UDF 00008000 udf #0x8000 <- udf #{imm16}
+in nzcv=0001
+out pc=0x30002000 sig=ill
+case UDF 00008000 udf #0x8000 <- udf #{imm16}
+in nzcv=0000
+out pc=0x30002000 sig=ill
+case UDF 00008000 udf #0x8000 <- udf #{imm16}
+in nzcv=0110
+out pc=0x30002000 sig=ill
+case HLT d4400000 hlt #0 <- hlt #{imm16}
+in nzcv=0010
+out pc=0x30002000 sig=ill
+case HLT d4400000 hlt #0 <- hlt #{imm16}
+in nzcv=1000
+out pc=0x30002000 sig=ill
+case HLT d4400000 hlt #0 <- hlt #{imm16}
+in nzcv=0110
+out pc=0x30002000 sig=ill
+case HLT d45fffe0 hlt #0xffff <- hlt #{imm16}
+in nzcv=1100
+out pc=0x30002000 sig=ill
+case HLT d45fffe0 hlt #0xffff <- hlt #{imm16}
+in nzcv=0011
+out pc=0x30002000 sig=ill
+case HLT d45fffe0 hlt #0xffff <- hlt #{imm16}
+in nzcv=1111
+out pc=0x30002000 sig=ill
+case HLT d4424680 hlt #0x1234 <- hlt #{imm16}
+in nzcv=0010
+out pc=0x30002000 sig=ill
+case HLT d4424680 hlt #0x1234 <- hlt #{imm16}
+in nzcv=0011
+out pc=0x30002000 sig=ill
+case HLT d4424680 hlt #0x1234 <- hlt #{imm16}
+in nzcv=1010
+out pc=0x30002000 sig=ill
+case HLT d4500000 hlt #0x8000 <- hlt #{imm16}
+in nzcv=0000
+out pc=0x30002000 sig=ill
+case HLT d4500000 hlt #0x8000 <- hlt #{imm16}
+in nzcv=1010
+out pc=0x30002000 sig=ill
+case HLT d4500000 hlt #0x8000 <- hlt #{imm16}
+in nzcv=1010
+out pc=0x30002000 sig=ill

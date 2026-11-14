@@ -1,0 +1,726 @@
+# arm64 vectors of the branch group: the state after each case of cases/branch.cases under
+# qemu-aarch64-static (-cpu max,pauth=off) over 3 states a case, written by
+# write_arm64_vectors in crates/ra-asm-lift/tests/vectors.rs and replayed by its arm64 test.
+# case <opcode> <encoding> <assembly> <- <template>; in: the registers the case sets (the
+# rest are zero), the flags as NZCV bits, the window of data bytes; out: where the case
+# stopped and what it changed.
+case ADR 10000000 adr x0, #0 <- adr {Xd}, #{adr}
+in nzcv=1011 x0=0x7
+out pc=0x30002004 sig=trap x0=0x30002000
+case ADR 10000000 adr x0, #0 <- adr {Xd}, #{adr}
+in nzcv=1011 x0=0x800000000000000e
+out pc=0x30002004 sig=trap x0=0x30002000
+case ADR 10000000 adr x0, #0 <- adr {Xd}, #{adr}
+in nzcv=1100 x0=0x0
+out pc=0x30002004 sig=trap x0=0x30002000
+case ADR 30000005 adr x5, #1 <- adr {Xd}, #{adr}
+in nzcv=0111 x5=0x8000000000
+out pc=0x30002004 sig=trap x5=0x30002001
+case ADR 30000005 adr x5, #1 <- adr {Xd}, #{adr}
+in nzcv=1010 x5=0x8000000000000009
+out pc=0x30002004 sig=trap x5=0x30002001
+case ADR 30000005 adr x5, #1 <- adr {Xd}, #{adr}
+in nzcv=1110 x5=0xfffffffffffffff2
+out pc=0x30002004 sig=trap x5=0x30002001
+case ADR 70fffff1 adr x17, #-1 <- adr {Xd}, #{adr}
+in nzcv=0110 x17=0x1fff
+out pc=0x30002004 sig=trap x17=0x30001fff
+case ADR 70fffff1 adr x17, #-1 <- adr {Xd}, #{adr}
+in nzcv=0100 x17=0x7ffffffffffffff1
+out pc=0x30002004 sig=trap x17=0x30001fff
+case ADR 70fffff1 adr x17, #-1 <- adr {Xd}, #{adr}
+in nzcv=1111 x17=0x302d92a77e933274
+out pc=0x30002004 sig=trap x17=0x30001fff
+case ADR 707ffffe adr x30, #0xfffff <- adr {Xd}, #{adr}
+in nzcv=0111 x30=0x8000000000000006
+out pc=0x30002004 sig=trap x30=0x30101fff
+case ADR 707ffffe adr x30, #0xfffff <- adr {Xd}, #{adr}
+in nzcv=0011 x30=0x7a9525332e5df8b0
+out pc=0x30002004 sig=trap x30=0x30101fff
+case ADR 707ffffe adr x30, #0xfffff <- adr {Xd}, #{adr}
+in nzcv=0101 x30=0x98c406600db60cf3
+out pc=0x30002004 sig=trap x30=0x30101fff
+case ADRP b0000000 adrp x0, #0x1000 <- adrp {Xd}, #{adrp}
+in nzcv=0110 x0=0xb
+out pc=0x30002004 sig=trap x0=0x30003000
+case ADRP b0000000 adrp x0, #0x1000 <- adrp {Xd}, #{adrp}
+in nzcv=0110 x0=0x327609f05b8f8ef2
+out pc=0x30002004 sig=trap x0=0x30003000
+case ADRP b0000000 adrp x0, #0x1000 <- adrp {Xd}, #{adrp}
+in nzcv=1110 x0=0x1
+out pc=0x30002004 sig=trap x0=0x30003000
+case ADRP d0000005 adrp x5, #0x2000 <- adrp {Xd}, #{adrp}
+in nzcv=0100 x5=0x8ac667dc448b7789
+out pc=0x30002004 sig=trap x5=0x30004000
+case ADRP d0000005 adrp x5, #0x2000 <- adrp {Xd}, #{adrp}
+in nzcv=0001 x5=0x8000000000000005
+out pc=0x30002004 sig=trap x5=0x30004000
+case ADRP d0000005 adrp x5, #0x2000 <- adrp {Xd}, #{adrp}
+in nzcv=0101 x5=0x8b47d881ed1abf1d
+out pc=0x30002004 sig=trap x5=0x30004000
+case ADRP f0fffff1 adrp x17, #-0x1000 <- adrp {Xd}, #{adrp}
+in nzcv=0100 x17=0x2
+out pc=0x30002004 sig=trap x17=0x30001000
+case ADRP f0fffff1 adrp x17, #-0x1000 <- adrp {Xd}, #{adrp}
+in nzcv=1011 x17=0x7ffffffffffffff7
+out pc=0x30002004 sig=trap x17=0x30001000
+case ADRP f0fffff1 adrp x17, #-0x1000 <- adrp {Xd}, #{adrp}
+in nzcv=1010 x17=0x5be67601fcc48c39
+out pc=0x30002004 sig=trap x17=0x30001000
+case ADRP f03ffffe adrp x30, #0x7ffff000 <- adrp {Xd}, #{adrp}
+in nzcv=0001 x30=0x95101be3ec8a6e6a
+out pc=0x30002004 sig=trap x30=0xb0001000
+case ADRP f03ffffe adrp x30, #0x7ffff000 <- adrp {Xd}, #{adrp}
+in nzcv=1000 x30=0x7ffffffffffffff3
+out pc=0x30002004 sig=trap x30=0xb0001000
+case ADRP f03ffffe adrp x30, #0x7ffff000 <- adrp {Xd}, #{adrp}
+in nzcv=0111 x30=0x7ffffffffffffffe
+out pc=0x30002004 sig=trap x30=0xb0001000
+case BL 94000002 bl #8 <- bl #{label}
+in nzcv=0000
+out pc=0x30002008 sig=trap x30=0x30002004
+case BL 94000002 bl #8 <- bl #{label}
+in nzcv=1000
+out pc=0x30002008 sig=trap x30=0x30002004
+case BL 94000002 bl #8 <- bl #{label}
+in nzcv=0000
+out pc=0x30002008 sig=trap x30=0x30002004
+case BL 97fffffe bl #-8 <- bl #{label}
+in nzcv=0000
+out pc=0x30001ff8 sig=segv x30=0x30002004
+case BL 97fffffe bl #-8 <- bl #{label}
+in nzcv=1111
+out pc=0x30001ff8 sig=segv x30=0x30002004
+case BL 97fffffe bl #-8 <- bl #{label}
+in nzcv=0010
+out pc=0x30001ff8 sig=segv x30=0x30002004
+case BL 94000100 bl #1024 <- bl #{label}
+in nzcv=1000
+out pc=0x30002400 sig=trap x30=0x30002004
+case BL 94000100 bl #1024 <- bl #{label}
+in nzcv=1000
+out pc=0x30002400 sig=trap x30=0x30002004
+case BL 94000100 bl #1024 <- bl #{label}
+in nzcv=1001
+out pc=0x30002400 sig=trap x30=0x30002004
+case BL 97fffc00 bl #-4096 <- bl #{label}
+in nzcv=1000
+out pc=0x30001000 sig=trap x30=0x30002004
+case BL 97fffc00 bl #-4096 <- bl #{label}
+in nzcv=1001
+out pc=0x30001000 sig=trap x30=0x30002004
+case BL 97fffc00 bl #-4096 <- bl #{label}
+in nzcv=1100
+out pc=0x30001000 sig=trap x30=0x30002004
+case BLR d63f0040 blr x2 <- blr {Xi}
+in nzcv=1100 x2=0x200000
+out pc=0x200000 sig=segv x30=0x30002004
+case BLR d63f0040 blr x2 <- blr {Xi}
+in nzcv=0010 x2=0x800000000000000f
+out pc=0xf sig=segv x30=0x30002004
+case BLR d63f0040 blr x2 <- blr {Xi}
+in nzcv=0101 x2=0xfffffffffffffffc
+out pc=0xfffffffffffffffc sig=segv x30=0x30002004
+case BLR d63f01a0 blr x13 <- blr {Xi}
+in nzcv=1100 x13=0x7fffff
+out pc=0x7fffff sig=segv x30=0x30002004
+case BLR d63f01a0 blr x13 <- blr {Xi}
+in nzcv=0110 x13=0xffffffffffffffff
+out pc=0xffffffffffffffff sig=segv x30=0x30002004
+case BLR d63f01a0 blr x13 <- blr {Xi}
+in nzcv=1111 x13=0x7ffffffffffffffb
+out pc=0x7ffffffffffffffb sig=segv x30=0x30002004
+case BLR d63f0380 blr x28 <- blr {Xi}
+in nzcv=0111 x28=0x3b6ce13337f19b6c
+out pc=0x6ce13337f19b6c sig=segv x30=0x30002004
+case BLR d63f0380 blr x28 <- blr {Xi}
+in nzcv=1111 x28=0x8000000000000009
+out pc=0x9 sig=segv x30=0x30002004
+case BLR d63f0380 blr x28 <- blr {Xi}
+in nzcv=0010 x28=0xfffffffffffffff6
+out pc=0xfffffffffffffff6 sig=segv x30=0x30002004
+case BLR d63f00e0 blr x7 <- blr {Xi}
+in nzcv=0010 x7=0x1
+out pc=0x1 sig=segv x30=0x30002004
+case BLR d63f00e0 blr x7 <- blr {Xi}
+in nzcv=0000 x7=0xa72e15234c1091a6
+out pc=0x2e15234c1091a6 sig=segv x30=0x30002004
+case BLR d63f00e0 blr x7 <- blr {Xi}
+in nzcv=1100 x7=0xfffffff
+out pc=0xfffffff sig=segv x30=0x30002004
+case BR d61f0040 br x2 <- br {Xi}
+in nzcv=0110 x2=0xd
+out pc=0xd sig=segv
+case BR d61f0040 br x2 <- br {Xi}
+in nzcv=1111 x2=0x8000000000000004
+out pc=0x4 sig=segv
+case BR d61f0040 br x2 <- br {Xi}
+in nzcv=1101 x2=0x181c4daac8db15f6
+out pc=0x1c4daac8db15f6 sig=segv
+case BR d61f01a0 br x13 <- br {Xi}
+in nzcv=1101 x13=0x8000000000000006
+out pc=0x6 sig=segv
+case BR d61f01a0 br x13 <- br {Xi}
+in nzcv=1011 x13=0x7ffffffffffffffb
+out pc=0x7ffffffffffffffb sig=segv
+case BR d61f01a0 br x13 <- br {Xi}
+in nzcv=0110 x13=0x33cdf304c38a3202
+out pc=0x33cdf304c38a3202 sig=segv
+case BR d61f0380 br x28 <- br {Xi}
+in nzcv=1111 x28=0x6
+out pc=0x6 sig=segv
+case BR d61f0380 br x28 <- br {Xi}
+in nzcv=1010 x28=0x1fffffffffffffff
+out pc=0x1fffffffffffffff sig=segv
+case BR d61f0380 br x28 <- br {Xi}
+in nzcv=1101 x28=0x88e2055c67901799
+out pc=0x88e2055c67901799 sig=segv
+case BR d61f00e0 br x7 <- br {Xi}
+in nzcv=0000 x7=0x7ffffffffffffff5
+out pc=0x7ffffffffffffff5 sig=segv
+case BR d61f00e0 br x7 <- br {Xi}
+in nzcv=0110 x7=0x8000000000000005
+out pc=0x5 sig=segv
+case BR d61f00e0 br x7 <- br {Xi}
+in nzcv=1110 x7=0x800000000000000f
+out pc=0xf sig=segv
+case Bcc 54000040 b.eq #8 <- b.{cond} #{label}
+in nzcv=1100
+out pc=0x30002008 sig=trap
+case Bcc 54000040 b.eq #8 <- b.{cond} #{label}
+in nzcv=1101
+out pc=0x30002008 sig=trap
+case Bcc 54000040 b.eq #8 <- b.{cond} #{label}
+in nzcv=1101
+out pc=0x30002008 sig=trap
+case Bcc 54ffffc1 b.ne #-8 <- b.{cond} #{label}
+in nzcv=0110
+out pc=0x30002004 sig=trap
+case Bcc 54ffffc1 b.ne #-8 <- b.{cond} #{label}
+in nzcv=1000
+out pc=0x30001ff8 sig=segv
+case Bcc 54ffffc1 b.ne #-8 <- b.{cond} #{label}
+in nzcv=1001
+out pc=0x30001ff8 sig=segv
+case Bcc 54002002 b.cs #1024 <- b.{cond} #{label}
+in nzcv=1110
+out pc=0x30002400 sig=trap
+case Bcc 54002002 b.cs #1024 <- b.{cond} #{label}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case Bcc 54002002 b.cs #1024 <- b.{cond} #{label}
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case Bcc 54ff8003 b.cc #-4096 <- b.{cond} #{label}
+in nzcv=1101
+out pc=0x30001000 sig=trap
+case Bcc 54ff8003 b.cc #-4096 <- b.{cond} #{label}
+in nzcv=1100
+out pc=0x30001000 sig=trap
+case Bcc 54ff8003 b.cc #-4096 <- b.{cond} #{label}
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case Bcc 54000044 b.mi #8 <- b.{cond} #{label}
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case Bcc 54000044 b.mi #8 <- b.{cond} #{label}
+in nzcv=1110
+out pc=0x30002008 sig=trap
+case Bcc 54000044 b.mi #8 <- b.{cond} #{label}
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case Bcc 54ffffc5 b.pl #-8 <- b.{cond} #{label}
+in nzcv=1110
+out pc=0x30002004 sig=trap
+case Bcc 54ffffc5 b.pl #-8 <- b.{cond} #{label}
+in nzcv=1101
+out pc=0x30002004 sig=trap
+case Bcc 54ffffc5 b.pl #-8 <- b.{cond} #{label}
+in nzcv=0111
+out pc=0x30001ff8 sig=segv
+case Bcc 54002006 b.vs #1024 <- b.{cond} #{label}
+in nzcv=1101
+out pc=0x30002400 sig=trap
+case Bcc 54002006 b.vs #1024 <- b.{cond} #{label}
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case Bcc 54002006 b.vs #1024 <- b.{cond} #{label}
+in nzcv=1101
+out pc=0x30002400 sig=trap
+case Bcc 54ff8007 b.vc #-4096 <- b.{cond} #{label}
+in nzcv=0110
+out pc=0x30001000 sig=trap
+case Bcc 54ff8007 b.vc #-4096 <- b.{cond} #{label}
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case Bcc 54ff8007 b.vc #-4096 <- b.{cond} #{label}
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case Bcc 54000048 b.hi #8 <- b.{cond} #{label}
+in nzcv=0100
+out pc=0x30002004 sig=trap
+case Bcc 54000048 b.hi #8 <- b.{cond} #{label}
+in nzcv=1110
+out pc=0x30002004 sig=trap
+case Bcc 54000048 b.hi #8 <- b.{cond} #{label}
+in nzcv=1111
+out pc=0x30002004 sig=trap
+case Bcc 54ffffc9 b.ls #-8 <- b.{cond} #{label}
+in nzcv=1101
+out pc=0x30001ff8 sig=segv
+case Bcc 54ffffc9 b.ls #-8 <- b.{cond} #{label}
+in nzcv=1000
+out pc=0x30001ff8 sig=segv
+case Bcc 54ffffc9 b.ls #-8 <- b.{cond} #{label}
+in nzcv=0100
+out pc=0x30001ff8 sig=segv
+case Bcc 5400200a b.ge #1024 <- b.{cond} #{label}
+in nzcv=0000
+out pc=0x30002400 sig=trap
+case Bcc 5400200a b.ge #1024 <- b.{cond} #{label}
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case Bcc 5400200a b.ge #1024 <- b.{cond} #{label}
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case Bcc 54ff800b b.lt #-4096 <- b.{cond} #{label}
+in nzcv=0111
+out pc=0x30001000 sig=trap
+case Bcc 54ff800b b.lt #-4096 <- b.{cond} #{label}
+in nzcv=0111
+out pc=0x30001000 sig=trap
+case Bcc 54ff800b b.lt #-4096 <- b.{cond} #{label}
+in nzcv=0111
+out pc=0x30001000 sig=trap
+case Bcc 5400004c b.gt #8 <- b.{cond} #{label}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case Bcc 5400004c b.gt #8 <- b.{cond} #{label}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case Bcc 5400004c b.gt #8 <- b.{cond} #{label}
+in nzcv=0110
+out pc=0x30002004 sig=trap
+case Bcc 54ffffcd b.le #-8 <- b.{cond} #{label}
+in nzcv=0011
+out pc=0x30001ff8 sig=segv
+case Bcc 54ffffcd b.le #-8 <- b.{cond} #{label}
+in nzcv=1100
+out pc=0x30001ff8 sig=segv
+case Bcc 54ffffcd b.le #-8 <- b.{cond} #{label}
+in nzcv=1110
+out pc=0x30001ff8 sig=segv
+case BCcc 54000050 bc.eq #8 <- bc.{cond} #{label}
+in nzcv=1110
+out pc=0x30002008 sig=trap
+case BCcc 54000050 bc.eq #8 <- bc.{cond} #{label}
+in nzcv=1010
+out pc=0x30002004 sig=trap
+case BCcc 54000050 bc.eq #8 <- bc.{cond} #{label}
+in nzcv=1101
+out pc=0x30002008 sig=trap
+case BCcc 54ffffd1 bc.ne #-8 <- bc.{cond} #{label}
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case BCcc 54ffffd1 bc.ne #-8 <- bc.{cond} #{label}
+in nzcv=0000
+out pc=0x30001ff8 sig=segv
+case BCcc 54ffffd1 bc.ne #-8 <- bc.{cond} #{label}
+in nzcv=1001
+out pc=0x30001ff8 sig=segv
+case BCcc 54002012 bc.cs #1024 <- bc.{cond} #{label}
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case BCcc 54002012 bc.cs #1024 <- bc.{cond} #{label}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case BCcc 54002012 bc.cs #1024 <- bc.{cond} #{label}
+in nzcv=0100
+out pc=0x30002004 sig=trap
+case BCcc 54ff8013 bc.cc #-4096 <- bc.{cond} #{label}
+in nzcv=0101
+out pc=0x30001000 sig=trap
+case BCcc 54ff8013 bc.cc #-4096 <- bc.{cond} #{label}
+in nzcv=0000
+out pc=0x30001000 sig=trap
+case BCcc 54ff8013 bc.cc #-4096 <- bc.{cond} #{label}
+in nzcv=0010
+out pc=0x30002004 sig=trap
+case BCcc 54000054 bc.mi #8 <- bc.{cond} #{label}
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case BCcc 54000054 bc.mi #8 <- bc.{cond} #{label}
+in nzcv=1101
+out pc=0x30002008 sig=trap
+case BCcc 54000054 bc.mi #8 <- bc.{cond} #{label}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case BCcc 54ffffd5 bc.pl #-8 <- bc.{cond} #{label}
+in nzcv=1011
+out pc=0x30002004 sig=trap
+case BCcc 54ffffd5 bc.pl #-8 <- bc.{cond} #{label}
+in nzcv=1101
+out pc=0x30002004 sig=trap
+case BCcc 54ffffd5 bc.pl #-8 <- bc.{cond} #{label}
+in nzcv=0111
+out pc=0x30001ff8 sig=segv
+case BCcc 54002016 bc.vs #1024 <- bc.{cond} #{label}
+in nzcv=1011
+out pc=0x30002400 sig=trap
+case BCcc 54002016 bc.vs #1024 <- bc.{cond} #{label}
+in nzcv=0001
+out pc=0x30002400 sig=trap
+case BCcc 54002016 bc.vs #1024 <- bc.{cond} #{label}
+in nzcv=0011
+out pc=0x30002400 sig=trap
+case BCcc 54ff8017 bc.vc #-4096 <- bc.{cond} #{label}
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case BCcc 54ff8017 bc.vc #-4096 <- bc.{cond} #{label}
+in nzcv=1000
+out pc=0x30001000 sig=trap
+case BCcc 54ff8017 bc.vc #-4096 <- bc.{cond} #{label}
+in nzcv=1111
+out pc=0x30002004 sig=trap
+case BCcc 54000058 bc.hi #8 <- bc.{cond} #{label}
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case BCcc 54000058 bc.hi #8 <- bc.{cond} #{label}
+in nzcv=0111
+out pc=0x30002004 sig=trap
+case BCcc 54000058 bc.hi #8 <- bc.{cond} #{label}
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case BCcc 54ffffd9 bc.ls #-8 <- bc.{cond} #{label}
+in nzcv=0000
+out pc=0x30001ff8 sig=segv
+case BCcc 54ffffd9 bc.ls #-8 <- bc.{cond} #{label}
+in nzcv=0010
+out pc=0x30002004 sig=trap
+case BCcc 54ffffd9 bc.ls #-8 <- bc.{cond} #{label}
+in nzcv=0101
+out pc=0x30001ff8 sig=segv
+case BCcc 5400201a bc.ge #1024 <- bc.{cond} #{label}
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case BCcc 5400201a bc.ge #1024 <- bc.{cond} #{label}
+in nzcv=1110
+out pc=0x30002004 sig=trap
+case BCcc 5400201a bc.ge #1024 <- bc.{cond} #{label}
+in nzcv=0110
+out pc=0x30002400 sig=trap
+case BCcc 54ff801b bc.lt #-4096 <- bc.{cond} #{label}
+in nzcv=1000
+out pc=0x30001000 sig=trap
+case BCcc 54ff801b bc.lt #-4096 <- bc.{cond} #{label}
+in nzcv=1100
+out pc=0x30001000 sig=trap
+case BCcc 54ff801b bc.lt #-4096 <- bc.{cond} #{label}
+in nzcv=1100
+out pc=0x30001000 sig=trap
+case BCcc 5400005c bc.gt #8 <- bc.{cond} #{label}
+in nzcv=1100
+out pc=0x30002004 sig=trap
+case BCcc 5400005c bc.gt #8 <- bc.{cond} #{label}
+in nzcv=1101
+out pc=0x30002004 sig=trap
+case BCcc 5400005c bc.gt #8 <- bc.{cond} #{label}
+in nzcv=1001
+out pc=0x30002008 sig=trap
+case BCcc 54ffffdd bc.le #-8 <- bc.{cond} #{label}
+in nzcv=0101
+out pc=0x30001ff8 sig=segv
+case BCcc 54ffffdd bc.le #-8 <- bc.{cond} #{label}
+in nzcv=0110
+out pc=0x30001ff8 sig=segv
+case BCcc 54ffffdd bc.le #-8 <- bc.{cond} #{label}
+in nzcv=0100
+out pc=0x30001ff8 sig=segv
+case CBZ b4000040 cbz x0, #8 <- cbz {Xd}, #{label}
+in nzcv=1001 x0=0xfffffffffffffff0
+out pc=0x30002004 sig=trap
+case CBZ b4000040 cbz x0, #8 <- cbz {Xd}, #{label}
+in nzcv=0111 x0=0x86160f809558a94e
+out pc=0x30002004 sig=trap
+case CBZ b4000040 cbz x0, #8 <- cbz {Xd}, #{label}
+in nzcv=0110 x0=0x0
+out pc=0x30002008 sig=trap
+case CBZ b4ffffc5 cbz x5, #-8 <- cbz {Xd}, #{label}
+in nzcv=1000 x5=0x7fffffffffffffff
+out pc=0x30002004 sig=trap
+case CBZ b4ffffc5 cbz x5, #-8 <- cbz {Xd}, #{label}
+in nzcv=1101 x5=0x12244bc751695ff8
+out pc=0x30002004 sig=trap
+case CBZ b4ffffc5 cbz x5, #-8 <- cbz {Xd}, #{label}
+in nzcv=1110 x5=0x20000000
+out pc=0x30002004 sig=trap
+case CBZ b4002011 cbz x17, #1024 <- cbz {Xd}, #{label}
+in nzcv=1000 x17=0x0
+out pc=0x30002400 sig=trap
+case CBZ b4002011 cbz x17, #1024 <- cbz {Xd}, #{label}
+in nzcv=1000 x17=0x0
+out pc=0x30002400 sig=trap
+case CBZ b4002011 cbz x17, #1024 <- cbz {Xd}, #{label}
+in nzcv=1010 x17=0x7fffffffffffffff
+out pc=0x30002004 sig=trap
+case CBZ b4ff801e cbz x30, #-4096 <- cbz {Xd}, #{label}
+in nzcv=1000 x30=0x0
+out pc=0x30001000 sig=trap
+case CBZ b4ff801e cbz x30, #-4096 <- cbz {Xd}, #{label}
+in nzcv=1011 x30=0x4000000000000000
+out pc=0x30002004 sig=trap
+case CBZ b4ff801e cbz x30, #-4096 <- cbz {Xd}, #{label}
+in nzcv=0010 x30=0x0
+out pc=0x30001000 sig=trap
+case CBZ 34000040 cbz w0, #8 <- cbz {Wd}, #{label}
+in nzcv=0010 x0=0x0
+out pc=0x30002008 sig=trap
+case CBZ 34000040 cbz w0, #8 <- cbz {Wd}, #{label}
+in nzcv=0010 x0=0x0
+out pc=0x30002008 sig=trap
+case CBZ 34000040 cbz w0, #8 <- cbz {Wd}, #{label}
+in nzcv=1100 x0=0x7ffffffffffffff9
+out pc=0x30002004 sig=trap
+case CBZ 34ffffc5 cbz w5, #-8 <- cbz {Wd}, #{label}
+in nzcv=0001 x5=0x0
+out pc=0x30001ff8 sig=segv
+case CBZ 34ffffc5 cbz w5, #-8 <- cbz {Wd}, #{label}
+in nzcv=1100 x5=0x0
+out pc=0x30001ff8 sig=segv
+case CBZ 34ffffc5 cbz w5, #-8 <- cbz {Wd}, #{label}
+in nzcv=0111 x5=0x7ffffffffffffff2
+out pc=0x30002004 sig=trap
+case CBZ 34002011 cbz w17, #1024 <- cbz {Wd}, #{label}
+in nzcv=0100 x17=0x400000000000
+out pc=0x30002400 sig=trap
+case CBZ 34002011 cbz w17, #1024 <- cbz {Wd}, #{label}
+in nzcv=0111 x17=0x0
+out pc=0x30002400 sig=trap
+case CBZ 34002011 cbz w17, #1024 <- cbz {Wd}, #{label}
+in nzcv=1011 x17=0x0
+out pc=0x30002400 sig=trap
+case CBZ 34ff801e cbz w30, #-4096 <- cbz {Wd}, #{label}
+in nzcv=0110 x30=0x0
+out pc=0x30001000 sig=trap
+case CBZ 34ff801e cbz w30, #-4096 <- cbz {Wd}, #{label}
+in nzcv=1010 x30=0xe31f904194e693a9
+out pc=0x30002004 sig=trap
+case CBZ 34ff801e cbz w30, #-4096 <- cbz {Wd}, #{label}
+in nzcv=0001 x30=0x0
+out pc=0x30001000 sig=trap
+case CBNZ b5000040 cbnz x0, #8 <- cbnz {Xd}, #{label}
+in nzcv=0100 x0=0x0
+out pc=0x30002004 sig=trap
+case CBNZ b5000040 cbnz x0, #8 <- cbnz {Xd}, #{label}
+in nzcv=1000 x0=0x0
+out pc=0x30002004 sig=trap
+case CBNZ b5000040 cbnz x0, #8 <- cbnz {Xd}, #{label}
+in nzcv=0011 x0=0x3ffffffffffff
+out pc=0x30002008 sig=trap
+case CBNZ b5ffffc5 cbnz x5, #-8 <- cbnz {Xd}, #{label}
+in nzcv=0000 x5=0x7ffffffffffffff9
+out pc=0x30001ff8 sig=segv
+case CBNZ b5ffffc5 cbnz x5, #-8 <- cbnz {Xd}, #{label}
+in nzcv=1001 x5=0x0
+out pc=0x30002004 sig=trap
+case CBNZ b5ffffc5 cbnz x5, #-8 <- cbnz {Xd}, #{label}
+in nzcv=0100 x5=0x0
+out pc=0x30002004 sig=trap
+case CBNZ b5002011 cbnz x17, #1024 <- cbnz {Xd}, #{label}
+in nzcv=1101 x17=0x0
+out pc=0x30002004 sig=trap
+case CBNZ b5002011 cbnz x17, #1024 <- cbnz {Xd}, #{label}
+in nzcv=0110 x17=0x0
+out pc=0x30002004 sig=trap
+case CBNZ b5002011 cbnz x17, #1024 <- cbnz {Xd}, #{label}
+in nzcv=1011 x17=0x20000000000000
+out pc=0x30002400 sig=trap
+case CBNZ b5ff801e cbnz x30, #-4096 <- cbnz {Xd}, #{label}
+in nzcv=1001 x30=0x0
+out pc=0x30002004 sig=trap
+case CBNZ b5ff801e cbnz x30, #-4096 <- cbnz {Xd}, #{label}
+in nzcv=1000 x30=0x800
+out pc=0x30001000 sig=trap
+case CBNZ b5ff801e cbnz x30, #-4096 <- cbnz {Xd}, #{label}
+in nzcv=0000 x30=0xc53fb2cedf6eeb80
+out pc=0x30001000 sig=trap
+case CBNZ 35000040 cbnz w0, #8 <- cbnz {Wd}, #{label}
+in nzcv=1011 x0=0xb8f7676c29457f4e
+out pc=0x30002008 sig=trap
+case CBNZ 35000040 cbnz w0, #8 <- cbnz {Wd}, #{label}
+in nzcv=0101 x0=0x0
+out pc=0x30002004 sig=trap
+case CBNZ 35000040 cbnz w0, #8 <- cbnz {Wd}, #{label}
+in nzcv=0110 x0=0x0
+out pc=0x30002004 sig=trap
+case CBNZ 35ffffc5 cbnz w5, #-8 <- cbnz {Wd}, #{label}
+in nzcv=1010 x5=0x7ffffffffffffffe
+out pc=0x30001ff8 sig=segv
+case CBNZ 35ffffc5 cbnz w5, #-8 <- cbnz {Wd}, #{label}
+in nzcv=0110 x5=0x0
+out pc=0x30002004 sig=trap
+case CBNZ 35ffffc5 cbnz w5, #-8 <- cbnz {Wd}, #{label}
+in nzcv=1000 x5=0xca9c86a29cec1b3b
+out pc=0x30001ff8 sig=segv
+case CBNZ 35002011 cbnz w17, #1024 <- cbnz {Wd}, #{label}
+in nzcv=1011 x17=0x0
+out pc=0x30002004 sig=trap
+case CBNZ 35002011 cbnz w17, #1024 <- cbnz {Wd}, #{label}
+in nzcv=1111 x17=0x8000000000000008
+out pc=0x30002400 sig=trap
+case CBNZ 35002011 cbnz w17, #1024 <- cbnz {Wd}, #{label}
+in nzcv=1001 x17=0x40000000000000
+out pc=0x30002004 sig=trap
+case CBNZ 35ff801e cbnz w30, #-4096 <- cbnz {Wd}, #{label}
+in nzcv=1110 x30=0x0
+out pc=0x30002004 sig=trap
+case CBNZ 35ff801e cbnz w30, #-4096 <- cbnz {Wd}, #{label}
+in nzcv=0101 x30=0x2000000
+out pc=0x30001000 sig=trap
+case CBNZ 35ff801e cbnz w30, #-4096 <- cbnz {Wd}, #{label}
+in nzcv=1011 x30=0x0
+out pc=0x30002004 sig=trap
+case TBZ 36000040 tbz x0, #0, #8 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=0100 x0=0xfffffffffffffff4
+out pc=0x30002008 sig=trap
+case TBZ 36000040 tbz x0, #0, #8 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=0000 x0=0x7ffffffffffffff3
+out pc=0x30002004 sig=trap
+case TBZ 36000040 tbz x0, #0, #8 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=0100 x0=0x200
+out pc=0x30002008 sig=trap
+case TBZ 36ffffc5 tbz x5, #31, #-8 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=0010 x5=0x2deb9f761f5afa50
+out pc=0x30001ff8 sig=segv
+case TBZ 36ffffc5 tbz x5, #31, #-8 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=0101 x5=0xfffffffffffffffc
+out pc=0x30002004 sig=trap
+case TBZ 36ffffc5 tbz x5, #31, #-8 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=0011 x5=0x1
+out pc=0x30001ff8 sig=segv
+case TBZ b6002011 tbz x17, #32, #1024 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=1110 x17=0xfffffffffffffffe
+out pc=0x30002004 sig=trap
+case TBZ b6002011 tbz x17, #32, #1024 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=1011 x17=0x1000
+out pc=0x30002400 sig=trap
+case TBZ b6002011 tbz x17, #32, #1024 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=0000 x17=0x80
+out pc=0x30002400 sig=trap
+case TBZ b6ff801e tbz x30, #63, #-4096 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=1010 x30=0x4
+out pc=0x30001000 sig=trap
+case TBZ b6ff801e tbz x30, #63, #-4096 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=0010 x30=0x7ffffffffffffffd
+out pc=0x30001000 sig=trap
+case TBZ b6ff801e tbz x30, #63, #-4096 <- tbz {Xd}, #{bit64}, #{label}
+in nzcv=0010 x30=0x4000000000
+out pc=0x30001000 sig=trap
+case TBZ 36000040 tbz w0, #0, #8 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=1111 x0=0x3
+out pc=0x30002004 sig=trap
+case TBZ 36000040 tbz w0, #0, #8 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=1001 x0=0x71aa831eeb360f38
+out pc=0x30002008 sig=trap
+case TBZ 36000040 tbz w0, #0, #8 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=0000 x0=0x648a90b4c4807782
+out pc=0x30002008 sig=trap
+case TBZ 360fffc5 tbz w5, #1, #-8 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=0101 x5=0x4
+out pc=0x30001ff8 sig=segv
+case TBZ 360fffc5 tbz w5, #1, #-8 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=0111 x5=0x3fffffff
+out pc=0x30002004 sig=trap
+case TBZ 360fffc5 tbz w5, #1, #-8 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=0110 x5=0xf
+out pc=0x30002004 sig=trap
+case TBZ 36782011 tbz w17, #15, #1024 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=1001 x17=0x7ffffffffffffffc
+out pc=0x30002004 sig=trap
+case TBZ 36782011 tbz w17, #15, #1024 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=1010 x17=0x800000000000000b
+out pc=0x30002400 sig=trap
+case TBZ 36782011 tbz w17, #15, #1024 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=1001 x17=0xc9bef932304d3533
+out pc=0x30002400 sig=trap
+case TBZ 36ff801e tbz w30, #31, #-4096 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=1010 x30=0x7ffffffffffffff2
+out pc=0x30002004 sig=trap
+case TBZ 36ff801e tbz w30, #31, #-4096 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=1110 x30=0xd88015cb8f2cce08
+out pc=0x30002004 sig=trap
+case TBZ 36ff801e tbz w30, #31, #-4096 <- tbz {Wd}, #{bit32}, #{label}
+in nzcv=0001 x30=0x7ffffffffffffff2
+out pc=0x30002004 sig=trap
+case TBNZ 37000040 tbnz x0, #0, #8 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=1101 x0=0x7b2062414ca4e1d3
+out pc=0x30002008 sig=trap
+case TBNZ 37000040 tbnz x0, #0, #8 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=1110 x0=0x7ffffffffffffff8
+out pc=0x30002004 sig=trap
+case TBNZ 37000040 tbnz x0, #0, #8 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=0101 x0=0x3ffffff
+out pc=0x30002008 sig=trap
+case TBNZ 37ffffc5 tbnz x5, #31, #-8 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=0010 x5=0xe5b13aad8a0f38dc
+out pc=0x30001ff8 sig=segv
+case TBNZ 37ffffc5 tbnz x5, #31, #-8 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=0001 x5=0xf
+out pc=0x30002004 sig=trap
+case TBNZ 37ffffc5 tbnz x5, #31, #-8 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=0111 x5=0xd83835bfd887726b
+out pc=0x30001ff8 sig=segv
+case TBNZ b7002011 tbnz x17, #32, #1024 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=0000 x17=0x1d5954de8872749e
+out pc=0x30002004 sig=trap
+case TBNZ b7002011 tbnz x17, #32, #1024 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=1001 x17=0x4193c7ceed076923
+out pc=0x30002004 sig=trap
+case TBNZ b7002011 tbnz x17, #32, #1024 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=1000 x17=0x800
+out pc=0x30002004 sig=trap
+case TBNZ b7ff801e tbnz x30, #63, #-4096 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=1111 x30=0x7fffffffff
+out pc=0x30002004 sig=trap
+case TBNZ b7ff801e tbnz x30, #63, #-4096 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=0101 x30=0x3ffffffffffff
+out pc=0x30002004 sig=trap
+case TBNZ b7ff801e tbnz x30, #63, #-4096 <- tbnz {Xd}, #{bit64}, #{label}
+in nzcv=1001 x30=0x100000000000000
+out pc=0x30002004 sig=trap
+case TBNZ 37000040 tbnz w0, #0, #8 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=1110 x0=0xfffffffffffffff2
+out pc=0x30002004 sig=trap
+case TBNZ 37000040 tbnz w0, #0, #8 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=0110 x0=0x1
+out pc=0x30002008 sig=trap
+case TBNZ 37000040 tbnz w0, #0, #8 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=0110 x0=0x0
+out pc=0x30002004 sig=trap
+case TBNZ 370fffc5 tbnz w5, #1, #-8 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=0101 x5=0xffffffffffffffff
+out pc=0x30001ff8 sig=segv
+case TBNZ 370fffc5 tbnz w5, #1, #-8 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=0001 x5=0xfffffffffffffff
+out pc=0x30001ff8 sig=segv
+case TBNZ 370fffc5 tbnz w5, #1, #-8 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=0110 x5=0x4000000000000
+out pc=0x30002004 sig=trap
+case TBNZ 37782011 tbnz w17, #15, #1024 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=0000 x17=0x8000000000000008
+out pc=0x30002004 sig=trap
+case TBNZ 37782011 tbnz w17, #15, #1024 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=1000 x17=0x7639c20027e818dc
+out pc=0x30002004 sig=trap
+case TBNZ 37782011 tbnz w17, #15, #1024 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=0001 x17=0xaa1df4daefb2fd23
+out pc=0x30002400 sig=trap
+case TBNZ 37ff801e tbnz w30, #31, #-4096 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=0010 x30=0x7ffffffffffffffb
+out pc=0x30001000 sig=trap
+case TBNZ 37ff801e tbnz w30, #31, #-4096 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=1011 x30=0xf
+out pc=0x30002004 sig=trap
+case TBNZ 37ff801e tbnz w30, #31, #-4096 <- tbnz {Wd}, #{bit32}, #{label}
+in nzcv=1000 x30=0x1ffffffffffff
+out pc=0x30001000 sig=trap
