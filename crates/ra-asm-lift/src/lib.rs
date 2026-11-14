@@ -80,6 +80,10 @@ pub struct Lifted {
     /// The indirect calls and jumps a traced run resolved, by the address of the instruction,
     /// with the lifted functions each reached: the raise calls them directly.
     pub traced_calls: BTreeMap<u64, Vec<u64>>,
+    /// The initializer tables the C runtime's startup hands `_initterm_e` and `_initterm`, as
+    /// `(first, last, checked)`: read at the lift, from the instructions the analysis may release
+    /// after it.
+    pub initializer_tables: Vec<(u64, u64, bool)>,
     pub warnings: Vec<String>,
 }
 
@@ -339,6 +343,7 @@ impl Lifted {
             x87: self.x87,
             relocated: self.relocated.clone(),
             traced_calls: self.traced_calls.clone(),
+            initializer_tables: Vec::new(),
             warnings: Vec::new(),
         }
     }
@@ -546,6 +551,7 @@ fn lift_on(image: &Image, analysis: &Analysis<'_>, options: LiftOptions, threads
         x87: options.x87,
         relocated: image.relocations.iter().map(|r| r.va).collect(),
         traced_calls: BTreeMap::new(),
+        initializer_tables: initializer_tables(image, analysis),
         warnings: Vec::new(),
     };
     for f in analysis.ported() {
@@ -716,6 +722,7 @@ fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, t
             x87: _,
             relocated,
             traced_calls,
+            initializer_tables: _,
             warnings,
         } = worker;
         let Module { name: _, triple: _, data_layout: _, types, globals, declarations, functions: built, frozen } = module;
@@ -811,7 +818,7 @@ pub fn image_header(
                 // The runtime's startup the driver's replaces ran the program's initializers before
                 // `main`; the driver runs them in its place.
                 if is_main && !dll {
-                    let initializers = startup_initializers(image, analysis, lifted);
+                    let initializers = startup_initializers(image, lifted);
                     if !initializers.is_empty() {
                         let mut calls = String::new();
                         for (name, checked) in &initializers {
@@ -879,7 +886,29 @@ fn abi_prototype(sig: &raise::abi::Signature) -> (&'static str, Vec<&'static str
 /// C initializers, `__xi_a` to `__xi_z`) and `_initterm` (the constructors of the C++ statics,
 /// `__xc_a` to `__xc_z`), read where its calls pass them. An entry of the runtime's own is the
 /// host's startup's work, and stays out.
-fn startup_initializers(image: &Image, analysis: &Analysis<'_>, lifted: &Lifted) -> Vec<(String, bool)> {
+fn startup_initializers(image: &Image, lifted: &Lifted) -> Vec<(String, bool)> {
+    let width = u64::from(image.pointer_size());
+    let mut initializers = Vec::new();
+    for &(first, last, checked) in &lifted.initializer_tables {
+        // A table is a few pointers between its two sentinels; anything longer is not one.
+        if last < first || last - first > 0x1_0000 {
+            continue;
+        }
+        for at in (first..last).step_by(width as usize) {
+            if let Ok(value) = image.pointer(at)
+                && let Some(name) = lifted.functions.get(&value)
+            {
+                initializers.push((name.clone(), checked));
+            }
+        }
+    }
+    initializers
+}
+
+/// The initializer tables the startup hands `_initterm_e` and `_initterm`, as `(first, last,
+/// checked)`, in the order of the calls, each once: read from the instructions where the calls
+/// pass them, which the lift does while the analysis still holds them.
+fn initializer_tables(image: &Image, analysis: &Analysis<'_>) -> Vec<(u64, u64, bool)> {
     use ra_asm_arch::{Flow, Operand, Target};
     let mut tables: Vec<(u64, u64, u64, bool)> = Vec::new();
     for f in analysis.functions.values() {
@@ -913,22 +942,7 @@ fn startup_initializers(image: &Image, analysis: &Analysis<'_>, lifted: &Lifted)
     tables.sort_unstable();
     let mut seen = BTreeSet::new();
     tables.retain(|&(_, first, last, _)| seen.insert((first, last)));
-    let width = u64::from(image.pointer_size());
-    let mut initializers = Vec::new();
-    for (_, first, last, checked) in tables {
-        // A table is a few pointers between its two sentinels; anything longer is not one.
-        if last < first || last - first > 0x1_0000 {
-            continue;
-        }
-        for at in (first..last).step_by(width as usize) {
-            if let Ok(value) = image.pointer(at)
-                && let Some(name) = lifted.functions.get(&value)
-            {
-                initializers.push((name.clone(), checked));
-            }
-        }
-    }
-    initializers
+    tables.into_iter().map(|(_, first, last, checked)| (first, last, checked)).collect()
 }
 
 /// The two table addresses a call to `_initterm` passes, from the instructions before it in its

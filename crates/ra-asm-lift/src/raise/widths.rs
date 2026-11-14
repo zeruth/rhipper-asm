@@ -248,45 +248,27 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
         }
     }
     for _ in 0..16 {
-        let analyses: HashMap<String, Analysis> = module.functions.iter().map(|f| (f.name.clone(), analyze(f, &plan))).collect();
+        // What the plan reads of each function's analysis, made side by side and kept alone: the
+        // whole analyses of a large program's functions do not fit at once.
+        let summaries: Vec<Summary> = super::abi::par_map(&module.functions, |_, f| Summary::of(f, &analyze(f, &plan)));
         // The widest of each callee's results its callers read, in one walk of the module: asked
         // of every caller once per function, the walk was the module squared.
         let mut read_by_callers: HashMap<&str, u16> = HashMap::new();
-        for g in &module.functions {
-            let ga = &analyses[&g.name];
-            for i in g.blocks.iter().flat_map(|b| &b.instrs) {
-                if let (Inst::Call { callee: Callee::Direct(name), .. }, Some(r)) = (&i.inst, i.result)
-                    && let Some(d) = ga.demand.get(&r)
-                {
-                    let widest = read_by_callers.entry(name.as_str()).or_insert(0);
-                    *widest = (*widest).max(round(*d));
-                }
+        for s in &summaries {
+            for (name, d) in &s.call_reads {
+                let widest = read_by_callers.entry(name.as_str()).or_insert(0);
+                *widest = (*widest).max(*d);
             }
         }
         let mut next = Plan::default();
-        for f in &module.functions {
+        for (f, s) in module.functions.iter().zip(&summaries) {
             if !eligible(&f.name) {
                 continue;
             }
-            let a = &analyses[&f.name];
-            let params: Vec<Option<u16>> = f
-                .params
-                .iter()
-                .map(|p| {
-                    let d = *a.demand.get(p)?;
-                    let w = round(d);
-                    (d > 0 && w < FULL).then_some(w)
-                })
-                .collect();
-            if params.iter().any(Option::is_some) {
-                next.params.insert(f.name.clone(), params);
+            if s.params.iter().any(Option::is_some) {
+                next.params.insert(f.name.clone(), s.params.clone());
             }
-            if f.ty.ret == Type::I64 {
-                let returned = f.blocks.iter().filter_map(|b| match &b.terminator {
-                    Terminator::Ret(Some((_, o))) => Some(a.zero_of(o)),
-                    _ => None,
-                });
-                let w = round(returned.max().unwrap_or(FULL).max(1));
+            if let Some(w) = s.returned {
                 let callers_agree = read_by_callers.get(f.name.as_str()).is_none_or(|d| *d <= w);
                 if w < FULL && callers_agree {
                     next.results.insert(f.name.clone(), w);
@@ -299,12 +281,54 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
         plan = next;
     }
 
-    let mut changed = false;
-    for f in &mut module.functions {
+    let changed = std::sync::atomic::AtomicBool::new(false);
+    super::abi::par_each_mut(&mut module.functions, |_, f| {
         let a = analyze(f, &plan);
-        changed |= rewrite(f, &a, &plan);
+        if rewrite(f, &a, &plan) {
+            changed.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    });
+    changed.into_inner()
+}
+
+/// What the plan reads of one function's analysis: the width each parameter is demanded at, the
+/// width of what it returns when it returns an `i64`, and the widths its calls' results are read
+/// at, rounded, by callee.
+struct Summary {
+    params: Vec<Option<u16>>,
+    returned: Option<u16>,
+    call_reads: Vec<(String, u16)>,
+}
+
+impl Summary {
+    fn of(f: &Function, a: &Analysis) -> Self {
+        let params = f
+            .params
+            .iter()
+            .map(|p| {
+                let d = *a.demand.get(p)?;
+                let w = round(d);
+                (d > 0 && w < FULL).then_some(w)
+            })
+            .collect();
+        let returned = (f.ty.ret == Type::I64).then(|| {
+            let returned = f.blocks.iter().filter_map(|b| match &b.terminator {
+                Terminator::Ret(Some((_, o))) => Some(a.zero_of(o)),
+                _ => None,
+            });
+            round(returned.max().unwrap_or(FULL).max(1))
+        });
+        let call_reads = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instrs)
+            .filter_map(|i| match (&i.inst, i.result) {
+                (Inst::Call { callee: Callee::Direct(name), .. }, Some(r)) => Some((name.clone(), round(*a.demand.get(&r)?))),
+                _ => None,
+            })
+            .collect();
+        Self { params, returned, call_reads }
     }
-    changed
 }
 
 /// The functions whose address the module takes: in the data, or as an operand.

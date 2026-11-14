@@ -46,6 +46,8 @@ pub struct Abi<'a> {
     /// The targets of `virtual_calls` a run saw rather than a vtable named: the dispatch keeps the
     /// indirect call for any other target.
     pub seen: &'a HashSet<ValueId>,
+    /// The candidate lists' summaries under `all`, shared by the functions the raise runs.
+    pub summaries: Option<&'a super::abi::SummaryCache<'a>>,
 }
 
 /// The trap code of a call through a vtable slot that holds an address outside the vtables.
@@ -200,7 +202,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
     let all = all_registers(target);
     let machine_model = |_: &Inst| (all, all);
     let abi_model = |inst: &Inst| match abi {
-        Some(abi) => super::abi::call_model_public(inst, abi.virtual_calls, abi.all, abi.target),
+        Some(abi) => super::abi::call_model_public(inst, abi.virtual_calls, abi.all, abi.target, abi.summaries),
         None => (all, all),
     };
     let exit_set = match abi {
@@ -1134,7 +1136,7 @@ impl Rewriter<'_> {
                 let candidates = &abi.virtual_calls[&key];
                 let seen = abi.seen.contains(&key);
                 drop_return_address_push(out, address);
-                if let ([(_, name)], false) = (candidates.as_slice(), seen) {
+                if let ([(_, name)], false) = (&candidates[..], seen) {
                     self.direct_call(f, abi, name, address, true, current, out);
                 } else {
                     return Some(self.virtual_dispatch(f, abi, candidates, &code, address, seen, current, out));

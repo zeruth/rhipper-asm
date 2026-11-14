@@ -26,6 +26,11 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 
+/// The passes thaw, raise and free functions on every thread at once; the system heap takes one
+/// lock for each of those allocations, which left a 20-thread pass running on two.
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Parser)]
 #[command(name = "ras", version = env!("RAS_VERSION"), about = "Rhipper Asm: disassembly to the Rhipper IR")]
 struct Options {

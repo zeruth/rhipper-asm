@@ -346,11 +346,13 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
             });
             let signatures = abi::infer_simplified(&module.functions, &frozen, roots, target, &options.vtables, &options.traced_calls);
             let globals = &module.globals;
+            let vtables = abi::VtableIndex::new(&options.vtables);
+            let summaries = abi::SummaryCache::new(&signatures, target);
             // A function's raise reads the signatures, the vtables and the data, and writes the
             // function alone: the functions raise side by side, each compacted as it finishes.
             let raise_one = |f: &mut ra_asm_ir::Function| {
                 if let Some(own) = signatures.get(&f.name) {
-                    raise_function(f, own, &signatures, &options, globals);
+                    raise_function(f, own, &signatures, &options, &vtables, &summaries, globals);
                 }
                 f.compact();
             };
@@ -416,17 +418,27 @@ fn raise_function(
     own: &abi::Signature,
     signatures: &HashMap<String, abi::Signature>,
     options: &Options,
+    vtables: &abi::VtableIndex<'_>,
+    summaries: &abi::SummaryCache<'_>,
     globals: &[ra_asm_ir::Global],
 ) {
     let target = options.target();
     // The constants first: the rewrite recognizes a pushed return address by its value.
     simplify::run(f);
     let lifted = |name: &str| signatures.contains_key(name);
-    let mut virtual_calls = abi::virtual_calls(f, &options.vtables, target, &lifted);
+    let mut virtual_calls = abi::virtual_calls(f, vtables, target, &lifted);
     let traced = abi::traced_calls(f, &options.traced_calls, &lifted);
     let seen: HashSet<_> = traced.keys().copied().collect();
     virtual_calls.extend(traced);
-    let abi = promote::Abi { own, all: signatures, target, x87: options.x87, virtual_calls: &virtual_calls, seen: &seen };
+    let abi = promote::Abi {
+        own,
+        all: signatures,
+        target,
+        x87: options.x87,
+        virtual_calls: &virtual_calls,
+        seen: &seen,
+        summaries: Some(summaries),
+    };
     promote::promote_abi(f, &abi);
     if own.noreturn && !f.attrs.iter().any(|a| a == "noreturn") {
         f.attrs.push("noreturn".into());

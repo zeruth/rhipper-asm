@@ -30,6 +30,7 @@ impl FunctionBuilder {
                 address: None,
                 value_names: Vec::new(),
                 value_types: Vec::new(),
+                name_index: Default::default(),
             },
             address: None,
             names_used: std::collections::HashMap::new(),

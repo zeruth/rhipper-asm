@@ -29,6 +29,8 @@ required-features = ["oracle"]
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+# The allocator: the passes allocate from every thread at once, and the system heap serializes them.
+mimalloc = { version = "0.1", default-features = false }
 ra-asm-analysis.workspace = true
 ra-asm-arch.workspace = true
 ra-asm-emit.workspace = true

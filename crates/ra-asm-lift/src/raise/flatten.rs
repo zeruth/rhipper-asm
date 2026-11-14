@@ -727,6 +727,9 @@ fn rebuild(f: &mut Function, d: &Dispatcher) -> bool {
             children.entry(dom).or_default().push(b);
         }
     }
+    for list in children.values_mut() {
+        list.sort_unstable();
+    }
     struct Variable {
         value: ValueId,
         defs: HashMap<BlockId, Operand>,
@@ -768,7 +771,8 @@ fn rebuild(f: &mut Function, d: &Dispatcher) -> bool {
     // A duplicated block's values, from the copies' substitutions (the original may be gone).
     for (p, copies) in &duplicated {
         let Some((_, first)) = copies.first() else { continue };
-        let values: Vec<ValueId> = substs[*first].keys().copied().collect();
+        let mut values: Vec<ValueId> = substs[*first].keys().copied().collect();
+        values.sort_unstable();
         for v in values {
             let name = f.value_name(v).to_owned();
             let ty = f.value_type(v).clone();
@@ -812,7 +816,9 @@ fn place_joins(
     frontier: &HashMap<BlockId, Vec<BlockId>>,
     reachable: &HashSet<BlockId>,
 ) {
+    // In the blocks' order: the phis take their names in the order they are placed.
     let mut work: Vec<BlockId> = defs.keys().copied().collect();
+    work.sort_unstable();
     while let Some(x) = work.pop() {
         for &y in frontier.get(&x).into_iter().flatten() {
             if defs.contains_key(&y) || !reachable.contains(&y) {

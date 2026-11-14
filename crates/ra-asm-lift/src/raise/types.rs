@@ -41,6 +41,8 @@ const REACH: u64 = 1 << 16;
 pub fn run(module: &mut Module) -> bool {
     let mut sites = Vec::new();
     let mut classes = Classes::default();
+    // The functions by name: asked at every call, a walk of the module was the module squared.
+    let by_name: HashMap<&str, usize> = module.functions.iter().enumerate().map(|(i, f)| (f.name.as_str(), i)).collect();
     for (fi, f) in module.functions.iter().enumerate() {
         let view = View::new(f);
         for (bi, b) in f.blocks.iter().enumerate() {
@@ -51,8 +53,8 @@ pub fn run(module: &mut Module) -> bool {
                         // A value passed to a parameter shares the parameter's struct, whatever
                         // the value is here: a record on the caller's frame links the functions
                         // that fill and read it without being a base itself.
-                        if let Some((gi, g)) = module.functions.iter().enumerate().find(|(_, g)| g.name == *name) {
-                            for ((_, a), p) in args.iter().zip(&g.params) {
+                        if let Some(&gi) = by_name.get(name.as_str()) {
+                            for ((_, a), p) in args.iter().zip(&module.functions[gi].params) {
                                 let ((Some((v, 0)), _) | (_, &Operand::Local(v))) = (view.resolve_int(a), a) else { continue };
                                 classes.union((fi, v), (gi, *p));
                             }
@@ -72,18 +74,21 @@ pub fn run(module: &mut Module) -> bool {
     }
 
     // The accesses of each class, then its struct.
-    let mut accesses: HashMap<Base, BTreeMap<u64, Vec<Type>>> = HashMap::new();
+    // In the order of the bases, which names the structs: by the hash's order they took other
+    // numbers each run.
+    let mut accesses: BTreeMap<Base, BTreeMap<u64, Vec<Type>>> = BTreeMap::new();
     for s in &sites {
         let root = classes.find((s.function, s.base));
         accesses.entry(root).or_default().entry(s.offset).or_default().push(s.ty.clone());
     }
     let mut by_layout: HashMap<Vec<Type>, String> = HashMap::new();
     let mut structs: HashMap<Base, Struct> = HashMap::new();
+    let mut defined: HashSet<String> = module.types.iter().map(|(n, _)| n.clone()).collect();
     for (root, offsets) in accesses {
         let Some((fields, layout)) = fields_of(&offsets) else { continue };
         let next = format!("S{}", by_layout.len());
         let name = by_layout.entry(layout.clone()).or_insert_with(|| next).clone();
-        if !module.types.iter().any(|(n, _)| *n == name) {
+        if defined.insert(name.clone()) {
             module.types.push((name.clone(), layout));
         }
         structs.insert(root, Struct { name, fields });
@@ -93,12 +98,18 @@ pub fn run(module: &mut Module) -> bool {
     }
 
     // The rewrite, function by function: the base's pointer once, a field pointer per access.
+    // The sites by function, in their order: filtering every site for each function was the
+    // sites times the functions.
+    let mut sites_of: Vec<Vec<&Site>> = (0..module.functions.len()).map(|_| Vec::new()).collect();
+    for s in &sites {
+        sites_of[s.function].push(s);
+    }
     let mut changed = false;
     for (fi, f) in module.functions.iter_mut().enumerate() {
         let mut edits: Vec<Edit> = Vec::new();
         let mut pointers: HashMap<ValueId, ValueId> = HashMap::new();
         let defs = definitions(f);
-        for s in sites.iter().filter(|s| s.function == fi) {
+        for s in sites_of[fi].iter().copied() {
             let Some(st) = structs.get(&classes.find((fi, s.base))) else { continue };
             let Some(&index) = st.fields.get(&s.offset) else { continue };
             let pointer = *pointers.entry(s.base).or_insert_with(|| {

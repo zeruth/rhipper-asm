@@ -588,17 +588,23 @@ fn matches(module: &Module, t: &Region, s: &Region) -> Option<(Region, Match)> {
 
 /// Finds one shape with a copy elsewhere and outlines every copy; false when none is left.
 fn outline_one(module: &mut Module) -> bool {
-    let regions: Vec<Region> = module.functions.iter().enumerate().flat_map(|(i, f)| regions_of(f, i)).collect();
+    let regions: Vec<Region> = super::abi::par_map(&module.functions, |i, f| regions_of(f, i)).into_iter().flatten().collect();
     // The largest template first: a loop nest is outlined whole before its inner loop alone.
     let mut order: Vec<usize> = (0..regions.len()).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(regions[i].work));
+    // The regions of each shape, in that order: a template is tried against its own shape's
+    // alone, where walking every region for each template was the regions squared.
+    let mut by_shape: HashMap<(usize, usize, bool), Vec<usize>> = HashMap::new();
+    for &i in &order {
+        by_shape.entry(regions[i].shape).or_default().push(i);
+    }
     for &ti in &order {
         let t = &regions[ti];
         let mut used: Vec<(usize, BTreeSet<BlockId>)> = vec![(t.function, t.blocks())];
         let mut copies: Vec<(Region, Match)> = Vec::new();
-        for &si in &order {
+        for &si in &by_shape[&t.shape] {
             let s = &regions[si];
-            if si == ti || s.shape != t.shape {
+            if si == ti {
                 continue;
             }
             let blocks = s.blocks();
@@ -709,6 +715,7 @@ impl<'a> Copier<'a> {
             address: None,
             value_names: Vec::new(),
             value_types: Vec::new(),
+            name_index: Default::default(),
         };
         let mut by_key = Vec::new();
         for (key, ty) in params {

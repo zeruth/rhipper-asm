@@ -247,31 +247,75 @@ const DIFF_CELLS: usize = 1 << 22;
 /// moved; past that the rest pair by an exact identity and by name only.
 const PAIRING_BUDGET: usize = 1 << 24;
 
-/// One function of a translation, as one emit compares it with another's.
-struct Written {
+/// One function of a translation, as one emit compares it with another's: this emit's borrow
+/// their names and texts from the translation, the last emit's own what `emitted.json` held.
+struct Written<'t> {
     address: u64,
-    name: String,
+    name: std::borrow::Cow<'t, str>,
     identity: Option<Identity>,
-    text: String,
+    text: std::borrow::Cow<'t, str>,
 }
 
-impl Written {
-    fn to_json(&self) -> Value {
-        let identity = self.identity.as_ref().map_or(Value::Null, crate::annotations::identity_json);
-        json!({"addr": format_address(self.address), "name": self.name, "identity": identity, "text": self.text})
+/// A function as `emitted.json` keeps it.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Stored<'t> {
+    addr: String,
+    #[serde(borrow)]
+    name: std::borrow::Cow<'t, str>,
+    identity: Value,
+    #[serde(borrow)]
+    text: std::borrow::Cow<'t, str>,
+}
+
+impl Written<'_> {
+    fn stored(&self) -> Stored<'_> {
+        Stored {
+            addr: format_address(self.address),
+            name: std::borrow::Cow::Borrowed(&self.name),
+            identity: self.identity.as_ref().map_or(Value::Null, crate::annotations::identity_json),
+            text: std::borrow::Cow::Borrowed(&self.text),
+        }
     }
 
-    fn parse(json: &Value) -> Option<Self> {
-        Some(Self {
-            address: crate::project::hand_address(json.get("addr")?.as_str()?)?,
-            name: json.get("name")?.as_str()?.to_owned(),
-            identity: json.get("identity").and_then(crate::annotations::parse_identity),
-            text: json.get("text")?.as_str()?.to_owned(),
+    fn parse(stored: Stored<'_>) -> Option<Written<'static>> {
+        Some(Written {
+            address: crate::project::hand_address(&stored.addr)?,
+            identity: crate::annotations::parse_identity(&stored.identity),
+            name: std::borrow::Cow::Owned(stored.name.into_owned()),
+            text: std::borrow::Cow::Owned(stored.text.into_owned()),
         })
     }
 }
 
-/// Compares `translation`, of the build `analysis` is of, with the translation the last emit
+/// The functions `file`, an `emitted.json`, holds; `None` when it is missing or no such list.
+/// Read one function at a time: the whole file as one JSON value took several times its size.
+fn read_emitted(file: &Path) -> Option<Vec<Written<'static>>> {
+    struct Functions(Vec<Written<'static>>);
+    impl<'de> serde::Deserialize<'de> for Functions {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct Visit;
+            impl<'de> serde::de::Visitor<'de> for Visit {
+                type Value = Functions;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("a list of functions")
+                }
+                fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Functions, A::Error> {
+                    let mut out = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+                    while let Some(stored) = seq.next_element::<Stored<'de>>()? {
+                        out.extend(Written::parse(stored));
+                    }
+                    Ok(Functions(out))
+                }
+            }
+            deserializer.deserialize_seq(Visit)
+        }
+    }
+    let reader = std::io::BufReader::new(std::fs::File::open(file).ok()?);
+    serde_json::from_reader::<_, Functions>(reader).ok().map(|f| f.0)
+}
+
+/// Compares `translation`, of the build whose functions have `identities`
+/// ([`ra_asm_analysis::identity::identities`]), with the translation the last emit
 /// wrote (its `emitted.json` in `dir`), and writes the comparison beside it: `regenerated.json`
 /// and `regenerated.diff`. A function of the last emit is this emit's function of the same
 /// identity ([`ra_asm_analysis::identity`]) or, failing that, of the same name when the name is
@@ -279,41 +323,49 @@ impl Written {
 /// one this emit's function two of the last pair with is neither's. Keeps this translation in
 /// `emitted.json` for the next. Returns the line that sums the comparison up, `None` on the first
 /// emit.
-pub(crate) fn regenerate(dir: &Path, analysis: &Analysis<'_>, translation: &Translation) -> Result<Option<String>> {
-    let identities = ra_asm_analysis::identity::identities(analysis);
+pub(crate) fn regenerate(dir: &Path, identities: &BTreeMap<u64, Identity>, translation: &Translation) -> Result<Option<String>> {
     let now: Vec<Written> = translation
         .functions
         .iter()
         .filter_map(|f| {
             let address = f.address?;
-            let name = translation.infos.get(&f.ir_name).map_or_else(|| f.ir_name.clone(), |i| i.name.clone());
-            Some(Written { address, name, identity: identities.get(&address).cloned(), text: f.text.clone() })
+            let name = translation.infos.get(&f.ir_name).map_or(f.ir_name.as_str(), |i| i.name.as_str());
+            Some(Written { address, name: name.into(), identity: identities.get(&address).cloned(), text: f.text.as_str().into() })
         })
         .collect();
     let file = dir.join(EMITTED_JSON);
-    let last: Option<Vec<Written>> = std::fs::read_to_string(&file)
-        .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .and_then(|json| Some(json.as_array()?.iter().filter_map(Written::parse).collect()));
+    let last = read_emitted(&file);
     std::fs::create_dir_all(dir)?;
-    let kept = Value::Array(now.iter().map(Written::to_json).collect());
-    std::fs::write(&file, serde_json::to_string(&kept)?).with_context(|| format!("cannot write {}", file.display()))?;
+    let write_kept = || -> Result<()> {
+        let mut out = std::io::BufWriter::new(std::fs::File::create(&file)?);
+        serde_json::to_writer(&mut out, &now.iter().map(Written::stored).collect::<Vec<_>>())?;
+        std::io::Write::flush(&mut out)?;
+        Ok(())
+    };
+    write_kept().with_context(|| format!("cannot write {}", file.display()))?;
     let Some(last) = last else { return Ok(None) };
 
     let by_address: HashMap<u64, usize> = now.iter().enumerate().map(|(n, w)| (w.address, n)).collect();
     let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
     let mut by_identity: HashMap<&Identity, Vec<usize>> = HashMap::new();
     for (n, w) in now.iter().enumerate() {
-        by_name.entry(w.name.as_str()).or_default().push(n);
+        by_name.entry(w.name.as_ref()).or_default().push(n);
         if let Some(identity) = &w.identity {
             by_identity.entry(identity).or_default().push(n);
         }
     }
-    let index = ra_asm_analysis::identity::Index::new(&identities);
+    let index = ra_asm_analysis::identity::Index::new(identities);
     let mut lookups = 0usize;
     let found: Vec<Option<usize>> = last
         .iter()
         .map(|old| {
+            // The same build: the function at the old one's address with its identity is it, however
+            // many others share that identity (a program's empty functions all do).
+            if let Some(&n) = by_address.get(&old.address)
+                && now[n].identity == old.identity
+            {
+                return Some(n);
+            }
             let identity = old.identity.as_ref()?;
             if let Some([one]) = by_identity.get(identity).map(Vec::as_slice) {
                 return Some(*one);
@@ -326,7 +378,7 @@ pub(crate) fn regenerate(dir: &Path, analysis: &Analysis<'_>, translation: &Tran
         })
         .zip(&last)
         .map(|(found, old)| {
-            found.or_else(|| match by_name.get(old.name.as_str()).map(Vec::as_slice) {
+            found.or_else(|| match by_name.get(old.name.as_ref()).map(Vec::as_slice) {
                 Some([one]) if !old.name.starts_with("F_") => Some(*one),
                 _ => None,
             })
@@ -340,16 +392,16 @@ pub(crate) fn regenerate(dir: &Path, analysis: &Analysis<'_>, translation: &Tran
 
     let (mut moved, mut changed, mut new, mut gone) = (0usize, 0usize, 0usize, 0usize);
     let mut entries = Vec::new();
-    let mut diff = String::new();
+    let mut diff = std::io::BufWriter::new(std::fs::File::create(dir.join(REGENERATED_DIFF))?);
     let mut paired = vec![false; now.len()];
-    let mut entry = |change: &str, old: Option<&Written>, w: Option<&Written>, diff: &mut String| {
-        let (before, after) = (old.map_or("", |o| o.text.as_str()), w.map_or("", |w| w.text.as_str()));
+    let mut entry = |change: &str, old: Option<&Written>, w: Option<&Written>, diff: &mut dyn std::io::Write| -> std::io::Result<()> {
+        let (before, after) = (old.map_or("", |o| o.text.as_ref()), w.map_or("", |w| w.text.as_ref()));
         let hunks = if before == after { String::new() } else { unified_diff(before, after) };
         let at = |w: Option<&Written>| w.map_or_else(|| "nothing".to_owned(), |w| format!("{} at {}", w.name, format_address(w.address)));
         if !hunks.is_empty() {
-            let _ = write!(diff, "--- {}\n+++ {}\n{hunks}", at(old), at(w));
+            write!(diff, "--- {}\n+++ {}\n{hunks}", at(old), at(w))?;
         }
-        let mut e = json!({"name": w.or(old).map(|w| w.name.as_str()), "addr": w.map(|w| format_address(w.address)), "change": change});
+        let mut e = json!({"name": w.or(old).map(|w| w.name.as_ref()), "addr": w.map(|w| format_address(w.address)), "change": change});
         if let Some(old) = old {
             e["was"] = json!(format_address(old.address));
             if w.is_some_and(|w| w.name != old.name) {
@@ -360,6 +412,7 @@ pub(crate) fn regenerate(dir: &Path, analysis: &Analysis<'_>, translation: &Tran
             e["diff"] = json!(hunks);
         }
         entries.push(e);
+        Ok(())
     };
     for (old, found) in last.iter().zip(&found) {
         match found {
@@ -368,27 +421,30 @@ pub(crate) fn regenerate(dir: &Path, analysis: &Analysis<'_>, translation: &Tran
                 let w = &now[*n];
                 if w.address != old.address {
                     moved += 1;
-                    entry("moved", Some(old), Some(w), &mut diff);
+                    entry("moved", Some(old), Some(w), &mut diff)?;
                 } else if w.text != old.text {
                     changed += 1;
-                    entry("changed", Some(old), Some(w), &mut diff);
+                    entry("changed", Some(old), Some(w), &mut diff)?;
                 }
             }
             None => {
                 gone += 1;
-                entry("gone", Some(old), None, &mut diff);
+                entry("gone", Some(old), None, &mut diff)?;
             }
         }
     }
     for (w, _) in now.iter().zip(&paired).filter(|(_, p)| !**p) {
         new += 1;
-        entry("new", None, Some(w), &mut diff);
+        entry("new", None, Some(w), &mut diff)?;
     }
+    std::io::Write::flush(&mut diff)?;
+    drop(last);
     let summary = json!({
         "functions": now.len(), "moved": moved, "changed": changed, "new": new, "gone": gone, "entries": entries,
     });
-    std::fs::write(dir.join(REGENERATED_JSON), serde_json::to_string_pretty(&summary)?)?;
-    std::fs::write(dir.join(REGENERATED_DIFF), &diff)?;
+    let mut out = std::io::BufWriter::new(std::fs::File::create(dir.join(REGENERATED_JSON))?);
+    serde_json::to_writer_pretty(&mut out, &summary)?;
+    std::io::Write::flush(&mut out)?;
     let line = if moved + changed + new + gone == 0 {
         format!("regenerated: the {} functions are as the last emit wrote them", now.len())
     } else {
@@ -611,20 +667,31 @@ pub(crate) fn emit(
     let hand = crate::annotations::hand_list(hand, &annotations);
     let hand = hand.as_slice();
     let mut lifted = ra_asm_lift::lift_frozen(image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87 });
+    // Past the lift the translation reads the IR: the decoded instructions go, unless a checked
+    // translation's assumptions still read them.
+    if !checked {
+        analysis.release_instructions();
+    }
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
     let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations, checked };
     let mut translation = translate(image, &analysis, &lifted, &signatures, &options)?;
+    // What the rest reads of the analysis and the raised module, taken now: the two go before the
+    // formatters start, which on a large program need the memory they held.
+    let header = out.map(|_| ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)));
+    let identities = out.map(|_| ra_asm_analysis::identity::identities(&analysis));
+    let mut warnings: Vec<String> = analysis.warnings.iter().chain(&warnings).chain(&lifted.warnings).cloned().collect();
+    drop((analysis, lifted, signatures));
     translation.format();
     match out {
         None => print!("{}", translation.text()),
         Some(dir) => {
             translation.write(dir)?;
-            std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)))?;
+            std::fs::write(dir.join("image.h"), header.unwrap_or_default())?;
             std::fs::write(dir.join("functions.json"), translation.table())?;
-            let regenerated = regenerate(dir, &analysis, &translation)?;
+            let regenerated = regenerate(dir, &identities.unwrap_or_default(), &translation)?;
             if !quiet {
                 if let Some(line) = regenerated {
                     eprintln!("{line}");
@@ -640,7 +707,8 @@ pub(crate) fn emit(
         }
     }
     if !quiet {
-        for w in analysis.warnings.iter().chain(&warnings).chain(&lifted.warnings).chain(&translation.warnings) {
+        warnings.extend(translation.warnings.iter().cloned());
+        for w in &warnings {
             eprintln!("warning: {w}");
         }
     }

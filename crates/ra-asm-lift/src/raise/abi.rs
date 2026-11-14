@@ -190,7 +190,56 @@ struct Facts {
 }
 
 /// The functions a call through a vtable slot can reach, by address and IR name.
-pub type Candidates = Vec<(u64, String)>;
+/// Shared: a slot of a large program's vtables is filled by hundreds of functions (every class's
+/// destructor fills slot 0), and every call through the slot reads the same list.
+pub type Candidates = std::sync::Arc<[(u64, String)]>;
+
+/// The most functions a call through a vtable slot is resolved to. Past it the call stays an
+/// indirect call through the runtime's function table: the raise lowers a resolved call to a test
+/// and an arm per function, and a call through slot 0 of a large program's every vtable (the
+/// destructors) became thousands of blocks in each caller, minutes of raising and gigabytes of IR.
+pub const MAX_DISPATCH: usize = 16;
+
+/// The vtables, indexed for the calls through their slots: which addresses are vtables, and the
+/// functions of each slot, made once and shared by every call that reads them, across the
+/// functions and the threads.
+pub struct VtableIndex<'a> {
+    vtables: &'a [Vtable],
+    addresses: std::collections::HashSet<u64>,
+    slots: std::sync::Mutex<HashMap<(Option<u64>, usize), Candidates>>,
+}
+
+impl<'a> VtableIndex<'a> {
+    pub fn new(vtables: &'a [Vtable]) -> Self {
+        Self { vtables, addresses: vtables.iter().map(|v| v.address).collect(), slots: Default::default() }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.vtables.is_empty()
+    }
+
+    fn is_vtable(&self, address: u64) -> bool {
+        self.addresses.contains(&address)
+    }
+
+    /// The functions that fill `slot`: of the vtable at `vtable`, or of every vtable without one.
+    fn candidates(&self, vtable: Option<u64>, slot: usize) -> Candidates {
+        let mut slots = self.slots.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        slots
+            .entry((vtable, slot))
+            .or_insert_with(|| {
+                let functions = match vtable {
+                    Some(address) => {
+                        let own: Vec<Vtable> = self.vtables.iter().filter(|v| v.address == address).cloned().collect();
+                        rtti::slot_functions(&own, slot)
+                    }
+                    None => rtti::slot_functions(self.vtables, slot),
+                };
+                functions.iter().map(|&va| (va, crate::function_name(va))).collect()
+            })
+            .clone()
+    }
+}
 
 /// The calls of `f` that go through a vtable slot, by the value the call's target is, each with
 /// the functions that fill the slot. Such a target is a load at `vptr + slot * ptr` where `vptr`
@@ -200,7 +249,12 @@ pub type Candidates = Vec<(u64, String)>;
 /// alone. A register's load reads the last store to it within the block, so the two loads are
 /// found through the state. A slot some function of which is not lifted (`lifted` says) stays
 /// an indirect call.
-pub fn virtual_calls(f: &Function, vtables: &[Vtable], target: Target, lifted: &dyn Fn(&str) -> bool) -> HashMap<ValueId, Candidates> {
+pub fn virtual_calls(
+    f: &Function,
+    vtables: &VtableIndex<'_>,
+    target: Target,
+    lifted: &dyn Fn(&str) -> bool,
+) -> HashMap<ValueId, Candidates> {
     let mut out = HashMap::new();
     let Some(&state) = f.params.first() else { return out };
     if vtables.is_empty() {
@@ -273,7 +327,7 @@ pub fn virtual_calls(f: &Function, vtables: &[Vtable], target: Target, lifted: &
                         _ => None,
                     };
                     let vtable = match strip(value, &forwarded) {
-                        Operand::Int(c) => u64::try_from(c).ok().filter(|c| vtables.iter().any(|v| v.address == *c)),
+                        Operand::Int(c) => u64::try_from(c).ok().filter(|c| vtables.is_vtable(*c)),
                         _ => None,
                     };
                     match (at, vtable) {
@@ -305,7 +359,7 @@ pub fn virtual_calls(f: &Function, vtables: &[Vtable], target: Target, lifted: &
                     // The vtable pointer: a constant, or the object's first word.
                     let vtable = match &vptr {
                         Operand::Int(c) => match u64::try_from(*c) {
-                            Ok(c) if vtables.iter().any(|v| v.address == c) => Some(c),
+                            Ok(c) if vtables.is_vtable(c) => Some(c),
                             _ => continue,
                         },
                         Operand::Local(v) => {
@@ -319,15 +373,8 @@ pub fn virtual_calls(f: &Function, vtables: &[Vtable], target: Target, lifted: &
                         }
                         _ => continue,
                     };
-                    let functions = match vtable {
-                        Some(address) => {
-                            let own: Vec<Vtable> = vtables.iter().filter(|v| v.address == address).cloned().collect();
-                            rtti::slot_functions(&own, slot)
-                        }
-                        None => rtti::slot_functions(vtables, slot),
-                    };
-                    let candidates: Candidates = functions.iter().map(|&va| (va, crate::function_name(va))).collect();
-                    if !candidates.is_empty() && candidates.iter().all(|(_, name)| lifted(name)) {
+                    let candidates = vtables.candidates(vtable, slot);
+                    if !candidates.is_empty() && candidates.len() <= MAX_DISPATCH && candidates.iter().all(|(_, name)| lifted(name)) {
                         out.insert(*key, candidates);
                     }
                     registers.clear();
@@ -360,7 +407,7 @@ pub fn traced_calls(f: &Function, traced: &BTreeMap<u64, Vec<u64>>, lifted: &dyn
             continue;
         }
         let (Some(targets), Some((_, Operand::Local(key)))) = (i.address.and_then(|a| traced.get(&a)), args.get(1)) else { continue };
-        let candidates: Candidates = targets.iter().map(|&va| (va, crate::function_name(va))).collect();
+        let candidates: Candidates = targets.iter().map(|&va| (va, crate::function_name(va))).collect::<Vec<_>>().into();
         if !candidates.is_empty() && candidates.iter().all(|(_, name)| lifted(name)) {
             out.insert(*key, candidates);
         }
@@ -463,6 +510,18 @@ impl Source<'_> {
         }
     }
 
+    /// `each` of the functions `select` marks, in order, on the host's threads; the others stay
+    /// frozen and give `None`.
+    fn map_where<T: Send>(&self, select: &[bool], each: impl Fn(usize, &Function) -> T + Sync) -> Vec<Option<T>> {
+        let thawed = |i: usize, frozen: &ra_asm_ir::freeze::Frozen| select[i].then(|| each(i, &ra_asm_ir::freeze::thaw(frozen)));
+        match self {
+            Self::Owned(functions) => par_map(functions, |i, f| select[i].then(|| each(i, f))),
+            Self::Borrowed(functions) => par_map(functions, |i, f| select[i].then(|| each(i, f))),
+            Self::Frozen(frozen) => par_map(frozen, thawed),
+            Self::FrozenRef(frozen) => par_map(frozen, thawed),
+        }
+    }
+
     /// `each` of every function, in order, on the host's threads.
     fn map<T: Send>(&self, each: impl Fn(usize, &Function) -> T + Sync) -> Vec<T> {
         let thawed = |i: usize, frozen: &ra_asm_ir::freeze::Frozen| each(i, &ra_asm_ir::freeze::thaw(frozen));
@@ -482,17 +541,35 @@ pub(crate) fn par_map<I: Sync, T: Send>(items: &[I], each: impl Fn(usize, &I) ->
     if threads <= 1 {
         return items.iter().enumerate().map(|(i, x)| each(i, x)).collect();
     }
-    let run = items.len().div_ceil(threads);
-    let each = &each;
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = items
-            .chunks(run)
-            .enumerate()
-            .map(|(c, chunk)| scope.spawn(move || chunk.iter().enumerate().map(|(i, x)| each(c * run + i, x)).collect::<Vec<T>>()))
+    // The threads take small batches from a shared counter: a program's large functions sit
+    // together, and a thread given a fixed run of them would finish long after the others.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (each, next) = (&each, &next);
+    let mut done: Vec<(usize, T)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(move || {
+                    let mut out = Vec::new();
+                    loop {
+                        let start = next.fetch_add(BATCH, std::sync::atomic::Ordering::Relaxed);
+                        if start >= items.len() {
+                            return out;
+                        }
+                        for (i, x) in items.iter().enumerate().skip(start).take(BATCH) {
+                            out.push((i, each(i, x)));
+                        }
+                    }
+                })
+            })
             .collect();
         handles.into_iter().flat_map(|h| h.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
-    })
+    });
+    done.sort_unstable_by_key(|(i, _)| *i);
+    done.into_iter().map(|(_, t)| t).collect()
 }
+
+/// The items a thread of [`par_map`] or [`par_each_mut`] takes at a time.
+const BATCH: usize = 16;
 
 /// What the ABI step infers and what it assumed on the way.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -530,11 +607,18 @@ pub(crate) fn par_each_mut<I: Send>(items: &mut [I], each: impl Fn(usize, &mut I
         items.iter_mut().enumerate().for_each(|(i, x)| each(i, x));
         return;
     }
-    let run = items.len().div_ceil(threads);
-    let each = &each;
+    // Batches from a shared queue, as `par_map` takes them: each a disjoint run of the items.
+    let batches: std::sync::Mutex<std::iter::Enumerate<std::slice::ChunksMut<'_, I>>> =
+        std::sync::Mutex::new(items.chunks_mut(BATCH).enumerate());
+    let (each, batches) = (&each, &batches);
     std::thread::scope(|scope| {
-        for (c, chunk) in items.chunks_mut(run).enumerate() {
-            scope.spawn(move || chunk.iter_mut().enumerate().for_each(|(i, x)| each(c * run + i, x)));
+        for _ in 0..threads {
+            scope.spawn(move || {
+                loop {
+                    let Some((b, batch)) = batches.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next() else { return };
+                    batch.iter_mut().enumerate().for_each(|(i, x)| each(b * BATCH + i, x));
+                }
+            });
         }
     });
 }
@@ -551,18 +635,61 @@ fn infer_from(
     let mut signatures: HashMap<String, Signature> = names.iter().map(|n| (n.clone(), Signature::default())).collect();
     let lifted_names: std::collections::HashSet<&str> = names.iter().map(String::as_str).collect();
     let lifted = |name: &str| lifted_names.contains(name);
-    let (virtuals, slots): (Vec<HashMap<ValueId, Candidates>>, Vec<HashMap<ValueId, Candidates>>) = source
+    let index = VtableIndex::new(vtables);
+    // Each function's calls through vtable slots, and what its facts depend on: the signatures of
+    // its direct callees and of the members of the candidate lists it calls through.
+    let mut virtuals = Vec::with_capacity(names.len());
+    let mut slots = Vec::with_capacity(names.len());
+    let mut lists_of: Vec<Vec<Candidates>> = Vec::with_capacity(names.len());
+    let mut callers: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, (calls, slot_calls, callees)) in source
         .map(|_, f| {
-            let mut calls = virtual_calls(f, vtables, target, &lifted);
+            let mut calls = virtual_calls(f, &index, target, &lifted);
             calls.extend(traced_calls(f, traced, &lifted));
-            (calls, virtual_calls(f, vtables, target, &|_: &str| true))
+            let slot_calls = virtual_calls(f, &index, target, &|_: &str| true);
+            let mut callees: Vec<String> = f
+                .blocks
+                .iter()
+                .flat_map(|b| &b.instrs)
+                .filter_map(|i| match &i.inst {
+                    Inst::Call { callee: Callee::Direct(name), .. } => Some(name.clone()),
+                    _ => None,
+                })
+                .collect();
+            callees.push(f.name.clone());
+            callees.sort_unstable();
+            callees.dedup();
+            (calls, slot_calls, callees)
         })
         .into_iter()
-        .unzip();
+        .enumerate()
+    {
+        for callee in callees {
+            callers.entry(callee).or_default().push(i);
+        }
+        let mut lists: Vec<Candidates> = calls.values().chain(slot_calls.values()).cloned().collect();
+        lists.sort_unstable_by_key(|l| std::sync::Arc::as_ptr(l).cast::<()>() as usize);
+        lists.dedup_by_key(|l| std::sync::Arc::as_ptr(l).cast::<()>() as usize);
+        lists_of.push(lists);
+        virtuals.push(calls);
+        slots.push(slot_calls);
+    }
     let ints = target.int_param_slots().len();
     let floats = target.float_params();
-    for _round in 0..8 {
-        let facts: Vec<Facts> = source.map(|i, f| gather(f, &virtuals[i], &slots[i], &signatures, target));
+    // A round gathers again only the functions whose dependencies' signatures the last round
+    // changed: the others' facts are the same, and their frozen bytes stay frozen.
+    let mut facts: Vec<Option<Facts>> = (0..names.len()).map(|_| None).collect();
+    let mut dirty = vec![true; names.len()];
+    for _ in 0..8 {
+        let summaries = SummaryCache::new(&signatures, target);
+        let fresh = source.map_where(&dirty, |i, f| gather(f, &virtuals[i], &slots[i], &signatures, target, &summaries));
+        for (slot, fresh) in facts.iter_mut().zip(fresh) {
+            if fresh.is_some() {
+                *slot = fresh;
+            }
+        }
+        let facts: Vec<&Facts> =
+            facts.iter().map(|f| f.as_ref().expect("every function's facts are gathered in the first round")).collect();
         let xmm0_kinds: HashMap<&str, Option<Kind>> = facts.iter().map(|f| (f.name.as_str(), f.writes_xmm0)).collect();
         // Through the callees as well: `call _allrem; ret` hands back the 64 bits its callee left.
         let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[RDX.index()])).collect();
@@ -670,6 +797,25 @@ fn infer_from(
             );
         }
         let settled = next == signatures;
+        // The next round's work: the functions that call, directly or through a list, one whose
+        // signature changed.
+        let changed: std::collections::HashSet<&str> =
+            next.iter().filter(|(name, s)| signatures.get(*name) != Some(*s)).map(|(name, _)| name.as_str()).collect();
+        let key = |l: &Candidates| std::sync::Arc::as_ptr(l).cast::<()>() as usize;
+        let mut dirty_lists: HashMap<usize, bool> = HashMap::new();
+        dirty.iter_mut().for_each(|d| *d = false);
+        for name in &changed {
+            for &caller in callers.get(*name).into_iter().flatten() {
+                dirty[caller] = true;
+            }
+        }
+        for (d, lists) in dirty.iter_mut().zip(&lists_of) {
+            if !*d {
+                *d = lists
+                    .iter()
+                    .any(|l| *dirty_lists.entry(key(l)).or_insert_with(|| l.iter().any(|(_, member)| changed.contains(member.as_str()))));
+            }
+        }
         signatures = next;
         if settled {
             break;
@@ -722,8 +868,9 @@ pub fn call_model_public(
     virtual_calls: &HashMap<ValueId, Candidates>,
     signatures: &HashMap<String, Signature>,
     target: Target,
+    summaries: Option<&SummaryCache<'_>>,
 ) -> (SlotSet, SlotSet) {
-    call_model(inst, virtual_calls, signatures, target)
+    call_model(inst, virtual_calls, signatures, target, summaries)
 }
 
 /// What a state call reads and writes under the current signatures. An import reads as many
@@ -733,11 +880,60 @@ pub fn call_model_public(
 /// register. A lifted callee writes the caller-saved registers it does not preserve; a call
 /// through a vtable slot reads what any of the slot's functions reads and writes what any
 /// writes; anything else writes them all.
+/// What a call through a vtable slot does to the registers, from its candidates: what any of them
+/// reads as a parameter, and what all of them preserve. A candidate without a signature reads
+/// nothing and preserves nothing.
+fn summarize(candidates: &Candidates, signatures: &HashMap<String, Signature>, target: Target) -> (SlotSet, SlotSet) {
+    let mut reads = NO_SLOTS;
+    let mut kept_by_all = caller_saved(target);
+    for (_, name) in candidates.iter() {
+        match signatures.get(name) {
+            Some(s) => {
+                for (r, read) in reads.iter_mut().zip(s.param_slots(target)) {
+                    *r |= read;
+                }
+                for (k, kept) in kept_by_all.iter_mut().zip(s.preserves) {
+                    *k &= kept;
+                }
+            }
+            None => kept_by_all = NO_SLOTS,
+        }
+    }
+    (reads, kept_by_all)
+}
+
+/// The summaries ([`summarize`]) of the candidate lists under one set of signatures, by the
+/// list's address: a slot's list is shared by every call through it, so each is summarized once
+/// rather than at every call of every liveness pass of every function. Made anew whenever the
+/// signatures change (each round of the inference), and once for the raise.
+pub struct SummaryCache<'a> {
+    signatures: &'a HashMap<String, Signature>,
+    target: Target,
+    lists: std::sync::RwLock<HashMap<usize, (SlotSet, SlotSet)>>,
+}
+
+impl<'a> SummaryCache<'a> {
+    pub fn new(signatures: &'a HashMap<String, Signature>, target: Target) -> Self {
+        Self { signatures, target, lists: Default::default() }
+    }
+
+    fn get(&self, candidates: &Candidates) -> (SlotSet, SlotSet) {
+        let key = std::sync::Arc::as_ptr(candidates).cast::<()>() as usize;
+        if let Some(summary) = self.lists.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key) {
+            return *summary;
+        }
+        let summary = summarize(candidates, self.signatures, self.target);
+        self.lists.write().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key, summary);
+        summary
+    }
+}
+
 fn call_model(
     inst: &Inst,
     virtual_calls: &HashMap<ValueId, Candidates>,
     signatures: &HashMap<String, Signature>,
     target: Target,
+    summaries: Option<&SummaryCache<'_>>,
 ) -> (SlotSet, SlotSet) {
     let mut writes = caller_saved(target);
     if let Inst::Call { callee: Callee::Direct(name), .. } = inst
@@ -748,17 +944,7 @@ fn call_model(
         }
     }
     if let Some(candidates) = virtual_candidates(inst, virtual_calls) {
-        let mut reads = NO_SLOTS;
-        let mut kept_by_all = caller_saved(target);
-        for (_, name) in candidates {
-            let s = signatures.get(name).cloned().unwrap_or_default();
-            for (r, read) in reads.iter_mut().zip(s.param_slots(target)) {
-                *r |= read;
-            }
-            for (k, kept) in kept_by_all.iter_mut().zip(s.preserves) {
-                *k &= kept;
-            }
-        }
+        let (reads, kept_by_all) = summaries.map_or_else(|| summarize(candidates, signatures, target), |s| s.get(candidates));
         for (w, kept) in writes.iter_mut().zip(kept_by_all) {
             *w &= !kept;
         }
@@ -798,11 +984,12 @@ fn gather(
     slots: &HashMap<ValueId, Candidates>,
     signatures: &HashMap<String, Signature>,
     target: Target,
+    summaries: &SummaryCache<'_>,
 ) -> Facts {
     let state = f.params[0];
     let pointers = slot_pointers(f, state);
     let order = reverse_post_order(f);
-    let model = |inst: &Inst| call_model(inst, virtual_calls, signatures, target);
+    let model = |inst: &Inst| call_model(inst, virtual_calls, signatures, target, Some(summaries));
     // Two views: one where a `ret` hands back this function's own result register, for what the
     // callers of its callees read after a call (a call in tail position returns the callee's
     // result); one where it hands back nothing, for what the function itself reads at entry.

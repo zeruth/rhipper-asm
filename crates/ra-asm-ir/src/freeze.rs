@@ -670,7 +670,7 @@ impl Reader<'_> {
             value_names.push(self.str());
             value_types.push(self.ty());
         }
-        Function { name, ty, params, blocks, linkage, conv, attrs, address, value_names, value_types }
+        Function { name, ty, params, blocks, linkage, conv, attrs, address, value_names, value_types, name_index: Default::default() }
     }
 }
 

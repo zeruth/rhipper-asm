@@ -115,6 +115,26 @@ pub struct Function {
     pub value_names: Vec<String>,
     /// The type of every local value, by id.
     pub value_types: Vec<Type>,
+    /// The names of `value_names` as a set, for [`Function::new_value`].
+    pub name_index: NameIndex,
+}
+
+/// The names a function's values have, as a set: [`Function::new_value`] keeps a new name unique
+/// in a lookup, where scanning the names made a pass over a function of 300,000 values the values
+/// squared. It catches up with the names appended since it last looked (the builder's, a thaw's)
+/// before it answers; a pass that replaces `value_names` resets it. It is a cache: two functions
+/// equal or not by their contents, whatever it holds.
+#[derive(Debug, Clone, Default)]
+pub struct NameIndex {
+    names: std::collections::HashSet<String>,
+    /// How many of `value_names` are in `names`.
+    synced: usize,
+}
+
+impl PartialEq for NameIndex {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
 }
 
 impl Function {
@@ -155,12 +175,22 @@ impl Function {
 
     /// A fresh local value for a pass: named `hint`, made unique with a suffix.
     pub fn new_value(&mut self, hint: &str, ty: Type) -> ValueId {
+        let index = &mut self.name_index;
+        if index.synced > self.value_names.len() {
+            *index = NameIndex::default();
+        }
+        for name in &self.value_names[index.synced..] {
+            index.names.insert(name.clone());
+        }
+        index.synced = self.value_names.len();
         let mut name = hint.to_owned();
         let mut n = 0;
-        while self.value_names.contains(&name) {
+        while index.names.contains(&name) {
             n += 1;
             name = format!("{hint}.{n}");
         }
+        index.names.insert(name.clone());
+        index.synced += 1;
         let id = ValueId(self.value_names.len() as u32);
         self.value_names.push(name);
         self.value_types.push(ty);
@@ -248,6 +278,7 @@ impl Function {
         }
         self.value_names = names;
         self.value_types = types;
+        self.name_index = NameIndex::default();
         self.shrink();
     }
 

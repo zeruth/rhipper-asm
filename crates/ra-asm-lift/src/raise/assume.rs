@@ -264,7 +264,7 @@ pub fn calls(
     traced: &BTreeMap<u64, Vec<u64>>,
     lifted: &dyn Fn(&str) -> bool,
 ) -> Vec<Assumption> {
-    let virtual_calls = abi::virtual_calls(f, vtables, target, lifted);
+    let virtual_calls = abi::virtual_calls(f, &abi::VtableIndex::new(vtables), target, lifted);
     let seen = abi::traced_calls(f, traced, lifted);
     let mut out = Vec::new();
     for i in f.blocks.iter().flat_map(|b| &b.instrs) {

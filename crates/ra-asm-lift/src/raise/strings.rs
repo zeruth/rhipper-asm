@@ -202,17 +202,23 @@ fn copy_type() -> FnType {
 /// The calls to run: to a function of the module, with a result nothing reads, over constants,
 /// read-only data (the ciphertext) and buffers of the caller's frame (the plaintext).
 fn candidates(module: &Module) -> Vec<Candidate> {
-    let mut out = Vec::new();
-    for (function, f) in module.functions.iter().enumerate() {
+    // The module's functions and read-only globals as sets: asked by name at every call of every
+    // function, the module's own lookups walked the whole module each time.
+    let functions: std::collections::HashSet<&str> = module.functions.iter().map(|f| f.name.as_str()).collect();
+    let constants: std::collections::HashSet<&str> = module.globals.iter().filter(|g| g.constant).map(|g| g.name.as_str()).collect();
+    let per_function = super::abi::par_map(&module.functions, |function, f| {
+        let mut out = Vec::new();
         let defs = known::definitions(f);
         let uses = f.use_counts();
         for (block, b) in f.blocks.iter().enumerate() {
             for (index, i) in b.instrs.iter().enumerate() {
                 let Inst::Call { callee: Callee::Direct(callee), args, .. } = &i.inst else { continue };
-                if module.function(callee).is_none() || i.result.is_some_and(|v| uses.get(&v).is_some_and(|n| *n > 0)) {
+                if !functions.contains(callee.as_str()) || i.result.is_some_and(|v| uses.get(&v).is_some_and(|n| *n > 0)) {
                     continue;
                 }
-                let Some(args) = args.iter().map(|(ty, o)| classify(ty, o, module, &defs)).collect::<Option<Vec<Arg>>>() else { continue };
+                let Some(args) = args.iter().map(|(ty, o)| classify(ty, o, &constants, &defs)).collect::<Option<Vec<Arg>>>() else {
+                    continue;
+                };
                 let buffers = args.iter().filter(|a| matches!(a, Arg::Buffer(..))).count();
                 let data = args.iter().filter(|a| matches!(a, Arg::Data(..))).count();
                 if buffers == 0 || data == 0 {
@@ -221,13 +227,15 @@ fn candidates(module: &Module) -> Vec<Candidate> {
                 out.push(Candidate { function, block, index, callee: callee.clone(), args });
             }
         }
-    }
-    out
+        out
+    });
+    per_function.into_iter().flatten().collect()
 }
 
-/// An argument as the run takes it; `None` for one the run cannot stand in for.
-fn classify(ty: &Type, o: &Operand, module: &Module, defs: &HashMap<ValueId, Inst>) -> Option<Arg> {
-    let constant = |g: &str| module.global(g).is_some_and(|g| g.constant);
+/// An argument as the run takes it; `None` for one the run cannot stand in for. `constants` are
+/// the module's read-only globals.
+fn classify(ty: &Type, o: &Operand, constants: &std::collections::HashSet<&str>, defs: &HashMap<ValueId, Inst>) -> Option<Arg> {
+    let constant = |g: &str| constants.contains(g);
     match o {
         Operand::Int(k) => Some(Arg::Int(*k as u128)),
         Operand::Address { global, offset } if constant(global) => Some(Arg::Data(global.clone(), *offset)),

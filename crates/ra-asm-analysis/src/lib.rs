@@ -111,6 +111,19 @@ impl Analysis<'_> {
     pub fn ported(&self) -> impl Iterator<Item = &Function> {
         self.functions.values().filter(|f| !matches!(f.kind, Kind::Runtime(_)))
     }
+
+    /// Gives back the decoded instructions of every block, keeping the functions, their blocks'
+    /// extents and terminators and everything the analysis found: for a translation past its
+    /// lift, which reads the lifted IR and no longer the instructions. A large image's decoded
+    /// instructions are most of its analysis (gigabytes for 100,000 functions); what still reads
+    /// them (a checked translation's assumptions, `ras cfg`, the lift itself) runs before this.
+    pub fn release_instructions(&mut self) {
+        for f in self.functions.values_mut() {
+            for b in &mut f.blocks {
+                b.instrs = Vec::new();
+            }
+        }
+    }
 }
 
 /// The protector or packer whose stub wraps the image, by the sections it leaves: the program's
