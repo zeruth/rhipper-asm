@@ -6,10 +6,11 @@
 //! through the lift and the IR interpreter; a difference names the form, the input state and the
 //! field that differs, the flags by name. Flags the manual leaves undefined are not compared.
 //!
-//! The suite runs at a fixed seed; `RA_ORACLE_SEED=random` (or a number) picks another and prints
-//! it, `RA_ORACLE_SAMPLES` the states per form, for a nightly run. The ignored `write_vectors`
-//! writes the processor's answers at the fixed seed as the vector files of
-//! `testdata/vectors/x86_64`, one a mnemonic group.
+//! The suite is the slow tier, behind the `oracle` feature, at a fixed seed; `RA_ORACLE_SEED=random`
+//! (or a number) picks another and prints it, `RA_ORACLE_SAMPLES` the states per form, for a
+//! nightly run. The ignored `write_vectors` writes the processor's answers at the fixed seed as the
+//! vector files of `testdata/vectors/x86_64`, one a mnemonic group, which `tests/vectors.rs`
+//! replays through the lift on any host in the fast tier.
 
 #![cfg(all(windows, target_arch = "x86_64"))]
 
@@ -1120,8 +1121,10 @@ fn every_arm_has_a_form() {
 /// puts the files over 8 000 cases where eight stops at 5 864.
 const VECTOR_SAMPLES: u32 = 11;
 
-/// The arena's address in the files: a register or a cell that points into the arena is rebased
-/// to it, so the files read the same whatever address this process got.
+/// The arena's address in the files, and the address the processor's run must have it at: a
+/// value it computes from a pointer (a sum, a flag) holds the address's own bits, which no
+/// rebasing of the registers and cells recovers, so `write_vectors` refuses any other base and
+/// the replay maps its arena there.
 const VECTOR_BASE: u64 = 0x2000_0000;
 
 fn vectors_dir() -> PathBuf {
@@ -1316,6 +1319,7 @@ fn vector_case(ins: &Instruction, bytes: Vec<u8>, input: &Picture, ran: &Ran, ar
 fn write_vectors() {
     let forms = forms(&lifted_mnemonics());
     let arena = Arena::new();
+    assert_eq!(arena.base, VECTOR_BASE, "the arena must be at the files' address; something else holds it in this process");
     let mut rng = Rng(SEED);
     let mut groups: BTreeMap<&str, Vec<Case>> = BTreeMap::new();
     for &code in &forms {

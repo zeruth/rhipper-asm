@@ -18,11 +18,17 @@
 //! The 32-bit ARM vectors (`testdata/vectors/arm32`, recorded under `qemu-arm-static`) replay the
 //! same way through the Thumb-2 lift in `arm32.rs`, which shares the layout, the host, the
 //! generator's random states and the pending-list rule of this file.
+//!
+//! The x86-64 vectors (`testdata/vectors/x86_64`, written from the processor by the instruction
+//! oracle's `write_vectors`) replay through the x86 lift in `x86_64.rs`, a group as one image
+//! and the files' arena as host memory at its own address, with no pending list.
 
 // A test target's root is `tests/vectors.rs`, so its modules are named by path.
 #[path = "vectors/arm32.rs"]
 mod arm32;
 mod common;
+#[path = "vectors/x86_64.rs"]
+mod x86_64;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::c_void;
