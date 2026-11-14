@@ -35,7 +35,7 @@ pub mod symbols;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use ra_asm_arch::{Arch, Operand};
+use ra_asm_arch::{Arch, Flow, Operand};
 use ra_asm_pe::{CxxAbi, CxxFrame, Image, Machine, Toolset};
 
 pub use facts::Facts;
@@ -85,7 +85,37 @@ pub struct Analysis<'a> {
     pub warnings: Vec<String>,
 }
 
+/// Address ranges in order, disjoint: the spans of the functions ([`Analysis::function_spans`]).
+pub struct Spans(Vec<(u64, u64)>);
+
+impl Spans {
+    /// Whether a span holds `va`.
+    pub fn contains(&self, va: u64) -> bool {
+        let i = self.0.partition_point(|&(start, _)| start <= va);
+        i > 0 && va < self.0[i - 1].1
+    }
+}
+
 impl Analysis<'_> {
+    /// The spans of the functions, each from its lowest block to the end of its highest, merged
+    /// where they overlap: an address outside them is data, or code no function was built over.
+    pub fn function_spans(&self) -> Spans {
+        let mut spans: Vec<(u64, u64)> = self
+            .functions
+            .values()
+            .filter_map(|f| Some((f.blocks.iter().map(|b| b.start).min()?, f.blocks.iter().map(|b| b.end).max()?)))
+            .collect();
+        spans.sort_unstable();
+        let mut merged: Vec<(u64, u64)> = Vec::with_capacity(spans.len());
+        for (start, end) in spans {
+            match merged.last_mut() {
+                Some(last) if start <= last.1 => last.1 = last.1.max(end),
+                _ => merged.push((start, end)),
+            }
+        }
+        Spans(merged)
+    }
+
     /// The function that starts at `va`.
     pub fn function(&self, va: u64) -> Option<&Function> {
         self.functions.get(&va)
@@ -195,14 +225,29 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     let cxx_frames: BTreeMap<u64, CxxFrame> = ra_asm_pe::exception::cxx_frames(image).into_iter().map(|f| (f.entry.begin, f)).collect();
     let mut state = State::new(image, arch.as_ref(), &cxx_frames);
 
+    // The RTTI read is Microsoft's; a toolset of the Itanium ABI lays its classes out otherwise.
+    let toolset = Toolset::of(image);
+    let classes = if toolset.cxx_abi() == CxxAbi::Msvc { rtti::classes(image) } else { Vec::new() };
+    // The words of the vtables, with the locator slot before each: an export there is data.
+    let ptr = u64::from(image.pointer_size());
+    let vtable_words: HashSet<u64> = classes
+        .iter()
+        .flat_map(|c| &c.vtables)
+        .flat_map(|v| (0..=v.functions.len() as u64).map(move |i| v.address + i * ptr - ptr))
+        .collect();
+
     // The seeds, in the order that names them best: the entry, the exports, the callbacks, .pdata.
     if let Some(entry) = image.entry_point() {
         state.seed(entry, Origin::Entry);
     }
     if let Some(exports) = &image.exports {
         for export in &exports.exports {
+            // A DLL exports its data too (a vtable, a vbtable, a constant), which lies in the code
+            // section of an image that keeps its read-only data there.
             if let Some(va) = export.va
                 && image.is_code(va)
+                && !vtable_words.contains(&va)
+                && !export.name.as_deref().is_some_and(is_data_export)
             {
                 state.seed(va, Origin::Export(export.name.clone().unwrap_or_else(|| format!("ordinal_{}", export.ordinal))));
             }
@@ -230,9 +275,6 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     state.run();
 
     // The virtual functions: the vtables of the RTTI name them before a bare pointer scan does.
-    // The RTTI read is Microsoft's; a toolset of the Itanium ABI lays its classes out otherwise.
-    let toolset = Toolset::of(image);
-    let classes = if toolset.cxx_abi() == CxxAbi::Msvc { rtti::classes(image) } else { Vec::new() };
     for class in &classes {
         for vtable in &class.vtables {
             for &va in &vtable.functions {
@@ -279,6 +321,30 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
             state.seed(va, origin);
         }
         state.run();
+    }
+
+    // The pointers in the data an image keeps in its code section (a DLL whose `.rdata` is merged
+    // into `.text`): the vtables and the initializer tables there hold functions nothing else
+    // names. Last among the seeds from the image, when the code the others reached covers the
+    // most, since an operand inside code not yet built would pass for such a pointer.
+    if image.data_in_code() {
+        for (va, origin) in merged_pointer_seeds(image, &state.cover) {
+            if state.cover.covered(va) || state.functions.contains_key(&va) {
+                continue;
+            }
+            state.seed(va, origin);
+        }
+        state.run();
+        for _ in 0..4 {
+            let seeds = immediate_seeds(image, &state.functions, &state.cover);
+            if seeds.is_empty() {
+                break;
+            }
+            for (va, origin) in seeds {
+                state.seed(va, origin);
+            }
+            state.run();
+        }
     }
 
     // The targets a traced run reached: a function only a computed address names.
@@ -480,11 +546,8 @@ fn gap_seeds(image: &Image, state: &State<'_>) -> Vec<(u64, Origin)> {
             let contiguous = blocks.first().is_some_and(|b| b.start == va) && blocks.windows(2).all(|w| w[0].end == w[1].start);
             let last = blocks.last().map_or(va, |b| b.end);
             let bounded = last == end || state.known_starts.contains(&last) || fill_starts_at(image, last) || last.is_multiple_of(16);
-            let ends_well = blocks
-                .iter()
-                .all(|b| !matches!(b.terminator, Terminator::Trap | Terminator::Halt | Terminator::Invalid | Terminator::IndirectJump));
             // An import thunk nothing calls is the linker's leftover, not a function of the program.
-            if !(built.warnings.is_empty() && contiguous && bounded && ends_well) || built.function.is_thunk() {
+            if !(built.warnings.is_empty() && contiguous && bounded && reads_as_code(blocks)) || built.function.is_thunk() {
                 continue;
             }
             accepted.push((va, last));
@@ -587,6 +650,9 @@ struct State<'a> {
     funclets: HashSet<u64>,
     /// The ranges of the C runtime libraries linked into the image, from the PDB.
     runtime: symbols::RuntimeRanges,
+    /// Whether the image keeps its read-only data in its code section ([`Image::data_in_code`]),
+    /// where a pointer into the section names data as readily as a function.
+    data_in_code: bool,
     warnings: Vec<String>,
 }
 
@@ -608,6 +674,7 @@ impl<'a> State<'a> {
             frames,
             funclets: frames.values().flat_map(|f| f.funclets.iter().map(|r| r.begin)).collect(),
             runtime: symbols::RuntimeRanges::of(image),
+            data_in_code: image.data_in_code(),
             warnings: Vec::new(),
         }
     }
@@ -628,6 +695,20 @@ impl<'a> State<'a> {
 
     fn seed(&mut self, va: u64, origin: Origin) {
         if !self.image.is_code(va) {
+            return;
+        }
+        // A pointer into the code section of an image that keeps its data there names a string, a
+        // table or a vtable as readily as a function (a vtable's slots, read until they leave the
+        // code, run on into the data after them; an export, a constant or a table as well as a
+        // function); one that does not build as code is no seed. A function built over data would
+        // claim the words there (which then stay bytes in the port instead of becoming addresses),
+        // seed more of its kind through its calls and its operands, and cut the real functions its
+        // starts fall into.
+        if self.data_in_code
+            && matches!(origin, Origin::Pointer(_) | Origin::Vtable(_) | Origin::Export(_))
+            && !self.functions.contains_key(&va)
+            && !self.builds_as_code(va)
+        {
             return;
         }
         self.origins.entry(va).or_default().push(origin);
@@ -696,6 +777,24 @@ impl<'a> State<'a> {
         self.insert(function);
     }
 
+    /// Whether the bytes at `va` build as a function the way [`gap_seeds`] accepts one: the trial
+    /// build starts there, warns of nothing, no block of it ends in a trap, a halt, bytes that are
+    /// no instruction or an unresolved jump, and no instruction of it is one a compiler never
+    /// writes. Data read as code fails one of these within a few instructions, except a run of
+    /// zero bytes (`add [eax], al`, over and over), which reads as code until the function after
+    /// it, and a build from there would claim that function: the bounds of an empty table lie in
+    /// such a run, so a start on an all-zero instruction is no function's.
+    fn builds_as_code(&self, va: u64) -> bool {
+        let ranges = self.ranges_of(va);
+        let built = builder::build(self.image, self.arch, va, &ranges, &self.known_starts, &self.noreturn, self.frames.get(&va));
+        let blocks = &built.function.blocks;
+        let zero_start = blocks
+            .first()
+            .and_then(|b| b.instrs.first())
+            .is_some_and(|i| self.image.read(i.address, usize::from(i.len)).is_ok_and(|bytes| bytes.iter().all(|&b| b == 0)));
+        built.warnings.is_empty() && blocks.first().is_some_and(|b| b.start == va) && !zero_start && reads_as_code(blocks)
+    }
+
     /// The byte ranges a function may own: its exception table extent with its pieces, else from
     /// its entry to the next known start or the end of its section.
     fn ranges_of(&self, entry: u64) -> Vec<(u64, u64)> {
@@ -706,6 +805,51 @@ impl<'a> State<'a> {
         let next = self.known_starts.range(entry + 1..).next().copied().unwrap_or(section_end);
         vec![(entry, next.min(section_end))]
     }
+}
+
+/// Whether a trial build reads as code: no block ends in a trap, a halt, bytes that are no
+/// instruction or an unresolved jump, and no instruction is one a compiler never writes into a
+/// user-mode program: the I/O, the BCD arithmetic, the segment and descriptor loads, the
+/// privileged and the far forms, `bound`, `enter`, the loops and an `int` other than the fast
+/// fail's. Bytes of text and tables decode into these within a few instructions (the letters
+/// `b`, `c`, `l` to `o` are `bound`, `arpl` and the string I/O), where a function never does. A
+/// trap right after a call is the fill behind a call to a function that never returns (a throw at
+/// the end of a function, with `int 3` up to the next), which the trial does not yet know as one:
+/// the block is code, as is one the fast fail ends.
+fn reads_as_code(blocks: &[Block]) -> bool {
+    const NEVER_COMPILED: &[&str] = &[
+        "aaa", "aad", "aam", "aas", "daa", "das", "arpl", "bound", "enter", "in", "out", "insb", "insw", "insd", "outsb", "outsw", "outsd",
+        "hlt", "cli", "sti", "clts", "lgdt", "lidt", "lldt", "lmsw", "ltr", "sgdt", "sidt", "sldt", "smsw", "str", "verr", "verw", "lar",
+        "lsl", "invd", "wbinvd", "invlpg", "rdmsr", "wrmsr", "into", "iret", "iretd", "iretq", "xlatb", "salc", "les", "lds", "lss", "lfs",
+        "lgs", "loop", "loope", "loopne", "pushad", "popad", "pushaw", "popaw", "ud0", "ud1",
+    ];
+    let never = |i: &ra_asm_arch::Instr| match i.mnemonic.as_str() {
+        "int" => !matches!(i.operands.first(), Some(Operand::Imm { value, .. }) if matches!(*value, 0x29 | 0x2c | 0x2d)),
+        m => NEVER_COMPILED.contains(&m),
+    };
+    let fill_after_call = |b: &Block| {
+        matches!(b.terminator, Terminator::Trap)
+            && matches!(b.instrs.last().map(|i| i.flow), Some(Flow::Trap))
+            && matches!(b.instrs.iter().nth_back(1).map(|i| i.flow), Some(Flow::Call(_)))
+    };
+    // The fast fail ends its block as a trap does, and a compiler writes it: the range check of an
+    // inlined `std::string` destructor ends in `mov ecx, 5; int 0x29`.
+    let fast_fail = |b: &Block| {
+        matches!(b.terminator, Terminator::Trap)
+            && b.instrs.last().is_some_and(|i| i.mnemonic == "int" && matches!(i.operands.first(), Some(Operand::Imm { value: 0x29, .. })))
+    };
+    blocks.iter().all(|b| {
+        (fill_after_call(b)
+            || fast_fail(b)
+            || !matches!(b.terminator, Terminator::Trap | Terminator::Halt | Terminator::Invalid | Terminator::IndirectJump))
+            && !b.instrs.iter().any(never)
+    })
+}
+
+/// Whether a decorated export name is a data symbol's: a vftable (`??_7`), a vbtable (`??_8`), a
+/// string literal (`??_C`) or an RTTI structure (`??_R`), which a DLL exports beside its functions.
+fn is_data_export(name: &str) -> bool {
+    ["??_7", "??_8", "??_C", "??_R"].iter().any(|p| name.starts_with(p))
 }
 
 /// The extent of each x64 function from the exception table: its own entry, the chained pieces
@@ -779,6 +923,26 @@ fn pointer_seeds(image: &Image) -> Vec<(u64, Origin)> {
             if image.is_code(value) && !image.is_code(r.va) {
                 seeds.push((value, Origin::Pointer(r.va)));
             }
+        }
+    }
+    seeds
+}
+
+/// The code addresses the relocated words of a code section hold outside every built function,
+/// on a pointer boundary as the compiler lays data out: the pointers of the read-only data an
+/// image keeps in its code section ([`Image::data_in_code`]). The operands of the code are
+/// relocated too, which the functions over them tell apart; one of unreached code passes, and
+/// what it names is a seed when it builds as code ([`State::seed`]).
+fn merged_pointer_seeds(image: &Image, cover: &Cover) -> Vec<(u64, Origin)> {
+    let width = u64::from(image.pointer_size());
+    let mut seeds = Vec::new();
+    for r in &image.relocations {
+        if !image.is_code(r.va) || r.va % width != 0 || cover.covered(r.va) {
+            continue;
+        }
+        let Ok(value) = image.pointer(r.va) else { continue };
+        if image.is_code(value) {
+            seeds.push((value, Origin::Pointer(r.va)));
         }
     }
     seeds

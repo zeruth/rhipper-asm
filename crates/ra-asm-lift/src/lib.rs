@@ -146,6 +146,8 @@ pub enum Convention {
     Windows,
     /// The Xbox kernel's 32-bit `fastcall`: `ecx` and `edx` first.
     Fastcall,
+    /// The x86 C runtime's SSE2 math: the doubles in `xmm0` and `xmm1`, the result in `xmm0`.
+    Sse2Math,
     /// The System V AMD64 convention of a Linux binary.
     SystemV,
 }
@@ -158,9 +160,11 @@ pub enum Convention {
 /// An import with a typed prototype (the C runtime's math) takes its own arguments instead, a
 /// double read as one, and its result goes where the convention puts it: `xmm0`, or in 32 bits
 /// the x87 stack. A `fastcall` import (the Xbox kernel's) takes its first two integers from `ecx`
-/// and `edx`, and the stack holds the rest. A System V import (a Linux binary's) takes its
-/// integers from `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9` and its floats from `xmm0` to `xmm7`, each
-/// class counted on its own, and the stack holds what is left in order.
+/// and `edx`, and the stack holds the rest. An SSE2 math import of the x86 C runtime takes its
+/// doubles from `xmm0` and `xmm1` and leaves its result in `xmm0`, nothing on the stack or the
+/// x87 unit. A System V import (a Linux binary's) takes its integers from `rdi`, `rsi`, `rdx`,
+/// `rcx`, `r8`, `r9` and its floats from `xmm0` to `xmm7`, each class counted on its own, and the
+/// stack holds what is left in order.
 pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x87: X87Unit, convention: Convention) -> ra_asm_ir::Function {
     use ra_asm_ir::{BinOp, Callee, Cast, FnType, FunctionBuilder, Terminator};
     use ra_asm_x86::iced_x86::Register as R;
@@ -221,6 +225,11 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x8
                 args.push((Type::I64, v.into()));
                 continue;
             }
+            if convention == Convention::Sse2Math && p < 2 {
+                let v = m.read_xmm(block, [R::XMM0, R::XMM1][p], kind.ty());
+                args.push((kind.ty(), v.into()));
+                continue;
+            }
             let addr = m.b.bin(block, BinOp::Add, Type::I32, sp, offset, "arg.p");
             let v = match kind {
                 Kind::Int => {
@@ -245,7 +254,9 @@ pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x8
             let high = m.trunc(block, Type::I64, shifted, Type::I32, "ret.hi");
             m.write_gpr(block, R::EDX, high);
         }
-        (Some(kind @ (Kind::Float | Kind::Double)), Some(result)) if bits == 64 => m.write_xmm(block, R::XMM0, kind.ty(), result, true),
+        (Some(kind @ (Kind::Float | Kind::Double)), Some(result)) if bits == 64 || convention == Convention::Sse2Math => {
+            m.write_xmm(block, R::XMM0, kind.ty(), result, true);
+        }
         (Some(Kind::Double), Some(result)) => m.fpush(block, result),
         (Some(Kind::Float), Some(result)) => {
             let wide = m.b.cast(block, Cast::FPExt, Type::Float, result, Type::Double, "ret.d");
@@ -642,9 +653,9 @@ fn lift_on(
     if options.standalone {
         // The second images' sections first: the program's import slots name their globals.
         for companion in with {
-            data::add_sections(companion.image, &mut lifted, &companion.tag());
+            data::add_sections(companion.image, companion.analysis, &mut lifted, &companion.tag());
         }
-        data::add_sections(image, &mut lifted, "");
+        data::add_sections(image, analysis, &mut lifted, "");
     }
     for companion in with {
         let name = image_name(companion.image);
@@ -721,6 +732,8 @@ fn lift_on(
                     Convention::SystemV
                 } else if lifted.fastcall.contains(symbol) {
                     Convention::Fastcall
+                } else if lifted.bits == 32 && raise::prototypes::is_x86_sse2_math(symbol) {
+                    Convention::Sse2Math
                 } else {
                     Convention::Windows
                 };

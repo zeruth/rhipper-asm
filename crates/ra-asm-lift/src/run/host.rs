@@ -893,6 +893,7 @@ impl<'a> Runtime<'a> {
                 let cw = vm.memory.read_u16(self.cw)?;
                 Ok(Value::F64(if cw & 0x300 == 0 { f64::from(r as f32) } else { r }))
             }
+            "ra_x86_pow_sse2" => Ok(Value::F64(farg(args, 0).powf(farg(args, 1)))),
             "ra_x86_report_gsfailure" => Err(Stop::fault("the stack cookie check failed")),
             "ra_x86_report_rangecheckfailure" => Err(Stop::fault("an array index was out of range")),
             "ra_x86_setjmp3" | "ra_x86_longjmp" => Err(Stop::fault("a setjmp or longjmp, which the interpreter does not run yet")),

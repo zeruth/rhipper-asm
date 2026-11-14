@@ -394,7 +394,7 @@ impl Lifter<'_, '_> {
 
     /// Lifts a copy of the funclet at `entry` into fresh blocks and hands back the entry block.
     /// The copy's branches resolve among its own blocks; the function's blocks come back after.
-    fn copy_funclet(&mut self, entry: u64, kind: FuncletKind) -> Option<BlockId> {
+    pub(crate) fn copy_funclet(&mut self, entry: u64, kind: FuncletKind) -> Option<BlockId> {
         let (blocks, depth) = self.frame.funclets.get(&entry).cloned()?;
         self.copies += 1;
         let copy = self.copies;

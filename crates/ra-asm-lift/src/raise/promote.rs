@@ -30,7 +30,7 @@ use super::assume::{self, Assumption, Step};
 use super::liveness::{
     CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, all_registers, call_kind, reverse_post_order, slot_pointers,
 };
-use crate::state::{X87_STACK, X87_TOP};
+use crate::state::{ARGS, X87_STACK, X87_TOP};
 use crate::x87::X87Unit;
 use crate::{import_of_wrapper, state::import_adapter_type};
 
@@ -48,6 +48,9 @@ pub struct Abi<'a> {
     pub seen: &'a HashSet<ValueId>,
     /// The candidate lists' summaries under `all`, shared by the functions the raise runs.
     pub summaries: Option<&'a super::abi::SummaryCache<'a>>,
+    /// The stack dwords past the universal six an x86 call through a pointer hands its callee in
+    /// [`ARGS`] (see [`super::stubs::extra_dwords`]).
+    pub extra_dwords: usize,
 }
 
 /// The trap code of a call through a vtable slot that holds an address outside the vtables.
@@ -314,7 +317,9 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
         let below = abi.own.frame_below.max(16) + 16 + slack;
         let entry = target.entry_misalignment();
         let above = target.first_stack_arg() as u64 + abi.own.stack_bytes(target) as u64;
-        let size = below + entry + above + 64;
+        // A call through a pointer reads the universal dwords above its stack pointer, whatever
+        // lies there: the room above covers them.
+        let size = below + entry + above + 64 + 4 * abi.extra_dwords as u64;
         let frame = f.new_value("frame", Type::Ptr);
         prologue.push(Instruction {
             result: Some(frame),
@@ -944,6 +949,31 @@ impl Rewriter<'_> {
             address,
         });
         let args = self.universal_arguments(f, current, target.first_stack_arg(), out);
+        // The stack dwords past the universal six, for a callee that takes more: its universal
+        // entry point reads them where they are written here.
+        if !target.is_64() {
+            let rsp = self.sp(current);
+            for k in 0..abi.extra_dwords {
+                let j = (super::stubs::UNIVERSAL_DWORDS + k) as i64;
+                let v = self.stack_word(f, &rsp, target.first_stack_arg() + 4 * j, 4, &format!("sarg{j}"), out);
+                let p = f.new_value("args.p", Type::Ptr);
+                out.push(Instruction {
+                    result: Some(p),
+                    inst: Inst::Cast {
+                        cast: Cast::IntToPtr,
+                        from: Type::I64,
+                        value: Operand::Address { global: ARGS.to_owned(), offset: 8 * k as i64 },
+                        to: Type::Ptr,
+                    },
+                    address,
+                });
+                out.push(Instruction {
+                    result: None,
+                    inst: Inst::Store { ty: Type::I64, value: Operand::Local(v), ptr: Operand::Local(p), align: 8, volatile: false },
+                    address,
+                });
+            }
+        }
         let result = f.new_value("ret", Type::I64);
         out.push(Instruction {
             result: Some(result),
@@ -975,6 +1005,18 @@ impl Rewriter<'_> {
         let popped = f.new_value("rsp", Type::I64);
         out.push(Instruction { result: Some(popped), inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: up }, address });
         self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, out);
+        // An x86 callee that returns 64 bits leaves the high half in edx (a virtual `xsputn`
+        // hands back a `streamsize`): the universal result carries it above the low half, and a
+        // caller that takes 32 bits never reads it.
+        if target == Target::X86 {
+            let high = f.new_value("ret.hi", Type::I64);
+            out.push(Instruction {
+                result: Some(high),
+                inst: Inst::Bin { op: BinOp::LShr, ty: Type::I64, lhs: Operand::Local(result), rhs: Operand::Int(32) },
+                address,
+            });
+            current.insert(RDX, Operand::Local(high));
+        }
         current.insert(self.target.sp(), Operand::Local(popped));
     }
 

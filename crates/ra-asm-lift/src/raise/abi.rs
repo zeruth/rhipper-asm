@@ -174,6 +174,8 @@ struct Facts {
     int_positions: [bool; ARGUMENT_REGISTERS],
     float_positions: [Option<Kind>; ARGUMENT_REGISTERS],
     stack: StackInfo,
+    /// Whether the function leaves a value in `rax` at a return: one it writes itself, or the one
+    /// a call in the returning block left there.
     writes_rax: bool,
     /// The float kind the function writes to `xmm0`, when it does.
     writes_xmm0: Option<Kind>,
@@ -427,7 +429,8 @@ pub fn virtual_candidates<'a>(inst: &Inst, virtual_calls: &'a HashMap<ValueId, C
 }
 
 /// Infers the signature of every `F_` function of `module`. A root (the entry, an export, a
-/// function a pointer names) returns a value when it writes `rax`, since its callers are not seen.
+/// function a pointer names) returns a value when it writes `rax`, or returns from a block where
+/// a callee wrote it (a tail call hands back the callee's result), since its callers are not seen.
 /// A call through a slot of one of `vtables` is a call to the functions that fill the slot.
 pub fn infer(module: &Module, roots: &BTreeSet<String>, target: Target, vtables: &[Vtable]) -> HashMap<String, Signature> {
     infer_with(module, roots, target, vtables, &BTreeMap::new())
@@ -1052,6 +1055,7 @@ fn gather(
         // a failed cookie check) hands nothing back: what it writes reaches no return, so a caller
         // reading a register after the call reads its own value through it.
         let dead_end = matches!(b.terminator, ra_asm_ir::Terminator::Unreachable);
+        let returning = matches!(b.terminator, ra_asm_ir::Terminator::Ret(_));
         let mut calls = 0usize;
         for i in &b.instrs {
             // The slots the function writes, itself or through a call.
@@ -1063,7 +1067,11 @@ fn gather(
                     }
                 }
                 inst if super::liveness::call_kind(inst) == Some(super::liveness::CallKind::State) => {
-                    for (w, called) in writes.iter_mut().zip(model(inst).1) {
+                    let called = model(inst).1;
+                    // `jmp target`, or `call target; ret`: the function hands back what its
+                    // callee left in `rax`, as the thunk of an import a vtable names does.
+                    writes_rax |= returning && called[RAX.index()];
+                    for (w, called) in writes.iter_mut().zip(called) {
                         *w |= called;
                     }
                 }

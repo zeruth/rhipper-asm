@@ -144,6 +144,9 @@ pub struct Function {
     pub import_calls: Vec<String>,
     /// The functions it jumps to.
     pub tail_calls: Vec<u64>,
+    /// The addresses of its own code it calls: MSVC calls a `__finally` funclet on the normal way
+    /// out of its `__try`, with the frame still the function's. A block starts at each.
+    pub local_calls: Vec<u64>,
     pub noreturn: bool,
     pub origins: Vec<Origin>,
     /// The string literals its instructions address, in first-use order: the address and the text.

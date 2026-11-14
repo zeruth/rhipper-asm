@@ -38,6 +38,7 @@ pub(crate) struct Builder<'a> {
     calls: Vec<u64>,
     import_calls: Vec<String>,
     tail_calls: Vec<u64>,
+    local_calls: Vec<u64>,
     warnings: Vec<String>,
 }
 
@@ -64,6 +65,7 @@ pub fn build(
         calls: Vec::new(),
         import_calls: Vec::new(),
         tail_calls: Vec::new(),
+        local_calls: Vec::new(),
         warnings: Vec::new(),
     };
     let mut tried = BTreeSet::new();
@@ -79,6 +81,7 @@ pub fn build(
         }
         b.worklist.extend(roots);
     }
+    b.local_calls = b.resolve_local_calls();
     b.finish()
 }
 
@@ -137,6 +140,9 @@ impl Builder<'_> {
             return out;
         }
         let after_fill = |va: &u64| self.image.u8(va - 1).is_ok_and(|b| b == 0xcc);
+        // A scope table lies in data, or among the code of an image that keeps its read-only
+        // data there (the system DLLs), where only its shape tells it from a handler stub.
+        let data_in_code = self.image.data_in_code();
         for block in self.blocks.values() {
             for (n, instr) in block.instrs.iter().enumerate() {
                 let reads_frame_chain = instr.mnemonic == "mov"
@@ -149,10 +155,15 @@ impl Builder<'_> {
                 for stored in block.instrs[n.saturating_sub(6)..n].iter().flat_map(|i| &i.operands) {
                     let Operand::Imm { value, bits: 32 } = stored else { continue };
                     let va = *value as u64 & 0xffff_ffff;
-                    if self.image.is_code(va) {
+                    if self.image.section_of(va).is_none() {
+                        continue;
+                    }
+                    let code = self.image.is_code(va);
+                    let seh = if code && !data_in_code { Vec::new() } else { self.seh_funclets(va) };
+                    if !seh.is_empty() {
+                        out.extend(seh);
+                    } else if code {
                         out.extend(self.cxx_funclets(va));
-                    } else if self.image.section_of(va).is_some() {
-                        out.extend(self.seh_funclets(va));
                     }
                 }
             }
@@ -437,6 +448,48 @@ impl Builder<'_> {
         Terminator::Switch { table: table.address, targets, index: table.index, load_at: table.load_at, cases, bound: table.bound }
     }
 
+    /// The direct calls into the function's own code, outside its flow from the entry: MSVC calls
+    /// a `__finally` funclet on the normal way out of its `__try`, with the frame still the
+    /// function's (the unwinder calls it through the handler, from the entry the scope table
+    /// names, a few bytes before). The target is code of this function, not a function: a block
+    /// starts there, for the lift to enter it, and the target leaves the calls.
+    fn resolve_local_calls(&mut self) -> Vec<u64> {
+        if self.arch.address_bits() != 32 {
+            return Vec::new();
+        }
+        let mut reached = BTreeSet::new();
+        let mut work = vec![self.entry];
+        while let Some(start) = work.pop() {
+            if reached.insert(start)
+                && let Some(block) = self.blocks.get(&start)
+            {
+                work.extend(block.terminator.successors());
+            }
+        }
+        if self.blocks.keys().all(|start| reached.contains(start)) {
+            return Vec::new();
+        }
+        let outside = |blocks: &BTreeMap<u64, Draft>, va: u64| {
+            blocks.range(..=va).next_back().is_some_and(|(start, block)| va < block.end && !reached.contains(start))
+        };
+        let mut targets: Vec<u64> = self
+            .blocks
+            .values()
+            .flat_map(|b| &b.instrs)
+            .filter_map(|i| match i.flow {
+                Flow::Call(Target::Direct(target)) if outside(&self.blocks, target) => Some(target),
+                _ => None,
+            })
+            .collect();
+        targets.sort_unstable();
+        targets.dedup();
+        for &target in &targets {
+            self.block(target);
+            self.calls.retain(|&c| c != target);
+        }
+        targets
+    }
+
     fn finish(self) -> Built {
         let blocks: Vec<Block> =
             self.blocks.into_values().map(|d| Block { start: d.start, end: d.end, instrs: d.instrs, terminator: d.terminator }).collect();
@@ -458,6 +511,7 @@ impl Builder<'_> {
             calls: self.calls,
             import_calls: self.import_calls,
             tail_calls: self.tail_calls,
+            local_calls: self.local_calls,
             noreturn: false,
             origins: Vec::new(),
             strings: Vec::new(),

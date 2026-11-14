@@ -2086,13 +2086,25 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// Whether `ptr` is the constant address zero: null, or zero made a pointer.
+    /// Whether `ptr` is the constant address zero: null, undef (written as null), zero made a
+    /// pointer through any chain of casts, or zero offset from one of these. Clang rejects a plain
+    /// access through each of these forms (`-Wnull-dereference`), as it folds them all to null.
     fn null_address(&self, ptr: &Operand) -> bool {
         match ptr {
-            Operand::Null | Operand::Int(0) => true,
-            Operand::Local(v) => {
-                matches!(self.def(*v), Some((_, _, Inst::Cast { cast: Cast::IntToPtr, value: Operand::Int(0), .. })))
-            }
+            Operand::Null | Operand::Undef | Operand::Int(0) => true,
+            Operand::Local(v) => match self.def(*v) {
+                Some((
+                    _,
+                    _,
+                    Inst::Cast {
+                        cast: Cast::IntToPtr | Cast::PtrToInt | Cast::Trunc | Cast::ZExt | Cast::SExt | Cast::Bitcast, value, ..
+                    },
+                )) => self.null_address(value),
+                Some((_, _, Inst::Gep { ptr: base, indices, .. })) => {
+                    self.null_address(base) && indices.iter().all(|(_, i)| matches!(i, Operand::Int(0)))
+                }
+                _ => false,
+            },
             _ => false,
         }
     }

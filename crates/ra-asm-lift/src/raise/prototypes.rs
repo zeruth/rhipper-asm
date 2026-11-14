@@ -185,8 +185,8 @@ pub fn typed(name: &str) -> Option<Typed> {
         | "log10f" | "sqrtf" | "cbrtf" | "floorf" | "ceilf" | "truncf" | "roundf" | "rintf" | "nearbyintf" | "fabsf" | "_chgsignf" => {
             (vec![Float], Some(Float))
         }
-        "atan2" | "fmod" | "pow" | "hypot" | "_hypot" | "fmin" | "fmax" | "fdim" | "copysign" | "_copysign" | "nextafter"
-        | "_nextafter" | "remainder" => (vec![Double, Double], Some(Double)),
+        "atan2" | "fmod" | "pow" | "ra_x86_pow_sse2" | "hypot" | "_hypot" | "fmin" | "fmax" | "fdim" | "copysign" | "_copysign"
+        | "nextafter" | "_nextafter" | "remainder" => (vec![Double, Double], Some(Double)),
         "atan2f" | "fmodf" | "powf" | "hypotf" | "_hypotf" | "fminf" | "fmaxf" | "fdimf" | "copysignf" | "_copysignf" | "nextafterf"
         | "remainderf" => (vec![Float, Float], Some(Float)),
         "fma" => (vec![Double, Double, Double], Some(Double)),
@@ -285,6 +285,9 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "feclearexcept" => "ra_x86_feclearexcept",
         // The x86 C runtime's square root is the x87's, rounded to the precision control.
         "sqrt" => "ra_x86_sqrt",
+        // The x86 C runtime's SSE2 power, which the 64-bit one does not export: the host's `pow`,
+        // under a name of its own since `pow` may be an import of the stack convention too.
+        "_libm_sse2_pow_precise" => "ra_x86_pow_sse2",
         "_setjmp3" | "_setjmp" => "ra_x86_setjmp3",
         "longjmp" | "_longjmpex" => "ra_x86_longjmp",
         // The fail-fast reports of the /GS checks take no argument on x86, and the host has its
@@ -304,6 +307,10 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "strtod" => "ra_x86_strtod",
         "strtoll" | "_strtoi64" => "ra_x86_strtoll",
         "strtoull" | "_strtoui64" => "ra_x86_strtoull",
+        // The C++ runtime's filebuf asks for the addresses of a FILE's buffer fields through three
+        // `char **` the host writes eight bytes into, where the program's are dword locals: the
+        // third write would take the dword above them (the saved `this`).
+        "_get_stream_buffer_pointers" => "ra_x86_get_stream_buffer_pointers",
         // The window structures of user32 hold pointers: the runtime widens the program's record
         // for the host and narrows what comes back.
         "RegisterClassA" => "ra_x86_register_class_a",
@@ -320,6 +327,14 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         // 4 GB, takes them. The sized delete's size is the caller's to pop.
         "operator_new" | "operator_new_array" => "ra_x86_operator_new",
         "operator_delete" | "operator_delete_array" => "ra_x86_operator_delete",
+        // The run-time type information the host's vcruntime reads in the 64-bit layout
+        // (image-relative offsets in eight-byte slots); the program's holds absolute dwords.
+        "__RTDynamicCast" => "ra_x86_rt_dynamic_cast",
+        "__RTCastToVoid" => "ra_x86_rt_cast_to_void",
+        "__RTtypeid" => "ra_x86_rt_typeid",
+        // `type_info::name()` caches the undecorated name in a dword of the descriptor, which the
+        // host reads as eight bytes.
+        "__std_type_info_name" => "ra_x86_std_type_info_name",
         _ => return None,
     })
 }
@@ -380,6 +395,13 @@ pub fn is_xbox_fastcall(dll: &str, name: &str) -> bool {
     ra_asm_pe::xbe::is_kernel_dll(dll) && ra_asm_pe::xbe::kernel_export_named(name).is_some_and(|e| e.is_fastcall())
 }
 
+/// Whether `name` is an SSE2 math function of the x86 C runtime (`_libm_sse2_pow_precise`, or
+/// the runtime's version of it): a `cdecl` function that takes its doubles in `xmm0` and `xmm1`
+/// and returns in `xmm0`, with nothing on the stack. The import wrapper reads them there.
+pub fn is_x86_sse2_math(name: &str) -> bool {
+    matches!(name, "_libm_sse2_pow_precise" | "ra_x86_pow_sse2")
+}
+
 /// Whether `dll` is a C runtime, whose functions are `cdecl`.
 pub fn is_crt_dll(dll: &str) -> bool {
     let d = dll.to_ascii_lowercase();
@@ -433,9 +455,6 @@ pub fn arity(name: &str) -> Option<usize> {
         return None;
     }
     Some(match name {
-        "ra_x86_interlocked_increment" | "ra_x86_interlocked_decrement" => 1,
-        "ra_x86_interlocked_exchange" | "ra_x86_interlocked_exchange_add" => 2,
-        "ra_x86_interlocked_compare_exchange" => 3,
         "ra_x86_p_argv"
         | "ra_x86_initial_narrow_environment"
         | "__current_exception"
@@ -660,7 +679,13 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_register_class_a"
         | "ra_x86_register_class_ex_a"
         | "ra_x86_translate_message"
-        | "ra_x86_dispatch_message_a" => 1,
+        | "ra_x86_dispatch_message_a"
+        | "ra_x86_interlocked_increment"
+        | "ra_x86_interlocked_decrement"
+        | "__RTCastToVoid"
+        | "__RTtypeid"
+        | "ra_x86_rt_cast_to_void"
+        | "ra_x86_rt_typeid" => 1,
 
         "TerminateProcess"
         | "GetExitCodeProcess"
@@ -750,7 +775,11 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_initterm_e"
         | "ra_x86_register_onexit_function"
         | "ra_x86_begin_paint"
-        | "ra_x86_end_paint" => 2,
+        | "ra_x86_end_paint"
+        | "ra_x86_interlocked_exchange"
+        | "ra_x86_interlocked_exchange_add"
+        | "__std_type_info_name"
+        | "ra_x86_std_type_info_name" => 2,
 
         "VirtualFree"
         | "VirtualQuery"
@@ -807,7 +836,8 @@ pub fn arity(name: &str) -> Option<usize> {
         | "fopen_s"
         | "sprintf_s"
         | "swprintf_s"
-        | "_itoa_s" => 3,
+        | "_itoa_s"
+        | "ra_x86_interlocked_compare_exchange" => 3,
 
         "VirtualAlloc"
         | "VirtualProtect"
@@ -841,7 +871,9 @@ pub fn arity(name: &str) -> Option<usize> {
         | "__CxxFrameHandler3"
         | "__CxxFrameHandler4"
         | "_vsnprintf_s"
-        | "_sopen_s" => 4,
+        | "_sopen_s"
+        | "_get_stream_buffer_pointers"
+        | "ra_x86_get_stream_buffer_pointers" => 4,
 
         "WriteFile"
         | "ReadFile"
@@ -854,7 +886,9 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_peek_message_a"
         | "bsearch"
         | "__stdio_common_vfprintf"
-        | "__stdio_common_vfwprintf" => 5,
+        | "__stdio_common_vfwprintf"
+        | "__RTDynamicCast"
+        | "ra_x86_rt_dynamic_cast" => 5,
 
         "CreateThread" | "MultiByteToWideChar" | "LCMapStringW" | "CompareStringW" | "__stdio_common_vsprintf" | "_beginthreadex" => 6,
         "CreateFileA" | "CreateFileW" | "FormatMessageA" | "FormatMessageW" => 7,

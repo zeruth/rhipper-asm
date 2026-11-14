@@ -27,6 +27,9 @@ pub struct Context<'a> {
     pub signatures: &'a HashMap<String, Signature>,
     pub vtables: VtableIndex<'a>,
     pub summaries: SummaryCache<'a>,
+    /// The stack dwords a call through a pointer hands on past the universal six (see
+    /// [`super::stubs::extra_dwords`]); none ahead of the signatures.
+    pub extra_dwords: usize,
 }
 
 impl<'a> Context<'a> {
@@ -37,6 +40,7 @@ impl<'a> Context<'a> {
             signatures,
             vtables: VtableIndex::new(&options.vtables),
             summaries: SummaryCache::new(signatures, options.target()),
+            extra_dwords: super::stubs::extra_dwords(signatures, roots, options.target()),
         }
     }
 }
@@ -176,6 +180,7 @@ fn promote(f: &mut Function, cx: &Context<'_>, _: &[Global]) {
         virtual_calls: &virtual_calls,
         seen: &seen,
         summaries: Some(&cx.summaries),
+        extra_dwords: cx.extra_dwords,
     };
     super::promote::promote_abi(f, &abi);
     if own.noreturn && !f.attrs.iter().any(|a| a == "noreturn") {
@@ -239,7 +244,7 @@ fn outline(module: &mut Module, _: &Context<'_>) {
 fn stubs(module: &mut Module, cx: &Context<'_>) {
     let target = cx.options.target();
     if !target.is_64() {
-        super::stubs::add_universal_stubs(module, cx.signatures, target);
+        super::stubs::add_universal_stubs(module, cx.signatures, target, cx.extra_dwords);
     }
 }
 

@@ -2,9 +2,14 @@
 //! compiled with clang against the driver and the runtime header, run, and compared. The
 //! structuring must leave no `goto` in the fixtures.
 
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+use ra_asm_analysis::Origin;
+use ra_asm_arch::Operand;
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -32,12 +37,13 @@ fn compare_output(failed: &Path, test: &str, expected: &str, actual: &str) -> Re
     ra_asm_testing::digest::compare_in(failed, test, expected.trim_end(), actual.trim_end())
 }
 
-/// Fails `test` with the digest's one line when its output differs from the expected one; how
-/// the run ended goes to stderr before it, and both whole sides are under `out/failed`.
+/// Fails `test` with the digest's one line when its output differs from the expected one, and
+/// how the run ended (its exit code, its stderr with the runtime's trap or crash report and the
+/// last functions entered, the crash site symbolized) in the panic's message under it, where a
+/// failure's excerpt that starts at the panic keeps it; both whole sides are under `out/failed`.
 fn assert_output(test: &str, expected: &str, actual: &str, ended: &str) {
     if let Err(line) = compare_output(&ra_asm_testing::digest::failed_dir(), test, expected, actual) {
-        eprintln!("{test}: {ended}");
-        panic!("{line}");
+        panic!("{line}\n{test}: {ended}");
     }
 }
 
@@ -130,6 +136,9 @@ struct Fixture {
     /// The output split by the modules the build's symbols name, as `ras emit` writes it, instead
     /// of by size.
     modules: bool,
+    /// The second images ported with the program (`ras emit --with`): the DLLs whose exports the
+    /// host's own cannot answer, the x86 C++ runtime of `stl` and `stlio` among them.
+    with: Vec<PathBuf>,
 }
 
 fn fixture(binary: &str, expected: &str) -> Fixture {
@@ -142,7 +151,129 @@ fn fixture(binary: &str, expected: &str) -> Fixture {
         by_signatures: false,
         facts: ra_asm_analysis::Facts::default(),
         modules: false,
+        with: Vec::new(),
     }
+}
+
+/// A 32-bit DLL of this Windows (`SysWOW64`), read from the system as the toolchain is, never
+/// committed: the x86 C++ runtime a program ports with. `None` on another host, whose DLL is not
+/// the one the program was linked against, or, under `RA_ALLOW_SKIP`, where it is not installed;
+/// the caller returns from its test.
+fn system_x86_dll(program: &str, name: &str) -> Option<PathBuf> {
+    if foreign_host(cfg!(windows), program, &format!("{name} is the Windows host's"), "the port with it") {
+        return None;
+    }
+    let root = std::env::var_os("SystemRoot")?;
+    let path = Path::new(&root).join("SysWOW64").join(name);
+    if path.is_file() {
+        return Some(path);
+    }
+    assert!(
+        ra_asm_testing::tools::skip_allowed(),
+        "{} is not installed and the test needs it: install the x86 Visual C++ runtime, or set {}=1 to skip",
+        path.display(),
+        ra_asm_testing::tools::ALLOW_SKIP
+    );
+    eprintln!("SKIPPED: {program}: {} is not installed ({} is set)", path.display(), ra_asm_testing::tools::ALLOW_SKIP);
+    None
+}
+
+/// Keeps of a second image's analysis what the program can reach: the exports the program imports
+/// and the image's entry, with every function they reach by a call or a tail call, by a function's
+/// address their code holds (a callback handed out), by a vtable's address their code holds (the
+/// virtuals of an object they construct), and the functions whose address the image's data holds
+/// (its initializer tables), to a fixpoint. The x86 C++ runtime is a few thousand functions, most
+/// of them the facets of locales the programs never construct, and the lift, the formatter and
+/// clang of the whole take longer than the oracle has. An import matches an export by name, or by
+/// ordinal without one, as the lift binds them.
+fn keep_reached(image: &ra_asm_pe::Image, with: &ra_asm_pe::Image, analysis: &mut ra_asm_analysis::Analysis<'_>) {
+    let Some(table) = &with.exports else { return };
+    let file = image_file_name(with);
+    let is_with = |dll: &str| file.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(dll)) || table.dll_name.eq_ignore_ascii_case(dll);
+    let mut todo: Vec<u64> = image
+        .imports
+        .iter()
+        .filter(|i| is_with(&i.dll))
+        .filter_map(|i| {
+            table.exports.iter().find(|e| match (&i.name, i.ordinal) {
+                (Some(name), _) => e.name.as_deref() == Some(name.as_str()),
+                (None, Some(ordinal)) => e.ordinal == u32::from(ordinal),
+                (None, None) => false,
+            })
+        })
+        .filter_map(|e| e.va)
+        .collect();
+    todo.extend(analysis.program_entry.or_else(|| with.entry_point()));
+    // A pointer the data holds has no code of the kept functions to be found in: it lies outside
+    // every function, in a data section or in the data a code section keeps (a DLL whose `.rdata`
+    // is merged into `.text`), where a pointer an instruction holds is found by the kept code.
+    let spans = analysis.function_spans();
+    let in_data = |f: &ra_asm_analysis::Function| f.origins.iter().any(|o| matches!(o, Origin::Pointer(at) if !spans.contains(*at)));
+    todo.extend(analysis.functions.values().filter(|f| in_data(f)).map(|f| f.entry));
+    let vtables: HashMap<u64, &[u64]> =
+        analysis.classes.iter().flat_map(|c| &c.vtables).map(|v| (v.address, v.functions.as_slice())).collect();
+    let bits = u16::from(with.pointer_size()) * 8;
+    let mut kept = BTreeSet::new();
+    while let Some(va) = todo.pop() {
+        let Some(f) = analysis.functions.get(&va) else { continue };
+        if !kept.insert(va) {
+            continue;
+        }
+        todo.extend(f.calls.iter().chain(&f.tail_calls).copied());
+        for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+            for operand in &i.operands {
+                let held = match operand {
+                    Operand::Imm { value, bits: width } if *width == bits => *value as u64 & (u64::MAX >> (64 - bits)),
+                    Operand::Mem(m) if i.mnemonic == "lea" => match m.absolute {
+                        Some(held) => held,
+                        None => continue,
+                    },
+                    _ => continue,
+                };
+                if analysis.functions.contains_key(&held) {
+                    todo.push(held);
+                }
+                if let Some(functions) = vtables.get(&held) {
+                    todo.extend(functions.iter().copied());
+                }
+            }
+        }
+    }
+    analysis.functions.retain(|va, _| kept.contains(va));
+}
+
+/// The analyses of the second images `with`, as `ras emit` makes them, each kept to what the
+/// program at `image` reaches ([`keep_reached`]): a function name two images share (`entry`, a
+/// thunk's) takes its image's stem, so the one module defines each once.
+fn companion_analyses<'a>(
+    image: &ra_asm_pe::Image,
+    analysis: &ra_asm_analysis::Analysis<'_>,
+    with: &'a [ra_asm_pe::Image],
+) -> Vec<ra_asm_analysis::Analysis<'a>> {
+    let mut taken: HashSet<String> = analysis.functions.values().map(|f| f.name.clone()).collect();
+    let mut analyses = Vec::with_capacity(with.len());
+    for with_image in with {
+        let mut analysis = ra_asm_analysis::analyze(with_image);
+        let whole = analysis.functions.len();
+        keep_reached(image, with_image, &mut analysis);
+        let name = image_file_name(with_image).unwrap_or_default();
+        eprintln!("{name}: {} of {whole} functions are reached from the program", analysis.functions.len());
+        let stem =
+            with_image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "with".to_owned(), |s| s.to_string_lossy().into_owned());
+        for f in analysis.functions.values_mut() {
+            if !taken.insert(f.name.clone()) {
+                f.name = format!("{}_{stem}", f.name);
+                taken.insert(f.name.clone());
+            }
+        }
+        analyses.push(analysis);
+    }
+    analyses
+}
+
+/// The file name of `image`, as the function table names the image of a function.
+fn image_file_name(image: &ra_asm_pe::Image) -> Option<String> {
+    image.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned())
 }
 
 impl Fixture {
@@ -171,26 +302,107 @@ impl Fixture {
     /// line, after the run's exit code and stderr on stderr, and a crash's function and line of
     /// the host address, when `exe` carries debug information and llvm-symbolizer is on the PATH.
     fn compare(&self, test: &str, run: &std::process::Output, exe: &Path) {
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        let ended = format!("exit {:?}, stderr {}{}", run.status.code(), stderr, symbolize(&stderr, exe).unwrap_or_default());
+        assert_output(test, &self.reference(), &self.printed(run), &ended);
+    }
+
+    /// What the native program prints.
+    fn reference(&self) -> String {
+        std::fs::read_to_string(root().join("testdata").join(&self.expected)).unwrap()
+    }
+
+    /// What a run of the port printed, with the line of its exit code where the reference has one.
+    fn printed(&self, run: &std::process::Output) -> String {
         let mut stdout = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
         if self.exit_line {
             stdout.push_str("exit = ");
             stdout.push_str(&run.status.code().unwrap_or(-1).to_string());
             stdout.push('\n');
         }
-        let expected = std::fs::read_to_string(root().join("testdata").join(&self.expected)).unwrap();
-        let stderr = String::from_utf8_lossy(&run.stderr);
-        let ended = format!("exit {:?}, stderr {}{}", run.status.code(), stderr, symbolize(&stderr, exe).unwrap_or_default());
-        assert_output(test, &expected, &stdout, &ended);
+        stdout
+    }
+}
+
+/// What a failed port with a second image leaves under `out/failed/<test>` beside its two sides,
+/// for whoever reads the failure without the scratch directory: `trace.txt`, every function the
+/// port entered, in order, from a second run with `RA_TRACE` set (the driver of an `RA_TRACE_LAST`
+/// build prints it then), and `port/`, the C and the headers of the port. A crash names the last
+/// functions it entered; a wrong line names nothing, and the C of a ported DLL is what says why.
+fn keep_failed_port(test: &str, dir: &Path, exe: &Path) {
+    let kept = failed_sides(&ra_asm_testing::digest::failed_dir(), test);
+    let port = kept.join("port");
+    let traced = output_within(Command::new(exe).current_dir(dir).env("RA_TRACE", "1"), RUN_LIMIT);
+    let written = std::fs::create_dir_all(&port).and_then(|()| std::fs::write(kept.join("trace.txt"), &traced.stderr)).and_then(|()| {
+        for entry in std::fs::read_dir(dir)?.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|x| x == "c" || x == "cpp" || x == "h") {
+                std::fs::copy(&path, port.join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    });
+    if let Err(e) = written {
+        eprintln!("{}: not written: {e}", kept.display());
     }
 }
 
 /// The crash site named in a driver's `module+<offset>` report, as llvm-symbolizer reads it from
-/// the port's debug information.
+/// the port's debug information, and the C there ([`crash_excerpt`]).
 fn symbolize(stderr: &str, exe: &Path) -> Option<String> {
     let offset = stderr.split("module+").nth(1)?.split(')').next()?;
     let address = 0x1_4000_0000u64 + u64::from_str_radix(offset.trim_start_matches("0x"), 16).ok()?;
     let out = Command::new("llvm-symbolizer").arg(format!("--obj={}", exe.display())).arg(format!("{address:#x}")).output().ok()?;
-    Some(format!("\nat {}", String::from_utf8_lossy(&out.stdout).trim()))
+    let symbolized = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    let mut text = format!("\nat {symbolized}");
+    if let Some(excerpt) = exe.parent().and_then(|dir| crash_excerpt(&symbolized, dir)) {
+        text.push('\n');
+        text.push_str(&excerpt);
+    }
+    Some(text)
+}
+
+/// The C at a symbolized crash site (`<function>` on one line, `<path>:<line>:<column>` on the
+/// next): the head of the function, the lines up to the fault, and the calls of the function
+/// across the port's files, which say what it was handed. Without them a fault at a small address
+/// (an argument that arrived as zero) names the function and nothing of how it got there.
+fn crash_excerpt(symbolized: &str, dir: &Path) -> Option<String> {
+    let mut lines = symbolized.lines();
+    let function = lines.next()?.trim();
+    let (path, line) = lines.next()?.trim().rsplit_once(':')?.0.rsplit_once(':')?;
+    let line: usize = line.parse().ok()?;
+    let source = std::fs::read_to_string(path).ok()?;
+    let source: Vec<&str> = source.lines().collect();
+    let at = line.checked_sub(1)?.min(source.len().checked_sub(1)?);
+    // The definition starts at the margin; clang-format indents everything inside it.
+    let starts_at_margin = |l: &str| l.starts_with(|c: char| c.is_ascii_alphabetic());
+    let head = (0..=at).rev().find(|&k| starts_at_margin(source[k]))?;
+    let mut text = String::new();
+    let _ = writeln!(text, "{:>6}  {}", head + 1, source[head]);
+    let from = at.saturating_sub(8).max(head + 1);
+    if from > head + 1 {
+        text.push_str("        ...\n");
+    }
+    for k in from..=at {
+        let _ = writeln!(text, "{:>6}  {}", k + 1, source[k]);
+    }
+    let call = format!("{function}(");
+    let mut calls = 0;
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if !path.extension().is_some_and(|x| x == "c" || x == "cpp") {
+            continue;
+        }
+        let Ok(file) = std::fs::read_to_string(&path) else { continue };
+        for (k, l) in file.lines().enumerate() {
+            if calls < 6 && l.contains(&call) && !starts_at_margin(l) {
+                let file_name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                let _ = writeln!(text, "{file_name}:{}: {}", k + 1, l.trim());
+                calls += 1;
+            }
+        }
+    }
+    Some(text)
 }
 
 /// The C of a fixture, with the image header and the function table beside it, and the pointer
@@ -199,14 +411,48 @@ fn symbolize(stderr: &str, exe: &Path) -> Option<String> {
 fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect) -> (ra_asm_testing::Scratch, String, u32) {
     let binary = fixture.name();
     let image = fixture.image();
-    let analysis = ra_asm_analysis::analyze_with(&image, &fixture.facts);
-    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: true, x87: fixture.x87 });
+    let mut analysis = ra_asm_analysis::analyze_with(&image, &fixture.facts);
+    // The second images join the program's module, as `ras emit --with` ports them, and the static
+    // part of a ported DLL's import library stays the program's.
+    let with_images: Vec<ra_asm_pe::Image> = fixture.with.iter().map(|p| ra_asm_pe::load(p).unwrap()).collect();
+    for with in &with_images {
+        ra_asm_analysis::symbols::port_import_library(&image, &mut analysis.functions, with);
+    }
+    let with_analyses = companion_analyses(&image, &analysis, &with_images);
+    let companions: Vec<ra_asm_lift::Companion<'_>> =
+        with_images.iter().zip(&with_analyses).map(|(image, analysis)| ra_asm_lift::Companion { image, analysis }).collect();
+    let lift_options = ra_asm_lift::LiftOptions { standalone: true, x87: fixture.x87 };
+    let mut lifted = if companions.is_empty() {
+        ra_asm_lift::lift_with(&image, &analysis, lift_options)
+    } else {
+        ra_asm_lift::lift_frozen_with(&image, &analysis, &companions, lift_options)
+    };
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
     let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.apply_names(&analysis, Some(&mut signatures));
-    let infos = ra_asm_emit::functions::infos(&analysis);
+    for with in &with_analyses {
+        lifted.apply_names(with, Some(&mut signatures));
+    }
+    let mut infos = ra_asm_emit::functions::infos(&analysis);
+    if !with_images.is_empty() {
+        // What the lift of a system DLL traps on is the census's to list, not this port's to fix:
+        // it is said on stderr, and the port runs as far as the program needs the DLL.
+        let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+        for u in &coverage.uncovered {
+            eprintln!("{binary}: the lift traps on {} ({} times, first at {:#x})", u.mnemonic, u.count, u.example);
+        }
+        for info in infos.values_mut() {
+            info.image = image_file_name(&image);
+        }
+        for (with, analysis) in with_images.iter().zip(&with_analyses) {
+            infos.extend(ra_asm_emit::functions::infos(analysis).into_iter().map(|(ir, mut info)| {
+                info.image = image_file_name(with);
+                (ir, info)
+            }));
+        }
+    }
     let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
-    let classes = ra_asm_emit::classes(&analysis, &signatures);
+    let classes = std::iter::once(&analysis).chain(&with_analyses).flat_map(|a| ra_asm_emit::classes(a, &signatures)).collect();
     let options = ra_asm_emit::COptions { names, dialect, classes, ..Default::default() };
     let unit = ra_asm_emit::emit_unit(&lifted.module, &options);
     let mut files = if fixture.modules {
@@ -374,6 +620,60 @@ fn run_fixture_as_c(fixture: &Fixture, tag: &str, functions_per_file: usize, dia
     run_fixture_as_c_with(fixture, tag, functions_per_file, dialect, false);
 }
 
+/// The most of a port's output that is kept: past it a port that prints in a loop is read and
+/// forgotten until it ends or its time is up.
+const OUTPUT_KEPT: usize = 64 << 20;
+
+/// The port's build has this long, and its run `RUN_LIMIT`: a port that loops (a lock the host
+/// never releases, a trap the program retries) or a build that never ends would otherwise hold the
+/// test until the harness gives up, and say nothing.
+const BUILD_LIMIT: Duration = Duration::from_secs(600);
+const RUN_LIMIT: Duration = Duration::from_secs(120);
+
+/// Reads a pipe of the child to its end on a thread of its own, keeping [`OUTPUT_KEPT`] bytes.
+fn drain<R: std::io::Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let Some(mut pipe) = pipe else { return bytes };
+        let mut buffer = vec![0u8; 1 << 16];
+        while let Ok(n) = pipe.read(&mut buffer)
+            && n > 0
+        {
+            if bytes.len() < OUTPUT_KEPT {
+                bytes.extend_from_slice(&buffer[..n]);
+            }
+        }
+        bytes
+    })
+}
+
+/// The output of `command`, run for at most `limit`: past it the process is killed and its stderr
+/// ends with a line that says how long it had.
+fn output_within(command: &mut Command, limit: Duration) -> std::process::Output {
+    let mut child = command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    let started = Instant::now();
+    let mut killed = false;
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if started.elapsed() >= limit {
+            let _ = child.kill();
+            killed = true;
+            break child.wait().unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let stdout = stdout.join().unwrap();
+    let mut stderr = stderr.join().unwrap();
+    if killed {
+        stderr.extend_from_slice(format!("\nthe process had not ended after {} s and was killed\n", limit.as_secs()).as_bytes());
+    }
+    std::process::Output { status, stdout, stderr }
+}
+
 /// With `trace`, the port names every lifted function it enters on stderr (`RA_TRACE`): the
 /// ignored `_traced` tests, for a port that crashes in the clang-less shell of a worker.
 fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect, trace: bool) {
@@ -423,9 +723,9 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
         // stacks and the heap below 2 GB.
         build.args(["-fno-pie", "-no-pie"]);
     }
-    if trace {
-        build.arg("-DRA_TRACE");
-    }
+    // A crash or a trap names the last lifted functions entered, which the whole trace of a port
+    // with a second image would bury: the DLL's attach runs hundreds before the program's `main`.
+    build.arg(if trace { "-DRA_TRACE" } else { "-DRA_TRACE_LAST" });
     build.args(&sources).arg(root().join("runtime/driver.c")).arg("-I").arg(&dir).arg("-I").arg(root().join("runtime")).arg("-o").arg(&exe);
     if cfg!(windows) {
         // The system libraries the fixtures import from; an unused one costs nothing.
@@ -435,9 +735,12 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
         // executable's own exports, and the host's C library.
         build.args(["-rdynamic", "-pthread", "-ldl", "-lm"]);
     }
-    let build = build.output().unwrap();
+    let build = output_within(&mut build, BUILD_LIMIT);
     assert_built(&test, "clang", &dir, &build);
-    let run = Command::new(&exe).current_dir(&dir).output().unwrap();
+    let run = output_within(Command::new(&exe).current_dir(&dir), RUN_LIMIT);
+    if !fixture.with.is_empty() && !trace && fixture.printed(&run).trim_end() != fixture.reference().trim_end() {
+        keep_failed_port(&test, &dir, &exe);
+    }
     fixture.compare(&test, &run, &exe);
 }
 
@@ -459,7 +762,17 @@ fn rhtest(name: &str, variant: &str) -> Fixture {
         by_signatures: false,
         facts: ra_asm_analysis::Facts::default(),
         modules: false,
+        with: Vec::new(),
     }
+}
+
+/// The `clang` variant of a C++ rhtest program ported with the x86 C++ runtime: `msvcp140.dll`
+/// of this Windows's `SysWOW64`, whose exports the 64-bit DLL does not carry under the program's
+/// mangled names and whose objects have other layouts, so the DLL ports with the program.
+fn run_rhtest_with_x86_cpp_runtime_as_c(name: &str) {
+    let Some(dll) = system_x86_dll(name, "msvcp140.dll") else { return };
+    let fixture = Fixture { with: vec![dll], ..rhtest(name, "clang") };
+    run_fixture_as_c(&fixture, "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
 }
 
 /// The signatures of the installed toolset's static x86 C runtime (`libcmt.lib`,
@@ -1610,8 +1923,8 @@ fn rhtest_eh_clang_runs_as_rust() {
 }
 
 /// The C++ programs: `stl` and `stlio` import msvcp140 under x86 mangled names the x64 DLL does
-/// not export (a thiscall-to-x64 adapter of the C++ runtime is a card of its own); `cpp`, `com`
-/// and `engine` build and start but go wrong in their first classes (`cpp`'s `multi`, `engine`'s
+/// not export, so the system's 32-bit DLL ports with them as a second image; `cpp`, `com` and
+/// `engine` build and start but go wrong in their first classes (`cpp`'s `multi`, `engine`'s
 /// `stream len`, `com`'s COM vtables and an instruction the lift does not cover).
 #[test]
 #[ignore = "ports but goes wrong at `multi`: the C++ object model under the x64 runtime, with task 49's exceptions"]
@@ -1638,25 +1951,23 @@ fn rhtest_com_clang_runs_as_rust() {
 }
 
 #[test]
-#[ignore = "needs the C++ runtime (msvcp140) under x86 mangled names, which the x64 DLL does not export"]
 fn rhtest_stl_clang_runs_as_c() {
-    run_rhtest_as_c("stl", "clang");
+    run_rhtest_with_x86_cpp_runtime_as_c("stl");
 }
 
 #[test]
-#[ignore = "needs the C++ runtime (msvcp140) under x86 mangled names, which the x64 DLL does not export"]
+#[ignore = "the Rust oracle ports one image: the x86 C++ runtime (msvcp140) is a second image of the port"]
 fn rhtest_stl_clang_runs_as_rust() {
     run_rhtest_as_rust("stl", "clang");
 }
 
 #[test]
-#[ignore = "needs the C++ runtime (msvcp140) under x86 mangled names, which the x64 DLL does not export"]
 fn rhtest_stlio_clang_runs_as_c() {
-    run_rhtest_as_c("stlio", "clang");
+    run_rhtest_with_x86_cpp_runtime_as_c("stlio");
 }
 
 #[test]
-#[ignore = "needs the C++ runtime (msvcp140) under x86 mangled names, which the x64 DLL does not export"]
+#[ignore = "the Rust oracle ports one image: the x86 C++ runtime (msvcp140) is a second image of the port"]
 fn rhtest_stlio_clang_runs_as_rust() {
     run_rhtest_as_rust("stlio", "clang");
 }

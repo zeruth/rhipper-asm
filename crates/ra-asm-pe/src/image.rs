@@ -12,7 +12,7 @@ use ra_asm_format::Reader;
 use crate::debug::{self, DebugEntry};
 use crate::exception::{self, RuntimeFunction};
 use crate::exports::{self, ExportTable};
-use crate::headers::{Headers, Machine};
+use crate::headers::{Directory, Headers, Machine};
 use crate::imports::{self, Import};
 use crate::relocs::{self, Relocation};
 use crate::resources::{self, Resource};
@@ -247,9 +247,21 @@ impl Image {
         }
     }
 
-    /// Whether `va` lies in a section that holds code or is executable.
+    /// Whether `va` lies in a section that holds code or is executable. Such a section holds the
+    /// read-only data too of an image whose [`Image::data_in_code`] is true.
     pub fn is_code(&self, va: u64) -> bool {
         self.section_of(va).is_some_and(|s| s.is_code() || s.is_executable())
+    }
+
+    /// Whether the image keeps its read-only data in a code section: its export directory or its
+    /// load configuration, which the linker writes into `.rdata`, lies in one, as in a DLL linked
+    /// with `/MERGE:.rdata=.text` (the Windows system DLLs). The constants, the vtables and the
+    /// tables of such an image are read out of its code section.
+    pub fn data_in_code(&self) -> bool {
+        [Directory::Export, Directory::LoadConfig].into_iter().any(|d| {
+            let directory = self.headers.optional.directory(d);
+            !directory.is_empty() && self.section_of_rva(directory.rva).is_some_and(|s| s.is_code() || s.is_executable())
+        })
     }
 
     /// The whole mapped image, indexed by RVA.

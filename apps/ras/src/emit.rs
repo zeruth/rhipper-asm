@@ -752,6 +752,11 @@ pub(crate) fn emit(
     let hand = crate::annotations::hand_list(hand, &annotations);
     let hand = hand.as_slice();
     let with_images = load_companions(image, with)?;
+    // The static part of a ported DLL's import library takes the DLL's own objects: it lifts with
+    // the program rather than coming from the host's runtime.
+    for with_image in &with_images {
+        ra_asm_analysis::symbols::port_import_library(image, &mut analysis.functions, with_image);
+    }
     let mut with_analyses = analyze_companions(&analysis, &with_images);
     let companions = companions_of(&with_images, &with_analyses);
     let mut lifted = ra_asm_lift::lift_frozen_with(image, &analysis, &companions, ra_asm_lift::LiftOptions { standalone: true, x87 });

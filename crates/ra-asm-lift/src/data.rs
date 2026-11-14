@@ -6,10 +6,13 @@
 //! (then it is that function's address), of a byte of a data section (then it is that global's
 //! byte), or of something else (then the raw number). An import slot holds the import's own
 //! address, which binds it at link time, or the address of the lifted function or global when a
-//! second image exports it. An uninitialized section is zero.
+//! second image exports it. An uninitialized section is zero. An image that keeps its read-only
+//! data in its code section ([`Image::data_in_code`]) has that section as a global too, with the
+//! words outside its functions: the code's own operands stay bytes.
 
 use std::collections::BTreeMap;
 
+use ra_asm_analysis::Analysis;
 use ra_asm_ir::{Const, Global, Linkage, Type};
 use ra_asm_pe::{Image, RelocKind};
 
@@ -18,8 +21,9 @@ use crate::{DataSection, Lifted};
 /// Adds the data sections of `image` to `lifted` as globals, and the headers as one more: the C
 /// runtime's startup reads the image's own PE headers (`__ImageBase`, the section table) to find
 /// its writable range, and a program reads them for its own resources. `tag` goes into the
-/// globals' names after `sec_`: empty for the program, the image's own for a second image.
-pub fn add_sections(image: &Image, lifted: &mut Lifted, tag: &str) {
+/// globals' names after `sec_`: empty for the program, the image's own for a second image. The
+/// functions of `analysis` tell the data of a code section from its code.
+pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, tag: &str) {
     let headers = u64::from(image.headers.optional.size_of_headers).min(u64::from(image.size_of_image()));
     if headers > 0 {
         let start = image.image_base();
@@ -38,8 +42,10 @@ pub fn add_sections(image: &Image, lifted: &mut Lifted, tag: &str) {
         }
     }
     // The sections first, so a pointer from one into another resolves whatever the order.
+    let data_in_code = image.data_in_code();
     for section in &image.sections {
-        if section.is_code() || section.is_executable() || !section.is_readable() || section.mapped_size() == 0 {
+        let code = section.is_code() || section.is_executable();
+        if (code && !data_in_code) || !section.is_readable() || section.mapped_size() == 0 {
             continue;
         }
         if matches!(section.name.as_str(), ".pdata" | ".reloc" | ".rsrc" | ".debug" | ".xdata") {
@@ -49,6 +55,12 @@ pub fn add_sections(image: &Image, lifted: &mut Lifted, tag: &str) {
         lifted.data.push(DataSection { global: global_name(&section.name, tag), start, end: start + u64::from(section.mapped_size()) });
     }
     let width = u64::from(image.pointer_size());
+    // A word of a code section is data when it lies outside the functions and on a pointer
+    // boundary, as the compiler lays data out; the operands of the code are not read as data.
+    let functions = analysis.function_spans();
+    let is_word = |section: &ra_asm_pe::Section, va: u64| {
+        !(section.is_code() || section.is_executable()) || (va.is_multiple_of(width) && !functions.contains(va))
+    };
 
     for section in &image.sections {
         let Some(data) = lifted.data.iter().find(|d| d.start == image.va(section.virtual_address)).cloned() else { continue };
@@ -81,7 +93,7 @@ pub fn add_sections(image: &Image, lifted: &mut Lifted, tag: &str) {
                     u64::from(u32::from_le_bytes(chunk.try_into().unwrap()))
                 };
                 let named = lifted.functions.contains_key(&value) || (image.section_of(value).is_some_and(|s| !s.is_code()));
-                if !named {
+                if !named || !is_word(section, data.start + offset as u64 * width) {
                     continue;
                 }
                 if let Some(ra_asm_ir::Operand::Address { global, offset: o }) = lifted.address_of(value) {
@@ -94,7 +106,7 @@ pub fn add_sections(image: &Image, lifted: &mut Lifted, tag: &str) {
                 continue;
             }
             let is_pointer = matches!((r.kind, width), (RelocKind::Dir64, 8) | (RelocKind::HighLow, 4));
-            if !is_pointer {
+            if !is_pointer || !is_word(section, r.va) {
                 continue;
             }
             let Ok(value) = image.pointer(r.va) else { continue };

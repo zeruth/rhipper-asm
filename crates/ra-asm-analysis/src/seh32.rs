@@ -192,8 +192,9 @@ fn is_register(operand: Option<&Operand>, name: &str) -> bool {
 }
 
 /// The registration the entry block stores before it reads the head of the chain at `fs:[0]`: a
-/// level outside every scope, a table in data and a handler in code, in adjacent slots. A C++
-/// frame stores a handler and a state and no table, and is none.
+/// level outside every scope, a table in data (or among the code of an image that keeps its
+/// read-only data there) and a handler in code, in adjacent slots. A C++ frame stores a handler
+/// and a state and no table, and is none.
 fn registration(image: &Image, f: &Function) -> Option<Registration> {
     let block = f.block_at(f.entry)?;
     let reads_chain = |i: &Instr| {
@@ -203,11 +204,12 @@ fn registration(image: &Image, f: &Function) -> Option<Registration> {
     };
     let n = block.instrs.iter().position(reads_chain)?;
     let before = &block.instrs[..n];
+    let data_in_code = image.data_in_code();
     let fits = |r: &Registration| {
         r.level >= Layout::Handler4.outermost()
             && image.is_code(r.handler)
             && image.section_of(r.table).is_some()
-            && !image.is_code(r.table)
+            && (data_in_code || !image.is_code(r.table))
     };
     pushed(before).filter(&fits).or_else(|| stored(&before[n.saturating_sub(6)..], fits))
 }

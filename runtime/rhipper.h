@@ -9,9 +9,11 @@
 
 // The translation declares every import with integer arguments and result, the ABI it was called
 // with; a C runtime import clang knows as a builtin (`exit`, `memcpy`) is then a redeclaration
-// with another type, which is the same call on the wire.
+// with another type, which is the same call on the wire. One whose own prototype names a type of
+// a header (`fread`, `fwrite`: `FILE *`) is declared without that header, which is the same.
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wincompatible-library-redeclaration"
+#pragma clang diagnostic ignored "-Wbuiltin-requires-header"
 #elif defined(__GNUC__)
 #pragma GCC diagnostic ignored "-Wbuiltin-declaration-mismatch"
 #endif
@@ -107,8 +109,9 @@ struct ra_function_entry { uint64_t address; void *function; };
 struct ra_assumption { const char *function; const char *kind; uint64_t site; };
 
 // The entry hook of every function: nothing, unless the port is built with RA_TRACE, when each
-// function names itself on stderr as it starts, for finding where a port goes wrong.
-#ifdef RA_TRACE
+// function names itself on stderr as it starts, or with RA_TRACE_LAST, when a crash report lists
+// the last functions entered, for finding where a port goes wrong.
+#if defined(RA_TRACE) || defined(RA_TRACE_LAST)
 #define RA_ENTER(name) ra_enter(name)
 #else
 #define RA_ENTER(name) do { } while (0)
@@ -175,6 +178,14 @@ uint64_t ra_x86_interlocked_compare_exchange(uint64_t target, uint64_t exchange,
 // over the host's heap.
 uint64_t ra_x86_operator_new(uint64_t size);
 uint64_t ra_x86_operator_delete(uint64_t block);
+// The run-time type information of a 32-bit program, whose structures hold absolute dwords where
+// the host's `__RTDynamicCast`, `__RTCastToVoid` and `__RTtypeid` read the 64-bit layout.
+uint64_t ra_x86_rt_dynamic_cast(uint64_t object, uint64_t vf_delta, uint64_t source, uint64_t target, uint64_t is_reference);
+uint64_t ra_x86_rt_cast_to_void(uint64_t object);
+uint64_t ra_x86_rt_typeid(uint64_t object);
+// `type_info::name()` of a 32-bit program, whose descriptor caches the undecorated name in a dword
+// where the host's `__std_type_info_name` reads eight bytes.
+uint64_t ra_x86_std_type_info_name(uint64_t data, uint64_t root);
 // The window structures of user32 (WNDCLASSA, WNDCLASSEXA, MSG, PAINTSTRUCT), which a 32-bit
 // program lays out with 4-byte pointers: the runtime widens them for the host and narrows what
 // comes back.
@@ -197,6 +208,7 @@ uint64_t ra_x86_clearfp(void);
 uint64_t ra_x86_fetestexcept(uint64_t excepts);
 uint64_t ra_x86_feclearexcept(uint64_t excepts);
 double ra_x86_sqrt(double x);
+double ra_x86_pow_sse2(double x, double y);
 // The fail-fast reports of the x86 /GS checks: the program ends as it would natively, with
 // STATUS_STACK_BUFFER_OVERRUN.
 RA_NORETURN void ra_x86_report_gsfailure(void);
@@ -214,6 +226,8 @@ uint64_t ra_x86_strtoul(uint64_t s, uint64_t end, uint64_t base);
 uint64_t ra_x86_strtoll(uint64_t s, uint64_t end, uint64_t base);
 uint64_t ra_x86_strtoull(uint64_t s, uint64_t end, uint64_t base);
 double ra_x86_strtod(uint64_t s, uint64_t end);
+// The addresses of a FILE's buffer fields (`_get_stream_buffer_pointers`), written at the program's width.
+uint64_t ra_x86_get_stream_buffer_pointers(uint64_t stream, uint64_t base, uint64_t pointer, uint64_t count);
 // The exact x87 unit's software f80. A slot is 16 bytes: the 80-bit value as the x87 stores a
 // tbyte (the 64-bit significand with its integer bit, then the sign and the 15-bit exponent) and
 // six bytes of padding. An operation reads its operands before it writes its result, so the

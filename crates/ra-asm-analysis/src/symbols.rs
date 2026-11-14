@@ -111,6 +111,52 @@ pub fn is_ported_helper(name: &str) -> bool {
     ) || name.starts_with("_CI")
 }
 
+/// The import library whose static part a DLL's own port takes along: `msvcprt.lib` links
+/// `std::_Facet_Register` and the vector algorithms into a program of `msvcp140.dll`.
+fn import_library_of(dll: &str) -> Option<&'static str> {
+    let stem = dll.strip_suffix(".dll").unwrap_or(dll);
+    ["msvcp140", "msvcp140d", "msvcp140_1", "msvcp140_2", "msvcp140_atomic_wait", "msvcp140_codecvt_ids"]
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case(stem))
+        .then_some("msvcprt")
+}
+
+/// Gives the functions of a ported DLL's import library back to the program: a DLL ported with
+/// the program ([`crate::Analysis`] of a second image) answers its imports with objects of its own
+/// layout, and the static part of its import library (`msvcprt.lib` for `msvcp140.dll`), which
+/// [`classify`] made the host's as a runtime library's, takes those objects, so it lifts with the
+/// program and the host's C++ runtime, which lays them out otherwise, supplies none of it. The
+/// library's code checks each call it makes through a pointer with the control-flow guard, whose
+/// no-op the C runtime's startup library holds and `__guard_check_icall_fptr` points at: the no-op
+/// of the program `image` lifts with the code that calls it, under whichever name the linker's
+/// folding left its address.
+pub fn port_import_library(image: &Image, functions: &mut BTreeMap<u64, Function>, with: &Image) {
+    let file = with.path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
+    let linked = with.exports.as_ref().map(|t| t.dll_name.clone());
+    let Some(library) = file.iter().chain(&linked).find_map(|dll| import_library_of(dll)) else { return };
+    let of_library = |object: &str| {
+        let (lib, _) = object.split_once(':').unwrap_or((object, ""));
+        lib.strip_suffix(".lib").unwrap_or(lib).eq_ignore_ascii_case(library)
+    };
+    let mut ported = false;
+    for f in functions.values_mut() {
+        if matches!(f.kind, Kind::Runtime(_)) && f.object.as_deref().is_some_and(of_library) {
+            f.kind = Kind::Normal;
+            ported = true;
+        }
+    }
+    if !ported {
+        return;
+    }
+    for symbol in image.symbols.iter().filter(|s| s.name.contains("_guard_check_icall_nop")) {
+        if let Some(f) = functions.get_mut(&symbol.va)
+            && matches!(f.kind, Kind::Runtime(_))
+        {
+            f.kind = Kind::Normal;
+        }
+    }
+}
+
 /// Names every function the symbols (the PDB, else the link map) name, and keeps each one's symbol
 /// as the build has it. An export keeps its export name; the placeholders (`F_<address>`, `entry`,
 /// `thunk_<import>`) give way.

@@ -454,6 +454,23 @@ unsafe extern "C" {
     ) -> i32;
     fn __stdio_common_vfprintf(options: u64, stream: usize, format: *const u8, locale: usize, args: *const u64) -> i32;
     fn __stdio_common_vsscanf(options: u64, buffer: *const u8, count: usize, format: *const u8, locale: usize, args: *const u64) -> i32;
+    fn _get_stream_buffer_pointers(stream: usize, base: *mut *mut *mut u8, pointer: *mut *mut *mut u8, count: *mut *mut i32) -> i32;
+}
+
+/// The addresses of a FILE's buffer fields, which the C++ runtime's filebuf reads the stream
+/// through: the host writes three pointers of eight bytes where the program's locals are dwords,
+/// so they go to locals here and their low halves to the program's.
+pub unsafe fn ra_x86_get_stream_buffer_pointers(stream: u64, base: u64, pointer: u64, count: u64) -> u64 {
+    let mut b: *mut *mut u8 = core::ptr::null_mut();
+    let mut p: *mut *mut u8 = core::ptr::null_mut();
+    let mut c: *mut i32 = core::ptr::null_mut();
+    let r = _get_stream_buffer_pointers(stream as usize, &mut b, &mut p, &mut c);
+    for (at, value) in [(base, b as usize), (pointer, p as usize), (count, c as usize)] {
+        if at != 0 {
+            core::ptr::write_unaligned(at as usize as *mut u32, value as u32);
+        }
+    }
+    r as i64 as u64
 }
 
 /// The strto* family writes a `char *` of eight bytes where the program expects four: the host's
@@ -800,6 +817,188 @@ pub unsafe fn ra_x86_operator_delete(block: u64) -> u64 {
     0
 }
 
+// The run-time type information of a 32-bit program, which the host's `__RTDynamicCast`,
+// `__RTCastToVoid` and `__RTtypeid` would read in the 64-bit layout: the program's structures hold
+// absolute dwords. The dword before an object's vtable names its complete object locator
+// {signature, offset, cdOffset, type descriptor, class hierarchy descriptor}; the hierarchy's base
+// class array lists the complete class and every base, depth first, each {type descriptor,
+// contained bases, PMD {mdisp, pdisp, vdisp}, attributes}, so the bases a class contains follow it
+// in the array. The two images of a port each carry a descriptor for a type they share, so types
+// compare by their decorated names.
+unsafe fn rtti32_u32(at: u32) -> u32 {
+    (at as usize as *const u32).read_unaligned()
+}
+
+unsafe fn rtti32_i32(at: u32) -> i32 {
+    rtti32_u32(at) as i32
+}
+
+unsafe fn rtti32_same_type(a: u32, b: u32) -> bool {
+    let name = |descriptor: u32| std::ffi::CStr::from_ptr((descriptor + 8) as usize as *const std::ffi::c_char);
+    a == b || name(a) == name(b)
+}
+
+unsafe fn rtti32_locator(object: u32) -> u32 {
+    rtti32_u32(rtti32_u32(object).wrapping_sub(4))
+}
+
+/// The offset of a base in the complete object, through the vbtable for a virtual one.
+unsafe fn rtti32_base_offset(complete: u32, pmd: u32) -> i32 {
+    let pdisp = rtti32_i32(pmd + 4);
+    let mut offset = 0;
+    if pdisp >= 0 {
+        offset = pdisp.wrapping_add(rtti32_i32(rtti32_u32(complete.wrapping_add(pdisp as u32)).wrapping_add(rtti32_i32(pmd + 8) as u32)));
+    }
+    offset.wrapping_add(rtti32_i32(pmd))
+}
+
+/// The complete object `object` is a subobject of.
+unsafe fn rtti32_complete(object: u32) -> u32 {
+    let locator = rtti32_locator(object);
+    let mut complete = object.wrapping_sub(rtti32_u32(locator + 4));
+    let cd_offset = rtti32_u32(locator + 8);
+    if cd_offset != 0 {
+        complete = complete.wrapping_sub(rtti32_u32(object.wrapping_sub(cd_offset)));
+    }
+    complete
+}
+
+/// `dynamic_cast`: the target instance that contains the source instance (a downcast), unless two
+/// at different offsets do; else a cross cast to a target the complete object holds once and
+/// publicly, from a public source. A failed cast of a reference would throw `bad_cast`, which no
+/// handler of the port can take: it ends the program.
+pub unsafe fn ra_x86_rt_dynamic_cast(object: u64, vf_delta: u64, source: u64, target: u64, is_reference: u64) -> u64 {
+    if object == 0 {
+        return 0;
+    }
+    let (object, source, target) = (object as u32, source as u32, target as u32);
+    let complete = rtti32_complete(object);
+    let source_offset = object.wrapping_sub(vf_delta as u32).wrapping_sub(complete) as i32;
+    let hierarchy = rtti32_u32(rtti32_locator(object) + 16);
+    let (bases, array) = (rtti32_u32(hierarchy + 8), rtti32_u32(hierarchy + 12));
+    let (mut found, mut cross, mut source_base) = (None, None, None);
+    let mut ambiguous = false;
+    for i in 0..bases {
+        if ambiguous {
+            break;
+        }
+        let base = rtti32_u32(array + 4 * i);
+        let is_source = rtti32_same_type(rtti32_u32(base), source) && rtti32_base_offset(complete, base + 8) == source_offset;
+        if is_source && source_base.is_none() {
+            source_base = Some(base);
+        }
+        if !rtti32_same_type(rtti32_u32(base), target) {
+            continue;
+        }
+        if cross.is_none() {
+            cross = Some(base);
+        }
+        let contained = rtti32_u32(base + 4);
+        for j in 1..=contained {
+            if i + j >= bases {
+                break;
+            }
+            let inner = rtti32_u32(array + 4 * (i + j));
+            if !rtti32_same_type(rtti32_u32(inner), source) || rtti32_base_offset(complete, inner + 8) != source_offset {
+                continue;
+            }
+            // BCD_NOTVISIBLE: the source is a private base of this target.
+            if rtti32_u32(inner + 20) & 1 != 0 {
+                continue;
+            }
+            let offset = rtti32_base_offset(complete, base + 8);
+            if found.is_some_and(|(_, found_offset)| found_offset != offset) {
+                ambiguous = true;
+            }
+            found = Some((base, offset));
+        }
+    }
+    let result = if ambiguous {
+        0
+    } else if let Some((_, offset)) = found {
+        complete.wrapping_add(offset as u32)
+    } else {
+        match (cross, source_base) {
+            // BCD_NOTVISIBLE | BCD_AMBIGUOUS on the target, BCD_PRIVORPROTINCOMPOBJ on the source.
+            (Some(cross), Some(source_base)) if rtti32_u32(cross + 20) & 3 == 0 && rtti32_u32(source_base + 20) & 4 == 0 => {
+                complete.wrapping_add(rtti32_base_offset(complete, cross + 8) as u32)
+            }
+            _ => 0,
+        }
+    };
+    if result == 0 && is_reference != 0 {
+        eh_fatal("a dynamic_cast of a reference failed");
+    }
+    u64::from(result)
+}
+
+pub unsafe fn ra_x86_rt_cast_to_void(object: u64) -> u64 {
+    if object == 0 { 0 } else { u64::from(rtti32_complete(object as u32)) }
+}
+
+/// `typeid` of an object: its complete object's type descriptor, which is the program's own.
+pub unsafe fn ra_x86_rt_typeid(object: u64) -> u64 {
+    if object == 0 {
+        eh_fatal("typeid of a null pointer");
+    }
+    u64::from(rtti32_u32(rtti32_locator(object as u32) + 12))
+}
+
+/// `type_info::name()`: the host's `__std_type_info_name` reads the cached undecorated name in an
+/// eight-byte slot before the decorated name, where the program's descriptor keeps a dword, and
+/// would take the dword and the name's first bytes for a cached pointer. The host undecorates a
+/// copy of the descriptor in its own layout, and the name it allocates lies under 4 GB (the port is
+/// not large-address-aware), so the program's dword caches it and a descriptor is undecorated once.
+#[cfg(windows)]
+#[repr(C)]
+struct StdTypeInfoData64 {
+    undecorated: *const std::ffi::c_char,
+    decorated: [std::ffi::c_char; 1],
+}
+
+#[cfg(windows)]
+unsafe extern "C" {
+    fn __std_type_info_name(data: *mut StdTypeInfoData64, root: *mut TypeInfoNode64) -> *const std::ffi::c_char;
+}
+
+/// The list of the names the host allocated: an interlocked list's header, sixteen bytes on a
+/// sixteen-byte boundary, which the host's push faults on anywhere else.
+#[cfg(windows)]
+#[repr(C, align(16))]
+struct TypeInfoNode64(std::cell::UnsafeCell<[u64; 2]>);
+
+// The host's interlocked push is the only writer.
+#[cfg(windows)]
+unsafe impl Sync for TypeInfoNode64 {}
+
+#[cfg(windows)]
+static TYPE_INFO_NODE: TypeInfoNode64 = TypeInfoNode64(std::cell::UnsafeCell::new([0; 2]));
+
+#[cfg(windows)]
+pub unsafe fn ra_x86_std_type_info_name(data: u64, _root: u64) -> u64 {
+    let cached = data as usize as *mut u32;
+    if cached.read_unaligned() != 0 {
+        return u64::from(cached.read_unaligned());
+    }
+    let decorated = std::ffi::CStr::from_ptr((data + 4) as usize as *const std::ffi::c_char);
+    let size = decorated.to_bytes_with_nul().len();
+    let copy = malloc(std::mem::size_of::<*const std::ffi::c_char>() + size).cast::<StdTypeInfoData64>();
+    if copy.is_null() {
+        std::process::abort();
+    }
+    (*copy).undecorated = std::ptr::null();
+    std::ptr::copy_nonoverlapping(decorated.as_ptr(), (*copy).decorated.as_mut_ptr(), size);
+    let name = __std_type_info_name(copy, TYPE_INFO_NODE.0.get().cast::<TypeInfoNode64>());
+    cached.write_unaligned(name as usize as u32);
+    u64::from(name as usize as u32)
+}
+
+/// A host without the C++ runtime's undecorator cannot answer `type_info::name()`.
+#[cfg(not(windows))]
+pub unsafe fn ra_x86_std_type_info_name(_data: u64, _root: u64) -> u64 {
+    eh_fatal("type_info::name() needs the host's C++ runtime to undecorate a name")
+}
+
 unsafe extern "C" {
     fn _controlfp(new: u32, mask: u32) -> u32;
     fn _clearfp() -> u32;
@@ -908,6 +1107,12 @@ pub unsafe fn ra_x86_feclearexcept(excepts: u64) -> u64 {
 pub unsafe fn ra_x86_sqrt(x: f64) -> f64 {
     let r = x.sqrt();
     if (x87_cw() >> 8) & 3 == 0 { f64::from(r as f32) } else { r }
+}
+
+/// The x86 C runtime's SSE2 power (`_libm_sse2_pow_precise`, the operands in xmm0 and xmm1),
+/// which the 64-bit runtime does not export.
+pub unsafe fn ra_x86_pow_sse2(x: f64, y: f64) -> f64 {
+    x.powf(y)
 }
 
 static mut ARGV32: Vec<u32> = Vec::new();

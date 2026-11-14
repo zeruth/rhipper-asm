@@ -9,6 +9,9 @@
 //! return address, and returns the result. The data and the function table point at the stub, so
 //! a pointer the program holds reaches it; a direct call still goes to the function. With the
 //! stubs holding the addresses, the functions themselves are free for the width pass to narrow.
+//! A function that takes more than six stack dwords (a virtual method of the C++ library with a
+//! double among its arguments) reads the rest from `ra_args`, where every call through a pointer
+//! of such a program writes the dwords above its six.
 //!
 //! The same stub is the shape of a callback the system enters: user32 calls a window procedure,
 //! kernel32 a thread's start, through the trampoline at the image address with the arguments in
@@ -17,21 +20,45 @@
 //! stub records in `ra_pops` are the callback's own (16 for a window procedure), and a native
 //! caller, which pops nothing, never reads them.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use ra_asm_ir::{BinOp, Callee, Cast, Const, FnType, FunctionBuilder, Inst, Linkage, Module, Operand, Terminator, Type};
 
 use super::Target;
 use super::abi::{Kind, Signature};
-use crate::state::{POPS, import_adapter_type};
+use crate::state::{ARGS, POPS, import_adapter_type};
 
 /// The stub of the function `name`: `U_<address>` for `F_<address>`.
 pub fn stub_name(name: &str) -> String {
     format!("U_{}", name.strip_prefix("F_").unwrap_or(name))
 }
 
+/// The stack dwords the universal call carries as arguments.
+pub const UNIVERSAL_DWORDS: usize = 6;
+
+/// The stack dwords past the universal six that a function a pointer may reach takes, the most
+/// over `roots` (which hold every function whose address the program takes): a virtual method of
+/// the C++ library with a double among six arguments, say. A call through a pointer writes that
+/// many to [`ARGS`], where the stub of such a function reads its own.
+pub fn extra_dwords(signatures: &HashMap<String, Signature>, roots: &BTreeSet<String>, target: Target) -> usize {
+    if target.is_64() {
+        return 0;
+    }
+    let most = roots.iter().filter_map(|r| signatures.get(r)).map(|s| stack_dwords(s, target)).max().unwrap_or(0);
+    most.saturating_sub(UNIVERSAL_DWORDS)
+}
+
+/// The stack dwords a caller of `sig` writes for it. A function that reads its arguments through
+/// their address has no stack parameters to count: what it pops is their size (a `thiscall` method
+/// of the C++ library that takes an iterator by value and a double, say).
+fn stack_dwords(sig: &Signature, target: Target) -> usize {
+    let popped = if sig.variadic { sig.pops as i64 } else { 0 };
+    (sig.stack_bytes(target).max(popped) / 4) as usize
+}
+
 /// Adds a universal stub for every address-taken `F_` function and points the addresses at it.
-pub fn add_universal_stubs(module: &mut Module, signatures: &HashMap<String, Signature>, target: Target) {
+/// `extra` is what [`extra_dwords`] counted, the dwords of [`ARGS`].
+pub fn add_universal_stubs(module: &mut Module, signatures: &HashMap<String, Signature>, target: Target, extra: usize) {
     let taken = address_taken(module);
     let mut renamed: HashMap<String, String> = HashMap::new();
     let mut stubs = Vec::new();
@@ -41,7 +68,7 @@ pub fn add_universal_stubs(module: &mut Module, signatures: &HashMap<String, Sig
         }
         let Some(sig) = signatures.get(&f.name) else { continue };
         let name = stub_name(&f.name);
-        stubs.push(build_stub(&name, f, sig, target));
+        stubs.push(build_stub(&name, f, sig, target, extra));
         renamed.insert(f.name.clone(), name);
     }
     if renamed.is_empty() {
@@ -67,13 +94,24 @@ pub fn add_universal_stubs(module: &mut Module, signatures: &HashMap<String, Sig
     module.functions.extend(stubs);
 }
 
-/// `U_x(u0..u7)`: the universal arguments are six stack dwords, then `ecx`, then `edx`.
-fn build_stub(name: &str, f: &ra_asm_ir::Function, sig: &Signature, target: Target) -> ra_asm_ir::Function {
+/// `U_x(u0..u7)`: the universal arguments are six stack dwords, then `ecx`, then `edx`; the stack
+/// dwords past the six are the caller's in [`ARGS`], `extra` of them.
+fn build_stub(name: &str, f: &ra_asm_ir::Function, sig: &Signature, target: Target, extra: usize) -> ra_asm_ir::Function {
     let mut b = FunctionBuilder::new(name, import_adapter_type(), &["u0", "u1", "u2", "u3", "u4", "u5", "ecx", "edx"]);
     b.set_linkage(Linkage::External);
     let block = b.block("entry");
     let params: Vec<Operand> = (0..8).map(|n| Operand::Local(b.param(n))).collect();
-    let dword = |n: usize| -> Operand { params.get(n).filter(|_| n < 6).cloned().unwrap_or(Operand::Int(0)) };
+    // Read before the function runs: a call through a pointer inside it writes its own.
+    let mut dwords: Vec<Operand> = params[..UNIVERSAL_DWORDS].to_vec();
+    // A function that reads its arguments through their address may read any of them: it takes
+    // every dword the caller wrote.
+    let taken = if sig.variadic { UNIVERSAL_DWORDS + extra } else { stack_dwords(sig, target).min(UNIVERSAL_DWORDS + extra) };
+    for j in UNIVERSAL_DWORDS..taken {
+        let offset = 8 * (j - UNIVERSAL_DWORDS) as i64;
+        let p = b.cast(block, Cast::IntToPtr, Type::I64, Operand::Address { global: ARGS.to_owned(), offset }, Type::Ptr, "args.p");
+        dwords.push(Operand::Local(b.load(block, Type::I64, p, &format!("u{j}"))));
+    }
+    let dword = |n: usize| -> Operand { dwords.get(n).cloned().unwrap_or(Operand::Int(0)) };
     let mut args: Vec<(Type, Operand)> = Vec::new();
     for (p, kind) in sig.params.iter().enumerate() {
         // An integer in ecx or edx comes as the last two universal arguments; a float in a
@@ -99,8 +137,8 @@ fn build_stub(name: &str, f: &ra_asm_ir::Function, sig: &Signature, target: Targ
     // A variadic function reads its arguments through a pointer: the universal dwords go into a
     // block of the stub's own, and the block's address is the argument.
     if sig.variadic {
-        let block_p = b.value(block, Inst::Alloca { ty: Type::array(8, Type::I32), align: 16 }, "varargs");
-        for n in 0..6 {
+        let block_p = b.value(block, Inst::Alloca { ty: Type::array(dwords.len().max(8) as u64, Type::I32), align: 16 }, "varargs");
+        for n in 0..dwords.len() {
             let slot = b.gep(block, Type::I32, block_p, vec![(Type::I64, Operand::Int(n as i128))], "slot");
             let low = b.cast(block, Cast::Trunc, Type::I64, dword(n), Type::I32, "lo");
             b.store(block, Type::I32, low, slot);

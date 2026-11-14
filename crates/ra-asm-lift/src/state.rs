@@ -266,6 +266,11 @@ pub const TLS: &str = "ra_tls";
 /// What the x86 function last called through a pointer popped beyond its return address: its
 /// universal entry point writes it, the caller reads it to find its stack pointer again.
 pub const POPS: &str = "ra_pops";
+/// The stack dwords of an x86 call through a pointer past the six the universal call carries, a
+/// word each: the caller writes them before the call, and the callee's universal entry point reads
+/// the ones its function takes. Defined by the raise, for a program where a function a pointer may
+/// reach takes more than six.
+pub const ARGS: &str = "ra_args";
 /// The binding table of a 32-bit program's imports, for the pops of a native function reached
 /// through a pointer the lift could not resolve: three words per import, the linked symbol's
 /// address, the address of its DLL and name in [`IMPORT_NAMES`] (zero for a function of the host's
@@ -303,6 +308,20 @@ pub fn define_runtime_globals(module: &mut ra_asm_ir::Module, x87: crate::x87::X
     module.globals.push(global(X87_SW, Type::I16, Const::Int(0), 2));
     module.globals.push(global(POPS, Type::I64, Const::Int(0), 8));
     module.globals.push(global(MXCSR, Type::I32, Const::Int(0x1f80), 4));
+}
+
+/// The [`ARGS`] global, with room for `dwords` stack dwords: bytes, eight a dword, the shape of
+/// zeroed storage every backend declares (as [`X87_TMP`] is).
+pub fn args_global(dwords: usize) -> ra_asm_ir::Global {
+    ra_asm_ir::Global {
+        name: ARGS.to_owned(),
+        ty: Type::array(8 * dwords as u64, Type::I8),
+        init: Some(ra_asm_ir::Const::Zero),
+        constant: false,
+        linkage: ra_asm_ir::Linkage::External,
+        align: 16,
+        address: None,
+    }
 }
 
 /// The [`TLS`] descriptor of `image` for `lifted`.
@@ -382,10 +401,10 @@ pub fn import_pops_globals(images: &[&ra_asm_pe::Image], lifted: &crate::Lifted)
     ]
 }
 
-/// Whether `name` is one of the globals of [`define_runtime_globals`], the [`TLS`] descriptor or
-/// the import binding table.
+/// Whether `name` is one of the globals of [`define_runtime_globals`], the [`TLS`] descriptor,
+/// the import binding table or the [`ARGS`] of a call through a pointer.
 pub fn is_runtime_global(name: &str) -> bool {
-    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TLS | POPS | MXCSR | IMPORT_POPS | IMPORT_NAMES)
+    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TLS | POPS | ARGS | MXCSR | IMPORT_POPS | IMPORT_NAMES)
 }
 
 /// The state helpers over one function under construction.

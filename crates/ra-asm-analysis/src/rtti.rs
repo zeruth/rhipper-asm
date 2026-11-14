@@ -19,6 +19,8 @@
 //!   and the vbtable's offset or -1 when no virtual base lies on the way), `attributes`, class
 //!   hierarchy descriptor.
 
+use std::collections::HashSet;
+
 use ra_asm_pe::Image;
 use serde::Serialize;
 
@@ -100,11 +102,12 @@ pub fn identifier(name: &str) -> String {
 /// the order of their type descriptors.
 pub fn classes(image: &Image) -> Vec<Class> {
     let locators = find_locators(image);
+    let locator_addresses: HashSet<u64> = locators.iter().map(|l| l.address).collect();
     let mut classes: Vec<Class> = Vec::new();
     let mut hierarchies: Vec<Vec<Base>> = Vec::new();
     for l in locators {
         let Some(name) = type_name(image, l.type_descriptor) else { continue };
-        let Some(vtable) = find_vtable(image, l.address) else { continue };
+        let Some(vtable) = find_vtable(image, l.address, &locator_addresses) else { continue };
         let base = (l.offset != 0).then(|| base_at_offset(image, l.hierarchy, l.offset)).flatten().filter(|b| *b != name);
         let vtable = Vtable { address: vtable.0, offset: l.offset, base, locator: l.address, functions: vtable.1 };
         if let Some(class) = classes.iter_mut().find(|c| c.type_descriptor == l.type_descriptor) {
@@ -230,12 +233,22 @@ fn field_address(image: &Image, va: u64) -> Option<u64> {
     image.is_mapped(address).then_some(address)
 }
 
+/// Whether the RTTI scan reads `section`: an initialized, readable data section, or the code
+/// section of an image that keeps its read-only data there ([`Image::data_in_code`]: the Windows
+/// system DLLs, whose locators and vtables lie among their code).
+fn holds_data(image: &Image, section: &ra_asm_pe::Section) -> bool {
+    if section.is_uninitialized() || !section.is_readable() {
+        return false;
+    }
+    !(section.is_code() || section.is_executable()) || image.data_in_code()
+}
+
 /// The complete object locators of the image, by their shape.
 fn find_locators(image: &Image) -> Vec<Locator> {
     let mut out = Vec::new();
     let expected_signature = u32::from(image.is_64());
     for section in &image.sections {
-        if section.is_code() || section.is_executable() || section.is_uninitialized() || !section.is_readable() {
+        if !holds_data(image, section) {
             continue;
         }
         let start = image.va(section.virtual_address);
@@ -263,11 +276,13 @@ fn find_locators(image: &Image) -> Vec<Locator> {
     out
 }
 
-/// The vtable whose locator slot holds `locator`: its first slot and its functions.
-fn find_vtable(image: &Image, locator: u64) -> Option<(u64, Vec<u64>)> {
+/// The vtable whose locator slot holds `locator`: its first slot and its functions. The slots run
+/// while they hold code addresses and end at the next vtable's locator slot (one of `locators`):
+/// in an image whose data lies in its code section, a pointer to a locator is a code address too.
+fn find_vtable(image: &Image, locator: u64, locators: &HashSet<u64>) -> Option<(u64, Vec<u64>)> {
     let ptr = u64::from(image.pointer_size());
     for section in &image.sections {
-        if section.is_code() || section.is_executable() || section.is_uninitialized() || !section.is_readable() {
+        if !holds_data(image, section) {
             continue;
         }
         let start = image.va(section.virtual_address);
@@ -285,7 +300,7 @@ fn find_vtable(image: &Image, locator: u64) -> Option<(u64, Vec<u64>)> {
             let mut functions = Vec::new();
             let mut slot = first;
             while let Ok(target) = image.pointer(slot) {
-                if !image.is_code(target) {
+                if !image.is_code(target) || locators.contains(&target) {
                     break;
                 }
                 functions.push(target);

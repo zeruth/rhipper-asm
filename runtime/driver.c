@@ -107,8 +107,58 @@ static const char *trap_name(uint64_t code) {
     }
 }
 
+// The entry hook of a port built with RA_TRACE or RA_TRACE_LAST: each function names itself as it
+// starts, on stderr under RA_TRACE, and in the ring of the last functions entered, which a crash
+// or a trap lists after its report; RA_TRACE_LAST keeps the ring alone, for a port whose whole
+// trace is longer than a failure's output holds. The ring is one for every thread: a race muddles
+// a name in the report, not the port. A port built with RA_TRACE_LAST names every function all
+// the same when the RA_TRACE environment variable is set, so the one build that reported a
+// failure gives its whole trace on a second run.
+#define ENTERED 24
+static const char *entered[ENTERED];
+static unsigned entered_count;
+
+#ifdef RA_TRACE_LAST
+static int whole_trace(void) {
+    static int whole = -1;
+    if (whole < 0) {
+#ifdef _WIN32
+        whole = GetEnvironmentVariableA("RA_TRACE", NULL, 0) != 0;
+#else
+        whole = getenv("RA_TRACE") != NULL;
+#endif
+    }
+    return whole;
+}
+#endif
+
+void ra_enter(const char *name) {
+    entered[entered_count++ % ENTERED] = name;
+#ifdef RA_TRACE_LAST
+    if (!whole_trace()) return;
+#endif
+    fputs("> ", stderr);
+    fputs(name, stderr);
+    fputs("\n", stderr);
+    fflush(stderr);
+}
+
+// The last functions entered, oldest first; nothing in a port built without the hook.
+static void report_entered(void) {
+    if (entered_count == 0) return;
+    fputs("ra: the last functions entered:", stderr);
+    unsigned first = entered_count > ENTERED ? entered_count - ENTERED : 0;
+    for (unsigned i = first; i < entered_count; i++) {
+        fputc(' ', stderr);
+        fputs(entered[i % ENTERED], stderr);
+    }
+    fputs("\n", stderr);
+    fflush(stderr);
+}
+
 _Noreturn void ra_trap(uint64_t address, uint64_t code) {
     fprintf(stderr, "ra: %s at 0x%llx\n", trap_name(code), (unsigned long long)address);
+    report_entered();
     fflush(stderr);
     host_exit(0xE0000001);
 }
@@ -120,14 +170,6 @@ _Noreturn void ra_assume_failed(uint64_t id, const char *function, const char *k
             (unsigned long long)site);
     fflush(stderr);
     host_exit(0xE0000005);
-}
-
-// The entry hook of a port built with RA_TRACE: each function names itself as it starts.
-void ra_enter(const char *name) {
-    fputs("> ", stderr);
-    fputs(name, stderr);
-    fputs("\n", stderr);
-    fflush(stderr);
 }
 
 // The trace of a port emitted with tracing: `> name(args)` at entry, `< name = value:kind` at a
@@ -333,6 +375,7 @@ void ra_trace_leave(const char *name) {
 
 _Noreturn void ra_unsupported(uint64_t address, uint64_t code) {
     fprintf(stderr, "ra: an instruction the lift does not cover at 0x%llx (code %llu)\n", (unsigned long long)address, (unsigned long long)code);
+    report_entered();
     fflush(stderr);
     host_exit(0xE0000002);
 }
@@ -510,6 +553,148 @@ uint64_t ra_x86_operator_new(uint64_t size) {
 uint64_t ra_x86_operator_delete(uint64_t block) {
     free((void *)(uintptr_t)block);
     return 0;
+}
+
+// The run-time type information of a 32-bit program, which the host's `__RTDynamicCast`,
+// `__RTCastToVoid` and `__RTtypeid` would read in the 64-bit layout (image-relative offsets in
+// eight-byte slots): the program's structures hold absolute dwords. The dword before an object's
+// vtable names its complete object locator {signature, offset, cdOffset, type descriptor, class
+// hierarchy descriptor}; the hierarchy's base class array lists the complete class and every base,
+// depth first, each {type descriptor, contained bases, PMD {mdisp, pdisp, vdisp}, attributes}, so
+// the bases a class contains follow it in the array. The two images of a port each carry a
+// descriptor for a type they share, so types compare by their decorated names.
+static uint32_t rtti32_u32(uint64_t at) {
+    return *(uint32_t *)(uintptr_t)at;
+}
+
+static int32_t rtti32_i32(uint64_t at) {
+    return *(int32_t *)(uintptr_t)at;
+}
+
+static int rtti32_same_type(uint32_t a, uint32_t b) {
+    return a == b || strcmp((const char *)(uintptr_t)(a + 8), (const char *)(uintptr_t)(b + 8)) == 0;
+}
+
+static uint32_t rtti32_locator(uint32_t object) {
+    return rtti32_u32(rtti32_u32(object) - 4);
+}
+
+// The offset of a base in the complete object, through the vbtable for a virtual one.
+static int32_t rtti32_base_offset(uint32_t complete, uint32_t pmd) {
+    int32_t offset = 0, pdisp = rtti32_i32(pmd + 4);
+    if (pdisp >= 0) offset = pdisp + rtti32_i32(rtti32_u32(complete + (uint32_t)pdisp) + rtti32_i32(pmd + 8));
+    return offset + rtti32_i32(pmd);
+}
+
+// The complete object `object` is a subobject of.
+static uint32_t rtti32_complete(uint32_t object) {
+    uint32_t locator = rtti32_locator(object);
+    uint32_t complete = object - rtti32_u32(locator + 4);
+    uint32_t cd_offset = rtti32_u32(locator + 8);
+    if (cd_offset) complete -= rtti32_u32(object - cd_offset);
+    return complete;
+}
+
+// `dynamic_cast`: the target instance that contains the source instance (a downcast), unless two
+// at different offsets do; else a cross cast to a target the complete object holds once and
+// publicly, from a public source. A failed cast of a reference would throw `bad_cast`, which no
+// handler of the port can take: it ends the program.
+uint64_t ra_x86_rt_dynamic_cast(uint64_t object, uint64_t vf_delta, uint64_t source, uint64_t target, uint64_t is_reference) {
+    if (!object) return 0;
+    uint32_t complete = rtti32_complete((uint32_t)object);
+    int32_t source_offset = (int32_t)((uint32_t)object - (uint32_t)vf_delta - complete);
+    uint32_t hierarchy = rtti32_u32(rtti32_locator((uint32_t)object) + 16);
+    uint32_t bases = rtti32_u32(hierarchy + 8), array = rtti32_u32(hierarchy + 12);
+    uint32_t found = 0, cross = 0, source_base = 0;
+    int32_t found_offset = 0;
+    int ambiguous = 0;
+    for (uint32_t i = 0; i < bases && !ambiguous; i++) {
+        uint32_t base = rtti32_u32(array + 4 * i);
+        int is_source = rtti32_same_type(rtti32_u32(base), (uint32_t)source) && rtti32_base_offset(complete, base + 8) == source_offset;
+        if (is_source && !source_base) source_base = base;
+        if (!rtti32_same_type(rtti32_u32(base), (uint32_t)target)) continue;
+        if (!cross) cross = base;
+        uint32_t contained = rtti32_u32(base + 4);
+        for (uint32_t j = 1; j <= contained && i + j < bases; j++) {
+            uint32_t inner = rtti32_u32(array + 4 * (i + j));
+            if (!rtti32_same_type(rtti32_u32(inner), (uint32_t)source) || rtti32_base_offset(complete, inner + 8) != source_offset) continue;
+            // BCD_NOTVISIBLE: the source is a private base of this target.
+            if (rtti32_u32(inner + 20) & 1) continue;
+            int32_t offset = rtti32_base_offset(complete, base + 8);
+            if (found && offset != found_offset) ambiguous = 1;
+            found = base;
+            found_offset = offset;
+        }
+    }
+    uint32_t result = 0;
+    if (ambiguous) {
+        result = 0;
+    } else if (found) {
+        result = complete + (uint32_t)found_offset;
+    } else if (cross && !(rtti32_u32(cross + 20) & 3) && source_base && !(rtti32_u32(source_base + 20) & 4)) {
+        // BCD_NOTVISIBLE | BCD_AMBIGUOUS on the target, BCD_PRIVORPROTINCOMPOBJ on the source.
+        result = complete + (uint32_t)rtti32_base_offset(complete, cross + 8);
+    }
+    if (!result && is_reference) {
+        fprintf(stderr, "ra: a dynamic_cast of a reference failed\n");
+        fflush(stderr);
+        host_exit(0xE0000006);
+    }
+    return result;
+}
+
+uint64_t ra_x86_rt_cast_to_void(uint64_t object) {
+    return object ? rtti32_complete((uint32_t)object) : 0;
+}
+
+// `typeid` of an object: its complete object's type descriptor, which is the program's own.
+uint64_t ra_x86_rt_typeid(uint64_t object) {
+    if (!object) {
+        fprintf(stderr, "ra: typeid of a null pointer\n");
+        fflush(stderr);
+        host_exit(0xE0000006);
+    }
+    return rtti32_u32(rtti32_locator((uint32_t)object) + 12);
+}
+
+// `type_info::name()`: the host's `__std_type_info_name` reads the cached undecorated name in an
+// eight-byte slot before the decorated name, where the program's descriptor keeps a dword, and
+// would take the dword and the name's first bytes for a cached pointer. The host undecorates a copy
+// of the descriptor in its own layout, and the name it allocates lies under 4 GB (the port is not
+// large-address-aware), so the program's dword caches it and a descriptor is undecorated once.
+#ifdef _WIN32
+struct ra_std_type_info_data64 {
+    const char *undecorated;
+    char decorated[1];
+};
+// The list of the names the host allocated: an interlocked list's header, sixteen bytes on a
+// sixteen-byte boundary, which the host's push faults on anywhere else.
+struct ra_type_info_node64 {
+    SLIST_HEADER header;
+};
+const char *__cdecl __std_type_info_name(struct ra_std_type_info_data64 *data, struct ra_type_info_node64 *root);
+#endif
+
+uint64_t ra_x86_std_type_info_name(uint64_t data, uint64_t root) {
+    (void)root;
+    uint32_t *cached = (uint32_t *)(uintptr_t)data;
+    if (*cached) return *cached;
+#ifdef _WIN32
+    const char *decorated = (const char *)(uintptr_t)(data + 4);
+    size_t size = strlen(decorated) + 1;
+    struct ra_std_type_info_data64 *copy = malloc(sizeof(const char *) + size);
+    if (!copy) abort();
+    copy->undecorated = NULL;
+    memcpy(copy->decorated, decorated, size);
+    static struct ra_type_info_node64 node;
+    *cached = (uint32_t)(uintptr_t)__std_type_info_name(copy, &node);
+    return *cached;
+#else
+    fprintf(stderr, "ra: type_info::name() needs the host's C++ runtime to undecorate a name\n");
+    fflush(stderr);
+    host_exit(0xE0000006);
+    return 0;
+#endif
 }
 
 // The structures a window program hands user32 are laid out at the program's pointer width:
@@ -774,6 +959,10 @@ double ra_x86_sqrt(double x) {
     double r = sqrt(x);
     return ((ra_x87_cw >> 8) & 3) == 0 ? (double)(float)r : r;
 }
+
+// The x86 C runtime's SSE2 power (`_libm_sse2_pow_precise`, the operands in xmm0 and xmm1), which
+// the 64-bit runtime does not export: its `pow` is the same precise algorithm.
+double ra_x86_pow_sse2(double x, double y) { return pow(x, y); }
 
 // setjmp and longjmp: the program's jmp_buf is a key, and the host's buffer lives in a table slot
 // found by it. setjmp itself runs in the lifted function, through the macro in rhipper.h, so the
@@ -1345,6 +1534,21 @@ uint64_t ra_x86_vsscanf(uint64_t options, uint64_t buffer, uint64_t count, uint6
     widen_scanf_args((const char *)(uintptr_t)format, (const uint32_t *)(uintptr_t)args, slots, 64);
     return (uint64_t)(int64_t)__stdio_common_vsscanf(options, (const char *)(uintptr_t)buffer, (size_t)count, (const char *)(uintptr_t)format,
                                                      (_locale_t)(uintptr_t)locale, (va_list)slots);
+}
+
+// The addresses of a FILE's buffer fields, which the C++ runtime's filebuf reads the stream
+// through: the host writes three pointers of eight bytes where the program's locals are dwords, so
+// they go to locals here and their low halves to the program's. The fields themselves are the
+// host's, below 4 GB like the rest of the port, and the program reads them as dwords.
+uint64_t ra_x86_get_stream_buffer_pointers(uint64_t stream, uint64_t base, uint64_t pointer, uint64_t count) {
+    char **b = NULL;
+    char **p = NULL;
+    int *c = NULL;
+    errno_t r = _get_stream_buffer_pointers((FILE *)(uintptr_t)stream, &b, &p, &c);
+    if (base) *(uint32_t *)(uintptr_t)base = (uint32_t)(uintptr_t)b;
+    if (pointer) *(uint32_t *)(uintptr_t)pointer = (uint32_t)(uintptr_t)p;
+    if (count) *(uint32_t *)(uintptr_t)count = (uint32_t)(uintptr_t)c;
+    return (uint64_t)(int64_t)r;
 }
 #endif
 
@@ -1935,6 +2139,7 @@ static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
         fprintf(stderr, ", %s 0x%llx", r->ExceptionInformation[0] == 1 ? "writing" : "reading", (unsigned long long)r->ExceptionInformation[1]);
     }
     fprintf(stderr, "\n");
+    report_entered();
     fflush(stderr);
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -1944,6 +2149,7 @@ static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
 static void on_signal(int signal_number, siginfo_t *info, void *context) {
     (void)context;
     fprintf(stderr, "ra: signal %d at 0x%llx\n", signal_number, (unsigned long long)(uintptr_t)info->si_addr);
+    report_entered();
     fflush(stderr);
 }
 

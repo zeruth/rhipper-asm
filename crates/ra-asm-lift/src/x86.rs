@@ -42,7 +42,14 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
     }
     let state = b.param(0);
     let bits = if image.is_64() { 64 } else { 32 };
-    let frame = if lifted.eh { eh::Frame::of(image, analysis, f) } else { eh::Frame::none() };
+    let mut frame = if lifted.eh { eh::Frame::of(image, analysis, f) } else { eh::Frame::none() };
+    // A funclet the function calls itself (MSVC's `__finally`, on the normal way out of its
+    // `__try`) runs as a copy at each call, as the handler's funclets do at the landings.
+    for &target in &f.local_calls {
+        if f.block_at(target).is_some() {
+            frame.funclets.insert(target, (local_funclet(f, target), 0));
+        }
+    }
     let in_funclet = |start: u64| frame.funclets.values().any(|(blocks, _)| blocks.iter().any(|b| b.start == start));
     let mut blocks = HashMap::new();
     blocks.insert(f.entry, b.block(&format!("b_{:x}", f.entry)));
@@ -1383,6 +1390,20 @@ impl Lifter<'_, '_> {
                 match i.op_kind(0) {
                     OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64 => {
                         let target = i.near_branch_target();
+                        if self.frame.funclets.contains_key(&target) {
+                            // A funclet of this function's own frame: a copy runs here, and its
+                            // `ret` pops the return address and comes back to the block after.
+                            self.m.push(block, ret);
+                            let exit = self.m.b.block(&format!("local.ret.{ip:x}"));
+                            if let Some(entry) = self.copy_funclet(target, eh::FuncletKind::Cleanup { exit }) {
+                                self.m.b.terminate(block, Terminator::Br(entry));
+                            } else {
+                                self.warn(format!("{ip:#x}: a call to {target:#x}, a funclet with no block there"));
+                                self.m.b.terminate(block, Terminator::Br(exit));
+                                self.m.trap(exit, ip, trap::INVALID);
+                            }
+                            return exit;
+                        }
                         if let Some(align) = self.stack_probe(target) {
                             // The probe is the caller's `esp -= eax`, rounded down to the
                             // alignment its front end asks; eax is the probe's to clobber.
@@ -3056,6 +3077,31 @@ impl Lifter<'_, '_> {
 
     // endregion
     // endregion
+}
+
+/// The blocks of the funclet a local call at `target` enters: the code outside the function's
+/// flow from its entry that `target` reaches, and what reaches `target` there (the entry the
+/// handler takes, which loads what the funclet reads before falling into it).
+fn local_funclet(f: &Function, target: u64) -> Vec<Block> {
+    let closure = |from: u64| {
+        let mut seen = std::collections::HashSet::new();
+        let mut work = vec![from];
+        while let Some(start) = work.pop() {
+            if seen.insert(start)
+                && let Some(block) = f.block_at(start)
+            {
+                work.extend(block.successors());
+            }
+        }
+        seen
+    };
+    let reached = closure(f.entry);
+    let body = closure(target);
+    f.blocks
+        .iter()
+        .filter(|b| !reached.contains(&b.start) && (body.contains(&b.start) || closure(b.start).contains(&target)))
+        .cloned()
+        .collect()
 }
 
 /// Whether a two-operand instruction names the same register twice.

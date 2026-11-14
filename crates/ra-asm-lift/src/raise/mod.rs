@@ -359,6 +359,11 @@ pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) ->
     {
         let cx = Context::new(roots, &options, &signatures);
         if abi_level {
+            // The universal call of x86 carries six stack dwords: where a function a pointer may
+            // reach takes more, the calls through a pointer hand the rest on in a global.
+            if cx.extra_dwords > 0 && !module.globals.iter().any(|g| g.name == crate::state::ARGS) {
+                module.globals.push(crate::state::args_global(cx.extra_dwords));
+            }
             // The frozen functions come back as the raise reaches them, ahead of the module's own.
             let frozen = std::mem::take(&mut module.frozen);
             let globals = &module.globals;
