@@ -1,21 +1,810 @@
-# The record of the committed fixtures: how each binary was made and what its expected output
-# rests on. `cargo test -p ra-asm-testing --test manifest` hashes every listed file and fails on
-# a wrong hash, a missing file or a missing expected output.
+# The record of the committed fixtures: how each binary, vector file and expected output was made
+# and what it rests on. `cargo test -p ra-asm-testing --test manifest` hashes the tree and fails
+# on a file that is not listed here, a wrong hash, a missing file or a missing expected output.
 #
-# Each [[file]] is one binary. `path`, `sha256` and `evidence` are required; `evidence` is
-#   native    the program ran on this machine,
+# Listed is everything under testdata/bin and testdata/expected, everything under testdata/rhtest
+# but its sources and its build script, and the .vec and .cases files under testdata/vectors.
+# Sources, scripts, templates and PENDING.txt lists are text a review reads, and are not listed.
+#
+# Each [[file]] is one file. `path`, `sha256` and `evidence` are required; `evidence` is
+#   native    the program ran on this machine (a vector file: its processor executed the cases),
 #   emulator  it ran in an emulator of its machine (the one `tools` names),
-#   source    nothing ran it: the output is derived from the source and the platform's documentation.
-# `expected` is the output it is compared with, `source` what it was built from, `command` what
-# made it and `tools` the versions the command ran with. Paths are relative to the workspace root.
+#   source    nothing ran it: an output is derived from the source and the platform's
+#             documentation, a binary is only read, lifted and interpreted, a case file is assembled.
+# `expected` is the output a program is compared with, `source` what the file was made from,
+# `command` what made it and `tools` the versions the command ran with. Paths are relative to the
+# workspace root. `sha256` is of the bytes git stores: a text file checked out with CRLF is
+# hashed with its line endings as LF. The test prints the hash of a file it finds wrong or
+# unlisted, so an entry is written by hand from its failure.
 #
-# Only the fixtures of the foreign machines are listed so far; the Windows fixtures of build.ps1
-# and the rhtest programs join as their own entries.
+# The versions are those on the machine when the manifest was written (2026-11-14). /Brepro makes
+# a rebuild byte-identical for the same LLVM: hello64.exe was rebuilt with clang 22.1.7 and
+# matched; the other clang fixtures are recorded with the same toolchain without a rebuild. Where
+# no script holds the command and it was not kept, `command` says so rather than guess.
 #
 # A `source` entry's expected output is replaced by an emulator's once one is on the machine: for
 # the PlayStation fixtures a run under an emulator with TTY logging (DuckStation's or PCSX-Redux's
 # console output is the BIOS's printf), the entry's `evidence` turning `emulator` and `tools`
 # naming the emulator and its version.
+
+# testdata/bin: the Windows fixtures of build.ps1, each binary with the map the linker wrote.
+
+[[file]]
+path = "testdata/bin/classes32.exe"
+sha256 = "571a67fdf011c6c9cb7de9866891285b6bb93b7d493a5fd2ee8958eb2209c2e8"
+evidence = "native"
+expected = "testdata/expected/classes.txt"
+source = "testdata/src/classes.cpp"
+command = "testdata/build.ps1 classes"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/classes32.map"
+sha256 = "1bd0f21b78f79a7eee0721a2ab82e68f1d864ac5c32c188c43c677d9f3b71fb6"
+evidence = "native"
+source = "testdata/src/classes.cpp"
+command = "testdata/build.ps1 classes"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/classes64.exe"
+sha256 = "140eeafff3e6be0d34c66497d9643be7f75342907647ab3232a9ce0cf349434a"
+evidence = "native"
+expected = "testdata/expected/classes.txt"
+source = "testdata/src/classes.cpp"
+command = "testdata/build.ps1 classes"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/classes64.map"
+sha256 = "a704effb9d093455ce06360f6b269f53c1f07420cefbe1b0a662ec084ba2bdce"
+evidence = "native"
+source = "testdata/src/classes.cpp"
+command = "testdata/build.ps1 classes"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/computed32.exe"
+sha256 = "685c71370bbb8c49d68a0885f8faee83d4bba69340cba9aa7ca16807bf6297f9"
+evidence = "native"
+expected = "testdata/expected/computed.txt"
+source = "testdata/src/computed.c"
+command = "testdata/build.ps1 computed"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/computed32.map"
+sha256 = "c0139823dd4086aad8a4cf7c0762963040c2c20b178026efa140d910628ac57e"
+evidence = "native"
+source = "testdata/src/computed.c"
+command = "testdata/build.ps1 computed"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/computed64.exe"
+sha256 = "9de4427196384ac5e301dd13d675ea634c319e7c81d55de9159ecd7e250f01ca"
+evidence = "native"
+expected = "testdata/expected/computed.txt"
+source = "testdata/src/computed.c"
+command = "testdata/build.ps1 computed"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/computed64.map"
+sha256 = "3438d74c4f3e53cf3842e69d784d7e23700d63378d96fe384ddc3a4a9a5ea6ad"
+evidence = "native"
+source = "testdata/src/computed.c"
+command = "testdata/build.ps1 computed"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/control32.exe"
+sha256 = "1fb7fdc3b0bfe53cb8ebb1bb78c102e0572cc329605094236a90365811d3052c"
+evidence = "native"
+expected = "testdata/expected/control.txt"
+source = "testdata/src/control.c"
+command = "testdata/build.ps1 control"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/control32.map"
+sha256 = "13a4ff89517861821b40799a5ac5e6c749d10511b93ae27f8471269b0e4ab080"
+evidence = "native"
+source = "testdata/src/control.c"
+command = "testdata/build.ps1 control"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/control64.exe"
+sha256 = "69273bc45bfc81d9cf02a0a9f1feb2203924f77227d82904b148685c645c0525"
+evidence = "native"
+expected = "testdata/expected/control.txt"
+source = "testdata/src/control.c"
+command = "testdata/build.ps1 control"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/control64.map"
+sha256 = "d7314007c165e47569b30a8d47838af1bd48de5050dbaffd8fec946c64ffd7b4"
+evidence = "native"
+source = "testdata/src/control.c"
+command = "testdata/build.ps1 control"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+# control64-O1 is the reference binary of the pipeline's round-trip test. build.ps1 does not
+# build it.
+[[file]]
+path = "testdata/bin/control64-O1.exe"
+sha256 = "5e265430131455f94d9dbb0df2122bb1a26b030f54f2a5f2549492e222943317"
+evidence = "native"
+expected = "testdata/expected/control.txt"
+source = "testdata/src/control.c"
+command = "not kept: no script builds it; by its name, the clang line of build.ps1 for control64 at -O1"
+tools = "clang and LLD, the version not kept"
+
+[[file]]
+path = "testdata/bin/control64-O1.map"
+sha256 = "e943772930f67cfca53ae981ed723f71c16f4322c1500d5cb207c8db339efc28"
+evidence = "native"
+source = "testdata/src/control.c"
+command = "not kept: no script builds it; by its name, the clang line of build.ps1 for control64 at -O1"
+tools = "clang and LLD, the version not kept"
+
+[[file]]
+path = "testdata/bin/crt64.exe"
+sha256 = "a2f13aa0171fa942006c7eaf460730575b6b8b47e396377c47d2e9551e2a96fa"
+evidence = "native"
+expected = "testdata/expected/crt.txt"
+source = "testdata/src/crt.c"
+command = "testdata/build.ps1 crt"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the static MSVC C runtime of this machine (x64)"
+
+[[file]]
+path = "testdata/bin/crt64.map"
+sha256 = "10e00e1fcc076f2126823dc95204113b6e54863787fb8a01792ac4d0a7b2d5e0"
+evidence = "native"
+source = "testdata/src/crt.c"
+command = "testdata/build.ps1 crt"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the static MSVC C runtime of this machine (x64)"
+
+[[file]]
+path = "testdata/bin/crt64.pdb"
+sha256 = "a6796ed96694dd2bc817ef52b8d7752893d466181e64bbc1801a7b881560b96e"
+evidence = "native"
+source = "testdata/src/crt.c"
+command = "testdata/build.ps1 crt"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the static MSVC C runtime of this machine (x64)"
+
+[[file]]
+path = "testdata/bin/dispatch32.exe"
+sha256 = "af16ecfca0cf38f604fccdad7671797ace399bfebeb05c37ff15c6a088a3bdc4"
+evidence = "native"
+expected = "testdata/expected/dispatch.txt"
+source = "testdata/src/dispatch.c"
+command = "testdata/build.ps1 dispatch"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/dispatch32.map"
+sha256 = "ad57ed8401c544e9b51aee354bc619a3b59025a65d3374f7546eb32089f0b5f2"
+evidence = "native"
+source = "testdata/src/dispatch.c"
+command = "testdata/build.ps1 dispatch"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/dispatch64.exe"
+sha256 = "749f9df800554a697b6b4a5dc9a98e6e14413d4247e3c99fc5e1b726c7009f6c"
+evidence = "native"
+expected = "testdata/expected/dispatch.txt"
+source = "testdata/src/dispatch.c"
+command = "testdata/build.ps1 dispatch"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/dispatch64.map"
+sha256 = "67396a7650f9682405dac3bdbf3f3a4fd2214948a2b7a071a76a086316b850a0"
+evidence = "native"
+source = "testdata/src/dispatch.c"
+command = "testdata/build.ps1 dispatch"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/exports32.dll"
+sha256 = "154721bc8ab8d39923fd7ac50751e57ff92fa18920dccc4cac64b1b77f979e76"
+evidence = "native"
+expected = "testdata/expected/exports.txt"
+source = "testdata/src/exports.c"
+command = "testdata/build.ps1 exports"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/exports32.map"
+sha256 = "502417b4124752741c761c5c7480df8b31c7cac1c5645a8c9235d12b20666f1b"
+evidence = "native"
+source = "testdata/src/exports.c"
+command = "testdata/build.ps1 exports"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/exports64.dll"
+sha256 = "f68df1ddce36ee5a8786bbb8479054e138d618b602d5c741a6d0f10036437a9b"
+evidence = "native"
+expected = "testdata/expected/exports.txt"
+source = "testdata/src/exports.c"
+command = "testdata/build.ps1 exports"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/exports64.map"
+sha256 = "5ab6dd15c1b76a2e6711265a0ec59135ac8d2f3bb4e615ecaf493ec1bddbb8d5"
+evidence = "native"
+source = "testdata/src/exports.c"
+command = "testdata/build.ps1 exports"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/exports_host32.exe"
+sha256 = "5f0cba5cd986a05e380a550ce1f9724ce5db6e932fd43811d2d88b5d479b46e9"
+evidence = "native"
+expected = "testdata/expected/exports.txt"
+source = "testdata/src/exports_host.c"
+command = "testdata/build.ps1 exports_host"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/exports_host32.map"
+sha256 = "e0fcd63a91c16f62aa0703402c33b887bfb4ab5c4b3edd617acbcda94a656ea2"
+evidence = "native"
+source = "testdata/src/exports_host.c"
+command = "testdata/build.ps1 exports_host"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/exports_host64.exe"
+sha256 = "a99da39e92d0a8ef131fd756bcf058bd3ef55d111101d64cb212ab4e2334783c"
+evidence = "native"
+expected = "testdata/expected/exports.txt"
+source = "testdata/src/exports_host.c"
+command = "testdata/build.ps1 exports_host"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/exports_host64.map"
+sha256 = "3439e769147a43b37259244ff0b1f18bc78c15c5ca36e39c01e9c6fc75518a6e"
+evidence = "native"
+source = "testdata/src/exports_host.c"
+command = "testdata/build.ps1 exports_host"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/extended32.exe"
+sha256 = "682e347856f462cf9be88f3ef40c5b26a7ae7f622b43d1d80f2d7ff2e2625c48"
+evidence = "native"
+expected = "testdata/expected/extended.txt"
+source = "testdata/src/extended.c"
+command = "testdata/build.ps1 extended"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/extended32.map"
+sha256 = "78c15b876df0e483f489db2373251888be681d8d841c9ed3553d92a058bbfe3c"
+evidence = "native"
+source = "testdata/src/extended.c"
+command = "testdata/build.ps1 extended"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/files32.exe"
+sha256 = "15923297ea39f0309145f542cc01f1ac729cdd0ac230069336e3436e54f61aa7"
+evidence = "native"
+expected = "testdata/expected/files.txt"
+source = "testdata/src/files.c"
+command = "testdata/build.ps1 files"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/files32.map"
+sha256 = "6644b30894844d4ebef5640367bd452c9acbd1ad0db2b4851d7bebb7aaa17cc0"
+evidence = "native"
+source = "testdata/src/files.c"
+command = "testdata/build.ps1 files"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/files64.exe"
+sha256 = "5949c9d2e3cac3d1346109325842eab83b0c9c11b7d6d034a01a1bb5510522ba"
+evidence = "native"
+expected = "testdata/expected/files.txt"
+source = "testdata/src/files.c"
+command = "testdata/build.ps1 files"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/files64.map"
+sha256 = "3db0d57ef0446a7730e019b42223357740825e07af4488154df85a98e5a1aa12"
+evidence = "native"
+source = "testdata/src/files.c"
+command = "testdata/build.ps1 files"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/float32.exe"
+sha256 = "f15a6f1c1b4f6676a688738e160bfb3534d85ab7e73badfe4d550ff20ea42b6b"
+evidence = "native"
+expected = "testdata/expected/float.txt"
+source = "testdata/src/float.c"
+command = "testdata/build.ps1 float"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/float32.map"
+sha256 = "698d5375666e793e3c025b1c64bf7f413fd6506ed9a3a7babc00856b06f2c012"
+evidence = "native"
+source = "testdata/src/float.c"
+command = "testdata/build.ps1 float"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/float64.exe"
+sha256 = "f9cf428a413f7e6b877a9c6f6eefc772a3d6d247040d67a053d2a39f6ed28f7c"
+evidence = "native"
+expected = "testdata/expected/float.txt"
+source = "testdata/src/float.c"
+command = "testdata/build.ps1 float"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/float64.map"
+sha256 = "a2632bffb524b6d2d979e696305980a2361a6920ed0c2c3804ff0e398a4e341a"
+evidence = "native"
+source = "testdata/src/float.c"
+command = "testdata/build.ps1 float"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+# floata64 is the ARM64 build of float: no ARM64 machine is here, it runs lifted through the IR
+# interpreter against the x64 build's output. build.ps1 builds float for 64 and 32 only.
+[[file]]
+path = "testdata/bin/floata64.exe"
+sha256 = "1722347138cce43b6285af115c81629620e2de3fda62a7b762145fc39eeaffca"
+evidence = "source"
+expected = "testdata/expected/float.txt"
+source = "testdata/src/float.c"
+command = "not kept: build.ps1 does not ask for it; by its name, Build-Exe of build.ps1 for float with the a64 target"
+tools = "clang and LLD, the version not kept"
+
+[[file]]
+path = "testdata/bin/floata64.map"
+sha256 = "d10ffeaf67ba15ac74ba3c750d8b9b77132518a123513fd65d7a9f5020add188"
+evidence = "source"
+source = "testdata/src/float.c"
+command = "not kept: build.ps1 does not ask for it; by its name, Build-Exe of build.ps1 for float with the a64 target"
+tools = "clang and LLD, the version not kept"
+
+[[file]]
+path = "testdata/bin/hello32.exe"
+sha256 = "6a2603e63a4a9484e3a651943293afc5a663adcfe92999967ed59ff984f56c03"
+evidence = "native"
+expected = "testdata/expected/hello.txt"
+source = "testdata/src/hello.c"
+command = "testdata/build.ps1 hello"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/hello32.map"
+sha256 = "e4429c41fb663723d494c8e371c1b91ddef0ae83d568bf10cbb45c54081092e4"
+evidence = "native"
+source = "testdata/src/hello.c"
+command = "testdata/build.ps1 hello"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/hello64.exe"
+sha256 = "08a2bc5a2f42f5379d712de18fd91162f1d3a814a389fd3321fda3c400e9ad1b"
+evidence = "native"
+expected = "testdata/expected/hello.txt"
+source = "testdata/src/hello.c"
+command = "testdata/build.ps1 hello"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/hello64.map"
+sha256 = "3cb032720c7d6d9733feab97498e1ad38a55bf2e05ef98ce455d8d108cd2d36a"
+evidence = "native"
+source = "testdata/src/hello.c"
+command = "testdata/build.ps1 hello"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+# helloa64 is the ARM64 build of hello: it runs lifted through the IR interpreter only.
+[[file]]
+path = "testdata/bin/helloa64.exe"
+sha256 = "70d7d8fd3e8d9e6fbf1ef934e7fdaa6613c7b21ae79a16ba6b80046e3c14b43f"
+evidence = "source"
+expected = "testdata/expected/hello.txt"
+source = "testdata/src/hello.c"
+command = "testdata/build.ps1 hello"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/helloa64.map"
+sha256 = "65cce6b62dbd350944187e05913351155973d8716cd62368ebe14dbba6d35dcb"
+evidence = "source"
+source = "testdata/src/hello.c"
+command = "testdata/build.ps1 hello"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/inline32.exe"
+sha256 = "9e5b91a1945c1bed76c159458681616fb6216d5ddb4c7a2b671c352e147f312b"
+evidence = "native"
+expected = "testdata/expected/inline.txt"
+source = "testdata/src/inline.c"
+command = "testdata/build.ps1 inline"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/inline32.map"
+sha256 = "02cb70990e491fe5d2e117c105d19558067ffb829014ae81fd5d897b7a27ae4b"
+evidence = "native"
+source = "testdata/src/inline.c"
+command = "testdata/build.ps1 inline"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/inline64.exe"
+sha256 = "2b2db57f24411da59ca11e6dc1ea9cb36637147be419d9bb403e345ddf81febe"
+evidence = "native"
+expected = "testdata/expected/inline.txt"
+source = "testdata/src/inline.c"
+command = "testdata/build.ps1 inline"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/inline64.map"
+sha256 = "e434bf8c0502c694ae2d0a79ef5ba5645f0d8905597e1088e1536b1dcba78cb9"
+evidence = "native"
+source = "testdata/src/inline.c"
+command = "testdata/build.ps1 inline"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/linked32.exe"
+sha256 = "faf54f0d33fc4d1601edc0865728ab3e36b085e172fa12b79221bad835b1d8a5"
+evidence = "native"
+expected = "testdata/expected/linked.txt"
+source = "testdata/src/linked.c"
+command = "testdata/build.ps1 linked"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/linked32.map"
+sha256 = "06bd8bc5e591e3f928b74e0f35daa7ee861632130688bb24f022a09b9f4d3429"
+evidence = "native"
+source = "testdata/src/linked.c"
+command = "testdata/build.ps1 linked"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/linked64.exe"
+sha256 = "97e6b9868fd91e1615481b90f9f2cae5a8eecc57fa7667d38e808c8dee8db639"
+evidence = "native"
+expected = "testdata/expected/linked.txt"
+source = "testdata/src/linked.c"
+command = "testdata/build.ps1 linked"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/linked64.map"
+sha256 = "adf4beff4b661c4036499294f9a2a96e92f44c559dd6468dbafd84408d34570b"
+evidence = "native"
+source = "testdata/src/linked.c"
+command = "testdata/build.ps1 linked"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/obfusc32.exe"
+sha256 = "6f30ca67744e070fdb785b2a8898db5993368688cfa2929bb1016709e9574ac3"
+evidence = "native"
+expected = "testdata/expected/obfusc.txt"
+source = "testdata/src/obfusc.c"
+command = "testdata/build.ps1 obfusc"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/obfusc32.map"
+sha256 = "96da6797eb4cf965b5215176b11de3a15e065d4693dde37b28137bad3261dd27"
+evidence = "native"
+source = "testdata/src/obfusc.c"
+command = "testdata/build.ps1 obfusc"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/obfusc64.exe"
+sha256 = "68f3f312ccca4f1de8a7b418017a891f94c266f22992e0c50d271199b8fc8b63"
+evidence = "native"
+expected = "testdata/expected/obfusc.txt"
+source = "testdata/src/obfusc.c"
+command = "testdata/build.ps1 obfusc"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/obfusc64.map"
+sha256 = "3bb915af1cddfc7fcc1c74c1277ed720da3057c46dc177529fb69bf4fc6392a9"
+evidence = "native"
+source = "testdata/src/obfusc.c"
+command = "testdata/build.ps1 obfusc"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/resources32.exe"
+sha256 = "1cbb920f3d250d1b3c2eb97bd9db8ac9862f77c224912d340ad0179fadaedf28"
+evidence = "native"
+expected = "testdata/expected/resources.txt"
+source = "testdata/src/resources.c"
+command = "testdata/build.ps1 resources"
+tools = "clang 22.1.7, LLD 22.1.7, llvm-rc 22.1.7"
+
+[[file]]
+path = "testdata/bin/resources32.map"
+sha256 = "6ef0fe74275e8c058c7bf375652312ba086454ecd87c6d1b7296af60ec5a3486"
+evidence = "native"
+source = "testdata/src/resources.c"
+command = "testdata/build.ps1 resources"
+tools = "clang 22.1.7, LLD 22.1.7, llvm-rc 22.1.7"
+
+[[file]]
+path = "testdata/bin/resources64.exe"
+sha256 = "c2e06b26e98f5928b08c4ca01d5069edb06dbff1b05c2ae9b05482c9056430ac"
+evidence = "native"
+expected = "testdata/expected/resources.txt"
+source = "testdata/src/resources.c"
+command = "testdata/build.ps1 resources"
+tools = "clang 22.1.7, LLD 22.1.7, llvm-rc 22.1.7"
+
+[[file]]
+path = "testdata/bin/resources64.map"
+sha256 = "6b590c2bbf77bdaa24e72c145139de63b88a2ba007a7fa168c24bf57b5299760"
+evidence = "native"
+source = "testdata/src/resources.c"
+command = "testdata/build.ps1 resources"
+tools = "clang 22.1.7, LLD 22.1.7, llvm-rc 22.1.7"
+
+[[file]]
+path = "testdata/bin/structs32.exe"
+sha256 = "120084b1971e8007fc402aa7cbefa8068720225ca53aba9ebbbdde729b7d58da"
+evidence = "native"
+expected = "testdata/expected/structs.txt"
+source = "testdata/src/structs.c"
+command = "testdata/build.ps1 structs"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/structs32.map"
+sha256 = "53222eb2b7d9d2a85b3010049f00d6fec6a3c6a3450d2f3fa3747a25d7f55009"
+evidence = "native"
+source = "testdata/src/structs.c"
+command = "testdata/build.ps1 structs"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/structs64.exe"
+sha256 = "ad34ba4e5871198c3f517bbb0989bbeeb49850449db478ed19a3c5b5e066fd2d"
+evidence = "native"
+expected = "testdata/expected/structs.txt"
+source = "testdata/src/structs.c"
+command = "testdata/build.ps1 structs"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/structs64.map"
+sha256 = "65e47df520e68903583dc8a2419a8621235c00951407fde4973f7d035571e75a"
+evidence = "native"
+source = "testdata/src/structs.c"
+command = "testdata/build.ps1 structs"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/throws64.exe"
+sha256 = "7b4f98339c0194dd15386baaad88a51f79b64ca5b1499b207a610dbfcc2357a4"
+evidence = "native"
+expected = "testdata/expected/throws.txt"
+source = "testdata/src/throws.cpp"
+command = "testdata/build.ps1 throws"
+tools = "clang 22.1.7, LLD 22.1.7, the vcruntime import library of this machine's MSVC"
+
+[[file]]
+path = "testdata/bin/throws64.map"
+sha256 = "ac5334e92ee4fe6facb62a0eceaedbb1b03716e1d8599252db88a53d22a48737"
+evidence = "native"
+source = "testdata/src/throws.cpp"
+command = "testdata/build.ps1 throws"
+tools = "clang 22.1.7, LLD 22.1.7, the vcruntime import library of this machine's MSVC"
+
+[[file]]
+path = "testdata/bin/tls32.exe"
+sha256 = "6649c8b64b7f2323883fb11cbe23957c36120f87035b462eea010d48a3c894b5"
+evidence = "native"
+expected = "testdata/expected/tls.txt"
+source = "testdata/src/tls.c"
+command = "testdata/build.ps1 tls"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/tls32.map"
+sha256 = "016c7a1d3b1f18617f9973e213dbb198b4624f00daffc80abf3e8799fbd1410f"
+evidence = "native"
+source = "testdata/src/tls.c"
+command = "testdata/build.ps1 tls"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/tls64.exe"
+sha256 = "c24ac2f903e339735e65aa9c0e19867726209fa0ccb810c07edbb90aa6177fc1"
+evidence = "native"
+expected = "testdata/expected/tls.txt"
+source = "testdata/src/tls.c"
+command = "testdata/build.ps1 tls"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/tls64.map"
+sha256 = "13c445149e2dffacc5c3ee602fcf602579834a0e692d95d456f8301a9a6925ff"
+evidence = "native"
+source = "testdata/src/tls.c"
+command = "testdata/build.ps1 tls"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/window32.exe"
+sha256 = "45c77cdaf39e2df0e78b43109a7e75560cea1278d9137c93f6528646a0c1945c"
+evidence = "native"
+expected = "testdata/expected/window.txt"
+source = "testdata/src/window.c"
+command = "testdata/build.ps1 window"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/window32.map"
+sha256 = "7680323a655986a6119bf9482fb27bac991245d33f1b5579b38b6a6a36a992d1"
+evidence = "native"
+source = "testdata/src/window.c"
+command = "testdata/build.ps1 window"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/window64.exe"
+sha256 = "9d8c707e1eefad35ebe43ac9c9ad478fdd66c96c0e185bcf135ee05670c2110d"
+evidence = "native"
+expected = "testdata/expected/window.txt"
+source = "testdata/src/window.c"
+command = "testdata/build.ps1 window"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/window64.map"
+sha256 = "cc3ee323dcdbb17b2eb2172d3b03ee857a0a41cc5c69cfab417abfc3cf31aa48"
+evidence = "native"
+source = "testdata/src/window.c"
+command = "testdata/build.ps1 window"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+# The packed fixtures: the binaries above through upx --best; they print what their twins print.
+# upx-sections.txt is their section names as llvm-readobj --sections prints them, written by hand.
+
+[[file]]
+path = "testdata/bin/hello32-upx.exe"
+sha256 = "d9866dc3dd54f1d9304d1e3ed9e8c50c94cca531e63fc6b724d25fc872f02ed8"
+evidence = "native"
+expected = "testdata/expected/hello.txt"
+source = "testdata/bin/hello32.exe"
+command = "testdata/build.ps1 upx"
+tools = "upx 5.3.0"
+
+[[file]]
+path = "testdata/bin/hello64-upx.exe"
+sha256 = "3efbf22fcf3f301b73044bdcb9c1a647ac5bc6ec295d52fdc04a7c35d621f587"
+evidence = "native"
+expected = "testdata/expected/hello.txt"
+source = "testdata/bin/hello64.exe"
+command = "testdata/build.ps1 upx"
+tools = "upx 5.3.0"
+
+[[file]]
+path = "testdata/bin/control32-upx.exe"
+sha256 = "ca107c767833da9cb6295e9f9b4f286bb73e1b98a1176afcd6a640f1ee7544a4"
+evidence = "native"
+expected = "testdata/expected/control.txt"
+source = "testdata/bin/control32.exe"
+command = "testdata/build.ps1 upx"
+tools = "upx 5.3.0"
+
+[[file]]
+path = "testdata/bin/upx-sections.txt"
+sha256 = "d41a9bb32ec397702cac321728056c6329b6f48c7652ce860d0190caa58bd471"
+evidence = "native"
+source = "testdata/bin/hello32-upx.exe"
+command = "written by hand from llvm-readobj --sections over the three packed fixtures"
+tools = "llvm-readobj 22.1.7"
+
+# The Xbox fixture: the PE clang links at the Xbox's base, rewritten as an XBE by the writer test
+# of ra-asm-pe. No Xbox runs here: its expected output is the same source built for this machine.
+
+[[file]]
+path = "testdata/bin/xbe32.xbe"
+sha256 = "77bf76d23bf9026a56087b40ad68eba7977bbf954949f4dd4698967f1884fbe7"
+evidence = "source"
+expected = "testdata/expected/xbe.txt"
+source = "testdata/src/xbe.c"
+command = "testdata/build.ps1 xbe"
+tools = "clang 22.1.7, LLD 22.1.7, the XBE writer of crates/ra-asm-pe/tests/xbe.rs"
+
+[[file]]
+path = "testdata/bin/xbe32.map"
+sha256 = "f87b2cdfcb22f9abebe4a22da2f12db2b4142e784a3f658accf6437e14b83937"
+evidence = "source"
+source = "testdata/src/xbe.c"
+command = "testdata/build.ps1 xbe"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+# The ELF fixtures of build.ps1. None of them ran on its machine: they are read, lifted and run
+# through the IR interpreter.
+
+[[file]]
+path = "testdata/bin/hello_linux64"
+sha256 = "921e2bce6ccb204f1455e435153794807ffe66b0ad357f76e925a6f43e4267b5"
+evidence = "source"
+expected = "testdata/expected/hello_linux.txt"
+source = "testdata/src/hello_linux.c"
+command = "testdata/build.ps1 hello_linux"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/hello_linux_a64"
+sha256 = "d1bdbcfe71b7871963289d0a070928e37f8cbc7f7fdf8345d0e2105b29ca5a24"
+evidence = "source"
+expected = "testdata/expected/hello_linux.txt"
+source = "testdata/src/hello_linux.c"
+command = "testdata/build.ps1 hello_linux_a64"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/thumb32"
+sha256 = "228789c361ac15ba518b50a173eee42b0ca5212799eb5248de4b0a9e0cdcc56e"
+evidence = "source"
+expected = "testdata/expected/thumb.txt"
+source = "testdata/src/thumb.c"
+command = "testdata/build.ps1 thumb"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/libmain_a64.so"
+sha256 = "ecd0555e372d056b759d22b8144840c10be05f223e98a06d02e7db581cf6af61"
+evidence = "source"
+expected = "testdata/expected/libmain.txt"
+source = "testdata/src/libmain.c"
+command = "testdata/build.ps1 libmain"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+# The Mach-O fixtures: clang for x86_64 and arm64 macOS against the stub libSystem.tbd. No macOS
+# runs here and no test runs them: `ras` reads the container. No script builds them.
+
+[[file]]
+path = "testdata/bin/hello_macos_x64"
+sha256 = "d028de9fee2331f7673e3237b88d5f3f10c6f8ac1ed33083282fdef5beb6ace6"
+evidence = "source"
+source = "testdata/src/hello_macos.c"
+command = "not kept: no script builds it; clang for x86_64 macOS over testdata/src/libSystem.tbd, as hello_macos.c says"
+tools = "clang and LLD, the version not kept"
+
+[[file]]
+path = "testdata/bin/hello_macos_arm64"
+sha256 = "5696c14843f8454d6070ca3e78d1b2420e33b41e76427af9e6c322c99f782de6"
+evidence = "source"
+source = "testdata/src/hello_macos.c"
+command = "not kept: no script builds it; clang for arm64 macOS over testdata/src/libSystem.tbd, as hello_macos.c says"
+tools = "clang and LLD, the version not kept"
+
+# The freestanding MIPS fixtures: static Linux executables built and run under qemu in WSL.
 
 [[file]]
 path = "testdata/bin/hello_mipsel"
@@ -38,7 +827,8 @@ tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-mipsel 8.2.2 (WSL Ubuntu 2
 # The PlayStation fixtures: PS-EXEs built with PSn00bSDK, the output through the BIOS's printf.
 # hello_psx.txt is what the one printf of the source formats; gte_psx.txt is the GTE's documented
 # arithmetic (psx-spx: RTPS, RTPT, NCLIP, AVSZ3 and the FLAG register) over the inputs the source
-# chose so that every step is exact.
+# chose so that every step is exact. The map beside each is nm over the ELF.
+
 [[file]]
 path = "testdata/bin/hello_psx.exe"
 sha256 = "799917cdcd9a512eb26cd01fdbd24d5d3dea9e6d19cbed482833278199c91291"
@@ -49,6 +839,14 @@ command = "testdata/src/psx/build.sh"
 tools = "PSn00bSDK 0.24, mipsel-none-elf-gcc 12.3.0, elf2x (WSL Ubuntu 24.04)"
 
 [[file]]
+path = "testdata/bin/hello_psx.map"
+sha256 = "6d6ac558065f00c486857c76813c3cf2b10d0f350d490332cf8aa128a130ebd8"
+evidence = "source"
+source = "testdata/src/psx/hello.c"
+command = "testdata/src/psx/build.sh"
+tools = "PSn00bSDK 0.24, mipsel-none-elf-gcc 12.3.0, mipsel-none-elf-nm (WSL Ubuntu 24.04)"
+
+[[file]]
 path = "testdata/bin/gte_psx.exe"
 sha256 = "8fe8339030e450681b9d1b538aed3a9b13a23bfe741f4f529823c94f96b86110"
 evidence = "source"
@@ -56,3 +854,1511 @@ expected = "testdata/expected/gte_psx.txt"
 source = "testdata/src/psx/gte.c"
 command = "testdata/src/psx/build.sh"
 tools = "PSn00bSDK 0.24, mipsel-none-elf-gcc 12.3.0, elf2x (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/bin/gte_psx.map"
+sha256 = "080cbed1d3dcc8e040b82107d0277d3d381f1a3c875d99ed50b65999dee3e7b0"
+evidence = "source"
+source = "testdata/src/psx/gte.c"
+command = "testdata/src/psx/build.sh"
+tools = "PSn00bSDK 0.24, mipsel-none-elf-gcc 12.3.0, mipsel-none-elf-nm (WSL Ubuntu 24.04)"
+
+# testdata/expected: what a program prints. A `native` one is the output of the Windows build of
+# its source run on this machine; the command that captured it was not kept as a script.
+
+[[file]]
+path = "testdata/expected/classes.txt"
+sha256 = "5779e416243685d2709b3c56df8075cd2dbf1801e2057f2ebb117a96c3164a99"
+evidence = "native"
+source = "testdata/src/classes.cpp"
+command = "the native run of the classes fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/computed.txt"
+sha256 = "91078540fa1c0f8cd80f343a809f8cb9c30528db6b6ad13ea398913ad7b34333"
+evidence = "native"
+source = "testdata/src/computed.c"
+command = "the native run of the computed fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/control.txt"
+sha256 = "1be4ca7fa060af3ed59d91f1fd152ad5f418723f2693a412ec9a476c8f42b728"
+evidence = "native"
+source = "testdata/src/control.c"
+command = "the native run of the control fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/crt.txt"
+sha256 = "5116bdfa62022ae6eb4382a7be39a4f9e09dcd9fb33104258427f4121331f55d"
+evidence = "native"
+source = "testdata/src/crt.c"
+command = "the native run of the crt fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/dispatch.txt"
+sha256 = "28a72e6a28df02439955cdb2e6750581a6901a27959df7ee62c37d16c3707bbe"
+evidence = "native"
+source = "testdata/src/dispatch.c"
+command = "the native run of the dispatch fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/exports.txt"
+sha256 = "bafe44cd68a27dedcdca175afc7400d521518c5490a07c5bfcc6943c4487f8eb"
+evidence = "native"
+source = "testdata/src/exports_host.c"
+command = "the native run of the exports_host fixture over the exports DLL, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/extended.txt"
+sha256 = "1c382858089ec3ac386a820656706586d6eb4901d16c8c5d2d81e666c4b99470"
+evidence = "native"
+source = "testdata/src/extended.c"
+command = "the native run of the extended fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/files.txt"
+sha256 = "d58c3c25865e9cbce05117e984482443fc3512b714e17e455211068c2c7158e3"
+evidence = "native"
+source = "testdata/src/files.c"
+command = "the native run of the files fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/float.txt"
+sha256 = "aefef278f102ab525af3d0aeff41f56089c3b32fc76337f4ff227f1a71e5cdff"
+evidence = "native"
+source = "testdata/src/float.c"
+command = "the native run of the float fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/hello.txt"
+sha256 = "eedb85ab90d324a555a45560d75c88cecf23721990c3b6353697d707e6465c74"
+evidence = "native"
+source = "testdata/src/hello.c"
+command = "the native run of the hello fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/inline.txt"
+sha256 = "9a0d29615a4fd0b2d8f9de7072b11e64a506c8ec30c36167743e46da560914a1"
+evidence = "native"
+source = "testdata/src/inline.c"
+command = "the native run of the inline fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/linked.txt"
+sha256 = "2277b2f8ffb2f59d4586a7d47619d9e44653cf79b7e1e9d67b6635b6f7f72241"
+evidence = "native"
+source = "testdata/src/linked.c"
+command = "the native run of the linked fixture beside the exports DLL, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+# obfusc.txt is committed with the CRLF the program wrote; its hash is of those bytes.
+[[file]]
+path = "testdata/expected/obfusc.txt"
+sha256 = "5c8df75afb9dcbac69683869a9f0ea5df4399d3013a51fd1c399c3038505b4dd"
+evidence = "native"
+source = "testdata/src/obfusc.c"
+command = "the native run of the obfusc fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/resources.txt"
+sha256 = "13a640f5969823f666c2146e4ce2f46958d71bd263b32443fc166ad54bd6dec9"
+evidence = "native"
+source = "testdata/src/resources.c"
+command = "the native run of the resources fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/structs.txt"
+sha256 = "882884b3be6b60e07ad05f68dd38ca0bb99cf220d3fe1f4570aa99bb4043eccd"
+evidence = "native"
+source = "testdata/src/structs.c"
+command = "the native run of the structs fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/throws.txt"
+sha256 = "bcb6bc856eb52da13e888ee8c7bd8fb05210a59cd75afcf02972707a0ee222f6"
+evidence = "native"
+source = "testdata/src/throws.cpp"
+command = "the native run of the throws fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/tls.txt"
+sha256 = "088a92291a99c39eccd25172ac516a6145e7d18bd49adf899c40feb8c92ca29b"
+evidence = "native"
+source = "testdata/src/tls.c"
+command = "the native run of the tls fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/window.txt"
+sha256 = "ce59519ebe1276d392f5ae066c77a8acc8a7a9699a25c1b92418766747c9958b"
+evidence = "native"
+source = "testdata/src/window.c"
+command = "the native run of the window fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+# xbe.txt is the output of the same source built for this machine, since no Xbox runs here.
+[[file]]
+path = "testdata/expected/xbe.txt"
+sha256 = "c1e1bcebd2d6113425a4d35a0244522b8395b813436e2f984d6dd28c8c7da53a"
+evidence = "native"
+source = "testdata/src/xbe.c"
+command = "the native run of testdata/src/xbe.c built for this machine with -DXBE_HOST, its output captured"
+tools = "clang 22.1.7, LLD 22.1.7, Windows 11 10.0.26200 x64"
+
+# The outputs no machine printed: no Linux, ARM or PlayStation run is recorded for them.
+
+[[file]]
+path = "testdata/expected/hello_linux.txt"
+sha256 = "eedb85ab90d324a555a45560d75c88cecf23721990c3b6353697d707e6465c74"
+evidence = "source"
+source = "testdata/src/hello_linux.c"
+command = "written from the source: the bytes its one write sends, which are hello.txt's"
+tools = "none: no run is recorded"
+
+[[file]]
+path = "testdata/expected/libmain.txt"
+sha256 = "6b297e035d94fd346a94e7ed93d9a2698411182f610b6df24ee714aa2b2543c1"
+evidence = "source"
+source = "testdata/src/libmain.c"
+command = "written from the source: the results of the library's exports"
+tools = "none: no run is recorded"
+
+[[file]]
+path = "testdata/expected/thumb.txt"
+sha256 = "241049ca314ac4f78d83bb11f48c4ac869081ebd4057f5d6bb4b2af6e2deee76"
+evidence = "source"
+source = "testdata/src/thumb.c"
+command = "written from the source: what the program writes"
+tools = "none: no run is recorded"
+
+[[file]]
+path = "testdata/expected/hello_psx.txt"
+sha256 = "7eaa456a9bec32684de5d44dda1f41d1ce513f85c7c05f8c52d860928b5663ff"
+evidence = "source"
+source = "testdata/src/psx/hello.c"
+command = "written from the source: what its one printf formats"
+tools = "none: no emulator is on the machine"
+
+[[file]]
+path = "testdata/expected/gte_psx.txt"
+sha256 = "17206d02241032bd6b0dbd6ab461507e83bee910a78c67c969460ce5ed295f30"
+evidence = "source"
+source = "testdata/src/psx/gte.c"
+command = "written from the source and the GTE's documented arithmetic (psx-spx)"
+tools = "none: no emulator is on the machine"
+
+# testdata/rhtest: the old pipeline's test programs. <name>-clang, -static, -clang-Od, -ia32 and
+# -ia32-Od are clang-cl's builds of rhtest/build.ps1 over the MSVC C runtime; core-O2 and core-Od
+# are MSVC's own, built on another machine. <name>.txt is the native output with the exit code as
+# its last line, <name>-<variant>.txt that of a variant whose native output differs.
+
+[[file]]
+path = "testdata/rhtest/calls-clang.exe"
+sha256 = "286757580340647d3a22dd63dd2f1c2e6472d463ea07e2c1e3933723290e5629"
+evidence = "native"
+expected = "testdata/rhtest/calls.txt"
+source = "testdata/rhtest/src/calls.c"
+command = "testdata/rhtest/build.ps1 calls"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/calls-clang.map"
+sha256 = "d6b8213b95946640a10a81d52ebfc0ed2e10a4009952cbf7d680dc01213e9da0"
+evidence = "native"
+source = "testdata/rhtest/src/calls.c"
+command = "testdata/rhtest/build.ps1 calls"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/calls.txt"
+sha256 = "00d418933eb305f19909d3d35152967e9c18378d689ac305078803ed8597ca78"
+evidence = "native"
+source = "testdata/rhtest/src/calls.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/com-clang.exe"
+sha256 = "9cafb6466c32288432ea70f5b71d2159727e25d9c7cf281e7ad68c559701eb4a"
+evidence = "native"
+expected = "testdata/rhtest/com.txt"
+source = "testdata/rhtest/src/com.cpp"
+command = "testdata/rhtest/build.ps1 com"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/com-clang.map"
+sha256 = "f93aec4249d980937d3c96c833b84d8e579d887240ba7b45ed243ab91e19899a"
+evidence = "native"
+source = "testdata/rhtest/src/com.cpp"
+command = "testdata/rhtest/build.ps1 com"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/com.txt"
+sha256 = "c3a775669a0931cd7657fed12c283aeaebda4606e4b3f5501ad290c6952806ac"
+evidence = "native"
+source = "testdata/rhtest/src/com.cpp"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/core-O2.exe"
+sha256 = "8ec6f66a23533a9f38218bb757ca93af774b7bdce859a940caa328bc9cfbcc53"
+evidence = "native"
+expected = "testdata/rhtest/core.txt"
+source = "testdata/rhtest/src/core.c"
+command = "not kept: cl at /O2 for x86 against the C runtime DLLs with a link map, on another machine"
+tools = "MSVC 14.51 (cl, link)"
+
+[[file]]
+path = "testdata/rhtest/core-O2.map"
+sha256 = "4f0898dcfa194b923fad53d38a2b9d1e0328c36590a0b609a97788df080f6667"
+evidence = "native"
+source = "testdata/rhtest/src/core.c"
+command = "not kept: cl at /O2 for x86 against the C runtime DLLs with a link map, on another machine"
+tools = "MSVC 14.51 (cl, link)"
+
+[[file]]
+path = "testdata/rhtest/core-Od.exe"
+sha256 = "18e995256361a9e0a2746b4ef066cb0dd0e1a5c6c520a46fa6dfc84b929174ac"
+evidence = "native"
+expected = "testdata/rhtest/core.txt"
+source = "testdata/rhtest/src/core.c"
+command = "not kept: cl at /Od for x86 against the C runtime DLLs with a link map, on another machine"
+tools = "MSVC 14.51 (cl, link)"
+
+[[file]]
+path = "testdata/rhtest/core-Od.map"
+sha256 = "4afb440ed0b2877c519d6a0de446559ad6ccdb98252302f3e26e463c8fbcb61e"
+evidence = "native"
+source = "testdata/rhtest/src/core.c"
+command = "not kept: cl at /Od for x86 against the C runtime DLLs with a link map, on another machine"
+tools = "MSVC 14.51 (cl, link)"
+
+[[file]]
+path = "testdata/rhtest/core-static.exe"
+sha256 = "c8ff406f30800772d057187315beaeb97cf84ebc1b8a30f857c2492205d61f2f"
+evidence = "native"
+expected = "testdata/rhtest/core.txt"
+source = "testdata/rhtest/src/core.c"
+command = "testdata/rhtest/build.ps1 core"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the static MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/core-static.map"
+sha256 = "fa86f4307e8522ae2699de3b2ed631bd9539b3a81feb41828eb04e60e3164449"
+evidence = "native"
+source = "testdata/rhtest/src/core.c"
+command = "testdata/rhtest/build.ps1 core"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the static MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/core.txt"
+sha256 = "66ef01cde081a6b039b51461ea1dfd643f8c2de57b1c9532e418770460f32458"
+evidence = "native"
+source = "testdata/rhtest/src/core.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/cpp-clang.exe"
+sha256 = "50587feb2b324ff6a9e53699e939f0cb0df77aebb5d1edd358c82c3208257bf9"
+evidence = "native"
+expected = "testdata/rhtest/cpp.txt"
+source = "testdata/rhtest/src/cpp.cpp"
+command = "testdata/rhtest/build.ps1 cpp"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/cpp-clang.map"
+sha256 = "bc0f957d06896796fc573e5cda4404f27840cbb02c15d962447041eee187bb33"
+evidence = "native"
+source = "testdata/rhtest/src/cpp.cpp"
+command = "testdata/rhtest/build.ps1 cpp"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/cpp.txt"
+sha256 = "5cdad83f60af8b64f0dca8f59184a841ac6fdd1090a0b1fc679f3b4f9fe7b829"
+evidence = "native"
+source = "testdata/rhtest/src/cpp.cpp"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/crt-clang.exe"
+sha256 = "0cdbe08feaffa03c4066bfe7a83c8ae07face5b445abab045e84729ad9d743e5"
+evidence = "native"
+expected = "testdata/rhtest/crt.txt"
+source = "testdata/rhtest/src/crt.c"
+command = "testdata/rhtest/build.ps1 crt"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/crt-clang.map"
+sha256 = "cbeb46bc16a0d752d006bd244961beee87a5b296e878e9b633f731833f8ffb6c"
+evidence = "native"
+source = "testdata/rhtest/src/crt.c"
+command = "testdata/rhtest/build.ps1 crt"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/crt.txt"
+sha256 = "86db626291cb93ba400918a06d21ce1d6c76f0c03144403b1211a2172d1fb5b6"
+evidence = "native"
+source = "testdata/rhtest/src/crt.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/eh-clang.exe"
+sha256 = "8c2246f29d73bbe6f466c1d2b52510e574dfc248a307b81e4de03798c97aa652"
+evidence = "native"
+expected = "testdata/rhtest/eh.txt"
+source = "testdata/rhtest/src/eh.cpp"
+command = "testdata/rhtest/build.ps1 eh"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/eh-clang.map"
+sha256 = "0acdf2443beb8f7ce875ae8e6ef6b7624c5561c25f221f93dfcc8525c943febd"
+evidence = "native"
+source = "testdata/rhtest/src/eh.cpp"
+command = "testdata/rhtest/build.ps1 eh"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/eh.txt"
+sha256 = "eed202f5bc5913977b81a83cde89cd19a9d1a97e0440db3a0c90a960d8601515"
+evidence = "native"
+source = "testdata/rhtest/src/eh.cpp"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/engine-clang.exe"
+sha256 = "e069f16bc4fcb9968335e9eed91814f1cfcdabb047d537ed599aced12163f10c"
+evidence = "native"
+expected = "testdata/rhtest/engine.txt"
+source = "testdata/rhtest/src/engine.cpp"
+command = "testdata/rhtest/build.ps1 engine"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/engine-clang.map"
+sha256 = "43cb67650670077bc585b0d54e6ad484a10daeb21251849c52527616c1cf7a16"
+evidence = "native"
+source = "testdata/rhtest/src/engine.cpp"
+command = "testdata/rhtest/build.ps1 engine"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/engine.txt"
+sha256 = "0f5e496e0ec4a51c37035d5f3582893609629f6987e24e94cbc56b335725d43d"
+evidence = "native"
+source = "testdata/rhtest/src/engine.cpp"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/float-clang.exe"
+sha256 = "01e48d7a32c037a26f945647f18b1493a8ec0a54566fb22d0461098c3558dde0"
+evidence = "native"
+expected = "testdata/rhtest/float.txt"
+source = "testdata/rhtest/src/float.c"
+command = "testdata/rhtest/build.ps1 float"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/float-clang.map"
+sha256 = "3dd74d5a00610d72d4572a2863ff5182ca3d954f055bd55cf62e474b9e94e23f"
+evidence = "native"
+source = "testdata/rhtest/src/float.c"
+command = "testdata/rhtest/build.ps1 float"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/float-clang-Od.exe"
+sha256 = "bc559201cefb878e2a3f645ec114431ea8af2b7236b22eaa09a8ed5f14f76f5f"
+evidence = "native"
+expected = "testdata/rhtest/float.txt"
+source = "testdata/rhtest/src/float.c"
+command = "testdata/rhtest/build.ps1 float"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/float-clang-Od.map"
+sha256 = "c8ff8393108472cae3870d2e40fbac834dd79a16d1c86cf11744c6aff1d555d9"
+evidence = "native"
+source = "testdata/rhtest/src/float.c"
+command = "testdata/rhtest/build.ps1 float"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/float-ia32.exe"
+sha256 = "5e1cca1b45809b7760a6e36302cc81c3829498197826f2ba1485acfb32979be7"
+evidence = "native"
+expected = "testdata/rhtest/float-ia32.txt"
+source = "testdata/rhtest/src/float.c"
+command = "testdata/rhtest/build.ps1 float"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/float-ia32.map"
+sha256 = "9cd6cf433ad06f748ab2882030224b01318a7f9e29baa80c26e29451b063baf9"
+evidence = "native"
+source = "testdata/rhtest/src/float.c"
+command = "testdata/rhtest/build.ps1 float"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/float-ia32.txt"
+sha256 = "0a408c258fdc29c86abddcac1b8bd468a93a7649af1a24afec6f6ef16985bcd5"
+evidence = "native"
+source = "testdata/rhtest/src/float.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/float-ia32-Od.exe"
+sha256 = "dc4cef51af53fa9870348f9069aae3c88f81b1d8008b6ddcaf196b8ed1511a19"
+evidence = "native"
+expected = "testdata/rhtest/float-ia32-Od.txt"
+source = "testdata/rhtest/src/float.c"
+command = "testdata/rhtest/build.ps1 float"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/float-ia32-Od.map"
+sha256 = "74fdb95d113bca3fb3971d69223da6573bcea0e6fb02cacf36a4ac3ea53a4ffa"
+evidence = "native"
+source = "testdata/rhtest/src/float.c"
+command = "testdata/rhtest/build.ps1 float"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/float-ia32-Od.txt"
+sha256 = "0a408c258fdc29c86abddcac1b8bd468a93a7649af1a24afec6f6ef16985bcd5"
+evidence = "native"
+source = "testdata/rhtest/src/float.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/float.txt"
+sha256 = "d91b8b729597f91af0c6c12a995af5a209e239450c46d36517f16c260afb0276"
+evidence = "native"
+source = "testdata/rhtest/src/float.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/fpenv-clang.exe"
+sha256 = "3f7cfeeb7b82fa3e1e156253d784c10c2fe28fb258ef29fa01ca65f74a2c2242"
+evidence = "native"
+expected = "testdata/rhtest/fpenv.txt"
+source = "testdata/rhtest/src/fpenv.c"
+command = "testdata/rhtest/build.ps1 fpenv"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/fpenv-clang.map"
+sha256 = "d43aa2e24f12f7a26a26b0a5b46dab3cf539fd5c73d6fc32490b36e09033e303"
+evidence = "native"
+source = "testdata/rhtest/src/fpenv.c"
+command = "testdata/rhtest/build.ps1 fpenv"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/fpenv-clang-Od.exe"
+sha256 = "4d72e73e1780b49da48872cb50cadbc0fc109f35ffd32ccee1db7bdddf4ed4fb"
+evidence = "native"
+expected = "testdata/rhtest/fpenv-clang-Od.txt"
+source = "testdata/rhtest/src/fpenv.c"
+command = "testdata/rhtest/build.ps1 fpenv"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/fpenv-clang-Od.map"
+sha256 = "d82bed967a780677c0be976c3eeb85b6639545a7380d6ef43fc9b4f568ee0078"
+evidence = "native"
+source = "testdata/rhtest/src/fpenv.c"
+command = "testdata/rhtest/build.ps1 fpenv"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/fpenv-clang-Od.txt"
+sha256 = "e1160b6cba0b730a65b2f0fd6a955c8a7f36c3349800f763c54cace3204fc3a0"
+evidence = "native"
+source = "testdata/rhtest/src/fpenv.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/fpenv-ia32.exe"
+sha256 = "4000599bae68a7bc2544835441133ae16b11c6f8d207093db087120e16710193"
+evidence = "native"
+expected = "testdata/rhtest/fpenv-ia32.txt"
+source = "testdata/rhtest/src/fpenv.c"
+command = "testdata/rhtest/build.ps1 fpenv"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/fpenv-ia32.map"
+sha256 = "150c2c828577b48c30172f0e9f15a207824a3c7533d0b5bd91c5971c94ff6d10"
+evidence = "native"
+source = "testdata/rhtest/src/fpenv.c"
+command = "testdata/rhtest/build.ps1 fpenv"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/fpenv-ia32.txt"
+sha256 = "460539cdabe543d75bed8ddc598b0b733dd65bbae8b2fadf258aad654efc16ff"
+evidence = "native"
+source = "testdata/rhtest/src/fpenv.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/fpenv-ia32-Od.exe"
+sha256 = "3b62e34e4ccbbc0886c14a4bb97fa7b3dc81549b4873beae51802a727240fe32"
+evidence = "native"
+expected = "testdata/rhtest/fpenv-ia32-Od.txt"
+source = "testdata/rhtest/src/fpenv.c"
+command = "testdata/rhtest/build.ps1 fpenv"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/fpenv-ia32-Od.map"
+sha256 = "e02e21ca05078b5a1c6caa38c5fa8bae1a2f91ef76a963b231cbc7df4f7a9dd8"
+evidence = "native"
+source = "testdata/rhtest/src/fpenv.c"
+command = "testdata/rhtest/build.ps1 fpenv"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/fpenv-ia32-Od.txt"
+sha256 = "460539cdabe543d75bed8ddc598b0b733dd65bbae8b2fadf258aad654efc16ff"
+evidence = "native"
+source = "testdata/rhtest/src/fpenv.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/fpenv.txt"
+sha256 = "c0b4884b868d9c14e02c7b29bb6fe9ce5ca0ed347fda02f03d87383958eeb5db"
+evidence = "native"
+source = "testdata/rhtest/src/fpenv.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/int64-clang.exe"
+sha256 = "bb3851c419dcc69d7b0dc512f81833cccc4209943967d31da5ff398b1b5e2542"
+evidence = "native"
+expected = "testdata/rhtest/int64.txt"
+source = "testdata/rhtest/src/int64.c"
+command = "testdata/rhtest/build.ps1 int64"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/int64-clang.map"
+sha256 = "5bf53db05a36997dd06f3ca1213a6447d0d60393eafdfb3fc76880d1d3f2ad1b"
+evidence = "native"
+source = "testdata/rhtest/src/int64.c"
+command = "testdata/rhtest/build.ps1 int64"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/int64-static.exe"
+sha256 = "f12b687db131ace32bdca377dd8e98fc89e6942d3fe6f940203879aa4eacbdbb"
+evidence = "native"
+expected = "testdata/rhtest/int64.txt"
+source = "testdata/rhtest/src/int64.c"
+command = "testdata/rhtest/build.ps1 int64"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the static MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/int64-static.map"
+sha256 = "3c6cc772484a32d8e2cb8e7e1093bfeb147c42e2d19aa5912ec77c4f5f9d2760"
+evidence = "native"
+source = "testdata/rhtest/src/int64.c"
+command = "testdata/rhtest/build.ps1 int64"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the static MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/int64.txt"
+sha256 = "f6ef94e1d7b34c5a9eae3bbe01493784df01e33865ec6f4bbacac219e0b34711"
+evidence = "native"
+source = "testdata/rhtest/src/int64.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/misc-clang.exe"
+sha256 = "1bc39ad37c3e0272207c911eabf2499dcf84a7f9b4ae77a0cbffc1eeaef02def"
+evidence = "native"
+expected = "testdata/rhtest/misc.txt"
+source = "testdata/rhtest/src/misc.c"
+command = "testdata/rhtest/build.ps1 misc"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/misc-clang.map"
+sha256 = "a8cb324a94427a6cab3e1f1a8d1e71224e231023b5b3cf54612cf1de100d5db8"
+evidence = "native"
+source = "testdata/rhtest/src/misc.c"
+command = "testdata/rhtest/build.ps1 misc"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/misc.txt"
+sha256 = "30a7b99c34ba5111606e6b57342ebee12eaeca0c02a274234b9610dc2299479b"
+evidence = "native"
+source = "testdata/rhtest/src/misc.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/seh-clang.exe"
+sha256 = "fe96799afa5ebf0bd2ddeef9908ecad84e0fc566a76b8ae6f9ffddd5f32c5a00"
+evidence = "native"
+expected = "testdata/rhtest/seh.txt"
+source = "testdata/rhtest/src/seh.c"
+command = "testdata/rhtest/build.ps1 seh"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/seh-clang.map"
+sha256 = "f712a1e59fe258273b9993841617861d363b05ab72fe50c9422f6b8d8a911bfe"
+evidence = "native"
+source = "testdata/rhtest/src/seh.c"
+command = "testdata/rhtest/build.ps1 seh"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/seh.txt"
+sha256 = "a7020420073c5b08cf142102946946db89426569bc7809900e19592c7c05fb27"
+evidence = "native"
+source = "testdata/rhtest/src/seh.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/stl-clang.exe"
+sha256 = "2c14d15ecbf34833ff2f03f4cb24a87a69133289f13ec9b84b7e967eed614ae7"
+evidence = "native"
+expected = "testdata/rhtest/stl.txt"
+source = "testdata/rhtest/src/stl.cpp"
+command = "testdata/rhtest/build.ps1 stl"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/stl-clang.map"
+sha256 = "81d363dfb112f895a69a3ca2b320d393185c3ef6fe62c0cdad320c270488133c"
+evidence = "native"
+source = "testdata/rhtest/src/stl.cpp"
+command = "testdata/rhtest/build.ps1 stl"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/stl.txt"
+sha256 = "5206debf51204ddc1deca4de537e1cba0803ef3892a3675a503cb9b420a3d86c"
+evidence = "native"
+source = "testdata/rhtest/src/stl.cpp"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/stlio-clang.exe"
+sha256 = "84448eab12a144f8545293e5c8019f18f9b1292ea03573a8138d8403ee09c61a"
+evidence = "native"
+expected = "testdata/rhtest/stlio.txt"
+source = "testdata/rhtest/src/stlio.cpp"
+command = "testdata/rhtest/build.ps1 stlio"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/stlio-clang.map"
+sha256 = "312e087c57fcc9ea188ad52c53d431f0d7493eb80549c175263d0b2c93eef1e6"
+evidence = "native"
+source = "testdata/rhtest/src/stlio.cpp"
+command = "testdata/rhtest/build.ps1 stlio"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/stlio.txt"
+sha256 = "dc6f71961bd23fbe0bd638fb791c11a806ed475aacb1c63720f86e39d8e817c2"
+evidence = "native"
+source = "testdata/rhtest/src/stlio.cpp"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/sys-clang.exe"
+sha256 = "770ba4d381367c117163e46e9a2809270c856153edede86a90356457ff346939"
+evidence = "native"
+expected = "testdata/rhtest/sys.txt"
+source = "testdata/rhtest/src/sys.c"
+command = "testdata/rhtest/build.ps1 sys"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/sys-clang.map"
+sha256 = "a966837426fac8f7ed9981af8d9f4e0b00f268e9778f89dc8bede95d3f869d97"
+evidence = "native"
+source = "testdata/rhtest/src/sys.c"
+command = "testdata/rhtest/build.ps1 sys"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/sys.txt"
+sha256 = "507a7ce6b019f4646e9c3976535e7f53d647576d8aec5ec9afc1ea6242874da0"
+evidence = "native"
+source = "testdata/rhtest/src/sys.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/rhtest/win-clang.exe"
+sha256 = "8794d00febc8abfb146ee8f5b31d91cd0233315b61cd1c109d0fcf08f0de9276"
+evidence = "native"
+expected = "testdata/rhtest/win.txt"
+source = "testdata/rhtest/src/win.c"
+command = "testdata/rhtest/build.ps1 win"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/win-clang.map"
+sha256 = "2ab1326a2e91d4adaf6a5e348b60e6bfd4eed6fd0a09b7eff01d840842e62bc1"
+evidence = "native"
+source = "testdata/rhtest/src/win.c"
+command = "testdata/rhtest/build.ps1 win"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
+
+[[file]]
+path = "testdata/rhtest/win.txt"
+sha256 = "ea7ed11d60a12302c861a620aa8097a601163e115da7305c817744b29519c04f"
+evidence = "native"
+source = "testdata/rhtest/src/win.c"
+command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
+tools = "Windows 11 10.0.26200 x64"
+
+# testdata/vectors/x86_64: the state this machine's processor left after each case, written by
+# the instruction oracle.
+
+[[file]]
+path = "testdata/vectors/x86_64/arith.vec"
+sha256 = "30d1b308ad02cb7194b962accb22ac19cc01c27af019cd3561ca7672c1f27a9b"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86_64/bits.vec"
+sha256 = "cf62a2f505e532f8b0d45bc98fd65085f248361b7ba8644e4ec6a11f1d3195e1"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86_64/conditions.vec"
+sha256 = "0718cdf70ab245d241c4566e0f1ae2756f2fed607074683002ec8cf79d7c40bc"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86_64/logic.vec"
+sha256 = "a011d2185c35988feee963168d79f142120241bce4be518b1de53ad38a7dc641"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86_64/misc.vec"
+sha256 = "761d60c02ec11418c2c0a3a2b05474fc44b39a5f2eed67e151bc9ec2ccf70854"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86_64/moves.vec"
+sha256 = "821e814078d7db2cb4b1547b7263deba4ab009820fdbfa7d3f523639c04d7669"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86_64/shift.vec"
+sha256 = "7ec7eeae48ee35e3e91f9684deea349404559b7c8cdec41f107fb71a916cd961"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86_64/sse.vec"
+sha256 = "034b676deea30a0f23be087d332785b6a9ad6bb1d5756a3e15e935a1aa49711e"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86_64/sse_int.vec"
+sha256 = "9b7f2460c189deb77d23ae9ba390245c8e8b7898e7cc322cd0ccad2d6cc68e88"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86_64/stack.vec"
+sha256 = "9e0563d31822c423b0039642ab23dc248b7d204c9fba86cae2141a91295fec4d"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86_64/string.vec"
+sha256 = "604003c7b01f89e19a45b53d7a6c938b448ccd37b58b9a0f5d701ee2f738f4dd"
+evidence = "native"
+command = "cargo test -p ra-asm-lift --features oracle --test instruction_oracle write_vectors -- --ignored"
+tools = "the x86-64 processor of this machine, Windows 11 10.0.26200"
+
+# testdata/vectors/x86 and x87: the 32-bit harness (harness/x86_32.c) run under WOW64.
+
+[[file]]
+path = "testdata/vectors/x86/arith.vec"
+sha256 = "7d7bf487ca1ed4d46a97817741fab4085e7f1122a2928da20754fe85f65d1d78"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x86_32_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86/bits.vec"
+sha256 = "b1135827445120f56f8b817f31cede4966dc082e56b0d0e8d72ff34803a3be96"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x86_32_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86/conditions.vec"
+sha256 = "528a1587a94a146fa5f48a2fdf5d8f2d33f4dbc7664a7426985ebba8af68a83a"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x86_32_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86/logic.vec"
+sha256 = "61e1be8356bbe4563cffdc209b70e59fbe742d8bb61ea13a6f6978ab3fcfcd7e"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x86_32_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86/misc.vec"
+sha256 = "995c2e4546be6548b105036c8865f1faf778eaa1d53b0851d3e434b1313b9442"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x86_32_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86/moves.vec"
+sha256 = "8e0e67348efd547bb776667afa06d73e899b07afd5894a41401d066b855533eb"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x86_32_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86/shift.vec"
+sha256 = "0608c80109c3c96d87ff7d487c2de2729e3ec7158a7151e72eb808ce267d3796"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x86_32_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86/stack.vec"
+sha256 = "9caab26d35a4b8fbbd5a2e5242337b26a2ce8bbc1eb3a4046bca0a242b103667"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x86_32_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x86/string.vec"
+sha256 = "ebd1185f048c7aea5a3e1cc71f3555774a678cc1407c1d2d437e1a577e06d53d"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x86_32_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x87/arith.vec"
+sha256 = "f1f56c744a8b674b9e868c185bab8b45cf8eab8721cccb3c2fc25b6a6eae4e88"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x87_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x87/compare.vec"
+sha256 = "c1b2baed64458876b8feb2452066bf6d0a7052304d8c98187b32935fd85fa1c2"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x87_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x87/control.vec"
+sha256 = "e38c673ffa2c3a5bfc41dd3f0d323d04b63b8b41e367f80ef8fcf762e13a5818"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x87_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x87/load.vec"
+sha256 = "e062e9ff633298976f707a0194bb80a854aec6048ff601d793197ba49e9cbee8"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x87_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x87/store.vec"
+sha256 = "34955203d64cd3ebe5da8568550e1a2b3345e81090444f2f5813d58c0e8b9a69"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x87_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+[[file]]
+path = "testdata/vectors/x87/transcendental.vec"
+sha256 = "b35d60b47de2457bae94463869457f568d79b5f8591b4d01a862601f92db2876"
+evidence = "native"
+source = "testdata/vectors/harness/x86_32.c"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_x87_vectors -- --ignored"
+tools = "clang 22.1.7, LLD 22.1.7, the processor of this machine under WOW64, Windows 11 10.0.26200"
+
+# testdata/vectors/arm64: cases/<group>.cases is the expansion of templates.txt assembled by
+# llvm-mc (nothing runs); <group>.vec is the state after each case under qemu-aarch64-static.
+
+[[file]]
+path = "testdata/vectors/arm64/cases/arith.cases"
+sha256 = "bf27babbad0b018ee326becb12410914a898bca8302c6adda7f86144dbbdcd54"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/bitfield.cases"
+sha256 = "7f5bbbae8b15ed503abd55f8e68ffb96c2423e77efaf65e6c05f27627246b9f4"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/bits.cases"
+sha256 = "e446cf686b8057950879b760720105e12f5030b0cbcdd743a8897a5d4be54809"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/branch.cases"
+sha256 = "fcf0ef86533be428bf43f813f890f5fd1092371b04342bcf0615e544a1af0c27"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/fp.cases"
+sha256 = "d088e3430a0665d15edf2fecc3f73f917c4e25105281240659ff17c26c2d2c78"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/loads.cases"
+sha256 = "f74ee0fb97942c0d1bb4dda181d60bcd21e29f2e683ba1bb399551edbbee5cea"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/logic.cases"
+sha256 = "6954f4c8fefc30e553bd45b942671066515c0e0b9cc4bbf51670771f2a539bbe"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/moves.cases"
+sha256 = "b61f2dbb7b74e526670d1e9d5d81a4e23abdaec14f245dc43bea975f247f5a91"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/muldiv.cases"
+sha256 = "aa197fe684a4370940ef048b58b997b40835612e37c31efb5277f52f145ad66a"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/pairs.cases"
+sha256 = "3ecab507925470546b0feca68ee96dc9ceefae7d926a4fb4a5f6fc2fcbefd151"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/select.cases"
+sha256 = "1784e901e7c6658286a16ffbfc5e36a3089d76e99eb0200599e637b6b3aeae75"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/shift.cases"
+sha256 = "0559f5c5ccce467c50af61c66290f6e917577e750291d9897eaafa8a97a05fd6"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/stores.cases"
+sha256 = "526f5132bfd0478eaa13a73c0a8e69bc36d1ad364841139a8f5c1c8d9cd61216"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/cases/system.cases"
+sha256 = "ac014338ca189ceb1fe1d33b958b1d0544f3118cf9cafe5a17a38a74418dafc9"
+evidence = "source"
+source = "testdata/vectors/arm64/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm64_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/arith.vec"
+sha256 = "859796e65af29f658da6238217bfd6dab90690326d99b07e041e748837f48b9a"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/arith.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/bitfield.vec"
+sha256 = "d52890276aeaebe82f9070967cd7b55e16ca88227281f583afbcd86cf9ee8d75"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/bitfield.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/bits.vec"
+sha256 = "1f4c3bdeb4e8bd5c2aaaa2c1a76d2aac9d6ca2cdfaa6d0ed70eab0bfd4c78fa0"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/bits.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/branch.vec"
+sha256 = "19cbb0d7f9eb10ac82fab2006c05e53cde8291a04e44c494b33555db6f402618"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/branch.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/fp.vec"
+sha256 = "59a1724c9c8e6ca83a12954b317f22b07ff01a38d737243c372e99df2df37b19"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/fp.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/loads.vec"
+sha256 = "9af23dd57a4be5bd8f1575f95cf8a64f9eebc5ea6e478eff56f4a7ece23c1cbb"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/loads.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/logic.vec"
+sha256 = "cd9d103b6c33ed2921af2813281bc3467df9d3feb7d8a3052bea3ab104b2d7f9"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/logic.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/moves.vec"
+sha256 = "b5d02d1adefa3b0f3b8ee3794c5eeb02dd2a367f07920556fb2ba826d2a8441a"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/moves.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/muldiv.vec"
+sha256 = "486b97a8aa7975fc4b3acb6d4344112c4bed76bbb5c84cb1e6246e8d1ea2c9a6"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/muldiv.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/pairs.vec"
+sha256 = "0739cf11a9f9386955c56ce106b111510bebe3d8ae414d7a077a4b1f72db076d"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/pairs.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/select.vec"
+sha256 = "695c8a04602fa9b1f48fb2cd33e2695ebb77739d407a1b5dd8078c589232329c"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/select.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/shift.vec"
+sha256 = "4abb4c522d554c45d7546d8f963402c06c614bc09114cb2c4cc8a9d707c024ef"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/shift.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/stores.vec"
+sha256 = "94fd0a92bb934f07079359969dc35140923977d51b2a6217dc4ac8bb39f8f17d"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/stores.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm64/system.vec"
+sha256 = "4c61c7b7e0836c652ecd4ad493daab6db00eceb28a1830ca800a01b00a150721"
+evidence = "emulator"
+source = "testdata/vectors/arm64/cases/system.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm64_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-aarch64-static 8.2.2 (WSL Ubuntu 24.04)"
+
+# testdata/vectors/arm32: the same for ARM and Thumb-2, under qemu-arm-static.
+
+[[file]]
+path = "testdata/vectors/arm32/cases/alu16.cases"
+sha256 = "93ea17a8461040440df8f0a3153a6440a5246f0292b4241dd7826a9172182e6c"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/alu32.cases"
+sha256 = "d49e6386daabbba33e6c7f7f81a554e5a7d748c607550857f9a97e8286d7ae3f"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/arm_data.cases"
+sha256 = "8377a6652bb4dd04baf815ff9547327303b61bebdadc402f224c3e6304a516b1"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/arm_flow.cases"
+sha256 = "7366f00a8c5dfdd9b81ce53d27df9bc8e4a83fa8e987129dceac0b5b862fa90b"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/arm_mem.cases"
+sha256 = "618d3cbb7c1d96c5f978aa06de4a50dda7576a1317424e9ee25b3293fc7d8a6c"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/bitfield.cases"
+sha256 = "0f2255b74b268ff08c5c6ec22350eb26762f1096db9b78f935d06eb11dcbafe8"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/branch.cases"
+sha256 = "40472533cd9b6cfed4d239d5ab3991b9ee6b573e8a2b32a60851d14d00180265"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/extend.cases"
+sha256 = "f5d49fcc6248370e28fa885f1a776720af39df802c26bbf0180d5890aeba8c91"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/it.cases"
+sha256 = "3e4eeb174e0bef965efe38332d50678176a3f64c82eb93acbfdfd7363bec7ec5"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/loads.cases"
+sha256 = "59c26ed3053f0a73789d1ebcf476013f2cdf7a0786a7fa40b74d5fcc8dd7071c"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/moves.cases"
+sha256 = "77bd6feae7179637b369408782832ad35db68cf235ba1202974db4ada5cebe71"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/muldiv.cases"
+sha256 = "9779e969e7e5f043d0a4f4e835d18329094e8d10aac07835dc22ffef2844aa82"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/multiple.cases"
+sha256 = "cbdab94686e22da7413828a2bd378fd33a0c8aa67ee4575fa639a5b177c1d382"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/pairs.cases"
+sha256 = "70b1e67ac4fb6ead1dd5cef449f21b310218f00df3d5299e7c1adcd9dc5a9a79"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/shift.cases"
+sha256 = "8487e30e416bc7fb25015170ac986af5b2371e9420195d94508b610befc7b1de"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/stores.cases"
+sha256 = "f5001f461dc65fc49016fa859529b2b1f63ab0ff57308b65482152faf2ea165f"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/cases/system.cases"
+sha256 = "7bc65f67d678375aac8a46e3faf3a97b39c68065111bbe7a189290f99ae6df4c"
+evidence = "source"
+source = "testdata/vectors/arm32/templates.txt"
+command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
+tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/alu16.vec"
+sha256 = "7a8df74a711d360dcb2821bc1af24685a4ba19ef94a4f42e2df51d93be62d661"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/alu16.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/alu32.vec"
+sha256 = "33c5225beffd061018d4a3800d18a15a4832e88d9fa2d01fe3a6eb8169d04e03"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/alu32.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/arm_data.vec"
+sha256 = "49d70cc292a962e0a252e7fa626c276cd8015a7aa10d9964b0a1a2a79eb21c5e"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/arm_data.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/arm_flow.vec"
+sha256 = "ec58cda3da3faa46cb48f66bf8f37fb729cd697a10cf799923c17af7b2b64943"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/arm_flow.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/arm_mem.vec"
+sha256 = "6e1bfec6dd45937446dbe266f527c61a3273c34e2d4be7389100b95ef03bebc1"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/arm_mem.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/bitfield.vec"
+sha256 = "6dcd589037b387788779693374c4c2d43cc4db1a0f209de40041fb39a53cae3b"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/bitfield.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/branch.vec"
+sha256 = "b336e969f7958da8fe184470a320537e8fc6af0dceb5670290dfecb1f47f40ed"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/branch.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/extend.vec"
+sha256 = "664afdd48b5a6578488fe0cf3f28d4451ef660084008787b879ab17193c8042a"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/extend.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/it.vec"
+sha256 = "f0bc1ccfd9af78d3f2cc0d1d1bb0f079d1a1b0b055eaef5e73e57fa8b7bd4fdd"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/it.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/loads.vec"
+sha256 = "88112a8631b676331d5a65063b64f3f6ab609d5347f46c87980563e7dbf8cfa3"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/loads.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/moves.vec"
+sha256 = "05386f0de7c834442714c2c445468e7461e20862792268483e9e21c2f236b796"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/moves.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/muldiv.vec"
+sha256 = "43f07218f62a851878a0b66d50d86187f4ad45976c636bafc9333bf782e5f44f"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/muldiv.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/multiple.vec"
+sha256 = "335f4e5cf66dbf48e5d8d0345345be9f022e2b94a159536d7ef359262d84fa6b"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/multiple.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/pairs.vec"
+sha256 = "08d103916b5c796012a77cbdfb4bc059bc7d67bf9c1a9d01948936da669bec2f"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/pairs.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/shift.vec"
+sha256 = "c5e6fbe6102938726f9afda9577e2fd957ec232acbc554b23451d47691ceb9c2"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/shift.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/stores.vec"
+sha256 = "80591b1121708cd30297678b85104f09a0da20fad918be3b6a73b2a0073411c1"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/stores.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/vectors/arm32/system.vec"
+sha256 = "5dcdfe0e6ede48a774d0bd450f3f6250878fd5760256aaac7c2ac045ad02d47a"
+evidence = "emulator"
+source = "testdata/vectors/arm32/cases/system.cases"
+command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"

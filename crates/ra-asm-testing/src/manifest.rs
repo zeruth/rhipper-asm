@@ -1,19 +1,25 @@
-//! The manifest of `testdata`: `testdata/MANIFEST.toml` lists a committed binary with its SHA-256,
-//! the source and the command that made it, the tools' versions, its expected output and its
-//! evidence, so that a binary with no record of how it was made cannot slip in. The file is a
+//! The manifest of `testdata`: `testdata/MANIFEST.toml` lists every committed binary, vector file
+//! and expected output with its SHA-256, the source and the command that made it, the tools'
+//! versions and its evidence, so that a file with no record of how it was made cannot slip in:
+//! [`check`] hashes the tree and names every unlisted file and every wrong hash. The file is a
 //! list of `[[file]]` tables whose values are all strings, read here without a TOML library:
 //! a line is a table header, a `key = "string"` pair, a comment or blank, and anything else is
 //! refused with its line number.
+//!
+//! A hash is of the bytes git stores. A checkout that converts line endings holds a text file
+//! with CRLF where the repository has LF, so a file without a NUL byte also passes when its bytes
+//! with every CRLF as LF hash to what the manifest says.
 
+use std::collections::HashSet;
 use std::fmt::{self, Write as _};
 use std::path::{Path, PathBuf};
 
-/// Where a listed file's expected output comes from.
+/// What a listed file rests on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Evidence {
-    /// The program ran on this machine.
+    /// The program ran on this machine; for a vector file, its processor executed the cases.
     Native,
-    /// The program ran in an emulator of its machine.
+    /// The program, or the cases of a vector file, ran in an emulator of its machine.
     Emulator,
     /// Derived from the source and the platform's documentation; no machine ran it.
     Source,
@@ -173,6 +179,114 @@ fn entry(line: usize, pairs: &[(String, String)]) -> Result<Entry, Error> {
     let evidence =
         Evidence::parse(&evidence).ok_or_else(|| error(format!("`evidence` of {path} is `{evidence}`, not native, emulator or source")))?;
     Ok(Entry { path, sha256, evidence, expected: get("expected"), source: get("source"), command: get("command"), tools: get("tools") })
+}
+
+/// The directories of `testdata` whose files the manifest lists.
+const TREES: [&str; 4] = ["testdata/bin", "testdata/expected", "testdata/rhtest", "testdata/vectors"];
+
+/// Whether the manifest must list `path` (relative to the workspace root, with `/` separators):
+/// everything under `testdata/bin` and `testdata/expected`, what is beside the sources and the
+/// build script under `testdata/rhtest`, and the `.vec` and `.cases` files under
+/// `testdata/vectors`. Sources, scripts, templates and pending lists are read as text in a
+/// review and are not listed.
+#[must_use]
+pub fn is_fixture(path: &str) -> bool {
+    let extension = |wanted: &[&str]| Path::new(path).extension().is_some_and(|e| wanted.iter().any(|w| e == *w));
+    if path.starts_with("testdata/bin/") || path.starts_with("testdata/expected/") {
+        return true;
+    }
+    if let Some(rest) = path.strip_prefix("testdata/rhtest/") {
+        return !rest.starts_with("src/") && !extension(&["ps1"]);
+    }
+    path.starts_with("testdata/vectors/") && extension(&["vec", "cases"])
+}
+
+/// The files under `root` the manifest must list, sorted; a tree that is absent holds none.
+#[must_use]
+pub fn fixtures(root: &Path) -> Vec<String> {
+    fn walk(root: &Path, dir: &str, found: &mut Vec<String>) {
+        let Ok(items) = std::fs::read_dir(root.join(dir)) else {
+            return;
+        };
+        for item in items.flatten() {
+            let path = format!("{dir}/{}", item.file_name().to_string_lossy());
+            if item.path().is_dir() {
+                walk(root, &path, found);
+            } else if is_fixture(&path) {
+                found.push(path);
+            }
+        }
+    }
+    let mut found = Vec::new();
+    for tree in TREES {
+        walk(root, tree, &mut found);
+    }
+    found.sort();
+    found
+}
+
+/// The hashes `bytes` may be listed with: its own, and for a text file that holds a CRLF the one
+/// of its LF form, which is what the repository stores under a checkout that converts.
+fn hashes(bytes: &[u8]) -> (String, Option<String>) {
+    let own = sha256(bytes);
+    if bytes.contains(&0) || !bytes.windows(2).any(|pair| pair == b"\r\n") {
+        return (own, None);
+    }
+    let mut unix = Vec::with_capacity(bytes.len());
+    for (index, &byte) in bytes.iter().enumerate() {
+        if byte != b'\r' || bytes.get(index + 1) != Some(&b'\n') {
+            unix.push(byte);
+        }
+    }
+    (own, Some(sha256(&unix)))
+}
+
+/// The hashes of a file as a failure names them.
+fn shown(own: &str, unix: Option<&str>) -> String {
+    unix.map_or_else(|| own.to_owned(), |unix| format!("{unix} with its CRLF as LF, as git stores a text file, and to {own} as it is"))
+}
+
+/// What of the tree under `root` is not as `entries` say, one line each: a file listed twice,
+/// a listed file that is not there or hashes to something else, an expected output that is not
+/// there, and a fixture file (see [`is_fixture`]) no entry lists, with the hash its entry takes.
+#[must_use]
+pub fn check(root: &Path, entries: &[Entry]) -> Vec<String> {
+    let mut failures = Vec::new();
+    let mut listed = HashSet::new();
+    for entry in entries {
+        if !listed.insert(entry.path.as_str()) {
+            failures.push(format!("{} is listed twice", entry.path));
+            continue;
+        }
+        match std::fs::read(root.join(&entry.path)) {
+            Ok(bytes) => {
+                let (own, unix) = hashes(&bytes);
+                if own != entry.sha256 && unix.as_ref() != Some(&entry.sha256) {
+                    let actual = shown(&own, unix.as_deref());
+                    failures.push(format!("{}: the manifest says {} and the file hashes to {actual}", entry.path, entry.sha256));
+                }
+            }
+            Err(e) => failures.push(format!("{} is listed but not there: {e}", entry.path)),
+        }
+        if let Some(expected) = &entry.expected
+            && !root.join(expected).is_file()
+        {
+            failures.push(format!("{}: its expected output {expected} is not there", entry.path));
+        }
+    }
+    for path in fixtures(root) {
+        if listed.contains(path.as_str()) {
+            continue;
+        }
+        match std::fs::read(root.join(&path)) {
+            Ok(bytes) => {
+                let (own, unix) = hashes(&bytes);
+                failures.push(format!("{path} is not in the manifest: it hashes to {}", shown(&own, unix.as_deref())));
+            }
+            Err(e) => failures.push(format!("{path} is not in the manifest and cannot be read: {e}")),
+        }
+    }
+    failures
 }
 
 /// The lowercase hex SHA-256 of `bytes` (FIPS 180-4).

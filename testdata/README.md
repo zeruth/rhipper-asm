@@ -28,9 +28,11 @@ no compiler. `build.ps1` rebuilds them; `/Brepro` keeps a rebuild byte-identical
 
 Beside each binary is the linker map (`.map`): the analysis tests compare the functions they find
 with it. `expected/<name>.txt` is what the program prints when it runs natively; the execution
-oracle compares the lifted program with it. `MANIFEST.toml` is the record of how a committed
-binary was made and what its expected output rests on (`native`, `emulator` or `source`);
-`cargo test -p ra-asm-testing --test manifest` checks the hashes of what it lists.
+oracle compares the lifted program with it. `MANIFEST.toml` is the record of how every committed
+binary, vector file and expected output was made and what it rests on (`native`, `emulator` or
+`source`); `cargo test -p ra-asm-testing --test manifest` hashes the tree and fails on a wrong
+hash and on a file under `bin`, `expected`, `rhtest` or `vectors` (`.vec`, `.cases`) that is not
+listed, printing the hash its entry takes: a new fixture comes with its entry.
 
 `xbe32.xbe` runs through the IR interpreter only, which answers its kernel calls itself; its port
 over clang waits for a platform runtime that defines the kernel's exports for the host. The XDK's
