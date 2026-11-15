@@ -21,8 +21,14 @@
 //! [`Machine::lift_function`] lifts a function's blocks from the same rows, a delayed row with its
 //! delay slot; [`Machine::lift_function_outlined`] lifts an outlined row as a call to the one
 //! function of it ([`Outlines`]).
+//!
+//! [`assemble`] turns a row and its field values back into the word, and [`cases()`] draws from a row
+//! and a seed the instruction cases the reference vectors run: each field at its boundaries and at
+//! random, over registers of boundary and random numbers.
 
 pub mod access;
+pub mod asm;
+pub mod cases;
 pub mod instr;
 pub mod lift;
 pub mod outline;
@@ -30,6 +36,8 @@ pub mod sem;
 pub mod table;
 
 pub use access::Summary;
+pub use asm::{AsmError, assemble};
+pub use cases::{Case, Plan, cases};
 pub use instr::{Machine, Syntax};
 pub use lift::Code;
 pub use outline::Outlines;
