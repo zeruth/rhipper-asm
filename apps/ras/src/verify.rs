@@ -152,7 +152,7 @@ fn vector_file(write: &Path, program: &Path) -> PathBuf {
 
 /// The vectors of one run of `lifted`, the machine level, through the interpreter. A run that
 /// stopped short says so on stderr; the vectors it kept still replay.
-fn recorded(image: &Image, lifted: &Lifted) -> Result<Vec<Vector>> {
+pub(crate) fn recorded(image: &Image, lifted: &Lifted) -> Result<Vec<Vector>> {
     let (recording, outcome) = ra_asm_verify::record(image, lifted, &ra_asm_lift::run::Options::default())?;
     if let Some(stop) = &outcome.stop {
         if recording.vectors.is_empty() {
@@ -164,7 +164,7 @@ fn recorded(image: &Image, lifted: &Lifted) -> Result<Vec<Vector>> {
 }
 
 /// `image` lifted as it is mapped and raised to `level`, under the names the run knows.
-fn lifted(image: &Image, analysis: &Analysis<'_>, level: RaiseLevel) -> Lifted {
+pub(crate) fn lifted(image: &Image, analysis: &Analysis<'_>, level: RaiseLevel) -> Lifted {
     let mut lifted = ra_asm_lift::lift_with(image, analysis, LiftOptions { standalone: false, x87: X87Unit::Double });
     let options = lifted.raise_options(level);
     ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);

@@ -8,10 +8,16 @@
 //! a case to name, and the order lists `simplify` once, where the raise runs it alone ahead of
 //! the inference. `stack` is the analysis the inference and the promotion read: it has a name and
 //! no place of its own in the order.
+//!
+//! A step can be broken on purpose, which is how a bisection is tested: when the environment
+//! variable [`FAULT`] names a step, every function the step is handed returns [`FAULTY`] in
+//! place of its integer result once it ran, wherever the step runs (the raise, a pass case).
+//! `abi` and `stack` rewrite nothing and are not broken.
 
 use std::collections::{BTreeSet, HashMap};
+use std::sync::OnceLock;
 
-use ra_asm_ir::{Callee, Function, Global, Inst, Module};
+use ra_asm_ir::{Callee, Function, Global, Inst, Module, Operand, Terminator, Type};
 
 use super::abi::{Signature, SummaryCache, VtableIndex};
 use super::liveness::slot_pointers;
@@ -122,12 +128,49 @@ pub fn steps(level: Level) -> Vec<Step> {
     names.iter().map(|name| step(name).expect("the order names steps")).collect()
 }
 
+/// The environment variable that names the step to break.
+pub const FAULT: &str = "RHIPPER_FAULT_STEP";
+
+/// What a function of the broken step returns, whatever it computed: no Fibonacci number, no
+/// small count, no address.
+pub const FAULTY: i128 = 0x0bad;
+
+/// Whether the environment names `step` as the one to break; read once.
+fn faulty(step: &str) -> bool {
+    static NAMED: OnceLock<Option<String>> = OnceLock::new();
+    NAMED.get_or_init(|| std::env::var(FAULT).ok()).as_deref() == Some(step)
+}
+
+/// `f` as the broken `step` leaves it: every return of an integer of 16 bits or more returns
+/// [`FAULTY`]. The control flow and the calls stay, so the function still ends where it did.
+fn broken(step: &str, f: &mut Function) {
+    if !faulty(step) {
+        return;
+    }
+    for b in &mut f.blocks {
+        if let Terminator::Ret(Some((Type::Int(width), value))) = &mut b.terminator
+            && *width >= 16
+        {
+            *value = Operand::Int(FAULTY);
+        }
+    }
+}
+
+/// The module as the broken module step `step` leaves it: each function [`broken`].
+fn broken_all(step: &str, module: &mut Module) {
+    if faulty(step) {
+        module.functions.iter_mut().for_each(|f| broken(step, f));
+    }
+}
+
 fn simplify(f: &mut Function, _: &Context<'_>, _: &[Global]) {
     super::simplify::run(f);
+    broken("simplify", f);
 }
 
 fn dce(f: &mut Function, _: &Context<'_>, _: &[Global]) {
     super::dce::run(f);
+    broken("dce", f);
 }
 
 /// The stack analysis of `f`, told of its lifted callees what the signatures say.
@@ -154,10 +197,15 @@ fn abi(module: &Module, cx: &Context<'_>) -> HashMap<String, Signature> {
     }
 }
 
+fn promote(f: &mut Function, cx: &Context<'_>, _: &[Global]) {
+    registers(f, cx);
+    broken("promote", f);
+}
+
 /// The registers as values. At the ABI level `f` is rewritten under its signature: the registers
 /// become its parameters, results and locals, and a function with no signature stays as it is.
 /// Below it the `%State` interface stays.
-fn promote(f: &mut Function, cx: &Context<'_>, _: &[Global]) {
+fn registers(f: &mut Function, cx: &Context<'_>) {
     let target = cx.options.target();
     if cx.options.level != Level::Abi {
         super::promote::promote(f, target);
@@ -192,11 +240,13 @@ fn promote(f: &mut Function, cx: &Context<'_>, _: &[Global]) {
 fn conditions(f: &mut Function, _: &Context<'_>, _: &[Global]) {
     super::conditions::run(f);
     clean(f);
+    broken("conditions", f);
 }
 
 fn frame(f: &mut Function, _: &Context<'_>, _: &[Global]) {
     super::frame::run(f);
     clean(f);
+    broken("frame", f);
 }
 
 /// Known values and branches, to a fixpoint with the cleanup.
@@ -207,6 +257,7 @@ fn known(f: &mut Function, _: &Context<'_>, globals: &[Global]) {
         }
         clean(f);
     }
+    broken("known", f);
 }
 
 /// A flattened function is rebuilt; the known values settle again over the graph each rebuild
@@ -218,6 +269,7 @@ fn flatten(f: &mut Function, cx: &Context<'_>, globals: &[Global]) {
         }
         known(f, cx, globals);
     }
+    broken("flatten", f);
 }
 
 /// The strings a decryptor would compute at run time are computed here.
@@ -225,11 +277,13 @@ fn strings(module: &mut Module, cx: &Context<'_>) {
     for index in super::strings::run(module, !cx.options.target().is_64()) {
         clean(&mut module.functions[index]);
     }
+    broken_all("strings", module);
 }
 
 /// The import wrappers served the machine model; the calls now go to the imports.
 fn wrappers(module: &mut Module, _: &Context<'_>) {
     module.functions.retain(|f| crate::import_of_wrapper(&f.name).is_none());
+    broken_all("wrappers", module);
 }
 
 /// The helpers the compiler inlined, read back as functions: a loop whose shape repeats across
@@ -238,6 +292,7 @@ fn outline(module: &mut Module, _: &Context<'_>) {
     if super::outline::run(module) {
         clean_all(module);
     }
+    broken_all("outline", module);
 }
 
 /// An x86 function a pointer reaches gets its universal entry point.
@@ -246,6 +301,7 @@ fn stubs(module: &mut Module, cx: &Context<'_>) {
     if !target.is_64() {
         super::stubs::add_universal_stubs(module, cx.signatures, target, cx.extra_dwords);
     }
+    broken_all("stubs", module);
 }
 
 /// The widths, to a fixpoint: each narrowing exposes the next through the cleanup.
@@ -256,6 +312,7 @@ fn widths(module: &mut Module, cx: &Context<'_>) {
         }
         clean_all(module);
     }
+    broken_all("widths", module);
 }
 
 /// The structs behind the pointers, once the widths are settled; the address arithmetic the
@@ -264,6 +321,7 @@ fn types(module: &mut Module, _: &Context<'_>) {
     if super::types::run(module) {
         clean_all(module);
     }
+    broken_all("types", module);
 }
 
 /// Each import is declared with the arity the prototype table gives it.
@@ -275,6 +333,7 @@ fn prototypes(module: &mut Module, _: &Context<'_>) {
             d.ty = ra_asm_ir::FnType::new(ra_asm_ir::Type::I64, vec![ra_asm_ir::Type::I64; arity]);
         }
     }
+    broken_all("prototypes", module);
 }
 
 fn clean_all(module: &mut Module) {

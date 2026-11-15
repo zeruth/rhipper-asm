@@ -16,6 +16,7 @@
 //! - a global of the case has no address of the image: the runner places it in its own memory.
 
 use std::collections::BTreeSet;
+use std::fmt::Write;
 
 use anyhow::{Context, Result, bail, ensure};
 use ra_asm_ir::{Callee, Const, Declaration, Function, Inst, Module, Operand, Type};
@@ -31,6 +32,13 @@ const PROMOTE: &str = "promote";
 
 /// Prints the case of `function` (a name or an address) of `image` ahead of the step `pass`.
 pub(crate) fn case(image: &Image, function: &str, pass: &str) -> Result<()> {
+    print!("{}", text(image, function, pass, None)?);
+    Ok(())
+}
+
+/// The case of `function` of `image` ahead of the step `pass`, its calls out of the function's
+/// vectors among `recorded`, or out of a run of its own without them.
+pub(crate) fn text(image: &Image, function: &str, pass: &str, recorded: Option<&[Vector]>) -> Result<String> {
     let order: Vec<&str> = steps::steps(RaiseLevel::Abi).iter().map(|s| s.name).collect();
     let at = order
         .iter()
@@ -57,9 +65,17 @@ pub(crate) fn case(image: &Image, function: &str, pass: &str) -> Result<()> {
         signatures.get(&name).with_context(|| format!("{name} has no signature: `{pass}` is handed it as the lift wrote it"))?;
     let target = Target { bits: lifted.bits, isa: lifted.isa };
 
+    let run;
+    let kept: Vec<&Vector> = if let Some(vectors) = recorded {
+        vectors.iter().filter(|vector| vector.address == address).collect()
+    } else {
+        run = vectors(image, address).with_context(|| format!("no call for {name}"))?;
+        run.iter().collect()
+    };
+    ensure!(!kept.is_empty(), "no call for {name}: the vectors hold none of it");
     let mut calls: Vec<String> = Vec::new();
-    for vector in vectors(image, address).with_context(|| format!("no call for {name}"))? {
-        let call = call(f, signature, target, &vector)?;
+    for vector in kept {
+        let call = call(f, signature, target, vector)?;
         if !calls.contains(&call) {
             calls.push(call);
         }
@@ -67,13 +83,12 @@ pub(crate) fn case(image: &Image, function: &str, pass: &str) -> Result<()> {
 
     let module = slice(&lifted.module, f);
     let file = image.path.as_ref().and_then(|p| p.file_name()).map_or_else(|| "the image".to_owned(), |n| n.to_string_lossy().into_owned());
-    println!("; {name} of {file}, at {address:#x}, as the step `{pass}` is handed it");
-    println!("; pass: {pass}");
+    let mut text = format!("; {name} of {file}, at {address:#x}, as the step `{pass}` is handed it\n; pass: {pass}\n");
     for call in &calls {
-        println!("; call: {call}");
+        writeln!(text, "; call: {call}").unwrap();
     }
-    print!("{}", module.to_ll());
-    Ok(())
+    text.push_str(&module.to_ll());
+    Ok(text)
 }
 
 /// The function `text` means: one of the lift's by its name, or by its address (see

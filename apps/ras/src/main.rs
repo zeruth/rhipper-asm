@@ -2,6 +2,7 @@
 //! person, or JSON with `--json` for the workbench and the agents.
 
 mod annotations;
+mod bisect;
 mod cards;
 mod case;
 mod diff;
@@ -415,6 +416,25 @@ enum Command {
         #[arg(long)]
         function: Option<String>,
     },
+    /// The first step of the raise and the first function after it that differ: the vectors of
+    /// one interpreted run (or of a vector file) replayed at the machine level, then after each
+    /// step of the raise to the ABI level in order, from `promote` on. A line per step until the
+    /// first after which a function differs, which names the function, the vector and the
+    /// difference with its values, then the case of that function ahead of the step. Fails when
+    /// a step differs. `RHIPPER_FAULT_STEP=<step>` breaks a step on purpose.
+    Bisect {
+        pe: PathBuf,
+        /// Read the vectors from this vector file instead of recording a run.
+        #[arg(long, value_name = "FILE")]
+        vectors: Option<PathBuf>,
+        /// The one function to bisect, by name or by address: `fib`, `0x140001000` or `F_140001000`.
+        #[arg(long)]
+        function: Option<String>,
+        /// Write the case to this file, or as `<step>/<program>_<function>.ll` in this directory:
+        /// `--write testdata/cases` files it beside the others. Printed without it.
+        #[arg(long, value_name = "PATH")]
+        write: Option<PathBuf>,
+    },
     /// One file of `ras smoke`, in the process it starts for the file.
     #[command(hide = true)]
     SmokeFile { pe: PathBuf },
@@ -538,6 +558,14 @@ fn command() -> anyhow::Result<()> {
             let options =
                 verify::Options { program: &pe, vectors: vectors.as_deref(), write: write.as_deref(), function: function.as_deref() };
             if !verify::verify(&load(&pe, sigs)?, &options)? {
+                std::process::exit(1)
+            }
+            Ok(())
+        }
+        Command::Bisect { pe, vectors, function, write } => {
+            let options =
+                bisect::Options { program: &pe, vectors: vectors.as_deref(), function: function.as_deref(), write: write.as_deref() };
+            if !bisect::bisect(&load(&pe, sigs)?, &options)? {
                 std::process::exit(1)
             }
             Ok(())
