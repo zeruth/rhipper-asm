@@ -1,6 +1,7 @@
 //! `ras verify` over `control64.exe`: every function the run entered replays at the three levels
 //! and the last line counts them all; a vector changed by hand makes its function differ, names
-//! the level, the vector and the register, and fails the command.
+//! the level, the vector and the register, and fails the command. With `--built` beside its
+//! port, the harness has a loader of every vector and a mock of every callee.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -94,6 +95,45 @@ fn a_changed_vector_differs_and_fails_the_command() {
     let line = text.lines().next().unwrap_or_default();
     assert!(line.contains(" machine differs at vector 1: register rax: "), "the line names the level, the vector and the register: {line}");
     assert!(!line.contains("promoted"), "the levels above the first difference are not replayed: {line}");
+}
+
+#[test]
+fn harness_is_written() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("verify-built");
+    let port = dir.join("control64");
+    std::fs::create_dir_all(&port).unwrap();
+    let emitted =
+        Command::new(env!("CARGO_BIN_EXE_ras")).arg("emit").arg(control()).arg("--out").arg(&port).arg("--quiet").output().unwrap();
+    assert!(emitted.status.success(), "{}", String::from_utf8_lossy(&emitted.stderr));
+
+    let recorded = dir.join("control64.vectors");
+    let output = ras(&["--built", "--out", port.to_str().unwrap(), "--write", recorded.to_str().unwrap()]);
+    if skipped(&output) {
+        return;
+    }
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let harness = std::fs::read_to_string(port.join("verify.c")).expect("the harness is written beside the port");
+    assert!(harness.contains("#include \"runtime/verify.c\""), "the harness includes its runtime");
+    let runtime = std::fs::read_to_string(port.join("runtime/verify.c")).expect("the runtime is written under the port's runtime");
+    let embedded = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/verify.c")).unwrap();
+    assert_eq!(runtime, embedded, "the runtime written is the repository's");
+
+    let vectors = ra_asm_verify::read(&std::fs::read_to_string(&recorded).unwrap()).unwrap();
+    assert!(!vectors.is_empty(), "the run recorded vectors");
+    for (n, vector) in vectors.iter().enumerate() {
+        let entry = format!("{{\"{}\", ra_verify_load_{}}},", vector.function, n + 1);
+        assert!(harness.contains(&entry), "the harness has a loader of vector {} of {}: {entry}", n + 1, vector.function);
+    }
+    let callees: std::collections::BTreeSet<&str> = vectors.iter().flat_map(|v| &v.calls).map(|call| call.callee.as_str()).collect();
+    if callees.is_empty() && !cfg!(windows) {
+        eprintln!("SKIPPED: control64.exe called nothing on a host without the Windows DLLs: no mock to look for");
+        return;
+    }
+    assert!(!callees.is_empty(), "the vectors call something");
+    for callee in callees {
+        let binding = format!("{{\"{callee}\", (void (*)(void))ra_mock_");
+        assert!(harness.contains(&binding), "the mock declares the callee {callee}");
+    }
 }
 
 #[test]

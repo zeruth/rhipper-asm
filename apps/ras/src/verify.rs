@@ -14,6 +14,10 @@
 //! With `--ledger <gen dir>`, what the machine level's replay showed is merged into the ledger
 //! there (see [`ra_asm_verify::ledger`]): the blocks each function's vectors ran, and each
 //! assumption of the raise as discharged, checked or open ([`ledger`]).
+//!
+//! With `--built --out <port>`, the vectors are not replayed: they are written beside the port
+//! `ras emit` wrote there as its harness, `verify.c`, a loader for each vector and a mock for
+//! each callee (see [`harness`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -44,6 +48,9 @@ pub(crate) struct Options<'a> {
     /// Add vectors of generated inputs for the pure functions the vectors do not enter (see
     /// [`ra_asm_verify::generate`]), after the ones written with `write`.
     pub generate: bool,
+    /// The directory of a port of the image, beside which the vectors are written as its
+    /// harness instead of being replayed (see [`harness`]).
+    pub built: Option<&'a Path>,
 }
 
 /// The vectors of one function, in the order the run kept them.
@@ -60,7 +67,10 @@ pub(crate) fn verify(image: &Image, options: &Options<'_>) -> Result<bool> {
         let handle = std::thread::Builder::new()
             .name("ras-verify".into())
             .stack_size(256 << 20)
-            .spawn_scoped(scope, || verify_here(image, options))
+            .spawn_scoped(scope, || match options.built {
+                Some(dir) => harness::write(image, options, dir).map(|()| true),
+                None => verify_here(image, options),
+            })
             .context("cannot start the replay's thread")?;
         handle.join().map_err(|_| anyhow::anyhow!("the replay panicked"))?
     })
@@ -69,23 +79,8 @@ pub(crate) fn verify(image: &Image, options: &Options<'_>) -> Result<bool> {
 fn verify_here(image: &Image, options: &Options<'_>) -> Result<bool> {
     let analysis = ra_asm_analysis::analyze(image);
     let machine = lifted(image, &analysis, RaiseLevel::Machine);
-    let vectors = match options.vectors {
-        Some(path) => {
-            let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-            ra_asm_verify::read(&text).with_context(|| format!("reading the vectors of {}", path.display()))?
-        }
-        None => recorded(image, &machine)?,
-    };
-    let wanted = options.function.map(|text| (text, crate::disasm::parse_address(text).ok()));
-    let chosen = |vector: &Vector| wanted.is_none_or(|(name, address)| vector.function == name || address == Some(vector.address));
-    if let Some(path) = options.write {
-        let path = vector_file(path, options.program);
-        // `--function` narrows what is written as it narrows what is verified
-        let kept: Vec<Vector> = vectors.iter().filter(|v| chosen(v)).cloned().collect();
-        // Only a run's own vectors are kept as the recorder keeps them.
-        let text = if options.vectors.is_some() { ra_asm_verify::write(&kept)? } else { ra_asm_verify::record::file(&kept)? };
-        std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
-    }
+    let vectors = gathered(image, &machine, options)?;
+    let chosen = chosen(options.function);
     let vectors = if options.generate {
         let (abi, signatures) = signed(image, &analysis);
         let made = ra_asm_verify::generate(image, &machine, &abi, &signatures, &vectors, ra_asm_verify::generate::SEED)?;
@@ -154,6 +149,34 @@ fn verify_here(image: &Image, options: &Options<'_>) -> Result<bool> {
     let count: usize = functions.values().map(|f| f.vectors.len()).sum();
     println!("verified {verified} of {} functions, {count} vectors", functions.len());
     Ok(differs.is_empty())
+}
+
+/// The vectors of `options`, from its vector file or one run of `machine`, the machine level;
+/// written where `--write` names, narrowed by `--function` as what is verified is.
+fn gathered(image: &Image, machine: &Lifted, options: &Options<'_>) -> Result<Vec<Vector>> {
+    let vectors = match options.vectors {
+        Some(path) => {
+            let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+            ra_asm_verify::read(&text).with_context(|| format!("reading the vectors of {}", path.display()))?
+        }
+        None => recorded(image, machine)?,
+    };
+    if let Some(path) = options.write {
+        let path = vector_file(path, options.program);
+        let chosen = chosen(options.function);
+        let kept: Vec<Vector> = vectors.iter().filter(|v| chosen(v)).cloned().collect();
+        // Only a run's own vectors are kept as the recorder keeps them.
+        let text = if options.vectors.is_some() { ra_asm_verify::write(&kept)? } else { ra_asm_verify::record::file(&kept)? };
+        std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
+    }
+    Ok(vectors)
+}
+
+/// Whether a vector is of the one function `function` names, by name or by address; every
+/// vector is without one.
+fn chosen(function: Option<&str>) -> impl Fn(&Vector) -> bool + '_ {
+    let wanted = function.map(|text| (text, crate::disasm::parse_address(text).ok()));
+    move |vector: &Vector| wanted.is_none_or(|(name, address)| vector.function == name || address == Some(vector.address))
 }
 
 /// Replays the vectors of each function at `level` and adds the level to its line: `ok` with the
@@ -277,3 +300,5 @@ fn signed(image: &Image, analysis: &Analysis<'_>) -> (Lifted, HashMap<String, Si
     lifted.apply_names(analysis, Some(&mut signatures));
     (lifted, signatures)
 }
+
+mod harness;

@@ -429,6 +429,14 @@ enum Command {
         /// vectors do not enter that reads and writes only its arguments, its frame and its result.
         #[arg(long)]
         generate: bool,
+        /// Write the vectors as the harness of the port in `--out` instead of replaying them:
+        /// `verify.c`, a loader for each vector and a mock for each callee, and the
+        /// `runtime/verify.c` it includes. Neither is built.
+        #[arg(long, requires = "out")]
+        built: bool,
+        /// The directory of the port `ras emit --out` wrote, which `--built` writes beside.
+        #[arg(long, value_name = "DIR", requires = "built")]
+        out: Option<PathBuf>,
     },
     /// The first step of the raise and the first function after it that differ: the vectors of
     /// one interpreted run (or of a vector file) replayed at the machine level, then after each
@@ -574,7 +582,7 @@ fn command() -> anyhow::Result<()> {
             cards::pending(&paths, milestone.as_deref())
         }
         Command::Case { pe, function, pass } => case::case(&load(&pe, sigs)?, &function, &pass),
-        Command::Verify { pe, vectors, write, function, ledger, generate } => {
+        Command::Verify { pe, vectors, write, function, ledger, generate, built, out } => {
             let options = verify::Options {
                 program: &pe,
                 vectors: vectors.as_deref(),
@@ -582,6 +590,7 @@ fn command() -> anyhow::Result<()> {
                 function: function.as_deref(),
                 ledger: ledger.as_deref(),
                 generate,
+                built: out.as_deref().filter(|_| built),
             };
             if !verify::verify(&load(&pe, sigs)?, &options)? {
                 std::process::exit(1)
