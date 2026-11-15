@@ -109,16 +109,16 @@ impl Shape {
                 (32, general, "pc", owned(&ARM_FLAGS), numbered("v", 32))
             }
             Isa::Arm32 => (16, numbered("r", 16), "pc", owned(&ARM_FLAGS), numbered("q", 16)),
-            Isa::Mips | Isa::MipsN32 => (32, owned(&ra_asm_lift::state::MIPS_GPR_NAMES), "pc", numbered("fcc", 8), numbered("f", 32)),
+            // `hi` and `lo` are the general slots past `$31`.
+            Isa::Mips | Isa::MipsN32 => (34, owned(&ra_asm_lift::state::MIPS_GPR_NAMES), "pc", numbered("fcc", 8), numbered("f", 32)),
         };
         let counter_at = 8 * general_slots;
         let flags_at = counter_at + 8;
         let vectors_at = flags_at + 8;
         let vectors_end = vectors_at + 16 * vectors.len();
-        // MIPS keeps `hi`, `lo` and the FPU's control word past the vector registers.
-        let extras: &[(&str, usize, usize)] =
-            if isa.is_mips() { &[("hi", vectors_end, 8), ("lo", vectors_end + 8, 8), ("fcsr", vectors_end + 16, 4)] } else { &[] };
-        let size = if extras.is_empty() { vectors_end } else { vectors_end + 32 };
+        // MIPS keeps the FPU's control word past the vector registers.
+        let extras: &[(&str, usize, usize)] = if isa.is_mips() { &[("fcsr", vectors_end, 4)] } else { &[] };
+        let size = if extras.is_empty() { vectors_end } else { vectors_end + 16 };
         let mut slots = Vec::new();
         let general_count = general.len();
         slots.extend(general.into_iter().enumerate().map(|(n, name)| Slot { name, offset: 8 * n, size: 8 }));
