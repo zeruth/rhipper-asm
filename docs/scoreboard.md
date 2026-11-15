@@ -29,7 +29,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | gte_psx.exe | error | - | - | - | - | - | - | - | - | - | - | - | - | - |
 | hello32-upx.exe | timeout | - | - | - | 1 | 1 | - | - | - | - | - | - | - | - |
 | hello32.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 249 | 0.0 | 333.3 |
-| hello64-upx.exe | timeout | - | - | - | 0 | 0 | - | - | - | - | - | - | - | - |
+| hello64-upx.exe | timeout | - | - | 6 | 0 | 0 | - | - | - | - | - | - | - | - |
 | hello64.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 119 | 0.0 | 218.5 |
 | hello_linux64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 166 | 0.0 | 253.0 |
 | hello_linux_a64 | ok | 5 | 5 | 5 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 203 | 0.0 | 300.5 |
@@ -56,7 +56,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 691 | 0.0 | 712.0 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 380 | 0.0 | 397.4 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 441 | 0.0 | 594.1 |
-| total | 46/52 ok | 314 | 314 | 321 | 5 | 5 | 257 | 249 | 721 | 0 | 1622 | 21595 | 0.2 | 652.2 |
+| total | 46/52 ok | 314 | 314 | 327 | 5 | 5 | 257 | 249 | 721 | 0 | 1622 | 21595 | 0.2 | 652.2 |
 
 - gte_psx.exe: C:\Users\tyler\Documents\code\rhipper-asm\testdata\bin\gte_psx.exe is not a PE image this loader reads: the DOS magic at offset 0x0 is 0x5350, not MZ
 - hello_psx.exe: C:\Users\tyler\Documents\code\rhipper-asm\testdata\bin\hello_psx.exe is not a PE image this loader reads: the DOS magic at offset 0x0 is 0x5350, not MZ
@@ -68,6 +68,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | testdata/levels/PENDING.txt | 1 |
 | testdata/vectors/arm32/PENDING.txt | 12 |
 | testdata/vectors/arm64/PENDING.txt | 0 |
+| testdata/vectors/fn/TREE_PENDING.txt | 0 |
 | testdata/vectors/toy/PENDING.txt | 0 |
 | testdata/vectors/x86/PENDING.txt | 1 |
 | testdata/vectors/x86_64/PENDING.txt | 0 |
