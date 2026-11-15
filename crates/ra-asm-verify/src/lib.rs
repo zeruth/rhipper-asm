@@ -20,6 +20,6 @@ pub mod vector;
 pub use generate::{Summary, generate, mutate, summary};
 pub use ledger::{Assumed, Counts, Evidence, Ledger, State, Tested, digest, read_ledger, write_ledger};
 pub use record::{Recorder, Recording, keeping, record};
-pub use replay::{Covered, Difference, Failure, Laid, Replayed, Replayer, Report, replay, replay_abi};
+pub use replay::{Covered, Difference, Failure, Laid, Replayed, Replayer, Report, Runner, replay, replay_abi};
 pub use signature::{Convention, Returned};
 pub use vector::{Call, Error, Left, Register, Run, Vector, read, write};

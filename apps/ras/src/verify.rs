@@ -3,9 +3,11 @@
 //! The vectors come from one run of the image through the interpreter at the machine level (kept
 //! in a vector file with `--write`), or from a vector file with `--vectors`. Each function they
 //! are of replays its vectors at the machine and the promoted level, which take the state, and at
-//! the ABI level through its signature, standing alone as a port does. Its line names the levels
-//! in that order with the vectors each replayed, up to the first level that differs, and then that
-//! level's first difference; the last line counts the functions that replayed at every level.
+//! the ABI level through its signature, standing alone as a port does, and then once more at the
+//! ABI level run by its structured tree, the one the emitters write it from (`tree`). Its line
+//! names the columns in that order with the vectors each replayed, up to the first that differs,
+//! and then that column's first difference; the last line counts the functions that replayed in
+//! every column.
 //!
 //! With `--generate`, a function the vectors never entered that reads and writes only its
 //! arguments, its frame and its result gets vectors of generated inputs, which the machine level
@@ -25,11 +27,17 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use ra_asm_analysis::Analysis;
+use ra_asm_emit::structure::{Graph, Structured, structure};
+use ra_asm_emit::tree::run_tree;
+use ra_asm_ir::interp::Stop;
 use ra_asm_lift::raise::abi::{Signature, infer_assuming};
 use ra_asm_lift::raise::assume;
 use ra_asm_lift::{LiftOptions, Lifted, RaiseLevel, X87Unit};
 use ra_asm_pe::Image;
-use ra_asm_verify::{Covered, Evidence, Ledger, Replayer, Report, Vector};
+use ra_asm_verify::{Covered, Difference, Evidence, Ledger, Replayer, Report, Runner, Vector};
+
+/// The column of a function's line that its structured tree replays in, after the levels.
+const TREE: &str = "tree";
 
 /// Where the vectors come from and which of them replay.
 pub(crate) struct Options<'a> {
@@ -133,14 +141,23 @@ fn verify_here(image: &Image, options: &Options<'_>) -> Result<bool> {
         (RaiseLevel::Promoted, Replayer::new(image, &promoted, RaiseLevel::Promoted)?),
     ];
     for (level, replayer) in &replayers {
-        replay(*level, replayer, &functions, &mut lines, &mut differs);
+        replay(level.name(), &|vector| replayer.replay(vector), &functions, &mut lines, &mut differs);
     }
     drop(replayers);
     let laid = ra_asm_verify::Laid::of(image, &machine)?;
     drop((machine, promoted));
     let (abi, signatures) = signed(image, &analysis);
     let replayer = Replayer::with_signatures(image, &abi, &signatures)?.with_recorded(&laid);
-    replay(RaiseLevel::Abi, &replayer, &functions, &mut lines, &mut differs);
+    replay(RaiseLevel::Abi.name(), &|vector| replayer.replay(vector), &functions, &mut lines, &mut differs);
+    // The structuring's check: the ABI level's functions again, each run by the tree the
+    // emitters write it from.
+    let trees: HashMap<&str, Structured> =
+        abi.module.functions.iter().filter(|f| !f.blocks.is_empty()).map(|f| (f.name.as_str(), structure(f, &Graph::of(f)))).collect();
+    let runner: &Runner<'_> = &|vm, host, body, function, args| match trees.get(function) {
+        Some(tree) => run_tree(vm, host, body, tree, args),
+        None => Err(Stop::fault(format!("@{function} has no tree"))),
+    };
+    replay(TREE, &|vector| Ok(replayer.replayed_by(vector, runner)?.differences), &functions, &mut lines, &mut differs);
 
     for line in lines.values() {
         println!("{line}");
@@ -179,12 +196,12 @@ fn chosen(function: Option<&str>) -> impl Fn(&Vector) -> bool + '_ {
     move |vector: &Vector| wanted.is_none_or(|(name, address)| vector.function == name || address == Some(vector.address))
 }
 
-/// Replays the vectors of each function at `level` and adds the level to its line: `ok` with the
-/// vectors replayed, or the first difference. A function that differed at a level below is not
-/// replayed again.
+/// Replays the vectors of each function through `replayed` and adds the column `column` (a level,
+/// or the tree) to its line: `ok` with the vectors replayed, or the first difference. A function
+/// that differed in a column before is not replayed again.
 fn replay(
-    level: RaiseLevel,
-    replayer: &Replayer<'_>,
+    column: &str,
+    replayed: &dyn Fn(&Vector) -> Result<Vec<Difference>>,
     functions: &BTreeMap<u64, Function<'_>>,
     lines: &mut BTreeMap<u64, String>,
     differs: &mut BTreeSet<u64>,
@@ -194,15 +211,15 @@ fn replay(
             continue;
         }
         let line = lines.get_mut(address).expect("every function has a line");
-        let first = f.vectors.iter().enumerate().find_map(|(n, vector)| match replayer.replay(vector) {
+        let first = f.vectors.iter().enumerate().find_map(|(n, vector)| match replayed(vector) {
             Ok(differences) => differences.first().map(|difference| format!("differs at vector {}: {difference}", n + 1)),
             Err(error) => Some(format!("does not load vector {}: {error:#}", n + 1)),
         });
         let _ = match first {
-            None => write!(line, " {} ok {}", level.name(), f.vectors.len()),
+            None => write!(line, " {column} ok {}", f.vectors.len()),
             Some(what) => {
                 differs.insert(*address);
-                write!(line, " {} {what}", level.name())
+                write!(line, " {column} {what}")
             }
         };
     }

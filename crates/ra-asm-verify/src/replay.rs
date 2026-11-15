@@ -278,6 +278,12 @@ impl Observer for Blocks {
     }
 }
 
+/// What runs the replayed function in place of its call ([`Replayer::replayed_by`]): given the
+/// machine of the vector, the host that answers its calls from the record, the name of the
+/// function's body in the replayed module, the function's name as the vector has it and the
+/// arguments of its entry, it gives what the function returned or how it stopped.
+pub type Runner<'r> = dyn Fn(&mut Vm<'_>, &mut dyn Host, &str, &str, Vec<Value>) -> Result<Value, Stop> + 'r;
+
 /// A module made ready to replay vectors: every function's body is set apart under a name of
 /// its own, so a call of the function, the recursive one included, comes to the replay's host.
 pub struct Replayer<'a> {
@@ -508,13 +514,25 @@ impl<'a> Replayer<'a> {
 
     /// Replays `vector` and gives what differs with the blocks of the function the replay ran.
     pub fn replayed(&self, vector: &Vector) -> Result<Replayed> {
+        self.replayed_through(vector, None)
+    }
+
+    /// Replays `vector` as [`Self::replayed`] does, the function run by `runner` in place of its
+    /// call: another way to run the same function (its structured tree) is checked against the
+    /// same record. The blocks are those the observer of a call sees, none when `runner` runs the
+    /// blocks itself.
+    pub fn replayed_by(&self, vector: &Vector, runner: &Runner<'_>) -> Result<Replayed> {
+        self.replayed_through(vector, Some(runner))
+    }
+
+    fn replayed_through(&self, vector: &Vector, runner: Option<&Runner<'_>>) -> Result<Replayed> {
         let stopped = !matches!(vector.left, Left::Return) && !vector.calls.is_empty();
-        let first = self.run(vector, stopped)?;
+        let first = self.run(vector, stopped, runner)?;
         if first.differences.is_empty() || !stopped || matches!(vector.left, Left::Exit(_)) {
             return Ok(first);
         }
         // A trap may be the function's own, after its last call returned.
-        let second = self.run(vector, false)?;
+        let second = self.run(vector, false, runner)?;
         Ok(if second.differences.is_empty() { second } else { first })
     }
 
@@ -523,7 +541,7 @@ impl<'a> Replayer<'a> {
     /// it or an answer wrote them, the record's calls it made, and the registers, the bytes and the
     /// way it left. None at the ABI level, or when the function did not run.
     pub(crate) fn rerun(&self, vector: &Vector) -> Result<(Replayed, Option<Vector>)> {
-        self.execute(vector, false, true)
+        self.execute(vector, false, true, None)
     }
 
     /// The names of the blocks of `function` as the replay runs it, in the order of the
@@ -563,14 +581,15 @@ impl<'a> Replayer<'a> {
         Ok(report)
     }
 
-    /// One replay of `vector`, its last call read as the one that stopped when `stops`.
-    fn run(&self, vector: &Vector, stops: bool) -> Result<Replayed> {
-        Ok(self.execute(vector, stops, false)?.0)
+    /// One replay of `vector`, its last call read as the one that stopped when `stops`, the
+    /// function run by `runner` when there is one.
+    fn run(&self, vector: &Vector, stops: bool, runner: Option<&Runner<'_>>) -> Result<Replayed> {
+        Ok(self.execute(vector, stops, false, runner)?.0)
     }
 
     /// One replay of `vector` as [`Self::run`] makes it, with the vector of the run itself when
     /// `made` and the level takes a state.
-    fn execute(&self, vector: &Vector, stops: bool, made: bool) -> Result<(Replayed, Option<Vector>)> {
+    fn execute(&self, vector: &Vector, stops: bool, made: bool, runner: Option<&Runner<'_>>) -> Result<(Replayed, Option<Vector>)> {
         let body = format!("{}{BODY}", vector.function);
         let Some(f) = self.module.function(&body) else { return Ok((Replayed::differs(Difference::Function), None)) };
         let over_state = f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void;
@@ -627,7 +646,10 @@ impl<'a> Replayer<'a> {
         let ran = Rc::new(RefCell::new(BTreeSet::new()));
         vm.observer = Some(Box::new(Blocks { body: body.clone(), open: Vec::new(), ran: Rc::clone(&ran) }));
         vm.memory.arm();
-        let result = vm.call_named(&mut host, &body, arguments);
+        let result = match runner {
+            Some(runner) => runner(&mut vm, &mut host, &body, &vector.function, arguments),
+            None => vm.call_named(&mut host, &body, arguments),
+        };
         host.wrote(vm.memory.disarm());
         vm.observer = None;
         let blocks: BTreeSet<String> = {

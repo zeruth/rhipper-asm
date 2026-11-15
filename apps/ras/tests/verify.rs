@@ -62,8 +62,11 @@ fn every_function_of_control64_replays_at_every_level() {
     for line in &lines[..functions] {
         let words: Vec<&str> = line.split(' ').collect();
         assert!(
-            matches!(words.as_slice(), [_, "machine", "ok", m, "promoted", "ok", p, "abi", "ok", a] if m == p && p == a),
-            "each level replays the function's vectors: {line}"
+            matches!(
+                words.as_slice(),
+                [_, "machine", "ok", m, "promoted", "ok", p, "abi", "ok", a, "tree", "ok", t] if m == p && p == a && a == t
+            ),
+            "each level and the tree replay the function's vectors: {line}"
         );
     }
 }

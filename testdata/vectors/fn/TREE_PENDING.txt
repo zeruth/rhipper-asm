@@ -1,0 +1,4 @@
+# The functions of the fixtures whose structured trees differ from their graphs on a committed
+# vector the graph replays, one line each as the fixtures test of ra-asm-emit's tree tests prints
+# it: a structuring bug not fixed yet. The test fails on a function that differs and is not here,
+# and on one here whose tree replays now, so the file only shrinks.

@@ -1,11 +1,26 @@
 //! The structured tree against the graph it came from: one small function per statement kind,
 //! structured, then run by the interpreter as its graph and as its tree. The two give the same
 //! result, and a tree that does not follow its graph is a fault that names the function.
+//!
+//! Over the fixtures, every function of each program of `testdata/bin` is structured at the ABI
+//! level, and the committed vectors of `testdata/vectors/fn` that replay through its graph replay
+//! again through its tree, against the same record. A tree that differs where its graph does not
+//! is a structuring bug, held in `testdata/vectors/fn/TREE_PENDING.txt` until it is fixed.
 
-use ra_asm_emit::structure::{COPY_LIMIT, Graph, Stmt, structure};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
+
+use ra_asm_emit::structure::{COPY_LIMIT, Graph, Stmt, Structured, structure};
 use ra_asm_emit::tree::run_tree;
 use ra_asm_ir::interp::{Host, Memory, Stop, Value, Vm};
 use ra_asm_ir::{BinOp, BlockId, FnType, Function, FunctionBuilder, ICond, Inst, Module, Operand, Terminator, Type, ValueId};
+use ra_asm_lift::raise::abi::Signature;
+use ra_asm_lift::{LiftOptions, Lifted, RaiseLevel, X87Unit};
+use ra_asm_pe::Image;
+use ra_asm_verify::{Replayer, Runner};
 
 /// A host no function of these tests calls.
 struct NoHost;
@@ -353,3 +368,172 @@ fn a_tree_that_leaves_its_graph_is_a_fault_that_names_the_function() {
     // The graph still runs: the fault is the tree's.
     assert_eq!(vm.call_named(&mut NoHost, "diamond", vec![Value::Int(3)]), Ok(Value::Int(103)));
 }
+
+// region The fixtures
+
+const VECTORS_AT_LEAST: usize = 400;
+const REPLAY_WITHIN: Duration = Duration::from_secs(60);
+
+/// The functions of the fixtures whose trees differ from their graphs, one line each as the
+/// fixtures test prints it.
+const PENDING: &str = "testdata/vectors/fn/TREE_PENDING.txt";
+
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// What the trees of one program did with its vectors.
+#[derive(Default)]
+struct Trees {
+    /// The vectors replayed through a tree: those whose graph replays.
+    vectors: usize,
+    functions: usize,
+    /// One line for each function whose tree differed: its first difference.
+    differences: Vec<String>,
+}
+
+#[test]
+fn every_function_of_the_fixtures_replays_its_vectors_through_its_tree() {
+    let programs = programs();
+    assert!(!programs.is_empty(), "no vectors are committed under testdata/vectors/fn");
+    let start = Instant::now();
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<(&str, Trees)>> = Mutex::new(Vec::new());
+    let workers = std::thread::available_parallelism().map_or(1, usize::from).min(4);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|n| {
+                // The interpreter recurses with the program's calls, past a test thread's stack.
+                std::thread::Builder::new()
+                    .name(format!("trees-{n}"))
+                    .stack_size(256 << 20)
+                    .spawn_scoped(scope, || {
+                        while let Some(name) = programs.get(next.fetch_add(1, Ordering::Relaxed)) {
+                            let trees = trees_of(name);
+                            results.lock().unwrap().push((name.as_str(), trees));
+                        }
+                    })
+                    .expect("a worker starts")
+            })
+            .collect();
+        for handle in handles {
+            handle.join().expect("a worker ends");
+        }
+    });
+    let elapsed = start.elapsed();
+
+    let mut results = results.into_inner().unwrap();
+    results.sort_by_key(|(name, _)| *name);
+    let vectors: usize = results.iter().map(|(_, trees)| trees.vectors).sum();
+    let functions: usize = results.iter().map(|(_, trees)| trees.functions).sum();
+    let differences: Vec<&str> = results.iter().flat_map(|(_, trees)| trees.differences.iter().map(String::as_str)).collect();
+    println!(
+        "replayed {vectors} vectors of {functions} functions of {} programs through their trees in {:.1} s",
+        results.len(),
+        elapsed.as_secs_f64()
+    );
+
+    let pending = pending(&root().join(PENDING));
+    let new: Vec<&str> = differences.iter().copied().filter(|line| !pending.contains_key(key(line))).collect();
+    let keys: HashSet<&str> = differences.iter().copied().map(key).collect();
+    let fixed: Vec<&str> = pending.iter().filter(|(held, _)| !keys.contains(held.as_str())).map(|(_, line)| line.as_str()).collect();
+    println!("{} functions' trees differ as {PENDING} holds", differences.len() - new.len());
+    assert!(new.is_empty(), "{} functions' trees differ from their graphs, which {PENDING} does not hold:\n{}", new.len(), new.join("\n"));
+    assert!(
+        fixed.is_empty(),
+        "{} functions of {PENDING} no longer differ through their trees: take them out of it\n{}",
+        fixed.len(),
+        fixed.join("\n")
+    );
+    assert!(vectors >= VECTORS_AT_LEAST, "{vectors} vectors replayed through trees, not {VECTORS_AT_LEAST}");
+    assert!(elapsed < REPLAY_WITHIN, "the replay took {:.1} s, past {} s", elapsed.as_secs_f64(), REPLAY_WITHIN.as_secs());
+}
+
+/// The programs whose vectors are committed, by the name of their `.fv` file, in order.
+fn programs() -> Vec<String> {
+    let dir = root().join("testdata/vectors/fn");
+    let entries = std::fs::read_dir(&dir).unwrap_or_else(|error| panic!("reading {}: {error}", dir.display()));
+    let mut names: Vec<String> = entries
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            if path.extension()? != "fv" {
+                return None;
+            }
+            Some(path.file_stem()?.to_str()?.to_owned())
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// The functions `file` holds as pending, each line by its [`key`]; none when there is no file.
+fn pending(file: &Path) -> BTreeMap<String, String> {
+    let Ok(text) = std::fs::read_to_string(file) else { return BTreeMap::new() };
+    let lines = text.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#'));
+    lines.map(|line| (key(line).to_owned(), line.to_owned())).collect()
+}
+
+/// What a line of a difference is of: the program and the function, its first two words.
+fn key(line: &str) -> &str {
+    line.match_indices(' ').nth(1).map_or(line, |(at, _)| &line[..at])
+}
+
+/// Structures every function of `name` at the ABI level and replays each committed vector whose
+/// graph replays through the tree of its function, up to each function's first difference.
+fn trees_of(name: &str) -> Trees {
+    let file = root().join("testdata/vectors/fn").join(format!("{name}.fv"));
+    let text = std::fs::read_to_string(&file).unwrap_or_else(|error| panic!("reading {}: {error}", file.display()));
+    let vectors = ra_asm_verify::read(&text).unwrap_or_else(|error| panic!("reading the vectors of {}: {error}", file.display()));
+    let image = image(name);
+    let (abi, signatures) = signed(&image);
+    let trees: HashMap<&str, Structured> =
+        abi.module.functions.iter().filter(|f| !f.blocks.is_empty()).map(|f| (f.name.as_str(), structure(f, &Graph::of(f)))).collect();
+    let replayer = Replayer::with_signatures(&image, &abi, &signatures).unwrap_or_else(|error| panic!("{name}: {error:#}"));
+    let runner: &Runner<'_> = &|vm, host, body, function, args| match trees.get(function) {
+        Some(tree) => run_tree(vm, host, body, tree, args),
+        None => Err(Stop::fault(format!("@{function} has no tree"))),
+    };
+
+    let mut replayed = Trees::default();
+    let mut seen: HashMap<u64, usize> = HashMap::new();
+    let mut ran: HashSet<u64> = HashSet::new();
+    let mut differ: HashSet<u64> = HashSet::new();
+    for vector in &vectors {
+        let n = seen.entry(vector.address).or_default();
+        *n += 1;
+        // A vector the graph does not replay is the fixtures test of ra-asm-verify's to hold.
+        if differ.contains(&vector.address) || !replayer.replay(vector).is_ok_and(|differences| differences.is_empty()) {
+            continue;
+        }
+        replayed.vectors += 1;
+        ran.insert(vector.address);
+        let what = match replayer.replayed_by(vector, runner) {
+            Ok(tree) => tree.differences.first().map(ToString::to_string),
+            Err(error) => Some(format!("does not load: {error:#}")),
+        };
+        if let Some(what) = what {
+            differ.insert(vector.address);
+            replayed.differences.push(format!("{name} {} vector {}: {what}", vector.function, *n));
+        }
+    }
+    replayed.functions = ran.len();
+    replayed
+}
+
+fn image(name: &str) -> Image {
+    let path = root().join("testdata/bin").join(format!("{name}.exe"));
+    ra_asm_pe::load(&path).unwrap_or_else(|error| panic!("{}: {error:#}", path.display()))
+}
+
+/// `image` lifted standing alone and raised to the ABI level, with the signatures of its
+/// functions under the names the run knows.
+fn signed(image: &Image) -> (Lifted, HashMap<String, Signature>) {
+    let analysis = ra_asm_analysis::analyze(image);
+    let mut lifted = ra_asm_lift::lift_with(image, &analysis, LiftOptions { standalone: true, x87: X87Unit::Double });
+    let options = lifted.raise_options(RaiseLevel::Abi);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
+    (lifted, signatures)
+}
+
+// endregion
