@@ -26,6 +26,7 @@ Start a card that spans these crates from the definition, not from a whole-file 
 - `Host` (`crates/ra-asm-ir/src/interp/mod.rs`) — the trait the interpreter calls for a function the module does not define: `call(&mut self, vm, name, ty, args) -> Result<Value, Stop>`; the lift's runtime and import host is `crates/ra-asm-lift/src/run/host.rs`, the replayer's `crates/ra-asm-verify/src/replay.rs`.
 - `Vm::call_named` (`crates/ra-asm-ir/src/interp/mod.rs`) — calls a module function by name on a `Vm::new(&Module, Memory)`: the `&mut dyn Host`, the name and a `Vec<Value>` of arguments; a host calls back into the module with it.
 - `ra-asm-verify` (`crates/ra-asm-verify/src/lib.rs`) — `record(&Image, &Lifted, &Options)` takes a run's function vectors, `replay(&Image, &Lifted, RaiseLevel, &[Vector])` and `replay_abi(.., &signatures, ..)` run them again and give the `Failure`s.
+- A new runtime shim lands in four places: the `%State` model and the runtime globals in `crates/ra-asm-lift/src/state.rs`, the C runtime in `runtime/driver.c`, the Rust runtime in `runtime/rhipper.rs`, and the interpreter host in `crates/ra-asm-lift/src/run/host.rs`; a 32-bit name also maps in `x86_shim` (`crates/ra-asm-lift/src/raise/prototypes.rs`), and `ras doctor` reads `driver.c`'s definitions one per line ending in `{`.
 
 ## Build and checks
 
