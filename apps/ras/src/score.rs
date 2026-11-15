@@ -2,7 +2,9 @@
 //! the directory and a `total` row: the functions at each level (the machine and promoted
 //! modules' functions, the ABI level's functions with a signature), the traps and the functions
 //! that hold one, the functions whose every recorded vector replays at the machine and at the
-//! promoted level, and the gotos and casts per thousand lines of the C the emit writes. Under the
+//! promoted level, the assumptions of the raise by state (discharged by code, checked by a vector
+//! that ran the site, open; see [`ra_asm_verify::ledger`]), and the gotos and casts per thousand
+//! lines of the C the emit writes. Under the
 //! table, the entries of each pending list of the `testdata` tree the directory lies in, and the
 //! tests each oracle ignores, its debugging and maintenance aids aside. Markdown for a person,
 //! `--json` for a test.
@@ -21,7 +23,8 @@
 //!   "programs": [ { "program": "control64.exe", "status": "ok", "seconds": 2.1,
 //!                   "functions": { "machine": 40, "promoted": 40, "abi": 40 },
 //!                   "traps": 0, "trapping": 0, "vectors": 52, "recorded": 21,
-//!                   "verified": { "machine": 21, "promoted": 21 }, "stop": null,
+//!                   "verified": { "machine": 21, "promoted": 21 },
+//!                   "assumptions": { "discharged": 30, "checked": 2, "open": 9 }, "stop": null,
 //!                   "lines": 900, "gotos": 3, "casts": 120,
 //!                   "per_thousand": { "gotos": 3.3, "casts": 133.3 }, "error": null } ],
 //!   "total": { "program": "total", "status": "1/1 ok", ... },
@@ -67,7 +70,7 @@ use anyhow::{Context, Result, bail};
 use ra_asm_analysis::Analysis;
 use ra_asm_lift::{LiftOptions, Lifted, RaiseLevel, X87Unit};
 use ra_asm_pe::Image;
-use ra_asm_verify::{Replayer, Vector};
+use ra_asm_verify::{Counts, Replayer, Vector};
 use serde_json::{Value, json};
 
 /// The counts over a tree.
@@ -381,8 +384,8 @@ const ORACLES: [&str; 2] = ["crates/ra-asm-lift/tests/oracle.rs", "crates/ra-asm
 const AIDS: [&str; 2] = ["a debugging aid", "a maintenance aid"];
 
 /// The columns of the board's table.
-const COLUMNS: &str =
-    "| program | status | machine | promoted | abi | traps | trapping | verified machine | verified promoted | lines | gotos ‰ | casts ‰ |";
+const COLUMNS: &str = "| program | status | machine | promoted | abi | traps | trapping | verified machine | verified promoted | \
+                       discharged | checked | open | lines | gotos ‰ | casts ‰ |";
 
 /// What `ras score <dir>` was asked for.
 pub(crate) struct Options {
@@ -418,6 +421,11 @@ struct Row {
     /// The functions whose every vector replays at the level.
     verified_machine: Option<u64>,
     verified_promoted: Option<u64>,
+    /// The assumptions of the raise: discharged by code, checked by a vector through the site,
+    /// and open.
+    discharged: Option<u64>,
+    checked: Option<u64>,
+    open: Option<u64>,
     /// The lexical half of the C of the emit.
     lines: Option<u64>,
     gotos: Option<u64>,
@@ -445,6 +453,9 @@ impl Row {
             recorded: n("recorded"),
             verified_machine: n("verified_machine"),
             verified_promoted: n("verified_promoted"),
+            discharged: n("discharged"),
+            checked: n("checked"),
+            open: n("open"),
             lines: n("lines"),
             gotos: n("gotos"),
             casts: n("casts"),
@@ -470,6 +481,9 @@ impl Row {
             recorded: sum(|r| r.recorded),
             verified_machine: sum(|r| r.verified_machine),
             verified_promoted: sum(|r| r.verified_promoted),
+            discharged: sum(|r| r.discharged),
+            checked: sum(|r| r.checked),
+            open: sum(|r| r.open),
             lines: sum(|r| r.lines),
             gotos: sum(|r| r.gotos),
             casts: sum(|r| r.casts),
@@ -489,6 +503,7 @@ impl Row {
             "vectors": self.vectors,
             "recorded": self.recorded,
             "verified": {"machine": self.verified_machine, "promoted": self.verified_promoted},
+            "assumptions": {"discharged": self.discharged, "checked": self.checked, "open": self.open},
             "stop": self.stop,
             "lines": self.lines,
             "gotos": self.gotos,
@@ -503,7 +518,7 @@ impl Row {
         let n = |v: Option<u64>| v.map_or_else(|| "-".to_owned(), |v| v.to_string());
         let f = |v: Option<f64>| v.map_or_else(|| "-".to_owned(), |v| format!("{v:.1}"));
         format!(
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             self.program,
             self.status,
             n(self.machine),
@@ -513,6 +528,9 @@ impl Row {
             n(self.trapping),
             n(self.verified_machine),
             n(self.verified_promoted),
+            n(self.discharged),
+            n(self.checked),
+            n(self.open),
             n(self.lines),
             f(per_thousand(self.gotos, self.lines)),
             f(per_thousand(self.casts, self.lines)),
@@ -773,6 +791,8 @@ fn columns(pe: &Path, files: &[PathBuf]) -> Result<()> {
         }
     };
     line(&json!({"verified_machine": verified(&image, &machine, RaiseLevel::Machine, &vectors)?}));
+    let counts = assumptions(&image, &analysis, &machine, &vectors)?;
+    line(&json!({"discharged": counts.discharged, "checked": counts.checked, "open": counts.open}));
     drop(machine);
     let promoted = mapped(&image, &analysis, RaiseLevel::Promoted);
     line(&json!({"promoted": stateful(&promoted)}));
@@ -792,6 +812,16 @@ fn mapped(image: &Image, analysis: &Analysis<'_>, level: RaiseLevel) -> Lifted {
 /// The functions of the image in the module.
 fn stateful(lifted: &Lifted) -> usize {
     lifted.module.functions.iter().filter(|f| f.address.is_some()).count()
+}
+
+/// The assumptions of the raise over the image by state, as `ras verify --ledger` notes them:
+/// checked where a vector that replays equal at the machine level runs the site. Vectors that do
+/// not load check nothing.
+fn assumptions(image: &Image, analysis: &Analysis<'_>, machine: &Lifted, vectors: &[Vector]) -> Result<Counts> {
+    let mut replayer = Replayer::new(image, machine, RaiseLevel::Machine)?;
+    replayer.limit = REPLAY_LIMIT;
+    let report = if vectors.is_empty() { None } else { replayer.report(vectors).ok() };
+    Ok(crate::verify::ledger(image, analysis, machine, report.as_ref().map(|report| (&replayer, report))).counts())
 }
 
 /// The functions whose every vector replays against `lifted` without a difference; a vector that

@@ -6,6 +6,10 @@
 //! the ABI level through its signature, standing alone as a port does. Its line names the levels
 //! in that order with the vectors each replayed, up to the first level that differs, and then that
 //! level's first difference; the last line counts the functions that replayed at every level.
+//!
+//! With `--ledger <gen dir>`, what the machine level's replay showed is merged into the ledger
+//! there (see [`ra_asm_verify::ledger`]): the blocks each function's vectors ran, and each
+//! assumption of the raise as discharged, checked or open ([`ledger`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -13,10 +17,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use ra_asm_analysis::Analysis;
-use ra_asm_lift::raise::abi::Signature;
+use ra_asm_lift::raise::abi::{Signature, infer_assuming};
+use ra_asm_lift::raise::assume;
 use ra_asm_lift::{LiftOptions, Lifted, RaiseLevel, X87Unit};
 use ra_asm_pe::Image;
-use ra_asm_verify::{Replayer, Vector};
+use ra_asm_verify::{Covered, Evidence, Ledger, Replayer, Report, Vector};
 
 /// Where the vectors come from and which of them replay.
 pub(crate) struct Options<'a> {
@@ -30,6 +35,8 @@ pub(crate) struct Options<'a> {
     pub write: Option<&'a Path>,
     /// The one function to verify, by name or by address.
     pub function: Option<&'a str>,
+    /// The gen directory whose ledger takes what the run showed (see [`ledger`]).
+    pub ledger: Option<&'a Path>,
 }
 
 /// The vectors of one function, in the order the run kept them.
@@ -88,6 +95,27 @@ fn verify_here(image: &Image, options: &Options<'_>) -> Result<bool> {
 
     let mut lines: BTreeMap<u64, String> = functions.iter().map(|(address, f)| (*address, f.name.to_owned())).collect();
     let mut differs: BTreeSet<u64> = BTreeSet::new();
+    if let Some(gen_dir) = options.ledger {
+        let replayer = Replayer::new(image, &machine, RaiseLevel::Machine)?;
+        let chosen: Vec<Vector> = functions.values().flat_map(|f| f.vectors.iter().map(|v| (*v).clone())).collect();
+        let report = replayer.report(&chosen)?;
+        let mut run = ledger(image, &analysis, &machine, Some((&replayer, &report)));
+        for (address, covered) in &report.covered {
+            let Some(function) = analysis.functions.get(address) else { continue };
+            let name = machine.functions.get(address).map_or(covered.function.as_str(), String::as_str);
+            let digest = ra_asm_verify::digest(&bytes(image, function));
+            run.note(*address, name, digest, RaiseLevel::Machine.name(), Evidence::Tested(covered.tested.clone()));
+        }
+        let written = ra_asm_verify::ledger::update(gen_dir, run)?;
+        let counts = written.counts();
+        eprintln!(
+            "the ledger {} holds {} assumptions discharged, {} checked, {} open",
+            ra_asm_verify::ledger::path(gen_dir).display(),
+            counts.discharged,
+            counts.checked,
+            counts.open
+        );
+    }
     let promoted = lifted(image, &analysis, RaiseLevel::Promoted);
     let replayers = [
         (RaiseLevel::Machine, Replayer::new(image, &machine, RaiseLevel::Machine)?),
@@ -138,6 +166,57 @@ fn replay(
             }
         };
     }
+}
+
+/// What the raise assumes of the functions of `image`, as ledger lines: the jump tables the
+/// analysis read, and what the ABI step relies on at each call, discharged where the code proves
+/// it. `machine` is the machine level, whose names the lines take. With the replay of the
+/// recorded vectors at that level, an assumption the lifted code stops at is checked where an
+/// equal vector ran its site; without one, nothing is checked.
+pub(crate) fn ledger(image: &Image, analysis: &Analysis<'_>, machine: &Lifted, replayed: Option<(&Replayer<'_>, &Report)>) -> Ledger {
+    let base = ra_asm_lift::lift(image, analysis);
+    let target = base.raise_options(RaiseLevel::Machine).target();
+    let mut assumptions = assume::tables(analysis.functions.values());
+    assumptions.extend(infer_assuming(&base.module, &base.roots, target, &base.vtables, &base.traced_calls).assumptions);
+    let addresses: HashMap<&str, u64> = base.module.functions.iter().filter_map(|f| Some((f.name.as_str(), f.address?))).collect();
+    let mut out = Ledger::default();
+    let mut digests: HashMap<u64, u64> = HashMap::new();
+    for assumption in &assumptions {
+        let Some(&address) = addresses.get(assumption.function.as_str()) else { continue };
+        let Some(function) = analysis.functions.get(&address) else { continue };
+        let name = machine.functions.get(&address).map_or(assumption.function.as_str(), String::as_str);
+        let ran = match (assumption.site, replayed) {
+            (Some(site), Some((replayer, report))) => site_ran(function, site, replayer, report.covered.get(&address)),
+            _ => false,
+        };
+        let digest = *digests.entry(address).or_insert_with(|| ra_asm_verify::digest(&bytes(image, function)));
+        let (assumed, state) = ra_asm_verify::ledger::assumption(assumption, ran);
+        out.assume(address, name, digest, assumed, state);
+    }
+    out
+}
+
+/// Whether a vector of the function that replayed equal ran the block of `site`, by the name the
+/// lift gives the block that starts where the analysis's does.
+fn site_ran(function: &ra_asm_analysis::Function, site: u64, replayer: &Replayer<'_>, covered: Option<&Covered>) -> bool {
+    let Some(covered) = covered else { return false };
+    let Some(block) = function.blocks.iter().find(|b| b.contains(site)) else { return false };
+    let name = format!("b_{:x}", block.start);
+    let lifted = replayer.blocks(&covered.function).is_some_and(|blocks| blocks.contains(&name.as_str()));
+    lifted && !covered.tested.never.contains(&name)
+}
+
+/// The bytes of a function's blocks, in the order of the blocks; a block the image does not map
+/// gives none.
+fn bytes(image: &Image, function: &ra_asm_analysis::Function) -> Vec<u8> {
+    let mut out = Vec::new();
+    for block in &function.blocks {
+        let len = usize::try_from(block.end.saturating_sub(block.start)).unwrap_or(0);
+        if let Ok(bytes) = image.read(block.start, len) {
+            out.extend_from_slice(bytes);
+        }
+    }
+    out
 }
 
 /// The vector file `write` names for `program`: itself, or in a directory the program's name

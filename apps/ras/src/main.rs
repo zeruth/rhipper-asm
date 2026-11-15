@@ -415,6 +415,11 @@ enum Command {
         /// The one function to verify, by name or by address: `fib`, `0x140001000` or `F_140001000`.
         #[arg(long)]
         function: Option<String>,
+        /// Merge what the machine level's replay showed into the ledger of this gen directory
+        /// (`ledger.txt`): each function's tested blocks and its assumptions, discharged, checked
+        /// or open.
+        #[arg(long, value_name = "DIR")]
+        ledger: Option<PathBuf>,
     },
     /// The first step of the raise and the first function after it that differ: the vectors of
     /// one interpreted run (or of a vector file) replayed at the machine level, then after each
@@ -554,9 +559,14 @@ fn command() -> anyhow::Result<()> {
             cards::pending(&paths, milestone.as_deref())
         }
         Command::Case { pe, function, pass } => case::case(&load(&pe, sigs)?, &function, &pass),
-        Command::Verify { pe, vectors, write, function } => {
-            let options =
-                verify::Options { program: &pe, vectors: vectors.as_deref(), write: write.as_deref(), function: function.as_deref() };
+        Command::Verify { pe, vectors, write, function, ledger } => {
+            let options = verify::Options {
+                program: &pe,
+                vectors: vectors.as_deref(),
+                write: write.as_deref(),
+                function: function.as_deref(),
+                ledger: ledger.as_deref(),
+            };
             if !verify::verify(&load(&pe, sigs)?, &options)? {
                 std::process::exit(1)
             }

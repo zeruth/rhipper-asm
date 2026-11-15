@@ -15,7 +15,7 @@ pub mod replay;
 pub mod signature;
 pub mod vector;
 
-pub use ledger::{Evidence, Ledger, Tested, digest, read_ledger, write_ledger};
+pub use ledger::{Assumed, Counts, Evidence, Ledger, State, Tested, digest, read_ledger, write_ledger};
 pub use record::{Recorder, Recording, keeping, record};
 pub use replay::{Covered, Difference, Failure, Replayed, Replayer, Report, replay, replay_abi};
 pub use signature::{Convention, Returned};

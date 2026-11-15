@@ -1,15 +1,17 @@
-//! The ledger: its file, the merge of runs, the lines a function loses when its bytes change, and
-//! the `coverage` of `control64.exe`: the blocks its recorded vectors ran when they replay.
+//! The ledger: its file, the merge of runs, the lines a function loses when its bytes change, the
+//! `assumptions` of a function and their state, and the `coverage` of `control64.exe`: the blocks
+//! its recorded vectors ran when they replay.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use ra_asm_lift::raise::assume::{Assumption, Kind, Step};
 use ra_asm_lift::{Lifted, RaiseLevel};
 use ra_asm_pe::Image;
 use ra_asm_verify::ledger::{self, Function};
 use ra_asm_verify::record::record;
-use ra_asm_verify::{Evidence, Ledger, Replayer, Report, Tested, Vector, digest, read_ledger, write_ledger};
+use ra_asm_verify::{Assumed, Counts, Evidence, Ledger, Replayer, Report, State, Tested, Vector, digest, read_ledger, write_ledger};
 
 const BYTES: u64 = 0x9b5f_3c8e_2a1d_4f70;
 
@@ -166,6 +168,125 @@ fn the_gen_directory_merges_across_runs() {
     assert_eq!(written.evidence(0x1_4000_1000, "machine"), tested(12, 5, &["b_140001020", "b_14000103a"]));
     assert_eq!(std::fs::read_to_string(ledger::path(&gen_dir)).unwrap(), write_ledger(&written).unwrap());
     assert!(matches!(written.functions.get(&0x1_4000_2000), Some(Function { name, .. }) if name == "main"));
+}
+
+/// An assumption of `F_140001000` as the raise lists it.
+fn raised(step: Step, kind: Kind, site: Option<u64>, discharged: Option<u64>) -> Assumption {
+    Assumption { function: "F_140001000".to_owned(), step, kind, site, discharged }
+}
+
+/// The sample with one assumption in each state, and one without a site.
+fn assuming() -> Ledger {
+    let mut ledger = sample();
+    for (assumption, ran) in [
+        (raised(Step::Abi, Kind::CalleeSaved, Some(0x1_4000_1010), Some(0x1_4000_2000)), false),
+        (raised(Step::JumpTable, Kind::TableIndex, Some(0x1_4000_1024), None), true),
+        (raised(Step::Devirtualize, Kind::CompleteCandidates, Some(0x1_4000_1040), None), true),
+        (raised(Step::Stack, Kind::BalancedStack, None, None), false),
+    ] {
+        let (assumed, state) = ledger::assumption(&assumption, ran);
+        ledger.assume(0x1_4000_1000, "F_140001000", BYTES, assumed, state);
+    }
+    ledger
+}
+
+const ASSUMING: &str = "\
+ra-asm-verify ledger 1
+
+function F_140001000 at 0x140001000 bytes 0x9b5f3c8e2a1d4f70
+  c none
+  machine tested 12 vectors, 3 of 5 blocks, never b_140001020 b_14000103a
+  promoted traced
+  assumes balanced-stack by stack open
+  assumes callee-saved by abi at 0x140001010 discharged by 0x140002000
+  assumes table-index by jump-table at 0x140001024 checked
+  assumes complete-candidates by devirtualize at 0x140001040 open
+
+function main at 0x140002000 bytes 0x1
+  abi tested 1 vector, 1 of 1 block
+";
+
+fn assumed(kind: &str, step: &str, site: Option<u64>) -> Assumed {
+    Assumed { site, kind: kind.to_owned(), step: step.to_owned() }
+}
+
+#[test]
+fn assumptions_write_then_read() {
+    let text = write_ledger(&assuming()).unwrap();
+    assert_eq!(text, ASSUMING);
+    assert_eq!(read_ledger(&text).unwrap(), assuming());
+}
+
+#[test]
+fn assumptions_are_discharged_checked_or_open() {
+    let ledger = assuming();
+    let function = &ledger.functions[&0x1_4000_1000];
+    assert_eq!(function.assumptions[&assumed("callee-saved", "abi", Some(0x1_4000_1010))], State::Discharged(0x1_4000_2000));
+    assert_eq!(function.assumptions[&assumed("table-index", "jump-table", Some(0x1_4000_1024))], State::Checked);
+    // The lifted code does not stop where a vtable slot holds another class's function: a run
+    // through the site shows nothing.
+    assert_eq!(function.assumptions[&assumed("complete-candidates", "devirtualize", Some(0x1_4000_1040))], State::Open);
+    // A table no vector ran through is open, and a site the lift did not give can be run by none.
+    let (_, state) = ledger::assumption(&raised(Step::JumpTable, Kind::TableIndex, Some(0x1_4000_1024), None), false);
+    assert_eq!(state, State::Open);
+    let (_, state) = ledger::assumption(&raised(Step::JumpTable, Kind::TableIndex, None, None), true);
+    assert_eq!(state, State::Open);
+
+    assert_eq!(function.counts(), Counts { discharged: 1, checked: 1, open: 2 });
+    assert_eq!(ledger.counts(), function.counts());
+    assert_eq!(
+        function.proved_under(),
+        [
+            "table-index at 0x140001024 by jump-table, checked",
+            "balanced-stack by stack, open",
+            "complete-candidates at 0x140001040 by devirtualize, open",
+        ]
+    );
+    assert!(ledger.functions[&0x1_4000_2000].proved_under().is_empty());
+}
+
+#[test]
+fn assumptions_keep_the_stronger_state_and_go_with_changed_bytes() {
+    let table = assumed("table-index", "jump-table", Some(0x1_4000_1024));
+    let candidates = assumed("complete-candidates", "devirtualize", Some(0x1_4000_1040));
+    let mut held = assuming();
+    held.assume(0x1_4000_1000, "F_140001000", BYTES, table.clone(), State::Open);
+    assert_eq!(held.functions[&0x1_4000_1000].assumptions[&table], State::Checked, "a run that did not reach the site takes nothing away");
+
+    let mut later = Ledger::default();
+    later.assume(0x1_4000_1000, "F_140001000", BYTES, candidates.clone(), State::Checked);
+    later.assume(0x1_4000_1000, "F_140001000", BYTES, table.clone(), State::Open);
+    held.merge(later);
+    let function = &held.functions[&0x1_4000_1000];
+    assert_eq!(function.assumptions[&candidates], State::Checked);
+    assert_eq!(function.assumptions[&table], State::Checked);
+    assert_eq!(function.counts(), Counts { discharged: 1, checked: 2, open: 1 });
+    assert_eq!(held.evidence(0x1_4000_1000, "machine"), tested(12, 5, &["b_140001020", "b_14000103a"]), "the evidence stands");
+
+    let changed = digest(b"\xc3");
+    let mut noted = assuming();
+    noted.assume(0x1_4000_1000, "F_140001000", changed, table.clone(), State::Open);
+    assert_eq!(noted.functions[&0x1_4000_1000].assumptions.len(), 1);
+    assert_eq!(noted.functions[&0x1_4000_1000].assumptions[&table], State::Open);
+    assert_eq!(noted.evidence(0x1_4000_1000, "machine"), Evidence::None);
+}
+
+#[test]
+fn assumptions_that_do_not_read_are_refused() {
+    let function = "ra-asm-verify ledger 1\nfunction f at 0x1 bytes 0x2\n";
+    let read = |line: &str| read_ledger(&format!("{function}  {line}\n"));
+    assert_eq!(read("assumes table-index by jump-table at 0x10 checked").unwrap().functions[&1].counts().checked, 1);
+    assert_eq!(read("assumes frame-pointer by stack discharged by 0x20").unwrap().functions[&1].counts().discharged, 1);
+    assert!(read("assumes table-index by jump-table at 0x10 held").is_err());
+    assert!(read("assumes table-index by jump-table at ten open").is_err());
+    assert!(read("assumes table-index by jump-table discharged").is_err());
+    assert!(read("assumes table-index jump-table open").is_err());
+    assert!(read("assumes table-index by jump-table open\n  assumes table-index by jump-table open").is_err());
+    assert!(read_ledger("ra-asm-verify ledger 1\n  assumes table-index by jump-table open\n").is_err());
+    // A step of that name would read back as an assumption.
+    let mut ledger = Ledger::default();
+    ledger.note(1, "f", 2, "assumes", Evidence::Traced);
+    assert!(write_ledger(&ledger).is_err());
 }
 
 /// `op_div` of the fixture: `if (b == 0) fail(3)`, entered once with a divisor of six, so the

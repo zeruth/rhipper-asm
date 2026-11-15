@@ -8,6 +8,13 @@
 //! A function's lines hold for the bytes they were learned on: the ledger keeps a digest of them,
 //! and a function whose bytes changed starts over.
 //!
+//! Beside the evidence, the ledger keeps what the raise assumed of each function (see
+//! [`ra_asm_lift::raise::assume`]) and how far each assumption is known to hold, weakest first:
+//! `open`, nothing shows it; `checked`, a recorded vector ran its site through code that stops
+//! where it does not hold, as the checked build's `ra_assume` does, and it held; `discharged`, the
+//! code the step found proves it, by that code's address. What a function is proved under is its
+//! assumptions that are not discharged ([`Function::proved_under`]).
+//!
 //! The file is text in the project's gen directory, one item a line:
 //!
 //! ```text
@@ -17,10 +24,14 @@
 //!   machine tested 12 vectors, 3 of 5 blocks, never b_140001020 b_14000103a
 //!   promoted traced
 //!   c none
+//!   assumes callee-saved by abi at 0x140001010 discharged by 0x140002000
+//!   assumes table-index by jump-table at 0x140001024 checked
+//!   assumes complete-candidates by devirtualize at 0x140001040 open
 //! ```
 //!
-//! Functions go by address, steps and blocks by name, all in order. A blank line and a line that
-//! starts with `#` say nothing; the indentation is for the reader.
+//! Functions go by address, steps and blocks by name, assumptions by site, kind and step, all in
+//! order; an assumption the lift gave no site has no `at`. A blank line and a line that starts with
+//! `#` say nothing; the indentation is for the reader.
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
@@ -29,11 +40,20 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
+use ra_asm_lift::raise::assume::{Assumption, Kind};
 
 use crate::vector::{Error, hex64, word};
 
 /// The line every ledger file starts with; the number is the format's version.
 const HEADER: &str = "ra-asm-verify ledger 1";
+
+/// The first word of an assumption's line, which no step is called.
+const ASSUMES: &str = "assumes";
+
+/// The kinds of assumption the lifted code stops at where they do not hold, so a vector that
+/// replays equal through the site shows it held there: a jump table's index outside the table
+/// goes to the trap of the switch, as the checked build's `ra_assume` stops.
+const WATCHED: [Kind; 1] = [Kind::TableIndex];
 
 /// The ledger's file name in the gen directory.
 pub const FILE_NAME: &str = "ledger.txt";
@@ -141,7 +161,87 @@ impl fmt::Display for Tested {
     }
 }
 
-/// One function's lines: the bytes they hold for and the evidence of each step.
+/// One thing the raise assumed of a function: where, what, and the step that relied on it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Assumed {
+    /// The address of the instruction it is made at, when the lift gave it one.
+    pub site: Option<u64>,
+    /// The kind, by its report name ([`Kind::name`]), one word.
+    pub kind: String,
+    /// The step, by its report name, one word.
+    pub step: String,
+}
+
+/// `table-index at 0x140001024 by jump-table`, as a person reads it.
+impl fmt::Display for Assumed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.kind)?;
+        if let Some(site) = self.site {
+            write!(f, " at {site:#x}")?;
+        }
+        write!(f, " by {}", self.step)
+    }
+}
+
+/// How far an assumption is known to hold, ordered by strength.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum State {
+    /// Nothing shows it holds.
+    #[default]
+    Open,
+    /// A recorded vector ran the site through code that stops where it does not hold, and the
+    /// vector replayed equal.
+    Checked,
+    /// The code at this address proves it: the check the step saw, or the callee whose summary
+    /// keeps what the call assumed.
+    Discharged(u64),
+}
+
+/// The state as its line says it: `open`, `checked`, `discharged by 0x140002000`.
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Open => f.write_str("open"),
+            Self::Checked => f.write_str("checked"),
+            Self::Discharged(by) => write!(f, "discharged by {by:#x}"),
+        }
+    }
+}
+
+/// The assumption `assumption` as the ledger keeps it, and its state: discharged when the step
+/// found the code that proves it, checked when it is of a [`WATCHED`] kind and `ran` says a
+/// vector that replayed equal ran its site, open otherwise.
+#[must_use]
+pub fn assumption(assumption: &Assumption, ran: bool) -> (Assumed, State) {
+    let assumed = Assumed { site: assumption.site, kind: assumption.kind.name().to_owned(), step: assumption.step.name().to_owned() };
+    let state = match assumption.discharged {
+        Some(by) => State::Discharged(by),
+        None if ran && assumption.site.is_some() && WATCHED.contains(&assumption.kind) => State::Checked,
+        None => State::Open,
+    };
+    (assumed, state)
+}
+
+/// The assumptions of a function or a program, by state.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Counts {
+    pub discharged: usize,
+    pub checked: usize,
+    pub open: usize,
+}
+
+impl Counts {
+    fn add(&mut self, state: State) {
+        match state {
+            State::Open => self.open += 1,
+            State::Checked => self.checked += 1,
+            State::Discharged(_) => self.discharged += 1,
+        }
+    }
+}
+
+/// One function's lines: the bytes they hold for, the evidence of each step and the assumptions
+/// of the raise.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Function {
     /// The function's name, one word.
@@ -150,6 +250,47 @@ pub struct Function {
     pub bytes: u64,
     /// The evidence of each step, by the step's name, one word.
     pub steps: BTreeMap<String, Evidence>,
+    /// What the raise assumed of the function, with how far each is known to hold.
+    pub assumptions: BTreeMap<Assumed, State>,
+}
+
+impl Function {
+    /// A function of no line yet.
+    fn new(name: &str, bytes: u64) -> Self {
+        Self { name: name.to_owned(), bytes, ..Self::default() }
+    }
+
+    /// The assumptions by state.
+    #[must_use]
+    pub fn counts(&self) -> Counts {
+        let mut counts = Counts::default();
+        for state in self.assumptions.values() {
+            counts.add(*state);
+        }
+        counts
+    }
+
+    /// What the function is proved under: a line for each assumption no code discharges, the
+    /// checked ones first, each as `table-index at 0x140001024 by jump-table, checked`.
+    #[must_use]
+    pub fn proved_under(&self) -> Vec<String> {
+        let mut open: Vec<(&Assumed, State)> =
+            self.assumptions.iter().filter(|(_, state)| !matches!(state, State::Discharged(_))).map(|(a, s)| (a, *s)).collect();
+        open.sort_by_key(|(_, state)| std::cmp::Reverse(*state));
+        open.into_iter().map(|(assumed, state)| format!("{assumed}, {state}")).collect()
+    }
+
+    /// Joins what two runs show of the function's lines on the same bytes.
+    fn join(&mut self, other: Function) {
+        for (step, evidence) in other.steps {
+            let kept = self.steps.entry(step).or_default();
+            *kept = std::mem::take(kept).join(evidence);
+        }
+        for (assumed, state) in other.assumptions {
+            let kept = self.assumptions.entry(assumed).or_default();
+            *kept = (*kept).max(state);
+        }
+    }
 }
 
 /// The evidence of a program's functions, by address.
@@ -168,16 +309,41 @@ impl Ledger {
     /// Notes evidence of a step on a function whose bytes have the digest `bytes`. It joins
     /// what the ledger held ([`Evidence::join`]); the lines of the function's former bytes go.
     pub fn note(&mut self, address: u64, name: &str, bytes: u64, step: &str, evidence: Evidence) {
-        let function = self.functions.entry(address).or_default();
-        if function.bytes != bytes || function.name != name {
-            *function = Function { name: name.to_owned(), bytes, steps: BTreeMap::new() };
-        }
-        let held = function.steps.entry(step.to_owned()).or_default();
+        let held = self.on(address, name, bytes).steps.entry(step.to_owned()).or_default();
         *held = std::mem::take(held).join(evidence);
     }
 
+    /// Notes an assumption of the function at `address`, on bytes of the digest `bytes`, in the
+    /// state `state`: the stronger of it and what the ledger held stands; the lines of the
+    /// function's former bytes go.
+    pub fn assume(&mut self, address: u64, name: &str, bytes: u64, assumed: Assumed, state: State) {
+        let held = self.on(address, name, bytes).assumptions.entry(assumed).or_default();
+        *held = (*held).max(state);
+    }
+
+    /// The lines of the function at `address` on the bytes `bytes`, those of other bytes or
+    /// another name dropped.
+    fn on(&mut self, address: u64, name: &str, bytes: u64) -> &mut Function {
+        let function = self.functions.entry(address).or_default();
+        if function.bytes != bytes || function.name != name {
+            *function = Function::new(name, bytes);
+        }
+        function
+    }
+
+    /// The assumptions of every function by state.
+    #[must_use]
+    pub fn counts(&self) -> Counts {
+        let mut counts = Counts::default();
+        for state in self.functions.values().flat_map(|function| function.assumptions.values()) {
+            counts.add(*state);
+        }
+        counts
+    }
+
     /// Takes in the ledger of a later run. Where both hold a function on the same bytes, every
-    /// step joins the evidence of both; where the bytes differ, the later run's lines stand.
+    /// step joins the evidence of both and every assumption keeps the stronger state; where the
+    /// bytes differ, the later run's lines stand.
     pub fn merge(&mut self, later: Ledger) {
         for (address, function) in later.functions {
             match self.functions.entry(address) {
@@ -187,10 +353,7 @@ impl Ledger {
                 Entry::Occupied(mut slot) => {
                     let held = slot.get_mut();
                     if held.bytes == function.bytes && held.name == function.name {
-                        for (step, evidence) in function.steps {
-                            let kept = held.steps.entry(step).or_default();
-                            *kept = std::mem::take(kept).join(evidence);
-                        }
+                        held.join(function);
                     } else {
                         *held = function;
                     }
@@ -224,8 +387,8 @@ pub fn write_ledger(ledger: &Ledger) -> Result<String, Error> {
         let _ = write!(out, "\nfunction {name} at {address:#x} bytes {:#x}\n", function.bytes);
         for (step, evidence) in &function.steps {
             let step = word(step, "step")?;
-            if step.starts_with('#') {
-                return Err(Error::unwritable(format!("the step name {step:?} would read as a comment")));
+            if step.starts_with('#') || step == ASSUMES {
+                return Err(Error::unwritable(format!("the step name {step:?} would read as another line")));
             }
             let _ = match evidence {
                 Evidence::None => writeln!(out, "  {step} none"),
@@ -237,6 +400,15 @@ pub fn write_ledger(ledger: &Ledger) -> Result<String, Error> {
                     writeln!(out, "  {step} tested {tested}")
                 }
             };
+        }
+        for (assumed, state) in &function.assumptions {
+            let kind = word(&assumed.kind, "assumption kind")?;
+            let step = word(&assumed.step, "assumption step")?;
+            let _ = write!(out, "  {ASSUMES} {kind} by {step}");
+            if let Some(site) = assumed.site {
+                let _ = write!(out, " at {site:#x}");
+            }
+            let _ = writeln!(out, " {state}");
         }
     }
     Ok(out)
@@ -261,7 +433,7 @@ pub fn read_ledger(text: &str) -> Result<Ledger, Error> {
         match words.as_slice() {
             ["function", name, "at", address, "bytes", bytes] => {
                 let address = hex64(line, address)?;
-                let function = Function { name: (*name).to_owned(), bytes: hex64(line, bytes)?, steps: BTreeMap::new() };
+                let function = Function::new(name, hex64(line, bytes)?);
                 if ledger.functions.contains_key(&address) || current.as_ref().is_some_and(|(held, _)| *held == address) {
                     return Err(Error::at(line, format!("the function at {address:#x} is in the ledger twice")));
                 }
@@ -270,6 +442,26 @@ pub fn read_ledger(text: &str) -> Result<Ledger, Error> {
                 }
             }
             ["function", ..] => return Err(Error::at(line, "expected `function <name> at <address> bytes <digest>`")),
+            [ASSUMES, kind, "by", step, rest @ ..] => {
+                let Some((address, function)) = current.as_mut() else {
+                    return Err(Error::at(line, format!("the assumption `{kind}` comes before any function")));
+                };
+                let (site, state) = match rest {
+                    ["at", site, state @ ..] => (Some(hex64(line, site)?), state),
+                    state => (None, state),
+                };
+                let state = match state {
+                    ["open"] => State::Open,
+                    ["checked"] => State::Checked,
+                    ["discharged", "by", by] => State::Discharged(hex64(line, by)?),
+                    _ => return Err(Error::at(line, "expected `open`, `checked` or `discharged by <address>` after the assumption")),
+                };
+                let assumed = Assumed { site, kind: (*kind).to_owned(), step: (*step).to_owned() };
+                if function.assumptions.insert(assumed, state).is_some() {
+                    return Err(Error::at(line, format!("the assumption `{kind}` of the function at {address:#x} is in the ledger twice")));
+                }
+            }
+            [ASSUMES, ..] => return Err(Error::at(line, format!("expected `{ASSUMES} <kind> by <step> [at <site>] <state>`"))),
             [step, rest @ ..] => {
                 let Some((address, function)) = current.as_mut() else {
                     return Err(Error::at(line, format!("the step `{step}` comes before any function")));
