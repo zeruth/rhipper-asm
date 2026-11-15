@@ -197,6 +197,16 @@ uint64_t ra_x86_interlocked_decrement(uint64_t target);
 uint64_t ra_x86_interlocked_exchange(uint64_t target, uint64_t value);
 uint64_t ra_x86_interlocked_exchange_add(uint64_t target, uint64_t value);
 uint64_t ra_x86_interlocked_compare_exchange(uint64_t target, uint64_t exchange, uint64_t comparand);
+// The module handles and the functions of the 64-bit host, which do not fit a 32-bit program's
+// dword: a handle above 4 GB comes back as a dword that stands for it, a function as a trampoline
+// below 4 GB that carries what a call through it pops.
+uint64_t ra_x86_get_module_handle_a(uint64_t name);
+uint64_t ra_x86_get_module_handle_w(uint64_t name);
+uint64_t ra_x86_load_library_a(uint64_t name);
+uint64_t ra_x86_load_library_w(uint64_t name);
+uint64_t ra_x86_load_library_ex_a(uint64_t name, uint64_t file, uint64_t flags);
+uint64_t ra_x86_load_library_ex_w(uint64_t name, uint64_t file, uint64_t flags);
+uint64_t ra_x86_get_proc_address(uint64_t module, uint64_t name);
 // The C++ runtime's `operator new` and `operator delete` a 32-bit program links statically,
 // over the host's heap.
 uint64_t ra_x86_operator_new(uint64_t size);

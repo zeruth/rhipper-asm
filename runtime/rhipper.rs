@@ -215,6 +215,11 @@ unsafe extern "system" {
     fn GetCurrentThreadId() -> u32;
     fn GetEnvironmentStringsA() -> *const u8;
     fn LoadLibraryA(name: *const u8) -> usize;
+    fn LoadLibraryW(name: *const u16) -> usize;
+    fn LoadLibraryExA(name: *const u8, file: usize, flags: u32) -> usize;
+    fn LoadLibraryExW(name: *const u16, file: usize, flags: u32) -> usize;
+    fn GetModuleHandleA(name: *const u8) -> usize;
+    fn GetModuleHandleW(name: *const u16) -> usize;
     fn GetProcAddress(module: usize, name: usize) -> usize;
     fn VirtualQuery(address: usize, info: *mut MemoryInfo, size: usize) -> usize;
     fn WaitForMultipleObjects(count: u32, handles: *const usize, all: i32, milliseconds: u32) -> u32;
@@ -1063,6 +1068,70 @@ pub unsafe fn ra_x86_interlocked_compare_exchange(target: u64, exchange: u64, co
     let ordering = core::sync::atomic::Ordering::SeqCst;
     let old = interlocked(target).compare_exchange(comparand as i32, exchange as i32, ordering, ordering).unwrap_or_else(|v| v);
     u64::from(old as u32)
+}
+
+/// The module handles a 32-bit program holds: a host module below 4 GB is its own handle, one
+/// above is the address of the cell here that keeps it, which the program's `GetProcAddress` reads
+/// back.
+static mut MODULE_CELLS: [usize; 256] = [0; 256];
+
+unsafe fn module_dword(module: usize) -> u64 {
+    if module as u64 <= u64::from(u32::MAX) {
+        return module as u64;
+    }
+    let cells = (&raw mut MODULE_CELLS).cast::<usize>();
+    for i in 0..256 {
+        let cell = cells.add(i);
+        if *cell == 0 {
+            *cell = module;
+        }
+        if *cell == module {
+            return u64::from(cell as usize as u32);
+        }
+    }
+    eprintln!("ra: more than 256 modules above 4 GB");
+    std::process::exit(0xE000_0004u32 as i32)
+}
+
+unsafe fn module_of_dword(handle: u64) -> usize {
+    let at = handle as u32 as usize;
+    let cells = (&raw const MODULE_CELLS).cast::<usize>() as usize;
+    if at >= cells && at < cells + 256 * 8 && (at - cells) % 8 == 0 { *(at as *const usize) } else { at }
+}
+
+pub unsafe fn ra_x86_get_module_handle_a(name: u64) -> u64 {
+    module_dword(GetModuleHandleA(name as usize as *const u8))
+}
+
+pub unsafe fn ra_x86_get_module_handle_w(name: u64) -> u64 {
+    module_dword(GetModuleHandleW(name as usize as *const u16))
+}
+
+pub unsafe fn ra_x86_load_library_a(name: u64) -> u64 {
+    module_dword(LoadLibraryA(name as usize as *const u8))
+}
+
+pub unsafe fn ra_x86_load_library_w(name: u64) -> u64 {
+    module_dword(LoadLibraryW(name as usize as *const u16))
+}
+
+pub unsafe fn ra_x86_load_library_ex_a(name: u64, file: u64, flags: u64) -> u64 {
+    module_dword(LoadLibraryExA(name as usize as *const u8, file as usize, flags as u32))
+}
+
+pub unsafe fn ra_x86_load_library_ex_w(name: u64, file: u64, flags: u64) -> u64 {
+    module_dword(LoadLibraryExW(name as usize as *const u16, file as usize, flags as u32))
+}
+
+/// `GetProcAddress` of a 32-bit program: a function below 4 GB as it is. The Rust runtime has no
+/// trampoline to hand out for one above, which a dword cannot name: the port stops there.
+pub unsafe fn ra_x86_get_proc_address(module: u64, name: u64) -> u64 {
+    let f = GetProcAddress(module_of_dword(module), name as u32 as usize);
+    if f as u64 > u64::from(u32::MAX) {
+        eprintln!("ra: GetProcAddress hands out a function above 4 GB, which the Rust runtime has no trampoline for");
+        std::process::exit(0xE000_0004u32 as i32);
+    }
+    f as u64
 }
 
 unsafe extern "C" {

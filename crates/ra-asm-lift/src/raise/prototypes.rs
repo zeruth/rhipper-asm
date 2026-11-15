@@ -154,6 +154,17 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
     arity(name).map(|n| 4 * n as u64)
 }
 
+/// The bytes a function pops that a 32-bit program asks `GetProcAddress` for by `name`, when the
+/// table knows it as a `stdcall` function of the Windows API: a call through the pointer it is
+/// handed is no import's, so the runtime's trampoline for it carries them. A variadic function's
+/// caller pops, and the runtime takes a C runtime DLL's function as `cdecl` by its module.
+pub fn proc_pops(name: &str) -> Option<u64> {
+    if is_variadic(name) {
+        return None;
+    }
+    stdcall_pops("", name)
+}
+
 /// The runtime's own version of an import that a 32-bit program cannot call on the 64-bit host
 /// as it is: the C runtime functions that walk a table of pointers (`_initterm` and the onexit
 /// table) or hand back one (`argv`, the environment), where the width of a pointer is the
@@ -266,6 +277,16 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         // `type_info::name()` caches the undecorated name in a dword of the descriptor, which the
         // host reads as eight bytes.
         "__std_type_info_name" => "ra_x86_std_type_info_name",
+        // A module handle and a function's address of the 64-bit host do not fit the program's
+        // dword: the runtime hands out a dword that stands for the handle, and for the function a
+        // trampoline below 4 GB that carries what a call through it pops.
+        "GetModuleHandleA" => "ra_x86_get_module_handle_a",
+        "GetModuleHandleW" => "ra_x86_get_module_handle_w",
+        "LoadLibraryA" => "ra_x86_load_library_a",
+        "LoadLibraryW" => "ra_x86_load_library_w",
+        "LoadLibraryExA" => "ra_x86_load_library_ex_a",
+        "LoadLibraryExW" => "ra_x86_load_library_ex_w",
+        "GetProcAddress" => "ra_x86_get_proc_address",
         _ => return None,
     })
 }
@@ -482,6 +503,10 @@ pub fn arity(name: &str) -> Option<usize> {
         | "GetModuleHandleW"
         | "LoadLibraryA"
         | "LoadLibraryW"
+        | "ra_x86_get_module_handle_a"
+        | "ra_x86_get_module_handle_w"
+        | "ra_x86_load_library_a"
+        | "ra_x86_load_library_w"
         | "FreeLibrary"
         | "FreeEnvironmentStringsW"
         | "IsValidCodePage"
@@ -641,6 +666,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "GlobalAlloc"
         | "LocalAlloc"
         | "GetProcAddress"
+        | "ra_x86_get_proc_address"
         | "SetEnvironmentVariableA"
         | "SetEnvironmentVariableW"
         | "GetCPInfo"
@@ -736,6 +762,8 @@ pub fn arity(name: &str) -> Option<usize> {
         | "GetModuleFileNameW"
         | "LoadLibraryExA"
         | "LoadLibraryExW"
+        | "ra_x86_load_library_ex_a"
+        | "ra_x86_load_library_ex_w"
         | "GetEnvironmentVariableA"
         | "GetEnvironmentVariableW"
         | "InitializeCriticalSectionEx"

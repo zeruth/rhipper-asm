@@ -76,11 +76,11 @@ const fn regimm(rt: u32) -> u32 {
 }
 
 const fn plain(name: &'static str, mask: u32, bits: u32, fields: &'static [Field]) -> Form {
-    Form { row: Row { name, mask, bits, fields, flow: Flow::Next, sem: None }, delay: Delay::None, reach: Reach::Row }
+    Form { row: Row { name, mask, bits, fields, flow: Flow::Next, outlined: false, sem: None }, delay: Delay::None, reach: Reach::Row }
 }
 
 const fn transfer(name: &'static str, mask: u32, bits: u32, fields: &'static [Field], flow: Flow, delay: Delay) -> Form {
-    Form { row: Row { name, mask, bits, fields, flow, sem: None }, delay, reach: Reach::Row }
+    Form { row: Row { name, mask, bits, fields, flow, outlined: false, sem: None }, delay, reach: Reach::Row }
 }
 
 /// The forms, each alias after the form it narrows: `nop`, `move`, `not`, `negu`, `b`, `beqz`,
@@ -102,7 +102,7 @@ const FORMS: &[Form] = &[
     plain("movz", R3, 0x0a, &[RD, RS, RT]),
     plain("movn", R3, 0x0b, &[RD, RS, RT]),
     Form {
-        row: Row { name: "syscall", mask: FUNCT, bits: 0x0c, fields: &[], flow: Flow::Next, sem: None },
+        row: Row { name: "syscall", mask: FUNCT, bits: 0x0c, fields: &[], flow: Flow::Next, outlined: false, sem: None },
         delay: Delay::None,
         reach: Reach::System,
     },
@@ -147,12 +147,12 @@ const FORMS: &[Form] = &[
     transfer("bgezall", OP_RT, regimm(0x13), &[RS, OFFSET], Flow::Call, Delay::Likely),
     // The jumps into the region.
     Form {
-        row: Row { name: "j", mask: OP, bits: op(0x02), fields: &[INDEX], flow: Flow::Jump, sem: None },
+        row: Row { name: "j", mask: OP, bits: op(0x02), fields: &[INDEX], flow: Flow::Jump, outlined: false, sem: None },
         delay: Delay::Slot,
         reach: Reach::Region,
     },
     Form {
-        row: Row { name: "jal", mask: OP, bits: op(0x03), fields: &[INDEX], flow: Flow::Call, sem: None },
+        row: Row { name: "jal", mask: OP, bits: op(0x03), fields: &[INDEX], flow: Flow::Call, outlined: false, sem: None },
         delay: Delay::Slot,
         reach: Reach::Region,
     },

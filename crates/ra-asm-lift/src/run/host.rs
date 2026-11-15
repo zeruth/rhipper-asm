@@ -1295,6 +1295,26 @@ impl<'a> Runtime<'a> {
                 let text = self.format_list(vm, a(2), a(4), 4)?;
                 self.write_stream(vm, a(1), &text)
             }
+            // The interpreter's module handles and function addresses fit a dword: it answers
+            // these as the imports themselves.
+            "ra_x86_get_module_handle_a"
+            | "ra_x86_get_module_handle_w"
+            | "ra_x86_load_library_a"
+            | "ra_x86_load_library_w"
+            | "ra_x86_load_library_ex_a"
+            | "ra_x86_load_library_ex_w"
+            | "ra_x86_get_proc_address" => {
+                let import = match name {
+                    "ra_x86_get_module_handle_a" => "GetModuleHandleA",
+                    "ra_x86_get_module_handle_w" => "GetModuleHandleW",
+                    "ra_x86_load_library_a" => "LoadLibraryA",
+                    "ra_x86_load_library_w" => "LoadLibraryW",
+                    "ra_x86_load_library_ex_a" => "LoadLibraryExA",
+                    "ra_x86_load_library_ex_w" => "LoadLibraryExW",
+                    _ => "GetProcAddress",
+                };
+                self.intercept(vm, import, args)?.ok_or_else(|| Stop::fault(format!("{import} is not interpreted")))
+            }
             _ => Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
         }
     }

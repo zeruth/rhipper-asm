@@ -735,6 +735,7 @@ fn lift_on(
     if lifted.bits == 32 {
         let images: Vec<&Image> = images.iter().map(|(i, _)| *i).collect();
         lifted.module.globals.extend(state::import_pops_globals(&images, &lifted));
+        lifted.module.globals.push(state::proc_pops_global(&images, &lifted));
     }
     for (symbol, offset, tail) in &lifted.wrappers {
         let wrapper = match isa {

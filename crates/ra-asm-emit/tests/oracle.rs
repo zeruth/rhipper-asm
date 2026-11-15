@@ -1876,9 +1876,9 @@ fn rhtest_misc_clang_runs_as_rust() {
 
 /// The 32-bit Win32 programs as C: the imports that take a structure laid out apart on x86 and
 /// x64 go through the wrappers of `adapters.c`, a union's and a window procedure's among them; the
-/// interlocked list and the timer queue go to the runtime's, over the program's own layout.
+/// interlocked list and the timer queue go to the runtime's, over the program's own layout, and a
+/// function it asks `GetProcAddress` for is reached through a trampoline that carries its pops.
 #[test]
-#[ignore = "63 of sys's 68 lines match; at `env get` the program calls GetEnvironmentVariableA through GetProcAddress, which it does not import: the 64-bit module handle and function address truncate to 32 bits and the call's pops are unknown (#495)"]
 fn rhtest_sys_clang_runs_as_c() {
     run_rhtest_as_c("sys", "clang");
 }

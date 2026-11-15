@@ -2240,23 +2240,77 @@ extern const uint64_t ra_import_pops[];
 extern uint64_t ra_pops;
 static uint64_t *import_addresses;
 
-// The trampolines the 32-bit import slots are bound to (see bind_imports): `mov rax, imm64; jmp
-// rax`, 12 bytes each, in a page below 4 GB.
+// The trampolines a 32-bit program reaches a host function through, whose address does not fit
+// the program's dword: the import slots' (see bind_imports) and what the program's GetProcAddress
+// hands out. Each is `mov rax, imm64; jmp rax` and then, never executed, the bytes a call through
+// it pops as an int32 (-1 when the binding table says), 16 bytes in a region below 4 GB with room
+// for every import and the functions the program asks for besides.
+#define TRAMPOLINE_BYTES 16
+#define TRAMPOLINE_COUNT 16384
 static uint8_t *slot_trampolines;
-static size_t slot_trampoline_bytes;
+static size_t slot_trampolines_used;
+
+// The trampoline of ours at `target`, or NULL.
+static uint8_t *trampoline_at(uint64_t target) {
+    uint8_t *p = (uint8_t *)(uintptr_t)target;
+    if (!slot_trampolines || p < slot_trampolines || p >= slot_trampolines + slot_trampolines_used * TRAMPOLINE_BYTES) return NULL;
+    return (size_t)(p - slot_trampolines) % TRAMPOLINE_BYTES == 0 ? p : NULL;
+}
 
 // The host function a trampoline of ours jumps to, or `target` itself.
 static uint64_t through_trampoline(uint64_t target) {
-    uint8_t *p = (uint8_t *)(uintptr_t)target;
-    if (slot_trampolines && p >= slot_trampolines && p + 12 <= slot_trampolines + slot_trampoline_bytes && p[0] == 0x48 && p[1] == 0xB8) {
-        uint64_t host;
-        memcpy(&host, p + 2, 8);
-        return host;
-    }
-    return target;
+    uint8_t *p = trampoline_at(target);
+    if (!p) return target;
+    uint64_t host;
+    memcpy(&host, p + 2, 8);
+    return host;
 }
 
+#ifdef _WIN32
+// A trampoline below 4 GB to `f` that pops `pops`: the one handed out before for both, else a new one.
+static uint32_t trampoline(FARPROC f, int32_t pops) {
+    if (!slot_trampolines) {
+        for (uintptr_t base = 0x10000000; base < 0x80000000 && !slot_trampolines; base += 0x01000000) {
+            slot_trampolines = VirtualAlloc((void *)base, TRAMPOLINE_BYTES * TRAMPOLINE_COUNT, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+        }
+        if (!slot_trampolines) {
+            fprintf(stderr, "ra: no room below 4 GB for the import trampolines\n");
+            host_exit(0xE0000004);
+        }
+    }
+    uint64_t host = (uint64_t)(uintptr_t)f;
+    for (size_t i = 0; i < slot_trampolines_used; i++) {
+        uint8_t *p = slot_trampolines + i * TRAMPOLINE_BYTES;
+        uint64_t to;
+        int32_t popped;
+        memcpy(&to, p + 2, 8);
+        memcpy(&popped, p + 12, 4);
+        if (to == host && popped == pops) return (uint32_t)(uintptr_t)p;
+    }
+    if (slot_trampolines_used == TRAMPOLINE_COUNT) {
+        fprintf(stderr, "ra: all %d trampolines below 4 GB are handed out\n", TRAMPOLINE_COUNT);
+        host_exit(0xE0000004);
+    }
+    uint8_t *p = slot_trampolines + slot_trampolines_used * TRAMPOLINE_BYTES;
+    slot_trampolines_used++;
+    p[0] = 0x48;
+    p[1] = 0xB8;
+    memcpy(p + 2, &host, 8);
+    p[10] = 0xFF;
+    p[11] = 0xE0;
+    memcpy(p + 12, &pops, 4);
+    return (uint32_t)(uintptr_t)p;
+}
+#endif
+
 static int64_t import_pops(uint64_t target) {
+    // A function the program asked GetProcAddress for carries its pops in its trampoline.
+    uint8_t *own = trampoline_at(target);
+    if (own) {
+        int32_t pops;
+        memcpy(&pops, own + 12, 4);
+        if (pops >= 0) return pops;
+    }
     target = through_trampoline(target);
     size_t count = 0;
     while (ra_import_pops[3 * count]) count++;
@@ -2281,6 +2335,102 @@ static int64_t import_pops(uint64_t target) {
     }
     return -1;
 }
+
+#ifdef _WIN32
+// The module handles a 32-bit program holds: a host module below 4 GB is its own handle, one above
+// is the address of the cell here that keeps it, which the program's GetProcAddress reads back.
+#define MODULE_CELLS 256
+static HMODULE module_cells[MODULE_CELLS];
+
+static uint64_t module_dword(HMODULE module) {
+    if ((uint64_t)(uintptr_t)module <= 0xFFFFFFFFu) return (uint64_t)(uintptr_t)module;
+    for (int i = 0; i < MODULE_CELLS; i++) {
+        if (!module_cells[i]) module_cells[i] = module;
+        if (module_cells[i] == module) return (uint32_t)(uintptr_t)&module_cells[i];
+    }
+    fprintf(stderr, "ra: more than %d modules above 4 GB\n", MODULE_CELLS);
+    host_exit(0xE0000004);
+}
+
+static HMODULE module_of_dword(uint64_t handle) {
+    uintptr_t at = (uint32_t)handle;
+    uintptr_t cells = (uintptr_t)module_cells;
+    if (at >= cells && at < cells + sizeof module_cells && (at - cells) % sizeof(HMODULE) == 0) return *(HMODULE *)at;
+    return (HMODULE)at;
+}
+
+uint64_t ra_x86_get_module_handle_a(uint64_t name) {
+    HMODULE module = GetModuleHandleA((const char *)(uintptr_t)name);
+    return module ? module_dword(module) : 0;
+}
+
+uint64_t ra_x86_get_module_handle_w(uint64_t name) {
+    HMODULE module = GetModuleHandleW((const wchar_t *)(uintptr_t)name);
+    return module ? module_dword(module) : 0;
+}
+
+uint64_t ra_x86_load_library_a(uint64_t name) {
+    HMODULE module = LoadLibraryA((const char *)(uintptr_t)name);
+    return module ? module_dword(module) : 0;
+}
+
+uint64_t ra_x86_load_library_w(uint64_t name) {
+    HMODULE module = LoadLibraryW((const wchar_t *)(uintptr_t)name);
+    return module ? module_dword(module) : 0;
+}
+
+uint64_t ra_x86_load_library_ex_a(uint64_t name, uint64_t file, uint64_t flags) {
+    HMODULE module = LoadLibraryExA((const char *)(uintptr_t)name, (HANDLE)(uintptr_t)file, (DWORD)flags);
+    return module ? module_dword(module) : 0;
+}
+
+uint64_t ra_x86_load_library_ex_w(uint64_t name, uint64_t file, uint64_t flags) {
+    HMODULE module = LoadLibraryExW((const wchar_t *)(uintptr_t)name, (HANDLE)(uintptr_t)file, (DWORD)flags);
+    return module ? module_dword(module) : 0;
+}
+
+// The lift's table of the pops of the functions the program may ask for by name (see the lift's
+// `ra_proc_pops`): `name\0` and a little-endian u16 each, then an empty name.
+extern const uint8_t ra_proc_pops[];
+
+static int32_t proc_pops(const char *name) {
+    for (const uint8_t *p = ra_proc_pops; *p;) {
+        size_t n = strlen((const char *)p);
+        if (strcmp((const char *)p, name) == 0) return (int32_t)(p[n + 1] | (p[n + 2] << 8));
+        p += n + 3;
+    }
+    return -1;
+}
+
+// Whether `module` is a C runtime DLL, whose functions are cdecl, by its file name.
+static int is_crt_module(HMODULE module) {
+    char path[MAX_PATH];
+    DWORD n = GetModuleFileNameA(module, path, sizeof path);
+    if (n == 0 || n >= sizeof path) return 0;
+    const char *base = path;
+    for (const char *p = path; *p; p++) {
+        if (*p == '\\' || *p == '/') base = p + 1;
+    }
+    static const char *const prefixes[] = {"msvcr", "msvcp", "ucrtbase", "api-ms-win-crt", "vcruntime"};
+    for (size_t i = 0; i < sizeof prefixes / sizeof prefixes[0]; i++) {
+        if (_strnicmp(base, prefixes[i], strlen(prefixes[i])) == 0) return 1;
+    }
+    return _stricmp(base, "crtdll.dll") == 0;
+}
+
+// The function the program asks for, as a trampoline below 4 GB that carries its pops: a C
+// runtime's pops nothing, a Windows API function by name pops what the lift's table says, and
+// one by ordinal or the table does not know leaves them to the binding table.
+uint64_t ra_x86_get_proc_address(uint64_t module, uint64_t name) {
+    HMODULE host = module_of_dword(module);
+    const char *by = (const char *)(uintptr_t)(uint32_t)name;
+    FARPROC f = GetProcAddress(host, by);
+    if (!f) return 0;
+    int32_t pops = -1;
+    if ((uint32_t)name > 0xFFFF) pops = is_crt_module(host) ? 0 : proc_pops(by);
+    return trampoline(f, pops);
+}
+#endif
 #endif
 
 // What the x86 function last called through a pointer popped beyond its return address: an
@@ -2446,36 +2596,6 @@ void ra_call(void *state_, uint64_t target) {
 }
 
 #ifndef RA_STANDALONE
-#if RA_POINTER_SIZE == 4
-// A host function's address does not fit a 32-bit program's slot: the slot is bound to a
-// trampoline in a page below 4 GB, which a call through the slot's value reaches; the binding
-// table sees through it to the host function.
-static uint32_t slot_trampoline(FARPROC f) {
-    if (!slot_trampolines) {
-        size_t count = 0;
-        while (ra_imports[count].slot != 0) count++;
-        slot_trampoline_bytes = (count * 12 + 4095) & ~(size_t)4095;
-        for (uintptr_t base = 0x10000000; base < 0x80000000 && !slot_trampolines; base += 0x01000000) {
-            slot_trampolines = VirtualAlloc((void *)base, slot_trampoline_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-        }
-        if (!slot_trampolines) {
-            fprintf(stderr, "ra: no room below 4 GB for the import trampolines\n");
-            host_exit(0xE0000004);
-        }
-    }
-    static size_t used;
-    uint8_t *p = slot_trampolines + used * 12;
-    used++;
-    p[0] = 0x48;
-    p[1] = 0xB8;
-    uint64_t host = (uint64_t)(uintptr_t)f;
-    memcpy(p + 2, &host, 8);
-    p[10] = 0xFF;
-    p[11] = 0xE0;
-    return (uint32_t)(uintptr_t)p;
-}
-#endif
-
 #ifdef _WIN32
 static void bind_imports(void) {
     for (int i = 0; ra_imports[i].slot != 0; i++) {
@@ -2492,7 +2612,9 @@ static void bind_imports(void) {
             continue;
         }
 #if RA_POINTER_SIZE == 4
-        *(uint32_t *)(uintptr_t)ra_imports[i].slot = slot_trampoline(f);
+        // A host function's address does not fit the slot: the slot holds a trampoline to it,
+        // which the binding table sees through.
+        *(uint32_t *)(uintptr_t)ra_imports[i].slot = trampoline(f, -1);
 #else
         *(uint64_t *)(uintptr_t)ra_imports[i].slot = (uint64_t)(uintptr_t)f;
 #endif
@@ -3778,6 +3900,17 @@ uint64_t GetModuleHandleA(uint64_t name) {
 uint64_t GetModuleHandleW(uint64_t name) {
     return GetModuleHandleA(name);
 }
+
+#if RA_POINTER_SIZE == 4
+// The layer's one module is the program's, whose handle fits the program's dword.
+uint64_t ra_x86_get_module_handle_a(uint64_t name) {
+    return GetModuleHandleA(name);
+}
+
+uint64_t ra_x86_get_module_handle_w(uint64_t name) {
+    return GetModuleHandleA(name);
+}
+#endif
 
 uint64_t GetModuleFileNameA(uint64_t module, uint64_t buffer, uint64_t size) {
     if (module && module != (uint64_t)(uintptr_t)win32_module) return win32_fail(126);

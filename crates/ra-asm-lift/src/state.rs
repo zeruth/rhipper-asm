@@ -332,6 +332,11 @@ pub const ARGS: &str = "ra_args";
 pub const IMPORT_POPS: &str = "ra_import_pops";
 /// The names of [`IMPORT_POPS`]: `dll\0name\0` runs, a name by ordinal as `#n`.
 pub const IMPORT_NAMES: &str = "ra_import_names";
+/// The pops of the functions a 32-bit program may ask `GetProcAddress` for by name: for each name
+/// of a `stdcall` function that the bytes of the image spell, `name\0` and the bytes a call pops as
+/// a little-endian `u16`, then an empty name. The runtime's `GetProcAddress` writes them into the
+/// trampoline it hands out; a name the table lacks leaves the pops to the binding table.
+pub const PROC_POPS: &str = "ra_proc_pops";
 /// The SSE control and status register as the program sets it with `ldmxcsr` and reads it with
 /// `stmxcsr`; the host's own arithmetic keeps its default rounding.
 pub const MXCSR: &str = "ra_mxcsr";
@@ -453,10 +458,51 @@ pub fn import_pops_globals(images: &[&ra_asm_pe::Image], lifted: &crate::Lifted)
     ]
 }
 
+/// The [`PROC_POPS`] table of `images`: empty unless the program calls `GetProcAddress`, whose
+/// names are strings of the image (a name it builds at run time is none of them).
+pub fn proc_pops_global(images: &[&ra_asm_pe::Image], lifted: &crate::Lifted) -> ra_asm_ir::Global {
+    let mut found = std::collections::BTreeMap::new();
+    if lifted.imports.contains("ra_x86_get_proc_address") {
+        for image in images {
+            let bytes = image.mapped();
+            let mut start = 0;
+            for (i, &b) in bytes.iter().enumerate() {
+                if b.is_ascii_alphanumeric() || b == b'_' {
+                    continue;
+                }
+                if b == 0
+                    && i - start >= 2
+                    && let Ok(name) = std::str::from_utf8(&bytes[start..i])
+                    && let Some(pops) = crate::raise::prototypes::proc_pops(name).and_then(|p| u16::try_from(p).ok())
+                {
+                    found.insert(name.to_owned(), pops);
+                }
+                start = i + 1;
+            }
+        }
+    }
+    let mut table = Vec::new();
+    for (name, pops) in found {
+        table.extend_from_slice(name.as_bytes());
+        table.push(0);
+        table.extend_from_slice(&pops.to_le_bytes());
+    }
+    table.push(0);
+    ra_asm_ir::Global {
+        name: PROC_POPS.to_owned(),
+        ty: Type::array(table.len() as u64, Type::I8),
+        init: Some(ra_asm_ir::Const::Bytes(table)),
+        constant: true,
+        linkage: ra_asm_ir::Linkage::External,
+        align: 16,
+        address: None,
+    }
+}
+
 /// Whether `name` is one of the globals of [`define_runtime_globals`], the [`TLS`] descriptor,
 /// the import binding table or the [`ARGS`] of a call through a pointer.
 pub fn is_runtime_global(name: &str) -> bool {
-    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TLS | POPS | ARGS | MXCSR | IMPORT_POPS | IMPORT_NAMES)
+    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TLS | POPS | ARGS | MXCSR | IMPORT_POPS | IMPORT_NAMES | PROC_POPS)
 }
 
 /// The state helpers over one function under construction.
