@@ -17,13 +17,18 @@
 //! into the function of that one instruction. The same function run against a recorder gives what
 //! the instruction reads and writes ([`Machine::access`]), which fills the `Instr`'s registers and
 //! memory flags.
+//!
+//! [`Machine::lift_function`] lifts a function's blocks from the same rows, a delayed row with its
+//! delay slot.
 
 pub mod access;
 pub mod instr;
+pub mod lift;
 pub mod sem;
 pub mod table;
 
 pub use access::Summary;
 pub use instr::{Machine, Syntax};
+pub use lift::Code;
 pub use sem::{Builder, Cond, Fields, Lift, Op, STATE_TYPE, Sem, StateSpec, Val};
-pub use table::{Decoded, Error, Field, Flow, Kind, Row, Table};
+pub use table::{Decoded, Error, Field, Flow, Kind, Row, Table, Transfer};

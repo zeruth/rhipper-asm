@@ -68,6 +68,35 @@ pub enum Flow {
     Return,
     /// Execution does not continue here.
     Trap,
+    /// A transfer that takes effect after the next instruction, its delay slot, has run: the
+    /// condition and the target are what they are before the slot runs, and control goes on past
+    /// the slot. A likely one runs its slot only when it is taken.
+    Delayed {
+        transfer: Transfer,
+        likely: bool,
+    },
+}
+
+/// How a delayed row transfers control, as the flow of the same name does at once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transfer {
+    Jump,
+    Branch,
+    Call,
+    Return,
+}
+
+impl Flow {
+    /// Whether the row is a delayed transfer, which has a delay slot.
+    pub fn delayed(self) -> bool {
+        matches!(self, Flow::Delayed { .. })
+    }
+
+    /// Whether control may go elsewhere than to the next instruction, or come back to it from a
+    /// callee: what a delay slot may not hold.
+    pub fn transfers(self) -> bool {
+        !matches!(self, Flow::Next | Flow::Trap)
+    }
 }
 
 /// Why a set of rows is not a table.

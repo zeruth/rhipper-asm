@@ -3,7 +3,7 @@
 
 use ra_asm_arch::{Flow as ArchFlow, Instr, MemOperand, Operand, Prefixes, Register, Target};
 
-use crate::table::{Flow, Kind, Table};
+use crate::table::{Flow, Kind, Table, Transfer};
 
 /// How a machine's objdump writes the operands that are not registers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,10 +73,10 @@ impl Machine {
         let to = target.map_or(Target::Indirect, Target::Direct);
         let flow = match row.flow {
             Flow::Next => ArchFlow::Next,
-            Flow::Jump => ArchFlow::Jump(to),
-            Flow::Branch => ArchFlow::CondJump(to),
-            Flow::Call => ArchFlow::Call(to),
-            Flow::Return => ArchFlow::Return,
+            Flow::Jump | Flow::Delayed { transfer: Transfer::Jump, .. } => ArchFlow::Jump(to),
+            Flow::Branch | Flow::Delayed { transfer: Transfer::Branch, .. } => ArchFlow::CondJump(to),
+            Flow::Call | Flow::Delayed { transfer: Transfer::Call, .. } => ArchFlow::Call(to),
+            Flow::Return | Flow::Delayed { transfer: Transfer::Return, .. } => ArchFlow::Return,
             Flow::Trap => ArchFlow::Trap,
         };
         let mnemonic = row.name.to_owned();
