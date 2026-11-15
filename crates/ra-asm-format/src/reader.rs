@@ -1,18 +1,40 @@
-//! A [`Reader`] reads fixed-width little-endian values at absolute offsets of a byte slice, and a
-//! [`Cursor`] reads them in sequence. A read past the end fails with the name of the field, the
-//! offset and the length of the slice, so a malformed file points at its own defect.
+//! A [`Reader`] reads fixed-width values at absolute offsets of a byte slice, and a [`Cursor`]
+//! reads them in sequence, both in the reader's [`ByteOrder`]. A read past the end fails with the
+//! name of the field, the offset and the length of the slice, so a malformed file points at its
+//! own defect.
 
 use anyhow::{Result, bail, ensure};
+
+/// The order of the bytes of a multi-byte value. Little is the default, since the PE files the
+/// engine reads first are little-endian; a loader of a big-endian container states it once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ByteOrder {
+    #[default]
+    Little,
+    Big,
+}
 
 /// Random access to a byte slice.
 #[derive(Debug, Clone, Copy)]
 pub struct Reader<'a> {
     bytes: &'a [u8],
+    order: ByteOrder,
 }
 
 impl<'a> Reader<'a> {
+    /// A little-endian reader.
     pub fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes }
+        Self { bytes, order: ByteOrder::Little }
+    }
+
+    /// The same bytes read in `order`, by this reader and by every cursor it makes.
+    #[must_use]
+    pub fn with_order(self, order: ByteOrder) -> Self {
+        Self { order, ..self }
+    }
+
+    pub fn order(&self) -> ByteOrder {
+        self.order
     }
 
     pub fn len(&self) -> usize {
@@ -41,17 +63,29 @@ impl<'a> Reader<'a> {
 
     pub fn u16(&self, offset: usize, what: &str) -> Result<u16> {
         let b = self.slice(offset, 2, what)?;
-        Ok(u16::from_le_bytes([b[0], b[1]]))
+        let b = [b[0], b[1]];
+        Ok(match self.order {
+            ByteOrder::Little => u16::from_le_bytes(b),
+            ByteOrder::Big => u16::from_be_bytes(b),
+        })
     }
 
     pub fn u32(&self, offset: usize, what: &str) -> Result<u32> {
         let b = self.slice(offset, 4, what)?;
-        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        let b = [b[0], b[1], b[2], b[3]];
+        Ok(match self.order {
+            ByteOrder::Little => u32::from_le_bytes(b),
+            ByteOrder::Big => u32::from_be_bytes(b),
+        })
     }
 
     pub fn u64(&self, offset: usize, what: &str) -> Result<u64> {
         let b = self.slice(offset, 8, what)?;
-        Ok(u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
+        let b = [b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]];
+        Ok(match self.order {
+            ByteOrder::Little => u64::from_le_bytes(b),
+            ByteOrder::Big => u64::from_be_bytes(b),
+        })
     }
 
     pub fn i32(&self, offset: usize, what: &str) -> Result<i32> {
@@ -96,6 +130,11 @@ pub struct Cursor<'a> {
 impl<'a> Cursor<'a> {
     pub fn position(&self) -> usize {
         self.pos
+    }
+
+    /// The order of the reader the cursor came from.
+    pub fn order(&self) -> ByteOrder {
+        self.reader.order
     }
 
     /// Moves past `len` bytes. A skip past the end is not a refusal itself: the next read is, and
