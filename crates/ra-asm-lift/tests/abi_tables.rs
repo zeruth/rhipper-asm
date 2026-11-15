@@ -115,3 +115,99 @@ fn target_reads_its_abi() {
     assert!(method.is_some(), "no method found in `impl Target`");
     assert!(offenders.is_empty(), "methods of `Target` that test the ISA:\n  {}", offenders.join("\n  "));
 }
+
+/// Whether `word` names a machine register as the raise's constants spell it: an x86 general
+/// register of 64 or 32 bits, an ARM64 `X` or `W` register or a vector register.
+fn is_register(word: &str) -> bool {
+    const NAMED: [&str; 16] =
+        ["RAX", "RCX", "RDX", "RBX", "RSP", "RBP", "RSI", "RDI", "EAX", "ECX", "EDX", "EBX", "ESP", "EBP", "ESI", "EDI"];
+    let number = |rest: &str| if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) { rest.parse::<u32>().ok() } else { None };
+    if NAMED.contains(&word) {
+        return true;
+    }
+    if let Some(n) = word.strip_prefix("XMM").and_then(number) {
+        return n <= 31;
+    }
+    if let Some(n) = word.strip_prefix('R').and_then(number) {
+        return (8..=15).contains(&n);
+    }
+    word.strip_prefix(['X', 'W']).and_then(number).is_some_and(|n| n <= 30)
+}
+
+/// The ISA tests and register names on one line of code: the words `is_arm64`, `is_arm32` and
+/// registers, and `Isa` as a path.
+fn isa_tests(code: &str) -> usize {
+    let word_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let bytes = code.as_bytes();
+    let mut count = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if !word_byte(bytes[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() && word_byte(bytes[i]) {
+            i += 1;
+        }
+        let word = &code[start..i];
+        if word == "is_arm64" || word == "is_arm32" || (word == "Isa" && code[i..].starts_with("::")) || is_register(word) {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// Every `.rs` file under `dir`, in a stable order.
+fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
+    let mut entries: Vec<PathBuf> =
+        std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())).map(|entry| entry.unwrap().path()).collect();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            sources(&path, out);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// The raise asks for its instruction set, or names a register, in fewer places with every card
+/// that moves an answer into `Target`: the count over `src/raise` (comment lines aside) may not
+/// rise above `testdata/cases/isa_ratchet.txt`, and a fall lowers that number.
+#[test]
+fn ratchet() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/raise");
+    let mut files = Vec::new();
+    sources(&root, &mut files);
+    let mut total = 0;
+    let mut by_file = Vec::new();
+    for path in &files {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let count: usize = text.lines().filter(|line| !line.trim_start().starts_with("//")).map(isa_tests).sum();
+        if count > 0 {
+            let name = path.strip_prefix(&root).unwrap_or(path).display().to_string().replace('\\', "/");
+            by_file.push(format!("{name}: {count}"));
+        }
+        total += count;
+    }
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cases/isa_ratchet.txt");
+    let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let committed: usize = committed
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .and_then(|line| line.parse().ok())
+        .unwrap_or_else(|| panic!("{} holds no count", path.display()));
+    let files = by_file.join("\n  ");
+    assert!(
+        total <= committed,
+        "src/raise tests the ISA or names a register {total} times, above the {committed} of {}:\n  {files}",
+        path.display()
+    );
+    assert!(
+        total == committed,
+        "src/raise tests the ISA or names a register {total} times, below the {committed} of {}: lower it to {total}",
+        path.display()
+    );
+}
