@@ -19,16 +19,19 @@
 //! memory flags.
 //!
 //! [`Machine::lift_function`] lifts a function's blocks from the same rows, a delayed row with its
-//! delay slot.
+//! delay slot; [`Machine::lift_function_outlined`] lifts an outlined row as a call to the one
+//! function of it ([`Outlines`]).
 
 pub mod access;
 pub mod instr;
 pub mod lift;
+pub mod outline;
 pub mod sem;
 pub mod table;
 
 pub use access::Summary;
 pub use instr::{Machine, Syntax};
 pub use lift::Code;
+pub use outline::Outlines;
 pub use sem::{Builder, Cond, Fields, Lift, Op, STATE_TYPE, Sem, StateSpec, Val};
 pub use table::{Decoded, Error, Field, Flow, Kind, Row, Table, Transfer};

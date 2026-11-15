@@ -12,6 +12,7 @@ use std::collections::BTreeSet;
 use ra_asm_ir::{Function, Terminator};
 
 use crate::instr::Machine;
+use crate::outline::Outlines;
 use crate::sem::{Fields, Ir, Lift, Pending, Sem, StateSpec};
 use crate::table::{Decoded, Flow};
 
@@ -37,8 +38,27 @@ impl Machine {
     /// The function at `entry` lifted into `void @F_<entry>(ptr %state)` over the state `spec`
     /// lays out, one block per address of `blocks` and `entry`. A block runs until control leaves
     /// it or reaches another block's start; an address with no word or no row, a row without
-    /// semantics and a transfer in a delay slot stop with `ra_unsupported` at their address.
+    /// semantics and a transfer in a delay slot stop with `ra_unsupported` at their address. Every
+    /// row is lifted inline, an outlined one too.
     pub fn lift_function(&self, spec: &StateSpec, code: &Code<'_>, entry: u64, blocks: &[u64]) -> Function {
+        self.lift_blocks(spec, code, entry, blocks, None)
+    }
+
+    /// The function at `entry` as [`Machine::lift_function`] lifts it, with each instruction of
+    /// an outlined row a call to the row's function in `outlines`, built there when no function
+    /// lifted before has needed it.
+    pub fn lift_function_outlined(
+        &self,
+        spec: &StateSpec,
+        code: &Code<'_>,
+        entry: u64,
+        blocks: &[u64],
+        outlines: &mut Outlines,
+    ) -> Function {
+        self.lift_blocks(spec, code, entry, blocks, Some(outlines))
+    }
+
+    fn lift_blocks(&self, spec: &StateSpec, code: &Code<'_>, entry: u64, blocks: &[u64], mut outlines: Option<&mut Outlines>) -> Function {
         let mut ir = Ir::new(spec, self.registers, entry);
         let first = ir.block;
         let starts: BTreeSet<u64> = blocks.iter().copied().chain([entry]).collect();
@@ -52,7 +72,7 @@ impl Machine {
         for &start in &starts {
             ir.block = ir.blocks[&start];
             let mut at = start;
-            while let Some(next) = self.instruction(&mut ir, code, at) {
+            while let Some(next) = self.instruction(&mut ir, &mut outlines, code, at) {
                 if let Some(&to) = ir.blocks.get(&next) {
                     ir.b.terminate(ir.block, Terminator::Br(to));
                     break;
@@ -65,12 +85,12 @@ impl Machine {
 
     /// Lifts the instruction at `at` into the open block, with its slot when its row is delayed:
     /// the address control goes on at in the block then open, or `None` when control has left.
-    fn instruction(&self, ir: &mut Ir<'_>, code: &Code<'_>, at: u64) -> Option<u64> {
+    fn instruction(&self, ir: &mut Ir<'_>, outlines: &mut Option<&mut Outlines>, code: &Code<'_>, at: u64) -> Option<u64> {
         ir.enter(at);
         let (decoded, lift) = self.decoded(ir, code, at)?;
         let fields = Fields::new(self, decoded.row, &decoded.values, at);
         let Flow::Delayed { likely, .. } = decoded.row.flow else {
-            lift(&mut *ir, &fields);
+            semantics(ir, outlines, &decoded, lift, &fields);
             return (!ir.left).then_some(fields.next);
         };
         ir.delayed = true;
@@ -83,16 +103,16 @@ impl Machine {
         ir.left = false;
         let slot = self.wrap(at.wrapping_add(4));
         match pending {
-            None => self.slot(ir, code, slot).then_some(fields.next),
+            None => self.slot(ir, outlines, code, slot).then_some(fields.next),
             Some(Pending::Jump(target)) => {
-                if self.slot(ir, code, slot) {
+                if self.slot(ir, outlines, code, slot) {
                     ir.place(at);
                     ir.leave(target);
                 }
                 None
             }
             Some(Pending::Call(target)) => {
-                if !self.slot(ir, code, slot) {
+                if !self.slot(ir, outlines, code, slot) {
                     return None;
                 }
                 ir.place(at);
@@ -106,7 +126,7 @@ impl Machine {
                 let next = ir.b.block(&format!("next_{at:x}"));
                 ir.b.terminate(ir.block, Terminator::CondBr { cond, then: taken, els: next });
                 ir.block = taken;
-                if self.slot(ir, code, slot) {
+                if self.slot(ir, outlines, code, slot) {
                     ir.place(at);
                     ir.leave(target);
                 }
@@ -115,7 +135,7 @@ impl Machine {
                 Some(fields.next)
             }
             Some(Pending::Branch { cond, target }) => {
-                if !self.slot(ir, code, slot) {
+                if !self.slot(ir, outlines, code, slot) {
                     return None;
                 }
                 ir.place(at);
@@ -126,14 +146,14 @@ impl Machine {
     }
 
     /// Lifts the delay slot at `at` into the open block; whether control goes on after it.
-    fn slot(&self, ir: &mut Ir<'_>, code: &Code<'_>, at: u64) -> bool {
+    fn slot(&self, ir: &mut Ir<'_>, outlines: &mut Option<&mut Outlines>, code: &Code<'_>, at: u64) -> bool {
         ir.enter(at);
         let Some((decoded, lift)) = self.decoded(ir, code, at) else { return false };
         if decoded.row.flow.transfers() {
             ir.stop("ra_unsupported", code.word(at).map_or(0, u64::from));
             return false;
         }
-        lift(&mut *ir, &Fields::new(self, decoded.row, &decoded.values, at));
+        semantics(ir, outlines, &decoded, lift, &Fields::new(self, decoded.row, &decoded.values, at));
         !ir.left
     }
 
@@ -148,5 +168,14 @@ impl Machine {
         }
         ir.stop("ra_unsupported", word.map_or(0, u64::from));
         None
+    }
+}
+
+/// Lifts the semantics `lift` of the instruction `decoded` into `ir`: a call to its row's function
+/// when the row is outlined and the lift has `outlines`, and inline otherwise.
+fn semantics(ir: &mut Ir<'_>, outlines: &mut Option<&mut Outlines>, decoded: &Decoded<'_>, lift: Lift, fields: &Fields<'_>) {
+    match outlines {
+        Some(outlines) if decoded.row.outlined => outlines.call(ir, decoded, lift, fields),
+        _ => lift(&mut *ir, fields),
     }
 }

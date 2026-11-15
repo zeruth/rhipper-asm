@@ -102,18 +102,26 @@ fn brk(b: &mut dyn Builder, f: &Fields<'_>) {
 }
 
 const TOY: [Row; 12] = [
-    Row { name: "nop", mask: u32::MAX, bits: 0, fields: &[], flow: Flow::Next, sem: Some(Sem(nop)) },
-    Row { name: "add", mask: FUNCTION, bits: 0, fields: &[RD, RA, RB], flow: Flow::Next, sem: Some(Sem(add)) },
-    Row { name: "slt", mask: FUNCTION, bits: 0x2a, fields: &[RD, RA, RB], flow: Flow::Next, sem: Some(Sem(slt)) },
-    Row { name: "addi", mask: OPCODE, bits: 0x08 << 26, fields: &[RD, RA, IMM], flow: Flow::Next, sem: Some(Sem(addi)) },
-    Row { name: "ld", mask: OPCODE, bits: 0x10 << 26, fields: &[RD, RA, WORD], flow: Flow::Next, sem: Some(Sem(ld)) },
-    Row { name: "lb", mask: OPCODE, bits: 0x11 << 26, fields: &[RD, RA, BYTE], flow: Flow::Next, sem: Some(Sem(lb)) },
-    Row { name: "st", mask: OPCODE, bits: 0x14 << 26, fields: &[RD, RA, WORD], flow: Flow::Next, sem: Some(Sem(st)) },
-    Row { name: "b", mask: OPCODE, bits: 0x18 << 26, fields: &[FAR], flow: Flow::Jump, sem: Some(Sem(jump)) },
-    Row { name: "beq", mask: OPCODE, bits: 0x19 << 26, fields: &[BEQ_RA, BEQ_RB, NEAR], flow: Flow::Branch, sem: Some(Sem(beq)) },
-    Row { name: "call", mask: OPCODE, bits: 0x1a << 26, fields: &[FAR], flow: Flow::Call, sem: Some(Sem(call)) },
-    Row { name: "brk", mask: OPCODE, bits: 0x3e << 26, fields: &[CODE], flow: Flow::Trap, sem: Some(Sem(brk)) },
-    Row { name: "ret", mask: u32::MAX, bits: 0x3f << 26, fields: &[], flow: Flow::Return, sem: Some(Sem(ret)) },
+    Row { name: "nop", mask: u32::MAX, bits: 0, fields: &[], flow: Flow::Next, outlined: false, sem: Some(Sem(nop)) },
+    Row { name: "add", mask: FUNCTION, bits: 0, fields: &[RD, RA, RB], flow: Flow::Next, outlined: false, sem: Some(Sem(add)) },
+    Row { name: "slt", mask: FUNCTION, bits: 0x2a, fields: &[RD, RA, RB], flow: Flow::Next, outlined: false, sem: Some(Sem(slt)) },
+    Row { name: "addi", mask: OPCODE, bits: 0x08 << 26, fields: &[RD, RA, IMM], flow: Flow::Next, outlined: false, sem: Some(Sem(addi)) },
+    Row { name: "ld", mask: OPCODE, bits: 0x10 << 26, fields: &[RD, RA, WORD], flow: Flow::Next, outlined: false, sem: Some(Sem(ld)) },
+    Row { name: "lb", mask: OPCODE, bits: 0x11 << 26, fields: &[RD, RA, BYTE], flow: Flow::Next, outlined: false, sem: Some(Sem(lb)) },
+    Row { name: "st", mask: OPCODE, bits: 0x14 << 26, fields: &[RD, RA, WORD], flow: Flow::Next, outlined: false, sem: Some(Sem(st)) },
+    Row { name: "b", mask: OPCODE, bits: 0x18 << 26, fields: &[FAR], flow: Flow::Jump, outlined: false, sem: Some(Sem(jump)) },
+    Row {
+        name: "beq",
+        mask: OPCODE,
+        bits: 0x19 << 26,
+        fields: &[BEQ_RA, BEQ_RB, NEAR],
+        flow: Flow::Branch,
+        outlined: false,
+        sem: Some(Sem(beq)),
+    },
+    Row { name: "call", mask: OPCODE, bits: 0x1a << 26, fields: &[FAR], flow: Flow::Call, outlined: false, sem: Some(Sem(call)) },
+    Row { name: "brk", mask: OPCODE, bits: 0x3e << 26, fields: &[CODE], flow: Flow::Trap, outlined: false, sem: Some(Sem(brk)) },
+    Row { name: "ret", mask: u32::MAX, bits: 0x3f << 26, fields: &[], flow: Flow::Return, outlined: false, sem: Some(Sem(ret)) },
 ];
 
 const NAMES: [&str; 32] = [
@@ -341,7 +349,7 @@ fn the_zero_register_reads_zero_and_drops_its_writes() {
 
 #[test]
 fn a_row_without_semantics_lifts_to_unsupported() {
-    let halt = Row { name: "halt", mask: u32::MAX, bits: 0x3d << 26, fields: &[], flow: Flow::Trap, sem: None };
+    let halt = Row { name: "halt", mask: u32::MAX, bits: 0x3d << 26, fields: &[], flow: Flow::Trap, outlined: false, sem: None };
     let before = with(&[(1, 1)]);
     let run = run(&machine(&[halt]), 0x3d << 26, &before);
     assert_eq!(run.stop, Some(Stop::Fault(format!("unsupported 0xf4000000 at {AT:#x}"))));

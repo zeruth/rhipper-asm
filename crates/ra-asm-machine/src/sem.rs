@@ -296,9 +296,9 @@ pub(crate) enum Pending {
 /// addresses.
 pub(crate) struct Ir<'a> {
     pub(crate) b: FunctionBuilder,
-    spec: &'a StateSpec,
-    registers: &'a [Register],
-    state: ValueId,
+    pub(crate) spec: &'a StateSpec,
+    pub(crate) registers: &'a [Register],
+    pub(crate) state: ValueId,
     /// The block the instruction goes on in.
     pub(crate) block: BlockId,
     /// The address of the instruction being built.
@@ -313,6 +313,9 @@ pub(crate) struct Ir<'a> {
     /// Whether the instruction is a delayed row, whose transfer waits for its slot in `pending`.
     pub(crate) delayed: bool,
     pub(crate) pending: Option<Pending>,
+    /// Whether the function is an outlined row's, whose semantics may not send control anywhere:
+    /// its caller goes on after the call.
+    pub(crate) outlined: bool,
 }
 
 /// `value` sign-extended from its low `bits` bits: the one form a constant of that width has.
@@ -332,8 +335,15 @@ fn ones(bits: u16) -> i128 {
 impl<'a> Ir<'a> {
     /// The builder of `void @F_<address>(ptr %state)`, with its entry block open.
     pub(crate) fn new(spec: &'a StateSpec, registers: &'a [Register], address: u64) -> Self {
-        let mut b = FunctionBuilder::new(&format!("F_{address:08x}"), FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
-        b.set_address(address);
+        let mut ir = Ir::named(&format!("F_{address:08x}"), spec, registers, address);
+        ir.b.set_address(address);
+        ir
+    }
+
+    /// The builder of `void @<name>(ptr %state)`, with its entry block open and what is built
+    /// placed at `address`.
+    pub(crate) fn named(name: &str, spec: &'a StateSpec, registers: &'a [Register], address: u64) -> Self {
+        let mut b = FunctionBuilder::new(name, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
         b.address = Some(address);
         let block = b.block("entry");
         let state = b.param(0);
@@ -349,6 +359,7 @@ impl<'a> Ir<'a> {
             blocks: HashMap::new(),
             delayed: false,
             pending: None,
+            outlined: false,
         }
     }
 
@@ -487,6 +498,12 @@ impl Ir<'_> {
         self.left = false;
     }
 
+    /// Refuses a transfer or a trap in an outlined row's function, which has no address to stop at
+    /// and no caller's blocks to go to.
+    fn stays(&self) {
+        assert!(!self.outlined, "the semantics of the outlined row at {:#x} sends control elsewhere", self.address);
+    }
+
     /// Calls the runtime's `name` with the instruction's address and `code`, which never returns.
     pub(crate) fn stop(&mut self, name: &str, code: u64) {
         let block = self.open();
@@ -606,6 +623,7 @@ impl Builder for Ir<'_> {
     }
 
     fn branch_if(&mut self, cond: Val, target: Val) {
+        self.stays();
         if self.delayed {
             let width = self.get(cond).1;
             assert_eq!(width, 1, "the instruction at {:#x} branches on a value of {width} bits", self.address);
@@ -616,6 +634,7 @@ impl Builder for Ir<'_> {
     }
 
     fn jump(&mut self, target: Val) {
+        self.stays();
         if self.delayed {
             self.hold(Pending::Jump(target));
         } else {
@@ -624,6 +643,7 @@ impl Builder for Ir<'_> {
     }
 
     fn call(&mut self, target: Val) {
+        self.stays();
         if self.delayed {
             self.hold(Pending::Call(target));
         } else {
@@ -632,6 +652,7 @@ impl Builder for Ir<'_> {
     }
 
     fn trap(&mut self, code: u64) {
+        self.stays();
         self.stop("ra_trap", code);
     }
 }

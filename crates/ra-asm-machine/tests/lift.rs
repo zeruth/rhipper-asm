@@ -74,17 +74,26 @@ const fn delayed(transfer: Transfer, likely: bool) -> Flow {
 }
 
 const TOY: [Row; 9] = [
-    Row { name: "nop", mask: u32::MAX, bits: 0, fields: &[], flow: Flow::Next, sem: Some(Sem(nop)) },
-    Row { name: "add", mask: FUNCTION, bits: 0, fields: &[RD, RA, RB], flow: Flow::Next, sem: Some(Sem(add)) },
-    Row { name: "addi", mask: OPCODE, bits: 0x08 << 26, fields: &[RD, RA, IMM], flow: Flow::Next, sem: Some(Sem(addi)) },
-    Row { name: "b", mask: OPCODE, bits: B << 26, fields: &[FAR], flow: Flow::Jump, sem: Some(Sem(jump)) },
-    Row { name: "beq", mask: OPCODE, bits: BEQ << 26, fields: &[BEQ_RA, BEQ_RB, NEAR], flow: Flow::Branch, sem: Some(Sem(beq)) },
+    Row { name: "nop", mask: u32::MAX, bits: 0, fields: &[], flow: Flow::Next, outlined: false, sem: Some(Sem(nop)) },
+    Row { name: "add", mask: FUNCTION, bits: 0, fields: &[RD, RA, RB], flow: Flow::Next, outlined: false, sem: Some(Sem(add)) },
+    Row { name: "addi", mask: OPCODE, bits: 0x08 << 26, fields: &[RD, RA, IMM], flow: Flow::Next, outlined: false, sem: Some(Sem(addi)) },
+    Row { name: "b", mask: OPCODE, bits: B << 26, fields: &[FAR], flow: Flow::Jump, outlined: false, sem: Some(Sem(jump)) },
+    Row {
+        name: "beq",
+        mask: OPCODE,
+        bits: BEQ << 26,
+        fields: &[BEQ_RA, BEQ_RB, NEAR],
+        flow: Flow::Branch,
+        outlined: false,
+        sem: Some(Sem(beq)),
+    },
     Row {
         name: "bd",
         mask: OPCODE,
         bits: BD << 26,
         fields: &[BEQ_RA, BEQ_RB, NEAR],
         flow: delayed(Transfer::Branch, false),
+        outlined: false,
         sem: Some(Sem(beq)),
     },
     Row {
@@ -93,10 +102,19 @@ const TOY: [Row; 9] = [
         bits: BDL << 26,
         fields: &[BEQ_RA, BEQ_RB, NEAR],
         flow: delayed(Transfer::Branch, true),
+        outlined: false,
         sem: Some(Sem(beq)),
     },
-    Row { name: "cd", mask: OPCODE, bits: CD << 26, fields: &[FAR], flow: delayed(Transfer::Call, false), sem: Some(Sem(call)) },
-    Row { name: "ret", mask: u32::MAX, bits: RET, fields: &[], flow: Flow::Return, sem: Some(Sem(ret)) },
+    Row {
+        name: "cd",
+        mask: OPCODE,
+        bits: CD << 26,
+        fields: &[FAR],
+        flow: delayed(Transfer::Call, false),
+        outlined: false,
+        sem: Some(Sem(call)),
+    },
+    Row { name: "ret", mask: u32::MAX, bits: RET, fields: &[], flow: Flow::Return, outlined: false, sem: Some(Sem(ret)) },
 ];
 
 const NAMES: [&str; 32] = [

@@ -15,6 +15,11 @@ pub struct Row {
     /// The operands the word carries, in the order [`Decoded::values`] gives them.
     pub fields: &'static [Field],
     pub flow: Flow,
+    /// Whether the row's semantics is built once as a function of its own, named after the row,
+    /// and lifted as a call to it ([`crate::outline::Outlines`]): a row of hundreds of operations
+    /// that would swell every function using it. Such a row goes on to the next instruction, and
+    /// its semantics does not depend on the instruction's address, which the function has not.
+    pub outlined: bool,
     /// What the instruction does, over a [`crate::sem::Builder`]; a row without it lifts to a trap.
     pub sem: Option<Sem>,
 }
@@ -110,6 +115,9 @@ pub enum Error {
     Field { row: &'static str, field: &'static str },
     /// The memory field's base names no register field of its row.
     Base { row: &'static str, field: &'static str },
+    /// The row is outlined but does not go on to the next instruction, which a call to its
+    /// function does.
+    Outlined { row: &'static str },
 }
 
 impl fmt::Display for Error {
@@ -121,6 +129,7 @@ impl fmt::Display for Error {
             Error::Bits { row } => write!(f, "row `{row}` sets bits outside its mask"),
             Error::Field { row, field } => write!(f, "field `{field}` of row `{row}` is not inside the 32-bit word"),
             Error::Base { row, field } => write!(f, "the base of field `{field}` of row `{row}` is not one of its register fields"),
+            Error::Outlined { row } => write!(f, "row `{row}` is outlined but does not go on to the next instruction"),
         }
     }
 }
@@ -172,6 +181,9 @@ impl Table {
             let names_register = |name: &str| row.fields.iter().any(|field| field.name == name && field.kind == Kind::Reg);
             if let Some(field) = row.fields.iter().find(|field| matches!(field.kind, Kind::Mem { base, .. } if !names_register(base))) {
                 return Err(Error::Base { row: row.name, field: field.name });
+            }
+            if row.outlined && row.flow != Flow::Next {
+                return Err(Error::Outlined { row: row.name });
             }
         }
         for (at, first) in rows.iter().enumerate() {

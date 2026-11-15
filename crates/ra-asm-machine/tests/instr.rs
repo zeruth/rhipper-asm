@@ -19,14 +19,14 @@ const BEQ_RB: Field = Field { name: "rb", lo: 16, width: 5, signed: false, kind:
 const OPCODE: u32 = 0xfc00_0000;
 
 const TOY: [Row; 8] = [
-    Row { name: "nop", mask: u32::MAX, bits: 0, fields: &[], flow: Flow::Next, sem: None },
-    Row { name: "add", mask: OPCODE | 0x7ff, bits: 0, fields: &[RD, RA, RB], flow: Flow::Next, sem: None },
-    Row { name: "addi", mask: OPCODE, bits: 0x08 << 26, fields: &[RD, RA, IMM], flow: Flow::Next, sem: None },
-    Row { name: "ld", mask: OPCODE, bits: 0x10 << 26, fields: &[RD, RA, DISP], flow: Flow::Next, sem: None },
-    Row { name: "b", mask: OPCODE, bits: 0x18 << 26, fields: &[FAR], flow: Flow::Jump, sem: None },
-    Row { name: "beq", mask: OPCODE, bits: 0x19 << 26, fields: &[BEQ_RA, BEQ_RB, NEAR], flow: Flow::Branch, sem: None },
-    Row { name: "call", mask: OPCODE, bits: 0x1a << 26, fields: &[FAR], flow: Flow::Call, sem: None },
-    Row { name: "ret", mask: u32::MAX, bits: 0x3f << 26, fields: &[], flow: Flow::Return, sem: None },
+    Row { name: "nop", mask: u32::MAX, bits: 0, fields: &[], flow: Flow::Next, outlined: false, sem: None },
+    Row { name: "add", mask: OPCODE | 0x7ff, bits: 0, fields: &[RD, RA, RB], flow: Flow::Next, outlined: false, sem: None },
+    Row { name: "addi", mask: OPCODE, bits: 0x08 << 26, fields: &[RD, RA, IMM], flow: Flow::Next, outlined: false, sem: None },
+    Row { name: "ld", mask: OPCODE, bits: 0x10 << 26, fields: &[RD, RA, DISP], flow: Flow::Next, outlined: false, sem: None },
+    Row { name: "b", mask: OPCODE, bits: 0x18 << 26, fields: &[FAR], flow: Flow::Jump, outlined: false, sem: None },
+    Row { name: "beq", mask: OPCODE, bits: 0x19 << 26, fields: &[BEQ_RA, BEQ_RB, NEAR], flow: Flow::Branch, outlined: false, sem: None },
+    Row { name: "call", mask: OPCODE, bits: 0x1a << 26, fields: &[FAR], flow: Flow::Call, outlined: false, sem: None },
+    Row { name: "ret", mask: u32::MAX, bits: 0x3f << 26, fields: &[], flow: Flow::Return, outlined: false, sem: None },
 ];
 
 const NAMES: [&str; 32] = [
@@ -136,6 +136,6 @@ fn an_unknown_word_is_none() {
 
 #[test]
 fn a_memory_field_without_its_base_is_refused() {
-    let loose = Row { name: "st", mask: OPCODE, bits: 0x11 << 26, fields: &[RD, DISP], flow: Flow::Next, sem: None };
+    let loose = Row { name: "st", mask: OPCODE, bits: 0x11 << 26, fields: &[RD, DISP], flow: Flow::Next, outlined: false, sem: None };
     assert_eq!(Table::new(&[loose]).expect_err("no field `ra`"), Error::Base { row: "st", field: "disp" });
 }
