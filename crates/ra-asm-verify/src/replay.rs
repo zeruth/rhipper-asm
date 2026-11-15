@@ -23,17 +23,19 @@
 //! - a pointer argument into the state is the interpreter's and is not compared; one into the
 //!   frames or the globals is a difference of its own, since a vector holds no answer written
 //!   through it (`ra_cpuid`, the `ra_f80_*` of the exact x87 unit);
-//! - a global the lift added without an address of the image (the x87 stack, `ra_mxcsr`) lies
-//!   where the vector has it at the machine level alone, whose module is the one the run laid
-//!   out ([`crate::record::GLOBALS`]); at the promoted level it lies elsewhere, so a function
-//!   that touches one differs there. The ABI level keeps its own elsewhere too, and told where
-//!   the run laid them out ([`Replayer::with_recorded`]) it reads a lifted callee's float off
-//!   the recorded x87 stack and leaves that stack out of what it compares;
+//! - a global the lift added without an address of the image (the x87 stack, `ra_mxcsr`, the
+//!   `ra_gp` of a `PlayStation` program) lies where the vector has it at the machine level, whose
+//!   module is the one the run laid out ([`crate::record::GLOBALS`]), and at the promoted level
+//!   when the replayer is told where the run laid them out ([`Replayer::with_recorded`]);
+//!   without that it lies elsewhere, so a function that touches one differs there. The ABI level
+//!   keeps its own elsewhere, and told where the run laid them out it reads a lifted callee's
+//!   float off the recorded x87 stack and leaves that stack out of what it compares;
 //! - a vector that left by a stop does not say whether its last call stopped or returned: an
 //!   exit is always the call's, a trap is read both ways and replays when one way does;
 //! - the promoted level passes no flag across a call or a return, so the flags of the exit are
 //!   compared at the machine level only, and at the promoted level the registers of a function
-//!   that stopped by itself are not compared: it holds them in values, not in the state.
+//!   that trapped by itself, or in a call that does not see the state (a BIOS function on its
+//!   arguments), are not compared: it holds them in values, not in the state.
 //!
 //! At the ABI level ([`Replayer::with_signatures`]) a function has no state: it takes arguments
 //! and returns a value. The vector is read through the function's signature (see
@@ -322,8 +324,9 @@ struct Abi {
 }
 
 /// Where the recorded run laid out the globals the lift added without an address of the image,
-/// each by its name, at the addresses a vector has them from [`GLOBALS`]: what the ABI level,
-/// whose module lays its own globals out elsewhere, reads the record's bytes of them by.
+/// each by its name, at the addresses a vector has them from [`GLOBALS`]: where the promoted
+/// level, whose module is not the one the run laid out, places them, and what the ABI level,
+/// which lays its own out elsewhere, reads the record's bytes of them by.
 #[derive(Debug, Clone, Default)]
 pub struct Laid {
     globals: HashMap<String, (u64, u64)>,
@@ -333,6 +336,19 @@ impl Laid {
     /// The layout of the globals of `machine`, the lift the recorded run ran over `image`.
     pub fn of(image: &Image, machine: &Lifted) -> Result<Self> {
         Ok(Self { globals: laid_out(&machine.module, image)? })
+    }
+
+    /// Gives the globals of `module` the recorded run laid out the addresses a vector has them
+    /// at, and the pages they take from [`GLOBALS`]; none when `module` has none of them. A
+    /// global the raise added stays where the replay lays it out.
+    fn place(&self, module: &mut Module) -> Option<(u64, u64)> {
+        let mut end = None;
+        for g in module.globals.iter_mut().filter(|g| g.address.is_none()) {
+            let Some(&(address, last)) = self.globals.get(&g.name) else { continue };
+            g.address = Some(address);
+            end = end.max(Some(last));
+        }
+        end.map(|end| (GLOBALS, end.div_ceil(PAGE) * PAGE))
     }
 }
 
@@ -453,15 +469,18 @@ impl<'a> Replayer<'a> {
         Ok(replayer)
     }
 
-    /// The replayer of the ABI level told where the recorded run laid out the lift's globals
-    /// (`laid`): a lifted x86 callee's float is answered out of the `st(0)` it left, and the
-    /// bytes of the x87 stack, on which no function of this level hands a float, are not what
-    /// outlives an activation. Other levels are as they were.
+    /// The replayer told where the recorded run laid out the lift's globals (`laid`). At the
+    /// promoted level they lie there, as at the machine level, so a function reads and writes
+    /// them where the vector has them. At the ABI level a lifted x86 callee's float is answered
+    /// out of the `st(0)` it left, and the bytes of the x87 stack, on which no function of this
+    /// level hands a float, are not what outlives an activation. The machine level is as it was.
     #[must_use]
     pub fn with_recorded(mut self, laid: &Laid) -> Self {
         if let Some(abi) = &mut self.abi {
             let at = |name: &str| laid.globals.get(name).copied();
             abi.x87 = at(X87_STACK).zip(at(X87_TOP)).map(|(stack, top)| X87 { stack, top, scratch: at(X87_TMP) });
+        } else if self.globals.is_none() {
+            self.globals = laid.place(&mut self.module);
         }
         self
     }
@@ -637,6 +656,7 @@ impl<'a> Replayer<'a> {
             next: 0,
             running: 0,
             stopped: false,
+            blind: false,
             popped: None,
             written: BTreeSet::new(),
             read: BTreeMap::new(),
@@ -671,8 +691,9 @@ impl<'a> Replayer<'a> {
         }
         let mut dead = None;
         match level {
-            // A promoted function that stopped by itself holds its registers in values still.
-            None if self.flags || host.stopped || matches!(vector.left, Left::Return | Left::Exit(_)) => {
+            // A promoted function that stopped by itself, or in a call that does not see the
+            // state, holds its registers in values still.
+            None if self.flags || (host.stopped && !host.blind) || matches!(vector.left, Left::Return | Left::Exit(_)) => {
                 let snapshot = vm.memory.read_vec(state, self.shape.size() as u64).map_err(fault)?;
                 for (name, recorded) in &vector.exit {
                     if !self.flags && self.shape.is_flag(name) {
@@ -1017,6 +1038,9 @@ struct Answers<'a> {
     running: usize,
     /// Whether the replay ended in the record's last call, as the record did.
     stopped: bool,
+    /// Whether the call last answered takes no pointer, so it does not see the state: the raise
+    /// keeps the registers in values across it, as it does across a host function's call.
+    blind: bool,
     /// What the lifted function last answered popped beyond its return address, for the x86
     /// function that called it through a pointer and asks the runtime; none when the callee
     /// was no lifted function, whose pops no vector holds.
@@ -1210,6 +1234,7 @@ impl Host for Answers<'_> {
             self.answer_writes.extend((*address..).take(bytes.len()));
         }
         vm.memory.arm();
+        self.blind = !ty.params.contains(&Type::Ptr);
         self.answered()?;
         Ok(returned.map_or(Value::Int(0), |bits| value_of(bits, &ty.ret)))
     }

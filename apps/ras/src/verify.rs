@@ -136,15 +136,15 @@ fn verify_here(image: &Image, options: &Options<'_>) -> Result<bool> {
         );
     }
     let promoted = lifted(image, &analysis, RaiseLevel::Promoted);
+    let laid = ra_asm_verify::Laid::of(image, &machine)?;
     let replayers = [
         (RaiseLevel::Machine, Replayer::new(image, &machine, RaiseLevel::Machine)?),
-        (RaiseLevel::Promoted, Replayer::new(image, &promoted, RaiseLevel::Promoted)?),
+        (RaiseLevel::Promoted, Replayer::new(image, &promoted, RaiseLevel::Promoted)?.with_recorded(&laid)),
     ];
     for (level, replayer) in &replayers {
         replay(level.name(), &|vector| replayer.replay(vector), &functions, &mut lines, &mut differs);
     }
     drop(replayers);
-    let laid = ra_asm_verify::Laid::of(image, &machine)?;
     drop((machine, promoted));
     let (abi, signatures) = signed(image, &analysis);
     let replayer = Replayer::with_signatures(image, &abi, &signatures)?.with_recorded(&laid);

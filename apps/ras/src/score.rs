@@ -71,7 +71,7 @@ use anyhow::{Context, Result, bail};
 use ra_asm_analysis::Analysis;
 use ra_asm_lift::{LiftOptions, Lifted, RaiseLevel, X87Unit};
 use ra_asm_pe::Image;
-use ra_asm_verify::{Counts, Replayer, Vector};
+use ra_asm_verify::{Counts, Laid, Replayer, Vector};
 use serde_json::{Value, json};
 
 /// The counts over a tree.
@@ -819,13 +819,15 @@ fn columns(pe: &Path, files: &[PathBuf]) -> Result<()> {
             Vec::new()
         }
     };
-    line(&json!({"verified_machine": verified(&image, &machine, RaiseLevel::Machine, &vectors)?}));
+    line(&json!({"verified_machine": verified(&image, &machine, RaiseLevel::Machine, &vectors, None)?}));
     let counts = assumptions(&image, &analysis, &machine, &vectors)?;
     line(&json!({"discharged": counts.discharged, "checked": counts.checked, "open": counts.open}));
+    // Where the run laid out the lift's globals, which the promoted level reads them at.
+    let laid = Laid::of(&image, &machine).ok();
     drop(machine);
     let promoted = mapped(&image, &analysis, RaiseLevel::Promoted);
     line(&json!({"promoted": stateful(&promoted)}));
-    line(&json!({"verified_promoted": verified(&image, &promoted, RaiseLevel::Promoted, &vectors)?}));
+    line(&json!({"verified_promoted": verified(&image, &promoted, RaiseLevel::Promoted, &vectors, laid.as_ref())?}));
     Ok(())
 }
 
@@ -853,13 +855,17 @@ fn assumptions(image: &Image, analysis: &Analysis<'_>, machine: &Lifted, vectors
     Ok(crate::verify::ledger(image, analysis, machine, report.as_ref().map(|report| (&replayer, report))).counts())
 }
 
-/// The functions whose every vector replays against `lifted` without a difference; a vector that
-/// cannot be loaded, or runs past [`REPLAY_LIMIT`], fails its function.
-fn verified(image: &Image, lifted: &Lifted, level: RaiseLevel, vectors: &[Vector]) -> Result<usize> {
+/// The functions whose every vector replays against `lifted` without a difference, the lift's
+/// globals where the run `laid` them when it says; a vector that cannot be loaded, or runs past
+/// [`REPLAY_LIMIT`], fails its function.
+fn verified(image: &Image, lifted: &Lifted, level: RaiseLevel, vectors: &[Vector], laid: Option<&Laid>) -> Result<usize> {
     if vectors.is_empty() {
         return Ok(0);
     }
     let mut replayer = Replayer::new(image, lifted, level)?;
+    if let Some(laid) = laid {
+        replayer = replayer.with_recorded(laid);
+    }
     replayer.limit = REPLAY_LIMIT;
     let mut passed: BTreeMap<&str, bool> = BTreeMap::new();
     for vector in vectors {
