@@ -103,11 +103,11 @@ pub struct Error {
 }
 
 impl Error {
-    fn at(line: usize, message: impl Into<String>) -> Self {
+    pub(crate) fn at(line: usize, message: impl Into<String>) -> Self {
         Self { line: Some(line), message: message.into() }
     }
 
-    fn unwritable(message: String) -> Self {
+    pub(crate) fn unwritable(message: String) -> Self {
         Self { line: None, message }
     }
 }
@@ -202,7 +202,7 @@ fn write_runs(out: &mut String, prefix: &str, runs: &[Run]) {
 }
 
 /// The name when it is one word, the only shape a `vector` or a `call` line can carry.
-fn word<'a>(name: &'a str, what: &str) -> Result<&'a str, Error> {
+pub(crate) fn word<'a>(name: &'a str, what: &str) -> Result<&'a str, Error> {
     if name.is_empty() || name.contains(char::is_whitespace) {
         return Err(Error::unwritable(format!("the {what} name {name:?} is not one word")));
     }
@@ -424,7 +424,7 @@ fn hex(line: usize, text: &str) -> Result<u128, Error> {
         .ok_or_else(|| Error::at(line, format!("`{text}` is not a hexadecimal number of at most 128 bits")))
 }
 
-fn hex64(line: usize, text: &str) -> Result<u64, Error> {
+pub(crate) fn hex64(line: usize, text: &str) -> Result<u64, Error> {
     u64::try_from(hex(line, text)?).map_err(|_| Error::at(line, format!("`{text}` does not fit 64 bits")))
 }
 
