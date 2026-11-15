@@ -731,6 +731,17 @@ source = "testdata/bin/hello32-upx.exe"
 command = "written by hand from llvm-readobj --sections over the three packed fixtures"
 tools = "llvm-readobj 22.1.7"
 
+# FIXTURES.md indexes the binaries of testdata/bin: each one's named functions and the constructs
+# they hold, read from the maps, the symbol tables, the disassembly and the sources.
+
+[[file]]
+path = "testdata/bin/FIXTURES.md"
+sha256 = "14ca7b3a6c77723dc950e220dbe4f6cf3eb8cb34bfc19f18a1f78dd747b3e44c"
+evidence = "native"
+source = "testdata/src"
+command = "written by hand from the .map files, llvm-objdump -d over every binary and the sources"
+tools = "llvm-objdump 22.1.7 (Windows), Ubuntu llvm-objdump 18.1.3 (WSL Ubuntu 24.04)"
+
 # The Xbox fixture: the PE clang links at the Xbox's base, rewritten as an XBE by the writer test
 # of ra-asm-pe. No Xbox runs here: its expected output is the same source built for this machine.
 
