@@ -192,9 +192,9 @@ pub(crate) fn translate(
     let analyses: Vec<&Analysis<'_>> = std::iter::once(analysis).chain(with.iter().map(|c| c.analysis)).collect();
     let classes = analyses.iter().flat_map(|a| ra_asm_emit::classes(a, signatures)).collect();
     let checks = if checked { checks(&analyses, lifted) } else { Vec::new() };
-    let mut unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace, hand, checks });
+    let guest32 = image.pointer_size() == 4;
+    let mut unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace, hand, checks, guest32 });
     // The bytes of the large data globals the source embeds go beside it, as the resources do.
-    let mut resources = resources;
     resources.append(&mut unit.blobs);
     for id in &unit.unwatched {
         warnings.push(format!("assumption {id} has no site in the translation: it is not watched"));

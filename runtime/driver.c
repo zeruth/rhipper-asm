@@ -380,6 +380,15 @@ _Noreturn void ra_unsupported(uint64_t address, uint64_t code) {
     host_exit(0xE0000002);
 }
 
+// A structure an import of a 32-bit program takes that its adapter cannot convert: a host's value
+// wider than the program's field, or a structure whose layouts do not say how.
+_Noreturn void ra_adapt_failed(const char *what, uint64_t value) {
+    fprintf(stderr, "ra: %s: 0x%llx\n", what, (unsigned long long)value);
+    report_entered();
+    fflush(stderr);
+    host_exit(0xE0000002);
+}
+
 // The processor's answers, from the host: the port runs on a processor at least as capable as
 // the one the program asks about. A host of another architecture has no answer to give, and the
 // port stops rather than invent one.

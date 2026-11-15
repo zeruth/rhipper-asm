@@ -7,7 +7,10 @@
 //! and the printer writes them in the language's syntax, inlining a value into its one use where
 //! that keeps the meaning. The function table says where each function landed, for the workbench.
 //! [`tree`] runs a function's statements on the IR's interpreter, beside a run of its graph.
+//! A 32-bit program's imports that take a structure of pointers are called through the wrappers
+//! of [`adapters`], which convert it between the program's layout and the host's.
 
+pub mod adapters;
 pub mod c;
 mod common;
 pub mod cpp;
@@ -20,7 +23,8 @@ pub mod structure;
 pub mod tree;
 
 pub use c::{
-    Check, Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, MODULE_MARK, Options as COptions, Unit, Watch, emit_c, emit_unit,
+    ADAPTERS_FILE, Check, Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, MODULE_MARK, Options as COptions, Unit, Watch, emit_c,
+    emit_unit,
 };
 pub use cpp::{Class, Method, classes};
 pub use format::format_files;
@@ -29,8 +33,8 @@ pub use rust::{Options as RustOptions, Output as RustOutput, emit_rust};
 
 /// Writes the files of `unit` into `dir`, after removing the files of an earlier, larger output
 /// or another dialect (`program.c`, `program.h`, `data.c`, `program_NNN.c`, a module's source and
-/// header, which start with [`c::MODULE_MARK`], and the same as `.cpp`), so a stale part never
-/// builds again.
+/// header, which start with [`c::MODULE_MARK`], and the same as `.cpp`) and the import wrappers
+/// of an output that had them ([`ADAPTERS_FILE`]), so a stale part never builds again.
 pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -41,7 +45,7 @@ pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Res
             let part = stem.strip_prefix("program_").is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
             let module =
                 (source || extension == "h") && std::fs::read_to_string(entry.path()).is_ok_and(|text| text.starts_with(c::MODULE_MARK));
-            let ours = name == "program.h" || module || (source && (stem == "program" || stem == "data" || part));
+            let ours = name == "program.h" || name == ADAPTERS_FILE || module || (source && (stem == "program" || stem == "data" || part));
             if ours && !files.iter().any(|f| f.name == name) {
                 std::fs::remove_file(entry.path())?;
             }

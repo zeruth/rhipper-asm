@@ -4,11 +4,14 @@
 //!
 //! The checked build has one case per kind of site: the saved register compared after a call,
 //! the index against the table's length before a `switch`, the stack pointer before a return.
+//!
+//! A 32-bit program's imports have one case each for a structure the host converts both ways,
+//! one it only widens, and an import that takes none.
 
 use std::path::PathBuf;
 
-use ra_asm_emit::{COptions, Check, Unit, Watch, emit_unit};
-use ra_asm_ir::{BinOp, Callee, FnType, Function, FunctionBuilder, Module, Operand, Terminator, Type};
+use ra_asm_emit::{ADAPTERS_FILE, COptions, Check, Unit, Watch, emit_unit};
+use ra_asm_ir::{BinOp, CallConv, Callee, Declaration, FnType, Function, FunctionBuilder, Module, Operand, Terminator, Type};
 
 /// Compares `actual` with the snapshot `name`; a failure names the first line that differs and
 /// prints the whole of what was written.
@@ -138,4 +141,71 @@ fn unchecked_unit_writes_no_check() {
     let (f, _) = call();
     let text = unit_of(vec![f], Vec::new()).text();
     assert!(!text.contains("ra_assum"), "{text}");
+}
+
+/// The unit of a 32-bit program that imports each of `imports`, by its name and arity, as the
+/// raise declares an import: integers in, an integer out.
+fn imports_unit(imports: &[(&str, usize)]) -> Unit {
+    let mut module = Module::x86_64_windows("adapters");
+    for &(name, arity) in imports {
+        let ty = FnType::new(Type::I64, vec![Type::I64; arity]);
+        module.declare(Declaration { name: name.to_owned(), ty, conv: CallConv::default(), attrs: Vec::new() });
+    }
+    emit_unit(&module, &COptions { guest32: true, ..Default::default() })
+}
+
+/// The calls keep the import's name, which the program's header points at the wrapper; the
+/// wrappers go in their own file.
+fn assert_wrapped(unit: &Unit, import: &str) {
+    let define = format!("#define {import} ra_adapt_{import}\nextern uint64_t {import}(");
+    assert!(unit.externs.contains(&define), "{}", unit.externs);
+    let files = unit.files(ra_asm_emit::FUNCTIONS_PER_FILE);
+    assert!(
+        files.iter().any(|f| f.name == ADAPTERS_FILE && f.text == unit.adapters),
+        "{:?}",
+        files.iter().map(|f| &f.name).collect::<Vec<_>>()
+    );
+}
+
+/// RegisterClassExA only reads the class: its wrapper widens the program's `WNDCLASSEXA` for the
+/// host and writes nothing back.
+#[test]
+fn adapters_widen_the_class_of_register_class_ex() {
+    let unit = imports_unit(&[("RegisterClassExA", 1)]);
+    assert_wrapped(&unit, "RegisterClassExA");
+    snapshot("adapters_register_class", &unit.adapters);
+}
+
+/// GetMessageA fills the message: its wrapper widens the program's `MSG` and narrows the host's
+/// back, stopping on a value that does not fit.
+#[test]
+fn adapters_convert_the_message_of_get_message_both_ways() {
+    let unit = imports_unit(&[("GetMessageA", 4)]);
+    assert_wrapped(&unit, "GetMessageA");
+    snapshot("adapters_get_message", &unit.adapters);
+}
+
+/// An import that takes no structure, or one whose layouts are the same at both widths (the
+/// `RECT` of GetClientRect), is called directly: no wrapper and no `adapters.c`.
+#[test]
+fn adapters_leave_an_import_without_a_converted_structure_alone() {
+    let unit = imports_unit(&[("ExitProcess", 1), ("GetClientRect", 2)]);
+    assert_eq!(unit.adapters, "");
+    assert!(unit.files(ra_asm_emit::FUNCTIONS_PER_FILE).iter().all(|f| f.name != ADAPTERS_FILE));
+    snapshot("adapters_plain", &unit.externs);
+}
+
+/// A 64-bit program's structures are the host's already: its imports are called directly.
+#[test]
+fn adapters_are_a_32_bit_programs_only() {
+    let mut module = Module::x86_64_windows("adapters");
+    module.declare(Declaration {
+        name: "GetMessageA".to_owned(),
+        ty: FnType::new(Type::I64, vec![Type::I64; 4]),
+        conv: CallConv::default(),
+        attrs: Vec::new(),
+    });
+    let unit = emit_unit(&module, &COptions::default());
+    assert_eq!(unit.adapters, "");
+    assert!(!unit.externs.contains("ra_adapt_"), "{}", unit.externs);
 }

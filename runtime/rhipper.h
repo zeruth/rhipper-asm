@@ -123,6 +123,8 @@ extern "C" {
 #endif
 RA_NORETURN void ra_trap(uint64_t address, uint64_t code);
 RA_NORETURN void ra_unsupported(uint64_t address, uint64_t code);
+// The stop of a 32-bit program's import wrapper (`adapters.c`) whose structure does not convert.
+RA_NORETURN void ra_adapt_failed(const char *what, uint64_t value);
 // The checks of a port emitted checked. What the raise relied on and nothing proved is tested
 // where it was relied on: `ra_assume(id, condition)` goes on when the condition holds, and
 // otherwise prints the function, what was assumed and the site, and stops. The translation

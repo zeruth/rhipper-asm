@@ -27,6 +27,7 @@ anyhow.workspace = true
 ra-asm-analysis.workspace = true
 ra-asm-ir.workspace = true
 ra-asm-lift.workspace = true
+ra-asm-protos.workspace = true
 ra-asm-verify.workspace = true
 serde_json.workspace = true
 
