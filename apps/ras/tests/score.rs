@@ -324,6 +324,12 @@ fn fresh_board_lands_under_out() {
 /// writes the board again, so the diff of the change that moved it shows the move.
 #[test]
 fn committed_board_is_never_worse() {
+    // the board is measured on Windows: a function is verified by a recorded run, which takes
+    // the Windows DLLs, so off Windows every program reads 1 verified (release CI on Linux)
+    if !cfg!(windows) {
+        eprintln!("SKIPPED: committed_board_is_never_worse: docs/scoreboard.md is measured on Windows");
+        return;
+    }
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
     let committed = std::fs::read_to_string(repo.join("docs/scoreboard.md")).unwrap_or_default();
     let out = ras(&["score", repo.join("testdata/bin").to_str().unwrap()]);
