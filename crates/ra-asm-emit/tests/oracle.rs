@@ -303,9 +303,26 @@ impl Fixture {
     /// line, after the run's exit code and stderr on stderr, and a crash's function and line of
     /// the host address, when `exe` carries debug information and llvm-symbolizer is on the PATH.
     fn compare(&self, test: &str, run: &std::process::Output, exe: &Path) {
-        let stderr = String::from_utf8_lossy(&run.stderr);
-        let ended = format!("exit {:?}, stderr {}{}", run.status.code(), stderr, symbolize(&stderr, exe).unwrap_or_default());
-        assert_output(test, &self.reference(), &self.printed(run), &ended);
+        assert_output(test, &self.reference(), &self.printed(run), &ended(run, exe));
+    }
+
+    /// [`Self::compare`] of the lines up to the first that starts with `last`, and with it: a test
+    /// of one section of the program, whatever the port does past it.
+    fn compare_through(&self, test: &str, run: &std::process::Output, exe: &Path, last: &str) {
+        let through = |text: &str| {
+            let mut kept = String::new();
+            for line in text.lines() {
+                kept.push_str(line);
+                kept.push('\n');
+                if line.starts_with(last) {
+                    break;
+                }
+            }
+            kept
+        };
+        let reference = self.reference();
+        assert!(reference.lines().any(|l| l.starts_with(last)), "{test}: no line of {} starts with `{last}`", self.expected);
+        assert_output(test, &through(&reference), &through(&self.printed(run)), &ended(run, exe));
     }
 
     /// What the native program prints.
@@ -323,6 +340,13 @@ impl Fixture {
         }
         stdout
     }
+}
+
+/// How a run of the port at `exe` ended: its exit code and its stderr, and the crash site's
+/// function and line when the stderr reports one.
+fn ended(run: &std::process::Output, exe: &Path) -> String {
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    format!("exit {:?}, stderr {}{}", run.status.code(), stderr, symbolize(&stderr, exe).unwrap_or_default())
 }
 
 /// What a failed port with a second image leaves under `out/failed/<test>` beside its two sides,
@@ -681,8 +705,26 @@ fn output_within(command: &mut Command, limit: Duration) -> std::process::Output
 /// With `trace`, the port names every lifted function it enters on stderr (`RA_TRACE`): the
 /// ignored `_traced` tests, for a port that crashes in the clang-less shell of a worker.
 fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect, trace: bool) {
+    let Some(port) = run_port_as_c(fixture, tag, functions_per_file, dialect, trace) else { return };
+    if !fixture.with.is_empty() && !trace && fixture.printed(&port.run).trim_end() != fixture.reference().trim_end() {
+        keep_failed_port(&port.test, &port.dir, &port.exe);
+    }
+    fixture.compare(&port.test, &port.run, &port.exe);
+}
+
+/// A C port built and run: the name it fails under, its directory, its executable and the run.
+struct PortRun {
+    test: String,
+    dir: ra_asm_testing::Scratch,
+    exe: PathBuf,
+    run: std::process::Output,
+}
+
+/// Emits, builds and runs the C port of `fixture`, or `None` where clang is missing or this host
+/// does not build the port; a build that fails fails the test.
+fn run_port_as_c(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect, trace: bool) -> Option<PortRun> {
     if ra_asm_testing::tool("clang").is_none() {
-        return;
+        return None;
     }
     let binary = fixture.name();
     let language = match dialect {
@@ -694,7 +736,7 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
     check_table(binary, &dir);
     assert!(!fixture.no_goto || !c.contains("goto "), "{binary}: the C has a goto:\n{c}");
     if !builds_here(binary) {
-        return;
+        return None;
     }
     let sources: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap()
@@ -742,10 +784,7 @@ fn run_fixture_as_c_with(fixture: &Fixture, tag: &str, functions_per_file: usize
     let build = output_within(&mut build, BUILD_LIMIT);
     assert_built(&test, "clang", &dir, &build);
     let run = output_within(Command::new(&exe).current_dir(&dir), RUN_LIMIT);
-    if !fixture.with.is_empty() && !trace && fixture.printed(&run).trim_end() != fixture.reference().trim_end() {
-        keep_failed_port(&test, &dir, &exe);
-    }
-    fixture.compare(&test, &run, &exe);
+    Some(PortRun { test, dir, exe, run })
 }
 
 /// An rhtest program, MSVC-built for x86 with its static C runtime, as `<name>-<variant>.exe`;
@@ -1882,6 +1921,16 @@ fn rhtest_misc_clang_runs_as_rust() {
 #[test]
 fn rhtest_sys_clang_runs_as_c() {
     run_rhtest_as_c("sys", "clang");
+}
+
+/// The interlocked list of a 32-bit program runs on the runtime's, over the program's 8-byte head
+/// and dword links: sys-clang's port prints the native lines through the list's section, whatever
+/// the sections after it do.
+#[test]
+fn sys_slist_lines() {
+    let fixture = rhtest("sys", "clang");
+    let Some(port) = run_port_as_c(&fixture, "slist", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C, false) else { return };
+    fixture.compare_through(&port.test, &port.run, &port.exe, "slist empty");
 }
 
 #[test]
