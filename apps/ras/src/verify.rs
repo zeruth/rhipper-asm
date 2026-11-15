@@ -141,9 +141,10 @@ fn verify_here(image: &Image, options: &Options<'_>) -> Result<bool> {
         replay(*level, replayer, &functions, &mut lines, &mut differs);
     }
     drop(replayers);
+    let laid = ra_asm_verify::Laid::of(image, &machine)?;
     drop((machine, promoted));
     let (abi, signatures) = signed(image, &analysis);
-    let replayer = Replayer::with_signatures(image, &abi, &signatures)?;
+    let replayer = Replayer::with_signatures(image, &abi, &signatures)?.with_recorded(&laid);
     replay(RaiseLevel::Abi, &replayer, &functions, &mut lines, &mut differs);
 
     for line in lines.values() {

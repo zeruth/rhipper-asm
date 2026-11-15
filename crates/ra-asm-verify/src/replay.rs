@@ -26,7 +26,9 @@
 //! - a global the lift added without an address of the image (the x87 stack, `ra_mxcsr`) lies
 //!   where the vector has it at the machine level alone, whose module is the one the run laid
 //!   out ([`crate::record::GLOBALS`]); at the promoted level it lies elsewhere, so a function
-//!   that touches one differs there;
+//!   that touches one differs there. The ABI level keeps its own elsewhere too, and told where
+//!   the run laid them out ([`Replayer::with_recorded`]) it reads a lifted callee's float off
+//!   the recorded x87 stack and leaves that stack out of what it compares;
 //! - a vector that left by a stop does not say whether its last call stopped or returned: an
 //!   exit is always the call's, a trap is read both ways and replays when one way does;
 //! - the promoted level passes no flag across a call or a return, so the flags of the exit are
@@ -60,6 +62,7 @@ use ra_asm_ir::interp::memory::Access;
 use ra_asm_ir::interp::{Host, Memory, Observer, Region, Stop, Value, Vm, mask};
 use ra_asm_ir::{BlockId, Const, Declaration, FnType, Module, Type};
 use ra_asm_lift::raise::abi::{Kind, Signature};
+use ra_asm_lift::state::{X87_STACK, X87_TMP, X87_TOP};
 use ra_asm_lift::{Lifted, RaiseLevel, import_of_wrapper};
 use ra_asm_pe::Image;
 
@@ -307,6 +310,55 @@ struct Abi {
     /// the universal entry an x86 pointer names, each with its address in the image and its own
     /// name.
     lifted: HashMap<String, (u64, String)>,
+    /// Where a vector has the x87 stack, when the replayer was told how the recorded run laid
+    /// out its globals ([`Replayer::with_recorded`]).
+    x87: Option<X87>,
+}
+
+/// Where the recorded run laid out the globals the lift added without an address of the image,
+/// each by its name, at the addresses a vector has them from [`GLOBALS`]: what the ABI level,
+/// whose module lays its own globals out elsewhere, reads the record's bytes of them by.
+#[derive(Debug, Clone, Default)]
+pub struct Laid {
+    globals: HashMap<String, (u64, u64)>,
+}
+
+impl Laid {
+    /// The layout of the globals of `machine`, the lift the recorded run ran over `image`.
+    pub fn of(image: &Image, machine: &Lifted) -> Result<Self> {
+        Ok(Self { globals: laid_out(&machine.module, image)? })
+    }
+}
+
+/// Where a vector has the x87 stack, its top and the exact unit's scratch slots: the machine
+/// level hands a float between functions on them, the ABI level in a value.
+#[derive(Debug, Clone, Copy)]
+struct X87 {
+    stack: (u64, u64),
+    top: (u64, u64),
+    scratch: Option<(u64, u64)>,
+}
+
+impl X87 {
+    /// Whether `address` is a byte of the stack, its top or the scratch slots.
+    fn holds(&self, address: u64) -> bool {
+        [Some(self.stack), Some(self.top), self.scratch].into_iter().flatten().any(|(start, end)| (start..end).contains(&address))
+    }
+
+    /// `st(0)` as `memory` holds it, at the type `ty` a call takes it at: none for a stack of
+    /// the exact unit, whose slots are no doubles, or when the bytes are not in `memory`.
+    fn st0(&self, memory: &mut Memory, ty: &Type) -> Option<Value> {
+        if self.stack.1 - self.stack.0 != 8 * 8 {
+            return None;
+        }
+        let top = memory.read_u64(self.top.0).ok()? & 7;
+        let value = f64::from_bits(memory.read_u64(self.stack.0 + 8 * top).ok()?);
+        match ty {
+            Type::Float => Some(Value::F32(value as f32)),
+            Type::Double => Some(Value::F64(value)),
+            _ => None,
+        }
+    }
 }
 
 /// What a call of the ABI level reached.
@@ -390,8 +442,22 @@ impl<'a> Replayer<'a> {
             let entry = ra_asm_lift::raise::stubs::stub_name(&ra_asm_lift::function_name(*address));
             names.insert(entry, (*address, name.clone()));
         }
-        replayer.abi = Some(Abi { convention: Convention::new(lifted.isa, lifted.bits), signatures: signatures.clone(), lifted: names });
+        replayer.abi =
+            Some(Abi { convention: Convention::new(lifted.isa, lifted.bits), signatures: signatures.clone(), lifted: names, x87: None });
         Ok(replayer)
+    }
+
+    /// The replayer of the ABI level told where the recorded run laid out the lift's globals
+    /// (`laid`): a lifted x86 callee's float is answered out of the `st(0)` it left, and the
+    /// bytes of the x87 stack, on which no function of this level hands a float, are not what
+    /// outlives an activation. Other levels are as they were.
+    #[must_use]
+    pub fn with_recorded(mut self, laid: &Laid) -> Self {
+        if let Some(abi) = &mut self.abi {
+            let at = |name: &str| laid.globals.get(name).copied();
+            abi.x87 = at(X87_STACK).zip(at(X87_TOP)).map(|(stack, top)| X87 { stack, top, scratch: at(X87_TMP) });
+        }
+        self
     }
 
     /// The replayer of `lifted` at a level that keeps the flags across a call when `flags`.
@@ -605,8 +671,11 @@ impl<'a> Replayer<'a> {
                 dead = Some(abi.convention.frame(signature, abi.convention.entry_stack_pointer(vector)?));
             }
         }
-        // The frame died with the activation, and the ABI level keeps its own elsewhere.
-        let outlives = |address: &u64| !dead.is_some_and(|(start, end)| (start..end).contains(address));
+        // The frame died with the activation, and the ABI level keeps its own elsewhere; the
+        // x87 stack carries the machine level's floats, which the ABI level holds in values.
+        let x87 = self.abi.as_ref().and_then(|abi| abi.x87);
+        let outlives =
+            |address: &u64| !dead.is_some_and(|(start, end)| (start..end).contains(address)) && !x87.is_some_and(|x87| x87.holds(*address));
         let recorded: BTreeMap<u64, u8> = vector
             .memory_out
             .iter()
@@ -827,6 +896,19 @@ fn image_range(image: &Image) -> (u64, u64) {
 /// first in that layout, so the replay, whose module has the bodies apart under names of their
 /// own, lays out the module the run ran to learn it. Gives the pages the globals take.
 fn relocate(module: &mut Module, recorded: &Module, image: &Image) -> Result<(u64, u64)> {
+    let laid = laid_out(recorded, image)?;
+    let mut end = GLOBALS;
+    for g in module.globals.iter_mut().filter(|g| g.address.is_none()) {
+        let &(address, last) = laid.get(&g.name).ok_or_else(|| anyhow!("the recorded module has no global {}", g.name))?;
+        end = end.max(last);
+        g.address = Some(address);
+    }
+    Ok((GLOBALS, end.div_ceil(PAGE) * PAGE))
+}
+
+/// Where the recorded run laid out the globals of `recorded`, the module it ran, that have no
+/// address of the image: each global's bytes by its name, from [`GLOBALS`].
+fn laid_out(recorded: &Module, image: &Image) -> Result<HashMap<String, (u64, u64)>> {
     let len = {
         let vm = Vm::new(recorded, Memory::new());
         let layout = vm.layout();
@@ -849,13 +931,12 @@ fn relocate(module: &mut Module, recorded: &Module, image: &Image) -> Result<(u6
     let mut vm = Vm::new(recorded, memory);
     vm.set_static_region(GLOBALS, len);
     vm.place().map_err(|stop| anyhow!("the recorded run's globals cannot be laid out: {stop:?}"))?;
-    let mut end = GLOBALS;
-    for g in module.globals.iter_mut().filter(|g| g.address.is_none()) {
-        let address = vm.symbol(&g.name).ok_or_else(|| anyhow!("the recorded module has no global {}", g.name))?;
-        end = end.max(address + vm.layout().size(&g.ty).max(1));
-        g.address = Some(address);
+    let mut laid = HashMap::new();
+    for g in recorded.globals.iter().filter(|g| g.address.is_none()) {
+        let address = vm.symbol(&g.name).ok_or_else(|| anyhow!("the recorded run laid out no global {}", g.name))?;
+        laid.insert(g.name.clone(), (address, address + vm.layout().size(&g.ty).max(1)));
     }
-    Ok((GLOBALS, end.div_ceil(PAGE) * PAGE))
+    Ok(laid)
 }
 
 /// The pages the vector's bytes lie in, outside the ranges `laid`, as ranges in address order.
@@ -1029,6 +1110,9 @@ impl Answers<'_> {
             vm.memory.write(*address, bytes)?;
             self.answer_writes.extend((*address..).take(bytes.len()));
         }
+        // A 32-bit x86 callee leaves a float on the x87 stack.
+        let float = matches!(ty.ret, Type::Float | Type::Double) && !abi.convention.target().is_64();
+        let st0 = if float { abi.x87.and_then(|x87| x87.st0(&mut vm.memory, &ty.ret)) } else { None };
         vm.memory.arm();
         self.answered()?;
         let returns = match called {
@@ -1048,10 +1132,15 @@ impl Answers<'_> {
                 Some(Kind::Int)
             }
         };
-        // An x86 callee that is no lifted function leaves a float on the x87 stack.
-        let float = matches!(ty.ret, Type::Float | Type::Double);
-        if float && !abi.convention.target().is_64() && !matches!(called, Called::Lifted { .. }) {
-            return Err(self.differ(Difference::Unanswered { index, callee: call.callee.clone(), register: ST0.to_owned() }));
+        // No vector holds the x87 stack of a callee that is no lifted function; a lifted one's is
+        // in the record's globals.
+        if float {
+            if !matches!(called, Called::Lifted { .. }) {
+                return Err(self.differ(Difference::Unanswered { index, callee: call.callee.clone(), register: ST0.to_owned() }));
+            }
+            if let Some(value) = st0 {
+                return Ok(value);
+            }
         }
         match abi.convention.result(returns, &ty.ret, &call.results) {
             Ok(Some(result)) => Ok(result.value),

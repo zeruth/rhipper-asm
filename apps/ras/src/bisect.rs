@@ -24,7 +24,7 @@ use ra_asm_lift::raise::abi::Signature;
 use ra_asm_lift::raise::{raise_before, steps};
 use ra_asm_lift::{LiftOptions, Lifted, RaiseLevel, X87Unit};
 use ra_asm_pe::Image;
-use ra_asm_verify::{Replayer, Vector};
+use ra_asm_verify::{Laid, Replayer, Vector};
 
 /// The first step after which the ABI level replays: the one that takes the functions off the
 /// machine state.
@@ -85,6 +85,7 @@ fn bisect_here(image: &Image, options: &Options<'_>) -> Result<bool> {
     let functions = select(&vectors, options.function)?;
 
     let found = first(&Replayer::new(image, &machine, RaiseLevel::Machine)?, &functions);
+    let laid = Laid::of(image, &machine)?;
     drop(machine);
     if let Some(found) = found {
         println!("machine {}", found.line());
@@ -98,7 +99,7 @@ fn bisect_here(image: &Image, options: &Options<'_>) -> Result<bool> {
     let mut handed: Option<Lifted> = None;
     for (at, &step) in order.iter().enumerate().skip(from) {
         let (lifted, signatures) = raised(image, &analysis, order.get(at + 1).copied());
-        let found = first(&Replayer::with_signatures(image, &lifted, &signatures)?, &functions);
+        let found = first(&Replayer::with_signatures(image, &lifted, &signatures)?.with_recorded(&laid), &functions);
         let Some(found) = found else {
             println!("{step} ok");
             handed = Some(lifted);
