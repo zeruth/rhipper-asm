@@ -1,0 +1,31 @@
+# The COM interfaces the 64-bit host hands a 32-bit program, which calls them through 4-byte
+# vtables, and whether the host's guest objects call each one's methods yet.
+# `cargo test -p ra-asm-host --test conformance interfaces` wraps an object of the host's as the
+# interface and makes the program's calls through its guest object's vtable, each slot a thunk
+# into the host's method built from the interface's prototype in crates/ra-asm-host/src/com.rs.
+#
+# Each [[interface]] is one interface. `name` is its name in the SDK headers. `status` is
+# `pending`, the host has no prototype of it or its calls do not cross yet, or `pass`. A pending
+# row that passes fails the test: mark it pass. Values hold no `#`.
+#
+# The rows are the interfaces rhtest's misc and com reach from the host.
+
+[[interface]]
+name = "IUnknown"       # every object: QueryInterface's identity, AddRef and Release reach the host's count
+status = "pass"
+
+[[interface]]
+name = "IMalloc"        # SHGetMalloc (misc), CoGetMalloc (com): Alloc's block below 4 GB
+status = "pass"
+
+[[interface]]
+name = "IStream"        # CreateStreamOnHGlobal (com)
+status = "pending"
+
+[[interface]]
+name = "IShellLinkA"    # CoCreateInstance of CLSID_ShellLink (com)
+status = "pending"
+
+[[interface]]
+name = "IPersist"       # the shell link's QueryInterface (com)
+status = "pending"
