@@ -111,6 +111,10 @@ pub fn run(f: &mut Function) -> bool {
             }
         }
     }
+    // A rewrite to the instruction already there is no change: the fold of an offset whose inner
+    // value is defined later in the block order than its use takes that value as its own base, and
+    // counted as a change it kept the cleanup's fixpoint from ever being reached.
+    rewrite.retain(|v, new| defs.get(v).is_none_or(|old| **old != *new));
     if map.is_empty() && rewrite.is_empty() {
         return false;
     }
