@@ -97,6 +97,19 @@ if(EXISTS "${GEN_DIR}/resources.res")
   target_link_options(@TARGET@ PRIVATE "${GEN_DIR}/resources.res")
 endif()
 
+# The residual engine (`build.residual` in rhipper.json), the static library of ra-asm-residual:
+# a call of the port into code of the image that no lifted function has runs there, over the
+# reference's bytes, which the driver maps at the image's base. At exit the port prints what the
+# engine entered and lists it in build/residual.json. The library is Rust's, built against the
+# DLL C runtime, which the port then takes as well; its system libraries are those of Rust's std.
+set(RA_RESIDUAL "@RESIDUAL@")
+if(WIN32 AND RA_RESIDUAL)
+  target_compile_definitions(@TARGET@ PRIVATE RA_RESIDUAL=1 "RA_RESIDUAL_IMAGE=\"@EXE@\""
+    "RA_RESIDUAL_FACTS=\"${CMAKE_CURRENT_SOURCE_DIR}/build/residual.json\"")
+  set_property(TARGET @TARGET@ PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
+  target_link_libraries(@TARGET@ PRIVATE "${RA_RESIDUAL}" advapi32 ntdll userenv ws2_32 dbghelp bcrypt synchronization)
+endif()
+
 # A 32-bit program keeps its 32-bit pointers in the port: every address of the process must fit
 # in them, which the linker arranges for a binary that is not large-address-aware.
 set(RA_POINTER_BITS @POINTER_BITS@)

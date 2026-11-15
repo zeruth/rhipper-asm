@@ -1900,6 +1900,98 @@ uint64_t ra_pops_of(uint64_t target) {
 #endif
 }
 
+#ifdef RA_RESIDUAL
+#if !defined(_WIN32) || !defined(RA_STANDALONE) || RA_POINTER_SIZE != 8
+#error "the residual engine runs in the standalone port of a 64-bit Windows program, built on Windows"
+#endif
+// The residual engine, the static library of ra-asm-residual the port links: code of the image
+// that no lifted function has runs there, decoded from the image's bytes, which the port maps at
+// the image's base without the right to execute them. A call into them, native from the raised
+// code or through ra_call from the machine-level code, enters the engine over the caller's state.
+// What the engine entered is printed and written to the facts file when the process ends.
+int ra_residual_start(const char *image, const char *facts, void *at, uint64_t size);
+int ra_residual_call(void *state, uint64_t address);
+void ra_residual_finish(void);
+
+// The program's own module is the image at its base, where the engine reads the code: an address
+// it computes from its module handle is one of the image (rhipper.h renames the program's calls).
+uint64_t ra_residual_module_a(uint64_t name) {
+    return name ? (uint64_t)(uintptr_t)GetModuleHandleA((const char *)(uintptr_t)name) : RA_IMAGE_BASE;
+}
+
+uint64_t ra_residual_module_w(uint64_t name) {
+    return name ? (uint64_t)(uintptr_t)GetModuleHandleW((const wchar_t *)(uintptr_t)name) : RA_IMAGE_BASE;
+}
+
+// The program's ExitProcess: the engine reports before the process ends, which the detach below
+// does too for an exit by any other way.
+void ra_residual_exit(uint64_t code) {
+    ra_residual_finish();
+    ExitProcess((UINT)code);
+}
+
+// The flags of the state, cf pf af zf sf df of, by their bits in EFLAGS.
+static const unsigned residual_flag_bits[7] = {0, 2, 4, 6, 7, 10, 11};
+
+// A native call into the image faults on the first byte it executes: the engine runs the function
+// over the registers of the call, and the caller goes on at the return address with what the
+// function left. The vector registers are the xmm halves; the upper halves of ymm read as zero.
+static LONG WINAPI residual_on_exception(EXCEPTION_POINTERS *info) {
+    const EXCEPTION_RECORD *r = info->ExceptionRecord;
+    CONTEXT *c = info->ContextRecord;
+    uint64_t at = (uint64_t)(uintptr_t)r->ExceptionAddress;
+    if (r->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || r->NumberParameters < 2 || r->ExceptionInformation[0] != 8 || at != c->Rip
+        || at < RA_IMAGE_BASE || at >= RA_IMAGE_BASE + RA_IMAGE_SIZE) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    struct State state;
+    memset(&state, 0, sizeof state);
+    DWORD64 *gpr = &c->Rax;  // rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi, r8..r15, as the state has them
+    for (int i = 0; i < 16; i++) state.gpr[i] = gpr[i];
+    state.rip = at;
+    for (int i = 0; i < 7; i++) state.flags[i] = (uint8_t)((c->EFlags >> residual_flag_bits[i]) & 1);
+    for (int i = 0; i < 16; i++) memcpy(state.xmm[i], &c->FltSave.XmmRegisters[i], 16);
+    uint64_t back = *(const uint64_t *)(uintptr_t)c->Rsp;  // the return address the call pushed
+    if (ra_residual_call(&state, at) != 0) {
+        fflush(stderr);
+        host_exit(0xE0000003);
+    }
+    for (int i = 0; i < 16; i++) gpr[i] = state.gpr[i];
+    for (int i = 0; i < 7; i++) {
+        DWORD bit = (DWORD)1 << residual_flag_bits[i];
+        c->EFlags = state.flags[i] ? c->EFlags | bit : c->EFlags & ~bit;
+    }
+    for (int i = 0; i < 16; i++) memcpy(&c->FltSave.XmmRegisters[i], state.xmm[i], 16);
+    c->Rip = back;
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+// The process ends: the loader calls the module's TLS callbacks with DLL_PROCESS_DETACH, on
+// ExitProcess as on a return from main.
+static void NTAPI residual_detach(PVOID module, DWORD reason, PVOID reserved) {
+    (void)module;
+    (void)reserved;
+    if (reason == DLL_PROCESS_DETACH) ra_residual_finish();
+}
+#pragma comment(linker, "/INCLUDE:_tls_used")
+__attribute__((used, section(".CRT$XLB"))) static const PIMAGE_TLS_CALLBACK residual_tls = residual_detach;
+
+// The image's bytes at its base, readable and writable but not executable, and the engine over
+// them, which RA_RESIDUAL_IMAGE (the reference binary) and RA_RESIDUAL_FACTS name.
+static void residual_start(void) {
+    void *at = VirtualAlloc((void *)(uintptr_t)RA_IMAGE_BASE, RA_IMAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (at != (void *)(uintptr_t)RA_IMAGE_BASE) {
+        fprintf(stderr, "ra: cannot map the image at 0x%llx for the residual engine\n", (unsigned long long)RA_IMAGE_BASE);
+        host_exit(0xE0000004);
+    }
+    if (ra_residual_start(RA_RESIDUAL_IMAGE, RA_RESIDUAL_FACTS, at, RA_IMAGE_SIZE) != 0) {
+        fflush(stderr);
+        host_exit(0xE0000004);
+    }
+    AddVectoredExceptionHandler(1, residual_on_exception);
+}
+#endif
+
 // An indirect call in the machine model: a lifted function by its address, else native code
 // through the universal adapter. The lifted caller pushed the return address; native code does
 // not pop it, so this does, and what a 32-bit import pops beyond it comes from the binding table.
@@ -1915,6 +2007,11 @@ void ra_call(void *state_, uint64_t target) {
         }
     }
     if (target >= RA_IMAGE_BASE && target < RA_IMAGE_BASE + RA_IMAGE_SIZE) {
+#ifdef RA_RESIDUAL
+        if (ra_residual_call(state, target) == 0) return;
+        fflush(stderr);
+        host_exit(0xE0000003);
+#endif
         fprintf(stderr, "ra: an indirect call to 0x%llx, which is no lifted function\n", (unsigned long long)target);
         fflush(stderr);
         host_exit(0xE0000003);
@@ -3771,6 +3868,9 @@ int main(int argc, char **argv) {
 #ifdef _WIN32
     ra_module = GetModuleHandleA(NULL);
     AddVectoredExceptionHandler(1, on_exception);
+#ifdef RA_RESIDUAL
+    residual_start();
+#endif
 #else
     report_crashes();
 #endif

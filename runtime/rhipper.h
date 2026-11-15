@@ -134,6 +134,16 @@ RA_NORETURN void ra_assume_failed(uint64_t id, const char *function, const char 
     ((condition) ? (void)0 \
                  : ra_assume_failed((id), ra_assumptions[(id)].function, ra_assumptions[(id)].kind, ra_assumptions[(id)].site))
 void ra_call(void *state, uint64_t target);
+// A port linked with the residual engine (RA_RESIDUAL) holds the image's bytes at its base, where
+// the engine runs the code no lifted function has: the program's own module handle is that base,
+// so an address it computes from the handle is one of the image, as in the reference. Its exit
+// reports what the engine entered first. The translation's own declarations of the imports
+// declare the driver's functions under their new names.
+#ifdef RA_RESIDUAL
+#define GetModuleHandleA ra_residual_module_a
+#define GetModuleHandleW ra_residual_module_w
+#define ExitProcess ra_residual_exit
+#endif
 // What the x86 function a pointer named popped beyond its return address.
 uint64_t ra_pops_of(uint64_t target);
 void ra_enter(const char *name);

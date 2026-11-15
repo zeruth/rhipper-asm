@@ -1192,6 +1192,8 @@ fn write_cmake_lists(project: &Project, bits: u32, dll: bool) -> Result<()> {
         .replace("@TARGET@", &project.build.target)
         .replace("@GEN_DIR@", &in_project(&project.gen_dir))
         .replace("@SOURCES@", &sources.join(" "))
+        .replace("@RESIDUAL@", &project.build.residual.as_deref().map(in_project).unwrap_or_default())
+        .replace("@EXE@", &in_project(&project.exe))
         .replace("@POINTER_BITS@", &bits.to_string())
         .replace("@DLL@", if dll { "ON" } else { "OFF" });
     fs::write(&file, text).with_context(|| format!("cannot write {}", file.display()))

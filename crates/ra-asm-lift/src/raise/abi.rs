@@ -713,9 +713,17 @@ fn infer_from(
             }
             // A caller that reads xmm0 after the call takes a float result there: the Win64
             // convention, and clang's own convention for a local x86 function.
+            // A callee that writes no xmm0 and whose rax the caller reads returns in rax: the
+            // xmm0 the caller reads is its own, through the call, as an indirect call after it
+            // passes every vector register (computed's `resolve`, whose address result a call
+            // then takes, came out a double and its call went through 0).
             for callee in &fact.uses_xmm0_of {
+                let wrote = xmm0_kinds.get(callee.as_str()).copied().flatten();
+                if wrote.is_none() && fact.uses_rax_of.contains(callee) {
+                    continue;
+                }
                 if let Some(r) = returns.get_mut(callee) {
-                    *r = Some(xmm0_kinds.get(callee.as_str()).copied().flatten().unwrap_or(Kind::Double));
+                    *r = Some(wrote.unwrap_or(Kind::Double));
                 }
             }
             if !target.is_64() {

@@ -13,7 +13,7 @@
 //!   "x87": "double",
 //!   "sources": ["src", "vendor"],
 //!   "hand": ["fib", "0x140001330"],
-//!   "build": { "generator": "cmake", "dir": "build/cmake", "config": "Release", "target": "Game" },
+//!   "build": { "generator": "cmake", "dir": "build/cmake", "config": "Release", "target": "Game", "residual": "engine/ra_asm_residual.lib" },
 //!   "run": { "exe": "build/cmake/bin/Release/Game.exe", "cwd": ".", "args": [], "with": [], "timeout": 0, "compare": false, "trace": false, "tracer": "debugger", "facts": false }
 //! }
 //! ```
@@ -48,6 +48,11 @@
 //! over `build/meson-sources.txt`, the list of sources the build step writes) or `clang`
 //! (no project: the host's clang compiles and links the port in one command, the build of a
 //! platform-neutral port on a Linux or macOS machine); `dir` is `build/<generator>` unless set.
+//! `build.residual` names the residual engine's static library (`ra_asm_residual.lib`, the
+//! staticlib of `ra-asm-residual`), which the `CMakeLists.txt` the pipeline writes links into the
+//! standalone port of a 64-bit program: a call of the port into code of the image no lifted
+//! function has runs there, over the reference's bytes mapped at their addresses, and at exit the
+//! port prints how many entries the engine ran and lists them in `build/residual.json`.
 //! `run` is how the pipeline starts the port: `with`
 //! lists side processes that start before the port and stop after it, `timeout` in seconds stops
 //! a port that runs on, such as a game, and counts the run as alive, and `compare` runs the
@@ -86,6 +91,8 @@ pub(crate) struct Build {
     pub target: String,
     /// The build system of a C or C++ port; a Rust port is a cargo package whatever it says.
     pub generator: Generator,
+    /// The residual engine's static library the `CMake` port links, when the project names one.
+    pub residual: Option<PathBuf>,
 }
 
 /// The build system the pipeline writes the port's project for and drives.
@@ -206,6 +213,7 @@ impl Project {
             config: section_string("build", "config").unwrap_or_else(|| "Release".into()),
             target: section_string("build", "target").unwrap_or_else(|| name.clone()),
             generator,
+            residual: section_string("build", "residual").map(|r| resolve(&r)),
         };
         let run = section("run");
         let run = Run {

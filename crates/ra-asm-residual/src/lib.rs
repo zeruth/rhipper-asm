@@ -34,6 +34,10 @@ use ra_asm_pe::{Image, Toolset};
 
 pub use ra_asm_ir::interp::Stop;
 
+/// The C entry a Windows port links, over the port's own memory.
+#[cfg(windows)]
+pub mod c;
+
 /// The grain of what the engine maps: the program's pages and its own.
 const PAGE: u64 = 0x1000;
 

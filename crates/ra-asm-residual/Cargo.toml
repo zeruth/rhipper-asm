@@ -10,6 +10,10 @@ license.workspace = true
 [lints]
 workspace = true
 
+# The static library is the engine a port links (`ra_residual_*`, see `src/c.rs`).
+[lib]
+crate-type = ["lib", "staticlib"]
+
 [dependencies]
 anyhow.workspace = true
 ra-asm-analysis.workspace = true
@@ -17,3 +21,4 @@ ra-asm-ir.workspace = true
 ra-asm-lift.workspace = true
 ra-asm-pe.workspace = true
 ra-asm-verify.workspace = true
+serde_json.workspace = true

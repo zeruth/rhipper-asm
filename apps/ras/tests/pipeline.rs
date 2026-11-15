@@ -697,3 +697,51 @@ fn the_pipeline_builds_a_rust_port() {
     let run_log = std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
     assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
 }
+
+/// The residual engine's static library of this build: cargo builds it beside the rlib that
+/// `ras` links, under `deps` with the build's hash, and uplifts it when it builds the crate itself.
+fn residual_library() -> Option<PathBuf> {
+    let bin = Path::new(env!("CARGO_BIN_EXE_ras")).parent()?.to_path_buf();
+    let uplifted = bin.join("ra_asm_residual.lib");
+    if uplifted.is_file() {
+        return Some(uplifted);
+    }
+    std::fs::read_dir(bin.join("deps"))
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("ra_asm_residual-")) && p.extension().is_some_and(|x| x == "lib")
+        })
+        .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+}
+
+/// computed's port with the residual engine linked (`build.residual`): the three functions the
+/// program reaches only through addresses it computes have no lifted body, and the port's calls
+/// of them run in the engine over the reference's bytes; the port prints what the reference
+/// prints, says on stderr that the engine entered three entries, and lists them in
+/// `build/residual.json`.
+#[test]
+fn computed_runs_with_residue() {
+    if !port_builds_here() {
+        return;
+    }
+    let library = residual_library().expect("no static library of ra-asm-residual beside the ras of this build");
+    let dir = ra_asm_testing::Scratch::new("ras-pipeline-tests", "residual");
+    std::fs::create_dir_all(dir.join("ref")).unwrap();
+    std::fs::copy(root().join("testdata/bin/computed64.exe"), dir.join("ref/computed64.exe")).unwrap();
+    let json = serde_json::json!({
+        "name": "computed",
+        "exe": "ref/computed64.exe",
+        "build": { "residual": library.to_string_lossy() },
+    });
+    std::fs::write(dir.join("rhipper.json"), json.to_string()).unwrap();
+    let (ok, text) = ras(&dir, &[]);
+    assert!(ok, "{text}");
+    let expected = std::fs::read_to_string(root().join("testdata/expected/computed.txt")).unwrap().replace("\r\n", "\n");
+    let run_log = std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
+    assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
+    assert!(run_log.contains("residual: 3 entered"), "the run log:\n{run_log}");
+    let facts: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/residual.json")).unwrap()).unwrap();
+    assert_eq!(facts["residual"].as_array().map(Vec::len), Some(3), "{facts}");
+}
