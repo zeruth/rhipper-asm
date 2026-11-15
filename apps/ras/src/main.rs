@@ -263,8 +263,8 @@ enum Command {
         #[arg(long, default_value_t = 3)]
         context: usize,
     },
-    /// The steps from the reference binary to a running port: analyze, lift, emit, build and run,
-    /// in the project whose `rhipper.json` is in `--project` (the current directory without it).
+    /// The steps from the reference binary to a running port: unpack (of a packed reference),
+    /// analyze, lift, emit, build and run, in the project whose `rhipper.json` is in `--project` (the current directory without it).
     Pipeline {
         #[arg(long)]
         project: Option<PathBuf>,
@@ -280,7 +280,7 @@ enum Command {
         /// The build configuration, such as `Debug`, instead of the project's.
         #[arg(long)]
         config: Option<String>,
-        /// Run the analyze, lift and emit steps whatever their stamps say, and delete the build
+        /// Run the unpack, analyze, lift and emit steps whatever their stamps say, and delete the build
         /// outputs before the build.
         #[arg(long)]
         rebuild: bool,
@@ -454,8 +454,10 @@ enum Command {
 }
 
 fn step(text: Option<String>) -> anyhow::Result<Option<pipeline::Step>> {
-    text.map(|t| pipeline::Step::parse(&t).ok_or_else(|| anyhow::anyhow!("no step `{t}`: the steps are analyze, lift, emit, build, run")))
-        .transpose()
+    text.map(|t| {
+        pipeline::Step::parse(&t).ok_or_else(|| anyhow::anyhow!("no step `{t}`: the steps are unpack, analyze, lift, emit, build, run"))
+    })
+    .transpose()
 }
 
 /// The command line runs on a thread of its own stack: the derived parser of every subcommand and

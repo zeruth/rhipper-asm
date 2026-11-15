@@ -665,6 +665,51 @@ fn the_pipeline_ports_a_32_bit_dll() {
     assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
 }
 
+/// A fixture packed by UPX ports through the unpack step: the pipeline unpacks it first into
+/// `build/unpacked`, the steps after read what the stub unpacked, and the port prints what the
+/// unpacked twin, `<name>.exe`, prints when it runs natively. A second run finds the unpack done.
+fn port_packed(name: &str) {
+    let exe = format!("{name}-upx.exe");
+    let dir = project_with(&format!("upx-{name}"), &format!(r#"{{ "name": "{name}", "exe": "ref/{exe}", "run": {{ "compare": true }} }}"#));
+    std::fs::copy(root().join("testdata/bin").join(&exe), dir.join("ref").join(&exe)).unwrap();
+    let (ok, text) = ras(&dir, &["--only", "emit"]);
+    assert!(ok, "{text}");
+    assert!(text.contains("] unpack\n") && text.contains("unpacked by its UPX stub"), "no unpack step:\n{text}");
+    assert!(dir.join("build/unpacked").join(&exe).is_file(), "no unpacked file:\n{text}");
+    let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/functions.json")).unwrap()).unwrap();
+    assert!(table.as_array().is_some_and(|a| a.iter().any(|e| e["status"] == "lifted")), "{table}");
+    if !port_builds_here() {
+        return;
+    }
+    let (ok, text) = ras(&dir, &["--from", "unpack"]);
+    assert!(ok, "{text}");
+    assert!(
+        text.lines().any(|l| l.starts_with("unpacked by its UPX stub") && l.ends_with("(unchanged)")),
+        "the unpack ran again over the same reference:\n{text}"
+    );
+    assert!(text.contains("verdict: same"), "{text}");
+    let twin = Command::new(root().join("testdata/bin").join(format!("{name}.exe"))).output().unwrap();
+    let expected = String::from_utf8_lossy(&twin.stdout).replace("\r\n", "\n");
+    assert!(!expected.trim().is_empty(), "{name}.exe printed nothing");
+    let run_log = std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
+    assert!(run_log.contains(expected.trim_end()), "the run log beside {name}.exe's output:\n{run_log}\n---\n{expected}");
+}
+
+#[test]
+fn the_pipeline_ports_hello32_upx() {
+    port_packed("hello32");
+}
+
+#[test]
+fn the_pipeline_ports_hello64_upx() {
+    port_packed("hello64");
+}
+
+#[test]
+fn the_pipeline_ports_control32_upx() {
+    port_packed("control32");
+}
+
 /// A Rust project: the emit step writes a cargo package, the build step runs cargo, and the port
 /// prints what the reference prints.
 #[test]

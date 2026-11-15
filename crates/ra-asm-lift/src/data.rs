@@ -92,7 +92,7 @@ pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted,
                 } else {
                     u64::from(u32::from_le_bytes(chunk.try_into().unwrap()))
                 };
-                let named = lifted.functions.contains_key(&value) || (image.section_of(value).is_some_and(|s| !s.is_code()));
+                let named = lifted.functions.contains_key(&value) || image.section_of(value).is_some_and(|s| !s.is_code() || data_in_code);
                 if !named || !is_word(section, data.start + offset as u64 * width) {
                     continue;
                 }

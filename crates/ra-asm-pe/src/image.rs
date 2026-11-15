@@ -256,12 +256,15 @@ impl Image {
     /// Whether the image keeps its read-only data in a code section: its export directory or its
     /// load configuration, which the linker writes into `.rdata`, lies in one, as in a DLL linked
     /// with `/MERGE:.rdata=.text` (the Windows system DLLs). The constants, the vtables and the
-    /// tables of such an image are read out of its code section.
+    /// tables of such an image are read out of its code section. A writable code section holds
+    /// data too: no compiler writes its code, but an unpacking stub writes the program's code and
+    /// data into one section, which the unpacked image keeps.
     pub fn data_in_code(&self) -> bool {
-        [Directory::Export, Directory::LoadConfig].into_iter().any(|d| {
+        let merged = [Directory::Export, Directory::LoadConfig].into_iter().any(|d| {
             let directory = self.headers.optional.directory(d);
             !directory.is_empty() && self.section_of_rva(directory.rva).is_some_and(|s| s.is_code() || s.is_executable())
-        })
+        });
+        merged || self.sections.iter().any(|s| (s.is_code() || s.is_executable()) && s.is_writable())
     }
 
     /// The whole mapped image, indexed by RVA.

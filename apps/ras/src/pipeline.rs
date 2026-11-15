@@ -1,5 +1,8 @@
 //! `ras pipeline`: the steps from the reference binary to a running port, in a project with a
-//! `rhipper.json`. The steps are `analyze`, `lift`, `emit`, `build` and `run`; each writes its log to
+//! `rhipper.json`. The steps are `unpack`, `analyze`, `lift`, `emit`, `build` and `run`; the unpack
+//! runs only for a reference the analysis names as packed, and writes the program its stub unpacks
+//! to `build/unpacked/<exe>`, which every step after reads in the reference's place (the run's
+//! reference too). Each step writes its log to
 //! `build/pipeline/<step>.log`, and the pipeline prints one progress line per step, `[  12s] emit`,
 //! which the workbench reads to show the step in work. A failed step prints
 //! `[  12s] build failed: stopping` and the pipeline ends; the last line of a whole run is `done`.
@@ -14,7 +17,7 @@
 //! comparison runs the same program finding the reference first. With `run.facts` on, the analyze
 //! step runs the reference through the IR interpreter first and writes what it saw to
 //! `build/facts.json`; every step analyzes with the facts there when they are of the reference.
-//! The analyze, lift and emit steps stamp what they read and what they wrote in
+//! The unpack, analyze, lift and emit steps stamp what they read and what they wrote in
 //! `build/pipeline/<step>.stamp`: a step whose inputs and outputs are as the stamp says prints its
 //! last summary with `(unchanged)` and does no work, and the emit rewrites only the files whose
 //! text changed, so the build recompiles only those. In one run the lift takes over the analyze
@@ -49,6 +52,7 @@ const MESON_BUILD: &str = include_str!("../templates/meson.build");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Step {
+    Unpack,
     Analyze,
     Lift,
     Emit,
@@ -57,10 +61,11 @@ pub(crate) enum Step {
 }
 
 impl Step {
-    pub(crate) const ALL: [Step; 5] = [Step::Analyze, Step::Lift, Step::Emit, Step::Build, Step::Run];
+    pub(crate) const ALL: [Step; 6] = [Step::Unpack, Step::Analyze, Step::Lift, Step::Emit, Step::Build, Step::Run];
 
     pub(crate) fn id(self) -> &'static str {
         match self {
+            Step::Unpack => "unpack",
             Step::Analyze => "analyze",
             Step::Lift => "lift",
             Step::Emit => "emit",
@@ -95,11 +100,19 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
     if let Some(config) = &options.config {
         project.build.config.clone_from(config);
     }
-    let steps: Vec<Step> = match (options.only, options.from) {
+    let mut steps: Vec<Step> = match (options.only, options.from) {
         (Some(step), _) => vec![step],
         (None, Some(first)) => Step::ALL.into_iter().filter(|s| *s >= first).collect(),
         (None, None) => Step::ALL.to_vec(),
     };
+    // A packed reference is ported from what its stub unpacks; a step that reads it before the
+    // unpack ever wrote it has the unpack run first.
+    let unpacked = packer(&project.exe).map(|_| unpacked_file(&project));
+    match &unpacked {
+        None => steps.retain(|s| *s != Step::Unpack),
+        Some(file) if !file.is_file() && !steps.contains(&Step::Unpack) => steps.insert(0, Step::Unpack),
+        Some(_) => {}
+    }
     fs::create_dir_all(project.log_dir())?;
     let progress = Progress { started: Instant::now() };
     let mut stats = options.stats.then(|| Stats::load(project.status_file()));
@@ -116,6 +129,11 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
         rebuild: options.rebuild,
     };
     for step in steps {
+        if step != Step::Unpack
+            && let Some(file) = &unpacked
+        {
+            pipeline.project.exe.clone_from(file);
+        }
         pipeline.progress.line(step.id());
         let log = pipeline.project.log_dir().join(format!("{}.log", step.id()));
         let stamp = pipeline.project.log_dir().join(format!("{}.stamp", step.id()));
@@ -135,6 +153,7 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
         let mut log = File::create(&log).with_context(|| format!("cannot write {}", log.display()))?;
         let started = Instant::now();
         let result = match step {
+            Step::Unpack => pipeline.unpack(unpacked.as_deref().expect("the unpack runs for a packed reference"), &mut log).map(Some),
             Step::Analyze => pipeline.analyze(&mut log).map(Some),
             Step::Lift => pipeline.lift(&mut log).map(Some),
             Step::Emit => pipeline.emit(&mut log).map(Some),
@@ -405,6 +424,42 @@ impl<'a> Pipeline<'a> {
             facts.residual = earlier.residual;
         }
         crate::run::write_facts(&file, &facts)
+    }
+
+    /// Runs the packed reference through the interpreter at the machine level until its stub
+    /// enters what it unpacked, and writes the program there to `file` as a PE of its own.
+    fn unpack(&self, file: &Path, log: &mut File) -> Result<Done> {
+        let exe = &self.project.exe;
+        let packed = ra_asm_pe::load(exe)?;
+        let analysis = ra_asm_analysis::analyze(&packed);
+        // A stub computes no floats: the run is the same over any x87 unit, and the project's is not in the key.
+        let mut lifted =
+            ra_asm_lift::lift_with(&packed, &analysis, ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double });
+        let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+        let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+        lifted.apply_names(&analysis, Some(&mut signatures));
+        let run = ra_asm_host::Options { unpack: true, limit: UNPACK_LIMIT, ..ra_asm_host::Options::default() };
+        let outcome = ra_asm_host::run(&packed, &lifted, &signatures, &run)?;
+        writeln!(
+            log,
+            "interpreted {} at the machine level: {} steps, {}",
+            exe.display(),
+            outcome.steps,
+            outcome.stop.as_deref().unwrap_or("ran to its end")
+        )?;
+        let bytes = ra_asm_host::unpack::image(&packed, &outcome).with_context(|| format!("cannot unpack {}", exe.display()))?;
+        ra_asm_emit::write_if_changed(file, &bytes).with_context(|| format!("cannot write {}", file.display()))?;
+        let summary = format!(
+            "unpacked by its {} stub in {} steps, entry {:#x}, {} bytes -> {}",
+            ra_asm_analysis::protector_of(&packed).unwrap_or("packer's"),
+            outcome.steps,
+            outcome.unpacked.unwrap_or_default(),
+            bytes.len(),
+            file.display()
+        );
+        writeln!(log, "{summary}")?;
+        println!("{summary}");
+        Ok(Done { summary, outputs: vec![(file.to_path_buf(), digest(&bytes))] })
     }
 
     fn analyze(&mut self, log: &mut File) -> Result<Done> {
@@ -747,6 +802,20 @@ fn fold_residual(project: &Project, image: &ra_asm_pe::Image, log: &mut File) ->
     Ok(())
 }
 
+/// The instructions the interpreter runs of an unpacking stub before it gives up on it.
+const UNPACK_LIMIT: u64 = 500_000_000;
+
+/// The packer the analysis names for the reference at `exe`, when it is packed; none when it is
+/// not, or when it does not load, which the analyze step then says.
+fn packer(exe: &Path) -> Option<&'static str> {
+    ra_asm_pe::load(exe).ok().as_ref().and_then(ra_asm_analysis::protector_of)
+}
+
+/// The program the stub of the reference unpacks: `build/unpacked/<exe>`.
+fn unpacked_file(project: &Project) -> PathBuf {
+    project.build_dir().join("unpacked").join(project.exe.file_name().unwrap_or_else(|| "program.exe".as_ref()))
+}
+
 /// Runs the reference through the IR interpreter, lifted as the emit step lifts it so its
 /// functions carry the port's names, with the record of the run written to `trace` in the shape
 /// of the port's; the output goes to `log` as a run's, and the outcome reads as a process's.
@@ -806,7 +875,7 @@ fn lead_dll_search(command: &mut Command, dir: &Path) {
 /// is the point of running.
 fn inputs_key(project: &Project, step: Step) -> Option<String> {
     use std::hash::{DefaultHasher, Hash, Hasher};
-    if !matches!(step, Step::Analyze | Step::Lift | Step::Emit) {
+    if !matches!(step, Step::Unpack | Step::Analyze | Step::Lift | Step::Emit) {
         return None;
     }
     let mut hasher = DefaultHasher::new();
@@ -814,6 +883,12 @@ fn inputs_key(project: &Project, step: Step) -> Option<String> {
     env!("RAS_VERSION").hash(&mut hasher);
     let engine = std::env::current_exe().and_then(fs::metadata).ok();
     engine.as_ref().map(|m| (m.len(), m.modified().ok())).hash(&mut hasher);
+    // The unpack reads the packed reference alone.
+    if step == Step::Unpack {
+        project.exe.hash(&mut hasher);
+        fs::read(&project.exe).ok().hash(&mut hasher);
+        return Some(format!("{:016x}", hasher.finish()));
+    }
     let mut files = vec![project.root.join(crate::project::RHIPPER_JSON), project.exe.clone()];
     files.extend(project.with.iter().cloned());
     files.extend(project.map.iter().cloned());
