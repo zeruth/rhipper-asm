@@ -303,6 +303,7 @@ dependencies = [
  "ra-asm-arm64",
  "ra-asm-ir",
  "ra-asm-pe",
+ "ra-asm-protos",
  "ra-asm-testing",
  "ra-asm-x86",
 ]
@@ -323,6 +324,13 @@ dependencies = [
  "anyhow",
  "ra-asm-format",
  "serde",
+]
+
+[[package]]
+name = "ra-asm-protos"
+version = "0.1.0"
+dependencies = [
+ "ra-asm-testing",
 ]
 
 [[package]]

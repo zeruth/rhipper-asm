@@ -1,122 +1,25 @@
 //! The prototypes of the imports: how many integer arguments each takes, and which arguments are
 //! doubles or 64-bit integers and what comes back where that matters (the C runtime's math, the
 //! Win32 functions that take a `LARGE_INTEGER`). The C runtime's functions and the runtime's own
-//! shims are written here by hand; the Windows API comes from [`win32`], a table generated from the
-//! SDK headers (`tests/win32_protos.rs` regenerates it), which the hand table takes precedence
-//! over. An import neither knows is modeled as reading all four argument registers, which is safe
-//! and may add a parameter the enclosing function does not have. The Xbox kernel's exports come
-//! from the loader's table ([`ra_asm_pe::xbe`]), keyed by the DLL where a name is also Win32's.
+//! shims are written here by hand; the Windows API comes from [`win32`], which reads the table
+//! `ra-asm-protos` generates from the SDK headers and which the hand table takes precedence over.
+//! An import neither knows is modeled as reading all four argument registers, which is safe and
+//! may add a parameter the enclosing function does not have. The Xbox kernel's exports come from
+//! the loader's table ([`ra_asm_pe::xbe`]), keyed by the DLL where a name is also Win32's.
 //!
-//! Beside the kinds, the parameters and results that take one of the SDK's named constants: the
-//! enumeration each belongs to is bound here by hand ([`named`]), and the names and values of the
-//! enumerations come from [`win32_names`], generated from the headers (`tests/win32_names.rs`), so
-//! the C reads `CreateFileA(name, GENERIC_READ | GENERIC_WRITE, ...)` and `GetLastError() ==
-//! ERROR_FILE_NOT_FOUND`.
-
-mod win32;
-mod win32_names;
+//! Beside the kinds, the parameters and results that take one of the SDK's named constants
+//! ([`named`], [`constant_name`]): the binding and the generated names are `ra-asm-protos`'s too,
+//! under this path for the emitters that read them here.
 
 use ra_asm_ir::{FnType, Type};
+pub use ra_asm_protos::{constant_name, named};
 
 use super::abi::{Kind, Signature};
-
-/// The Windows API functions whose parameters or result take a named constant: the enumeration
-/// of the result (empty for none), then of each parameter in order (empty for none; a parameter
-/// past the end takes none). An enumeration's names are in the generated table.
-const NAMED: &[(&str, &str, &[&str])] = &[
-    ("CreateFileA", "HANDLE_VALUE", &["", "ACCESS_MASK", "FILE_SHARE_MODE", "", "CREATION_DISPOSITION", "FILE_FLAGS_AND_ATTRIBUTES"]),
-    ("CreateFileW", "HANDLE_VALUE", &["", "ACCESS_MASK", "FILE_SHARE_MODE", "", "CREATION_DISPOSITION", "FILE_FLAGS_AND_ATTRIBUTES"]),
-    ("FindFirstFileA", "HANDLE_VALUE", &[]),
-    ("FindFirstFileW", "HANDLE_VALUE", &[]),
-    ("GetFileAttributesA", "FILE_FLAGS_AND_ATTRIBUTES", &[]),
-    ("GetFileAttributesW", "FILE_FLAGS_AND_ATTRIBUTES", &[]),
-    ("SetFileAttributesA", "", &["", "FILE_FLAGS_AND_ATTRIBUTES"]),
-    ("SetFileAttributesW", "", &["", "FILE_FLAGS_AND_ATTRIBUTES"]),
-    ("SetFilePointer", "SET_FILE_POINTER_RESULT", &["", "", "", "FILE_MOVE_METHOD"]),
-    ("SetFilePointerEx", "", &["", "", "", "FILE_MOVE_METHOD"]),
-    ("GetStdHandle", "HANDLE_VALUE", &["STD_HANDLE"]),
-    ("SetStdHandle", "", &["STD_HANDLE"]),
-    ("GetLastError", "WIN32_ERROR", &[]),
-    ("SetLastError", "", &["WIN32_ERROR"]),
-    ("VirtualAlloc", "", &["", "", "MEM_ALLOCATION", "PAGE_PROTECTION"]),
-    ("VirtualAllocEx", "", &["", "", "", "MEM_ALLOCATION", "PAGE_PROTECTION"]),
-    ("VirtualFree", "", &["", "", "MEM_ALLOCATION"]),
-    ("VirtualFreeEx", "", &["", "", "", "MEM_ALLOCATION"]),
-    ("VirtualProtect", "", &["", "", "PAGE_PROTECTION"]),
-    ("VirtualProtectEx", "", &["", "", "", "PAGE_PROTECTION"]),
-    ("HeapCreate", "", &["HEAP_FLAGS"]),
-    ("HeapAlloc", "", &["", "HEAP_FLAGS"]),
-    ("HeapReAlloc", "", &["", "HEAP_FLAGS"]),
-    ("HeapFree", "", &["", "HEAP_FLAGS"]),
-    ("HeapSize", "", &["", "HEAP_FLAGS"]),
-    ("WaitForSingleObject", "WAIT_RESULT", &["", "TIMEOUT"]),
-    ("WaitForSingleObjectEx", "WAIT_RESULT", &["", "TIMEOUT"]),
-    ("WaitForMultipleObjects", "WAIT_RESULT", &["", "", "", "TIMEOUT"]),
-    ("WaitForMultipleObjectsEx", "WAIT_RESULT", &["", "", "", "TIMEOUT"]),
-    ("Sleep", "", &["TIMEOUT"]),
-    ("SleepEx", "", &["TIMEOUT"]),
-    ("MultiByteToWideChar", "", &["CODE_PAGE"]),
-    ("WideCharToMultiByte", "", &["CODE_PAGE"]),
-    ("ShowWindow", "", &["", "SHOW_WINDOW_CMD"]),
-    ("SendMessageA", "", &["", "WINDOW_MESSAGE"]),
-    ("SendMessageW", "", &["", "WINDOW_MESSAGE"]),
-    ("PostMessageA", "", &["", "WINDOW_MESSAGE"]),
-    ("PostMessageW", "", &["", "WINDOW_MESSAGE"]),
-    ("DefWindowProcA", "", &["", "WINDOW_MESSAGE"]),
-    ("DefWindowProcW", "", &["", "WINDOW_MESSAGE"]),
-    ("RegOpenKeyExA", "WIN32_ERROR", &["HKEY"]),
-    ("RegOpenKeyExW", "WIN32_ERROR", &["HKEY"]),
-    ("RegCreateKeyExA", "WIN32_ERROR", &["HKEY"]),
-    ("RegCreateKeyExW", "WIN32_ERROR", &["HKEY"]),
-    ("RegQueryValueExA", "WIN32_ERROR", &["HKEY"]),
-    ("RegQueryValueExW", "WIN32_ERROR", &["HKEY"]),
-    ("RegSetValueExA", "WIN32_ERROR", &["HKEY"]),
-    ("RegSetValueExW", "WIN32_ERROR", &["HKEY"]),
-    ("RegCloseKey", "WIN32_ERROR", &["HKEY"]),
-];
-
-/// The enumerations an import's result and parameters take, by name: `None` for a function the
-/// binding does not know; inside, `None` for a result or parameter that takes a plain number.
-pub fn named(name: &str) -> Option<(Option<&'static str>, Vec<Option<&'static str>>)> {
-    let &(_, result, params) = NAMED.iter().find(|(n, ..)| *n == name)?;
-    let some = |e: &'static str| (!e.is_empty()).then_some(e);
-    Some((some(result), params.iter().map(|e| some(e)).collect()))
-}
-
-/// The SDK's name of `value`, a constant of `bits` bits in `enumeration`: one member whose value
-/// it is, or, in a flags enumeration, the members whose bits make it up exactly, in the table's
-/// order, each with its own value; `None` when the names do not cover it. A member's value is
-/// compared at the constant's width, and a 64-bit constant also as the zero-extended `DWORD` the
-/// API takes (`STD_OUTPUT_HANDLE`, `(DWORD)-11`, passed in a 64-bit argument).
-pub fn constant_name(enumeration: &str, value: u64, bits: u32) -> Option<Vec<(&'static str, u64)>> {
-    let i = win32_names::NAMES.binary_search_by_key(&enumeration, |(n, ..)| n).ok()?;
-    let (_, flags, members) = win32_names::NAMES[i];
-    let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
-    let value = value & mask;
-    let same = |member: u64| (member & mask) == value || (bits >= 64 && (member & 0xffff_ffff) == value);
-    if let Some(&(name, member)) = members.iter().find(|(_, m)| same(*m)) {
-        return Some(vec![(name, member)]);
-    }
-    if !flags || value == 0 {
-        return None;
-    }
-    let mut rest = value;
-    let mut parts = Vec::new();
-    for &(name, member) in members {
-        let bit = member & mask;
-        if bit != 0 && rest & bit == bit {
-            parts.push((name, member));
-            rest &= !bit;
-        }
-    }
-    (rest == 0).then_some(parts)
-}
 
 /// The prototype of a Windows API function from the generated table: the kind of its result
 /// (`None` for a `void` function) and of each parameter.
 pub fn win32(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
-    let i = win32::TABLE.binary_search_by_key(&name, |(n, _)| n).ok()?;
-    let kinds = win32::TABLE[i].1.as_bytes();
+    let kinds = ra_asm_protos::win32_kinds(name)?.as_bytes();
     let kind = |c: u8| match c {
         b'w' => Kind::Wide,
         b'd' => Kind::Double,

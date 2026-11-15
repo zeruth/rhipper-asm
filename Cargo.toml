@@ -17,6 +17,7 @@ ra-asm-ir = { path = "crates/ra-asm-ir" }
 ra-asm-x86 = { path = "crates/ra-asm-x86" }
 ra-asm-arm64 = { path = "crates/ra-asm-arm64" }
 ra-asm-analysis = { path = "crates/ra-asm-analysis" }
+ra-asm-protos = { path = "crates/ra-asm-protos" }
 ra-asm-lift = { path = "crates/ra-asm-lift" }
 ra-asm-emit = { path = "crates/ra-asm-emit" }
 ra-asm-testing = { path = "crates/ra-asm-testing" }

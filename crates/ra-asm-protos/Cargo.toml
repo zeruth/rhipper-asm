@@ -1,0 +1,16 @@
+[package]
+name = "ra-asm-protos"
+description = "The import prototype tables generated from the SDK headers, and their lookup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+ra-asm-testing.workspace = true

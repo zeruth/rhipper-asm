@@ -31,6 +31,7 @@ ra-asm-arch.workspace = true
 ra-asm-arm64.workspace = true
 ra-asm-ir.workspace = true
 ra-asm-pe.workspace = true
+ra-asm-protos.workspace = true
 ra-asm-x86.workspace = true
 
 [dev-dependencies]

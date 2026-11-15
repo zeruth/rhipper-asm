@@ -44,6 +44,7 @@ Three decisions shape the design:
 | `ra-asm-x86` | The x86 and x86-64 decoder adapter over iced-x86; keeps iced's own instruction beside the record for the lift |
 | `ra-asm-analysis` | Functions, basic blocks, the control-flow graph, jump tables, no-return propagation |
 | `ra-asm-ir` | The LLVM-IR-shaped intermediate representation and its `.ll` printer |
+| `ra-asm-protos` | The import prototype tables generated from the SDK headers (the Windows API's kinds and named constants) and their lookup, apart from the lift so its edits do not recompile them |
 | `ra-asm-lift` | Instructions to machine IR over an explicit `%State`, and the raising passes: signature inference, state promotion, the ABI rewrite, conditions, frames, simplification |
 | `ra-asm-emit` | The structuring pass (if, else, loops, switch, short-circuit conditions), the C backend with its C++ dialect, the Rust backend, and the function table |
 | `ras` (app) | The command line: `info`, `sections`, `imports`, `exports`, `relocs`, `debug`, `functions`, `cfg`, `disasm`, `callers`, `xrefs`, `lift`, `signatures`, `emit`, `pipeline` |
