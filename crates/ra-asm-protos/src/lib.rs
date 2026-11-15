@@ -9,9 +9,19 @@
 //! come from `win32_names`, generated from the headers (`tests/win32_names.rs`), so the C reads
 //! `CreateFileA(name, GENERIC_READ | GENERIC_WRITE, ...)` and `GetLastError() ==
 //! ERROR_FILE_NOT_FOUND` ([`constant_name`]).
+//!
+//! The structures the prototypes point to are laid out at 32 and at 64 bits in `win32_layouts`,
+//! generated from the headers (`tests/win32_layouts.rs`): [`layout`] reads one by its tag or
+//! typedef name, [`pointees`] the ones a function's parameters point to, so a 32-bit program's
+//! `WNDCLASSEXA` can be widened for the 64-bit host field by field.
 
+mod layouts;
 mod win32;
+#[rustfmt::skip]
+mod win32_layouts;
 mod win32_names;
+
+pub use layouts::{Field, Kind, Place, Record, layout, pointees, records};
 
 /// The Windows API functions whose parameters or result take a named constant: the enumeration
 /// of the result (empty for none), then of each parameter in order (empty for none; a parameter
