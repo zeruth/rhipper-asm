@@ -8,7 +8,8 @@
 //! x86 shape holds `r0..r15`, the flags as ARM64 keeps them and `q0..q15`. On MIPS the four
 //! fields hold `$0..$31` at 64 bits (MIPS III's width, every 32-bit result sign-extended into
 //! it) with `hi` and `lo` after them as `$32` and `$33`, `pc`, the FPU's eight condition codes as
-//! bytes and `$f0..$f31`, and a fifth follows: the FPU's control and status register.
+//! bytes and `$f0..$f31`, and two follow: the FPU's control and status register, and the 64
+//! registers of the `PlayStation`'s GTE.
 
 use ra_asm_arch::state::{self as layout, StateSpec};
 use ra_asm_ir::{AtomicOp, BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Operand, Type, ValueId};
@@ -44,6 +45,9 @@ pub const MIPS_HI: u8 = 32;
 pub const MIPS_LO: u8 = 33;
 /// The scalar field of the MIPS `%State` after the four every state has, by index.
 pub const MIPS_FCSR: i64 = 4;
+/// The field of the GTE's registers: data register `n` in slot `n`, control register `n` in
+/// slot `32 + n`.
+pub const MIPS_GTE: i64 = 5;
 
 /// The MIPS general registers by their number, in the o32 names (n32 calls `$8..$11` `a4..a7`),
 /// then `hi` and `lo`.
@@ -72,6 +76,70 @@ pub fn declare_svc(module: &mut ra_asm_ir::Module) {
 /// The type of `@ra_syscall`.
 pub fn syscall_type() -> FnType {
     FnType::new(Type::I64, vec![Type::I64; 5])
+}
+
+/// The commands of the `PlayStation`'s GTE by the low six bits of a `cop2` word, as the runtime
+/// names them: `ra_gte_<name>`.
+const GTE_COMMANDS: [(u32, &str); 22] = [
+    (0x01, "rtps"),
+    (0x06, "nclip"),
+    (0x0c, "op"),
+    (0x10, "dpcs"),
+    (0x11, "intpl"),
+    (0x12, "mvmva"),
+    (0x13, "ncds"),
+    (0x14, "cdp"),
+    (0x16, "ncdt"),
+    (0x1b, "nccs"),
+    (0x1c, "cc"),
+    (0x1e, "ncs"),
+    (0x20, "nct"),
+    (0x28, "sqr"),
+    (0x29, "dcpl"),
+    (0x2a, "dpct"),
+    (0x2d, "avsz3"),
+    (0x2e, "avsz4"),
+    (0x30, "rtpt"),
+    (0x3d, "gpf"),
+    (0x3e, "gpl"),
+    (0x3f, "ncct"),
+];
+
+/// The runtime function of the GTE command `funct`, when it is one.
+pub fn gte_command(funct: u32) -> Option<String> {
+    GTE_COMMANDS.iter().find(|(f, _)| *f == funct).map(|(_, name)| format!("ra_gte_{name}"))
+}
+
+/// The type of a GTE command: `void (ptr %gte, i64 command)`, the registers of the state's GTE
+/// field and the whole command word, whose `sf`, `lm` and matrix fields the command reads.
+pub fn gte_type() -> FnType {
+    FnType::new(Type::Void, vec![Type::Ptr, Type::I64])
+}
+
+/// The `gp` of a `PlayStation` program. The start routine sets it and every function addresses the
+/// small data through it, but a function at the ABI level takes no `gp` from its caller: a global
+/// holds the register for all of them, as the one register of the machine does.
+pub const PSX_GP: &str = "ra_gp";
+
+/// The runtime of a `PlayStation` program: a BIOS function by its table's name, `ra_bios_<name>`
+/// with the prototype [`crate::raise::prototypes::psx_bios`] gives it, each GTE command, and the
+/// [`PSX_GP`] global.
+pub fn declare_psx(module: &mut ra_asm_ir::Module) {
+    module.globals.push(ra_asm_ir::Global {
+        name: PSX_GP.to_owned(),
+        ty: Type::I64,
+        init: Some(ra_asm_ir::Const::Int(0)),
+        constant: false,
+        linkage: ra_asm_ir::Linkage::External,
+        align: 8,
+        address: None,
+    });
+    for call in crate::raise::prototypes::psx_bios_calls() {
+        module.declare(Declaration { name: call.symbol(), ty: call.fn_type(), conv: CallConv::C, attrs: vec![] });
+    }
+    for (_, name) in GTE_COMMANDS {
+        module.declare(Declaration { name: format!("ra_gte_{name}"), ty: gte_type(), conv: CallConv::C, attrs: vec![] });
+    }
 }
 
 /// The fields of the x86 `%State`.
@@ -586,7 +654,20 @@ pub fn proc_pops_global(images: &[&ra_asm_pe::Image], lifted: &crate::Lifted) ->
 pub fn is_runtime_global(name: &str) -> bool {
     matches!(
         name,
-        X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TLS | POPS | ARGS | MXCSR | IMPORT_POPS | IMPORT_NAMES | PROC_POPS | RTTI
+        X87_STACK
+            | X87_TOP
+            | X87_CW
+            | X87_SW
+            | X87_TMP
+            | TLS
+            | POPS
+            | ARGS
+            | MXCSR
+            | IMPORT_POPS
+            | IMPORT_NAMES
+            | PROC_POPS
+            | RTTI
+            | PSX_GP
     )
 }
 
@@ -652,6 +733,19 @@ impl Machine<'_> {
             Self::state_ty(),
             self.state,
             vec![(Type::I32, 0i64.into()), (Type::I32, 2i64.into()), (Type::I32, index.into())],
+            &hint,
+        )
+    }
+
+    /// The pointer to slot `slot` of the MIPS state's GTE field: data register `slot`, or control
+    /// register `slot - 32`.
+    pub fn gte_ptr(&mut self, block: BlockId, slot: u32) -> ValueId {
+        let hint = format!("p.gte{slot}");
+        self.b.gep(
+            block,
+            Self::state_ty(),
+            self.state,
+            vec![(Type::I32, 0i64.into()), (Type::I32, MIPS_GTE.into()), (Type::I32, i64::from(slot).into())],
             &hint,
         )
     }

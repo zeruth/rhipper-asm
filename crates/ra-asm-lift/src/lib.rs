@@ -574,6 +574,9 @@ fn lift_on(
     if isa == Isa::Arm32 || isa.is_mips() {
         state::declare_svc(&mut module);
     }
+    if image.platform() == Some("psx") {
+        state::declare_psx(&mut module);
+    }
     state::define_runtime_globals(&mut module, options.x87);
     let functions = || images.iter().flat_map(|(_, a)| a.functions.values());
     let runtime: BTreeMap<u64, String> = functions()

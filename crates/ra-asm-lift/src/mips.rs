@@ -15,6 +15,12 @@
 //! conversions to an integer that round by the FCSR take its default mode, to nearest. Every
 //! encoding outside the subset (the coprocessor 0, `COP1X`, the doubleword unaligned accesses,
 //! the conditional traps on an immediate, a branch in a delay slot) traps with its address.
+//!
+//! A `PlayStation` program runs on the R3000: no FPU, so a COP1 word traps with its address, and the
+//! GTE as coprocessor 2, whose registers are a field of the state that `mfc2`, `mtc2`, `cfc2`,
+//! `ctc2`, `lwc2` and `swc2` move, and whose commands are calls on `ra_gte_<op>`. A jump to the
+//! BIOS's `A0`, `B0` or `C0` entry with the function's number in `t1`, both constants of the block,
+//! is a call on the function the table names.
 #![allow(clippy::many_single_char_names)]
 
 use std::collections::HashMap;
@@ -24,12 +30,17 @@ use ra_asm_arch::Instr;
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, ICond, Inst, Operand, Terminator, Type, ValueId};
 use ra_asm_pe::Image;
 
-use crate::state::{Isa, MIPS_FCSR, MIPS_HI, MIPS_LO, Machine};
+use crate::raise::prototypes::{BiosCall, psx_bios};
+use crate::state::{Isa, MIPS_FCSR, MIPS_GTE, MIPS_HI, MIPS_LO, Machine, PSX_GP};
 use crate::x86::trap;
 use crate::{Lifted, function_name};
 
 /// `ra`, the register a call links through.
 const RA: u8 = 31;
+/// `t1`, where a BIOS call takes the function's number.
+const T1: u8 = 9;
+/// `gp`, the small-data pointer.
+const GP: u8 = 28;
 
 /// Lifts one function.
 pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm_ir::Function {
@@ -48,7 +59,17 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         }
     }
     let (x87, isa) = (lifted.x87, lifted.isa);
-    let mut lifter = Lifter { m: Machine { b: &mut b, state, bits: 32, x87, isa }, image, lifted, blocks, cond: None, jump_target: None };
+    let r3000 = image.platform() == Some("psx");
+    let mut lifter = Lifter {
+        m: Machine { b: &mut b, state, bits: 32, x87, isa },
+        image,
+        lifted,
+        blocks,
+        cond: None,
+        jump_target: None,
+        consts: HashMap::new(),
+        r3000,
+    };
     for blk in &f.blocks {
         lifter.lift_block(blk);
     }
@@ -141,6 +162,11 @@ struct Lifter<'a, 'b> {
     cond: Option<ValueId>,
     /// The target of the jump through a register that ends the current block, as a 64-bit address.
     jump_target: Option<ValueId>,
+    /// The registers the block has set to a constant so far, at 32 bits: where a BIOS call's
+    /// entry and number come from.
+    consts: HashMap<u8, u32>,
+    /// A `PlayStation` program: the R3000, with the GTE and no FPU.
+    r3000: bool,
 }
 
 impl Lifter<'_, '_> {
@@ -164,6 +190,7 @@ impl Lifter<'_, '_> {
         self.m.b.set_block_address(block, blk.start);
         self.cond = None;
         self.jump_target = None;
+        self.consts.clear();
         let mut n = 0;
         while let Some(i) = blk.instrs.get(n) {
             if self.m.b.has_terminator(block) {
@@ -181,6 +208,8 @@ impl Lifter<'_, '_> {
                     n += 1;
                 }
                 block = self.lift_branch(block, w, i.address, slot);
+                // A callee leaves no register as the block knew it.
+                self.consts.clear();
             } else {
                 block = self.lift_instr(block, w, i.address);
             }
@@ -264,6 +293,7 @@ impl Lifter<'_, '_> {
     fn lift_branch(&mut self, block: BlockId, w: Word, ip: u64, slot: Option<&Instr>) -> BlockId {
         let (rs, rt) = (w.rs(), w.rt());
         let relative = ip.wrapping_add(4).wrapping_add((w.simm() << 2) as u64) & 0xffff_ffff;
+        let bios = self.bios_entry(w, ip);
         let (mut cond, mut likely, mut link, mut call, mut jump) = (None, false, None, None, None);
         match w.op() {
             0 => {
@@ -306,7 +336,7 @@ impl Lifter<'_, '_> {
                 cond = Some(c);
                 likely = w.op() >= 20;
             }
-            17 => {
+            17 if !self.r3000 => {
                 let f = self.fcc(block, w.branch_cc());
                 cond = Some(if w.tests_true() { f } else { self.m.b.bin(block, BinOp::Xor, Type::I1, f, 1i64, "cond") });
                 likely = (w.0 >> 17) & 1 == 1;
@@ -335,6 +365,11 @@ impl Lifter<'_, '_> {
                     return self.after_slot(next, ip, cond, jump, call);
                 }
                 let end = self.lift_instr(block, sw, s.address);
+                if let Some(entry) = bios {
+                    // `j` and `jr` leave for the BIOS, which returns to the caller's `ra`.
+                    let tail = w.op() == 2 || (w.op() == 0 && w.funct() == 8);
+                    return self.bios_call(end, entry, tail, ip);
+                }
                 self.after_slot(end, ip, cond, jump, call)
             }
             // A likely branch's slot lies on its taken edge.
@@ -367,6 +402,81 @@ impl Lifter<'_, '_> {
 
     // region Calls
 
+    /// The BIOS entry (`0xa0`, `0xb0`, `0xc0`, in any of the address space's mirrors) a jump or a
+    /// call of a `PlayStation` program goes to: a `j` or `jal` that names it, or a `jr` or `jalr`
+    /// through a register the block set to it.
+    fn bios_entry(&self, w: Word, ip: u64) -> Option<u64> {
+        if !self.r3000 {
+            return None;
+        }
+        let target = match w.op() {
+            0 => u64::from(*self.consts.get(&w.rs())?),
+            2 | 3 => (ip.wrapping_add(4) & 0xf000_0000) | (u64::from(w.0 & 0x03ff_ffff) << 2),
+            _ => return None,
+        };
+        let entry = target & 0x1fff_ffff;
+        matches!(entry, 0xa0 | 0xb0 | 0xc0).then_some(entry)
+    }
+
+    /// A call on the BIOS, once the jump's slot has run: the function the number in `t1` names in
+    /// the table of `entry`, on its arguments from `a0` and with its result in `v0`; after a jump
+    /// to the entry (`tail`) the function returns to its caller. A number the block does not set,
+    /// or one the table does not name, traps.
+    fn bios_call(&mut self, block: BlockId, entry: u64, tail: bool, ip: u64) -> BlockId {
+        if self.m.b.has_terminator(block) {
+            return block;
+        }
+        self.m.b.address = Some(ip);
+        let number = self.consts.get(&T1).copied();
+        let Some(call) = number.and_then(|n| psx_bios(entry, u64::from(n))) else {
+            let held = number.map_or_else(|| "no constant".to_owned(), |n| format!("{n:#x}"));
+            self.warn(format!("{ip:#x}: a BIOS call through {entry:#x} with {held} in t1, which the table does not name"));
+            self.m.trap(block, ip, trap::INVALID);
+            return block;
+        };
+        self.bios_function(block, call);
+        if tail {
+            self.m.b.terminate(block, Terminator::Ret(None));
+        }
+        block
+    }
+
+    /// `v0 = ra_bios_<name>(a0, ...)`, its result a word as the BIOS leaves it.
+    fn bios_function(&mut self, block: BlockId, call: BiosCall) {
+        let args: Vec<(Type, Operand)> = (0..call.params).map(|i| (Type::I64, self.reg64(block, 4 + i).into())).collect();
+        if let Some(r) = self.m.b.call(block, call.fn_type(), Callee::Direct(call.symbol()), args, call.name) {
+            let word = self.m.b.cast(block, Cast::Trunc, Type::I64, r, Type::I32, "v0.w");
+            self.set32(block, 2, word);
+        }
+    }
+
+    /// Follows the constants of the block through `w`: `lui`, and `addiu` and `ori` on `$0` or on
+    /// a register the block holds; a register any other word writes leaves the table.
+    fn track(&mut self, w: Word) {
+        let (rs, rt) = (w.rs(), w.rt());
+        let known = |consts: &HashMap<u8, u32>, r: u8| if r == 0 { Some(0) } else { consts.get(&r).copied() };
+        let constant = match w.op() {
+            9 => known(&self.consts, rs).map(|v| v.wrapping_add(w.simm() as u32)),
+            13 => known(&self.consts, rs).map(|v| v | w.uimm() as u32),
+            15 => Some((w.0 & 0xffff) << 16),
+            _ => None,
+        };
+        let written = match w.op() {
+            0 => Some(w.rd()),
+            1 if rt & 16 != 0 => Some(RA),
+            3 => Some(RA),
+            8..=15 | 24..=27 | 32..=39 | 48 | 52 | 55 | 56 | 60 => Some(rt),
+            16..=18 if rs < 4 => Some(rt),
+            _ => None,
+        };
+        if let Some(r) = written {
+            self.consts.remove(&r);
+        }
+        if let (Some(v), true) = (constant, rt != 0) {
+            self.consts.insert(rt, v);
+        }
+    }
+
     /// `call F_target(state)`.
     fn call_lifted(&mut self, block: BlockId, target: u64) {
         let name = function_name(target);
@@ -393,8 +503,18 @@ impl Lifter<'_, '_> {
         if n == 0 {
             return self.m.value_of(block, Type::I64, 0i64);
         }
-        let p = self.m.gpr_ptr(block, u32::from(n));
+        let p = self.gpr_ptr(block, n);
         self.m.b.load(block, Type::I64, p, self.m.gpr_name(u32::from(n)))
+    }
+
+    /// Where general register `n` lives: its field of the state, but for the R3000's `gp`, which
+    /// is the [`PSX_GP`] global.
+    fn gpr_ptr(&mut self, block: BlockId, n: u8) -> ValueId {
+        if self.r3000 && n == GP {
+            let gp = Operand::Address { global: PSX_GP.to_owned(), offset: 0 };
+            return self.m.b.cast(block, Cast::IntToPtr, Type::I64, gp, Type::Ptr, "p.gp");
+        }
+        self.m.gpr_ptr(block, u32::from(n))
     }
 
     /// The low word of general register `n`, which a 32-bit operation reads.
@@ -416,7 +536,7 @@ impl Lifter<'_, '_> {
         if n == 0 {
             return;
         }
-        let p = self.m.gpr_ptr(block, u32::from(n));
+        let p = self.gpr_ptr(block, n);
         self.m.b.store(block, Type::I64, value, p);
     }
 
@@ -545,8 +665,12 @@ impl Lifter<'_, '_> {
 
     fn lift_instr(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
         let (rs, rt) = (w.rs(), w.rt());
+        self.track(w);
         match w.op() {
             0 => return self.special(block, w, ip),
+            // The R3000 has no FPU.
+            17 | 49 | 53 | 57 | 61 if self.r3000 => return self.unsupported(block, w, ip),
+            18 | 50 | 58 if self.r3000 => return self.cop2(block, w, ip),
             // addi, daddi: the signed add that traps on overflow.
             8 | 24 => {
                 let ty = if w.op() == 8 { Type::I32 } else { Type::I64 };
@@ -841,6 +965,152 @@ impl Lifter<'_, '_> {
         let old = self.reg64(block, rd);
         let r = self.m.select(block, c, Type::I64, from, old, "moved");
         self.set64(block, rd, r);
+    }
+
+    // endregion
+
+    // region The GTE
+
+    /// Coprocessor 2 of the R3000, the GTE: a command (bit 25 set) is a call on its runtime
+    /// function with the GTE's registers and the command word; `mfc2`, `cfc2`, `mtc2`, `ctc2`,
+    /// `lwc2` and `swc2` move a register.
+    fn cop2(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
+        let (rt, rd) = (w.rt(), w.rd());
+        match (w.op(), w.rs()) {
+            (18, 16..=31) => {
+                let Some(name) = crate::state::gte_command(w.funct()) else {
+                    return self.unsupported(block, w, ip);
+                };
+                let p = self.m.field_ptr(block, MIPS_GTE, "p.gte");
+                let args = vec![(Type::Ptr, p.into()), (Type::I64, i64::from(w.0).into())];
+                self.m.b.call(block, crate::state::gte_type(), Callee::Direct(name), args, "");
+            }
+            (18, 0) => {
+                let v = self.gte_data(block, rd);
+                self.set32(block, rt, v);
+            }
+            (18, 2) => {
+                let v = self.gte_slot(block, 32 + rd);
+                self.set32(block, rt, v);
+            }
+            (18, 4) => {
+                let v = self.reg32(block, rt);
+                self.set_gte_data(block, rd, v);
+            }
+            (18, 6) => {
+                let v = self.reg32(block, rt);
+                self.set_gte_control(block, rd, v);
+            }
+            (50, _) => {
+                let addr = self.address(block, w);
+                let v = self.m.load(block, Type::I32, addr, "ld");
+                self.set_gte_data(block, rt, v);
+            }
+            (58, _) => {
+                let addr = self.address(block, w);
+                let v = self.gte_data(block, rt);
+                self.m.store(block, Type::I32, v, addr);
+            }
+            _ => return self.unsupported(block, w, ip),
+        }
+        block
+    }
+
+    fn gte_slot(&mut self, block: BlockId, slot: u8) -> ValueId {
+        let p = self.m.gte_ptr(block, u32::from(slot));
+        self.m.b.load(block, Type::I32, p, &format!("gte{slot}"))
+    }
+
+    fn set_gte_slot(&mut self, block: BlockId, slot: u8, value: impl Into<Operand>) {
+        let p = self.m.gte_ptr(block, u32::from(slot));
+        self.m.b.store(block, Type::I32, value, p);
+    }
+
+    /// Data register `n` as `mfc2` reads it. The field holds each register as it reads, but for
+    /// those the GTE computes on the read: `SXYP` mirrors `SXY2`, `IRGB` and `ORGB` pack `IR1..3`
+    /// saturated to five bits, `LZCR` counts the leading bits of `LZCS` that equal its sign.
+    fn gte_data(&mut self, block: BlockId, n: u8) -> ValueId {
+        match n {
+            15 => self.gte_slot(block, 14),
+            28 | 29 => {
+                let mut packed = self.m.value_of(block, Type::I32, 0i64);
+                for k in 0..3u8 {
+                    let ir = self.gte_slot(block, 9 + k);
+                    let s = self.m.b.bin(block, BinOp::AShr, Type::I32, ir, 7i64, "ir.s");
+                    let low = self.m.b.icmp(block, ICond::Slt, Type::I32, s, 0i64, "ir.low");
+                    let high = self.m.b.icmp(block, ICond::Sgt, Type::I32, s, 0x1fi64, "ir.high");
+                    let c = self.m.select(block, high, Type::I32, 0x1fi64, s, "ir.top");
+                    let c = self.m.select(block, low, Type::I32, 0i64, c, "ir.c");
+                    let at = self.m.b.bin(block, BinOp::Shl, Type::I32, c, i64::from(5 * k), "ir.at");
+                    packed = self.m.b.bin(block, BinOp::Or, Type::I32, packed, at, "orgb");
+                }
+                packed
+            }
+            31 => {
+                let v = self.gte_slot(block, 30);
+                let sign = self.m.b.bin(block, BinOp::AShr, Type::I32, v, 31i64, "lzcs.sign");
+                let x = self.m.b.bin(block, BinOp::Xor, Type::I32, v, sign, "lzcs.x");
+                let args = vec![(Type::I32, x.into()), (Type::I1, 0i64.into())];
+                self.m.intrinsic(block, "llvm.ctlz.i32", Type::I32, args, "lzcr")
+            }
+            _ => self.gte_slot(block, n),
+        }
+    }
+
+    /// Writes data register `n` as `mtc2` does: a 16-bit register keeps its half, sign- or
+    /// zero-extended as it reads; `SXYP` pushes the screen-coordinate FIFO; `IRGB` sets `IR1..3`
+    /// from its three five-bit fields; `ORGB` and `LZCR` are read-only.
+    fn set_gte_data(&mut self, block: BlockId, n: u8, value: ValueId) {
+        match n {
+            1 | 3 | 5 | 8..=11 => {
+                let half = self.m.b.cast(block, Cast::Trunc, Type::I32, value, Type::I16, "gte.h");
+                let v = self.m.b.cast(block, Cast::SExt, Type::I16, half, Type::I32, "gte.x");
+                self.set_gte_slot(block, n, v);
+            }
+            7 | 16..=19 => {
+                let v = self.m.b.bin(block, BinOp::And, Type::I32, value, 0xffffi64, "gte.u");
+                self.set_gte_slot(block, n, v);
+            }
+            15 => {
+                let s1 = self.gte_slot(block, 13);
+                let s2 = self.gte_slot(block, 14);
+                self.set_gte_slot(block, 12, s1);
+                self.set_gte_slot(block, 13, s2);
+                self.set_gte_slot(block, 14, value);
+            }
+            28 => {
+                for k in 0..3u8 {
+                    let field = self.m.b.bin(block, BinOp::LShr, Type::I32, value, i64::from(5 * k), "irgb.f");
+                    let field = self.m.b.bin(block, BinOp::And, Type::I32, field, 0x1fi64, "irgb.f");
+                    let ir = self.m.b.bin(block, BinOp::Shl, Type::I32, field, 7i64, "irgb.ir");
+                    self.set_gte_slot(block, 9 + k, ir);
+                }
+                self.set_gte_slot(block, 28, value);
+            }
+            29 | 31 => {}
+            _ => self.set_gte_slot(block, n, value),
+        }
+    }
+
+    /// Writes control register `n` as `ctc2` does: the 16-bit ones sign-extended as they read
+    /// (`H` too, as the hardware reads it); `FLAG` keeps bits 12 to 30, with bit 31 the OR of its
+    /// error bits.
+    fn set_gte_control(&mut self, block: BlockId, n: u8, value: ValueId) {
+        let v = match n {
+            4 | 12 | 20 | 26 | 27 | 29 | 30 => {
+                let half = self.m.b.cast(block, Cast::Trunc, Type::I32, value, Type::I16, "gte.h");
+                self.m.b.cast(block, Cast::SExt, Type::I16, half, Type::I32, "gte.x")
+            }
+            31 => {
+                let kept = self.m.b.bin(block, BinOp::And, Type::I32, value, 0x7fff_f000i64, "flag");
+                let errors = self.m.b.bin(block, BinOp::And, Type::I32, value, 0x7f87_e000i64, "flag.err");
+                let any = self.m.b.icmp(block, ICond::Ne, Type::I32, errors, 0i64, "flag.any");
+                let top = self.m.select(block, any, Type::I32, i64::from(i32::MIN), 0i64, "flag.top");
+                self.m.b.bin(block, BinOp::Or, Type::I32, kept, top, "flag")
+            }
+            _ => value,
+        };
+        self.set_gte_slot(block, 32 + n, v);
     }
 
     // endregion

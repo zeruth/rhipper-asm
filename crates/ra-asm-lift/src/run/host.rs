@@ -36,8 +36,9 @@ pub(super) const STATE_SIZE: u64 = 16 * 8 + 8 + 8 + 32 * 16;
 /// The bytes of an ARM64 `%State`: `x0..x30` and `sp`, `pc`, the flags, `v0..v31`.
 const ARM64_STATE_SIZE: u64 = 32 * 8 + 8 + 8 + 32 * 16;
 /// The bytes of a MIPS `%State`: `$0..$31`, `hi` and `lo`, `pc`, the condition codes, `$f0..$f31`,
-/// then the FPU's control and status register, padded to the vectors' alignment.
-const MIPS_STATE_SIZE: u64 = 34 * 8 + 8 + 8 + 32 * 16 + 16;
+/// the FPU's control and status register and the GTE's 64 registers, padded to the vectors'
+/// alignment.
+const MIPS_STATE_SIZE: u64 = 34 * 8 + 8 + 8 + 32 * 16 + 4 + 64 * 4 + 12;
 
 /// A thread of the program as the interpreter runs it: one at a time, a created one to its end
 /// inside `CreateThread`.
@@ -748,9 +749,42 @@ impl<'a> Runtime<'a> {
                 Ok(Value::Int(u128::from(i64::from(result as i32) as u64)))
             }
             n if n.starts_with("ra_f80_") => self.f80_call(vm, n, args),
+            n if n.starts_with("ra_bios_") => self.bios(vm, &n["ra_bios_".len()..], args),
             n if n.starts_with("ra_eh_") => self.eh_call(vm, n, args),
             n if n.starts_with("ra_x86_") => self.shim_call(vm, n, args),
             _ => Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
+        }
+    }
+
+    /// A function of the `PlayStation` BIOS by its name in the tables, on the words of `a0..a3`:
+    /// the console output the TTY writes (`std_out_putchar`, `std_out_puts`, which adds no
+    /// newline, and `printf` on the three arguments of `a1..a3`), and `exit`. A `printf` that
+    /// reads a fourth argument, which the program passed on its stack, stops the run, as does
+    /// another function.
+    fn bios(&mut self, vm: &mut Vm<'_>, name: &str, args: &[Value]) -> Result<Value, Stop> {
+        let word = |i: usize| u64::from(arg(args, i) as u32);
+        match name {
+            "std_out_putchar" => {
+                self.emit(false, &[word(0) as u8]);
+                int(0)
+            }
+            "std_out_puts" => {
+                let text = vm.memory.read_cstr(word(0), 1 << 20)?;
+                self.emit(false, &text);
+                int(0)
+            }
+            "printf" => {
+                let spec = vm.memory.read_cstr(word(0), 1 << 20)?;
+                let mut slots = SlotArgs { values: vec![word(1), word(2), word(3)], at: 0, vm };
+                let text = printf::format(&spec, 32, &mut slots);
+                if slots.at > slots.values.len() {
+                    return Err(Stop::fault(format!("the BIOS printf of {:?} reads past a3", String::from_utf8_lossy(&spec))));
+                }
+                self.emit(false, &text);
+                int(text.len() as u64)
+            }
+            "exit" => Err(Stop::Exit(word(0) as i32)),
+            _ => Err(Stop::fault(format!("the BIOS function {name} is not interpreted"))),
         }
     }
 

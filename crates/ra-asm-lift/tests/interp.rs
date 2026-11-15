@@ -191,6 +191,66 @@ fn mips_control_runs_interpreted() {
     }
 }
 
+/// The PSn00bSDK hello, a PS-X EXE for the R3000 whose `printf` is the BIOS's `A0` function
+/// `0x3f`: the lift covers every instruction and names the call, and the interpreter answers it
+/// at every level with the console output its source prints; each level's IR passes `clang -c`
+/// when clang is here.
+#[test]
+fn psx_hello_runs_interpreted() {
+    let path = root().join("testdata/psx/hello.exe");
+    let expected = std::fs::read_to_string(root().join("testdata/psx/hello.txt")).unwrap();
+    for tag in LEVELS {
+        let image = ra_asm_pe::load(&path).unwrap();
+        assert_eq!(image.platform(), Some("psx"), "a PS-X EXE");
+        let analysis = ra_asm_analysis::analyze(&image);
+        let level = if tag.contains("machine") {
+            ra_asm_lift::RaiseLevel::Machine
+        } else if tag.contains("promoted") {
+            ra_asm_lift::RaiseLevel::Promoted
+        } else {
+            ra_asm_lift::RaiseLevel::Abi
+        };
+        let options = ra_asm_lift::LiftOptions { standalone: level == ra_asm_lift::RaiseLevel::Abi, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+        assert!(lifted.warnings.is_empty(), "psx hello ({tag}): the lift warned:\n{}", lifted.warnings.join("\n"));
+        let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+        assert_eq!(coverage.traps(), 0, "psx hello ({tag}): unsupported instructions: {:?}", coverage.uncovered);
+        let options = lifted.raise_options(level);
+        let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+        lifted.apply_names(&analysis, Some(&mut signatures));
+        let ll = lifted.module.to_ll();
+        assert!(
+            ll.lines().any(|l| l.contains("call ") && l.contains("@ra_bios_printf(")),
+            "psx hello ({tag}): the BIOS printf is not called by its name"
+        );
+
+        let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+        let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+        assert_output(&format!("psx hello ({tag}): interpreted"), &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+        assert_eq!(outcome.exit, 0, "psx hello ({tag}): the interpreted program's exit (stop: {:?})", outcome.stop);
+
+        if ra_asm_testing::tool("clang").is_none() {
+            eprintln!("SKIPPED: psx hello ({tag}): clang is not on the PATH: the IR gate is skipped");
+            continue;
+        }
+        let dir = root().join("out/interp").join(format!("psx-hello-{tag}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("program.ll"), &ll).unwrap();
+        let check = std::process::Command::new("clang")
+            .args(["-c", "-x", "ir", "-o"])
+            .arg(dir.join("program.o"))
+            .arg(dir.join("program.ll"))
+            .output()
+            .unwrap();
+        assert!(
+            check.status.success(),
+            "psx hello ({tag}): clang -c on {}:\n{}",
+            dir.join("program.ll").display(),
+            String::from_utf8_lossy(&check.stderr)
+        );
+    }
+}
+
 /// The homebrew XBE: a 32-bit x86 program whose imports are the kernel's, by ordinal, named from
 /// the loader's table; the interpreter runs it at every level and answers the kernel calls. The
 /// clang run waits for the kernel's platform runtime.

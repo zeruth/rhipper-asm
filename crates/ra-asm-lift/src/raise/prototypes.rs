@@ -876,6 +876,156 @@ pub fn arity(name: &str) -> Option<usize> {
     })
 }
 
+/// A function of the `PlayStation` BIOS, which a program calls by jumping to the entry point of
+/// its table (`0xa0`, `0xb0` or `0xc0`) with its number in `t1`: its name, how many of `a0..a3`
+/// it reads, and whether it answers in `v0`. A variadic one (`printf`) reads all four registers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BiosCall {
+    pub table: u8,
+    pub number: u8,
+    pub name: &'static str,
+    pub params: u8,
+    pub returns: bool,
+}
+
+impl BiosCall {
+    /// The runtime function the lift calls for it: `ra_bios_<name>`.
+    pub fn symbol(&self) -> String {
+        format!("ra_bios_{}", self.name)
+    }
+
+    /// `i64 (i64 ...)` of its register arguments, or `void` when it answers nothing.
+    pub fn fn_type(&self) -> FnType {
+        FnType::new(if self.returns { Type::I64 } else { Type::Void }, vec![Type::I64; usize::from(self.params)])
+    }
+}
+
+/// The BIOS functions by their table and number, as the console's kernel documents them (the
+/// `A0`, `B0` and `C0` tables): the ones whose arguments are integers or pointers in `a0..a3`.
+/// A number not here is no call the lift names; the jump stays the program's.
+const PSX_BIOS: &[(u8, u8, &str, u8, bool)] = &[
+    (0xa0, 0x00, "FileOpen", 2, true),
+    (0xa0, 0x01, "FileSeek", 3, true),
+    (0xa0, 0x02, "FileRead", 3, true),
+    (0xa0, 0x03, "FileWrite", 3, true),
+    (0xa0, 0x04, "FileClose", 1, true),
+    (0xa0, 0x06, "exit", 1, false),
+    (0xa0, 0x08, "FileGetc", 1, true),
+    (0xa0, 0x09, "FilePutc", 2, true),
+    (0xa0, 0x0a, "todigit", 1, true),
+    (0xa0, 0x0c, "strtoul", 3, true),
+    (0xa0, 0x0d, "strtol", 3, true),
+    (0xa0, 0x0e, "abs", 1, true),
+    (0xa0, 0x0f, "labs", 1, true),
+    (0xa0, 0x10, "atoi", 1, true),
+    (0xa0, 0x11, "atol", 1, true),
+    (0xa0, 0x15, "strcat", 2, true),
+    (0xa0, 0x16, "strncat", 3, true),
+    (0xa0, 0x17, "strcmp", 2, true),
+    (0xa0, 0x18, "strncmp", 3, true),
+    (0xa0, 0x19, "strcpy", 2, true),
+    (0xa0, 0x1a, "strncpy", 3, true),
+    (0xa0, 0x1b, "strlen", 1, true),
+    (0xa0, 0x1c, "index", 2, true),
+    (0xa0, 0x1d, "rindex", 2, true),
+    (0xa0, 0x1e, "strchr", 2, true),
+    (0xa0, 0x1f, "strrchr", 2, true),
+    (0xa0, 0x20, "strpbrk", 2, true),
+    (0xa0, 0x21, "strspn", 2, true),
+    (0xa0, 0x22, "strcspn", 2, true),
+    (0xa0, 0x23, "strtok", 2, true),
+    (0xa0, 0x24, "strstr", 2, true),
+    (0xa0, 0x25, "toupper", 1, true),
+    (0xa0, 0x26, "tolower", 1, true),
+    (0xa0, 0x27, "bcopy", 3, false),
+    (0xa0, 0x28, "bzero", 2, false),
+    (0xa0, 0x29, "bcmp", 3, true),
+    (0xa0, 0x2a, "memcpy", 3, true),
+    (0xa0, 0x2b, "memset", 3, true),
+    (0xa0, 0x2c, "memmove", 3, true),
+    (0xa0, 0x2d, "memcmp", 3, true),
+    (0xa0, 0x2e, "memchr", 3, true),
+    (0xa0, 0x2f, "rand", 0, true),
+    (0xa0, 0x30, "srand", 1, false),
+    (0xa0, 0x33, "malloc", 1, true),
+    (0xa0, 0x34, "free", 1, false),
+    (0xa0, 0x37, "calloc", 2, true),
+    (0xa0, 0x38, "realloc", 2, true),
+    (0xa0, 0x39, "InitHeap", 2, false),
+    (0xa0, 0x3a, "SystemErrorExit", 1, false),
+    (0xa0, 0x3b, "std_in_getchar", 0, true),
+    (0xa0, 0x3c, "std_out_putchar", 1, false),
+    (0xa0, 0x3d, "std_in_gets", 1, true),
+    (0xa0, 0x3e, "std_out_puts", 1, false),
+    (0xa0, 0x3f, "printf", 4, true),
+    (0xa0, 0x44, "FlushCache", 0, false),
+    (0xb0, 0x00, "alloc_kernel_memory", 1, true),
+    (0xb0, 0x01, "free_kernel_memory", 1, false),
+    (0xb0, 0x07, "DeliverEvent", 2, false),
+    (0xb0, 0x08, "OpenEvent", 4, true),
+    (0xb0, 0x09, "CloseEvent", 1, true),
+    (0xb0, 0x0a, "WaitEvent", 1, true),
+    (0xb0, 0x0b, "TestEvent", 1, true),
+    (0xb0, 0x0c, "EnableEvent", 1, true),
+    (0xb0, 0x0d, "DisableEvent", 1, true),
+    (0xb0, 0x12, "InitPad", 4, true),
+    (0xb0, 0x13, "StartPad", 0, true),
+    (0xb0, 0x14, "StopPad", 0, false),
+    (0xb0, 0x17, "ReturnFromException", 0, false),
+    (0xb0, 0x18, "SetDefaultExitFromException", 0, false),
+    (0xb0, 0x19, "SetCustomExitFromException", 1, false),
+    (0xb0, 0x20, "UnDeliverEvent", 2, false),
+    (0xb0, 0x32, "FileOpen", 2, true),
+    (0xb0, 0x33, "FileSeek", 3, true),
+    (0xb0, 0x34, "FileRead", 3, true),
+    (0xb0, 0x35, "FileWrite", 3, true),
+    (0xb0, 0x36, "FileClose", 1, true),
+    (0xb0, 0x38, "exit", 1, false),
+    (0xb0, 0x3a, "FileGetc", 1, true),
+    (0xb0, 0x3b, "FilePutc", 2, true),
+    (0xb0, 0x3c, "std_in_getchar", 0, true),
+    (0xb0, 0x3d, "std_out_putchar", 1, false),
+    (0xb0, 0x3e, "std_in_gets", 1, true),
+    (0xb0, 0x3f, "std_out_puts", 1, false),
+    (0xb0, 0x4a, "InitCard", 1, false),
+    (0xb0, 0x4b, "StartCard", 0, false),
+    (0xb0, 0x4c, "StopCard", 0, false),
+    (0xb0, 0x54, "get_last_error", 0, true),
+    (0xb0, 0x56, "GetC0Table", 0, true),
+    (0xb0, 0x57, "GetB0Table", 0, true),
+    (0xb0, 0x5b, "ChangeClearPad", 1, false),
+    (0xc0, 0x00, "EnqueueTimerAndVblankIrqs", 1, false),
+    (0xc0, 0x01, "EnqueueSyscallHandler", 1, false),
+    (0xc0, 0x02, "SysEnqIntRP", 2, true),
+    (0xc0, 0x03, "SysDeqIntRP", 2, true),
+    (0xc0, 0x07, "InstallExceptionHandlers", 0, false),
+    (0xc0, 0x08, "SysInitMemory", 2, false),
+    (0xc0, 0x0a, "ChangeClearRCnt", 2, true),
+    (0xc0, 0x0c, "InitDefInt", 1, false),
+    (0xc0, 0x12, "InstallDevices", 1, false),
+    (0xc0, 0x13, "FlushStdInOutPut", 0, false),
+    (0xc0, 0x1c, "AdjustA0Table", 0, false),
+];
+
+/// The BIOS function a jump to `entry` (`0xa0`, `0xb0`, `0xc0`) with `number` in `t1` calls.
+pub fn psx_bios(entry: u64, number: u64) -> Option<BiosCall> {
+    PSX_BIOS
+        .iter()
+        .find(|&&(t, n, ..)| u64::from(t) == entry && u64::from(n) == number)
+        .map(|&(table, number, name, params, returns)| BiosCall { table, number, name, params, returns })
+}
+
+/// Every BIOS function of the tables, once by its runtime symbol: the declarations of a
+/// `PlayStation` program's module.
+pub fn psx_bios_calls() -> Vec<BiosCall> {
+    let mut seen = std::collections::HashSet::new();
+    PSX_BIOS
+        .iter()
+        .map(|&(table, number, name, params, returns)| BiosCall { table, number, name, params, returns })
+        .filter(|c| seen.insert(c.name))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

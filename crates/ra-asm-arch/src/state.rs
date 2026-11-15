@@ -164,8 +164,9 @@ pub const ARM32: StateSpec = StateSpec {
 
 /// MIPS, o32 and n32 alike: `$0..$31` at 64 bits (MIPS III's width, every 32-bit result
 /// sign-extended into it) and `hi`, `lo` after them as `$32` and `$33`, so the raise promotes them
-/// as it does a register; `pc`, the FPU's eight condition codes as bytes, `$f0..$f31`, then the
-/// FPU's control and status register.
+/// as it does a register; `pc`, the FPU's eight condition codes as bytes, `$f0..$f31`, the FPU's
+/// control and status register, then the 64 registers of the `PlayStation`'s GTE (coprocessor 2):
+/// its 32 data registers and its 32 control registers after them.
 pub const MIPS: StateSpec = StateSpec {
     machine: "mips",
     fields: &[
@@ -180,5 +181,6 @@ pub const MIPS: StateSpec = StateSpec {
             "f19", "f20", "f21", "f22", "f23", "f24", "f25", "f26", "f27", "f28", "f29", "f30", "f31",
         ]),
         Field::single("fcsr", Role::Extra, 32),
+        Field::group("gte", Role::Extra, 64, 32),
     ],
 };

@@ -284,6 +284,10 @@ static LOCK: Mutex<()> = Mutex::new(());
 const THREAD_STACK: usize = 256 << 20;
 const PROGRAM_STACK: usize = THREAD_STACK - (32 << 20);
 
+/// The `PlayStation`'s 2 MiB of RAM at its `kseg0` address, where the image's text and data fold.
+const PSX_RAM: u64 = 0x8000_0000;
+const PSX_RAM_SIZE: u64 = 0x20_0000;
+
 /// Runs `lifted` (raised to any level, with the `signatures` of the ABI level when it is at that
 /// level) through the interpreter. The run takes a thread of its own with a deep stack, since the
 /// program's calls nest as the interpreter's.
@@ -352,7 +356,9 @@ fn run_here(
 ) -> Result<(Outcome, u64)> {
     let base = image.image_base();
     let size = u64::from(image.size_of_image()).div_ceil(0x10000) * 0x10000;
-    let image_region = patiently(|| os::allocate_at(base, size))
+    // A PlayStation program has the console's RAM, the kernel's part below its text with it.
+    let (start, len) = if image.platform() == Some("psx") { (PSX_RAM, PSX_RAM_SIZE) } else { (base, size) };
+    let image_region = patiently(|| os::allocate_at(start, len))
         .ok_or_else(|| anyhow!("cannot map the image at {base:#x}: the address is taken in this process"))?;
     let low = |len: u64, what: &str| patiently(|| os::allocate_low(len)).ok_or_else(|| anyhow!("no room below 4 GB for the {what}"));
     let statics = low(4 << 20, "globals")?;
