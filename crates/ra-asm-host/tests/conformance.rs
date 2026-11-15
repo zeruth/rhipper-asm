@@ -8,24 +8,25 @@
 use std::path::PathBuf;
 
 use ra_asm_host::adapt;
-use ra_asm_protos::{Kind, Place, Record, layout};
+use ra_asm_protos::{Kind, Place, Record, converted_fields, layout};
 use ra_asm_testing::manifest;
 
 /// The structures the ignore reasons of rhtest's misc, sys and win name.
-const NAMED: [&str; 10] = [
+const NAMED: [&str; 11] = [
     "WNDCLASSA",
     "WNDCLASSEXA",
     "CREATESTRUCTA",
     "MSG",
     "OVERLAPPED",
     "MEMORY_BASIC_INFORMATION",
+    "SYSTEM_INFO",
     "SLIST_HEADER",
     "INIT_ONCE",
     "WSADATA",
     "CRITICAL_SECTION",
 ];
 /// The rows still pending: a change that makes one convert marks it passing and lowers this.
-const PENDING: usize = 9;
+const PENDING: usize = 4;
 
 /// The way a structure crosses the call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,12 +175,10 @@ fn fill(record: &Record, guest: &mut [u8], base: usize) -> Result<(), String> {
 
 /// What the host holds for the 32-bit structure `guest` at `from` once widened, written at `to` in
 /// `host`: a pointer and an unsigned integer zero-extended (the port keeps the program's 32-bit
-/// addresses), a signed integer sign-extended, a float and a bit field's unit as they are.
+/// addresses), a signed integer sign-extended, a float and a bit field's unit as they are; a
+/// union by its members that keep their layout.
 fn widen(record: &Record, guest: &[u8], from: usize, host: &mut [u8], to: usize) -> Result<(), String> {
-    if record.overlapping {
-        return Err(format!("{}: its fields share storage, and their layouts do not say which one it holds", record.name));
-    }
-    for field in record.fields {
+    for field in converted_fields(record)? {
         let unequal = || {
             format!(
                 "{}.{}: a {:?} field of {} bytes at 32 bits and {} at 64",

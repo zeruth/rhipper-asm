@@ -3,13 +3,15 @@
 //! 8. An adapter is generated from the structure's two layouts in `ra-asm-protos`: an integer of
 //! one width at both is copied, a pointer or an integer that widens is zero- or sign-extended on
 //! the way to the host and narrowed on the way back only when the host's value fits in 32 bits,
-//! and a nested structure is adapted field by field. A union has none, since its layouts do not
-//! say which member it holds.
+//! and a nested structure is adapted field by field. A union crosses by its members that keep one
+//! layout at both widths ([`converted_fields`]), and has none when they do not tile it, since its
+//! layouts do not say which member it holds.
 
-use ra_asm_protos::{Kind, Record, layout};
+use ra_asm_protos::{Kind, Record, converted_fields, layout};
 
-/// The structures the host converts for its calls: `RegisterClassExA`'s.
-const ADAPTED: [&str; 1] = ["WNDCLASSEXA"];
+/// The structures the host converts for its calls.
+const ADAPTED: [&str; 7] =
+    ["WNDCLASSEXA", "WNDCLASSA", "OVERLAPPED", "MEMORY_BASIC_INFORMATION", "SYSTEM_INFO", "WSADATA", "CRITICAL_SECTION"];
 
 /// How a field crosses between the widths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,10 +67,7 @@ pub fn generate(record: &'static Record) -> Result<Adapter, String> {
 }
 
 fn plan(record: &Record, base32: usize, base64: usize, prefix: &str, steps: &mut Vec<Step>) -> Result<(), String> {
-    if record.overlapping {
-        return Err(format!("{}: its fields share storage, and their layouts do not say which one it holds", record.name));
-    }
-    for field in record.fields {
+    for field in converted_fields(record)? {
         let path = format!("{prefix}{}", field.name);
         let unequal = || {
             format!(

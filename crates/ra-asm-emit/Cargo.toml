@@ -22,6 +22,9 @@ required-features = ["oracle"]
 name = "csmith"
 required-features = ["oracle"]
 
+[[test]]
+name = "adapters"
+
 [dependencies]
 anyhow.workspace = true
 ra-asm-analysis.workspace = true

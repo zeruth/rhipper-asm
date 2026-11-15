@@ -10,12 +10,102 @@ static void ra_widen(uint8_t *host, const uint8_t *guest, unsigned narrow, unsig
     for (unsigned i = 0; i < wide; i++) host[i] = i < narrow ? guest[i] : fill;
 }
 
+// A field read and written as a value: a size that stands for the other width's, a procedure.
+static inline uint64_t ra_get(const uint8_t *p, unsigned size) {
+    uint64_t value = 0;
+    for (unsigned i = 0; i < size; i++) value |= (uint64_t)p[i] << (8 * i);
+    return value;
+}
+
+static inline void ra_put(uint8_t *p, unsigned size, uint64_t value) {
+    for (unsigned i = 0; i < size; i++) p[i] = (uint8_t)(value >> (8 * i));
+}
+
+// The structure's size at one width is its size at the other; another size passes as it is.
+static inline uint64_t ra_resize(uint64_t value, uint64_t from, uint64_t to) {
+    return value == from ? to : value;
+}
+
+// WNDPROC: the program's procedures the host calls back, each through the adapter of its slot, which
+// narrows each argument to the program's width, calls the program's procedure and widens its result.
+static uint32_t ra_guest_WNDPROC[8];
+
+static int64_t ra_call_WNDPROC(unsigned slot, uint64_t a0, uint32_t a1, uint64_t a2, int64_t a3) {
+    if (a0 >> 32) ra_adapt_failed("the host's WNDPROC argument 0 does not fit in 4 bytes", (uint64_t)a0);
+    if (a2 >> 32) ra_adapt_failed("the host's WNDPROC argument 2 does not fit in 4 bytes", (uint64_t)a2);
+    if (a3 != (int32_t)a3) ra_adapt_failed("the host's WNDPROC argument 3 does not fit in 4 bytes", (uint64_t)a3);
+    uint64_t (*procedure)(uint64_t, uint64_t, uint64_t, uint64_t) = (uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t))(uintptr_t)ra_guest_WNDPROC[slot];
+    return (int64_t)(int32_t)procedure((uint32_t)a0, (uint32_t)a1, (uint32_t)a2, (uint32_t)a3);
+}
+
+static int64_t ra_callback_WNDPROC_0(uint64_t a0, uint32_t a1, uint64_t a2, int64_t a3) {
+    return ra_call_WNDPROC(0, a0, a1, a2, a3);
+}
+
+static int64_t ra_callback_WNDPROC_1(uint64_t a0, uint32_t a1, uint64_t a2, int64_t a3) {
+    return ra_call_WNDPROC(1, a0, a1, a2, a3);
+}
+
+static int64_t ra_callback_WNDPROC_2(uint64_t a0, uint32_t a1, uint64_t a2, int64_t a3) {
+    return ra_call_WNDPROC(2, a0, a1, a2, a3);
+}
+
+static int64_t ra_callback_WNDPROC_3(uint64_t a0, uint32_t a1, uint64_t a2, int64_t a3) {
+    return ra_call_WNDPROC(3, a0, a1, a2, a3);
+}
+
+static int64_t ra_callback_WNDPROC_4(uint64_t a0, uint32_t a1, uint64_t a2, int64_t a3) {
+    return ra_call_WNDPROC(4, a0, a1, a2, a3);
+}
+
+static int64_t ra_callback_WNDPROC_5(uint64_t a0, uint32_t a1, uint64_t a2, int64_t a3) {
+    return ra_call_WNDPROC(5, a0, a1, a2, a3);
+}
+
+static int64_t ra_callback_WNDPROC_6(uint64_t a0, uint32_t a1, uint64_t a2, int64_t a3) {
+    return ra_call_WNDPROC(6, a0, a1, a2, a3);
+}
+
+static int64_t ra_callback_WNDPROC_7(uint64_t a0, uint32_t a1, uint64_t a2, int64_t a3) {
+    return ra_call_WNDPROC(7, a0, a1, a2, a3);
+}
+
+static int64_t (*const ra_host_WNDPROC[8])(uint64_t, uint32_t, uint64_t, int64_t) = {
+    ra_callback_WNDPROC_0,
+    ra_callback_WNDPROC_1,
+    ra_callback_WNDPROC_2,
+    ra_callback_WNDPROC_3,
+    ra_callback_WNDPROC_4,
+    ra_callback_WNDPROC_5,
+    ra_callback_WNDPROC_6,
+    ra_callback_WNDPROC_7,
+};
+
+// The host's procedure for the program's: the adapter of the slot that holds it.
+static uint64_t ra_callback_to_host_WNDPROC(uint64_t guest) {
+    if (!guest) return 0;
+    for (unsigned i = 0; i < 8; i++) {
+        if (!ra_guest_WNDPROC[i]) ra_guest_WNDPROC[i] = (uint32_t)guest;
+        if (ra_guest_WNDPROC[i] == guest) return (uint64_t)(uintptr_t)ra_host_WNDPROC[i];
+    }
+    ra_adapt_failed("the program hands the host more WNDPROC procedures than its 8 adapters", guest);
+}
+
+// The program's procedure for the host's: the one its adapter calls, or the host's own when it fits.
+static inline uint64_t ra_callback_to_guest_WNDPROC(uint64_t host, const char *what) {
+    for (unsigned i = 0; i < 8; i++) {
+        if (ra_guest_WNDPROC[i] && host == (uint64_t)(uintptr_t)ra_host_WNDPROC[i]) return ra_guest_WNDPROC[i];
+    }
+    if (host >> 32) ra_adapt_failed(what, host);
+    return host;
+}
+
 // tagWNDCLASSEXA: 48 bytes at 32 bits, 80 at 64.
 static void ra_to_host_tagWNDCLASSEXA(uint8_t *host, const uint8_t *guest) {
     for (unsigned i = 0; i < 80; i++) host[i] = 0;
-    ra_widen(host + 0, guest + 0, 4, 4, 0); // cbSize
+    ra_put(host + 0, 4, ra_resize(ra_get(guest + 0, 4), 48, 80)); // cbSize
     ra_widen(host + 4, guest + 4, 4, 4, 0); // style
-    ra_widen(host + 8, guest + 8, 4, 8, 0); // lpfnWndProc
+    ra_put(host + 8, 8, ra_callback_to_host_WNDPROC(ra_get(guest + 8, 4))); // lpfnWndProc
     ra_widen(host + 16, guest + 12, 4, 4, 0); // cbClsExtra
     ra_widen(host + 20, guest + 16, 4, 4, 0); // cbWndExtra
     ra_widen(host + 24, guest + 20, 4, 8, 0); // hInstance

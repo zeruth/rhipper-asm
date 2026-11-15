@@ -13,7 +13,10 @@
 //! The structures the prototypes point to are laid out at 32 and at 64 bits in `win32_layouts`,
 //! generated from the headers (`tests/win32_layouts.rs`): [`layout`] reads one by its tag or
 //! typedef name, [`pointees`] the ones a function's parameters point to, so a 32-bit program's
-//! `WNDCLASSEXA` can be widened for the 64-bit host field by field.
+//! `WNDCLASSEXA` can be widened for the 64-bit host field by field. Beside them, bound here by
+//! hand: the fields a converter crosses a union by ([`converted_fields`]), the code pointers the
+//! host calls back ([`callback`]), and the fields and parameters that hold a structure's size
+//! ([`holds_size`], [`size_parameter`]), which the layouts alone do not say.
 
 mod layouts;
 mod win32;
@@ -122,6 +125,127 @@ pub fn constant_name(enumeration: &str, value: u64, bits: u32) -> Option<Vec<(&'
 pub fn win32_kinds(name: &str) -> Option<&'static str> {
     let i = win32::TABLE.binary_search_by_key(&name, |(n, _)| n).ok()?;
     Some(win32::TABLE[i].1)
+}
+
+/// The fields of `record` a converter crosses the widths by, in order: a field the 32-bit layout
+/// does not have (`MEMORY_BASIC_INFORMATION`'s `PartitionId`) is left out, the host's being zero
+/// and the program having none to read back; and the members of a union are crossed by those that
+/// keep one layout at both widths and tile it (`OVERLAPPED`'s `Offset` and `OffsetHigh`), the
+/// others being read through them (its `Pointer`, which the API reserves to the system).
+///
+/// # Errors
+/// A union whose members that keep their layout do not tile it at both widths: its layouts do
+/// not say which member it holds.
+pub fn converted_fields(record: &Record) -> Result<Vec<&'static Field>, String> {
+    let fields: Vec<&'static Field> = record.fields.iter().filter(|f| f.at32.size > 0).collect();
+    if !record.overlapping {
+        return Ok(fields);
+    }
+    let meet = |a: Place, b: Place| a.offset < b.offset + b.size && b.offset < a.offset + a.size;
+    // Bit fields share their unit by design, and copy as they are at both widths.
+    let share = |a: &Field, b: &Field| a.kind != Kind::Bits && b.kind != Kind::Bits && (meet(a.at32, b.at32) || meet(a.at64, b.at64));
+    let mut group: Vec<usize> = (0..fields.len()).collect();
+    for i in 0..fields.len() {
+        for j in i + 1..fields.len() {
+            if share(fields[i], fields[j]) && group[i] != group[j] {
+                let (from, to) = (group[j], group[i]);
+                group.iter_mut().filter(|g| **g == from).for_each(|g| *g = to);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for (i, field) in fields.iter().enumerate() {
+        let members: Vec<&'static Field> = (0..fields.len()).filter(|&j| group[j] == group[i]).map(|j| fields[j]).collect();
+        if members.len() == 1 {
+            out.push(*field);
+        } else if std::ptr::eq(members[0], *field) {
+            out.extend(carriers(record, &members)?);
+        }
+    }
+    Ok(out)
+}
+
+/// The members of a union that keep one layout at both widths and tile its bytes at both, by
+/// offset.
+fn carriers(record: &Record, members: &[&'static Field]) -> Result<Vec<&'static Field>, String> {
+    let span = |place: fn(&Field) -> Place| {
+        let start = members.iter().map(|f| place(f).offset).min().unwrap_or(0);
+        let end = members.iter().map(|f| place(f).offset + place(f).size).max().unwrap_or(0);
+        (start, end)
+    };
+    let ((start32, end32), (start64, end64)) = (span(|f| f.at32), span(|f| f.at64));
+    let unconverted = || {
+        format!(
+            "{}: its fields share storage at {start32}, and no members of one layout at both widths say which one it holds",
+            record.name
+        )
+    };
+    if end32 - start32 != end64 - start64 {
+        return Err(unconverted());
+    }
+    let keeps = |f: &Field| {
+        f.at32.size == f.at64.size
+            && f.at32.offset - start32 == f.at64.offset - start64
+            && matches!(f.kind, Kind::Signed | Kind::Unsigned | Kind::Float)
+    };
+    let mut kept: Vec<&'static Field> = members.iter().copied().filter(|f| keeps(f)).collect();
+    kept.sort_by_key(|f| (f.at32.offset, std::cmp::Reverse(f.at32.size)));
+    let mut out = Vec::new();
+    let mut at = start32;
+    while at < end32 {
+        let next = kept.iter().find(|f| f.at32.offset == at).ok_or_else(unconverted)?;
+        out.push(*next);
+        at += next.at32.size;
+    }
+    Ok(out)
+}
+
+/// A code pointer the host calls back: the program's procedure, called through an adapter that
+/// narrows each argument to the program's width and widens the result to the host's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Callback {
+    /// The SDK's name of the pointer's type (`WNDPROC`).
+    pub name: &'static str,
+    /// The result's kind and its size at 32 bits; the host reads it in 8 bytes.
+    pub result: (Kind, u32),
+    /// Each parameter's kind, its size at 32 bits and at 64, in order.
+    pub params: &'static [(Kind, u32, u32)],
+}
+
+/// `LRESULT (CALLBACK *)(HWND, UINT, WPARAM, LPARAM)`.
+const WNDPROC: Callback = Callback {
+    name: "WNDPROC",
+    result: (Kind::Signed, 4),
+    params: &[(Kind::Pointer, 4, 8), (Kind::Unsigned, 4, 4), (Kind::Unsigned, 4, 8), (Kind::Signed, 4, 8)],
+};
+
+/// The fields of the layout table that hold a code pointer the host calls back, by the record's
+/// name in the table.
+const CALLBACKS: &[(&str, &str, Callback)] = &[("tagWNDCLASSA", "lpfnWndProc", WNDPROC), ("tagWNDCLASSEXA", "lpfnWndProc", WNDPROC)];
+
+/// The callback the field `field` of the record `record` (its name in the layout table) holds;
+/// `None` for a field the host does not call.
+pub fn callback(record: &str, field: &str) -> Option<&'static Callback> {
+    CALLBACKS.iter().find(|(r, f, _)| *r == record && *f == field).map(|(.., c)| c)
+}
+
+/// The fields that hold their own structure's size, which the host checks against its layout's.
+const SIZE_FIELDS: &[(&str, &str)] = &[("tagWNDCLASSEXA", "cbSize")];
+
+/// Whether the field `field` of the record `record` holds the structure's own size (`cbSize`):
+/// the program's size there stands for the host's.
+pub fn holds_size(record: &str, field: &str) -> bool {
+    SIZE_FIELDS.iter().any(|(r, f)| *r == record && *f == field)
+}
+
+/// The functions with a parameter that holds the size of the structure another points to: that
+/// parameter, the structure's, and whether the result is the size written.
+const SIZE_PARAMETERS: &[(&str, usize, usize, bool)] = &[("VirtualQuery", 2, 1, true), ("VirtualQueryEx", 3, 2, true)];
+
+/// The parameter of `function` that holds the size of the buffer another points to, that other
+/// parameter, and whether the result is the size written; `None` for a function without one.
+pub fn size_parameter(function: &str) -> Option<(usize, usize, bool)> {
+    SIZE_PARAMETERS.iter().find(|(name, ..)| *name == function).map(|&(_, size, of, result)| (size, of, result))
 }
 
 #[cfg(test)]

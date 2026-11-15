@@ -474,20 +474,36 @@ struct Laid {
 
 impl Laid {
     /// The layouts of a record at both widths, when the reading knows every member's type and
-    /// the members agree.
+    /// the members agree. The members pair by position, or by name when the 64-bit layout orders
+    /// them otherwise (`WSAData`) or has one the 32-bit layout does not (`PartitionId`), which
+    /// sits at no place at 32 bits; a member of the 32-bit layout alone leaves the record out.
     fn of(identity: &str, at32: &BTreeMap<String, Dump>, at64: &BTreeMap<String, Dump>) -> Option<Laid> {
         let (d32, d64) = (at32.get(identity)?, at64.get(identity)?);
-        if d32.members.len() != d64.members.len() || d32.union != d64.union {
+        if d32.union != d64.union {
+            return None;
+        }
+        let positional = d32.members.len() == d64.members.len() && d32.members.iter().zip(&d64.members).all(|(a, b)| a.name == b.name);
+        let unique = |members: &[Member]| members.iter().enumerate().all(|(i, m)| members[..i].iter().all(|n| n.name != m.name));
+        if !positional
+            && (!unique(&d32.members) || !unique(&d64.members) || d32.members.iter().any(|m| d64.members.iter().all(|n| n.name != m.name)))
+        {
             return None;
         }
         let mut rows = Vec::new();
-        for (m32, m64) in d32.members.iter().zip(&d64.members) {
-            let (k32, n32, s32, r32) = type_of(&m32.ty, m32.bits, 4, at32)?;
+        for (i, m64) in d64.members.iter().enumerate() {
             let (k64, n64, s64, r64) = type_of(&m64.ty, m64.bits, 8, at64)?;
-            if m32.name != m64.name || k32 != k64 || n32 != n64 || r32 != r64 {
+            let m32 = if positional { d32.members.get(i) } else { d32.members.iter().find(|m| m.name == m64.name) };
+            let (k32, n32, place32, r32) = match m32 {
+                Some(m32) => {
+                    let (k32, n32, s32, r32) = type_of(&m32.ty, m32.bits, 4, at32)?;
+                    (k32, n32, (m32.offset, s32), r32)
+                }
+                None => (k64, n64, (0, 0), r64.clone()),
+            };
+            if k32 != k64 || n32 != n64 || r32 != r64 {
                 return None;
             }
-            rows.push(Row { name: m64.name.clone(), kind: k64, count: n64, at32: (m32.offset, s32), at64: (m64.offset, s64), record: r64 });
+            rows.push(Row { name: m64.name.clone(), kind: k64, count: n64, at32: place32, at64: (m64.offset, s64), record: r64 });
         }
         Some(Laid { union: d64.union, size32: d32.size, align32: d32.align, size64: d64.size, align64: d64.align, rows })
     }

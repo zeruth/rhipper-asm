@@ -17,7 +17,7 @@
 [[struct]]
 name = "WNDCLASSA"
 direction = "in"        # RegisterClassA
-status = "pending"
+status = "passing"
 
 [[struct]]
 name = "WNDCLASSEXA"
@@ -37,12 +37,17 @@ status = "pending"
 [[struct]]
 name = "OVERLAPPED"
 direction = "both"      # ReadFile and WriteFile read its offset and event, the host writes its status
-status = "pending"
+status = "passing"
 
 [[struct]]
 name = "MEMORY_BASIC_INFORMATION"
 direction = "out"       # VirtualQuery
-status = "pending"
+status = "passing"
+
+[[struct]]
+name = "SYSTEM_INFO"
+direction = "out"       # GetSystemInfo, GetNativeSystemInfo
+status = "passing"
 
 [[struct]]
 name = "SLIST_HEADER"
@@ -57,9 +62,9 @@ status = "pending"
 [[struct]]
 name = "WSADATA"
 direction = "out"       # WSAStartup
-status = "pending"
+status = "passing"
 
 [[struct]]
 name = "CRITICAL_SECTION"
 direction = "both"      # InitializeCriticalSection, EnterCriticalSection, LeaveCriticalSection
-status = "pending"
+status = "passing"
