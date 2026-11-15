@@ -4,4 +4,28 @@
 # for the rule. `cargo test -p ra-asm-lift --test levels fixtures` holds the list to exactly these:
 # a line leaves when its function passes, and a function that starts to fail is a regression.
 # When the list differs, the test writes the one it found to var/levels/PENDING.txt.
+control_mipsel machine F_00020278 Terminator block `b_20278`: the block has no terminator: its `unreachable` follows no call
+control_mipsel machine F_000202a0 Terminator block `b_202a0`: the block has no terminator: its `unreachable` follows no call
+control_mipsel machine F_000202e8 Terminator block `b_20480`: the block has no terminator: its `unreachable` follows no call
+control_mipsel machine F_000208c8 Terminator block `b_208c8`: the block has no terminator: its `unreachable` follows no call
+control_mipsel machine F_00020904 Terminator block `b_2091c`: the block has no terminator: its `unreachable` follows no call
+control_mipsel promoted F_00020234 Sync block `b_20250`: `%rax.1`: `rax` is loaded where the block already holds its value
+control_mipsel promoted F_00020278 Terminator block `b_20278`: the block has no terminator: its `unreachable` follows no call
+control_mipsel promoted F_000202a0 Terminator block `b_202a0`: the block has no terminator: its `unreachable` follows no call
+control_mipsel promoted F_000202e8 Terminator block `b_20480`: the block has no terminator: its `unreachable` follows no call
+control_mipsel promoted F_00020518 Sync block `b_20584`: a store: the flag `cf` is stored, and no call or return takes a flag
+control_mipsel promoted F_000205c4 Sync block `b_205f4`: `%rax.22`: `rax` is loaded where the block already holds its value
+control_mipsel promoted F_000205fc Sync block `b_2061c`: a store: `rcx` is stored away from a call that takes the state and from the return
+control_mipsel promoted F_0002065c Sync block `b_20670`: a store: the flag `cf` is stored, and no call or return takes a flag
+control_mipsel promoted F_000207c8 Sync block `b_207ec`: `%rax.12`: `rax` is loaded where the block already holds its value
+control_mipsel promoted F_00020810 Sync block `b_20838`: `%rax.25`: `rax` is loaded where the block already holds its value
+control_mipsel promoted F_00020840 Sync block `b_20860`: a store: the flag `cf` is stored, and no call or return takes a flag
+control_mipsel promoted F_000208c8 Terminator block `b_208c8`: the block has no terminator: its `unreachable` follows no call
+control_mipsel promoted F_00020904 Terminator block `b_2091c`: the block has no terminator: its `unreachable` follows no call
+hello_mipsel machine F_000201a8 Terminator block `b_201a8`: the block has no terminator: its `unreachable` follows no call
+hello_mipsel machine F_000201c0 Terminator block `b_201c0`: the block has no terminator: its `unreachable` follows no call
+hello_mipsel promoted F_00020164 Sync block `b_20180`: `%rax.1`: `rax` is loaded where the block already holds its value
+hello_mipsel promoted F_000201a8 Terminator block `b_201a8`: the block has no terminator: its `unreachable` follows no call
+hello_mipsel promoted F_000201c0 Terminator block `b_201c0`: the block has no terminator: its `unreachable` follows no call
+hello_mipsel promoted F_00020210 Terminator block `b_20210`: the block has no terminator: its `unreachable` follows no call
 throws64.exe promoted F_140001390 Sync block `eh.cleaned.1400013d0`: a store: `rsi` is stored away from a call that takes the state and from the return
