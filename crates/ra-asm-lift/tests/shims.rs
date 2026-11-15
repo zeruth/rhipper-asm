@@ -12,18 +12,6 @@ const GAPS: &[(&str, &str, &str)] = &[
     ("ra_svc", "runtime/driver.c", "a Thumb-2 program runs only in the interpreter"),
     ("ra_svc", "runtime/rhipper.rs", "a Thumb-2 program runs only in the interpreter"),
     ("ra_call", "runtime/rhipper.rs", "the Rust runtime has no engine for a machine-level call"),
-    ("ra_eh_throw_destructor", "runtime/driver.c", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_throw_destructor", "runtime/rhipper.rs", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_throw_copy", "runtime/driver.c", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_throw_copy", "runtime/rhipper.rs", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_ending_object", "runtime/driver.c", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_ending_object", "runtime/rhipper.rs", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_ending_destructor", "runtime/driver.c", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_ending_destructor", "runtime/rhipper.rs", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_catch_sp", "runtime/driver.c", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_catch_sp", "runtime/rhipper.rs", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_ending_sp", "runtime/driver.c", "the x86 frame handler's protocol runs only in the interpreter"),
-    ("ra_eh_ending_sp", "runtime/rhipper.rs", "the x86 frame handler's protocol runs only in the interpreter"),
 ];
 
 /// The `ra_*` functions the lift declares, from every declaring function of `state.rs`.
