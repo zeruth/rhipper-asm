@@ -224,33 +224,37 @@ fn narrowable(inst: &Inst) -> bool {
     )
 }
 
-/// Runs the pass over the module. `roots` are the functions outside callers reach; their
-/// signatures stay. Returns whether anything changed.
+/// Runs the pass over the frozen functions of the module, each thawed alone: the plan reads a
+/// summary of each, and the rewrite reads the plan. `roots` are the functions outside callers
+/// reach; their signatures stay. Returns whether anything changed.
 pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
     let taken = address_taken(module);
-    let names: HashSet<String> = module.functions.iter().map(|f| f.name.clone()).collect();
+    let names: HashSet<String> = module.frozen.iter().map(|z| z.name.clone()).collect();
     let eligible = |name: &str| names.contains(name) && !roots.contains(name) && !taken.contains(name);
 
     // The plan is a fixpoint across the functions, from an optimistic start: a result's width
     // depends on what its callers demand, and a caller that returns the result as it is demands
     // what its own result's width allows. Each round widens, so the rounds end.
     let mut plan = Plan::default();
-    for f in &module.functions {
-        if !eligible(&f.name) {
+    let starts = super::held::map(&module.frozen, |_, f| {
+        let params: Vec<Option<u16>> = f.params.iter().map(|p| is_i64(f, *p).then_some(8)).collect();
+        (params, f.ty.ret == Type::I64)
+    });
+    for (z, (params, wide)) in module.frozen.iter().zip(starts) {
+        if !eligible(&z.name) {
             continue;
         }
-        let params: Vec<Option<u16>> = f.params.iter().map(|p| is_i64(f, *p).then_some(8)).collect();
         if params.iter().any(Option::is_some) {
-            plan.params.insert(f.name.clone(), params);
+            plan.params.insert(z.name.clone(), params);
         }
-        if f.ty.ret == Type::I64 {
-            plan.results.insert(f.name.clone(), 8);
+        if wide {
+            plan.results.insert(z.name.clone(), 8);
         }
     }
     for _ in 0..16 {
         // What the plan reads of each function's analysis, made side by side and kept alone: the
         // whole analyses of a large program's functions do not fit at once.
-        let summaries: Vec<Summary> = super::abi::par_map(&module.functions, |_, f| Summary::of(f, &analyze(f, &plan)));
+        let summaries: Vec<Summary> = super::held::map(&module.frozen, |_, f| Summary::of(f, &analyze(f, &plan)));
         // The widest of each callee's results its callers read, in one walk of the module: asked
         // of every caller once per function, the walk was the module squared.
         let mut read_by_callers: HashMap<&str, u16> = HashMap::new();
@@ -261,17 +265,17 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
             }
         }
         let mut next = Plan::default();
-        for (f, s) in module.functions.iter().zip(&summaries) {
-            if !eligible(&f.name) {
+        for (z, s) in module.frozen.iter().zip(&summaries) {
+            if !eligible(&z.name) {
                 continue;
             }
             if s.params.iter().any(Option::is_some) {
-                next.params.insert(f.name.clone(), s.params.clone());
+                next.params.insert(z.name.clone(), s.params.clone());
             }
             if let Some(w) = s.returned {
-                let callers_agree = read_by_callers.get(f.name.as_str()).is_none_or(|d| *d <= w);
+                let callers_agree = read_by_callers.get(z.name.as_str()).is_none_or(|d| *d <= w);
                 if w < FULL && callers_agree {
-                    next.results.insert(f.name.clone(), w);
+                    next.results.insert(z.name.clone(), w);
                 }
             }
         }
@@ -282,7 +286,7 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
     }
 
     let changed = std::sync::atomic::AtomicBool::new(false);
-    super::abi::par_each_mut(&mut module.functions, |_, f| {
+    super::held::each_mut(&mut module.frozen, |_, f| {
         let a = analyze(f, &plan);
         if rewrite(f, &a, &plan) {
             changed.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -331,7 +335,8 @@ impl Summary {
     }
 }
 
-/// The functions whose address the module takes: in the data, or as an operand.
+/// The functions whose address the module takes: in the data, or as an operand of a function,
+/// frozen ones thawed alone to be read.
 fn address_taken(module: &Module) -> HashSet<String> {
     fn consts(c: &Const, out: &mut HashSet<String>) {
         match c {
@@ -354,19 +359,10 @@ fn address_taken(module: &Module) -> HashSet<String> {
         }
     }
     for f in &module.functions {
-        for b in &f.blocks {
-            for i in &b.instrs {
-                let mut inst = i.inst.clone();
-                for o in inst.operands_mut() {
-                    match o {
-                        Operand::Address { global, .. } | Operand::Global(global) => {
-                            out.insert(global.clone());
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+        out.extend(super::stubs::named_in(f).cloned());
+    }
+    for named in super::held::map(&module.frozen, |_, f| super::stubs::named_in(f).cloned().collect::<Vec<String>>()) {
+        out.extend(named);
     }
     out
 }

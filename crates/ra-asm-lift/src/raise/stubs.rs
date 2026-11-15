@@ -56,20 +56,24 @@ fn stack_dwords(sig: &Signature, target: Target) -> usize {
     (sig.stack_bytes(target).max(popped) / 4) as usize
 }
 
-/// Adds a universal stub for every address-taken `F_` function and points the addresses at it.
-/// `extra` is what [`extra_dwords`] counted, the dwords of [`ARGS`].
+/// Adds a universal stub for every address-taken `F_` function of the frozen functions of
+/// `module` and points the addresses at it; each function is thawed alone, to build its stub and
+/// to rename what it names. `extra` is what [`extra_dwords`] counted, the dwords of [`ARGS`].
 pub fn add_universal_stubs(module: &mut Module, signatures: &HashMap<String, Signature>, target: Target, extra: usize) {
-    let taken = address_taken(module);
+    let mut taken = address_taken(module);
+    for named in super::held::map(&module.frozen, |_, f| named_in(f).cloned().collect::<Vec<String>>()) {
+        taken.extend(named);
+    }
     let mut renamed: HashMap<String, String> = HashMap::new();
     let mut stubs = Vec::new();
-    for f in &module.functions {
-        if !f.name.starts_with("F_") || !taken.contains(&f.name) {
+    for z in &module.frozen {
+        if !z.name.starts_with("F_") || !taken.contains(&z.name) {
             continue;
         }
-        let Some(sig) = signatures.get(&f.name) else { continue };
-        let name = stub_name(&f.name);
-        stubs.push(build_stub(&name, f, sig, target, extra));
-        renamed.insert(f.name.clone(), name);
+        let Some(sig) = signatures.get(&z.name) else { continue };
+        let name = stub_name(&z.name);
+        stubs.push(super::held::read(z, |f| build_stub(&name, f, sig, target, extra)));
+        renamed.insert(z.name.clone(), name);
     }
     if renamed.is_empty() {
         return;
@@ -79,7 +83,7 @@ pub fn add_universal_stubs(module: &mut Module, signatures: &HashMap<String, Sig
             rename_const(init, &renamed);
         }
     }
-    for f in &mut module.functions {
+    super::held::each_mut(&mut module.frozen, |_, f| {
         for b in &mut f.blocks {
             for i in &mut b.instrs {
                 for o in i.inst.operands_mut() {
@@ -90,8 +94,8 @@ pub fn add_universal_stubs(module: &mut Module, signatures: &HashMap<String, Sig
                 rename_operand(o, &renamed);
             }
         }
-    }
-    module.functions.extend(stubs);
+    });
+    module.frozen.extend(stubs.iter().map(ra_asm_ir::freeze::freeze));
 }
 
 /// `U_x(u0..u7)`: the universal arguments are six stack dwords, then `ecx`, then `edx`; the stack
@@ -201,7 +205,7 @@ pub(crate) fn address_taken(module: &Module) -> HashSet<String> {
 }
 
 /// The globals and functions the operands of `f` name: what [`address_taken`] finds in a function.
-fn named_in(f: &ra_asm_ir::Function) -> impl Iterator<Item = &String> {
+pub(crate) fn named_in(f: &ra_asm_ir::Function) -> impl Iterator<Item = &String> {
     f.blocks.iter().flat_map(|b| &b.instrs).flat_map(|i| i.inst.operands()).filter_map(|o| match o {
         Operand::Address { global, .. } | Operand::Global(global) => Some(global),
         _ => None,

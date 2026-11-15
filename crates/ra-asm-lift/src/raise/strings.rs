@@ -12,7 +12,7 @@
 //! then becomes a copy of the plaintext from a new constant, which the output prints as the
 //! literal it is.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
 use ra_asm_ir::{
@@ -204,32 +204,118 @@ fn copy_type() -> FnType {
 fn candidates(module: &Module) -> Vec<Candidate> {
     // The module's functions and read-only globals as sets: asked by name at every call of every
     // function, the module's own lookups walked the whole module each time.
-    let functions: std::collections::HashSet<&str> = module.functions.iter().map(|f| f.name.as_str()).collect();
-    let constants: std::collections::HashSet<&str> = module.globals.iter().filter(|g| g.constant).map(|g| g.name.as_str()).collect();
-    let per_function = super::abi::par_map(&module.functions, |function, f| {
-        let mut out = Vec::new();
-        let defs = known::definitions(f);
-        let uses = f.use_counts();
-        for (block, b) in f.blocks.iter().enumerate() {
-            for (index, i) in b.instrs.iter().enumerate() {
-                let Inst::Call { callee: Callee::Direct(callee), args, .. } = &i.inst else { continue };
-                if !functions.contains(callee.as_str()) || i.result.is_some_and(|v| uses.get(&v).is_some_and(|n| *n > 0)) {
-                    continue;
-                }
-                let Some(args) = args.iter().map(|(ty, o)| classify(ty, o, &constants, &defs)).collect::<Option<Vec<Arg>>>() else {
-                    continue;
-                };
-                let buffers = args.iter().filter(|a| matches!(a, Arg::Buffer(..))).count();
-                let data = args.iter().filter(|a| matches!(a, Arg::Data(..))).count();
-                if buffers == 0 || data == 0 {
-                    continue;
-                }
-                out.push(Candidate { function, block, index, callee: callee.clone(), args });
+    let functions: HashSet<&str> = module.functions.iter().map(|f| f.name.as_str()).collect();
+    let constants = constants(module);
+    let per_function = super::abi::par_map(&module.functions, |function, f| candidates_of(function, f, &functions, &constants));
+    per_function.into_iter().flatten().collect()
+}
+
+/// The read-only globals of `module`, by name.
+fn constants(module: &Module) -> HashSet<&str> {
+    module.globals.iter().filter(|g| g.constant).map(|g| g.name.as_str()).collect()
+}
+
+/// [`run`] over the frozen functions of `module`; returns the indices of the frozen functions it
+/// changed. Each function is thawed alone to be asked whether it makes a call to run and what it
+/// names; the runs then read the functions that do and every function they reach (by a call, an
+/// operand or a read-only global), thawed together: a run reaches no other, so it computes what it
+/// would over the whole module. A program with no call to run is never thawed beyond one function.
+pub fn run_frozen(module: &mut Module, low: bool) -> Vec<usize> {
+    let tables = {
+        let functions: HashSet<&str> = module.frozen.iter().map(|z| z.name.as_str()).collect();
+        let constants = constants(module);
+        super::held::map(&module.frozen, |i, f| (!candidates_of(i, f, &functions, &constants).is_empty(), reached_from(f)))
+    };
+    let callers: Vec<usize> = tables.iter().enumerate().filter(|(_, (found, _))| *found).map(|(i, _)| i).collect();
+    if callers.is_empty() {
+        return Vec::new();
+    }
+    let index: HashMap<&str, usize> = module.frozen.iter().enumerate().map(|(i, z)| (z.name.as_str(), i)).collect();
+    let mut picked: std::collections::BTreeSet<usize> = callers.iter().copied().collect();
+    let mut work = callers;
+    // The read-only data the runs see may hold the address of a function, which they place.
+    for g in module.globals.iter().filter(|g| g.constant) {
+        if let Some(init) = &g.init {
+            let mut named = Vec::new();
+            names_in_const(init, &mut named);
+            work.extend(named.iter().filter_map(|n| index.get(n.as_str())).copied().filter(|&j| picked.insert(j)));
+        }
+    }
+    while let Some(i) = work.pop() {
+        for name in &tables[i].1 {
+            if let Some(&j) = index.get(name.as_str())
+                && picked.insert(j)
+            {
+                work.push(j);
             }
         }
-        out
+    }
+    drop(index);
+    let picked: Vec<usize> = picked.into_iter().collect();
+    let mut part = Module {
+        functions: super::held::thaw_together(&module.frozen, &picked),
+        globals: std::mem::take(&mut module.globals),
+        declarations: std::mem::take(&mut module.declarations),
+        types: std::mem::take(&mut module.types),
+        name: module.name.clone(),
+        triple: module.triple.clone(),
+        data_layout: module.data_layout.clone(),
+        frozen: Vec::new(),
+    };
+    let changed = run(&mut part, low);
+    module.globals = std::mem::take(&mut part.globals);
+    module.declarations = std::mem::take(&mut part.declarations);
+    module.types = std::mem::take(&mut part.types);
+    changed
+        .into_iter()
+        .map(|k| {
+            module.frozen[picked[k]] = ra_asm_ir::freeze::freeze(&part.functions[k]);
+            picked[k]
+        })
+        .collect()
+}
+
+/// The functions and globals `f` names: its direct callees and the operands that name a symbol.
+fn reached_from(f: &ra_asm_ir::Function) -> Vec<String> {
+    let callees = f.blocks.iter().flat_map(|b| &b.instrs).filter_map(|i| match &i.inst {
+        Inst::Call { callee: Callee::Direct(name), .. } => Some(name),
+        _ => None,
     });
-    per_function.into_iter().flatten().collect()
+    callees.chain(super::stubs::named_in(f)).cloned().collect()
+}
+
+/// The symbols a constant names, into `out`.
+fn names_in_const(c: &Const, out: &mut Vec<String>) {
+    match c {
+        Const::Address { global, .. } | Const::Global(global) => out.push(global.clone()),
+        Const::Array(items) | Const::Struct(items) => items.iter().for_each(|i| names_in_const(i, out)),
+        _ => {}
+    }
+}
+
+/// The calls of `f`, the module's function `function`, worth running.
+fn candidates_of(function: usize, f: &ra_asm_ir::Function, functions: &HashSet<&str>, constants: &HashSet<&str>) -> Vec<Candidate> {
+    let mut out = Vec::new();
+    let defs = known::definitions(f);
+    let uses = f.use_counts();
+    for (block, b) in f.blocks.iter().enumerate() {
+        for (index, i) in b.instrs.iter().enumerate() {
+            let Inst::Call { callee: Callee::Direct(callee), args, .. } = &i.inst else { continue };
+            if !functions.contains(callee.as_str()) || i.result.is_some_and(|v| uses.get(&v).is_some_and(|n| *n > 0)) {
+                continue;
+            }
+            let Some(args) = args.iter().map(|(ty, o)| classify(ty, o, constants, &defs)).collect::<Option<Vec<Arg>>>() else {
+                continue;
+            };
+            let buffers = args.iter().filter(|a| matches!(a, Arg::Buffer(..))).count();
+            let data = args.iter().filter(|a| matches!(a, Arg::Data(..))).count();
+            if buffers == 0 || data == 0 {
+                continue;
+            }
+            out.push(Candidate { function, block, index, callee: callee.clone(), args });
+        }
+    }
+    out
 }
 
 /// An argument as the run takes it; `None` for one the run cannot stand in for. `constants` are

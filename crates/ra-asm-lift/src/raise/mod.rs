@@ -13,6 +13,7 @@ pub mod conditions;
 pub mod dce;
 pub mod flatten;
 pub mod frame;
+pub mod held;
 pub mod known;
 pub mod liveness;
 pub mod outline;
@@ -465,21 +466,34 @@ pub fn raise_before(
                 }
                 f.compact();
             };
-            // Each frozen function gives way to its raise as the raise reaches it: the frozen bytes
-            // and the raised module are never both whole.
-            let mut slots: Vec<Result<ra_asm_ir::Function, ra_asm_ir::freeze::Frozen>> = frozen.into_iter().map(Err).collect();
-            abi::par_each_mut(&mut slots, |_, slot| {
-                if let Err(z) = slot {
-                    let mut f = ra_asm_ir::freeze::thaw(z);
-                    raise_one(&mut f);
-                    *slot = Ok(f);
-                }
-            });
-            let mut functions: Vec<ra_asm_ir::Function> = slots.into_iter().map(|s| s.expect("every slot is raised")).collect();
-            let mut own = std::mem::take(&mut module.functions);
-            abi::par_each_mut(&mut own, |_, f| raise_one(f));
-            functions.append(&mut own);
-            module.functions = functions;
+            if whole.is_empty() {
+                // Each frozen function gives way to its raise as the raise reaches it: the frozen
+                // bytes and the raised module are never both whole.
+                let mut slots: Vec<Result<ra_asm_ir::Function, ra_asm_ir::freeze::Frozen>> = frozen.into_iter().map(Err).collect();
+                abi::par_each_mut(&mut slots, |_, slot| {
+                    if let Err(z) = slot {
+                        let mut f = ra_asm_ir::freeze::thaw(z);
+                        raise_one(&mut f);
+                        *slot = Ok(f);
+                    }
+                });
+                let mut functions: Vec<ra_asm_ir::Function> = slots.into_iter().map(|s| s.expect("every slot is raised")).collect();
+                let mut own = std::mem::take(&mut module.functions);
+                abi::par_each_mut(&mut own, |_, f| raise_one(f));
+                functions.append(&mut own);
+                module.functions = functions;
+            } else {
+                // The module steps read the functions frozen (see [`held`]): each function is
+                // frozen again as its raise ends, so the raised module is never whole before the
+                // steps have run.
+                let mut frozen = frozen;
+                held::each_mut(&mut frozen, |_, f| raise_one(f));
+                let mut own = std::mem::take(&mut module.functions);
+                abi::par_each_mut(&mut own, |_, f| raise_one(f));
+                frozen.extend(abi::par_map(&own, |_, f| ra_asm_ir::freeze::freeze(f)));
+                drop(own);
+                module.frozen = frozen;
+            }
         } else {
             let globals = &module.globals;
             for f in &mut module.functions {
@@ -489,6 +503,9 @@ pub fn raise_before(
         for step in whole {
             let Pass::Module(run) = step.pass else { unreachable!("`{}` follows the module steps", step.name) };
             run(module, &cx);
+        }
+        if abi_level && !whole.is_empty() {
+            held::thaw_all(module);
         }
     }
     // A pass that breaks the shape of its level shows in the builds the tests run, where it

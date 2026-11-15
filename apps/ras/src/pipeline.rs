@@ -603,8 +603,10 @@ impl<'a> Pipeline<'a> {
         let image = self.image()?;
         let with_images = self.with_images()?;
         let ir_written = self.ir_written;
-        let Ported { analysis, with, annotations, annotated, lifted, signatures } = self.ported(log)?;
-        let (analysis, with, annotations, annotated, signatures) = (&*analysis, &*with, &*annotations, &*annotated, &*signatures);
+        self.ported(log)?;
+        // The functions have no IR left to translate again: the program leaves the pipeline here.
+        let Ported { analysis, with, annotations, annotated, mut lifted, signatures } = self.ported.take().expect("ported");
+        let (analysis, with, annotations, annotated) = (&analysis, &with, &annotations, &annotated);
         // The translation drops each function's IR once its source is written, and the workbench
         // reads a function's IR from `build/` from then on: it goes there first when the lift step
         // did not write it in this run.
@@ -615,12 +617,16 @@ impl<'a> Pipeline<'a> {
         let hand = crate::annotations::hand_list(&hand, annotations);
         let options =
             crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations, checked: false, with: &companions };
-        let mut translation = crate::emit::translate(image, analysis, lifted, signatures, &options)?;
-        let lifted = &*lifted;
+        let mut translation = crate::emit::translate(image, analysis, &mut lifted, &signatures, &options)?;
+        let header = ra_asm_lift::image_header(image, analysis, &lifted, Some(&signatures));
+        // The translation and the header hold what the emit writes from here: the lifted program
+        // and its signatures go before the files are written.
+        let lift_warnings = std::mem::take(&mut lifted.warnings);
+        drop(lifted);
+        drop(signatures);
         crate::functions::note_evidence(&mut translation.infos, &gen_dir)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
-        let header = ra_asm_lift::image_header(image, analysis, lifted, Some(signatures));
         ra_asm_emit::write_if_changed(&gen_dir.join("image.h"), header.as_bytes())?;
         let table = translation.table();
         ra_asm_emit::write_if_changed(&build_dir.join("functions.json"), table.as_bytes())?;
@@ -643,7 +649,7 @@ impl<'a> Pipeline<'a> {
         let with_warnings = with.iter().flat_map(|a| &a.warnings);
         let warnings = log_warnings(
             log,
-            analysis.warnings.iter().chain(with_warnings).chain(annotated).chain(&lifted.warnings).chain(&translation.warnings),
+            analysis.warnings.iter().chain(with_warnings).chain(annotated).chain(&lift_warnings).chain(&translation.warnings),
         );
         if let Some(line) = regenerated {
             writeln!(log, "{line}")?;
@@ -660,8 +666,6 @@ impl<'a> Pipeline<'a> {
         );
         writeln!(log, "{summary}")?;
         println!("{summary}");
-        // The functions have no IR left to translate again.
-        self.ported = None;
         Ok(Done { summary, outputs })
     }
 

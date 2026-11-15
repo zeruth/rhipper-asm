@@ -130,6 +130,35 @@ fn peak_memory(_: &std::process::Child) -> Option<u64> {
     None
 }
 
+/// The program as the pipeline lifts and raises it (frozen, standalone, to the ABI level) holds
+/// one function at a time on each thread through the raise, the whole-module steps included: they
+/// read the other functions through the tables they build, and only a step that reads several
+/// functions at once thaws those, never the whole program. The module stays frozen from one step
+/// to the next, and the raise still ends with every function thawed for the emit.
+#[test]
+fn per_function_raise_holds_one_function() {
+    let bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin");
+    let mut fewest = usize::MAX;
+    for fixture in ["control64.exe", "control32.exe", "classes32.exe"] {
+        let image = ra_asm_pe::load(&bin.join(fixture)).unwrap();
+        let analysis = ra_asm_analysis::analyze(&image);
+        let options = ra_asm_lift::LiftOptions { standalone: true, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_frozen_with(&image, &analysis, &[], options);
+        assert!(!lifted.module.frozen.is_empty(), "{fixture}: the lift froze nothing");
+        let raise_options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+        let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, raise_options);
+        assert!(!signatures.is_empty(), "{fixture}: no signature");
+        assert!(lifted.module.frozen.is_empty(), "{fixture}: the raise left functions frozen");
+        fewest = fewest.min(lifted.module.functions.len());
+    }
+    let (most, together) = (ra_asm_lift::raise::held::most_thawed(), ra_asm_lift::raise::held::most_together());
+    let between = ra_asm_lift::raise::held::thawed_between();
+    eprintln!("the raise held at most {most} function(s) thawed on a thread, and thawed {together} together");
+    assert_eq!(most, 1, "a thread held {most} functions thawed at once");
+    assert_eq!(between, 0, "a module step began or ended with {between} functions thawed beside the frozen ones");
+    assert!(together < fewest, "a module step thawed {together} functions together, the whole of a program of {fewest}");
+}
+
 /// The pipeline over the fixtures: the slow tier, which builds and runs the ports.
 #[cfg(feature = "oracle")]
 mod fixtures {

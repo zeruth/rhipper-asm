@@ -33,9 +33,42 @@ const MAX_ROUNDS: usize = 32;
 pub fn run(module: &mut Module) -> bool {
     let mut changed = false;
     for _ in 0..MAX_ROUNDS {
-        if !outline_one(module) {
+        if !outline_one(module, &HashSet::new()) {
             break;
         }
+        changed = true;
+    }
+    changed
+}
+
+/// [`run`] over the frozen functions of `module`. A round can outline only a region whose shape
+/// another region shares, so it reads the shapes of every function, one at a time, and thaws the
+/// functions that hold a shared one: a region of a shape no other region has matches nothing and
+/// is never a template that does, so the round outlines what it would over the whole module. The
+/// changed functions and the helper are frozen back.
+pub fn run_frozen(module: &mut Module) -> bool {
+    let mut changed = false;
+    for _ in 0..MAX_ROUNDS {
+        let shapes = super::held::map(&module.frozen, |i, f| regions_of(f, i).into_iter().map(|r| r.shape).collect::<Vec<_>>());
+        let mut count: HashMap<(usize, usize, bool), usize> = HashMap::new();
+        for shape in shapes.iter().flatten() {
+            *count.entry(*shape).or_default() += 1;
+        }
+        let holders: Vec<usize> = (0..shapes.len()).filter(|&i| shapes[i].iter().any(|s| count[s] > 1)).collect();
+        if holders.is_empty() {
+            break;
+        }
+        let others: HashSet<String> =
+            module.frozen.iter().enumerate().filter(|(i, _)| holders.binary_search(i).is_err()).map(|(_, z)| z.name.clone()).collect();
+        let mut part = Module { functions: super::held::thaw_together(&module.frozen, &holders), ..Module::default() };
+        if !outline_one(&mut part, &others) {
+            break;
+        }
+        let mut functions = part.functions.into_iter();
+        for (&i, f) in holders.iter().zip(functions.by_ref()) {
+            module.frozen[i] = ra_asm_ir::freeze::freeze(&f);
+        }
+        module.frozen.extend(functions.map(|helper| ra_asm_ir::freeze::freeze(&helper)));
         changed = true;
     }
     changed
@@ -589,7 +622,8 @@ fn matches(module: &Module, t: &Region, s: &Region) -> Option<(Region, Match)> {
 }
 
 /// Finds one shape with a copy elsewhere and outlines every copy; false when none is left.
-fn outline_one(module: &mut Module) -> bool {
+/// `others` are the names of functions outside `module` that the helper's name keeps clear of.
+fn outline_one(module: &mut Module, others: &HashSet<String>) -> bool {
     let regions: Vec<Region> = super::abi::par_map(&module.functions, |i, f| regions_of(f, i)).into_iter().flatten().collect();
     // The largest template first: a loop nest is outlined whole before its inner loop alone.
     let mut order: Vec<usize> = (0..regions.len()).collect();
@@ -621,14 +655,14 @@ fn outline_one(module: &mut Module) -> bool {
         if copies.is_empty() {
             continue;
         }
-        outline(module, t, &copies);
+        outline(module, t, &copies, others);
         return true;
     }
     false
 }
 
 /// Writes the template as a function and replaces it and its copies by calls.
-fn outline(module: &mut Module, t: &Region, copies: &[(Region, Match)]) {
+fn outline(module: &mut Module, t: &Region, copies: &[(Region, Match)], others: &HashSet<String>) {
     // The parameters: the template's outside values in the order the walk met them, those that
     // are locals or that any copy has differently.
     let keys: Vec<(Operand, Type)> = copies[0].1.bindings.iter().map(|(k, _)| k.clone()).collect();
@@ -639,7 +673,7 @@ fn outline(module: &mut Module, t: &Region, copies: &[(Region, Match)]) {
         })
         .collect();
     let f = &module.functions[t.function];
-    let name = helper_name(module, f, t);
+    let name = helper_name(module, f, t, others);
     let helper = Copier::new(f, t, &params, &name).build();
     let fn_ty = helper.ty.clone();
     let template_args: Vec<(Type, Operand)> = params.iter().map(|(k, ty)| (ty.clone(), k.clone())).collect();
@@ -679,12 +713,12 @@ fn region_address(f: &Function, r: &Region) -> Option<u64> {
         .or_else(|| r.body.iter().filter_map(|b| f.block(*b)).find_map(|b| b.address.or_else(|| b.instrs.iter().find_map(|x| x.address))))
 }
 
-/// `H_<address>`, unique in the module.
-fn helper_name(module: &Module, f: &Function, r: &Region) -> String {
+/// `H_<address>`, unique in the module and among `others`.
+fn helper_name(module: &Module, f: &Function, r: &Region, others: &HashSet<String>) -> String {
     let base = format!("H_{:08x}", region_address(f, r).or(f.address).unwrap_or(0));
     let mut name = base.clone();
     let mut n = 0;
-    while module.functions.iter().any(|g| g.name == name) {
+    while others.contains(&name) || module.functions.iter().any(|g| g.name == name) {
         n += 1;
         name = format!("{base}.{n}");
     }

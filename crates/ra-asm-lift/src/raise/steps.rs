@@ -160,6 +160,7 @@ fn broken(step: &str, f: &mut Function) {
 fn broken_all(step: &str, module: &mut Module) {
     if faulty(step) {
         module.functions.iter_mut().for_each(|f| broken(step, f));
+        super::held::each_mut(&mut module.frozen, |_, f| broken(step, f));
     }
 }
 
@@ -272,57 +273,73 @@ fn flatten(f: &mut Function, cx: &Context<'_>, globals: &[Global]) {
     broken("flatten", f);
 }
 
-/// The strings a decryptor would compute at run time are computed here.
+// The module steps work over the functions frozen (see [`super::held`]): each thaws one function
+// at a time, reading the others through the tables it builds of them.
+
+/// The strings a decryptor would compute at run time are computed here. The runs read the
+/// callers, the decryptors and what they reach at once, and those alone are thawed for them.
 fn strings(module: &mut Module, cx: &Context<'_>) {
-    for index in super::strings::run(module, !cx.options.target().is_64()) {
-        clean(&mut module.functions[index]);
-    }
-    broken_all("strings", module);
+    super::held::step(module, |module| {
+        for index in super::strings::run_frozen(module, !cx.options.target().is_64()) {
+            super::held::each_mut(std::slice::from_mut(&mut module.frozen[index]), |_, f| clean(f));
+        }
+        broken_all("strings", module);
+    });
 }
 
 /// The import wrappers served the machine model; the calls now go to the imports.
 fn wrappers(module: &mut Module, _: &Context<'_>) {
-    module.functions.retain(|f| crate::import_of_wrapper(&f.name).is_none());
-    broken_all("wrappers", module);
+    super::held::step(module, |module| {
+        module.frozen.retain(|z| crate::import_of_wrapper(&z.name).is_none());
+        broken_all("wrappers", module);
+    });
 }
 
 /// The helpers the compiler inlined, read back as functions: a loop whose shape repeats across
 /// the functions becomes one, and each copy a call to it.
 fn outline(module: &mut Module, _: &Context<'_>) {
-    if super::outline::run(module) {
-        clean_all(module);
-    }
-    broken_all("outline", module);
+    super::held::step(module, |module| {
+        if super::outline::run_frozen(module) {
+            clean_all(module);
+        }
+        broken_all("outline", module);
+    });
 }
 
 /// An x86 function a pointer reaches gets its universal entry point; under a register convention
 /// the convention is the universal call.
 fn stubs(module: &mut Module, cx: &Context<'_>) {
-    let target = cx.options.target();
-    if !target.register_arguments() {
-        super::stubs::add_universal_stubs(module, cx.signatures, target, cx.extra_dwords);
-    }
-    broken_all("stubs", module);
+    super::held::step(module, |module| {
+        let target = cx.options.target();
+        if !target.register_arguments() {
+            super::stubs::add_universal_stubs(module, cx.signatures, target, cx.extra_dwords);
+        }
+        broken_all("stubs", module);
+    });
 }
 
 /// The widths, to a fixpoint: each narrowing exposes the next through the cleanup.
 fn widths(module: &mut Module, cx: &Context<'_>) {
-    for _ in 0..4 {
-        if !super::widths::run(module, cx.roots) {
-            break;
+    super::held::step(module, |module| {
+        for _ in 0..4 {
+            if !super::widths::run(module, cx.roots) {
+                break;
+            }
+            clean_all(module);
         }
-        clean_all(module);
-    }
-    broken_all("widths", module);
+        broken_all("widths", module);
+    });
 }
 
 /// The structs behind the pointers, once the widths are settled; the address arithmetic the
 /// field pointers replace goes with the cleanup.
 fn types(module: &mut Module, _: &Context<'_>) {
-    if super::types::run(module) {
-        clean_all(module);
-    }
-    broken_all("types", module);
+    super::held::step(module, |module| {
+        if super::types::run(module) {
+            clean_all(module);
+        }
+        broken_all("types", module);
+    });
 }
 
 /// Each import is declared with the arity the prototype table gives it.
@@ -334,11 +351,12 @@ fn prototypes(module: &mut Module, _: &Context<'_>) {
             d.ty = ra_asm_ir::FnType::new(ra_asm_ir::Type::I64, vec![ra_asm_ir::Type::I64; arity]);
         }
     }
-    broken_all("prototypes", module);
+    super::held::step(module, |module| broken_all("prototypes", module));
 }
 
+/// The cleanup over every frozen function, each thawed alone.
 fn clean_all(module: &mut Module) {
-    super::abi::par_each_mut(&mut module.functions, |_, f| clean(f));
+    super::held::each_mut(&mut module.frozen, |_, f| clean(f));
 }
 
 #[cfg(test)]

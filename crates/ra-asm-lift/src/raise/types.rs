@@ -37,38 +37,64 @@ const WORD: u64 = 8;
 /// An offset past this is no field of a struct a register points at.
 const REACH: u64 = 1 << 16;
 
-/// Runs the pass over the module. Returns whether anything changed.
-pub fn run(module: &mut Module) -> bool {
-    let mut sites = Vec::new();
-    let mut classes = Classes::default();
-    // The functions by name: asked at every call, a walk of the module was the module squared.
-    let by_name: HashMap<&str, usize> = module.functions.iter().enumerate().map(|(i, f)| (f.name.as_str(), i)).collect();
-    for (fi, f) in module.functions.iter().enumerate() {
-        let view = View::new(f);
-        for (bi, b) in f.blocks.iter().enumerate() {
-            for (ii, i) in b.instrs.iter().enumerate() {
-                let (ptr, ty) = match &i.inst {
-                    Inst::Load { ty, ptr, .. } | Inst::Store { ty, ptr, .. } => (ptr, ty),
-                    Inst::Call { callee: Callee::Direct(name), args, .. } => {
-                        // A value passed to a parameter shares the parameter's struct, whatever
-                        // the value is here: a record on the caller's frame links the functions
-                        // that fill and read it without being a base itself.
-                        if let Some(&gi) = by_name.get(name.as_str()) {
-                            for ((_, a), p) in args.iter().zip(&module.functions[gi].params) {
-                                let ((Some((v, 0)), _) | (_, &Operand::Local(v))) = (view.resolve_int(a), a) else { continue };
-                                classes.union((fi, v), (gi, *p));
-                            }
+/// What one function adds to the classes, in the order of its instructions: a value passed to a
+/// parameter joins the parameter's class, and an access is a site of its base's.
+enum Link {
+    Union(Base, Base),
+    Site(Site),
+}
+
+/// The links of `f`, the module's function `fi`. `by_name` and `params` are the module's table of
+/// its functions: the index of each name, and the parameters of each.
+fn links_of(fi: usize, f: &Function, by_name: &HashMap<&str, usize>, params: &[Vec<ValueId>]) -> Vec<Link> {
+    let mut links = Vec::new();
+    let view = View::new(f);
+    for (bi, b) in f.blocks.iter().enumerate() {
+        for (ii, i) in b.instrs.iter().enumerate() {
+            let (ptr, ty) = match &i.inst {
+                Inst::Load { ty, ptr, .. } | Inst::Store { ty, ptr, .. } => (ptr, ty),
+                Inst::Call { callee: Callee::Direct(name), args, .. } => {
+                    // A value passed to a parameter shares the parameter's struct, whatever
+                    // the value is here: a record on the caller's frame links the functions
+                    // that fill and read it without being a base itself.
+                    if let Some(&gi) = by_name.get(name.as_str()) {
+                        for ((_, a), p) in args.iter().zip(&params[gi]) {
+                            let ((Some((v, 0)), _) | (_, &Operand::Local(v))) = (view.resolve_int(a), a) else { continue };
+                            links.push(Link::Union((fi, v), (gi, *p)));
                         }
-                        continue;
                     }
-                    _ => continue,
-                };
-                let Some((base, offset)) = view.resolve_ptr(ptr) else { continue };
-                if offset < 0 || offset as u64 >= REACH || !scalar(ty) {
                     continue;
                 }
-                classes.find((fi, base));
-                sites.push(Site { function: fi, block: bi, index: ii, base, offset: offset as u64, ty: ty.clone() });
+                _ => continue,
+            };
+            let Some((base, offset)) = view.resolve_ptr(ptr) else { continue };
+            if offset < 0 || offset as u64 >= REACH || !scalar(ty) {
+                continue;
+            }
+            links.push(Link::Site(Site { function: fi, block: bi, index: ii, base, offset: offset as u64, ty: ty.clone() }));
+        }
+    }
+    links
+}
+
+/// Runs the pass over the frozen functions of the module, each thawed alone: once to read its
+/// links, which join the classes in the module's order, and once to rewrite its accesses. Returns
+/// whether anything changed.
+pub fn run(module: &mut Module) -> bool {
+    // The table of the functions: the index of each name (asked at every call, a walk of the
+    // module was the module squared) and the parameters of each.
+    let params: Vec<Vec<ValueId>> = super::held::map(&module.frozen, |_, f| f.params.clone());
+    let by_name: HashMap<&str, usize> = module.frozen.iter().enumerate().map(|(i, z)| (z.name.as_str(), i)).collect();
+    let links = super::held::map(&module.frozen, |fi, f| links_of(fi, f, &by_name, &params));
+    drop(by_name);
+    let mut sites = Vec::new();
+    let mut classes = Classes::default();
+    for link in links.into_iter().flatten() {
+        match link {
+            Link::Union(a, b) => classes.union(a, b),
+            Link::Site(s) => {
+                classes.find((s.function, s.base));
+                sites.push(s);
             }
         }
     }
@@ -98,19 +124,23 @@ pub fn run(module: &mut Module) -> bool {
     }
 
     // The rewrite, function by function: the base's pointer once, a field pointer per access.
-    // The sites by function, in their order: filtering every site for each function was the
-    // sites times the functions.
-    let mut sites_of: Vec<Vec<&Site>> = (0..module.functions.len()).map(|_| Vec::new()).collect();
+    // The sites by function, in their order, each with its struct: filtering every site for each
+    // function was the sites times the functions.
+    let mut sites_of: Vec<Vec<(&Site, &Struct)>> = (0..module.frozen.len()).map(|_| Vec::new()).collect();
     for s in &sites {
-        sites_of[s.function].push(s);
+        if let Some(st) = structs.get(&classes.find((s.function, s.base))) {
+            sites_of[s.function].push((s, st));
+        }
     }
-    let mut changed = false;
-    for (fi, f) in module.functions.iter_mut().enumerate() {
+    let changed = std::sync::atomic::AtomicBool::new(false);
+    super::held::each_mut(&mut module.frozen, |fi, f| {
+        if sites_of[fi].is_empty() {
+            return;
+        }
         let mut edits: Vec<Edit> = Vec::new();
         let mut pointers: HashMap<ValueId, ValueId> = HashMap::new();
         let defs = definitions(f);
-        for s in sites_of[fi].iter().copied() {
-            let Some(st) = structs.get(&classes.find((fi, s.base))) else { continue };
+        for &(s, st) in &sites_of[fi] {
             let Some(&index) = st.fields.get(&s.offset) else { continue };
             let pointer = *pointers.entry(s.base).or_insert_with(|| {
                 let (at, casts, p) = pointer_of(f, s.base, defs.get(&s.base).copied());
@@ -135,7 +165,7 @@ pub fn run(module: &mut Module) -> bool {
                 Inst::Load { ptr, .. } | Inst::Store { ptr, .. } => *ptr = Operand::Local(fp),
                 _ => {}
             }
-            changed = true;
+            changed.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         // From the back of each block, so the indices stay; at one index the casts go first.
         edits.sort_by_key(|e| std::cmp::Reverse((e.block, e.index, e.first)));
@@ -143,8 +173,8 @@ pub fn run(module: &mut Module) -> bool {
             let instrs = &mut f.blocks[e.block].instrs;
             instrs.splice(e.index..e.index, e.instrs);
         }
-    }
-    changed
+    });
+    changed.into_inner()
 }
 
 /// Instructions to insert before `index` of `block`; `first` puts them before the others there.
