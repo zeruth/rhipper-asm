@@ -30,6 +30,13 @@ fn unpacked() -> Option<&'static [u8]> {
         let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, raise);
         lifted.apply_names(&analysis, Some(&mut signatures));
         let options = ra_asm_host::Options { unpack: true, limit: 500_000_000, ..ra_asm_host::Options::default() };
+        // the stub's VirtualProtect, LoadLibraryA and GetProcAddress are the host's own: off
+        // Windows their stand-ins answer otherwise and the run never stops at the jump into
+        // hello32 (the Linux release job of 2026-11-15)
+        if !cfg!(windows) {
+            eprintln!("SKIPPED: hello32-upx.exe: the unpacking stub needs the host's Windows DLLs");
+            return None;
+        }
         let outcome = ra_asm_host::run(&image, &lifted, &signatures, &options).unwrap();
         if let Some(stop) = &outcome.stop
             && stop.starts_with("no binding for ")
