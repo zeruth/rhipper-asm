@@ -122,6 +122,20 @@ impl Flow {
     }
 }
 
+/// When the flow of a transfer takes effect, on a machine whose transfers have a delay slot (MIPS,
+/// SuperH): the record keeps the transfer's own flow, and this says when it happens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Delay {
+    /// At once: the instruction transfers nothing, or has no slot.
+    None,
+    /// After the next instruction, the delay slot, which runs whether or not a branch is taken.
+    Slot,
+    /// After the delay slot, which runs only when the branch is taken: a likely branch skips its
+    /// slot when it falls through.
+    Likely,
+}
+
 /// How an instruction touches a register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -226,6 +240,13 @@ pub trait Arch: Send + Sync {
     /// adds the low bits) becomes the absolute address of the second. Nothing by default.
     fn link(&self, before: &[Instr], instr: &mut Instr) {
         let _ = (before, instr);
+    }
+
+    /// When the flow of `instr`, decoded by this architecture, takes effect: at once by default,
+    /// after its delay slot on a machine that has them.
+    fn delay(&self, instr: &Instr) -> Delay {
+        let _ = instr;
+        Delay::None
     }
 
     /// Decodes instructions in sequence until the bytes end or an instruction fails to decode. The

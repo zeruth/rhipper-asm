@@ -4,20 +4,9 @@
 
 use std::sync::LazyLock;
 
+pub use ra_asm_arch::Delay;
 use ra_asm_arch::{Arch, Flow as ArchFlow, Instr, Operand, RegClass, Register, Target};
 use ra_asm_machine::{Field, Flow, Kind, Machine, Row, Syntax, Table};
-
-/// When the flow of a transfer takes effect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Delay {
-    /// At once: the instruction transfers nothing, or traps.
-    None,
-    /// After the next instruction, the delay slot, which runs whether or not a branch is taken.
-    Slot,
-    /// After the delay slot, which runs only when the branch is taken: a likely branch skips its
-    /// slot when it falls through.
-    Likely,
-}
 
 /// What the neutral record needs beyond what the row's fields say.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -280,6 +269,10 @@ impl Arch for Mips {
 
     fn instruction_pointer(&self) -> Register {
         PC
+    }
+
+    fn delay(&self, instr: &Instr) -> Delay {
+        Mips::delay(instr)
     }
 
     fn decode(&self, bytes: &[u8], address: u64) -> Option<Instr> {

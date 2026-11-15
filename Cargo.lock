@@ -374,6 +374,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ra-asm-sh"
+version = "0.2.0"
+dependencies = [
+ "ra-asm-arch",
+]
+
+[[package]]
 name = "ra-asm-testing"
 version = "0.2.0"
 
