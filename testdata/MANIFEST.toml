@@ -2378,3 +2378,27 @@ evidence = "emulator"
 source = "testdata/vectors/arm32/cases/system.cases"
 command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
 tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubuntu 24.04)"
+
+# testdata/vectors/toy: the toy machine of ra-asm-machine's tests, whose rows are its whole
+# definition; the cases are worked by hand from them, so no machine ran them.
+
+[[file]]
+path = "testdata/vectors/toy/alu.vec"
+sha256 = "1ece148ada2db38b60f6aac42a4efb89f623fc776c265ba0f885a585b484172f"
+evidence = "source"
+source = "crates/ra-asm-machine/tests/toy/mod.rs"
+command = "written by hand from the rows of the source"
+
+[[file]]
+path = "testdata/vectors/toy/branch.vec"
+sha256 = "9bd290d606303f003a0d8314ae6643dab121741b744e397c29a06cf5bfac8225"
+evidence = "source"
+source = "crates/ra-asm-machine/tests/toy/mod.rs"
+command = "written by hand from the rows of the source"
+
+[[file]]
+path = "testdata/vectors/toy/memory.vec"
+sha256 = "908f68089ba9f896603bc8492b150599ca8b5e417935ae239285b5367957e9f7"
+evidence = "source"
+source = "crates/ra-asm-machine/tests/toy/mod.rs"
+command = "written by hand from the rows of the source"

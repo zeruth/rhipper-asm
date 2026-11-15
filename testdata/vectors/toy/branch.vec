@@ -1,0 +1,9 @@
+# toy vectors of the branch group: the cases of beq, worked by hand from the rows of
+# crates/ra-asm-machine/tests/toy/mod.rs and replayed by ra_asm_machine::replay in its replay test.
+# Bytes: the row's word, its most significant byte first. In: pc and the registers the row reads
+# (the rest are zero). Out: where control went; the target is the next word's address plus the
+# offset in words.
+64220003 pc=00001000 r1=00000005 r2=00000005 -> pc=00001010 # beq r1, r2, 3: taken
+64220003 pc=00001000 r1=00000005 r2=00000006 -> pc=00001004 # beq r1, r2, 3: not taken
+6400fffe pc=00001000 -> pc=00000ffc # beq r0, r0, -2: back past the case
+64600001 pc=00001000 -> pc=00001008 # beq r3, r0, 1: r3 is zero

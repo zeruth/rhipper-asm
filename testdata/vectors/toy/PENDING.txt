@@ -1,0 +1,4 @@
+# The toy forms whose vectors differ from the lift today, one a line: the group (the .vec file's
+# name) and the row, then after `:` the first difference the replay saw. ra_asm_machine::replay
+# passes when exactly these forms differ: an unlisted form that differs fails it with a line to
+# paste here, and a listed form that passes fails it with "remove from PENDING.txt".

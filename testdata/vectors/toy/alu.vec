@@ -1,0 +1,12 @@
+# toy vectors of the alu group: the cases of add, mix and addi, worked by hand from the rows of
+# crates/ra-asm-machine/tests/toy/mod.rs and replayed by ra_asm_machine::replay in its replay test.
+# Bytes: the row's word, its most significant byte first. In: pc and the registers the row reads
+# (the rest are zero). Out: what changed; mix leaves r1 undefined, so r1 is left out and
+# `undefined` holds the mask of its number.
+00611000 pc=00001000 r1=7fffffff r2=00000001 -> pc=00001004 r3=80000000 # add r3, r1, r2: wraps
+00053000 pc=00001000 r5=12345678 r6=11111111 -> pc=00001004 # add r0, r5, r6: r0 drops it
+00842000 pc=00001000 r4=ffffffff -> pc=00001004 r4=fffffffe # add r4, r4, r4
+0043202b pc=00001000 r3=00000005 r4=00000003 -> pc=00001004 r2=00000008 undefined=00000002 # mix r2, r3, r4
+0021082b pc=00001000 r1=00000007 -> pc=00001004 undefined=00000002 # mix r1, r1, r1: the sum is lost
+20e0ffff pc=00001000 -> pc=00001004 r7=ffffffff # addi r7, r0, -1
+21280010 pc=00001000 r8=fffffff8 -> pc=00001004 r9=00000008 # addi r9, r8, 16

@@ -1,0 +1,10 @@
+# toy vectors of the memory group: the cases of ld and st, worked by hand from the rows of
+# crates/ra-asm-machine/tests/toy/mod.rs and replayed by ra_asm_machine::replay in its replay test.
+# Bytes: the row's word, its most significant byte first. In: pc, the registers the row reads (the
+# rest are zero) and the cells of data, their bytes in address order; a word is little-endian.
+# Out: what changed.
+40a60004 pc=00001000 r6=00002000 [2000]=00112233445566778899aabbccddeeff -> pc=00001004 r5=77665544 # ld r5, 4(r6)
+4022fff8 pc=00001000 r2=00002018 [2010]=0102030405060708090a0b0c0d0e0f10 -> pc=00001004 r1=04030201 # ld r1, -8(r2)
+40430010 pc=00001000 r3=00002000 [2000]=00000000000000000000000000000000 [2010]=efbeadde000000000000000000000000 -> pc=00001004 r2=deadbeef # ld r2, 16(r3)
+50640000 pc=00001000 r3=a1b2c3d4 r4=00002000 [2000]=00000000000000000000000000000000 -> pc=00001004 [2000]=d4c3b2a1000000000000000000000000 # st r3, 0(r4)
+5005000c pc=00001000 r5=00002000 [2000]=ffffffffffffffffffffffffffffffff -> pc=00001004 [2000]=ffffffffffffffffffffffff00000000 # st r0, 12(r5)

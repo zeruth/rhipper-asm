@@ -74,7 +74,7 @@ impl StateSpec {
 }
 
 /// The bytes a value of `bits` bits takes in memory.
-fn bytes(bits: u16) -> u64 {
+pub(crate) fn bytes(bits: u16) -> u64 {
     u64::from(bits.div_ceil(8)).next_power_of_two()
 }
 

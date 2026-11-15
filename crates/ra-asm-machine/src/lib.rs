@@ -31,6 +31,10 @@
 //!
 //! [`generate()`] draws a table's cases, runs them on the machine through a [`Guest`] and writes
 //! its reference vectors, one file a group, with what a row leaves undefined masked.
+//!
+//! [`replay()`] runs a machine's committed vectors through its decoder, its lift and the
+//! interpreter on any host, and passes when exactly the forms of the directory's pending list
+//! differ.
 
 pub mod access;
 pub mod asm;
@@ -40,6 +44,7 @@ pub mod generate;
 pub mod instr;
 pub mod lift;
 pub mod outline;
+pub mod replay;
 pub mod sem;
 pub mod table;
 
@@ -51,5 +56,6 @@ pub use generate::{Cases, Guest, Input, Output, Vectors, generate};
 pub use instr::{Machine, Syntax};
 pub use lift::Code;
 pub use outline::Outlines;
+pub use replay::{Replayed, replay};
 pub use sem::{Builder, Cond, Fields, Lift, Op, STATE_TYPE, Sem, StateSpec, Val};
 pub use table::{Decoded, Error, Field, Flow, Kind, Row, Table, Transfer};
