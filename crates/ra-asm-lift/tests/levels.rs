@@ -1,16 +1,21 @@
 //! The invariants of the raise levels (`raise::check`): what the lift writes passes its level's
 //! checker, and a function broken in one way, written as text, fails with that violation and the
-//! block it is in.
+//! block it is in. Over the corpus, every function of every program of `testdata/bin` passes its
+//! level or is a line of `testdata/levels/PENDING.txt`, which lists exactly those that do not.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use ra_asm_ir::{BlockId, Callee, FnType, Function, FunctionBuilder, Module, Operand, Terminator, Type, ValueId};
 use ra_asm_lift::raise::Level;
 use ra_asm_lift::raise::check::{Rule, Violation, check, check_in};
 
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
 fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin").join(name)
+    root().join("testdata/bin").join(name)
 }
 
 /// A fixture lifted and raised to `level`: over the mapped image, and standalone at the ABI
@@ -151,6 +156,94 @@ fn module(texts: &[&str]) -> Module {
     let mut module = Module::x86_64_windows("levels");
     module.functions.extend(texts.iter().map(|text| function(text)));
     module
+}
+
+/// The programs of `testdata/bin`: every file that is not a map, a symbol file or a note.
+fn programs() -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(root().join("testdata/bin"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.is_file() && !matches!(path.extension().and_then(|e| e.to_str()), Some("map" | "pdb" | "txt")))
+        // the images the loader reads: testdata/bin also holds programs of other machines
+        // (`*_psx.exe` is a PS-X EXE), which come in with their own loaders
+        .filter(|path| ra_asm_pe::load(path).is_ok())
+        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// The lines of the pending list for `program` at `level`: a function that breaks the level,
+/// with the rule and the violation; or the one line of a program the level does not raise, with
+/// what stopped it.
+fn broken(program: &str, level: Level) -> Vec<String> {
+    match std::panic::catch_unwind(|| raised(program, level)) {
+        Ok(lifted) => ra_asm_lift::raise::violations(&lifted.module, level)
+            .into_iter()
+            .map(|(name, violation)| format!("{program} {} {name} {:?} {violation}", level.name(), violation.rule))
+            .collect(),
+        Err(panic) => {
+            let message = panic.downcast_ref::<String>().map(String::as_str).or_else(|| panic.downcast_ref::<&str>().copied());
+            let why = message.and_then(|m| m.lines().next()).unwrap_or("the raise panicked");
+            vec![format!("{program} {} - Panic {why}", level.name())]
+        }
+    }
+}
+
+/// What a line of the pending list is compared by: the program, the level, the function and the
+/// rule. The violation after them is for the reader, and moves with the passes.
+fn key(line: &str) -> String {
+    line.split_whitespace().take(4).collect::<Vec<_>>().join(" ")
+}
+
+/// The head of the pending list, which the test writes with the list it found.
+const PENDING_HEAD: &str = "\
+# The functions of the programs of testdata/bin that break their level's invariants today
+# (`raise::check`), one a line: the program, the level, the function, the rule, and the first
+# violation. A program a level does not raise is one line, with `-` for the function and `Panic`
+# for the rule. `cargo test -p ra-asm-lift --test levels fixtures` holds the list to exactly these:
+# a line leaves when its function passes, and a function that starts to fail is a regression.
+# When the list differs, the test writes the one it found to var/levels/PENDING.txt.
+";
+
+#[test]
+fn the_fixtures_pass_their_levels_or_are_pending() {
+    let programs = programs();
+    assert!(programs.len() >= 20, "testdata/bin holds {} programs: {programs:?}", programs.len());
+    let mut found = Vec::new();
+    for program in &programs {
+        for level in [Level::Machine, Level::Promoted, Level::Abi] {
+            found.extend(broken(program, level));
+        }
+    }
+    let path = root().join("testdata/levels/PENDING.txt");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let listed: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).collect();
+    let listed_keys: BTreeSet<String> = listed.iter().map(|line| key(line)).collect();
+    let found_keys: BTreeSet<String> = found.iter().map(|line| key(line)).collect();
+    if listed_keys == found_keys {
+        return;
+    }
+    let unlisted: Vec<&str> = found.iter().map(String::as_str).filter(|line| !listed_keys.contains(&key(line))).collect();
+    let passing: Vec<&str> = listed.iter().copied().filter(|line| !found_keys.contains(&key(line))).collect();
+    let dir = root().join("var/levels");
+    std::fs::create_dir_all(&dir).unwrap();
+    let written = dir.join("PENDING.txt");
+    let end = if found.is_empty() { "" } else { "\n" };
+    std::fs::write(&written, format!("{PENDING_HEAD}{}{end}", found.join("\n"))).unwrap();
+    let first = |lines: &[&str]| lines[..lines.len().min(30)].join("\n  ");
+    panic!(
+        "{} differs from the {} functions of {} programs that break their level; the list as found is in {}\n\
+         {} break their level and are not listed, the first:\n  {}\n{} are listed and pass, the first:\n  {}",
+        path.display(),
+        found.len(),
+        programs.len(),
+        written.display(),
+        unlisted.len(),
+        first(&unlisted),
+        passing.len(),
+        first(&passing)
+    );
 }
 
 #[test]

@@ -1,0 +1,7 @@
+# The functions of the programs of testdata/bin that break their level's invariants today
+# (`raise::check`), one a line: the program, the level, the function, the rule, and the first
+# violation. A program a level does not raise is one line, with `-` for the function and `Panic`
+# for the rule. `cargo test -p ra-asm-lift --test levels fixtures` holds the list to exactly these:
+# a line leaves when its function passes, and a function that starts to fail is a regression.
+# When the list differs, the test writes the one it found to var/levels/PENDING.txt.
+throws64.exe promoted F_140001390 Sync block `eh.cleaned.1400013d0`: a store: `rsi` is stored away from a call that takes the state and from the return

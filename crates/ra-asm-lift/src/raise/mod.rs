@@ -427,7 +427,23 @@ pub fn raise_before(
             run(module, &cx);
         }
     }
+    // A pass that breaks the shape of its level shows in the builds the tests run, where it
+    // happens; a function may still break its level (`testdata/levels/PENDING.txt`), so the
+    // raise goes on.
+    if cfg!(debug_assertions) {
+        let broken = violations(module, options.level);
+        if let Some((name, violation)) = broken.first() {
+            let (count, of, level) = (broken.len(), module.functions.len(), options.level.name());
+            eprintln!("ra: raise: {count} of {of} functions break the {level} level; the first is `{name}`, {violation}");
+        }
+    }
     signatures
+}
+
+/// The functions of `module` that break the invariants of `level` (see [`check`]), each with its
+/// first violation, in the module's order.
+pub fn violations(module: &Module, level: Level) -> Vec<(&str, check::Violation)> {
+    module.functions.iter().filter_map(|f| check::check_in(module, f, level).err().map(|violation| (f.name.as_str(), violation))).collect()
 }
 
 /// The function steps of `order` over `f`, in order.

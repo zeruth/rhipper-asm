@@ -326,6 +326,10 @@ fn abi(f: &Function, module: Option<&Module>) -> Result<usize, Violation> {
 /// a variadic one, and the result is what it returns.
 fn signature(module: &Module, name: &str, fn_ty: &FnType, args: &[(Type, Operand)]) -> Option<String> {
     let Some(callee) = module.function(name).map(|f| &f.ty).or_else(|| module.declaration(name).map(|d| &d.ty)) else {
+        // An LLVM intrinsic's signature is its name's, which the backend declares and checks.
+        if name.starts_with("llvm.") {
+            return None;
+        }
         return Some(format!("`@{name}` is neither a function nor a declaration of the module"));
     };
     let arity = if callee.varargs { args.len() >= callee.params.len() } else { args.len() == callee.params.len() };
