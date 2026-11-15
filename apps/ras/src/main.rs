@@ -421,6 +421,10 @@ enum Command {
         /// or open.
         #[arg(long, value_name = "DIR")]
         ledger: Option<PathBuf>,
+        /// Add vectors of generated inputs, boundary and seeded random ones, for each function the
+        /// vectors do not enter that reads and writes only its arguments, its frame and its result.
+        #[arg(long)]
+        generate: bool,
     },
     /// The first step of the raise and the first function after it that differ: the vectors of
     /// one interpreted run (or of a vector file) replayed at the machine level, then after each
@@ -560,13 +564,14 @@ fn command() -> anyhow::Result<()> {
             cards::pending(&paths, milestone.as_deref())
         }
         Command::Case { pe, function, pass } => case::case(&load(&pe, sigs)?, &function, &pass),
-        Command::Verify { pe, vectors, write, function, ledger } => {
+        Command::Verify { pe, vectors, write, function, ledger, generate } => {
             let options = verify::Options {
                 program: &pe,
                 vectors: vectors.as_deref(),
                 write: write.as_deref(),
                 function: function.as_deref(),
                 ledger: ledger.as_deref(),
+                generate,
             };
             if !verify::verify(&load(&pe, sigs)?, &options)? {
                 std::process::exit(1)

@@ -6,15 +6,18 @@
 //! functions out of an interpreted run, and the replayer ([`replay`]) that runs one function
 //! again from its vector, its callees answered from the record, and says what differs. Above
 //! the levels that take a state a vector is read through the function's signature
-//! ([`signature`]). What the replays have shown of each function is kept across runs in the
-//! ledger ([`ledger`]).
+//! ([`signature`]). A pure function no run entered gets vectors of generated inputs
+//! ([`generate`]), the machine level their reference. What the replays have shown of each
+//! function is kept across runs in the ledger ([`ledger`]).
 
+pub mod generate;
 pub mod ledger;
 pub mod record;
 pub mod replay;
 pub mod signature;
 pub mod vector;
 
+pub use generate::{Summary, generate, summary};
 pub use ledger::{Assumed, Counts, Evidence, Ledger, State, Tested, digest, read_ledger, write_ledger};
 pub use record::{Recorder, Recording, keeping, record};
 pub use replay::{Covered, Difference, Failure, Replayed, Replayer, Report, replay, replay_abi};

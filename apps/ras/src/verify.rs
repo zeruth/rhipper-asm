@@ -7,6 +7,10 @@
 //! in that order with the vectors each replayed, up to the first level that differs, and then that
 //! level's first difference; the last line counts the functions that replayed at every level.
 //!
+//! With `--generate`, a function the vectors never entered that reads and writes only its
+//! arguments, its frame and its result gets vectors of generated inputs, which the machine level
+//! makes ([`ra_asm_verify::generate`]); they replay with the others.
+//!
 //! With `--ledger <gen dir>`, what the machine level's replay showed is merged into the ledger
 //! there (see [`ra_asm_verify::ledger`]): the blocks each function's vectors ran, and each
 //! assumption of the raise as discharged, checked or open ([`ledger`]).
@@ -37,6 +41,9 @@ pub(crate) struct Options<'a> {
     pub function: Option<&'a str>,
     /// The gen directory whose ledger takes what the run showed (see [`ledger`]).
     pub ledger: Option<&'a Path>,
+    /// Add vectors of generated inputs for the pure functions the vectors do not enter (see
+    /// [`ra_asm_verify::generate`]), after the ones written with `write`.
+    pub generate: bool,
 }
 
 /// The vectors of one function, in the order the run kept them.
@@ -79,6 +86,15 @@ fn verify_here(image: &Image, options: &Options<'_>) -> Result<bool> {
         let text = if options.vectors.is_some() { ra_asm_verify::write(&kept)? } else { ra_asm_verify::record::file(&kept)? };
         std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
     }
+    let vectors = if options.generate {
+        let (abi, signatures) = signed(image, &analysis);
+        let made = ra_asm_verify::generate(image, &machine, &abi, &signatures, &vectors, ra_asm_verify::generate::SEED)?;
+        let functions: BTreeSet<u64> = made.iter().map(|vector| vector.address).collect();
+        eprintln!("generated {} vectors for {} functions the vectors did not enter", made.len(), functions.len());
+        vectors.into_iter().chain(made).collect()
+    } else {
+        vectors
+    };
 
     let mut functions: BTreeMap<u64, Function<'_>> = BTreeMap::new();
     for vector in &vectors {
