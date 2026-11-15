@@ -53,13 +53,13 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | thumb32 | ok | 5 | 5 | 5 | 0 | 0 | 5 | 5 | 8 | 0 | 8 | 303 | 0.0 | 478.5 |
 | tls32.exe | ok | 6 | 6 | 6 | 0 | 0 | 6 | 6 | 12 | 0 | 24 | 549 | 0.0 | 581.1 |
 | tls64.exe | ok | 6 | 6 | 6 | 0 | 0 | 6 | 6 | 12 | 0 | 24 | 293 | 0.0 | 433.4 |
-| window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 687 | 0.0 | 722.0 |
+| window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 685 | 0.0 | 721.2 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 380 | 0.0 | 397.4 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 437 | 0.0 | 599.5 |
-| total | 46/52 ok | 355 | 349 | 368 | 9 | 7 | 240 | 230 | 725 | 0 | 1682 | 52676 | 0.5 | 1816.8 |
+| total | 46/52 ok | 355 | 349 | 368 | 9 | 7 | 240 | 230 | 725 | 0 | 1682 | 52674 | 0.5 | 1816.8 |
 
-- gte_psx.exe: C:\Users\tyler\Documents\code\rhipper-asm\var\worktrees\213\testdata\bin\gte_psx.exe is not a PE image this loader reads: the DOS magic at offset 0x0 is 0x5350, not MZ
-- hello_psx.exe: C:\Users\tyler\Documents\code\rhipper-asm\var\worktrees\213\testdata\bin\hello_psx.exe is not a PE image this loader reads: the DOS magic at offset 0x0 is 0x5350, not MZ
+- gte_psx.exe: C:\Users\tyler\Documents\code\rhipper-asm\testdata\bin\gte_psx.exe is not a PE image this loader reads: the DOS magic at offset 0x0 is 0x5350, not MZ
+- hello_psx.exe: C:\Users\tyler\Documents\code\rhipper-asm\testdata\bin\hello_psx.exe is not a PE image this loader reads: the DOS magic at offset 0x0 is 0x5350, not MZ
 
 | pending list | entries |
 |---|---|
@@ -76,5 +76,5 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | oracle | ignored tests |
 |---|---|
 | crates/ra-asm-lift/tests/oracle.rs | 0 |
-| crates/ra-asm-emit/tests/oracle.rs | 18 |
-| total | 18 |
+| crates/ra-asm-emit/tests/oracle.rs | 17 |
+| total | 17 |
