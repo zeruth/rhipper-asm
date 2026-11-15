@@ -258,7 +258,7 @@ fn frame_of(condition: &str) -> Frame {
 }
 
 /// The functions `driver` defines for a program of `width`-byte pointers off Windows: the
-/// definitions at the start of a line (`uint64_t CreateFileA(...) {`, or a `RA_` macro that
+/// definitions at the start of a line (`uint64_t CreateFileA(...) {`, one that holds its whole body, or a `RA_` macro that
 /// defines its first argument) outside the code only a Windows host or the other width compiles.
 fn layer_definitions(driver: &str, width: u8) -> std::collections::HashSet<&str> {
     let mut frames: Vec<Frame> = Vec::new();
@@ -305,7 +305,7 @@ fn layer_definitions(driver: &str, width: u8) -> std::collections::HashSet<&str>
         let Some(open) = line.find('(') else { continue };
         let name = if line.starts_with("RA_") && line.trim_end().ends_with(')') {
             line[open + 1..].split(',').next().unwrap_or("").trim()
-        } else if line.trim_end().ends_with('{') {
+        } else if line.trim_end().ends_with('{') || one_line_body(line) {
             line[..open].rsplit(|c: char| c.is_whitespace() || c == '*').next().unwrap_or("")
         } else {
             continue;
@@ -315,6 +315,11 @@ fn layer_definitions(driver: &str, width: u8) -> std::collections::HashSet<&str>
         }
     }
     defined
+}
+
+/// Whether `line` holds a whole definition, its parameters and its body: `uint64_t f(void) { return x; }`.
+fn one_line_body(line: &str) -> bool {
+    line.trim_end().ends_with('}') && line.find('{').is_some_and(|brace| line[..brace].trim_end().ends_with(')'))
 }
 
 /// The version `tool --version` prints: its first `digits.digits[.digits]`; `None` when the tool
@@ -388,6 +393,19 @@ mod tests {
         assert!(four.contains("Posix") && four.contains("ra_x86_strtol"), "{four:?}");
         assert!(!four.contains("OnlyWindows") && !four.contains("Wide") && !four.contains("hidden") && !four.contains("inner"), "{four:?}");
         assert!(layer_definitions(driver, 8).contains("Wide"));
+    }
+
+    /// A definition whose body closes on its own line counts like one that opens a block.
+    #[test]
+    fn one_line_definitions_count() {
+        let driver = "uint64_t ra_x86_p_commode(void) { return (uint64_t)(uintptr_t)&ra_commode; }\n\
+                      uint32_t *Pointer(uint64_t a) { return g(a); }\n\
+                      static uint64_t hidden(void) { return 0; }\n\
+                      uint64_t declared(void);\n\
+                      uint64_t table[] = { 1, 2 }\n";
+        let defined = layer_definitions(driver, 8);
+        assert!(defined.contains("ra_x86_p_commode") && defined.contains("Pointer"), "{defined:?}");
+        assert!(!defined.contains("hidden") && !defined.contains("declared") && !defined.contains("table"), "{defined:?}");
     }
 
     /// Every import of the rhtest `core` program is answered off Windows: its port runs over the layer.
