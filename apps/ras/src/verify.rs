@@ -69,20 +69,20 @@ fn verify_here(image: &Image, options: &Options<'_>) -> Result<bool> {
         }
         None => recorded(image, &machine)?,
     };
+    let wanted = options.function.map(|text| (text, crate::disasm::parse_address(text).ok()));
+    let chosen = |vector: &Vector| wanted.is_none_or(|(name, address)| vector.function == name || address == Some(vector.address));
     if let Some(path) = options.write {
         let path = vector_file(path, options.program);
+        // `--function` narrows what is written as it narrows what is verified
+        let kept: Vec<Vector> = vectors.iter().filter(|v| chosen(v)).cloned().collect();
         // Only a run's own vectors are kept as the recorder keeps them.
-        let text = if options.vectors.is_some() { ra_asm_verify::write(&vectors)? } else { ra_asm_verify::record::file(&vectors)? };
+        let text = if options.vectors.is_some() { ra_asm_verify::write(&kept)? } else { ra_asm_verify::record::file(&kept)? };
         std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
     }
 
     let mut functions: BTreeMap<u64, Function<'_>> = BTreeMap::new();
-    let wanted = options.function.map(|text| (text, crate::disasm::parse_address(text).ok()));
     for vector in &vectors {
-        if let Some((name, address)) = wanted
-            && vector.function != name
-            && address != Some(vector.address)
-        {
+        if !chosen(vector) {
             continue;
         }
         functions.entry(vector.address).or_insert_with(|| Function { name: &vector.function, vectors: Vec::new() }).vectors.push(vector);
