@@ -2,6 +2,8 @@
 //! checker, and a function broken in one way, written as text, fails with that violation and the
 //! block it is in. Over the corpus, every function of every program of `testdata/bin` passes its
 //! level or is a line of `testdata/levels/PENDING.txt`, which lists exactly those that do not.
+//! `RA_LEVELS=write` rewrites that file with the list the run found, as `RA_SNAPSHOT=write` does
+//! for the snapshots.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -203,7 +205,8 @@ const PENDING_HEAD: &str = "\
 # violation. A program a level does not raise is one line, with `-` for the function and `Panic`
 # for the rule. `cargo test -p ra-asm-lift --test levels fixtures` holds the list to exactly these:
 # a line leaves when its function passes, and a function that starts to fail is a regression.
-# When the list differs, the test writes the one it found to var/levels/PENDING.txt.
+# When the list differs, the test writes the one it found to var/levels/PENDING.txt; with
+# RA_LEVELS=write it writes it here instead and passes.
 ";
 
 #[test]
@@ -217,6 +220,13 @@ fn the_fixtures_pass_their_levels_or_are_pending() {
         }
     }
     let path = root().join("testdata/levels/PENDING.txt");
+    let end = if found.is_empty() { "" } else { "\n" };
+    let rewritten = format!("{PENDING_HEAD}{}{end}", found.join("\n"));
+    if std::env::var_os("RA_LEVELS").is_some_and(|v| v == "write") {
+        std::fs::write(&path, &rewritten).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        eprintln!("{}: written with {} lines", path.display(), found.len());
+        return;
+    }
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let listed: Vec<&str> = text.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).collect();
     let listed_keys: BTreeSet<String> = listed.iter().map(|line| key(line)).collect();
@@ -229,11 +239,10 @@ fn the_fixtures_pass_their_levels_or_are_pending() {
     let dir = root().join("var/levels");
     std::fs::create_dir_all(&dir).unwrap();
     let written = dir.join("PENDING.txt");
-    let end = if found.is_empty() { "" } else { "\n" };
-    std::fs::write(&written, format!("{PENDING_HEAD}{}{end}", found.join("\n"))).unwrap();
+    std::fs::write(&written, &rewritten).unwrap();
     let first = |lines: &[&str]| lines[..lines.len().min(30)].join("\n  ");
     panic!(
-        "{} differs from the {} functions of {} programs that break their level; the list as found is in {}\n\
+        "{} differs from the {} functions of {} programs that break their level; the list as found is in {} (RA_LEVELS=write rewrites it in place)\n\
          {} break their level and are not listed, the first:\n  {}\n{} are listed and pass, the first:\n  {}",
         path.display(),
         found.len(),

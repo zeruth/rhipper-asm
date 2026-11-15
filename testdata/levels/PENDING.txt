@@ -3,7 +3,8 @@
 # violation. A program a level does not raise is one line, with `-` for the function and `Panic`
 # for the rule. `cargo test -p ra-asm-lift --test levels fixtures` holds the list to exactly these:
 # a line leaves when its function passes, and a function that starts to fail is a regression.
-# When the list differs, the test writes the one it found to var/levels/PENDING.txt.
+# When the list differs, the test writes the one it found to var/levels/PENDING.txt; with
+# RA_LEVELS=write it writes it here instead and passes.
 control_mipsel machine F_00020278 Terminator block `b_20278`: the block has no terminator: its `unreachable` follows no call
 control_mipsel machine F_000202a0 Terminator block `b_202a0`: the block has no terminator: its `unreachable` follows no call
 control_mipsel machine F_000202e8 Terminator block `b_20480`: the block has no terminator: its `unreachable` follows no call
