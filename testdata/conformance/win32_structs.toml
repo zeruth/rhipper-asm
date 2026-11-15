@@ -22,7 +22,7 @@ status = "pending"
 [[struct]]
 name = "WNDCLASSEXA"
 direction = "in"        # RegisterClassExA
-status = "pending"
+status = "passing"
 
 [[struct]]
 name = "CREATESTRUCTA"

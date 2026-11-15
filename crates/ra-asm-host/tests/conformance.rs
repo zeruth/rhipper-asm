@@ -7,6 +7,7 @@
 
 use std::path::PathBuf;
 
+use ra_asm_host::adapt;
 use ra_asm_protos::{Kind, Place, Record, layout};
 use ra_asm_testing::manifest;
 
@@ -24,7 +25,7 @@ const NAMED: [&str; 10] = [
     "CRITICAL_SECTION",
 ];
 /// The rows still pending: a change that makes one convert marks it passing and lowers this.
-const PENDING: usize = 10;
+const PENDING: usize = 9;
 
 /// The way a structure crosses the call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,15 +135,15 @@ fn rows() -> Vec<Row> {
     parse(&text).unwrap_or_else(|e| panic!("{e}"))
 }
 
-/// The host's conversion of a 32-bit program's structure to its own layout. The host has no
-/// structure adapter yet, so every structure fails here until it does.
-fn to_host(record: &Record, _guest: &[u8]) -> Result<Vec<u8>, String> {
-    Err(format!("the host has no adapter to widen {}", record.name))
+/// The host's conversion of a 32-bit program's structure to its own layout; a structure the host
+/// has no adapter for fails here.
+fn to_host(record: &Record, guest: &[u8]) -> Result<Vec<u8>, String> {
+    adapt::adapter(record.name)?.to_host(guest)
 }
 
 /// The host's conversion of its own structure to the 32-bit program's layout.
-fn to_guest(record: &Record, _host: &[u8]) -> Result<Vec<u8>, String> {
-    Err(format!("the host has no adapter to narrow {}", record.name))
+fn to_guest(record: &Record, host: &[u8]) -> Result<Vec<u8>, String> {
+    adapt::adapter(record.name)?.to_guest(host)
 }
 
 /// The bytes of a place at an offset from a base.
