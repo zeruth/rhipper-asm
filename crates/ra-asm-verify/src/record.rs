@@ -172,7 +172,7 @@ impl Shape {
     }
 
     /// Every register of a snapshot, in the state's order.
-    fn registers(&self, snapshot: &[u8]) -> Vec<Register> {
+    pub(crate) fn registers(&self, snapshot: &[u8]) -> Vec<Register> {
         self.slots.iter().map(|slot| (slot.name.clone(), Self::value(snapshot, slot))).collect()
     }
 
@@ -394,7 +394,7 @@ impl Observer for Recorder {
 }
 
 /// The bytes of a log joined into runs of adjacent addresses.
-fn runs(bytes: &BTreeMap<u64, u8>) -> Vec<Run> {
+pub(crate) fn runs(bytes: &BTreeMap<u64, u8>) -> Vec<Run> {
     let mut out: Vec<Run> = Vec::new();
     for (&address, &byte) in bytes {
         match out.last_mut() {

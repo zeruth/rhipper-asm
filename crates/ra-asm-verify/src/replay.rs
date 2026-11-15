@@ -64,7 +64,7 @@ use ra_asm_lift::{Lifted, RaiseLevel, import_of_wrapper};
 use ra_asm_pe::Image;
 
 use crate::ledger::Tested;
-use crate::record::{GLOBALS, RETURN, Shape, left};
+use crate::record::{GLOBALS, RETURN, Shape, left, runs};
 use crate::signature::Convention;
 use crate::vector::{Call, Left, Register, Vector};
 
@@ -452,6 +452,14 @@ impl<'a> Replayer<'a> {
         Ok(if second.differences.is_empty() { second } else { first })
     }
 
+    /// Runs `vector` at a level over a state, its calls answered from its record, and gives what
+    /// differs with the vector of the run itself: the entry it was given, the bytes it read before
+    /// it or an answer wrote them, the record's calls it made, and the registers, the bytes and the
+    /// way it left. None at the ABI level, or when the function did not run.
+    pub(crate) fn rerun(&self, vector: &Vector) -> Result<(Replayed, Option<Vector>)> {
+        self.execute(vector, false, true)
+    }
+
     /// The names of the blocks of `function` as the replay runs it, in the order of the
     /// function, each once; none when the module has no function of that name.
     #[must_use]
@@ -491,16 +499,22 @@ impl<'a> Replayer<'a> {
 
     /// One replay of `vector`, its last call read as the one that stopped when `stops`.
     fn run(&self, vector: &Vector, stops: bool) -> Result<Replayed> {
+        Ok(self.execute(vector, stops, false)?.0)
+    }
+
+    /// One replay of `vector` as [`Self::run`] makes it, with the vector of the run itself when
+    /// `made` and the level takes a state.
+    fn execute(&self, vector: &Vector, stops: bool, made: bool) -> Result<(Replayed, Option<Vector>)> {
         let body = format!("{}{BODY}", vector.function);
-        let Some(f) = self.module.function(&body) else { return Ok(Replayed::differs(Difference::Function)) };
+        let Some(f) = self.module.function(&body) else { return Ok((Replayed::differs(Difference::Function), None)) };
         let over_state = f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void;
         // The shape the level gives the function: a signature at the ABI level, the state below.
         let level = match &self.abi {
             None if over_state => None,
-            None => return Ok(Replayed::differs(Difference::Function)),
+            None => return Ok((Replayed::differs(Difference::Function), None)),
             Some(abi) => match abi.signatures.get(&vector.function) {
                 Some(signature) => Some((abi, signature)),
-                None => return Ok(Replayed::differs(Difference::Function)),
+                None => return Ok((Replayed::differs(Difference::Function), None)),
             },
         };
         let fault = |stop: Stop| setup(vector, stop);
@@ -519,7 +533,8 @@ impl<'a> Replayer<'a> {
             Some((abi, signature)) => {
                 let arguments = abi.convention.arguments(signature, vector)?;
                 if arguments.len() != f.ty.params.len() {
-                    return Ok(Replayed::differs(Difference::Parameters { signature: arguments.len(), function: f.ty.params.len() }));
+                    let difference = Difference::Parameters { signature: arguments.len(), function: f.ty.params.len() };
+                    return Ok((Replayed::differs(difference), None));
                 }
                 arguments
             }
@@ -539,6 +554,8 @@ impl<'a> Replayer<'a> {
             stopped: false,
             popped: None,
             written: BTreeSet::new(),
+            read: BTreeMap::new(),
+            answer_writes: BTreeSet::new(),
             differences: Vec::new(),
         };
         let ran = Rc::new(RefCell::new(BTreeSet::new()));
@@ -552,7 +569,7 @@ impl<'a> Replayer<'a> {
             f.blocks.iter().filter(|block| ran.contains(&block.id)).map(|block| block.name.clone()).collect()
         };
         if !host.differences.is_empty() {
-            return Ok(Replayed { differences: host.differences, blocks });
+            return Ok((Replayed { differences: host.differences, blocks }, None));
         }
 
         // The exit.
@@ -562,7 +579,7 @@ impl<'a> Replayer<'a> {
         }
         let replayed = if host.stopped { vector.left.clone() } else { left(&result) };
         if !same_left(&vector.left, &replayed) {
-            differences.push(Difference::Left { recorded: vector.left.clone(), replayed });
+            differences.push(Difference::Left { recorded: vector.left.clone(), replayed: replayed.clone() });
         }
         let mut dead = None;
         match level {
@@ -615,7 +632,26 @@ impl<'a> Replayer<'a> {
                 bytes: differing.len(),
             });
         }
-        Ok(Replayed { differences, blocks })
+        let own = if made && level.is_none() {
+            let snapshot = vm.memory.read_vec(state, self.shape.size() as u64).map_err(fault)?;
+            let mut out = BTreeMap::new();
+            for &address in &host.written {
+                out.insert(address, vm.memory.read_u8(address).map_err(fault)?);
+            }
+            Some(Vector {
+                function: vector.function.clone(),
+                address: vector.address,
+                entry: vector.entry.clone(),
+                memory_in: runs(&host.read),
+                calls: vector.calls[..host.next.min(vector.calls.len())].to_vec(),
+                exit: self.shape.registers(&snapshot),
+                memory_out: runs(&out),
+                left: replayed,
+            })
+        } else {
+            None
+        };
+        Ok((Replayed { differences, blocks }, own))
     }
 
     /// The machine `vector` replays in, with the bytes of its `memory in` loaded: the image, the
@@ -884,6 +920,11 @@ struct Answers<'a> {
     popped: Option<u64>,
     /// The addresses the function wrote itself, outside the interpreter's own memory.
     written: BTreeSet<u64>,
+    /// The bytes the function read outside the interpreter's own memory before it or an answer
+    /// wrote them, as first read.
+    read: BTreeMap<u64, u8>,
+    /// The addresses an answer wrote.
+    answer_writes: BTreeSet<u64>,
     differences: Vec<Difference>,
 }
 
@@ -891,6 +932,14 @@ impl Answers<'_> {
     /// Takes the log of what the function did since the memory was armed.
     fn wrote(&mut self, access: Access) {
         let own = self.own;
+        // The log's reads are the ones before its own writes, so they go in first.
+        for (start, bytes) in access.reads {
+            for (address, byte) in (start..).zip(bytes) {
+                if !(own.0..own.1).contains(&address) && !self.written.contains(&address) && !self.answer_writes.contains(&address) {
+                    self.read.entry(address).or_insert(byte);
+                }
+            }
+        }
         for (start, bytes) in access.writes {
             self.written.extend((start..).take(bytes.len()).filter(|address| !(own.0..own.1).contains(address)));
         }
@@ -978,6 +1027,7 @@ impl Answers<'_> {
         self.wrote(vm.memory.disarm());
         for (address, bytes) in &call.effects {
             vm.memory.write(*address, bytes)?;
+            self.answer_writes.extend((*address..).take(bytes.len()));
         }
         vm.memory.arm();
         self.answered()?;
@@ -1046,6 +1096,7 @@ impl Host for Answers<'_> {
         }
         for (address, bytes) in &call.effects {
             vm.memory.write(*address, bytes)?;
+            self.answer_writes.extend((*address..).take(bytes.len()));
         }
         vm.memory.arm();
         self.answered()?;

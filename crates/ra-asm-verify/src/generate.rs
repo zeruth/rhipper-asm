@@ -17,21 +17,33 @@
 //! LLVM intrinsic, a global or an address of the image named anywhere, an access through a value
 //! read from memory, a parameter on the stack of a variadic function, and a stack pointer moved by
 //! a run-time amount.
+//!
+//! A function the run entered, pure or not, has its recorded vectors, and those may leave blocks
+//! of it unrun. [`mutate`] takes them for seeds: one general register of the entry (the stack
+//! pointer aside) or one byte of the `memory in` is changed, to a boundary value first and then
+//! to random ones, and the machine level runs the function over it with its calls answered from
+//! the seed's record, as a replay answers them. The run is a vector of its own, kept when it
+//! returned, made the seed's calls in the seed's order (the arguments where the record holds them)
+//! and ran a block no vector of its function ran before; it is a seed then too. What a mutation
+//! does not decide: a callee over the state is answered as the record answers it whatever the
+//! function handed it, so a kept vector says what the function does with that answer, which is
+//! what the levels above must do alike, not what the program would have done.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::{Result, anyhow, bail};
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
 use ra_asm_ir::{BinOp, Callee, FnType, Function, Inst, Module, Operand, ValueId};
-use ra_asm_lift::Lifted;
 use ra_asm_lift::raise::Target;
 use ra_asm_lift::raise::abi::{Kind, Signature};
+use ra_asm_lift::raise::liveness::Slot;
 use ra_asm_lift::run::Watch;
+use ra_asm_lift::{Lifted, RaiseLevel};
 use ra_asm_pe::Image;
 
 use crate::record::{GLOBALS, Recorder, Shape};
-use crate::replay::LIMIT;
+use crate::replay::{Difference, LIMIT, Replayer};
 use crate::vector::{Left, Vector};
 
 /// The vectors generated for a function.
@@ -64,6 +76,15 @@ const ABOVE: u64 = 0x800;
 
 /// The bytes of the interpreter's frames an input runs with.
 const FRAMES: u64 = 1 << 20;
+
+/// The mutations of a function's vectors run at most.
+pub const MUTATIONS: usize = 256;
+
+/// The instructions a mutation runs at most: a count it changed may never run out.
+const STEPS: u64 = 1 << 22;
+
+/// The bytes of a seed's `memory in`, from the first, one of which a mutation changes.
+const BYTES: usize = 64;
 
 /// What the ABI level says a function touches: the parameters it reads or writes memory
 /// through, by their place among the parameters. Its frame and its result are its own besides.
@@ -196,6 +217,111 @@ pub fn generate(
         out.extend(generator.vectors(name, signature, &summary, seed ^ address)?);
     }
     Ok(out)
+}
+
+/// The vectors mutated from `recorded`, the vectors of a run of `machine`, the machine level,
+/// toward the blocks of each function none of them ran: [`MUTATIONS`] runs a function at most,
+/// made from `seed`, in the order of the functions' addresses. A function whose recorded vectors
+/// ran every block of it, or none of whose vectors replays equal and returned, gets none.
+pub fn mutate(image: &Image, machine: &Lifted, recorded: &[Vector], seed: u64) -> Result<Vec<Vector>> {
+    let mut replayer = Replayer::new(image, machine, RaiseLevel::Machine)?;
+    let shape = Shape::of(machine.isa, machine.bits);
+    let target = Target { bits: machine.bits, isa: machine.isa };
+    let sp = shape.name(target.sp());
+    let registers: Vec<String> = (0..shape.general())
+        .filter_map(|n| shape.name(Slot::Gpr(u8::try_from(n).ok()?)))
+        .filter(|name| Some(*name) != sp)
+        .map(str::to_owned)
+        .collect();
+    let mask = if machine.bits >= 64 { u64::MAX } else { (1u64 << machine.bits) - 1 };
+    let mut functions: BTreeMap<u64, Vec<&Vector>> = BTreeMap::new();
+    for vector in recorded {
+        functions.entry(vector.address).or_default().push(vector);
+    }
+    let mut out = Vec::new();
+    for (address, vectors) in functions {
+        let name = vectors[0].function.clone();
+        let Some(blocks) = replayer.blocks(&name) else { continue };
+        let blocks: BTreeSet<String> = blocks.into_iter().map(str::to_owned).collect();
+        // A vector that differs still ran its blocks; only one that replays equal is a seed.
+        replayer.limit = LIMIT;
+        let mut covered = BTreeSet::new();
+        let mut seeds: Vec<Vector> = Vec::new();
+        for vector in vectors {
+            let replayed = replayer.replayed(vector)?;
+            if replayed.differences.is_empty() && vector.left == Left::Return {
+                seeds.push(vector.clone());
+            }
+            covered.extend(replayed.blocks);
+        }
+        replayer.limit = STEPS;
+        let bytes = seeds.iter().map(|vector| vector.memory_in.iter().map(|(_, run)| run.len()).sum::<usize>()).max().unwrap_or(0);
+        let places = registers.len() + bytes.min(BYTES);
+        if places == 0 {
+            continue;
+        }
+        let mut rng = Rng(seed ^ address);
+        for n in 0..MUTATIONS {
+            if seeds.is_empty() || blocks.iter().all(|block| covered.contains(block)) {
+                break;
+            }
+            // Each place takes each boundary value in turn, over the seeds in turn, before any
+            // random one.
+            let round = n / places;
+            let from = &seeds[round % seeds.len()];
+            let Some(mutant) = mutated(from, &registers, n % places, INTS.get(round).copied(), mask, &mut rng) else { continue };
+            let (replayed, Some(ran)) = replayer.rerun(&mutant)? else { continue };
+            if ran.left != Left::Return || replayed.differences.iter().any(diverged) || replayed.blocks.is_subset(&covered) {
+                continue;
+            }
+            covered.extend(replayed.blocks);
+            seeds.push(ran.clone());
+            out.push(ran);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether a difference of a mutated run is one of its calls, where the record's answers no
+/// longer stand, rather than a register, a byte or a way it left otherwise than its seed.
+fn diverged(difference: &Difference) -> bool {
+    !matches!(difference, Difference::Register { .. } | Difference::Memory { .. } | Difference::Left { .. })
+}
+
+/// `from` with its place `place` changed: a register of `registers`, or past them a byte of its
+/// `memory in` counted round its bytes. The new value is `value`, under `mask` for a register and
+/// its low byte for a byte, or a random one when none; none when the place holds it already.
+#[allow(clippy::cast_possible_truncation)]
+fn mutated(from: &Vector, registers: &[String], place: usize, value: Option<u64>, mask: u64, rng: &mut Rng) -> Option<Vector> {
+    let mut mutant = from.clone();
+    if let Some(name) = registers.get(place) {
+        let new = u128::from(value.unwrap_or_else(|| integer(rng)) & mask);
+        let (_, old) = mutant.entry.iter_mut().find(|(register, _)| register == name)?;
+        if *old == new {
+            return None;
+        }
+        *old = new;
+    } else {
+        let total: usize = mutant.memory_in.iter().map(|(_, run)| run.len()).sum();
+        if total == 0 {
+            return None;
+        }
+        let mut at = (place - registers.len()) % total;
+        let run = mutant.memory_in.iter().position(|(_, bytes)| {
+            if at < bytes.len() {
+                return true;
+            }
+            at -= bytes.len();
+            false
+        })?;
+        let new = value.unwrap_or_else(|| rng.next()) as u8;
+        let byte = &mut mutant.memory_in[run].1[at];
+        if *byte == new {
+            return None;
+        }
+        *byte = new;
+    }
+    Some(mutant)
 }
 
 /// Where one parameter of an input goes.

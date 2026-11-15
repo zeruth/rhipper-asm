@@ -26,10 +26,6 @@ extended32 leibniz abi vector 1: memory at 0x100004f8: recorded 47, replayed not
 extended32 root abi vector 1: memory at 0x10000518: recorded cd, replayed nothing (the first of 16 bytes)
 extended32 third abi vector 1: memory at 0x10000518: recorded 55, replayed nothing (the first of 16 bytes)
 extended32 mainCRTStartup_ abi vector 1: memory at 0x10000510: recorded 00, replayed nothing (the first of 26 bytes)
-classes32 describe abi vector 1: call 1: ra_trap is called where the record calls ra_call
-classes32 describe_named abi vector 1: call 1: ra_trap is called where the record calls ra_call
-classes64 describe abi vector 1: call 1: ra_trap is called where the record calls ra_call
-classes64 describe_named abi vector 1: call 1: ra_trap is called where the record calls ra_call
 throws64 F_140001300 abi vector 2: call 1 of ra_eh_throw: recorded with (0x120ffeb8, 0x8), replayed with (0x110ff68, 0x8)
 throws64 F_140001100 abi vector 2: call 3 of ra_eh_catches: recorded with (0x592281df782b68a, 0x120fff78, 0x4008), replayed with (0x592281df782b68a, 0x110ff88, 0x4008)
 throws64 F_1400011b0 abi vector 1: call 1 of ra_eh_throw: recorded with (0x120fff6c, 0x4), replayed with (0x110ff7c, 0x4)
@@ -37,4 +33,3 @@ throws64 entry abi vector 1: register rsp: recorded 0x120fff90, replayed 0x120ff
 structs32 scaled machine vector 1: memory at 0x10000508: recorded 00, replayed nothing (the first of 18 bytes)
 structs32 scaled promoted vector 1: memory at 0x10000508: recorded 00, replayed nothing (the first of 18 bytes)
 structs32 scaled abi vector 1: memory at 0x10000508: recorded 00, replayed nothing (the first of 18 bytes)
-computed64 apply abi vector 1: call 2 of ra_call is never made
