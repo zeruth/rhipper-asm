@@ -21,6 +21,7 @@
 //! two builds at once, by their symbols or by structure alone, for a binary diff.
 
 pub mod builder;
+pub mod eh32;
 pub mod facts;
 pub mod function;
 pub mod identity;
@@ -38,6 +39,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use ra_asm_arch::{Arch, Flow, Operand};
 use ra_asm_pe::{CxxAbi, CxxFrame, Image, Machine, Toolset};
 
+pub use eh32::CxxFrame32;
 pub use facts::Facts;
 pub use function::{Block, Function, Kind, Origin, Terminator, VirtualSlot};
 pub use identity::Identity;
@@ -73,6 +75,12 @@ pub struct Analysis<'a> {
     /// The functions whose structured exception frame was found and not read, with the reason:
     /// their `__try` ranges are unknown.
     pub seh_unread: BTreeMap<u64, String>,
+    /// The 32-bit x86 functions that register the C++ frame handler, by entry: their tables and
+    /// the states their code is in ([`eh32`]).
+    pub cxx_frames32: BTreeMap<u64, CxxFrame32>,
+    /// The functions whose C++ frame was found and not read, with the reason: their states are
+    /// unknown.
+    pub cxx_unread32: BTreeMap<u64, String>,
     /// The function a port starts at: the image's entry point, or `main` when the entry is the
     /// startup of a C runtime linked into the image, whose work the host's own startup does.
     pub program_entry: Option<u64>,
@@ -413,6 +421,11 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     // The x64 unwind data names a function's scope table; on 32-bit x86 its prologue does.
     let (seh_frames, seh_unread) =
         if matches!(image.machine(), Machine::I386) { seh32::frames(image, &functions) } else { (BTreeMap::new(), BTreeMap::new()) };
+    let (cxx_frames32, cxx_unread32) = if matches!(image.machine(), Machine::I386) {
+        eh32::frames(image, arch.as_ref(), &functions)
+    } else {
+        (BTreeMap::new(), BTreeMap::new())
+    };
     let (noreturn, warnings) = (state.noreturn, state.warnings);
     Analysis {
         image,
@@ -423,6 +436,8 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
         cxx_frames,
         seh_frames,
         seh_unread,
+        cxx_frames32,
+        cxx_unread32,
         program_entry,
         facts: facts.clone(),
         toolset,

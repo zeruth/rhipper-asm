@@ -431,6 +431,8 @@ impl Engine {
             cxx_frames: BTreeMap::new(),
             seh_frames: BTreeMap::new(),
             seh_unread: BTreeMap::new(),
+            cxx_frames32: BTreeMap::new(),
+            cxx_unread32: BTreeMap::new(),
             program_entry: None,
             facts: Facts::default(),
             toolset: Toolset::of(image),
