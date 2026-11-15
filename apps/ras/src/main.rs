@@ -314,13 +314,27 @@ enum Command {
         #[arg(long)]
         exe: Option<PathBuf>,
     },
-    /// The lexical half of the grade of any C tree: lines, gotos, casts and labels, each per
-    /// thousand lines, over the `.c` and `.h` files under a directory (or one file). Reads the
-    /// tree and writes nothing there, so the old pipeline's output is a baseline.
+    /// The scoreboard of the programs of a directory: a row per program and a total, with the
+    /// functions at each level, the traps, the functions whose vectors replay at the machine and
+    /// promoted levels, and the gotos and casts per thousand lines of the C; then the lengths of
+    /// the pending lists and of the oracles' ignore lists. With `--source`, the lexical half of
+    /// the grade of any C tree instead: lines, gotos, casts and labels, each per thousand lines,
+    /// over the `.c` and `.h` files under a directory (or one file), so the old pipeline's output
+    /// is a baseline.
     Score {
+        /// The directory of programs.
+        #[arg(conflicts_with = "source", required_unless_present = "source")]
+        dir: Option<PathBuf>,
         /// The directory of C, or one C file.
         #[arg(long, value_name = "DIR")]
-        source: PathBuf,
+        source: Option<PathBuf>,
+        /// The time limit of one program, in seconds: a program still running then keeps the
+        /// columns it reached.
+        #[arg(long, default_value_t = 30)]
+        timeout: u64,
+        /// The programs measured at once; up to four without it.
+        #[arg(long)]
+        jobs: Option<usize>,
     },
     /// The analysis, the lift and the emit over every executable and library under a directory,
     /// each file in a process of its own with a time limit: the coverage summed, the traps by
@@ -404,6 +418,9 @@ enum Command {
     /// One file of `ras smoke`, in the process it starts for the file.
     #[command(hide = true)]
     SmokeFile { pe: PathBuf },
+    /// One program of `ras score`, in the process it starts for the program.
+    #[command(hide = true)]
+    ScoreFile { pe: PathBuf },
 }
 
 fn step(text: Option<String>) -> anyhow::Result<Option<pipeline::Step>> {
@@ -496,7 +513,13 @@ fn command() -> anyhow::Result<()> {
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
         Command::Plugins { project } => plugins::list(project.as_deref(), json),
-        Command::Score { source } => score::score(&source, json),
+        Command::Score { source: Some(source), .. } => score::score(&source, json),
+        Command::Score { dir, timeout, jobs, .. } => {
+            let dir = dir.context("a directory of programs, or --source and a tree of C")?;
+            let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get().min(4)));
+            let options = score::Options { timeout: std::time::Duration::from_secs(timeout), jobs, signatures: sigs.clone(), json };
+            score::board(&dir, &options)
+        }
         Command::Doctor { lang: _, host: Some(exe) } => doctor::host(&exe, json),
         Command::Doctor { lang, host: None } => doctor::doctor(doctor::Port::of(&lang), json),
         Command::Serve { project, exe } => serve::serve(&serve::Target::of(project.as_deref(), exe.as_deref())?),
@@ -521,6 +544,10 @@ fn command() -> anyhow::Result<()> {
         }
         Command::SmokeFile { pe } => {
             smoke::file(&pe, sigs);
+            Ok(())
+        }
+        Command::ScoreFile { pe } => {
+            score::program(&pe, sigs);
             Ok(())
         }
     }

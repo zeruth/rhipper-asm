@@ -86,7 +86,7 @@ fn is_list(path: &Path) -> bool {
 }
 
 /// The pending lists under `dir`, in the order of their paths.
-fn walk(dir: &Path, lists: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+pub(crate) fn walk(dir: &Path, lists: &mut Vec<PathBuf>) -> anyhow::Result<()> {
     let mut entries = Vec::new();
     for entry in std::fs::read_dir(dir).with_context(|| format!("cannot read {}", dir.display()))? {
         entries.push(entry?.path());
@@ -104,7 +104,7 @@ fn walk(dir: &Path, lists: &mut Vec<PathBuf>) -> anyhow::Result<()> {
 
 /// The path a card names the list by: from `testdata` on when the list lies under one, so the
 /// cards read the same wherever the command ran; the path as given otherwise.
-fn label(path: &Path) -> String {
+pub(crate) fn label(path: &Path) -> String {
     let text = path.to_string_lossy().replace('\\', "/");
     let parts: Vec<&str> = text.split('/').collect();
     match parts.iter().rposition(|p| *p == "testdata") {
@@ -114,7 +114,7 @@ fn label(path: &Path) -> String {
 }
 
 /// The entries of a list: its lines, without the blank ones and the `#` comments.
-fn entries(text: &str) -> Vec<&str> {
+pub(crate) fn entries(text: &str) -> Vec<&str> {
     text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect()
 }
 

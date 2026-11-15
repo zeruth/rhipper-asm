@@ -1,7 +1,9 @@
-//! `ras score --source`: the lexical half of the grade over a C tree, with the counts of the
-//! emit cases, whose text is fixed, and of a hand-written file whose gotos, casts and labels are
-//! known, comments and literals among the decoys. And, ignored, the real program's line: the
-//! scoreboard row of the program `RA_GAME` names, printed for `docs/scoreboard.md`.
+//! `ras score <dir>`: the board over a scratch `testdata` tree of two fixtures, a link map, a
+//! pending list and an oracle, as JSON and as a table. `ras score --source`: the lexical half of
+//! the grade over a C tree, with the counts of the emit cases, whose text is fixed, and of a
+//! hand-written file whose gotos, casts and labels are known, comments and literals among the
+//! decoys. And, ignored, the real program's line: the scoreboard row of the program `RA_GAME`
+//! names, printed for `docs/scoreboard.md`.
 
 use std::ffi::OsStr;
 use std::io::Write;
@@ -91,6 +93,78 @@ fn the_program() {
     // Written past the harness's capture, so a passing run shows the line without `--nocapture`.
     let mut out = std::io::stdout().lock();
     let _ = writeln!(out, "{COLUMNS}\n{line}\n\n{census}");
+}
+
+/// A scratch `testdata` tree: `bin` with `hello64.exe`, `control64.exe` and the link map of the
+/// second, which is no program; a pending list of two entries under a comment; and, beside the
+/// tree, an emit oracle that ignores one test and keeps one debugging aid.
+fn board_tree(name: &str) -> ra_asm_testing::Scratch {
+    let dir = ra_asm_testing::Scratch::new("ras-score-tests", name);
+    let bin = dir.join("testdata/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    for file in ["hello64.exe", "control64.exe", "control64.map"] {
+        std::fs::copy(root().join("testdata/bin").join(file), bin.join(file)).unwrap();
+    }
+    let list = dir.join("testdata/vectors/x86");
+    std::fs::create_dir_all(&list).unwrap();
+    std::fs::write(list.join("PENDING.txt"), "# the forms that differ\nstack Pushad: case 64\nstack Popad: case 80\n").unwrap();
+    let oracle = dir.join("crates/ra-asm-emit/tests");
+    std::fs::create_dir_all(&oracle).unwrap();
+    let text =
+        "#[test]\n#[ignore = \"needs a card\"]\nfn waits() {}\n\n#[test]\n#[ignore = \"a debugging aid: run by name\"]\nfn traced() {}\n";
+    std::fs::write(oracle.join("oracle.rs"), text).unwrap();
+    dir
+}
+
+#[test]
+fn board_has_a_row_per_program_a_total_and_the_lists() {
+    let dir = board_tree("board-json");
+    let bin = dir.join("testdata/bin");
+    let out = ras(&["score", "--json", bin.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let board: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let programs = board["programs"].as_array().unwrap();
+    let names: Vec<&str> = programs.iter().filter_map(|p| p["program"].as_str()).collect();
+    assert_eq!(names, ["control64.exe", "hello64.exe"], "{board:#}");
+    for p in programs {
+        assert_eq!(p["status"], "ok", "{p:#}");
+        assert!(p["functions"]["machine"].as_u64().unwrap() > 0, "{p:#}");
+        assert!(p["functions"]["promoted"].as_u64().unwrap() > 0, "{p:#}");
+        assert!(p["functions"]["abi"].as_u64().unwrap() <= p["functions"]["machine"].as_u64().unwrap(), "{p:#}");
+        assert!(p["lines"].as_u64().unwrap() > 0, "{p:#}");
+        assert!(p["per_thousand"]["gotos"].is_f64(), "{p:#}");
+        assert!(p["verified"]["promoted"].as_u64().unwrap() <= p["recorded"].as_u64().unwrap(), "{p:#}");
+    }
+    let total = &board["total"];
+    assert_eq!(total["program"], "total");
+    assert_eq!(total["status"], "2/2 ok");
+    let sum = |key: &str, level: &str| programs.iter().map(|p| p[key][level].as_u64().unwrap()).sum::<u64>();
+    assert_eq!(total["functions"]["machine"].as_u64().unwrap(), sum("functions", "machine"), "{board:#}");
+    assert_eq!(total["verified"]["machine"].as_u64().unwrap(), sum("verified", "machine"), "{board:#}");
+    if cfg!(windows) {
+        // `control64.exe` runs to its end through the interpreter, and its vectors replay.
+        let control = &programs[0];
+        assert!(control["verified"]["machine"].as_u64().unwrap() >= 1, "{control:#}");
+        assert!(control["verified"]["promoted"].as_u64().unwrap() >= 1, "{control:#}");
+    }
+    assert_eq!(board["pending"], serde_json::json!([{"list": "testdata/vectors/x86/PENDING.txt", "entries": 2}]), "{board:#}");
+    assert_eq!(board["ignored"], serde_json::json!([{"oracle": "crates/ra-asm-emit/tests/oracle.rs", "tests": 1}]), "{board:#}");
+}
+
+#[test]
+fn board_table_has_a_row_per_program_and_a_total_row() {
+    let dir = board_tree("board-table");
+    let bin = dir.join("testdata/bin");
+    let out = ras(&["score", bin.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let table = String::from_utf8_lossy(&out.stdout);
+    assert!(table.starts_with("| program | status | machine |"), "{table}");
+    for row in ["| control64.exe | ok |", "| hello64.exe | ok |", "| total | 2/2 ok |"] {
+        assert_eq!(table.lines().filter(|l| l.starts_with(row)).count(), 1, "{row}:\n{table}");
+    }
+    assert!(!table.contains("control64.map"), "{table}");
+    assert!(table.contains("| testdata/vectors/x86/PENDING.txt | 2 |"), "{table}");
+    assert!(table.contains("| crates/ra-asm-emit/tests/oracle.rs | 1 |"), "{table}");
 }
 
 /// `ras score --source <source> --json`, parsed.
