@@ -3,7 +3,8 @@
 //! calls kept, is recorded at `testdata/sessions/<name>.session`, and every committed session reads
 //! back equal to itself. A fixture without a session is recorded here when its run prints what the
 //! native run printed; one whose run does not is named and left without, since its calls are not
-//! the program's.
+//! the program's. With `RA_RECORD=write` every fixture is recorded again the same way, its
+//! committed session replaced only by a run that prints the native output.
 //!
 //! And the replays: each fixture's run at the ABI level, recorded the same way at
 //! `testdata/sessions/abi/<name>.session`, runs again with its session standing in for the host,
@@ -85,6 +86,12 @@ fn record(exe: &Path, expected: &str, level: RaiseLevel) -> Result<Session, Stri
     }
 }
 
+/// Whether the committed sessions are recorded again rather than read (`RA_RECORD=write`), as a
+/// change to what the lift calls makes them stale: on Windows, the one host that records.
+fn rewrite() -> bool {
+    cfg!(windows) && std::env::var("RA_RECORD").is_ok_and(|value| value == "write")
+}
+
 fn stem(exe: &Path) -> String {
     exe.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
@@ -95,8 +102,10 @@ fn read(path: &Path) -> String {
 
 /// The ABI-level session of `exe`: the committed one, or on Windows the one its run records when
 /// the run prints `expected`, written to `path` when `keep` says so; why there is none otherwise.
+/// A kept session is recorded again under [`rewrite`], and a run that does not print `expected`
+/// leaves the committed one as it is.
 fn abi_session(exe: &Path, expected: &str, path: &Path, keep: bool) -> Result<Session, String> {
-    if path.exists() {
+    if path.exists() && !(keep && rewrite()) {
         return Session::parse(&read(path)).map_err(|e| format!("{}: {e}", path.display()));
     }
     if !cfg!(windows) {
@@ -129,7 +138,7 @@ fn the_fixtures_sessions_read_back_in_their_format() {
     for (exe, expected) in fixtures(&root) {
         let name = exe.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let path = dir.join(format!("{name}.session"));
-        if path.exists() {
+        if path.exists() && !rewrite() {
             continue;
         }
         let expected = std::fs::read_to_string(&expected).unwrap_or_else(|e| panic!("{}: {e}", expected.display()));

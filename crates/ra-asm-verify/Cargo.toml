@@ -18,3 +18,4 @@ ra-asm-pe.workspace = true
 
 [dev-dependencies]
 ra-asm-analysis.workspace = true
+ra-asm-testing.workspace = true

@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 use ra_asm_lift::raise::abi::Signature;
 use ra_asm_lift::{LiftOptions, Lifted, RaiseLevel, X87Unit};
 use ra_asm_pe::Image;
+use ra_asm_testing::manifest::{self, Evidence};
 use ra_asm_verify::{Replayer, Vector};
 
 /// The programs of `testdata/bin` that run to their end through the interpreter on their own:
@@ -178,20 +179,29 @@ fn key(line: &str) -> &str {
 /// The committed vectors of `name`, or those of one run recorded now and written where they are
 /// committed, with whether they were recorded; none when the program keeps none on this host. A
 /// committed file the recorder kept otherwise than it keeps now is recorded again.
+///
+/// Under [`rewrite`] every program is recorded again, and only a run that prints the native output
+/// replaces the committed file: one that does not is named and the committed vectors replay. A run
+/// that stops goes through the same checks as a missing file's, `no binding for` included.
 fn vectors_of(name: &str) -> Option<(Vec<Vector>, bool)> {
     let file = root().join("testdata/vectors/fn").join(format!("{name}.fv"));
-    if file.exists() {
-        let text = std::fs::read_to_string(&file).unwrap_or_else(|error| panic!("reading {}: {error}", file.display()));
-        let keeping = ra_asm_verify::keeping();
-        if text.lines().any(|line| line == keeping) {
-            let vectors = ra_asm_verify::read(&text).unwrap_or_else(|error| panic!("reading the vectors of {}: {error}", file.display()));
-            return Some((vectors, false));
-        }
+    let again = rewrite();
+    if !again && let Some(vectors) = committed(&file) {
+        return Some((vectors, false));
     }
     let image = image(name);
     let machine = lifted(&image, RaiseLevel::Machine);
     let (recording, outcome) =
         ra_asm_verify::record(&image, &machine, &ra_asm_lift::run::Options::default()).unwrap_or_else(|error| panic!("{name}: {error:#}"));
+    // A run that is not the native one keeps the committed vectors; with none committed in the
+    // recorder's keeping, it is written as a missing file's run is.
+    if again
+        && let Some(why) = not_native(name, &outcome)
+        && let Some(vectors) = committed(&file)
+    {
+        eprintln!("not recorded again: {name}: {why}; its committed vectors replay");
+        return Some((vectors, false));
+    }
     if let Some(stop) = &outcome.stop {
         if stop.starts_with("no binding for ") && !cfg!(windows) {
             eprintln!("SKIPPED: {name}: {stop}; this host has no Windows DLLs to record a run with");
@@ -207,6 +217,45 @@ fn vectors_of(name: &str) -> Option<(Vec<Vector>, bool)> {
     let text = ra_asm_verify::record::file(&recording.vectors).unwrap_or_else(|error| panic!("{name}: writing its vectors: {error}"));
     std::fs::write(&file, text).unwrap_or_else(|error| panic!("writing {}: {error}", file.display()));
     Some((recording.vectors, true))
+}
+
+/// Whether the committed vectors are recorded again rather than read (`RA_RECORD=write`), as a
+/// change to what the lift calls makes them stale: on Windows, the one host that records.
+fn rewrite() -> bool {
+    cfg!(windows) && std::env::var("RA_RECORD").is_ok_and(|value| value == "write")
+}
+
+/// The vectors `file` holds, when it is there and kept as the recorder keeps them now.
+fn committed(file: &Path) -> Option<Vec<Vector>> {
+    if !file.exists() {
+        return None;
+    }
+    let text = std::fs::read_to_string(file).unwrap_or_else(|error| panic!("reading {}: {error}", file.display()));
+    let keeping = ra_asm_verify::keeping();
+    text.lines()
+        .any(|line| line == keeping)
+        .then(|| ra_asm_verify::read(&text).unwrap_or_else(|error| panic!("reading the vectors of {}: {error}", file.display())))
+}
+
+/// Why the run of `name` is not the native run, if it is not: it stopped, the manifest holds no
+/// native output for the program, or the run printed otherwise.
+fn not_native(name: &str, outcome: &ra_asm_lift::run::Outcome) -> Option<String> {
+    if let Some(stop) = &outcome.stop {
+        return Some(format!("the run stopped: {stop}"));
+    }
+    let path = manifest::path();
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let entries = manifest::parse(&text).unwrap_or_else(|error| panic!("{error}"));
+    let exe = format!("testdata/bin/{name}.exe");
+    let Some(expected) =
+        entries.iter().find(|entry| entry.path == exe && entry.evidence == Evidence::Native).and_then(|e| e.expected.as_ref())
+    else {
+        return Some("the manifest holds no native output for it".to_owned());
+    };
+    let expected = root().join(expected);
+    let expected = std::fs::read_to_string(&expected).unwrap_or_else(|error| panic!("{}: {error}", expected.display()));
+    let output = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
+    (output.trim_end() != expected.replace("\r\n", "\n").trim_end()).then(|| "the run printed other than the native run".to_owned())
 }
 
 /// Replays the vectors of `name` at the machine, the promoted and the ABI level, the vectors of
