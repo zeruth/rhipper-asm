@@ -80,8 +80,8 @@ def forms():
 
 def boundary():
     files = {
-        "Win32 protos": "crates/ra-asm-lift/src/raise/prototypes/win32.rs",
-        "Win32 names": "crates/ra-asm-lift/src/raise/prototypes/win32_names.rs",
+        "Win32 protos": "crates/ra-asm-protos/src/win32.rs",
+        "Win32 names": "crates/ra-asm-protos/src/win32_names.rs",
         "Win32 host (driver.c)": "runtime/driver.c",
         "interp host.rs": "crates/ra-asm-lift/src/run/host.rs",
         "rhipper.rs runtime": "runtime/rhipper.rs",

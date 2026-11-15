@@ -113,3 +113,22 @@ pub fn win32_kinds(name: &str) -> Option<&'static str> {
     let i = win32::TABLE.binary_search_by_key(&name, |(n, _)| n).ok()?;
     Some(win32::TABLE[i].1)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The hand binding reads by position, and its enumerations are in the generated names.
+    #[test]
+    fn the_binding_names_the_constants() {
+        let (result, params) = named("CreateFileA").expect("CreateFileA is bound");
+        assert_eq!(result, Some("HANDLE_VALUE"));
+        assert_eq!(params[..3], [None, Some("ACCESS_MASK"), Some("FILE_SHARE_MODE")]);
+        assert!(named("printf").is_none());
+        assert_eq!(
+            constant_name("ACCESS_MASK", 0xc000_0000, 32),
+            Some(vec![("GENERIC_READ", 0x8000_0000), ("GENERIC_WRITE", 0x4000_0000)])
+        );
+        assert_eq!(constant_name("WIN32_ERROR", 2, 32).map(|p| p[0].0), Some("ERROR_FILE_NOT_FOUND"));
+    }
+}
