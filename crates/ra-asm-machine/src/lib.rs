@@ -25,10 +25,14 @@
 //! [`assemble`] turns a row and its field values back into the word, and [`cases()`] draws from a row
 //! and a seed the instruction cases the reference vectors run: each field at its boundaries and at
 //! random, over registers of boundary and random numbers.
+//!
+//! [`check()`] is the test a machine's table passes: every row has cases that decode to it, no two
+//! rows of one specificity accept a word, and every row's semantics runs against both builders.
 
 pub mod access;
 pub mod asm;
 pub mod cases;
+pub mod check;
 pub mod instr;
 pub mod lift;
 pub mod outline;
@@ -38,6 +42,7 @@ pub mod table;
 pub use access::Summary;
 pub use asm::{AsmError, assemble};
 pub use cases::{Case, Plan, cases};
+pub use check::{Failure, Problem, check};
 pub use instr::{Machine, Syntax};
 pub use lift::Code;
 pub use outline::Outlines;
