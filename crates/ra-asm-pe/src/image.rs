@@ -299,6 +299,15 @@ impl Image {
         self.read(va, (end - va) as usize)
     }
 
+    /// Puts `bytes` at `va` in the mapped image, as a running program leaves its own image: code
+    /// it unpacked or patched, data it wrote. The range must lie in the headers or in one section.
+    pub fn write(&mut self, va: u64, bytes: &[u8]) -> Result<()> {
+        self.read(va, bytes.len())?;
+        let start = (va - self.image_base()) as usize;
+        self.mapped[start..start + bytes.len()].copy_from_slice(bytes);
+        Ok(())
+    }
+
     /// A [`Reader`] over the bytes at `va` to the end of the section.
     pub fn reader_at(&self, va: u64) -> Result<Reader<'_>> {
         Ok(Reader::new(self.read_to_section_end(va)?))
