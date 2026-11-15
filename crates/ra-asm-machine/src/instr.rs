@@ -33,7 +33,8 @@ impl Machine {
     ///
     /// The text is the mnemonic, a tab and the operands joined by `, `, as objdump prints it; a
     /// memory operand is `disp(base)`. The registers the instruction touches and whether it reads or
-    /// writes memory are left empty here: the access summary fills them.
+    /// writes memory are what its row's semantics does ([`Machine::access`]); `None` too when the
+    /// semantics names a register the machine does not have.
     pub fn instr(&self, word: u32, address: u64) -> Option<Instr> {
         let decoded = self.table.decode(word)?;
         let row = decoded.row;
@@ -86,6 +87,9 @@ impl Machine {
         };
         // The row's place in the table is the exact form the lift dispatches on.
         let code = u32::try_from(self.table.rows().iter().position(|other| std::ptr::eq(other, row))?).ok()?;
+        let access = self.access(word, address)?;
+        let registers =
+            access.registers.iter().map(|&(n, touch)| Some((self.register(i64::from(n))?, touch))).collect::<Option<Vec<_>>>()?;
         Some(Instr {
             address,
             len: 4,
@@ -94,9 +98,9 @@ impl Machine {
             operands,
             flow,
             prefixes: Prefixes::default(),
-            registers: Vec::new(),
-            reads_memory: false,
-            writes_memory: false,
+            registers,
+            reads_memory: access.reads_memory,
+            writes_memory: access.writes_memory,
             code,
         })
     }

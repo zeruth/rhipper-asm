@@ -14,12 +14,16 @@
 //!
 //! A row carries what its instruction does ([`Sem`]), a function over a [`Builder`]; the IR
 //! builder runs it over the state a [`StateSpec`] lays out, and [`Machine::lift`] turns a word
-//! into the function of that one instruction.
+//! into the function of that one instruction. The same function run against a recorder gives what
+//! the instruction reads and writes ([`Machine::access`]), which fills the `Instr`'s registers and
+//! memory flags.
 
+pub mod access;
 pub mod instr;
 pub mod sem;
 pub mod table;
 
+pub use access::Summary;
 pub use instr::{Machine, Syntax};
 pub use sem::{Builder, Cond, Fields, Lift, Op, STATE_TYPE, Sem, StateSpec, Val};
 pub use table::{Decoded, Error, Field, Flow, Kind, Row, Table};

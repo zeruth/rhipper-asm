@@ -227,7 +227,12 @@ pub struct Fields<'a> {
     pub next: u64,
 }
 
-impl Fields<'_> {
+impl<'a> Fields<'a> {
+    /// The fields `values` of `row`, decoded from the word at `address` on `machine`.
+    pub(crate) fn new(machine: &'a Machine, row: &'a Row, values: &'a [i64], address: u64) -> Self {
+        Fields { machine, row, values, address, next: machine.wrap(address.wrapping_add(4)) }
+    }
+
     fn at(&self, name: &str) -> (&Field, i64) {
         let at = self.row.fields.iter().position(|field| field.name == name);
         let at = at.unwrap_or_else(|| panic!("row `{}` has no field `{name}`", self.row.name));
@@ -266,13 +271,13 @@ impl Machine {
         let block = b.block("entry");
         let state = b.param(0);
         let mut ir = Ir { b, spec, registers: self.registers, state, block, address, values: Vec::new(), left: false };
-        let next = self.wrap(address.wrapping_add(4));
+        let fields = Fields::new(self, decoded.row, &decoded.values, address);
         match decoded.row.sem {
-            Some(Sem(lift)) => lift(&mut ir, &Fields { machine: self, row: decoded.row, values: &decoded.values, address, next }),
+            Some(Sem(lift)) => lift(&mut ir, &fields),
             None => ir.stop("ra_unsupported", u64::from(word)),
         }
         if !ir.left {
-            let next = ir.addr(next);
+            let next = ir.addr(fields.next);
             ir.jump(next);
         }
         Some(ir.b.finish())
