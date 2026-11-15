@@ -42,6 +42,9 @@ pub fn f80_call(vm: &mut Vm<'_>, name: &str, args: &[Value]) -> Option<Result<(V
 
 /// The exit code of a run a fault stopped, as the driver's `ra_trap` ends a port.
 pub const FAULT_EXIT: i32 = 0xE000_0001u32 as i32;
+/// The exit code of a run an access to unmapped memory stopped, no handler taking it: the
+/// `STATUS_ACCESS_VIOLATION` Windows ends the process with.
+pub const ACCESS_VIOLATION_EXIT: i32 = 0xC000_0005u32 as i32;
 /// The exit code of a run that reached its limit.
 pub const LIMIT_EXIT: i32 = 0xE000_0007u32 as i32;
 
@@ -333,6 +336,7 @@ fn run_here(
     let (exit, stop) = match result.and_then(|code| runtime.check_uncaught().map(|()| code)) {
         Ok(code) | Err(Stop::Exit(code)) => (code, None),
         Err(Stop::Limit(n)) => (LIMIT_EXIT, Some(format!("the run limit of {n} instructions was reached"))),
+        Err(Stop::Fault(message)) if message.contains(ra_asm_ir::interp::memory::UNMAPPED) => (ACCESS_VIOLATION_EXIT, Some(message)),
         Err(Stop::Fault(message)) => (FAULT_EXIT, Some(message)),
     };
     if let Some(record) = &mut vm.record {

@@ -1744,6 +1744,53 @@ void ra_eh_resume(void) {
     eh_in_flight = eh_suspended[--eh_suspended_depth];
 }
 
+// The structured exception in flight, in the 32-bit layout the program reads: EXCEPTION_RECORD
+// (code, flags, record, address, parameters, information) and EXCEPTION_POINTERS (the record, no
+// context: a filter that reads one faults rather than reads made-up registers).
+static uint32_t seh_record[20], seh_pointers[2];
+static int seh_in_flight;
+
+uint64_t ra_eh_probe(uint64_t address, uint64_t size, uint64_t write, uint64_t site) {
+    MEMORY_BASIC_INFORMATION info;
+    DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    DWORD writable = PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    uint64_t end = address + (size ? size : 1);
+    int fits = 1;
+    for (uint64_t at = address; fits && at < end;) {
+        fits = VirtualQuery((const void *)(uintptr_t)at, &info, sizeof info) == sizeof info && info.State == MEM_COMMIT
+            && (info.Protect & (write ? writable : readable)) && !(info.Protect & PAGE_GUARD);
+        at = (uint64_t)(uintptr_t)info.BaseAddress + info.RegionSize;
+    }
+    if (fits) return 0;
+    if (seh_in_flight) eh_fatal("a fault while a structured exception is in flight");
+    memset(seh_record, 0, sizeof seh_record);
+    seh_record[0] = 0xC0000005u;
+    seh_record[3] = (uint32_t)site;
+    seh_record[4] = 2;
+    seh_record[5] = write ? 1 : 0;
+    seh_record[6] = (uint32_t)address;
+    seh_pointers[0] = (uint32_t)(uintptr_t)seh_record;
+    seh_pointers[1] = 0;
+    seh_in_flight = 1;
+    return 1;
+}
+
+uint64_t ra_eh_pointers(void) {
+    if (!seh_in_flight) eh_fatal("a filter with no structured exception in flight");
+    return (uint64_t)(uintptr_t)seh_pointers;
+}
+
+void ra_eh_handled(void) {
+    if (!seh_in_flight) eh_fatal("a handler with no structured exception in flight");
+    seh_in_flight = 0;
+}
+
+void ra_eh_unhandled(uint64_t site) {
+    fprintf(stderr, "ra: the exception %#x at %#llx passes a frame the port does not unwind\n", seh_record[0], (unsigned long long)site);
+    fflush(stderr);
+    host_exit(seh_record[0]);
+}
+
 // After the entry returns: an exception nothing caught ends the program, as the native runtime's
 // terminate would.
 static void eh_check_uncaught(void) {

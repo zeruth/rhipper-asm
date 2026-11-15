@@ -251,6 +251,21 @@ pub fn declare_eh_runtime(module: &mut ra_asm_ir::Module) {
     }
 }
 
+/// Declares the structured exception protocol of the runtime, for a 32-bit program with a
+/// `__try`: see [`crate::eh`].
+pub fn declare_seh_runtime(module: &mut ra_asm_ir::Module) {
+    let i = Type::I64;
+    let functions = [
+        ("ra_eh_probe", i.clone(), vec![i.clone(), i.clone(), i.clone(), i.clone()]),
+        ("ra_eh_pointers", i.clone(), vec![]),
+        ("ra_eh_handled", Type::Void, vec![]),
+        ("ra_eh_unhandled", Type::Void, vec![i]),
+    ];
+    for (name, ret, params) in functions {
+        module.declare(Declaration { name: name.into(), ty: FnType::new(ret, params), conv: CallConv::C, attrs: vec![] });
+    }
+}
+
 pub const X87_STACK: &str = "ra_x87_stack";
 pub const X87_TOP: &str = "ra_x87_top";
 pub const X87_CW: &str = "ra_x87_cw";

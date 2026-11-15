@@ -216,6 +216,21 @@ unsafe extern "system" {
     fn GetEnvironmentStringsA() -> *const u8;
     fn LoadLibraryA(name: *const u8) -> usize;
     fn GetProcAddress(module: usize, name: usize) -> usize;
+    fn VirtualQuery(address: usize, info: *mut MemoryInfo, size: usize) -> usize;
+}
+
+/// `MEMORY_BASIC_INFORMATION` of the 64-bit host.
+#[repr(C)]
+#[derive(Default)]
+struct MemoryInfo {
+    base: usize,
+    allocation_base: usize,
+    allocation_protect: u32,
+    partition: u16,
+    region_size: usize,
+    state: u32,
+    protect: u32,
+    kind: u32,
 }
 
 /// An import by ordinal has no symbol to link: the host's function, found at startup.
@@ -413,6 +428,78 @@ pub unsafe fn ra_eh_resume() {
         let Some(e) = eh.suspended.pop() else { eh_fatal("a resume with no exception suspended") };
         eh.in_flight = e;
     });
+}
+
+/// The structured exception in flight, in the 32-bit layout the program reads: the
+/// `EXCEPTION_RECORD` and the `EXCEPTION_POINTERS`, with no context, so a filter that reads one
+/// faults rather than reads made-up registers.
+struct Structured {
+    record: [u32; 20],
+    pointers: [u32; 2],
+    in_flight: bool,
+}
+
+static mut SEH: Structured = Structured { record: [0; 20], pointers: [0; 2], in_flight: false };
+
+/// Whether `size` bytes at `address` are committed and open to the access.
+unsafe fn accessible(address: u64, size: u64, write: bool) -> bool {
+    // PAGE_READONLY, PAGE_READWRITE, PAGE_WRITECOPY and their executable forms; PAGE_GUARD.
+    let open = if write { 0x04 | 0x08 | 0x40 | 0x80 } else { 0x02 | 0x04 | 0x08 | 0x20 | 0x40 | 0x80 };
+    let end = address.saturating_add(size.max(1));
+    let mut at = address;
+    while at < end {
+        let mut info = MemoryInfo::default();
+        if VirtualQuery(at as usize, &raw mut info, std::mem::size_of::<MemoryInfo>()) == 0
+            || info.state != 0x1000
+            || info.protect & open == 0
+            || info.protect & 0x100 != 0
+        {
+            return false;
+        }
+        at = (info.base + info.region_size) as u64;
+    }
+    true
+}
+
+pub unsafe fn ra_eh_probe(address: u64, size: u64, write: u64, site: u64) -> u64 {
+    if accessible(address, size, write != 0) {
+        return 0;
+    }
+    let seh = &mut *(&raw mut SEH);
+    if seh.in_flight {
+        eh_fatal("a fault while a structured exception is in flight");
+    }
+    seh.record = [0; 20];
+    seh.record[0] = 0xC000_0005;
+    seh.record[3] = site as u32;
+    seh.record[4] = 2;
+    seh.record[5] = u32::from(write != 0);
+    seh.record[6] = address as u32;
+    seh.pointers = [seh.record.as_ptr() as usize as u32, 0];
+    seh.in_flight = true;
+    1
+}
+
+pub unsafe fn ra_eh_pointers() -> u64 {
+    let seh = &mut *(&raw mut SEH);
+    if !seh.in_flight {
+        eh_fatal("a filter with no structured exception in flight");
+    }
+    seh.pointers.as_ptr() as usize as u64
+}
+
+pub unsafe fn ra_eh_handled() {
+    let seh = &mut *(&raw mut SEH);
+    if !seh.in_flight {
+        eh_fatal("a handler with no structured exception in flight");
+    }
+    seh.in_flight = false;
+}
+
+pub unsafe fn ra_eh_unhandled(site: u64) {
+    let code = (*(&raw const SEH)).record[0];
+    eprintln!("ra: the exception {code:#x} at {site:#x} passes a frame the port does not unwind");
+    std::process::exit(code as i32)
 }
 
 /// After the entry returns: an exception nothing caught ends the program, as the native

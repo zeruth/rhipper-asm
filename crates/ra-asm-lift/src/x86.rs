@@ -50,6 +50,7 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
             frame.funclets.insert(target, (local_funclet(f, target), 0));
         }
     }
+    frame.add_seh(analysis, f, local_funclet);
     let in_funclet = |start: u64| frame.funclets.values().any(|(blocks, _)| blocks.iter().any(|b| b.start == start));
     let mut blocks = HashMap::new();
     blocks.insert(f.entry, b.block(&format!("b_{:x}", f.entry)));
@@ -178,6 +179,7 @@ impl Lifter<'_, '_> {
                 let wide = self.m.zext(block, Type::Int(index.bits), v, Type::I64, "switch.index");
                 self.switch_index = Some(wide);
             }
+            block = self.seh_probe(block, &i);
             block = self.lift_instr(block, &i);
         }
         if self.m.b.has_terminator(block) {

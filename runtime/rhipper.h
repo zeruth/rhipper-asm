@@ -277,6 +277,14 @@ void ra_eh_enter_catch(void);
 void ra_eh_leave_catch(void);
 void ra_eh_suspend(void);
 void ra_eh_resume(void);
+// The structured exceptions of a 32-bit __try: ra_eh_probe(address, size, write, site) puts the
+// access violation in flight and answers 1 when the access would fault; ra_eh_pointers gives the
+// EXCEPTION_POINTERS its filter reads, in the program's 32-bit layout; ra_eh_handled ends it, and
+// ra_eh_unhandled(site) ends the program when no scope of the function takes it.
+uint64_t ra_eh_probe(uint64_t address, uint64_t size, uint64_t write, uint64_t site);
+uint64_t ra_eh_pointers(void);
+void ra_eh_handled(void);
+void ra_eh_unhandled(uint64_t site);
 #ifdef __cplusplus
 }
 #endif

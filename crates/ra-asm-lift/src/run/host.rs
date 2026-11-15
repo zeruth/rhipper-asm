@@ -59,6 +59,8 @@ struct Exceptions {
     staged: Option<usize>,
     caught: Vec<usize>,
     suspended: Vec<Option<usize>>,
+    /// The structured exception in flight: its code and the `EXCEPTION_POINTERS` its filters read.
+    structured: Option<(u32, u64)>,
 }
 
 /// The heap: a bump allocator with the size ahead of each block, never reused.
@@ -589,9 +591,10 @@ impl<'a> Runtime<'a> {
 
     /// After the entry: an exception nothing caught ends the program, as terminate would.
     pub(super) fn check_uncaught(&self) -> Result<(), Stop> {
-        match self.eh.in_flight {
-            Some(_) => Err(Stop::fault("an exception the program did not catch")),
-            None => Ok(()),
+        match (self.eh.in_flight, self.eh.structured) {
+            (Some(_), _) => Err(Stop::fault("an exception the program did not catch")),
+            (None, Some((code, _))) => Err(Stop::fault(format!("the structured exception {code:#x} was left in flight"))),
+            (None, None) => Ok(()),
         }
     }
 
@@ -764,6 +767,26 @@ impl<'a> Runtime<'a> {
         Ok(result)
     }
 
+    /// Writes the `EXCEPTION_RECORD` of an access violation at `site` and the `EXCEPTION_POINTERS`
+    /// to it, in the program's layout, and gives the pointers' address. There is no context: a
+    /// filter that reads one faults rather than reads made-up registers.
+    fn access_violation(&mut self, vm: &mut Vm<'_>, address: u64, write: bool, site: u64) -> Result<u64, Stop> {
+        let word = if self.bits == 32 { 4 } else { 8 };
+        let information = if word == 4 { 20 } else { 32 };
+        let size = information + 15 * word;
+        let record = self.allocate(vm, size, 16)?;
+        vm.memory.fill(record, size, 0)?;
+        vm.memory.write_u32(record, 0xC000_0005)?;
+        vm.memory.write_word(record + 8 + word, word, site)?;
+        vm.memory.write_u32(record + 8 + 2 * word, 2)?;
+        vm.memory.write_word(record + information, word, u64::from(write))?;
+        vm.memory.write_word(record + information + word, word, address)?;
+        let pointers = self.allocate(vm, 2 * word, 16)?;
+        vm.memory.write_word(pointers, word, record)?;
+        vm.memory.write_word(pointers + word, word, 0)?;
+        Ok(pointers)
+    }
+
     fn eh_call(&mut self, vm: &mut Vm<'_>, name: &str, args: &[Value]) -> Result<Value, Stop> {
         let a = |n: usize| arg(args, n);
         match name {
@@ -837,6 +860,32 @@ impl<'a> Runtime<'a> {
                 let Some(e) = self.eh.suspended.pop() else { return Err(Stop::fault("a resume with no exception suspended")) };
                 self.eh.in_flight = e;
                 int(0)
+            }
+            "ra_eh_probe" => {
+                let (address, size, write, site) = (a(0), a(1).max(1), a(2) != 0, a(3));
+                let mapped =
+                    vm.memory.region_of(address).is_some_and(|r| address.checked_add(size).is_some_and(|end| end <= r.start + r.len));
+                if mapped {
+                    return int(0);
+                }
+                if self.eh.structured.is_some() {
+                    return Err(Stop::fault(format!("a fault at {site:#x} while a structured exception is in flight")));
+                }
+                let pointers = self.access_violation(vm, address, write, site)?;
+                self.eh.structured = Some((0xC000_0005, pointers));
+                int(1)
+            }
+            "ra_eh_pointers" => match self.eh.structured {
+                Some((_, pointers)) => int(pointers),
+                None => Err(Stop::fault("a filter with no structured exception in flight")),
+            },
+            "ra_eh_handled" => match self.eh.structured.take() {
+                Some(_) => int(0),
+                None => Err(Stop::fault("a handler with no structured exception in flight")),
+            },
+            "ra_eh_unhandled" => {
+                let code = self.eh.structured.map_or(0, |(code, _)| code);
+                Err(Stop::fault(format!("the exception {code:#x} at {:#x} passes a frame the lift does not unwind yet", a(0))))
             }
             _ => Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
         }

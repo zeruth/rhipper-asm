@@ -596,6 +596,9 @@ fn lift_on(
     if eh {
         state::declare_eh_runtime(&mut module);
     }
+    if images.iter().any(|(_, a)| !a.seh_frames.is_empty()) {
+        state::declare_seh_runtime(&mut module);
+    }
 
     let mut lifted = Lifted {
         module,

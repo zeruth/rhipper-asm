@@ -13,6 +13,10 @@ use std::collections::BTreeMap;
 
 use super::Stop;
 
+/// How the fault of an access to no region ends: the program's access violation, which the host
+/// tells from the interpreter's own faults by it.
+pub const UNMAPPED: &str = ", which is not mapped";
+
 /// A range of the address space the program may touch.
 #[derive(Debug, Clone)]
 pub struct Region {
@@ -137,7 +141,7 @@ impl Memory {
             self.last = self.regions.len() - 1;
             return Ok(self.last);
         }
-        Err(Stop::Fault(format!("an access to {len} bytes at {address:#x}, which is not mapped")))
+        Err(Stop::Fault(format!("an access to {len} bytes at {address:#x}{UNMAPPED}")))
     }
 
     /// Reads `buf.len()` bytes at `address`.
