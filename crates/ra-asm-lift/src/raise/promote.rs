@@ -1048,11 +1048,12 @@ impl Rewriter<'_> {
 
     /// A call through a vtable slot that `candidates` fill: a chain of tests of the code address
     /// `code` the slot holds against each candidate's address, with a call to the candidate in
-    /// its arm and a trap for any other address. The slot holds the function's own address, not
-    /// a number (the data gave a code address the function's name), so the tests compare with
-    /// the functions rather than switch over constants. The arms join in the continuation,
-    /// where the result and, when the candidates pop differently, the stack pointer are phis;
-    /// the instructions so far become the head, which ends in the first test. With `seen`, the
+    /// its arm and a trap for any other address. The slot holds the function's own address (the
+    /// data gave a code address the function's name), or its image address when the object came
+    /// from a run, so each test compares with both rather than switch over constants. The arms
+    /// join in the continuation, where the result and, when the candidates pop differently, the
+    /// stack pointer are phis; the instructions so far become the head, which ends in the first
+    /// test. With `seen`, the
     /// candidates are what a run saw and any other address takes the indirect call, which pops
     /// by itself, so every arm pops its own.
     #[allow(clippy::too_many_arguments)]
@@ -1076,27 +1077,36 @@ impl Rewriter<'_> {
         let mut blocks = Vec::new();
         let mut finals: Vec<(BlockId, HashMap<Slot, Operand>)> = Vec::new();
         let mut terminator = None;
-        for (k, (_, name)) in candidates.iter().enumerate() {
-            // The test: in the head for the first candidate, in its own block after.
+        for (k, (va, name)) in candidates.iter().enumerate() {
+            // The test: in the head for the first candidate, in its own block after. A slot that
+            // holds the candidate's image address names it too, as `ra_call` reaches it there: the
+            // bytes of an object a run handed over keep the addresses of the image. No function of
+            // the port lies at an image address, so the two tests never name two candidates.
+            let named = f.new_value("is.fn", Type::I1);
+            let at = f.new_value("is.at", Type::I1);
             let is = f.new_value("is", Type::I1);
-            let test = Instruction {
-                result: Some(is),
-                inst: Inst::ICmp {
-                    cond: ICond::Eq,
-                    ty: Type::I64,
-                    lhs: code.clone(),
-                    rhs: Operand::Address { global: name.clone(), offset: 0 },
-                },
+            let compare = |result: ValueId, rhs: Operand| Instruction {
+                result: Some(result),
+                inst: Inst::ICmp { cond: ICond::Eq, ty: Type::I64, lhs: code.clone(), rhs },
                 address,
             };
+            let test = vec![
+                compare(named, Operand::Address { global: name.clone(), offset: 0 }),
+                compare(at, Operand::Int(i128::from(*va))),
+                Instruction {
+                    result: Some(is),
+                    inst: Inst::Bin { op: BinOp::Or, ty: Type::I1, lhs: Operand::Local(named), rhs: Operand::Local(at) },
+                    address,
+                },
+            ];
             let next = tests.get(k).map_or(default, |(id, _)| *id);
             let branch = Terminator::CondBr { cond: Operand::Local(is), then: arms[k].0, els: next };
             if k == 0 {
-                out.push(test);
+                out.extend(test);
                 terminator = Some(branch);
             } else {
                 let (id, block_name) = tests[k - 1].clone();
-                blocks.push(Block { id, name: block_name, instrs: vec![test], terminator: branch, address });
+                blocks.push(Block { id, name: block_name, instrs: test, terminator: branch, address });
             }
             let mut instrs = Vec::new();
             let mut arm = current.clone();
