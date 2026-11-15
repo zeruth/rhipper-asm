@@ -252,10 +252,11 @@ impl Image {
         self.image_base() + u64::from(rva)
     }
 
-    /// The RVA of a virtual address inside the image, or `None` when it lies outside. A PS-X EXE's
-    /// address is folded first: its `kuseg` and `kseg1` mirrors of RAM are the `kseg0` address.
+    /// The RVA of a virtual address inside the image, or `None` when it lies outside. A console's
+    /// address is folded first: a PS-X EXE's `kuseg` and `kseg1` mirrors of RAM are the `kseg0`
+    /// address, a `PlayStation 2` program's `kseg` and uncached mirrors the `kuseg` one.
     pub fn rva(&self, va: u64) -> Option<u32> {
-        let va = if self.psx.is_some() { psx::fold(va)?.1 } else { va };
+        let va = if self.psx.is_some() || self.is_ps2() { self.memory_region(va)?.1 } else { va };
         let rva = va.checked_sub(self.image_base())?;
         (rva < u64::from(self.size_of_image())).then_some(rva as u32)
     }
@@ -299,13 +300,16 @@ impl Image {
         merged || self.sections.iter().any(|s| (s.is_code() || s.is_executable()) && s.is_writable())
     }
 
-    /// The console the image runs on, when its container names one: `psx` for a PS-X EXE, `psp`
-    /// for a PRX module, `xbox` for an XBE; `None` for a program of an operating system.
+    /// The console the image runs on, when its container or its processor names one: `psx` for a
+    /// PS-X EXE, `psp` for a PRX module, `ps2` for an ELF of the R5900, `xbox` for an XBE; `None`
+    /// for a program of an operating system.
     pub fn platform(&self) -> Option<&'static str> {
         if self.psx.is_some() {
             Some("psx")
         } else if self.elf.as_ref().is_some_and(|e| e.prx.is_some()) {
             Some("psp")
+        } else if self.is_ps2() {
+            Some("ps2")
         } else if self.xbe.is_some() {
             Some("xbox")
         } else {
@@ -313,13 +317,23 @@ impl Image {
         }
     }
 
+    /// Whether the image is a `PlayStation 2` program: an ELF whose code is the Emotion Engine's.
+    fn is_ps2(&self) -> bool {
+        self.elf.as_ref().and_then(|e| e.mips.as_ref()).is_some_and(ra_asm_format::elf::Mips::is_r5900)
+    }
+
     /// The place of the console's memory map that `va` reaches, with its folded address, on an
-    /// image of a console that has one (the `PlayStation's`); `None` elsewhere, or for an address no
-    /// place answers. An access to [`psx::Region::Hardware`] is a device's, which the platform
-    /// runtime answers and the image does not hold.
+    /// image of a console that has one (the `PlayStation's`, the `PlayStation 2's`); `None`
+    /// elsewhere, or for an address no place answers. An access to [`psx::Region::Hardware`] is a
+    /// device's, which the platform runtime answers and the image does not hold.
     pub fn memory_region(&self, va: u64) -> Option<(psx::Region, u64)> {
-        self.psx.as_ref()?;
-        psx::fold(va)
+        if self.psx.is_some() {
+            psx::fold(va)
+        } else if self.is_ps2() {
+            ra_asm_format::elf::ps2::fold(va)
+        } else {
+            None
+        }
     }
 
     /// The whole mapped image, indexed by RVA.

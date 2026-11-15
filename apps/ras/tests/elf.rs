@@ -37,6 +37,24 @@ fn ras_names_the_mips_control_mips() {
 }
 
 #[test]
+fn ras_names_the_platform_of_the_ps2_hello_ps2() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ps2/hello.elf");
+    let info = ras_on(&path, &["info"]);
+    for line in [
+        "machine        mips",
+        "format         ELF32",
+        "platform       ps2",
+        "abi            n32, mips3, r5900, $gp 0x1290f0",
+        "image base     0x00100000",
+        "entry point    0x00100b48",
+    ] {
+        assert!(info.contains(line), "no `{line}` in:\n{info}");
+    }
+    let json: serde_json::Value = serde_json::from_str(&ras_on(&path, &["--json", "info"])).unwrap();
+    assert_eq!((json["platform"].as_str(), json["format"].as_str()), (Some("ps2"), Some("elf32")));
+}
+
+#[test]
 fn ras_prints_the_psp_module_at_its_load_address() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/psp/hello.prx");
     let info = ras_on(&path, &["info"]);

@@ -232,6 +232,8 @@ pub mod mips {
     pub const EF_MIPS_ABI_EABI64: u32 = 0x0000_4000;
     /// The processor the code is for beyond its ISA (`EF_MIPS_MACH_5900`, `_ALLEGREX`…).
     pub const EF_MIPS_MACH: u32 = 0x00ff_0000;
+    /// The Toshiba R5900, the `PlayStation 2`'s Emotion Engine.
+    pub const EF_MIPS_MACH_5900: u32 = 0x0092_0000;
     pub const EF_MIPS_ARCH: u32 = 0xf000_0000;
     pub const SHT_MIPS_REGINFO: u32 = 0x7000_0006;
     pub const SHT_MIPS_ABIFLAGS: u32 = 0x7000_002a;
@@ -325,6 +327,16 @@ impl Mips {
         NAMES.get((self.flags >> 28) as usize).copied()
     }
 
+    /// The processor of `EF_MIPS_MACH` the code is for, when the file names one the reader knows.
+    pub fn mach(&self) -> Option<&'static str> {
+        self.is_r5900().then_some("r5900")
+    }
+
+    /// Whether the code is the `PlayStation 2`'s Emotion Engine's, an R5900's.
+    pub fn is_r5900(&self) -> bool {
+        self.flags & mips::EF_MIPS_MACH == mips::EF_MIPS_MACH_5900
+    }
+
     /// Whether the code calls through the GOT at `$gp`, as abicalls and PIC code do
     /// (`EF_MIPS_CPIC`, `EF_MIPS_PIC`).
     pub fn abicalls(&self) -> bool {
@@ -383,6 +395,62 @@ pub mod psp {
     /// The region that holds `va`.
     pub fn region(va: u64) -> Option<&'static Region> {
         REGIONS.iter().find(|r| r.contains(va))
+    }
+}
+
+/// The `PlayStation 2`'s Emotion Engine: where an EE program loads and the memory map its code
+/// addresses. The map folds every mirror onto one address per place: RAM seen through `kseg0`,
+/// `kseg1`, the uncached and the uncached-accelerated windows is its `kuseg` address, the one the
+/// SDK links at; the registers and the BIOS are their physical addresses.
+pub mod ps2 {
+    use crate::psx::Region;
+
+    /// Where the SDK's linkfile puts an EE program: past the first MiB, which the kernel keeps.
+    pub const LOAD_ADDRESS: u64 = 0x0010_0000;
+    /// Main RAM, 32 MiB, at its `kuseg` address.
+    pub const RAM: u64 = 0;
+    pub const RAM_SIZE: u64 = 0x200_0000;
+    /// RAM again, uncached, and uncached through the buffer that accelerates sequential writes.
+    pub const UNCACHED: u64 = 0x2000_0000;
+    pub const UNCACHED_ACCELERATED: u64 = 0x3000_0000;
+    /// The 16 KiB scratchpad, which the TLB maps at this address only.
+    pub const SCRATCHPAD: u64 = 0x7000_0000;
+    pub const SCRATCHPAD_SIZE: u64 = 0x4000;
+    /// The EE's device registers (the timers, the IPU, the GIF, the VIFs, DMA, the interrupt
+    /// controller, the serial port) and the memories of the vector units at `0x11000000`.
+    pub const HARDWARE: u64 = 0x1000_0000;
+    pub const HARDWARE_SIZE: u64 = 0x200_0000;
+    /// The BIOS ROM, 4 MiB.
+    pub const BIOS: u64 = 0x1fc0_0000;
+    pub const BIOS_SIZE: u64 = 0x40_0000;
+
+    /// The place `va` reaches and its folded address, or `None` for an address no place answers.
+    /// A 32-bit address the 64-bit registers hold sign-extended, as an R5900 forms `kseg0`'s, is
+    /// the same address.
+    pub fn fold(va: u64) -> Option<(Region, u64)> {
+        let va = u64::from(u32::try_from(va).ok().or_else(|| i32::try_from(va as i64).ok().map(|v| v as u32))?);
+        let within = |address: u64, base: u64, size: u64| address >= base && address - base < size;
+        for mirror in [UNCACHED, UNCACHED_ACCELERATED] {
+            if within(va, mirror, RAM_SIZE) {
+                return Some((Region::Ram, va - mirror));
+            }
+        }
+        if within(va, SCRATCHPAD, SCRATCHPAD_SIZE) {
+            return Some((Region::Scratchpad, va));
+        }
+        let physical = match va >> 29 {
+            0 | 4 | 5 => va & 0x1fff_ffff,
+            _ => return None,
+        };
+        if within(physical, RAM, RAM_SIZE) {
+            Some((Region::Ram, physical))
+        } else if within(physical, HARDWARE, HARDWARE_SIZE) {
+            Some((Region::Hardware, physical))
+        } else if within(physical, BIOS, BIOS_SIZE) {
+            Some((Region::Bios, physical))
+        } else {
+            None
+        }
     }
 }
 

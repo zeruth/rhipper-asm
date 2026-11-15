@@ -537,3 +537,99 @@ fn a_truncated_psx_header_is_refused_with_its_offset() {
 }
 
 // endregion
+
+// region The PlayStation 2
+
+fn ps2_hello() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ps2/hello.elf")
+}
+
+/// The ps2sdk fixture: an R5900 ELF (n32, MIPS III) linked at `0x00100000`, whose allocated
+/// sections, entry point and `gp` are those `llvm-readobj` prints: `Entry: 0x100B48`, per section
+/// `Name: .text (27)`, `Flags [ (0x6)`, `Address: 0x100000` and `Size: 122032`, and `GP: 0x1290F0`.
+#[test]
+fn the_ps2_hello_loads_at_the_ee_address_as_an_r5900_image() {
+    use ra_asm_format::elf::MipsAbi;
+    let image = ra_asm_pe::load(&ps2_hello()).unwrap();
+    assert!(image.warnings.is_empty(), "{:?}", image.warnings);
+    assert_eq!(image.machine(), Machine::Mips);
+    assert!(!image.is_64() && !image.big_endian());
+    assert_eq!(image.platform(), Some("ps2"));
+    assert_eq!(image.image_base(), ra_asm_format::elf::ps2::LOAD_ADDRESS);
+    let mips = image.elf.as_ref().and_then(|e| e.mips.as_ref()).expect("a MIPS file");
+    assert!(mips.is_r5900());
+    assert_eq!((mips.abi, mips.arch(), mips.mach()), (MipsAbi::N32, Some("mips3"), Some("r5900")));
+    assert!(image.is_code(image.entry_point().unwrap()));
+
+    let Some(output) = Command::new("llvm-readobj")
+        .args(["--file-headers", "--sections", "--arch-specific"])
+        .arg(ps2_hello())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+    else {
+        eprintln!("llvm-readobj is not on the PATH: the oracle comparison is skipped");
+        return;
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let hex = |rest: &str| u64::from_str_radix(rest.trim().trim_start_matches("0x"), 16).unwrap();
+    let (mut entry, mut gp, mut sections) = (None, None, Vec::new());
+    let (mut name, mut alloc, mut address) = (None, false, None);
+    for line in text.lines().map(str::trim) {
+        if let Some(rest) = line.strip_prefix("Entry: ") {
+            entry = Some(hex(rest));
+        } else if let Some(rest) = line.strip_prefix("GP: ") {
+            gp = Some(hex(rest));
+        } else if let Some(rest) = line.strip_prefix("Name: ") {
+            name = Some(rest.split(" (").next().unwrap().to_owned());
+        } else if let Some(rest) = line.strip_prefix("Flags [ (")
+            && name.is_some()
+        {
+            alloc = hex(rest.trim_end_matches(')')) & 0x2 != 0;
+        } else if let Some(rest) = line.strip_prefix("Address: ") {
+            address = Some(hex(rest));
+        } else if let Some(rest) = line.strip_prefix("Size: ")
+            && let (Some(n), Some(a)) = (name.take(), address.take())
+        {
+            if alloc {
+                sections.push((n, a, rest.parse::<u32>().unwrap()));
+            }
+        }
+    }
+    assert_eq!(image.entry_point(), entry);
+    assert_eq!(image.global_pointer, gp);
+    let ours: Vec<_> = image.sections.iter().map(|s| (s.name.clone(), image.va(s.virtual_address), s.virtual_size)).collect();
+    assert_eq!(ours, sections);
+}
+
+/// RAM reads the same through `kuseg`, `kseg0`, `kseg1` and the two uncached windows, and through
+/// a `kseg0` address sign-extended to 64 bits; the scratchpad, the registers and the BIOS are
+/// places of the map that the image does not hold.
+#[test]
+fn the_ps2_memory_map_folds_the_mirrors_of_ram() {
+    use ra_asm_format::psx::Region;
+    let image = ra_asm_pe::load(&ps2_hello()).unwrap();
+    let entry = image.entry_point().unwrap();
+    let word = image.u32(entry).unwrap();
+    for mirror in [0x8000_0000, 0xa000_0000, 0x2000_0000, 0x3000_0000, 0xffff_ffff_8000_0000] {
+        assert_eq!(image.u32(mirror + entry).unwrap(), word, "{:#x}", mirror + entry);
+        assert_eq!(image.rva(mirror + entry), image.rva(entry), "{:#x}", mirror + entry);
+        assert_eq!(image.memory_region(mirror + entry), Some((Region::Ram, entry)), "{:#x}", mirror + entry);
+    }
+    assert_eq!(image.memory_region(0x01ff_fffc), Some((Region::Ram, 0x01ff_fffc)));
+    assert_eq!(image.memory_region(0x2200_0000), None, "RAM is 32 MiB");
+    assert_eq!(image.memory_region(0x7000_3ff0), Some((Region::Scratchpad, 0x7000_3ff0)));
+    assert_eq!(image.memory_region(0x7000_4000), None);
+    // The serial port's transmit FIFO, which the fixture writes, and the vector units' memory.
+    for device in [0x1000_f180, 0xb000_f180, 0x1100_0000] {
+        let folded = device & 0x1fff_ffff;
+        assert_eq!(image.memory_region(device), Some((Region::Hardware, folded)), "{device:#x}");
+        assert!(image.read(device, 4).is_err(), "a device register is no byte of the image");
+    }
+    assert_eq!(image.memory_region(0x1200_0000), None, "the hardware ends at 0x12000000");
+    assert_eq!(image.memory_region(0xbfc0_0000), Some((Region::Bios, 0x1fc0_0000)));
+    assert_eq!(image.memory_region(0x4000_0000), None);
+    assert_eq!(ra_asm_pe::load(&psx_hello()).unwrap().memory_region(0x7000_0000), None, "the PSX has no scratchpad there");
+}
+
+// endregion

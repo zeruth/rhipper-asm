@@ -4,3 +4,4 @@
 /site
 /testdata/psp/hello.elf
 /testdata/psp/hello.o
+/testdata/ps2/hello.o
