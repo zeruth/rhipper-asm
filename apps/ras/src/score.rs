@@ -7,7 +7,8 @@
 //! lines of the C the emit writes. Under the
 //! table, the entries of each pending list of the `testdata` tree the directory lies in, and the
 //! tests each oracle ignores, its debugging and maintenance aids aside. Markdown for a person,
-//! `--json` for a test.
+//! `--json` for a test. `ras score --write` writes the board of `testdata/bin` to
+//! `docs/scoreboard.md`, which is committed and which a test holds every change to.
 //!
 //! Each program is measured in a process of its own (`ras score-file`) with a time limit, which
 //! writes a JSON line as each column is known: a program the limit stops keeps the columns it
@@ -397,7 +398,23 @@ pub(crate) struct Options {
     pub signatures: Vec<PathBuf>,
     /// The board on stdout as JSON.
     pub json: bool,
+    /// The board written to [`BOARD`] beside the `testdata` the directory lies in, too.
+    pub write: bool,
 }
+
+/// The committed board, from the repository's root: `apps/ras/tests/score.rs` recomputes it and
+/// fails on a number that moved, so a change's diff shows what it moved.
+pub(crate) const BOARD: &str = "docs/scoreboard.md";
+
+/// The programs of the committed board, from the repository's root.
+pub(crate) const BOARD_PROGRAMS: &str = "testdata/bin";
+
+/// What stands over the table in [`BOARD`].
+const BOARD_HEAD: &str = "# Scoreboard\n\n\
+The board of the fixtures, written by `ras score --write` over `testdata/bin`. \
+`cargo test -q -p ras --test score committed` recomputes it: a number worse than this file's \
+fails with the program and the column, a better one asks for `ras score --write`, so a \
+change's diff shows what it moved.\n\n";
 
 /// One row of the board: a program, or the total. A column the program's process did not reach
 /// is `None`.
@@ -576,6 +593,16 @@ pub(crate) fn board(dir: &Path, options: &Options) -> Result<()> {
     let tree = testdata(dir);
     let pending = tree.as_deref().map(pending).transpose()?.unwrap_or_default();
     let ignored = tree.as_deref().and_then(Path::parent).map(ignored).unwrap_or_default();
+    let table = markdown(&rows, &total, &pending, &ignored)?;
+    if options.write {
+        let root = tree.as_deref().and_then(Path::parent).with_context(|| format!("{} lies in no testdata tree", dir.display()))?;
+        let path = root.join(BOARD);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).with_context(|| format!("cannot make {}", parent.display()))?;
+        }
+        std::fs::write(&path, format!("{BOARD_HEAD}{table}")).with_context(|| format!("cannot write {}", path.display()))?;
+        eprintln!("wrote {}", path.display());
+    }
     if options.json {
         let board = json!({
             "directory": dir.display().to_string(),
@@ -587,7 +614,7 @@ pub(crate) fn board(dir: &Path, options: &Options) -> Result<()> {
         });
         println!("{}", serde_json::to_string_pretty(&board)?);
     } else {
-        print!("{}", markdown(&rows, &total, &pending, &ignored)?);
+        print!("{table}");
     }
     Ok(())
 }

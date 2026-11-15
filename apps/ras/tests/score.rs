@@ -1,10 +1,13 @@
 //! `ras score <dir>`: the board over a scratch `testdata` tree of two fixtures, a link map, a
-//! pending list and an oracle, as JSON and as a table. `ras score --source`: the lexical half of
+//! pending list and an oracle, as JSON and as a table; and the committed board,
+//! `docs/scoreboard.md`, recomputed over `testdata/bin`, which no change makes worse.
+//! `ras score --source`: the lexical half of
 //! the grade over a C tree, with the counts of the emit cases, whose text is fixed, and of a
 //! hand-written file whose gotos, casts and labels are known, comments and literals among the
 //! decoys. And, ignored, the real program's line: the scoreboard row of the program `RA_GAME`
 //! names, printed for `docs/scoreboard.md`.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -165,6 +168,173 @@ fn board_table_has_a_row_per_program_and_a_total_row() {
     assert!(!table.contains("control64.map"), "{table}");
     assert!(table.contains("| testdata/vectors/x86/PENDING.txt | 2 |"), "{table}");
     assert!(table.contains("| crates/ra-asm-emit/tests/oracle.rs | 1 |"), "{table}");
+}
+
+/// The way a column of the board gets better; a column of neither way, such as the lines of the
+/// C, only moves.
+#[derive(Clone, Copy)]
+enum Better {
+    Higher,
+    Lower,
+    Neither,
+}
+
+fn better(column: &str) -> Better {
+    match column {
+        "status" | "machine" | "promoted" | "abi" | "verified machine" | "verified promoted" => Better::Higher,
+        "traps" | "trapping" | "open" | "gotos ‰" | "casts ‰" | "entries" | "ignored tests" => Better::Lower,
+        _ => Better::Neither,
+    }
+}
+
+/// The cells of a board's tables by the table's first heading, the row's first cell and the
+/// column: what stands outside a table is no figure.
+type Cells = BTreeMap<(String, String, String), String>;
+
+fn cells(board: &str) -> Cells {
+    let mut out = Cells::new();
+    let mut header: Option<Vec<String>> = None;
+    for line in board.lines().map(str::trim) {
+        if !line.starts_with('|') {
+            header = None;
+            continue;
+        }
+        let row: Vec<String> = line.trim_matches('|').split('|').map(|cell| cell.trim().to_owned()).collect();
+        if row.iter().all(|cell| !cell.is_empty() && cell.chars().all(|c| c == '-')) {
+            continue;
+        }
+        match &header {
+            None => header = Some(row),
+            Some(columns) => {
+                for (column, cell) in columns.iter().zip(&row).skip(1) {
+                    out.insert((columns[0].clone(), row[0].clone(), column.clone()), cell.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A cell as a figure: a status counts the programs that are `ok` (the total's `47/48 ok` its
+/// 47), and a `-` is no figure.
+fn figure(column: &str, cell: &str) -> Option<f64> {
+    if column == "status" {
+        return match cell.split_once('/') {
+            Some((ok, _)) => ok.parse().ok(),
+            None => Some(f64::from(u8::from(cell == "ok"))),
+        };
+    }
+    cell.parse().ok()
+}
+
+/// Whether the cell went from `was` to `now` the worse way: a figure that became none is worse,
+/// one that appeared better.
+fn is_worse(column: &str, was: &str, now: &str) -> bool {
+    match (figure(column, was), figure(column, now)) {
+        (Some(was), Some(now)) => match better(column) {
+            Better::Higher => now < was,
+            Better::Lower => now > was,
+            Better::Neither => false,
+        },
+        (Some(_), None) => true,
+        (None, _) => false,
+    }
+}
+
+/// Whether a cell is held to the committed one. A table's total sums its rows, which are held one
+/// by one, so a row new to the board moves the total without making it worse; and a program that
+/// ran out of time stopped where the machine's load left it: of its row only the status is held.
+fn held(was: &Cells, now: &Cells, (table, row, column): &(String, String, String)) -> bool {
+    if row == "total" {
+        return false;
+    }
+    if table != "program" {
+        return true;
+    }
+    let timed_out = |cells: &Cells| cells.get(&(table.clone(), row.clone(), "status".to_owned())).is_some_and(|s| s == "timeout");
+    column == "status" || !(timed_out(was) || timed_out(now))
+}
+
+/// The lines of `board` that head a table or hold one of `rows`, by table and row: the failure
+/// shows what moved and not the whole board.
+fn excerpt(board: &str, rows: &BTreeSet<(String, String)>) -> String {
+    let mut out = String::new();
+    let mut table: Option<String> = None;
+    for line in board.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with('|') {
+            table = None;
+            continue;
+        }
+        let first = trimmed.trim_matches('|').split('|').next().unwrap_or_default().trim().to_owned();
+        let shown = match &table {
+            None => {
+                table = Some(first);
+                true
+            }
+            Some(_) if first.chars().all(|c| c == '-') => true,
+            Some(table) => rows.contains(&(table.clone(), first)),
+        };
+        if shown {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// The committed board: `docs/scoreboard.md` recomputed over `testdata/bin`. A figure worse than
+/// the committed one fails with its program and column; any other move fails with the call that
+/// writes the board again, so the diff of the change that moved it shows the move.
+#[test]
+fn committed_board_is_never_worse() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap();
+    let committed = std::fs::read_to_string(repo.join("docs/scoreboard.md")).unwrap_or_default();
+    let out = ras(&["score", repo.join("testdata/bin").to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let board = String::from_utf8_lossy(&out.stdout).into_owned();
+    // The board as `ras score --write` writes it, kept where a failing run can be read whole: the
+    // failure's own output shows only the rows that moved.
+    let head = committed.find("\n|").map_or("", |at| &committed[..=at]);
+    let fresh = Path::new(env!("CARGO_TARGET_TMPDIR")).join("scoreboard.md");
+    std::fs::write(&fresh, format!("{head}{board}")).unwrap();
+
+    let (was, now) = (cells(&committed), cells(&board));
+    let mut worse = Vec::new();
+    let mut moved = Vec::new();
+    let mut rows = BTreeSet::new();
+    for (key, before) in was.iter().filter(|(key, _)| held(&was, &now, key)) {
+        let (table, row, column) = key;
+        match now.get(key) {
+            // A program gone from the board took its figures with it; a list gone is emptied.
+            None if table == "program" => worse.push(format!("{row}: {column} {before} -> gone")),
+            None => moved.push(format!("{row}: {column} {before} -> gone")),
+            Some(after) if after == before => continue,
+            Some(after) if is_worse(column, before, after) => worse.push(format!("{row}: {column} {before} -> {after}")),
+            Some(after) => moved.push(format!("{row}: {column} {before} -> {after}")),
+        }
+        rows.insert((table.clone(), row.clone()));
+    }
+    let known: BTreeSet<(&String, &String)> = was.keys().map(|(table, row, _)| (table, row)).collect();
+    for ((table, row, column), after) in now.iter().filter(|(key, _)| !was.contains_key(*key) && held(&was, &now, key)) {
+        // A row new to the board is one move, its figures stand in the rows below.
+        if !known.contains(&(table, row)) {
+            if rows.insert((table.clone(), row.clone())) {
+                moved.push(format!("{row}: new"));
+            }
+            continue;
+        }
+        moved.push(format!("{row}: {column} new, {after}"));
+        rows.insert((table.clone(), row.clone()));
+    }
+    let shown = excerpt(&board, &rows);
+    let fresh = fresh.display();
+    assert!(worse.is_empty(), "worse than docs/scoreboard.md:\n  {}\n\nthe rows now:\n{shown}\nthe board now: {fresh}", worse.join("\n  "));
+    assert!(
+        moved.is_empty(),
+        "the board moved from docs/scoreboard.md: run `ras score --write testdata/bin` and commit it:\n  {}\n\nthe rows now:\n{shown}\nthe board now: {fresh}",
+        moved.join("\n  ")
+    );
 }
 
 /// `ras score --source <source> --json`, parsed.

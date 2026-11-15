@@ -322,11 +322,15 @@ enum Command {
     /// the pending lists and of the oracles' ignore lists. With `--source`, the lexical half of
     /// the grade of any C tree instead: lines, gotos, casts and labels, each per thousand lines,
     /// over the `.c` and `.h` files under a directory (or one file), so the old pipeline's output
-    /// is a baseline.
+    /// is a baseline. With `--write`, the board of `testdata/bin` (or the directory named) is
+    /// `docs/scoreboard.md` too, the committed board a test holds every change to.
     Score {
-        /// The directory of programs.
-        #[arg(conflicts_with = "source", required_unless_present = "source")]
+        /// The directory of programs; `testdata/bin` with `--write`.
+        #[arg(conflicts_with = "source", required_unless_present_any = ["source", "write"])]
         dir: Option<PathBuf>,
+        /// Write the board to `docs/scoreboard.md` beside the `testdata` the directory lies in.
+        #[arg(long, conflicts_with = "source")]
+        write: bool,
         /// The directory of C, or one C file.
         #[arg(long, value_name = "DIR")]
         source: Option<PathBuf>,
@@ -546,10 +550,14 @@ fn command() -> anyhow::Result<()> {
         }
         Command::Plugins { project } => plugins::list(project.as_deref(), json),
         Command::Score { source: Some(source), .. } => score::score(&source, json),
-        Command::Score { dir, timeout, jobs, .. } => {
-            let dir = dir.context("a directory of programs, or --source and a tree of C")?;
+        Command::Score { dir, write, timeout, jobs, .. } => {
+            let dir = match dir {
+                Some(dir) => dir,
+                None if write => PathBuf::from(score::BOARD_PROGRAMS),
+                None => anyhow::bail!("a directory of programs, or --source and a tree of C"),
+            };
             let jobs = jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get().min(4)));
-            let options = score::Options { timeout: std::time::Duration::from_secs(timeout), jobs, signatures: sigs.clone(), json };
+            let options = score::Options { timeout: std::time::Duration::from_secs(timeout), jobs, signatures: sigs.clone(), json, write };
             score::board(&dir, &options)
         }
         Command::Doctor { lang: _, host: Some(exe) } => doctor::host(&exe, json),
