@@ -251,6 +251,22 @@ pub fn declare_eh_runtime(module: &mut ra_asm_ir::Module) {
     }
 }
 
+/// Declares what the x86 frame handler's protocol adds: the thrown object's destructor and the
+/// copy constructor of each of its catchable types, and at the end of a catch the object and the
+/// destructor to run on it when the end of the catch ends the exception.
+pub fn declare_eh32_runtime(module: &mut ra_asm_ir::Module) {
+    let i = Type::I64;
+    let functions = [
+        ("ra_eh_throw_destructor", Type::Void, vec![i.clone()]),
+        ("ra_eh_throw_copy", Type::Void, vec![i.clone()]),
+        ("ra_eh_ending_object", i.clone(), vec![]),
+        ("ra_eh_ending_destructor", i, vec![]),
+    ];
+    for (name, ret, params) in functions {
+        module.declare(Declaration { name: name.into(), ty: FnType::new(ret, params), conv: CallConv::C, attrs: vec![] });
+    }
+}
+
 /// Declares the structured exception protocol of the runtime, for a 32-bit program with a
 /// `__try`: see [`crate::eh`].
 pub fn declare_seh_runtime(module: &mut ra_asm_ir::Module) {

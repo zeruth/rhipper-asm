@@ -50,6 +50,10 @@ struct Thread {
 struct Exception {
     object: u64,
     types: Vec<(u64, u64, u64)>,
+    /// The copy constructor of each type, zero for a type copied by its bytes.
+    copies: Vec<u64>,
+    /// The destructor the end of the exception runs on the object, zero for none.
+    destructor: u64,
 }
 
 #[derive(Default)]
@@ -107,6 +111,10 @@ pub(super) struct Runtime<'a> {
     argv: u64,
     p_argv: u64,
     environment: u64,
+    /// The C runtime's globals a 32-bit program reaches through a pointer (`__p__commode`,
+    /// `__p__fmode`, `__p___argc`, `_errno`): a cell of the program's own memory each, made on
+    /// first ask, since the host's pointer is a 64-bit one outside the program's memory.
+    cells: BTreeMap<&'static str, u64>,
     /// What runs the code of the image no lifted function has, and the entries it ran.
     pub(super) residual: Option<super::Residual>,
     pub(super) residual_ran: BTreeSet<u64>,
@@ -326,6 +334,7 @@ impl<'a> Runtime<'a> {
             argv: 0,
             p_argv: 0,
             environment: 0,
+            cells: BTreeMap::new(),
             residual: None,
             residual_ran: BTreeSet::new(),
             boundary: None,
@@ -801,14 +810,37 @@ impl<'a> Runtime<'a> {
                 let copy = self.allocate(vm, size.max(1), 16)?;
                 let bytes = vm.memory.read_vec(a(0), size)?;
                 vm.memory.write(copy, &bytes)?;
-                self.eh.arena.push(Exception { object: copy, types: Vec::new() });
+                self.eh.arena.push(Exception { object: copy, types: Vec::new(), copies: Vec::new(), destructor: 0 });
                 self.eh.in_flight = Some(self.eh.arena.len() - 1);
                 int(0)
             }
             "ra_eh_throw_type" => {
                 let Some(e) = self.eh.in_flight else { return Err(Stop::fault("a catchable type with no throw to belong to")) };
                 self.eh.arena[e].types.push((a(0), a(1), a(2)));
+                self.eh.arena[e].copies.push(0);
                 int(0)
+            }
+            "ra_eh_throw_copy" => {
+                let Some(copy) = self.eh.in_flight.and_then(|e| self.eh.arena[e].copies.last_mut()) else {
+                    return Err(Stop::fault("a copy constructor with no catchable type to belong to"));
+                };
+                *copy = a(0);
+                int(0)
+            }
+            "ra_eh_throw_destructor" => {
+                let Some(e) = self.eh.in_flight else { return Err(Stop::fault("a destructor with no throw to belong to")) };
+                self.eh.arena[e].destructor = a(0);
+                int(0)
+            }
+            // The end of the catch ends the exception unless it is in flight again, or held by a
+            // catch or an unwind further out.
+            "ra_eh_ending_object" | "ra_eh_ending_destructor" => {
+                let Some(&e) = self.eh.caught.last() else { return Err(Stop::fault("the end of a catch body with no exception caught")) };
+                let held = self.eh.in_flight == Some(e)
+                    || self.eh.caught[..self.eh.caught.len() - 1].contains(&e)
+                    || self.eh.suspended.contains(&Some(e));
+                let destructor = if held { 0 } else { self.eh.arena[e].destructor };
+                int(if name == "ra_eh_ending_object" { self.eh.arena[e].object } else { destructor })
             }
             "ra_eh_rethrow" => {
                 if self.eh.in_flight.is_some() {
@@ -822,7 +854,11 @@ impl<'a> Runtime<'a> {
             "ra_eh_catches" => {
                 let Some(e) = self.eh.in_flight else { return Err(Stop::fault("a catch with no exception in flight")) };
                 let (key, slot, flags) = (a(0), a(1), a(2));
-                let Some(&(_, displacement, size)) = self.eh.arena[e].types.iter().find(|t| key == 0 || t.0 == key) else { return int(0) };
+                let Some(n) = self.eh.arena[e].types.iter().position(|t| key == 0 || t.0 == key) else { return int(0) };
+                let (_, displacement, size) = self.eh.arena[e].types[n];
+                if slot != 0 && flags & 8 == 0 && self.eh.arena[e].copies[n] != 0 {
+                    return Err(Stop::fault("a catch by value of an object with a copy constructor is not interpreted yet"));
+                }
                 if slot != 0 {
                     let subobject = self.eh.arena[e].object + displacement;
                     if flags & 8 != 0 {
@@ -970,6 +1006,22 @@ impl<'a> Runtime<'a> {
                 self.argv(vm)?;
                 int(self.p_argv)
             }
+            "ra_x86_p_commode" | "ra_x86_p_fmode" | "ra_x86_p_argc" | "ra_x86_errno" => {
+                let key: &'static str = match name {
+                    "ra_x86_p_commode" => "commode",
+                    "ra_x86_p_fmode" => "fmode",
+                    "ra_x86_p_argc" => "argc",
+                    _ => "errno",
+                };
+                if let Some(&cell) = self.cells.get(key) {
+                    return int(cell);
+                }
+                let cell = self.allocate(vm, 4, 16)?;
+                let value = if key == "argc" { self.argv(vm)?.0 as u32 } else { 0 };
+                vm.memory.write_u32(cell, value)?;
+                self.cells.insert(key, cell);
+                int(cell)
+            }
             "ra_x86_initial_narrow_environment" => {
                 if self.environment == 0 {
                     // The host's environment, as dword pointers to copies in the heap.
@@ -1102,6 +1154,17 @@ impl<'a> Runtime<'a> {
                 some(a(0))
             }
             "abort" => Err(Stop::Exit(3)),
+            // A 32-bit program's exit function and filter are addresses in its own image: handed to
+            // the host's C runtime they would be called at the host's exit, an access violation.
+            // The exit functions go in the interpreter's own table; the filter is never the host's.
+            "_crt_atexit" | "atexit" if self.bits == 32 => {
+                match self.onexit.iter_mut().find(|(t, _)| *t == 0) {
+                    Some(entry) => entry.1.push(a(0)),
+                    None => self.onexit.push((0, vec![a(0)])),
+                }
+                some(0)
+            }
+            "SetUnhandledExceptionFilter" if self.bits == 32 => some(0),
             "__std_terminate" | "terminate" => Err(Stop::fault("std::terminate was called")),
             "_CxxThrowException" => Err(Stop::fault("a C++ throw the lift did not port")),
             "RaiseException" => Err(Stop::fault(format!("RaiseException({:#x})", a(0)))),

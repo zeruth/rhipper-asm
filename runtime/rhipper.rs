@@ -1207,6 +1207,32 @@ static mut ARGV32_ADDRESS: u32 = 0;
 static mut ARG_STRINGS: Vec<std::ffi::CString> = Vec::new();
 static mut ENVIRONMENT32: Vec<u32> = Vec::new();
 
+static mut COMMODE32: u32 = 0;
+static mut FMODE32: u32 = 0;
+static mut ARGC32: u32 = 0;
+static mut ERRNO32: u32 = 0;
+
+/// `__p__commode`: the dword the C runtime's commit mode lives in.
+pub unsafe fn ra_x86_p_commode() -> u64 {
+    &raw mut COMMODE32 as usize as u64
+}
+
+/// `__p__fmode`: the dword the C runtime's file mode lives in.
+pub unsafe fn ra_x86_p_fmode() -> u64 {
+    &raw mut FMODE32 as usize as u64
+}
+
+/// `__p___argc`: the dword that holds the argument count.
+pub unsafe fn ra_x86_p_argc() -> u64 {
+    *(&raw mut ARGC32) = std::env::args().count() as u32;
+    &raw mut ARGC32 as usize as u64
+}
+
+/// `_errno`: the dword errno lives in.
+pub unsafe fn ra_x86_errno() -> u64 {
+    &raw mut ERRNO32 as usize as u64
+}
+
 /// `__p___argv`: a pointer to the dword that holds the address of the dword argv.
 pub unsafe fn ra_x86_p_argv() -> u64 {
     let argv = &mut *(&raw mut ARGV32);

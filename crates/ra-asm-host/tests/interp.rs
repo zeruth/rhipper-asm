@@ -65,6 +65,37 @@ fn seh_clang_runs_interpreted_at_the_abi_level() {
     run_abi("seh", "clang");
 }
 
+/// eh.cpp's throws caught by type at the machine level, the first five of its groups: a throw
+/// lands in the catch its type picks, the unwind destroys the guards it passes, and the end of a
+/// catch destroys the thrown object, so each group's result and its events checksum are the native
+/// run's. The rethrow, the nested tries, the constructor's throw and the structured exceptions
+/// past them are card #484's, as is the ABI level.
+#[test]
+fn eh_clang_catches_by_type() {
+    let dir = rhtest();
+    let expected = std::fs::read_to_string(dir.join("eh.txt")).unwrap().replace("\r\n", "\n");
+    let first: Vec<&str> = expected.lines().take(10).collect();
+    let image = ra_asm_pe::load(&dir.join("eh-clang.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions::default());
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
+    let outcome = ra_asm_host::run(&image, &lifted, &signatures, &ra_asm_host::Options::default()).unwrap();
+    let actual = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
+    let got: Vec<&str> = actual.lines().take(10).collect();
+    assert_eq!(got, first, "eh-clang.exe at the machine level (stop: {:?}, {} steps)", outcome.stop, outcome.steps);
+}
+
+/// eh.cpp's throws through the x86 frame handler's protocol: the try level the code stores in its
+/// registration picks the landing, the unwind map's actions destroy the guards a throw passes, and
+/// the end of a catch destroys the thrown object.
+#[test]
+#[ignore = "card #484: the rethrow, the nested tries, the constructor's throw, the structured exceptions and the ABI level"]
+fn eh_clang() {
+    run_abi("eh", "clang");
+}
+
 /// `testdata/bin/<binary>` lifted at the machine level and run with the residual engine under
 /// `options`; none when this host has no Windows DLLs to answer its imports, which says so on
 /// stderr.

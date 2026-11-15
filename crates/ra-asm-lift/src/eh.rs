@@ -19,6 +19,17 @@
 //! What the lift refuses, as a trap at the throw site: a thrown object with a copy constructor,
 //! a destructor or a virtual base, which the runtime would have to call back into the port for.
 //!
+//! The x86 frame handler's frames ([`ra_asm_analysis::eh32`]) take the same protocol with the
+//! state the code keeps itself: a landing reads the try level from the function's registration,
+//! addressed through the frame register the body uses (so that the raise sees the frame's slots
+//! the body sees), checks that it names the handler, and goes on in that state's block.
+//! The funclets run with `ebp` just past the registration, each in the state the handler would
+//! store first: an action in the state its entry leaves to, a catch in the state past its try
+//! block. A catch resumes with the `esp` saved under the registration when it began; a function
+//! the exception leaves unlinks its registration and restores no register, as the x86 unwind
+//! does. The thrown object's destructor runs when the end of its catch ends the exception, the
+//! runtime saying which; a catch by value of an object with a copy constructor stops the run.
+//!
 //! A 32-bit `__try` leaves a scope table and a registration frame, which the analysis reads into
 //! the ranges each scope protects ([`ra_asm_analysis::seh32`]). The lift maps them onto the same
 //! protocol: an access to memory in a protected range asks `ra_eh_probe` first, which puts the
@@ -33,13 +44,33 @@
 
 use std::collections::HashMap;
 
-use ra_asm_analysis::{Analysis, Block, Function, Scope, SehFrame};
+use ra_asm_analysis::{Analysis, Block, CxxFrame32, Function, Scope, SehFrame};
 use ra_asm_ir::{BinOp, BlockId, Callee, FnType, ICond, Operand, Terminator, Type, ValueId};
-use ra_asm_pe::Image;
 use ra_asm_pe::exception::{CxxFrame, ThrowInfo, UnwindOp, type_descriptor_name};
+use ra_asm_pe::{FuncInfo, Image};
 use ra_asm_x86::iced_x86::{Instruction, InstructionInfoFactory, Mnemonic, OpAccess, OpKind, Register as R};
 
 use crate::x86::{Lifter, trap};
+
+/// The offset of the try level in an x86 registration.
+const STATE: i64 = 8;
+
+/// The general register an x86 C++ frame's body addresses its registration through.
+fn base_register(cxx: &CxxFrame32) -> Option<R> {
+    Some(match cxx.base {
+        "eax" => R::EAX,
+        "ecx" => R::ECX,
+        "edx" => R::EDX,
+        "ebx" => R::EBX,
+        "ebp" => R::EBP,
+        "esi" => R::ESI,
+        "edi" => R::EDI,
+        _ => return None,
+    })
+}
+
+/// The offset from the registration of the `ebp` the x86 handler runs a funclet with.
+const FUNCLET_FRAME: i64 = 12;
 
 /// What the lift knows of a function's frame for an exception that passes it.
 pub(crate) struct Frame {
@@ -55,12 +86,32 @@ pub(crate) struct Frame {
     pub funclets: HashMap<u64, (Vec<Block>, u64)>,
     /// The 32-bit registration frame and the scopes of its `__try`s, when the function has one.
     pub seh: Option<SehFrame>,
+    /// The x86 frame handler's registration and tables, when the function registers them.
+    pub cxx32: Option<CxxFrame32>,
+    /// Why the function's x86 C++ frame was not read, when it registers one the analysis could
+    /// not read: an exception that passes it stops there.
+    pub unread32: Option<String>,
 }
 
 impl Frame {
     /// Nothing: a function of a program without exceptions.
     pub(crate) fn none() -> Self {
-        Self { cxx: None, ops: Vec::new(), fp: None, known: false, funclets: HashMap::new(), seh: None }
+        Self { cxx: None, ops: Vec::new(), fp: None, known: false, funclets: HashMap::new(), seh: None, cxx32: None, unread32: None }
+    }
+
+    /// Takes the function's x86 C++ frame, with its unwind actions and catch handlers as
+    /// funclets: blocks of the function, each up to its `ret`.
+    pub(crate) fn add_cxx32(&mut self, analysis: &Analysis<'_>, f: &Function, local: impl Fn(&Function, u64) -> Vec<Block>) {
+        self.unread32 = analysis.cxx_unread32.get(&f.entry).cloned();
+        let Some(cxx) = analysis.cxx_frames32.get(&f.entry) else { return };
+        let actions = cxx.info.unwind_map.iter().filter_map(|e| e.action);
+        let handlers = cxx.info.try_blocks.iter().flat_map(|t| t.handlers.iter().map(|h| h.handler));
+        for entry in actions.chain(handlers) {
+            if f.block_at(entry).is_some() && !self.funclets.contains_key(&entry) {
+                self.funclets.insert(entry, (local(f, entry), 0));
+            }
+        }
+        self.cxx32 = Some(cxx.clone());
     }
 
     /// Takes the function's 32-bit registration frame, with each scope's filter as a funclet: a
@@ -106,8 +157,10 @@ pub(crate) struct FuncletCopy {
 }
 
 pub(crate) enum FuncletKind {
-    /// A catch body: its `ret` resumes the parent at the continuation in `rax`, one of these.
-    Catch { continuations: Vec<(u64, BlockId)> },
+    /// A catch body: its `ret` resumes the parent at the continuation in `rax`, one of these. At
+    /// 32 bits with the registration and the `esp` saved under it when the catch began, which
+    /// the x86 handler puts back over what the catch stored there and resumes with.
+    Catch { continuations: Vec<(u64, BlockId)>, resume32: Option<(ValueId, ValueId)> },
     /// An unwind action: its `ret` goes on with the unwind.
     Cleanup { exit: BlockId },
 }
@@ -174,7 +227,7 @@ impl Lifter<'_, '_> {
 
     /// Whether `address` is a continuation of the catch funclet being copied.
     pub(crate) fn is_continuation(&self, address: u64) -> bool {
-        matches!(&self.funclet, Some(FuncletCopy { kind: FuncletKind::Catch { continuations }, .. }) if continuations.iter().any(|(a, _)| *a == address))
+        matches!(&self.funclet, Some(FuncletCopy { kind: FuncletKind::Catch { continuations, .. }, .. }) if continuations.iter().any(|(a, _)| *a == address))
     }
 
     /// A call to the exception runtime with integer arguments and no result.
@@ -200,7 +253,7 @@ impl Lifter<'_, '_> {
 
     /// The `ret` of the code being lifted: the function's own, or the end of a funclet copy.
     pub(crate) fn ret(&mut self, block: BlockId) {
-        let continuations = match &self.funclet {
+        let (continuations, resume32) = match &self.funclet {
             None => {
                 self.m.b.terminate(block, Terminator::Ret(None));
                 return;
@@ -209,16 +262,87 @@ impl Lifter<'_, '_> {
                 self.m.b.terminate(block, Terminator::Br(*exit));
                 return;
             }
-            Some(FuncletCopy { kind: FuncletKind::Catch { continuations }, .. }) => continuations.clone(),
+            Some(FuncletCopy { kind: FuncletKind::Catch { continuations, resume32 }, .. }) => (continuations.clone(), *resume32),
         };
         // The catch is over: its exception goes, and the parent resumes where the funclet says.
-        self.eh_call(block, "ra_eh_leave_catch", vec![]);
         let address = self.m.b.address.unwrap_or(0);
-        let target = self.m.read_gpr(block, R::RAX);
+        let target = self.m.read_gpr(block, if self.m.bits == 32 { R::EAX } else { R::RAX });
+        let block = self.leave_catch(block, address);
+        if let Some((reg, sp)) = resume32 {
+            // As the x86 handler resumes: the saved `esp` back in its slot and in `esp`, and
+            // `ebp` past the registration.
+            let slot = self.m.b.bin(block, BinOp::Sub, Type::I32, reg, 4i64, "eh.esp.p");
+            self.m.store(block, Type::I32, sp, slot);
+            self.m.write_sp(block, sp);
+            let frame = self.m.b.bin(block, BinOp::Add, Type::I32, reg, FUNCLET_FRAME, "eh.ebp");
+            self.m.write_gpr(block, R::EBP, frame);
+        }
         let bad = self.m.b.block("eh.resume.bad");
         self.m.trap(bad, address, trap::BAD_SWITCH);
         let cases = continuations.into_iter().map(|(a, b)| (i128::from(a), b)).collect();
-        self.m.b.terminate(block, Terminator::Switch { ty: Type::I64, value: target.into(), default: bad, cases });
+        let ty = self.addr_ty();
+        self.m.b.terminate(block, Terminator::Switch { ty, value: target.into(), default: bad, cases });
+    }
+
+    /// Leaves the catch being run: at 32 bits, when that ends the exception, its object's
+    /// destructor runs on it, called as a `thiscall` with no argument. The block after.
+    fn leave_catch(&mut self, block: BlockId, address: u64) -> BlockId {
+        if self.m.bits != 32 {
+            self.eh_call(block, "ra_eh_leave_catch", vec![]);
+            return block;
+        }
+        let object = self.m.intrinsic(block, "ra_eh_ending_object", Type::I64, vec![], "eh.ending");
+        let destructor = self.m.intrinsic(block, "ra_eh_ending_destructor", Type::I64, vec![], "eh.dtor");
+        self.eh_call(block, "ra_eh_leave_catch", vec![]);
+        let dies = self.m.is_true(block, Type::I64, destructor, "eh.dies");
+        let destroy = self.m.b.block(&format!("eh.destroy.{address:x}"));
+        let after = self.m.b.block(&format!("eh.destroyed.{address:x}"));
+        self.m.b.terminate(block, Terminator::CondBr { cond: dies.into(), then: destroy, els: after });
+        let this = self.m.trunc(destroy, Type::I64, object, Type::I32, "eh.this");
+        self.m.write_gpr(destroy, R::ECX, this);
+        self.m.push(destroy, 0i64);
+        self.runtime_call(destroy, destructor);
+        self.m.b.terminate(destroy, Terminator::Br(after));
+        after
+    }
+
+    /// The registration the x86 frame handler would be called with: the function's own, as the
+    /// landing being built took it from the frame register. Outside a landing, from the frame
+    /// register here, or else the head of the chain at `fs:[0]`, which a function leaving with an
+    /// exception in flight unlinks its own from.
+    fn registration(&mut self, block: BlockId) -> ValueId {
+        if let Some(reg) = self.registration32 {
+            return reg;
+        }
+        if let Some(cxx) = self.frame.cxx32.clone()
+            && let Some(reg) = self.own_registration(block, &cxx)
+        {
+            return reg;
+        }
+        let teb = self.m.intrinsic(block, "ra_teb", Type::I64, vec![], "teb");
+        let teb = self.m.trunc(block, Type::I64, teb, Type::I32, "teb");
+        self.m.load(block, Type::I32, teb, "eh.reg")
+    }
+
+    /// The function's registration, from the register its body addresses it through: an address
+    /// the frame's slots are reached by, where the head of `fs:[0]` is a word loaded from memory.
+    fn own_registration(&mut self, block: BlockId, cxx: &CxxFrame32) -> Option<ValueId> {
+        let base = base_register(cxx)?;
+        let base = self.m.read_gpr(block, base);
+        Some(self.m.b.bin(block, BinOp::Add, Type::I32, base, cxx.registration, "eh.reg"))
+    }
+
+    /// At a landing, the frame register as the function's body has it, put back from the head of
+    /// `fs:[0]`: a callee that left with an exception in flight ran no epilogue, so the register
+    /// still holds the callee's frame, while the unwind unlinked the callee's registration and the
+    /// head is this function's own, as the x86 handler finds it.
+    fn restore_frame_register(&mut self, block: BlockId, cxx: &CxxFrame32) {
+        let Some(base) = base_register(cxx) else { return };
+        let teb = self.m.intrinsic(block, "ra_teb", Type::I64, vec![], "teb");
+        let teb = self.m.trunc(block, Type::I64, teb, Type::I32, "teb");
+        let head = self.m.load(block, Type::I32, teb, "eh.head");
+        let frame = self.m.b.bin(block, BinOp::Sub, Type::I32, head, cxx.registration, "eh.frame");
+        self.m.write_gpr(block, base, frame);
     }
 
     /// The throw site, `_CxxThrowException(object, throw_info)`: the exception goes in flight and
@@ -240,7 +364,11 @@ impl Lifter<'_, '_> {
                         return;
                     }
                 };
-                if info.destructor.is_some() || info.catchable.iter().any(|c| c.copy.is_some() || c.pdisp != -1) {
+                // At 32 bits the runtime keeps the destructor and the copy constructors: it hands
+                // the one back at the end of the catch, and stops at a catch by value of the other.
+                let wide = self.m.bits == 64;
+                let calls = wide && (info.destructor.is_some() || info.catchable.iter().any(|c| c.copy.is_some()));
+                if calls || info.catchable.iter().any(|c| c.pdisp != -1) {
                     self.warn(format!("{ip:#x}: a thrown object with a constructor, a destructor or a virtual base is not lifted yet"));
                     self.m.trap(block, ip, trap::INVALID);
                     return;
@@ -257,10 +385,23 @@ impl Lifter<'_, '_> {
                     }
                 }
                 let size = info.catchable.first().map_or(0, |c| c.size);
-                let object = self.m.read_gpr(block, R::RCX);
+                let object = if wide {
+                    self.m.read_gpr(block, R::RCX)
+                } else {
+                    // `_CxxThrowException(object, info)` is `stdcall`: the object is on top.
+                    let sp = self.m.read_sp(block);
+                    let object = self.m.load(block, Type::I32, sp, "eh.object");
+                    self.m.zext(block, Type::I32, object, Type::I64, "eh.object")
+                };
                 self.eh_call(block, "ra_eh_throw", vec![object.into(), i64::from(size).into()]);
-                for (key, disp, size) in types {
+                if !wide && let Some(destructor) = info.destructor {
+                    self.eh_call(block, "ra_eh_throw_destructor", vec![(destructor as i64).into()]);
+                }
+                for ((key, disp, size), c) in types.into_iter().zip(&info.catchable) {
                     self.eh_call(block, "ra_eh_throw_type", vec![(key as i64).into(), i64::from(disp).into(), i64::from(size).into()]);
+                    if !wide && let Some(copy) = c.copy {
+                        self.eh_call(block, "ra_eh_throw_copy", vec![(copy as i64).into()]);
+                    }
                 }
             }
         }
@@ -272,6 +413,9 @@ impl Lifter<'_, '_> {
     /// `rdx` before it in the block, `lea rdx, [rip + info]`, or `xor edx, edx` for a rethrow.
     /// `None` when the block does not say.
     fn throw_before(&self) -> Option<Throw> {
+        if self.m.bits == 32 {
+            return self.throw_pushed();
+        }
         for i in self.block_instrs[..self.block_index].iter().rev() {
             if i.mnemonic() == Mnemonic::Call {
                 return None;
@@ -293,11 +437,38 @@ impl Lifter<'_, '_> {
         None
     }
 
+    /// [`Self::throw_before`] at 32 bits, where the `ThrowInfo` is the second push back from the
+    /// call: `push offset info` after the object's, or `push 0` for a rethrow.
+    fn throw_pushed(&self) -> Option<Throw> {
+        // Back to the last call or the last other move of `esp`, past which a push is no argument.
+        let moves_sp = |i: &&Instruction| {
+            i.mnemonic() != Mnemonic::Push && i.op_count() > 0 && i.op_kind(0) == OpKind::Register && i.op_register(0) == R::ESP
+        };
+        let mut pushes = self.block_instrs[..self.block_index].iter().rev().take_while(|i| i.mnemonic() != Mnemonic::Call && !moves_sp(i));
+        pushes.find(|i| i.mnemonic() == Mnemonic::Push)?;
+        let info = pushes.find(|i| i.mnemonic() == Mnemonic::Push)?;
+        match info.op_kind(0) {
+            OpKind::Immediate8to32 | OpKind::Immediate32 => {
+                let value = u64::from(info.immediate(0) as u32);
+                Some(if value == 0 { Throw::Rethrow } else { Throw::Object(value) })
+            }
+            _ => None,
+        }
+    }
+
     /// The landing block for an exception in flight at `ip`: by the state of `ip` in the C++
     /// frame's tables, and by the funclet the code is a copy of, whose frame stands between the
     /// code and the function's.
     fn landing(&mut self, ip: u64) -> BlockId {
+        if self.m.bits == 32 {
+            return self.landing32();
+        }
         let state = self.frame.cxx.as_ref().map_or(-1, |c| c.info.state_at(ip));
+        self.state_landing(state)
+    }
+
+    /// The landing block of an exception in flight in state `state`.
+    fn state_landing(&mut self, state: i32) -> BlockId {
         let depth = self.funclet.as_ref().map(|c| c.depth);
         if let Some(&b) = self.landings.get(&(state, depth)) {
             return b;
@@ -308,24 +479,98 @@ impl Lifter<'_, '_> {
         b
     }
 
+    /// The landing of an exception in flight in a 32-bit function: the state is the try level the
+    /// code last stored in its registration, and the landing goes on in that state's block. The
+    /// registration is the function's own, addressed through its frame register as the body
+    /// addresses it, so the frame's slots stay the ones the body uses; it must name the handler.
+    fn landing32(&mut self) -> BlockId {
+        let depth = self.funclet.as_ref().map(|c| c.depth);
+        if let Some(&b) = self.landings.get(&(i32::MIN, depth)) {
+            return b;
+        }
+        let b = self.m.b.block("eh.landing");
+        self.landings.insert((i32::MIN, depth), b);
+        let address = self.m.b.address.unwrap_or(0);
+        if let Some(reason) = self.frame.unread32.clone() {
+            self.warn(format!("{address:#x}: an exception passes a C++ frame that was not read: {reason}"));
+            self.m.trap(b, address, trap::INVALID);
+            return b;
+        }
+        let Some(cxx) = self.frame.cxx32.clone() else {
+            if self.frame.seh.is_some() {
+                self.warn(format!("{address:#x}: a C++ exception passes a structured exception frame, which is not lifted yet"));
+                self.m.trap(b, address, trap::INVALID);
+            } else {
+                // No frame of its own: x86 code keeps nothing for the unwind to restore.
+                self.m.b.terminate(b, Terminator::Ret(None));
+            }
+            return b;
+        };
+        self.restore_frame_register(b, &cxx);
+        let Some(reg) = self.own_registration(b, &cxx) else {
+            self.warn(format!("{address:#x}: the registration is addressed through {}, which is no general register", cxx.base));
+            self.m.trap(b, address, trap::INVALID);
+            return b;
+        };
+        let at = self.m.b.bin(b, BinOp::Add, Type::I32, reg, 4i64, "eh.handler.p");
+        let handler = self.m.load(b, Type::I32, at, "eh.handler");
+        let ours = self.m.b.icmp(b, ICond::Eq, Type::I32, handler, cxx.handler as i64, "eh.ours");
+        let dispatch = self.m.b.block("eh.dispatch");
+        let foreign = self.m.b.block("eh.foreign");
+        self.m.b.terminate(b, Terminator::CondBr { cond: ours.into(), then: dispatch, els: foreign });
+        self.m.trap(foreign, cxx.function, trap::INVALID);
+        let at = self.m.b.bin(dispatch, BinOp::Add, Type::I32, reg, STATE, "eh.state.p");
+        let state = self.m.load(dispatch, Type::I32, at, "eh.state");
+        let bad = self.m.b.block("eh.state.bad");
+        self.m.trap(bad, cxx.function, trap::INVALID);
+        let states = i32::try_from(cxx.info.unwind_map.len()).unwrap_or(i32::MAX);
+        // The funclets the states' blocks run move the frame register; what they need of the
+        // registration is this block's, and a landing within them takes its own.
+        let outer = self.registration32.replace(reg);
+        let cases = (-1..states).map(|s| (i128::from(s), self.state_landing(s))).collect();
+        self.registration32 = outer;
+        self.m.b.terminate(dispatch, Terminator::Switch { ty: Type::I32, value: state.into(), default: bad, cases });
+        b
+    }
+
+    /// The tables of the function's C++ frame, x64's or x86's, with the function's address.
+    fn tables(&self) -> Option<(FuncInfo, u64)> {
+        match (&self.frame.cxx, &self.frame.cxx32) {
+            (Some(c), _) => Some((c.info.clone(), c.entry.begin)),
+            (None, Some(c)) => Some((c.info.clone(), c.function)),
+            (None, None) => None,
+        }
+    }
+
+    /// At 32 bits, stores `state` as the try level of the registration, as the frame handler
+    /// does before it runs a funclet.
+    fn set_state(&mut self, block: BlockId, state: i32) {
+        if self.m.bits != 32 {
+            return;
+        }
+        let reg = self.registration(block);
+        let at = self.m.b.bin(block, BinOp::Add, Type::I32, reg, STATE, "eh.state.p");
+        self.m.store(block, Type::I32, i64::from(state), at);
+    }
+
     fn build_landing(&mut self, block: BlockId, state: i32) {
-        let Some(cxx) = self.frame.cxx.clone() else {
+        let Some((info, begin)) = self.tables() else {
             self.leave_function(block);
             return;
         };
         let mut cur = block;
         // The try blocks that cover the state, innermost first.
-        let mut tries: Vec<usize> = (0..cxx.info.try_blocks.len()).filter(|&t| cxx.info.try_blocks[t].covers(state)).collect();
-        tries.sort_by_key(|&t| cxx.info.try_blocks[t].high - cxx.info.try_blocks[t].low);
+        let mut tries: Vec<usize> = (0..info.try_blocks.len()).filter(|&t| info.try_blocks[t].covers(state)).collect();
+        tries.sort_by_key(|&t| info.try_blocks[t].high - info.try_blocks[t].low);
         for t in tries {
-            let try_block = &cxx.info.try_blocks[t];
+            let try_block = &info.try_blocks[t];
             for (h, handler) in try_block.handlers.iter().enumerate() {
                 let key = match handler.type_descriptor.map(|td| type_descriptor_name(self.image, td)) {
                     None => 0,
                     Some(Ok(name)) => type_key(&name),
                     Some(Err(e)) => {
-                        self.warn(format!("{:#x}: {e:#}", cxx.entry.begin));
-                        self.m.trap(cur, cxx.entry.begin, trap::INVALID);
+                        self.warn(format!("{begin:#x}: {e:#}"));
+                        self.m.trap(cur, begin, trap::INVALID);
                         return;
                     }
                 };
@@ -333,7 +578,9 @@ impl Lifter<'_, '_> {
                     0i64.into()
                 } else {
                     let frame = self.establisher(cur);
-                    self.m.b.bin(cur, BinOp::Add, Type::I64, frame, i64::from(handler.catch_object), "eh.catch.obj").into()
+                    let ty = self.addr_ty();
+                    let slot = self.m.b.bin(cur, BinOp::Add, ty.clone(), frame, i64::from(handler.catch_object), "eh.catch.obj");
+                    if ty == Type::I64 { slot } else { self.m.zext(cur, ty, slot, Type::I64, "eh.catch.obj") }.into()
                 };
                 let flags = i64::from(handler.adjectives) | i64::from(self.m.bits) << 8;
                 let args = vec![(Type::I64, (key as i64).into()), (Type::I64, slot), (Type::I64, flags.into())];
@@ -363,26 +610,28 @@ impl Lifter<'_, '_> {
     /// and the end of each catch body the way leaves. `None` when the map does not lead there,
     /// after a trap.
     fn unwind_to(&mut self, block: BlockId, from: i32, to: i32) -> Option<BlockId> {
-        let cxx = self.frame.cxx.clone()?;
+        let (info, begin) = self.tables()?;
         let mut cur = from;
         let mut blk = block;
-        for _ in 0..=cxx.info.unwind_map.len() {
+        for _ in 0..=info.unwind_map.len() {
             if cur == to {
+                self.set_state(blk, to);
                 return Some(blk);
             }
-            let Some(entry) = usize::try_from(cur).ok().and_then(|s| cxx.info.unwind_map.get(s)) else { break };
+            let Some(entry) = usize::try_from(cur).ok().and_then(|s| info.unwind_map.get(s)) else { break };
             if let Some(action) = entry.action {
+                self.set_state(blk, entry.to_state);
                 blk = self.run_cleanup(blk, action)?;
             }
-            for t in &cxx.info.try_blocks {
+            for t in &info.try_blocks {
                 if t.catches_at(cur) && !t.catches_at(entry.to_state) {
-                    self.eh_call(blk, "ra_eh_leave_catch", vec![]);
+                    blk = self.leave_catch(blk, begin);
                 }
             }
             cur = entry.to_state;
         }
-        self.warn(format!("{:#x}: the unwind map does not lead from state {from} to state {to}", cxx.entry.begin));
-        self.m.trap(blk, cxx.entry.begin, trap::INVALID);
+        self.warn(format!("{begin:#x}: the unwind map does not lead from state {from} to state {to}"));
+        self.m.trap(blk, begin, trap::INVALID);
         None
     }
 
@@ -409,11 +658,21 @@ impl Lifter<'_, '_> {
         }
         let b = self.m.b.block(&format!("eh.enter{t}_{h}"));
         self.catch_entries.insert((t, h, depth), b);
-        let handler = self.frame.cxx.as_ref().map(|c| c.info.try_blocks[t].handlers[h].handler).unwrap_or_default();
+        let tables = self.tables();
+        let handler = tables.as_ref().map(|(info, _)| info.try_blocks[t].handlers[h].handler).unwrap_or_default();
         self.eh_call(b, "ra_eh_enter_catch", vec![]);
+        // The x86 handler runs a catch in the state past its try block's body.
+        if let Some((info, _)) = &tables {
+            self.set_state(b, info.try_blocks[t].high + 1);
+        }
+        let resume32 = (self.m.bits == 32).then(|| {
+            let reg = self.registration(b);
+            let slot = self.m.b.bin(b, BinOp::Sub, Type::I32, reg, 4i64, "eh.esp.p");
+            (reg, self.m.load(b, Type::I32, slot, "eh.esp"))
+        });
         self.enter_funclet(b, handler);
         let continuations = self.continuations_of(handler);
-        if let Some(entry) = self.copy_funclet(handler, FuncletKind::Catch { continuations }) {
+        if let Some(entry) = self.copy_funclet(handler, FuncletKind::Catch { continuations, resume32 }) {
             self.m.b.terminate(b, Terminator::Br(entry));
         } else {
             self.warn(format!("{handler:#x}: a catch handler that is no funclet of the function"));
@@ -423,23 +682,33 @@ impl Lifter<'_, '_> {
     }
 
     /// What the handler's call of a funclet leaves for it: a return address on the stack, the
-    /// establisher frame in `rdx`, nothing in `rcx`.
+    /// establisher frame in `rdx`, nothing in `rcx`; at 32 bits the frame in `ebp`.
     fn enter_funclet(&mut self, block: BlockId, funclet: u64) {
         let frame = self.establisher(block);
         self.m.push(block, 0i64);
-        self.m.write_gpr(block, R::RDX, frame);
-        self.m.write_gpr(block, R::RCX, 0i64);
+        if self.m.bits == 32 {
+            self.m.write_gpr(block, R::EBP, frame);
+        } else {
+            self.m.write_gpr(block, R::RDX, frame);
+            self.m.write_gpr(block, R::RCX, 0i64);
+        }
         let _ = funclet;
     }
 
     /// The continuations a catch funclet hands back: the function's blocks its `lea` name.
+    /// At 32 bits the `mov eax, offset` before its `ret`.
     fn continuations_of(&self, funclet: u64) -> Vec<(u64, BlockId)> {
         let Some((blocks, _)) = self.frame.funclets.get(&funclet) else { return Vec::new() };
         let mut out = Vec::new();
-        for instr in blocks.iter().flat_map(|b| &b.instrs).filter(|i| i.mnemonic == "lea") {
+        let names = if self.m.bits == 32 { "mov" } else { "lea" };
+        for instr in blocks.iter().flat_map(|b| &b.instrs).filter(|i| i.mnemonic == names) {
             for operand in &instr.operands {
-                if let ra_asm_arch::Operand::Mem(m) = operand
-                    && let Some(va) = m.absolute
+                let named = match operand {
+                    ra_asm_arch::Operand::Mem(m) if self.m.bits == 64 => m.absolute,
+                    ra_asm_arch::Operand::Imm { value, .. } if self.m.bits == 32 => Some(u64::from(*value as u32)),
+                    _ => None,
+                };
+                if let Some(va) = named
                     && let Some(&b) = self.function_blocks.get(&va)
                     && !out.iter().any(|(a, _)| *a == va)
                 {
@@ -478,8 +747,13 @@ impl Lifter<'_, '_> {
     /// The establisher frame: the stack pointer at the end of the prolog, which the unwind data's
     /// offsets count from. From the frame register when the function keeps one; else the stack
     /// pointer itself, above the frame of the funclet copy the code is in.
+    /// At 32 bits, the `ebp` the x86 handler runs a funclet with, just past the registration.
     fn establisher(&mut self, block: BlockId) -> ValueId {
         let ty = self.addr_ty();
+        if self.m.bits == 32 {
+            let reg = self.registration(block);
+            return self.m.b.bin(block, BinOp::Add, ty, reg, FUNCLET_FRAME, "eh.frame");
+        }
         if let Some((reg, offset)) = self.frame.fp {
             let fp = self.m.read_gpr(block, gpr(reg));
             return self.m.b.bin(block, BinOp::Sub, ty, fp, i64::from(offset), "eh.frame");
@@ -493,7 +767,20 @@ impl Lifter<'_, '_> {
 
     /// Leaves the function with the exception in flight: the prolog undone as the unwind codes
     /// say, as the native unwinder would, then the return the caller's check follows.
+    /// At 32 bits, the registration unlinked: the x86 unwind restores no register, and the code
+    /// that lands sets the ones it needs from its own registration.
     fn leave_function(&mut self, block: BlockId) {
+        if self.m.bits == 32 {
+            if self.frame.cxx32.is_some() {
+                let reg = self.registration(block);
+                let next = self.m.load(block, Type::I32, reg, "eh.next");
+                let teb = self.m.intrinsic(block, "ra_teb", Type::I64, vec![], "teb");
+                let teb = self.m.trunc(block, Type::I64, teb, Type::I32, "teb");
+                self.m.store(block, Type::I32, next, teb);
+            }
+            self.m.b.terminate(block, Terminator::Ret(None));
+            return;
+        }
         let address = self.frame.cxx.as_ref().map_or(0, |c| c.entry.begin);
         if !self.frame.known {
             self.warn(format!("{address:#x}: an exception passes a function without unwind information"));

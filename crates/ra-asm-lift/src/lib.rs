@@ -44,7 +44,7 @@ pub struct Lifted {
     /// The import thunks, by address, with the import each jumps to.
     pub thunks: BTreeMap<u64, String>,
     /// Whether the program throws C++ exceptions, which the lift ports over the runtime's
-    /// `ra_eh_*` protocol (x64 only so far): see [`eh`].
+    /// `ra_eh_*` protocol (at 32 bits, for the x86 frame handler's frames): see [`eh`].
     pub eh: bool,
     /// The function the port starts at: the analysis's program entry.
     pub entry: Option<u64>,
@@ -585,16 +585,22 @@ fn lift_on(
             _ => None,
         })
         .collect();
-    // A program throws when it has the throw to call or a frame to catch in; the x86 frame
-    // handler's registration frames are not lifted yet.
+    // A program throws when it has the throw to call or a frame to catch in; a 32-bit one when it
+    // registers the x86 frame handler, whose frames are what the protocol needs there.
     let throws = |name: &String| name == "_CxxThrowException";
-    let eh = image.is_64()
-        && (images.iter().any(|(_, a)| !a.cxx_frames.is_empty())
+    let eh = if image.is_64() {
+        images.iter().any(|(_, a)| !a.cxx_frames.is_empty())
             || thunks.values().any(throws)
             || runtime.values().any(throws)
-            || images.iter().flat_map(|(i, _)| &i.imports).any(|i| throws(&i.display_name())));
+            || images.iter().flat_map(|(i, _)| &i.imports).any(|i| throws(&i.display_name()))
+    } else {
+        images.iter().any(|(_, a)| !a.cxx_frames32.is_empty() || !a.cxx_unread32.is_empty())
+    };
     if eh {
         state::declare_eh_runtime(&mut module);
+        if !image.is_64() {
+            state::declare_eh32_runtime(&mut module);
+        }
     }
     if images.iter().any(|(_, a)| !a.seh_frames.is_empty()) {
         state::declare_seh_runtime(&mut module);

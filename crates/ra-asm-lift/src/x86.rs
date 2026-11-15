@@ -51,6 +51,9 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
         }
     }
     frame.add_seh(analysis, f, local_funclet);
+    if lifted.eh {
+        frame.add_cxx32(analysis, f, local_funclet);
+    }
     let in_funclet = |start: u64| frame.funclets.values().any(|(blocks, _)| blocks.iter().any(|b| b.start == start));
     let mut blocks = HashMap::new();
     blocks.insert(f.entry, b.block(&format!("b_{:x}", f.entry)));
@@ -77,6 +80,7 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
         funclet: None,
         landings: HashMap::new(),
         catch_entries: HashMap::new(),
+        registration32: None,
         copies: 0,
         block_instrs: Vec::new(),
         block_index: 0,
@@ -128,6 +132,9 @@ pub(crate) struct Lifter<'a, 'b> {
     pub(crate) landings: HashMap<(i32, Option<u64>), BlockId>,
     /// The blocks that enter a catch funclet, by try block, handler and funclet depth.
     pub(crate) catch_entries: HashMap<(usize, usize, Option<u64>), BlockId>,
+    /// The x86 registration of the landing being built: the address its first block takes from
+    /// the frame register, which the funclets the landing runs move.
+    pub(crate) registration32: Option<ValueId>,
     /// The funclet copies made so far, for their block names.
     pub(crate) copies: u32,
     /// The decoded instructions of the current block and the index of the one being lifted.
@@ -338,7 +345,7 @@ impl Lifter<'_, '_> {
     }
 
     /// `call @ra_call(state, target)`: the runtime finds the lifted function or calls native code.
-    fn runtime_call(&mut self, block: BlockId, target: ValueId) {
+    pub(crate) fn runtime_call(&mut self, block: BlockId, target: ValueId) {
         self.m.b.call(
             block,
             FnType::new(Type::Void, vec![Type::Ptr, Type::I64]),

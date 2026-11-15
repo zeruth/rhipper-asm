@@ -170,6 +170,10 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "_register_onexit_function" => "ra_x86_register_onexit_function",
         "_execute_onexit_table" => "ra_x86_execute_onexit_table",
         "__p___argv" => "ra_x86_p_argv",
+        "__p__commode" => "ra_x86_p_commode",
+        "__p__fmode" => "ra_x86_p_fmode",
+        "__p___argc" => "ra_x86_p_argc",
+        "_errno" => "ra_x86_errno",
         "_get_initial_narrow_environment" => "ra_x86_initial_narrow_environment",
         "InitializeSListHead" => "ra_x86_initialize_slist_head",
         // The 32-bit kernel32 exports the interlocked operations on a 32-bit value; the 64-bit one
@@ -359,6 +363,10 @@ pub fn arity(name: &str) -> Option<usize> {
     }
     Some(match name {
         "ra_x86_p_argv"
+        | "ra_x86_p_commode"
+        | "ra_x86_p_fmode"
+        | "ra_x86_p_argc"
+        | "ra_x86_errno"
         | "ra_x86_initial_narrow_environment"
         | "__current_exception"
         | "__current_exception_context"
