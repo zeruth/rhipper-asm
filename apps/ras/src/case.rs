@@ -186,7 +186,7 @@ fn call(f: &Function, signature: &Signature, target: Target, vector: &Vector) ->
         let sp = register(target.sp(), target).with_context(|| format!("the stack of {name} is under no register a vector names"))?;
         let first = (entry(&sp)? as u64).wrapping_add(target.first_stack_arg() as u64);
         for (kind, offset) in signature.stack_params.iter().zip(signature.stack_offsets(target)) {
-            values.push(read(vector, first.wrapping_add(offset as u64), kind.stack_width(target) as usize));
+            values.push(read(vector, first.wrapping_add(offset as u64), kind.stack_width(target.ptr()) as usize));
         }
     }
     let mut args = Vec::with_capacity(values.len());

@@ -327,7 +327,7 @@ pub fn analyze(
                                         let registers = if target.is_64() { target.int_param_slots().len() } else { 0 };
                                         let mut offset = target.first_stack_arg();
                                         for kind in kinds.iter().skip(registers) {
-                                            let width = kind.stack_width(target);
+                                            let width = kind.stack_width(target.ptr());
                                             for k in (0..width).step_by(ptr as usize) {
                                                 let e = info.argument_reads.entry(offset + k).or_insert(0);
                                                 *e = (*e).max((ptr * 8) as u16);

@@ -399,7 +399,7 @@ impl<'a> Generator<'a> {
         let first = self.target.first_stack_arg();
         for (kind, offset) in signature.stack_params.iter().zip(signature.stack_offsets(self.target)) {
             let at = u64::try_from(first + offset).map_err(|_| anyhow!("a stack parameter below the stack pointer"))?;
-            places.push(Place::Stack(at, usize::try_from(kind.stack_width(self.target)).unwrap_or(8)));
+            places.push(Place::Stack(at, usize::try_from(kind.stack_width(self.target.ptr())).unwrap_or(8)));
         }
         Ok(places)
     }

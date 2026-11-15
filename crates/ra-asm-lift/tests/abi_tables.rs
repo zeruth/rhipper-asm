@@ -38,7 +38,7 @@ fn describe(name: &str, target: Target) -> Vec<String> {
     lines.push(format!("float_params = {}", target.float_params()));
     lines.push(format!("entry_misalignment = {}", target.entry_misalignment()));
     for kind in KINDS {
-        lines.push(format!("stack_width {kind:?} = {}", kind.stack_width(target)));
+        lines.push(format!("stack_width {kind:?} = {}", kind.stack_width(target.ptr())));
     }
     let ints = vec![Kind::Int; POSITIONS];
     let doubles = vec![Kind::Double; POSITIONS];

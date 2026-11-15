@@ -25,32 +25,20 @@ use super::assume::{self, Assumption, Step};
 use super::liveness::{CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, call_kind, reverse_post_order, slot_pointers};
 use super::stack::{CalleeStack, StackInfo, analyze as analyze_stack};
 
-/// The kind of a parameter or a return.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    /// An integer of the address width.
-    Int,
-    /// A 64-bit integer on the x86 stack: two slots.
-    Wide,
-    Float,
-    Double,
+pub use ra_asm_protos::kind::Kind;
+
+/// The IR type of a [`Kind`], which `ra-asm-protos` keeps free of the IR.
+pub trait KindType {
+    /// The IR type: every integer is 64 bits until the width pass narrows it.
+    fn ty(self) -> Type;
 }
 
-impl Kind {
-    /// The IR type: every integer is 64 bits until the width pass narrows it.
-    pub fn ty(self) -> Type {
+impl KindType for Kind {
+    fn ty(self) -> Type {
         match self {
             Self::Int | Self::Wide => Type::I64,
             Self::Float => Type::Float,
             Self::Double => Type::Double,
-        }
-    }
-
-    /// The bytes a parameter of this kind takes on the stack.
-    pub fn stack_width(self, target: Target) -> i64 {
-        match self {
-            Self::Wide | Self::Double => 8,
-            Self::Int | Self::Float => target.ptr(),
         }
     }
 }
@@ -120,14 +108,14 @@ impl Signature {
         let mut at = 0;
         for kind in &self.stack_params {
             offsets.push(at);
-            at += kind.stack_width(target);
+            at += kind.stack_width(target.ptr());
         }
         offsets
     }
 
     /// The bytes the stack parameters take.
     pub fn stack_bytes(&self, target: Target) -> i64 {
-        self.stack_params.iter().map(|k| k.stack_width(target)).sum()
+        self.stack_params.iter().map(|k| k.stack_width(target.ptr())).sum()
     }
 }
 
@@ -772,14 +760,14 @@ fn infer_from(
             // and a 16-byte copy of the arguments (clang moves two 64-bit ones at once) covers
             // one slot per dword.
             let first = target.first_stack_arg();
-            let slot = Kind::Int.stack_width(target);
+            let slot = Kind::Int.stack_width(target.ptr());
             let mut stack_params = Vec::new();
             if let Some(end) = fact.stack.argument_reads.iter().map(|(&at, &bits)| at + i64::from(bits / 8).max(slot)).max() {
                 let mut at = first;
                 while at < end {
                     let bits = fact.stack.argument_reads.get(&at).copied().unwrap_or(0);
                     let kind = if !target.is_64() && bits == 64 { Kind::Wide } else { Kind::Int };
-                    at += kind.stack_width(target);
+                    at += kind.stack_width(target.ptr());
                     stack_params.push(kind);
                 }
             }

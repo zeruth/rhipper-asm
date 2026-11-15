@@ -168,7 +168,7 @@ pub enum Convention {
 pub fn import_wrapper(symbol: &str, stack_offset: i64, tail: bool, bits: u32, x87: X87Unit, convention: Convention) -> ra_asm_ir::Function {
     use ra_asm_ir::{BinOp, Callee, Cast, FnType, FunctionBuilder, Terminator};
     use ra_asm_x86::iced_x86::Register as R;
-    use raise::abi::Kind;
+    use raise::abi::{Kind, KindType};
     let name = import_wrapper_name(symbol, tail);
     let mut b = FunctionBuilder::new(&name, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
     b.set_linkage(Linkage::Internal);

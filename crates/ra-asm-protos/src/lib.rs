@@ -17,7 +17,11 @@
 //! hand: the fields a converter crosses a union by ([`converted_fields`]), the code pointers the
 //! host calls back ([`callback`]), and the fields and parameters that hold a structure's size
 //! ([`holds_size`], [`size_parameter`]), which the layouts alone do not say.
+//!
+//! The kinds a signature's parameters and result take are [`kind::Kind`], beside the lookup that
+//! reads them; the lift gives each its IR type.
 
+pub mod kind;
 mod layouts;
 mod win32;
 #[rustfmt::skip]

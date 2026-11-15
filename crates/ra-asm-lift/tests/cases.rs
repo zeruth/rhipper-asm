@@ -539,7 +539,7 @@ fn agrees(info: &StackInfo, machine: &Machine, alone: bool) -> Option<String> {
             ));
         }
     }
-    let slot = Kind::Int.stack_width(TARGET);
+    let slot = Kind::Int.stack_width(TARGET.ptr());
     for &offset in machine.reads.iter().filter(|offset| **offset >= TARGET.first_stack_arg() && **offset < info.max_offset) {
         if !info.argument_reads.iter().any(|(&at, &bits)| at <= offset && offset < at + i64::from(bits / 8).max(slot)) {
             return Some(format!(

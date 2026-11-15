@@ -14,7 +14,7 @@
 use ra_asm_ir::{FnType, Type};
 pub use ra_asm_protos::{constant_name, named};
 
-use super::abi::{Kind, Signature};
+use super::abi::{Kind, KindType, Signature};
 
 /// The prototype of a Windows API function from the generated table: the kind of its result
 /// (`None` for a `void` function) and of each parameter.

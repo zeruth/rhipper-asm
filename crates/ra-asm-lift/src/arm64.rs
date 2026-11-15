@@ -1320,7 +1320,7 @@ fn float_suffix(ty: &Type) -> &'static str {
 /// typed prototype from `v0..v7`) and the stack slots past them out of the state, calls the import,
 /// and stores the result to `x0` (or `v0`).
 pub fn import_wrapper(symbol: &str, x87: crate::x87::X87Unit) -> ra_asm_ir::Function {
-    use crate::raise::abi::Kind;
+    use crate::raise::abi::{Kind, KindType};
     let name = crate::import_wrapper_name(symbol, false);
     let mut b = FunctionBuilder::new(&name, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
     b.set_linkage(Linkage::Internal);

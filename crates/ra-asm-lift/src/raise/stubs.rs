@@ -25,7 +25,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use ra_asm_ir::{BinOp, Callee, Cast, Const, FnType, FunctionBuilder, Inst, Linkage, Module, Operand, Terminator, Type};
 
 use super::Target;
-use super::abi::{Kind, Signature};
+use super::abi::{Kind, KindType, Signature};
 use crate::state::{ARGS, POPS, import_adapter_type};
 
 /// The stub of the function `name`: `U_<address>` for `F_<address>`.

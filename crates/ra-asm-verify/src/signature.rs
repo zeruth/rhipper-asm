@@ -100,7 +100,7 @@ impl Convention {
         }
         let first = self.entry_stack_pointer(vector)?.wrapping_add(target.first_stack_arg() as u64);
         for (kind, offset) in signature.stack_params.iter().zip(signature.stack_offsets(target)) {
-            let bits = word(&vector.memory_in, first.wrapping_add(offset as u64), kind.stack_width(target) as u64);
+            let bits = word(&vector.memory_in, first.wrapping_add(offset as u64), kind.stack_width(target.ptr()) as u64);
             arguments.push(match kind {
                 Kind::Int | Kind::Wide => Value::Int(u128::from(bits)),
                 Kind::Float => Value::F32(f32::from_bits(bits as u32)),

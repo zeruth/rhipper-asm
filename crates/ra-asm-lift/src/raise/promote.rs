@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet};
 use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, FnType, Function, ICond, Inst, Instruction, Operand, Terminator, Type, ValueId};
 
 use super::Target;
-use super::abi::{Candidates, Kind, Signature};
+use super::abi::{Candidates, Kind, KindType, Signature};
 use super::assume::{self, Assumption, Step};
 use super::liveness::{
     CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, all_registers, call_kind, reverse_post_order, slot_pointers,
@@ -360,7 +360,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
                 },
                 address: None,
             });
-            let width = kind.stack_width(target);
+            let width = kind.stack_width(target.ptr());
             let (ty, value) = if width == 8 {
                 (Type::I64, Operand::Local(v))
             } else {
@@ -770,7 +770,9 @@ impl Rewriter<'_> {
         let rsp = self.sp(current);
         for (k, (kind, offset)) in sig.stack_params.iter().zip(sig.stack_offsets(target)).enumerate() {
             let v = match kind {
-                Kind::Int | Kind::Wide => self.stack_word(f, &rsp, stack_base + offset, kind.stack_width(target), &format!("sarg{k}"), out),
+                Kind::Int | Kind::Wide => {
+                    self.stack_word(f, &rsp, stack_base + offset, kind.stack_width(target.ptr()), &format!("sarg{k}"), out)
+                }
                 // A float on the stack (an x86 `cdecl` double) is read as one.
                 Kind::Float | Kind::Double => {
                     let p = self.address_ptr(f, &rsp, stack_base + offset, &format!("sarg{k}"), out);
