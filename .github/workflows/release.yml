@@ -22,10 +22,12 @@ on:
 permissions:
   contents: write
 
-# a newer push to main replaces a release still building; a tag's or the night's run is its own
+# a release on main finishes and the newest push waits behind it: the walks land a card every
+# few minutes, and replacing the run in flight left its Linux tests never finishing (2026-11-15);
+# a tag's or the night's run is its own
 concurrency:
   group: release-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
+  cancel-in-progress: false
 
 jobs:
   # every executable and library of the system directory through the analysis, the lift and the
