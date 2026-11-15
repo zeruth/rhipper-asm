@@ -876,3 +876,22 @@ fn a_state_call_reads_its_registers() {
     assert!(Call::parse("@F_401000(rsp 8)").unwrap_err().contains("the stack pointer is the run's"));
     assert!(Call::parse("@F_401000([0] 8)").unwrap_err().contains("past the return address"));
 }
+
+/// A difference bisect finds at `promote` has no case, since a case cannot load the machine
+/// state; its note under `pending` names the program, the function and the step instead.
+#[test]
+fn pending_notes_name_the_step() {
+    let notes = [
+        ("cpp_multi", "testdata/rhtest/cpp-clang.exe", "measure at 0x401110"),
+        ("engine_stream_len", "testdata/rhtest/engine-clang.exe", "float_reader at 0x4012d0"),
+    ];
+    for (note, program, function) in notes {
+        let path = cases_dir().join("pending").join(note).with_extension("txt");
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let field = |name: &str| text.lines().find_map(|line| line.strip_prefix(name)?.strip_prefix(':')).map(str::trim);
+        assert_eq!(field("program"), Some(program), "{note}: the program");
+        assert_eq!(field("function"), Some(function), "{note}: the function");
+        assert_eq!(field("step"), Some("promote"), "{note}: the step");
+        assert!(field("difference").is_some_and(|d| !d.is_empty()), "{note}: the difference");
+    }
+}

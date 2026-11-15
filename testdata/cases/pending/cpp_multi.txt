@@ -1,0 +1,9 @@
+program: testdata/rhtest/cpp-clang.exe
+function: measure at 0x401110
+step: promote
+vector: 1
+difference: call 2: ra_trap is called where the record calls ra_call
+
+The machine level replays equal; `promote` is the first step that differs. Bisect writes no
+case ahead of `promote`, since a case cannot load the machine state, so this note stands for
+the case until the promotion of `measure` is fixed or a case can carry the state.

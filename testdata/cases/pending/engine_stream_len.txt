@@ -1,0 +1,11 @@
+program: testdata/rhtest/engine-clang.exe
+function: float_reader at 0x4012d0
+step: promote
+vector: 1
+difference: memory at 0xc0000e20: recorded 00, replayed nothing (the first of 8 bytes)
+
+The machine level replays equal; `promote` is the first step that differs. 0xc0000e20 lies in
+the lift's own globals as the record lays them out from 0xc0000000 (the x87 stack and its
+fellows), which the promoted level places elsewhere. Bisect writes no case ahead of `promote`,
+since a case cannot load the machine state, so this note stands for the case until the
+promotion of `float_reader` is fixed or a case can carry the state.
