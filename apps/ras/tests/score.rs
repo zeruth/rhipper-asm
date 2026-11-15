@@ -248,12 +248,19 @@ fn is_worse(column: &str, was: &str, now: &str) -> bool {
 /// held, its status neither: hello64-upx.exe read timeout on the loaded machine that wrote the
 /// board and ok on the release runner, which failed on that alone (2026-11-15). A program that
 /// hangs for good still shows as timeout on the board the next `--write` makes.
-fn held(was: &Cells, now: &Cells, (table, row, _column): &(String, String, String)) -> bool {
+fn held(was: &Cells, now: &Cells, (table, row, column): &(String, String, String)) -> bool {
     if row == "total" {
         return false;
     }
     if table != "program" {
         return true;
+    }
+    // a function is verified by a run recorded on this machine, and a CI runner records what its
+    // own system lets it: the windows runner read the macOS fixtures 0 verified where the board
+    // says 4 (2026-11-15), so CI holds every other figure and the machine that writes the board
+    // holds these
+    if column.starts_with("verified") && std::env::var_os("CI").is_some() {
+        return false;
     }
     let timed_out = |cells: &Cells| cells.get(&(table.clone(), row.clone(), "status".to_owned())).is_some_and(|s| s == "timeout");
     !(timed_out(was) || timed_out(now))
