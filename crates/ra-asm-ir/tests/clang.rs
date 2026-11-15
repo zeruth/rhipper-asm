@@ -121,6 +121,24 @@ fn the_sample_prints_the_expected_shapes() {
     assert!(text.contains("  %picked = select i1 %neg, i32 -1, i32 %v"));
 }
 
+/// The text written a function at a time is the text printed whole, and its layout finds each
+/// function's definition in it.
+#[test]
+fn the_sample_writes_as_it_prints_and_finds_its_functions() {
+    let module = sample();
+    let mut written = Vec::new();
+    let layout = module.write_ll(&mut written).unwrap();
+    let text = module.to_ll();
+    assert_eq!(String::from_utf8(written).unwrap(), text);
+    assert_eq!(layout.bytes, text.len() as u64);
+    assert_eq!(layout.functions.len(), module.functions.len());
+    for (f, &(offset, length)) in module.functions.iter().zip(&layout.functions) {
+        let definition = &text[offset as usize..(offset + length) as usize];
+        assert!(definition.starts_with("define ") && definition.contains(&format!("@{}(", f.name)), "{definition}");
+        assert!(definition.ends_with("}\n"), "{definition}");
+    }
+}
+
 #[test]
 fn clang_accepts_and_runs_the_sample() {
     let Some(clang) = clang() else {

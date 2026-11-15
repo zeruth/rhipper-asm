@@ -793,7 +793,7 @@ fn columns(pe: &Path, files: &[PathBuf]) -> Result<()> {
     let annotations = BTreeMap::new();
     let options =
         crate::emit::Options { lang: "c", package: "score", trace: false, hand: &[], annotations: &annotations, checked: false, with: &[] };
-    let translation = crate::emit::translate(&image, &analysis, &lifted, &signatures, &options)?;
+    let translation = crate::emit::translate(&image, &analysis, &mut lifted, &signatures, &options)?;
     let mut c = Score::default();
     for file in translation.files.iter().filter(|f| is_c(Path::new(&f.name))) {
         c.add(&Score::of_text(&file.text));

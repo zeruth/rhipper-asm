@@ -483,6 +483,10 @@ fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm
     let guest32 = image.pointer_size() == 4;
     let options = ra_asm_emit::COptions { names, dialect, classes, guest32, ..Default::default() };
     let unit = ra_asm_emit::emit_unit(&lifted.module, &options);
+    // The emit that drops each function's IR as it goes, as `ras emit` and the pipeline do, writes
+    // the same unit.
+    let dropping = ra_asm_emit::emit_unit_dropping(&mut lifted.module.clone(), &options);
+    assert!(dropping.text() == unit.text(), "{binary}: the emit that drops the IR as it goes writes another unit");
     let mut files = if fixture.modules {
         let objects = ra_asm_emit::functions::objects(&infos);
         unit.module_files(&objects).unwrap_or_else(|| panic!("{binary}: the symbols name fewer than two modules"))

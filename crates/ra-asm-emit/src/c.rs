@@ -147,7 +147,7 @@ pub struct Unit {
     pub global_defs: String,
     /// The definition of each data global by itself, by name, in the module's order: what a split
     /// by module places in the file of the one module that addresses the global.
-    pub global_parts: Vec<(String, String)>,
+    pub globals: Vec<(String, String)>,
     /// What `global_defs` holds beyond the globals' own definitions: the pointers of the imports
     /// by ordinal and the constructor that writes the narrow address words.
     pub global_rest: String,
@@ -301,7 +301,7 @@ impl Unit {
         // A global addressed by the functions of one module alone is that module's data.
         let mut owned: Vec<String> = vec![String::new(); order.len()];
         let mut shared = String::new();
-        for (name, definition) in &self.global_parts {
+        for (name, definition) in &self.globals {
             let mut owners = self.global_users.get(name).into_iter().flatten().map(|f| module_of(f));
             let owner = owners.next().flatten().filter(|first| owners.all(|o| o == Some(*first)));
             match owner {
@@ -433,6 +433,124 @@ pub fn emit_c(module: &Module, options: &Options) -> String {
 
 /// Writes `module` as C, in pieces.
 pub fn emit_unit(module: &Module, options: &Options) -> Unit {
+    let mut parts = parts(module, options);
+    let functions = module.functions.iter().map(|f| parts.function(f, &module.types, options)).collect();
+    parts.unit(functions, options)
+}
+
+/// [`emit_unit`] that drops each function's IR once its source is written, so the IR of a large
+/// program and its source are never both whole in memory. The module keeps its types, globals and
+/// declarations, and of each function its name, type, attributes and address.
+pub fn emit_unit_dropping(module: &mut Module, options: &Options) -> Unit {
+    let mut parts = parts(module, options);
+    let mut functions = Vec::with_capacity(module.functions.len());
+    for f in &mut module.functions {
+        functions.push(parts.function(f, &module.types, options));
+        f.blocks = Vec::new();
+        f.value_names = Vec::new();
+        f.value_types = Vec::new();
+    }
+    parts.unit(functions, options)
+}
+
+/// What a unit's functions are written with, made from the whole module before the first of them:
+/// the rest of the unit, and what each function's text reads of the others.
+struct Parts<'o> {
+    include: String,
+    externs: String,
+    prototype_lines: String,
+    global_types: String,
+    global_decls: String,
+    global_defs: String,
+    globals: Vec<(String, String)>,
+    global_rest: String,
+    global_users: HashMap<String, HashSet<String>>,
+    blobs: Vec<(String, Vec<u8>)>,
+    prototypes: HashMap<String, String>,
+    layouts: HashMap<String, Layout>,
+    method_of: HashMap<&'o str, (&'o crate::cpp::Class, crate::cpp::Method)>,
+    /// The structs and the classes; the SDK's names go above them once every function is written.
+    types: String,
+    sdk_names: BTreeMap<String, String>,
+    /// The checks the functions written so far wrote, by their numbers.
+    watched: HashSet<u32>,
+    adapters: String,
+}
+
+impl Parts<'_> {
+    /// One function's source.
+    fn function(&mut self, f: &Function, types: &[(String, Vec<Type>)], options: &Options) -> EmittedFunction {
+        let mut text = String::new();
+        let method = self.method_of.get(f.name.as_str()).map(|(c, m)| (*c, m));
+        let source_name = options.names.get(&f.name).map(String::as_str);
+        if options.hand.contains(&f.name) {
+            let header_lines = declare_hand(&mut text, f, &self.prototypes[&f.name], source_name);
+            return EmittedFunction {
+                ir_name: f.name.clone(),
+                address: f.address,
+                header_lines,
+                traps: 0,
+                copies: 0,
+                grade: crate::functions::Grade::default(),
+                hand: true,
+                text,
+            };
+        }
+        let shared = Shared { types, layouts: &self.layouts, trace: options.trace, checks: &options.checks };
+        let (header_lines, copies, gotos, end, written) =
+            emit_function(&mut text, f, &self.prototypes[&f.name], source_name, method, &mut self.sdk_names, &shared);
+        self.watched.extend(written);
+        // A method's grade is its definition's: the vtable's entry after it is the engine's.
+        let definition = &text[..end];
+        let grade = crate::functions::Grade::of(f, gotos, casts(definition), definition.lines().count() - header_lines);
+        EmittedFunction {
+            ir_name: f.name.clone(),
+            address: f.address,
+            header_lines,
+            traps: trap_count(f),
+            copies,
+            grade,
+            hand: false,
+            text,
+        }
+    }
+
+    /// The unit of `functions`, written with these parts.
+    fn unit(self, functions: Vec<EmittedFunction>, options: &Options) -> Unit {
+        let mut types = self.types;
+        // The SDK's names the functions read their constants as, each with the value it stands for
+        // in the type it was used at; two uses at different widths keep the second numeric.
+        if !self.sdk_names.is_empty() {
+            let mut defines = String::from("// The SDK's names of the constants passed to and read from the Windows API.\n");
+            for (name, literal) in &self.sdk_names {
+                let _ = writeln!(defines, "#define {name} {literal}");
+            }
+            defines.push('\n');
+            types.insert_str(0, &defines);
+        }
+        Unit {
+            include: self.include,
+            types,
+            externs: self.externs,
+            prototypes: self.prototype_lines,
+            global_types: self.global_types,
+            global_decls: self.global_decls,
+            global_defs: self.global_defs,
+            globals: self.globals,
+            global_rest: self.global_rest,
+            global_users: self.global_users,
+            blobs: self.blobs,
+            prototype_of: self.prototypes,
+            functions,
+            dialect: options.dialect,
+            unwatched: options.checks.iter().map(|c| c.id).filter(|id| !self.watched.contains(id)).collect(),
+            adapters: self.adapters,
+        }
+    }
+}
+
+/// The [`Parts`] of `module`, which read every function's IR.
+fn parts<'o>(module: &Module, options: &'o Options) -> Parts<'o> {
     let mut include = String::new();
     let _ = writeln!(include, "// Generated by ras emit from {}.", module.name);
     let _ = writeln!(include, "#include \"rhipper.h\"");
@@ -470,7 +588,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
     let mut init = String::new();
     // The data sections as the code's uses type them: arrays, scalars and strings over the bytes.
     let layouts = crate::layout::layouts(module);
-    let mut global_parts = Vec::with_capacity(module.globals.len());
+    let mut globals = Vec::with_capacity(module.globals.len());
     let mut blobs = Vec::new();
     for g in &module.globals {
         let layout = layouts.get(&g.name);
@@ -483,7 +601,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
             global_decls.push_str(&e.declaration);
             init.push_str(&e.init);
             global_defs.push_str(&e.definition);
-            global_parts.push((g.name.clone(), e.definition));
+            globals.push((g.name.clone(), e.definition));
             blobs.push((format!("{}.bin", g.name), e.bytes));
             continue;
         }
@@ -491,7 +609,7 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
         let mut definition = String::new();
         define_global(&mut definition, &mut init, g, layout);
         global_defs.push_str(&definition);
-        global_parts.push((g.name.clone(), definition));
+        globals.push((g.name.clone(), definition));
     }
     let globals_end = global_defs.len();
     // An import by ordinal has no symbol to link: a pointer the runtime fills in before main from
@@ -528,8 +646,8 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
     // name, as the declaration says.
     let by_name: HashMap<&str, &Function> =
         module.functions.iter().filter(|f| !options.hand.contains(&f.name)).map(|f| (f.name.as_str(), f)).collect();
-    let classes: &[crate::cpp::Class] = if options.dialect == Dialect::Cpp { &options.classes } else { &[] };
-    let method_of: HashMap<&str, (&crate::cpp::Class, crate::cpp::Method)> = classes
+    let classes: &'o [crate::cpp::Class] = if options.dialect == Dialect::Cpp { &options.classes } else { &[] };
+    let method_of: HashMap<&'o str, (&'o crate::cpp::Class, crate::cpp::Method)> = classes
         .iter()
         .flat_map(|c| c.methods.iter().map(move |m| (c, m)))
         .filter_map(|(c, m)| {
@@ -538,78 +656,29 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
             Some((m.ir_name.as_str(), (c, method)))
         })
         .collect();
-    let mut sdk_names: BTreeMap<String, String> = BTreeMap::new();
-    let mut watched: HashSet<u32> = HashSet::new();
-    let shared = Shared { types: &module.types, layouts: &layouts, trace: options.trace, checks: &options.checks };
-    let functions = module
-        .functions
-        .iter()
-        .map(|f| {
-            let mut text = String::new();
-            let method = method_of.get(f.name.as_str()).map(|(c, m)| (*c, m));
-            let source_name = options.names.get(&f.name).map(String::as_str);
-            if options.hand.contains(&f.name) {
-                let header_lines = declare_hand(&mut text, f, &prototypes[&f.name], source_name);
-                return EmittedFunction {
-                    ir_name: f.name.clone(),
-                    address: f.address,
-                    header_lines,
-                    traps: 0,
-                    copies: 0,
-                    grade: crate::functions::Grade::default(),
-                    hand: true,
-                    text,
-                };
-            }
-            let (header_lines, copies, gotos, end, written) =
-                emit_function(&mut text, f, &prototypes[&f.name], source_name, method, &mut sdk_names, &shared);
-            watched.extend(written);
-            // A method's grade is its definition's: the vtable's entry after it is the engine's.
-            let definition = &text[..end];
-            let grade = crate::functions::Grade::of(f, gotos, casts(definition), definition.lines().count() - header_lines);
-            EmittedFunction {
-                ir_name: f.name.clone(),
-                address: f.address,
-                header_lines,
-                traps: trap_count(f),
-                copies,
-                grade,
-                hand: false,
-                text,
-            }
-        })
-        .collect();
+    // The struct types the functions address, read from their IR before any of it goes.
     let mut types = define_types(module);
-    // The SDK's names the functions read their constants as, each with the value it stands for in
-    // the type it was used at; two uses at different widths keep the second numeric.
-    if !sdk_names.is_empty() {
-        let mut defines = String::from("// The SDK's names of the constants passed to and read from the Windows API.\n");
-        for (name, literal) in &sdk_names {
-            let _ = writeln!(defines, "#define {name} {literal}");
-        }
-        defines.push('\n');
-        types.insert_str(0, &defines);
-    }
     if !classes.is_empty() {
         types.push('\n');
         types.push_str(&crate::cpp::declare(classes, &by_name, &module.types));
     }
-    Unit {
+    Parts {
         include,
-        types,
         externs,
-        prototypes: prototype_lines,
+        prototype_lines,
         global_types,
         global_decls,
         global_defs,
-        global_parts,
+        globals,
         global_rest,
         global_users,
         blobs,
-        prototype_of: prototypes,
-        functions,
-        dialect: options.dialect,
-        unwatched: options.checks.iter().map(|c| c.id).filter(|id| !watched.contains(id)).collect(),
+        prototypes,
+        layouts,
+        method_of,
+        types,
+        sdk_names: BTreeMap::new(),
+        watched: HashSet::new(),
         adapters: adapters.text,
     }
 }

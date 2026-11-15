@@ -28,6 +28,10 @@
 //! works prints its wall time and the peak working set of the process when it ended,
 //! `analyze took 0.012 s, peak 23.4 MB`, and `build/pipeline/status.json` keeps the last numbers
 //! of each step with their totals; a step its stamp skips keeps the numbers of the run that did it.
+//! The log of each of the analyze, lift and emit steps ends with the peak memory of the run so far.
+//! The lift writes `program.ll` a function at a time, so a large program's text is never held
+//! whole, and `program.index` beside it, where each function's IR lies in it, so the workbench
+//! reads one function's IR back alone once the emit has dropped it from memory.
 
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, HashMap};
@@ -49,6 +53,55 @@ const CMAKE_LISTS: &str = include_str!("../templates/CMakeLists.txt");
 const VCXPROJ: &str = include_str!("../templates/port.vcxproj");
 const SOLUTION: &str = include_str!("../templates/port.sln");
 const MESON_BUILD: &str = include_str!("../templates/meson.build");
+
+/// The index of `program.ll` under `build/`: a line per function, its byte offset, the length of
+/// its definition and its name.
+pub(crate) const IR_INDEX: &str = "program.index";
+
+/// The IR of the function `name` in the `program.ll` of `build_dir`, read through its
+/// [`IR_INDEX`] alone; `None` when the index is missing or does not name the function.
+pub(crate) fn function_ir(build_dir: &Path, name: &str) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let index = fs::read_to_string(build_dir.join(IR_INDEX)).ok()?;
+    let (offset, length) = index.lines().find_map(|l| {
+        let mut parts = l.splitn(3, ' ');
+        let (offset, length) = (parts.next()?, parts.next()?);
+        if parts.next()? != name {
+            return None;
+        }
+        Some((offset.parse::<u64>().ok()?, length.parse::<usize>().ok()?))
+    })?;
+    let mut file = File::open(build_dir.join("program.ll")).ok()?;
+    file.seek(SeekFrom::Start(offset)).ok()?;
+    let mut bytes = vec![0; length];
+    file.read_exact(&mut bytes).ok()?;
+    String::from_utf8(bytes).ok()
+}
+
+/// Writes the IR of `module` to `program.ll` under `build_dir` a function at a time, and its
+/// [`IR_INDEX`] beside it: where the workbench reads a function's IR once the emit has dropped it
+/// from memory. The text replaces the old one only when it differs, so an unchanged one keeps its
+/// time. Returns the length of the text and the two files with the digests of what they hold.
+fn write_ir(build_dir: &Path, module: &ra_asm_ir::Module) -> Result<(u64, Vec<(PathBuf, u64)>)> {
+    fs::create_dir_all(build_dir)?;
+    let file = build_dir.join("program.ll");
+    let new = file.with_extension("ll.new");
+    let created = File::create(&new).with_context(|| format!("cannot write {}", new.display()))?;
+    let mut sink = Digesting { inner: std::io::BufWriter::new(created), hasher: std::hash::DefaultHasher::new() };
+    let layout = module.write_ll(&mut sink).with_context(|| format!("cannot write {}", new.display()))?;
+    sink.flush()?;
+    let ir_digest = std::hash::Hasher::finish(&sink.hasher);
+    drop(sink);
+    ra_asm_emit::replace_if_changed(&new, &file).with_context(|| format!("cannot write {}", file.display()))?;
+    let mut index = String::new();
+    for (f, (offset, length)) in module.functions.iter().zip(&layout.functions) {
+        use std::fmt::Write as _;
+        let _ = writeln!(index, "{offset} {length} {}", f.name);
+    }
+    let index_file = build_dir.join(IR_INDEX);
+    ra_asm_emit::write_if_changed(&index_file, index.as_bytes())?;
+    Ok((layout.bytes, vec![(file, ir_digest), (index_file, digest(index.as_bytes()))]))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Step {
@@ -125,6 +178,7 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
         with: &with,
         analysis: None,
         ported: None,
+        ir_written: false,
         timeout: options.timeout,
         rebuild: options.rebuild,
     };
@@ -169,6 +223,13 @@ pub(crate) fn run(root: &Path, options: &Options) -> Result<()> {
         }
         match result {
             Ok(done) => {
+                // The peak of the whole run so far: a large program's log says which step grew it.
+                // The run's log stays the port's output.
+                if done.is_some()
+                    && let Some(peak) = peak_memory()
+                {
+                    writeln!(log, "peak memory: {} MB", peak >> 20)?;
+                }
                 if let (Some(key), Some(done)) = (key, done) {
                     fs::write(&stamp, done.stamp(&key)).with_context(|| format!("cannot write {}", stamp.display()))?;
                 }
@@ -237,30 +298,7 @@ impl Stats {
 /// The peak working set of this process in bytes, where the host tells it.
 #[cfg(windows)]
 fn peak_working_set() -> Option<u64> {
-    use std::ffi::c_void;
-
-    /// `PROCESS_MEMORY_COUNTERS`: the layout is the system's, and only the peak is read.
-    #[repr(C)]
-    #[allow(dead_code)]
-    struct Counters {
-        size: u32,
-        page_faults: u32,
-        peak_working_set: usize,
-        rest: [usize; 7],
-    }
-
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetCurrentProcess() -> *mut c_void;
-        fn K32GetProcessMemoryInfo(process: *mut c_void, counters: *mut Counters, size: u32) -> i32;
-    }
-
-    let size = size_of::<Counters>() as u32;
-    let mut counters = Counters { size, page_faults: 0, peak_working_set: 0, rest: [0; 7] };
-    // SAFETY: the handle is the process's own, and `counters` is as large as the size says and
-    // outlives the call.
-    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &raw mut counters, size) };
-    (ok != 0).then_some(counters.peak_working_set as u64)
+    peak_counters().map(|(working_set, _)| working_set)
 }
 
 /// The peak resident set of this process in bytes, where `/proc` tells it.
@@ -298,6 +336,67 @@ fn digest(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
+/// A writer that passes its bytes on and digests them as [`digest`] would the whole: the stamp
+/// of an output written a piece at a time.
+struct Digesting<W> {
+    inner: W,
+    hasher: std::hash::DefaultHasher,
+}
+
+impl<W: Write> Write for Digesting<W> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let n = self.inner.write(bytes)?;
+        std::hash::Hasher::write(&mut self.hasher, &bytes[..n]);
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// The most memory the process has held so far, in bytes: the larger of its peak working set and
+/// its peak commit, so a run that swapped counts what it asked for.
+#[cfg(windows)]
+fn peak_memory() -> Option<u64> {
+    peak_counters().map(|(working_set, commit)| working_set.max(commit))
+}
+
+/// The peak working set and the peak commit of this process in bytes, as Windows keeps them.
+#[cfg(windows)]
+fn peak_counters() -> Option<(u64, u64)> {
+    use std::ffi::c_void;
+
+    /// `PROCESS_MEMORY_COUNTERS`: the sizes are the peak working set first and the peak commit
+    /// (`PeakPagefileUsage`) last.
+    #[repr(C)]
+    #[derive(Default)]
+    struct Counters {
+        cb: u32,
+        _faults: u32,
+        sizes: [usize; 8],
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> *mut c_void;
+        fn K32GetProcessMemoryInfo(process: *mut c_void, counters: *mut Counters, cb: u32) -> i32;
+    }
+
+    let mut counters = Counters { cb: size_of::<Counters>() as u32, ..Counters::default() };
+    // SAFETY: the pseudo handle of the current process needs no closing, and `counters` is the
+    // structure of the size its `cb` names.
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &raw mut counters, counters.cb) };
+    (ok != 0).then_some((counters.sizes[0] as u64, counters.sizes[7] as u64))
+}
+
+/// On Linux the peak resident set the kernel keeps for the process (`VmHWM`; the peak of its
+/// address space counts reservations it never used); `None` on another host.
+#[cfg(not(windows))]
+fn peak_memory() -> Option<u64> {
+    peak_working_set()
+}
+
 /// The program as the lift writes it and the emit translates it: the analysis with the person's
 /// annotations, lifted standalone, raised to the ABI level and named. A run makes it once.
 struct Ported<'a> {
@@ -323,6 +422,8 @@ struct Pipeline<'a> {
     analysis: Option<ra_asm_analysis::Analysis<'a>>,
     /// The lift step's program, which the emit translates rather than lifting again.
     ported: Option<Ported<'a>>,
+    /// Whether the lift step wrote the program's IR to `build/` in this run.
+    ir_written: bool,
     timeout: Option<u64>,
     rebuild: bool,
 }
@@ -348,7 +449,7 @@ impl<'a> Pipeline<'a> {
     }
 
     /// The program the lift and the emit share, made by the first of them that runs.
-    fn ported(&mut self, log: &mut File) -> Result<&Ported<'a>> {
+    fn ported(&mut self, log: &mut File) -> Result<&mut Ported<'a>> {
         if self.ported.is_none() {
             let image = self.image()?;
             let with_images = self.with_images()?;
@@ -369,7 +470,7 @@ impl<'a> Pipeline<'a> {
             }
             self.ported = Some(Ported { analysis, with, annotations, annotated, lifted, signatures });
         }
-        Ok(self.ported.as_ref().expect("ported"))
+        Ok(self.ported.as_mut().expect("ported"))
     }
 
     /// The facts of a traced run of the reference, from `build/facts.json` when it is of the
@@ -482,21 +583,16 @@ impl<'a> Pipeline<'a> {
     }
 
     fn lift(&mut self, log: &mut File) -> Result<Done> {
-        let file = self.project.build_dir().join("program.ll");
-        let Ported { analysis, annotated, lifted, .. } = self.ported(log)?;
-        let text = lifted.module.to_ll();
-        ra_asm_emit::write_if_changed(&file, text.as_bytes())?;
+        let build_dir = self.project.build_dir();
+        let Ported { analysis, annotated, lifted, .. } = &*self.ported(log)?;
+        let (bytes, outputs) = write_ir(&build_dir, &lifted.module)?;
         let warnings = log_warnings(log, analysis.warnings.iter().chain(annotated).chain(&lifted.warnings));
-        let summary = format!(
-            "{} functions, {} imports, {} bytes of IR, {} warnings",
-            lifted.functions.len(),
-            lifted.imports.len(),
-            text.len(),
-            warnings
-        );
+        let summary =
+            format!("{} functions, {} imports, {bytes} bytes of IR, {warnings} warnings", lifted.functions.len(), lifted.imports.len());
         writeln!(log, "{summary}")?;
         println!("{summary}");
-        Ok(Done { summary, outputs: vec![(file, digest(text.as_bytes()))] })
+        self.ir_written = true;
+        Ok(Done { summary, outputs })
     }
 
     fn emit(&mut self, log: &mut File) -> Result<Done> {
@@ -506,12 +602,21 @@ impl<'a> Pipeline<'a> {
         let (trace, hand) = (self.project.run.trace, self.project.hand.clone());
         let image = self.image()?;
         let with_images = self.with_images()?;
+        let ir_written = self.ir_written;
         let Ported { analysis, with, annotations, annotated, lifted, signatures } = self.ported(log)?;
+        let (analysis, with, annotations, annotated, signatures) = (&*analysis, &*with, &*annotations, &*annotated, &*signatures);
+        // The translation drops each function's IR once its source is written, and the workbench
+        // reads a function's IR from `build/` from then on: it goes there first when the lift step
+        // did not write it in this run.
+        if !ir_written {
+            write_ir(&build_dir, &lifted.module)?;
+        }
         let companions = crate::emit::companions_of(with_images, with);
         let hand = crate::annotations::hand_list(&hand, annotations);
         let options =
             crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations, checked: false, with: &companions };
         let mut translation = crate::emit::translate(image, analysis, lifted, signatures, &options)?;
+        let lifted = &*lifted;
         crate::functions::note_evidence(&mut translation.infos, &gen_dir)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
@@ -555,6 +660,8 @@ impl<'a> Pipeline<'a> {
         );
         writeln!(log, "{summary}")?;
         println!("{summary}");
+        // The functions have no IR left to translate again.
+        self.ported = None;
         Ok(Done { summary, outputs })
     }
 
@@ -935,12 +1042,19 @@ fn unchanged(stamp: &Path, key: &str) -> Option<String> {
     let summary = lines.next()?.to_owned();
     for line in lines {
         let (stamped, path) = line.split_once(' ')?;
-        let bytes = fs::read(path).ok()?;
-        if format!("{:016x}", digest(&bytes)) != stamped {
+        if format!("{:016x}", digest_file(Path::new(path))?) != stamped {
             return None;
         }
     }
     Some(summary)
+}
+
+/// The [`digest`] of the file at `path`, read a piece at a time: a large program's IR is never
+/// whole in memory to be checked.
+fn digest_file(path: &Path) -> Option<u64> {
+    let mut sink = Digesting { inner: std::io::sink(), hasher: std::hash::DefaultHasher::new() };
+    std::io::copy(&mut File::open(path).ok()?, &mut sink).ok()?;
+    Some(std::hash::Hasher::finish(&sink.hasher))
 }
 
 /// Writes the warnings to the log and returns how many there were.
@@ -1557,4 +1671,37 @@ fn now_iso() -> String {
 /// The project directory of the pipeline: `--project`, else the current directory.
 pub(crate) fn project_dir(given: Option<&Path>) -> PathBuf {
     given.map_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")), Path::to_path_buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An output written a piece at a time stamps as the same bytes written whole, and checks
+    /// against its file read back: else an unchanged lift would run again every time.
+    #[test]
+    fn a_digest_in_pieces_is_the_digest_of_the_whole() {
+        let bytes: Vec<u8> = (0..100_000u32).map(|i| (i * 7 % 251) as u8).collect();
+        let mut sink = Digesting { inner: Vec::new(), hasher: std::hash::DefaultHasher::new() };
+        for piece in bytes.chunks(997) {
+            sink.write_all(piece).unwrap();
+        }
+        assert_eq!(std::hash::Hasher::finish(&sink.hasher), digest(&bytes));
+        let dir = ra_asm_testing::Scratch::new("ras-unit-tests", "digest");
+        let file = dir.join("bytes");
+        fs::write(&file, &bytes).unwrap();
+        assert_eq!(digest_file(&file), Some(digest(&bytes)));
+    }
+
+    /// A function's IR comes back through the index alone, and a name the index lacks is none.
+    #[test]
+    fn a_function_reads_back_through_the_index() {
+        let dir = ra_asm_testing::Scratch::new("ras-unit-tests", "index");
+        let text = "; head\n\ndefine void @F_1() {\n  ret void\n}\n\ndefine i32 @F_2() {\n  ret i32 0\n}\n";
+        fs::write(dir.join("program.ll"), text).unwrap();
+        fs::write(dir.join(IR_INDEX), "8 34 F_1\n43 34 F_2\n").unwrap();
+        assert_eq!(function_ir(&dir, "F_1").as_deref(), Some("define void @F_1() {\n  ret void\n}\n"));
+        assert_eq!(function_ir(&dir, "F_2").as_deref(), Some("define i32 @F_2() {\n  ret i32 0\n}\n"));
+        assert_eq!(function_ir(&dir, "F_3"), None);
+    }
 }

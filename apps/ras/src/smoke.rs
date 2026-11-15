@@ -407,7 +407,7 @@ pub(crate) fn file(pe: &Path, signatures: &[PathBuf]) {
     let annotations = BTreeMap::new();
     let options =
         crate::emit::Options { lang: "c", package: "smoke", trace: false, hand: &[], annotations: &annotations, checked: false, with: &[] };
-    let translation = match crate::emit::translate(&image, &analysis, &lifted, &signatures, &options) {
+    let translation = match crate::emit::translate(&image, &analysis, &mut lifted, &signatures, &options) {
         Ok(translation) => translation,
         Err(e) => {
             line(&json!({"status": "error", "stage": STAGES[5], "message": format!("{e:#}"), "times": clock.finish()}));

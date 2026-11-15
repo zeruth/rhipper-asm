@@ -504,7 +504,9 @@ impl Session<'_> {
             result["table"] = entry;
         }
         // The IR and the source name a function as the analysis does.
-        result["ir"] = json!(ir_of(&project.build_dir().join("program.ll"), &function.name));
+        let build_dir = project.build_dir();
+        let ir = crate::pipeline::function_ir(&build_dir, &function.name).or_else(|| ir_of(&build_dir.join("program.ll"), &function.name));
+        result["ir"] = json!(ir);
     }
 
     /// The machine-level lift of the program, made once per load.

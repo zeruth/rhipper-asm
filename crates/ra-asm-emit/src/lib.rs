@@ -24,7 +24,7 @@ pub mod tree;
 
 pub use c::{
     ADAPTERS_FILE, Check, Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, MODULE_MARK, Options as COptions, Unit, Watch, emit_c,
-    emit_unit,
+    emit_unit, emit_unit_dropping,
 };
 pub use cpp::{Class, Method, classes};
 pub use format::format_files;
@@ -72,11 +72,68 @@ pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Res
 /// Writes `bytes` to `path` unless the file holds them already, creating its directory: a file
 /// the emit did not change keeps its time, so the build recompiles only the parts that changed.
 pub fn write_if_changed(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    if std::fs::read(path).is_ok_and(|old| old == bytes) {
+    if holds(path, bytes) {
         return Ok(());
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(path, bytes)
+}
+
+/// Moves the file at `new` over `path` unless `path` holds the same bytes, in which case `new`
+/// goes and `path` keeps its time: [`write_if_changed`] for an output written a piece at a time,
+/// which is never whole in memory. Returns whether `path` changed.
+pub fn replace_if_changed(new: &std::path::Path, path: &std::path::Path) -> std::io::Result<bool> {
+    if same_files(new, path) {
+        std::fs::remove_file(new)?;
+        return Ok(false);
+    }
+    std::fs::rename(new, path)?;
+    Ok(true)
+}
+
+/// Whether the files at `a` and `b` hold the same bytes, read a piece at a time.
+fn same_files(a: &std::path::Path, b: &std::path::Path) -> bool {
+    use std::io::Read;
+    let (Ok(mut a), Ok(mut b)) = (std::fs::File::open(a), std::fs::File::open(b)) else { return false };
+    if !matches!((a.metadata(), b.metadata()), (Ok(x), Ok(y)) if x.len() == y.len()) {
+        return false;
+    }
+    let (mut piece, mut other) = (vec![0u8; 1 << 16], vec![0u8; 1 << 16]);
+    loop {
+        let n = match a.read(&mut piece) {
+            Ok(0) => return b.read(&mut other).is_ok_and(|n| n == 0),
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return false,
+        };
+        if b.read_exact(&mut other[..n]).is_err() || piece[..n] != other[..n] {
+            return false;
+        }
+    }
+}
+
+/// Whether the file at `path` holds exactly `bytes`, read a piece at a time: the old text of a
+/// large output is never in memory beside the new.
+fn holds(path: &std::path::Path, bytes: &[u8]) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else { return false };
+    if !file.metadata().is_ok_and(|m| m.len() == bytes.len() as u64) {
+        return false;
+    }
+    let mut piece = vec![0u8; 1 << 16];
+    let mut rest = bytes;
+    loop {
+        let n = match file.read(&mut piece) {
+            Ok(0) => return rest.is_empty(),
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return false,
+        };
+        if n > rest.len() || piece[..n] != rest[..n] {
+            return false;
+        }
+        rest = &rest[n..];
+    }
 }

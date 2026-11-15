@@ -106,11 +106,13 @@ pub(crate) struct Options<'a> {
 }
 
 /// Translates the raised module of `lifted` as `options` ask. `signatures` (by the final function
-/// names) tell the C++ output which virtual functions read their object.
+/// names) tell the C++ output which virtual functions read their object. A C or C++ translation
+/// drops each function's IR once its source is written: `lifted` keeps its tables and its data, and
+/// of each function its name and type, not its body.
 pub(crate) fn translate(
     image: &Image,
     analysis: &Analysis<'_>,
-    lifted: &Lifted,
+    lifted: &mut Lifted,
     signatures: &HashMap<String, ra_asm_lift::raise::abi::Signature>,
     options: &Options<'_>,
 ) -> Result<Translation> {
@@ -193,7 +195,8 @@ pub(crate) fn translate(
     let classes = analyses.iter().flat_map(|a| ra_asm_emit::classes(a, signatures)).collect();
     let checks = if checked { checks(&analyses, lifted) } else { Vec::new() };
     let guest32 = image.pointer_size() == 4;
-    let mut unit = ra_asm_emit::emit_unit(&lifted.module, &ra_asm_emit::COptions { names, dialect, classes, trace, hand, checks, guest32 });
+    let options = ra_asm_emit::COptions { names, dialect, classes, trace, hand, checks, guest32 };
+    let mut unit = ra_asm_emit::emit_unit_dropping(&mut lifted.module, &options);
     // The bytes of the large data globals the source embeds go beside it, as the resources do.
     resources.append(&mut unit.blobs);
     for id in &unit.unwatched {
@@ -778,7 +781,7 @@ pub(crate) fn emit(
     let companions = companions_of(&with_images, &with_analyses);
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
     let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations, checked, with: &companions };
-    let mut translation = translate(image, &analysis, &lifted, &signatures, &options)?;
+    let mut translation = translate(image, &analysis, &mut lifted, &signatures, &options)?;
     if let Some(dir) = out {
         crate::functions::note_evidence(&mut translation.infos, dir)?;
     }

@@ -393,4 +393,21 @@ impl Module {
         assert!(self.frozen.is_empty(), "a module with frozen functions is printed only once the raise has thawed them");
         crate::printer::print(self)
     }
+
+    /// Writes the text of [`Module::to_ll`] to `sink` a function at a time, and returns where
+    /// each function landed: the whole text of a large program is never in memory at once.
+    pub fn write_ll(&self, sink: &mut dyn std::io::Write) -> std::io::Result<LlLayout> {
+        crate::printer::write(self, sink)
+    }
+}
+
+/// Where [`Module::write_ll`] put the functions in its text, so one function's IR is read back
+/// without the rest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlLayout {
+    /// The length of the whole text.
+    pub bytes: u64,
+    /// The byte offset and the length of each function's definition, in the order of the
+    /// module's functions.
+    pub functions: Vec<(u64, u64)>,
 }

@@ -15,12 +15,9 @@ name = "ras"
 path = "src/main.rs"
 
 [features]
-# The slow tier: the pipeline test builds and runs ports with clang, the smoke test walks System32.
+# The slow tier: the pipeline test builds and runs ports with clang (its fixtures module is behind
+# the feature; the large program's ignored run is not), the smoke test walks System32.
 oracle = []
-
-[[test]]
-name = "pipeline"
-required-features = ["oracle"]
 
 [[test]]
 name = "smoke"

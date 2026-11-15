@@ -11,6 +11,36 @@ pub(crate) const CMPXCHG_PAIR: &str = ".pair";
 
 pub fn print(module: &Module) -> String {
     let mut out = String::new();
+    print_head(&mut out, module);
+    for f in &module.functions {
+        out.push('\n');
+        print_function(&mut out, f);
+    }
+    out
+}
+
+/// Writes the text [`print`] makes to `sink` a function at a time, so a module of many functions
+/// never has its whole text in memory; returns where each function landed.
+pub fn write(module: &Module, sink: &mut dyn std::io::Write) -> std::io::Result<crate::module::LlLayout> {
+    let mut out = String::new();
+    print_head(&mut out, module);
+    sink.write_all(out.as_bytes())?;
+    let mut written = out.len() as u64;
+    let mut functions = Vec::with_capacity(module.functions.len());
+    for f in &module.functions {
+        out.clear();
+        out.push('\n');
+        print_function(&mut out, f);
+        sink.write_all(out.as_bytes())?;
+        // The definition starts past the blank line that parts it from the one before.
+        functions.push((written + 1, out.len() as u64 - 1));
+        written += out.len() as u64;
+    }
+    Ok(crate::module::LlLayout { bytes: written, functions })
+}
+
+/// The module's header, types, globals and declarations: everything ahead of the functions.
+fn print_head(out: &mut String, module: &Module) {
     let _ = writeln!(out, "; ModuleID = '{}'", module.name);
     let _ = writeln!(out, "source_filename = \"{}\"", module.name);
     if !module.data_layout.is_empty() {
@@ -43,7 +73,7 @@ pub fn print(module: &Module) -> String {
             let _ = write!(out, "@{} = {linkage}{kind} {}", quote(&g.name), g.ty);
             if let Some(init) = &g.init {
                 out.push(' ');
-                print_const(&mut out, &g.ty, init);
+                print_const(out, &g.ty, init);
             } else {
                 // A declaration of a global defined elsewhere.
                 let _ = write!(out, "{}", if g.linkage == Linkage::External { "" } else { " zeroinitializer" });
@@ -81,11 +111,6 @@ pub fn print(module: &Module) -> String {
             out.push('\n');
         }
     }
-    for f in &module.functions {
-        out.push('\n');
-        print_function(&mut out, f);
-    }
-    out
 }
 
 /// The definition of one function, as [`print`] writes it in its module.
