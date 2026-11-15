@@ -5200,7 +5200,7 @@ call imp_GetStdHandle
   result eax = 0x248
   result edx = 0x0
   result xmm0 = 0x0
-call imp_GetModuleHandleA
+call imp_ra_x86_get_module_handle_a
   result eax = 0x400000
   result edx = 0x0
   result xmm0 = 0x0

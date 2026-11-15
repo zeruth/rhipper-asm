@@ -55,7 +55,7 @@ memory in
   0x402000: 83 10 ed 5e
   0x403000: 00 00 ed 5e
   0x120fffa4: 6d 11 40 00
-call imp_GetModuleHandleW
+call imp_ra_x86_get_module_handle_w
   result eax = 0x400000
   result edx = 0x0
   result xmm0 = 0x0

@@ -3,17 +3,17 @@ ra-asm-verify vectors 1
 
 vector print_slot at 0x4012a0
 entry
-  eax = 0x10000590
+  eax = 0x10000570
   ecx = 0x0
   edx = 0x0
   ebx = 0x0
   esp = 0x120fffb0
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
-  pf = 0x1
+  pf = 0x0
   af = 0x0
   zf = 0x0
   sf = 0x0
@@ -52,7 +52,7 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x403028: 48 02 00 00 90 05 00 10
+  0x403028: 48 02 00 00 70 05 00 10
   0x120fffb0: 41 10 40 00
 call imp_WriteFile
   result eax = 0x1
@@ -66,11 +66,11 @@ exit
   ebx = 0x0
   esp = 0x120fffb4
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
-  pf = 0x1
+  pf = 0x0
   af = 0x0
   zf = 0x0
   sf = 0x0
@@ -121,11 +121,11 @@ entry
   ebx = 0x0
   esp = 0x120fffb0
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
-  pf = 0x1
+  pf = 0x0
   af = 0x0
   zf = 0x0
   sf = 0x0
@@ -165,11 +165,11 @@ entry
   ymm15h = 0x0
 memory in
   0x403028: 48 02 00 00
-  0x403030: 90 05 00 10
+  0x403030: 70 05 00 10
   0x120fffb0: 46 10 40 00
 call ra_call
   arg 0x13002030
-  arg 0x10000590
+  arg 0x10000570
   result eax = 0x1
   result edx = 0x0
   result esp = 0x120fffac
@@ -182,11 +182,11 @@ exit
   ebx = 0x0
   esp = 0x120fffb4
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
-  pf = 0x1
+  pf = 0x0
   af = 0x0
   zf = 0x0
   sf = 0x0
@@ -237,11 +237,11 @@ entry
   ebx = 0x0
   esp = 0x120fffb0
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
-  pf = 0x1
+  pf = 0x0
   af = 0x0
   zf = 0x0
   sf = 0x0
@@ -288,7 +288,7 @@ exit
   ebx = 0x0
   esp = 0x120fffb4
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -331,7 +331,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fffac: 90 05 00 10
+  0x120fffac: 70 05 00 10
 left return
 
 vector print_int at 0x401300
@@ -342,7 +342,7 @@ entry
   ebx = 0x0
   esp = 0x120fffb0
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -399,7 +399,7 @@ exit
   ebx = 0x0
   esp = 0x120fffb4
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -444,7 +444,7 @@ exit
 memory out
   0x120fff78: 48 02 00 00 9b ff 0f 12 05 00 00 00 8c ff 0f 12
     00 00 00 00 05 00 00 00
-  0x120fff9b: 31 31 31 0d 0a 90 05 00 10 00 00 00 00 00 00 00
+  0x120fff9b: 31 31 31 0d 0a 70 05 00 10 00 00 00 00 00 00 00
     00 00 00 00 00
 left return
 
@@ -1349,7 +1349,7 @@ entry
   ebx = 0x0
   esp = 0x120fffb0
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -1406,7 +1406,7 @@ exit
   ebx = 0x0
   esp = 0x120fffb4
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -1451,7 +1451,7 @@ exit
 memory out
   0x120fff78: 48 02 00 00 9b ff 0f 12 05 00 00 00 8c ff 0f 12
     00 00 00 00 05 00 00 00
-  0x120fff9b: 36 31 30 0d 0a 90 05 00 10 00 00 00 00 00 00 00
+  0x120fff9b: 36 31 30 0d 0a 70 05 00 10 00 00 00 00 00 00 00
     00 00 00 00 00
 left return
 
@@ -1463,7 +1463,7 @@ entry
   ebx = 0x0
   esp = 0x120fffac
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x1
@@ -1521,7 +1521,7 @@ exit
   ebx = 0x0
   esp = 0x120fffb0
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -1576,7 +1576,7 @@ entry
   ebx = 0x0
   esp = 0x120fffb0
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -1640,7 +1640,7 @@ exit
   ebx = 0x0
   esp = 0x120fffb4
   ebp = 0x0
-  esi = 0x10000590
+  esi = 0x10000570
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -5035,17 +5035,17 @@ memory in
   0x402024: 8a 20 40 00 8f 20 40 00 93 20 40 00 97 20 40 00
     9d 20 40 00 a2 20 40 00 a7 20 40 00 ab 20 40 00
     b1 20 40 00 b7 20 40 00
-  0x402170: 90 05 00 10
+  0x402170: 70 05 00 10
 call imp_GetStdHandle
   result eax = 0x248
   result edx = 0x0
   result xmm0 = 0x0
-call imp_GetModuleHandleA
+call imp_ra_x86_get_module_handle_a
   result eax = 0x5a300000
   result edx = 0x0
   result xmm0 = 0x0
-call imp_GetProcAddress
-  result eax = 0x10000590
+call imp_ra_x86_get_proc_address
+  result eax = 0x10000570
   result edx = 0x0
   result xmm0 = 0x0
 call print_slot
@@ -5068,9 +5068,10 @@ call collatz
   result ecx = 0x1
   result edx = 0x2
   result esp = 0x120fffb4
+  result pf = 0x1
   result zf = 0x1
   result xmm0 = 0x0
-  effect 0x120fffac: 90 05 00 10
+  effect 0x120fffac: 70 05 00 10
 call print_int
   result eax = 0x1
   result ecx = 0x120fff8c
@@ -5081,7 +5082,7 @@ call print_int
   result xmm0 = 0x0
   effect 0x120fff78: 48 02 00 00 9b ff 0f 12 05 00 00 00 8c ff 0f 12
     00 00 00 00 05 00 00 00
-  effect 0x120fff9b: 31 31 31 0d 0a 90 05 00 10 00 00 00 00 00 00 00
+  effect 0x120fff9b: 31 31 31 0d 0a 70 05 00 10 00 00 00 00 00 00 00
     00 00 00 00 00
 call fib
   result eax = 0x262
@@ -5101,7 +5102,7 @@ call fib
     03 00 00 00 c8 13 40 00 00 00 00 00 02 00 00 00
     c8 13 40 00 00 00 00 00 03 00 00 00 c8 13 40 00
     00 00 00 00 02 00 00 00 c8 13 40 00 60 02 00 00
-    03 00 00 00 c8 13 40 00 90 05 00 10 00 00 00 00
+    03 00 00 00 c8 13 40 00 70 05 00 10 00 00 00 00
 call print_int
   result eax = 0x1
   result ecx = 0x120fff8c
@@ -5112,7 +5113,7 @@ call print_int
   result xmm0 = 0x0
   effect 0x120fff78: 48 02 00 00 9b ff 0f 12 05 00 00 00 8c ff 0f 12
     00 00 00 00 05 00 00 00
-  effect 0x120fff9b: 36 31 30 0d 0a 90 05 00 10 00 00 00 00 00 00 00
+  effect 0x120fff9b: 36 31 30 0d 0a 70 05 00 10 00 00 00 00 00 00 00
     00 00 00 00 00
 call classify
   result eax = 0xa
@@ -5552,6 +5553,6 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x403028: 48 02 00 00 90 05 00 10 90 05 00 10
+  0x403028: 48 02 00 00 70 05 00 10 70 05 00 10
   0x120fffac: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 left exit 0x0
