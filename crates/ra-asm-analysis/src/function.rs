@@ -25,6 +25,9 @@ pub enum Origin {
     Gap(u64),
     /// An indirect call or jump at the address reached the entry in a traced run.
     Trace(u64),
+    /// A run of the port reached the entry through an address it computed, and the residual
+    /// engine ran it: the port calls it by its image address, from a caller no reading shows.
+    Residual,
 }
 
 /// A slot of a class's vtable that holds the function.

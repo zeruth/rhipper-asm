@@ -25,6 +25,7 @@ pub(crate) fn origin_name(origin: &Origin) -> String {
         Origin::Vtable(vtable) => format!("vtable at {}", hex(*vtable)),
         Origin::Gap(after) => format!("gap after {}", hex(*after)),
         Origin::Trace(from) => format!("seen at run time from {}", hex(*from)),
+        Origin::Residual => "run by the residual engine".to_owned(),
     }
 }
 

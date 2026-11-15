@@ -363,6 +363,13 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
             }
         }
     }
+    // The entries a run of the port left to the residual engine: functions only an address the
+    // program computed reaches, which the next port has lifted.
+    for &va in &facts.residual {
+        if !state.cover.covered(va) {
+            state.seed(va, Origin::Residual);
+        }
+    }
     state.run();
 
     // Code after the `int 3` fill that nothing names: a function the linker kept without a caller

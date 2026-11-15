@@ -636,10 +636,12 @@ fn lift_on(
             let name = function_name(f.entry);
             // The program entry is a root too: `main`'s caller is the runtime's startup, which is
             // not lifted; a second image's entry is its `DllMain`, which the attach calls.
-            let root = f
-                .origins
-                .iter()
-                .any(|o| matches!(o, Origin::Entry | Origin::Export(_) | Origin::TlsCallback | Origin::Pointer(_) | Origin::Vtable(_)));
+            let root = f.origins.iter().any(|o| {
+                matches!(
+                    o,
+                    Origin::Entry | Origin::Export(_) | Origin::TlsCallback | Origin::Pointer(_) | Origin::Vtable(_) | Origin::Residual
+                )
+            });
             if root || matches!(f.kind, Kind::ImportThunk(_)) || analysis.program_entry == Some(f.entry) {
                 lifted.roots.insert(name.clone());
             }

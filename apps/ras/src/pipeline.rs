@@ -364,11 +364,12 @@ impl<'a> Pipeline<'a> {
             Ok(facts) => {
                 writeln!(
                     log,
-                    "facts of a run of {} with {:?}: {} calls resolved, {} functions entered",
+                    "facts of a run of {} with {:?}: {} calls resolved, {} functions entered, {} entries left to the residual engine",
                     facts.input.exe,
                     facts.input.args,
                     facts.calls.len(),
-                    facts.entered.len()
+                    facts.entered.len(),
+                    facts.residual.len()
                 )?;
                 Ok(facts)
             }
@@ -397,7 +398,13 @@ impl<'a> Pipeline<'a> {
             format!("interpreted: exit {:#x}, {} steps, {stop}; {} calls resolved", outcome.exit, outcome.steps, outcome.facts.calls.len());
         writeln!(log, "{line}")?;
         println!("{line}");
-        crate::run::write_facts(&file, &outcome.facts)
+        // The interpreter's run does not see what a port's run left to the residual engine: the
+        // entries stay, or the next port would enter the engine for them again.
+        let mut facts = outcome.facts;
+        if let Ok(earlier) = crate::run::read_facts(&file, image) {
+            facts.residual = earlier.residual;
+        }
+        crate::run::write_facts(&file, &facts)
     }
 
     fn analyze(&mut self, log: &mut File) -> Result<Done> {
@@ -594,6 +601,7 @@ impl<'a> Pipeline<'a> {
             let _ = child.wait();
         }
         let outcome = outcome?;
+        fold_residual(project, image, log)?;
         let mut record = serde_json::json!({
             "when": now_iso(),
             "commit": git(&project.root, &["rev-parse", "--short", "HEAD"]).unwrap_or_default(),
@@ -707,6 +715,36 @@ impl std::fmt::Display for Verdict {
             Verdict::PortCrashed => f.write_str("port crashed"),
         }
     }
+}
+
+/// Takes the entries a run of the port left to the residual engine, `build/residual.json`, into
+/// the project's facts, where the next analysis seeds them as functions and the port lifts them.
+/// The facts keep every entry a run left: the port that lifts one enters the engine for it no
+/// more, and its own run's file no longer names it.
+fn fold_residual(project: &Project, image: &ra_asm_pe::Image, log: &mut File) -> Result<()> {
+    let left = project.build_dir().join("residual.json");
+    if !left.is_file() {
+        return Ok(());
+    }
+    let left = match crate::run::read_facts(&left, image) {
+        Ok(left) => left,
+        Err(reason) => {
+            writeln!(log, "{reason}")?;
+            return Ok(());
+        }
+    };
+    let file = project.facts_file();
+    let mut facts = crate::run::read_facts(&file, image)
+        .unwrap_or_else(|_| ra_asm_analysis::Facts { input: left.input.clone(), ..ra_asm_analysis::Facts::default() });
+    let new: Vec<u64> = left.residual.iter().copied().filter(|entry| !facts.residual.contains(entry)).collect();
+    if new.is_empty() {
+        return Ok(());
+    }
+    facts.residual.extend(&new);
+    facts.residual.sort_unstable();
+    crate::run::write_facts(&file, &facts)?;
+    writeln!(log, "{} entries the residual engine ran, taken into {} for the next analysis", new.len(), file.display())?;
+    Ok(())
 }
 
 /// Runs the reference through the IR interpreter, lifted as the emit step lifts it so its

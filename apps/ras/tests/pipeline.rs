@@ -740,8 +740,61 @@ fn computed_runs_with_residue() {
     assert!(ok, "{text}");
     let expected = std::fs::read_to_string(root().join("testdata/expected/computed.txt")).unwrap().replace("\r\n", "\n");
     let run_log = std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
-    assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
+    assert!(without_residual(&run_log).contains(expected.trim_end()), "the run log:\n{run_log}");
     assert!(run_log.contains("residual: 3 entered"), "the run log:\n{run_log}");
     let facts: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/residual.json")).unwrap()).unwrap();
     assert_eq!(facts["residual"].as_array().map(Vec::len), Some(3), "{facts}");
+}
+
+/// The loop closes over computed: the first run leaves the three entries to the residual engine,
+/// the pipeline takes them into `build/facts.json`, and the second run's analysis seeds them as
+/// functions, so the rebuilt port lifts them and enters the engine for none.
+#[test]
+fn computed_converges() {
+    if !port_builds_here() {
+        return;
+    }
+    let library = residual_library().expect("no static library of ra-asm-residual beside the ras of this build");
+    let dir = ra_asm_testing::Scratch::new("ras-pipeline-tests", "converges");
+    std::fs::create_dir_all(dir.join("ref")).unwrap();
+    std::fs::copy(root().join("testdata/bin/computed64.exe"), dir.join("ref/computed64.exe")).unwrap();
+    let json = serde_json::json!({
+        "name": "computed",
+        "exe": "ref/computed64.exe",
+        "build": { "residual": library.to_string_lossy() },
+    });
+    std::fs::write(dir.join("rhipper.json"), json.to_string()).unwrap();
+    let expected = std::fs::read_to_string(root().join("testdata/expected/computed.txt")).unwrap().replace("\r\n", "\n");
+    let run_log = || std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
+
+    let (ok, first_text) = ras(&dir, &[]);
+    assert!(ok, "{first_text}");
+    let first = run_log();
+    assert!(first.contains("residual: 3 entered"), "the first run log:\n{first}");
+    let facts: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/facts.json")).unwrap()).unwrap();
+    assert_eq!(facts["residual"].as_array().map(Vec::len), Some(3), "{facts}");
+
+    let (ok, text) = ras(&dir, &[]);
+    assert!(ok, "{text}");
+    assert!(!text.contains("(unchanged)"), "the second run did not analyze the facts again:\n{text}");
+    let second = run_log();
+    assert!(without_residual(&second).contains(expected.trim_end()), "the second run log:\n{second}");
+    assert!(second.contains("residual: 0 entered"), "the second run log:\n{second}");
+    // The facts keep the entries the second run no longer left.
+    let facts: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("build/facts.json")).unwrap()).unwrap();
+    assert_eq!(facts["residual"].as_array().map(Vec::len), Some(3), "{facts}");
+    assert_eq!(analyzed(&text), analyzed(&first_text) + 3, "the three entries are not functions of the second analysis:\n{text}");
+}
+
+/// A run log without the residual engine's line: it goes to the port's stderr, which the log
+/// reads on its own thread, so it can land between any two lines of the standard output.
+fn without_residual(log: &str) -> String {
+    log.lines().filter(|l| !l.starts_with("residual: ")).collect::<Vec<_>>().join("\n")
+}
+
+/// The count of functions the analyze step of a pipeline's output found.
+fn analyzed(text: &str) -> usize {
+    let summary =
+        text.split("] analyze\n").nth(1).and_then(|rest| rest.lines().next()).unwrap_or_else(|| panic!("no analyze step:\n{text}"));
+    summary.split(' ').next().and_then(|n| n.parse().ok()).unwrap_or_else(|| panic!("no count of functions in `{summary}`"))
 }

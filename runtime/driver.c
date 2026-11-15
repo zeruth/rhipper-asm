@@ -1953,6 +1953,14 @@ static LONG WINAPI residual_on_exception(EXCEPTION_POINTERS *info) {
         || at < RA_IMAGE_BASE || at >= RA_IMAGE_BASE + RA_IMAGE_SIZE) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
+    // A function the port has lifted, called by its image address: the call's registers and
+    // return address are the lifted function's own arguments, as a trampoline would pass them.
+    for (uint64_t i = 0; i < ra_function_count; i++) {
+        if (ra_functions[i].address == at) {
+            c->Rip = (DWORD64)(uintptr_t)ra_functions[i].function;
+            return EXCEPTION_CONTINUE_EXECUTION;
+        }
+    }
     struct State state;
     memset(&state, 0, sizeof state);
     DWORD64 *gpr = &c->Rax;  // rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi, r8..r15, as the state has them

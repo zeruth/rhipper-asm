@@ -52,7 +52,9 @@
 //! staticlib of `ra-asm-residual`), which the `CMakeLists.txt` the pipeline writes links into the
 //! standalone port of a 64-bit program: a call of the port into code of the image no lifted
 //! function has runs there, over the reference's bytes mapped at their addresses, and at exit the
-//! port prints how many entries the engine ran and lists them in `build/residual.json`.
+//! port prints how many entries the engine ran and lists them in `build/residual.json`. The run
+//! step takes those entries into `build/facts.json`, so the next analysis has them as functions
+//! and the next port calls their lifted bodies instead.
 //! `run` is how the pipeline starts the port: `with`
 //! lists side processes that start before the port and stop after it, `timeout` in seconds stops
 //! a port that runs on, such as a game, and counts the run as alive, and `compare` runs the
