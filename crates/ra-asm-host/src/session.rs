@@ -220,7 +220,8 @@ fn call(text: &str) -> Result<Event, String> {
     Ok(Event { name: name.to_owned(), args, answer, writes: Vec::new() })
 }
 
-fn put(out: &mut String, value: &Value) {
+/// `value` as the session's text writes it.
+pub(crate) fn put(out: &mut String, value: &Value) {
     match value {
         Value::Int(n) => _ = write!(out, "{n:#x}"),
         Value::F32(bits) => _ = write!(out, "f32:{bits:x}"),

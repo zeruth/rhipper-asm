@@ -80,6 +80,10 @@ pub struct Options {
     /// a call or a jump enters one of the image's: an unpacking stub's jump into what it unpacked,
     /// whose bytes the lift never read. The address is the outcome's `unpacked`.
     pub unpack: bool,
+    /// Stands in for the host: hears of every call across the platform boundary before it runs
+    /// and answers the part of each the host would (its DLLs', the processor's queries), so the
+    /// run makes no call into the host. A session played back.
+    pub answers: Option<Answers>,
 }
 
 impl Default for Options {
@@ -95,7 +99,43 @@ impl Default for Options {
             residual: None,
             session: false,
             unpack: false,
+            answers: None,
         }
+    }
+}
+
+/// What stands in for the host in a run without one: it sees each call across the platform
+/// boundary as the program makes it, and answers the part of the call the host would answer. The
+/// runtime answers the rest itself (the heap, the output, the threads and the callbacks), so a
+/// call the stand-in expects may run code of the program, whose calls it sees in turn.
+pub trait Answerer {
+    /// The call of `name` with `args` the program makes now, and the index the host's part of it
+    /// is answered by; a stop, which ends the run, for a call the stand-in does not expect.
+    fn expect(&mut self, name: &str, args: &[Value]) -> Result<usize, Stop>;
+
+    /// The host's answer to the call `expect` gave `index`, with the bytes the host wrote laid
+    /// into `memory`.
+    fn answer(&mut self, memory: &mut Memory, index: usize) -> Result<Value, Stop>;
+}
+
+/// An [`Answerer`], as an option of a run: shared, since the run takes a thread of its own and the
+/// caller reads what it saw once the run is over.
+#[derive(Clone)]
+pub struct Answers(pub Arc<Mutex<dyn Answerer + Send>>);
+
+impl std::fmt::Debug for Answers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Answers")
+    }
+}
+
+impl Answers {
+    pub(crate) fn expect(&self, name: &str, args: &[Value]) -> Result<usize, Stop> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).expect(name, args)
+    }
+
+    pub(crate) fn answer(&self, memory: &mut Memory, index: usize) -> Result<Value, Stop> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).answer(memory, index)
     }
 }
 
@@ -191,6 +231,9 @@ pub struct Outcome {
     /// Where control entered code the run wrote, when the options asked for the stop there and the
     /// run made it: the entry of the program an unpacker unpacked.
     pub unpacked: Option<u64>,
+    /// The calls the run made into the host's DLLs: none when the options' `answers` stood in for
+    /// the host.
+    pub hosted: u64,
 }
 
 /// One call of the program across the platform boundary: an import, or a `ra_*` function of the
@@ -327,10 +370,24 @@ fn run_here(
         vm.memory.write(base, image.mapped()).map_err(setup)?;
     }
     vm.place().map_err(setup)?;
-    let path = image.path.as_ref().map_or_else(|| "program.exe".to_owned(), |p| p.display().to_string());
+    // A run kept as a session, or played back from one, names the program by its file name
+    // alone: the path is in the program's memory, so a checkout of a longer path moves every
+    // allocation after it, and a session recorded in one tree would not replay in another.
+    let portable = options.session || options.answers.is_some();
+    let path = image.path.as_ref().map_or_else(
+        || "program.exe".to_owned(),
+        |p| match p.file_name() {
+            Some(name) if portable => name.to_string_lossy().into_owned(),
+            _ => p.display().to_string(),
+        },
+    );
     let args = std::iter::once(path).chain(options.args.iter().cloned()).collect();
     let mut runtime = Runtime::new(image, lifted, &mut vm, args, options.live, stack, heap);
     runtime.residual.clone_from(&options.residual);
+    runtime.answers.clone_from(&options.answers);
+    if options.answers.is_none() {
+        runtime.attach_host();
+    }
     if options.session {
         runtime.boundary = Some(host::Boundary::default());
     }
@@ -367,7 +424,8 @@ fn run_here(
     }
     let facts = facts_of(&vm, image, lifted, &options.args, &runtime.residual_ran);
     let boundary = runtime.boundary.take().map(|b| b.calls).unwrap_or_default();
-    Ok((Outcome { output: std::mem::take(&mut runtime.output), exit, stop, steps: vm.steps, facts, boundary, unpacked }, returned))
+    let output = std::mem::take(&mut runtime.output);
+    Ok((Outcome { output, exit, stop, steps: vm.steps, facts, boundary, unpacked, hosted: runtime.hosted }, returned))
 }
 
 /// Calls one function by its integer arguments, as a host calls an export: a function of the ARM64

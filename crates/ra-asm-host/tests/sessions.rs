@@ -5,20 +5,35 @@
 //! native run printed; one whose run does not is named and left without, since its calls are not
 //! the program's.
 //!
+//! And the replays: each fixture's run at the ABI level, recorded the same way at
+//! `testdata/sessions/abi/<name>.session`, runs again with its session standing in for the host,
+//! makes no call into the host and prints what the native run printed; and a session with one
+//! argument changed stops its replay at that event, by its number.
+//!
 //! And the person's program (`RA_GAME`, never committed): recorded once at the ABI level into the
 //! session `RA_GAME_SESSION` names, up to the host call the person chooses, and replayed against
 //! every build after, each event compared with the one the session holds.
 
+use std::collections::HashMap;
 use std::io::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 
-use ra_asm_host::session::{self, Event, Session};
-use ra_asm_lift::RaiseLevel;
+use ra_asm_host::Outcome;
+use ra_asm_host::replay;
+use ra_asm_host::session::{self, Answer, Event, Session, Value};
+use ra_asm_lift::raise::abi::Signature;
+use ra_asm_lift::{Lifted, RaiseLevel};
+use ra_asm_pe::Image;
 use ra_asm_testing::manifest::{self, Evidence};
 
-/// The sessions that must read back for the test to pass.
+/// The sessions that must read back for the test to pass, and the programs that must replay.
 const AT_LEAST: usize = 20;
+/// Where the sessions of the runs at the ABI level are, under `testdata/sessions`: the replays run
+/// there, since the machine level's calls take the registers the ABI level's do not have.
+const ABI: &str = "abi";
+/// The program whose session the replay of a changed argument changes.
+const CHANGED: &str = "hello64";
 /// IR instructions a recording run may take: a fixture is a short program.
 const LIMIT: u64 = 200_000_000;
 
@@ -34,30 +49,75 @@ fn fixtures(root: &Path) -> Vec<(PathBuf, PathBuf)> {
         .collect()
 }
 
-/// The session of the run of `exe`, when the run prints `expected`; why not otherwise.
-fn record(exe: &Path, expected: &str) -> Result<Session, String> {
-    let image = ra_asm_pe::load(exe).map_err(|e| format!("the image does not load: {e:#}"))?;
+/// `image` lifted and raised to `level`, standalone at the ABI level as a port is.
+fn lift(image: &Image, level: RaiseLevel) -> Result<(Lifted, HashMap<String, Signature>), String> {
     let raised = catch_unwind(AssertUnwindSafe(|| {
-        let analysis = ra_asm_analysis::analyze(&image);
-        let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
-        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
-        let options = lifted.raise_options(RaiseLevel::Machine);
+        let analysis = ra_asm_analysis::analyze(image);
+        let options = ra_asm_lift::LiftOptions { standalone: level == RaiseLevel::Abi, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(image, &analysis, options);
+        let options = lifted.raise_options(level);
         let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
         lifted.apply_names(&analysis, Some(&mut signatures));
         (lifted, signatures)
     }));
-    let (lifted, signatures) = raised.map_err(|_| "the lift or the raise panicked".to_owned())?;
+    raised.map_err(|_| "the lift or the raise panicked".to_owned())
+}
+
+/// Why the run printed other than `expected` or stopped, if it did.
+fn differs(outcome: &Outcome, expected: &str) -> Option<String> {
+    if let Some(stop) = &outcome.stop {
+        return Some(format!("the run stopped: {stop}"));
+    }
+    let output = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
+    (output.trim_end() != expected.replace("\r\n", "\n").trim_end()).then(|| "the run printed other than the native run".to_owned())
+}
+
+/// The session of the run of `exe` at `level`, when the run prints `expected`; why not otherwise.
+fn record(exe: &Path, expected: &str, level: RaiseLevel) -> Result<Session, String> {
+    let image = ra_asm_pe::load(exe).map_err(|e| format!("the image does not load: {e:#}"))?;
+    let (lifted, signatures) = lift(&image, level)?;
     let options = ra_asm_host::Options { limit: LIMIT, ..ra_asm_host::Options::default() };
     let (session, outcome) =
         session::record(&image, &lifted, &signatures, &options).map_err(|e| format!("the interpreter failed: {e:#}"))?;
-    if let Some(stop) = &outcome.stop {
-        return Err(format!("the run stopped: {stop}"));
+    match differs(&outcome, expected) {
+        Some(why) => Err(why),
+        None => Ok(session),
     }
-    let output = String::from_utf8_lossy(&outcome.output).replace("\r\n", "\n");
-    if output.trim_end() != expected.replace("\r\n", "\n").trim_end() {
-        return Err("the run printed other than the native run".to_owned());
+}
+
+fn stem(exe: &Path) -> String {
+    exe.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+fn read(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display())).replace("\r\n", "\n")
+}
+
+/// The ABI-level session of `exe`: the committed one, or on Windows the one its run records when
+/// the run prints `expected`, written to `path` when `keep` says so; why there is none otherwise.
+fn abi_session(exe: &Path, expected: &str, path: &Path, keep: bool) -> Result<Session, String> {
+    if path.exists() {
+        return Session::parse(&read(path)).map_err(|e| format!("{}: {e}", path.display()));
+    }
+    if !cfg!(windows) {
+        return Err("no session is committed, and this host has no Windows DLLs to record one".to_owned());
+    }
+    let session = record(exe, expected, RaiseLevel::Abi)?;
+    if keep {
+        // Whole or not at all: the other test may read the session as it lands.
+        let new = path.with_extension("session.new");
+        std::fs::write(&new, session.write()).unwrap_or_else(|e| panic!("{}: {e}", new.display()));
+        std::fs::rename(&new, path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     }
     Ok(session)
+}
+
+/// The replay of `session` over `exe` at the ABI level.
+fn play_back(exe: &Path, session: &Session) -> Result<(Outcome, replay::Report), String> {
+    let image = ra_asm_pe::load(exe).map_err(|e| format!("the image does not load: {e:#}"))?;
+    let (lifted, signatures) = lift(&image, RaiseLevel::Abi)?;
+    let options = ra_asm_host::Options { limit: LIMIT, ..ra_asm_host::Options::default() };
+    replay::run(&image, &lifted, &signatures, session, &options).map_err(|e| format!("the interpreter failed: {e:#}"))
 }
 
 #[test]
@@ -73,7 +133,7 @@ fn the_fixtures_sessions_read_back_in_their_format() {
             continue;
         }
         let expected = std::fs::read_to_string(&expected).unwrap_or_else(|e| panic!("{}: {e}", expected.display()));
-        match record(&exe, &expected) {
+        match record(&exe, &expected, RaiseLevel::Machine) {
             Ok(session) => std::fs::write(&path, session.write()).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
             Err(why) => unrecorded.push(format!("{name}: {why}")),
         }
@@ -103,6 +163,76 @@ fn the_fixtures_sessions_read_back_in_their_format() {
         unrecorded.join("\n")
     );
     println!("{} sessions read back equal", sessions.len());
+}
+
+#[test]
+fn the_fixtures_replay_at_the_abi_level_with_no_host() {
+    let root = manifest::workspace();
+    let dir = root.join("testdata/sessions").join(ABI);
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    let mut replayed = Vec::new();
+    let mut not = Vec::new();
+    for (exe, expected) in fixtures(&root) {
+        let name = stem(&exe);
+        let expected = read(&expected);
+        let session = match abi_session(&exe, &expected, &dir.join(format!("{name}.session")), true) {
+            Ok(session) => session,
+            Err(why) => {
+                not.push(format!("{name}: {why}"));
+                continue;
+            }
+        };
+        let (outcome, report) = match play_back(&exe, &session) {
+            Ok(replay) => replay,
+            Err(why) => {
+                not.push(format!("{name}: {why}"));
+                continue;
+            }
+        };
+        assert_eq!(outcome.hosted, 0, "{name}: the replay called into the host");
+        if let Some(difference) = &report.difference {
+            panic!("{name}: the replay of its committed session differs at {difference}");
+        }
+        assert!(report.whole(), "{name}: the replay made {} of the session's {} events", report.replayed, report.events);
+        if let Some(why) = differs(&outcome, &expected) {
+            panic!("{name}: the replay ran to its end, but {why}");
+        }
+        replayed.push(name);
+    }
+    for line in &not {
+        eprintln!("not replayed: {line}");
+    }
+    assert!(replayed.len() >= AT_LEAST, "{} programs replayed, fewer than {AT_LEAST}; not replayed:\n{}", replayed.len(), not.join("\n"));
+    println!("{} programs replayed at the ABI level with no host call: {}", replayed.len(), replayed.join(" "));
+}
+
+#[test]
+fn a_replay_names_the_event_where_an_argument_changed() {
+    let root = manifest::workspace();
+    let (exe, expected) = fixtures(&root)
+        .into_iter()
+        .find(|(exe, _)| stem(exe) == CHANGED)
+        .unwrap_or_else(|| panic!("the manifest lists no {CHANGED}.exe with a native output"));
+    let path = root.join("testdata/sessions").join(ABI).join(format!("{CHANGED}.session"));
+    let mut session = abi_session(&exe, &read(&expected), &path, false).unwrap_or_else(|why| panic!("{CHANGED}: {why}"));
+    // The last call with an integer argument, so the events before it replay as they are.
+    let index = session
+        .events
+        .iter()
+        .rposition(|event| matches!(event.args.first(), Some(Value::Int(_))) && !matches!(event.answer, Answer::Limit(_)))
+        .unwrap_or_else(|| panic!("{CHANGED}: no call of its session has an integer argument"));
+    let Some(Value::Int(n)) = session.events[index].args.first_mut() else { unreachable!("the event was found by its argument") };
+    *n ^= 1;
+    let name = session.events[index].name.clone();
+    let (outcome, report) = play_back(&exe, &session).unwrap_or_else(|why| panic!("{CHANGED}: {why}"));
+    assert_eq!(outcome.hosted, 0, "{CHANGED}: the replay called into the host");
+    let difference = report.difference.unwrap_or_else(|| panic!("{CHANGED}: the replay took the changed argument of {name}"));
+    assert_eq!(difference.event, index + 1, "{CHANGED}: the event named: {difference}");
+    assert_eq!(difference.name, name, "{CHANGED}: the call named: {difference}");
+    assert_eq!(report.replayed, index, "{CHANGED}: the events before the changed one replay");
+    let stop = outcome.stop.unwrap_or_default();
+    assert!(stop.contains(&format!("event {}:", index + 1)), "{CHANGED}: the run stops naming the event: {stop}");
+    println!("{CHANGED}: {difference}");
 }
 
 /// The stack of the thread the program's lift, raise and run take: a large program's analysis

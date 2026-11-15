@@ -55,6 +55,7 @@ pub(crate) fn run(image: &Image, options: &Options) -> Result<i32> {
         residual: None,
         session: session.is_some(),
         unpack: false,
+        answers: None,
     };
     let outcome = ra_asm_lift::run::run(image, &lifted, &signatures, &run)?;
     if let Some(stop) = &outcome.stop {

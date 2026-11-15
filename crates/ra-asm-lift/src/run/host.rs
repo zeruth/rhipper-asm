@@ -124,6 +124,12 @@ pub(super) struct Runtime<'a> {
     pub(super) residual_ran: BTreeSet<u64>,
     /// The calls across the platform boundary, while the run keeps them.
     pub(super) boundary: Option<Boundary>,
+    /// What stands in for the host, when the run has none: the host's part of every call is its.
+    pub(super) answers: Option<super::Answers>,
+    /// The index the stand-in gave the call across the boundary in flight.
+    event: Option<usize>,
+    /// The calls the run made into the host's DLLs.
+    pub(super) hosted: u64,
 }
 
 /// The calls across the platform boundary a run made, and those still running.
@@ -169,6 +175,55 @@ impl Boundary {
             vm.memory.arm();
         }
     }
+}
+
+impl Boundary {
+    /// Bytes the innermost running call wrote past the memory's log: a host DLL's writes.
+    fn saw(&mut self, runs: Vec<(u64, Vec<u8>)>) {
+        if let Some((_, bytes)) = self.open.last_mut() {
+            keep(bytes, runs);
+        }
+    }
+}
+
+/// The most of the memory behind one pointer argument [`watch`] reads.
+const WATCHED: u64 = 0x1000;
+
+/// The memory each pointer-like argument of a host call points into, as it is before the call:
+/// up to [`WATCHED`] bytes, or to the end of its page when the next one is not mapped. An
+/// argument that is no mapped address is passed over.
+fn watch(vm: &mut Vm<'_>, args: &[Value]) -> Vec<(u64, Vec<u8>)> {
+    let mut watched: Vec<(u64, Vec<u8>)> = Vec::new();
+    for address in args.iter().map(Value::as_u64).filter(|&a| a >= 0x1_0000) {
+        if watched.iter().any(|(start, run)| (*start..start + run.len() as u64).contains(&address)) {
+            continue;
+        }
+        let to_page_end = WATCHED - (address & (WATCHED - 1));
+        let bytes = vm.memory.read_vec(address, WATCHED).or_else(|_| vm.memory.read_vec(address, to_page_end));
+        if let Ok(bytes) = bytes {
+            watched.push((address, bytes));
+        }
+    }
+    watched
+}
+
+/// The bytes of `watched` that the call changed, as runs of adjacent addresses.
+fn changed(vm: &mut Vm<'_>, watched: &[(u64, Vec<u8>)]) -> Vec<(u64, Vec<u8>)> {
+    let mut runs: Vec<(u64, Vec<u8>)> = Vec::new();
+    for (start, before) in watched {
+        let Ok(after) = vm.memory.read_vec(*start, before.len() as u64) else { continue };
+        for (offset, (&old, &new)) in before.iter().zip(&after).enumerate() {
+            if old == new {
+                continue;
+            }
+            let address = start + offset as u64;
+            match runs.last_mut() {
+                Some((at, run)) if at.checked_add(run.len() as u64) == Some(address) => run.push(new),
+                _ => runs.push((address, vec![new])),
+            }
+        }
+    }
+    runs
 }
 
 /// `runs` laid over `bytes`, the later write of a byte over the earlier.
@@ -318,7 +373,7 @@ impl<'a> Runtime<'a> {
             output: Vec::new(),
             heap: Heap { next: heap.start, end: heap.start + heap.len },
             allocations: vec![stack, heap],
-            std_handles: [os::std_handle(-10i32 as u32), os::std_handle(-11i32 as u32), os::std_handle(-12i32 as u32)],
+            std_handles: [0; 3],
             std_files: [0, 0],
             imports,
             procedures: HashMap::new(),
@@ -342,15 +397,30 @@ impl<'a> Runtime<'a> {
             residual: None,
             residual_ran: BTreeSet::new(),
             boundary: None,
+            answers: None,
+            event: None,
+            hosted: 0,
         };
         runtime.thread.stack_bottom = runtime.allocations[0].start;
-        // The host's own standard streams, so a `printf` through a `FILE` the host handed the
-        // program still lands in the captured output.
-        if let Some(iob) = os::library("ucrtbase.dll").and_then(|m| os::procedure(m, "__acrt_iob_func")) {
-            runtime.std_files =
-                [unsafe { os::call8(iob, &[1, 0, 0, 0, 0, 0, 0, 0]) }, unsafe { os::call8(iob, &[2, 0, 0, 0, 0, 0, 0, 0]) }];
-        }
         runtime
+    }
+
+    /// The host's standard handles, and its own standard streams, so a `printf` through a `FILE`
+    /// the host handed the program still lands in the captured output. A run with a stand-in for
+    /// the host takes the handles from the `GetStdHandle` calls the stand-in answers instead.
+    pub(super) fn attach_host(&mut self) {
+        self.std_handles = [os::std_handle(-10i32 as u32), os::std_handle(-11i32 as u32), os::std_handle(-12i32 as u32)];
+        if let Some(iob) = os::library("ucrtbase.dll").and_then(|m| os::procedure(m, "__acrt_iob_func")) {
+            self.std_files = [unsafe { os::call8(iob, &[1, 0, 0, 0, 0, 0, 0, 0]) }, unsafe { os::call8(iob, &[2, 0, 0, 0, 0, 0, 0, 0]) }];
+        }
+    }
+
+    /// The stand-in's answer to the host's part of the call across the boundary in flight.
+    fn replayed(&self, vm: &mut Vm<'_>) -> Result<Value, Stop> {
+        match (&self.answers, self.event) {
+            (Some(answers), Some(index)) => answers.answer(&mut vm.memory, index),
+            _ => Err(Stop::fault("a call into the host outside the calls the stand-in for the host was told of")),
+        }
     }
 
     // region Setup
@@ -648,6 +718,8 @@ impl<'a> Runtime<'a> {
                 }
             }
             "ra_teb" => int(self.thread.teb),
+            // The processor's queries are the host's: its stand-in answers them.
+            "ra_cpuid" | "ra_xgetbv" | "ra_rdtsc" if self.answers.is_some() => self.replayed(vm),
             "ra_cpuid" => {
                 let regs = cpuid(arg(args, 0) as u32, arg(args, 1) as u32);
                 let out = arg(args, 2);
@@ -1193,6 +1265,32 @@ impl<'a> Runtime<'a> {
                 vm.memory.write(a(0), &bytes)?;
                 some(a(0))
             }
+            // The C runtime's writers through a pointer: the host's would write past the memory's
+            // log, so a session would hold none of their bytes and its replay would lose them.
+            "memset" => {
+                vm.memory.write(a(0), &vec![a(1) as u8; a(2) as usize])?;
+                some(a(0))
+            }
+            "strcpy" | "strcat" => {
+                let mut bytes = vm.memory.read_cstr(a(1), 1 << 20)?;
+                bytes.push(0);
+                let at = if name == "strcat" { a(0) + vm.memory.read_cstr(a(0), 1 << 20)?.len() as u64 } else { a(0) };
+                vm.memory.write(at, &bytes)?;
+                some(a(0))
+            }
+            "strncpy" => {
+                let mut bytes = vm.memory.read_cstr(a(1), a(2) as usize)?;
+                bytes.resize(a(2) as usize, 0);
+                vm.memory.write(a(0), &bytes)?;
+                some(a(0))
+            }
+            "strncat" => {
+                let mut bytes = vm.memory.read_cstr(a(1), a(2) as usize)?;
+                bytes.push(0);
+                let at = a(0) + vm.memory.read_cstr(a(0), 1 << 20)?.len() as u64;
+                vm.memory.write(at, &bytes)?;
+                some(a(0))
+            }
             "abort" => Err(Stop::Exit(3)),
             // A 32-bit program's exit function and filter are addresses in its own image: handed to
             // the host's C runtime they would be called at the host's exit, an access violation.
@@ -1271,7 +1369,13 @@ impl<'a> Runtime<'a> {
             "VirtualAlloc" if a(0) == 0 => some(self.allocate(vm, a(1), 4096)?),
             "VirtualFree" if self.in_heap(a(0)) => some(1),
             "GetModuleHandleA" | "GetModuleHandleW" if a(0) == 0 => some(self.image.image_base()),
+            "GetModuleHandleA" | "GetModuleHandleW" | "LoadLibraryA" | "LoadLibraryW" | "LoadLibraryExA" | "LoadLibraryExW"
+                if self.answers.is_some() =>
+            {
+                self.replayed(vm).map(Some)
+            }
             "GetModuleHandleA" | "GetModuleHandleW" | "LoadLibraryA" | "LoadLibraryW" | "LoadLibraryExA" | "LoadLibraryExW" => {
+                self.hosted += 1;
                 let wide = name.ends_with('W');
                 let text = if wide {
                     String::from_utf16_lossy(&vm.memory.read_wstr(a(0), 1 << 12)?)
@@ -1287,7 +1391,30 @@ impl<'a> Runtime<'a> {
                 }
                 some(1)
             }
+            // The function the stand-in found comes back bound as the host's does, so a call
+            // through it is expected and answered like a direct one.
+            "GetProcAddress" if self.answers.is_some() => {
+                let found = self.replayed(vm)?.as_u64();
+                if found == 0 {
+                    return some(0);
+                }
+                if a(1) < 0x10000 {
+                    return Err(Stop::fault(format!(
+                        "GetProcAddress of the ordinal {} with no host: its binding names a host module the session does not hold",
+                        a(1)
+                    )));
+                }
+                let proc = String::from_utf8_lossy(&vm.memory.read_cstr(a(1), 1 << 12)?).into_owned();
+                let bound = vm.bind_external(&proc)?;
+                if bound != found {
+                    return Err(Stop::fault(format!(
+                        "GetProcAddress of {proc} answered {found:#x}, and {proc} is bound at {bound:#x} here"
+                    )));
+                }
+                some(bound)
+            }
             "GetProcAddress" => {
+                self.hosted += 1;
                 let module = a(0);
                 let Some(host) = self.host_module(module) else { return some(0) };
                 let proc = if a(1) < 0x10000 {
@@ -1590,8 +1717,34 @@ impl<'a> Runtime<'a> {
     }
 
     /// A call into the host: by the import's prototype when the table has one with floating-point
-    /// arguments or result, else with the eight-integer adapter.
-    fn native_call(&mut self, _vm: &mut Vm<'_>, symbol: &str, ty: &FnType, args: &[Value]) -> Result<Value, Stop> {
+    /// arguments or result, else with the eight-integer adapter. With a stand-in for the host, the
+    /// stand-in's answer instead.
+    fn native_call(&mut self, vm: &mut Vm<'_>, symbol: &str, ty: &FnType, args: &[Value]) -> Result<Value, Stop> {
+        if self.answers.is_some() {
+            let answer = self.replayed(vm)?;
+            // The standard handles are those the stand-in hands out, so a write to one is output.
+            if symbol == "GetStdHandle"
+                && let Some(which) = (arg(args, 0) as u32).wrapping_neg().checked_sub(10).filter(|&which| which < 3)
+            {
+                self.std_handles[which as usize] = answer.as_u64();
+            }
+            return Ok(answer);
+        }
+        // A host DLL writes through the pointers it is handed past the memory's log (a file's
+        // `WriteFile` count, a `ReadFile` buffer): while the run keeps its boundary, what the
+        // pointed-at memory holds is read before the call and again after, and what changed is
+        // the call's writes, so a replay leaves the same bytes.
+        let watched = if self.boundary.is_some() { watch(vm, args) } else { Vec::new() };
+        let result = self.host_call(symbol, ty, args);
+        if let Some(boundary) = &mut self.boundary {
+            boundary.saw(changed(vm, &watched));
+        }
+        result
+    }
+
+    /// The call into the host's DLL itself, for [`Self::native_call`].
+    fn host_call(&mut self, symbol: &str, ty: &FnType, args: &[Value]) -> Result<Value, Stop> {
+        self.hosted += 1;
         let f = self.procedure(symbol)?;
         let typed = prototypes::typed(symbol);
         let floating = |k: &Kind| matches!(k, Kind::Float | Kind::Double);
@@ -1640,6 +1793,19 @@ impl<'a> Runtime<'a> {
     }
 
     // endregion
+
+    /// A call the program made, answered here: the stand-in for the host, when the run has one,
+    /// hears of a call across the boundary first, and answers the host's part of it.
+    fn answer_call(&mut self, vm: &mut Vm<'_>, name: &str, ty: &FnType, args: &[Value]) -> Result<Value, Stop> {
+        let event = match &self.answers {
+            Some(answers) if crosses(name) => Some(answers.expect(name, args)?),
+            _ => None,
+        };
+        let outer = std::mem::replace(&mut self.event, event);
+        let result = if name.starts_with("ra_") { self.runtime_call(vm, name, args) } else { self.import_call(vm, name, ty, args) };
+        self.event = outer;
+        result
+    }
 }
 
 impl Host for Runtime<'_> {
@@ -1648,7 +1814,7 @@ impl Host for Runtime<'_> {
         if kept && let Some(boundary) = &mut self.boundary {
             boundary.begin(vm, name, args);
         }
-        let result = if name.starts_with("ra_") { self.runtime_call(vm, name, args) } else { self.import_call(vm, name, ty, args) };
+        let result = self.answer_call(vm, name, ty, args);
         if kept && let Some(boundary) = &mut self.boundary {
             boundary.end(vm, &result);
         }
