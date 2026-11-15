@@ -3,12 +3,14 @@
 //! with the residual engine behind its [`run`] for the code the lift does not have, the record
 //! of a run's events at that boundary, its [`session`], a session played back in place of the host,
 //! its [`replay`], and the conversion of the structures the program and the host hand each other
-//! between their layouts, its [`adapt`].
+//! between their layouts, its [`adapt`]. The program an unpacking stub wrote, the run stopped where
+//! it enters it, is a PE file of its own by [`unpack`].
 
 pub mod adapt;
 mod host;
 pub mod replay;
 pub mod session;
+pub mod unpack;
 
 pub use host::{residual, run};
 pub use ra_asm_lift::run::*;

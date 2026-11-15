@@ -231,9 +231,26 @@ pub struct Outcome {
     /// Where control entered code the run wrote, when the options asked for the stop there and the
     /// run made it: the entry of the program an unpacker unpacked.
     pub unpacked: Option<u64>,
+    /// The image's bytes from its base as the run left them, when it stopped at `unpacked`: the
+    /// program the unpacker wrote, with the addresses `resolved` names in its import slots.
+    pub image: Vec<u8>,
+    /// Each function the program asked the host for by name (a `GetProcAddress`), in the order it
+    /// asked.
+    pub resolved: Vec<Resolved>,
     /// The calls the run made into the host's DLLs: none when the options' `answers` stood in for
     /// the host.
     pub hosted: u64,
+}
+
+/// A function of a DLL the host answered the program's ask for with an address of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolved {
+    /// The address the program got, which names the function in the run.
+    pub address: u64,
+    /// The DLL by the name the program loaded it by.
+    pub dll: String,
+    /// The function's name, or `#<ordinal>`.
+    pub name: String,
 }
 
 /// One call of the program across the platform boundary: an import, or a `ra_*` function of the
@@ -424,8 +441,15 @@ fn run_here(
     }
     let facts = facts_of(&vm, image, lifted, &options.args, &runtime.residual_ran);
     let boundary = runtime.boundary.take().map(|b| b.calls).unwrap_or_default();
+    let image_bytes = match unpacked {
+        Some(_) => vm.memory.read_vec(base, u64::from(image.size_of_image())).map_err(setup)?,
+        None => Vec::new(),
+    };
+    let resolved = std::mem::take(&mut runtime.resolved);
     let output = std::mem::take(&mut runtime.output);
-    Ok((Outcome { output, exit, stop, steps: vm.steps, facts, boundary, unpacked, hosted: runtime.hosted }, returned))
+    let outcome =
+        Outcome { output, exit, stop, steps: vm.steps, facts, boundary, unpacked, image: image_bytes, resolved, hosted: runtime.hosted };
+    Ok((outcome, returned))
 }
 
 /// Calls one function by its integer arguments, as a host calls an export: a function of the ARM64

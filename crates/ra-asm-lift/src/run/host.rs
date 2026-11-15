@@ -97,6 +97,10 @@ pub(super) struct Runtime<'a> {
     procedures: HashMap<String, usize>,
     /// The host handles behind the module handles a 32-bit program holds.
     modules: Vec<usize>,
+    /// The name the program loaded each host module by, for the functions it asks of the module.
+    libraries: HashMap<usize, String>,
+    /// The functions the program asked the host for by name, as it asked for them.
+    pub(super) resolved: Vec<super::Resolved>,
     threads: Vec<Option<u32>>,
     thread: Thread,
     next_thread_id: u32,
@@ -378,6 +382,8 @@ impl<'a> Runtime<'a> {
             imports,
             procedures: HashMap::new(),
             modules: Vec::new(),
+            libraries: HashMap::new(),
+            resolved: Vec::new(),
             threads: Vec::new(),
             thread: Thread { teb: 0, stack_top, stack_bottom: 0, id: tid },
             next_thread_id: tid.wrapping_add(1),
@@ -1383,6 +1389,7 @@ impl<'a> Runtime<'a> {
                     String::from_utf8_lossy(&vm.memory.read_cstr(a(0), 1 << 12)?).into_owned()
                 };
                 let Some(module) = os::library(&text) else { return some(0) };
+                self.libraries.entry(module).or_insert(text);
                 some(self.module_handle(module))
             }
             "GetModuleHandleExA" | "GetModuleHandleExW" if a(1) == 0 || a(0) & 4 != 0 => {
@@ -1425,9 +1432,13 @@ impl<'a> Runtime<'a> {
                 let Some(f) = os::procedure(host, &proc) else { return some(0) };
                 // The function comes back as an address of the interpreter's that names it, so a
                 // call through it is intercepted like a direct one (and fits a dword).
-                let symbol = if proc.starts_with('#') { format!("{proc}@{host:x}") } else { proc };
+                let symbol = if proc.starts_with('#') { format!("{proc}@{host:x}") } else { proc.clone() };
                 self.procedures.insert(symbol.clone(), f);
-                some(vm.bind_external(&symbol)?)
+                let address = vm.bind_external(&symbol)?;
+                if let Some(dll) = self.libraries.get(&host) {
+                    self.resolved.push(super::Resolved { address, dll: dll.clone(), name: proc });
+                }
+                some(address)
             }
             "GetCommandLineA" => some(self.command_line(vm, false)?),
             "GetCommandLineW" => some(self.command_line(vm, true)?),
