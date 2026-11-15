@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 
-use ra_asm_ir::{BinOp, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Type, ValueId};
+use ra_asm_ir::{AtomicOp, BinOp, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Type, ValueId};
 
 use crate::c::{EmittedFile, EmittedFunction};
 use crate::common::{Defs, identifier, identifiers, parenthesized, strip_parens, trap_count};
@@ -1093,7 +1093,36 @@ impl Emitter<'_> {
                 }
             }
             Inst::Freeze { ty, value } => self.operand(ty, value),
+            Inst::AtomicRmw { op, ty, ptr, value } => {
+                let method = match op {
+                    AtomicOp::Xchg => "swap",
+                    AtomicOp::Add => "fetch_add",
+                    AtomicOp::Sub => "fetch_sub",
+                    AtomicOp::And => "fetch_and",
+                    AtomicOp::Or => "fetch_or",
+                    AtomicOp::Xor => "fetch_xor",
+                };
+                let v = strip_parens(&self.operand(ty, value));
+                format!("{}.{method}({v}, core::sync::atomic::Ordering::SeqCst)", self.atomic(ty, ptr))
+            }
+            Inst::CmpXchg { ty, ptr, expected, new } => {
+                let (e, n) = (strip_parens(&self.operand(ty, expected)), strip_parens(&self.operand(ty, new)));
+                format!(
+                    "{}.compare_exchange({e}, {n}, core::sync::atomic::Ordering::SeqCst, core::sync::atomic::Ordering::SeqCst).unwrap_or_else(|old| old)",
+                    self.atomic(ty, ptr)
+                )
+            }
         }
+    }
+
+    /// The integer of `ty` at `ptr` as the atomic of its width.
+    fn atomic(&self, ty: &Type, ptr: &Operand) -> String {
+        self.needs(RAW_MEMORY);
+        let bits = match ty {
+            Type::Int(bits) => *bits,
+            _ => 64,
+        };
+        format!("core::sync::atomic::AtomicU{bits}::from_ptr({} as *mut {})", self.operand(&Type::Ptr, ptr), rust_type(ty))
     }
 
     fn bin(&self, op: BinOp, ty: &Type, lhs: &Operand, rhs: &Operand) -> String {

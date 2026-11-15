@@ -374,6 +374,7 @@ pub fn virtual_calls(
                     registers.clear();
                     stored.clear();
                 }
+                Inst::AtomicRmw { .. } | Inst::CmpXchg { .. } => stored.clear(),
                 _ => {}
             }
         }

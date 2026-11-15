@@ -279,7 +279,7 @@ fn pure(positions: &HashMap<ValueId, &Inst>, term: &Operand, depth: usize) -> bo
     let Some(inst) = positions.get(v) else { return true };
     match inst {
         Inst::Phi { .. } => true,
-        Inst::Load { .. } | Inst::Call { .. } | Inst::Alloca { .. } => false,
+        Inst::Load { .. } | Inst::Call { .. } | Inst::Alloca { .. } | Inst::AtomicRmw { .. } | Inst::CmpXchg { .. } => false,
         _ => depth < 16 && inst.operands().iter().all(|o| pure(positions, o, depth + 1)),
     }
 }

@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use ra_asm_analysis::{Analysis, Block, Function, Terminator as T};
-use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, ICond, Inst, Operand, Terminator, Type, ValueId};
+use ra_asm_ir::{AtomicOp, BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, ICond, Inst, Operand, Terminator, Type, ValueId};
 use ra_asm_pe::Image;
 use ra_asm_x86::X86;
 use ra_asm_x86::iced_x86::{Code, ConditionCode, EncodingKind, Instruction, Mnemonic, OpKind, Register as R};
@@ -982,11 +982,109 @@ impl Lifter<'_, '_> {
 
     // region Instructions
 
+    /// A locked instruction on memory, and an `xchg` with memory, which is locked without the
+    /// prefix: one atomic step on the integer there, its flags computed from the integer it was,
+    /// so another thread's step lands wholly before or after it. `None` for any other
+    /// instruction, and for the locked forms with no atomic of the IR yet (`adc`, `sbb`, `neg`,
+    /// the bit tests, `cmpxchg8b`), which lift as their plain kin.
+    fn atomic(&mut self, block: BlockId, i: &Instruction) -> Option<BlockId> {
+        use Mnemonic as M;
+        let mem0 = i.op_kind(0) == OpKind::Memory;
+        if i.mnemonic() == M::Xchg && (mem0 || i.op_kind(1) == OpKind::Memory) {
+            let reg = u32::from(mem0);
+            let ty = Type::Int(self.op_bits(i, reg));
+            let address = self.mem_address(block, i);
+            let v = self.read(block, i, reg);
+            let old = self.m.atomic_rmw(block, AtomicOp::Xchg, ty, v, address);
+            self.write(block, i, reg, old);
+            return Some(block);
+        }
+        if !mem0 || !i.has_lock_prefix() {
+            return None;
+        }
+        let bits = self.op_bits(i, 0);
+        let ty = Type::Int(bits);
+        match i.mnemonic() {
+            M::Add | M::Sub | M::And | M::Or | M::Xor => {
+                let rhs = self.read(block, i, 1);
+                let rhs = self.widen_to(block, i, 1, rhs, bits);
+                let address = self.mem_address(block, i);
+                let (op, logic) = match i.mnemonic() {
+                    M::Add => (AtomicOp::Add, None),
+                    M::Sub => (AtomicOp::Sub, None),
+                    M::And => (AtomicOp::And, Some(BinOp::And)),
+                    M::Or => (AtomicOp::Or, Some(BinOp::Or)),
+                    _ => (AtomicOp::Xor, Some(BinOp::Xor)),
+                };
+                let old = self.m.atomic_rmw(block, op, ty.clone(), rhs, address);
+                match logic {
+                    Some(logic) => {
+                        let result = self.m.b.bin(block, logic, ty.clone(), old, rhs, "logic");
+                        self.logic_flags(block, ty, result);
+                    }
+                    None if op == AtomicOp::Add => {
+                        self.add(block, ty, old, rhs, None);
+                    }
+                    None => {
+                        self.sub(block, ty, old, rhs, None);
+                    }
+                }
+            }
+            M::Inc | M::Dec => {
+                let address = self.mem_address(block, i);
+                let one = self.m.value_of(block, ty.clone(), 1i64);
+                let cf = self.m.get_flag(block, Flag::Cf);
+                if i.mnemonic() == M::Inc {
+                    let old = self.m.atomic_rmw(block, AtomicOp::Add, ty.clone(), one, address);
+                    self.add(block, ty, old, one, None);
+                } else {
+                    let old = self.m.atomic_rmw(block, AtomicOp::Sub, ty.clone(), one, address);
+                    self.sub(block, ty, old, one, None);
+                }
+                self.m.set_flag(block, Flag::Cf, cf); // inc and dec keep CF
+            }
+            M::Not => {
+                let address = self.mem_address(block, i);
+                let ones = self.m.value_of(block, ty.clone(), -1i64);
+                self.m.atomic_rmw(block, AtomicOp::Xor, ty, ones, address);
+            }
+            M::Xadd => {
+                let address = self.mem_address(block, i);
+                let src = self.read(block, i, 1);
+                let old = self.m.atomic_rmw(block, AtomicOp::Add, ty.clone(), src, address);
+                self.add(block, ty, old, src, None);
+                self.write(block, i, 1, old);
+            }
+            M::Cmpxchg => {
+                let acc = accumulator(bits);
+                let address = self.mem_address(block, i);
+                let a = self.m.read_gpr(block, acc);
+                let src = self.read(block, i, 1);
+                let old = self.m.cmpxchg(block, ty.clone(), a, src, address);
+                self.sub(block, ty, a, old, None);
+                let equal = self.m.get_flag(block, Flag::Zf);
+                // A failed exchange brings the integer to the accumulator; a done one leaves the
+                // accumulator unwritten, its upper half too.
+                let keep = self.m.b.block("cx.keep");
+                let done = self.m.b.block("cx.done");
+                self.m.b.terminate(block, Terminator::CondBr { cond: equal.into(), then: done, els: keep });
+                self.m.write_gpr(keep, acc, old);
+                self.m.b.terminate(keep, Terminator::Br(done));
+                return Some(done);
+            }
+            _ => return None,
+        }
+        Some(block)
+    }
+
     /// Lifts one instruction into `block`; returns the block to continue in.
     fn lift_instr(&mut self, block: BlockId, i: &Instruction) -> BlockId {
         use Mnemonic as M;
         let ip = i.ip();
         let next_ip = i.next_ip();
+        if let Some(next) = self.atomic(block, i) {
+            return next;
+        }
         match i.mnemonic() {
             M::Nop
             | M::Endbr64

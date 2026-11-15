@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use super::{ParseError, Parser, Tok, float_of, refusal, unescape};
-use crate::inst::{BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand, Terminator};
+use crate::inst::{AtomicOp, BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand, Terminator};
 use crate::module::{Block, BlockId, Function, Linkage, NameIndex, ValueId};
 use crate::types::{FnType, Type};
 
@@ -201,6 +201,7 @@ impl Parser<'_> {
                 continue;
             }
             match (&self.tokens[i].tok, &self.tokens[i + 1].tok) {
+                (Tok::Local(_), Tok::Punct(b'=')) if self.cmpxchg_pair(i) => {}
                 (Tok::Local(name), Tok::Punct(b'=')) if !names.define_value(name) => return Err(twice(i, "is defined twice")),
                 (tok, Tok::Punct(b':')) => {
                     if let Some(name) = label_name(tok)
@@ -215,6 +216,39 @@ impl Parser<'_> {
         Ok(names)
     }
 
+    /// Whether the `%name =` at token `at` names the pair of a `cmpxchg`, which is no value of the
+    /// function: the value is the one the next line takes out of the pair.
+    fn cmpxchg_pair(&self, at: usize) -> bool {
+        self.tokens.get(at + 2).is_some_and(|t| t.tok == Tok::Word("cmpxchg"))
+    }
+
+    /// `%value = extractvalue { T, i1 } %pair, 0`, the line after a `cmpxchg` that defines its
+    /// value; gives the value.
+    fn cmpxchg_value(&mut self, names: &Names) -> Result<ValueId, ParseError> {
+        let id = match self.peek() {
+            Some(Tok::Local(name)) => self.value_of(name, names)?,
+            _ => return Err(self.refuse("the value taken out of the `cmpxchg` is expected")),
+        };
+        self.at += 1;
+        self.expect(b'=')?;
+        self.expect_word("extractvalue")?;
+        self.expect(b'{')?;
+        self.ty()?;
+        self.expect(b',')?;
+        self.expect_word("i1")?;
+        self.expect(b'}')?;
+        if !matches!(self.peek(), Some(Tok::Local(_))) {
+            return Err(self.refuse("the pair of the `cmpxchg` is expected"));
+        }
+        self.at += 1;
+        self.expect(b',')?;
+        let field: u64 = self.number("the field of the pair")?;
+        if field != 0 {
+            return Err(self.refuse("the value of a `cmpxchg` is the pair's field 0"));
+        }
+        Ok(id)
+    }
+
     /// A label, its instructions and its terminator; the type of each value defined lands in
     /// `value_types`.
     fn block(&mut self, names: &Names, value_types: &mut [Type], id: BlockId) -> Result<Block, ParseError> {
@@ -224,7 +258,12 @@ impl Parser<'_> {
         let mut instrs = Vec::new();
         let terminator = loop {
             let line = self.here();
-            let result = match self.peek() {
+            let pair = matches!(self.peek(), Some(Tok::Local(_))) && self.cmpxchg_pair(self.at);
+            let mut result = match self.peek() {
+                Some(Tok::Local(_)) if pair => {
+                    self.at += 2;
+                    None
+                }
                 Some(Tok::Local(name)) => {
                     let id = self.value_of(name, names)?;
                     self.at += 1;
@@ -243,6 +282,13 @@ impl Parser<'_> {
             }
             let opcode = self.at;
             let inst = self.inst(names)?;
+            let address = self.addresses.get(&line).copied();
+            if pair {
+                self.end_of_line(line)?;
+                let line = self.here();
+                result = Some(self.cmpxchg_value(names)?);
+                self.end_of_line(line)?;
+            }
             if let Some(id) = result {
                 let ty = inst.result_type();
                 if ty == Type::Void {
@@ -251,8 +297,10 @@ impl Parser<'_> {
                 }
                 value_types[id.0 as usize] = ty;
             }
-            self.end_of_line(line)?;
-            instrs.push(Instruction { result, inst, address: self.addresses.get(&line).copied() });
+            if !pair {
+                self.end_of_line(line)?;
+            }
+            instrs.push(Instruction { result, inst, address });
         };
         Ok(Block { id, name, instrs, terminator, address })
     }
@@ -492,6 +540,29 @@ impl Parser<'_> {
                 let ty = self.ty()?;
                 let value = self.operand(&ty, names)?;
                 Inst::Freeze { ty, value }
+            }
+            "atomicrmw" => {
+                let op = AtomicOp::ALL.into_iter().find(|op| Some(op.name()) == self.word());
+                let op = op.ok_or_else(|| self.refuse("is not an atomic operation"))?;
+                self.at += 1;
+                let ptr = self.pointer(names)?;
+                self.expect(b',')?;
+                let ty = self.ty()?;
+                let value = self.operand(&ty, names)?;
+                self.expect_word("seq_cst")?;
+                Inst::AtomicRmw { op, ty, ptr, value }
+            }
+            "cmpxchg" => {
+                let ptr = self.pointer(names)?;
+                self.expect(b',')?;
+                let ty = self.ty()?;
+                let expected = self.operand(&ty, names)?;
+                self.expect(b',')?;
+                self.typed(&ty)?;
+                let new = self.operand(&ty, names)?;
+                self.expect_word("seq_cst")?;
+                self.expect_word("seq_cst")?;
+                Inst::CmpXchg { ty, ptr, expected, new }
             }
             _ => {
                 self.at = opcode;

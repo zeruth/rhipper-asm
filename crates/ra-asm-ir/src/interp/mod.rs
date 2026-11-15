@@ -23,7 +23,7 @@ pub use memory::{Memory, Region};
 pub use observe::Observer;
 pub use value::{Layout, Value, mask, sext};
 
-use crate::inst::{BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand};
+use crate::inst::{AtomicOp, BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand};
 use crate::module::{BlockId, Const, Function, Module};
 use crate::types::{FnType, Type};
 
@@ -698,6 +698,37 @@ impl<'m> Vm<'m> {
                 ))
             }
             Inst::Freeze { ty, value } => self.eval(f, values, value, ty),
+            // One thread runs at a time here, so the atomic step is the plain load and store.
+            Inst::AtomicRmw { op, ty, ptr, value } => {
+                let address = self.eval(f, values, ptr, &Type::Ptr)?.as_u64();
+                let v = self.eval(f, values, value, ty)?;
+                let bytes = self.memory.read_vec(address, self.layout().size(ty))?;
+                let old = Value::from_bytes(ty, &bytes, &self.layout());
+                let new = match op {
+                    AtomicOp::Xchg => v,
+                    AtomicOp::Add => self.binary(BinOp::Add, ty, &old, &v)?,
+                    AtomicOp::Sub => self.binary(BinOp::Sub, ty, &old, &v)?,
+                    AtomicOp::And => self.binary(BinOp::And, ty, &old, &v)?,
+                    AtomicOp::Or => self.binary(BinOp::Or, ty, &old, &v)?,
+                    AtomicOp::Xor => self.binary(BinOp::Xor, ty, &old, &v)?,
+                };
+                let bytes = new.to_bytes(ty, &self.layout());
+                self.memory.write(address, &bytes)?;
+                Ok(old)
+            }
+            Inst::CmpXchg { ty, ptr, expected, new } => {
+                let address = self.eval(f, values, ptr, &Type::Ptr)?.as_u64();
+                let expected = self.eval(f, values, expected, ty)?;
+                let new = self.eval(f, values, new, ty)?;
+                let bytes = self.memory.read_vec(address, self.layout().size(ty))?;
+                let old = Value::from_bytes(ty, &bytes, &self.layout());
+                let bits = mask(self.layout().bits(ty));
+                if old.as_u128() & bits == expected.as_u128() & bits {
+                    let bytes = new.to_bytes(ty, &self.layout());
+                    self.memory.write(address, &bytes)?;
+                }
+                Ok(old)
+            }
             Inst::Phi { .. } => Err(Stop::fault(format!("a phi after the first instructions of a block of @{}", f.name))),
             Inst::Call { fn_ty, callee, args, .. } => {
                 let mut evaluated = Vec::with_capacity(args.len());

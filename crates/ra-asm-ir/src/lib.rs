@@ -4,7 +4,7 @@
 //!
 //! The subset: integer, float, pointer, vector, array and named struct types; `alloca`, `load`,
 //! `store`, the binary operations, `icmp`, `fcmp`, `select`, the casts, `getelementptr`, `call`,
-//! `phi`; `ret`, `br`, `switch` and `unreachable`. Values are named, never numbered, so a pass can
+//! `phi`, `atomicrmw` and `cmpxchg`; `ret`, `br`, `switch` and `unreachable`. Values are named, never numbered, so a pass can
 //! insert and remove them freely.
 //!
 //! [`interp`] runs a module directly: a value per type, the instruction subset over a flat memory,
@@ -25,6 +25,6 @@ pub mod printer;
 pub mod types;
 
 pub use builder::FunctionBuilder;
-pub use inst::{BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand, Terminator};
+pub use inst::{AtomicOp, BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand, Terminator};
 pub use module::{Block, BlockId, CallConv, Const, Declaration, Function, Global, Linkage, Module, ValueId};
 pub use types::{FnType, Type};

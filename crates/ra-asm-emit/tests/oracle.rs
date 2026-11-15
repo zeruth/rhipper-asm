@@ -1891,8 +1891,8 @@ fn rhtest_sys_clang_runs_as_rust() {
 
 /// The window procedure reads the CREATESTRUCTA, WINDOWPOS and NCCALCSIZE_PARAMS of its messages
 /// as copies in its own layout, which the runtime's adapter brings back, and on to DefWindowProcA.
+/// Its four threads take a spin lock by `xchg`, which ports as an atomic exchange.
 #[test]
-#[ignore = "all 31 of win's lines match on a run its threads do not race; the lift has no atomic operations, so spin_lock's `xchg` is a plain load and store and four threads lose increments of `spin counter` on most runs (#501)"]
 fn rhtest_win_clang_runs_as_c() {
     run_rhtest_as_c("win", "clang");
 }

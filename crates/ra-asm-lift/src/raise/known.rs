@@ -191,7 +191,7 @@ fn forward_stores(f: &mut Function) -> bool {
                     }
                     _ => slots.clear(),
                 },
-                Inst::Store { .. } | Inst::Call { .. } => slots.clear(),
+                Inst::Store { .. } | Inst::Call { .. } | Inst::AtomicRmw { .. } | Inst::CmpXchg { .. } => slots.clear(),
                 Inst::Load { ty: ty @ Type::Int(bits), ptr, volatile: false, .. } => {
                     let Some(v) = i.result else { continue };
                     let Some((root, offset)) = place(ptr, &defs) else { continue };

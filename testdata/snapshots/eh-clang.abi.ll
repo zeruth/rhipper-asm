@@ -11887,19 +11887,21 @@ b_4029ba:  ; 0x4029ba
   %addr.z.3 = zext i32 %addr to i64  ; 0x4029c5
   %m.p.1 = inttoptr i64 %addr.z.3 to ptr  ; 0x4029c5
   %m.1 = load i32, ptr %m.p.1, align 1  ; 0x4029c5
-  %m.p.2 = inttoptr i64 %esi.z to ptr  ; 0x4029cc
-  %m.2 = load i32, ptr %m.p.2, align 1  ; 0x4029cc
-  %zf.3 = icmp eq i32 0, %m.2  ; 0x4029cc
-  br i1 %zf.3, label %cx.swap, label %cx.keep
+  %cx.p = inttoptr i64 %esi.z to ptr  ; 0x4029cc
+  %old.pair = cmpxchg ptr %cx.p, i32 0, i32 %m.1 seq_cst seq_cst  ; 0x4029cc
+  %old = extractvalue { i32, i1 } %old.pair, 0
+  %zf.3 = icmp eq i32 0, %old  ; 0x4029cc
+  br i1 %zf.3, label %cx.done, label %cx.keep
 b_4029d4:  ; 0x4029d4
   %rax.phi.1 = phi i64 [ %rax.phi, %cx.done ], [ %rax.phi.2, %cx.done.1 ]  ; 0x4029d4
   %eax.6 = trunc i64 %rax.phi.1 to i32  ; 0x4029d4
   %zf.7 = icmp eq i32 %m.1, %eax.6  ; 0x4029d4
   br i1 %zf.7, label %b_4029e8, label %b_4029d8
 b_4029d8:  ; 0x4029d8
-  %m.3 = load i32, ptr %m.p.2, align 1  ; 0x4029dc
-  %zf.10 = icmp eq i32 0, %m.3  ; 0x4029dc
-  br i1 %zf.10, label %cx.swap.1, label %cx.keep.1
+  %old.1.pair = cmpxchg ptr %cx.p, i32 0, i32 %m.1 seq_cst seq_cst  ; 0x4029dc
+  %old.1 = extractvalue { i32, i1 } %old.1.pair, 0
+  %zf.10 = icmp eq i32 0, %old.1  ; 0x4029dc
+  br i1 %zf.10, label %cx.done.1, label %cx.keep.1
 b_4029e4:  ; 0x4029e4
   %rax.phi.3 = phi i64 [ %ret, %eh.ok.4029b1 ], [ %rax.phi, %cx.done ], [ %rax.phi.2, %cx.done.1 ]  ; 0x4029e4
   %kept = and i64 %rax.phi.3, -256  ; 0x4029e4
@@ -11914,25 +11916,19 @@ eh.ok.4029b1:  ; 0x4029b1
   %eax = trunc i64 %ret to i32  ; 0x4029b6
   %zf = icmp eq i32 %eax, 0  ; 0x4029b6
   br i1 %zf, label %b_4029e4, label %b_4029ba
-cx.swap:  ; 0x4029cc
-  store i32 %m.1, ptr %m.p.2, align 1  ; 0x4029cc
-  br label %cx.done
 cx.keep:  ; 0x4029cc
-  %eax.z.2 = zext i32 %m.2 to i64  ; 0x4029cc
+  %eax.z.2 = zext i32 %old to i64  ; 0x4029cc
   br label %cx.done
 cx.done:  ; 0x4029cc
-  %rax.phi = phi i64 [ 0, %cx.swap ], [ %eax.z.2, %cx.keep ]  ; 0x4029cc
+  %rax.phi = phi i64 [ 0, %b_4029ba ], [ %eax.z.2, %cx.keep ]  ; 0x4029cc
   %eax.4 = trunc i64 %rax.phi to i32  ; 0x4029d0
   %zf.5 = icmp eq i32 %eax.4, 0  ; 0x4029d0
   br i1 %zf.5, label %b_4029e4, label %b_4029d4
-cx.swap.1:  ; 0x4029dc
-  store i32 %m.1, ptr %m.p.2, align 1  ; 0x4029dc
-  br label %cx.done.1
 cx.keep.1:  ; 0x4029dc
-  %eax.z.4 = zext i32 %m.3 to i64  ; 0x4029dc
+  %eax.z.4 = zext i32 %old.1 to i64  ; 0x4029dc
   br label %cx.done.1
 cx.done.1:  ; 0x4029dc
-  %rax.phi.2 = phi i64 [ 0, %cx.swap.1 ], [ %eax.z.4, %cx.keep.1 ]  ; 0x4029dc
+  %rax.phi.2 = phi i64 [ 0, %b_4029d8 ], [ %eax.z.4, %cx.keep.1 ]  ; 0x4029dc
   %eax.8 = trunc i64 %rax.phi.2 to i32  ; 0x4029e0
   %not = icmp ne i32 %eax.8, 0  ; 0x4029e2
   br i1 %not, label %b_4029d4, label %b_4029e4
@@ -11957,8 +11953,8 @@ b_4029fc:  ; 0x4029fc
   br i1 %not, label %b_402a0b, label %b_402a02
 b_402a02:  ; 0x402a02
   %ecx.z = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 852) to i32) to i64  ; 0x402a04
-  %st.p.2 = inttoptr i64 %ecx.z to ptr  ; 0x402a09
-  store i32 0, ptr %st.p.2, align 1  ; 0x402a09
+  %at.p = inttoptr i64 %ecx.z to ptr  ; 0x402a09
+  %old = atomicrmw xchg ptr %at.p, i32 0 seq_cst  ; 0x402a09
   br label %b_402a0b
 b_402a0b:  ; 0x402a0b
   ret void

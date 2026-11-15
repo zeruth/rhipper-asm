@@ -393,6 +393,8 @@ fn operand_types(inst: &Inst) -> Vec<Option<Type>> {
             v
         }
         Inst::Phi { ty, incoming } => vec![Some(ty.clone()); incoming.len()],
+        Inst::AtomicRmw { ty, .. } => vec![Some(Type::Ptr), Some(ty.clone())],
+        Inst::CmpXchg { ty, .. } => vec![Some(Type::Ptr), Some(ty.clone()), Some(ty.clone())],
     }
 }
 

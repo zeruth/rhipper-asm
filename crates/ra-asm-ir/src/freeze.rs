@@ -8,7 +8,7 @@
 //! strings as their length and bytes, each enum as a tag byte and its fields. It is a format of
 //! this build alone, never written to disk: [`thaw`] reads exactly what [`freeze`] wrote.
 
-use crate::inst::{BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand, Terminator};
+use crate::inst::{AtomicOp, BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand, Terminator};
 use crate::module::{Block, BlockId, CallConv, Function, Linkage, ValueId};
 use crate::types::{FnType, Type};
 
@@ -349,6 +349,20 @@ impl Writer {
                 self.ty(ty);
                 self.operand(value);
             }
+            Inst::AtomicRmw { op, ty, ptr, value } => {
+                self.byte(15);
+                self.byte(index_of(&AtomicOp::ALL, op));
+                self.ty(ty);
+                self.operand(ptr);
+                self.operand(value);
+            }
+            Inst::CmpXchg { ty, ptr, expected, new } => {
+                self.byte(16);
+                self.ty(ty);
+                self.operand(ptr);
+                self.operand(expected);
+                self.operand(new);
+            }
         }
     }
 
@@ -613,6 +627,17 @@ impl Reader<'_> {
             14 => {
                 let ty = self.ty();
                 Inst::Freeze { ty, value: self.operand() }
+            }
+            15 => {
+                let op = AtomicOp::ALL[self.byte() as usize];
+                let ty = self.ty();
+                let (ptr, value) = (self.operand(), self.operand());
+                Inst::AtomicRmw { op, ty, ptr, value }
+            }
+            16 => {
+                let ty = self.ty();
+                let (ptr, expected, new) = (self.operand(), self.operand(), self.operand());
+                Inst::CmpXchg { ty, ptr, expected, new }
             }
             tag => panic!("a frozen instruction has the tag {tag}"),
         }

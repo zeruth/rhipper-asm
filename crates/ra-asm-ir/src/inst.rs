@@ -249,6 +249,32 @@ impl Cast {
     }
 }
 
+/// The operations of an atomic read-modify-write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AtomicOp {
+    Xchg,
+    Add,
+    Sub,
+    And,
+    Or,
+    Xor,
+}
+
+impl AtomicOp {
+    pub const ALL: [AtomicOp; 6] = [Self::Xchg, Self::Add, Self::Sub, Self::And, Self::Or, Self::Xor];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Xchg => "xchg",
+            Self::Add => "add",
+            Self::Sub => "sub",
+            Self::And => "and",
+            Self::Or => "or",
+            Self::Xor => "xor",
+        }
+    }
+}
+
 /// What a call calls.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Callee {
@@ -349,6 +375,25 @@ pub enum Inst {
         ty: Type,
         value: Operand,
     },
+    /// `atomicrmw op ptr, ty value seq_cst`: the integer at `ptr` becomes `old op value` in one
+    /// step no other thread sees half of; the instruction's value is `old`. A locked x86
+    /// instruction and an `xchg` with memory are one of these.
+    AtomicRmw {
+        op: AtomicOp,
+        ty: Type,
+        ptr: Operand,
+        value: Operand,
+    },
+    /// `cmpxchg ptr, ty expected, ty new seq_cst seq_cst`: the integer at `ptr` becomes `new` when it
+    /// is `expected`, in one step; the instruction's value is the integer it was, so the exchange
+    /// happened exactly when that equals `expected`. LLVM's own pair of the value and that flag is
+    /// the printer's to spell.
+    CmpXchg {
+        ty: Type,
+        ptr: Operand,
+        expected: Operand,
+        new: Operand,
+    },
 }
 
 impl Inst {
@@ -356,9 +401,14 @@ impl Inst {
     pub fn result_type(&self) -> Type {
         match self {
             Self::Alloca { .. } | Self::Gep { .. } => Type::Ptr,
-            Self::Load { ty, .. } | Self::Bin { ty, .. } | Self::Select { ty, .. } | Self::Phi { ty, .. } | Self::Freeze { ty, .. } => {
-                ty.clone()
-            }
+            Self::Load { ty, .. }
+            | Self::Bin { ty, .. }
+            | Self::Select { ty, .. }
+            | Self::Phi { ty, .. }
+            | Self::Freeze { ty, .. }
+            | Self::AtomicRmw { ty, .. }
+            | Self::CmpXchg { ty, .. }
+            | Self::InsertElement { ty, .. } => ty.clone(),
             Self::Store { .. } => Type::Void,
             Self::ICmp { ty, .. } | Self::FCmp { ty, .. } => match ty {
                 Type::Vector(n, _) => Type::vector(*n, Type::I1),
@@ -369,7 +419,6 @@ impl Inst {
                 Type::Vector(_, e) => (**e).clone(),
                 other => other.clone(),
             },
-            Self::InsertElement { ty, .. } => ty.clone(),
             Self::ShuffleVector { ty, mask, .. } => match ty {
                 Type::Vector(_, e) => Type::Vector(mask.len() as u32, e.clone()),
                 other => other.clone(),
@@ -435,6 +484,15 @@ impl Inst {
                     push(o);
                 }
             }
+            Self::AtomicRmw { ptr, value, .. } => {
+                push(ptr);
+                push(value);
+            }
+            Self::CmpXchg { ptr, expected, new, .. } => {
+                push(ptr);
+                push(expected);
+                push(new);
+            }
         }
         out
     }
@@ -444,7 +502,9 @@ impl Inst {
     pub fn has_side_effects(&self) -> bool {
         match self {
             Self::Call { callee: Callee::Direct(name), .. } => !name.starts_with("llvm."),
-            Self::Store { .. } | Self::Load { volatile: true, .. } | Self::Call { .. } => true,
+            Self::Store { .. } | Self::Load { volatile: true, .. } | Self::Call { .. } | Self::AtomicRmw { .. } | Self::CmpXchg { .. } => {
+                true
+            }
             _ => false,
         }
     }
@@ -475,6 +535,8 @@ impl Inst {
                 v
             }
             Self::Phi { incoming, .. } => incoming.iter().map(|(o, _)| o).collect(),
+            Self::AtomicRmw { ptr, value, .. } => vec![ptr, value],
+            Self::CmpXchg { ptr, expected, new, .. } => vec![ptr, expected, new],
         }
     }
 
@@ -504,6 +566,8 @@ impl Inst {
                 v
             }
             Self::Phi { incoming, .. } => incoming.iter_mut().map(|(o, _)| o).collect(),
+            Self::AtomicRmw { ptr, value, .. } => vec![ptr, value],
+            Self::CmpXchg { ptr, expected, new, .. } => vec![ptr, expected, new],
         }
     }
 }

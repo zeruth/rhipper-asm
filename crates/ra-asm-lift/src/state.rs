@@ -8,7 +8,7 @@
 //! x86 shape holds `r0..r15`, the flags as ARM64 keeps them and `q0..q15`.
 
 use ra_asm_arch::state::{self as layout, StateSpec};
-use ra_asm_ir::{BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Operand, Type, ValueId};
+use ra_asm_ir::{AtomicOp, BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Operand, Type, ValueId};
 use ra_asm_x86::iced_x86::Register as R;
 
 pub const STATE_TYPE: &str = "State";
@@ -736,6 +736,34 @@ impl Machine<'_> {
     pub fn store(&mut self, block: BlockId, ty: Type, value: impl Into<Operand>, address: impl Into<Operand>) {
         let p = self.ptr(block, address, "st.p");
         self.b.push(block, ra_asm_ir::Inst::Store { ty, value: value.into(), ptr: p.into(), align: 1, volatile: false }, "");
+    }
+
+    /// An atomic read-modify-write of the integer at a machine address: a locked instruction, or
+    /// an `xchg` with memory; the value is the integer it was.
+    pub fn atomic_rmw(
+        &mut self,
+        block: BlockId,
+        op: AtomicOp,
+        ty: Type,
+        value: impl Into<Operand>,
+        address: impl Into<Operand>,
+    ) -> ValueId {
+        let p = self.ptr(block, address, "at.p");
+        self.b.value(block, ra_asm_ir::Inst::AtomicRmw { op, ty, ptr: p.into(), value: value.into() }, "old")
+    }
+
+    /// An atomic compare-exchange of the integer at a machine address; the value is the integer
+    /// it was, equal to `expected` exactly when `new` replaced it.
+    pub fn cmpxchg(
+        &mut self,
+        block: BlockId,
+        ty: Type,
+        expected: impl Into<Operand>,
+        new: impl Into<Operand>,
+        address: impl Into<Operand>,
+    ) -> ValueId {
+        let p = self.ptr(block, address, "cx.p");
+        self.b.value(block, ra_asm_ir::Inst::CmpXchg { ty, ptr: p.into(), expected: expected.into(), new: new.into() }, "old")
     }
 
     /// Pushes a value of the address width.

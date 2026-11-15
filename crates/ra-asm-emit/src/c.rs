@@ -15,7 +15,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 
-use ra_asm_ir::{BinOp, Block, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Terminator, Type, ValueId};
+use ra_asm_ir::{
+    AtomicOp, BinOp, Block, BlockId, Callee, Cast, Const, FCond, Function, ICond, Inst, Module, Operand, Terminator, Type, ValueId,
+};
 use ra_asm_lift::raise::prototypes;
 
 use crate::common::{Defs, identifiers, parenthesized, strip_parens, trap_count};
@@ -2557,6 +2559,25 @@ impl<'a> Emitter<'a> {
                 }
             }
             Inst::Freeze { ty, value } => self.operand(ty, value),
+            // The compiler's atomic builtins, which C11's `<stdatomic.h>` is made of, read in C and
+            // C++ alike and take a plain object rather than an `_Atomic` one.
+            Inst::AtomicRmw { op, ty, ptr, value } => {
+                let builtin = match op {
+                    AtomicOp::Xchg => "__atomic_exchange_n",
+                    AtomicOp::Add => "__atomic_fetch_add",
+                    AtomicOp::Sub => "__atomic_fetch_sub",
+                    AtomicOp::And => "__atomic_fetch_and",
+                    AtomicOp::Or => "__atomic_fetch_or",
+                    AtomicOp::Xor => "__atomic_fetch_xor",
+                };
+                let p = format!("({} *)({})", c_type(ty), self.operand(&Type::Ptr, ptr));
+                format!("{builtin}({p}, {}, __ATOMIC_SEQ_CST)", strip_parens(&self.operand(ty, value)))
+            }
+            Inst::CmpXchg { ty, ptr, expected, new } => {
+                let p = format!("({} *)({})", c_type(ty), self.operand(&Type::Ptr, ptr));
+                let (e, n) = (strip_parens(&self.operand(ty, expected)), strip_parens(&self.operand(ty, new)));
+                format!("__sync_val_compare_and_swap({p}, {e}, {n})")
+            }
         }
     }
 

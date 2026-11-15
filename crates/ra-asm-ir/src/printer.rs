@@ -6,6 +6,9 @@ use crate::inst::{Callee, Inst, Operand, Terminator};
 use crate::module::{Const, Function, Linkage, Module};
 use crate::types::Type;
 
+/// The suffix of the name of a `cmpxchg`'s pair, after the name of the value taken out of it.
+pub(crate) const CMPXCHG_PAIR: &str = ".pair";
+
 pub fn print(module: &Module) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "; ModuleID = '{}'", module.name);
@@ -128,7 +131,15 @@ fn print_function(out: &mut String, f: &Function) {
         out.push('\n');
         for i in &b.instrs {
             out.push_str("  ");
-            if let Some(r) = i.result {
+            // LLVM's `cmpxchg` gives a pair of the old value and the success flag: the pair under
+            // a name of its own on one line, the value taken out of it on the next.
+            let pair = match (&i.inst, i.result) {
+                (Inst::CmpXchg { ty, .. }, Some(r)) => Some((ty, r, quote(&format!("{}{CMPXCHG_PAIR}", f.value_name(r))))),
+                _ => None,
+            };
+            if let Some((_, _, pair)) = &pair {
+                let _ = write!(out, "%{pair} = ");
+            } else if let Some(r) = i.result {
                 let _ = write!(out, "%{} = ", quote(f.value_name(r)));
             }
             print_inst(out, f, &i.inst);
@@ -136,6 +147,9 @@ fn print_function(out: &mut String, f: &Function) {
                 let _ = write!(out, "  ; {a:#x}");
             }
             out.push('\n');
+            if let Some((ty, r, pair)) = pair {
+                let _ = writeln!(out, "  %{} = extractvalue {{ {ty}, i1 }} %{pair}, 0", quote(f.value_name(r)));
+            }
         }
         out.push_str("  ");
         print_terminator(out, f, &b.terminator);
@@ -387,6 +401,24 @@ fn print_inst(out: &mut String, f: &Function, inst: &Inst) {
         Inst::Freeze { ty, value } => {
             let _ = write!(out, "freeze {ty} ");
             operand(out, f, ty, value);
+        }
+        // At the type's own alignment: a misaligned atomic is a library call clang cannot link
+        // without libatomic, and the x86 host's locked instructions take any address.
+        Inst::AtomicRmw { op, ty, ptr, value } => {
+            let _ = write!(out, "atomicrmw {} ptr ", op.name());
+            operand(out, f, &Type::Ptr, ptr);
+            let _ = write!(out, ", {ty} ");
+            operand(out, f, ty, value);
+            out.push_str(" seq_cst");
+        }
+        Inst::CmpXchg { ty, ptr, expected, new } => {
+            out.push_str("cmpxchg ptr ");
+            operand(out, f, &Type::Ptr, ptr);
+            let _ = write!(out, ", {ty} ");
+            operand(out, f, ty, expected);
+            let _ = write!(out, ", {ty} ");
+            operand(out, f, ty, new);
+            out.push_str(" seq_cst seq_cst");
         }
     }
 }

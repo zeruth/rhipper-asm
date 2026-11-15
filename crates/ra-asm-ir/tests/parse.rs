@@ -3,8 +3,8 @@
 
 use ra_asm_ir::parse::parse;
 use ra_asm_ir::{
-    BinOp, BlockId, CallConv, Callee, Cast, Const, Declaration, FCond, FnType, Function, FunctionBuilder, Global, ICond, Inst, Linkage,
-    Module, Operand, Terminator, Type,
+    AtomicOp, BinOp, BlockId, CallConv, Callee, Cast, Const, Declaration, FCond, FnType, Function, FunctionBuilder, Global, ICond, Inst,
+    Linkage, Module, Operand, Terminator, Type,
 };
 
 /// Prints the module, parses the text and holds the result to the module and to its text.
@@ -602,6 +602,17 @@ mod bodies {
             let f = b.value(e, Inst::Freeze { ty: Type::I32, value: a.into() }, "f");
             b.value(e, Inst::Freeze { ty: Type::vector(2, Type::Double), value: Operand::Undef }, "v");
             b.terminate(e, ret(Type::I32, f));
+        }));
+    }
+
+    #[test]
+    fn atomics() {
+        trip(single("locked", FnType::new(Type::I32, vec![Type::Ptr, Type::I32]), &["p", "v"], |b, e| {
+            let (p, v) = (b.param(0), b.param(1));
+            b.value(e, Inst::AtomicRmw { op: AtomicOp::Xchg, ty: Type::I32, ptr: p.into(), value: v.into() }, "old");
+            b.value(e, Inst::AtomicRmw { op: AtomicOp::Sub, ty: Type::I8, ptr: p.into(), value: 1i32.into() }, "byte");
+            let was = b.value(e, Inst::CmpXchg { ty: Type::I32, ptr: p.into(), expected: 0i32.into(), new: v.into() }, "was");
+            b.terminate(e, ret(Type::I32, was));
         }));
     }
 
