@@ -64,11 +64,24 @@ pub struct Options {
     /// Tell this of every call the run makes, with its arguments, its blocks and its result: a
     /// recorder of the run.
     pub observer: Option<Watch>,
+    /// Keep every call across the platform boundary in the outcome's `boundary`. The calls take
+    /// the memory's one log for what they write, so a run that keeps them has no observer that
+    /// logs the memory itself.
+    pub session: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { trace: false, limit: 2_000_000_000, args: Vec::new(), live: false, record: None, pause: None, observer: None }
+        Self {
+            trace: false,
+            limit: 2_000_000_000,
+            args: Vec::new(),
+            live: false,
+            record: None,
+            pause: None,
+            observer: None,
+            session: false,
+        }
     }
 }
 
@@ -133,6 +146,25 @@ pub struct Outcome {
     pub steps: u64,
     /// What the run saw, as the analysis of the next pass takes it.
     pub facts: Facts,
+    /// The calls across the platform boundary in the order the program made them, when the
+    /// options asked for them.
+    pub boundary: Vec<HostCall>,
+}
+
+/// One call of the program across the platform boundary: an import, or a `ra_*` function of the
+/// runtime that answers for the system (the C runtime's stand-ins, the processor's queries), with
+/// what it answered and the bytes it left in the program's memory. A call that calls back into the
+/// program holds what the callback wrote too, and the calls the callback made follow it.
+///
+/// A write is seen when it goes through the interpreter's memory: a host DLL that writes through a
+/// pointer it was handed writes past the log.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostCall {
+    pub name: String,
+    pub args: Vec<Value>,
+    pub result: Result<Value, Stop>,
+    /// The bytes written during the call, as runs of adjacent addresses in address order.
+    pub writes: Vec<(u64, Vec<u8>)>,
 }
 
 /// A call into the image from outside it, as a host program makes one to an export of a library:
@@ -256,6 +288,9 @@ fn run_here(
     let path = image.path.as_ref().map_or_else(|| "program.exe".to_owned(), |p| p.display().to_string());
     let args = std::iter::once(path).chain(options.args.iter().cloned()).collect();
     let mut runtime = Runtime::new(image, lifted, &mut vm, args, options.live, stack, heap);
+    if options.session {
+        runtime.boundary = Some(host::Boundary::default());
+    }
     runtime.bind(&mut vm).map_err(setup)?;
     let mut returned = 0;
     let result = runtime.attach_process(&mut vm).and_then(|()| match call {
@@ -274,7 +309,8 @@ fn run_here(
         record.flush().context("cannot write the record of the run")?;
     }
     let facts = facts_of(&vm, image, lifted, &options.args);
-    Ok((Outcome { output: std::mem::take(&mut runtime.output), exit, stop, steps: vm.steps, facts }, returned))
+    let boundary = runtime.boundary.take().map(|b| b.calls).unwrap_or_default();
+    Ok((Outcome { output: std::mem::take(&mut runtime.output), exit, stop, steps: vm.steps, facts, boundary }, returned))
 }
 
 /// Calls one function by its integer arguments, as a host calls an export: a function of the ARM64

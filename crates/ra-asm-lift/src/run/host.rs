@@ -5,13 +5,13 @@
 //! process exit, the console writes it captures, the threads it runs itself, the allocations) and
 //! the rest through the host's own DLLs with the eight-integer adapter or the import's prototype.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use ra_asm_ir::interp::{Host, Region, Stop, Symbol, Value, Vm, mask};
 use ra_asm_ir::{FnType, Type};
 use ra_asm_pe::Image;
 
-use super::{f80, os, printf};
+use super::{HostCall, f80, os, printf};
 use crate::Lifted;
 use crate::raise::abi::Kind;
 use crate::raise::prototypes;
@@ -105,6 +105,67 @@ pub(super) struct Runtime<'a> {
     argv: u64,
     p_argv: u64,
     environment: u64,
+    /// The calls across the platform boundary, while the run keeps them.
+    pub(super) boundary: Option<Boundary>,
+}
+
+/// The calls across the platform boundary a run made, and those still running.
+#[derive(Default)]
+pub(super) struct Boundary {
+    pub(super) calls: Vec<HostCall>,
+    /// Each running call, innermost last: its index in `calls` and the bytes written in it before
+    /// a nested call took the memory's log.
+    open: Vec<(usize, BTreeMap<u64, u8>)>,
+}
+
+impl Boundary {
+    /// Starts the record of a call: what the log holds belongs to the call it interrupts.
+    fn begin(&mut self, vm: &mut Vm<'_>, name: &str, args: &[Value]) {
+        let written = vm.memory.disarm();
+        if let Some((_, bytes)) = self.open.last_mut() {
+            keep(bytes, written.writes);
+        }
+        self.calls.push(HostCall { name: name.to_owned(), args: args.to_vec(), result: Ok(Value::Int(0)), writes: Vec::new() });
+        self.open.push((self.calls.len() - 1, BTreeMap::new()));
+        vm.memory.arm();
+    }
+
+    /// Ends the record of the innermost call, whose writes are those of the call around it too.
+    fn end(&mut self, vm: &mut Vm<'_>, result: &Result<Value, Stop>) {
+        let written = vm.memory.disarm();
+        let Some((index, mut bytes)) = self.open.pop() else {
+            return;
+        };
+        keep(&mut bytes, written.writes);
+        let mut writes: Vec<(u64, Vec<u8>)> = Vec::new();
+        for (&address, &byte) in &bytes {
+            match writes.last_mut() {
+                Some((start, run)) if start.checked_add(run.len() as u64) == Some(address) => run.push(byte),
+                _ => writes.push((address, vec![byte])),
+            }
+        }
+        let call = &mut self.calls[index];
+        call.result.clone_from(result);
+        call.writes = writes;
+        if let Some((_, outer)) = self.open.last_mut() {
+            outer.extend(bytes);
+            vm.memory.arm();
+        }
+    }
+}
+
+/// `runs` laid over `bytes`, the later write of a byte over the earlier.
+fn keep(bytes: &mut BTreeMap<u64, u8>, runs: Vec<(u64, Vec<u8>)>) {
+    for (start, run) in runs {
+        bytes.extend((start..).zip(run));
+    }
+}
+
+/// Whether a call is one across the platform boundary: an import, or a `ra_*` function that
+/// answers for the system; not the lift's own machinery (an indirect call, the x87 unit, the
+/// exceptions in flight, a trap).
+fn crosses(name: &str) -> bool {
+    !(name.starts_with("ra_f80_") || name.starts_with("ra_eh_") || matches!(name, "ra_call" | "ra_pops_of" | "ra_trap" | "ra_unsupported"))
 }
 
 fn trap_name(code: u64) -> &'static str {
@@ -260,6 +321,7 @@ impl<'a> Runtime<'a> {
             argv: 0,
             p_argv: 0,
             environment: 0,
+            boundary: None,
         };
         runtime.thread.stack_bottom = runtime.allocations[0].start;
         // The host's own standard streams, so a `printf` through a `FILE` the host handed the
@@ -1414,7 +1476,15 @@ impl<'a> Runtime<'a> {
 
 impl Host for Runtime<'_> {
     fn call(&mut self, vm: &mut Vm<'_>, name: &str, ty: &FnType, args: &[Value]) -> Result<Value, Stop> {
-        if name.starts_with("ra_") { self.runtime_call(vm, name, args) } else { self.import_call(vm, name, ty, args) }
+        let kept = crosses(name) && self.boundary.is_some();
+        if kept && let Some(boundary) = &mut self.boundary {
+            boundary.begin(vm, name, args);
+        }
+        let result = if name.starts_with("ra_") { self.runtime_call(vm, name, args) } else { self.import_call(vm, name, ty, args) };
+        if kept && let Some(boundary) = &mut self.boundary {
+            boundary.end(vm, &result);
+        }
+        result
     }
 }
 

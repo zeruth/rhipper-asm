@@ -1,7 +1,8 @@
 //! `ras run`: a program through the IR interpreter, its output written through as it comes. With
 //! `--facts`, what the run saw (see [`ra_asm_analysis::facts`]) is written there as JSON, for the
 //! analysis of the next pass; with `--record`, the calls and returns of the run with their values
-//! are written there in the shape of a port's trace (see [`crate::trace`]).
+//! are written there in the shape of a port's trace (see [`crate::trace`]), or, to a path ending in
+//! `.session`, the run's session (see [`ra_asm_host::session`]).
 
 use std::path::{Path, PathBuf};
 
@@ -24,7 +25,7 @@ pub(crate) struct Options {
     /// Where to write the facts of the run, when asked.
     pub facts: Option<PathBuf>,
     /// Where to write the record of the run (the calls and returns with their values, as a
-    /// port's trace), when asked.
+    /// port's trace, or the session to a `.session` path), when asked.
     pub record: Option<PathBuf>,
 }
 
@@ -42,18 +43,24 @@ pub(crate) fn run(image: &Image, options: &Options) -> Result<i32> {
             eprintln!("warning: {w}");
         }
     }
+    let session = options.record.as_ref().filter(|path| path.extension().is_some_and(|e| e == "session"));
     let run = ra_asm_lift::run::Options {
         trace: options.trace,
         limit: options.limit,
         args: options.args.clone(),
         live: true,
-        record: options.record.clone(),
+        record: if session.is_some() { None } else { options.record.clone() },
         pause: None,
         observer: None,
+        session: session.is_some(),
     };
     let outcome = ra_asm_lift::run::run(image, &lifted, &signatures, &run)?;
     if let Some(stop) = &outcome.stop {
         eprintln!("ra: {stop}");
+    }
+    if let Some(path) = session {
+        let text = ra_asm_host::session::Session::of(&outcome.boundary).write();
+        std::fs::write(path, text).with_context(|| format!("cannot write the session at {}", path.display()))?;
     }
     if let Some(path) = &options.facts {
         write_facts(path, &outcome.facts)?;

@@ -222,7 +222,8 @@ enum Command {
         facts: Option<PathBuf>,
         /// Write the record of the run here: the calls and returns of the program's functions with
         /// their values, as a port emitted with `run.trace` writes its trace, for `ras serve`'s
-        /// replay against the port's.
+        /// replay against the port's. A path ending in `.session` takes the run's session instead:
+        /// every host call with its arguments, its answer and the memory it wrote.
         #[arg(long)]
         record: Option<PathBuf>,
     },

@@ -19,6 +19,7 @@ ra-asm-arm64 = { path = "crates/ra-asm-arm64" }
 ra-asm-analysis = { path = "crates/ra-asm-analysis" }
 ra-asm-protos = { path = "crates/ra-asm-protos" }
 ra-asm-lift = { path = "crates/ra-asm-lift" }
+ra-asm-host = { path = "crates/ra-asm-host" }
 ra-asm-emit = { path = "crates/ra-asm-emit" }
 ra-asm-testing = { path = "crates/ra-asm-testing" }
 ra-asm-residual = { path = "crates/ra-asm-residual" }
