@@ -25,7 +25,9 @@
 //! the body sees), checks that it names the handler, and goes on in that state's block.
 //! The funclets run with `ebp` just past the registration, each in the state the handler would
 //! store first: an action in the state its entry leaves to, a catch in the state past its try
-//! block. A catch resumes with the `esp` saved under the registration when it began; a function
+//! block. A catch resumes with the `esp` saved under the registration when it began, and an
+//! unwind out of a catch (a rethrow, a throw from its body) puts that `esp` back, as the handler's
+//! own unwind of the catch does, so a catch further out resumes on the parent's stack; a function
 //! the exception leaves unlinks its registration and restores no register, as the x86 unwind
 //! does. The thrown object's destructor runs when the end of its catch ends the exception, the
 //! runtime saying which; a catch by value of an object with a copy constructor stops the run.
@@ -34,13 +36,15 @@
 //! the ranges each scope protects ([`ra_asm_analysis::seh32`]). The lift maps them onto the same
 //! protocol: an access to memory in a protected range asks `ra_eh_probe` first, which puts the
 //! access violation in flight when the access would fault, and the function lands in the block of
-//! the instruction. The landing does what the frame handler does: for each scope around the
-//! instruction, innermost first, the `EXCEPTION_POINTERS` of `ra_eh_pointers` go below the
-//! registration node, the filter runs as a copy with `ebp` at the node's end, and its verdict
-//! picks the way on: the `__except` block (`ra_eh_handled`, the enclosing try level stored), the
-//! faulting instruction again, or the next scope. An exception no scope of the function handles
-//! stops the run at `ra_eh_unhandled`: the frames of its callers are not walked yet, nor a
-//! `__finally` the exception passes, which traps.
+//! the instruction; a `RaiseException` there puts its exception in flight with `ra_eh_raise` and
+//! lands the same way. The landing does what the frame handler does: for each `__except` scope
+//! around the instruction, innermost first, the `EXCEPTION_POINTERS` of `ra_eh_pointers` go below
+//! the registration node, the filter runs as a copy with `ebp` at the node's end, and its verdict
+//! picks the way on: the `__except` block, the faulting instruction again, or the next scope. The
+//! way to an `__except` block is the local unwind's: each `__finally` inside its scope runs as a
+//! copy, innermost first, at its enclosing try level; then `ra_eh_handled`, the scope's enclosing
+//! try level stored, and the block. An exception no scope of the function handles stops the run
+//! at `ra_eh_unhandled`: the frames of its callers are not walked yet.
 
 use std::collections::HashMap;
 
@@ -114,15 +118,17 @@ impl Frame {
         self.cxx32 = Some(cxx.clone());
     }
 
-    /// Takes the function's 32-bit registration frame, with each scope's filter as a funclet: a
-    /// block of the function's own, or the function clang outlines it into.
+    /// Takes the function's 32-bit registration frame, with each scope's filter and each
+    /// `__finally` as a funclet: a block of the function's own, or the function clang outlines it
+    /// into.
     pub(crate) fn add_seh(&mut self, analysis: &Analysis<'_>, f: &Function, local: impl Fn(&Function, u64) -> Vec<Block>) {
         let Some(seh) = analysis.seh_frames.get(&f.entry) else { return };
-        for filter in seh.scopes.iter().filter_map(|s| s.filter) {
-            if f.block_at(filter).is_some() {
-                self.funclets.insert(filter, (local(f, filter), 0));
-            } else if let Some(outlined) = analysis.functions.get(&filter) {
-                self.funclets.insert(filter, (outlined.blocks.clone(), 0));
+        let funclets = seh.scopes.iter().map(|s| s.filter.unwrap_or(s.handler));
+        for entry in funclets {
+            if f.block_at(entry).is_some() {
+                self.funclets.insert(entry, (local(f, entry), 0));
+            } else if let Some(outlined) = analysis.functions.get(&entry) {
+                self.funclets.insert(entry, (outlined.blocks.clone(), 0));
             }
         }
         self.seh = Some(seh.clone());
@@ -514,7 +520,15 @@ impl Lifter<'_, '_> {
         };
         let at = self.m.b.bin(b, BinOp::Add, Type::I32, reg, 4i64, "eh.handler.p");
         let handler = self.m.load(b, Type::I32, at, "eh.handler");
-        let ours = self.m.b.icmp(b, ICond::Eq, Type::I32, handler, cxx.handler as i64, "eh.ours");
+        let mut ours = self.m.b.icmp(b, ICond::Eq, Type::I32, handler, cxx.handler as i64, "eh.ours");
+        // A standalone lift stores the relocated handler as the address of its function, which
+        // the run places apart from the image address.
+        let placed = self.address_operand(cxx.handler);
+        if !matches!(placed, Operand::Int(_)) {
+            let placed = self.m.value_of(b, Type::I32, placed);
+            let at_placed = self.m.b.icmp(b, ICond::Eq, Type::I32, handler, placed, "eh.ours");
+            ours = self.m.b.bin(b, BinOp::Or, Type::I1, ours, at_placed, "eh.ours");
+        }
         let dispatch = self.m.b.block("eh.dispatch");
         let foreign = self.m.b.block("eh.foreign");
         self.m.b.terminate(b, Terminator::CondBr { cond: ours.into(), then: dispatch, els: foreign });
@@ -522,7 +536,7 @@ impl Lifter<'_, '_> {
         let at = self.m.b.bin(dispatch, BinOp::Add, Type::I32, reg, STATE, "eh.state.p");
         let state = self.m.load(dispatch, Type::I32, at, "eh.state");
         let bad = self.m.b.block("eh.state.bad");
-        self.m.trap(bad, cxx.function, trap::INVALID);
+        self.m.trap(bad, cxx.function, trap::BAD_SWITCH);
         let states = i32::try_from(cxx.info.unwind_map.len()).unwrap_or(i32::MAX);
         // The funclets the states' blocks run move the frame register; what they need of the
         // registration is this block's, and a landing within them takes its own.
@@ -625,6 +639,7 @@ impl Lifter<'_, '_> {
             }
             for t in &info.try_blocks {
                 if t.catches_at(cur) && !t.catches_at(entry.to_state) {
+                    self.unwind_catch_sp(blk);
                     blk = self.leave_catch(blk, begin);
                 }
             }
@@ -633,6 +648,20 @@ impl Lifter<'_, '_> {
         self.warn(format!("{begin:#x}: the unwind map does not lead from state {from} to state {to}"));
         self.m.trap(blk, begin, trap::INVALID);
         None
+    }
+
+    /// At 32 bits, as the x86 handler unwinds a catch the exception leaves: the `esp` saved under
+    /// the registration when the catch began goes back over the one the catch's funclet stored,
+    /// so a catch further out resumes the parent on its own stack.
+    fn unwind_catch_sp(&mut self, block: BlockId) {
+        if self.m.bits != 32 {
+            return;
+        }
+        let sp = self.m.intrinsic(block, "ra_eh_ending_sp", Type::I64, vec![], "eh.esp.saved");
+        let sp = self.m.trunc(block, Type::I64, sp, Type::I32, "eh.esp.saved");
+        let reg = self.registration(block);
+        let slot = self.m.b.bin(block, BinOp::Sub, Type::I32, reg, 4i64, "eh.esp.p");
+        self.m.store(block, Type::I32, sp, slot);
     }
 
     /// Runs the unwind action at `action` inline: a copy of the funclet, called as the handler
@@ -668,7 +697,10 @@ impl Lifter<'_, '_> {
         let resume32 = (self.m.bits == 32).then(|| {
             let reg = self.registration(b);
             let slot = self.m.b.bin(b, BinOp::Sub, Type::I32, reg, 4i64, "eh.esp.p");
-            (reg, self.m.load(b, Type::I32, slot, "eh.esp"))
+            let sp = self.m.load(b, Type::I32, slot, "eh.esp");
+            let saved = self.m.zext(b, Type::I32, sp, Type::I64, "eh.esp");
+            self.eh_call(b, "ra_eh_catch_sp", vec![saved.into()]);
+            (reg, sp)
         });
         self.enter_funclet(b, handler);
         let continuations = self.continuations_of(handler);
@@ -850,6 +882,34 @@ impl Lifter<'_, '_> {
         next
     }
 
+    /// A call of `RaiseException(code, flags, count, arguments)` at `ip`: when a 32-bit `__try`
+    /// protects it, its exception goes in flight with `ra_eh_raise` and the function lands as at a
+    /// fault, where `EXCEPTION_CONTINUE_EXECUTION` returns from the call with its four arguments
+    /// popped, as `stdcall` pops them. The block after the call, or `None` when no scope protects
+    /// the call and it goes to the host as any import does.
+    pub(crate) fn raise_site(&mut self, block: BlockId, ip: u64) -> Option<BlockId> {
+        let protected = self.funclet.is_none() && self.frame.seh.as_ref().is_some_and(|s| s.scopes.iter().any(|scope| scope.protects(ip)));
+        if !protected {
+            return None;
+        }
+        let sp = self.m.read_sp(block);
+        let mut args: Vec<Operand> = Vec::with_capacity(5);
+        for n in 0..4i64 {
+            let at = self.m.b.bin(block, BinOp::Add, Type::I32, sp, 4 * n, "eh.raise.p");
+            let arg = self.m.load(block, Type::I32, at, "eh.raise.arg");
+            args.push(self.m.zext(block, Type::I32, arg, Type::I64, "eh.raise.arg").into());
+        }
+        args.push((ip as i64).into());
+        self.eh_call(block, "ra_eh_raise", args);
+        let returned = self.m.b.block(&format!("eh.raised.{ip:x}"));
+        let landing = self.seh_landing(ip, returned);
+        self.m.b.terminate(block, Terminator::Br(landing));
+        let sp = self.m.read_sp(returned);
+        let popped = self.m.b.bin(returned, BinOp::Add, Type::I32, sp, 16i64, "sp.stdcall");
+        self.m.write_sp(returned, popped);
+        Some(returned)
+    }
+
     /// The landing of an exception at `ip` in a protected range: the frame handler's walk of the
     /// scopes around it, with `retry` the block that runs the faulting instruction again.
     fn seh_landing(&mut self, ip: u64, retry: BlockId) -> BlockId {
@@ -875,11 +935,13 @@ impl Lifter<'_, '_> {
         let level_at = self.m.b.bin(b, BinOp::Add, ty.clone(), ebp, seh.level_slot, "eh.level.at");
         let handler_frame = self.m.b.bin(b, BinOp::Add, ty.clone(), node, 16i64, "eh.handler.frame");
         let mut cur = b;
+        // The `__finally`s the search has passed, innermost first: the way to an `__except`
+        // block further out runs them.
+        let mut passed: Vec<Scope> = Vec::new();
         for scope in chain {
             let Some(filter) = scope.filter else {
-                self.warn(format!("{ip:#x}: an exception passes the __finally at {:#x}, which is not lifted yet", scope.handler));
-                self.m.trap(cur, ip, trap::INVALID);
-                return b;
+                passed.push(scope);
+                continue;
             };
             let pointers = self.m.intrinsic(cur, "ra_eh_pointers", Type::I64, vec![], "eh.pointers");
             let pointers = self.m.trunc(cur, Type::I64, pointers, ty.clone(), "eh.pointers");
@@ -901,16 +963,19 @@ impl Lifter<'_, '_> {
             let handled = self.m.b.block(&format!("eh.except.{ip:x}.{}", scope.index));
             let other = self.m.b.block(&format!("eh.verdict.{ip:x}.{}", scope.index));
             self.m.b.terminate(filtered, Terminator::CondBr { cond: execute.into(), then: handled, els: other });
-            // EXCEPTION_EXECUTE_HANDLER: the `__except` block, at the enclosing try level.
-            self.eh_call(handled, "ra_eh_handled", vec![]);
-            let enclosing = scope.parent.unwrap_or_else(|| seh.layout.outermost());
-            self.m.store(handled, Type::I32, i64::from(enclosing as i32), level_at);
-            self.m.write_gpr(handled, R::EBP, handler_frame);
-            if let Some(&h) = self.function_blocks.get(&scope.handler) {
-                self.m.b.terminate(handled, Terminator::Br(h));
-            } else {
-                self.warn(format!("{ip:#x}: the __except block at {:#x} is no block of the function", scope.handler));
-                self.m.trap(handled, scope.handler, trap::INVALID);
+            // EXCEPTION_EXECUTE_HANDLER: the local unwind runs each `__finally` inside the scope at
+            // its enclosing try level, then the `__except` block, at the scope's enclosing level.
+            if let Some(handled) = self.run_finallys(handled, ip, &passed, &seh, level_at, handler_frame) {
+                self.eh_call(handled, "ra_eh_handled", vec![]);
+                let enclosing = scope.parent.unwrap_or_else(|| seh.layout.outermost());
+                self.m.store(handled, Type::I32, i64::from(enclosing as i32), level_at);
+                self.m.write_gpr(handled, R::EBP, handler_frame);
+                if let Some(&h) = self.function_blocks.get(&scope.handler) {
+                    self.m.b.terminate(handled, Terminator::Br(h));
+                } else {
+                    self.warn(format!("{ip:#x}: the __except block at {:#x} is no block of the function", scope.handler));
+                    self.m.trap(handled, scope.handler, trap::INVALID);
+                }
             }
             // EXCEPTION_CONTINUE_EXECUTION runs the instruction again; EXCEPTION_CONTINUE_SEARCH
             // asks the next scope out.
@@ -925,6 +990,37 @@ impl Lifter<'_, '_> {
         self.eh_call(cur, "ra_eh_unhandled", vec![(ip as i64).into()]);
         self.m.b.terminate(cur, Terminator::Unreachable);
         b
+    }
+
+    /// The local unwind on the way to an `__except` block: each `__finally` in `passed`, innermost
+    /// first, runs as a copy, called as the frame handler calls it: the try level its enclosing
+    /// one, `ebp` at the node's end, a return address on the stack. The block after the last, or
+    /// `None` after a trap.
+    fn run_finallys(
+        &mut self,
+        block: BlockId,
+        ip: u64,
+        passed: &[Scope],
+        seh: &SehFrame,
+        level_at: ValueId,
+        handler_frame: ValueId,
+    ) -> Option<BlockId> {
+        let mut cur = block;
+        for scope in passed {
+            let enclosing = scope.parent.unwrap_or_else(|| seh.layout.outermost());
+            self.m.store(cur, Type::I32, i64::from(enclosing as i32), level_at);
+            self.m.write_gpr(cur, R::EBP, handler_frame);
+            self.m.push(cur, 0i64);
+            let exit = self.m.b.block(&format!("eh.finally.{ip:x}.{}", scope.index));
+            let Some(entry) = self.copy_funclet(scope.handler, FuncletKind::Cleanup { exit }) else {
+                self.warn(format!("{ip:#x}: the __finally at {:#x} is no code the lift has", scope.handler));
+                self.m.trap(cur, ip, trap::INVALID);
+                return None;
+            };
+            self.m.b.terminate(cur, Terminator::Br(entry));
+            cur = exit;
+        }
+        Some(cur)
     }
 
     /// The import a call instruction reaches, directly, through a thunk, through its slot, or

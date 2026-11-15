@@ -480,6 +480,24 @@ pub unsafe fn ra_eh_probe(address: u64, size: u64, write: u64, site: u64) -> u64
     1
 }
 
+pub unsafe fn ra_eh_raise(code: u64, flags: u64, count: u64, arguments: u64, site: u64) {
+    let seh = &mut *(&raw mut SEH);
+    if seh.in_flight {
+        eh_fatal("RaiseException while a structured exception is in flight");
+    }
+    seh.record = [0; 20];
+    seh.record[0] = code as u32;
+    seh.record[1] = flags as u32;
+    seh.record[3] = site as u32;
+    let count = count.min(15) as usize;
+    seh.record[4] = count as u32;
+    for n in 0..count {
+        seh.record[5 + n] = *(arguments as usize as *const u32).add(n);
+    }
+    seh.pointers = [seh.record.as_ptr() as usize as u32, 0];
+    seh.in_flight = true;
+}
+
 pub unsafe fn ra_eh_pointers() -> u64 {
     let seh = &mut *(&raw mut SEH);
     if !seh.in_flight {

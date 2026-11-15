@@ -447,7 +447,7 @@ impl Lifter<'_, '_> {
 
     /// A constant address as an operand: in standalone mode, the address of the byte of the data
     /// global or the function it falls in; otherwise, the number.
-    fn address_operand(&self, address: u64) -> Operand {
+    pub(crate) fn address_operand(&self, address: u64) -> Operand {
         if self.lifted.standalone
             && let Some(op) = self.lifted.address_of(address)
         {
@@ -1420,6 +1420,13 @@ impl Lifter<'_, '_> {
                 if self.lifted.eh && self.called_import(i, ip).as_deref() == Some("_CxxThrowException") {
                     self.throw_site(block, ip);
                     return block;
+                }
+                // A structured exception raised where a `__try` protects: it lands as a fault does.
+                if self.frame.seh.is_some()
+                    && self.called_import(i, ip).as_deref() == Some("RaiseException")
+                    && let Some(returned) = self.raise_site(block, ip)
+                {
+                    return returned;
                 }
                 let ret = self.m.value_of(block, self.addr_ty(), next_ip as i64);
                 match i.op_kind(0) {

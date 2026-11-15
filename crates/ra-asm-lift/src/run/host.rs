@@ -62,6 +62,10 @@ struct Exceptions {
     in_flight: Option<usize>,
     staged: Option<usize>,
     caught: Vec<usize>,
+    /// Beside each catch being run, the `esp` the x86 frame handler saved from under the
+    /// registration when the catch began: an unwind out of the catch puts it back, as the
+    /// handler's own unwind does, so a catch further out resumes on the parent's stack.
+    catch_sp: Vec<u64>,
     suspended: Vec<Option<usize>>,
     /// The structured exception in flight: its code and the `EXCEPTION_POINTERS` its filters read.
     structured: Option<(u32, u64)>,
@@ -783,16 +787,26 @@ impl<'a> Runtime<'a> {
     /// to it, in the program's layout, and gives the pointers' address. There is no context: a
     /// filter that reads one faults rather than reads made-up registers.
     fn access_violation(&mut self, vm: &mut Vm<'_>, address: u64, write: bool, site: u64) -> Result<u64, Stop> {
+        self.exception_record(vm, 0xC000_0005, 0, site, &[u64::from(write), address])
+    }
+
+    /// Writes the `EXCEPTION_RECORD` of the exception `code` at `site`, with its flags and its
+    /// parameters (at most fifteen, as the record holds), and the `EXCEPTION_POINTERS` to it; gives
+    /// the pointers' address.
+    fn exception_record(&mut self, vm: &mut Vm<'_>, code: u32, flags: u32, site: u64, parameters: &[u64]) -> Result<u64, Stop> {
         let word = if self.bits == 32 { 4 } else { 8 };
         let information = if word == 4 { 20 } else { 32 };
         let size = information + 15 * word;
         let record = self.allocate(vm, size, 16)?;
         vm.memory.fill(record, size, 0)?;
-        vm.memory.write_u32(record, 0xC000_0005)?;
+        vm.memory.write_u32(record, code)?;
+        vm.memory.write_u32(record + 4, flags)?;
         vm.memory.write_word(record + 8 + word, word, site)?;
-        vm.memory.write_u32(record + 8 + 2 * word, 2)?;
-        vm.memory.write_word(record + information, word, u64::from(write))?;
-        vm.memory.write_word(record + information + word, word, address)?;
+        let parameters = &parameters[..parameters.len().min(15)];
+        vm.memory.write_u32(record + 8 + 2 * word, parameters.len() as u32)?;
+        for (n, &p) in parameters.iter().enumerate() {
+            vm.memory.write_word(record + information + n as u64 * word, word, p)?;
+        }
         let pointers = self.allocate(vm, 2 * word, 16)?;
         vm.memory.write_word(pointers, word, record)?;
         vm.memory.write_word(pointers + word, word, 0)?;
@@ -837,6 +851,7 @@ impl<'a> Runtime<'a> {
             "ra_eh_ending_object" | "ra_eh_ending_destructor" => {
                 let Some(&e) = self.eh.caught.last() else { return Err(Stop::fault("the end of a catch body with no exception caught")) };
                 let held = self.eh.in_flight == Some(e)
+                    || self.eh.staged == Some(e)
                     || self.eh.caught[..self.eh.caught.len() - 1].contains(&e)
                     || self.eh.suspended.contains(&Some(e));
                 let destructor = if held { 0 } else { self.eh.arena[e].destructor };
@@ -879,12 +894,37 @@ impl<'a> Runtime<'a> {
                 }
                 let Some(e) = self.eh.staged.take() else { return Err(Stop::fault("a catch body with no exception matched")) };
                 self.eh.caught.push(e);
+                self.eh.catch_sp.push(0);
                 int(0)
             }
+            "ra_eh_catch_sp" => {
+                let Some(sp) = self.eh.catch_sp.last_mut() else { return Err(Stop::fault("a saved esp with no catch being run")) };
+                *sp = a(0);
+                int(0)
+            }
+            "ra_eh_ending_sp" => match self.eh.catch_sp.last() {
+                Some(&sp) => int(sp),
+                None => Err(Stop::fault("the end of a catch body with no exception caught")),
+            },
             "ra_eh_leave_catch" => {
                 if self.eh.caught.pop().is_none() {
                     return Err(Stop::fault("the end of a catch body with no exception caught"));
                 }
+                self.eh.catch_sp.pop();
+                int(0)
+            }
+            "ra_eh_raise" => {
+                let (code, flags, count, arguments, site) = (a(0), a(1), a(2), a(3), a(4));
+                if self.eh.structured.is_some() {
+                    return Err(Stop::fault(format!("RaiseException at {site:#x} while a structured exception is in flight")));
+                }
+                let word = if self.bits == 32 { 4 } else { 8 };
+                let mut parameters = Vec::new();
+                for n in 0..count.min(15) {
+                    parameters.push(vm.memory.read_word(arguments + n * word, word)?);
+                }
+                let pointers = self.exception_record(vm, code as u32, flags as u32, site, &parameters)?;
+                self.eh.structured = Some((code as u32, pointers));
                 int(0)
             }
             "ra_eh_suspend" => {

@@ -68,8 +68,7 @@ fn seh_clang_runs_interpreted_at_the_abi_level() {
 /// eh.cpp's throws caught by type at the machine level, the first five of its groups: a throw
 /// lands in the catch its type picks, the unwind destroys the guards it passes, and the end of a
 /// catch destroys the thrown object, so each group's result and its events checksum are the native
-/// run's. The rethrow, the nested tries, the constructor's throw and the structured exceptions
-/// past them are card #484's, as is the ABI level.
+/// run's. The groups past them run in [`eh_clang`], at the ABI level.
 #[test]
 fn eh_clang_catches_by_type() {
     let dir = rhtest();
@@ -89,9 +88,10 @@ fn eh_clang_catches_by_type() {
 
 /// eh.cpp's throws through the x86 frame handler's protocol: the try level the code stores in its
 /// registration picks the landing, the unwind map's actions destroy the guards a throw passes, and
-/// the end of a catch destroys the thrown object.
+/// the end of a catch destroys the thrown object. A rethrow passes the caught object on, a throw
+/// from a catch unwinds it with the `esp` it began with, and a `RaiseException` under a
+/// `__try`/`__finally` runs the `__finally` on its way to the `__except` further out.
 #[test]
-#[ignore = "card #484: the rethrow, the nested tries, the constructor's throw, the structured exceptions and the ABI level"]
 fn eh_clang() {
     run_abi("eh", "clang");
 }

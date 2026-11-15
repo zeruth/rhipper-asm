@@ -298,8 +298,10 @@ void ra_eh_resume(void);
 // The structured exceptions of a 32-bit __try: ra_eh_probe(address, size, write, site) puts the
 // access violation in flight and answers 1 when the access would fault; ra_eh_pointers gives the
 // EXCEPTION_POINTERS its filter reads, in the program's 32-bit layout; ra_eh_handled ends it, and
-// ra_eh_unhandled(site) ends the program when no scope of the function takes it.
+// ra_eh_unhandled(site) ends the program when no scope of the function takes it. ra_eh_raise is
+// RaiseException(code, flags, count, arguments) at a site a scope protects: its exception in flight.
 uint64_t ra_eh_probe(uint64_t address, uint64_t size, uint64_t write, uint64_t site);
+void ra_eh_raise(uint64_t code, uint64_t flags, uint64_t count, uint64_t arguments, uint64_t site);
 uint64_t ra_eh_pointers(void);
 void ra_eh_handled(void);
 void ra_eh_unhandled(uint64_t site);

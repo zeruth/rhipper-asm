@@ -253,14 +253,17 @@ pub fn declare_eh_runtime(module: &mut ra_asm_ir::Module) {
 
 /// Declares what the x86 frame handler's protocol adds: the thrown object's destructor and the
 /// copy constructor of each of its catchable types, and at the end of a catch the object and the
-/// destructor to run on it when the end of the catch ends the exception.
+/// destructor to run on it when the end of the catch ends the exception; and the `esp` the handler
+/// saved when a catch began, which an unwind out of the catch puts back under the registration.
 pub fn declare_eh32_runtime(module: &mut ra_asm_ir::Module) {
     let i = Type::I64;
     let functions = [
         ("ra_eh_throw_destructor", Type::Void, vec![i.clone()]),
         ("ra_eh_throw_copy", Type::Void, vec![i.clone()]),
         ("ra_eh_ending_object", i.clone(), vec![]),
-        ("ra_eh_ending_destructor", i, vec![]),
+        ("ra_eh_ending_destructor", i.clone(), vec![]),
+        ("ra_eh_catch_sp", Type::Void, vec![i.clone()]),
+        ("ra_eh_ending_sp", i, vec![]),
     ];
     for (name, ret, params) in functions {
         module.declare(Declaration { name: name.into(), ty: FnType::new(ret, params), conv: CallConv::C, attrs: vec![] });
@@ -273,6 +276,7 @@ pub fn declare_seh_runtime(module: &mut ra_asm_ir::Module) {
     let i = Type::I64;
     let functions = [
         ("ra_eh_probe", i.clone(), vec![i.clone(), i.clone(), i.clone(), i.clone()]),
+        ("ra_eh_raise", Type::Void, vec![i.clone(), i.clone(), i.clone(), i.clone(), i.clone()]),
         ("ra_eh_pointers", i.clone(), vec![]),
         ("ra_eh_handled", Type::Void, vec![]),
         ("ra_eh_unhandled", Type::Void, vec![i]),

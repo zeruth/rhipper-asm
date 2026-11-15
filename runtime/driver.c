@@ -1825,6 +1825,20 @@ uint64_t ra_eh_probe(uint64_t address, uint64_t size, uint64_t write, uint64_t s
     return 1;
 }
 
+void ra_eh_raise(uint64_t code, uint64_t flags, uint64_t count, uint64_t arguments, uint64_t site) {
+    if (seh_in_flight) eh_fatal("RaiseException while a structured exception is in flight");
+    memset(seh_record, 0, sizeof seh_record);
+    seh_record[0] = (uint32_t)code;
+    seh_record[1] = (uint32_t)flags;
+    seh_record[3] = (uint32_t)site;
+    if (count > 15) count = 15;
+    seh_record[4] = (uint32_t)count;
+    for (uint64_t n = 0; n < count; n++) seh_record[5 + n] = ((const uint32_t *)(uintptr_t)arguments)[n];
+    seh_pointers[0] = (uint32_t)(uintptr_t)seh_record;
+    seh_pointers[1] = 0;
+    seh_in_flight = 1;
+}
+
 uint64_t ra_eh_pointers(void) {
     if (!seh_in_flight) eh_fatal("a filter with no structured exception in flight");
     return (uint64_t)(uintptr_t)seh_pointers;
