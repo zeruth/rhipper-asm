@@ -5,7 +5,10 @@
 //! `xmm0..xmm15` in the first sixteen slots, the upper halves of `ymm0..ymm15` in the sixteen
 //! above them. The driver's C `struct State` has the same layout. On ARM64 the same four fields hold `x0..x30`
 //! and `sp` (32 slots), `pc`, the flags as bytes (n, z, c, v) and `v0..v31`; on 32-bit ARM the
-//! x86 shape holds `r0..r15`, the flags as ARM64 keeps them and `q0..q15`.
+//! x86 shape holds `r0..r15`, the flags as ARM64 keeps them and `q0..q15`. On MIPS the four
+//! fields hold `$0..$31` at 64 bits (MIPS III's width, every 32-bit result sign-extended into
+//! it) with `hi` and `lo` after them as `$32` and `$33`, `pc`, the FPU's eight condition codes as
+//! bytes and `$f0..$f31`, and a fifth follows: the FPU's control and status register.
 
 use ra_asm_arch::state::{self as layout, StateSpec};
 use ra_asm_ir::{AtomicOp, BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Operand, Type, ValueId};
@@ -22,11 +25,40 @@ pub enum Isa {
     /// 32-bit ARM in Thumb-2: `r0..r15` in the first 16 general slots, N, Z, C and V in the
     /// first four flag bytes, as on ARM64.
     Arm32,
+    /// MIPS under o32: `$0..$31` in the 32 general slots, the FPU with the 32-bit registers of
+    /// `Status.FR = 0`, where a double is an even register and the odd one after it.
+    Mips,
+    /// MIPS under n32: the state of [`Isa::Mips`] with the 64-bit FPU registers of `Status.FR = 1`.
+    MipsN32,
 }
+
+impl Isa {
+    pub fn is_mips(self) -> bool {
+        matches!(self, Self::Mips | Self::MipsN32)
+    }
+}
+
+/// `hi` and `lo` as the general slots past `$31`: a promoted or raised function keeps them in
+/// values as it does a register.
+pub const MIPS_HI: u8 = 32;
+pub const MIPS_LO: u8 = 33;
+/// The scalar field of the MIPS `%State` after the four every state has, by index.
+pub const MIPS_FCSR: i64 = 4;
+
+/// The MIPS general registers by their number, in the o32 names (n32 calls `$8..$11` `a4..a7`),
+/// then `hi` and `lo`.
+pub const MIPS_GPR_NAMES: [&str; 34] = [
+    "zero", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "s0", "s1", "s2", "s3", "s4", "s5",
+    "s6", "s7", "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra", "hi", "lo",
+];
 
 /// The `svc` of a Thumb-2 program: `void @ra_svc(ptr %state, i64 imm)`. The runtime reads the
 /// call's number and arguments from the registers of the state, as the program's system's
 /// convention puts them, and writes the result back.
+/// A MIPS `syscall` goes to `i64 @ra_syscall(i64 number, i64 a0, i64 a1, i64 a2, i64 a3)` instead:
+/// the number and the four argument registers by value, the kernel's result back, negative with
+/// the error number on a failure; the lift writes `v0` and `a3` from it, so a raised function
+/// keeps its registers in values across the call.
 pub fn declare_svc(module: &mut ra_asm_ir::Module) {
     module.declare(Declaration {
         name: "ra_svc".into(),
@@ -34,6 +66,12 @@ pub fn declare_svc(module: &mut ra_asm_ir::Module) {
         conv: CallConv::C,
         attrs: vec![],
     });
+    module.declare(Declaration { name: "ra_syscall".into(), ty: syscall_type(), conv: CallConv::C, attrs: vec![] });
+}
+
+/// The type of `@ra_syscall`.
+pub fn syscall_type() -> FnType {
+    FnType::new(Type::I64, vec![Type::I64; 5])
 }
 
 /// The fields of the x86 `%State`.
@@ -49,6 +87,7 @@ impl Isa {
             Self::X86 => &layout::X86,
             Self::Arm64 => &layout::ARM64,
             Self::Arm32 => &layout::ARM32,
+            Self::Mips | Self::MipsN32 => &layout::MIPS,
         }
     }
 }
@@ -532,7 +571,13 @@ impl Machine<'_> {
             Isa::X86 => GPR_NAMES[number as usize],
             Isa::Arm64 => ra_asm_arm64::registers::full_of(number as u16).name,
             Isa::Arm32 => ra_asm_arm64::thumb::register(number as u8).name,
+            Isa::Mips | Isa::MipsN32 => MIPS_GPR_NAMES[number as usize],
         }
+    }
+
+    /// The pointer to scalar field `index` of the state past the four every state has: [`MIPS_FCSR`].
+    pub fn field_ptr(&mut self, block: BlockId, index: i64, hint: &str) -> ValueId {
+        self.b.gep(block, Self::state_ty(), self.state, vec![(Type::I32, 0i64.into()), (Type::I32, index.into())], hint)
     }
 
     // region Pointers into the state
@@ -570,6 +615,7 @@ impl Machine<'_> {
             Isa::X86 => format!("p.xmm{number}"),
             Isa::Arm64 => format!("p.v{number}"),
             Isa::Arm32 => format!("p.q{number}"),
+            Isa::Mips | Isa::MipsN32 => format!("p.f{number}"),
         };
         self.b.gep(
             block,
@@ -649,6 +695,7 @@ impl Machine<'_> {
             Isa::X86 => format!("xmm{number}"),
             Isa::Arm64 => format!("v{number}"),
             Isa::Arm32 => format!("q{number}"),
+            Isa::Mips | Isa::MipsN32 => format!("f{number}"),
         };
         self.b.load(block, ty, p, &hint)
     }

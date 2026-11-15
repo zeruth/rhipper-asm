@@ -76,12 +76,13 @@ struct Layout {
 impl Layout {
     fn of(isa: Isa) -> Self {
         let fields = ra_asm_lift::state::state_fields_for(isa);
-        let [Type::Array(general, _), _, _, Type::Array(vectors, _)] = fields.as_slice() else {
+        let [Type::Array(general, _), _, _, Type::Array(_, _), ..] = fields.as_slice() else {
             unreachable!("a %State is its general registers, its counter, its flags and its vector registers")
         };
-        let (general, vectors) = (*general as usize, *vectors as usize);
+        let general = *general as usize;
         let counter = 8 * general;
-        Self { general, counter, flags: counter + 8, vectors: counter + 16, size: counter + 16 + 16 * vectors }
+        let size = usize::try_from(isa.spec().size()).expect("a state's size");
+        Self { general, counter, flags: counter + 8, vectors: counter + 16, size }
     }
 }
 
@@ -160,6 +161,7 @@ impl State {
             Isa::X86 => 4,
             Isa::Arm64 => 31,
             Isa::Arm32 => 13,
+            Isa::Mips | Isa::MipsN32 => 29,
         })
     }
 }

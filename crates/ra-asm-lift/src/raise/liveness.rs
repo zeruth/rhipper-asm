@@ -9,9 +9,9 @@ use std::collections::HashMap;
 
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, Function, Inst, Operand, Terminator, Type, ValueId};
 
-/// The widest state's registers: ARM64's 31 general registers and `sp`, and its 32 vector
-/// registers. The x86 state uses the first 16 of each (see [`super::Target::slots`]).
-pub const GPRS: usize = 32;
+/// The widest state's registers: MIPS's 32 general registers with `hi` and `lo`, and ARM64's 32
+/// vector registers. The x86 state uses the first 16 of each (see [`super::Target::slots`]).
+pub const GPRS: usize = 34;
 pub const FLAGS: usize = 8;
 pub const XMMS: usize = 32;
 pub const SLOTS: usize = GPRS + FLAGS + XMMS;

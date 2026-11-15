@@ -38,7 +38,8 @@ use crate::state::Isa;
 /// The machine the IR came from, by its instruction set and pointer width, which set the calling
 /// convention the raise applies: Win64 for a 64-bit x86 image, the x86 conventions (`cdecl`,
 /// `stdcall`, `fastcall`, `thiscall`, told apart by the registers a function reads and the bytes
-/// it pops) for a 32-bit one, and AAPCS64 as Windows on ARM keeps it for an ARM64 one.
+/// it pops) for a 32-bit one, AAPCS64 as Windows on ARM keeps it for an ARM64 one, and o32 or
+/// n32 for MIPS, both with 32-bit pointers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Target {
     pub bits: u32,
@@ -47,6 +48,10 @@ pub struct Target {
 
 /// The slot of `x8`, where an AAPCS64 caller passes the address of a returned aggregate.
 pub const X8: Slot = Slot::Gpr(8);
+/// The MIPS high result register, `v1`.
+const MIPS_V1: Slot = Slot::Gpr(3);
+/// The MIPS globals pointer, `gp`.
+pub const MIPS_GP: Slot = Slot::Gpr(28);
 
 /// What the raise reads of a target besides its pointer width: its calling convention and the
 /// registers its state holds.
@@ -56,6 +61,11 @@ struct Machine {
     int_params: &'static [Slot],
     gprs: u8,
     xmms: u8,
+    /// Whether an unknown callee takes its first integer arguments in registers.
+    register_arguments: bool,
+    /// The high half of a 64-bit result where the convention's own register is read: `v1` on
+    /// MIPS; elsewhere `edx`, where the x86 helpers (`_allmul`, `_allrem`) leave it.
+    high_result: Option<Slot>,
 }
 
 /// The slot of a convention's register: a general or a vector register's own.
@@ -82,18 +92,30 @@ const WIN64_INTS: [Slot; convention::WIN64.int_params.len()] = slots(convention:
 const X86_INTS: [Slot; convention::X86.int_params.len()] = slots(convention::X86.int_params);
 const AAPCS64_INTS: [Slot; convention::AAPCS64.int_params.len()] = slots(convention::AAPCS64.int_params);
 const AAPCS32_INTS: [Slot; convention::AAPCS32.int_params.len()] = slots(convention::AAPCS32.int_params);
+const O32_INTS: [Slot; convention::O32.int_params.len()] = slots(convention::O32.int_params);
+const N32_INTS: [Slot; convention::N32.int_params.len()] = slots(convention::N32.int_params);
 
-const WIN64_MACHINE: Machine = Machine { abi: &convention::WIN64, int_params: &WIN64_INTS, gprs: 16, xmms: 16 };
-const X86_MACHINE: Machine = Machine { abi: &convention::X86, int_params: &X86_INTS, gprs: 16, xmms: 16 };
-const ARM64_MACHINE: Machine = Machine { abi: &convention::AAPCS64, int_params: &AAPCS64_INTS, gprs: 32, xmms: 32 };
-const ARM32_MACHINE: Machine = Machine { abi: &convention::AAPCS32, int_params: &AAPCS32_INTS, gprs: 16, xmms: 16 };
+const WIN64_MACHINE: Machine =
+    Machine { abi: &convention::WIN64, int_params: &WIN64_INTS, gprs: 16, xmms: 16, register_arguments: true, high_result: None };
+const X86_MACHINE: Machine =
+    Machine { abi: &convention::X86, int_params: &X86_INTS, gprs: 16, xmms: 16, register_arguments: false, high_result: None };
+const ARM64_MACHINE: Machine =
+    Machine { abi: &convention::AAPCS64, int_params: &AAPCS64_INTS, gprs: 32, xmms: 32, register_arguments: true, high_result: None };
+const ARM32_MACHINE: Machine =
+    Machine { abi: &convention::AAPCS32, int_params: &AAPCS32_INTS, gprs: 16, xmms: 16, register_arguments: false, high_result: None };
+const O32_MACHINE: Machine =
+    Machine { abi: &convention::O32, int_params: &O32_INTS, gprs: 34, xmms: 32, register_arguments: true, high_result: Some(MIPS_V1) };
+const N32_MACHINE: Machine =
+    Machine { abi: &convention::N32, int_params: &N32_INTS, gprs: 34, xmms: 32, register_arguments: true, high_result: Some(MIPS_V1) };
 
 /// The one place a target's instruction set and width pick its convention: Win64 for 64-bit
-/// x86, the x86 conventions for 32-bit, AAPCS64 and AAPCS32 for the ARMs.
+/// x86, the x86 conventions for 32-bit, AAPCS64 and AAPCS32 for the ARMs, o32 and n32 for MIPS.
 fn machine(target: Target) -> &'static Machine {
     match (target.isa, target.bits) {
         (Isa::Arm64, _) => &ARM64_MACHINE,
         (Isa::Arm32, _) => &ARM32_MACHINE,
+        (Isa::Mips, _) => &O32_MACHINE,
+        (Isa::MipsN32, _) => &N32_MACHINE,
         (Isa::X86, 64) => &WIN64_MACHINE,
         (Isa::X86, _) => &X86_MACHINE,
     }
@@ -104,6 +126,30 @@ impl Target {
     pub const X86: Target = Target { bits: 32, isa: Isa::X86 };
     pub const ARM64: Target = Target { bits: 64, isa: Isa::Arm64 };
     pub const ARM32: Target = Target { bits: 32, isa: Isa::Arm32 };
+    pub const MIPS_O32: Target = Target { bits: 32, isa: Isa::Mips };
+    pub const MIPS_N32: Target = Target { bits: 32, isa: Isa::MipsN32 };
+
+    /// o32 or n32: `a0` to `a3` (n32 to `a7`) and the stack, results in `v0` and `v1` or `$f0`,
+    /// the return address in `ra`.
+    pub fn is_mips(self) -> bool {
+        self.isa.is_mips()
+    }
+
+    /// Whether an unknown callee takes its first integer arguments in registers: everywhere
+    /// but 32-bit x86, whose conventions put them on the stack.
+    pub fn register_arguments(self) -> bool {
+        machine(self).register_arguments
+    }
+
+    /// The slot of an integer result: `rax`, `x0`, `r0` or `v0`.
+    pub fn int_return(self) -> Slot {
+        slot(self.abi().int_results[0])
+    }
+
+    /// The slot of the high half of a 64-bit result of a 32-bit target: `edx`, or `v1`.
+    pub fn high_return(self) -> Slot {
+        machine(self).high_result.unwrap_or(liveness::RDX)
+    }
 
     pub fn is_64(self) -> bool {
         self.bits == 64
@@ -140,18 +186,19 @@ impl Target {
         Type::Int(self.bits as u16)
     }
 
-    /// The slot of the stack pointer: `rsp`, `sp` on ARM64, `r13` on 32-bit ARM.
+    /// The slot of the stack pointer: `rsp`, `sp` on ARM64, `r13` on 32-bit ARM, `$29` on MIPS.
     pub fn sp(self) -> Slot {
         slot(self.abi().stack_pointer)
     }
 
     /// The bytes a call pushes for its return address and the callee's return pops: a pointer on
-    /// x86, nothing on ARM, where `bl` leaves it in the link register.
+    /// x86, nothing on ARM and MIPS, where `bl` and `jal` leave it in a register.
     pub fn pushed_return(self) -> i64 {
         i64::from(self.abi().pushed_return())
     }
 
-    /// The general and the vector registers of the target's state.
+    /// The general and the vector registers of the target's state; MIPS's vector slots are the
+    /// FPU's registers.
     pub fn gprs(self) -> u8 {
         machine(self).gprs
     }
@@ -172,7 +219,9 @@ impl Target {
     }
 
     /// The offset of the first stack argument above the entry stack pointer: past the return
-    /// address, and on Win64 past the four home slots; on ARM64 the entry stack pointer itself.
+    /// address, and on Win64 past the four home slots; on ARM64 the entry stack pointer itself;
+    /// under o32 past the four home slots of `a0` to `a3` the caller reserves at its stack
+    /// pointer, and under n32, which reserves none, the entry stack pointer.
     /// Also where a caller's outgoing arguments start above its stack pointer once the return
     /// address is pushed.
     pub fn first_stack_arg(self) -> i64 {
@@ -187,7 +236,7 @@ impl Target {
 
     /// The registers that carry integer arguments, by position: `rcx`, `rdx`, `r8`, `r9` on Win64;
     /// `ecx` and `edx` on x86, which `fastcall` and `thiscall` use; `x0` to `x7` on ARM64; `r0` to
-    /// `r3` on 32-bit ARM.
+    /// `r3` on 32-bit ARM; `a0` to `a3` (`$4` to `$7`) under o32 and on to `a7` (`$11`) under n32.
     pub fn int_param_slots(self) -> &'static [Slot] {
         machine(self).int_params
     }
@@ -196,13 +245,24 @@ impl Target {
     /// of either class; three on x86, where clang passes the floats of a local function in `xmm0`
     /// to `xmm2` beside the integers in `ecx` and `edx`, each class counted on its own; eight on
     /// ARM64, `v0` to `v7`, counted on their own too; none on 32-bit ARM, whose VFP registers the
-    /// lift does not model yet.
+    /// lift does not model yet; two under o32, `$f12` and `$f14`, and eight under n32, `$f12` to
+    /// `$f19`. o32 passes a float in them only while every parameter before it is a float too,
+    /// in the integer registers after that; the count of each class on its own reads the first
+    /// shape.
     pub fn float_params(self) -> usize {
         self.abi().float_params.len()
     }
 
+    /// The vector slot of float parameter `place`: `xmm<place>` or `v<place>`; `$f12` and `$f14`
+    /// under o32, where a double takes an even register and the odd one after it; `$f12` on under
+    /// n32. A place past the convention's registers is its own vector slot, which no parameter
+    /// reaches.
+    pub fn float_param_slot(self, place: usize) -> Slot {
+        self.abi().float_params.get(place).map_or(Slot::Xmm(place as u8), |reg| slot(*reg))
+    }
+
     /// The register of parameter `index` of `params`: by position on Win64, by its place among
-    /// the parameters of its class on x86 and ARM64.
+    /// the parameters of its class on x86, ARM64 and MIPS.
     pub fn param_slot(self, params: &[abi::Kind], index: usize) -> Option<Slot> {
         let kind = params[index];
         let float = matches!(kind, abi::Kind::Float | abi::Kind::Double);
@@ -218,9 +278,12 @@ impl Target {
     /// and `xmm6` to `xmm15` on Win64; `ebx`, `ebp`, `esp`, `esi` and `edi` on x86; on ARM64
     /// `x19` to `x28`, the frame pointer `x29`, `sp`, the low halves of `v8` to `v15`, and `x18`,
     /// the thread's block, which no Windows function changes. The link register is the caller's
-    /// to lose: `bl` writes it. On 32-bit ARM `r4` to `r11` and `sp`. A vector slot past the
-    /// state's vector registers, which no function of the target touches, answers as the last of
-    /// them does.
+    /// to lose: `bl` writes it. On 32-bit ARM `r4` to `r11` and `sp`. On MIPS `s0` to `s7`, `sp`
+    /// and `fp`, and `$0`, which nothing writes; `gp` under n32, where a callee restores it,
+    /// while under o32 the caller reloads it after a call; `$f20` to `$f31` under o32 (the six
+    /// doubles from `$f20`) and the even ones of them under n32. `ra` is the caller's: `jal`
+    /// writes it. A vector slot past the state's vector registers, which no function of the
+    /// target touches, answers as the last of them does.
     pub fn callee_saved(self, slot: Slot) -> bool {
         let reg = match slot {
             Slot::Gpr(n) => Reg::Gpr(n),
@@ -233,7 +296,8 @@ impl Target {
     /// The entry stack pointer's offset past a 16-byte boundary: a native call pushes the return
     /// address onto an aligned stack, so a callee starts at 8 (Win64) or 12 (x86, where the
     /// alignment is 4 and 12 is what a caller aligned to 16 leaves); on ARM64 the stack pointer
-    /// is 16-byte aligned at every call and nothing is pushed, so 0.
+    /// is 16-byte aligned at every call and nothing is pushed, so 0, as on MIPS, where o32 keeps
+    /// 8 bytes and n32 16 at a call.
     pub fn entry_misalignment(self) -> u64 {
         u64::from(self.abi().entry_misalignment())
     }

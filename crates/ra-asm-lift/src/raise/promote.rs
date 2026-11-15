@@ -28,7 +28,7 @@ use super::Target;
 use super::abi::{Candidates, Kind, KindType, Signature};
 use super::assume::{self, Assumption, Step};
 use super::liveness::{
-    CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, all_registers, call_kind, reverse_post_order, slot_pointers,
+    CallKind, Liveness, NO_SLOTS, RCX, RDX, SLOTS, Slot, SlotSet, all_registers, call_kind, reverse_post_order, slot_pointers,
 };
 use crate::state::{ARGS, X87_STACK, X87_TOP};
 use crate::x87::X87Unit;
@@ -213,10 +213,10 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
         Some(abi) => {
             let mut set = NO_SLOTS;
             match abi.own.returns {
-                Some(Kind::Int) => set[RAX.index()] = true,
+                Some(Kind::Int) => set[abi.target.int_return().index()] = true,
                 Some(Kind::Wide) => {
-                    set[RAX.index()] = true;
-                    set[RDX.index()] = true;
+                    set[abi.target.int_return().index()] = true;
+                    set[abi.target.high_return().index()] = true;
                 }
                 Some(Kind::Float | Kind::Double) => set[Slot::Xmm(0).index()] = true,
                 None => {}
@@ -549,9 +549,10 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
             match rw.abi {
                 None => flush(f, state, &current, &dirty, block.instrs.last().and_then(|i| i.address), &mut instrs),
                 Some(abi) => {
+                    let (low_slot, high_slot) = (abi.target.int_return(), abi.target.high_return());
                     terminator = match abi.own.returns {
                         None => Terminator::Ret(None),
-                        Some(Kind::Int) => Terminator::Ret(Some((Type::I64, current.get(&RAX).cloned().unwrap_or(Operand::Undef)))),
+                        Some(Kind::Int) => Terminator::Ret(Some((Type::I64, current.get(&low_slot).cloned().unwrap_or(Operand::Undef)))),
                         Some(Kind::Wide) => {
                             // edx:eax as one 64-bit value.
                             let low = f.new_value("ret.lo", Type::I64);
@@ -560,7 +561,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
                                 inst: Inst::Bin {
                                     op: BinOp::And,
                                     ty: Type::I64,
-                                    lhs: current.get(&RAX).cloned().unwrap_or(Operand::Undef),
+                                    lhs: current.get(&low_slot).cloned().unwrap_or(Operand::Undef),
                                     rhs: Operand::Int(0xffff_ffff),
                                 },
                                 address: None,
@@ -571,7 +572,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
                                 inst: Inst::Bin {
                                     op: BinOp::Shl,
                                     ty: Type::I64,
-                                    lhs: current.get(&RDX).cloned().unwrap_or(Operand::Undef),
+                                    lhs: current.get(&high_slot).cloned().unwrap_or(Operand::Undef),
                                     rhs: Operand::Int(32),
                                 },
                                 address: None,
@@ -802,8 +803,8 @@ impl Rewriter<'_> {
     }
 
     /// Eight integers for an import or an unknown callee: on Win64 the four register arguments
-    /// and four stack slots; on x86 six stack dwords, then `ecx` and `edx`, the order the
-    /// universal stubs and the imports take.
+    /// and four stack slots, under o32 `a0` to `a3` and four stack words; on x86 six stack
+    /// dwords, then `ecx` and `edx`, the order the universal stubs and the imports take.
     fn universal_arguments(
         &self,
         f: &mut Function,
@@ -814,14 +815,15 @@ impl Rewriter<'_> {
         let target = self.target();
         let mut args = Vec::new();
         let rsp = self.sp(current);
-        if target.is_64() {
+        if target.register_arguments() {
             for slot in target.int_param_slots() {
                 args.push((Type::I64, current.get(slot).cloned().unwrap_or(Operand::Undef)));
             }
             // ARM64's eight argument registers are the eight already.
             let stack_words = 8 - target.int_param_slots().len() as i64;
+            let width = target.ptr();
             for k in 0..stack_words {
-                let v = self.stack_word(f, &rsp, stack_base + 8 * k, 8, &format!("sarg{k}"), out);
+                let v = self.stack_word(f, &rsp, stack_base + width * k, width, &format!("sarg{k}"), out);
                 args.push((Type::I64, Operand::Local(v)));
             }
         } else {
@@ -855,7 +857,7 @@ impl Rewriter<'_> {
         }
         match (returns, result) {
             (Some(Kind::Int), Some(v)) => {
-                current.insert(RAX, Operand::Local(v));
+                current.insert(target.int_return(), Operand::Local(v));
             }
             (Some(Kind::Wide), Some(v)) => {
                 // The 64-bit result lands in edx:eax.
@@ -871,8 +873,8 @@ impl Rewriter<'_> {
                     inst: Inst::Bin { op: BinOp::LShr, ty: Type::I64, lhs: Operand::Local(v), rhs: Operand::Int(32) },
                     address: None,
                 });
-                current.insert(RAX, Operand::Local(low));
-                current.insert(RDX, Operand::Local(high));
+                current.insert(target.int_return(), Operand::Local(low));
+                current.insert(target.high_return(), Operand::Local(high));
             }
             (Some(kind @ (Kind::Float | Kind::Double)), Some(v)) => {
                 let slot = self.xmm_slot(f, 0, out);
@@ -953,7 +955,7 @@ impl Rewriter<'_> {
         let args = self.universal_arguments(f, current, target.first_stack_arg(), out);
         // The stack dwords past the universal six, for a callee that takes more: its universal
         // entry point reads them where they are written here.
-        if !target.is_64() {
+        if !target.register_arguments() {
             let rsp = self.sp(current);
             for k in 0..abi.extra_dwords {
                 let j = (super::stubs::UNIVERSAL_DWORDS + k) as i64;
@@ -984,7 +986,8 @@ impl Rewriter<'_> {
         });
         let rsp = self.sp(current);
         let mut up = Operand::Int(i128::from(ptr));
-        if !target.is_64() {
+        // A callee by register convention pops nothing; an x86 one's universal stub says what.
+        if !target.register_arguments() {
             let pops = f.new_value("pops", Type::I64);
             out.push(Instruction {
                 result: Some(pops),

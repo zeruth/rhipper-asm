@@ -109,11 +109,16 @@ impl Shape {
                 (32, general, "pc", owned(&ARM_FLAGS), numbered("v", 32))
             }
             Isa::Arm32 => (16, numbered("r", 16), "pc", owned(&ARM_FLAGS), numbered("q", 16)),
+            Isa::Mips | Isa::MipsN32 => (32, owned(&ra_asm_lift::state::MIPS_GPR_NAMES), "pc", numbered("fcc", 8), numbered("f", 32)),
         };
         let counter_at = 8 * general_slots;
         let flags_at = counter_at + 8;
         let vectors_at = flags_at + 8;
-        let size = vectors_at + 16 * vectors.len();
+        let vectors_end = vectors_at + 16 * vectors.len();
+        // MIPS keeps `hi`, `lo` and the FPU's control word past the vector registers.
+        let extras: &[(&str, usize, usize)] =
+            if isa.is_mips() { &[("hi", vectors_end, 8), ("lo", vectors_end + 8, 8), ("fcsr", vectors_end + 16, 4)] } else { &[] };
+        let size = if extras.is_empty() { vectors_end } else { vectors_end + 32 };
         let mut slots = Vec::new();
         let general_count = general.len();
         slots.extend(general.into_iter().enumerate().map(|(n, name)| Slot { name, offset: 8 * n, size: 8 }));
@@ -121,10 +126,16 @@ impl Shape {
         slots.extend(flags.into_iter().enumerate().map(|(n, name)| Slot { name, offset: flags_at + n, size: 1 }));
         let vectors_from = slots.len();
         slots.extend(vectors.into_iter().enumerate().map(|(n, name)| Slot { name, offset: vectors_at + 16 * n, size: 16 }));
+        slots.extend(extras.iter().map(|&(name, offset, size)| Slot { name: name.to_owned(), offset, size }));
         // The result registers: `rax` and `rdx` (the high half of a wide x86 result) and `xmm0`;
-        // the first two general registers and the first vector register on ARM.
-        let second = if isa == Isa::X86 { 2 } else { 1 };
-        Self { slots, size, general: general_count, vectors: vectors_from, answers: vec![0, second, vectors_from] }
+        // the first two general registers and the first vector register on ARM; `v0`, `v1` and
+        // `$f0` on MIPS.
+        let (first, second) = match isa {
+            Isa::X86 => (0, 2),
+            Isa::Mips | Isa::MipsN32 => (2, 3),
+            Isa::Arm64 | Isa::Arm32 => (0, 1),
+        };
+        Self { slots, size, general: general_count, vectors: vectors_from, answers: vec![first, second, vectors_from] }
     }
 
     /// The name of the register the raise knows as `slot`; none for a flag, or for a register

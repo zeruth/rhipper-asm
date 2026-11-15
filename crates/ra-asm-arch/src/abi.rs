@@ -7,7 +7,8 @@ use Reg::{Gpr, Vector as V};
 
 /// A register of a convention, in the lift's numbering: `Gpr` is the general register of that
 /// number (`rax` 0 to `r15` 15 on x86, `x0` to `x30` and `sp` 31 on ARM64, `r0` to `r15` on 32-bit
-/// ARM), `Vector` the vector register (`xmm`, `v`, `d`), `X87` a place on the x87 stack.
+/// ARM, `$0` to `$31` on MIPS), `Vector` the vector register (`xmm`, `v`, `d`, the MIPS FPU's
+/// `$f`), `X87` a place on the x87 stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Reg {
     Gpr(u8),
@@ -203,5 +204,87 @@ pub const AAPCS32: Abi = Abi {
     global_pointer: None,
 };
 
+/// MIPS o32: `a0` to `a3` (`$4` to `$7`) by their place, `$f12` and `$f14` for the floats while
+/// every parameter before them is a float, a 16-byte home space for the four `a` registers,
+/// `v0:v1` or `$f0` the result, `ra` (`$31`) the link register, `gp` (`$28`) the small-data
+/// pointer, which the caller reloads after a call; `s0` to `s7`, `sp`, `fp` and `$f20` to `$f31`
+/// kept, and `$0`, which nothing writes.
+pub const O32: Abi = Abi {
+    name: "o32",
+    ptr_bytes: 4,
+    int_params: &[Gpr(4), Gpr(5), Gpr(6), Gpr(7)],
+    float_params: &[V(12), V(14)],
+    shared_positions: false,
+    int_results: &[Gpr(2), Gpr(3)],
+    float_results: &[V(0)],
+    callee_saved: &[
+        Gpr(0),
+        Gpr(16),
+        Gpr(17),
+        Gpr(18),
+        Gpr(19),
+        Gpr(20),
+        Gpr(21),
+        Gpr(22),
+        Gpr(23),
+        Gpr(29),
+        Gpr(30),
+        V(20),
+        V(21),
+        V(22),
+        V(23),
+        V(24),
+        V(25),
+        V(26),
+        V(27),
+        V(28),
+        V(29),
+        V(30),
+        V(31),
+    ],
+    stack_align: 8,
+    home_space: 16,
+    return_address: ReturnAddress::Link(Gpr(31)),
+    stack_pointer: Gpr(29),
+    global_pointer: Some(Gpr(28)),
+};
+
+/// MIPS n32: `a0` to `a7` (`$4` to `$11`) and `$f12` to `$f19`, no home space, the 64-bit FPU
+/// registers of which the even ones from `$f20` are kept, and `gp`, which a callee restores.
+pub const N32: Abi = Abi {
+    name: "n32",
+    ptr_bytes: 4,
+    int_params: &[Gpr(4), Gpr(5), Gpr(6), Gpr(7), Gpr(8), Gpr(9), Gpr(10), Gpr(11)],
+    float_params: &[V(12), V(13), V(14), V(15), V(16), V(17), V(18), V(19)],
+    shared_positions: false,
+    int_results: &[Gpr(2), Gpr(3)],
+    float_results: &[V(0)],
+    callee_saved: &[
+        Gpr(0),
+        Gpr(16),
+        Gpr(17),
+        Gpr(18),
+        Gpr(19),
+        Gpr(20),
+        Gpr(21),
+        Gpr(22),
+        Gpr(23),
+        Gpr(28),
+        Gpr(29),
+        Gpr(30),
+        V(20),
+        V(22),
+        V(24),
+        V(26),
+        V(28),
+        V(30),
+    ],
+    stack_align: 16,
+    home_space: 0,
+    return_address: ReturnAddress::Link(Gpr(31)),
+    stack_pointer: Gpr(29),
+    global_pointer: Some(Gpr(28)),
+};
+
 /// Every convention the lift knows.
-pub const ALL: [Abi; 4] = [WIN64, X86, AAPCS64, AAPCS32];
+pub const ALL: [Abi; 6] = [WIN64, X86, AAPCS64, AAPCS32, O32, N32];

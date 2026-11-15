@@ -551,6 +551,17 @@ fn enter(
         vm.call_named(runtime, &name, vec![Value::Int(u128::from(state))])?;
         return Ok(vm.memory.read_u32(state)? as i32);
     }
+    if f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void && lifted.isa.is_mips() {
+        // The return goes through `ra`, which holds zero; `sp` is `$29`, `gp` `$28` as the start
+        // routine of a C library would set it, and the result is `v0`.
+        let state = runtime.new_state(vm)?;
+        vm.memory.write_u64(state + 29 * 8, runtime.stack_top())?;
+        if let Some(gp) = image.global_pointer {
+            vm.memory.write_u64(state + 28 * 8, gp)?;
+        }
+        vm.call_named(runtime, &name, vec![Value::Int(u128::from(state))])?;
+        return Ok(vm.memory.read_u32(state + 2 * 8)? as i32);
+    }
     if f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void {
         let state = runtime.new_state(vm)?;
         let ptr = u64::from(lifted.bits / 8);

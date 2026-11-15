@@ -161,3 +161,24 @@ pub const ARM32: StateSpec = StateSpec {
             .named(&["q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9", "q10", "q11", "q12", "q13", "q14", "q15"]),
     ],
 };
+
+/// MIPS, o32 and n32 alike: `$0..$31` at 64 bits (MIPS III's width, every 32-bit result
+/// sign-extended into it) and `hi`, `lo` after them as `$32` and `$33`, so the raise promotes them
+/// as it does a register; `pc`, the FPU's eight condition codes as bytes, `$f0..$f31`, then the
+/// FPU's control and status register.
+pub const MIPS: StateSpec = StateSpec {
+    machine: "mips",
+    fields: &[
+        Field::group("gpr", Role::General, 34, 64).named(&[
+            "zero", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "s0", "s1", "s2", "s3", "s4",
+            "s5", "s6", "s7", "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra", "hi", "lo",
+        ]),
+        Field::single("pc", Role::ProgramCounter, 64),
+        Field::group("flags", Role::Flags, 8, 8).named(&["fcc0", "fcc1", "fcc2", "fcc3", "fcc4", "fcc5", "fcc6", "fcc7"]),
+        Field::group("vector", Role::Vector, 32, 128).named(&[
+            "f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12", "f13", "f14", "f15", "f16", "f17", "f18",
+            "f19", "f20", "f21", "f22", "f23", "f24", "f25", "f26", "f27", "f28", "f29", "f30", "f31",
+        ]),
+        Field::single("fcsr", Role::Extra, 32),
+    ],
+};

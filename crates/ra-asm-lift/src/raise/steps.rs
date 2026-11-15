@@ -295,10 +295,11 @@ fn outline(module: &mut Module, _: &Context<'_>) {
     broken_all("outline", module);
 }
 
-/// An x86 function a pointer reaches gets its universal entry point.
+/// An x86 function a pointer reaches gets its universal entry point; under a register convention
+/// the convention is the universal call.
 fn stubs(module: &mut Module, cx: &Context<'_>) {
     let target = cx.options.target();
-    if !target.is_64() {
+    if !target.register_arguments() {
         super::stubs::add_universal_stubs(module, cx.signatures, target, cx.extra_dwords);
     }
     broken_all("stubs", module);

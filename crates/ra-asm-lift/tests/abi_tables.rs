@@ -87,11 +87,11 @@ fn snapshot() {
 }
 
 /// The methods of `Target` read its convention instead of asking for its instruction set: only
-/// `is_arm64` and `is_arm32`, which are that question, name the ISA.
+/// `is_arm64`, `is_arm32` and `is_mips`, which are that question, name the ISA.
 #[test]
 fn target_reads_its_abi() {
-    const ISA_TESTS: [&str; 5] = ["self.isa", "Isa::", "is_arm64(", "is_arm32(", "is_arm("];
-    const PREDICATES: [&str; 2] = ["is_arm64", "is_arm32"];
+    const ISA_TESTS: [&str; 6] = ["self.isa", "Isa::", "is_arm64(", "is_arm32(", "is_arm(", "is_mips("];
+    const PREDICATES: [&str; 3] = ["is_arm64", "is_arm32", "is_mips"];
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/raise/mod.rs");
     let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display())).replace("\r\n", "\n");
     let start = source.find("\nimpl Target {\n").unwrap_or_else(|| panic!("{} has no `impl Target`", path.display()));
@@ -134,8 +134,8 @@ fn is_register(word: &str) -> bool {
     word.strip_prefix(['X', 'W']).and_then(number).is_some_and(|n| n <= 30)
 }
 
-/// The ISA tests and register names on one line of code: the words `is_arm64`, `is_arm32` and
-/// registers, and `Isa` as a path.
+/// The ISA tests and register names on one line of code: the words `is_arm64`, `is_arm32`,
+/// `is_mips` and registers, and `Isa` as a path.
 fn isa_tests(code: &str) -> usize {
     let word_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
     let bytes = code.as_bytes();
@@ -151,7 +151,7 @@ fn isa_tests(code: &str) -> usize {
             i += 1;
         }
         let word = &code[start..i];
-        if word == "is_arm64" || word == "is_arm32" || (word == "Isa" && code[i..].starts_with("::")) || is_register(word) {
+        if matches!(word, "is_arm64" | "is_arm32" | "is_mips") || (word == "Isa" && code[i..].starts_with("::")) || is_register(word) {
             count += 1;
         }
     }

@@ -1,5 +1,5 @@
 # The ISA tests and literal register names left in crates/ra-asm-lift/src/raise: `is_arm64`,
-# `is_arm32`, `Isa::` and the register constants (RAX, X8, XMM0 and the rest) outside comments,
-# counted by the `ratchet` test of crates/ra-asm-lift/tests/abi_tables.rs. The count may only
-# fall: a change that removes some lowers it here.
-54
+# `is_arm32`, `is_mips`, `Isa::` and the register constants (RAX, X8, XMM0 and the rest) outside
+# comments, counted by the `ratchet` test of crates/ra-asm-lift/tests/abi_tables.rs. The count may
+# only fall: a change that removes some lowers it here.
+41

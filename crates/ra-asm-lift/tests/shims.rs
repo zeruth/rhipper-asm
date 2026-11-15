@@ -11,6 +11,8 @@ use std::path::Path;
 const GAPS: &[(&str, &str, &str)] = &[
     ("ra_svc", "runtime/driver.c", "a Thumb-2 program runs only in the interpreter"),
     ("ra_svc", "runtime/rhipper.rs", "a Thumb-2 program runs only in the interpreter"),
+    ("ra_syscall", "runtime/driver.c", "a MIPS program runs only in the interpreter"),
+    ("ra_syscall", "runtime/rhipper.rs", "a MIPS program runs only in the interpreter"),
     ("ra_call", "runtime/rhipper.rs", "the Rust runtime has no engine for a machine-level call"),
 ];
 

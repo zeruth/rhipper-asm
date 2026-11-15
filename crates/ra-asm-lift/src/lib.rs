@@ -14,6 +14,7 @@
 pub mod arm64;
 pub mod data;
 pub mod eh;
+pub mod mips;
 pub mod raise;
 pub mod run;
 pub mod state;
@@ -466,7 +467,7 @@ pub fn coverage(analysis: &Analysis<'_>, lifted: &Lifted) -> Coverage {
                 // An ARM64 code is yaxpeax's, which names no mnemonic: the instruction at the
                 // address does.
                 let mnemonic = match lifted.isa {
-                    Isa::Arm64 | Isa::Arm32 => analysis
+                    Isa::Arm64 | Isa::Arm32 | Isa::Mips | Isa::MipsN32 => analysis
                         .image
                         .read(*address as u64, 4)
                         .ok()
@@ -556,19 +557,21 @@ fn lift_on(
     let isa = match image.machine() {
         ra_asm_pe::Machine::Arm64 => Isa::Arm64,
         ra_asm_pe::Machine::Arm => Isa::Arm32,
+        // o32: the n32 convention comes with the platforms that use it.
+        ra_asm_pe::Machine::Mips => Isa::Mips,
         _ => Isa::X86,
     };
     let name = image_name(image);
     let mut module = match isa {
         Isa::X86 if image.elf.is_some() => Module::x86_64_linux(&name),
         // A 32-bit program's port is a program of the 64-bit host that keeps its 32-bit pointers.
-        Isa::X86 | Isa::Arm32 => Module::x86_64_windows(&name),
+        Isa::X86 | Isa::Arm32 | Isa::Mips | Isa::MipsN32 => Module::x86_64_windows(&name),
         Isa::Arm64 if image.elf.is_some() => Module::aarch64_linux(&name),
         Isa::Arm64 => Module::aarch64_windows(&name),
     };
     module.types.push((state::STATE_TYPE.to_owned(), state::state_fields_for(isa)));
     state::declare_runtime(&mut module);
-    if isa == Isa::Arm32 {
+    if isa == Isa::Arm32 || isa.is_mips() {
         state::declare_svc(&mut module);
     }
     state::define_runtime_globals(&mut module, options.x87);
@@ -752,8 +755,8 @@ fn lift_on(
                 import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87, convention)
             }
             Isa::Arm64 => arm64::import_wrapper(symbol, lifted.x87),
-            // The Thumb-2 lift calls no import: it traps at a call it cannot resolve.
-            Isa::Arm32 => continue,
+            // The Thumb-2 and MIPS lifts call no import: they trap at a call they cannot resolve.
+            Isa::Arm32 | Isa::Mips | Isa::MipsN32 => continue,
         };
         lifted.module.functions.push(wrapper);
     }
@@ -799,6 +802,7 @@ fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, t
             Isa::X86 => x86::lift_function(image, analysis, lifted, f),
             Isa::Arm64 => arm64::lift_function(image, analysis, lifted, f),
             Isa::Arm32 => thumb::lift_function(image, analysis, lifted, f),
+            Isa::Mips | Isa::MipsN32 => mips::lift_function(image, lifted, f),
         };
         if freeze {
             // A function whose address this one takes is a root, as the lift finds over the

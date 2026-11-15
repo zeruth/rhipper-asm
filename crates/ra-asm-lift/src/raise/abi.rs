@@ -22,7 +22,7 @@ use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Module, Operand, Type, Valu
 
 use super::Target;
 use super::assume::{self, Assumption, Step};
-use super::liveness::{CallKind, Liveness, NO_SLOTS, RAX, RCX, RDX, SLOTS, Slot, SlotSet, call_kind, reverse_post_order, slot_pointers};
+use super::liveness::{CallKind, Liveness, NO_SLOTS, RCX, SLOTS, Slot, SlotSet, call_kind, reverse_post_order, slot_pointers};
 use super::stack::{CalleeStack, StackInfo, analyze as analyze_stack};
 
 pub use ra_asm_protos::kind::Kind;
@@ -134,18 +134,24 @@ pub fn caller_saved(target: Target) -> SlotSet {
 /// floats. On x86 only `ecx`: the `this` of a `thiscall` method, which a call through a vtable
 /// reaches; `edx` and the vector registers carry arguments only under clang's convention for a
 /// local function, which no pointer names. On ARM64 `x0` to `x7`, `v0` to `v7`, and `x8`, the
-/// address a callee that returns an aggregate writes it to.
+/// address a callee that returns an aggregate writes it to. On MIPS the `a` registers, the float
+/// parameter registers of the convention, and the stack pointer, above which the universal call
+/// reads its four stack words: a function that keeps nothing else on the stack holds it live for
+/// that call alone.
 pub fn all_argument_slots(target: Target) -> SlotSet {
     let mut set = NO_SLOTS;
-    if target.is_64() {
+    if target.register_arguments() {
         for slot in target.int_param_slots() {
             set[slot.index()] = true;
         }
         for n in 0..target.float_params() {
-            set[Slot::Xmm(n as u8).index()] = true;
+            set[target.float_param_slot(n).index()] = true;
         }
         if target.is_arm64() {
             set[super::X8.index()] = true;
+        }
+        if target.is_mips() {
+            set[target.sp().index()] = true;
         }
     } else {
         set[RCX.index()] = true;
@@ -684,8 +690,9 @@ fn infer_from(
             facts.iter().map(|f| f.as_ref().expect("every function's facts are gathered in the first round")).collect();
         let xmm0_kinds: HashMap<&str, Option<Kind>> = facts.iter().map(|f| (f.name.as_str(), f.writes_xmm0)).collect();
         // Through the callees as well: `call _allrem; ret` hands back the 64 bits its callee left.
-        let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[RDX.index()])).collect();
-        let writes_rax: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[RAX.index()])).collect();
+        let (low, high) = (target.int_return().index(), target.high_return().index());
+        let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[high])).collect();
+        let writes_rax: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[low])).collect();
         // A float result wins when a caller reads xmm0 after the call: the callee wrote it as one.
         // A float an x86 function returns on the x87 stack travels in the lift's globals instead.
         let mut returns: BTreeMap<String, Option<Kind>> = facts.iter().map(|f| (f.name.clone(), None)).collect();
@@ -728,7 +735,7 @@ fn infer_from(
                 }
             }
             if roots.contains(&fact.name) {
-                if let (true, Some(kind)) = (target.is_64(), fact.writes_xmm0) {
+                if let (true, Some(kind)) = (target.register_arguments(), fact.writes_xmm0) {
                     returns.insert(fact.name.clone(), Some(kind));
                 } else if fact.writes_rax {
                     returns.insert(fact.name.clone(), Some(Kind::Int));
@@ -952,7 +959,7 @@ fn call_model(
     }
     let int_slots = |count: usize| {
         let mut set = NO_SLOTS;
-        if target.is_64() {
+        if target.register_arguments() {
             for slot in target.int_param_slots().iter().take(count) {
                 set[slot.index()] = true;
             }
@@ -994,12 +1001,13 @@ fn gather(
     // callers of its callees read after a call (a call in tail position returns the callee's
     // result); one where it hands back nothing, for what the function itself reads at entry.
     // Without the second, the result register would look like a parameter.
+    let (low, high) = (target.int_return(), target.high_return());
     let mut exit_set = NO_SLOTS;
     match signatures.get(&f.name).and_then(|s| s.returns) {
-        Some(Kind::Int) => exit_set[RAX.index()] = true,
+        Some(Kind::Int) => exit_set[low.index()] = true,
         Some(Kind::Wide) => {
-            exit_set[RAX.index()] = true;
-            exit_set[RDX.index()] = true;
+            exit_set[low.index()] = true;
+            exit_set[high.index()] = true;
         }
         Some(Kind::Float | Kind::Double) => exit_set[Slot::Xmm(0).index()] = true,
         None => {}
@@ -1011,10 +1019,11 @@ fn gather(
     for (p, slot) in target.int_param_slots().iter().enumerate() {
         int_positions[p] = live_in[slot.index()];
     }
-    let xmm_kind = |n: u8| -> Option<Kind> {
-        (usize::from(n) < target.float_params() && live_in[Slot::Xmm(n).index()]).then(|| xmm_kind(f, &pointers, n))
+    let xmm_kind = |n: usize| -> Option<Kind> {
+        let slot = target.float_param_slot(n);
+        (n < target.float_params() && live_in[slot.index()]).then(|| xmm_kind(f, &pointers, slot))
     };
-    let float_positions: [Option<Kind>; ARGUMENT_REGISTERS] = std::array::from_fn(|n| xmm_kind(n as u8));
+    let float_positions: [Option<Kind>; ARGUMENT_REGISTERS] = std::array::from_fn(xmm_kind);
     // What a lifted callee may pop and read: a call through a vtable slot does what one of its
     // functions does, which the stack analysis narrows to those that can take the arguments at
     // the call.
@@ -1067,7 +1076,7 @@ fn gather(
                     let called = model(inst).1;
                     // `jmp target`, or `call target; ret`: the function hands back what its
                     // callee left in `rax`, as the thunk of an import a vtable names does.
-                    writes_rax |= returning && called[RAX.index()];
+                    writes_rax |= returning && called[low.index()];
                     for (w, called) in writes.iter_mut().zip(called) {
                         *w |= called;
                     }
@@ -1080,7 +1089,7 @@ fn gather(
                 inst => virtual_candidates(inst, virtual_calls).map(|c| c.iter().map(|(_, name)| name).collect()).unwrap_or_default(),
             };
             match &i.inst {
-                Inst::Store { ptr: Operand::Local(p), .. } if !dead_end && pointers.get(p) == Some(&RAX) => writes_rax = true,
+                Inst::Store { ptr: Operand::Local(p), .. } if !dead_end && pointers.get(p) == Some(&low) => writes_rax = true,
                 Inst::Store { ty, ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&Slot::Xmm(0)) => match ty {
                     Type::Double => writes_xmm0 = Some(Kind::Double),
                     Type::Float if writes_xmm0 != Some(Kind::Double) => writes_xmm0 = Some(Kind::Float),
@@ -1089,10 +1098,10 @@ fn gather(
                 Inst::Call { .. } if !callees.is_empty() => {
                     if let Some(live) = liveness.live_after_call[bi].get(calls) {
                         for name in callees {
-                            if live[RAX.index()] {
+                            if live[low.index()] {
                                 uses_rax_of.push(name.clone());
                             }
-                            if live[RDX.index()] {
+                            if live[high.index()] {
                                 uses_rdx_of.push(name.clone());
                             }
                             if live[Slot::Xmm(0).index()] {
@@ -1122,14 +1131,14 @@ fn gather(
     }
 }
 
-/// The kind of a float parameter in `xmmN`: `float` when the function reads it as a float and
-/// never as a double, else `double`. A read at a vector type says nothing either way.
-fn xmm_kind(f: &Function, pointers: &HashMap<ValueId, Slot>, n: u8) -> Kind {
+/// The kind of a float parameter in vector slot `slot`: `float` when the function reads it as a
+/// float and never as a double, else `double`. A read at a vector type says nothing either way.
+fn xmm_kind(f: &Function, pointers: &HashMap<ValueId, Slot>, slot: Slot) -> Kind {
     let mut saw_float = false;
     for b in &f.blocks {
         for i in &b.instrs {
             if let Inst::Load { ty, ptr: Operand::Local(p), .. } = &i.inst
-                && pointers.get(p) == Some(&Slot::Xmm(n))
+                && pointers.get(p) == Some(&slot)
             {
                 match ty {
                     Type::Double => return Kind::Double,

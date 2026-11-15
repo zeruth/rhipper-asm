@@ -41,7 +41,7 @@ pub const UNIVERSAL_DWORDS: usize = 6;
 /// the C++ library with a double among six arguments, say. A call through a pointer writes that
 /// many to [`ARGS`], where the stub of such a function reads its own.
 pub fn extra_dwords(signatures: &HashMap<String, Signature>, roots: &BTreeSet<String>, target: Target) -> usize {
-    if target.is_64() {
+    if target.register_arguments() {
         return 0;
     }
     let most = roots.iter().filter_map(|r| signatures.get(r)).map(|s| stack_dwords(s, target)).max().unwrap_or(0);
