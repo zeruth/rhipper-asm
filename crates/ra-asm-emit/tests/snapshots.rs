@@ -7,18 +7,30 @@
 //!
 //! A 32-bit program's imports have one case each for a structure the host converts both ways,
 //! one it only widens, and an import that takes none.
+//!
+//! A tail two paths share, left from inside a loop, is a snapshot in C (a `goto` to its label)
+//! and in Rust (a labeled block), and its tree replays the function's vectors as its graph does.
 
 use std::path::PathBuf;
 
-use ra_asm_emit::{ADAPTERS_FILE, COptions, Check, Unit, Watch, emit_unit};
-use ra_asm_ir::{BinOp, CallConv, Callee, Declaration, FnType, Function, FunctionBuilder, Module, Operand, Terminator, Type};
+use ra_asm_emit::structure::{COPY_LIMIT, Graph, Stmt, structure};
+use ra_asm_emit::tree::run_tree;
+use ra_asm_emit::{ADAPTERS_FILE, COptions, Check, RustOptions, Unit, Watch, emit_rust, emit_unit};
+use ra_asm_ir::interp::{Host, Memory, Stop, Value, Vm};
+use ra_asm_ir::{BinOp, CallConv, Callee, Declaration, FnType, Function, FunctionBuilder, ICond, Inst, Module, Operand, Terminator, Type};
 
 /// Compares `actual` with the snapshot `name`; a failure names the first line that differs and
 /// prints the whole of what was written.
 fn snapshot(name: &str, actual: &str) {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cases/emit").join(format!("{name}.c"));
+    snapshot_of(name, "c", actual);
+}
+
+/// [`snapshot`] for a file of the language of `extension`.
+fn snapshot_of(name: &str, extension: &str, actual: &str) {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cases/emit").join(format!("{name}.{extension}"));
     let expected = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}\n{actual}", path.display()));
-    if let Err(line) = ra_asm_testing::digest::compare(&format!("emit-snapshots-{name}"), &expected, actual) {
+    let test = if extension == "c" { format!("emit-snapshots-{name}") } else { format!("emit-snapshots-{name}-{extension}") };
+    if let Err(line) = ra_asm_testing::digest::compare(&test, &expected, actual) {
         panic!("{line}\n{actual}");
     }
 }
@@ -208,4 +220,129 @@ fn adapters_are_a_32_bit_programs_only() {
     let unit = emit_unit(&module, &COptions::default());
     assert_eq!(unit.adapters, "");
     assert!(!unit.externs.contains("ra_adapt_"), "{}", unit.externs);
+}
+
+/// `u32 shared_tail(u32 n, u32 *p)`: an early return when `n` is zero, then a loop over `*p` up
+/// to `n` that leaves through two blocks (the count reached, a 7 found) to one return block,
+/// which the early return shares and which is too long to copy.
+fn shared_tail() -> Function {
+    let mut b = FunctionBuilder::new("shared_tail", FnType::new(Type::I32, vec![Type::I32, Type::Ptr]), &["n", "p"]);
+    let (n, p) = (b.param(0), b.param(1));
+    let entry = b.block("entry");
+    let header = b.block("header");
+    let body = b.block("body");
+    let latch = b.block("latch");
+    let done = b.block("done");
+    let found = b.block("found");
+    let last = b.block("ret");
+    let none = b.icmp(entry, ICond::Eq, Type::I32, n, 0i64, "none");
+    b.terminate(entry, Terminator::CondBr { cond: none.into(), then: last, els: header });
+    let i = b.load(header, Type::I32, p, "i");
+    let more = b.icmp(header, ICond::Slt, Type::I32, i, n, "more");
+    b.terminate(header, Terminator::CondBr { cond: more.into(), then: body, els: done });
+    let hit = b.icmp(body, ICond::Eq, Type::I32, i, 7i64, "hit");
+    b.terminate(body, Terminator::CondBr { cond: hit.into(), then: found, els: latch });
+    let next = b.bin(latch, BinOp::Add, Type::I32, i, 1i64, "next");
+    b.store(latch, Type::I32, next, p);
+    b.terminate(latch, Terminator::Br(header));
+    b.store(done, Type::I32, 0i64, p);
+    b.terminate(done, Terminator::Br(last));
+    b.store(found, Type::I32, 1i64, p);
+    b.terminate(found, Terminator::Br(last));
+    for k in 1..=COPY_LIMIT {
+        b.store(last, Type::I32, i64::try_from(k).expect("a small count"), p);
+    }
+    let r = b.load(last, Type::I32, p, "r");
+    b.terminate(last, Terminator::Ret(Some((Type::I32, r.into()))));
+    b.finish()
+}
+
+/// C has no labeled block: the loop leaves the region by a `goto` to the tail's label, written
+/// once after the region.
+#[test]
+fn shared_tail_in_c_goes_to_its_label_after_the_region() {
+    let mut module = Module::x86_64_windows("tail");
+    module.functions.push(shared_tail());
+    let unit = emit_unit(&module, &COptions::default());
+    snapshot("shared_tail", &unit.functions[0].text);
+}
+
+/// Rust leaves the labeled block around the region: `'L_ret: { ... break 'L_ret; ... }`, then
+/// the tail.
+#[test]
+fn shared_tail_in_rust_is_a_labeled_block() {
+    let mut module = Module::x86_64_windows("tail");
+    module.functions.push(shared_tail());
+    let out = emit_rust(&module, &RustOptions::default());
+    snapshot_of("shared_tail", "rs", &out.functions[0].text);
+}
+
+/// A host no function of these tests calls.
+struct NoHost;
+
+impl Host for NoHost {
+    fn call(&mut self, _vm: &mut Vm<'_>, name: &str, _ty: &FnType, _args: &[Value]) -> Result<Value, Stop> {
+        Err(Stop::fault(format!("no host function {name}")))
+    }
+}
+
+/// [`shared_tail`] over values instead of memory: 100, 200 or 300 by the way into the return
+/// block, which adds 1 to 16 to it.
+fn shared_tail_of_values() -> Function {
+    let mut b = FunctionBuilder::new("shared_tail_of_values", FnType::new(Type::I32, vec![Type::I32]), &["x"]);
+    let x = b.param(0);
+    let entry = b.block("entry");
+    let header = b.block("header");
+    let body = b.block("body");
+    let latch = b.block("latch");
+    let done = b.block("done");
+    let found = b.block("found");
+    let last = b.block("ret");
+    let none = b.icmp(entry, ICond::Eq, Type::I32, x, 0i64, "none");
+    b.terminate(entry, Terminator::CondBr { cond: none.into(), then: last, els: header });
+    let i = b.value(header, Inst::Phi { ty: Type::I32, incoming: vec![(Operand::Int(0), entry)] }, "i");
+    let more = b.icmp(header, ICond::Slt, Type::I32, i, x, "more");
+    b.terminate(header, Terminator::CondBr { cond: more.into(), then: body, els: done });
+    let hit = b.icmp(body, ICond::Eq, Type::I32, i, 7i64, "hit");
+    b.terminate(body, Terminator::CondBr { cond: hit.into(), then: found, els: latch });
+    let next = b.bin(latch, BinOp::Add, Type::I32, i, 1i64, "next");
+    b.terminate(latch, Terminator::Br(header));
+    b.terminate(done, Terminator::Br(last));
+    b.terminate(found, Terminator::Br(last));
+    let incoming = vec![(Operand::Int(100), entry), (Operand::Int(200), done), (Operand::Int(300), found)];
+    let mut r = b.value(last, Inst::Phi { ty: Type::I32, incoming }, "r");
+    for k in 1..=COPY_LIMIT {
+        r = b.bin(last, BinOp::Add, Type::I32, r, i64::try_from(k).expect("a small count"), "r");
+    }
+    b.terminate(last, Terminator::Ret(Some((Type::I32, r.into()))));
+    let mut f = b.finish();
+    // The back edge's value is defined after the phi that reads it.
+    for ins in &mut f.blocks[header.0 as usize].instrs {
+        if ins.result == Some(i)
+            && let Inst::Phi { incoming, .. } = &mut ins.inst
+        {
+            incoming.push((next.into(), latch));
+        }
+    }
+    f
+}
+
+/// The tree of a function with a shared tail replays its vectors: each way into the tail (the
+/// early return, the count reached, a 7 found) gives what the graph gives.
+#[test]
+fn shared_tail_tree_replays_its_vectors() {
+    let mut module = Module::default();
+    module.functions.push(shared_tail_of_values());
+    let f = &module.functions[0];
+    let tree = structure(f, &Graph::of(f));
+    assert!(tree.body.iter().any(|s| matches!(s, Stmt::Tail { .. })), "{:#?}", tree.body);
+    assert_eq!(tree.gotos(), 0, "{:#?}", tree.body);
+    let adds = u128::try_from((1..=COPY_LIMIT).sum::<usize>()).expect("a small sum");
+    for (x, expected) in [(0, 100 + adds), (3, 200 + adds), (10, 300 + adds)] {
+        let mut vm = Vm::new(&module, Memory::new());
+        let graph = vm.call_named(&mut NoHost, &f.name, vec![Value::Int(x)]).expect("the graph runs");
+        assert_eq!(graph, Value::Int(expected), "the graph of @{}({x})", f.name);
+        let ran = run_tree(&mut vm, &mut NoHost, &f.name, &tree, vec![Value::Int(x)]);
+        assert_eq!(ran, Ok(graph), "the tree of @{}({x}): {:#?}", f.name, tree.body);
+    }
 }

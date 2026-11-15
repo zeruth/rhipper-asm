@@ -47,7 +47,7 @@ fn any(stmts: &[Stmt], this: fn(&Stmt) -> bool) -> bool {
         this(s)
             || match s {
                 Stmt::If { then, els, .. } => any(then, this) || any(els, this),
-                Stmt::Loop { body, .. } => any(body, this),
+                Stmt::Loop { body, .. } | Stmt::Tail { body, .. } => any(body, this),
                 Stmt::Switch { cases, .. } => cases.iter().any(|c| any(&c.body, this)),
                 _ => false,
             }
@@ -327,10 +327,11 @@ fn a_copy_runs_its_block_a_second_time() {
     same(two_exits(2), |s| matches!(s, Stmt::Copy(_)), &[(0, 100 + plus), (3, 200 + plus), (10, 300 + plus)]);
 }
 
+/// A return block too long to copy is the tail of a region the loop leaves from inside.
 #[test]
-fn a_goto_goes_on_from_the_label_inside_a_loop() {
+fn a_leave_goes_on_after_its_region_from_inside_a_loop() {
     let plus = tail_adds(COPY_LIMIT + 1);
-    same(two_exits(COPY_LIMIT + 1), |s| matches!(s, Stmt::Goto(_)), &[(0, 100 + plus), (3, 200 + plus), (10, 300 + plus)]);
+    same(two_exits(COPY_LIMIT + 1), |s| matches!(s, Stmt::Tail { .. }), &[(0, 100 + plus), (3, 200 + plus), (10, 300 + plus)]);
 }
 
 #[test]

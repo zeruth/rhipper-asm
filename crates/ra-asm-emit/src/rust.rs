@@ -608,7 +608,10 @@ fn emit_function(
     let graph = Graph::of(f);
     let structured = structure(f, &graph);
     let safety = if proofs { Safety::analyze(f, names.sections, types) } else { Safety::none() };
-    let mut e = Emitter { f, defs: Defs::new(f), labels: &structured.labels, names: *names, types, safety, reasons: RefCell::default() };
+    // A tail is the statement after its labeled block: only the target of a `goto` is marked.
+    let targets = structured.goto_targets();
+    let mut e =
+        Emitter { f, defs: Defs::new(f), labels: &targets, names: *names, types, safety, reasons: RefCell::default(), loops: Vec::new() };
     let locals = e.declare_locals();
     let mut body = String::new();
     e.stmts(&mut body, &structured.body, 1);
@@ -770,6 +773,9 @@ struct Emitter<'a> {
     /// Why the statement being written needs an `unsafe` block, gathered as its expressions
     /// are written and taken when the line is.
     reasons: RefCell<BTreeSet<&'static str>>,
+    /// The label of each enclosing loop, innermost last, when its `break` or `continue` is
+    /// written by it: one inside a labeled block may not leave a loop without naming it.
+    loops: Vec<Option<String>>,
 }
 
 /// The reasons an operation stays raw, as the `unsafe` block's comment names them.
@@ -1319,19 +1325,31 @@ impl Emitter<'_> {
                     let _ = writeln!(out, "{pad}}}");
                 }
             }
-            Stmt::Loop { body, .. } => {
-                let _ = writeln!(out, "{pad}loop {{");
+            Stmt::Loop { header, body } => {
+                let name = leaves_through_region(body, false).then(|| format!("'{}_loop", label(*header, self.f)));
+                let named = name.as_ref().map_or_else(String::new, |n| format!("{n}: "));
+                let _ = writeln!(out, "{pad}{named}loop {{");
+                self.loops.push(name);
                 self.stmts(out, body, depth + 1);
+                self.loops.pop();
                 let _ = writeln!(out, "{pad}}}");
             }
-            Stmt::Break => {
-                let _ = writeln!(out, "{pad}break;");
-            }
-            Stmt::Continue => {
-                let _ = writeln!(out, "{pad}continue;");
+            Stmt::Break | Stmt::Continue => {
+                let word = if matches!(s, Stmt::Break) { "break" } else { "continue" };
+                let named = self.loops.last().and_then(Option::as_ref).map_or_else(String::new, |n| format!(" {n}"));
+                let _ = writeln!(out, "{pad}{word}{named};");
             }
             Stmt::Goto(b) => {
                 let _ = writeln!(out, "{pad}rhipper::ra_goto(\"{}\", \"{}\");", self.f.name, label(*b, self.f));
+            }
+            // The region as a labeled block; its tail is the statement after it.
+            Stmt::Tail { tail, body } => {
+                let _ = writeln!(out, "{pad}'{}: {{", label(*tail, self.f));
+                self.stmts(out, body, depth + 1);
+                let _ = writeln!(out, "{pad}}}");
+            }
+            Stmt::Leave(b) => {
+                let _ = writeln!(out, "{pad}break '{};", label(*b, self.f));
             }
             Stmt::Switch { ty, value, cases } => self.switch(out, ty, value, cases, depth),
             Stmt::Return(None) => {
@@ -1485,6 +1503,18 @@ impl Emitter<'_> {
             }
         }
     }
+}
+
+/// Whether a `break` or `continue` of the loop whose body is `stmts` sits inside a labeled block
+/// (`inside` when `stmts` already does), where Rust wants the loop named.
+fn leaves_through_region(stmts: &[Stmt], inside: bool) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::Break | Stmt::Continue => inside,
+        Stmt::If { then, els, .. } => leaves_through_region(then, inside) || leaves_through_region(els, inside),
+        Stmt::Switch { cases, .. } => cases.iter().any(|c| leaves_through_region(&c.body, inside)),
+        Stmt::Tail { body, .. } => leaves_through_region(body, true),
+        _ => false,
+    })
 }
 
 fn label(b: BlockId, f: &Function) -> String {

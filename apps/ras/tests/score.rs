@@ -195,9 +195,14 @@ fn source_one_emit_case_has_its_known_counts() {
 
 #[test]
 fn source_emit_directory_sums_its_files_and_is_left_as_found() {
-    let dir = root().join("testdata/cases/emit");
-    let before = listing(&dir);
-    let score = score(&dir);
+    // The checked build's cases, apart from the rest of the snapshots, which grow.
+    let scratch = ra_asm_testing::Scratch::new("ras-score-tests", "checked");
+    for case in ["checked_call.c", "checked_return.c", "checked_switch.c", "checked_table.c"] {
+        std::fs::copy(root().join("testdata/cases/emit").join(case), scratch.join(case)).unwrap();
+    }
+    let dir = scratch.path();
+    let before = listing(dir);
+    let score = score(dir);
     assert_eq!(score["files"], 4, "{score}");
     assert_eq!(score["lines"], 36, "{score}");
     // `(rsp - n)` in `checked_return.c` is an expression, `ra_assume(...)` a call: no cast.

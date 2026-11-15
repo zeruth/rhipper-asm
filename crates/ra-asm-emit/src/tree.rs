@@ -10,7 +10,7 @@
 //! without compiling anything.
 //!
 //! `break` and `continue` are the tree's: they leave or repeat the innermost [`Stmt::Loop`], through
-//! any `switch` between.
+//! any `switch` between; a leave goes on after its [`Stmt::Tail`], through any loop between.
 
 use std::collections::HashSet;
 
@@ -36,6 +36,8 @@ enum Flow {
     Break,
     Continue,
     Goto(BlockId),
+    /// Out of the enclosing [`Stmt::Tail`] of the block, to the statement after it.
+    Leave(BlockId),
     Return(Value),
 }
 
@@ -70,6 +72,7 @@ impl<'m> Run<'_, 'm> {
             Flow::Next => Err(self.fault("the statements end without a return")),
             Flow::Break | Flow::Continue => Err(self.fault("a break or continue outside a loop")),
             Flow::Goto(label) => Err(self.fault(&format!("a goto to {}, which no statement places", self.name(label)))),
+            Flow::Leave(tail) => Err(self.fault(&format!("a leave to {}, which no region ends at", self.name(tail)))),
         }
     }
 
@@ -134,6 +137,11 @@ impl<'m> Run<'_, 'm> {
                     }
                 }
             }
+            Stmt::Tail { tail, body } => match self.stmts(host, body, enter)? {
+                Flow::Leave(t) if t == *tail => Ok(Flow::Next),
+                other => Ok(other),
+            },
+            Stmt::Leave(t) => Ok(Flow::Leave(*t)),
             Stmt::Break => Ok(Flow::Break),
             Stmt::Continue => Ok(Flow::Continue),
             Stmt::Goto(label) if self.labels.contains(label) => Ok(Flow::Goto(*label)),
@@ -247,7 +255,7 @@ fn places(s: &Stmt, label: BlockId) -> bool {
     match s {
         Stmt::Block(b) => *b == label,
         Stmt::If { then, els, .. } => then.iter().chain(els).any(|s| places(s, label)),
-        Stmt::Loop { body, .. } => body.iter().any(|s| places(s, label)),
+        Stmt::Loop { body, .. } | Stmt::Tail { body, .. } => body.iter().any(|s| places(s, label)),
         Stmt::Switch { cases, .. } => cases.iter().any(|c| c.body.iter().any(|s| places(s, label))),
         _ => false,
     }

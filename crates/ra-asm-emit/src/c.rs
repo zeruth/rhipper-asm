@@ -1754,6 +1754,7 @@ impl<'a> Emitter<'a> {
                     }
                     self.plan_loops(body, g);
                 }
+                Stmt::Tail { body, .. } => self.plan_loops(body, g),
                 Stmt::If { then, els, .. } => {
                     self.plan_loops(then, g);
                     self.plan_loops(els, g);
@@ -2582,7 +2583,12 @@ impl<'a> Emitter<'a> {
         // is the block's own end, where its checks go.
         let mut ended = None;
         for s in stmts {
-            if let (Some(block), Stmt::Switch { .. } | Stmt::Return(_)) = (ended, s) {
+            // A region around a `switch` opens with it.
+            let at = match s {
+                Stmt::Tail { body, .. } => body.first().unwrap_or(s),
+                _ => s,
+            };
+            if let (Some(block), Stmt::Switch { .. } | Stmt::Return(_)) = (ended, at) {
                 self.checks_at_end(out, block, depth);
             }
             ended = match s {
@@ -2706,7 +2712,10 @@ impl<'a> Emitter<'a> {
             Stmt::Continue => {
                 let _ = writeln!(out, "{pad}continue;");
             }
-            Stmt::Goto(b) => {
+            // C has no labeled block: the region is its statements and a leave is a `goto` to the
+            // tail's label, which the tail's block writes after them.
+            Stmt::Tail { body, .. } => self.stmts(out, body, depth),
+            Stmt::Goto(b) | Stmt::Leave(b) => {
                 let _ = writeln!(out, "{pad}goto {};", label(*b, self.f));
             }
             Stmt::Switch { ty, value, cases } => {
@@ -2934,7 +2943,7 @@ fn negative_in(ty: &Type, v: i128) -> bool {
 }
 
 fn ends_in_jump(body: &[Stmt]) -> bool {
-    matches!(body.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue | Stmt::Goto(_) | Stmt::Unreachable))
+    matches!(body.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue | Stmt::Goto(_) | Stmt::Leave(_) | Stmt::Unreachable))
 }
 
 /// The C helper of an LLVM intrinsic: `llvm.ctpop.i8` is `ra_ctpop_i8`.

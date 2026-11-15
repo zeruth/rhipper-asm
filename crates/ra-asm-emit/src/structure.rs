@@ -8,8 +8,11 @@
 //! does not return) is no exit for the joins: the paths that go on meet without it. A short block
 //! reached a second time whose own exit the context can name (a shared return block, a loop's
 //! latch) is written again in place; any other block reached a second time, or by an edge the
-//! rules do not cover, is reached by `goto`. The fixtures structure with no `goto`; code with
-//! irreducible control flow keeps them, as C allows.
+//! rules do not cover, is reached by `goto`. A long block where the paths of a branch or of a loop
+//! with several exits meet, reached from inside a loop or an inner region whose end it is not, is
+//! the tail of a region around the branch or the loop: every way to it leaves the region, and it
+//! is written once, after it (`'tail: { ... break 'tail; ... }` in Rust). The fixtures structure
+//! with no `goto`; code with irreducible control flow keeps them, as C allows.
 
 use std::collections::{HashMap, HashSet};
 
@@ -49,6 +52,14 @@ pub enum Stmt {
     Break,
     Continue,
     Goto(BlockId),
+    /// A region the paths to `tail` leave: its statements, then the statement after it, which
+    /// goes on to `tail`. `'tail: { body }` in Rust.
+    Tail {
+        tail: BlockId,
+        body: Vec<Stmt>,
+    },
+    /// Leaves the enclosing [`Stmt::Tail`] of the block, from any depth inside it.
+    Leave(BlockId),
     /// The cases in the order they are written: a case that falls through sits right before the
     /// case it runs into.
     Switch {
@@ -70,7 +81,8 @@ pub struct Case {
     pub falls_through: bool,
 }
 
-/// A structured function: the statements, and the blocks that need a label.
+/// A structured function: the statements, and the blocks that need a label: the targets of a
+/// `goto` and the tails a [`Stmt::Leave`] goes to, which C reaches by `goto` too.
 pub struct Structured {
     pub body: Vec<Stmt>,
     pub labels: HashSet<BlockId>,
@@ -86,22 +98,44 @@ impl Structured {
     pub fn gotos(&self) -> usize {
         count(&self.body, &|s| matches!(s, Stmt::Goto(_)))
     }
+
+    /// The blocks a `goto` names: the labels a language with labeled blocks writes.
+    pub fn goto_targets(&self) -> HashSet<BlockId> {
+        let mut out = HashSet::new();
+        each(&self.body, &mut |s| {
+            if let Stmt::Goto(b) = s {
+                out.insert(*b);
+            }
+        });
+        out
+    }
 }
 
 /// The statements of `stmts` and of every statement nested in them that are `this`.
 fn count(stmts: &[Stmt], this: &dyn Fn(&Stmt) -> bool) -> usize {
-    stmts
-        .iter()
-        .map(|s| {
-            let nested = match s {
-                Stmt::If { then, els, .. } => count(then, this) + count(els, this),
-                Stmt::Loop { body, .. } => count(body, this),
-                Stmt::Switch { cases, .. } => cases.iter().map(|c| count(&c.body, this)).sum::<usize>(),
-                _ => 0,
-            };
-            nested + usize::from(this(s))
-        })
-        .sum()
+    let mut n = 0;
+    each(stmts, &mut |s| n += usize::from(this(s)));
+    n
+}
+
+/// Calls `visit` on each statement of `stmts` and of every statement nested in them.
+fn each(stmts: &[Stmt], visit: &mut dyn FnMut(&Stmt)) {
+    for s in stmts {
+        visit(s);
+        match s {
+            Stmt::If { then, els, .. } => {
+                each(then, visit);
+                each(els, visit);
+            }
+            Stmt::Loop { body, .. } | Stmt::Tail { body, .. } => each(body, visit),
+            Stmt::Switch { cases, .. } => {
+                for c in cases {
+                    each(&c.body, visit);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The most instructions a block may have to be written a second time instead of reached by
@@ -208,11 +242,13 @@ struct Walk<'a> {
     labels: HashSet<BlockId>,
     /// The enclosing loops, innermost last: header and exit.
     loops: Vec<(BlockId, Option<BlockId>)>,
+    /// The tails of the enclosing regions, which a jump from inside leaves to.
+    tails: Vec<BlockId>,
 }
 
 /// Structures `f`.
 pub fn structure(f: &Function, g: &Graph) -> Structured {
-    let mut w = Walk { f, g, emitted: HashSet::new(), labels: HashSet::new(), loops: Vec::new() };
+    let mut w = Walk { f, g, emitted: HashSet::new(), labels: HashSet::new(), loops: Vec::new(), tails: Vec::new() };
     let entry = f.blocks[0].id;
     let body = w.run(entry, None);
     Structured { body, labels: w.labels }
@@ -236,12 +272,65 @@ impl Walk<'_> {
         None
     }
 
+    /// The jump to `target` that leaves an enclosing region whose tail it is: a block not placed
+    /// yet that no later path could copy (long, a loop header, a `switch`), so placing it here
+    /// would leave the other paths a `goto` into this one.
+    fn leave(&self, target: BlockId) -> Option<Vec<Stmt>> {
+        let block = self.f.block(target)?;
+        let copyable = block.instrs.len() <= COPY_LIMIT
+            && !self.g.loops.contains_key(&target)
+            && !matches!(block.terminator, Terminator::Switch { .. });
+        (self.tails.contains(&target) && !self.emitted.contains(&target) && !copyable).then(|| vec![Stmt::Leave(target)])
+    }
+
+    /// Makes `tail` the tail of the region about to be walked, when it is a block after the
+    /// region (not its end, not placed, not the tail of an enclosing one). Returns it for
+    /// [`Self::close_tail`].
+    fn open_tail(&mut self, tail: Option<BlockId>, stop: Option<BlockId>) -> Option<BlockId> {
+        let t = tail.filter(|t| Some(*t) != stop && !self.emitted.contains(t) && !self.tails.contains(t))?;
+        self.tails.push(t);
+        Some(t)
+    }
+
+    /// The statement of a region opened by [`Self::open_tail`]: `stmt` inside a [`Stmt::Tail`]
+    /// when a jump leaves it, else `stmt` itself.
+    fn close_tail(&mut self, tail: Option<BlockId>, stmt: Stmt) -> Stmt {
+        let Some(t) = tail else { return stmt };
+        self.tails.pop();
+        let mut leaves = false;
+        each(std::slice::from_ref(&stmt), &mut |s| leaves |= matches!(s, Stmt::Leave(b) if *b == t));
+        if !leaves {
+            return stmt;
+        }
+        self.labels.insert(t);
+        Stmt::Tail { tail: t, body: vec![stmt] }
+    }
+
+    /// The first block after the loop at `header` every way out of it passes, where the ways
+    /// out of a loop without one exit meet; one with two or more ways in, so a jump shares it.
+    fn beyond(&self, header: BlockId) -> Option<BlockId> {
+        let body = self.g.loops.get(&header)?;
+        for ipdom in [&self.g.ipdom, &self.g.ipdom_live] {
+            let mut x = ipdom.get(&header).copied().flatten();
+            while let Some(j) = x {
+                if !body.contains(&j) {
+                    return (self.g.preds.get(&j).map_or(0, Vec::len) > 1).then_some(j);
+                }
+                x = ipdom.get(&j).copied().flatten();
+            }
+        }
+        None
+    }
+
     /// How an edge to `target` is written from inside the current context: the jump the context
     /// names, or for a block placed already, a copy of it when it is short and its own exit has a
     /// name here, else a `goto`. `None` when the target is the region's end or is not placed yet.
     fn edge(&mut self, target: BlockId, stop: Option<BlockId>) -> Option<Vec<Stmt>> {
         if let Some(stmts) = self.jump(target, stop) {
             return (!stmts.is_empty()).then_some(stmts);
+        }
+        if let Some(stmts) = self.leave(target) {
+            return Some(stmts);
         }
         if !self.emitted.contains(&target) {
             return None;
@@ -282,7 +371,7 @@ impl Walk<'_> {
     /// is placed already and the chain stays short.
     fn tail_to(&self, t: BlockId, stop: Option<BlockId>, depth: usize) -> Option<Vec<Stmt>> {
         const CHAIN: usize = 3;
-        if let Some(stmts) = self.jump(t, stop) {
+        if let Some(stmts) = self.jump(t, stop).or_else(|| self.leave(t)) {
             return Some(stmts);
         }
         if depth + 1 < CHAIN && self.emitted.contains(&t) {
@@ -306,13 +395,20 @@ impl Walk<'_> {
                 out.extend(stmts);
                 return out;
             }
-            // A loop header not yet entered: the loop, then its exit.
+            // A loop header not yet entered: the loop, then its exit. A loop without one exit
+            // goes on where its ways out meet, when they leave a region around it to there.
             if self.g.loops.contains_key(&cur) && !self.loops.iter().any(|(h, _)| *h == cur) {
                 let exit = self.g.loop_exit(cur);
+                let tail = if exit.is_none() { self.open_tail(self.beyond(cur), stop) } else { None };
                 self.loops.push((cur, exit));
                 let body = self.run_block_and_after(cur, None);
                 self.loops.pop();
-                out.push(Stmt::Loop { header: cur, body });
+                let looped = self.close_tail(tail, Stmt::Loop { header: cur, body });
+                let exit = match &looped {
+                    Stmt::Tail { tail, .. } => Some(*tail),
+                    _ => exit,
+                };
+                out.push(looped);
                 match exit {
                     Some(e) if Some(e) != stop => {
                         cur = e;
@@ -352,9 +448,11 @@ impl Walk<'_> {
                 // The join of the folded chain is the last condition's: an earlier one may be
                 // post-dominated by a condition the chain absorbed.
                 let join = self.join_of(last, stop);
+                let tail = self.open_tail(join, stop);
                 then_body.extend(self.arm(then, join, stop));
                 els_body.extend(self.arm(els, join, stop));
-                out.push(Stmt::If { cond, then: then_body, els: els_body });
+                let branch = self.close_tail(tail, Stmt::If { cond, then: then_body, els: els_body });
+                out.push(branch);
                 if let Some(j) = join
                     && Some(j) != stop
                 {
@@ -401,6 +499,7 @@ impl Walk<'_> {
                         at = next[i];
                     }
                 }
+                let tail = self.open_tail(join, stop);
                 let mut case_stmts = Vec::new();
                 for i in order {
                     let (values, is_default, target) = arms[i].clone();
@@ -408,7 +507,8 @@ impl Walk<'_> {
                     let body = self.arm(target, into.or(join), stop);
                     case_stmts.push(Case { values, default: is_default, body, falls_through: into.is_some() });
                 }
-                out.push(Stmt::Switch { ty, value, cases: case_stmts });
+                let switch = self.close_tail(tail, Stmt::Switch { ty, value, cases: case_stmts });
+                out.push(switch);
                 if let Some(j) = join
                     && Some(j) != stop
                 {
@@ -664,7 +764,7 @@ fn has_continue(stmts: &[Stmt]) -> bool {
 
 /// Whether a body leaves by its last statement, so nothing after it would run.
 fn ends_in_jump(body: &[Stmt]) -> bool {
-    matches!(body.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue | Stmt::Goto(_) | Stmt::Unreachable))
+    matches!(body.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue | Stmt::Goto(_) | Stmt::Leave(_) | Stmt::Unreachable))
 }
 
 /// Immediate post-dominators over the reversed graph with a virtual exit after every block that
@@ -735,7 +835,7 @@ mod tests {
         stmts.iter().any(|s| match s {
             Stmt::Goto(_) => true,
             Stmt::If { then, els, .. } => has_goto(then) || has_goto(els),
-            Stmt::Loop { body, .. } => has_goto(body),
+            Stmt::Loop { body, .. } | Stmt::Tail { body, .. } => has_goto(body),
             Stmt::Switch { cases, .. } => cases.iter().any(|c| has_goto(&c.body)),
             _ => false,
         })
@@ -895,16 +995,24 @@ mod tests {
         assert_eq!(c.matches("return ").count(), 2, "{c}");
     }
 
+    /// A return block too long to copy, which the loop's exits and the entry's early return
+    /// share, is the tail of a region around the entry's branch: the loop leaves it, and the
+    /// block is written once, after it.
     #[test]
-    fn block_over_the_copy_limit_keeps_its_goto() {
+    fn block_over_the_copy_limit_is_a_shared_tail() {
         let f = two_exits_to_one_return(COPY_LIMIT + 1);
         let g = Graph::of(&f);
         let s = structure(&f, &g);
-        assert!(has_goto(&s.body), "{:#?}", s.body);
+        assert!(!has_goto(&s.body), "{:#?}", s.body);
+        assert!(matches!(s.body.as_slice(), [Stmt::Block(_), Stmt::Tail { .. }, Stmt::Block(_), Stmt::Return(_)]), "{:#?}", s.body);
         assert_eq!(s.copies(), 0);
         assert_eq!(s.labels.len(), 1);
-        let c = c_of(f);
+        assert!(s.goto_targets().is_empty());
+        let c = c_of(f.clone());
         assert!(c.contains("goto L_ret;") && c.contains("L_ret:;"), "{c}");
         assert_eq!(c.matches("return ").count(), 1, "{c}");
+        let r = rust_of(f);
+        assert!(r.contains("'L_ret: {") && r.contains("break 'L_ret;"), "{r}");
+        assert!(!r.contains("ra_goto"), "{r}");
     }
 }
