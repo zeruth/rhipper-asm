@@ -59,10 +59,13 @@ fn rhtest_map_functions(path: &Path) -> BTreeMap<u64, String> {
         let decorated = symbol.starts_with(['_', '@', '?']);
         let funclet = ["__catch$", "__unwindfunclet$", "?catch$", "?dtor$"].iter().any(|p| symbol.starts_with(p));
         let thunk = Path::new(object).extension().is_some_and(|e| e.eq_ignore_ascii_case("dll"));
-        if thunk || (msvc && parts[3] != "f") || (!msvc && !decorated) || funclet {
+        let address = u64::from_str_radix(parts[2], 16).unwrap();
+        // x64 decorates no C name, so an undecorated symbol of a 64-bit image is a function too,
+        // but for the labels the compiler leaves inside one (`$ehgcr_…`, the EH guard targets)
+        let wide = address > u64::from(u32::MAX) && !symbol.starts_with('$');
+        if thunk || (msvc && parts[3] != "f") || (!msvc && !decorated && !wide) || funclet {
             continue;
         }
-        let address = u64::from_str_radix(parts[2], 16).unwrap();
         out.entry(address).or_insert_with(|| parts[1].to_owned());
     }
     out

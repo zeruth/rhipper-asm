@@ -121,6 +121,23 @@ fn float64_signatures_see_the_double_parameters() {
     assert_eq!(s.params.as_slice(), [Kind::Double].as_slice(), "newton_sqrt: {s:?}");
 }
 
+/// A virtual function that writes eax and no xmm0 returns an integer, though another call
+/// through its vtable slot reads xmm0 after it: stl-clang64's `Rect::area` and `Circle::area`
+/// (`u32 area() const`) came out doubles, and the port printed `weak locked = 0` for 121.
+#[test]
+fn a_virtual_function_writing_eax_alone_returns_an_integer() {
+    let image = ra_asm_pe::load(&rhtest("stl-clang64.exe")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    let signatures = infer(&lifted.module, &lifted.roots, ra_asm_lift::raise::Target::WIN64, &lifted.vtables);
+    // ?area@Rect@@UEBAIXZ and ?area@Circle@@UEBAIXZ in stl-clang64.map: both are `?area` to
+    // `map_at`, so by address
+    for (name, address) in [("Rect::area", 0x1_4000_b540), ("Circle::area", 0x1_4000_b5f0)] {
+        let s = signatures.get(&ra_asm_lift::function_name(address)).unwrap_or_else(|| panic!("{name} has a signature"));
+        assert_eq!(s.returns, Some(Kind::Int), "{name}: {s:?}");
+    }
+}
+
 /// A write to a sub-register is not a read of the whole: `put` only ever defines `cl` before it
 /// uses it, so `ecx` is no parameter of it, nor of `imin`, whose arguments are on the stack.
 #[test]

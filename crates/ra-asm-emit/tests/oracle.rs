@@ -780,6 +780,11 @@ fn run_port_as_c(fixture: &Fixture, tag: &str, functions_per_file: usize, dialec
     if cfg!(windows) {
         // The system libraries the fixtures import from; an unused one costs nothing.
         build.args(["-lkernel32", "-luser32", "-lshell32", "-lws2_32", "-lole32", "-loleaut32", "-ladvapi32"]);
+        // A C++ port links msvcp140's imports and the static part of its import library (the
+        // vector algorithms, `std::_Facet_Register`) through msvcprt.lib.
+        if sources.iter().any(|p| p.extension().is_some_and(|x| x == "cpp")) {
+            build.arg("-lmsvcprt");
+        }
     } else {
         // The program's imports are the Win32 layer of the driver, which dlsym finds among the
         // executable's own exports, and the host's C library.

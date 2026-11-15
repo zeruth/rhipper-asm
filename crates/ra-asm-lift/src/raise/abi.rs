@@ -693,6 +693,8 @@ fn infer_from(
         let (low, high) = (target.int_return().index(), target.high_return().index());
         let writes_rdx: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[high])).collect();
         let writes_rax: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes[low])).collect();
+        // What the function itself leaves in rax, not what its callees clobber there.
+        let stores_rax: HashMap<&str, bool> = facts.iter().map(|f| (f.name.as_str(), f.writes_rax)).collect();
         // A float result wins when a caller reads xmm0 after the call: the callee wrote it as one.
         // A float an x86 function returns on the x87 stack travels in the lift's globals instead.
         let mut returns: BTreeMap<String, Option<Kind>> = facts.iter().map(|f| (f.name.clone(), None)).collect();
@@ -713,9 +715,13 @@ fn infer_from(
             // xmm0 the caller reads is its own, through the call, as an indirect call after it
             // passes every vector register (computed's `resolve`, whose address result a call
             // then takes, came out a double and its call went through 0).
+            // Nor does a candidate of a virtual call that writes no xmm0 and stores rax itself
+            // return a float because another caller of the slot reads xmm0: stl-clang64's
+            // `Rect::area` (`mov eax, ..; imul eax, ..; ret`) came out a double, the port read its
+            // result from xmm0 and printed `weak locked = 0` for 121.
             for callee in &fact.uses_xmm0_of {
                 let wrote = xmm0_kinds.get(callee.as_str()).copied().flatten();
-                if wrote.is_none() && fact.uses_rax_of.contains(callee) {
+                if wrote.is_none() && (fact.uses_rax_of.contains(callee) || stores_rax.get(callee.as_str()).copied().unwrap_or(false)) {
                     continue;
                 }
                 if let Some(r) = returns.get_mut(callee) {

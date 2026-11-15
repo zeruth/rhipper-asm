@@ -56,11 +56,11 @@ impl RuntimeRanges {
 
 /// Marks a function built inside a C runtime library's range as the host's, under the name the
 /// host links it by: the PDB's name for it, or `F_<address>` for a piece of code the PDB does not
-/// name. A thunk stays a thunk. A runtime function the host cannot link by that name in C (a C++
-/// function, an exception handling funclet such as `common_control87$filt$0`) is the host's all
-/// the same, under the name made an identifier: nothing ported calls one, and a call would fail to
-/// link by name rather than lift the runtime's code. A helper the port keeps ([`is_ported_helper`])
-/// stays the program's.
+/// name. A thunk stays a thunk. A C++ function of a 64-bit runtime keeps its decorated name, which
+/// the port links by; any other runtime function the host cannot link by that name in C (a 32-bit
+/// C++ function, an exception handling funclet such as `common_control87$filt$0`) is the host's
+/// all the same, under the name made an identifier, and a call would fail to link by name rather
+/// than lift the runtime's code. A helper the port keeps ([`is_ported_helper`]) stays the program's.
 pub fn classify(image: &Image, runtime: &RuntimeRanges, f: &mut Function) {
     if f.is_thunk() || !runtime.contains(f.entry) {
         return;
@@ -68,6 +68,13 @@ pub fn classify(image: &Image, runtime: &RuntimeRanges, f: &mut Function) {
     // The host links `_snprintf` and `__security_init_cookie` by those names: a plain C name
     // keeps its underscores, and only a mangled one is made an identifier.
     let name = match image.symbols.binary_search_by_key(&f.entry, |s| s.va) {
+        // A C++ function of a 64-bit runtime keeps its decorated name, which the port declares
+        // under an identifier with the decorated one as its assembler label, so the port links
+        // the host library's own: the STL of `stl-clang64.exe` calls the `operator delete` of
+        // `msvcrt.lib` and the `std::_Facet_Register` of `msvcprt.lib`, which under their
+        // undecorated names nothing defined. A 32-bit one keeps the undecorated name its shim
+        // is known by ([`ra_asm_lift`'s `x86_shim`]).
+        Ok(i) if image.is_64() && image.symbols[i].name.starts_with('?') => image.symbols[i].name.clone(),
         Ok(i) => {
             let plain = undecorate(&image.symbols[i].name, image.is_64());
             if plain.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') { plain } else { identifier(&plain) }

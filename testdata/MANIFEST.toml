@@ -1594,6 +1594,31 @@ command = "testdata/rhtest/build.ps1 stl"
 tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x86)"
 
 [[file]]
+path = "testdata/rhtest/stl-clang64.exe"
+sha256 = "2490a85820fd01d320c0740eeba4a217ab3ef2731751ff56caa0098a41fd976e"
+evidence = "native"
+expected = "testdata/rhtest/stl64.txt"
+source = "testdata/rhtest/src/stl.cpp"
+command = "testdata/rhtest/build.ps1 stl"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x64)"
+
+[[file]]
+path = "testdata/rhtest/stl-clang64.map"
+sha256 = "d78ae21812d1e290dfd0c1cb1f4a79905604fe4327712734fa967e9cbb76fe1d"
+evidence = "native"
+source = "testdata/rhtest/src/stl.cpp"
+command = "testdata/rhtest/build.ps1 stl"
+tools = "clang-cl 22.1.7, LLD 22.1.7, the MSVC C runtime of this machine (x64)"
+
+[[file]]
+path = "testdata/rhtest/stl64.txt"
+sha256 = "5206debf51204ddc1deca4de537e1cba0803ef3892a3675a503cb9b420a3d86c"
+evidence = "native"
+source = "testdata/rhtest/src/stl.cpp"
+command = "testdata/rhtest/stl-clang64.exe, run natively on this machine (the same output as stl.txt)"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
 path = "testdata/rhtest/stl.txt"
 sha256 = "5206debf51204ddc1deca4de537e1cba0803ef3892a3675a503cb9b420a3d86c"
 evidence = "native"

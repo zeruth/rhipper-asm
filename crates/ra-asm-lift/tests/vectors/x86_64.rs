@@ -395,3 +395,109 @@ fn x86_64() {
 }
 
 // endregion
+
+// region The locked loop
+
+/// `weak_ptr::lock`'s `_Incref_nz(rcx = &count)` as clang writes it for x64: a `lock cmpxchg`
+/// loop that adds a reference while the count is not zero, and gives 1 when it did. The 64-bit
+/// count first, at the slot's start; the 32-bit count of the C++ library's control block at
+/// `SLOT`.
+const INCREF_NZ: [u8; 56] = [
+    0x48, 0x8B, 0x01, // mov rax, [rcx]
+    0x48, 0x85, 0xC0, // test rax, rax
+    0x74, 0x11, // je 25
+    0x48, 0x8D, 0x50, 0x01, // lea rdx, [rax + 1]
+    0xF0, 0x48, 0x0F, 0xB1, 0x11, // lock cmpxchg [rcx], rdx
+    0x75, 0xF0, // jne 3
+    0xB8, 0x01, 0x00, 0x00, 0x00, // mov eax, 1
+    0xC3, // ret
+    0x31, 0xC0, // xor eax, eax
+    0xC3, // ret
+    0xCC, 0xCC, 0xCC, 0xCC, //
+    0x8B, 0x01, // mov eax, [rcx]
+    0x85, 0xC0, // test eax, eax
+    0x74, 0x0F, // je 53
+    0x8D, 0x50, 0x01, // lea edx, [rax + 1]
+    0xF0, 0x0F, 0xB1, 0x11, // lock cmpxchg [rcx], edx
+    0x75, 0xF3, // jne 34
+    0xB8, 0x01, 0x00, 0x00, 0x00, // mov eax, 1
+    0xC3, // ret
+    0x31, 0xC0, // xor eax, eax
+    0xC3, // ret
+];
+
+/// The loop of `weak_ptr::lock` takes a reference exactly when the count is not zero, on a count
+/// of its own width only, at the machine and promoted levels: the count after it and the answer
+/// in `rax` are the processor's, and the word above the count keeps its bytes.
+#[test]
+fn a_locked_compare_exchange_loop_takes_a_reference() {
+    const ABOVE: u64 = 0xA5A5_A5A5_A5A5_A5A5;
+    let _turn = arena_turn();
+    ensure_arena();
+    let scratch_buffer = vec![0u128; SCRATCH_LEN / 16];
+    let scratch = scratch_buffer.as_ptr() as usize as u64;
+    let image = ra_asm_pe::Image::parse(pe_with_text(&INCREF_NZ)).expect("the synthetic image parses");
+    let entries = [IMAGE_BASE + TEXT_RVA, IMAGE_BASE + TEXT_RVA + SLOT as u64];
+    let facts = Facts { calls: vec![SeenCall { site: IMAGE_BASE, targets: entries.to_vec() }], ..Facts::default() };
+    let analysis = ra_asm_analysis::analyze_with(&image, &facts);
+    // The count, its width, what the loop gives and the count it leaves.
+    let cases: [(u64, u32, u64, u64); 8] = [
+        (1, 64, 1, 2),
+        (0, 64, 0, 0),
+        (0x1_0000_0000, 64, 1, 0x1_0000_0001),
+        (u64::MAX, 64, 1, 0),
+        (1, 32, 1, 2),
+        (0, 32, 0, 0),
+        (0x1_0000_0000, 32, 0, 0x1_0000_0000),
+        (0xFFFF_FFFF, 32, 1, 0),
+    ];
+    let mut failures = Vec::new();
+    for level in [ra_asm_lift::RaiseLevel::Machine, ra_asm_lift::RaiseLevel::Promoted] {
+        let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+        assert!(lifted.warnings.is_empty(), "the lift warned: {:?}", lifted.warnings);
+        if level != ra_asm_lift::RaiseLevel::Machine {
+            let options = lifted.raise_options(level);
+            ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+        }
+        let mut memory = Memory::new();
+        memory.add_region(Region::new(VECTOR_BASE, ARENA_LEN, "arena"));
+        memory.add_region(Region::new(scratch, SCRATCH_LEN as u64, "scratch"));
+        let mut vm = Vm::new(&lifted.module, memory);
+        vm.set_static_region(scratch + STATICS_AT, FRAMES_AT - STATICS_AT);
+        vm.set_frame_region(scratch + FRAMES_AT, SCRATCH_LEN as u64 - FRAMES_AT);
+        vm.limit = 100_000;
+        vm.place().expect("the module places");
+        let state_ty = Type::Named(ra_asm_lift::state::STATE_TYPE.to_owned());
+        let gprs = vm.layout().offsets(&state_ty)[0];
+        let gpr = |at: usize| VECTOR_BASE + gprs + 8 * at as u64;
+        let count_at = VECTOR_BASE + DATA;
+        for (count, bits, gives, leaves) in cases {
+            let entry = entries[usize::from(bits == 32)];
+            // The state is the arena's start, zero but for the registers the loop reads.
+            vm.memory.fill(VECTOR_BASE, ARENA_LEN, 0).expect("the arena");
+            vm.memory.write(gpr(0), &0xDEAD_BEEF_0BAD_F00Du64.to_le_bytes()).expect("rax");
+            vm.memory.write(gpr(1), &count_at.to_le_bytes()).expect("rcx");
+            vm.memory.write(gpr(RSP), &(VECTOR_BASE + STACK_END - 8).to_le_bytes()).expect("rsp");
+            vm.memory.write(count_at, &count.to_le_bytes()).expect("the count");
+            vm.memory.write(count_at + 8, &ABOVE.to_le_bytes()).expect("the word above");
+            vm.steps = 0;
+            let site = format!("{level:?}, the {bits}-bit count {count:#x}");
+            if let Err(stop) = vm.call_named(&mut Ends, &ra_asm_lift::function_name(entry), vec![Value::Int(u128::from(VECTOR_BASE))]) {
+                failures.push(format!("{site}: the lifted loop stopped: {stop:?}"));
+                continue;
+            }
+            let mut word = |at: u64| vm.memory.read_u64(at).expect("a word");
+            let (rax, after, above) = (word(gpr(0)), word(count_at), word(count_at + 8));
+            if rax != gives || after != leaves || above != ABOVE {
+                failures.push(format!(
+                    "{site}: rax {rax:#x}, the count {after:#x}, above it {above:#x}; the processor gives {gives:#x}, {leaves:#x}, {ABOVE:#x}"
+                ));
+            }
+        }
+    }
+    drop(scratch_buffer);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+// endregion
