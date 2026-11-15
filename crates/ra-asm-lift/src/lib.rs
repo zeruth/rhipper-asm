@@ -740,6 +740,11 @@ fn lift_on(
         lifted.module.globals.extend(state::import_pops_globals(&images, &lifted));
         lifted.module.globals.push(state::proc_pops_global(&images, &lifted));
     }
+    // The host reads a 64-bit program's RTTI by offsets from the image's base, which the
+    // standalone port's sections, placed apart, do not keep: the runtime rewrites them.
+    if let Some(rtti) = state::rtti_global(&images.iter().map(|(i, _)| *i).collect::<Vec<_>>(), &lifted) {
+        lifted.module.globals.push(rtti);
+    }
     for (symbol, offset, tail) in &lifted.wrappers {
         let wrapper = match isa {
             Isa::X86 => {
@@ -927,6 +932,9 @@ pub fn image_header(
     }
     if lifted.standalone {
         let _ = writeln!(out, "#define RA_STANDALONE 1");
+    }
+    if lifted.module.globals.iter().any(|g| g.name == state::RTTI) {
+        let _ = writeln!(out, "#define RA_RTTI 1");
     }
     if let Some(entry) = lifted.entry.or_else(|| image.entry_point()) {
         let name = lifted.functions.get(&entry).cloned().unwrap_or_else(|| function_name(entry));

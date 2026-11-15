@@ -1614,6 +1614,25 @@ thread_local! {
 static mut TLS: [u64; 5] = [0; 5];
 static mut TLS_BITS: u32 = 64;
 
+/// The x64 RTTI names its parts by offsets from the image's base, which the host's `__RTtypeid`,
+/// `__RTDynamicCast` and `__RTCastToVoid` take as the locator's address less its own offset. The
+/// port's sections are statics placed apart, so each field is rewritten to the offset of what it
+/// names from the port's module: `ra_rtti` holds the pairs of a field's address and the address it
+/// names, then a zero pair. The statics are writable: `ra_init` wrote their address words.
+pub unsafe fn ra_init_rtti(table: *const u64) {
+    let module = GetModuleHandleA(core::ptr::null()) as u64;
+    let mut i = 0;
+    loop {
+        let field = core::ptr::read_unaligned(table.add(2 * i));
+        if field == 0 {
+            break;
+        }
+        let target = core::ptr::read_unaligned(table.add(2 * i + 1));
+        core::ptr::write_unaligned(field as usize as *mut u32, target.wrapping_sub(module) as u32);
+        i += 1;
+    }
+}
+
 /// The loader's work before the entry: `__tls_index` written, the main thread's block, and the
 /// TLS callbacks with `DLL_PROCESS_ATTACH`.
 pub unsafe fn ra_init_tls(tls: *const u64, bits: u32) {

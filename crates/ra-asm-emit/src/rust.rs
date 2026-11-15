@@ -351,6 +351,10 @@ fn main_module(module: &Module, options: &Options, modules: &[String], sections:
     let _ = writeln!(out, "fn main() {{");
     let _ = writeln!(out, "    unsafe {{ // the runtime's start, which writes the data's address words and tables");
     let _ = writeln!(out, "        ra_init();");
+    if module.globals.iter().any(|g| g.name == "ra_rtti") {
+        let rtti = global_pointer("ra_rtti", 0, sections);
+        let _ = writeln!(out, "        rhipper::ra_init_rtti({rtti} as *const u64);");
+    }
     if module.globals.iter().any(|g| g.name == "ra_tls") {
         let tls = global_pointer("ra_tls", 0, sections);
         let _ = writeln!(out, "        rhipper::ra_init_tls({tls} as *const u64, {});", options.pointer_bits);

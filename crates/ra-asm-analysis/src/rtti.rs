@@ -19,7 +19,7 @@
 //!   and the vbtable's offset or -1 when no virtual base lies on the way), `attributes`, class
 //!   hierarchy descriptor.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use ra_asm_pe::Image;
 use serde::Serialize;
@@ -153,6 +153,52 @@ pub fn classes(image: &Image) -> Vec<Class> {
     }
     classes.sort_by_key(|c| c.type_descriptor);
     classes
+}
+
+/// The image-relative fields of the x64 RTTI, each with the address it names, in address order: of
+/// every complete object locator its type descriptor, its class hierarchy descriptor and its own
+/// RVA (which names the locator itself), and of every hierarchy its base class array, the array's
+/// entries, and each base class descriptor's type descriptor and, when it has one, its hierarchy.
+/// The host's `__RTtypeid`, `__RTDynamicCast` and `__RTCastToVoid` add each field to the image base
+/// they take from the locator's own RVA: a port that places the sections apart rewrites them all.
+/// Empty for an x86 image, whose fields are addresses the relocations cover.
+pub fn relative_fields(image: &Image) -> Vec<(u64, u64)> {
+    if !image.is_64() {
+        return Vec::new();
+    }
+    let mut fields = BTreeMap::new();
+    for l in find_locators(image) {
+        fields.insert(l.address + 12, l.type_descriptor);
+        fields.insert(l.address + 16, l.hierarchy);
+        fields.insert(l.address + 20, l.address);
+        hierarchy_fields(image, l.hierarchy, &mut fields);
+    }
+    fields.into_iter().collect()
+}
+
+/// The relative fields of the hierarchy at `va` and of the hierarchies its bases name, into
+/// `fields`; a hierarchy already there is not walked again.
+fn hierarchy_fields(image: &Image, va: u64, fields: &mut BTreeMap<u64, u64>) {
+    let Some(array) = field_address(image, va + 12) else { return };
+    if fields.insert(va + 12, array).is_some() {
+        return;
+    }
+    let count = image.u32(va + 8).unwrap_or(0).min(64);
+    for i in 0..u64::from(count) {
+        let slot = array + 4 * i;
+        let Some(bcd) = field_address(image, slot) else { continue };
+        fields.insert(slot, bcd);
+        if let Some(type_descriptor) = field_address(image, bcd) {
+            fields.insert(bcd, type_descriptor);
+        }
+        // BCD_HASPCHD: the descriptor's last field names the hierarchy of its own class.
+        if image.u32(bcd + 20).is_ok_and(|attributes| attributes & 0x40 != 0)
+            && let Some(hierarchy) = field_address(image, bcd + 24)
+        {
+            fields.insert(bcd + 24, hierarchy);
+            hierarchy_fields(image, hierarchy, fields);
+        }
+    }
 }
 
 /// One entry of a class hierarchy descriptor's base class array.

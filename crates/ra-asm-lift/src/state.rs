@@ -379,6 +379,14 @@ pub const PROC_POPS: &str = "ra_proc_pops";
 /// The SSE control and status register as the program sets it with `ldmxcsr` and reads it with
 /// `stmxcsr`; the host's own arithmetic keeps its default rounding.
 pub const MXCSR: &str = "ra_mxcsr";
+/// The image-relative fields of a 64-bit program's RTTI in a standalone port, whose sections the
+/// linker places apart: for each field its address and the address it names, both bytes of data
+/// globals, then a zero pair. The runtime's startup rewrites each field to the offset of what it
+/// names from the port's own module, the base the host's `__RTtypeid`, `__RTDynamicCast` and
+/// `__RTCastToVoid` take from the locator.
+pub const RTTI: &str = "ra_rtti";
+/// The host functions that read the RTTI by its image-relative fields.
+pub const RTTI_READERS: [&str; 3] = ["__RTtypeid", "__RTDynamicCast", "__RTCastToVoid"];
 
 pub fn define_runtime_globals(module: &mut ra_asm_ir::Module, x87: crate::x87::X87Unit) {
     use ra_asm_ir::{Const, Global, Linkage};
@@ -448,6 +456,41 @@ pub fn tls_global(image: &ra_asm_pe::Image, lifted: &crate::Lifted) -> ra_asm_ir
         align: 16,
         address: None,
     }
+}
+
+/// The [`RTTI`] table of `images` for a standalone `lifted`: none when the lift is not standalone,
+/// the images hold no x64 RTTI, or the program calls none of the [`RTTI_READERS`]. A field or a
+/// target outside the data globals stays out of the table.
+pub fn rtti_global(images: &[&ra_asm_pe::Image], lifted: &crate::Lifted) -> Option<ra_asm_ir::Global> {
+    use ra_asm_ir::{Const, Global, Linkage};
+    if !lifted.standalone || !RTTI_READERS.iter().any(|r| lifted.imports.contains(*r)) {
+        return None;
+    }
+    let data = |va: u64| {
+        let section = lifted.data.iter().find(|s| va >= s.start && va < s.end)?;
+        Some(Const::Address { global: section.global.clone(), offset: (va - section.start) as i64 })
+    };
+    let mut items: Vec<Const> = Vec::new();
+    for image in images {
+        for (field, target) in ra_asm_analysis::rtti::relative_fields(image) {
+            if let (Some(field), Some(target)) = (data(field), data(target)) {
+                items.extend([field, target]);
+            }
+        }
+    }
+    if items.is_empty() {
+        return None;
+    }
+    items.extend([Const::Int(0), Const::Int(0)]);
+    Some(Global {
+        name: RTTI.to_owned(),
+        ty: Type::Packed(vec![Type::I64; items.len()]),
+        init: Some(Const::Struct(items)),
+        constant: true,
+        linkage: Linkage::External,
+        align: 16,
+        address: None,
+    })
 }
 
 /// The [`IMPORT_POPS`] table and its [`IMPORT_NAMES`] for the imports `lifted` calls, from the
@@ -539,9 +582,12 @@ pub fn proc_pops_global(images: &[&ra_asm_pe::Image], lifted: &crate::Lifted) ->
 }
 
 /// Whether `name` is one of the globals of [`define_runtime_globals`], the [`TLS`] descriptor,
-/// the import binding table or the [`ARGS`] of a call through a pointer.
+/// the import binding table, the [`RTTI`] table or the [`ARGS`] of a call through a pointer.
 pub fn is_runtime_global(name: &str) -> bool {
-    matches!(name, X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TLS | POPS | ARGS | MXCSR | IMPORT_POPS | IMPORT_NAMES | PROC_POPS)
+    matches!(
+        name,
+        X87_STACK | X87_TOP | X87_CW | X87_SW | X87_TMP | TLS | POPS | ARGS | MXCSR | IMPORT_POPS | IMPORT_NAMES | PROC_POPS | RTTI
+    )
 }
 
 /// The state helpers over one function under construction.

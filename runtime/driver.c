@@ -2867,8 +2867,41 @@ uint64_t ra_teb(void) {
     return (uint64_t)(uintptr_t)teb;
 }
 
-// The loader's work before the entry: __tls_index written, the main thread's block, the callbacks.
+#if defined(RA_RTTI) && defined(_WIN32)
+// The x64 RTTI names its parts by offsets from the image's base, which the host's `__RTtypeid`,
+// `__RTDynamicCast` and `__RTCastToVoid` take as the locator's address less its own offset. The
+// standalone port's sections are globals the linker places apart, so each field is rewritten to
+// the offset of what it names from the port's module: the pairs of a field's address and the
+// address it names, then a zero pair. The fields lie in read-only data, open for the rewrite.
+extern const uint64_t ra_rtti[];
+
+static void rebase_rtti(void) {
+    HMODULE module = NULL;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)ra_rtti, &module)) {
+        fprintf(stderr, "ra: the module of the RTTI table is not found\n");
+        host_exit(0xE0000006);
+    }
+    uintptr_t page = 0;
+    DWORD protect = 0;
+    for (const uint64_t *pair = ra_rtti; pair[0]; pair += 2) {
+        uintptr_t field = (uintptr_t)pair[0];
+        if ((field & ~(uintptr_t)0xfff) != page) {
+            if (page) VirtualProtect((void *)page, 0x1000, protect, &protect);
+            page = field & ~(uintptr_t)0xfff;
+            VirtualProtect((void *)page, 0x1000, PAGE_READWRITE, &protect);
+        }
+        *(uint32_t *)field = (uint32_t)(pair[1] - (uintptr_t)module);
+    }
+    if (page) VirtualProtect((void *)page, 0x1000, protect, &protect);
+}
+#endif
+
+// The loader's work before the entry: the RTTI's offsets, __tls_index written, the main thread's
+// block, the callbacks.
 static void attach_process(void) {
+#if defined(RA_RTTI) && defined(_WIN32)
+    rebase_rtti();
+#endif
     if (ra_tls[0] && ra_tls[2]) *(uint32_t *)(uintptr_t)ra_tls[2] = 0;
     attach_thread(DLL_PROCESS_ATTACH);
 }
