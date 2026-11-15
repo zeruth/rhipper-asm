@@ -56,6 +56,9 @@ pub struct Image {
     /// The Mach-O file the image was mapped from, when it is one: its dynamic linker, its
     /// libraries, its bindings and the function extents of its `__unwind_info`.
     pub macho: Option<ra_asm_format::macho::MachOFile>,
+    /// The value the start routine gives the global pointer, on a machine whose code addresses its
+    /// data through one: a 32-bit MIPS ELF's `$gp`, from its `.reginfo` or its `_gp` symbol.
+    pub global_pointer: Option<u64>,
     /// What the loader could not read. A directory that fails to parse lands here, not in an error.
     pub warnings: Vec<String>,
     file: Vec<u8>,
@@ -134,6 +137,7 @@ impl Image {
             xbe,
             elf,
             macho,
+            global_pointer: None,
             warnings,
             file,
             mapped,
@@ -201,6 +205,12 @@ impl Image {
     /// The width of a pointer in the image, in bytes.
     pub fn pointer_size(&self) -> u8 {
         if self.is_64() { 8 } else { 4 }
+    }
+
+    /// Whether the image's words are big-endian: an ELF file's `ELFDATA2MSB`. A PE, an XBE and a
+    /// Mach-O file of the machines the loader maps are little-endian.
+    pub fn big_endian(&self) -> bool {
+        self.elf.as_ref().is_some_and(|elf| elf.big_endian)
     }
 
     pub fn image_base(&self) -> u64 {

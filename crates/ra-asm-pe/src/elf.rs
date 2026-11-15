@@ -19,6 +19,16 @@ use crate::section::Section;
 
 const PAGE: u64 = 0x1000;
 
+/// `EM_MIPS`: MIPS of either byte order; ELF's class says 32 or 64 bits.
+const EM_MIPS: u16 = 8;
+/// The section and the segment of a MIPS file's register information, `.reginfo`: the registers
+/// the code uses and the global pointer's value.
+const SHT_MIPS_REGINFO: u32 = 0x7000_0006;
+const PT_MIPS_REGINFO: u32 = 0x7000_0000;
+/// The size of an `Elf32_RegInfo` and the offset of its `ri_gp_value`.
+const REGINFO_SIZE: u64 = 24;
+const REGINFO_GP: u64 = 20;
+
 /// The headers an ELF file stands for, its sections, and the file as read.
 pub(crate) fn parse(bytes: &[u8]) -> Result<(Headers, Vec<Section>, ElfFile)> {
     let mut elf = ElfFile::parse(bytes)?;
@@ -148,17 +158,39 @@ pub(crate) fn characteristics(execute: bool, write: bool, zeros: bool) -> u32 {
 }
 
 /// Fills the tables of an ELF image from the file it was read from: imports, exports, relocations,
-/// symbols and the reader's warnings.
+/// symbols, a 32-bit MIPS file's global pointer and the reader's warnings.
 pub(crate) fn read_tables(image: &mut Image) {
     let Some(elf) = image.elf.as_ref() else { return };
-    let (imports, exports, relocations, symbols, warnings) =
-        (imports(elf), exports(elf), relocations(elf), symbols(elf), elf.warnings.clone());
+    let (imports, exports, relocations, symbols, global_pointer, warnings) =
+        (imports(elf), exports(elf), relocations(elf), symbols(elf), global_pointer(image, elf), elf.warnings.clone());
     image.imports = imports;
     image.exports = exports;
     image.relocations = relocations;
     image.symbols = symbols;
+    image.global_pointer = global_pointer;
     image.warnings.extend(warnings);
     apply_addends(image);
+}
+
+/// The value of `$gp` in a 32-bit MIPS file: the `ri_gp_value` its `.reginfo` records, else the
+/// address of the `_gp` symbol the linker defines. The code reaches its GOT and small data through
+/// `$gp`, which the start routine sets from the same value; `None` on another machine or without either.
+fn global_pointer(image: &Image, elf: &ElfFile) -> Option<u64> {
+    if elf.machine != EM_MIPS || elf.wide {
+        return None;
+    }
+    let reginfo = elf
+        .sections
+        .iter()
+        .find(|s| s.kind == SHT_MIPS_REGINFO && s.addr != 0 && s.size >= REGINFO_SIZE)
+        .map(|s| s.addr)
+        .or_else(|| elf.segments.iter().find(|s| s.kind == PT_MIPS_REGINFO && s.memsz >= REGINFO_SIZE).map(|s| s.vaddr));
+    let recorded = reginfo
+        .and_then(|va| image.read(va + REGINFO_GP, 4).ok())
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .map(|word| if elf.big_endian { u32::from_be_bytes(word) } else { u32::from_le_bytes(word) });
+    let symbol = || elf.symbols.iter().find(|s| s.name == "_gp" && s.section != 0).map(|s| s.value);
+    recorded.filter(|&gp| gp != 0).map(u64::from).or_else(symbol)
 }
 
 /// Fills the words the loader computes from a RELA record: a `RELATIVE` word gets its addend, an
