@@ -10,6 +10,11 @@
 //! calls answered from the same record. At the end the way the function left, the registers and
 //! the bytes it wrote are compared with the vector's.
 //!
+//! A replay also says which blocks of the function it ran ([`Replayer::replayed`]), and a
+//! report over a program's vectors ([`Replayer::report`]) what the vectors of each function that
+//! replayed equal ran of it, the blocks none of them ran named: forty vectors through one path
+//! are one test, and the ledger keeps it as one.
+//!
 //! The memory is the replay's own ([`Region::owned`]): the image at its base, the pages the
 //! vector names, and a range the vector does not touch for the state, the frames and the
 //! globals of the interpreter. No address of the recorded run has to be free in this process.
@@ -43,17 +48,20 @@
 //! - what an x86 callee that is no lifted function popped, and the float an x86 import left on
 //!   the x87 stack, are in no register of a vector: a function that needs one differs.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
+use std::rc::Rc;
 
 use anyhow::{Result, anyhow, bail};
 use ra_asm_ir::interp::memory::Access;
-use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm, mask};
-use ra_asm_ir::{Const, Declaration, FnType, Module, Type};
+use ra_asm_ir::interp::{Host, Memory, Observer, Region, Stop, Value, Vm, mask};
+use ra_asm_ir::{BlockId, Const, Declaration, FnType, Module, Type};
 use ra_asm_lift::raise::abi::{Kind, Signature};
 use ra_asm_lift::{Lifted, RaiseLevel, import_of_wrapper};
 use ra_asm_pe::Image;
 
+use crate::ledger::Tested;
 use crate::record::{RETURN, Shape, left};
 use crate::signature::Convention;
 use crate::vector::{Call, Left, Register, Vector};
@@ -210,6 +218,61 @@ impl fmt::Display for Failure {
     }
 }
 
+/// One replay of a vector: what differs, and the blocks of the function the replay ran, by name.
+/// The blocks are those of the function's own activations, not of a callee the replay ran.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Replayed {
+    pub differences: Vec<Difference>,
+    pub blocks: BTreeSet<String>,
+}
+
+impl Replayed {
+    /// A replay that ended on `difference` before the function ran.
+    fn differs(difference: Difference) -> Self {
+        Self { differences: vec![difference], blocks: BTreeSet::new() }
+    }
+}
+
+/// What the vectors of one function that replayed equal ran of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Covered {
+    pub function: String,
+    pub tested: Tested,
+}
+
+/// What the replays of a program's vectors showed: the vectors that differ, and what the vectors
+/// that replayed equal ran of their functions, by the address of the function.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Report {
+    pub failures: Vec<Failure>,
+    pub covered: BTreeMap<u64, Covered>,
+}
+
+/// The observer of one replay: the blocks the activations of the replayed function run.
+struct Blocks {
+    /// The name of the function's body.
+    body: String,
+    /// For each call open, whether it is an activation of the function.
+    open: Vec<bool>,
+    ran: Rc<RefCell<BTreeSet<BlockId>>>,
+}
+
+impl Observer for Blocks {
+    fn enter(&mut self, function: &str, _depth: usize) {
+        self.open.push(function == self.body);
+    }
+
+    fn leave(&mut self, _function: &str, _depth: usize) {
+        self.open.pop();
+    }
+
+    fn block(&mut self, block: BlockId) {
+        if self.open.last() == Some(&true) {
+            self.ran.borrow_mut().insert(block);
+        }
+    }
+}
+
 /// A module made ready to replay vectors: every function's body is set apart under a name of
 /// its own, so a call of the function, the recursive one included, comes to the replay's host.
 pub struct Replayer<'a> {
@@ -363,27 +426,70 @@ impl<'a> Replayer<'a> {
     /// Replays `vector` and gives what differs; nothing when the function did what the vector
     /// holds. An error is a vector the machine could not be made for, not a difference.
     pub fn replay(&self, vector: &Vector) -> Result<Vec<Difference>> {
+        Ok(self.replayed(vector)?.differences)
+    }
+
+    /// Replays `vector` and gives what differs with the blocks of the function the replay ran.
+    pub fn replayed(&self, vector: &Vector) -> Result<Replayed> {
         let stopped = !matches!(vector.left, Left::Return) && !vector.calls.is_empty();
-        let differences = self.run(vector, stopped)?;
-        if differences.is_empty() || !stopped || matches!(vector.left, Left::Exit(_)) {
-            return Ok(differences);
+        let first = self.run(vector, stopped)?;
+        if first.differences.is_empty() || !stopped || matches!(vector.left, Left::Exit(_)) {
+            return Ok(first);
         }
         // A trap may be the function's own, after its last call returned.
-        Ok(if self.run(vector, false)?.is_empty() { Vec::new() } else { differences })
+        let second = self.run(vector, false)?;
+        Ok(if second.differences.is_empty() { second } else { first })
+    }
+
+    /// The names of the blocks of `function` as the replay runs it, in the order of the
+    /// function, each once; none when the module has no function of that name.
+    #[must_use]
+    pub fn blocks(&self, function: &str) -> Option<Vec<&str>> {
+        let f = self.module.function(&format!("{function}{BODY}"))?;
+        let mut seen = HashSet::with_capacity(f.blocks.len());
+        Some(f.blocks.iter().map(|block| block.name.as_str()).filter(|name| seen.insert(*name)).collect())
+    }
+
+    /// Replays every vector and gives the ones that differ, and what the vectors of each function
+    /// that replayed equal ran of it: their count, the blocks of the function and the blocks none
+    /// of them ran.
+    pub fn report(&self, vectors: &[Vector]) -> Result<Report> {
+        let mut numbers: HashMap<&str, usize> = HashMap::new();
+        let mut equal: BTreeMap<u64, (&str, u32, BTreeSet<String>)> = BTreeMap::new();
+        let mut report = Report::default();
+        for vector in vectors {
+            let count = numbers.entry(vector.function.as_str()).or_default();
+            *count += 1;
+            let replayed = self.replayed(vector)?;
+            if !replayed.differences.is_empty() {
+                report.failures.push(Failure { function: vector.function.clone(), vector: *count, differences: replayed.differences });
+                continue;
+            }
+            let (_, vectors, ran) = equal.entry(vector.address).or_insert_with(|| (vector.function.as_str(), 0, BTreeSet::new()));
+            *vectors += 1;
+            ran.extend(replayed.blocks);
+        }
+        for (address, (function, vectors, ran)) in equal {
+            let Some(blocks) = self.blocks(function) else { continue };
+            let never = blocks.iter().filter(|name| !ran.contains(**name)).map(|name| (*name).to_owned()).collect();
+            let tested = Tested { vectors, blocks: u32::try_from(blocks.len()).unwrap_or(u32::MAX), never };
+            report.covered.insert(address, Covered { function: function.to_owned(), tested });
+        }
+        Ok(report)
     }
 
     /// One replay of `vector`, its last call read as the one that stopped when `stops`.
-    fn run(&self, vector: &Vector, stops: bool) -> Result<Vec<Difference>> {
+    fn run(&self, vector: &Vector, stops: bool) -> Result<Replayed> {
         let body = format!("{}{BODY}", vector.function);
-        let Some(f) = self.module.function(&body) else { return Ok(vec![Difference::Function]) };
+        let Some(f) = self.module.function(&body) else { return Ok(Replayed::differs(Difference::Function)) };
         let over_state = f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void;
         // The shape the level gives the function: a signature at the ABI level, the state below.
         let level = match &self.abi {
             None if over_state => None,
-            None => return Ok(vec![Difference::Function]),
+            None => return Ok(Replayed::differs(Difference::Function)),
             Some(abi) => match abi.signatures.get(&vector.function) {
                 Some(signature) => Some((abi, signature)),
-                None => return Ok(vec![Difference::Function]),
+                None => return Ok(Replayed::differs(Difference::Function)),
             },
         };
         let fault = |stop: Stop| setup(vector, stop);
@@ -402,7 +508,7 @@ impl<'a> Replayer<'a> {
             Some((abi, signature)) => {
                 let arguments = abi.convention.arguments(signature, vector)?;
                 if arguments.len() != f.ty.params.len() {
-                    return Ok(vec![Difference::Parameters { signature: arguments.len(), function: f.ty.params.len() }]);
+                    return Ok(Replayed::differs(Difference::Parameters { signature: arguments.len(), function: f.ty.params.len() }));
                 }
                 arguments
             }
@@ -424,11 +530,18 @@ impl<'a> Replayer<'a> {
             written: BTreeSet::new(),
             differences: Vec::new(),
         };
+        let ran = Rc::new(RefCell::new(BTreeSet::new()));
+        vm.observer = Some(Box::new(Blocks { body: body.clone(), open: Vec::new(), ran: Rc::clone(&ran) }));
         vm.memory.arm();
         let result = vm.call_named(&mut host, &body, arguments);
         host.wrote(vm.memory.disarm());
+        vm.observer = None;
+        let blocks: BTreeSet<String> = {
+            let ran = ran.borrow();
+            f.blocks.iter().filter(|block| ran.contains(&block.id)).map(|block| block.name.clone()).collect()
+        };
         if !host.differences.is_empty() {
-            return Ok(host.differences);
+            return Ok(Replayed { differences: host.differences, blocks });
         }
 
         // The exit.
@@ -491,7 +604,7 @@ impl<'a> Replayer<'a> {
                 bytes: differing.len(),
             });
         }
-        Ok(differences)
+        Ok(Replayed { differences, blocks })
     }
 
     /// The machine `vector` replays in, with the bytes of its `memory in` loaded: the image, the
