@@ -526,6 +526,51 @@ uint64_t ra_x86_initialize_slist_head(uint64_t head) {
     return 0;
 }
 
+// The interlocked list itself, in the program's layout: the head is {the first entry, a 16-bit
+// depth, a 16-bit sequence} in one 8-byte word, and an entry's first dword links the next; the
+// host's operations would read a 16-byte head and 8-byte links. Each operation swaps the whole
+// head at once, and a push counts in the sequence, so a pop that raced a pop and a push fails its
+// swap and reads the list again.
+static volatile uint64_t *slist32_head(uint64_t head) {
+    return (volatile uint64_t *)(uintptr_t)head;
+}
+
+static uint64_t slist32_depth(uint64_t word) {
+    return (uint16_t)(word >> 32);
+}
+
+uint64_t ra_x86_interlocked_push_entry_slist(uint64_t head, uint64_t entry) {
+    volatile uint64_t *h = slist32_head(head);
+    uint64_t old = __atomic_load_n(h, __ATOMIC_SEQ_CST), next;
+    do {
+        *(volatile uint32_t *)(uintptr_t)entry = (uint32_t)old;
+        next = (uint32_t)entry | (uint64_t)(uint16_t)(slist32_depth(old) + 1) << 32 | (uint64_t)(uint16_t)((old >> 48) + 1) << 48;
+    } while (!__atomic_compare_exchange_n(h, &old, next, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+    return (uint32_t)old;
+}
+
+uint64_t ra_x86_interlocked_pop_entry_slist(uint64_t head) {
+    volatile uint64_t *h = slist32_head(head);
+    uint64_t old = __atomic_load_n(h, __ATOMIC_SEQ_CST), next;
+    do {
+        uint32_t first = (uint32_t)old;
+        if (!first) return 0;
+        next = *(volatile uint32_t *)(uintptr_t)first | (uint64_t)(uint16_t)(slist32_depth(old) - 1) << 32 | (old & 0xffff000000000000ULL);
+    } while (!__atomic_compare_exchange_n(h, &old, next, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+    return (uint32_t)old;
+}
+
+uint64_t ra_x86_interlocked_flush_slist(uint64_t head) {
+    volatile uint64_t *h = slist32_head(head);
+    uint64_t old = __atomic_load_n(h, __ATOMIC_SEQ_CST);
+    while (!__atomic_compare_exchange_n(h, &old, old & 0xffff000000000000ULL, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {}
+    return (uint32_t)old;
+}
+
+uint64_t ra_x86_query_depth_slist(uint64_t head) {
+    return slist32_depth(__atomic_load_n(slist32_head(head), __ATOMIC_SEQ_CST));
+}
+
 // The interlocked operations of the 32-bit kernel32, on the program's 32-bit value at `target`:
 // the 64-bit kernel32 exports none of them. Each is a full barrier, as kernel32's is, and returns
 // what kernel32's does: the new value for the increment and the decrement, the old one otherwise.
@@ -710,14 +755,336 @@ uint64_t ra_x86_std_type_info_name(uint64_t data, uint64_t root) {
 // WNDCLASSA is 40 bytes on x86 and 72 on the host, WNDCLASSEXA 48 and 80, MSG 28 and 48,
 // PAINTSTRUCT 64 and 72. Each adapter widens the program's record into the host's, calls, and
 // narrows what came back. The window procedure the class names is a universal entry point, which
-// user32 calls with the four arguments in registers, where the stub reads its first four dwords.
-// The narrowing of a handle or an address to a dword (the message's lParam, which carries the
-// CREATESTRUCT of WM_CREATE or the WINDOWPOS of a move) rests on the port's address space: a
-// 32-bit port is linked without large-address awareness, so every address its process allocates,
+// user32 calls through an adapter of its own (`wndproc32_call`): a message whose lParam points to a
+// structure of handles goes to the program as a copy in its own layout and comes back from it.
+// The narrowing of a handle or an address to a dword rests on the port's address space: a 32-bit
+// port is linked without large-address awareness, so every address its process allocates,
 // user32's stacks and heaps included, lies below 2 GB, and a window or GDI handle is 32 bits
 // significant on every Windows; only a pointer into a system DLL's own image would not fit, and no
 // message carries one.
 #ifdef _WIN32
+#ifdef _MSC_VER
+#define RA_THREAD32 __declspec(thread)
+#else
+#define RA_THREAD32 _Thread_local
+#endif
+
+// A value the host hands the program as a dword, which stops the program when it does not fit.
+static uint32_t dword32_of(uint64_t value, const char *what) {
+    if (value >> 32 && (value >> 31) != 0x1ffffffffULL) ra_adapt_failed(what, value);
+    return (uint32_t)value;
+}
+
+// The host's value for the program's dword: the host's own when the program kept it, so a handle
+// keeps its upper half, and else the dword sign-extended, as WoW64 extends a handle.
+static uint64_t wide32_of(uint32_t guest, uint64_t host) {
+    return (uint32_t)host == guest ? host : (uint64_t)(int64_t)(int32_t)guest;
+}
+
+// A handle the program passes the host: INVALID_HANDLE_VALUE and the pseudo-handles are negative.
+static HANDLE handle32(uint64_t value) {
+    return (HANDLE)(intptr_t)(int32_t)(uint32_t)value;
+}
+
+// The timer queue writes the new timer's handle into a HANDLE of the program's, a dword; its
+// callback is the program's universal entry, which takes the parameter and the flag in registers.
+uint64_t ra_x86_create_timer_queue_timer(uint64_t timer, uint64_t queue, uint64_t callback, uint64_t parameter, uint64_t due,
+                                         uint64_t period, uint64_t flags) {
+    HANDLE made = NULL;
+    BOOL ok = CreateTimerQueueTimer(&made, queue ? handle32(queue) : NULL, (WAITORTIMERCALLBACK)(uintptr_t)(uint32_t)callback,
+                                    (PVOID)(uintptr_t)(uint32_t)parameter, (DWORD)due, (DWORD)period, (ULONG)flags);
+    if (ok) *(uint32_t *)(uintptr_t)timer = dword32_of((uint64_t)(uintptr_t)made, "the host's timer handle does not fit in 4 bytes");
+    return (uint32_t)ok;
+}
+
+uint64_t ra_x86_delete_timer_queue_timer(uint64_t queue, uint64_t timer, uint64_t event) {
+    return (uint32_t)DeleteTimerQueueTimer(queue ? handle32(queue) : NULL, handle32(timer), event ? handle32(event) : NULL);
+}
+
+// InitOnceExecuteOnce over the program's INIT_ONCE, a dword the host's would write 8 bytes into:
+// done is bit 1, the context above INIT_ONCE_CTX_RESERVED_BITS as Windows keeps it. The callback
+// is the program's universal entry, called with the host's convention; it writes a dword context.
+typedef BOOL(WINAPI *ra_init_once_fn32)(PVOID once, PVOID parameter, PVOID context);
+
+uint64_t ra_x86_init_once_execute_once(uint64_t once, uint64_t fn, uint64_t parameter, uint64_t context) {
+    uint32_t *state = (uint32_t *)(uintptr_t)(uint32_t)once;
+    if (!(*state & 2)) {
+        uint32_t made = 0;
+        uint32_t *out = context ? (uint32_t *)(uintptr_t)(uint32_t)context : &made;
+        ra_init_once_fn32 callback = (ra_init_once_fn32)(uintptr_t)(uint32_t)fn;
+        if (!callback((PVOID)(uintptr_t)(uint32_t)once, (PVOID)(uintptr_t)(uint32_t)parameter, out)) return 0;
+        *state = (*out & ~3u) | 2;
+    }
+    if (context) *(uint32_t *)(uintptr_t)(uint32_t)context = *state & ~3u;
+    return 1;
+}
+
+// A CRITICAL_SECTION is 24 bytes to the program and 40 to the host, and its lock state must be one
+// place every thread sees, which a copy per call is not: the runtime keeps a host section per
+// program section and tags the program's 24 bytes with its slot.
+#define RA_CS32_SLOTS 256
+#define RA_CS32_TAG 0x52430000u
+static CRITICAL_SECTION ra_cs32[RA_CS32_SLOTS];
+static volatile LONG ra_cs32_used;
+
+static CRITICAL_SECTION *cs32(uint64_t program) {
+    uint32_t tag = *(const uint32_t *)(uintptr_t)(uint32_t)program;
+    if ((tag & 0xffff0000u) != RA_CS32_TAG || (tag & 0xffffu) >= RA_CS32_SLOTS) ra_adapt_failed("a critical section the runtime did not initialize", tag);
+    return &ra_cs32[tag & 0xffffu];
+}
+
+uint64_t ra_x86_initialize_critical_section(uint64_t program) {
+    LONG slot = InterlockedIncrement(&ra_cs32_used) - 1;
+    if (slot >= RA_CS32_SLOTS) ra_adapt_failed("more critical sections than the runtime keeps", (uint64_t)slot);
+    InitializeCriticalSection(&ra_cs32[slot]);
+    memset((void *)(uintptr_t)(uint32_t)program, 0, 24);
+    *(uint32_t *)(uintptr_t)(uint32_t)program = RA_CS32_TAG | (uint32_t)slot;
+    return 0;
+}
+
+uint64_t ra_x86_initialize_critical_section_and_spin_count(uint64_t program, uint64_t spin) {
+    (void)spin;
+    ra_x86_initialize_critical_section(program);
+    return 1;
+}
+
+uint64_t ra_x86_initialize_critical_section_ex(uint64_t program, uint64_t spin, uint64_t flags) {
+    (void)spin;
+    (void)flags;
+    ra_x86_initialize_critical_section(program);
+    return 1;
+}
+
+uint64_t ra_x86_enter_critical_section(uint64_t program) {
+    EnterCriticalSection(cs32(program));
+    return 0;
+}
+
+uint64_t ra_x86_leave_critical_section(uint64_t program) {
+    LeaveCriticalSection(cs32(program));
+    return 0;
+}
+
+uint64_t ra_x86_try_enter_critical_section(uint64_t program) {
+    return (uint32_t)TryEnterCriticalSection(cs32(program));
+}
+
+uint64_t ra_x86_delete_critical_section(uint64_t program) {
+    DeleteCriticalSection(cs32(program));
+    return 0;
+}
+
+// WaitForMultipleObjects over the program's array of dword handles, widened as WoW64 widens them.
+uint64_t ra_x86_wait_for_multiple_objects(uint64_t count, uint64_t handles, uint64_t all, uint64_t milliseconds) {
+    HANDLE wide[MAXIMUM_WAIT_OBJECTS];
+    const uint32_t *program = (const uint32_t *)(uintptr_t)(uint32_t)handles;
+    DWORD n = (DWORD)count > MAXIMUM_WAIT_OBJECTS ? MAXIMUM_WAIT_OBJECTS : (DWORD)count;
+    for (DWORD i = 0; i < n; i++) wide[i] = handle32(program[i]);
+    return (uint32_t)WaitForMultipleObjects(n, wide, (BOOL)all, (DWORD)milliseconds);
+}
+
+struct ra_createstruct32 {
+    uint32_t params, instance, menu, parent;
+    int32_t cy, cx, y, x, style;
+    uint32_t name, cls, ex_style;
+};
+struct ra_windowpos32 {
+    uint32_t hwnd, after;
+    int32_t x, y, cx, cy;
+    uint32_t flags;
+};
+struct ra_nccalcsize32 {
+    RECT rects[3];
+    uint32_t pos;
+};
+
+// A message whose lParam the program reads in its own layout, for as long as its window procedure
+// runs: the host's structure and the program's copy, which the copy's union starts. The program's
+// DefWindowProcA finds its lParam here and hands user32 the host's structure, brought up to date.
+struct message32 {
+    union {
+        struct ra_createstruct32 create;
+        struct ra_windowpos32 pos;
+        struct {
+            struct ra_nccalcsize32 params;
+            struct ra_windowpos32 pos;
+        } calc;
+    } guest;
+    void *host;
+    UINT message;
+    struct message32 *outer;
+};
+static RA_THREAD32 struct message32 *messages32;
+
+// Whether the program reads `message`'s lParam as a structure of its layout: CREATESTRUCTA (48
+// bytes on x86, 80 on the host) of WM_NCCREATE and WM_CREATE, WINDOWPOS (28 and 40) of a move, and
+// NCCALCSIZE_PARAMS (52 and 56) with the WINDOWPOS it points to, of WM_NCCALCSIZE with wParam TRUE
+// (with FALSE, a RECT, which is one layout at both widths).
+static int message32_converts(UINT message, WPARAM wparam, LPARAM lparam) {
+    if (!lparam) return 0;
+    switch (message) {
+    case WM_NCCREATE:
+    case WM_CREATE:
+    case WM_WINDOWPOSCHANGING:
+    case WM_WINDOWPOSCHANGED: return 1;
+    case WM_NCCALCSIZE: return wparam != 0;
+    default: return 0;
+    }
+}
+
+static void windowpos32_narrow(struct ra_windowpos32 *g, const WINDOWPOS *h) {
+    g->hwnd = dword32_of((uint64_t)(uintptr_t)h->hwnd, "the host's WINDOWPOS.hwnd does not fit in 4 bytes");
+    g->after = dword32_of((uint64_t)(uintptr_t)h->hwndInsertAfter, "the host's WINDOWPOS.hwndInsertAfter does not fit in 4 bytes");
+    g->x = h->x;
+    g->y = h->y;
+    g->cx = h->cx;
+    g->cy = h->cy;
+    g->flags = h->flags;
+}
+
+static void windowpos32_widen(WINDOWPOS *h, const struct ra_windowpos32 *g) {
+    h->hwnd = (HWND)(uintptr_t)wide32_of(g->hwnd, (uint64_t)(uintptr_t)h->hwnd);
+    h->hwndInsertAfter = (HWND)(uintptr_t)wide32_of(g->after, (uint64_t)(uintptr_t)h->hwndInsertAfter);
+    h->x = g->x;
+    h->y = g->y;
+    h->cx = g->cx;
+    h->cy = g->cy;
+    h->flags = g->flags;
+}
+
+// The host's structure into the program's copy.
+static void message32_narrow(struct message32 *m) {
+    switch (m->message) {
+    case WM_NCCREATE:
+    case WM_CREATE: {
+        const CREATESTRUCTA *h = m->host;
+        struct ra_createstruct32 *g = &m->guest.create;
+        g->params = dword32_of((uint64_t)(uintptr_t)h->lpCreateParams, "the host's CREATESTRUCTA.lpCreateParams does not fit in 4 bytes");
+        g->instance = dword32_of((uint64_t)(uintptr_t)h->hInstance, "the host's CREATESTRUCTA.hInstance does not fit in 4 bytes");
+        g->menu = dword32_of((uint64_t)(uintptr_t)h->hMenu, "the host's CREATESTRUCTA.hMenu does not fit in 4 bytes");
+        g->parent = dword32_of((uint64_t)(uintptr_t)h->hwndParent, "the host's CREATESTRUCTA.hwndParent does not fit in 4 bytes");
+        g->cy = h->cy;
+        g->cx = h->cx;
+        g->y = h->y;
+        g->x = h->x;
+        g->style = h->style;
+        g->name = dword32_of((uint64_t)(uintptr_t)h->lpszName, "the host's CREATESTRUCTA.lpszName does not fit in 4 bytes");
+        g->cls = dword32_of((uint64_t)(uintptr_t)h->lpszClass, "the host's CREATESTRUCTA.lpszClass does not fit in 4 bytes");
+        g->ex_style = h->dwExStyle;
+        break;
+    }
+    case WM_WINDOWPOSCHANGING:
+    case WM_WINDOWPOSCHANGED: windowpos32_narrow(&m->guest.pos, m->host); break;
+    case WM_NCCALCSIZE: {
+        const NCCALCSIZE_PARAMS *h = m->host;
+        memcpy(m->guest.calc.params.rects, h->rgrc, sizeof h->rgrc);
+        m->guest.calc.params.pos = 0;
+        if (h->lppos) {
+            windowpos32_narrow(&m->guest.calc.pos, h->lppos);
+            m->guest.calc.params.pos = dword32_of((uint64_t)(uintptr_t)&m->guest.calc.pos, "the copy of a WINDOWPOS does not fit in 4 bytes");
+        }
+        break;
+    }
+    default: break;
+    }
+}
+
+// The program's copy, as its procedure left it, back into the host's structure.
+static void message32_widen(struct message32 *m) {
+    switch (m->message) {
+    case WM_NCCREATE:
+    case WM_CREATE: {
+        CREATESTRUCTA *h = m->host;
+        const struct ra_createstruct32 *g = &m->guest.create;
+        h->lpCreateParams = (LPVOID)(uintptr_t)wide32_of(g->params, (uint64_t)(uintptr_t)h->lpCreateParams);
+        h->hInstance = (HINSTANCE)(uintptr_t)wide32_of(g->instance, (uint64_t)(uintptr_t)h->hInstance);
+        h->hMenu = (HMENU)(uintptr_t)wide32_of(g->menu, (uint64_t)(uintptr_t)h->hMenu);
+        h->hwndParent = (HWND)(uintptr_t)wide32_of(g->parent, (uint64_t)(uintptr_t)h->hwndParent);
+        h->cy = g->cy;
+        h->cx = g->cx;
+        h->y = g->y;
+        h->x = g->x;
+        h->style = g->style;
+        h->lpszName = (LPCSTR)(uintptr_t)wide32_of(g->name, (uint64_t)(uintptr_t)h->lpszName);
+        h->lpszClass = (LPCSTR)(uintptr_t)wide32_of(g->cls, (uint64_t)(uintptr_t)h->lpszClass);
+        h->dwExStyle = g->ex_style;
+        break;
+    }
+    case WM_WINDOWPOSCHANGING:
+    case WM_WINDOWPOSCHANGED: windowpos32_widen(m->host, &m->guest.pos); break;
+    case WM_NCCALCSIZE: {
+        NCCALCSIZE_PARAMS *h = m->host;
+        memcpy(h->rgrc, m->guest.calc.params.rects, sizeof h->rgrc);
+        if (h->lppos && m->guest.calc.params.pos) windowpos32_widen(h->lppos, &m->guest.calc.pos);
+        break;
+    }
+    default: break;
+    }
+}
+
+// The program's window procedures, one adapter each that user32 calls: the arguments narrow to the
+// program's dwords, and its LRESULT, a dword, sign-extends as WoW64 extends it.
+enum { WNDPROC32_SLOTS = 8 };
+static uint32_t wndprocs32[WNDPROC32_SLOTS];
+
+static LRESULT wndproc32_call(unsigned slot, HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+    native8 procedure = (native8)(uintptr_t)wndprocs32[slot];
+    uint64_t window = (uint64_t)(uintptr_t)hwnd;
+    if (!message32_converts(message, wparam, lparam)) return (LRESULT)(int32_t)procedure(window, message, wparam, (uint64_t)lparam, 0, 0, 0, 0);
+    struct message32 m;
+    memset(&m, 0, sizeof m);
+    m.host = (void *)lparam;
+    m.message = message;
+    m.outer = messages32;
+    message32_narrow(&m);
+    uint64_t guest = dword32_of((uint64_t)(uintptr_t)&m.guest, "the copy of a message's structure does not fit in 4 bytes");
+    messages32 = &m;
+    uint64_t result = procedure(window, message, wparam, guest, 0, 0, 0, 0);
+    messages32 = m.outer;
+    message32_widen(&m);
+    return (LRESULT)(int32_t)result;
+}
+
+#define RA_WNDPROC32(n) \
+    static LRESULT CALLBACK wndproc32_##n(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) { \
+        return wndproc32_call(n, hwnd, message, wparam, lparam); \
+    }
+RA_WNDPROC32(0)
+RA_WNDPROC32(1)
+RA_WNDPROC32(2)
+RA_WNDPROC32(3)
+RA_WNDPROC32(4)
+RA_WNDPROC32(5)
+RA_WNDPROC32(6)
+RA_WNDPROC32(7)
+static const WNDPROC wndproc32_adapters[WNDPROC32_SLOTS] = {wndproc32_0, wndproc32_1, wndproc32_2, wndproc32_3,
+                                                             wndproc32_4, wndproc32_5, wndproc32_6, wndproc32_7};
+
+// The adapter user32 calls for the program's procedure: the slot that holds it, or the first free.
+static WNDPROC wndproc32_of(uint32_t procedure) {
+    if (!procedure) return NULL;
+    for (unsigned i = 0; i < WNDPROC32_SLOTS; i++) {
+        uint32_t held = 0;
+        if (__atomic_compare_exchange_n(&wndprocs32[i], &held, procedure, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST) || held == procedure) {
+            return wndproc32_adapters[i];
+        }
+    }
+    ra_adapt_failed("the program registers more window procedures than the adapters", procedure);
+}
+
+// DefWindowProcA on the lParam a window procedure was handed: user32 reads the host's structure,
+// with what the program changed in its copy, and the copy reads what user32 changed.
+uint64_t ra_x86_def_window_proc_a(uint64_t hwnd, uint64_t message, uint64_t wparam, uint64_t lparam) {
+    for (struct message32 *m = messages32; m; m = m->outer) {
+        if (m->message != (UINT)message || (uint32_t)lparam != (uint32_t)(uintptr_t)&m->guest) continue;
+        message32_widen(m);
+        LRESULT r = DefWindowProcA((HWND)(uintptr_t)hwnd, (UINT)message, (WPARAM)wparam, (LPARAM)m->host);
+        message32_narrow(m);
+        return (uint64_t)r;
+    }
+    return (uint64_t)DefWindowProcA((HWND)(uintptr_t)hwnd, (UINT)message, (WPARAM)wparam, (LPARAM)lparam);
+}
+
 struct ra_wndclass32 {
     uint32_t style, proc;
     int32_t cls_extra, wnd_extra;
@@ -768,7 +1135,7 @@ static void ra_narrow_msg(const MSG *m, uint64_t narrow) {
 uint64_t ra_x86_register_class_a(uint64_t narrow) {
     const struct ra_wndclass32 *n = (const struct ra_wndclass32 *)(uintptr_t)narrow;
     WNDCLASSA wc = {n->style,
-                    (WNDPROC)(uintptr_t)n->proc,
+                    wndproc32_of(n->proc),
                     n->cls_extra,
                     n->wnd_extra,
                     (HINSTANCE)(uintptr_t)n->instance,
@@ -785,7 +1152,7 @@ uint64_t ra_x86_register_class_ex_a(uint64_t narrow) {
     if (n->size != sizeof *n) return 0;
     WNDCLASSEXA wc = {sizeof wc,
                       n->style,
-                      (WNDPROC)(uintptr_t)n->proc,
+                      wndproc32_of(n->proc),
                       n->cls_extra,
                       n->wnd_extra,
                       (HINSTANCE)(uintptr_t)n->instance,

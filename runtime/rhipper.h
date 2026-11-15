@@ -185,6 +185,11 @@ uint64_t ra_x86_p_argc(void);
 uint64_t ra_x86_errno(void);
 uint64_t ra_x86_initial_narrow_environment(void);
 uint64_t ra_x86_initialize_slist_head(uint64_t head);
+// The interlocked list over the program's 8-byte head and dword links.
+uint64_t ra_x86_interlocked_push_entry_slist(uint64_t head, uint64_t entry);
+uint64_t ra_x86_interlocked_pop_entry_slist(uint64_t head);
+uint64_t ra_x86_interlocked_flush_slist(uint64_t head);
+uint64_t ra_x86_query_depth_slist(uint64_t head);
 // The interlocked operations of the 32-bit kernel32 on a 32-bit value, which the 64-bit one does
 // not export.
 uint64_t ra_x86_interlocked_increment(uint64_t target);
@@ -215,6 +220,22 @@ uint64_t ra_x86_translate_message(uint64_t msg);
 uint64_t ra_x86_dispatch_message_a(uint64_t msg);
 uint64_t ra_x86_begin_paint(uint64_t hwnd, uint64_t paint);
 uint64_t ra_x86_end_paint(uint64_t hwnd, uint64_t paint);
+// DefWindowProcA on the program's copy of a message's structure (CREATESTRUCTA, WINDOWPOS,
+// NCCALCSIZE_PARAMS), which its window procedure was handed for the host's.
+uint64_t ra_x86_def_window_proc_a(uint64_t hwnd, uint64_t message, uint64_t wparam, uint64_t lparam);
+// The timer queue's handle, a dword of the program's, and its negative INVALID_HANDLE_VALUE.
+uint64_t ra_x86_create_timer_queue_timer(uint64_t timer, uint64_t queue, uint64_t callback, uint64_t parameter, uint64_t due,
+                                         uint64_t period, uint64_t flags);
+uint64_t ra_x86_delete_timer_queue_timer(uint64_t queue, uint64_t timer, uint64_t event);
+uint64_t ra_x86_init_once_execute_once(uint64_t once, uint64_t fn, uint64_t parameter, uint64_t context);
+uint64_t ra_x86_wait_for_multiple_objects(uint64_t count, uint64_t handles, uint64_t all, uint64_t milliseconds);
+uint64_t ra_x86_initialize_critical_section(uint64_t program);
+uint64_t ra_x86_initialize_critical_section_and_spin_count(uint64_t program, uint64_t spin);
+uint64_t ra_x86_initialize_critical_section_ex(uint64_t program, uint64_t spin, uint64_t flags);
+uint64_t ra_x86_enter_critical_section(uint64_t program);
+uint64_t ra_x86_leave_critical_section(uint64_t program);
+uint64_t ra_x86_try_enter_critical_section(uint64_t program);
+uint64_t ra_x86_delete_critical_section(uint64_t program);
 // The floating-point environment, which on x86 is the x87 control and status words as much as the
 // SSE register: the runtime keeps the lifted words and the host's in step, and the x86 C runtime's
 // square root rounds by the precision control as the x87's does.

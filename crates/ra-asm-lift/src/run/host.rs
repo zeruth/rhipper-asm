@@ -1098,6 +1098,76 @@ impl<'a> Runtime<'a> {
                 vm.memory.fill(a(0), 8, 0)?;
                 int(0)
             }
+            // The program's list: an 8-byte head of the first entry, the depth and the sequence,
+            // and a dword link at the start of each entry.
+            "ra_x86_interlocked_push_entry_slist" => {
+                let (first, depth, sequence) = (vm.memory.read_u32(a(0))?, vm.memory.read_u16(a(0) + 4)?, vm.memory.read_u16(a(0) + 6)?);
+                vm.memory.write_u32(a(1), first)?;
+                vm.memory.write_u32(a(0), a(1) as u32)?;
+                vm.memory.write_u16(a(0) + 4, depth.wrapping_add(1))?;
+                vm.memory.write_u16(a(0) + 6, sequence.wrapping_add(1))?;
+                int(u64::from(first))
+            }
+            "ra_x86_interlocked_pop_entry_slist" => {
+                let first = vm.memory.read_u32(a(0))?;
+                if first != 0 {
+                    let next = vm.memory.read_u32(u64::from(first))?;
+                    let depth = vm.memory.read_u16(a(0) + 4)?;
+                    vm.memory.write_u32(a(0), next)?;
+                    vm.memory.write_u16(a(0) + 4, depth.wrapping_sub(1))?;
+                }
+                int(u64::from(first))
+            }
+            "ra_x86_interlocked_flush_slist" => {
+                let first = vm.memory.read_u32(a(0))?;
+                vm.memory.write_u32(a(0), 0)?;
+                vm.memory.write_u16(a(0) + 4, 0)?;
+                int(u64::from(first))
+            }
+            "ra_x86_query_depth_slist" => int(u64::from(vm.memory.read_u16(a(0) + 4)?)),
+            // The program's INIT_ONCE is a dword: done is bit 1, the context above the reserved
+            // bits; the callback writes its context into the program's own dword (or the state's).
+            "ra_x86_init_once_execute_once" => {
+                if vm.memory.read_u32(a(0))? & 2 == 0 {
+                    let out = if a(3) != 0 { a(3) } else { a(0) };
+                    if self.call_back(vm, a(1), [a(0), a(2), out])? as u32 == 0 {
+                        return int(0);
+                    }
+                    let made = vm.memory.read_u32(out)?;
+                    vm.memory.write_u32(a(0), (made & !3) | 2)?;
+                }
+                if a(3) != 0 {
+                    let state = vm.memory.read_u32(a(0))?;
+                    vm.memory.write_u32(a(3), state & !3)?;
+                }
+                int(1)
+            }
+            // One thread at a time: a critical section is never contended, and the program's 24
+            // bytes are left as it zeroed them.
+            "ra_x86_initialize_critical_section" => {
+                vm.memory.fill(a(0), 24, 0)?;
+                int(0)
+            }
+            "ra_x86_initialize_critical_section_and_spin_count" | "ra_x86_initialize_critical_section_ex" => {
+                vm.memory.fill(a(0), 24, 0)?;
+                int(1)
+            }
+            // (and operator delete: the interpreter's heap is never given back)
+            "ra_x86_enter_critical_section"
+            | "ra_x86_leave_critical_section"
+            | "ra_x86_delete_critical_section"
+            | "ra_x86_operator_delete" => int(0),
+            "ra_x86_try_enter_critical_section" => int(1),
+            // Each thread ran to its end inside CreateThread: a wait on threads is over at once.
+            "ra_x86_wait_for_multiple_objects" => {
+                for i in 0..a(0).min(64) {
+                    let handle = u64::from(vm.memory.read_u32(a(1) + 4 * i)?);
+                    if self.thread_index(handle).is_none() {
+                        return Err(Stop::fault(format!("WaitForMultipleObjects on {handle:#x}, which is no thread of the run")));
+                    }
+                }
+                int(0)
+            }
             // The interpreter runs one thread at a time: each is a plain read and write.
             "ra_x86_interlocked_increment" | "ra_x86_interlocked_decrement" => {
                 let old = vm.memory.read_u32(a(0))?;
@@ -1119,7 +1189,6 @@ impl<'a> Runtime<'a> {
                 int(u64::from(old))
             }
             "ra_x86_operator_new" => int(self.allocate(vm, a(0).max(1), 16)?),
-            "ra_x86_operator_delete" => int(0),
             "ra_x86_p_argv" => {
                 self.argv(vm)?;
                 int(self.p_argv)

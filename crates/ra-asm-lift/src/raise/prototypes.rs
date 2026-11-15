@@ -176,6 +176,30 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "_errno" => "ra_x86_errno",
         "_get_initial_narrow_environment" => "ra_x86_initial_narrow_environment",
         "InitializeSListHead" => "ra_x86_initialize_slist_head",
+        // The list itself: the host's operations read a 16-byte head and 8-byte links.
+        "InterlockedPushEntrySList" => "ra_x86_interlocked_push_entry_slist",
+        "InterlockedPopEntrySList" => "ra_x86_interlocked_pop_entry_slist",
+        "InterlockedFlushSList" => "ra_x86_interlocked_flush_slist",
+        "QueryDepthSList" => "ra_x86_query_depth_slist",
+        // The timer queue writes an 8-byte handle into the program's dword, and its
+        // INVALID_HANDLE_VALUE is negative.
+        "CreateTimerQueueTimer" => "ra_x86_create_timer_queue_timer",
+        "DeleteTimerQueueTimer" => "ra_x86_delete_timer_queue_timer",
+        // a pointer-sized INIT_ONCE and context, and an array of pointer-sized handles: the
+        // program's are dwords
+        "InitOnceExecuteOnce" => "ra_x86_init_once_execute_once",
+        "WaitForMultipleObjects" => "ra_x86_wait_for_multiple_objects",
+        // a CRITICAL_SECTION is 24 bytes to the program, 40 to the host, and its lock one place
+        "InitializeCriticalSection" => "ra_x86_initialize_critical_section",
+        "InitializeCriticalSectionAndSpinCount" => "ra_x86_initialize_critical_section_and_spin_count",
+        "InitializeCriticalSectionEx" => "ra_x86_initialize_critical_section_ex",
+        "EnterCriticalSection" => "ra_x86_enter_critical_section",
+        "LeaveCriticalSection" => "ra_x86_leave_critical_section",
+        "TryEnterCriticalSection" => "ra_x86_try_enter_critical_section",
+        "DeleteCriticalSection" => "ra_x86_delete_critical_section",
+        // The window procedure is handed the program's copy of a message's structure, and user32
+        // reads its own.
+        "DefWindowProcA" => "ra_x86_def_window_proc_a",
         // The 32-bit kernel32 exports the interlocked operations on a 32-bit value; the 64-bit one
         // exports none of them, since they are the compiler's intrinsics there.
         "InterlockedIncrement" => "ra_x86_interlocked_increment",
@@ -593,10 +617,18 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_dispatch_message_a"
         | "ra_x86_interlocked_increment"
         | "ra_x86_interlocked_decrement"
+        | "ra_x86_interlocked_pop_entry_slist"
+        | "ra_x86_interlocked_flush_slist"
+        | "ra_x86_query_depth_slist"
         | "__RTCastToVoid"
         | "__RTtypeid"
         | "ra_x86_rt_cast_to_void"
-        | "ra_x86_rt_typeid" => 1,
+        | "ra_x86_rt_typeid"
+        | "ra_x86_initialize_critical_section"
+        | "ra_x86_enter_critical_section"
+        | "ra_x86_leave_critical_section"
+        | "ra_x86_try_enter_critical_section"
+        | "ra_x86_delete_critical_section" => 1,
 
         "TerminateProcess"
         | "GetExitCodeProcess"
@@ -689,8 +721,10 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_end_paint"
         | "ra_x86_interlocked_exchange"
         | "ra_x86_interlocked_exchange_add"
+        | "ra_x86_interlocked_push_entry_slist"
         | "__std_type_info_name"
-        | "ra_x86_std_type_info_name" => 2,
+        | "ra_x86_std_type_info_name"
+        | "ra_x86_initialize_critical_section_and_spin_count" => 2,
 
         "VirtualFree"
         | "VirtualQuery"
@@ -748,7 +782,9 @@ pub fn arity(name: &str) -> Option<usize> {
         | "sprintf_s"
         | "swprintf_s"
         | "_itoa_s"
-        | "ra_x86_interlocked_compare_exchange" => 3,
+        | "ra_x86_interlocked_compare_exchange"
+        | "ra_x86_delete_timer_queue_timer"
+        | "ra_x86_initialize_critical_section_ex" => 3,
 
         "VirtualAlloc"
         | "VirtualProtect"
@@ -763,6 +799,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_get_message_a"
         | "DefWindowProcA"
         | "DefWindowProcW"
+        | "ra_x86_def_window_proc_a"
         | "SendMessageA"
         | "SendMessageW"
         | "PostMessageA"
@@ -784,7 +821,9 @@ pub fn arity(name: &str) -> Option<usize> {
         | "_vsnprintf_s"
         | "_sopen_s"
         | "_get_stream_buffer_pointers"
-        | "ra_x86_get_stream_buffer_pointers" => 4,
+        | "ra_x86_get_stream_buffer_pointers"
+        | "ra_x86_init_once_execute_once"
+        | "ra_x86_wait_for_multiple_objects" => 4,
 
         "WriteFile"
         | "ReadFile"
@@ -802,7 +841,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_rt_dynamic_cast" => 5,
 
         "CreateThread" | "MultiByteToWideChar" | "LCMapStringW" | "CompareStringW" | "__stdio_common_vsprintf" | "_beginthreadex" => 6,
-        "CreateFileA" | "CreateFileW" | "FormatMessageA" | "FormatMessageW" => 7,
+        "CreateFileA" | "CreateFileW" | "FormatMessageA" | "FormatMessageW" | "ra_x86_create_timer_queue_timer" => 7,
         "WideCharToMultiByte" | "RtlVirtualUnwind" => 8,
         "CreateWindowExA" | "CreateWindowExW" => 12,
         _ => return win32(name).map(|(_, params)| params.len()).or_else(|| ra_asm_pe::xbe::kernel_export_named(name)?.arity()),

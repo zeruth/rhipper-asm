@@ -217,6 +217,81 @@ unsafe extern "system" {
     fn LoadLibraryA(name: *const u8) -> usize;
     fn GetProcAddress(module: usize, name: usize) -> usize;
     fn VirtualQuery(address: usize, info: *mut MemoryInfo, size: usize) -> usize;
+    fn WaitForMultipleObjects(count: u32, handles: *const usize, all: i32, milliseconds: u32) -> u32;
+    fn InitializeCriticalSection(section: *mut CriticalSection);
+    fn EnterCriticalSection(section: *mut CriticalSection);
+    fn LeaveCriticalSection(section: *mut CriticalSection);
+    fn TryEnterCriticalSection(section: *mut CriticalSection) -> i32;
+    fn DeleteCriticalSection(section: *mut CriticalSection);
+}
+
+/// The host's 40-byte `CRITICAL_SECTION`.
+#[repr(C, align(8))]
+struct CriticalSection([u8; 40]);
+
+/// The host sections the runtime keeps for a 32-bit program's 24-byte ones: the lock is one place
+/// every thread sees, and the program's section holds its slot under a tag.
+const CS32_SLOTS: usize = 256;
+const CS32_TAG: u32 = 0x5243_0000;
+static mut CS32: [CriticalSection; CS32_SLOTS] = [const { CriticalSection([0; 40]) }; CS32_SLOTS];
+static CS32_USED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+unsafe fn cs32(program: u64) -> *mut CriticalSection {
+    let tag = *(program as usize as *const u32);
+    let slot = (tag & 0xffff) as usize;
+    if tag & 0xffff_0000 != CS32_TAG || slot >= CS32_SLOTS {
+        eprintln!("ra: a critical section the runtime did not initialize: {tag:#x}");
+        std::process::exit(0xE000_0005u32 as i32);
+    }
+    &raw mut CS32[slot]
+}
+
+/// `InitializeCriticalSection` of a 32-bit program's section.
+pub unsafe fn ra_x86_initialize_critical_section(program: u64) -> u64 {
+    let slot = CS32_USED.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+    if slot >= CS32_SLOTS {
+        eprintln!("ra: more critical sections than the runtime keeps");
+        std::process::exit(0xE000_0005u32 as i32);
+    }
+    InitializeCriticalSection(&raw mut CS32[slot]);
+    core::ptr::write_bytes(program as usize as *mut u8, 0, 24);
+    *(program as usize as *mut u32) = CS32_TAG | slot as u32;
+    0
+}
+
+/// `InitializeCriticalSectionAndSpinCount`: the spin count is the host's to choose.
+pub unsafe fn ra_x86_initialize_critical_section_and_spin_count(program: u64, _spin: u64) -> u64 {
+    ra_x86_initialize_critical_section(program);
+    1
+}
+
+/// `InitializeCriticalSectionEx`.
+pub unsafe fn ra_x86_initialize_critical_section_ex(program: u64, _spin: u64, _flags: u64) -> u64 {
+    ra_x86_initialize_critical_section(program);
+    1
+}
+
+/// `EnterCriticalSection`.
+pub unsafe fn ra_x86_enter_critical_section(program: u64) -> u64 {
+    EnterCriticalSection(cs32(program));
+    0
+}
+
+/// `LeaveCriticalSection`.
+pub unsafe fn ra_x86_leave_critical_section(program: u64) -> u64 {
+    LeaveCriticalSection(cs32(program));
+    0
+}
+
+/// `TryEnterCriticalSection`.
+pub unsafe fn ra_x86_try_enter_critical_section(program: u64) -> u64 {
+    u64::from(TryEnterCriticalSection(cs32(program)) as u32)
+}
+
+/// `DeleteCriticalSection`.
+pub unsafe fn ra_x86_delete_critical_section(program: u64) -> u64 {
+    DeleteCriticalSection(cs32(program));
+    0
 }
 
 /// `MEMORY_BASIC_INFORMATION` of the 64-bit host.
@@ -870,6 +945,95 @@ pub unsafe fn ra_x86_execute_onexit_table(table: u64) -> u64 {
 pub unsafe fn ra_x86_initialize_slist_head(head: u64) -> u64 {
     core::ptr::write_bytes(head as usize as *mut u8, 0, 8);
     0
+}
+
+/// The program's list head, {the first entry, a 16-bit depth, a 16-bit sequence} in one word,
+/// swapped whole by each operation; a push counts in the sequence, so a pop that raced a pop and a
+/// push fails its swap. An entry's first dword links the next.
+unsafe fn slist32(head: u64) -> &'static core::sync::atomic::AtomicU64 {
+    core::sync::atomic::AtomicU64::from_ptr(head as usize as *mut u64)
+}
+
+/// The depth field of a head.
+fn slist32_depth(word: u64) -> u16 {
+    (word >> 32) as u16
+}
+
+/// `InterlockedPushEntrySList` over the program's 8-byte head: the previous first entry.
+pub unsafe fn ra_x86_interlocked_push_entry_slist(head: u64, entry: u64) -> u64 {
+    let ordering = core::sync::atomic::Ordering::SeqCst;
+    let h = slist32(head);
+    let mut old = h.load(ordering);
+    loop {
+        core::ptr::write_volatile(entry as usize as *mut u32, old as u32);
+        let next = u64::from(entry as u32)
+            | (u64::from(slist32_depth(old).wrapping_add(1)) << 32)
+            | (u64::from(((old >> 48) as u16).wrapping_add(1)) << 48);
+        match h.compare_exchange(old, next, ordering, ordering) {
+            Ok(_) => return u64::from(old as u32),
+            Err(now) => old = now,
+        }
+    }
+}
+
+/// `InterlockedPopEntrySList`: the first entry, or zero for an empty list.
+pub unsafe fn ra_x86_interlocked_pop_entry_slist(head: u64) -> u64 {
+    let ordering = core::sync::atomic::Ordering::SeqCst;
+    let h = slist32(head);
+    let mut old = h.load(ordering);
+    loop {
+        let first = old as u32;
+        if first == 0 {
+            return 0;
+        }
+        let link = core::ptr::read_volatile(first as usize as *const u32);
+        let next = u64::from(link) | (u64::from(slist32_depth(old).wrapping_sub(1)) << 32) | (old & 0xffff_0000_0000_0000);
+        match h.compare_exchange(old, next, ordering, ordering) {
+            Ok(_) => return u64::from(first),
+            Err(now) => old = now,
+        }
+    }
+}
+
+/// `InterlockedFlushSList`: the list's first entry, the head left empty with its sequence.
+pub unsafe fn ra_x86_interlocked_flush_slist(head: u64) -> u64 {
+    let ordering = core::sync::atomic::Ordering::SeqCst;
+    let old = slist32(head).fetch_and(0xffff_0000_0000_0000, ordering);
+    u64::from(old as u32)
+}
+
+/// `QueryDepthSList`.
+pub unsafe fn ra_x86_query_depth_slist(head: u64) -> u64 {
+    u64::from(slist32_depth(slist32(head).load(core::sync::atomic::Ordering::SeqCst)))
+}
+
+/// `InitOnceExecuteOnce` over the program's dword `INIT_ONCE`: done is bit 1, the context above
+/// the reserved bits; the callback, the program's universal entry, writes a dword context.
+pub unsafe fn ra_x86_init_once_execute_once(once: u64, function: u64, parameter: u64, context: u64) -> u64 {
+    let state = once as usize as *mut u32;
+    if *state & 2 == 0 {
+        let mut made = 0u32;
+        let out: *mut u32 = if context != 0 { context as usize as *mut u32 } else { &raw mut made };
+        let callback: unsafe extern "system" fn(u64, u64, u64) -> u32 = core::mem::transmute(function as usize);
+        if callback(once, parameter, out as usize as u64) == 0 {
+            return 0;
+        }
+        *state = (*out & !3) | 2;
+    }
+    if context != 0 {
+        *(context as usize as *mut u32) = *state & !3;
+    }
+    1
+}
+
+/// `WaitForMultipleObjects` over the program's array of dword handles, widened as WoW64 does.
+pub unsafe fn ra_x86_wait_for_multiple_objects(count: u64, handles: u64, all: u64, milliseconds: u64) -> u64 {
+    let n = (count as u32).min(64) as usize;
+    let mut wide = [0usize; 64];
+    for (i, slot) in wide.iter_mut().enumerate().take(n) {
+        *slot = *(handles as usize as *const i32).add(i) as isize as usize;
+    }
+    u64::from(WaitForMultipleObjects(n as u32, wide.as_ptr(), all as i32, milliseconds as u32))
 }
 
 /// The value at `target`, a 32-bit program's 32-bit `LONG`, as an atomic.

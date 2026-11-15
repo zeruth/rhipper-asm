@@ -1875,9 +1875,10 @@ fn rhtest_misc_clang_runs_as_rust() {
 }
 
 /// The 32-bit Win32 programs as C: the imports that take a structure laid out apart on x86 and
-/// x64 go through the wrappers of `adapters.c`, a union's and a window procedure's among them.
+/// x64 go through the wrappers of `adapters.c`, a union's and a window procedure's among them; the
+/// interlocked list and the timer queue go to the runtime's, over the program's own layout.
 #[test]
-#[ignore = "46 of sys's 68 lines match; at `slist depth` the host's interlocked SList runs over the program's 8-byte header and 4-byte entries (16 and 16-aligned on x64): the SList, timer queue, TIMERPROC and FLS callbacks are a card of their own"]
+#[ignore = "63 of sys's 68 lines match; at `env get` the program calls GetEnvironmentVariableA through GetProcAddress, which it does not import: the 64-bit module handle and function address truncate to 32 bits and the call's pops are unknown (#495)"]
 fn rhtest_sys_clang_runs_as_c() {
     run_rhtest_as_c("sys", "clang");
 }
@@ -1888,8 +1889,10 @@ fn rhtest_sys_clang_runs_as_rust() {
     run_rhtest_as_rust("sys", "clang");
 }
 
+/// The window procedure reads the CREATESTRUCTA, WINDOWPOS and NCCALCSIZE_PARAMS of its messages
+/// as copies in its own layout, which the runtime's adapter brings back, and on to DefWindowProcA.
 #[test]
-#[ignore = "3 of win's 31 lines match; WM_CREATE's lParam reaches the 32-bit window procedure as the host's CREATESTRUCT (cx reads 0): the window messages whose lParam points to a structure (CREATESTRUCT, WINDOWPOS, NCCALCSIZE_PARAMS) need their layouts and a per-message conversion, a card of their own"]
+#[ignore = "all 31 of win's lines match on a run its threads do not race; the lift has no atomic operations, so spin_lock's `xchg` is a plain load and store and four threads lose increments of `spin counter` on most runs (#501)"]
 fn rhtest_win_clang_runs_as_c() {
     run_rhtest_as_c("win", "clang");
 }
