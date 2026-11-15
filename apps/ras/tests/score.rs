@@ -1,6 +1,7 @@
 //! `ras score <dir>`: the board over a scratch `testdata` tree of two fixtures, a link map, a
 //! pending list and an oracle, as JSON and as a table; and the committed board,
-//! `docs/scoreboard.md`, recomputed over `testdata/bin`, which no change makes worse.
+//! `docs/scoreboard.md`, recomputed over `testdata/bin`, which no change makes worse and which,
+//! when it moves, is kept whole under `out/`.
 //! `ras score --source`: the lexical half of
 //! the grade over a C tree, with the counts of the emit cases, whose text is fixed, and of a
 //! hand-written file whose gotos, casts and labels are known, comments and literals among the
@@ -283,6 +284,41 @@ fn excerpt(board: &str, rows: &BTreeSet<(String, String)>) -> String {
     out
 }
 
+/// Where a board that moved is kept, relative to the worktree: the failure's own output shows only
+/// the rows that moved, and names this file, which holds the whole board.
+const FRESH: &str = "out/scoreboard.fresh.md";
+
+/// Writes `board` under `worktree` as `ras score --write` writes it, below the head of the
+/// committed board, and returns the file.
+fn save_fresh(worktree: &Path, committed: &str, board: &str) -> PathBuf {
+    let head = committed.find("\n|").map_or("", |at| &committed[..=at]);
+    let fresh = worktree.join(FRESH);
+    std::fs::create_dir_all(fresh.parent().unwrap()).unwrap();
+    std::fs::write(&fresh, format!("{head}{board}")).unwrap();
+    fresh
+}
+
+#[test]
+fn fresh_board_lands_under_out() {
+    // A scratch worktree stands for the repository, so the run leaves the real `out/` as found.
+    let dir = board_tree("fresh-board");
+    let out = ras(&["score", dir.join("testdata/bin").to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let board = String::from_utf8_lossy(&out.stdout).into_owned();
+    let committed = "# The scoreboard\n\nthe head of the board\n\n| program | status |\n|---|---|\n| gone.exe | ok |\n";
+    let fresh = save_fresh(dir.path(), committed, &board);
+    assert_eq!(fresh, dir.path().join("out/scoreboard.fresh.md"));
+    let text = std::fs::read_to_string(&fresh).unwrap();
+    assert!(text.starts_with("# The scoreboard\n\nthe head of the board\n\n|"), "{text}");
+    assert!(!text.contains("gone.exe"), "{text}");
+    let rows: BTreeSet<&str> = text.lines().collect();
+    let board_rows: Vec<&str> = board.lines().filter(|l| l.trim_start().starts_with('|')).collect();
+    assert!(board_rows.iter().any(|l| l.starts_with("| total |")), "{board}");
+    for row in board_rows {
+        assert!(rows.contains(row), "{row} is not in {}:\n{text}", fresh.display());
+    }
+}
+
 /// The committed board: `docs/scoreboard.md` recomputed over `testdata/bin`. A figure worse than
 /// the committed one fails with its program and column; any other move fails with the call that
 /// writes the board again, so the diff of the change that moved it shows the move.
@@ -293,11 +329,6 @@ fn committed_board_is_never_worse() {
     let out = ras(&["score", repo.join("testdata/bin").to_str().unwrap()]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let board = String::from_utf8_lossy(&out.stdout).into_owned();
-    // The board as `ras score --write` writes it, kept where a failing run can be read whole: the
-    // failure's own output shows only the rows that moved.
-    let head = committed.find("\n|").map_or("", |at| &committed[..=at]);
-    let fresh = Path::new(env!("CARGO_TARGET_TMPDIR")).join("scoreboard.md");
-    std::fs::write(&fresh, format!("{head}{board}")).unwrap();
 
     let (was, now) = (cells(&committed), cells(&board));
     let mut worse = Vec::new();
@@ -327,8 +358,12 @@ fn committed_board_is_never_worse() {
         moved.push(format!("{row}: {column} new, {after}"));
         rows.insert((table.clone(), row.clone()));
     }
+    if worse.is_empty() && moved.is_empty() {
+        return;
+    }
     let shown = excerpt(&board, &rows);
-    let fresh = fresh.display();
+    save_fresh(repo, &committed, &board);
+    let fresh = FRESH;
     assert!(worse.is_empty(), "worse than docs/scoreboard.md:\n  {}\n\nthe rows now:\n{shown}\nthe board now: {fresh}", worse.join("\n  "));
     assert!(
         moved.is_empty(),
