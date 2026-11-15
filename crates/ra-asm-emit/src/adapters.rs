@@ -154,11 +154,15 @@ static void ra_widen(uint8_t *host, const uint8_t *guest, unsigned narrow, unsig
 /// A field narrowed back for the program, which stops when the host's value does not fit.
 const NARROW: &str = "\
 // A field of the host's structure in the program's: the host's value must fit in the narrow field.
+// All ones is -1 at any width, the sentinel Windows writes in a pointer or a handle (a critical
+// section's DebugInfo), and narrows to the program's -1.
 static void ra_narrow(uint8_t *guest, const uint8_t *host, unsigned narrow, unsigned wide, int sign, const char *what) {
     uint8_t fill = sign && (host[narrow - 1] & 0x80) ? 0xFF : 0;
     uint64_t value = 0;
+    int ones = 1;
     for (unsigned i = 0; i < wide && i < 8; i++) value |= (uint64_t)host[i] << (8 * i);
-    for (unsigned i = narrow; i < wide; i++) {
+    for (unsigned i = 0; i < wide; i++) ones &= host[i] == 0xFF;
+    for (unsigned i = narrow; i < wide && !ones; i++) {
         if (host[i] != fill) ra_adapt_failed(what, value);
     }
     for (unsigned i = 0; i < narrow; i++) guest[i] = host[i];
@@ -169,18 +173,19 @@ static void ra_narrow(uint8_t *guest, const uint8_t *host, unsigned narrow, unsi
 /// Fields and parameters read and written as a value.
 const VALUES: &str = "\
 // A field read and written as a value: a size that stands for the other width's, a procedure.
-static inline uint64_t ra_get(const uint8_t *p, unsigned size) {
+// A module may use any of them or none, so an unused one is no warning.
+__attribute__((unused)) static inline uint64_t ra_get(const uint8_t *p, unsigned size) {
     uint64_t value = 0;
     for (unsigned i = 0; i < size; i++) value |= (uint64_t)p[i] << (8 * i);
     return value;
 }
 
-static inline void ra_put(uint8_t *p, unsigned size, uint64_t value) {
+__attribute__((unused)) static inline void ra_put(uint8_t *p, unsigned size, uint64_t value) {
     for (unsigned i = 0; i < size; i++) p[i] = (uint8_t)(value >> (8 * i));
 }
 
 // The structure's size at one width is its size at the other; another size passes as it is.
-static inline uint64_t ra_resize(uint64_t value, uint64_t from, uint64_t to) {
+__attribute__((unused)) static inline uint64_t ra_resize(uint64_t value, uint64_t from, uint64_t to) {
     return value == from ? to : value;
 }
 
@@ -324,6 +329,17 @@ fn to_host(record: &Record, steps: &[Step]) -> String {
     out
 }
 
+/// The fields whose value a 32-bit program sees differently from the 64-bit host's, as `WoW64`
+/// shows them to an x86 process: its own 2 GB of address space and an Intel processor
+/// (`GetSystemInfo` in rhtest's sys).
+const X86_VIEW: &[(&str, &str, u64)] = &[
+    // the union of wProcessorArchitecture and its reserved word: PROCESSOR_ARCHITECTURE_INTEL
+    ("_SYSTEM_INFO", "dwOemId", 0),
+    ("_SYSTEM_INFO", "dwProcessorType", 586),
+    ("_SYSTEM_INFO", "lpMinimumApplicationAddress", 0x0001_0000),
+    ("_SYSTEM_INFO", "lpMaximumApplicationAddress", 0x7FFE_FFFF),
+];
+
 /// The conversion of the host's `record` back into the program's; the program's padding keeps
 /// what it held.
 fn to_guest(record: &Record, steps: &[Step]) -> String {
@@ -331,6 +347,10 @@ fn to_guest(record: &Record, steps: &[Step]) -> String {
     for s in steps {
         let what = format!("the host's {}.{} does not fit in {} bytes", record.name, s.field, s.narrow);
         let (host, guest) = (s.at64, s.at32);
+        if let Some(&(_, _, value)) = X86_VIEW.iter().find(|&&(r, f, _)| r == record.name && f == s.field) {
+            let _ = writeln!(out, "    ra_put(guest + {guest}, {}, {value:#x}); // {}: what an x86 process sees", s.narrow, s.field);
+            continue;
+        }
         let _ = match s.role {
             Role::Value => {
                 writeln!(out, "    ra_narrow(guest + {guest}, host + {host}, {}, {}, {}, \"{what}\");", s.narrow, s.wide, u8::from(s.sign))

@@ -11,18 +11,19 @@ static void ra_widen(uint8_t *host, const uint8_t *guest, unsigned narrow, unsig
 }
 
 // A field read and written as a value: a size that stands for the other width's, a procedure.
-static inline uint64_t ra_get(const uint8_t *p, unsigned size) {
+// A module may use any of them or none, so an unused one is no warning.
+__attribute__((unused)) static inline uint64_t ra_get(const uint8_t *p, unsigned size) {
     uint64_t value = 0;
     for (unsigned i = 0; i < size; i++) value |= (uint64_t)p[i] << (8 * i);
     return value;
 }
 
-static inline void ra_put(uint8_t *p, unsigned size, uint64_t value) {
+__attribute__((unused)) static inline void ra_put(uint8_t *p, unsigned size, uint64_t value) {
     for (unsigned i = 0; i < size; i++) p[i] = (uint8_t)(value >> (8 * i));
 }
 
 // The structure's size at one width is its size at the other; another size passes as it is.
-static inline uint64_t ra_resize(uint64_t value, uint64_t from, uint64_t to) {
+__attribute__((unused)) static inline uint64_t ra_resize(uint64_t value, uint64_t from, uint64_t to) {
     return value == from ? to : value;
 }
 

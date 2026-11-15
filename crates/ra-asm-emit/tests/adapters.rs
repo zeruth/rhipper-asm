@@ -98,6 +98,25 @@ fn union_and_callback_adapters() {
     syntax_check(text);
 }
 
+/// What a 32-bit program reads back from the host: `SYSTEM_INFO` as `WoW64` shows an x86 process,
+/// the host's -1 sentinel (a critical section's `DebugInfo`) as the program's -1, and value
+/// helpers a module need not use (sys has no field read as a value, and clang's -Werror
+/// rejects an unused static function).
+#[test]
+fn the_program_sees_an_x86_view() {
+    let unit = imports_unit(&IMPORTS);
+    let text = &unit.adapters;
+    assert_has(text, "    ra_put(guest + 0, 4, 0x0); // dwOemId: what an x86 process sees\n");
+    assert_has(text, "    ra_put(guest + 8, 4, 0x10000); // lpMinimumApplicationAddress: what an x86 process sees\n");
+    assert_has(text, "    ra_put(guest + 12, 4, 0x7ffeffff); // lpMaximumApplicationAddress: what an x86 process sees\n");
+    assert_has(text, "    ra_put(guest + 24, 4, 0x24a); // dwProcessorType: what an x86 process sees\n");
+    assert_has(text, "    for (unsigned i = 0; i < wide; i++) ones &= host[i] == 0xFF;\n");
+    assert_has(text, "__attribute__((unused)) static inline uint64_t ra_get(");
+    assert_has(text, "__attribute__((unused)) static inline void ra_put(");
+    assert_has(text, "__attribute__((unused)) static inline uint64_t ra_resize(");
+    // the same text as union_and_callback_adapters', which parses it (one scratch file for both)
+}
+
 /// The wrappers parse as C and as C++ against the runtime's header, when clang is on the PATH.
 fn syntax_check(text: &str) {
     let Some(clang) = std::env::var_os("PATH").and_then(|path| ra_asm_testing::tools::find_in("clang", &path)) else {

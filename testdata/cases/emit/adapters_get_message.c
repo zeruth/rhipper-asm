@@ -11,11 +11,15 @@ static void ra_widen(uint8_t *host, const uint8_t *guest, unsigned narrow, unsig
 }
 
 // A field of the host's structure in the program's: the host's value must fit in the narrow field.
+// All ones is -1 at any width, the sentinel Windows writes in a pointer or a handle (a critical
+// section's DebugInfo), and narrows to the program's -1.
 static void ra_narrow(uint8_t *guest, const uint8_t *host, unsigned narrow, unsigned wide, int sign, const char *what) {
     uint8_t fill = sign && (host[narrow - 1] & 0x80) ? 0xFF : 0;
     uint64_t value = 0;
+    int ones = 1;
     for (unsigned i = 0; i < wide && i < 8; i++) value |= (uint64_t)host[i] << (8 * i);
-    for (unsigned i = narrow; i < wide; i++) {
+    for (unsigned i = 0; i < wide; i++) ones &= host[i] == 0xFF;
+    for (unsigned i = narrow; i < wide && !ones; i++) {
         if (host[i] != fill) ra_adapt_failed(what, value);
     }
     for (unsigned i = 0; i < narrow; i++) guest[i] = host[i];

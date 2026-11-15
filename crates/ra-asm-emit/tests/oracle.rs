@@ -453,7 +453,10 @@ fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm
     }
     let names = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
     let classes = std::iter::once(&analysis).chain(&with_analyses).flat_map(|a| ra_asm_emit::classes(a, &signatures)).collect();
-    let options = ra_asm_emit::COptions { names, dialect, classes, ..Default::default() };
+    // A 32-bit program's imports that take a structure laid out for 4-byte pointers go through
+    // the wrappers of `adapters.c`, as `ras emit` writes them.
+    let guest32 = image.pointer_size() == 4;
+    let options = ra_asm_emit::COptions { names, dialect, classes, guest32, ..Default::default() };
     let unit = ra_asm_emit::emit_unit(&lifted.module, &options);
     let mut files = if fixture.modules {
         let objects = ra_asm_emit::functions::objects(&infos);
@@ -1871,8 +1874,10 @@ fn rhtest_misc_clang_runs_as_rust() {
     run_rhtest_as_rust("misc", "clang");
 }
 
+/// The 32-bit Win32 programs as C: the imports that take a structure laid out apart on x86 and
+/// x64 go through the wrappers of `adapters.c`, a union's and a window procedure's among them.
 #[test]
-#[ignore = "needs the Win32 structure adapters (a card of milestone I): OVERLAPPED, MEMORY_BASIC_INFORMATION, SLIST, INIT_ONCE, MSG"]
+#[ignore = "46 of sys's 68 lines match; at `slist depth` the host's interlocked SList runs over the program's 8-byte header and 4-byte entries (16 and 16-aligned on x64): the SList, timer queue, TIMERPROC and FLS callbacks are a card of their own"]
 fn rhtest_sys_clang_runs_as_c() {
     run_rhtest_as_c("sys", "clang");
 }
@@ -1884,7 +1889,7 @@ fn rhtest_sys_clang_runs_as_rust() {
 }
 
 #[test]
-#[ignore = "needs the Win32 structure adapters (a card of milestone I): WNDCLASSA, CREATESTRUCT, MSG, WSADATA, CRITICAL_SECTION"]
+#[ignore = "3 of win's 31 lines match; WM_CREATE's lParam reaches the 32-bit window procedure as the host's CREATESTRUCT (cx reads 0): the window messages whose lParam points to a structure (CREATESTRUCT, WINDOWPOS, NCCALCSIZE_PARAMS) need their layouts and a per-message conversion, a card of their own"]
 fn rhtest_win_clang_runs_as_c() {
     run_rhtest_as_c("win", "clang");
 }
