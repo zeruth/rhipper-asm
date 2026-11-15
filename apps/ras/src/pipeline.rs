@@ -449,7 +449,8 @@ impl<'a> Pipeline<'a> {
         let hand = crate::annotations::hand_list(&hand, annotations);
         let options =
             crate::emit::Options { lang: &lang, package: &package, trace, hand: &hand, annotations, checked: false, with: &companions };
-        let translation = crate::emit::translate(image, analysis, lifted, signatures, &options)?;
+        let mut translation = crate::emit::translate(image, analysis, lifted, signatures, &options)?;
+        crate::functions::note_evidence(&mut translation.infos, &gen_dir)?;
         fs::create_dir_all(&build_dir)?;
         translation.write(&gen_dir)?;
         let header = ra_asm_lift::image_header(image, analysis, lifted, Some(signatures));

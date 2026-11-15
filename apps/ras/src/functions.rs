@@ -1,9 +1,12 @@
 //! `ras functions` and `ras cfg`: the functions of an image, and the blocks of one.
 
+use std::collections::HashMap;
 use std::io::Write;
+use std::path::Path;
 
 use anyhow::{Result, bail};
 use ra_asm_analysis::{Analysis, Kind, Origin, Terminator, analyze};
+use ra_asm_emit::FunctionInfo;
 use ra_asm_pe::Image;
 use serde_json::json;
 
@@ -142,6 +145,18 @@ pub(crate) fn functions_json(analysis: &Analysis<'_>) -> serde_json::Value {
         })
         .collect();
     json!({"functions": rows, "classes": classes_json(analysis), "warnings": analysis.warnings})
+}
+
+/// Gives each function of a translation's table the evidence the ledger of `gen_dir` holds of the
+/// function at its address; a gen directory without a ledger gives none.
+pub(crate) fn note_evidence(infos: &mut HashMap<String, FunctionInfo>, gen_dir: &Path) -> Result<()> {
+    let ledger = ra_asm_verify::ledger::load(gen_dir)?;
+    for info in infos.values_mut() {
+        if let Some(function) = ledger.functions.get(&info.address) {
+            info.evidence.clone_from(&function.steps);
+        }
+    }
+    Ok(())
 }
 
 /// The blocks of `function` as JSON: what `ras cfg --json` prints and `ras serve` answers.

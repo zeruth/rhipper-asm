@@ -35,10 +35,21 @@
 //! ```json
 //! "grade": {"gotos": 0, "casts": 12, "unresolved_calls": 1, "stack_accesses": 0, "lines": 40}
 //! ```
+//!
+//! A function the verification's ledger holds ([`ra_asm_verify::ledger`]) has `evidence`, by step:
+//! `none`, `traced`, or `tested` with what the vectors that replayed equal ran of its blocks. Its
+//! `coverage` is the strongest of its tests, with the step it was made at:
+//!
+//! ```json
+//! "evidence": {"machine": {"kind": "tested", "vectors": 5, "blocks": 14, "covered": 11, "never": ["b_140001020"]},
+//!              "promoted": {"kind": "traced"}},
+//! "coverage": {"step": "machine", "vectors": 5, "blocks": 14, "covered": 11, "never": ["b_140001020"]}
+//! ```
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Operand, ValueId};
+use ra_asm_verify::{Evidence, Tested};
 use serde_json::{Map, Value, json};
 
 use crate::c::{EmittedFile, EmittedFunction};
@@ -153,6 +164,9 @@ pub struct FunctionInfo {
     pub object: Option<String>,
     /// The file name of the image the function is in, in a port of two images or more.
     pub image: Option<String>,
+    /// What the verification's ledger holds of the function, by step (a level of the lift, an
+    /// output of the emit).
+    pub evidence: BTreeMap<String, Evidence>,
 }
 
 /// What the analysis knows of every function, by IR name: the analysis's name, which the lift
@@ -299,6 +313,47 @@ fn facts(entry: &mut Map<String, Value>, info: &FunctionInfo) {
     if let Some(comment) = &info.comment {
         entry.insert("comment".into(), json!(comment));
     }
+    if !info.evidence.is_empty() {
+        let steps: Map<String, Value> = info.evidence.iter().map(|(step, evidence)| (step.clone(), evidence_json(evidence))).collect();
+        entry.insert("evidence".into(), Value::Object(steps));
+    }
+    let strongest = info
+        .evidence
+        .iter()
+        .filter_map(|(step, evidence)| match evidence {
+            Evidence::Tested(tested) => Some((step, tested)),
+            Evidence::None | Evidence::Traced => None,
+        })
+        .max_by(|a, b| a.1.cmp(b.1));
+    if let Some((step, tested)) = strongest {
+        let mut coverage = tested_json(tested);
+        coverage.insert("step".into(), json!(step));
+        entry.insert("coverage".into(), Value::Object(coverage));
+    }
+}
+
+/// One step's evidence in the table: its `kind`, and for a test what its vectors ran.
+fn evidence_json(evidence: &Evidence) -> Value {
+    match evidence {
+        Evidence::None => json!({"kind": "none"}),
+        Evidence::Traced => json!({"kind": "traced"}),
+        Evidence::Tested(tested) => {
+            let mut value = tested_json(tested);
+            value.insert("kind".into(), json!("tested"));
+            Value::Object(value)
+        }
+    }
+}
+
+/// What the vectors of a test ran: their count, the blocks of the function, the blocks some vector
+/// ran and those none ran, by name.
+fn tested_json(tested: &Tested) -> Map<String, Value> {
+    let mut value = Map::new();
+    value.insert("vectors".into(), json!(tested.vectors));
+    value.insert("blocks".into(), json!(tested.blocks));
+    value.insert("covered".into(), json!(tested.covered()));
+    value.insert("never".into(), json!(tested.never));
+    value
 }
 
 fn finish(values: Vec<Value>) -> String {

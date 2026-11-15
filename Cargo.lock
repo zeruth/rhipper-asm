@@ -274,6 +274,7 @@ dependencies = [
  "ra-asm-lift",
  "ra-asm-pe",
  "ra-asm-testing",
+ "ra-asm-verify",
  "serde_json",
 ]
 

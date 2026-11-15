@@ -779,6 +779,9 @@ pub(crate) fn emit(
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
     let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations, checked, with: &companions };
     let mut translation = translate(image, &analysis, &lifted, &signatures, &options)?;
+    if let Some(dir) = out {
+        crate::functions::note_evidence(&mut translation.infos, dir)?;
+    }
     // What the rest reads of the analysis and the raised module, taken now: the two go before the
     // formatters start, which on a large program need the memory they held.
     let header = out.map(|_| ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)));
