@@ -17,6 +17,16 @@ The disassembly and lifting core of Rhipper, in pure Rust: a Windows PE image in
 - `testdata/` — `src/*.c|cpp` fixtures, `build.ps1` builds them with clang+lld into `bin/` (64 and 32), `expected/*.txt` their native output; `rhtest/` the old pipeline's MSVC-built test programs (`src/`, `<name>-<variant>.exe|.map`, `<name>.txt`)
 - `rhipper.md` is tracked here (the roadmap is part of the record); `var/` and `out/` are not. `out/` is the scratch directory for ports and traces.
 
+## Entry points
+
+Start a card that spans these crates from the definition, not from a whole-file read.
+
+- `builder::build` (`crates/ra-asm-analysis/src/builder.rs`) — builds one function's blocks: the `Image`, the `&dyn Arch`, the entry address, the code ranges, the known function starts, the no-return set and the C++ exception frame if any; gives a `Built`. `analyze(&Image)` / `analyze_with(&Image, &Facts)` in `lib.rs` run it over every function into an `Analysis`.
+- `lift_with` (`crates/ra-asm-lift/src/lib.rs`) — lifts every function of an `Analysis`: the `Image`, the `&Analysis` and a `LiftOptions` (`standalone`, the `x87` unit); gives `Lifted`, which `raise_options(level)` raises.
+- `Host` (`crates/ra-asm-ir/src/interp/mod.rs`) — the trait the interpreter calls for a function the module does not define: `call(&mut self, vm, name, ty, args) -> Result<Value, Stop>`; the lift's runtime and import host is `crates/ra-asm-lift/src/run/host.rs`, the replayer's `crates/ra-asm-verify/src/replay.rs`.
+- `Vm::call_named` (`crates/ra-asm-ir/src/interp/mod.rs`) — calls a module function by name on a `Vm::new(&Module, Memory)`: the `&mut dyn Host`, the name and a `Vec<Value>` of arguments; a host calls back into the module with it.
+- `ra-asm-verify` (`crates/ra-asm-verify/src/lib.rs`) — `record(&Image, &Lifted, &Options)` takes a run's function vectors, `replay(&Image, &Lifted, RaiseLevel, &[Vector])` and `replay_abi(.., &signatures, ..)` run them again and give the `Failure`s.
+
 ## Build and checks
 
 - Two tiers of tests. The fast tier is `cargo test -q`: every test target the default features build, no tool but cargo, under five minutes on a warm build; it is the landing gate, and `.github/workflows/build.yml` runs it on every push. The slow tier is the oracles behind the `oracle` feature of `ra-asm-lift`, `ra-asm-emit` and `ras` (`cargo test -q -p <crate> --features oracle`, the feature is per package); `.github/workflows/nightly.yml` runs them, and a card whose change touches the lift or the emit runs the one it touches.
