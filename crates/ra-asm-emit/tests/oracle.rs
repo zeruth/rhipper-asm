@@ -1,6 +1,7 @@
 //! The C backend against the native programs: each fixture is lifted, raised, written as C,
 //! compiled with clang against the driver and the runtime header, run, and compared. The
-//! structuring must leave no `goto` in the fixtures.
+//! structuring must leave no `goto` in the fixtures. An rhtest port ignored here has its row in
+//! `testdata/rhtest/pending.txt`, which `tests/pending.rs` holds to these ignores.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write;

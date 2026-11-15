@@ -12,7 +12,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | control32.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 66 | 0 | 133 | 1278 | 0.0 | 666.7 |
 | control64-O1.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 32 | 0 | 68 | 548 | 0.0 | 450.7 |
 | control64.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 66 | 0 | 133 | 553 | 0.0 | 415.9 |
-| control_mipsel | ok | 65 | 65 | 65 | 6 | 4 | 1 | 1 | 18 | 0 | 135 | 2129 | 0.0 | 599.8 |
+| control_mipsel | ok | 23 | 23 | 23 | 2 | 2 | 1 | 1 | 1 | 0 | 0 | 921 | 0.0 | 676.4 |
 | crt64.exe | ok | 15 | 15 | 15 | 0 | 0 | 3 | 3 | 4 | 0 | 8 | 1720 | 0.0 | 2284.3 |
 | dispatch32.exe | ok | 8 | 8 | 8 | 0 | 0 | 8 | 8 | 15 | 0 | 33 | 522 | 0.0 | 434.9 |
 | dispatch64.exe | ok | 8 | 8 | 8 | 0 | 0 | 8 | 8 | 15 | 0 | 33 | 242 | 0.0 | 276.9 |
@@ -35,7 +35,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | hello_linux_a64 | ok | 5 | 5 | 5 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 203 | 0.0 | 300.5 |
 | hello_macos_arm64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 2 | 252 | 0.0 | 87.3 |
 | hello_macos_x64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 284 | 0.0 | 112.7 |
-| hello_mipsel | ok | 1 | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 0 | 0 | 89 | 0.0 | 134.8 |
+| hello_mipsel | ok | 8 | 8 | 8 | 1 | 1 | 1 | 1 | 0 | 0 | 0 | 300 | 0.0 | 483.3 |
 | hello_psx.exe | error | - | - | - | - | - | - | - | - | - | - | - | - | - |
 | helloa64.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 1 | 118 | 0.0 | 169.5 |
 | inline32.exe | ok | 5 | 5 | 5 | 0 | 0 | 5 | 5 | 38 | 0 | 76 | 443 | 0.0 | 467.3 |
@@ -56,7 +56,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 687 | 0.0 | 716.2 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 380 | 0.0 | 397.4 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 441 | 0.0 | 594.1 |
-| total | 46/52 ok | 355 | 349 | 368 | 9 | 7 | 240 | 230 | 725 | 0 | 1682 | 52750 | 0.5 | 1813.7 |
+| total | 46/52 ok | 314 | 314 | 330 | 6 | 6 | 238 | 230 | 708 | 0 | 1547 | 40296 | 0.4 | 1590.4 |
 
 - gte_psx.exe: C:\Users\tyler\Documents\code\rhipper-asm\testdata\bin\gte_psx.exe is not a PE image this loader reads: the DOS magic at offset 0x0 is 0x5350, not MZ
 - hello_psx.exe: C:\Users\tyler\Documents\code\rhipper-asm\testdata\bin\hello_psx.exe is not a PE image this loader reads: the DOS magic at offset 0x0 is 0x5350, not MZ
@@ -76,5 +76,5 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | oracle | ignored tests |
 |---|---|
 | crates/ra-asm-lift/tests/oracle.rs | 0 |
-| crates/ra-asm-emit/tests/oracle.rs | 17 |
-| total | 17 |
+| crates/ra-asm-emit/tests/oracle.rs | 16 |
+| total | 16 |

@@ -1,7 +1,7 @@
 //! The corpus under `testdata/cases`: every case file, and the notes of the differences no case
 //! can hold.
 
-use crate::{Case, case_files, cases_dir, run};
+use super::super::{Case, case_files, cases_dir, run};
 
 /// Every case file under `testdata/cases` passes: adding a file adds a test.
 #[test]

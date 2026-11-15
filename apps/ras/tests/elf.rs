@@ -9,9 +9,31 @@ fn fixture() -> PathBuf {
 }
 
 fn ras(args: &[&str]) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_ras")).args(args).arg(fixture()).output().unwrap();
+    ras_on(&fixture(), args)
+}
+
+fn ras_on(path: &Path, args: &[&str]) -> String {
+    let output = Command::new(env!("CARGO_BIN_EXE_ras")).args(args).arg(path).output().unwrap();
     assert!(output.status.success(), "ras {args:?}: {}", String::from_utf8_lossy(&output.stderr));
     String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn ras_names_the_mips_control_mips() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/mips/control");
+    let info = ras_on(&path, &["info"]);
+    for line in [
+        "machine        mips",
+        "format         ELF32",
+        "type           executable\n",
+        "abi            o32, mips2, $gp 0x38850",
+        "entry point    0x00020200",
+    ] {
+        assert!(info.contains(line), "no `{line}` in:\n{info}");
+    }
+    let json: serde_json::Value = serde_json::from_str(&ras_on(&path, &["--json", "info"])).unwrap();
+    assert_eq!((json["machine"].as_str(), json["format"].as_str()), (Some("mips"), Some("elf32")));
+    assert_eq!(json["elf"]["big_endian"], false);
 }
 
 #[test]

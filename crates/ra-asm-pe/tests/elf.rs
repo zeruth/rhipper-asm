@@ -61,7 +61,7 @@ fn mipsel_hello() -> ra_asm_pe::Image {
     assert!(image.warnings.is_empty(), "{:?}", image.warnings);
     let elf = image.elf.as_ref().unwrap();
     assert!(!elf.wide && !elf.big_endian && !image.big_endian());
-    assert_eq!(image.machine(), ra_asm_pe::Machine::Other(8));
+    assert_eq!(image.machine(), ra_asm_pe::Machine::Mips);
     assert!(!image.is_64());
     assert_eq!(image.pointer_size(), 4);
     image
@@ -108,6 +108,92 @@ fn the_mipsel_hello_global_pointer_is_its_gp() {
     assert_eq!(image.global_pointer, Some(0x3_8290));
     let gp = image.elf.as_ref().unwrap().symbols.iter().find(|s| s.name == "_gp").unwrap();
     assert_eq!(image.global_pointer, Some(gp.value));
+}
+
+/// `testdata/mips/control`: the control fixture as a static mipsel executable linked with
+/// `--emit-relocs` (see its source), whose figures are `llvm-readobj`'s.
+fn mips_control() -> ra_asm_pe::Image {
+    let image = ra_asm_pe::load(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/mips/control")).unwrap();
+    assert!(image.warnings.is_empty(), "{:?}", image.warnings);
+    image
+}
+
+#[test]
+fn the_mips_control_is_a_little_endian_o32_image() {
+    use ra_asm_format::elf::MipsAbi;
+    let image = mips_control();
+    assert_eq!(image.machine(), ra_asm_pe::Machine::Mips);
+    assert_eq!(image.machine().name(), "mips");
+    assert!(!image.big_endian() && !image.is_64());
+    assert_eq!(image.pointer_size(), 4);
+    assert_eq!((image.image_base(), image.entry_point()), (0x1_0000, Some(0x2_0200)));
+    let start = image.symbols.iter().find(|s| s.name == "_start").unwrap();
+    assert_eq!(image.entry_point(), Some(start.va));
+
+    let elf = image.elf.as_ref().unwrap();
+    assert_eq!(elf.flags, 0x1000_1001);
+    let mips = elf.mips.as_ref().unwrap();
+    assert_eq!((mips.abi, mips.abi.name(), mips.arch()), (MipsAbi::O32, "o32", Some("mips2")));
+    assert!(mips.noreorder() && !mips.abicalls());
+    let abiflags = mips.abiflags.unwrap();
+    assert_eq!((abiflags.version, abiflags.isa_level, abiflags.isa_rev), (0, 2, 0));
+    assert_eq!((abiflags.gpr_bits, abiflags.cpr1_bits, abiflags.cpr2_bits, abiflags.fp_abi), (32, 32, 0, 5));
+    assert_eq!((abiflags.isa_ext, abiflags.ases, abiflags.flags1, abiflags.flags2), (0, 0, 0, 0));
+    let reginfo = mips.reginfo.unwrap();
+    assert_eq!((reginfo.gpr_mask, reginfo.cpr_mask, reginfo.gp), (0xb27f_0fff, [0; 4], 0x3_8850));
+    assert_eq!(image.global_pointer, Some(0x3_8850));
+}
+
+#[test]
+fn the_mips_control_sections_are_llvm_readobjs() {
+    let image = mips_control();
+    let sections: Vec<(&str, u64, u32, bool)> =
+        image.sections.iter().map(|s| (s.name.as_str(), image.va(s.virtual_address), s.virtual_size, s.is_code())).collect();
+    assert_eq!(
+        sections,
+        [
+            (".MIPS.abiflags", 0x1_0118, 24, false),
+            (".reginfo", 0x1_0130, 24, false),
+            (".rodata", 0x1_0148, 184, false),
+            (".text", 0x2_0200, 1580, true),
+            (".data", 0x3_0830, 40, false),
+            (".got", 0x3_0860, 8, false),
+            (".bss", 0x3_0870, 12, false),
+        ]
+    );
+    assert!(image.sections.iter().find(|s| s.name == ".bss").unwrap().is_uninitialized());
+}
+
+#[test]
+fn the_mips_control_keeps_its_static_relocations() {
+    use ra_asm_format::elf::reloc;
+    let image = mips_control();
+    let elf = image.elf.as_ref().unwrap();
+    // `.rel.text` and `.rel.rodata` apply to mapped sections; `.rel.pdr` does not and is left out.
+    let count = |kind: u32| elf.static_relocations.iter().filter(|r| r.kind == kind).count();
+    assert_eq!(elf.static_relocations.len(), 131 + 23);
+    assert_eq!((count(reloc::MIPS_32), count(reloc::MIPS_26)), (23, 53));
+    let symbol = |r: &ra_asm_format::elf::Relocation| elf.symbols[r.symbol as usize].name.as_str();
+    let first = elf.static_relocations[0];
+    assert_eq!((first.offset, first.kind, symbol(&first)), (0x2_0200, reloc::MIPS_HI16, "_gp"));
+    let call = elf.static_relocations[2];
+    assert_eq!((call.offset, call.kind, symbol(&call)), (0x2_020c, reloc::MIPS_26, "control"));
+
+    // The `lui`/`addiu` of `_start` build `_gp`; every pair's target lies in the image.
+    let mips = elf.mips.as_ref().unwrap();
+    assert_eq!(mips.pairs[0], ra_asm_format::elf::MipsPair { high: 0x2_0200, low: 0x2_0204, target: 0x3_8850 });
+    let write = image.symbols.iter().find(|s| s.name == "write").unwrap().va;
+    assert!(mips.pairs.iter().any(|p| (p.high, p.low, p.target) == (0x2_0270, 0x2_0274, write)), "{:x?}", mips.pairs);
+    assert!(mips.pairs.iter().skip(1).all(|p| image.section_of(p.target).is_some()), "{:x?}", mips.pairs);
+
+    // The words of `.rodata` that hold an address are its 32-bit relocations: the switch's table
+    // and `ops` into `.text`, then the names.
+    let words: Vec<u64> = image.relocations.iter().filter(|r| r.kind == ra_asm_pe::RelocKind::HighLow).map(|r| r.va).collect();
+    assert_eq!(words, (0..23).map(|i| 0x1_0148 + 4 * i).collect::<Vec<_>>());
+    for &va in &words[..13] {
+        assert!(image.is_code(u64::from(image.u32(va).unwrap())), "{va:#x}");
+    }
+    assert_eq!(image.relocations.len(), elf.static_relocations.len());
 }
 
 #[test]

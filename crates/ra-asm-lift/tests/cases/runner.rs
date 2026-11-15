@@ -3,7 +3,7 @@
 
 use ra_asm_ir::{BinOp, Inst, Module};
 
-use crate::{Case, cases_dir, check, run};
+use super::super::{Case, cases_dir, check, run};
 
 /// A seed case, by its name under `testdata/cases`.
 fn seed(name: &str) -> Case {

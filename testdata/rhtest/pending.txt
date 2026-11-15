@@ -1,0 +1,19 @@
+# The rhtest ports `crates/ra-asm-emit/tests/oracle.rs` still ignores, one per line:
+# program | variant | language | the reason, as the test's `#[ignore]` says it.
+# `crates/ra-asm-emit/tests/pending.rs` fails when this list and the oracle's ignores differ.
+crt | clang | Rust | needs the structuring of an irreducible loop: malloca_sum's remainder loop is entered at 0x40239d and 0x4023a9, a goto the Rust output cannot express
+misc | clang | C | needs the Win32 structure adapters (a card of milestone I): RegisterClassExA's WNDCLASSEXA and the shell's IMalloc
+misc | clang | Rust | needs the Win32 structure adapters (a card of milestone I), and setjmp, which the Rust output cannot express
+sys | clang | Rust | needs the Win32 structure adapters (a card of milestone I): OVERLAPPED, MEMORY_BASIC_INFORMATION, SLIST, INIT_ONCE, MSG
+win | clang | Rust | needs the Win32 structure adapters (a card of milestone I): WNDCLASSA, CREATESTRUCT, MSG, WSADATA, CRITICAL_SECTION
+seh | clang | Rust | needs structured exception handling (`__try`, `_except_handler4`'s scope tables), which task 49 left after the C++ tables
+eh | clang | C | needs the x86 frame handler's registration frames, and thrown objects with destructors, which task 49 left after the x64 tables
+eh | clang | Rust | needs the x86 frame handler's registration frames, and thrown objects with destructors, which task 49 left after the x64 tables
+cpp | clang | C | ports but goes wrong at `multi`: the C++ object model under the x64 runtime, with task 49's exceptions
+cpp | clang | Rust | ports but goes wrong at `multi`: the C++ object model under the x64 runtime, with task 49's exceptions
+com | clang | C | needs COM objects of the x64 runtime behind x86 vtables, and an instruction the lift does not cover (0x401e2e)
+com | clang | Rust | needs COM objects of the x64 runtime behind x86 vtables, and an instruction the lift does not cover (0x401e2e)
+stl | clang | Rust | the Rust oracle ports one image: the x86 C++ runtime (msvcp140) is a second image of the port
+stlio | clang | Rust | the Rust oracle ports one image: the x86 C++ runtime (msvcp140) is a second image of the port
+engine | clang | C | ports but goes wrong at `stream len`: the C++ object model under the x64 runtime, with task 49's exceptions
+engine | clang | Rust | ports but goes wrong at `stream len`: the C++ object model under the x64 runtime, with task 49's exceptions

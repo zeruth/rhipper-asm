@@ -217,6 +217,11 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
     }
     if let Some(e) = &image.elf {
         println!("type           {}{}", elf_type(e.kind), if e.big_endian { ", big-endian" } else { "" });
+        if let Some(m) = &e.mips {
+            let arch = m.arch().map(|a| format!(", {a}")).unwrap_or_default();
+            let gp = image.global_pointer.map(|gp| format!(", $gp {gp:#x}")).unwrap_or_default();
+            println!("abi            {}{arch}{gp}", m.abi.name());
+        }
         if let Some(interpreter) = &e.interpreter {
             println!("interpreter    {interpreter}");
         }

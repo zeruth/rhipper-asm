@@ -2,7 +2,7 @@
 
 use ra_asm_ir::interp::Value;
 
-use crate::{Arg, Call};
+use super::super::{Arg, Call};
 
 /// The arguments a call spells: integers at their width, floats, and the address of a global.
 #[test]

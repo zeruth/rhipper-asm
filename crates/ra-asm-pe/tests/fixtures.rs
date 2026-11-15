@@ -345,4 +345,50 @@ fn agrees_with_llvm_readobj() {
     assert_eq!(compared, names.len());
 }
 
+/// `llvm-readobj` over an ELF file prints `Entry: 0x20200` in the header, `Name: .text (33)`,
+/// `Address: 0x20200` and `Size: 1580` per section, and `GP: 0x38850` in the MIPS register information.
+#[test]
+fn the_mips_control_agrees_with_llvm_readobj() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/mips/control");
+    let Some(output) = Command::new("llvm-readobj")
+        .args(["--file-headers", "--sections", "--arch-specific"])
+        .arg(&path)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+    else {
+        eprintln!("llvm-readobj is not on the PATH: the oracle comparison is skipped");
+        return;
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let hex = |rest: &str| u64::from_str_radix(rest.trim().trim_start_matches("0x"), 16).unwrap();
+    let (mut entry, mut gp, mut sections, mut name, mut address) = (None, None, Vec::new(), None, None);
+    for line in text.lines().map(str::trim) {
+        if let Some(rest) = line.strip_prefix("Entry: ") {
+            entry = Some(hex(rest));
+        } else if let Some(rest) = line.strip_prefix("GP: ") {
+            gp = Some(hex(rest));
+        } else if let Some(rest) = line.strip_prefix("Name: ") {
+            name = Some(rest.split(" (").next().unwrap().to_owned());
+        } else if let Some(rest) = line.strip_prefix("Address: ") {
+            address = Some(hex(rest));
+        } else if let Some(rest) = line.strip_prefix("Size: ")
+            && let (Some(n), Some(a)) = (name.take(), address.take())
+        {
+            let size: u32 = rest.parse().unwrap();
+            if a != 0 && size != 0 {
+                sections.push((n, a, size));
+            }
+        }
+    }
+
+    let image = ra_asm_pe::load(&path).unwrap();
+    assert_eq!(image.machine(), Machine::Mips);
+    assert!(!image.big_endian());
+    assert_eq!(image.entry_point(), entry);
+    assert_eq!(image.global_pointer, gp);
+    let ours: Vec<_> = image.sections.iter().map(|s| (s.name.clone(), image.va(s.virtual_address), s.virtual_size)).collect();
+    assert_eq!(ours, sections);
+}
+
 // endregion

@@ -2,7 +2,9 @@
 //! program headers that map the file by virtual address, the section headers, the symbol table
 //! when the file keeps one, the dynamic section (the libraries it needs, its own name, the dynamic
 //! symbols with the library each one's version names, the relocations the dynamic loader applies)
-//! and the function extents `.eh_frame` records, one FDE per function. What a container of this
+//! and the function extents `.eh_frame` records, one FDE per function; the relocations a static
+//! link kept; and a MIPS file's ABI, ISA and `$gp` from its flags, `.MIPS.abiflags` and `.reginfo`,
+//! with the addresses its `HI16`/`LO16` pairs build. What a container of this
 //! shape means to the pipeline (an import, an export, a section) is the loader's to say; this
 //! reads what the file holds, and every refusal names the field and its offset.
 
@@ -18,6 +20,8 @@ pub const ET_EXEC: u16 = 2;
 pub const ET_DYN: u16 = 3;
 
 pub const EM_386: u16 = 3;
+/// MIPS of either byte order; ELF's class says 32 or 64 bits.
+pub const EM_MIPS: u16 = 8;
 pub const EM_ARM: u16 = 40;
 pub const EM_X86_64: u16 = 62;
 pub const EM_AARCH64: u16 = 183;
@@ -32,8 +36,10 @@ pub const PF_R: u32 = 4;
 
 pub const SHT_PROGBITS: u32 = 1;
 pub const SHT_SYMTAB: u32 = 2;
+pub const SHT_RELA: u32 = 4;
 pub const SHT_DYNSYM: u32 = 11;
 pub const SHT_NOBITS: u32 = 8;
+pub const SHT_REL: u32 = 9;
 pub const SHF_WRITE: u64 = 1;
 pub const SHF_ALLOC: u64 = 2;
 pub const SHF_EXECINSTR: u64 = 4;
@@ -89,6 +95,15 @@ pub mod reloc {
     pub const AARCH64_GLOB_DAT: u32 = 1025;
     pub const AARCH64_JUMP_SLOT: u32 = 1026;
     pub const AARCH64_RELATIVE: u32 = 1027;
+    /// A 32-bit word that holds the address.
+    pub const MIPS_32: u32 = 2;
+    /// The 26-bit target field of a `j` or a `jal`: the address's bits 2 to 27, its top four
+    /// bits those of the delay slot's address.
+    pub const MIPS_26: u32 = 4;
+    /// The high half of an address in a `lui`, adjusted for the sign of the low half.
+    pub const MIPS_HI16: u32 = 5;
+    /// The low half of an address in an `addiu`, a load or a store, sign-extended.
+    pub const MIPS_LO16: u32 = 6;
 
     /// The kind that adds the load bias to the word in place, which a packed `DT_RELR` entry stands for.
     pub fn relative(machine: u16) -> Option<u32> {
@@ -176,15 +191,137 @@ impl Symbol {
     }
 }
 
-/// One dynamic relocation: the place it patches, its kind, and the dynamic symbol it names.
+/// One relocation: the place it patches, its kind, and the symbol it names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Relocation {
+    /// The address of the place: `r_offset` of a linked file's record.
     pub offset: u64,
     pub kind: u32,
-    /// The index of the symbol in the dynamic symbol table; zero for none.
+    /// The index of the symbol in the dynamic symbol table for a dynamic relocation, in `.symtab`
+    /// for a static one; zero for none.
     pub symbol: u32,
     /// The explicit addend of a `RELA` record; zero for a `REL` one, whose addend is in place.
     pub addend: i64,
+}
+
+/// The `EF_MIPS_*` fields of a MIPS file's `e_flags`, and the section and segment types of its
+/// register information and its ABI flags.
+pub mod mips {
+    pub const EF_MIPS_NOREORDER: u32 = 0x1;
+    pub const EF_MIPS_PIC: u32 = 0x2;
+    pub const EF_MIPS_CPIC: u32 = 0x4;
+    /// The n32 ABI: 64-bit registers, 32-bit pointers, in a 32-bit file.
+    pub const EF_MIPS_ABI2: u32 = 0x20;
+    pub const EF_MIPS_ABI: u32 = 0x0000_f000;
+    pub const EF_MIPS_ABI_O32: u32 = 0x0000_1000;
+    pub const EF_MIPS_ABI_O64: u32 = 0x0000_2000;
+    pub const EF_MIPS_ABI_EABI32: u32 = 0x0000_3000;
+    pub const EF_MIPS_ABI_EABI64: u32 = 0x0000_4000;
+    /// The processor the code is for beyond its ISA (`EF_MIPS_MACH_5900`, `_ALLEGREX`…).
+    pub const EF_MIPS_MACH: u32 = 0x00ff_0000;
+    pub const EF_MIPS_ARCH: u32 = 0xf000_0000;
+    pub const SHT_MIPS_REGINFO: u32 = 0x7000_0006;
+    pub const SHT_MIPS_ABIFLAGS: u32 = 0x7000_002a;
+    pub const PT_MIPS_REGINFO: u32 = 0x7000_0000;
+    pub const PT_MIPS_ABIFLAGS: u32 = 0x7000_0003;
+    /// The size of an `Elf32_RegInfo` and of an `Elf_MIPS_ABIFlags_v0`.
+    pub const REGINFO_SIZE: u64 = 24;
+    pub const ABIFLAGS_SIZE: u64 = 24;
+}
+
+/// The calling convention a MIPS file's code follows, as its header says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MipsAbi {
+    O32,
+    N32,
+    O64,
+    Eabi32,
+    Eabi64,
+    N64,
+}
+
+impl MipsAbi {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::O32 => "o32",
+            Self::N32 => "n32",
+            Self::O64 => "o64",
+            Self::Eabi32 => "eabi32",
+            Self::Eabi64 => "eabi64",
+            Self::N64 => "n64",
+        }
+    }
+}
+
+/// What `.MIPS.abiflags` records: the ISA the code needs and the register widths it assumes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MipsAbiFlags {
+    pub version: u16,
+    /// The ISA's level (1 to 5, 32, 64) and its revision.
+    pub isa_level: u8,
+    pub isa_rev: u8,
+    /// The widths in bits of the general registers and of coprocessors 1 and 2; zero for none.
+    pub gpr_bits: u16,
+    pub cpr1_bits: u16,
+    pub cpr2_bits: u16,
+    /// `Val_GNU_MIPS_ABI_FP_*`: how the code passes and keeps floating-point values.
+    pub fp_abi: u8,
+    pub isa_ext: u32,
+    pub ases: u32,
+    pub flags1: u32,
+    pub flags2: u32,
+}
+
+/// What `.reginfo` records: the general and coprocessor registers the code uses and the value of `$gp`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MipsRegInfo {
+    pub gpr_mask: u32,
+    pub cpr_mask: [u32; 4],
+    pub gp: u32,
+}
+
+/// An address a `lui` and a low half build between them: the place of the `R_MIPS_HI16` and of the
+/// `R_MIPS_LO16` that completes it, and the address the two immediates make.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MipsPair {
+    pub high: u64,
+    pub low: u64,
+    pub target: u64,
+}
+
+/// What a MIPS file says of its code beyond the machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mips {
+    /// `e_flags`, whose fields are the constants of [`mips`].
+    pub flags: u32,
+    pub abi: MipsAbi,
+    pub abiflags: Option<MipsAbiFlags>,
+    /// The register information of a 32-bit file; a 64-bit one keeps it in `.MIPS.options`.
+    pub reginfo: Option<MipsRegInfo>,
+    /// The address pairs of the static relocations, in their records' order: each `R_MIPS_HI16`
+    /// with the first `R_MIPS_LO16` of the same symbol after it, as the ABI orders them. A low half
+    /// that shares an earlier high half is not a pair of its own.
+    pub pairs: Vec<MipsPair>,
+}
+
+impl Mips {
+    /// The ISA of `EF_MIPS_ARCH`: `mips1` to `mips5`, `mips32`, `mips64` and their revisions.
+    pub fn arch(&self) -> Option<&'static str> {
+        const NAMES: [&str; 11] =
+            ["mips1", "mips2", "mips3", "mips4", "mips5", "mips32", "mips64", "mips32r2", "mips64r2", "mips32r6", "mips64r6"];
+        NAMES.get((self.flags >> 28) as usize).copied()
+    }
+
+    /// Whether the code calls through the GOT at `$gp`, as abicalls and PIC code do
+    /// (`EF_MIPS_CPIC`, `EF_MIPS_PIC`).
+    pub fn abicalls(&self) -> bool {
+        self.flags & (mips::EF_MIPS_PIC | mips::EF_MIPS_CPIC) != 0
+    }
+
+    /// Whether the code fills its own delay slots, so the assembler must not reorder it.
+    pub fn noreorder(&self) -> bool {
+        self.flags & mips::EF_MIPS_NOREORDER != 0
+    }
 }
 
 /// What an ELF file holds, as read.
@@ -198,6 +335,8 @@ pub struct ElfFile {
     pub kind: u16,
     /// `e_machine`: [`EM_X86_64`], [`EM_386`], ...
     pub machine: u16,
+    /// `e_flags`, whose meaning is the machine's.
+    pub flags: u32,
     pub entry: u64,
     pub segments: Vec<Segment>,
     /// The section headers, in the file's order; empty for a file stripped of them.
@@ -217,6 +356,12 @@ pub struct ElfFile {
     /// The relocations the dynamic loader applies: `DT_RELA`, `DT_REL`, `DT_JMPREL` and the
     /// packed `DT_RELR`.
     pub relocations: Vec<Relocation>,
+    /// The relocations a static link kept (`--emit-relocs`): the records of each `SHT_REL` and
+    /// `SHT_RELA` section the process does not map that apply to one it does, in the file's order,
+    /// their symbols indices into [`ElfFile::symbols`].
+    pub static_relocations: Vec<Relocation>,
+    /// The flags, the ABI flags and the register information of a MIPS file.
+    pub mips: Option<Mips>,
     /// The functions `.eh_frame` describes, one FDE each: `(begin, end)` in address order.
     pub functions: Vec<(u64, u64)>,
     /// What the reader could not read beyond the headers: a table that fails lands here.
@@ -308,6 +453,7 @@ impl ElfFile {
         } else {
             (u64::from(d.u32(24, "e_entry")?), u64::from(d.u32(28, "e_phoff")?), u64::from(d.u32(32, "e_shoff")?), 40)
         };
+        let flags = d.u32(rest - 4, "e_flags")?;
         let phentsize = usize::from(d.u16(rest + 2, "e_phentsize")?);
         let phnum = usize::from(d.u16(rest + 4, "e_phnum")?);
         let shentsize = usize::from(d.u16(rest + 6, "e_shentsize")?);
@@ -351,6 +497,7 @@ impl ElfFile {
             big_endian: big,
             kind,
             machine,
+            flags,
             entry,
             segments,
             sections,
@@ -361,6 +508,8 @@ impl ElfFile {
             needed: Vec::new(),
             soname: None,
             relocations: Vec::new(),
+            static_relocations: Vec::new(),
+            mips: None,
             functions: Vec::new(),
             warnings: Vec::new(),
         };
@@ -378,6 +527,22 @@ impl ElfFile {
         }
         if let Err(e) = elf.read_dynamic(d) {
             elf.warnings.push(format!("dynamic section: {e:#}"));
+        }
+        match elf.read_static_relocations(d) {
+            Ok(relocations) => elf.static_relocations = relocations,
+            Err(e) => elf.warnings.push(format!("static relocations: {e:#}")),
+        }
+        if machine == EM_MIPS {
+            match elf.read_mips(d) {
+                Ok(mut info) => {
+                    match elf.mips_pairs(d) {
+                        Ok(pairs) => info.pairs = pairs,
+                        Err(e) => elf.warnings.push(format!("MIPS address pairs: {e:#}")),
+                    }
+                    elf.mips = Some(info);
+                }
+                Err(e) => elf.warnings.push(format!("MIPS flags: {e:#}")),
+            }
         }
         match elf.read_eh_frame(d) {
             Ok(functions) => elf.functions = functions,
@@ -541,6 +706,138 @@ impl ElfFile {
         }
         self.dynamic_symbols = symbols;
         Ok(())
+    }
+
+    /// The records of the relocation sections a static link kept for the sections the process
+    /// maps; the dynamic tables are mapped themselves and are [`ElfFile::read_dynamic`]'s.
+    fn read_static_relocations(&self, d: Data<'_>) -> Result<Vec<Relocation>> {
+        let symtab = self.sections.iter().position(|s| s.kind == SHT_SYMTAB);
+        let mut relocations = Vec::new();
+        for table in &self.sections {
+            if !matches!(table.kind, SHT_REL | SHT_RELA)
+                || table.flags & SHF_ALLOC != 0
+                || Some(table.link as usize) != symtab
+                || !self.sections.get(table.info as usize).is_some_and(SectionHeader::is_mapped)
+            {
+                continue;
+            }
+            let rela = table.kind == SHT_RELA;
+            let size = match (rela, self.wide) {
+                (true, true) => 24,
+                (true, false) => 12,
+                (false, true) => 16,
+                (false, false) => 8,
+            };
+            let entsize = if table.entsize == 0 { size } else { table.entsize as usize };
+            ensure!(entsize >= size, "{} has records of {entsize} bytes, smaller than one", table.name);
+            for i in 0..(table.size as usize / entsize).min(MAX_ENTRIES) {
+                let at = table.offset as usize + i * entsize;
+                let what = |field: &str| format!("{} record {i} {field}", table.name);
+                let offset = d.word(at, &what("r_offset"))?;
+                let info = d.word(at + d.word_size(), &what("r_info"))?;
+                let (symbol, kind) =
+                    if self.wide { ((info >> 32) as u32, (info & 0xffff_ffff) as u32) } else { ((info >> 8) as u32, (info & 0xff) as u32) };
+                let addend = match (rela, self.wide) {
+                    (false, _) => 0,
+                    (true, true) => d.u64(at + 16, &what("r_addend"))? as i64,
+                    (true, false) => i64::from(d.u32(at + 8, &what("r_addend"))? as i32),
+                };
+                relocations.push(Relocation { offset, kind, symbol, addend });
+            }
+        }
+        Ok(relocations)
+    }
+
+    /// A MIPS file's ABI from its header's flags, and its ABI flags and register information from
+    /// their sections, else from the segments that map them.
+    fn read_mips(&self, d: Data<'_>) -> Result<Mips> {
+        let flags = self.flags;
+        let abi = if flags & mips::EF_MIPS_ABI2 != 0 {
+            MipsAbi::N32
+        } else {
+            match flags & mips::EF_MIPS_ABI {
+                mips::EF_MIPS_ABI_O32 => MipsAbi::O32,
+                mips::EF_MIPS_ABI_O64 => MipsAbi::O64,
+                mips::EF_MIPS_ABI_EABI32 => MipsAbi::Eabi32,
+                mips::EF_MIPS_ABI_EABI64 => MipsAbi::Eabi64,
+                // No ABI named: what the GNU tools assume of the class.
+                _ if self.wide => MipsAbi::N64,
+                _ => MipsAbi::O32,
+            }
+        };
+        let table = |section: u32, segment: u32, size: u64| -> Option<usize> {
+            let in_section = self.sections.iter().find(|s| s.kind == section && s.size >= size).map(|s| s.offset);
+            let in_segment = || self.segments.iter().find(|s| s.kind == segment && s.filesz >= size).map(|s| s.offset);
+            in_section.or_else(in_segment).map(|offset| offset as usize)
+        };
+
+        let abiflags = match table(mips::SHT_MIPS_ABIFLAGS, mips::PT_MIPS_ABIFLAGS, mips::ABIFLAGS_SIZE) {
+            None => None,
+            Some(at) => {
+                let bits = |offset: usize, what: &str| -> Result<u16> {
+                    match d.u8(at + offset, what)? {
+                        0 => Ok(0),
+                        1 => Ok(32),
+                        2 => Ok(64),
+                        3 => Ok(128),
+                        other => bail!("{what} at offset {:#x} is {other}, not a register size (0 to 3)", at + offset),
+                    }
+                };
+                Some(MipsAbiFlags {
+                    version: d.u16(at, "the ABI flags' version")?,
+                    isa_level: d.u8(at + 2, "the ABI flags' isa_level")?,
+                    isa_rev: d.u8(at + 3, "the ABI flags' isa_rev")?,
+                    gpr_bits: bits(4, "the ABI flags' gpr_size")?,
+                    cpr1_bits: bits(5, "the ABI flags' cpr1_size")?,
+                    cpr2_bits: bits(6, "the ABI flags' cpr2_size")?,
+                    fp_abi: d.u8(at + 7, "the ABI flags' fp_abi")?,
+                    isa_ext: d.u32(at + 8, "the ABI flags' isa_ext")?,
+                    ases: d.u32(at + 12, "the ABI flags' ases")?,
+                    flags1: d.u32(at + 16, "the ABI flags' flags1")?,
+                    flags2: d.u32(at + 20, "the ABI flags' flags2")?,
+                })
+            }
+        };
+
+        let reginfo = match table(mips::SHT_MIPS_REGINFO, mips::PT_MIPS_REGINFO, mips::REGINFO_SIZE) {
+            Some(at) if !self.wide => {
+                let mut cpr_mask = [0; 4];
+                for (i, mask) in cpr_mask.iter_mut().enumerate() {
+                    *mask = d.u32(at + 4 + 4 * i, &format!("the register information's ri_cprmask[{i}]"))?;
+                }
+                Some(MipsRegInfo {
+                    gpr_mask: d.u32(at, "the register information's ri_gprmask")?,
+                    cpr_mask,
+                    gp: d.u32(at + 20, "the register information's ri_gp_value")?,
+                })
+            }
+            _ => None,
+        };
+        Ok(Mips { flags, abi, abiflags, reginfo, pairs: Vec::new() })
+    }
+
+    /// The addresses the `R_MIPS_HI16` and `R_MIPS_LO16` records of the static relocations build,
+    /// in the order of their low halves: every high half since the last low half of its symbol
+    /// pairs with the next one, as the ABI orders the records.
+    fn mips_pairs(&self, d: Data<'_>) -> Result<Vec<MipsPair>> {
+        let immediate = |va: u64, what: &str| -> Result<u32> { Ok(d.u32(self.offset_or(va, what)?, what)? & 0xffff) };
+        let mut pending: HashMap<u32, Vec<u64>> = HashMap::new();
+        let mut pairs = Vec::new();
+        for r in &self.static_relocations {
+            match r.kind {
+                reloc::MIPS_HI16 => pending.entry(r.symbol).or_default().push(r.offset),
+                reloc::MIPS_LO16 => {
+                    let Some(highs) = pending.remove(&r.symbol) else { continue };
+                    let low = i32::from(immediate(r.offset, "the instruction of an R_MIPS_LO16")? as u16 as i16);
+                    for high in highs {
+                        let target = (immediate(high, "the instruction of an R_MIPS_HI16")? << 16).wrapping_add_signed(low);
+                        pairs.push(MipsPair { high, low: r.offset, target: u64::from(target) });
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(pairs)
     }
 
     /// The function extents of `.eh_frame`: the section when the file names it, else the table

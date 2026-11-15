@@ -19,16 +19,6 @@ use crate::section::Section;
 
 const PAGE: u64 = 0x1000;
 
-/// `EM_MIPS`: MIPS of either byte order; ELF's class says 32 or 64 bits.
-const EM_MIPS: u16 = 8;
-/// The section and the segment of a MIPS file's register information, `.reginfo`: the registers
-/// the code uses and the global pointer's value.
-const SHT_MIPS_REGINFO: u32 = 0x7000_0006;
-const PT_MIPS_REGINFO: u32 = 0x7000_0000;
-/// The size of an `Elf32_RegInfo` and the offset of its `ri_gp_value`.
-const REGINFO_SIZE: u64 = 24;
-const REGINFO_GP: u64 = 20;
-
 /// The headers an ELF file stands for, its sections, and the file as read.
 pub(crate) fn parse(bytes: &[u8]) -> Result<(Headers, Vec<Section>, ElfFile)> {
     let mut elf = ElfFile::parse(bytes)?;
@@ -100,6 +90,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<(Headers, Vec<Section>, ElfFile)> {
         format::EM_X86_64 => Machine::Amd64,
         format::EM_AARCH64 => Machine::Arm64,
         format::EM_ARM => Machine::Arm,
+        format::EM_MIPS if !elf.wide => Machine::Mips,
         other => Machine::Other(other),
     };
     let headers = Headers {
@@ -162,7 +153,7 @@ pub(crate) fn characteristics(execute: bool, write: bool, zeros: bool) -> u32 {
 pub(crate) fn read_tables(image: &mut Image) {
     let Some(elf) = image.elf.as_ref() else { return };
     let (imports, exports, relocations, symbols, global_pointer, warnings) =
-        (imports(elf), exports(elf), relocations(elf), symbols(elf), global_pointer(image, elf), elf.warnings.clone());
+        (imports(elf), exports(elf), relocations(elf), symbols(elf), global_pointer(elf), elf.warnings.clone());
     image.imports = imports;
     image.exports = exports;
     image.relocations = relocations;
@@ -175,20 +166,11 @@ pub(crate) fn read_tables(image: &mut Image) {
 /// The value of `$gp` in a 32-bit MIPS file: the `ri_gp_value` its `.reginfo` records, else the
 /// address of the `_gp` symbol the linker defines. The code reaches its GOT and small data through
 /// `$gp`, which the start routine sets from the same value; `None` on another machine or without either.
-fn global_pointer(image: &Image, elf: &ElfFile) -> Option<u64> {
-    if elf.machine != EM_MIPS || elf.wide {
+fn global_pointer(elf: &ElfFile) -> Option<u64> {
+    if elf.machine != format::EM_MIPS || elf.wide {
         return None;
     }
-    let reginfo = elf
-        .sections
-        .iter()
-        .find(|s| s.kind == SHT_MIPS_REGINFO && s.addr != 0 && s.size >= REGINFO_SIZE)
-        .map(|s| s.addr)
-        .or_else(|| elf.segments.iter().find(|s| s.kind == PT_MIPS_REGINFO && s.memsz >= REGINFO_SIZE).map(|s| s.vaddr));
-    let recorded = reginfo
-        .and_then(|va| image.read(va + REGINFO_GP, 4).ok())
-        .and_then(|b| <[u8; 4]>::try_from(b).ok())
-        .map(|word| if elf.big_endian { u32::from_be_bytes(word) } else { u32::from_le_bytes(word) });
+    let recorded = elf.mips.as_ref().and_then(|m| m.reginfo).map(|r| r.gp);
     let symbol = || elf.symbols.iter().find(|s| s.name == "_gp" && s.section != 0).map(|s| s.value);
     recorded.filter(|&gp| gp != 0).map(u64::from).or_else(symbol)
 }
@@ -297,17 +279,22 @@ fn exports(elf: &ElfFile) -> Option<ExportTable> {
 
 /// The dynamic relocations that write an address, as the base relocations of a PE: a word the
 /// image's own base or a symbol's address fills. The bindings of the imports and the copies of
-/// a library's data are not among them.
+/// a library's data are not among them. A static MIPS file that kept its relocations adds every
+/// place that holds an address: a word, a jump's target, each half of a `lui` pair.
 fn relocations(elf: &ElfFile) -> Vec<Relocation> {
+    let kept = elf.static_relocations.iter().filter(|r| {
+        elf.machine == format::EM_MIPS && matches!(r.kind, reloc::MIPS_32 | reloc::MIPS_26 | reloc::MIPS_HI16 | reloc::MIPS_LO16)
+    });
     let mut relocations: Vec<Relocation> = elf
         .relocations
         .iter()
         .filter(|r| !binds_slot(elf.machine, r.kind) && !copies(elf.machine, r.kind))
+        .chain(kept)
         .map(|r| {
             let kind = match (elf.machine, r.kind) {
                 (format::EM_X86_64, reloc::X86_64_64 | reloc::X86_64_RELATIVE)
                 | (format::EM_AARCH64, reloc::AARCH64_ABS64 | reloc::AARCH64_RELATIVE) => RelocKind::Dir64,
-                (format::EM_386, reloc::I386_32 | reloc::I386_RELATIVE) => RelocKind::HighLow,
+                (format::EM_386, reloc::I386_32 | reloc::I386_RELATIVE) | (format::EM_MIPS, reloc::MIPS_32) => RelocKind::HighLow,
                 (_, kind) => RelocKind::Other(u8::try_from(kind).unwrap_or(u8::MAX)),
             };
             Relocation { va: r.offset, kind }
