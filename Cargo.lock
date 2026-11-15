@@ -335,6 +335,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ra-asm-mips"
+version = "0.2.0"
+dependencies = [
+ "ra-asm-arch",
+ "ra-asm-machine",
+ "ra-asm-pe",
+]
+
+[[package]]
 name = "ra-asm-pe"
 version = "0.2.0"
 dependencies = [
