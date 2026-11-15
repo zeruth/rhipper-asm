@@ -13,7 +13,9 @@ on:
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  # a run on main finishes: the walks land a card every few minutes and a cancelled run never
+  # said whether main was green (2026-11-15); the newest push waits, the ones between are dropped
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
