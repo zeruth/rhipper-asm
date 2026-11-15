@@ -244,8 +244,11 @@ fn is_worse(column: &str, was: &str, now: &str) -> bool {
 
 /// Whether a cell is held to the committed one. A table's total sums its rows, which are held one
 /// by one, so a row new to the board moves the total without making it worse; and a program that
-/// ran out of time stopped where the machine's load left it: of its row only the status is held.
-fn held(was: &Cells, now: &Cells, (table, row, column): &(String, String, String)) -> bool {
+/// ran out of time on either side stopped where the machine's load left it, so none of its row is
+/// held, its status neither: hello64-upx.exe read timeout on the loaded machine that wrote the
+/// board and ok on the release runner, which failed on that alone (2026-11-15). A program that
+/// hangs for good still shows as timeout on the board the next `--write` makes.
+fn held(was: &Cells, now: &Cells, (table, row, _column): &(String, String, String)) -> bool {
     if row == "total" {
         return false;
     }
@@ -253,7 +256,7 @@ fn held(was: &Cells, now: &Cells, (table, row, column): &(String, String, String
         return true;
     }
     let timed_out = |cells: &Cells| cells.get(&(table.clone(), row.clone(), "status".to_owned())).is_some_and(|s| s == "timeout");
-    column == "status" || !(timed_out(was) || timed_out(now))
+    !(timed_out(was) || timed_out(now))
 }
 
 /// The lines of `board` that head a table or hold one of `rows`, by table and row: the failure
