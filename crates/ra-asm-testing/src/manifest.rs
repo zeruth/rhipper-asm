@@ -265,7 +265,7 @@ pub fn is_fixture(path: &str) -> bool {
         return true;
     }
     if let Some(rest) = path.strip_prefix("testdata/rhtest/") {
-        return !rest.starts_with("src/") && !extension(&["ps1"]);
+        return !rest.starts_with("src/") && !extension(&["ps1"]) && !rest.eq_ignore_ascii_case("pending.txt");
     }
     path.starts_with("testdata/vectors/") && extension(&["vec", "cases"])
 }
