@@ -254,7 +254,7 @@ const NOT_RUN32: &[(&str, &str)] = &[
 
 /// The 32-bit forms the port needs that `lift_instr` has no arm for yet: run all the same, so
 /// their vectors are ready and the replay lists them in `PENDING.txt` until the arm lands.
-const NOT_LIFTED_YET: &[&str] = &["Pushad", "Popad"];
+const NOT_LIFTED_YET: &[&str] = &[];
 
 /// The mnemonic groups of the files, by name, as the x86-64 files have them. A form over
 /// `esi`/`edi` is a string one, a `setcc` or `cmovcc` a condition; what no group names is `misc`.

@@ -395,6 +395,7 @@ pub(crate) fn left(result: &Result<Value, Stop>) -> Left {
         Ok(_) => Left::Return,
         Err(Stop::Exit(code)) => Left::Exit(*code as u32),
         Err(Stop::Limit(steps)) => Left::Trap { address: 0, reason: format!("the run limit of {steps} instructions was reached") },
+        Err(Stop::Unpacked(address)) => Left::Trap { address: *address, reason: "control entered a page the run wrote".to_owned() },
         Err(Stop::Fault(message)) => {
             let reason = message.lines().next().unwrap_or_default().trim();
             let address = reason

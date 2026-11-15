@@ -1351,6 +1351,32 @@ impl Lifter<'_, '_> {
                 let v = if self.op_bits(i, 0) == 16 { self.m.pop_sized(block, Type::I16, "pop") } else { self.m.pop(block, "pop") };
                 self.write(block, i, 0, v);
             }
+            // the eight 32-bit registers in encoding order, esp as it was before the first push;
+            // an unpacking stub (UPX) opens and closes with the pair
+            M::Pushad => {
+                let sp = self.m.read_gpr(block, R::ESP);
+                for reg in [R::EAX, R::ECX, R::EDX, R::EBX] {
+                    let v = self.m.read_gpr(block, reg);
+                    self.m.push(block, v);
+                }
+                self.m.push(block, sp);
+                for reg in [R::EBP, R::ESI, R::EDI] {
+                    let v = self.m.read_gpr(block, reg);
+                    self.m.push(block, v);
+                }
+            }
+            M::Popad => {
+                for reg in [R::EDI, R::ESI, R::EBP] {
+                    let v = self.m.pop(block, "popad");
+                    self.m.write_gpr(block, reg, v);
+                }
+                // the saved esp is skipped, not loaded
+                let _ = self.m.pop(block, "popad.esp");
+                for reg in [R::EBX, R::EDX, R::ECX, R::EAX] {
+                    let v = self.m.pop(block, "popad");
+                    self.m.write_gpr(block, reg, v);
+                }
+            }
             M::Pushfq | M::Pushfd => {
                 let flags = self.pack_flags(block);
                 self.m.push(block, flags);

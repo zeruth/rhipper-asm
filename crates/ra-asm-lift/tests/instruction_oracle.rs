@@ -383,6 +383,7 @@ fn run_lifted(vm: &mut Vm<'_>, name: &str, arena: &Arena) -> Option<String> {
         Err(Stop::Fault(m)) => Some(m),
         Err(Stop::Limit(n)) => Some(format!("the limit of {n} instructions")),
         Err(Stop::Exit(c)) => Some(format!("exit {c}")),
+        Err(Stop::Unpacked(a)) => Some(format!("an entry of {a:#x}, which the run wrote")),
     }
 }
 
@@ -539,6 +540,8 @@ const NOT_RUN: &[(&str, &str)] = &[
     ("Ldmxcsr", "the runtime's own control register"),
     ("Pushfd", "32-bit mode only"),
     ("Popfd", "32-bit mode only"),
+    ("Pushad", "32-bit mode only"),
+    ("Popad", "32-bit mode only"),
 ];
 
 /// The mnemonics with an arm in `lift_instr`, read off the source.

@@ -37,6 +37,9 @@ pub enum Stop {
     /// A trap of the lifted code, a fault of the machine, or a thing the interpreter or its host
     /// cannot do: the message names it and, when known, the address.
     Fault(String),
+    /// Control reached code at this address on a page the run wrote, which the lift's bytes do not
+    /// hold: an unpacker's jump into what it unpacked, where a run that tracks its writes stops.
+    Unpacked(u64),
 }
 
 impl Stop {
@@ -135,6 +138,9 @@ pub struct Vm<'m> {
     pub stack: usize,
     /// Where the host's stack stood at the outermost call of the module.
     stack_top: usize,
+    /// The image address of each function, by index, where the host gave one: an entry of one on a
+    /// page the run wrote stops the run there.
+    origins: HashMap<usize, u64>,
     functions: HashMap<String, usize>,
     named: HashMap<String, Vec<Type>>,
     /// The index of each block of each function, by id.
@@ -168,6 +174,7 @@ impl<'m> Vm<'m> {
             observer: None,
             stack: 0,
             stack_top: 0,
+            origins: HashMap::new(),
             functions,
             named,
             blocks,
@@ -264,6 +271,15 @@ impl<'m> Vm<'m> {
             self.by_address.insert(address, Symbol::Function(i));
         } else if self.symbols.contains_key(name) {
             self.by_address.insert(address, Symbol::External(name.to_owned()));
+        }
+    }
+
+    /// Makes `address` the image address the function `name` was lifted from: when the memory
+    /// tracks its writes and the run wrote that page, an entry of the function stops the run with
+    /// [`Stop::Unpacked`], since its code is no longer what the lift read.
+    pub fn set_origin(&mut self, name: &str, address: u64) {
+        if let Some(&i) = self.functions.get(name) {
+            self.origins.insert(i, address);
         }
     }
 
@@ -418,6 +434,11 @@ impl<'m> Vm<'m> {
         }
         if self.depth >= MAX_DEPTH {
             return Err(Stop::fault(format!("the call depth passed {MAX_DEPTH} in @{}", f.name)));
+        }
+        if let Some(&origin) = self.origins.get(&index)
+            && self.memory.was_written(origin)
+        {
+            return Err(Stop::Unpacked(origin));
         }
         let marker = 0u8;
         let here = std::ptr::from_ref(&marker).addr();

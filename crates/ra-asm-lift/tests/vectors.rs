@@ -489,6 +489,7 @@ fn end_of(result: Result<Value, Stop>, site: Option<u64>) -> End {
         }
         Err(Stop::Limit(n)) => End::Other(format!("the limit of {n} instructions")),
         Err(Stop::Exit(c)) => End::Other(format!("exit {c}")),
+        Err(Stop::Unpacked(a)) => End::Other(format!("an entry of {a:#x}, which the run wrote")),
     }
 }
 

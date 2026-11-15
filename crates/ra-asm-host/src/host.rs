@@ -4,6 +4,10 @@
 //! lifts it and runs it over the caller's state, and the run goes on. The facts of the run name
 //! each entry the engine ran under `residual`.
 //!
+//! Code on a page the run wrote is not the engine's when the run asked for [`Options::unpack`]:
+//! the engine's image holds what the file held there, not what the program wrote, and the run
+//! stops at the address instead.
+//!
 //! What the engine runs here is a function that calls nothing: a call it makes (to an address or
 //! to an import) stops the run with the call named, since its callee would run in the engine's
 //! copy of the memory and not in the run's.

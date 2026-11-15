@@ -5,5 +5,3 @@
 # form that differs fails it with a line to paste here, and a listed form that passes fails it
 # with "remove from PENDING.txt", so the card that fixes an arm removes its line.
 moves Xstore_32: case 420 `xstore` (660fa7c0): the lift does not cover the form: unsupported by the lift: the instruction at 0x30004480
-stack Pushad: case 64 `pushad` (60): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001800
-stack Popad: case 80 `popad` (61): the processor ran, the lifted code stopped: unsupported by the lift: the instruction at 0x30001a00

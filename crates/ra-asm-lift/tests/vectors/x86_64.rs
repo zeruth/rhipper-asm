@@ -199,6 +199,7 @@ fn run_case(vm: &mut Vm<'_>, name: &str, case: &Case, fields: &Fields) -> Option
         Err(Stop::Fault(m)) => Some(m),
         Err(Stop::Limit(n)) => Some(format!("the limit of {n} instructions")),
         Err(Stop::Exit(c)) => Some(format!("exit {c}")),
+        Err(Stop::Unpacked(a)) => Some(format!("an entry of {a:#x}, which the run wrote")),
     };
     let output = match (&case.outcome, stopped) {
         (Outcome::Fault(_), Some(m)) if m.contains("unsupported") => return Some(format!("the lift does not cover the form: {m}")),

@@ -47,6 +47,8 @@ pub const FAULT_EXIT: i32 = 0xE000_0001u32 as i32;
 pub const ACCESS_VIOLATION_EXIT: i32 = 0xC000_0005u32 as i32;
 /// The exit code of a run that reached its limit.
 pub const LIMIT_EXIT: i32 = 0xE000_0007u32 as i32;
+/// The exit code of a run that stopped where control entered code it wrote.
+pub const UNPACKED_EXIT: i32 = 0xE000_0008u32 as i32;
 
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -74,6 +76,10 @@ pub struct Options {
     /// the memory's one log for what they write, so a run that keeps them has no observer that
     /// logs the memory itself.
     pub session: bool,
+    /// Keep the pages the program writes from its start, and stop the run with the address where
+    /// a call or a jump enters one of the image's: an unpacking stub's jump into what it unpacked,
+    /// whose bytes the lift never read. The address is the outcome's `unpacked`.
+    pub unpack: bool,
 }
 
 impl Default for Options {
@@ -88,6 +94,7 @@ impl Default for Options {
             observer: None,
             residual: None,
             session: false,
+            unpack: false,
         }
     }
 }
@@ -181,6 +188,9 @@ pub struct Outcome {
     /// The calls across the platform boundary in the order the program made them, when the
     /// options asked for them.
     pub boundary: Vec<HostCall>,
+    /// Where control entered code the run wrote, when the options asked for the stop there and the
+    /// run made it: the entry of the program an unpacker unpacked.
+    pub unpacked: Option<u64>,
 }
 
 /// One call of the program across the platform boundary: an import, or a `ra_*` function of the
@@ -325,6 +335,13 @@ fn run_here(
         runtime.boundary = Some(host::Boundary::default());
     }
     runtime.bind(&mut vm).map_err(setup)?;
+    if options.unpack {
+        // What the loader wrote is the image as the lift read it; the program's writes start here.
+        for (&va, name) in &lifted.functions {
+            vm.set_origin(name, va);
+        }
+        vm.memory.track();
+    }
     let mut returned = 0;
     let result = runtime.attach_process(&mut vm).and_then(|()| match call {
         None => enter(&mut vm, &mut runtime, image, lifted, signatures),
@@ -333,9 +350,15 @@ fn run_here(
             0
         }),
     });
-    let (exit, stop) = match result.and_then(|code| runtime.check_uncaught().map(|()| code)) {
+    let ended = result.and_then(|code| runtime.check_uncaught().map(|()| code));
+    let unpacked = match &ended {
+        Err(Stop::Unpacked(address)) => Some(*address),
+        _ => None,
+    };
+    let (exit, stop) = match ended {
         Ok(code) | Err(Stop::Exit(code)) => (code, None),
         Err(Stop::Limit(n)) => (LIMIT_EXIT, Some(format!("the run limit of {n} instructions was reached"))),
+        Err(Stop::Unpacked(address)) => (UNPACKED_EXIT, Some(format!("control entered {address:#x}, on a page the run wrote"))),
         Err(Stop::Fault(message)) if message.contains(ra_asm_ir::interp::memory::UNMAPPED) => (ACCESS_VIOLATION_EXIT, Some(message)),
         Err(Stop::Fault(message)) => (FAULT_EXIT, Some(message)),
     };
@@ -344,7 +367,7 @@ fn run_here(
     }
     let facts = facts_of(&vm, image, lifted, &options.args, &runtime.residual_ran);
     let boundary = runtime.boundary.take().map(|b| b.calls).unwrap_or_default();
-    Ok((Outcome { output: std::mem::take(&mut runtime.output), exit, stop, steps: vm.steps, facts, boundary }, returned))
+    Ok((Outcome { output: std::mem::take(&mut runtime.output), exit, stop, steps: vm.steps, facts, boundary, unpacked }, returned))
 }
 
 /// Calls one function by its integer arguments, as a host calls an export: a function of the ARM64

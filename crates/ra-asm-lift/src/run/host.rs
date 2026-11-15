@@ -684,7 +684,8 @@ impl<'a> Runtime<'a> {
     /// An indirect call of the machine model: a lifted function at `target` takes the state; a
     /// function of the host's is called with the arguments where the convention puts them, and
     /// the return address the caller pushed is popped here, with what a 32-bit import pops. Code
-    /// of the image no lifted function has is the run's [`super::Residual`]'s.
+    /// of the image no lifted function has is the run's [`super::Residual`]'s, unless the run wrote
+    /// its page, where the run stops.
     fn machine_call(&mut self, vm: &mut Vm<'_>, state: u64, target: u64) -> Result<Value, Stop> {
         vm.record_call(target);
         match vm.symbol_at(target).cloned() {
@@ -735,6 +736,8 @@ impl<'a> Runtime<'a> {
                 }
                 int(0)
             }
+            // What the program wrote there is no code the lift or the engine's image holds.
+            None if self.in_image(target) && vm.memory.was_written(target) => Err(Stop::Unpacked(target)),
             None if self.in_image(target) => {
                 let Some(residual) = &self.residual else {
                     return Err(Stop::fault(format!("an indirect call to {target:#x}, which is no lifted function")));

@@ -334,6 +334,7 @@ fn complete(vm: &mut Vm<'_>, module: &Module, function: &str, args: Vec<Value>, 
         Err(Stop::Exit(code)) => (format!("exits with {code}"), None),
         Err(Stop::Fault(message)) => (format!("stops ({message})"), None),
         Err(Stop::Limit(_)) => return Err(format!("the call does not end within {LIMIT} instructions")),
+        Err(Stop::Unpacked(address)) => return Err(format!("the call entered {address:#x}, which it wrote")),
     };
     let mut globals = Vec::with_capacity(module.globals.len());
     for g in &module.globals {

@@ -5,6 +5,9 @@
 //! And computed through the interpreter with the residual engine behind it: the three functions it
 //! reaches only by addresses it computes are no lifted function, and the engine runs each from
 //! the run's memory, so the program runs to its end with the native program's output.
+//!
+//! And hello32 packed by upx through the interpreter, which runs the unpacking stub and stops
+//! where it jumps into the code it wrote.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -62,25 +65,51 @@ fn seh_clang_runs_interpreted_at_the_abi_level() {
     run_abi("seh", "clang");
 }
 
-/// computed64 lifted at the machine level and run with the residual engine; none when this host
-/// has no Windows DLLs to answer its imports, which says so on stderr.
-fn run_computed() -> Option<Outcome> {
-    let image = ra_asm_pe::load(&root().join("testdata/bin/computed64.exe")).unwrap();
+/// `testdata/bin/<binary>` lifted at the machine level and run with the residual engine under
+/// `options`; none when this host has no Windows DLLs to answer its imports, which says so on
+/// stderr.
+fn run_machine(binary: &str, options: &ra_asm_host::Options) -> Option<Outcome> {
+    let image = ra_asm_pe::load(&root().join("testdata/bin").join(binary)).unwrap_or_else(|e| panic!("{binary}: {e:#}"));
     let analysis = ra_asm_analysis::analyze(&image);
-    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
-    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
-    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
-    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    let lift = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, lift);
+    let raise = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, raise);
     lifted.apply_names(&analysis, Some(&mut signatures));
-    let outcome = ra_asm_host::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let outcome = ra_asm_host::run(&image, &lifted, &signatures, options).unwrap();
     if let Some(stop) = &outcome.stop
         && stop.starts_with("no binding for ")
         && !cfg!(windows)
     {
-        eprintln!("SKIPPED: computed64.exe: {stop}; this host has no Windows DLLs: the interpreted run is skipped");
+        eprintln!("SKIPPED: {binary}: {stop}; this host has no Windows DLLs: the interpreted run is skipped");
         return None;
     }
     Some(outcome)
+}
+
+/// computed64 lifted at the machine level and run with the residual engine.
+fn run_computed() -> Option<Outcome> {
+    run_machine("computed64.exe", &ra_asm_lift::run::Options::default())
+}
+
+/// hello32 packed by upx, run at the machine level until its stub, having unpacked hello32 into
+/// the image, jumps into it: the run stops there, at hello32's own entry point, which the packed
+/// image's lift holds no code for.
+#[test]
+fn upx_stops_at_the_entry() {
+    let twin = ra_asm_pe::load(&root().join("testdata/bin/hello32.exe")).unwrap();
+    let entry = twin.entry_point().expect("hello32 has an entry point");
+    let options = ra_asm_host::Options { unpack: true, limit: 500_000_000, ..ra_asm_host::Options::default() };
+    let Some(outcome) = run_machine("hello32-upx.exe", &options) else { return };
+    assert_eq!(
+        outcome.unpacked,
+        Some(entry),
+        "where hello32-upx stopped (exit {:#x}, stop: {:?}, {} steps)",
+        outcome.exit,
+        outcome.stop,
+        outcome.steps
+    );
+    assert!(outcome.output.is_empty(), "the stub prints nothing before hello32 runs");
 }
 
 #[test]

@@ -9,7 +9,7 @@
 //! A region may instead hold its bytes itself ([`Region::owned`]), at addresses that are another
 //! process's: a replay of a recorded function runs over those, and calls no DLL.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::Stop;
 
@@ -82,7 +82,12 @@ pub struct Memory {
     last: usize,
     /// The log of the accesses, while armed.
     log: Option<Log>,
+    /// The pages written since [`Memory::track`], by their first address; none while untracked.
+    written: Option<BTreeSet<u64>>,
 }
+
+/// The page the writes are tracked by.
+const PAGE: u64 = 0x1000;
 
 impl Memory {
     pub fn new() -> Self {
@@ -120,6 +125,17 @@ impl Memory {
     /// Ends the log and returns it; empty when the memory was not armed.
     pub fn disarm(&mut self) -> Access {
         self.log.take().map_or_else(Access::default, |log| Access { reads: runs(&log.reads), writes: runs(&log.writes) })
+    }
+
+    /// Starts keeping the pages written from here on: the code a program writes for itself (an
+    /// unpacker's) is what the lift never read.
+    pub fn track(&mut self) {
+        self.written = Some(BTreeSet::new());
+    }
+
+    /// Whether the page of `address` was written since [`Memory::track`]; never while untracked.
+    pub fn was_written(&self, address: u64) -> bool {
+        self.written.as_ref().is_some_and(|pages| pages.contains(&(address & !(PAGE - 1))))
     }
 
     fn locate(&mut self, address: u64, len: u64) -> Result<usize, Stop> {
@@ -187,6 +203,11 @@ impl Memory {
         }
         if let Some(log) = &mut self.log {
             log.writes.extend((address..).zip(bytes.iter().copied()));
+        }
+        if let Some(pages) = &mut self.written {
+            // `locate` held the whole range, so the last byte does not wrap.
+            let last = address + (bytes.len() as u64 - 1);
+            pages.extend((address / PAGE..=last / PAGE).map(|page| page * PAGE));
         }
         Ok(())
     }

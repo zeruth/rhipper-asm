@@ -71,6 +71,7 @@ impl From<&Result<interp::Value, Stop>> for Answer {
             Err(Stop::Exit(code)) => Self::Exit(*code),
             Err(Stop::Limit(n)) => Self::Limit(*n),
             Err(Stop::Fault(message)) => Self::Fault(message.clone()),
+            Err(Stop::Unpacked(address)) => Self::Fault(format!("control entered {address:#x}, on a page the run wrote")),
         }
     }
 }
