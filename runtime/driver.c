@@ -1750,18 +1750,40 @@ void ra_eh_resume(void) {
 static uint32_t seh_record[20], seh_pointers[2];
 static int seh_in_flight;
 
-uint64_t ra_eh_probe(uint64_t address, uint64_t size, uint64_t write, uint64_t site) {
+// Whether the bytes [address, end) can be read, or written with `write`, without a fault: the
+// host's answer of its mappings, asked before the access rather than caught after it.
+static int seh_accessible(uint64_t address, uint64_t end, uint64_t write) {
+#ifdef _WIN32
     MEMORY_BASIC_INFORMATION info;
     DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
     DWORD writable = PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
-    uint64_t end = address + (size ? size : 1);
     int fits = 1;
     for (uint64_t at = address; fits && at < end;) {
         fits = VirtualQuery((const void *)(uintptr_t)at, &info, sizeof info) == sizeof info && info.State == MEM_COMMIT
             && (info.Protect & (write ? writable : readable)) && !(info.Protect & PAGE_GUARD);
         at = (uint64_t)(uintptr_t)info.BaseAddress + info.RegionSize;
     }
-    if (fits) return 0;
+    return fits;
+#else
+    // The kernel's list of the mappings, in ascending order: a gap or a mapping without the access
+    // ends the walk short of `end`.
+    FILE *maps = fopen("/proc/self/maps", "r");
+    if (!maps) eh_fatal("a protected access with no /proc/self/maps to check it against");
+    unsigned long long low, high;
+    char perms[5];
+    uint64_t at = address;
+    while (at < end && fscanf(maps, "%llx-%llx %4s%*[^\n]", &low, &high, perms) == 3) {
+        if (at >= high) continue;
+        if (at < low || perms[0] != 'r' || (write && perms[1] != 'w')) break;
+        at = high;
+    }
+    fclose(maps);
+    return at >= end;
+#endif
+}
+
+uint64_t ra_eh_probe(uint64_t address, uint64_t size, uint64_t write, uint64_t site) {
+    if (seh_accessible(address, address + (size ? size : 1), write)) return 0;
     if (seh_in_flight) eh_fatal("a fault while a structured exception is in flight");
     memset(seh_record, 0, sizeof seh_record);
     seh_record[0] = 0xC0000005u;
@@ -1786,6 +1808,8 @@ void ra_eh_handled(void) {
 }
 
 void ra_eh_unhandled(uint64_t site) {
+    // What the program printed before the fault is its output, as the native crash leaves it.
+    fflush(stdout);
     fprintf(stderr, "ra: the exception %#x at %#llx passes a frame the port does not unwind\n", seh_record[0], (unsigned long long)site);
     fflush(stderr);
     host_exit(seh_record[0]);

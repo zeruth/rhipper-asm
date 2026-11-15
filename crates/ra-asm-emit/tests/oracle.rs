@@ -1897,9 +1897,10 @@ fn rhtest_win_clang_runs_as_rust() {
     run_rhtest_as_rust("win", "clang");
 }
 
-/// The exception programs wait for milestone J (task 49): structured and C++ exception handling.
+/// A 32-bit `__try` in C: the access a scope table protects asks the runtime first, the filter
+/// reads the record of the fault and the `__except` block runs. The native run ends unhandled at
+/// the second access violation, the reference's exit code, and the port ends there too.
 #[test]
-#[ignore = "needs structured exception handling (`__try`, `_except_handler4`'s scope tables), which task 49 left after the C++ tables"]
 fn rhtest_seh_clang_runs_as_c() {
     run_rhtest_as_c("seh", "clang");
 }
