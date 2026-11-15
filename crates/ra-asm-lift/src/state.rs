@@ -7,6 +7,7 @@
 //! and `sp` (32 slots), `pc`, the flags as bytes (n, z, c, v) and `v0..v31`; on 32-bit ARM the
 //! x86 shape holds `r0..r15`, the flags as ARM64 keeps them and `q0..q15`.
 
+use ra_asm_arch::state::{self as layout, StateSpec};
 use ra_asm_ir::{BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Operand, Type, ValueId};
 use ra_asm_x86::iced_x86::Register as R;
 
@@ -40,16 +41,32 @@ pub fn state_fields() -> Vec<Type> {
     state_fields_for(Isa::X86)
 }
 
+impl Isa {
+    /// The layout of the state of the instruction set. The driver's `struct State` and the host's
+    /// `STATE_SIZE` follow the x86 one.
+    pub fn spec(self) -> &'static StateSpec {
+        match self {
+            Self::X86 => &layout::X86,
+            Self::Arm64 => &layout::ARM64,
+            Self::Arm32 => &layout::ARM32,
+        }
+    }
+}
+
 /// The fields of `%State` for `isa`.
 pub fn state_fields_for(isa: Isa) -> Vec<Type> {
-    let (gprs, vectors) = match isa {
-        // Slots 0..15 hold `xmm0..xmm15`, slots 16..31 the upper halves of `ymm0..ymm15`; the
-        // driver's `struct State` and the host's `STATE_SIZE` follow this count.
-        Isa::X86 => (16, 32),
-        Isa::Arm32 => (16, 16),
-        Isa::Arm64 => (32, 32),
-    };
-    vec![Type::array(gprs, Type::I64), Type::I64, Type::array(8, Type::I8), Type::array(vectors, Type::I128)]
+    state_type_of(isa.spec())
+}
+
+/// The IR fields of the state `spec` lays out.
+pub fn state_type_of(spec: &StateSpec) -> Vec<Type> {
+    spec.fields
+        .iter()
+        .map(|f| match f.count {
+            Some(n) => Type::array(u64::from(n), Type::Int(f.bits)),
+            None => Type::Int(f.bits),
+        })
+        .collect()
 }
 
 /// The flags, by their byte index in the state.
@@ -829,4 +846,82 @@ fn is_high_byte(reg: R) -> bool {
 
 pub fn reg_name(reg: R) -> &'static str {
     ra_asm_x86::registers::name(reg)
+}
+
+#[cfg(test)]
+mod spec {
+    use ra_asm_arch::state::{Field, Role, StateSpec};
+    use ra_asm_ir::types::layout as ir_layout;
+
+    use super::*;
+
+    /// The spec's offsets and size, checked against the IR's own layout of the type it derives.
+    fn laid_out(spec: &StateSpec) -> (Vec<u64>, u64) {
+        let (offsets, size) = ir_layout(&state_type_of(spec), 8).expect("the state has a size");
+        assert_eq!((spec.offsets(), spec.size()), (offsets.clone(), size), "{}", spec.machine);
+        (offsets, size)
+    }
+
+    fn slot_names(isa: Isa, role: Role) -> Vec<&'static str> {
+        let (_, field) = isa.spec().field(role).expect("the field");
+        (0..field.slots()).filter_map(|i| field.slot_name(i)).collect()
+    }
+
+    #[test]
+    fn x86_state_is_todays() {
+        let fields = state_fields_for(Isa::X86);
+        assert_eq!(fields, vec![Type::array(16, Type::I64), Type::I64, Type::array(8, Type::I8), Type::array(32, Type::I128)]);
+        assert_eq!(laid_out(Isa::X86.spec()), (vec![0, 128, 136, 144], 656));
+        assert_eq!(slot_names(Isa::X86, Role::General), GPR_NAMES);
+        let flags = [Flag::Cf, Flag::Pf, Flag::Af, Flag::Zf, Flag::Sf, Flag::Df, Flag::Of];
+        assert_eq!(slot_names(Isa::X86, Role::Flags), flags.map(flag_name));
+        for flag in flags {
+            assert_eq!(Isa::X86.spec().slot_offset(Role::Flags, flag as u32), Some(136 + flag as u64));
+        }
+        assert_eq!(Isa::X86.spec().slot_offset(Role::Vector, 16), Some(144 + 16 * 16));
+    }
+
+    #[test]
+    fn arm64_state_is_todays() {
+        let fields = state_fields_for(Isa::Arm64);
+        assert_eq!(fields, vec![Type::array(32, Type::I64), Type::I64, Type::array(8, Type::I8), Type::array(32, Type::I128)]);
+        assert_eq!(laid_out(Isa::Arm64.spec()), (vec![0, 256, 264, 272], 784));
+        let decoder: Vec<_> = (0..32).map(|n| ra_asm_arm64::registers::full_of(n).name).collect();
+        assert_eq!(slot_names(Isa::Arm64, Role::General), decoder);
+        assert_eq!(Isa::Arm64.spec().slot_offset(Role::General, 31), Some(248));
+    }
+
+    #[test]
+    fn arm32_state_is_todays() {
+        let fields = state_fields_for(Isa::Arm32);
+        assert_eq!(fields, vec![Type::array(16, Type::I64), Type::I64, Type::array(8, Type::I8), Type::array(16, Type::I128)]);
+        assert_eq!(laid_out(Isa::Arm32.spec()), (vec![0, 128, 136, 144], 400));
+        let decoder: Vec<_> = (0..16).map(|n| ra_asm_arm64::thumb::register(n).name).collect();
+        assert_eq!(slot_names(Isa::Arm32, Role::General), decoder);
+    }
+
+    #[test]
+    fn wide_registers_lay_out_without_overlap() {
+        const WIDE: StateSpec = StateSpec {
+            machine: "wide",
+            fields: &[
+                Field::single("flag", Role::Flags, 8),
+                Field::group("q", Role::General, 32, 128),
+                Field::single("pc", Role::ProgramCounter, 32),
+                Field::group("extra", Role::Extra, 3, 16),
+            ],
+        };
+        let spec = WIDE;
+        let (offsets, size) = laid_out(&spec);
+        assert_eq!((offsets.clone(), size), (vec![0, 16, 528, 532], 544));
+        let mut end = 0;
+        for (field, at) in spec.fields.iter().zip(&offsets) {
+            assert!(*at >= end, "{} at {at} overlaps the field before, which ends at {end}", field.name);
+            assert_eq!(at % field.align(), 0, "{} is not aligned", field.name);
+            end = at + field.size();
+        }
+        assert!(end <= size);
+        assert_eq!(spec.slot_offset(Role::General, 31), Some(16 + 31 * 16));
+        assert_eq!(spec.slot_offset(Role::General, 32), None);
+    }
 }
