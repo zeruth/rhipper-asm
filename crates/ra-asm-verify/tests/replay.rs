@@ -1,6 +1,7 @@
 //! The replayer over a whole program: `control64.exe` is recorded once at the machine level, and
 //! its vectors replay against the module at the two levels that take a state, as lifted and with
-//! one instruction changed. The `signature` tests replay at the ABI level, where a function
+//! one instruction changed; a function of two 32-bit rhtest programs that reads the x87 stack
+//! replays at the machine level as recorded. The `signature` tests replay at the ABI level, where a function
 //! takes arguments: functions of `control64.exe`, `control32.exe` and `float64.exe` by their
 //! signatures, and the reading of a vector through a signature on vectors written by hand, for
 //! the conventions no function of the fixtures has (arguments on the x86 stack, a callee that
@@ -209,6 +210,35 @@ fn stateful_a_different_callee_or_argument_is_a_difference() {
         differences.iter().any(|d| matches!(d, Difference::Call { index, replayed, .. } if *index == at + 1 && replayed == "ra_call")),
         "another callee is a difference: {differences:?}"
     );
+}
+
+/// A 32-bit function that stores the float a lifted callee left in `st(0)` replays at the machine
+/// level as its run recorded it: the x87 stack is a global of the lift's own, which the replay
+/// lays out where the vector has it. `templates` of `cpp-clang.exe` stores a callee's double, and
+/// `float_reader` of `engine-clang.exe` three callees' floats, the third into `xmm1`.
+#[test]
+fn machine_replay_matches_its_record() {
+    for (name, address, what) in [("cpp-clang.exe", 0x40_1460, "templates"), ("engine-clang.exe", 0x40_12d0, "float_reader")] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/rhtest").join(name);
+        let image = ra_asm_pe::load(&path).expect("the program loads");
+        let lifted = lifted(&image, RaiseLevel::Machine);
+        let (recording, outcome) = record(&image, &lifted, &ra_asm_lift::run::Options::default()).expect("the run starts");
+        if let Some(stop) = &outcome.stop
+            && stop.starts_with("no binding for ")
+            && !cfg!(windows)
+        {
+            eprintln!("SKIPPED: {name}: {stop}; this host has no Windows DLLs: the replay is skipped");
+            return;
+        }
+        let own: Vec<&Vector> = recording.vectors.iter().filter(|vector| vector.address == address).collect();
+        assert!(!own.is_empty(), "{name}: the run kept a vector of {what} at {address:#x} (stop: {:?})", outcome.stop);
+        let replayer = Replayer::new(&image, &lifted, RaiseLevel::Machine).expect("the machine level replays");
+        for (n, vector) in own.iter().enumerate() {
+            let differences = replayer.replay(vector).expect("the vector loads");
+            let lines: Vec<String> = differences.iter().map(ToString::to_string).collect();
+            assert!(differences.is_empty(), "{name}: {what} vector {} of {} differs:\n{}", n + 1, own.len(), lines.join("\n"));
+        }
+    }
 }
 
 /// The Win64 convention: the arguments in `rcx` and `rdx`, the result in `rax` at the width the

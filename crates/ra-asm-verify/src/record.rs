@@ -25,7 +25,10 @@
 //!   of the convention whether it changed them or not (a level without a state has no old value
 //!   to fall back on), and `return` for the value a callee outside the state's shape returned;
 //! - a call's effects are the bytes written through the interpreter's memory. What a DLL of the
-//!   host wrote on its own (a buffer `ReadFile` filled) is not seen.
+//!   host wrote on its own (a buffer `ReadFile` filled) is not seen;
+//! - a byte of the interpreter's globals (the x87 stack a 32-bit callee returns a float on) is at
+//!   its offset in their region from [`GLOBALS`], not where the run allocated the region; a value
+//!   that points there, in a register, a byte or an argument, is as the run had it.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -50,6 +53,16 @@ pub const RETURN: &str = "return";
 
 /// The region of the interpreter's own frames, as a run names it.
 const FRAMES: &str = "frames";
+
+/// The region of the globals the lift added without an address of the image (the x87 stack,
+/// `ra_mxcsr`), with the function addresses ahead of them, as a run names it.
+const GLOBALS_REGION: &str = "globals";
+
+/// Where a vector has the bytes of the run's region of globals: a run allocates the region
+/// wherever this process has room, and a vector names its bytes by their offset in it from here
+/// on, so a replay at the machine level lays the module's globals out from here as the run did
+/// from the region's start.
+pub const GLOBALS: u64 = 0xc000_0000;
 
 const X64: [&str; 16] = ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"];
 const X86: [&str; 8] = ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"];
@@ -263,21 +276,26 @@ impl Recorder {
         let Some(running) = self.open.last_mut() else { return };
         let size = self.shape.size as u64;
         let state = running.state.map(|start| (start, start.saturating_add(size)));
-        let frames = memory.regions().iter().find(|region| region.name == FRAMES).map(|r| (r.start, r.start.saturating_add(r.len)));
+        let region = |name: &str| memory.regions().iter().find(|r| r.name == name).map(|r| (r.start, r.start.saturating_add(r.len)));
+        let (frames, globals) = (region(FRAMES), region(GLOBALS_REGION));
         let program = |address: u64| ![state, frames].iter().flatten().any(|(start, end)| (*start..*end).contains(&address));
+        let named = |address: u64| match globals {
+            Some((start, end)) if (start..end).contains(&address) => GLOBALS + (address - start),
+            _ => address,
+        };
         // The log's reads are the ones before its own writes, so they go in first.
         for (start, bytes) in access.reads {
             for (address, byte) in (start..).zip(bytes) {
-                if program(address) && !running.written.contains_key(&address) {
-                    running.reads.entry(address).or_insert(byte);
+                if program(address) && !running.written.contains_key(&named(address)) {
+                    running.reads.entry(named(address)).or_insert(byte);
                 }
             }
         }
         for (start, bytes) in access.writes {
             for (address, byte) in (start..).zip(bytes) {
                 if program(address) {
-                    running.own.insert(address);
-                    running.written.insert(address, byte);
+                    running.own.insert(named(address));
+                    running.written.insert(named(address), byte);
                 }
             }
         }

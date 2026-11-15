@@ -24,7 +24,9 @@
 //!   frames or the globals is a difference of its own, since a vector holds no answer written
 //!   through it (`ra_cpuid`, the `ra_f80_*` of the exact x87 unit);
 //! - a global the lift added without an address of the image (the x87 stack, `ra_mxcsr`) lies
-//!   elsewhere than in the recorded run, so a function that touches one differs;
+//!   where the vector has it at the machine level alone, whose module is the one the run laid
+//!   out ([`crate::record::GLOBALS`]); at the promoted level it lies elsewhere, so a function
+//!   that touches one differs there;
 //! - a vector that left by a stop does not say whether its last call stopped or returned: an
 //!   exit is always the call's, a trap is read both ways and replays when one way does;
 //! - the promoted level passes no flag across a call or a return, so the flags of the exit are
@@ -62,7 +64,7 @@ use ra_asm_lift::{Lifted, RaiseLevel, import_of_wrapper};
 use ra_asm_pe::Image;
 
 use crate::ledger::Tested;
-use crate::record::{RETURN, Shape, left};
+use crate::record::{GLOBALS, RETURN, Shape, left};
 use crate::signature::Convention;
 use crate::vector::{Call, Left, Register, Vector};
 
@@ -290,6 +292,9 @@ pub struct Replayer<'a> {
     bits: u32,
     /// What the ABI level reads a vector through; none at the levels that take a state.
     abi: Option<Abi>,
+    /// The pages the globals without an address of the image take where the vector has them;
+    /// none at a level whose module is not the one the recorded run laid out.
+    globals: Option<(u64, u64)>,
     /// The instructions a replay of one vector runs at most; zero for no limit.
     pub limit: u64,
 }
@@ -367,7 +372,12 @@ impl<'a> Replayer<'a> {
         if level == RaiseLevel::Abi {
             bail!("a vector replays at the ABI level through the signatures of its functions: the level has no state to load it into");
         }
-        Self::over(image, lifted, level == RaiseLevel::Machine)
+        let machine = level == RaiseLevel::Machine;
+        let mut replayer = Self::over(image, lifted, machine)?;
+        if machine {
+            replayer.globals = Some(relocate(&mut replayer.module, &lifted.module, image)?);
+        }
+        Ok(replayer)
     }
 
     /// A replayer of `lifted`, raised to the ABI level, whose functions take the arguments
@@ -419,6 +429,7 @@ impl<'a> Replayer<'a> {
             statics,
             bits: lifted.bits,
             abi: None,
+            globals: None,
             limit: LIMIT,
         })
     }
@@ -613,18 +624,22 @@ impl<'a> Replayer<'a> {
         let fault = |stop: Stop| setup(vector, stop);
         let base = self.image.image_base();
         let mapped = self.image.mapped();
-        let image_len = u64::from(self.image.size_of_image()).max(mapped.len() as u64).div_ceil(PAGE) * PAGE;
-        let image = (base, base.saturating_add(image_len));
-        let mut taken = pages(vector, image);
+        let image = image_range(self.image);
+        // The bytes of the vector there are the image's, or the globals'.
+        let laid: Vec<(u64, u64)> = std::iter::once(image).chain(self.globals).collect();
+        let mut taken = pages(vector, &laid);
         let mut memory = Memory::new();
-        memory.add_region(Region::owned(base, image_len, "image"));
+        memory.add_region(Region::owned(base, image.1 - base, "image"));
+        if let Some((start, end)) = self.globals {
+            memory.add_region(Region::owned(start, end - start, "recorded globals"));
+        }
         for &(start, end) in &taken {
             memory.add_region(Region::owned(start, end - start, "program"));
         }
         // An address the function called through is no page of the vector's, and must not come
         // to name something of the replay's own.
         taken.extend(targets(vector).map(|target| (target / PAGE * PAGE, (target / PAGE * PAGE).saturating_add(PAGE))));
-        taken.push(image);
+        taken.extend(laid);
         taken.sort_unstable();
         let state_len = (self.shape.size() as u64).div_ceil(PAGE) * PAGE;
         let own_len = self.statics + FRAMES + state_len;
@@ -763,8 +778,52 @@ fn held(registers: &[Register], name: &str) -> Option<u128> {
     registers.iter().find(|(register, _)| register == name).map(|(_, value)| *value)
 }
 
-/// The pages the vector's bytes lie in, outside the image, as ranges in address order.
-fn pages(vector: &Vector, image: (u64, u64)) -> Vec<(u64, u64)> {
+/// The range of `image` as it is mapped, in pages.
+fn image_range(image: &Image) -> (u64, u64) {
+    let base = image.image_base();
+    let len = u64::from(image.size_of_image()).max(image.mapped().len() as u64).div_ceil(PAGE) * PAGE;
+    (base, base.saturating_add(len))
+}
+
+/// Gives the globals of `module` without an address of the image the addresses a vector has
+/// them at: the recorded run laid out `recorded`, the module it ran, from the start of its region
+/// of globals, and the vector has that region from [`GLOBALS`]. The function addresses come
+/// first in that layout, so the replay, whose module has the bodies apart under names of their
+/// own, lays out the module the run ran to learn it. Gives the pages the globals take.
+fn relocate(module: &mut Module, recorded: &Module, image: &Image) -> Result<(u64, u64)> {
+    let len = {
+        let vm = Vm::new(recorded, Memory::new());
+        let layout = vm.layout();
+        let globals: u64 = recorded
+            .globals
+            .iter()
+            .filter(|g| g.address.is_none())
+            .map(|g| layout.size(&g.ty) + u64::from(g.align).max(layout.align(&g.ty)))
+            .sum();
+        let symbols = 16 * (recorded.functions.len() + recorded.declarations.len()) as u64;
+        (symbols + globals + PAGE).div_ceil(PAGE) * PAGE
+    };
+    let image = image_range(image);
+    if image.0 < GLOBALS + len && GLOBALS < image.1 {
+        bail!("the image at {:#x} lies where a vector has the recorded run's globals, {GLOBALS:#x}", image.0);
+    }
+    let mut memory = Memory::new();
+    memory.add_region(Region::owned(image.0, image.1 - image.0, "image"));
+    memory.add_region(Region::owned(GLOBALS, len, "globals"));
+    let mut vm = Vm::new(recorded, memory);
+    vm.set_static_region(GLOBALS, len);
+    vm.place().map_err(|stop| anyhow!("the recorded run's globals cannot be laid out: {stop:?}"))?;
+    let mut end = GLOBALS;
+    for g in module.globals.iter_mut().filter(|g| g.address.is_none()) {
+        let address = vm.symbol(&g.name).ok_or_else(|| anyhow!("the recorded module has no global {}", g.name))?;
+        end = end.max(address + vm.layout().size(&g.ty).max(1));
+        g.address = Some(address);
+    }
+    Ok((GLOBALS, end.div_ceil(PAGE) * PAGE))
+}
+
+/// The pages the vector's bytes lie in, outside the ranges `laid`, as ranges in address order.
+fn pages(vector: &Vector, laid: &[(u64, u64)]) -> Vec<(u64, u64)> {
     let runs = vector.memory_in.iter().chain(&vector.memory_out).chain(vector.calls.iter().flat_map(|call| &call.effects));
     let mut pages = BTreeSet::new();
     for (address, bytes) in runs {
@@ -772,7 +831,8 @@ fn pages(vector: &Vector, image: (u64, u64)) -> Vec<(u64, u64)> {
             continue;
         }
         let last = address.saturating_add(bytes.len() as u64 - 1);
-        pages.extend((address / PAGE..=last / PAGE).filter(|page| !(image.0..image.1).contains(&(page * PAGE))));
+        pages
+            .extend((address / PAGE..=last / PAGE).filter(|page| !laid.iter().any(|(start, end)| (*start..*end).contains(&(page * PAGE)))));
     }
     let mut ranges: Vec<(u64, u64)> = Vec::new();
     for page in pages {
