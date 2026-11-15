@@ -8,7 +8,8 @@
 //! ```json
 //! {"input": {"exe": "game.exe", "size": 1234, "args": []},
 //!  "calls": [{"site": "0x1400011f3", "targets": ["0x140001110", "0x140001120"]}],
-//!  "entered": ["0x140001000", "0x140001110"]}
+//!  "entered": ["0x140001000", "0x140001110"],
+//!  "residual": ["0x14000108c"]}
 //! ```
 
 use ra_asm_pe::Image;
@@ -23,6 +24,10 @@ pub struct Facts {
     /// The entries of the functions the run entered.
     #[serde(with = "hex_list")]
     pub entered: Vec<u64>,
+    /// The entries of the code the run reached that no lifted function had, which the residual
+    /// engine ran from the program's memory.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", with = "hex_list")]
+    pub residual: Vec<u64>,
 }
 
 /// The program and the arguments a run was of: facts of another input are not taken.
@@ -65,7 +70,7 @@ fn file_size(image: &Image) -> u64 {
 
 impl Facts {
     pub fn is_empty(&self) -> bool {
-        self.calls.is_empty() && self.entered.is_empty()
+        self.calls.is_empty() && self.entered.is_empty() && self.residual.is_empty()
     }
 
     /// The targets the run saw the call at `site` reach.

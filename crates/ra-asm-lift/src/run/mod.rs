@@ -13,7 +13,7 @@ mod host;
 pub(crate) mod os;
 mod printf;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -64,6 +64,9 @@ pub struct Options {
     /// Tell this of every call the run makes, with its arguments, its blocks and its result: a
     /// recorder of the run.
     pub observer: Option<Watch>,
+    /// Answers a call of the machine levels to code of the image that no lifted function has;
+    /// without it such a call stops the run.
+    pub residual: Option<Residual>,
     /// Keep every call across the platform boundary in the outcome's `boundary`. The calls take
     /// the memory's one log for what they write, so a run that keeps them has no observer that
     /// logs the memory itself.
@@ -80,8 +83,34 @@ impl Default for Options {
             record: None,
             pause: None,
             observer: None,
+            residual: None,
             session: false,
         }
+    }
+}
+
+/// What runs the code of the image that the lift has no function for (code the analysis never
+/// found, reached by an address the program computed), for a run at the machine levels.
+pub trait Unlifted {
+    /// Runs the code at `target` as the call of it in a lifted function would: over the `%State`
+    /// at `state` in `memory`, leaving the state and the memory as the code leaves them (on x86 the
+    /// return address the call pushed popped). A stop ends the program's run with it.
+    fn call(&mut self, memory: &mut Memory, state: u64, target: u64) -> Result<(), Stop>;
+}
+
+/// An [`Unlifted`], as an option of a run: shared, since the run takes a thread of its own.
+#[derive(Clone)]
+pub struct Residual(pub Arc<Mutex<dyn Unlifted + Send>>);
+
+impl std::fmt::Debug for Residual {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Residual")
+    }
+}
+
+impl Residual {
+    pub(crate) fn call(&self, memory: &mut Memory, state: u64, target: u64) -> Result<(), Stop> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).call(memory, state, target)
     }
 }
 
@@ -288,6 +317,7 @@ fn run_here(
     let path = image.path.as_ref().map_or_else(|| "program.exe".to_owned(), |p| p.display().to_string());
     let args = std::iter::once(path).chain(options.args.iter().cloned()).collect();
     let mut runtime = Runtime::new(image, lifted, &mut vm, args, options.live, stack, heap);
+    runtime.residual.clone_from(&options.residual);
     if options.session {
         runtime.boundary = Some(host::Boundary::default());
     }
@@ -308,7 +338,7 @@ fn run_here(
     if let Some(record) = &mut vm.record {
         record.flush().context("cannot write the record of the run")?;
     }
-    let facts = facts_of(&vm, image, lifted, &options.args);
+    let facts = facts_of(&vm, image, lifted, &options.args, &runtime.residual_ran);
     let boundary = runtime.boundary.take().map(|b| b.calls).unwrap_or_default();
     Ok((Outcome { output: std::mem::take(&mut runtime.output), exit, stop, steps: vm.steps, facts, boundary }, returned))
 }
@@ -353,8 +383,9 @@ fn invoke(vm: &mut Vm<'_>, runtime: &mut Runtime<'_>, lifted: &Lifted, call: &Ca
 /// What the run saw, in the image's addresses: a target is a lifted function's image address
 /// (the machine levels hold it as such, the standalone level as the function's own address in
 /// the interpreter, or its universal stub's on x86), and a target that is no lifted function (an
-/// import, a runtime function) is left out, since the analysis has nothing to make of it.
-fn facts_of(vm: &Vm<'_>, image: &Image, lifted: &Lifted, args: &[String]) -> Facts {
+/// import, a runtime function) is left out, since the analysis has nothing to make of it. The
+/// code the [`Residual`] ran is `residual`.
+fn facts_of(vm: &Vm<'_>, image: &Image, lifted: &Lifted, args: &[String], residual: &BTreeSet<u64>) -> Facts {
     let by_name: HashMap<&str, u64> = lifted.functions.iter().map(|(va, name)| (name.as_str(), *va)).collect();
     let image_address = |address: u64| -> Option<u64> {
         if lifted.functions.contains_key(&address) {
@@ -376,7 +407,7 @@ fn facts_of(vm: &Vm<'_>, image: &Image, lifted: &Lifted, args: &[String]) -> Fac
         })
         .collect();
     let entered = vm.seen.entered.iter().filter_map(|&i| by_name.get(lifted.module.functions[i].name.as_str()).copied()).collect();
-    Facts { input: Input::of(image, args), calls, entered }
+    Facts { input: Input::of(image, args), calls, entered, residual: residual.iter().copied().collect() }
 }
 
 /// Calls the entry as the driver does: a function of the machine shape gets a state whose stack

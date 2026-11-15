@@ -1,6 +1,6 @@
 [package]
 name = "ra-asm-host"
-description = "The interpreter's host: the operating system a lifted program runs against"
+description = "The interpreter's host: the operating system a lifted program runs against, with the residual engine for the code its lift does not have"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,6 +15,7 @@ anyhow.workspace = true
 ra-asm-ir.workspace = true
 ra-asm-lift.workspace = true
 ra-asm-pe.workspace = true
+ra-asm-residual.workspace = true
 
 [dev-dependencies]
 ra-asm-analysis.workspace = true

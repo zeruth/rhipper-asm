@@ -5,7 +5,7 @@
 //! process exit, the console writes it captures, the threads it runs itself, the allocations) and
 //! the rest through the host's own DLLs with the eight-integer adapter or the import's prototype.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use ra_asm_ir::interp::{Host, Region, Stop, Symbol, Value, Vm, mask};
 use ra_asm_ir::{FnType, Type};
@@ -105,6 +105,9 @@ pub(super) struct Runtime<'a> {
     argv: u64,
     p_argv: u64,
     environment: u64,
+    /// What runs the code of the image no lifted function has, and the entries it ran.
+    pub(super) residual: Option<super::Residual>,
+    pub(super) residual_ran: BTreeSet<u64>,
     /// The calls across the platform boundary, while the run keeps them.
     pub(super) boundary: Option<Boundary>,
 }
@@ -321,6 +324,8 @@ impl<'a> Runtime<'a> {
             argv: 0,
             p_argv: 0,
             environment: 0,
+            residual: None,
+            residual_ran: BTreeSet::new(),
             boundary: None,
         };
         runtime.thread.stack_bottom = runtime.allocations[0].start;
@@ -675,7 +680,8 @@ impl<'a> Runtime<'a> {
 
     /// An indirect call of the machine model: a lifted function at `target` takes the state; a
     /// function of the host's is called with the arguments where the convention puts them, and
-    /// the return address the caller pushed is popped here, with what a 32-bit import pops.
+    /// the return address the caller pushed is popped here, with what a 32-bit import pops. Code
+    /// of the image no lifted function has is the run's [`super::Residual`]'s.
     fn machine_call(&mut self, vm: &mut Vm<'_>, state: u64, target: u64) -> Result<Value, Stop> {
         vm.record_call(target);
         match vm.symbol_at(target).cloned() {
@@ -726,7 +732,14 @@ impl<'a> Runtime<'a> {
                 }
                 int(0)
             }
-            None if self.in_image(target) => Err(Stop::fault(format!("an indirect call to {target:#x}, which is no lifted function"))),
+            None if self.in_image(target) => {
+                let Some(residual) = &self.residual else {
+                    return Err(Stop::fault(format!("an indirect call to {target:#x}, which is no lifted function")));
+                };
+                self.residual_ran.insert(target);
+                residual.call(&mut vm.memory, state, target)?;
+                int(0)
+            }
             None => Err(Stop::fault(format!("an indirect call to {target:#x}, which is no function the interpreter knows"))),
         }
     }

@@ -52,6 +52,7 @@ pub(crate) fn run(image: &Image, options: &Options) -> Result<i32> {
         record: if session.is_some() { None } else { options.record.clone() },
         pause: None,
         observer: None,
+        residual: None,
         session: session.is_some(),
     };
     let outcome = ra_asm_lift::run::run(image, &lifted, &signatures, &run)?;

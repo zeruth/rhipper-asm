@@ -308,11 +308,11 @@ fn unescape(text: &str) -> Option<String> {
     Some(out)
 }
 
-/// Runs `lifted` as [`crate::run`] does, keeping every host call of the run, and gives the
-/// session with the outcome.
+/// Runs `lifted` as [`ra_asm_lift::run::run`] does, keeping every host call of the run, and gives
+/// the session with the outcome.
 ///
 /// # Errors
-/// What stops [`crate::run`] from running the program at all.
+/// What stops [`ra_asm_lift::run::run`] from running the program at all.
 pub fn record(
     image: &Image,
     lifted: &Lifted,
@@ -320,7 +320,7 @@ pub fn record(
     options: &Options,
 ) -> anyhow::Result<(Session, Outcome)> {
     let options = Options { session: true, ..options.clone() };
-    let outcome = crate::run(image, lifted, signatures, &options)?;
+    let outcome = ra_asm_lift::run::run(image, lifted, signatures, &options)?;
     Ok((Session::of(&outcome.boundary), outcome))
 }
 
