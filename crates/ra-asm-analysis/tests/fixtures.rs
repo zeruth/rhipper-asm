@@ -489,3 +489,74 @@ fn the_upx_fixtures_are_named_by_their_packer() {
         assert_eq!(protector_of(&load(&format!("{name}.exe"))), None, "{name}.exe");
     }
 }
+
+/// The functions a MIPS fixture's analysis finds, checked to be exactly the function symbols of its
+/// symbol table, by address.
+fn mipsel_analysis(image: &Image) -> Analysis<'_> {
+    let analysis = analyze(image);
+    assert_eq!(analysis.arch.name(), "mipsel");
+    let symbols: BTreeMap<u64, &str> = image
+        .elf
+        .as_ref()
+        .unwrap()
+        .symbols
+        .iter()
+        .filter(|s| s.is_defined() && s.is_function())
+        .map(|s| (s.value, s.name.as_str()))
+        .collect();
+    let ours: Vec<u64> = analysis.functions.keys().copied().collect();
+    let theirs: Vec<u64> = symbols.keys().copied().collect();
+    assert_eq!(ours, theirs, "the functions ({symbols:x?})");
+    analysis
+}
+
+fn block_at(f: &ra_asm_analysis::Function, start: u64) -> &ra_asm_analysis::Block {
+    f.blocks.iter().find(|b| b.start == start).unwrap_or_else(|| panic!("no block at {start:#x} in {:#x}", f.entry))
+}
+
+/// The freestanding mipsel hello: every `jal` from `__start` seeds a function, and a transfer
+/// ends its block past its delay slot, where its fall-through and its call's return go.
+#[test]
+fn the_hello_mipsel_functions_are_its_function_symbols() {
+    let image = load("hello_mipsel");
+    let analysis = mipsel_analysis(&image);
+    // `WriteFile` calls `fs_write` with the slot after the `jal`, then skips the store on a null
+    // pointer: the branch's block holds its slot, and its fall-through is the word after the slot.
+    let write = analysis.function(0x2_0164).unwrap();
+    assert_eq!(write.calls, [0x2_01d8]);
+    let head = block_at(write, 0x2_0164);
+    assert_eq!((head.end, head.instrs.last().unwrap().address), (0x2_0180, 0x2_017c));
+    assert!(matches!(head.terminator, Terminator::CondJump { taken: 0x2_0190, fallthrough: 0x2_0180 }), "{:?}", head.terminator);
+    assert!(matches!(block_at(write, 0x2_0190).terminator, Terminator::Return));
+    // `fs_exit` loops on its system call and never returns; `ExitProcess` ends at its call, with
+    // the slot in its block.
+    let exit = analysis.function(0x2_01f0).unwrap();
+    assert!(exit.noreturn);
+    assert!(matches!(block_at(exit, 0x2_01f8).terminator, Terminator::Jump(0x2_01f8)));
+    let exit_process = analysis.function(0x2_01a8).unwrap();
+    let only = block_at(exit_process, 0x2_01a8);
+    assert_eq!(only.end, 0x2_01b8);
+    assert!(matches!(only.terminator, Terminator::NoReturnCall(0x2_01f0)), "{:?}", only.terminator);
+}
+
+/// The mipsel control: the `jal`s seed its functions, the pointers of `ops` the four it calls
+/// through a register, and `classify`'s jump table, read from the `lui`/`lw` pair, keeps the cases
+/// in the function, where the same words in `.rodata` would pass for pointers to functions.
+#[test]
+fn the_control_mipsel_functions_are_its_function_symbols() {
+    let image = load("control_mipsel");
+    let analysis = mipsel_analysis(&image);
+    let classify = analysis.function(0x2_065c).unwrap();
+    let switch = classify.blocks.iter().find(|b| matches!(b.terminator, Terminator::Switch { .. })).expect("classify switches");
+    let Terminator::Switch { table, cases, bound, .. } = &switch.terminator else { unreachable!() };
+    assert_eq!((*table, cases.len(), *bound), (0x1_0148, 9, Some(0x2_0664)));
+    assert_eq!(cases[0], (0, 0x2_0688));
+    // `fib` jumps over its recursion with `j`, inside the function.
+    let fib = analysis.function(0x2_05fc).unwrap();
+    assert!(matches!(block_at(fib, 0x2_061c).terminator, Terminator::Jump(0x2_0644)), "{:?}", block_at(fib, 0x2_061c).terminator);
+    // `fail` never returns, and `op_div`'s call of it ends its function after the slot.
+    assert!(analysis.function(0x2_08c8).unwrap().noreturn);
+    let div = analysis.function(0x2_0904).unwrap();
+    assert!(matches!(block_at(div, 0x2_091c).terminator, Terminator::NoReturnCall(0x2_08c8)));
+    assert_eq!(div.end(), 0x2_0924);
+}

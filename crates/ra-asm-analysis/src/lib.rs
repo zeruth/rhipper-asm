@@ -47,11 +47,15 @@ pub use rtti::{Class, Vtable};
 pub use seh32::{Scope, SehFrame};
 pub use signatures::{Signature, SignatureSet};
 
+/// ELF's `EM_MIPS`, a machine [`Machine`] has no name for: MIPS of either byte order.
+const EM_MIPS: u16 = 8;
+
 /// The decoder of an image's machine.
 pub fn arch_of(image: &Image) -> Box<dyn Arch> {
     match image.machine() {
         Machine::Arm64 => Box::new(ra_asm_arm64::Arm64),
         Machine::Arm => Box::new(ra_asm_arm64::thumb::Thumb),
+        Machine::Other(EM_MIPS) => Box::new(ra_asm_mips::Mips { big_endian: image.big_endian() }),
         _ => Box::new(ra_asm_x86::X86::for_pointer_size(image.pointer_size())),
     }
 }
@@ -374,10 +378,14 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
 
     // Code after the `int 3` fill that nothing names: a function the linker kept without a caller
     // (`/Od` keeps every function of an object it pulls in). An ARM64 image has no such fill: its
-    // exception table names every function with a frame, and a Thumb image keeps its literal pools
-    // in the gaps.
+    // exception table names every function with a frame, a Thumb image keeps its literal pools in
+    // the gaps, and a MIPS image pads with zero words, which are `nop`s.
     for _ in 0..MAX_ROUNDS {
-        let seeds = if matches!(image.machine(), Machine::Arm64 | Machine::Arm) { Vec::new() } else { gap_seeds(image, &state) };
+        let seeds = if matches!(image.machine(), Machine::Arm64 | Machine::Arm | Machine::Other(EM_MIPS)) {
+            Vec::new()
+        } else {
+            gap_seeds(image, &state)
+        };
         if seeds.is_empty() {
             break;
         }

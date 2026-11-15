@@ -1,10 +1,16 @@
 //! The recursive descent over one function: blocks from the entry, split where a jump lands in the
 //! middle of one, bounded by the function's ranges. A jump out of the ranges or to another known
 //! start is a tail call.
+//!
+//! A MIPS transfer takes effect after its delay slot, the instruction after it: the block ends past
+//! the slot, and the fall-through and the return of a call are the address after it. A slot a jump
+//! lands on is entered twice, on the way to the transfer's target and from the jump: the transfer's
+//! block keeps its copy and a block of its own starts at the slot.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use ra_asm_arch::{Arch, Flow, Instr, Operand, Target};
+use ra_asm_mips::{Delay, Mips};
 use ra_asm_pe::{CxxFrame, Image};
 
 use crate::function::{Block, Function, Kind, Terminator};
@@ -33,6 +39,8 @@ pub(crate) struct Builder<'a> {
     noreturn: &'a HashSet<u64>,
     /// The x64 C++ frame of the function, when it has one.
     frame: Option<&'a CxxFrame>,
+    /// Whether the transfers of the machine take effect after a delay slot: MIPS.
+    delays: bool,
     blocks: BTreeMap<u64, Draft>,
     worklist: Vec<u64>,
     calls: Vec<u64>,
@@ -60,6 +68,7 @@ pub fn build(
         known_starts,
         noreturn,
         frame,
+        delays: matches!(arch.name(), "mips" | "mipsel"),
         blocks: BTreeMap::new(),
         worklist: vec![entry],
         calls: Vec::new(),
@@ -104,7 +113,8 @@ impl Builder<'_> {
     /// `int 3` after a call that never returns precedes a block of the same function, which is
     /// not aligned. On x64 the exception table bounds a function exactly.
     fn beyond_fill(&self, target: u64) -> bool {
-        self.arch.address_bits() == 32
+        !self.delays
+            && self.arch.address_bits() == 32
             && target.is_multiple_of(16)
             && !self.blocks.contains_key(&target)
             && target != self.entry
@@ -285,6 +295,39 @@ impl Builder<'_> {
         self.arch.decode(bytes, va)
     }
 
+    /// When the flow of `instr` takes effect: at once on a machine without delay slots.
+    fn delay(&self, instr: &Instr) -> Delay {
+        if self.delays { Mips::delay(instr) } else { Delay::None }
+    }
+
+    /// The delay slot at `va`, which runs before its transfer takes effect. A transfer in a slot
+    /// is unpredictable in the architecture, and bytes that are no instruction hold no slot: the
+    /// block ends there as invalid.
+    fn slot(&mut self, va: u64) -> Option<Instr> {
+        let Some(slot) = self.decode(va) else {
+            self.warnings.push(format!("no instruction in the delay slot at {va:#x} in the function at {:#x}", self.entry));
+            return None;
+        };
+        if self.delay(&slot) != Delay::None || !matches!(slot.flow, Flow::Next | Flow::Interrupt) {
+            self.warnings.push(format!("the delay slot at {va:#x} in the function at {:#x} holds a transfer", self.entry));
+            return None;
+        }
+        Some(slot)
+    }
+
+    /// Splits the block at `block_start` before its instruction `index`: the head falls through to
+    /// a block of the rest, which keeps the terminator.
+    fn split(&mut self, block_start: u64, index: usize) {
+        let mut head = self.blocks.remove(&block_start).unwrap();
+        let tail = head.instrs.split_off(index);
+        let start = tail[0].address;
+        let terminator = std::mem::replace(&mut head.terminator, Terminator::FallThrough(start));
+        head.end = start;
+        let tail_end = tail.last().map_or(start, Instr::end);
+        self.blocks.insert(block_start, head);
+        self.blocks.insert(start, Draft { start, end: tail_end, instrs: tail, terminator });
+    }
+
     fn block(&mut self, start: u64) {
         if self.blocks.contains_key(&start) {
             return;
@@ -297,14 +340,17 @@ impl Builder<'_> {
                 self.warnings.push(format!("{start:#x} is inside an instruction of the block at {other_start:#x}"));
                 return;
             };
-            let mut other = self.blocks.remove(&other_start).unwrap();
-            let tail = other.instrs.split_off(index);
-            let terminator = std::mem::replace(&mut other.terminator, Terminator::FallThrough(start));
-            other.end = start;
-            let tail_end = tail.last().map_or(start, Instr::end);
-            self.blocks.insert(other_start, other);
-            self.blocks.insert(start, Draft { start, end: tail_end, instrs: tail, terminator });
-            return;
+            // A slot keeps its copy in the block of its transfer, and the block it starts is built
+            // below; the instructions after the slot of a call rejoin that block where the slot ends.
+            let in_slot = self.delay(&other.instrs[index - 1]) != Delay::None;
+            let len = other.instrs.len();
+            if !in_slot {
+                self.split(other_start, index);
+                return;
+            }
+            if index + 1 < len {
+                self.split(other_start, index + 1);
+            }
         }
 
         let mut draft = Draft { start, end: start, instrs: Vec::new(), terminator: Terminator::Invalid };
@@ -325,11 +371,24 @@ impl Builder<'_> {
                 break;
             };
             self.arch.link(&draft.instrs, &mut instr);
-            let next = instr.end();
+            let mut next = instr.end();
             let flow = instr.flow;
+            let delay = self.delay(&instr);
             let mnemonic_is_fastfail = instr.mnemonic == "int" && matches!(instr.operands.first(), Some(Operand::Imm { value: 0x29, .. }));
+            // A branch on a register that calls and links: the call may not happen.
+            let conditional_call = delay != Delay::None && matches!(instr.mnemonic.as_str(), "bltzal" | "bgezal" | "bltzall" | "bgezall");
+            let at = draft.instrs.len();
             draft.instrs.push(instr);
             draft.end = next;
+            if delay != Delay::None {
+                let Some(slot) = self.slot(next) else {
+                    draft.terminator = Terminator::Invalid;
+                    break;
+                };
+                next = slot.end();
+                draft.instrs.push(slot);
+                draft.end = next;
+            }
             match flow {
                 Flow::Interrupt if mnemonic_is_fastfail => {
                     draft.terminator = Terminator::Trap;
@@ -365,13 +424,13 @@ impl Builder<'_> {
                     if !self.calls.contains(&target) {
                         self.calls.push(target);
                     }
-                    if self.noreturn.contains(&target) {
+                    if self.noreturn.contains(&target) && !conditional_call {
                         draft.terminator = Terminator::NoReturnCall(target);
                         break;
                     }
                 }
                 Flow::Call(Target::Indirect) => {
-                    if let Some(import) = self.import_of(draft.instrs.last().unwrap()) {
+                    if let Some(import) = self.import_of(&draft.instrs[at]) {
                         if !self.import_calls.contains(&import) {
                             self.import_calls.push(import.clone());
                         }
@@ -419,7 +478,9 @@ impl Builder<'_> {
     }
 
     fn indirect_jump(&mut self, draft: &Draft) -> Terminator {
-        let jump = draft.instrs.last().unwrap();
+        // A delayed jump has its slot after it in the block.
+        let body = if self.delays { &draft.instrs[..draft.instrs.len() - 1] } else { draft.instrs.as_slice() };
+        let jump = body.last().unwrap();
         if let Some(import) = self.import_of(jump) {
             if !self.import_calls.contains(&import) {
                 self.import_calls.push(import.clone());
@@ -428,7 +489,12 @@ impl Builder<'_> {
         }
         let predecessors: Vec<&[Instr]> =
             self.blocks.values().filter(|b| b.terminator.successors().contains(&draft.start)).map(|b| b.instrs.as_slice()).collect();
-        let Some(table) = jumptable::resolve(self.image, &draft.instrs, &predecessors) else {
+        let resolved = if self.delays {
+            jumptable::resolve_mips(self.image, body, &predecessors)
+        } else {
+            jumptable::resolve(self.image, body, &predecessors)
+        };
+        let Some(table) = resolved else {
             self.warnings.push(format!("the indirect jump at {:#x} in the function at {:#x} did not resolve", jump.address, self.entry));
             return Terminator::IndirectJump;
         };
@@ -454,7 +520,7 @@ impl Builder<'_> {
     /// names, a few bytes before). The target is code of this function, not a function: a block
     /// starts there, for the lift to enter it, and the target leaves the calls.
     fn resolve_local_calls(&mut self) -> Vec<u64> {
-        if self.arch.address_bits() != 32 {
+        if self.arch.address_bits() != 32 || self.delays {
             return Vec::new();
         }
         let mut reached = BTreeSet::new();

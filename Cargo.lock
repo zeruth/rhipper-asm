@@ -241,6 +241,7 @@ dependencies = [
  "anyhow",
  "ra-asm-arch",
  "ra-asm-arm64",
+ "ra-asm-mips",
  "ra-asm-pe",
  "ra-asm-x86",
  "serde",

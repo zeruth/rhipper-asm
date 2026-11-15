@@ -12,7 +12,7 @@
 //! The index is bounded by a `cmp idx, n` and a conditional jump before the table code, in the
 //! same block or the one before it. Without a bound, the entries are read while they point at code.
 
-use ra_asm_arch::{Instr, MemOperand, Operand, Register};
+use ra_asm_arch::{Flow, Instr, MemOperand, Operand, Register};
 use ra_asm_pe::Image;
 
 /// A resolved table.
@@ -215,6 +215,105 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
     }
 }
 
+/// Resolves the MIPS `jr t` that ends `block`, its delay slot left out, given the blocks that lead
+/// into it: `sll s, idx, 2; lui b, %hi(table); addu a, s, b; lw t, %lo(table)(a)`, the entries
+/// absolute addresses, the index bounded by `sltiu c, idx, n` and a `beqz c` or `bnez c` to the
+/// default before it.
+pub fn resolve_mips(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Option<Table> {
+    let jump = block.last()?;
+    let target = reg_of(jump.operands.first()?)?;
+    let (load_at, load) = mips_writer(block, block.len() - 1, target)?;
+    let Some(Operand::Mem(entry)) = load.operands.get(1) else { return None };
+    if load.mnemonic != "lw" {
+        return None;
+    }
+    let (add_at, add) = mips_writer(block, load_at, entry.base?)?;
+    let (Some(x), Some(y)) = (add.operands.get(1).and_then(reg_of), add.operands.get(2).and_then(reg_of)) else { return None };
+    if add.mnemonic != "addu" {
+        return None;
+    }
+    // One addend is the table's high half, the other the index times four.
+    let (base, index) = [(x, y), (y, x)]
+        .into_iter()
+        .find_map(|(high, scaled)| Some((mips_constant(block, add_at, high)?, mips_scaled_index(block, add_at, scaled)?)))?;
+    let address = base.wrapping_add(entry.disp as u64) & 0xffff_ffff;
+    let mut context: Vec<&[Instr]> = vec![block];
+    context.extend_from_slice(predecessors);
+    let (count, bound) = mips_bound(&context, index).unzip();
+    let table = read_table(image, address, 4, count, Relative::Absolute, index, load.address)?;
+    Some(Table { bound, ..table })
+}
+
+/// Whether a MIPS instruction writes the register it names first, as every form that writes a
+/// general register does: not a store, a branch, a multiply or divide into `hi` and `lo`, or a trap.
+fn writes_first(i: &Instr) -> bool {
+    const READS_FIRST: &[&str] =
+        &["sb", "sh", "sw", "swl", "swr", "mult", "multu", "div", "divu", "mthi", "mtlo", "tge", "tgeu", "tlt", "tltu", "teq", "tne"];
+    i.flow == Flow::Next && !READS_FIRST.contains(&i.mnemonic.as_str())
+}
+
+/// The last MIPS instruction before `until` that writes `reg`, with its index; `None` past a call
+/// or a system call, which clobber the registers, or the delay slot of a call, which runs before it.
+fn mips_writer(instrs: &[Instr], until: usize, reg: Register) -> Option<(usize, &Instr)> {
+    for (n, i) in instrs[..until].iter().enumerate().rev() {
+        if matches!(i.flow, Flow::Call(_) | Flow::Interrupt) || (n > 0 && matches!(instrs[n - 1].flow, Flow::Call(_))) {
+            return None;
+        }
+        if writes_first(i) && i.operands.first().and_then(reg_of).is_some_and(|d| same(d, reg)) {
+            return Some((n, i));
+        }
+    }
+    None
+}
+
+/// The constant a MIPS register holds before `until`: `$zero`, a `lui`, or an `addiu` to one.
+fn mips_constant(instrs: &[Instr], until: usize, reg: Register) -> Option<u64> {
+    if reg.full == 0 {
+        return Some(0);
+    }
+    let (at, i) = mips_writer(instrs, until, reg)?;
+    match (i.mnemonic.as_str(), i.operands.get(1), i.operands.get(2)) {
+        ("lui", Some(Operand::Imm { value, .. }), None) => Some(((*value as u64) << 16) & 0xffff_ffff),
+        ("addiu", Some(Operand::Reg(source)), Some(Operand::Imm { value, .. })) => {
+            Some(mips_constant(instrs, at, *source)?.wrapping_add(*value as u64) & 0xffff_ffff)
+        }
+        _ => None,
+    }
+}
+
+/// The index a MIPS register holds four times of before `until`: `sll s, idx, 2`.
+fn mips_scaled_index(instrs: &[Instr], until: usize, reg: Register) -> Option<Register> {
+    let (_, i) = mips_writer(instrs, until, reg)?;
+    match (i.mnemonic.as_str(), i.operands.get(1), i.operands.get(2)) {
+        ("sll", Some(Operand::Reg(index)), Some(Operand::Imm { value: 2, .. })) => Some(*index),
+        _ => None,
+    }
+}
+
+/// The number of entries `sltiu c, idx, n` bounds a MIPS index to, with the compare's address,
+/// when a `beqz c` or `bnez c` after it in its block branches on the result and nothing writes the
+/// index between the compare and the table read.
+fn mips_bound(blocks: &[&[Instr]], index: Register) -> Option<(usize, u64)> {
+    for block in blocks {
+        for (n, i) in block.iter().enumerate().rev() {
+            let dst = i.operands.first().and_then(reg_of);
+            if i.mnemonic == "sltiu"
+                && let (Some(c), Some(Operand::Reg(r)), Some(Operand::Imm { value, .. })) = (dst, i.operands.get(1), i.operands.get(2))
+                && same(*r, index)
+                && block[n + 1..].iter().any(|b| {
+                    matches!(b.mnemonic.as_str(), "beqz" | "bnez") && b.operands.first().and_then(reg_of).is_some_and(|t| same(t, c))
+                })
+            {
+                return usize::try_from(*value).ok().map(|entries| (entries, i.address));
+            }
+            if writes_first(i) && dst.is_some_and(|d| same(d, index)) {
+                return None;
+            }
+        }
+    }
+    None
+}
+
 #[derive(Clone, Copy)]
 enum Relative {
     Absolute,
@@ -241,6 +340,8 @@ fn read_table(
         };
         let Some(raw) = raw else { break };
         let target = match relative {
+            // A 32-bit entry is an address of a 32-bit space, which a sign never widens.
+            Relative::Absolute if entry_size == 4 => raw as u64 & 0xffff_ffff,
             Relative::Absolute => raw as u64,
             Relative::To(base) => base.wrapping_add(raw as u64),
         };
