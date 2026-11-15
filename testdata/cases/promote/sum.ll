@@ -1,0 +1,27 @@
+; `lea rax, [rcx+rdx]; ret`: two registers read at the entry become the two parameters, the
+; register written before the `ret` the result, and the stack pointer the top of a frame.
+; pass: promote
+; call: @F_401000(rcx 7, rdx 9)
+; call: @F_401000(rcx -1, rdx 1)
+; call: @F_401000(rcx 0x8000000000000000, rdx 0x8000000000000000)
+; signature: @F_401000 i64 (i64, i64)
+
+%State = type { [16 x i64], i64, [8 x i8], [32 x i128] }
+
+define void @F_401000(ptr %state) {
+b_401000:
+  %p.rcx = getelementptr %State, ptr %state, i32 0, i32 0, i32 1
+  %rcx = load i64, ptr %p.rcx, align 8
+  %p.rdx = getelementptr %State, ptr %state, i32 0, i32 0, i32 2
+  %rdx = load i64, ptr %p.rdx, align 8
+  %sum = add i64 %rcx, %rdx
+  %p.rax = getelementptr %State, ptr %state, i32 0, i32 0, i32 0
+  store i64 %sum, ptr %p.rax, align 8
+  %p.rsp = getelementptr %State, ptr %state, i32 0, i32 0, i32 4
+  %rsp = load i64, ptr %p.rsp, align 8
+  %ret.addr.p = inttoptr i64 %rsp to ptr
+  %ret.addr = load i64, ptr %ret.addr.p, align 1
+  %sp = add i64 %rsp, 8
+  store i64 %sp, ptr %p.rsp, align 8
+  ret void
+}
