@@ -1,0 +1,65 @@
+# The Win32 structures a 32-bit program hands the 64-bit host, or the host hands it, and whether
+# the host's adapter converts each between its 32-bit and its 64-bit layout.
+# `cargo test -p ra-asm-host --test conformance` fills each structure as the 32-bit program lays it
+# out, converts it by the adapter and compares with the layout table of `ra-asm-protos`.
+#
+# Each [[struct]] is one structure. `name` is its tag or typedef name in the SDK headers.
+# `direction` is the way it crosses the call:
+#   in    the program fills it and the host reads it (the adapter widens it),
+#   out   the host fills it and the program reads it (the adapter narrows it),
+#   both  the host reads it and writes it back (the adapter does both).
+# `status` is `pending`, the adapter does not convert it yet, or `passing`. A pending row that
+# passes fails the test: mark it passing. Values hold no `#`.
+#
+# The rows are the structures the ignore reasons of rhtest's misc, sys and win name in
+# crates/ra-asm-emit/tests/oracle.rs.
+
+[[struct]]
+name = "WNDCLASSA"
+direction = "in"        # RegisterClassA
+status = "pending"
+
+[[struct]]
+name = "WNDCLASSEXA"
+direction = "in"        # RegisterClassExA
+status = "pending"
+
+[[struct]]
+name = "CREATESTRUCTA"
+direction = "out"       # WM_CREATE's lParam, to the program's window procedure
+status = "pending"
+
+[[struct]]
+name = "MSG"
+direction = "both"      # GetMessageA and PeekMessageA fill it, TranslateMessage and DispatchMessageA read it
+status = "pending"
+
+[[struct]]
+name = "OVERLAPPED"
+direction = "both"      # ReadFile and WriteFile read its offset and event, the host writes its status
+status = "pending"
+
+[[struct]]
+name = "MEMORY_BASIC_INFORMATION"
+direction = "out"       # VirtualQuery
+status = "pending"
+
+[[struct]]
+name = "SLIST_HEADER"
+direction = "both"      # InitializeSListHead, InterlockedPushEntrySList, InterlockedPopEntrySList
+status = "pending"
+
+[[struct]]
+name = "INIT_ONCE"
+direction = "both"      # InitOnceExecuteOnce
+status = "pending"
+
+[[struct]]
+name = "WSADATA"
+direction = "out"       # WSAStartup
+status = "pending"
+
+[[struct]]
+name = "CRITICAL_SECTION"
+direction = "both"      # InitializeCriticalSection, EnterCriticalSection, LeaveCriticalSection
+status = "pending"

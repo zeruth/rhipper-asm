@@ -19,4 +19,5 @@ ra-asm-residual.workspace = true
 
 [dev-dependencies]
 ra-asm-analysis.workspace = true
+ra-asm-protos.workspace = true
 ra-asm-testing.workspace = true
