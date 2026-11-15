@@ -4,9 +4,13 @@
 
 extern uint64_t RegisterClassExA(uint64_t);
 
-// A field of the program's structure in the host's: zero- or sign-extended to the host's width.
-static void ra_widen(uint8_t *host, const uint8_t *guest, unsigned narrow, unsigned wide, int sign) {
-    uint8_t fill = sign && (guest[narrow - 1] & 0x80) ? 0xFF : 0;
+// A field of the program's structure in the host's: zero- or sign-extended to the host's width
+// (`extend` 0 or 1). A pointer or a handle (`extend` 2) is zero-extended but for all ones, the -1
+// sentinel, which widens to the host's -1: DeleteCriticalSection frees a DebugInfo that is not.
+static void ra_widen(uint8_t *host, const uint8_t *guest, unsigned narrow, unsigned wide, int extend) {
+    int ones = extend == 2;
+    for (unsigned i = 0; i < narrow; i++) ones &= guest[i] == 0xFF;
+    uint8_t fill = (ones || (extend == 1 && (guest[narrow - 1] & 0x80))) ? 0xFF : 0;
     for (unsigned i = 0; i < wide; i++) host[i] = i < narrow ? guest[i] : fill;
 }
 
@@ -109,13 +113,13 @@ static void ra_to_host_tagWNDCLASSEXA(uint8_t *host, const uint8_t *guest) {
     ra_put(host + 8, 8, ra_callback_to_host_WNDPROC(ra_get(guest + 8, 4))); // lpfnWndProc
     ra_widen(host + 16, guest + 12, 4, 4, 0); // cbClsExtra
     ra_widen(host + 20, guest + 16, 4, 4, 0); // cbWndExtra
-    ra_widen(host + 24, guest + 20, 4, 8, 0); // hInstance
-    ra_widen(host + 32, guest + 24, 4, 8, 0); // hIcon
-    ra_widen(host + 40, guest + 28, 4, 8, 0); // hCursor
-    ra_widen(host + 48, guest + 32, 4, 8, 0); // hbrBackground
-    ra_widen(host + 56, guest + 36, 4, 8, 0); // lpszMenuName
-    ra_widen(host + 64, guest + 40, 4, 8, 0); // lpszClassName
-    ra_widen(host + 72, guest + 44, 4, 8, 0); // hIconSm
+    ra_widen(host + 24, guest + 20, 4, 8, 2); // hInstance
+    ra_widen(host + 32, guest + 24, 4, 8, 2); // hIcon
+    ra_widen(host + 40, guest + 28, 4, 8, 2); // hCursor
+    ra_widen(host + 48, guest + 32, 4, 8, 2); // hbrBackground
+    ra_widen(host + 56, guest + 36, 4, 8, 2); // lpszMenuName
+    ra_widen(host + 64, guest + 40, 4, 8, 2); // lpszClassName
+    ra_widen(host + 72, guest + 44, 4, 8, 2); // hIconSm
 }
 
 // RegisterClassExA: tagWNDCLASSEXA (parameter 0) widened for the host.

@@ -540,7 +540,7 @@ impl Walk<'_> {
                 }
             }
             Terminator::CondBr { cond, then, els } => {
-                let (cond, then, els, last, mut then_body, mut els_body) = self.fold_condition(Cond::Is(cond.clone()), *then, *els, cur);
+                let (cond, then, els, last, then_body, els_body) = self.fold_condition(Cond::Is(cond.clone()), *then, *els, cur);
                 // The join of the folded chain is the last condition's: an earlier one may be
                 // post-dominated by a condition the chain absorbed.
                 let join = self.join_of(last, stop);
@@ -802,10 +802,19 @@ impl Walk<'_> {
     /// can also go past: some arm reaches the post-dominator without the join. A block not placed,
     /// not the region's end, and no jump of the context. A short one is a tail too: the arm that
     /// skips the join reaches it before its own exits have names, so a copy there could not end.
+    /// Not when the join is the region's end: an arm runs off to it, which inside the region
+    /// around the branch would run on into the post-dominator instead (msvcp140's landing pad,
+    /// which every pending exception goes to and no way on passes).
     fn skipped_join(&self, last: BlockId, arms: [BlockId; 2], join: Option<BlockId>, stop: Option<BlockId>) -> Option<BlockId> {
         let j = join?;
         let p = self.g.ipdom.get(&last).copied().flatten().or_else(|| self.g.ipdom_live.get(&last).copied().flatten())?;
-        if p == j || Some(p) == stop || self.emitted.contains(&p) || self.tails.contains(&p) || self.jump(p, stop).is_some() {
+        if p == j
+            || Some(j) == stop
+            || Some(p) == stop
+            || self.emitted.contains(&p)
+            || self.tails.contains(&p)
+            || self.jump(p, stop).is_some()
+        {
             return None;
         }
         arms.iter().any(|&a| a == p || self.reaches(a, p, j)).then_some(p)

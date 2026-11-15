@@ -53,7 +53,7 @@ fn union_and_callback_adapters() {
     assert_has(text, "    ra_widen(host + 8, guest + 4, 4, 8, 0); // InternalHigh\n");
     assert_has(text, "    ra_widen(host + 16, guest + 8, 4, 4, 0); // Offset\n");
     assert_has(text, "    ra_widen(host + 20, guest + 12, 4, 4, 0); // OffsetHigh\n");
-    assert_has(text, "    ra_widen(host + 24, guest + 16, 4, 8, 0); // hEvent\n");
+    assert_has(text, "    ra_widen(host + 24, guest + 16, 4, 8, 2); // hEvent\n");
     assert!(!text.contains("// Pointer\n"), "{text}");
     assert_has(text, "    ra_narrow(guest + 8, host + 16, 4, 4, 0, \"the host's _OVERLAPPED.Offset does not fit in 4 bytes\");\n");
     assert_eq!(text.matches("static void ra_to_host__OVERLAPPED(").count(), 1, "one conversion for its three imports");
@@ -71,9 +71,11 @@ fn union_and_callback_adapters() {
 
     // WSADATA's strings copy as their bytes, and its pointer moves to the front at 64 bits.
     assert_has(text, "    ra_widen(host + 16, guest + 4, 257, 257, 0); // szDescription\n");
-    assert_has(text, "    ra_widen(host + 8, guest + 396, 4, 8, 0); // lpVendorInfo\n");
+    assert_has(text, "    ra_widen(host + 8, guest + 396, 4, 8, 2); // lpVendorInfo\n");
 
-    // CRITICAL_SECTION widens its pointers and its spin count, and keeps its counts.
+    // CRITICAL_SECTION widens its pointers and its spin count, and keeps its counts; its
+    // DebugInfo of -1, which the way back keeps, is the host's -1 again on the next call.
+    assert_has(text, "    ra_widen(host + 0, guest + 0, 4, 8, 2); // DebugInfo\n");
     assert_has(text, "    ra_widen(host + 8, guest + 4, 4, 4, 0); // LockCount\n");
     assert_has(text, "    ra_widen(host + 32, guest + 20, 4, 8, 0); // SpinCount\n");
 

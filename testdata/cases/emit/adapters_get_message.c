@@ -4,9 +4,13 @@
 
 extern uint64_t GetMessageA(uint64_t, uint64_t, uint64_t, uint64_t);
 
-// A field of the program's structure in the host's: zero- or sign-extended to the host's width.
-static void ra_widen(uint8_t *host, const uint8_t *guest, unsigned narrow, unsigned wide, int sign) {
-    uint8_t fill = sign && (guest[narrow - 1] & 0x80) ? 0xFF : 0;
+// A field of the program's structure in the host's: zero- or sign-extended to the host's width
+// (`extend` 0 or 1). A pointer or a handle (`extend` 2) is zero-extended but for all ones, the -1
+// sentinel, which widens to the host's -1: DeleteCriticalSection frees a DebugInfo that is not.
+static void ra_widen(uint8_t *host, const uint8_t *guest, unsigned narrow, unsigned wide, int extend) {
+    int ones = extend == 2;
+    for (unsigned i = 0; i < narrow; i++) ones &= guest[i] == 0xFF;
+    uint8_t fill = (ones || (extend == 1 && (guest[narrow - 1] & 0x80))) ? 0xFF : 0;
     for (unsigned i = 0; i < wide; i++) host[i] = i < narrow ? guest[i] : fill;
 }
 
@@ -28,7 +32,7 @@ static void ra_narrow(uint8_t *guest, const uint8_t *host, unsigned narrow, unsi
 // tagMSG: 28 bytes at 32 bits, 48 at 64.
 static void ra_to_host_tagMSG(uint8_t *host, const uint8_t *guest) {
     for (unsigned i = 0; i < 48; i++) host[i] = 0;
-    ra_widen(host + 0, guest + 0, 4, 8, 0); // hwnd
+    ra_widen(host + 0, guest + 0, 4, 8, 2); // hwnd
     ra_widen(host + 8, guest + 4, 4, 4, 0); // message
     ra_widen(host + 16, guest + 8, 4, 8, 0); // wParam
     ra_widen(host + 24, guest + 12, 4, 8, 1); // lParam

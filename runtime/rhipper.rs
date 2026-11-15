@@ -395,6 +395,10 @@ pub unsafe extern "system" fn ra_unresolved(_: u64, _: u64, _: u64, _: u64, _: u
 struct Exception {
     object: Vec<u8>,
     types: Vec<(u64, u64, u64)>,
+    /// The x86 frame handler's protocol: each catchable type's copy constructor, and the thrown
+    /// object's destructor, which the end of its last catch runs.
+    copies: Vec<u64>,
+    destructor: u64,
 }
 
 #[derive(Default)]
@@ -402,6 +406,8 @@ struct Exceptions {
     in_flight: Option<std::rc::Rc<Exception>>,
     staged: Option<std::rc::Rc<Exception>>,
     caught: Vec<std::rc::Rc<Exception>>,
+    /// The esp the x86 handler saved as each catch began, beside `caught`.
+    catch_sp: Vec<u64>,
     suspended: Vec<Option<std::rc::Rc<Exception>>>,
 }
 
@@ -421,7 +427,7 @@ pub unsafe fn ra_eh_throw(object: u64, size: u64) {
         if eh.in_flight.is_some() {
             eh_fatal("a throw while an exception is in flight");
         }
-        eh.in_flight = Some(std::rc::Rc::new(Exception { object: copy, types: Vec::new() }));
+        eh.in_flight = Some(std::rc::Rc::new(Exception { object: copy, types: Vec::new(), copies: Vec::new(), destructor: 0 }));
     });
 }
 
@@ -430,7 +436,61 @@ pub unsafe fn ra_eh_throw_type(key: u64, displacement: u64, size: u64) {
         let mut eh = eh.borrow_mut();
         let Some(e) = eh.in_flight.as_mut().and_then(std::rc::Rc::get_mut) else { eh_fatal("a catchable type with no throw to belong to") };
         e.types.push((key, displacement, size));
+        e.copies.push(0);
     });
+}
+
+pub unsafe fn ra_eh_throw_copy(copy: u64) {
+    EH.with(|eh| {
+        let mut eh = eh.borrow_mut();
+        let Some(slot) = eh.in_flight.as_mut().and_then(std::rc::Rc::get_mut).and_then(|e| e.copies.last_mut()) else {
+            eh_fatal("a copy constructor with no catchable type to belong to")
+        };
+        *slot = copy;
+    });
+}
+
+pub unsafe fn ra_eh_throw_destructor(destructor: u64) {
+    EH.with(|eh| {
+        let mut eh = eh.borrow_mut();
+        let Some(e) = eh.in_flight.as_mut().and_then(std::rc::Rc::get_mut) else { eh_fatal("a destructor with no throw to belong to") };
+        e.destructor = destructor;
+    });
+}
+
+/// The object and the destructor of the catch now ending, the destructor 0 when the exception is
+/// held elsewhere (in flight again, staged, caught further out or suspended).
+fn ending(eh: &Exceptions) -> (u64, u64) {
+    let Some(e) = eh.caught.last() else { eh_fatal("the end of a catch body with no exception caught") };
+    let same = |other: &Option<std::rc::Rc<Exception>>| other.as_ref().is_some_and(|o| std::rc::Rc::ptr_eq(o, e));
+    let held = same(&eh.in_flight)
+        || same(&eh.staged)
+        || eh.caught[..eh.caught.len() - 1].iter().any(|o| std::rc::Rc::ptr_eq(o, e))
+        || eh.suspended.iter().any(same);
+    (e.object.as_ptr() as usize as u64, if held { 0 } else { e.destructor })
+}
+
+pub unsafe fn ra_eh_ending_object() -> u64 {
+    EH.with(|eh| ending(&eh.borrow()).0)
+}
+
+pub unsafe fn ra_eh_ending_destructor() -> u64 {
+    EH.with(|eh| ending(&eh.borrow()).1)
+}
+
+pub unsafe fn ra_eh_catch_sp(sp: u64) {
+    EH.with(|eh| {
+        let mut eh = eh.borrow_mut();
+        let Some(slot) = eh.catch_sp.last_mut() else { eh_fatal("a saved esp with no catch being run") };
+        *slot = sp;
+    });
+}
+
+pub unsafe fn ra_eh_ending_sp() -> u64 {
+    EH.with(|eh| match eh.borrow().catch_sp.last() {
+        Some(&sp) => sp,
+        None => eh_fatal("the end of a catch body with no exception caught"),
+    })
 }
 
 pub unsafe fn ra_eh_rethrow() {
@@ -480,14 +540,17 @@ pub unsafe fn ra_eh_enter_catch() {
         }
         let Some(e) = eh.staged.take() else { eh_fatal("a catch body with no exception matched") };
         eh.caught.push(e);
+        eh.catch_sp.push(0);
     });
 }
 
 pub unsafe fn ra_eh_leave_catch() {
     EH.with(|eh| {
-        if eh.borrow_mut().caught.pop().is_none() {
+        let mut eh = eh.borrow_mut();
+        if eh.caught.pop().is_none() {
             eh_fatal("the end of a catch body with no exception caught");
         }
+        eh.catch_sp.pop();
     });
 }
 

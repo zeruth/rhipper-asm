@@ -326,6 +326,15 @@ void ra_eh_enter_catch(void);
 void ra_eh_leave_catch(void);
 void ra_eh_suspend(void);
 void ra_eh_resume(void);
+// The x86 frame handler's protocol on top: the thrown object's destructor and the copy constructor
+// of the catchable type named last; at the end of a catch the object, the destructor to run on it
+// (0 when the exception is held elsewhere) and the esp the handler saved when the catch began.
+void ra_eh_throw_destructor(uint64_t destructor);
+void ra_eh_throw_copy(uint64_t copy);
+uint64_t ra_eh_ending_object(void);
+uint64_t ra_eh_ending_destructor(void);
+void ra_eh_catch_sp(uint64_t sp);
+uint64_t ra_eh_ending_sp(void);
 // The structured exceptions of a 32-bit __try: ra_eh_probe(address, size, write, site) puts the
 // access violation in flight and answers 1 when the access would fault; ra_eh_pointers gives the
 // EXCEPTION_POINTERS its filter reads, in the program's 32-bit layout; ra_eh_handled ends it, and

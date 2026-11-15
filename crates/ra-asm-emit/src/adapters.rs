@@ -53,6 +53,8 @@ struct Step {
     /// A signed integer that widens, sign-extended; a pointer or an unsigned integer is
     /// zero-extended, and a field of one width at both is copied.
     sign: bool,
+    /// A pointer or a handle that widens, whose -1 stays -1.
+    pointer: bool,
     role: Role,
 }
 
@@ -141,11 +143,16 @@ pub fn adapters(module: &Module) -> Adapters {
     Adapters { imports, text }
 }
 
-/// A field widened for the host: zero- or sign-extended from `narrow` bytes to `wide`.
+/// A field widened for the host: zero- or sign-extended from `narrow` bytes to `wide`, a pointer's
+/// -1 kept as the host's -1, the way back of [`NARROW`]'s.
 const WIDEN: &str = "\
-// A field of the program's structure in the host's: zero- or sign-extended to the host's width.
-static void ra_widen(uint8_t *host, const uint8_t *guest, unsigned narrow, unsigned wide, int sign) {
-    uint8_t fill = sign && (guest[narrow - 1] & 0x80) ? 0xFF : 0;
+// A field of the program's structure in the host's: zero- or sign-extended to the host's width
+// (`extend` 0 or 1). A pointer or a handle (`extend` 2) is zero-extended but for all ones, the -1
+// sentinel, which widens to the host's -1: DeleteCriticalSection frees a DebugInfo that is not.
+static void ra_widen(uint8_t *host, const uint8_t *guest, unsigned narrow, unsigned wide, int extend) {
+    int ones = extend == 2;
+    for (unsigned i = 0; i < narrow; i++) ones &= guest[i] == 0xFF;
+    uint8_t fill = (ones || (extend == 1 && (guest[narrow - 1] & 0x80))) ? 0xFF : 0;
     for (unsigned i = 0; i < wide; i++) host[i] = i < narrow ? guest[i] : fill;
 }
 
@@ -254,7 +261,7 @@ fn plan(record: &Record, base32: u32, base64: u32, prefix: &str, steps: &mut Vec
                     return Err(unequal());
                 }
                 let size = field.at32.size;
-                steps.push(Step { field: path, at32, at64, narrow: size, wide: size, sign: false, role: Role::Value });
+                steps.push(Step { field: path, at32, at64, narrow: size, wide: size, sign: false, pointer: false, role: Role::Value });
             }
             Kind::Pointer | Kind::Signed | Kind::Unsigned => {
                 let count = field.count.max(1);
@@ -287,14 +294,16 @@ fn plan(record: &Record, base32: u32, base64: u32, prefix: &str, steps: &mut Vec
                     Role::Value
                 };
                 let sign = field.kind == Kind::Signed && wide > narrow;
+                let pointer = field.kind == Kind::Pointer && wide > narrow;
                 if count > 1 && narrow == wide {
                     // An array of one width at both copies as its bytes.
-                    steps.push(Step { field: path, at32, at64, narrow: field.at32.size, wide: field.at64.size, sign, role });
+                    steps.push(Step { field: path, at32, at64, narrow: field.at32.size, wide: field.at64.size, sign, pointer, role });
                     continue;
                 }
                 for element in 0..count {
                     let field = if count == 1 { path.clone() } else { format!("{path}[{element}]") };
-                    steps.push(Step { field, at32: at32 + element * narrow, at64: at64 + element * wide, narrow, wide, sign, role });
+                    let (at32, at64) = (at32 + element * narrow, at64 + element * wide);
+                    steps.push(Step { field, at32, at64, narrow, wide, sign, pointer, role });
                 }
             }
         }
@@ -311,7 +320,8 @@ fn to_host(record: &Record, steps: &[Step]) -> String {
         let (host, guest, field) = (s.at64, s.at32, &s.field);
         let _ = match s.role {
             Role::Value => {
-                writeln!(out, "    ra_widen(host + {host}, guest + {guest}, {}, {}, {}); // {field}", s.narrow, s.wide, u8::from(s.sign))
+                let extend = if s.pointer { 2 } else { u8::from(s.sign) };
+                writeln!(out, "    ra_widen(host + {host}, guest + {guest}, {}, {}, {extend}); // {field}", s.narrow, s.wide)
             }
             Role::Size(size32, size64) => writeln!(
                 out,
