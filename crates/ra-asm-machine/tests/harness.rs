@@ -3,10 +3,23 @@
 //! `qemu-mipsel-static`. A case is its code at the case page's `CASE_IP` with every register,
 //! hi, lo and a window of the data region; its result is the signal that stopped it, the pc it
 //! stopped at, the registers, hi, lo and the window after it.
+//!
+//! The vectors a guest answers are written by `ra_asm_machine::generate`, which `toy_generates`
+//! runs over a toy machine with a guest that answers from the interpreter.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+
+use ra_asm_arch::{RegClass, Register};
+use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
+use ra_asm_ir::{FnType, Module};
+use ra_asm_machine::{
+    Builder, Cases, Decoded, Field, Fields, Flow, Guest, Input, Kind, Machine, Output, Row, Sem, StateSpec, Syntax, Table, Vectors,
+    generate,
+};
+use ra_asm_testing::vectors::{self, Case, Outcome, State};
 
 const CASE_IP: u32 = 0x3000_2000;
 const DATA_BASE: u32 = 0x4000_0000;
@@ -162,4 +175,276 @@ fn mipsel_runs_three_cases() {
         "beq $t0, $t1, 3; addiu $t2, $t2, 1"
     );
     println!("mipsel harness: 3 cases as expected");
+}
+
+const RD: Field = Field { name: "rd", lo: 21, width: 5, signed: false, kind: Kind::Reg };
+const RA: Field = Field { name: "ra", lo: 16, width: 5, signed: false, kind: Kind::Reg };
+const RB: Field = Field { name: "rb", lo: 11, width: 5, signed: false, kind: Kind::Reg };
+const IMM: Field = Field { name: "imm", lo: 0, width: 16, signed: true, kind: Kind::Imm };
+const DISP: Field = Field { name: "disp", lo: 0, width: 16, signed: true, kind: Kind::Mem { base: "ra", bits: 32 } };
+const BEQ_RA: Field = Field { name: "ra", lo: 21, width: 5, signed: false, kind: Kind::Reg };
+const BEQ_RB: Field = Field { name: "rb", lo: 16, width: 5, signed: false, kind: Kind::Reg };
+const NEAR: Field = Field { name: "offset", lo: 0, width: 16, signed: true, kind: Kind::Rel { shift: 2, from: 4 } };
+
+const OPCODE: u32 = 0xfc00_0000;
+const FUNCTION: u32 = OPCODE | 0x7ff;
+/// The register `mix` scribbles on, which its cases declare undefined.
+const SCRATCH: u32 = 1;
+
+fn add(b: &mut dyn Builder, f: &Fields<'_>) {
+    let (x, y) = (b.r(f.reg("ra")), b.r(f.reg("rb")));
+    let sum = b.add(32, x, y);
+    b.set(f.reg("rd"), sum);
+}
+
+/// `add`, leaving the exclusive or of its operands in [`SCRATCH`].
+fn mix(b: &mut dyn Builder, f: &Fields<'_>) {
+    let (x, y) = (b.r(f.reg("ra")), b.r(f.reg("rb")));
+    let sum = b.add(32, x, y);
+    let noise = b.xor(32, x, y);
+    b.set(f.reg("rd"), sum);
+    b.set(SCRATCH, noise);
+}
+
+fn addi(b: &mut dyn Builder, f: &Fields<'_>) {
+    let (x, k) = (b.r(f.reg("ra")), b.imm(32, f.value("imm")));
+    let sum = b.add(32, x, k);
+    b.set(f.reg("rd"), sum);
+}
+
+fn effective(b: &mut dyn Builder, f: &Fields<'_>) -> ra_asm_machine::Val {
+    let (base, disp) = (b.r(f.reg("ra")), b.imm(32, f.value("disp")));
+    b.add(32, base, disp)
+}
+
+fn ld(b: &mut dyn Builder, f: &Fields<'_>) {
+    let address = effective(b, f);
+    let value = b.load(32, address);
+    b.set(f.reg("rd"), value);
+}
+
+fn st(b: &mut dyn Builder, f: &Fields<'_>) {
+    let address = effective(b, f);
+    let value = b.r(f.reg("rd"));
+    b.store(32, address, value);
+}
+
+fn beq(b: &mut dyn Builder, f: &Fields<'_>) {
+    let (x, y) = (b.r(f.reg("ra")), b.r(f.reg("rb")));
+    let same = b.eq(32, x, y);
+    let target = b.addr(f.target("offset"));
+    b.branch_if(same, target);
+}
+
+const TOY_ROWS: [Row; 6] = [
+    Row { name: "add", mask: FUNCTION, bits: 0, fields: &[RD, RA, RB], flow: Flow::Next, outlined: false, sem: Some(Sem(add)) },
+    Row { name: "mix", mask: FUNCTION, bits: 0x2b, fields: &[RD, RA, RB], flow: Flow::Next, outlined: false, sem: Some(Sem(mix)) },
+    Row { name: "addi", mask: OPCODE, bits: 0x08 << 26, fields: &[RD, RA, IMM], flow: Flow::Next, outlined: false, sem: Some(Sem(addi)) },
+    Row { name: "ld", mask: OPCODE, bits: 0x10 << 26, fields: &[RD, RA, DISP], flow: Flow::Next, outlined: false, sem: Some(Sem(ld)) },
+    Row { name: "st", mask: OPCODE, bits: 0x14 << 26, fields: &[RD, RA, DISP], flow: Flow::Next, outlined: false, sem: Some(Sem(st)) },
+    Row {
+        name: "beq",
+        mask: OPCODE,
+        bits: 0x19 << 26,
+        fields: &[BEQ_RA, BEQ_RB, NEAR],
+        flow: Flow::Branch,
+        outlined: false,
+        sem: Some(Sem(beq)),
+    },
+];
+
+const TOY_CASES: [Cases; 6] = [
+    Cases { row: "add", group: "alu", undefined: &[] },
+    Cases { row: "mix", group: "alu", undefined: &["r1"] },
+    Cases { row: "addi", group: "alu", undefined: &[] },
+    Cases { row: "ld", group: "memory", undefined: &[] },
+    Cases { row: "st", group: "memory", undefined: &[] },
+    Cases { row: "beq", group: "branch", undefined: &[] },
+];
+
+const TOY_NAMES: [&str; 32] = [
+    "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "r16", "r17", "r18", "r19",
+    "r20", "r21", "r22", "r23", "r24", "r25", "r26", "r27", "r28", "r29", "r30", "r31",
+];
+
+const fn toy_file() -> [Register; 32] {
+    let mut registers = [Register { id: 0, name: "", class: RegClass::General, full: 0, bits: 32, shift: 0 }; 32];
+    let mut n: u16 = 0;
+    while n < 32 {
+        registers[n as usize] = Register { id: n, name: TOY_NAMES[n as usize], class: RegClass::General, full: n, bits: 32, shift: 0 };
+        n += 1;
+    }
+    registers
+}
+
+static TOY_REGISTERS: [Register; 32] = toy_file();
+
+const TOY_SPEC: StateSpec = StateSpec { registers: 32, bits: 32, pc_bits: 32, zero: Some(0) };
+const TOY_AT: u64 = 0x1000;
+const TOY_STATE: u64 = 0x10_0000;
+const TOY_WINDOW: u64 = 0x2000;
+const TOY_WINDOW_LEN: usize = 64;
+const TOY_SAMPLES: usize = 8;
+
+fn toy_machine() -> Machine {
+    let table = Table::new(&TOY_ROWS).expect("the rows make a table");
+    Machine { name: "toy", table, registers: &TOY_REGISTERS, address_bits: 32, syntax: Syntax { immediate_prefix: "", hex: false } }
+}
+
+/// The runtime of a lifted toy row: every call stops the run, which no toy row makes.
+struct Runtime;
+
+impl Host for Runtime {
+    fn call(&mut self, _: &mut Vm<'_>, name: &str, _: &FnType, _: &[Value]) -> Result<Value, Stop> {
+        Err(Stop::fault(format!("{name} called")))
+    }
+}
+
+/// The guest of the toy machine: each case's word lifted alone and run by the interpreter over
+/// the state and the window, and the groups it was asked for, in order, with their sizes.
+struct Interpreter<'m> {
+    machine: &'m Machine,
+    batches: Vec<(String, usize)>,
+}
+
+impl Guest for Interpreter<'_> {
+    fn run(&mut self, group: &str, inputs: &[Input]) -> Result<Vec<Output>, String> {
+        self.batches.push((group.to_owned(), inputs.len()));
+        inputs.iter().map(|input| self.case(input)).collect()
+    }
+}
+
+impl Interpreter<'_> {
+    fn case(&self, input: &Input) -> Result<Output, String> {
+        let word = input.code[0];
+        let function = self.machine.lift(&TOY_SPEC, word, TOY_AT).ok_or_else(|| format!("no row wins {word:#010x}"))?;
+        let name = function.name.clone();
+        let mut module = Module::x86_64_windows("toy");
+        TOY_SPEC.declare(&mut module);
+        module.functions.push(function);
+        let mut memory = Memory::new();
+        memory.add_region(Region::owned(TOY_STATE, TOY_SPEC.size(), "state"));
+        memory.add_region(Region::owned(TOY_WINDOW, TOY_WINDOW_LEN as u64, "window"));
+        let mut vm = Vm::new(&module, memory);
+        let unmapped = |stop: Stop| format!("{stop:?}");
+        for (n, &value) in input.registers.iter().enumerate() {
+            vm.memory.write_u32(TOY_STATE + TOY_SPEC.register_offset(n as u32), value as u32).map_err(unmapped)?;
+        }
+        vm.memory.write_u32(TOY_STATE + TOY_SPEC.pc_offset(), TOY_AT as u32).map_err(unmapped)?;
+        vm.memory.write(TOY_WINDOW, &input.window).map_err(unmapped)?;
+        let fault = vm.call_named(&mut Runtime, &name, vec![Value::Int(u128::from(TOY_STATE))]).err().map(|_| "trap".to_owned());
+        let mut registers = vec![0u64; input.registers.len()];
+        for (n, value) in registers.iter_mut().enumerate() {
+            *value = u64::from(vm.memory.read_u32(TOY_STATE + TOY_SPEC.register_offset(n as u32)).map_err(unmapped)?);
+        }
+        let pc = u64::from(vm.memory.read_u32(TOY_STATE + TOY_SPEC.pc_offset()).map_err(unmapped)?);
+        let mut window = vec![0u8; input.window.len()];
+        vm.memory.read(TOY_WINDOW, &mut window).map_err(unmapped)?;
+        Ok(Output { fault, pc, registers, window })
+    }
+}
+
+/// The register `name` of a side of a case, as a number; `None` when the side does not name it.
+fn register(state: &State, name: &str) -> Option<u32> {
+    state.registers.get(name).map(|value| value.iter().fold(0, |n, &b| n << 8 | u32::from(b)))
+}
+
+/// The byte at `address` of the last of `sides` that has a cell holding it.
+fn byte(sides: &[&State], address: u64) -> u8 {
+    sides
+        .iter()
+        .rev()
+        .find_map(|side| {
+            side.memory
+                .range(..=address)
+                .next_back()
+                .filter(|&(&start, cell)| address < start + cell.len() as u64)
+                .map(|(&start, cell)| cell[(address - start) as usize])
+        })
+        .unwrap_or_else(|| panic!("no cell holds {address:#x}"))
+}
+
+/// The little-endian word at `address` of `sides`.
+fn word_at(sides: &[&State], address: u64) -> u32 {
+    (0..4).rev().fold(0, |n, i| n << 8 | u32::from(byte(sides, address + i)))
+}
+
+/// Checks a case read back against what its row means.
+fn check(case: &Case, decoded: &Decoded<'_>) {
+    let row = decoded.row.name;
+    let Outcome::State(out) = &case.outcome else { panic!("a {row} case faulted: {case:?}") };
+    let field = |name: &str| decoded.field(name).unwrap_or_else(|| panic!("{row} has no field {name}"));
+    let reg = |name: &str| format!("r{}", field(name));
+    let input = |name: &str| register(&case.input, name).unwrap_or(0);
+    let output = |name: &str| register(out, name).unwrap_or_else(|| input(name));
+    // r0 drops what is written to it.
+    let written = |name: &str, value: u32| if field(name) == 0 { 0 } else { value };
+    let (at, next) = (TOY_AT as u32, TOY_AT as u32 + 4);
+    assert_eq!(input("pc"), at, "{row}: {case:?}");
+    let address = || u64::from(input(&reg("ra")).wrapping_add(field("disp") as u32));
+    match row {
+        "add" => assert_eq!(output(&reg("rd")), written("rd", input(&reg("ra")).wrapping_add(input(&reg("rb")))), "{case:?}"),
+        "mix" => {
+            assert!(!out.registers.contains_key("r1"), "the undefined r1 is out: {case:?}");
+            assert_eq!(out.registers.get("undefined").map(Vec::as_slice), Some(&[0, 0, 0, 2][..]), "{case:?}");
+            if field("rd") != i64::from(SCRATCH) {
+                assert_eq!(output(&reg("rd")), written("rd", input(&reg("ra")).wrapping_add(input(&reg("rb")))), "{case:?}");
+            }
+        }
+        "addi" => assert_eq!(output(&reg("rd")), written("rd", input(&reg("ra")).wrapping_add(field("imm") as u32)), "{case:?}"),
+        "ld" => assert_eq!(output(&reg("rd")), written("rd", word_at(&[&case.input], address())), "{case:?}"),
+        "st" => assert_eq!(word_at(&[&case.input, out], address()), input(&reg("rd")), "{case:?}"),
+        "beq" => {
+            let taken = input(&reg("ra")) == input(&reg("rb"));
+            let target = next.wrapping_add((field("offset") as u32) << 2);
+            assert_eq!(output("pc"), if taken { target } else { next }, "{case:?}");
+            return;
+        }
+        _ => panic!("no toy row {row}"),
+    }
+    assert_eq!(output("pc"), next, "{row}: {case:?}");
+}
+
+/// The toy machine's vectors, its guest the interpreter: one batch a group, one file a group under
+/// `<out>/toy`, each read back with every case decoding to a row of its group and its outcome what
+/// the row means, the register `mix` leaves undefined masked.
+#[test]
+#[ignore = "a machine's regenerating test; the toy's writes into its scratch, answered by the interpreter"]
+fn toy_generates() {
+    let machine = toy_machine();
+    let table = Vectors {
+        machine: &machine,
+        spec: TOY_SPEC,
+        rows: &TOY_CASES,
+        samples: TOY_SAMPLES,
+        at: TOY_AT,
+        window: TOY_WINDOW,
+        window_len: TOY_WINDOW_LEN,
+        slot: 0,
+    };
+    let scratch = ra_asm_testing::Scratch::new("ra-asm-machine-tests", "generate-toy");
+    let mut guest = Interpreter { machine: &machine, batches: Vec::new() };
+    let written = generate(&table, &mut guest, 0x5eed_0298, scratch.path()).unwrap_or_else(|e| panic!("{e}"));
+
+    let groups = ["alu", "branch", "memory"];
+    assert_eq!(written, groups.map(|group| scratch.join("toy").join(format!("{group}.vec"))));
+    let sizes: Vec<(String, usize)> = [("alu", 3), ("branch", 1), ("memory", 2)].map(|(g, rows)| (g.to_owned(), rows * TOY_SAMPLES)).into();
+    assert_eq!(guest.batches, sizes, "one batch a group");
+
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for (path, group) in written.iter().zip(groups) {
+        let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let cases = vectors::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        for case in &cases {
+            let word = u32::from_be_bytes(case.bytes[..].try_into().expect("a case is one word"));
+            let decoded = machine.table.decode(word).unwrap_or_else(|| panic!("{word:#010x} decodes to no row"));
+            let declared = TOY_CASES.iter().find(|cases| cases.row == decoded.row.name).expect("a row of the vectors");
+            assert_eq!(declared.group, group, "{} is in {}", decoded.row.name, path.display());
+            check(case, &decoded);
+            *counts.entry(decoded.row.name).or_default() += 1;
+        }
+    }
+    let expected: BTreeMap<&str, usize> = TOY_ROWS.iter().map(|row| (row.name, TOY_SAMPLES)).collect();
+    assert_eq!(counts, expected);
+    println!("toy vectors: {} cases in {} files", TOY_ROWS.len() * TOY_SAMPLES, written.len());
 }

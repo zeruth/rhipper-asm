@@ -28,11 +28,15 @@
 //!
 //! [`check()`] is the test a machine's table passes: every row has cases that decode to it, no two
 //! rows of one specificity accept a word, and every row's semantics runs against both builders.
+//!
+//! [`generate()`] draws a table's cases, runs them on the machine through a [`Guest`] and writes
+//! its reference vectors, one file a group, with what a row leaves undefined masked.
 
 pub mod access;
 pub mod asm;
 pub mod cases;
 pub mod check;
+pub mod generate;
 pub mod instr;
 pub mod lift;
 pub mod outline;
@@ -43,6 +47,7 @@ pub use access::Summary;
 pub use asm::{AsmError, assemble};
 pub use cases::{Case, Plan, cases};
 pub use check::{Failure, Problem, check};
+pub use generate::{Cases, Guest, Input, Output, Vectors, generate};
 pub use instr::{Machine, Syntax};
 pub use lift::Code;
 pub use outline::Outlines;
