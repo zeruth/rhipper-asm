@@ -299,6 +299,7 @@ dependencies = [
  "ra-asm-protos",
  "ra-asm-residual",
  "ra-asm-testing",
+ "serde_json",
 ]
 
 [[package]]

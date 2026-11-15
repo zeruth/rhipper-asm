@@ -21,3 +21,4 @@ ra-asm-residual.workspace = true
 [dev-dependencies]
 ra-asm-analysis.workspace = true
 ra-asm-testing.workspace = true
+serde_json.workspace = true
