@@ -2,3 +2,5 @@
 /var
 /out
 /site
+/testdata/psp/hello.elf
+/testdata/psp/hello.o

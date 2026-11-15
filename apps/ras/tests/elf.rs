@@ -37,6 +37,35 @@ fn ras_names_the_mips_control_mips() {
 }
 
 #[test]
+fn ras_prints_the_psp_module_at_its_load_address() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/psp/hello.prx");
+    let info = ras_on(&path, &["info"]);
+    for line in [
+        "machine        mips",
+        "type           psp module",
+        "module         hello, user, version 1.0, loaded at 0x08804000",
+        "IoFileMgrForUser (9)",
+        "LoadExecForUser (1)",
+        "image base     0x08804000",
+        "entry point    0x088040ec",
+        "43 imports",
+    ] {
+        assert!(info.contains(line), "no `{line}` in:\n{info}");
+    }
+    let json: serde_json::Value = serde_json::from_str(&ras_on(&path, &["--json", "info"])).unwrap();
+    assert_eq!(json["elf"]["prx"]["name"], "hello");
+    assert_eq!(json["elf"]["prx"]["load"], "0x08804000");
+    assert_eq!(json["elf"]["prx"]["relocations"], 3421);
+
+    // Every import by the name its NID stands for, none by the NID itself.
+    let imports = ras_on(&path, &["imports"]);
+    for name in ["sceIoWrite", "sceKernelExitGame"] {
+        assert!(imports.contains(&format!("  {name} ")), "no {name} in:\n{imports}");
+    }
+    assert!(!imports.lines().any(|l| l.contains("ForUser_")), "an import named by its NID in:\n{imports}");
+}
+
+#[test]
 fn ras_prints_the_linux_hello() {
     let info = ras(&["info"]);
     for line in ["machine        x86_64", "format         ELF64", "interpreter    /lib64/ld-linux-x86-64.so.2", "needed         libc.so.6"]

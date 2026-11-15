@@ -4,7 +4,9 @@
 //! symbols with the library each one's version names, the relocations the dynamic loader applies)
 //! and the function extents `.eh_frame` records, one FDE per function; the relocations a static
 //! link kept; and a MIPS file's ABI, ISA and `$gp` from its flags, `.MIPS.abiflags` and `.reginfo`,
-//! with the addresses its `HI16`/`LO16` pairs build. What a container of this
+//! with the addresses its `HI16`/`LO16` pairs build; and a PSP module's (`ET_PRX`) module
+//! information, its NID tables and its relocations, the file moved to where the PSP loads it.
+//! What a container of this
 //! shape means to the pipeline (an import, an export, a section) is the loader's to say; this
 //! reads what the file holds, and every refusal names the field and its offset.
 
@@ -18,6 +20,8 @@ pub const MAGIC: &[u8; 4] = b"\x7fELF";
 
 pub const ET_EXEC: u16 = 2;
 pub const ET_DYN: u16 = 3;
+/// A PSP module, linked at zero and relocated by the PSP's own records; see [`psp`].
+pub const ET_PRX: u16 = 0xffa0;
 
 pub const EM_386: u16 = 3;
 /// MIPS of either byte order; ELF's class says 32 or 64 bits.
@@ -104,6 +108,12 @@ pub mod reloc {
     pub const MIPS_HI16: u32 = 5;
     /// The low half of an address in an `addiu`, a load or a store, sign-extended.
     pub const MIPS_LO16: u32 = 6;
+    /// The PSP's own kinds in a PRX's records: a high half of the kernel's form, which the
+    /// reader does not apply, and the target field of a `j` and of a `jal`, whose opcode the
+    /// loader writes with the field.
+    pub const MIPS_X_HI16: u32 = 13;
+    pub const MIPS_X_J26: u32 = 14;
+    pub const MIPS_X_JAL26: u32 = 15;
 
     /// The kind that adds the load bias to the word in place, which a packed `DT_RELR` entry stands for.
     pub fn relative(machine: u16) -> Option<u32> {
@@ -123,6 +133,9 @@ pub struct Segment {
     pub flags: u32,
     pub offset: u64,
     pub vaddr: u64,
+    /// `p_paddr`: unused by a process, but the file offset of the module information in a PRX's
+    /// first segment.
+    pub paddr: u64,
     pub filesz: u64,
     pub memsz: u64,
     pub align: u64,
@@ -324,6 +337,114 @@ impl Mips {
     }
 }
 
+/// The PSP: where its loader puts a module, the types of a PRX's relocation tables and the
+/// regions of the address space a module's code reaches.
+pub mod psp {
+    /// The records of a PRX's relocations, in a section of this type or, in a file stripped of
+    /// its sections, a program header of it.
+    pub const SHT_PRXRELOC: u32 = 0x7000_00a0;
+    pub const PT_PRXRELOC: u32 = 0x7000_00a0;
+    /// The packed records of a later firmware's PRX, which the reader does not decode.
+    pub const PT_PRXRELOC2: u32 = 0x7000_00a1;
+    /// The module attribute of a kernel-mode module.
+    pub const MODULE_KERNEL: u16 = 0x1000;
+    /// Where the user-mode loader puts the first module: the start of user RAM past the 16 KiB
+    /// the kernel keeps there.
+    pub const LOAD_ADDRESS: u64 = 0x0880_4000;
+
+    /// One region of the PSP's address space.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Region {
+        pub name: &'static str,
+        pub start: u64,
+        pub size: u64,
+        /// Hardware rather than memory: a read or a write there is the device's, not a value kept.
+        pub device: bool,
+        /// The region whose memory this one shows at another address.
+        pub mirror_of: Option<u64>,
+    }
+
+    impl Region {
+        pub fn contains(&self, va: u64) -> bool {
+            va >= self.start && va - self.start < self.size
+        }
+    }
+
+    /// The regions a module's code addresses: the scratchpad, the video memory the display reads,
+    /// the 32 MiB of main RAM (the kernel's 8 MiB, then user RAM) and the kernel's mirror of it.
+    pub const REGIONS: &[Region] = &[
+        Region { name: "scratchpad", start: 0x0001_0000, size: 0x4000, device: false, mirror_of: None },
+        Region { name: "vram", start: 0x0400_0000, size: 0x20_0000, device: true, mirror_of: None },
+        Region { name: "kernel ram", start: 0x0800_0000, size: 0x80_0000, device: false, mirror_of: None },
+        Region { name: "user ram", start: 0x0880_0000, size: 0x180_0000, device: false, mirror_of: None },
+        Region { name: "kernel mirror", start: 0x8800_0000, size: 0x200_0000, device: false, mirror_of: Some(0x0800_0000) },
+    ];
+
+    /// The region that holds `va`.
+    pub fn region(va: u64) -> Option<&'static Region> {
+        REGIONS.iter().find(|r| r.contains(va))
+    }
+}
+
+/// One relocation of a PRX, at the address the module loads at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrxRelocation {
+    /// The place it patches: the record's offset past the start of the segment it names.
+    pub place: u64,
+    /// A `reloc::MIPS_*` kind.
+    pub kind: u32,
+    /// What the place's value is relative to and gets added: the address of the segment the
+    /// record names as its base.
+    pub base: u64,
+    /// The place of the `MIPS_LO16` that completes an `MIPS_HI16`: the first after it of the same
+    /// base, whose immediate the high half's address carries the sign of.
+    pub low: Option<u64>,
+}
+
+/// A NID and the address it stands at: the stub a call to an import goes through, or what a
+/// module exports under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PspEntry {
+    pub nid: u32,
+    pub address: u64,
+}
+
+/// A library a PRX imports from or exports, by its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PspLibrary {
+    /// The name; `syslib` for the module's own exports the loader calls (`module_start`...),
+    /// whose entry has none.
+    pub name: String,
+    pub version: u16,
+    pub attributes: u16,
+    pub functions: Vec<PspEntry>,
+    pub variables: Vec<PspEntry>,
+}
+
+/// What a PRX's module information, `.rodata.sceModuleInfo`, holds, and its relocations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prx {
+    /// The address the reader loaded the module at, [`psp::LOAD_ADDRESS`]: every address of the
+    /// file, its segments and its sections are there.
+    pub load: u64,
+    pub name: String,
+    pub attributes: u16,
+    /// The major and the minor version.
+    pub version: (u8, u8),
+    /// The value of `$gp` the module's code assumes.
+    pub gp: u64,
+    pub exports: Vec<PspLibrary>,
+    pub imports: Vec<PspLibrary>,
+    /// The relocations the loader applies, in the file's order.
+    pub relocations: Vec<PrxRelocation>,
+}
+
+impl Prx {
+    pub fn is_kernel(&self) -> bool {
+        self.attributes & psp::MODULE_KERNEL != 0
+    }
+}
+
 /// What an ELF file holds, as read.
 #[derive(Debug, Clone)]
 pub struct ElfFile {
@@ -362,6 +483,9 @@ pub struct ElfFile {
     pub static_relocations: Vec<Relocation>,
     /// The flags, the ABI flags and the register information of a MIPS file.
     pub mips: Option<Mips>,
+    /// The module information and the relocations of a PSP module, [`ET_PRX`], which the reader
+    /// moves to the address it loads at.
+    pub prx: Option<Prx>,
     /// The functions `.eh_frame` describes, one FDE each: `(begin, end)` in address order.
     pub functions: Vec<(u64, u64)>,
     /// What the reader could not read beyond the headers: a table that fails lands here.
@@ -473,6 +597,7 @@ impl ElfFile {
                     flags: d.u32(at + 4, &what("p_flags"))?,
                     offset: d.u64(at + 8, &what("p_offset"))?,
                     vaddr: d.u64(at + 16, &what("p_vaddr"))?,
+                    paddr: d.u64(at + 24, &what("p_paddr"))?,
                     filesz: d.u64(at + 32, &what("p_filesz"))?,
                     memsz: d.u64(at + 40, &what("p_memsz"))?,
                     align: d.u64(at + 48, &what("p_align"))?,
@@ -482,6 +607,7 @@ impl ElfFile {
                     kind: d.u32(at, &what("p_type"))?,
                     offset: u64::from(d.u32(at + 4, &what("p_offset"))?),
                     vaddr: u64::from(d.u32(at + 8, &what("p_vaddr"))?),
+                    paddr: u64::from(d.u32(at + 12, &what("p_paddr"))?),
                     filesz: u64::from(d.u32(at + 16, &what("p_filesz"))?),
                     memsz: u64::from(d.u32(at + 20, &what("p_memsz"))?),
                     flags: d.u32(at + 24, &what("p_flags"))?,
@@ -510,6 +636,7 @@ impl ElfFile {
             relocations: Vec::new(),
             static_relocations: Vec::new(),
             mips: None,
+            prx: None,
             functions: Vec::new(),
             warnings: Vec::new(),
         };
@@ -548,7 +675,185 @@ impl ElfFile {
             Ok(functions) => elf.functions = functions,
             Err(e) => elf.warnings.push(format!(".eh_frame: {e:#}")),
         }
+        if kind == ET_PRX {
+            elf.load_prx(d);
+        }
         Ok(elf)
+    }
+
+    /// Reads a PRX's relocations and module information at its link addresses, then moves the
+    /// file to [`psp::LOAD_ADDRESS`]: the loaded segments, the allocated sections, the entry, the
+    /// defined symbols and the `.eh_frame` extents. A PRX keeps no ELF relocations or dynamic
+    /// section to move.
+    fn load_prx(&mut self, d: Data<'_>) {
+        let load = psp::LOAD_ADDRESS;
+        let relocations = self.read_prx_relocations(d, load).unwrap_or_else(|e| {
+            self.warnings.push(format!("PRX relocations: {e:#}"));
+            Vec::new()
+        });
+        let mut warnings = Vec::new();
+        let prx = match self.read_module_info(d, load, &mut warnings) {
+            Ok(mut prx) => {
+                prx.relocations = relocations;
+                Some(prx)
+            }
+            Err(e) => {
+                warnings.push(format!("PRX module information: {e:#}"));
+                None
+            }
+        };
+        self.warnings.extend(warnings);
+        for s in self.segments.iter_mut().filter(|s| s.is_load()) {
+            s.vaddr += load;
+        }
+        for s in self.sections.iter_mut().filter(|s| s.flags & SHF_ALLOC != 0) {
+            s.addr += load;
+        }
+        self.entry += load;
+        for s in self.symbols.iter_mut().chain(&mut self.dynamic_symbols).filter(|s| s.is_defined()) {
+            s.value += load;
+        }
+        for (begin, end) in &mut self.functions {
+            *begin += load;
+            *end += load;
+        }
+        self.prx = prx;
+    }
+
+    /// The records of a PRX's relocation tables, the sections of [`psp::SHT_PRXRELOC`] or else the
+    /// program headers of [`psp::PT_PRXRELOC`]. A record's `r_info` holds the kind in its low byte,
+    /// the program header its offset is from in the next and the one its value is relative to in
+    /// the third.
+    fn read_prx_relocations(&self, d: Data<'_>, load: u64) -> Result<Vec<PrxRelocation>> {
+        if let Some(i) = self.segments.iter().position(|s| s.kind == psp::PT_PRXRELOC2) {
+            bail!("program header {i} holds the packed relocations of type {:#x}, which the reader does not decode", psp::PT_PRXRELOC2);
+        }
+        let mut tables: Vec<(u64, u64, String)> =
+            self.sections.iter().filter(|s| s.kind == psp::SHT_PRXRELOC).map(|s| (s.offset, s.size, s.name.clone())).collect();
+        if tables.is_empty() {
+            tables = self
+                .segments
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.kind == psp::PT_PRXRELOC)
+                .map(|(i, s)| (s.offset, s.filesz, format!("program header {i}")))
+                .collect();
+        }
+        let segment = |index: u32, what: &dyn Fn() -> String| -> Result<u64> {
+            match self.segments.get(index as usize) {
+                Some(s) => Ok(load + s.vaddr),
+                None => bail!("{} names program header {index}, past the {} the file has", what(), self.segments.len()),
+            }
+        };
+        let mut relocations = Vec::new();
+        for (offset, size, name) in &tables {
+            for i in 0..(*size as usize / 8).min(MAX_ENTRIES) {
+                let at = *offset as usize + 8 * i;
+                let what = |field: &str| format!("{name} record {i} {field}");
+                let r_offset = d.u32(at, &what("r_offset"))?;
+                let info = d.u32(at + 4, &what("r_info"))?;
+                let place = segment((info >> 8) & 0xff, &|| what("offset base"))? + u64::from(r_offset);
+                let base = segment((info >> 16) & 0xff, &|| what("address base"))?;
+                relocations.push(PrxRelocation { place, kind: info & 0xff, base, low: None });
+            }
+        }
+        // Each high half pairs with the first low half after it of the same base.
+        let mut next_low: HashMap<u64, u64> = HashMap::new();
+        for r in relocations.iter_mut().rev() {
+            match r.kind {
+                reloc::MIPS_LO16 => {
+                    next_low.insert(r.base, r.place);
+                }
+                reloc::MIPS_HI16 => r.low = next_low.get(&r.base).copied(),
+                _ => {}
+            }
+        }
+        Ok(relocations)
+    }
+
+    /// The module information of a PRX: its section, else the file offset the first program
+    /// header's `p_paddr` gives. Its tables are read at the link addresses, which the segments
+    /// still hold, and their addresses moved by `load`.
+    fn read_module_info(&self, d: Data<'_>, load: u64, warnings: &mut Vec<String>) -> Result<Prx> {
+        let at = match self.section(".rodata.sceModuleInfo") {
+            Some(s) => s.offset as usize,
+            None => (self.segments.first().context("a PRX has no program header")?.paddr & 0x7fff_ffff) as usize,
+        };
+        let what = |field: &str| format!("the module information's {field}");
+        let attributes = d.u16(at, &what("attribute"))?;
+        let minor = d.u8(at + 2, &what("minor version"))?;
+        let major = d.u8(at + 3, &what("major version"))?;
+        let name = d.string(at + 4, 28, &what("name"))?;
+        let word = |offset: usize, field: &str| -> Result<u64> { Ok(u64::from(d.u32(at + offset, &what(field))?)) };
+        let gp = word(32, "gp")?;
+        let (ent_top, ent_end, stub_top, stub_end) =
+            (word(36, "ent_top")?, word(40, "ent_end")?, word(44, "stub_top")?, word(48, "stub_end")?);
+        let library_name = |va: u64, what: &str| -> Result<String> { d.string(self.offset_or(va, what)?, 256, what) };
+
+        let mut exports = Vec::new();
+        let mut va = ent_top;
+        while va < ent_end && exports.len() < MAX_ENTRIES {
+            let at = self.offset_or(va, "an export entry")?;
+            let what = |field: &str| format!("the export entry at {va:#x} {field}");
+            let name = match d.u32(at, &what("name"))? {
+                0 => "syslib".to_owned(),
+                pointer => library_name(u64::from(pointer), &what("name"))?,
+            };
+            let size = usize::from(d.u8(at + 8, &what("size"))?);
+            ensure!(size >= 4, "{} is {size} words, smaller than an entry", what("size"));
+            let variables = usize::from(d.u8(at + 9, &what("variable count"))?);
+            let functions = usize::from(d.u16(at + 10, &what("function count"))?);
+            let table = self.offset_or(u64::from(d.u32(at + 12, &what("table"))?), &what("table"))?;
+            let total = functions + variables;
+            let mut entries = Vec::with_capacity(total);
+            for i in 0..total {
+                let nid = d.u32(table + 4 * i, &what(&format!("NID {i}")))?;
+                let address = u64::from(d.u32(table + 4 * (total + i), &what(&format!("address {i}")))?) + load;
+                entries.push(PspEntry { nid, address });
+            }
+            let variables = entries.split_off(functions);
+            exports.push(PspLibrary {
+                name,
+                version: d.u16(at + 4, &what("version"))?,
+                attributes: d.u16(at + 6, &what("attribute"))?,
+                functions: entries,
+                variables,
+            });
+            va += 4 * size as u64;
+        }
+
+        let mut imports = Vec::new();
+        let mut va = stub_top;
+        while va < stub_end && imports.len() < MAX_ENTRIES {
+            let at = self.offset_or(va, "an import entry")?;
+            let what = |field: &str| format!("the import entry at {va:#x} {field}");
+            let name = library_name(u64::from(d.u32(at, &what("name"))?), &what("name"))?;
+            let size = usize::from(d.u8(at + 8, &what("size"))?);
+            ensure!(size >= 5, "{} is {size} words, smaller than an entry", what("size"));
+            let variables = d.u8(at + 9, &what("variable count"))?;
+            if variables != 0 {
+                warnings.push(format!("the {variables} variables {name} imports are not read"));
+            }
+            let count = usize::from(d.u16(at + 10, &what("function count"))?);
+            let nids = self.offset_or(u64::from(d.u32(at + 12, &what("NID table"))?), &what("NID table"))?;
+            let stubs = u64::from(d.u32(at + 16, &what("stub table"))?) + load;
+            let mut functions = Vec::with_capacity(count);
+            for i in 0..count {
+                // Each stub is two words the loader writes the jump to the import over.
+                functions.push(PspEntry { nid: d.u32(nids + 4 * i, &what(&format!("NID {i}")))?, address: stubs + 8 * i as u64 });
+            }
+            imports.push(PspLibrary {
+                name,
+                version: d.u16(at + 4, &what("version"))?,
+                attributes: d.u16(at + 6, &what("attribute"))?,
+                functions,
+                variables: Vec::new(),
+            });
+            va += 4 * size as u64;
+        }
+        // A module of no small data has no `$gp`, and its zero is not an address.
+        let gp = if gp == 0 { 0 } else { gp + load };
+        Ok(Prx { load, name, attributes, version: (major, minor), gp, exports, imports, relocations: Vec::new() })
     }
 
     /// The file offset of virtual address `va`, when a loaded segment holds it in the file's bytes.

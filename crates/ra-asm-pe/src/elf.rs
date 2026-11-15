@@ -161,18 +161,87 @@ pub(crate) fn read_tables(image: &mut Image) {
     image.global_pointer = global_pointer;
     image.warnings.extend(warnings);
     apply_addends(image);
+    apply_prx_relocations(image);
 }
 
 /// The value of `$gp` in a 32-bit MIPS file: the `ri_gp_value` its `.reginfo` records, else the
-/// address of the `_gp` symbol the linker defines. The code reaches its GOT and small data through
-/// `$gp`, which the start routine sets from the same value; `None` on another machine or without either.
+/// address of the `_gp` symbol the linker defines; a PRX's is the one its module information
+/// holds, since its `.reginfo` keeps the address of the link at zero. The code reaches its GOT and
+/// small data through `$gp`, which the start routine sets from the same value; `None` on another
+/// machine or without any.
 fn global_pointer(elf: &ElfFile) -> Option<u64> {
     if elf.machine != format::EM_MIPS || elf.wide {
         return None;
     }
+    if let Some(prx) = &elf.prx {
+        return Some(prx.gp).filter(|&gp| gp != 0);
+    }
     let recorded = elf.mips.as_ref().and_then(|m| m.reginfo).map(|r| r.gp);
     let symbol = || elf.symbols.iter().find(|s| s.name == "_gp" && s.section != 0).map(|s| s.value);
     recorded.filter(|&gp| gp != 0).map(u64::from).or_else(symbol)
+}
+
+/// The name of the function a PSP library exports under `nid`: the module entry points the loader
+/// calls in `syslib`, else the SDK's stub table ([`crate::psp_nids`]).
+pub fn psp_nid_name(library: &str, nid: u32) -> Option<&'static str> {
+    const SYSLIB: [(u32, &str); 6] = [
+        (0x0f7c_276c, "module_start_thread_parameter"),
+        (0x11b9_7506, "module_sdk_version"),
+        (0xcee8_593c, "module_stop"),
+        (0xcf0c_c697, "module_stop_thread_parameter"),
+        (0xd632_acdb, "module_start"),
+        (0xf01d_73a7, "module_info"),
+    ];
+    if library == "syslib" {
+        return SYSLIB.iter().find(|&&(n, _)| n == nid).map(|&(_, name)| name);
+    }
+    let table = crate::psp_nids::NIDS;
+    table.binary_search_by(|&(l, n, _)| (l, n).cmp(&(library, nid))).ok().map(|i| table[i].2)
+}
+
+/// Writes a PRX's relocations over the mapped words: every value is computed from the words as
+/// the file holds them, before any is written, since a high half reads the low half after it.
+/// A kind the reader does not apply leaves its place as the file has it, with a warning.
+fn apply_prx_relocations(image: &mut Image) {
+    let Some(prx) = image.elf.as_ref().and_then(|e| e.prx.as_ref()) else { return };
+    let mut words = Vec::with_capacity(prx.relocations.len());
+    let mut warnings = Vec::new();
+    for r in &prx.relocations {
+        match prx_word(image, r) {
+            Ok(Some(word)) => words.push((r.place, word)),
+            Ok(None) => {}
+            Err(e) => warnings.push(format!("the PRX relocation at {:#x}: {e:#}", r.place)),
+        }
+    }
+    for (va, word) in words {
+        if let Err(e) = image.write(va, &word.to_le_bytes()) {
+            warnings.push(format!("the PRX relocation at {va:#x}: {e:#}"));
+        }
+    }
+    image.warnings.extend(warnings);
+}
+
+/// The word a PRX relocation leaves at its place; `None` for a record of no effect.
+fn prx_word(image: &Image, r: &format::PrxRelocation) -> Result<Option<u32>> {
+    let word = image.u32(r.place)?;
+    // A PSP address is 32 bits; the base is the load address plus a segment's.
+    let base = r.base as u32;
+    let field = |word: u32| (word & 0xfc00_0000) | (word.wrapping_add(base >> 2) & 0x03ff_ffff);
+    let low_half = |word: u32| i32::from(word as u16 as i16);
+    Ok(Some(match r.kind {
+        0 => return Ok(None),
+        reloc::MIPS_32 => word.wrapping_add(base),
+        reloc::MIPS_26 => field(word),
+        reloc::MIPS_X_J26 => (field(word) & 0x03ff_ffff) | (2 << 26),
+        reloc::MIPS_X_JAL26 => (field(word) & 0x03ff_ffff) | (3 << 26),
+        reloc::MIPS_HI16 => {
+            let Some(low) = r.low else { bail!("the high half has no low half after it of the same base") };
+            let address = (word << 16).wrapping_add_signed(low_half(image.u32(low)?)).wrapping_add(base);
+            (word & 0xffff_0000) | (address.wrapping_add(0x8000) >> 16)
+        }
+        reloc::MIPS_LO16 => (word & 0xffff_0000) | (word.wrapping_add(base) & 0xffff),
+        kind => bail!("a relocation of kind {kind} is not applied"),
+    }))
 }
 
 /// Fills the words the loader computes from a RELA record: a `RELATIVE` word gets its addend, an
@@ -232,6 +301,9 @@ fn copies(machine: u16, kind: u32) -> bool {
 /// symbol's version names, else the only library the file needs; with several and no version the
 /// library is unknown and the name stays empty.
 fn imports(elf: &ElfFile) -> Vec<Import> {
+    if let Some(prx) = &elf.prx {
+        return prx_imports(prx);
+    }
     let sole = if let [only] = elf.needed.as_slice() { Some(only.clone()) } else { None };
     let mut imports: Vec<Import> = elf
         .relocations
@@ -254,9 +326,51 @@ fn imports(elf: &ElfFile) -> Vec<Import> {
     imports
 }
 
+/// A PRX's imports: each function of each library, its stub its slot, named by its NID; a NID
+/// the table does not know reads `<library>_<NID>`.
+fn prx_imports(prx: &format::Prx) -> Vec<Import> {
+    let mut imports: Vec<Import> = prx
+        .imports
+        .iter()
+        .flat_map(|library| {
+            library.functions.iter().map(|f| Import {
+                dll: library.name.clone(),
+                name: Some(psp_nid_name(&library.name, f.nid).map_or_else(|| format!("{}_{:08X}", library.name, f.nid), str::to_owned)),
+                hint: 0,
+                ordinal: None,
+                iat_va: f.address,
+                delayed: false,
+            })
+        })
+        .collect();
+    imports.sort_by_key(|i| i.iat_va);
+    imports
+}
+
+/// A PRX's exports: the functions and the variables of each library it exports, the NID their
+/// ordinal, the module's name the table's.
+fn prx_exports(prx: &format::Prx) -> ExportTable {
+    let exports = prx
+        .exports
+        .iter()
+        .flat_map(|library| {
+            library.functions.iter().chain(&library.variables).map(|e| Export {
+                name: psp_nid_name(&library.name, e.nid).map(str::to_owned),
+                ordinal: e.nid,
+                va: Some(e.address),
+                forwarder: None,
+            })
+        })
+        .collect();
+    ExportTable { dll_name: prx.name.clone(), ordinal_base: 0, timestamp: 0, exports }
+}
+
 /// The functions and data the dynamic table defines for another module to bind to, by their
 /// index in the table; `None` when there are none and the file names no `DT_SONAME`.
 fn exports(elf: &ElfFile) -> Option<ExportTable> {
+    if let Some(prx) = &elf.prx {
+        return Some(prx_exports(prx));
+    }
     let exports: Vec<Export> = elf
         .dynamic_symbols
         .iter()
@@ -300,6 +414,13 @@ fn relocations(elf: &ElfFile) -> Vec<Relocation> {
             Relocation { va: r.offset, kind }
         })
         .collect();
+    // A PRX's: its words of an address as a PE's `HIGHLOW`, the others by their kind.
+    if let Some(prx) = &elf.prx {
+        relocations.extend(prx.relocations.iter().filter(|r| r.kind != 0).map(|r| Relocation {
+            va: r.place,
+            kind: if r.kind == reloc::MIPS_32 { RelocKind::HighLow } else { RelocKind::Other(u8::try_from(r.kind).unwrap_or(u8::MAX)) },
+        }));
+    }
     relocations.sort_by_key(|r| r.va);
     relocations
 }

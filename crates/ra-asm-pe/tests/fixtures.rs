@@ -391,4 +391,66 @@ fn the_mips_control_agrees_with_llvm_readobj() {
     assert_eq!(ours, sections);
 }
 
+/// The PSP fixture, a PRX linked at zero: loaded at the user loader's address, its relocations
+/// written over the words, its module information read and every import named from its NID.
+#[test]
+fn the_psp_hello_loads_at_the_user_address_with_its_imports_named() {
+    const LOAD: u64 = 0x0880_4000;
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/psp/hello.prx");
+    let image = ra_asm_pe::load(&path).unwrap();
+    let unapplied: Vec<_> = image.warnings.iter().filter(|w| w.contains("PRX")).collect();
+    assert!(unapplied.is_empty(), "{unapplied:?}");
+    assert_eq!(image.machine(), Machine::Mips);
+    assert_eq!(image.image_base(), LOAD);
+    assert_eq!(image.entry_point(), Some(LOAD + 0xec));
+
+    let prx = image.elf.as_ref().unwrap().prx.as_ref().unwrap();
+    assert_eq!((prx.name.as_str(), prx.version, prx.is_kernel(), prx.load), ("hello", (1, 0), false, LOAD));
+    assert_eq!(prx.gp, LOAD + 0x2_6090);
+    assert_eq!(image.global_pointer, Some(prx.gp));
+    // The file's 32, 26, HI16 and LO16 records, every one applied.
+    assert_eq!(prx.relocations.len(), 3421);
+
+    // The module information holds `$gp` and its tables' bounds as addresses, which the
+    // relocations moved to the load address.
+    let info = image.va(image.sections.iter().find(|s| s.name == ".rodata.sceModuleInfo").unwrap().virtual_address);
+    assert_eq!(info, LOAD + 0x1_c0e0);
+    let words: Vec<u64> = (0..5).map(|i| u64::from(image.u32(info + 32 + 4 * i).unwrap())).collect();
+    assert_eq!(words, [prx.gp, LOAD + 0x1_c010, LOAD + 0x1_c020, LOAD + 0x1_c028, LOAD + 0x1_c0dc]);
+
+    let libraries: Vec<_> = prx.imports.iter().map(|l| (l.name.as_str(), l.functions.len())).collect();
+    assert_eq!(
+        libraries,
+        [
+            ("sceUtility", 1),
+            ("sceNetInet", 4),
+            ("IoFileMgrForUser", 9),
+            ("Kernel_Library", 2),
+            ("ModuleMgrForUser", 1),
+            ("StdioForUser", 3),
+            ("SysMemUserForUser", 4),
+            ("ThreadManForUser", 18),
+            ("LoadExecForUser", 1)
+        ]
+    );
+    for library in &prx.imports {
+        for f in &library.functions {
+            assert!(ra_asm_pe::elf::psp_nid_name(&library.name, f.nid).is_some(), "{} {:#010x} has no name", library.name, f.nid);
+        }
+    }
+    assert_eq!(image.imports.len(), 43);
+    assert_eq!(image.imports[0].iat_va, LOAD + 0x1_beb4);
+    for (dll, name) in [("IoFileMgrForUser", "sceIoWrite"), ("LoadExecForUser", "sceKernelExitGame")] {
+        let import = image.imports.iter().find(|i| i.name.as_deref() == Some(name)).unwrap_or_else(|| panic!("no import {name}"));
+        assert_eq!(import.dll, dll);
+        assert_eq!(image.section_of(import.iat_va).unwrap().name, ".sceStub.text");
+    }
+
+    let exports = image.exports.as_ref().unwrap();
+    assert_eq!(exports.dll_name, "hello");
+    let export = |name: &str| exports.exports.iter().find(|e| e.name.as_deref() == Some(name)).and_then(|e| e.va);
+    assert_eq!(export("module_start"), image.entry_point());
+    assert_eq!(export("module_info"), Some(info));
+}
+
 // endregion

@@ -101,8 +101,21 @@ fn elf_type(kind: u16) -> String {
         2 => "executable".to_owned(),
         3 => "shared object".to_owned(),
         4 => "core".to_owned(),
+        ra_asm_format::elf::ET_PRX => "psp module".to_owned(),
         other => format!("type {other:#x}"),
     }
+}
+
+/// A PSP module's information in a line: `hello, user, version 1.0, loaded at 0x08804000`.
+fn prx_line(prx: &ra_asm_format::elf::Prx) -> String {
+    let mode = if prx.is_kernel() { "kernel" } else { "user" };
+    format!("{}, {mode}, version {}.{}, loaded at {}", prx.name, prx.version.0, prx.version.1, hex(prx.load))
+}
+
+/// The libraries a PSP module imports, each with the count of its functions:
+/// `IoFileMgrForUser (2)`.
+fn prx_libraries(prx: &ra_asm_format::elf::Prx) -> Vec<String> {
+    prx.imports.iter().map(|l| format!("{} ({})", l.name, l.functions.len())).collect()
 }
 
 /// The name of a Mach-O `filetype`.
@@ -165,6 +178,15 @@ pub(crate) fn info_json(image: &Image) -> serde_json::Value {
                 "needed": e.needed,
                 "soname": e.soname,
                 "eh_frame_functions": e.functions.len(),
+                "prx": e.prx.as_ref().map(|p| json!({
+                    "name": p.name,
+                    "kernel": p.is_kernel(),
+                    "version": format!("{}.{}", p.version.0, p.version.1),
+                    "load": hex(p.load),
+                    "gp": hex(p.gp),
+                    "relocations": p.relocations.len(),
+                    "imports": prx_libraries(p),
+                })),
             })),
             "macho": image.macho.as_ref().map(|m| json!({
                 "type": macho_type(m.kind),
@@ -221,6 +243,10 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
             let arch = m.arch().map(|a| format!(", {a}")).unwrap_or_default();
             let gp = image.global_pointer.map(|gp| format!(", $gp {gp:#x}")).unwrap_or_default();
             println!("abi            {}{arch}{gp}", m.abi.name());
+        }
+        if let Some(prx) = &e.prx {
+            println!("module         {}", prx_line(prx));
+            println!("libraries      {}", if prx.imports.is_empty() { "none".to_owned() } else { prx_libraries(prx).join(", ") });
         }
         if let Some(interpreter) = &e.interpreter {
             println!("interpreter    {interpreter}");
