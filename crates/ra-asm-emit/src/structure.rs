@@ -244,11 +244,15 @@ struct Walk<'a> {
     loops: Vec<(BlockId, Option<BlockId>)>,
     /// The tails of the enclosing regions, which a jump from inside leaves to.
     tails: Vec<BlockId>,
+    /// The tails [`Walk::skipped_join`] opened: left to even when short, since the edge that
+    /// skips the join could not end a copy.
+    skipped: HashSet<BlockId>,
 }
 
 /// Structures `f`.
 pub fn structure(f: &Function, g: &Graph) -> Structured {
-    let mut w = Walk { f, g, emitted: HashSet::new(), labels: HashSet::new(), loops: Vec::new(), tails: Vec::new() };
+    let mut w =
+        Walk { f, g, emitted: HashSet::new(), labels: HashSet::new(), loops: Vec::new(), tails: Vec::new(), skipped: HashSet::new() };
     let entry = f.blocks[0].id;
     let body = w.run(entry, None);
     Structured { body, labels: w.labels }
@@ -276,11 +280,103 @@ impl Walk<'_> {
     /// yet that no later path could copy (long, a loop header, a `switch`), so placing it here
     /// would leave the other paths a `goto` into this one.
     fn leave(&self, target: BlockId) -> Option<Vec<Stmt>> {
-        let block = self.f.block(target)?;
-        let copyable = block.instrs.len() <= COPY_LIMIT
-            && !self.g.loops.contains_key(&target)
-            && !matches!(block.terminator, Terminator::Switch { .. });
-        (self.tails.contains(&target) && !self.emitted.contains(&target) && !copyable).then(|| vec![Stmt::Leave(target)])
+        self.f.block(target)?;
+        (self.tails.contains(&target) && !self.emitted.contains(&target) && (!self.copyable(target) || self.skipped.contains(&target)))
+            .then(|| vec![Stmt::Leave(target)])
+    }
+
+    /// Whether a later path could write `b` again instead of jumping to it: a short block, not a
+    /// loop header nor a `switch`, whose own jumps reach no loop header but the one the context
+    /// goes round with `continue` (a copy of the latch of an outer loop has no name for its loop).
+    fn copyable(&self, b: BlockId) -> bool {
+        let Some(block) = self.f.block(b) else { return false };
+        let innermost = self.loops.last().map(|(h, _)| *h);
+        block.instrs.len() <= COPY_LIMIT
+            && !self.g.loops.contains_key(&b)
+            && !matches!(block.terminator, Terminator::Switch { .. })
+            && block.terminator.successors().iter().all(|s| !self.g.loops.contains_key(s) || Some(*s) == innermost)
+    }
+
+    /// The block both arms of the branch at `cur` reach on their own that no path could write a
+    /// second time, and the block after it where its ways on meet: a forward jump the arms share
+    /// that is not the branch's join, which only a region names. `last` is the last block of the
+    /// folded condition, `join` the branch's join.
+    fn shared_tail(
+        &self,
+        cur: BlockId,
+        last: BlockId,
+        arms: [BlockId; 2],
+        join: Option<BlockId>,
+        stop: Option<BlockId>,
+    ) -> Option<(BlockId, BlockId)> {
+        let pdom = |b: BlockId| self.g.ipdom.get(&b).copied().flatten().or_else(|| self.g.ipdom_live.get(&b).copied().flatten());
+        let end = pdom(last);
+        let shared =
+            self.g.order.iter().copied().skip_while(|x| *x != cur).skip(1).take_while(|x| Some(*x) != end && Some(*x) != stop).find(
+                |&t| {
+                    Some(t) != join
+                        && !self.emitted.contains(&t)
+                        && !self.tails.contains(&t)
+                        && dominates(&self.g.idom, cur, t)
+                        && self.g.preds.get(&t).map_or(0, Vec::len) > 1
+                        && self.jump(t, stop).is_none()
+                        && !self.copyable(t)
+                        && arms.iter().all(|&a| a == t || self.reaches(a, t, cur))
+                },
+            )?;
+        let after = pdom(shared)?;
+        // The way past the shared block has a name: the region's end, a jump of the loop, or a
+        // region of its own around the branch and the shared block, which `after` follows.
+        let named = Some(after) == stop
+            || self.jump(after, stop).is_some_and(|s| !s.is_empty())
+            || (!self.emitted.contains(&after) && !self.tails.contains(&after));
+        // The shared block's paths run to `after` alone, not out of the region at its end first.
+        let inside = stop.is_none_or(|s| s == after || !self.reaches(shared, s, after));
+        (named && inside).then_some((shared, after))
+    }
+
+    /// The branch of [`Self::shared_tail`]: the branch inside a region whose tail is `shared`, the
+    /// paths to it leaving the region, the others going on past it to `after`; then the shared
+    /// block up to `after`, and what follows.
+    fn shared_branch(
+        &mut self,
+        cond: Cond,
+        arms: [(BlockId, Vec<Stmt>); 2],
+        shared: BlockId,
+        after: BlockId,
+        stop: Option<BlockId>,
+    ) -> Vec<Stmt> {
+        let jump = self.jump(after, stop).filter(|s| !s.is_empty());
+        let own = jump.is_none() && !self.tails.contains(&after);
+        if own {
+            self.tails.push(after);
+        }
+        let past = jump.unwrap_or_else(|| vec![Stmt::Leave(after)]);
+        self.tails.push(shared);
+        let [(then, mut then_body), (els, mut els_body)] = arms;
+        then_body.extend(self.arm(then, Some(after), stop));
+        els_body.extend(self.arm(els, Some(after), stop));
+        self.tails.pop();
+        let mut region = vec![Stmt::If { cond, then: then_body, els: els_body }];
+        if !diverges(&region) {
+            region.extend(past);
+        }
+        self.labels.insert(shared);
+        let mut body = vec![Stmt::Tail { tail: shared, body: region }];
+        body.extend(self.run(shared, Some(after)));
+        if own {
+            self.tails.pop();
+            let mut leaves = false;
+            each(&body, &mut |s| leaves |= matches!(s, Stmt::Leave(b) if *b == after));
+            if leaves {
+                self.labels.insert(after);
+                body = vec![Stmt::Tail { tail: after, body }];
+            }
+        }
+        if Some(after) != stop {
+            body.extend(self.run(after, stop));
+        }
+        body
     }
 
     /// Makes `tail` the tail of the region about to be walked, when it is a block after the
@@ -448,16 +544,50 @@ impl Walk<'_> {
                 // The join of the folded chain is the last condition's: an earlier one may be
                 // post-dominated by a condition the chain absorbed.
                 let join = self.join_of(last, stop);
-                let tail = self.open_tail(join, stop);
-                then_body.extend(self.arm(then, join, stop));
-                els_body.extend(self.arm(els, join, stop));
-                let branch = self.close_tail(tail, Stmt::If { cond, then: then_body, els: els_body });
-                out.push(branch);
-                if let Some(j) = join
-                    && Some(j) != stop
-                {
-                    out.extend(self.run(j, stop));
+                if let Some((shared, after)) = self.shared_tail(cur, last, [then, els], join, stop) {
+                    out.extend(self.shared_branch(cond, [(then, then_body), (els, els_body)], shared, after, stop));
+                    return out;
                 }
+                // A join short of the post-dominator (a block both arms reach) that an arm can also
+                // skip, going on to the post-dominator directly: when the plain walk would reach the
+                // post-dominator by `goto`, it is the tail of a region around the branch and the
+                // join instead, the skipping edge leaves it, and it is written once, after it
+                // (core-static's `items_check`, where a guard in one arm goes past the block the
+                // arms share). A walk that copies it stays as it is: C has no goto there either.
+                let skipped = self.skipped_join(last, [then, els], join, stop);
+                let saved = skipped.map(|_| (self.emitted.clone(), self.labels.clone()));
+                if let Some(p) = skipped {
+                    let plain = self.branch_region(cond.clone(), [(then, then_body.clone()), (els, els_body.clone())], join, None, stop);
+                    let mut goes_to = false;
+                    each(&plain, &mut |s| goes_to |= matches!(s, Stmt::Goto(b) if *b == p));
+                    if !goes_to {
+                        out.extend(plain);
+                        return out;
+                    }
+                    let (emitted, labels) = saved.expect("saved with the skipped join");
+                    self.emitted = emitted;
+                    self.labels = labels;
+                }
+                let outer = skipped.and_then(|p| self.open_tail(Some(p), stop));
+                if let Some(p) = outer {
+                    self.skipped.insert(p);
+                }
+                let region = self.branch_region(cond, [(then, then_body), (els, els_body)], join, outer, stop);
+                let Some(p) = outer else {
+                    out.extend(region);
+                    return out;
+                };
+                self.tails.pop();
+                self.skipped.remove(&p);
+                let mut leaves = false;
+                each(&region, &mut |s| leaves |= matches!(s, Stmt::Leave(b) if *b == p));
+                if leaves {
+                    self.labels.insert(p);
+                    out.push(Stmt::Tail { tail: p, body: region });
+                } else {
+                    out.extend(region);
+                }
+                out.extend(self.run(p, stop));
             }
             Terminator::Switch { ty, value, default, cases } => {
                 let (ty, value, default, cases) = (ty.clone(), value.clone(), *default, cases.clone());
@@ -517,6 +647,31 @@ impl Walk<'_> {
             }
         }
         out
+    }
+
+    /// The `if` of a branch and what follows its join, up to `outer` (a region's tail the caller
+    /// opened) or the region's end: the join's own tail opened around the `if`, the arms, the run
+    /// from the join.
+    fn branch_region(
+        &mut self,
+        cond: Cond,
+        arms: [(BlockId, Vec<Stmt>); 2],
+        join: Option<BlockId>,
+        outer: Option<BlockId>,
+        stop: Option<BlockId>,
+    ) -> Vec<Stmt> {
+        let [(then, mut then_body), (els, mut els_body)] = arms;
+        let tail = self.open_tail(join, stop);
+        then_body.extend(self.arm(then, join, stop));
+        els_body.extend(self.arm(els, join, stop));
+        let branch = self.close_tail(tail, Stmt::If { cond, then: then_body, els: els_body });
+        let mut region = vec![branch];
+        if let Some(j) = join
+            && Some(j) != stop
+        {
+            region.extend(self.run(j, outer.or(stop)));
+        }
+        region
     }
 
     /// Folds the short-circuit chains: an arm that is only a condition whose branch rejoins the
@@ -643,6 +798,19 @@ impl Walk<'_> {
         }
     }
 
+    /// The post-dominator of the branch at `last` when its join is a block short of it that an arm
+    /// can also go past: some arm reaches the post-dominator without the join. A block not placed,
+    /// not the region's end, and no jump of the context. A short one is a tail too: the arm that
+    /// skips the join reaches it before its own exits have names, so a copy there could not end.
+    fn skipped_join(&self, last: BlockId, arms: [BlockId; 2], join: Option<BlockId>, stop: Option<BlockId>) -> Option<BlockId> {
+        let j = join?;
+        let p = self.g.ipdom.get(&last).copied().flatten().or_else(|| self.g.ipdom_live.get(&last).copied().flatten())?;
+        if p == j || Some(p) == stop || self.emitted.contains(&p) || self.tails.contains(&p) || self.jump(p, stop).is_some() {
+            return None;
+        }
+        arms.iter().any(|&a| a == p || self.reaches(a, p, j)).then_some(p)
+    }
+
     /// The nearest block after `b` that every arm of its branch reaches on its own (not by
     /// coming round through `b` again) and that only `b` leads to, short of the post-dominator
     /// `pdom`; not an arm itself, and not a block placed already.
@@ -765,6 +933,15 @@ fn has_continue(stmts: &[Stmt]) -> bool {
 /// Whether a body leaves by its last statement, so nothing after it would run.
 fn ends_in_jump(body: &[Stmt]) -> bool {
     matches!(body.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue | Stmt::Goto(_) | Stmt::Leave(_) | Stmt::Unreachable))
+}
+
+/// Whether no path runs off the end of `body`, so a statement after it would never run: it ends
+/// in a jump, or in an `if` neither of whose arms runs off.
+fn diverges(body: &[Stmt]) -> bool {
+    match body.last() {
+        Some(Stmt::If { then, els, .. }) => diverges(then) && diverges(els),
+        _ => ends_in_jump(body),
+    }
 }
 
 /// Immediate post-dominators over the reversed graph with a virtual exit after every block that

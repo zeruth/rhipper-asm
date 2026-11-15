@@ -1643,10 +1643,9 @@ fn rhtest_core_static_runs_as_c() {
     run_rhtest_as_c("core", "static");
 }
 
-/// clang-cl's `insertion_sort` at /MT shares a tail between two paths that the structuring joins
-/// with a forward `goto`, which Rust can only write as a labeled block (card 54's domain).
+/// clang-cl's `insertion_sort` at /MT shares a tail between two paths: the Rust writes it as a
+/// labeled block the paths leave with `break`.
 #[test]
-#[ignore = "needs the structuring of a shared tail (card 54): a forward goto into insertion_sort the Rust output cannot express"]
 fn rhtest_core_static_runs_as_rust() {
     run_rhtest_as_rust("core", "static");
 }
@@ -1788,10 +1787,9 @@ fn rhtest_float_ia32_runs_as_c() {
     run_rhtest_as_c("float", "ia32");
 }
 
-/// clang's x87 `fsum` at /O2 shares its loop's exit between two paths that the structuring joins
-/// with a forward `goto`, which Rust can only write as a labeled block (card 54's domain).
+/// clang's x87 `fsum` at /O2 shares its loop's exit between two paths: the Rust writes it as a
+/// labeled block the paths leave with `break`.
 #[test]
-#[ignore = "needs the structuring of a shared tail (card 54): a forward goto into fsum the Rust output cannot express"]
 fn rhtest_float_ia32_runs_as_rust() {
     run_rhtest_as_rust("float", "ia32");
 }
@@ -1843,11 +1841,11 @@ fn rhtest_crt_clang_runs_as_c() {
     run_rhtest_as_c("crt", "clang");
 }
 
-/// `malloca_sum`'s two allocation paths each test the count and share the loops after it: the
-/// structuring leaves a forward `goto` into the shared region, which Rust can only write as a
-/// labeled block (card 54's domain).
+/// `malloca_sum`'s two allocation paths each test the count and share the loops after it, and
+/// its scalar remainder loop is entered at two blocks (at 0x40239d by the short count, at
+/// 0x4023a9 after the vector loop): a cycle without one header, which C keeps with a `goto`.
 #[test]
-#[ignore = "needs the structuring of a shared tail after a duplicated test (card 54): a forward goto the Rust output cannot express"]
+#[ignore = "needs the structuring of an irreducible loop: malloca_sum's remainder loop is entered at 0x40239d and 0x4023a9, a goto the Rust output cannot express"]
 fn rhtest_crt_clang_runs_as_rust() {
     run_rhtest_as_rust("crt", "clang");
 }
