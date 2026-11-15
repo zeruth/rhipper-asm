@@ -411,6 +411,8 @@ pub(crate) const BOARD_PROGRAMS: &str = "testdata/bin";
 
 /// What stands over the table in [`BOARD`].
 const BOARD_HEAD: &str = "# Scoreboard\n\n\
+Regenerate: `cargo run -q -p ras -- score --write testdata/bin` from the repository's root, \
+after merging any change to the analysis, the lift or the emit and before the check.\n\n\
 The board of the fixtures, written by `ras score --write` over `testdata/bin`. \
 `cargo test -q -p ras --test score committed` recomputes it: a number worse than this file's \
 fails with the program and the column, a better one asks for `ras score --write`, so a \
