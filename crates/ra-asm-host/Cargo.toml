@@ -1,0 +1,18 @@
+[package]
+name = "ra-asm-host"
+description = "The interpreter's host: the operating system a lifted program runs against"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ra-asm-lift.workspace = true
+
+[dev-dependencies]
+ra-asm-analysis.workspace = true
+ra-asm-pe.workspace = true

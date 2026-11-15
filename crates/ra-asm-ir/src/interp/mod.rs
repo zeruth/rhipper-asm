@@ -129,6 +129,12 @@ pub struct Vm<'m> {
     /// Told of every call as it is entered and left, when set: the module's functions and the
     /// host's alike.
     pub observer: Option<Box<dyn Observer>>,
+    /// The bytes of the host thread's stack the module's calls may take before the run stops,
+    /// when set: a runaway recursion of the module's own frames can spend the thread's stack
+    /// before it reaches the depth limit, and an overflow ends the process, not the run.
+    pub stack: usize,
+    /// Where the host's stack stood at the outermost call of the module.
+    stack_top: usize,
     functions: HashMap<String, usize>,
     named: HashMap<String, Vec<Type>>,
     /// The index of each block of each function, by id.
@@ -160,6 +166,8 @@ impl<'m> Vm<'m> {
             recorded: HashSet::new(),
             pause: None,
             observer: None,
+            stack: 0,
+            stack_top: 0,
             functions,
             named,
             blocks,
@@ -410,6 +418,14 @@ impl<'m> Vm<'m> {
         }
         if self.depth >= MAX_DEPTH {
             return Err(Stop::fault(format!("the call depth passed {MAX_DEPTH} in @{}", f.name)));
+        }
+        let marker = 0u8;
+        let here = std::ptr::from_ref(&marker).addr();
+        if self.depth == 0 {
+            self.stack_top = here;
+        }
+        if self.stack > 0 && self.stack_top.saturating_sub(here) > self.stack {
+            return Err(Stop::fault(format!("the call depth reached {} in @{}, past the host's stack", self.depth, f.name)));
         }
         self.depth += 1;
         self.seen.entered.insert(index);

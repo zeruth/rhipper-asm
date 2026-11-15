@@ -293,6 +293,17 @@ mod tests {
     }
 
     #[test]
+    fn a_runaway_recursion_stops_before_it_spends_the_host_stack() {
+        let module = module(vec![caller("spin", "spin")]);
+        let mut vm = Vm::new(&module, Memory::new());
+        vm.stack = 256 << 10;
+        let stop = vm.call_named(&mut TestHost, "spin", vec![Value::Int(1)]).expect_err("the recursion never returns");
+        assert!(matches!(&stop, Stop::Fault(m) if m.contains("past the host's stack")), "{stop:?}");
+        // The depth went back down as the calls failed out: the next run measures from its own top.
+        assert_eq!(vm.depth, 0);
+    }
+
+    #[test]
     fn a_call_inside_the_block_runs_to_its_return() {
         let module = module(vec![caller("main", "leaf"), leaf(), caller("hosted", "host_add")]);
         let f = &module.functions[0];

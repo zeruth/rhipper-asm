@@ -145,6 +145,11 @@ pub struct Call {
 
 static LOCK: Mutex<()> = Mutex::new(());
 
+/// The stack of the interpreter's thread, and the part of it the program's calls may take: the
+/// rest is the host's, for the DLL calls and the run's own unwinding.
+const THREAD_STACK: usize = 256 << 20;
+const PROGRAM_STACK: usize = THREAD_STACK - (32 << 20);
+
 /// Runs `lifted` (raised to any level, with the `signatures` of the ABI level when it is at that
 /// level) through the interpreter. The run takes a thread of its own with a deep stack, since the
 /// program's calls nest as the interpreter's.
@@ -177,7 +182,7 @@ fn on_own_thread(
     std::thread::scope(|scope| {
         let handle = std::thread::Builder::new()
             .name("ras-run".into())
-            .stack_size(256 << 20)
+            .stack_size(THREAD_STACK)
             .spawn_scoped(scope, || run_here(image, lifted, signatures, options, call))
             .context("cannot start the interpreter's thread")?;
         handle.join().map_err(|_| anyhow!("the interpreter panicked"))?
@@ -229,6 +234,7 @@ fn run_here(
     let mut vm = Vm::new(&lifted.module, memory);
     vm.trace = options.trace;
     vm.limit = options.limit;
+    vm.stack = PROGRAM_STACK;
     if let Some(path) = &options.record {
         let file = std::fs::File::create(path).with_context(|| format!("cannot write the record at {}", path.display()))?;
         vm.record = Some(Box::new(std::io::BufWriter::new(file)));

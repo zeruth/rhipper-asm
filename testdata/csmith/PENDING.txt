@@ -1,0 +1,47 @@
+# The csmith programs whose interpreted run differs from the native one, checked by
+# crates/ra-asm-host/tests/csmith.rs: one line `<program> <level>` each, the level the first of
+# machine, promoted and abi at which the program differs; after a `#` is a note. Each line is a
+# card of phase 2, opened by `ras bisect`.
+seed01_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140003f98, which is no
+seed02_64_O0 abi # printed "checksum = DC4C542F", exit 0x0, stop: None, 570119 steps
+seed02_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140006868, which is no
+seed03_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400035a8, which is no
+seed04_32_O0 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed04_32_O2 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed04_64_O0 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed04_64_O2 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed05_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140001918, which is no
+seed06_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140003218, which is no
+seed07_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140004c98, which is no
+seed08_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400059d8, which is no
+seed09_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140004018, which is no
+seed10_32_O0 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed10_64_O0 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed10_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x14001aab8, which is no
+seed11_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400046d8, which is no
+seed12_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400044d8, which is no
+seed13_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140001858, which is no
+seed14_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140001858, which is no
+seed15_64_O0 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed15_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400048d8, which is no
+seed16_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140004628, which is no
+seed17_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400019c8, which is no
+seed18_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400018d8, which is no
+seed19_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140003538, which is no
+seed21_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140001848, which is no
+seed23_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140002e78, which is no
+seed24_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400027f8, which is no
+seed25_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400034c8, which is no
+seed26_32_O0 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed26_64_O0 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed26_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140010088, which is no
+seed27_32_O0 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed27_64_O0 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
+seed27_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x14000eaa8, which is no
+seed28_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400028b8, which is no
+seed29_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140003418, which is no
+seed30_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x14000d398, which is no
+seed31_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140003c18, which is no
+seed32_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140003de8, which is no
+seed33_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140001978, which is no
+seed34_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140001838, which is no
