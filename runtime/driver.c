@@ -1608,13 +1608,22 @@ uint64_t ra_x86_p_argv(void) {
 
 static uint32_t commode32, fmode32, argc32, errno32;
 
-uint64_t ra_x86_p_commode(void) { return (uint64_t)(uintptr_t)&commode32; }
-uint64_t ra_x86_p_fmode(void) { return (uint64_t)(uintptr_t)&fmode32; }
+uint64_t ra_x86_p_commode(void) {
+    return (uint64_t)(uintptr_t)&commode32;
+}
+
+uint64_t ra_x86_p_fmode(void) {
+    return (uint64_t)(uintptr_t)&fmode32;
+}
+
 uint64_t ra_x86_p_argc(void) {
     argc32 = (uint32_t)ra_argc;
     return (uint64_t)(uintptr_t)&argc32;
 }
-uint64_t ra_x86_errno(void) { return (uint64_t)(uintptr_t)&errno32; }
+
+uint64_t ra_x86_errno(void) {
+    return (uint64_t)(uintptr_t)&errno32;
+}
 
 uint64_t ra_x86_initial_narrow_environment(void) {
     if (!environment32) {
