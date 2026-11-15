@@ -560,3 +560,33 @@ fn the_control_mipsel_functions_are_its_function_symbols() {
     assert!(matches!(block_at(div, 0x2_091c).terminator, Terminator::NoReturnCall(0x2_08c8)));
     assert_eq!(div.end(), 0x2_0924);
 }
+
+/// `classify`'s switch in the mipsel control: `sltiu`/`beqz` bound the index to nine in the entry
+/// block, and the block after it scales the index, forms the table's address with `lui` and the
+/// `lw`'s offset and jumps through the entry with `jr`. Every case is a successor of the jump's
+/// block and a block of the function, and the index is the one the compare bounds.
+#[test]
+fn mipsel_tables_give_the_switch_its_cases_as_successors() {
+    let image = load("control_mipsel");
+    let analysis = analyze(&image);
+    let classify = analysis.function(0x2_065c).unwrap();
+    let jump = block_at(classify, 0x2_0670);
+    let Terminator::Switch { table, targets, index, load_at, cases, bound } = &jump.terminator else {
+        panic!("the block of the jr switches: {:?}", jump.terminator)
+    };
+    assert_eq!((*table, *load_at, *bound), (0x1_0148, 0x2_067c, Some(0x2_0664)));
+    assert_eq!(index.name, "$4");
+    assert_eq!(cases.len(), 9);
+    assert_eq!(cases.iter().map(|&(n, _)| n).collect::<Vec<_>>(), (0..9).collect::<Vec<u64>>());
+    assert_eq!(cases[0], (0, 0x2_0688));
+    let successors = jump.successors();
+    assert_eq!(&successors, targets);
+    for &(n, target) in cases {
+        assert!(successors.contains(&target), "case {n} at {target:#x} is a successor");
+        assert!(classify.block_at(target).is_some(), "case {n} at {target:#x} is a block of classify");
+    }
+    // The entry's `beqz` takes the default past the table, and the jump's block is its fall-through.
+    let entry = block_at(classify, 0x2_065c);
+    assert!(matches!(entry.terminator, Terminator::CondJump { taken: 0x2_07ac, fallthrough: 0x2_0670 }), "{:?}", entry.terminator);
+    assert!(analysis.warnings.iter().all(|w| !w.contains("0x20680")), "{:?}", analysis.warnings);
+}
