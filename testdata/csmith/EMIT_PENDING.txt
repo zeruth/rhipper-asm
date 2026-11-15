@@ -1,0 +1,71 @@
+# The csmith programs whose port as C differs from the native run, checked by
+# crates/ra-asm-emit/tests/csmith.rs: one line `<program> <stage>` each, the stage the first of
+# emit, build and run at which the port differs; after a `#` is a note. Each line is a card of
+# phase 2, opened by `ras bisect`.
+seed01_32_O0 build # clang: program.c:538:6: error: variable has incomplete type 'void'
+seed01_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed01_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed02_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ memcpy_ H_1400062a0 H_1400062f0 printf_
+seed03_32_O0 build # clang: program.c:919:6: error: variable has incomplete type 'void'
+seed03_64_O0 build # clang: program.c:97:6: error: variable has incomplete type 'void'
+seed03_64_O2 run # printed "nothing", exit code: 0x80000003, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed04_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed04_64_O0 build # clang: program.c:2915:31: error: use of undeclared identifier 'rsp_2806'
+seed04_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: H_14000c350 H_14000c350 H_14000c350 H_14000c350 H_14000c350 H_14000c350 H_140…
+seed05_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed05_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed06_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed06_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed07_64_O2 run # printed "nothing", exit code: 0x80000003, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed08_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed08_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed09_32_O0 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: safe_div_func_uint64_t_u_u safe_rshift_func_int8_t_s_u safe_lshift_func_uint8…
+seed09_64_O2 run # printed "nothing", exit code: 0xc000001d, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed10_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed10_64_O0 build # clang: program.c:2025:31: error: use of undeclared identifier 'rsp_2080'
+seed10_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed11_32_O0 build # clang: program.c:16774:79: error: bitwise comparison always evaluates to true [-Werror,-Wtautological-bitwise-compare]
+seed11_64_O0 build # clang: program.c:8600:120: error: bitwise comparison always evaluates to true [-Werror,-Wtautological-bitwise-compare]
+seed11_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed12_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed12_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed13_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed13_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed14_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed14_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed15_32_O0 build # clang: program.c:10635:69: error: self-comparison always evaluates to true [-Werror,-Wtautological-compare]
+seed15_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed16_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed16_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed17_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed17_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed18_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed18_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed19_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed19_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed21_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed21_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed23_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed23_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed24_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed24_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed25_64_O2 run # printed "nothing", exit code: 0x80000003, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed26_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed26_64_O0 build # clang: program.c:876:31: error: use of undeclared identifier 'rsp_1708'
+seed26_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed27_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed27_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ H_14000ad50 H_14000ad50 printf_
+seed28_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed28_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed29_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed29_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed30_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed30_64_O2 run # printed "nothing", exit code: 0x80000003, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed31_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed31_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed32_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed32_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed33_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed33_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_
+seed34_32_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_
+seed34_64_O2 run # printed "nothing", exit code: 0xc0000005, stderr: ra: the last functions entered: mainCRTStartup_ main_ printf_

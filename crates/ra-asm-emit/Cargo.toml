@@ -18,6 +18,10 @@ oracle = []
 name = "oracle"
 required-features = ["oracle"]
 
+[[test]]
+name = "csmith"
+required-features = ["oracle"]
+
 [dependencies]
 anyhow.workspace = true
 ra-asm-analysis.workspace = true
