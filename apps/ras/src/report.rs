@@ -51,9 +51,11 @@ fn directories_of(image: &Image) -> Vec<(&'static str, String, u32)> {
     .collect()
 }
 
-/// `pe32`, `pe32+`, `xbe`, `elf32`, `elf64` or `macho64`.
+/// `pe32`, `pe32+`, `xbe`, `elf32`, `elf64`, `macho64` or `psx-exe`.
 fn format_name(image: &Image) -> &'static str {
-    if image.xbe.is_some() {
+    if image.psx.is_some() {
+        "psx-exe"
+    } else if image.xbe.is_some() {
         "xbe"
     } else if let Some(elf) = &image.elf {
         if elf.wide { "elf64" } else { "elf32" }
@@ -163,7 +165,18 @@ pub(crate) fn info_json(image: &Image) -> serde_json::Value {
             "path": image.path.as_ref().map(|p| p.display().to_string()),
             "machine": image.machine().name(),
             "format": format_name(image),
+            "platform": image.platform(),
             "dll": h.coff.is_dll(),
+            "psx": image.psx.as_ref().map(|p| json!({
+                "pc": hex(u64::from(p.pc)),
+                "gp": hex(u64::from(p.gp)),
+                "text": hex(u64::from(p.text.0)),
+                "text_size": p.text.1,
+                "bss": hex(u64::from(p.bss.0)),
+                "bss_size": p.bss.1,
+                "sp": p.initial_sp().map(|sp| hex(u64::from(sp))),
+                "marker": p.marker,
+            })),
             "xbe": image.xbe.as_ref().map(|x| json!({
                 "kernel": x.kernel.name(),
                 "title": x.title_name,
@@ -232,6 +245,17 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
 
     println!("machine        {}", image.machine().name());
     println!("format         {}{}", format_name(image).to_uppercase(), if h.coff.is_dll() { " (DLL)" } else { "" });
+    if let Some(platform) = image.platform() {
+        println!("platform       {platform}");
+    }
+    if let Some(p) = &image.psx {
+        let sp = p.initial_sp().map_or_else(|| "the BIOS's".to_owned(), |sp| format!("{sp:#010x}"));
+        println!("text           {:#010x}, {:#x} bytes, pc {:#010x}, gp {:#010x}, sp {sp}", p.text.0, p.text.1, p.pc, p.gp);
+        if p.bss.1 != 0 {
+            println!("bss            {:#010x}, {:#x} bytes", p.bss.0, p.bss.1);
+        }
+        println!("region         {}", if p.marker.is_empty() { "none" } else { &p.marker });
+    }
     if let Some(x) = &image.xbe {
         println!("title          {} ({:#010x}, region {:#x}, {} kernel)", x.title_name, x.title_id, x.region, x.kernel.name());
         let libraries: Vec<String> = x.libraries.iter().map(ra_asm_pe::xbe::LibraryVersion::display).collect();

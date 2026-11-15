@@ -2,17 +2,20 @@
 //! virtual address that refuse an address no section holds. An XBE ([`crate::xbe`]) maps the same
 //! way, its header standing where the PE headers would; an ELF file ([`crate::elf`]) maps by its
 //! loaded segments, from the lowest one's page, and a Mach-O file ([`crate::macho`]) by its
-//! segments the same way.
+//! segments the same way. A PSX `PS-X EXE` maps its text at the header's address, and its
+//! addresses go through the console's memory map ([`ra_asm_format::psx`]): a RAM address of any
+//! segment reads the one byte it names.
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail, ensure};
 use ra_asm_format::Reader;
+use ra_asm_format::psx::{self, PsxExe};
 
 use crate::debug::{self, DebugEntry};
 use crate::exception::{self, RuntimeFunction};
 use crate::exports::{self, ExportTable};
-use crate::headers::{Directory, Headers, Machine};
+use crate::headers::{CoffHeader, DataDirectory, Directory, Headers, Machine, OptionalHeader, OptionalMagic};
 use crate::imports::{self, Import};
 use crate::relocs::{self, Relocation};
 use crate::resources::{self, Resource};
@@ -56,6 +59,9 @@ pub struct Image {
     /// The Mach-O file the image was mapped from, when it is one: its dynamic linker, its
     /// libraries, its bindings and the function extents of its `__unwind_info`.
     pub macho: Option<ra_asm_format::macho::MachOFile>,
+    /// The `PlayStation` executable's header, when the image is one: its addresses fold through the
+    /// console's memory map.
+    pub psx: Option<PsxExe>,
     /// The value the start routine gives the global pointer, on a machine whose code addresses its
     /// data through one: a 32-bit MIPS ELF's `$gp`, from its `.reginfo` or its `_gp` symbol.
     pub global_pointer: Option<u64>,
@@ -66,10 +72,16 @@ pub struct Image {
 }
 
 impl Image {
-    /// Parses the bytes of a PE file (or an XBE, an ELF or a Mach-O file) and maps them.
+    /// Parses the bytes of a PE file (or an XBE, an ELF, a Mach-O file or a PS-X EXE) and maps them.
     pub fn parse(mut file: Vec<u8>) -> Result<Self> {
         let reader = Reader::new(&file);
-        let (headers, sections, xbe, elf, macho) = if xbe::is_xbe(reader) {
+        let mut psx = None;
+        let (headers, sections, xbe, elf, macho) = if psx::is_psx(&file) {
+            let exe = PsxExe::parse(&file)?;
+            let (headers, sections) = psx_layout(&exe)?;
+            psx = Some(exe);
+            (headers, sections, None, None, None)
+        } else if xbe::is_xbe(reader) {
             let (headers, sections, xbe) = xbe::parse(reader)?;
             (headers, sections, Some(xbe), None, None)
         } else if ra_asm_format::elf::is_elf(&file) {
@@ -137,6 +149,7 @@ impl Image {
             xbe,
             elf,
             macho,
+            psx,
             global_pointer: None,
             warnings,
             file,
@@ -147,6 +160,12 @@ impl Image {
     }
 
     fn read_directories(&mut self) {
+        // A PS-X EXE has no tables: its header is all it records, and a `gp` of zero is the start
+        // routine's to set.
+        if let Some(exe) = &self.psx {
+            self.global_pointer = (exe.gp != 0).then_some(u64::from(exe.gp));
+            return;
+        }
         // An ELF file has none of the PE's directories: its tables are its own.
         if self.elf.is_some() {
             crate::elf::read_tables(self);
@@ -221,10 +240,11 @@ impl Image {
         self.headers.optional.size_of_image
     }
 
-    /// The virtual address of the entry point, or `None` when the image has none.
+    /// The virtual address of the entry point, or `None` when the image has none. A PS-X EXE always
+    /// has one, which may be the first byte of its text.
     pub fn entry_point(&self) -> Option<u64> {
         let rva = self.headers.optional.entry_point;
-        (rva != 0).then(|| self.va(rva))
+        (rva != 0 || self.psx.is_some()).then(|| self.va(rva))
     }
 
     /// The virtual address of an RVA.
@@ -232,8 +252,10 @@ impl Image {
         self.image_base() + u64::from(rva)
     }
 
-    /// The RVA of a virtual address inside the image, or `None` when it lies outside.
+    /// The RVA of a virtual address inside the image, or `None` when it lies outside. A PS-X EXE's
+    /// address is folded first: its `kuseg` and `kseg1` mirrors of RAM are the `kseg0` address.
     pub fn rva(&self, va: u64) -> Option<u32> {
+        let va = if self.psx.is_some() { psx::fold(va)?.1 } else { va };
         let rva = va.checked_sub(self.image_base())?;
         (rva < u64::from(self.size_of_image())).then_some(rva as u32)
     }
@@ -277,6 +299,29 @@ impl Image {
         merged || self.sections.iter().any(|s| (s.is_code() || s.is_executable()) && s.is_writable())
     }
 
+    /// The console the image runs on, when its container names one: `psx` for a PS-X EXE, `psp`
+    /// for a PRX module, `xbox` for an XBE; `None` for a program of an operating system.
+    pub fn platform(&self) -> Option<&'static str> {
+        if self.psx.is_some() {
+            Some("psx")
+        } else if self.elf.as_ref().is_some_and(|e| e.prx.is_some()) {
+            Some("psp")
+        } else if self.xbe.is_some() {
+            Some("xbox")
+        } else {
+            None
+        }
+    }
+
+    /// The place of the console's memory map that `va` reaches, with its folded address, on an
+    /// image of a console that has one (the `PlayStation's`); `None` elsewhere, or for an address no
+    /// place answers. An access to [`psx::Region::Hardware`] is a device's, which the platform
+    /// runtime answers and the image does not hold.
+    pub fn memory_region(&self, va: u64) -> Option<(psx::Region, u64)> {
+        self.psx.as_ref()?;
+        psx::fold(va)
+    }
+
     /// The whole mapped image, indexed by RVA.
     pub fn mapped(&self) -> &[u8] {
         &self.mapped
@@ -307,16 +352,19 @@ impl Image {
 
     /// The bytes from `va` to the end of its section.
     pub fn read_to_section_end(&self, va: u64) -> Result<&[u8]> {
-        let Some(section) = self.section_of(va) else { bail!("no section holds address {va:#x}") };
-        let end = self.va(section.end_rva()).min(self.va(self.size_of_image()));
-        self.read(va, (end - va) as usize)
+        let Some((rva, section)) = self.rva(va).and_then(|rva| Some((rva, self.section_of_rva(rva)?))) else {
+            bail!("no section holds address {va:#x}")
+        };
+        let end = section.end_rva().min(self.size_of_image());
+        self.read(va, (end - rva) as usize)
     }
 
     /// Puts `bytes` at `va` in the mapped image, as a running program leaves its own image: code
     /// it unpacked or patched, data it wrote. The range must lie in the headers or in one section.
     pub fn write(&mut self, va: u64, bytes: &[u8]) -> Result<()> {
         self.read(va, bytes.len())?;
-        let start = (va - self.image_base()) as usize;
+        let Some(rva) = self.rva(va) else { bail!("address {va:#x} lies outside the image") };
+        let start = rva as usize;
         self.mapped[start..start + bytes.len()].copy_from_slice(bytes);
         Ok(())
     }
@@ -396,4 +444,75 @@ impl Image {
     pub fn import_at(&self, va: u64) -> Option<&Import> {
         self.imports.iter().find(|i| i.iat_va == va)
     }
+}
+
+/// The headers and the sections a PS-X EXE stands for, laid out as the BIOS loads it: `.text`, the
+/// file's bytes after the header at the header's address, code and data both and writable, and
+/// `.bss`, the range the BIOS clears, when the header names one. The base is the lowest of the two
+/// folded addresses; the 2 KiB header is not mapped, since the BIOS copies only the text.
+fn psx_layout(exe: &PsxExe) -> Result<(Headers, Vec<Section>)> {
+    let text = exe.text_address();
+    let bss = exe.bss_range();
+    let base = bss.map_or(text, |(start, _)| start.min(text));
+    let end = bss.map_or(0, |(start, size)| start + u64::from(size)).max(text + u64::from(exe.text.1));
+    let rva = |va: u64| u32::try_from(va - base).context("the PS-X EXE spans more than 4 GiB");
+    let mut sections = vec![Section {
+        name: ".text".to_owned(),
+        virtual_size: exe.text.1,
+        virtual_address: rva(text)?,
+        raw_size: exe.text.1,
+        raw_offset: u32::try_from(psx::HEADER_SIZE).unwrap_or(0),
+        characteristics: crate::elf::characteristics(true, true, false),
+    }];
+    if let Some((start, size)) = bss {
+        sections.push(Section {
+            name: ".bss".to_owned(),
+            virtual_size: size,
+            virtual_address: rva(start)?,
+            raw_size: 0,
+            raw_offset: 0,
+            characteristics: crate::elf::characteristics(false, true, true),
+        });
+    }
+    let size_of_image = rva(end)?;
+    let headers = Headers {
+        pe_offset: 0,
+        coff: CoffHeader {
+            machine: Machine::Mips,
+            sections: u16::try_from(sections.len()).unwrap_or(u16::MAX),
+            timestamp: 0,
+            symbol_table: 0,
+            symbols: 0,
+            optional_header_size: 0,
+            characteristics: CoffHeader::EXECUTABLE_IMAGE | CoffHeader::RELOCS_STRIPPED,
+        },
+        optional: OptionalHeader {
+            magic: OptionalMagic::Pe32,
+            linker_version: (0, 0),
+            size_of_code: exe.text.1,
+            size_of_initialized_data: 0,
+            size_of_uninitialized_data: bss.map_or(0, |(_, size)| size),
+            entry_point: rva(exe.entry())?,
+            base_of_code: rva(text)?,
+            image_base: base,
+            section_alignment: u32::try_from(psx::HEADER_SIZE).unwrap_or(0),
+            file_alignment: u32::try_from(psx::HEADER_SIZE).unwrap_or(0),
+            os_version: (0, 0),
+            image_version: (0, 0),
+            subsystem_version: (0, 0),
+            size_of_image,
+            size_of_headers: 0,
+            checksum: 0,
+            subsystem: 0,
+            dll_characteristics: 0,
+            stack_reserve: 0,
+            stack_commit: 0,
+            heap_reserve: 0,
+            heap_commit: 0,
+            directories: vec![DataDirectory::default(); 16],
+        },
+        section_table_offset: 0,
+        rich: None,
+    };
+    Ok((headers, sections))
 }

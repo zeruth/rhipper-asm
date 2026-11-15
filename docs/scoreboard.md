@@ -28,17 +28,17 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | float32.exe | ok | 6 | 6 | 6 | 0 | 0 | 6 | 4 | 27 | 0 | 78 | 822 | 0.0 | 986.6 |
 | float64.exe | ok | 7 | 7 | 7 | 0 | 0 | 7 | 7 | 36 | 0 | 72 | 564 | 0.0 | 1012.4 |
 | floata64.exe | crash | - | - | 7 | 0 | 0 | - | - | - | - | - | - | - | - |
-| gte_psx.exe | error | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| gte_psx.exe | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 3 | 0 | 7 | 353 | 0.0 | 456.1 |
 | hello32-upx.exe | timeout | - | - | - | 1 | 1 | - | - | - | - | - | - | - | - |
 | hello32.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 249 | 0.0 | 333.3 |
-| hello64-upx.exe | timeout | - | - | 6 | 0 | 0 | - | - | - | - | - | - | - | - |
+| hello64-upx.exe | timeout | - | - | 6 | 0 | 0 | - | - | - | - | - | 9107 | 0.7 | 2714.8 |
 | hello64.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 119 | 0.0 | 218.5 |
 | hello_linux64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 166 | 0.0 | 253.0 |
 | hello_linux_a64 | ok | 5 | 5 | 5 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 203 | 0.0 | 300.5 |
 | hello_macos_arm64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 2 | 252 | 0.0 | 87.3 |
 | hello_macos_x64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 284 | 0.0 | 112.7 |
 | hello_mipsel | ok | 8 | 8 | 8 | 1 | 1 | 4 | 4 | 3 | 0 | 5 | 198 | 0.0 | 277.8 |
-| hello_psx.exe | error | - | - | - | - | - | - | - | - | - | - | - | - | - |
+| hello_psx.exe | ok | 6 | 6 | 6 | 0 | 0 | 6 | 6 | 6 | 0 | 12 | 314 | 0.0 | 458.6 |
 | helloa64.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 1 | 118 | 0.0 | 169.5 |
 | inline32.exe | ok | 5 | 5 | 5 | 0 | 0 | 5 | 5 | 38 | 0 | 76 | 447 | 0.0 | 463.1 |
 | inline64.exe | ok | 5 | 5 | 5 | 0 | 0 | 5 | 5 | 38 | 0 | 76 | 258 | 0.0 | 387.6 |
@@ -58,10 +58,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 691 | 0.0 | 712.0 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 380 | 0.0 | 397.4 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 441 | 0.0 | 594.1 |
-| total | 46/52 ok | 314 | 314 | 327 | 5 | 5 | 257 | 249 | 721 | 0 | 1622 | 21595 | 0.2 | 652.2 |
-
-- gte_psx.exe: C:\Users\tyler\Documents\code\rhipper-asm\testdata\bin\gte_psx.exe is not a PE image this loader reads: the DOS magic at offset 0x0 is 0x5350, not MZ
-- hello_psx.exe: C:\Users\tyler\Documents\code\rhipper-asm\testdata\bin\hello_psx.exe is not a PE image this loader reads: the DOS magic at offset 0x0 is 0x5350, not MZ
+| total | 48/52 ok | 324 | 324 | 337 | 5 | 5 | 267 | 259 | 730 | 0 | 1641 | 31369 | 0.3 | 1246.9 |
 
 | pending list | entries |
 |---|---|

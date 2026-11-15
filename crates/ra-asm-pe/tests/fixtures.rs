@@ -454,3 +454,86 @@ fn the_psp_hello_loads_at_the_user_address_with_its_imports_named() {
 }
 
 // endregion
+
+// region The PlayStation
+
+fn psx_hello() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/psx/hello.exe")
+}
+
+/// The PSn00bSDK fixture: its text at the header's address, the entry at its `pc` (the SDK's
+/// `_start`, `0x80010094` in the ELF it was made from), and no `gp` in the header, which the start
+/// routine sets.
+#[test]
+fn the_psx_hello_maps_its_text_at_the_header_address() {
+    let bytes = std::fs::read(psx_hello()).unwrap();
+    let image = ra_asm_pe::load(&psx_hello()).unwrap();
+    assert!(image.warnings.is_empty(), "{:?}", image.warnings);
+    let exe = image.psx.as_ref().expect("a PS-X EXE");
+    assert_eq!((exe.pc, exe.gp, exe.text), (0x8001_0094, 0, (0x8001_0000, 0x800)));
+    assert_eq!(image.machine(), Machine::Mips);
+    assert!(!image.is_64() && !image.big_endian());
+    assert_eq!(image.platform(), Some("psx"));
+    assert_eq!(image.image_base(), 0x8001_0000);
+    assert_eq!(image.entry_point(), Some(0x8001_0094));
+    assert_eq!(image.global_pointer, None);
+    assert_eq!(image.sections.len(), 1);
+    assert!(image.is_code(0x8001_0094));
+    // The text is the file after the 2 KiB header, byte for byte.
+    assert_eq!(image.read(0x8001_0000, 0x800).unwrap(), &bytes[0x800..0x1000]);
+    assert!(image.read(0x8001_0800, 1).is_err(), "the text ends at its size");
+    assert!(image.read(0x8000_fffc, 4).is_err(), "nothing of the image lies below the text");
+
+    // The other fixtures of the SDK load the same way.
+    for name in ["hello_psx.exe", "gte_psx.exe"] {
+        let other = load(name);
+        assert_eq!(other.platform(), Some("psx"), "{name}");
+        assert!(other.is_code(other.entry_point().unwrap()), "{name}");
+    }
+}
+
+/// RAM reads the same through `kuseg`, `kseg0` and `kseg1`; the scratchpad and the hardware
+/// registers are places of the map that the image does not hold.
+#[test]
+fn the_psx_memory_map_folds_the_mirrors_of_ram() {
+    use ra_asm_format::psx::Region;
+    let image = ra_asm_pe::load(&psx_hello()).unwrap();
+    let word = image.u32(0x8001_0094).unwrap();
+    for mirror in [0x0001_0094, 0xa001_0094] {
+        assert_eq!(image.u32(mirror).unwrap(), word, "{mirror:#x}");
+        assert_eq!(image.rva(mirror), image.rva(0x8001_0094), "{mirror:#x}");
+    }
+    assert_eq!(image.memory_region(0xa001_0094), Some((Region::Ram, 0x8001_0094)));
+    assert_eq!(image.memory_region(0x1f80_0010), Some((Region::Scratchpad, 0x1f80_0010)));
+    assert_eq!(image.memory_region(0x9f80_0010), Some((Region::Scratchpad, 0x1f80_0010)));
+    assert_eq!(image.memory_region(0xbf80_0010), None, "the scratchpad is not on kseg1's bus");
+    for gpu in [0x1f80_1810, 0x9f80_1810, 0xbf80_1810] {
+        assert_eq!(image.memory_region(gpu), Some((Region::Hardware, 0x1f80_1810)), "{gpu:#x}");
+        assert!(image.read(gpu, 4).is_err(), "a device register is no byte of the image");
+    }
+    assert_eq!(image.memory_region(0xbfc0_0000), Some((Region::Bios, 0x1fc0_0000)));
+    assert_eq!(image.memory_region(0xfffe_0130), Some((Region::Hardware, 0xfffe_0130)));
+    assert_eq!(image.memory_region(0x4000_0000), None);
+    assert_eq!(load("hello64.exe").memory_region(0x1f80_1810), None, "a PE has no console's map");
+}
+
+/// A PS-X EXE cut short is refused at the field it lost.
+#[test]
+fn a_truncated_psx_header_is_refused_with_its_offset() {
+    let bytes = std::fs::read(psx_hello()).unwrap();
+    for (len, field) in [
+        (0x18, "the text address at offset 0x18"),
+        (0x400, "the region marker at offset 0x4c"),
+        (0x900, "the text at offset 0x800 (0x800 bytes)"),
+    ] {
+        let error = Image::parse(bytes[..len].to_vec()).unwrap_err();
+        let text = format!("{error:#}");
+        assert!(text.contains(field) && text.contains("past the end"), "{len:#x}: {text}");
+    }
+    let mut outside = bytes.clone();
+    outside[0x10..0x14].copy_from_slice(&0x8002_0000u32.to_le_bytes());
+    let error = Image::parse(outside).unwrap_err();
+    assert_eq!(format!("{error:#}"), "the initial pc 0x80020000 at offset 0x10 does not lie in the text");
+}
+
+// endregion

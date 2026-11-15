@@ -5,7 +5,7 @@
 //! [`object`] reads the relocatable objects (COFF, ELF) and the archives the signatures of a
 //! library are made from. [`xbe`] reads the original Xbox's container into the same image, and
 //! [`elf`] the executables and shared objects of Linux and the PSP's PRX modules, and [`macho`] the 64-bit executables and
-//! libraries of macOS, thin or fat. [`toolset`] fingerprints the compiler,
+//! libraries of macOS, thin or fat; [`Image`] maps the PSX's `PS-X EXE` too. [`toolset`] fingerprints the compiler,
 //! linker and C runtime that built an image.
 
 pub mod debug;
@@ -54,8 +54,9 @@ pub fn load(path: &Path) -> anyhow::Result<Image> {
     let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
     let mut image = Image::parse(bytes).with_context(|| format!("{} is not a PE image this loader reads", path.display()))?;
     image.path = Some(path.to_path_buf());
-    // An ELF or a Mach-O file names its functions in its own symbol table.
-    if image.elf.is_some() || image.macho.is_some() {
+    // An ELF or a Mach-O file names its functions in its own symbol table; a PS-X EXE has no PDB,
+    // and the map beside one is `nm`'s over its ELF, not a link map.
+    if image.elf.is_some() || image.macho.is_some() || image.psx.is_some() {
         return Ok(image);
     }
     match debug::load_pdb(&image) {
