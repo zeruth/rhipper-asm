@@ -1933,6 +1933,20 @@ fn sys_slist_lines() {
     fixture.compare_through(&port.test, &port.run, &port.exe, "slist empty");
 }
 
+/// The window procedure of a 32-bit program reads WM_CREATE's CREATESTRUCTA in its own layout, the
+/// copy the runtime's adapter narrows from the host's: win-clang's port prints the native lines
+/// through the create section, its `lpCreateParams` and `cx` among them. On a Windows host the port
+/// must run: a missing clang fails the test rather than passing it unchecked.
+#[test]
+fn win_create_lines() {
+    let fixture = rhtest("win", "clang");
+    let Some(port) = run_port_as_c(&fixture, "create", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C, false) else {
+        assert!(!cfg!(windows), "win-clang: no clang on the PATH, so the port of the create section was not built or run");
+        return;
+    };
+    fixture.compare_through(&port.test, &port.run, &port.exe, "create cx");
+}
+
 #[test]
 #[ignore = "needs the Win32 structure adapters (a card of milestone I): OVERLAPPED, MEMORY_BASIC_INFORMATION, SLIST, INIT_ONCE, MSG"]
 fn rhtest_sys_clang_runs_as_rust() {
