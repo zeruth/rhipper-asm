@@ -2777,10 +2777,29 @@ impl<'a> Emitter<'a> {
         match self.field_access(ptr) {
             Some((field, field_ty)) if field_ty == ty => field,
             Some((field, _)) => format!("*({} *)&{field}", access_type(ty, align)),
-            None => match self.section_access(ty, ptr) {
-                Some(access) => access,
-                None => format!("*({} *)({})", access_type(ty, align), self.operand(&Type::Ptr, ptr)),
-            },
+            None => {
+                if let Some(access) = self.section_access(ty, ptr) {
+                    access
+                } else {
+                    let address = self.int_address(ptr).map_or_else(|| self.operand(&Type::Ptr, ptr), |int| strip_parens(&int));
+                    format!("*({} *)({address})", access_type(ty, align))
+                }
+            }
+        }
+    }
+
+    /// The integer an address operand is made of, when it is an integer made a pointer in place:
+    /// the access casts it to its own pointer type at once, with no byte pointer between.
+    fn int_address(&self, ptr: &Operand) -> Option<String> {
+        let Operand::Local(v) = ptr else { return None };
+        if !self.inlinable(*v) || self.alias.contains_key(v) || self.cond_alias.iter().any(|(n, _)| n == v) {
+            return None;
+        }
+        match self.def(*v) {
+            Some((_, _, Inst::Cast { cast: Cast::IntToPtr, from, value, .. })) if !matches!(value, Operand::Address { .. }) => {
+                Some(self.operand(from, value))
+            }
+            _ => None,
         }
     }
 
@@ -3873,7 +3892,7 @@ fn short_type(ty: &Type) -> String {
 mod tests {
     use std::collections::BTreeMap;
 
-    use ra_asm_ir::{CallConv, Callee, Declaration, FnType, FunctionBuilder, Module, Operand, Terminator, Type};
+    use ra_asm_ir::{BinOp, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, Module, Operand, Terminator, Type};
 
     use super::{Options, Unit, emit_unit, emit_unit_dropping, parts};
 
@@ -3938,6 +3957,27 @@ mod tests {
         assert!(expected.contains("#define GENERIC_READ "), "{expected}");
         assert_eq!(emit_unit(&module, &options).text(), expected);
         assert_eq!(emit_unit_dropping(&mut module.clone(), &options).text(), expected);
+    }
+
+    #[test]
+    fn an_integer_address_is_cast_once_to_the_access_type() {
+        let mut module = Module::x86_64_windows("address");
+        let mut b = FunctionBuilder::new("F_00001000", FnType::new(Type::I32, vec![Type::I64]), &["rcx"]);
+        b.set_address(0x1000);
+        let entry = b.block("entry");
+        let rcx = b.param(0);
+        let base = b.bin(entry, BinOp::Xor, Type::I64, rcx, Operand::Int(7), "base");
+        let byte = b.cast(entry, Cast::IntToPtr, Type::I64, base, Type::Ptr, "byte");
+        b.store(entry, Type::I8, Operand::Int(1), byte);
+        let at = b.bin(entry, BinOp::Or, Type::I64, rcx, Operand::Int(16), "at");
+        let word = b.cast(entry, Cast::IntToPtr, Type::I64, at, Type::Ptr, "word");
+        let read = b.load(entry, Type::I32, word, "read");
+        b.terminate(entry, Terminator::Ret(Some((Type::I32, Operand::Local(read)))));
+        module.functions.push(b.finish());
+        let text = emit_unit(&module, &Options::default()).functions[0].text.clone();
+        // The integer goes straight to the access's pointer type, without a byte pointer between.
+        assert!(!text.contains("((uint8_t *)"), "{text}");
+        assert!(text.contains("*(uint8_t *)(") && text.contains("*(uint32_t *)("), "{text}");
     }
 
     /// A module whose functions are frozen past its first ones writes as it does thawed, and the
