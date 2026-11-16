@@ -162,6 +162,10 @@ enum Command {
         /// the port loads no DLL for them. Repeatable.
         #[arg(long, value_name = "IMAGE")]
         with: Vec<PathBuf>,
+        /// Print the seconds of each stage on stderr, a line each: the analysis, the lift, each step of the raise, the names,
+        /// the translation's parts, the evidence, the formatting, the writing and the regeneration. `RA_STEP_TIMES` set does too.
+        #[arg(long)]
+        times: bool,
     },
     /// The IR of every function. With `--out`, writes `program.ll`, `image.bin` and `image.h` there.
     Lift {
@@ -530,8 +534,8 @@ fn command() -> anyhow::Result<()> {
             signatures::recognize(&mut image, &from, write.as_deref(), json)
         }
         Command::Signatures { pe, .. } => signatures::signatures(&load(&pe.context("a PE image is required")?, sigs)?, json),
-        Command::Emit { pe, lang, out, quiet, x87, hand, project, checked, only, with } => {
-            emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref(), checked, &only, &with)
+        Command::Emit { pe, lang, out, quiet, x87, hand, project, checked, only, with, times } => {
+            emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref(), checked, &only, &with, times)
         }
         Command::Run { pe, args, level, x87, trace, limit, quiet, facts, record } => {
             let code = run::run(&load(&pe, sigs)?, &run::Options { level, x87, trace, limit, args, quiet, facts, record })?;

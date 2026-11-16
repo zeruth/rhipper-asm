@@ -29,6 +29,8 @@ pub mod types;
 pub mod widths;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use liveness::Slot;
 use ra_asm_analysis::rtti::Vtable;
@@ -36,6 +38,32 @@ use ra_asm_arch::abi::{self as convention, Abi, Reg};
 use ra_asm_ir::{Module, Type};
 
 use crate::state::Isa;
+
+/// Whether the stages print their times, as `ras emit --times` asks (see [`timed`]).
+static TIMES: AtomicBool = AtomicBool::new(false);
+
+/// Has [`timed`] print the seconds of every stage from now on, as `RA_STEP_TIMES` does.
+pub fn print_times(on: bool) {
+    TIMES.store(on, Ordering::Relaxed);
+}
+
+/// Whether the stages print their times: [`print_times`] asked for them, or `RA_STEP_TIMES` is set.
+pub fn times() -> bool {
+    TIMES.load(Ordering::Relaxed) || std::env::var_os("RA_STEP_TIMES").is_some()
+}
+
+/// Runs `run` and, when the times print ([`times`]), writes its seconds on stderr as one line,
+/// `ra: time: <name>: <seconds>s`: a slow stretch of a large emit shows by its stage, not by
+/// watching the process.
+pub fn timed<T>(name: &str, run: impl FnOnce() -> T) -> T {
+    if !times() {
+        return run();
+    }
+    let start = Instant::now();
+    let out = run();
+    eprintln!("ra: time: {name}: {:.3}s", start.elapsed().as_secs_f64());
+    out
+}
 
 /// The machine the IR came from, by its instruction set and pointer width, which set the calling
 /// convention the raise applies: Win64 for a 64-bit x86 image, the x86 conventions (`cdecl`,
@@ -413,17 +441,20 @@ pub fn raise_before(
     let inference = order.iter().position(|s| matches!(s.pass, Pass::Signatures(_))).expect("every level infers the signatures");
     let (ahead, rest) = order.split_at(inference);
     let Pass::Signatures(infer) = rest[0].pass else { unreachable!() };
+    let inference_name = rest[0].name;
     let rest = &rest[1..];
     let (each, whole) = rest.split_at(rest.iter().position(|s| !matches!(s.pass, Pass::Function(_))).unwrap_or(rest.len()));
     let abi_level = options.level == Level::Abi;
     // Below the ABI level the functions the lift froze come back at once, ahead of the module's
     // own (the import wrappers and stubs the lift added after them), in their order.
     if !abi_level {
-        let frozen = std::mem::take(&mut module.frozen);
-        let mut functions = abi::par_map(&frozen, |_, f| ra_asm_ir::freeze::thaw(f));
-        drop(frozen);
-        functions.append(&mut module.functions);
-        module.functions = functions;
+        timed("raise: thaw", || {
+            let frozen = std::mem::take(&mut module.frozen);
+            let mut functions = abi::par_map(&frozen, |_, f| ra_asm_ir::freeze::thaw(f));
+            drop(frozen);
+            functions.append(&mut module.functions);
+            module.functions = functions;
+        });
     }
     let signatures = {
         let none = HashMap::new();
@@ -433,19 +464,21 @@ pub fn raise_before(
         // by its value. The inference then reads the functions as they are, without a copy of
         // the module.
         if !ahead.is_empty() {
-            let globals = &module.globals;
-            abi::par_each_mut(&mut module.frozen, |_, z| {
-                let mut f = ra_asm_ir::freeze::thaw(z);
-                run_each(ahead, &mut f, &cx, globals);
-                *z = ra_asm_ir::freeze::freeze(&f);
-            });
-            abi::par_each_mut(&mut module.functions, |_, f| {
-                if f.name.starts_with("F_") {
-                    run_each(ahead, f, &cx, globals);
-                }
+            timed("raise: functions ahead of the signatures", || {
+                let globals = &module.globals;
+                abi::par_each_mut(&mut module.frozen, |_, z| {
+                    let mut f = ra_asm_ir::freeze::thaw(z);
+                    run_each(ahead, &mut f, &cx, globals);
+                    *z = ra_asm_ir::freeze::freeze(&f);
+                });
+                abi::par_each_mut(&mut module.functions, |_, f| {
+                    if f.name.starts_with("F_") {
+                        run_each(ahead, f, &cx, globals);
+                    }
+                });
             });
         }
-        infer(module, &cx)
+        timed(&format!("raise: {inference_name}"), || infer(module, &cx))
     };
     {
         let cx = Context::new(roots, &options, &signatures);
@@ -470,43 +503,49 @@ pub fn raise_before(
             if whole.is_empty() {
                 // Each frozen function gives way to its raise as the raise reaches it: the frozen
                 // bytes and the raised module are never both whole.
-                let mut slots: Vec<Result<ra_asm_ir::Function, ra_asm_ir::freeze::Frozen>> = frozen.into_iter().map(Err).collect();
-                abi::par_each_mut(&mut slots, |_, slot| {
-                    if let Err(z) = slot {
-                        let mut f = ra_asm_ir::freeze::thaw(z);
-                        raise_one(&mut f);
-                        *slot = Ok(f);
-                    }
+                timed("raise: functions", || {
+                    let mut slots: Vec<Result<ra_asm_ir::Function, ra_asm_ir::freeze::Frozen>> = frozen.into_iter().map(Err).collect();
+                    abi::par_each_mut(&mut slots, |_, slot| {
+                        if let Err(z) = slot {
+                            let mut f = ra_asm_ir::freeze::thaw(z);
+                            raise_one(&mut f);
+                            *slot = Ok(f);
+                        }
+                    });
+                    let mut functions: Vec<ra_asm_ir::Function> = slots.into_iter().map(|s| s.expect("every slot is raised")).collect();
+                    let mut own = std::mem::take(&mut module.functions);
+                    abi::par_each_mut(&mut own, |_, f| raise_one(f));
+                    functions.append(&mut own);
+                    module.functions = functions;
                 });
-                let mut functions: Vec<ra_asm_ir::Function> = slots.into_iter().map(|s| s.expect("every slot is raised")).collect();
-                let mut own = std::mem::take(&mut module.functions);
-                abi::par_each_mut(&mut own, |_, f| raise_one(f));
-                functions.append(&mut own);
-                module.functions = functions;
             } else {
                 // The module steps read the functions frozen (see [`held`]): each function is
                 // frozen again as its raise ends, so the raised module is never whole before the
                 // steps have run.
-                let mut frozen = frozen;
-                held::each_mut(&mut frozen, |_, f| raise_one(f));
-                let mut own = std::mem::take(&mut module.functions);
-                abi::par_each_mut(&mut own, |_, f| raise_one(f));
-                frozen.extend(abi::par_map(&own, |_, f| ra_asm_ir::freeze::freeze(f)));
-                drop(own);
-                module.frozen = frozen;
+                timed("raise: functions", || {
+                    let mut frozen = frozen;
+                    held::each_mut(&mut frozen, |_, f| raise_one(f));
+                    let mut own = std::mem::take(&mut module.functions);
+                    abi::par_each_mut(&mut own, |_, f| raise_one(f));
+                    frozen.extend(abi::par_map(&own, |_, f| ra_asm_ir::freeze::freeze(f)));
+                    drop(own);
+                    module.frozen = frozen;
+                });
             }
         } else {
-            let globals = &module.globals;
-            for f in &mut module.functions {
-                run_each(each, f, &cx, globals);
-            }
+            timed("raise: functions", || {
+                let globals = &module.globals;
+                for f in &mut module.functions {
+                    run_each(each, f, &cx, globals);
+                }
+            });
         }
         for step in whole {
             let Pass::Module(run) = step.pass else { unreachable!("`{}` follows the module steps", step.name) };
-            run(module, &cx);
+            timed(&format!("raise: {}", step.name), || run(module, &cx));
         }
         if abi_level && !whole.is_empty() {
-            held::thaw_all(module);
+            timed("raise: thaw", || held::thaw_all(module));
         }
     }
     // A pass that breaks the shape of its level shows in the builds the tests run, where it

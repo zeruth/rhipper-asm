@@ -446,15 +446,19 @@ pub fn emit_unit(module: &Module, options: &Options) -> Unit {
 /// program and its source are never both whole in memory. The module keeps its types, globals and
 /// declarations, and of each function its name, type, attributes and address.
 pub fn emit_unit_dropping(module: &mut Module, options: &Options) -> Unit {
-    let mut parts = parts(module, options);
-    let mut functions = Vec::with_capacity(module.functions.len());
-    for f in &mut module.functions {
-        functions.push(parts.function(f, &module.types, options));
-        f.blocks = Vec::new();
-        f.value_names = Vec::new();
-        f.value_types = Vec::new();
-    }
-    parts.unit(functions, options)
+    use ra_asm_lift::raise::timed;
+    let mut parts = timed("translate: module parts", || parts(module, options));
+    let functions = timed("translate: functions", || {
+        let mut functions = Vec::with_capacity(module.functions.len());
+        for f in &mut module.functions {
+            functions.push(parts.function(f, &module.types, options));
+            f.blocks = Vec::new();
+            f.value_names = Vec::new();
+            f.value_types = Vec::new();
+        }
+        functions
+    });
+    timed("translate: unit", || parts.unit(functions, options))
 }
 
 /// What a unit's functions are written with, made from the whole module before the first of them:

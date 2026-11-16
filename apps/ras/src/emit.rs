@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 use ra_asm_analysis::{Analysis, Identity};
 use ra_asm_emit::functions::format_address;
 use ra_asm_emit::{EmittedFile, EmittedFunction, FunctionInfo};
+use ra_asm_lift::raise::timed;
 use ra_asm_lift::{Companion, Lifted};
 use ra_asm_pe::Image;
 use serde_json::{Value, json};
@@ -117,37 +118,14 @@ pub(crate) fn translate(
     options: &Options<'_>,
 ) -> Result<Translation> {
     let Options { lang, package, trace, hand, annotations, checked, with } = *options;
-    let mut infos = ra_asm_emit::functions::infos(analysis);
-    for info in infos.values_mut() {
-        if let Some(annotation) = annotations.get(&info.address) {
-            info.annotated = true;
-            info.ty.clone_from(&annotation.ty);
-            info.comment.clone_from(&annotation.comment);
-        }
-        // An import a second image answers is a call of its lifted function, not an import.
-        for bound in info.imports.iter().filter_map(|i| lifted.bound.get(i)).filter_map(|va| lifted.functions.get(va)) {
-            if !info.calls.contains(bound) {
-                info.calls.push(bound.clone());
-            }
-        }
-        info.imports.retain(|i| !lifted.bound.contains_key(i));
-    }
-    if !with.is_empty() {
-        for info in infos.values_mut() {
-            info.image = Some(image_name(image));
-        }
-        for companion in with {
-            let name = image_name(companion.image);
-            infos.extend(ra_asm_emit::functions::infos(companion.analysis).into_iter().map(|(ir, mut info)| {
-                info.image = Some(name.clone());
-                (ir, info)
-            }));
-        }
-    }
+    let infos = timed("translate: infos", || function_infos(image, analysis, lifted, annotations, with));
     let names: HashMap<String, String> = infos.iter().map(|(ir, i)| (ir.clone(), i.name.clone())).collect();
     let images: Vec<&Image> = std::iter::once(image).chain(with.iter().map(|c| c.image)).collect();
-    let mut resources = resource_files(image);
-    resources.extend(import_defs(&images, &lifted.bound));
+    let mut resources = timed("translate: resources", || {
+        let mut resources = resource_files(image);
+        resources.extend(import_defs(&images, &lifted.bound));
+        resources
+    });
     let mut warnings = Vec::new();
     let hand = hand_functions(&infos, hand, &mut warnings);
     let exports = image.headers.coff.is_dll().then(|| exports_def(image, lifted, &mut warnings));
@@ -177,7 +155,7 @@ pub(crate) fn translate(
             resources: !image.resources.is_empty(),
             ..Default::default()
         };
-        let output = ra_asm_emit::emit_rust(&lifted.module, &options);
+        let output = timed("translate: functions", || ra_asm_emit::emit_rust(&lifted.module, &options));
         return Ok(Translation {
             files: output.files,
             functions: output.functions,
@@ -192,10 +170,11 @@ pub(crate) fn translate(
         bail!("the language `{lang}` is not `c`, `cpp` or `rust`");
     };
     let analyses: Vec<&Analysis<'_>> = std::iter::once(analysis).chain(with.iter().map(|c| c.analysis)).collect();
-    let classes = analyses.iter().flat_map(|a| ra_asm_emit::classes(a, signatures)).collect();
-    let checks = if checked { checks(&analyses, lifted) } else { Vec::new() };
+    let classes: Vec<_> = timed("translate: classes", || analyses.iter().flat_map(|a| ra_asm_emit::classes(a, signatures)).collect());
+    let checks = if checked { timed("translate: checks", || checks(&analyses, lifted)) } else { Vec::new() };
     let guest32 = image.pointer_size() == 4;
     let options = ra_asm_emit::COptions { names, dialect, classes, trace, hand, checks, guest32 };
+    // The unit times its own parts: the module's, the functions' and the unit's.
     let mut unit = ra_asm_emit::emit_unit_dropping(&mut lifted.module, &options);
     // The bytes of the large data globals the source embeds go beside it, as the resources do.
     resources.append(&mut unit.blobs);
@@ -203,8 +182,10 @@ pub(crate) fn translate(
         warnings.push(format!("assumption {id} has no site in the translation: it is not watched"));
     }
     // The modules of the build, when its symbols name two object files or more; else by size.
-    let objects = ra_asm_emit::functions::objects(&infos);
-    let files = unit.module_files(&objects).unwrap_or_else(|| unit.files(ra_asm_emit::FUNCTIONS_PER_FILE));
+    let files = timed("translate: files", || {
+        let objects = ra_asm_emit::functions::objects(&infos);
+        unit.module_files(&objects).unwrap_or_else(|| unit.files(ra_asm_emit::FUNCTIONS_PER_FILE))
+    });
     Ok(Translation {
         files,
         functions: unit.functions,
@@ -214,6 +195,45 @@ pub(crate) fn translate(
         exports,
         warnings,
     })
+}
+
+/// The table's view of the functions of `analysis` and of the second images `with`: the
+/// person's annotations on them, and an import a second image answers as a call of its function.
+fn function_infos(
+    image: &Image,
+    analysis: &Analysis<'_>,
+    lifted: &Lifted,
+    annotations: &BTreeMap<u64, Annotation>,
+    with: &[Companion<'_>],
+) -> HashMap<String, FunctionInfo> {
+    let mut infos = ra_asm_emit::functions::infos(analysis);
+    for info in infos.values_mut() {
+        if let Some(annotation) = annotations.get(&info.address) {
+            info.annotated = true;
+            info.ty.clone_from(&annotation.ty);
+            info.comment.clone_from(&annotation.comment);
+        }
+        // An import a second image answers is a call of its lifted function, not an import.
+        for bound in info.imports.iter().filter_map(|i| lifted.bound.get(i)).filter_map(|va| lifted.functions.get(va)) {
+            if !info.calls.contains(bound) {
+                info.calls.push(bound.clone());
+            }
+        }
+        info.imports.retain(|i| !lifted.bound.contains_key(i));
+    }
+    if !with.is_empty() {
+        for info in infos.values_mut() {
+            info.image = Some(image_name(image));
+        }
+        for companion in with {
+            let name = image_name(companion.image);
+            infos.extend(ra_asm_emit::functions::infos(companion.analysis).into_iter().map(|(ir, mut info)| {
+                info.image = Some(name.clone());
+                (ir, info)
+            }));
+        }
+    }
+    infos
 }
 
 /// The checks of a checked translation, numbered in the order of the functions' addresses: the
@@ -734,9 +754,10 @@ pub(crate) fn companions_of<'a>(images: &'a [Image], analyses: &'a [Analysis<'a>
 /// stdout without `out`. `hand` names the functions left to hand-written sources; the annotations
 /// of the project at `project` rename functions and leave more to the sources. `checked` writes
 /// the open assumptions as checks. `only`, when it names functions, translates them and what they
-/// call alone. `with` names the second images ported with the program (`--with`).
+/// call alone. `with` names the second images ported with the program (`--with`). `times` prints
+/// the seconds of each stage on stderr (see [`timed`]).
 // The arguments are the command's own flags, one each.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 pub(crate) fn emit(
     image: &Image,
     language: &str,
@@ -748,8 +769,12 @@ pub(crate) fn emit(
     checked: bool,
     only: &[String],
     with: &[std::path::PathBuf],
+    times: bool,
 ) -> Result<()> {
-    let mut analysis = ra_asm_analysis::analyze(image);
+    if times {
+        ra_asm_lift::raise::print_times(true);
+    }
+    let mut analysis = timed("analysis", || ra_asm_analysis::analyze(image));
     keep_reached(&mut analysis, only)?;
     let (annotations, warnings) = project.map(|root| crate::annotations::annotate(root, &mut analysis)).unwrap_or_default();
     let hand = crate::annotations::hand_list(hand, &annotations);
@@ -760,9 +785,10 @@ pub(crate) fn emit(
     for with_image in &with_images {
         ra_asm_analysis::symbols::port_import_library(image, &mut analysis.functions, with_image);
     }
-    let mut with_analyses = analyze_companions(&analysis, &with_images);
+    let mut with_analyses = timed("analysis: second images", || analyze_companions(&analysis, &with_images));
     let companions = companions_of(&with_images, &with_analyses);
-    let mut lifted = ra_asm_lift::lift_frozen_with(image, &analysis, &companions, ra_asm_lift::LiftOptions { standalone: true, x87 });
+    let mut lifted =
+        timed("lift", || ra_asm_lift::lift_frozen_with(image, &analysis, &companions, ra_asm_lift::LiftOptions { standalone: true, x87 }));
     drop(companions);
     // Past the lift the translation reads the IR: the decoded instructions go, unless a checked
     // translation's assumptions still read them.
@@ -773,40 +799,48 @@ pub(crate) fn emit(
         }
     }
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
-    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
-    lifted.apply_names(&analysis, Some(&mut signatures));
-    for with in &with_analyses {
-        lifted.apply_names(with, Some(&mut signatures));
-    }
+    let mut signatures = timed("raise", || ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options));
+    timed("apply_names", || {
+        lifted.apply_names(&analysis, Some(&mut signatures));
+        for with in &with_analyses {
+            lifted.apply_names(with, Some(&mut signatures));
+        }
+    });
     let companions = companions_of(&with_images, &with_analyses);
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
     let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations, checked, with: &companions };
-    let mut translation = translate(image, &analysis, &mut lifted, &signatures, &options)?;
+    let mut translation = timed("translate", || translate(image, &analysis, &mut lifted, &signatures, &options))?;
     if let Some(dir) = out {
-        crate::functions::note_evidence(&mut translation.infos, dir)?;
+        timed("note_evidence", || crate::functions::note_evidence(&mut translation.infos, dir))?;
     }
     // What the rest reads of the analysis and the raised module, taken now: the two go before the
     // formatters start, which on a large program need the memory they held.
-    let header = out.map(|_| ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)));
-    let identities = out.map(|_| {
-        let mut identities = ra_asm_analysis::identity::identities(&analysis);
-        for with in &with_analyses {
-            identities.extend(ra_asm_analysis::identity::identities(with));
-        }
-        identities
+    let (header, identities) = timed("header and identities", || {
+        let header = out.map(|_| ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)));
+        let identities = out.map(|_| {
+            let mut identities = ra_asm_analysis::identity::identities(&analysis);
+            for with in &with_analyses {
+                identities.extend(ra_asm_analysis::identity::identities(with));
+            }
+            identities
+        });
+        (header, identities)
     });
     let mut warnings: Vec<String> = analysis.warnings.iter().chain(&warnings).chain(&lifted.warnings).cloned().collect();
     warnings.extend(with_analyses.iter().flat_map(|a| a.warnings.iter().cloned()));
     drop(companions);
     drop((analysis, with_analyses, lifted, signatures));
-    translation.format();
+    timed("format", || translation.format());
     match out {
-        None => print!("{}", translation.text()),
+        None => timed("write", || print!("{}", translation.text())),
         Some(dir) => {
-            translation.write(dir)?;
-            std::fs::write(dir.join("image.h"), header.unwrap_or_default())?;
-            std::fs::write(dir.join("functions.json"), translation.table())?;
-            let regenerated = regenerate(dir, &identities.unwrap_or_default(), &translation)?;
+            timed("write", || -> Result<()> {
+                translation.write(dir)?;
+                std::fs::write(dir.join("image.h"), header.unwrap_or_default())?;
+                std::fs::write(dir.join("functions.json"), translation.table())?;
+                Ok(())
+            })?;
+            let regenerated = timed("regenerate", || regenerate(dir, &identities.unwrap_or_default(), &translation))?;
             if !quiet {
                 if let Some(line) = regenerated {
                     eprintln!("{line}");
