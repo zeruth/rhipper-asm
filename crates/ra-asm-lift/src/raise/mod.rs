@@ -30,6 +30,7 @@ pub mod widths;
 pub mod x87;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
@@ -65,6 +66,35 @@ pub fn timed<T>(name: &str, run: impl FnOnce() -> T) -> T {
     eprintln!("ra: time: {name}: {:.3}s", start.elapsed().as_secs_f64());
     out
 }
+
+/// The moment past which a raise stops, and what stops it (see [`stop_at`]).
+struct Deadline {
+    at: Instant,
+    stop: fn(function: &str, step: &str),
+}
+
+static DEADLINE: OnceLock<Deadline> = OnceLock::new();
+
+/// Has every raise from now on call `stop` with the function and the step it is at once `at` has
+/// passed, as `ras --deadline` asks: the raise looks between its steps and between its functions,
+/// so a raise that runs on is stopped where it is and named, not waited out. `stop` ends the
+/// process; a raise it returns to goes on. The first deadline set holds.
+pub fn stop_at(at: Instant, stop: fn(function: &str, step: &str)) {
+    let _ = DEADLINE.set(Deadline { at, stop });
+}
+
+/// Calls the deadline's stop when [`stop_at`] set one and it has passed, with the function and
+/// the step the raise is at.
+fn check_deadline(function: &str, step: &str) {
+    if let Some(deadline) = DEADLINE.get()
+        && Instant::now() >= deadline.at
+    {
+        (deadline.stop)(function, step);
+    }
+}
+
+/// What a deadline names for the function of a step over the whole module.
+const THE_MODULE: &str = "the module";
 
 /// The machine the IR came from, by its instruction set and pointer width, which set the calling
 /// convention the raise applies: Win64 for a 64-bit x86 image, the x86 conventions (`cdecl`,
@@ -479,6 +509,7 @@ pub fn raise_before(
                 });
             });
         }
+        check_deadline(THE_MODULE, inference_name);
         timed(&format!("raise: {inference_name}"), || infer(module, &cx))
     };
     {
@@ -543,6 +574,7 @@ pub fn raise_before(
         }
         for step in whole {
             let Pass::Module(run) = step.pass else { unreachable!("`{}` follows the module steps", step.name) };
+            check_deadline(THE_MODULE, step.name);
             timed(&format!("raise: {}", step.name), || run(module, &cx));
         }
         if abi_level && !whole.is_empty() {
@@ -568,10 +600,11 @@ pub fn violations(module: &Module, level: Level) -> Vec<(&str, check::Violation)
     module.functions.iter().filter_map(|f| check::check_in(module, f, level).err().map(|violation| (f.name.as_str(), violation))).collect()
 }
 
-/// The function steps of `order` over `f`, in order.
+/// The function steps of `order` over `f`, in order, each once the deadline is seen not passed.
 fn run_each(order: &[steps::Step], f: &mut ra_asm_ir::Function, cx: &steps::Context<'_>, globals: &[ra_asm_ir::Global]) {
     for step in order {
         if let steps::Pass::Function(run) = step.pass {
+            check_deadline(&f.name, step.name);
             run(f, cx, globals);
         }
     }

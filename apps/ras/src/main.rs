@@ -166,6 +166,10 @@ enum Command {
         /// the translation's parts, the evidence, the formatting, the writing and the regeneration. `RA_STEP_TIMES` set does too.
         #[arg(long)]
         times: bool,
+        /// Stop the raise once this many seconds have passed since the command began, naming the function and the step it was
+        /// at, and exit non-zero.
+        #[arg(long, value_name = "SECONDS")]
+        deadline: Option<u64>,
     },
     /// The IR of every function. With `--out`, writes `program.ll`, `image.bin` and `image.h` there.
     Lift {
@@ -196,6 +200,10 @@ enum Command {
         /// Lift only this function and the functions it calls, directly or not. Repeatable; by address.
         #[arg(long, value_name = "ADDRESS")]
         only: Vec<String>,
+        /// Stop the raise once this many seconds have passed since the command began, naming the
+        /// function and the step it was at, and exit non-zero.
+        #[arg(long, value_name = "SECONDS")]
+        deadline: Option<u64>,
     },
     /// The program through the IR interpreter: what it prints goes to stdout, its exit code is
     /// the command's. The lift traps and the faults of the machine stop the run with a message
@@ -407,6 +415,10 @@ enum Command {
         /// `promote` in the raise to the abi level, such as `conditions`.
         #[arg(long, value_name = "STEP")]
         pass: String,
+        /// Stop the raise once this many seconds have passed since the command began, naming the
+        /// function and the step it was at, and exit non-zero.
+        #[arg(long, value_name = "SECONDS")]
+        deadline: Option<u64>,
     },
     /// The vectors of the image replayed at the machine, the promoted and the ABI level: a line
     /// per function with the vectors each level replayed or the first difference, and a last line
@@ -476,6 +488,23 @@ fn step(text: Option<String>) -> anyhow::Result<Option<pipeline::Step>> {
     .transpose()
 }
 
+/// The seconds of `--deadline`, which the message of a passed one names.
+static DEADLINE_SECONDS: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+
+/// Ends the process when the raise is past `--deadline`: the first thread to see it names its
+/// function and step and exits, every other one waits for that exit rather than raise on.
+fn deadline_passed(function: &str, pass: &str) {
+    static STOPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if STOPPED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        loop {
+            std::thread::park();
+        }
+    }
+    let seconds = DEADLINE_SECONDS.get().copied().unwrap_or_default();
+    eprintln!("ras: deadline of {seconds} s passed in {function} at {pass}");
+    std::process::exit(1)
+}
+
 /// The command line runs on a thread of its own stack: the derived parser of every subcommand and
 /// the frame of the dispatch outgrow the main thread's megabyte in a debug build.
 fn main() -> anyhow::Result<()> {
@@ -490,6 +519,13 @@ fn main() -> anyhow::Result<()> {
 
 fn command() -> anyhow::Result<()> {
     let options = Options::parse();
+    if let Command::Lift { deadline: Some(seconds), .. }
+    | Command::Emit { deadline: Some(seconds), .. }
+    | Command::Case { deadline: Some(seconds), .. } = options.command
+    {
+        let _ = DEADLINE_SECONDS.set(seconds);
+        ra_asm_lift::raise::stop_at(std::time::Instant::now() + std::time::Duration::from_secs(seconds), deadline_passed);
+    }
     let json = options.json;
     let sigs = &options.signatures;
     match options.command {
@@ -503,7 +539,7 @@ fn command() -> anyhow::Result<()> {
         Command::Functions { pe, pdata: true } => report::functions(&load(&pe, sigs)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&load(&pe, sigs)?, json),
         Command::Cfg { pe, address } => functions::cfg(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),
-        Command::Lift { pe, out, quiet, level, standalone, report, x87, only } => {
+        Command::Lift { pe, out, quiet, level, standalone, report, x87, only, deadline: _ } => {
             let standalone = standalone || level == ra_asm_lift::RaiseLevel::Abi;
             lift::lift(&load(&pe, sigs)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87, only })
         }
@@ -534,7 +570,7 @@ fn command() -> anyhow::Result<()> {
             signatures::recognize(&mut image, &from, write.as_deref(), json)
         }
         Command::Signatures { pe, .. } => signatures::signatures(&load(&pe.context("a PE image is required")?, sigs)?, json),
-        Command::Emit { pe, lang, out, quiet, x87, hand, project, checked, only, with, times } => {
+        Command::Emit { pe, lang, out, quiet, x87, hand, project, checked, only, with, times, deadline: _ } => {
             emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref(), checked, &only, &with, times)
         }
         Command::Run { pe, args, level, x87, trace, limit, quiet, facts, record } => {
@@ -585,7 +621,7 @@ fn command() -> anyhow::Result<()> {
             anyhow::ensure!(pending, "`ras cards` writes the cards of the pending lists: pass --pending");
             cards::pending(&paths, milestone.as_deref())
         }
-        Command::Case { pe, function, pass } => case::case(&load(&pe, sigs)?, &function, &pass),
+        Command::Case { pe, function, pass, deadline: _ } => case::case(&load(&pe, sigs)?, &function, &pass),
         Command::Verify { pe, vectors, write, function, ledger, generate, built, out } => {
             let options = verify::Options {
                 program: &pe,
