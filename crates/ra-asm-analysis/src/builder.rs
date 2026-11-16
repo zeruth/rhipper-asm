@@ -500,8 +500,8 @@ impl Builder<'_> {
         };
         let mut targets = Vec::new();
         let mut cases = Vec::new();
-        for (n, target) in table.targets.iter().copied().enumerate() {
-            cases.push((n as u64, target));
+        for (&n, target) in table.indices.iter().zip(table.targets.iter().copied()) {
+            cases.push((n, target));
             if self.internal(target) {
                 if !targets.contains(&target) {
                     targets.push(target);

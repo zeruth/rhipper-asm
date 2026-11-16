@@ -23,6 +23,10 @@ pub struct Table {
     pub entry_size: u8,
     /// The target of each entry, in index order.
     pub targets: Vec<u64>,
+    /// The index value of each target, as the index register holds it: `0..n` for a table read
+    /// from its first entry; the values an `and` leaves whose entries point at code; the negative
+    /// ones, wrapped to the register's width, that a `neg` or a `sub` before the read leaves.
+    pub indices: Vec<u64>,
     /// The register that holds the index when the entry is read.
     pub index: Register,
     /// The address of the instruction that reads the entry.
@@ -158,6 +162,12 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
                 cases = Some((cm.disp as u64, cm.bits, load.address));
                 index = real;
             }
+            if cases.is_none()
+                && m.scale == 4
+                && let Some((indices, all)) = signed_indices(block, last, predecessors, index)
+            {
+                return read_indexed(image, address, 4, &indices, all, index, jump.address);
+            }
             let (count, bound) = bound_of(&context, index).unzip();
             let Some((cases_address, case_bits, load_at)) = cases else {
                 let table = read_table(image, address, m.scale.max(1), count, Relative::Absolute, index, jump.address)?;
@@ -174,7 +184,8 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
             let entries = numbers.iter().max().copied()? + 1;
             let table = read_table(image, address, m.scale.max(1), Some(entries), Relative::Absolute, index, load_at)?;
             let targets = numbers.iter().map(|&c| table.targets[c]).collect();
-            Some(Table { targets, bound, ..table })
+            let indices = (0..numbers.len() as u64).collect();
+            Some(Table { targets, indices, bound, ..table })
         }
         // x64: jmp v, where v = base + entry
         Operand::Reg(value) => {
@@ -399,5 +410,65 @@ fn read_table(
         }
         targets.push(target);
     }
-    (!targets.is_empty()).then_some(Table { address, entry_size, targets, index, load_at, bound: None })
+    let indices = (0..targets.len() as u64).collect();
+    (!targets.is_empty()).then_some(Table { address, entry_size, targets, indices, index, load_at, bound: None })
+}
+
+/// The index values an x86 `jmp [table + idx*4]` can take that no `cmp` bounds from zero, as the
+/// C runtime's `memcpy` writes them: an `and idx, 2^k - 1` before the read, whose entries for the
+/// values the code never reaches (the alignment the path already ruled out) need not point at
+/// code; a `neg idx` after the compare, which counts the entries down from the table's address;
+/// a `sub idx, k` whose borrow jumps to the read, which leaves `-k..-1`. Each with whether every
+/// entry must point at code.
+fn signed_indices(block: &[Instr], last: usize, predecessors: &[&[Instr]], index: Register) -> Option<(Vec<i64>, bool)> {
+    let writer = block[..last].iter().rev().find(|i| i.writes(index));
+    match writer {
+        Some(i) if i.mnemonic == "and" && i.operands.first().and_then(reg_of).is_some_and(|d| same(d, index)) => {
+            let Some(Operand::Imm { value: mask, .. }) = i.operands.get(1) else { return None };
+            let mask = *mask;
+            ((1..1024).contains(&mask) && (mask + 1) & mask == 0).then(|| ((0..=mask).collect(), false))
+        }
+        Some(i) if i.mnemonic == "neg" && i.operands.first().and_then(reg_of).is_some_and(|d| same(d, index)) => {
+            let mut context: Vec<&[Instr]> = vec![&block[..last]];
+            context.extend_from_slice(predecessors);
+            let (count, _) = bound_of(&context, index)?;
+            Some(((0..count as i64).map(|n| -n).collect(), true))
+        }
+        Some(_) => None,
+        None => {
+            // `sub idx, k; jb read`: the read's own block writes nothing of the index.
+            let start = block.first()?.address;
+            predecessors.iter().find_map(|p| {
+                let [.., sub, jump] = p else { return None };
+                let borrow = matches!(jump.mnemonic.as_str(), "jb" | "jc" | "jnae") && jump.flow == Flow::CondJump(ra_asm_arch::Target::Direct(start));
+                match (sub.mnemonic.as_str(), sub.operands.first().and_then(reg_of), sub.operands.get(1)) {
+                    ("sub", Some(d), Some(Operand::Imm { value: k, .. })) if borrow && same(d, index) && (1..1024).contains(k) => {
+                        Some(((-*k..0).collect(), true))
+                    }
+                    _ => None,
+                }
+            })
+        }
+    }
+}
+
+/// The table at `address` read at the entries of `indices`, each index wrapped to the width of
+/// `index`: with `all`, a table only when every entry points at code; without, the entries that
+/// do, when one does.
+fn read_indexed(image: &Image, address: u64, scale: u8, indices: &[i64], all: bool, index: Register, load_at: u64) -> Option<Table> {
+    let width_mask = if index.bits >= 64 { u64::MAX } else { (1u64 << index.bits) - 1 };
+    let (mut targets, mut kept) = (Vec::new(), Vec::new());
+    for &n in indices {
+        let slot = address.wrapping_add((n * i64::from(scale)) as u64) & 0xffff_ffff;
+        let target = image.u32(slot).ok().map(u64::from).filter(|&t| image.is_code(t));
+        match target {
+            Some(t) => {
+                targets.push(t);
+                kept.push(n as u64 & width_mask);
+            }
+            None if all => return None,
+            None => {}
+        }
+    }
+    (!targets.is_empty()).then_some(Table { address, entry_size: 4, targets, indices: kept, index, load_at, bound: None })
 }

@@ -194,6 +194,77 @@ fn a_static_function_takes_its_argument_in_the_register_its_callers_set() {
     assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 12, "main()\n{}", lifted.module.to_ll());
 }
 
+/// The jump tables of the C runtime's `memcpy`, which no `cmp` bounds from zero: `and eax, 3`
+/// before the read (the entry for 0 is no code: that path has ruled it out), `sub ecx, 4` whose
+/// borrow jumps to `jmp [ecx*4 + table + 16]` (the index is -4 to -1), and `neg ecx` after the
+/// compare (the entries count down from the table's address). main returns a(2) + b(2) + c(1).
+#[test]
+fn jump_tables_indexed_by_a_mask_a_borrow_and_a_negation_resolve() {
+    const FA: u64 = CODE + 0x40;
+    const FB: u64 = CODE + 0x80;
+    const FC: u64 = CODE + 0xc0;
+    const TA: u64 = DATA;
+    const TB: u64 = DATA + 0x20;
+    const T: u64 = DATA + 0x40;
+    let mut s = vec![0xccu8; 0x200];
+    let mut data = vec![0u8; 0x200];
+    let mut put = |at: u64, bytes: &[u8]| {
+        let o = (at - CODE) as usize;
+        s[o..o + bytes.len()].copy_from_slice(bytes);
+    };
+    // push 2; call a; add esp, 4; mov esi, eax; push 2; call b; add esp, 4; add esi, eax;
+    // push 1; call c; add esp, 4; add eax, esi; ret
+    let mut main = Vec::new();
+    for (arg, f, tail) in [(2u8, FA, [0x8b, 0xf0]), (2, FB, [0x03, 0xf0]), (1, FC, [0x03, 0xc6])] {
+        main.extend([0x6a, arg]);
+        main.extend(call_to(MAIN + main.len() as u64, f));
+        main.extend([0x83, 0xc4, 0x04]);
+        main.extend(tail);
+    }
+    main.push(0xc3);
+    put(MAIN, &main);
+    // Each function's four returns of 0, 10, 20, 30, from 0x20 past its start.
+    let returns = |f: u64| -> [u64; 4] { std::array::from_fn(|k| f + 0x20 + 8 * k as u64) };
+    for f in [FA, FB, FC] {
+        for (k, at) in returns(f).into_iter().enumerate() {
+            put(at, &[0xb8, (10 * k) as u8, 0, 0, 0, 0xc3]);
+        }
+    }
+    // a: mov eax, [esp+4]; and eax, 3; jmp [eax*4 + TA]
+    let mut a = vec![0x8b, 0x44, 0x24, 0x04, 0x83, 0xe0, 0x03, 0xff, 0x24, 0x85];
+    a.extend(le(TA));
+    put(FA, &a);
+    // b: mov ecx, [esp+4]; sub ecx, 4; jb L; mov eax, 99; ret; L: jmp [ecx*4 + TB + 16]
+    let mut b = vec![0x8b, 0x4c, 0x24, 0x04, 0x83, 0xe9, 0x04, 0x72, 0x06, 0xb8, 99, 0, 0, 0, 0xc3, 0xff, 0x24, 0x8d];
+    b.extend(le(TB + 16));
+    put(FB, &b);
+    // c: mov ecx, [esp+4]; cmp ecx, 4; jb L; mov eax, 99; ret; L: neg ecx; jmp [ecx*4 + T + 12]
+    let mut c = vec![0x8b, 0x4c, 0x24, 0x04, 0x83, 0xf9, 0x04, 0x72, 0x06, 0xb8, 99, 0, 0, 0, 0xc3, 0xf7, 0xd9, 0xff, 0x24, 0x8d];
+    c.extend(le(T + 12));
+    put(FC, &c);
+    let mut word = |at: u64, value: u64| {
+        let o = (at - DATA) as usize;
+        data[o..o + 4].copy_from_slice(&le(value));
+    };
+    let (ra, rb, rc) = (returns(FA), returns(FB), returns(FC));
+    for k in 1..4 {
+        word(TA + 4 * k as u64, ra[k]);
+    }
+    for k in 0..4 {
+        word(TB + 4 * k as u64, rb[k]);
+        word(T + 4 * k as u64, rc[3 - k]);
+    }
+    let image = ra_asm_pe::Image::parse(image_with_data(&s, &data)).expect("the image parses");
+    let analysis = ra_asm_analysis::analyze(&image);
+    assert!(analysis.warnings.iter().all(|w| !w.contains("did not resolve")), "{:#?}", analysis.warnings);
+    let options = ra_asm_lift::LiftOptions { standalone: true, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
+    assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 20 + 20 + 10, "main()\n{}", lifted.module.to_ll());
+}
+
 /// In an image with relocations, `cmp eax, imm` with a constant that falls inside a function
 /// (a four-character code, in ffxiv.exe) names no function: only a relocated immediate (`push
 /// offset table` here) is an address. The immediates are seeds before the pointers in data, so
