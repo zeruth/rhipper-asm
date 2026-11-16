@@ -297,13 +297,13 @@ impl Stats {
 
 /// The peak working set of this process in bytes, where the host tells it.
 #[cfg(windows)]
-fn peak_working_set() -> Option<u64> {
+pub(crate) fn peak_working_set() -> Option<u64> {
     peak_counters().map(|(working_set, _)| working_set)
 }
 
 /// The peak resident set of this process in bytes, where `/proc` tells it.
 #[cfg(not(windows))]
-fn peak_working_set() -> Option<u64> {
+pub(crate) fn peak_working_set() -> Option<u64> {
     let status = fs::read_to_string("/proc/self/status").ok()?;
     let kilobytes = status.lines().find_map(|line| line.strip_prefix("VmHWM:"))?.trim().strip_suffix("kB")?.trim().parse::<u64>().ok()?;
     Some(kilobytes * 1024)

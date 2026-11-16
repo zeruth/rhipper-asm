@@ -767,12 +767,26 @@ pub(crate) fn companions_of<'a>(images: &'a [Image], analyses: &'a [Analysis<'a>
     images.iter().zip(analyses).map(|(image, analysis)| Companion { image, analysis }).collect()
 }
 
+/// [`timed`], and when the times print, the peak working set of the process as the stage ends on
+/// stderr, `ra: peak: <name>: <megabytes> MB`. The peak only grows: the first stage whose line
+/// jumps is the one that took the memory.
+fn staged<T>(name: &str, run: impl FnOnce() -> T) -> T {
+    let out = timed(name, run);
+    if ra_asm_lift::raise::times()
+        && let Some(peak) = crate::pipeline::peak_working_set()
+    {
+        eprintln!("ra: peak: {name}: {} MB", peak >> 20);
+    }
+    out
+}
+
 /// Writes the translation, the runtime and `functions.json` into `out`, or the translation to
 /// stdout without `out`. `hand` names the functions left to hand-written sources; the annotations
 /// of the project at `project` rename functions and leave more to the sources. `checked` writes
 /// the open assumptions as checks. `only`, when it names functions, translates them and what they
 /// call alone. `with` names the second images ported with the program (`--with`). `times` prints
-/// the seconds of each stage on stderr (see [`timed`]).
+/// the seconds of each stage on stderr (see [`timed`]), and the peak memory after each large one
+/// (see [`staged`]).
 // The arguments are the command's own flags, one each.
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 pub(crate) fn emit(
@@ -791,7 +805,7 @@ pub(crate) fn emit(
     if times {
         ra_asm_lift::raise::print_times(true);
     }
-    let mut analysis = timed("analysis", || ra_asm_analysis::analyze(image));
+    let mut analysis = staged("analysis", || ra_asm_analysis::analyze(image));
     keep_reached(&mut analysis, only)?;
     let (annotations, warnings) = project.map(|root| crate::annotations::annotate(root, &mut analysis)).unwrap_or_default();
     let hand = crate::annotations::hand_list(hand, &annotations);
@@ -805,7 +819,7 @@ pub(crate) fn emit(
     let mut with_analyses = timed("analysis: second images", || analyze_companions(&analysis, &with_images));
     let companions = companions_of(&with_images, &with_analyses);
     let mut lifted =
-        timed("lift", || ra_asm_lift::lift_frozen_with(image, &analysis, &companions, ra_asm_lift::LiftOptions { standalone: true, x87 }));
+        staged("lift", || ra_asm_lift::lift_frozen_with(image, &analysis, &companions, ra_asm_lift::LiftOptions { standalone: true, x87 }));
     drop(companions);
     // Past the lift the translation reads the IR: the decoded instructions go, unless a checked
     // translation's assumptions still read them.
@@ -816,7 +830,7 @@ pub(crate) fn emit(
         }
     }
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
-    let mut signatures = timed("raise", || ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options));
+    let mut signatures = staged("raise", || ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options));
     timed("apply_names", || {
         lifted.apply_names(&analysis, Some(&mut signatures));
         for with in &with_analyses {
@@ -826,42 +840,43 @@ pub(crate) fn emit(
     let companions = companions_of(&with_images, &with_analyses);
     let package = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "port".to_owned(), |s| s.to_string_lossy().into_owned());
     let options = Options { lang: language, package: &package, trace: false, hand, annotations: &annotations, checked, with: &companions };
-    let mut translation = timed("translate", || translate(image, &analysis, &mut lifted, &signatures, &options))?;
+    let mut translation = staged("translate", || translate(image, &analysis, &mut lifted, &signatures, &options))?;
+    // What the rest reads of the raised module and its signatures, the header, taken now: they go
+    // before the analysis is read again, and the analysis before the formatters start, which on a
+    // large program need the memory the three held.
+    let header = staged("header", || out.map(|_| ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures))));
+    let mut warnings: Vec<String> = analysis.warnings.iter().chain(&warnings).chain(&lifted.warnings).cloned().collect();
+    warnings.extend(with_analyses.iter().flat_map(|a| a.warnings.iter().cloned()));
+    drop(companions);
+    drop((lifted, signatures));
     if let Some(dir) = out {
         timed("note_evidence", || crate::functions::note_evidence(&mut translation.infos, dir))?;
     }
-    // What the rest reads of the analysis and the raised module, taken now: the two go before the
-    // formatters start, which on a large program need the memory they held.
-    let (header, identities) = timed("header and identities", || {
-        let header = out.map(|_| ra_asm_lift::image_header(image, &analysis, &lifted, Some(&signatures)));
-        let identities = out.map(|_| {
+    let identities = staged("identities", || {
+        out.map(|_| {
             let mut identities = ra_asm_analysis::identity::identities(&analysis);
             for with in &with_analyses {
                 identities.extend(ra_asm_analysis::identity::identities(with));
             }
             identities
-        });
-        (header, identities)
+        })
     });
-    let mut warnings: Vec<String> = analysis.warnings.iter().chain(&warnings).chain(&lifted.warnings).cloned().collect();
-    warnings.extend(with_analyses.iter().flat_map(|a| a.warnings.iter().cloned()));
-    drop(companions);
-    drop((analysis, with_analyses, lifted, signatures));
+    drop((analysis, with_analyses));
     match out {
         None => {
-            timed("format", || translation.format());
-            timed("write", || print!("{}", translation.text()));
+            staged("format", || translation.format());
+            staged("write", || print!("{}", translation.text()));
         }
         Some(dir) => {
             // The sources are written as the formatters finish them, and their texts go: the
             // format's time holds their writing, the write's the rest.
-            let bytes = timed("format", || translation.format_and_write(dir))?;
-            timed("write", || -> Result<()> {
+            let bytes = staged("format", || translation.format_and_write(dir))?;
+            staged("write", || -> Result<()> {
                 std::fs::write(dir.join("image.h"), header.unwrap_or_default())?;
                 std::fs::write(dir.join("functions.json"), translation.table())?;
                 Ok(())
             })?;
-            let regenerated = timed("regenerate", || regenerate(dir, &identities.unwrap_or_default(), &translation))?;
+            let regenerated = staged("regenerate", || regenerate(dir, &identities.unwrap_or_default(), &translation))?;
             if !quiet {
                 if let Some(line) = regenerated {
                     eprintln!("{line}");

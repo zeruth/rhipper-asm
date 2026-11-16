@@ -120,9 +120,17 @@ pub(crate) fn step(module: &mut Module, run: impl FnOnce(&mut Module)) {
 }
 
 /// Every frozen function of `module` thawed, after its own: what the steps after the raise read.
+/// A run of [`THAW_RUN`] functions at a time, whose frozen bytes go once it is thawed: the frozen
+/// module and the thawed one are never both whole.
 pub(crate) fn thaw_all(module: &mut Module) {
-    let frozen = std::mem::take(&mut module.frozen);
-    let thawed = super::abi::par_map(&frozen, |_, z| freeze::thaw(z));
-    drop(frozen);
-    module.functions.extend(thawed);
+    let mut frozen = std::mem::take(&mut module.frozen);
+    module.functions.reserve(frozen.len());
+    while !frozen.is_empty() {
+        let run: Vec<Frozen> = frozen.drain(..THAW_RUN.min(frozen.len())).collect();
+        module.functions.extend(super::abi::par_map(&run, |_, z| freeze::thaw(z)));
+    }
 }
+
+/// The functions [`thaw_all`] thaws before it frees their frozen bytes: enough that every thread
+/// has work, few enough that their bytes are a small part of the module's.
+const THAW_RUN: usize = 4096;
