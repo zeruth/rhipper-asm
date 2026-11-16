@@ -182,6 +182,10 @@ struct Facts {
     uses_rdx_of: Vec<String>,
     /// Callees whose `xmm0` this function reads after the call.
     uses_xmm0_of: Vec<String>,
+    /// Each direct call to a lifted function, with the private registers past the convention's
+    /// ([`Target::private_int_param_slots`]) the block sets before the call, by position from the
+    /// first past the convention's: what the callee may take in them.
+    sets_before_calls: Vec<(String, u8)>,
     noreturn: bool,
 }
 
@@ -673,6 +677,7 @@ fn infer_from(
         slots.push(slot_calls);
     }
     let ints = target.int_param_slots().len();
+    let private_ints = target.private_int_param_slots().len();
     let floats = target.float_params();
     // A round gathers again only the functions whose dependencies' signatures the last round
     // changed: the others' facts are the same, and their frozen bytes stay frozen.
@@ -748,6 +753,13 @@ fn infer_from(
                 }
             }
         }
+        // The private registers every direct call to a function sets before it.
+        let mut set_by_callers: HashMap<&str, u8> = HashMap::new();
+        for fact in &facts {
+            for (callee, mask) in &fact.sets_before_calls {
+                *set_by_callers.entry(callee.as_str()).or_insert(u8::MAX) &= mask;
+            }
+        }
         let mut next: HashMap<String, Signature> = HashMap::new();
         for fact in facts {
             let params: Vec<Kind> = if target.shares_positions() {
@@ -765,7 +777,13 @@ fn infer_from(
             } else {
                 // The integer registers, then the float registers, each class up to its last read:
                 // x86 and ARM64 count each class on its own.
-                let int_count = (0..ints).rev().find(|&p| fact.int_positions[p]).map_or(0, |p| p + 1);
+                // A function the lift does not see every caller of takes the convention's: its
+                // callers outside the lift pass nothing in the private registers. One it does
+                // takes a private register its code reads when every call to it sets it first:
+                // a `push eax` that only makes room reads `eax` too, and no caller sets it for it.
+                let confirmed = if roots.contains(&fact.name) { 0 } else { set_by_callers.get(fact.name.as_str()).copied().unwrap_or(0) };
+                let read = |p: usize| fact.int_positions[p] && (p < ints || confirmed & (1 << (p - ints)) != 0);
+                let int_count = (0..private_ints).rev().find(|&p| read(p)).map_or(0, |p| p + 1);
                 let float_count = (0..floats).rev().find(|&p| fact.float_positions[p].is_some()).map_or(0, |p| p + 1);
                 (0..int_count).map(|_| Kind::Int).chain((0..float_count).map(|p| fact.float_positions[p].unwrap_or(Kind::Double))).collect()
             };
@@ -1055,6 +1073,59 @@ fn gather(
         Some(candidates.iter().map(|(_, name)| slot_stack_of(name)).collect())
     };
     let stack = analyze_stack(f, state, &pointers, target, &call_pops);
+    // The registers past the convention's that a function only its own code calls may take
+    // arguments in (see [`Target::private_int_param_slots`]): the ones it reads before writing,
+    // where the save of a callee-saved register it writes and puts back is no read.
+    let conventional = target.int_param_slots().len();
+    let private = target.private_int_param_slots();
+    if private.len() > conventional {
+        let saves = saved_registers(f, &pointers, &stack, &private[conventional..]);
+        let reads = if saves.is_empty() {
+            live_in
+        } else {
+            let own = Liveness::with_calls_ignoring(f, &pointers, &order, NO_SLOTS, &model, &saves);
+            own.live_in.first().copied().unwrap_or([false; SLOTS])
+        };
+        for (p, slot) in private.iter().enumerate().skip(conventional) {
+            int_positions[p] = reads[slot.index()];
+        }
+    }
+    // What the block of each direct call sets of those registers before it, by its own code: the
+    // result a call before it left in `eax` is no argument set for the next (a `push eax` making
+    // room in that one would read it as one), and a call clears what was set before it.
+    let mut sets_before_calls = Vec::new();
+    if private.len() > conventional {
+        for b in &f.blocks {
+            let mut set = NO_SLOTS;
+            for i in &b.instrs {
+                match &i.inst {
+                    Inst::Store { ptr: Operand::Local(p), .. } => {
+                        if let Some(slot) = pointers.get(p) {
+                            set[slot.index()] = true;
+                        }
+                    }
+                    inst if super::liveness::call_kind(inst) == Some(super::liveness::CallKind::State) => {
+                        if let Inst::Call { callee: Callee::Direct(name), .. } = inst
+                            && name.starts_with("F_")
+                        {
+                            let mask = private[conventional..]
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, s)| set[s.index()])
+                                .fold(0u8, |m, (k, _)| m | 1 << k);
+                            sets_before_calls.push((name.clone(), mask));
+                        }
+                        for (s, written) in set.iter_mut().zip(model(inst).1) {
+                            if written {
+                                *s = false;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 
     let mut uses_rax_of = Vec::new();
     let mut uses_rdx_of = Vec::new();
@@ -1133,8 +1204,118 @@ fn gather(
         writes,
         uses_rax_of,
         uses_rdx_of,
+        sets_before_calls,
         noreturn: f.attrs.iter().any(|a| a == "noreturn"),
     }
+}
+
+/// The loads of `f` that save a callee-saved register of `slots` for its caller: the register is
+/// one the function writes and holds its entry value again at every return ([`StackInfo::kept`]),
+/// and the load's value goes only into memory (a `push esi`), whole or truncated to its low bits.
+/// Such a load keeps the register's value rather than use it: it makes no parameter.
+fn saved_registers(f: &Function, pointers: &HashMap<ValueId, Slot>, stack: &StackInfo, slots: &[Slot]) -> std::collections::HashSet<ValueId> {
+    let mut out = std::collections::HashSet::new();
+    let saved = |slot: Slot| match slot {
+        Slot::Gpr(r) => stack.kept & (1u64 << r) != 0,
+        _ => false,
+    };
+    let written: std::collections::HashSet<Slot> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instrs)
+        .filter_map(|i| match &i.inst {
+            Inst::Store { ptr: Operand::Local(p), .. } => pointers.get(p).copied(),
+            _ => None,
+        })
+        .collect();
+    let defs: HashMap<ValueId, &Inst> = f.blocks.iter().flat_map(|b| &b.instrs).filter_map(|i| Some((i.result?, &i.inst))).collect();
+    // Whether `o` is a value read from memory that is no register's (a `pop`), widened or not.
+    let popped = |o: &Operand| {
+        let mut at = o.local();
+        for _ in 0..3 {
+            match at.and_then(|v| defs.get(&v)) {
+                Some(Inst::Load { ptr: Operand::Local(p), .. }) => return !pointers.contains_key(p),
+                Some(Inst::Cast { value, .. }) => at = value.local(),
+                _ => return false,
+            }
+        }
+        false
+    };
+    // Whether every return puts `slot` back from memory or never changed it: on no path to a
+    // return is the last write of it anything but a `pop`. Where the stack analysis loses the
+    // offsets (a frame aligned with `and esp, -8`, an indirect call that pops what it pops) it
+    // cannot follow the save to the restore, but the restore shows by itself. The returns of an
+    // exception leaving the function (the lift's `eh.` blocks past a call's `eh.ok`), after which
+    // no caller reads a register, say nothing.
+    let restored = |slot: Slot| {
+        let index_of: HashMap<ra_asm_ir::BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
+        // Per block: whether its own last write of the slot is something else than a pop.
+        let own: Vec<Option<bool>> = f
+            .blocks
+            .iter()
+            .map(|b| {
+                b.instrs.iter().rev().find_map(|i| match &i.inst {
+                    Inst::Store { value, ptr: Operand::Local(p), .. } if pointers.get(p) == Some(&slot) => Some(!popped(value)),
+                    _ => None,
+                })
+            })
+            .collect();
+        let mut bad_out: Vec<bool> = own.iter().map(|o| o.unwrap_or(false)).collect();
+        loop {
+            let mut changed = false;
+            for (bi, b) in f.blocks.iter().enumerate() {
+                if !bad_out[bi] {
+                    continue;
+                }
+                for s in b.terminator.successors() {
+                    let si = index_of[&s];
+                    if own[si].is_none() && !bad_out[si] {
+                        bad_out[si] = true;
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let leaving = |name: &str| name.starts_with("eh.") && !name.starts_with("eh.ok.");
+        f.blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| matches!(b.terminator, ra_asm_ir::Terminator::Ret(_)) && !leaving(&b.name))
+            .all(|(bi, _)| !bad_out[bi])
+    };
+    let candidates: Vec<Slot> = slots.iter().copied().filter(|s| written.contains(s) && (saved(*s) || restored(*s))).collect();
+    if candidates.is_empty() {
+        return out;
+    }
+    let mut users: HashMap<ValueId, Vec<&ra_asm_ir::Instruction>> = HashMap::new();
+    for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+        for v in i.inst.uses() {
+            users.entry(v).or_default().push(i);
+        }
+    }
+    // Whether `v` goes only into memory that is no register's: the value stored, never the
+    // address, through a truncation to its low bits or not.
+    fn stored(v: ValueId, users: &HashMap<ValueId, Vec<&ra_asm_ir::Instruction>>, pointers: &HashMap<ValueId, Slot>, depth: u8) -> bool {
+        users.get(&v).is_some_and(|us| {
+            us.iter().all(|u| match (&u.inst, u.result) {
+                (Inst::Store { value: Operand::Local(x), ptr, .. }, _) => {
+                    *x == v && ptr.local() != Some(v) && ptr.local().is_none_or(|p| !pointers.contains_key(&p))
+                }
+                (Inst::Cast { cast: Cast::Trunc, .. }, Some(r)) if depth == 0 => stored(r, users, pointers, 1),
+                _ => false,
+            })
+        })
+    }
+    for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+        let (Some(v), Inst::Load { ptr: Operand::Local(p), .. }) = (i.result, &i.inst) else { continue };
+        if pointers.get(p).is_some_and(|s| candidates.contains(s)) && stored(v, &users, pointers, 0) {
+            out.insert(v);
+        }
+    }
+    out
 }
 
 /// The kind of a float parameter in vector slot `slot`: `float` when the function reads it as a

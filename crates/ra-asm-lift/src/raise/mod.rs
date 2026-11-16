@@ -120,6 +120,10 @@ struct Machine {
     abi: &'static Abi,
     /// The convention's integer parameter registers as slots.
     int_params: &'static [Slot],
+    /// The registers a function only its own code calls may take arguments in, the convention's
+    /// first: MSVC passes a static function's arguments in any register it likes on x86 (the C
+    /// runtime's `parse_cmdline` takes its count's address in `edi`). Elsewhere the convention's.
+    private_ints: &'static [Slot],
     gprs: u8,
     xmms: u8,
     /// Whether an unknown callee takes its first integer arguments in registers.
@@ -151,23 +155,25 @@ const fn slots<const N: usize>(regs: &[Reg]) -> [Slot; N] {
 
 const WIN64_INTS: [Slot; convention::WIN64.int_params.len()] = slots(convention::WIN64.int_params);
 const X86_INTS: [Slot; convention::X86.int_params.len()] = slots(convention::X86.int_params);
+/// `ecx` and `edx`, then `eax`, `ebx`, `esi` and `edi`.
+const X86_PRIVATE_INTS: [Slot; 6] = [Slot::Gpr(1), Slot::Gpr(2), Slot::Gpr(0), Slot::Gpr(3), Slot::Gpr(6), Slot::Gpr(7)];
 const AAPCS64_INTS: [Slot; convention::AAPCS64.int_params.len()] = slots(convention::AAPCS64.int_params);
 const AAPCS32_INTS: [Slot; convention::AAPCS32.int_params.len()] = slots(convention::AAPCS32.int_params);
 const O32_INTS: [Slot; convention::O32.int_params.len()] = slots(convention::O32.int_params);
 const N32_INTS: [Slot; convention::N32.int_params.len()] = slots(convention::N32.int_params);
 
 const WIN64_MACHINE: Machine =
-    Machine { abi: &convention::WIN64, int_params: &WIN64_INTS, gprs: 16, xmms: 16, register_arguments: true, high_result: None };
+    Machine { abi: &convention::WIN64, int_params: &WIN64_INTS, private_ints: &WIN64_INTS, gprs: 16, xmms: 16, register_arguments: true, high_result: None };
 const X86_MACHINE: Machine =
-    Machine { abi: &convention::X86, int_params: &X86_INTS, gprs: 16, xmms: 16, register_arguments: false, high_result: None };
+    Machine { abi: &convention::X86, int_params: &X86_INTS, private_ints: &X86_PRIVATE_INTS, gprs: 16, xmms: 16, register_arguments: false, high_result: None };
 const ARM64_MACHINE: Machine =
-    Machine { abi: &convention::AAPCS64, int_params: &AAPCS64_INTS, gprs: 32, xmms: 32, register_arguments: true, high_result: None };
+    Machine { abi: &convention::AAPCS64, int_params: &AAPCS64_INTS, private_ints: &AAPCS64_INTS, gprs: 32, xmms: 32, register_arguments: true, high_result: None };
 const ARM32_MACHINE: Machine =
-    Machine { abi: &convention::AAPCS32, int_params: &AAPCS32_INTS, gprs: 16, xmms: 16, register_arguments: false, high_result: None };
+    Machine { abi: &convention::AAPCS32, int_params: &AAPCS32_INTS, private_ints: &AAPCS32_INTS, gprs: 16, xmms: 16, register_arguments: false, high_result: None };
 const O32_MACHINE: Machine =
-    Machine { abi: &convention::O32, int_params: &O32_INTS, gprs: 34, xmms: 32, register_arguments: true, high_result: Some(MIPS_V1) };
+    Machine { abi: &convention::O32, int_params: &O32_INTS, private_ints: &O32_INTS, gprs: 34, xmms: 32, register_arguments: true, high_result: Some(MIPS_V1) };
 const N32_MACHINE: Machine =
-    Machine { abi: &convention::N32, int_params: &N32_INTS, gprs: 34, xmms: 32, register_arguments: true, high_result: Some(MIPS_V1) };
+    Machine { abi: &convention::N32, int_params: &N32_INTS, private_ints: &N32_INTS, gprs: 34, xmms: 32, register_arguments: true, high_result: Some(MIPS_V1) };
 
 /// The one place a target's instruction set and width pick its convention: Win64 for 64-bit
 /// x86, the x86 conventions for 32-bit, AAPCS64 and AAPCS32 for the ARMs, o32 and n32 for MIPS.
@@ -302,6 +308,13 @@ impl Target {
         machine(self).int_params
     }
 
+    /// The registers a function whose every caller the lift sees (no pointer to it, not an
+    /// export or the entry) may take integer arguments in, by position: the convention's, then
+    /// on x86 `eax`, `ebx`, `esi` and `edi`, which MSVC passes a static function's arguments in.
+    pub fn private_int_param_slots(self) -> &'static [Slot] {
+        machine(self).private_ints
+    }
+
     /// How many floats arrive in vector registers: four on Win64, where a position is a register
     /// of either class; three on x86, where clang passes the floats of a local function in `xmm0`
     /// to `xmm2` beside the integers in `ecx` and `edx`, each class counted on its own; eight on
@@ -332,7 +345,7 @@ impl Target {
         } else {
             params[..index].iter().filter(|k| matches!(k, abi::Kind::Float | abi::Kind::Double) == float).count()
         };
-        if float { self.abi().float_params.get(place).copied().map(slot) } else { self.int_param_slots().get(place).copied() }
+        if float { self.abi().float_params.get(place).copied().map(slot) } else { self.private_int_param_slots().get(place).copied() }
     }
 
     /// Whether the callee keeps the register: `rbx`, `rbp`, `rsp`, `rsi`, `rdi`, `r12` to `r15`

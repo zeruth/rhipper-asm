@@ -333,9 +333,25 @@ impl Liveness {
         exit_set: SlotSet,
         calls: &dyn Fn(&Inst) -> (SlotSet, SlotSet),
     ) -> Self {
+        Self::with_calls_ignoring(f, pointers, order, exit_set, calls, &std::collections::HashSet::new())
+    }
+
+    /// [`Self::with_calls`], with the loads of `ignored` reading nothing: the saves of a
+    /// callee-saved register, which keep its value for the caller rather than use it.
+    pub fn with_calls_ignoring(
+        f: &Function,
+        pointers: &HashMap<ValueId, Slot>,
+        order: &[usize],
+        exit_set: SlotSet,
+        calls: &dyn Fn(&Inst) -> (SlotSet, SlotSet),
+        ignored: &std::collections::HashSet<ValueId>,
+    ) -> Self {
         let n = f.blocks.len();
         let index_of: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
-        let accesses = Accesses::of(f, pointers);
+        let mut accesses = Accesses::of(f, pointers);
+        for &v in ignored {
+            accesses.loads.insert(v, 0);
+        }
         let calls = |inst: &Inst| {
             let (r, w) = calls(inst);
             (every_byte(&r), every_byte(&w))
