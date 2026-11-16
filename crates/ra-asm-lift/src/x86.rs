@@ -50,6 +50,18 @@ pub fn lift_function(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted
             frame.funclets.insert(target, (local_funclet(f, target), 0));
         }
     }
+    // The frame helpers of the MSVC runtime it calls run as copies at each call too: each moves
+    // the caller's `esp` and `ebp` and returns past what it pushed, which a call to a function of
+    // its own cannot do. A helper the copy jumps to (a cookie check's epilog) is copied as well.
+    let mut helpers: Vec<u64> = f.calls.iter().copied().filter(|&t| frame_helper(image, t)).collect();
+    while let Some(target) = helpers.pop() {
+        if frame.funclets.contains_key(&target) {
+            continue;
+        }
+        let Some(helper) = analysis.functions.get(&target) else { continue };
+        frame.funclets.insert(target, (helper.blocks.clone(), 0));
+        helpers.extend(helper.tail_calls.iter().copied().filter(|&t| frame_helper(image, t)));
+    }
     frame.add_seh(analysis, f, local_funclet);
     if lifted.eh {
         frame.add_cxx32(analysis, f, local_funclet);
@@ -243,6 +255,18 @@ impl Lifter<'_, '_> {
                 self.ret(block);
             }
             T::TailCall(t) => {
+                // A frame helper's copy that jumps to another (a cookie check to its epilog) goes
+                // on in a copy of that one, which returns where the first was to.
+                if let Some(eh::FuncletCopy { kind: eh::FuncletKind::Cleanup { exit }, .. }) = &self.funclet
+                    && self.frame.funclets.contains_key(t)
+                    && frame_helper(self.image, *t)
+                {
+                    let exit = *exit;
+                    if let Some(entry) = self.copy_funclet(*t, eh::FuncletKind::Cleanup { exit }) {
+                        self.m.b.terminate(block, Terminator::Br(entry));
+                        return;
+                    }
+                }
                 if let Some(symbol) = self.lifted.runtime.get(t).cloned() {
                     self.runtime_tail_call(block, &symbol);
                 } else {
@@ -3223,6 +3247,56 @@ impl Lifter<'_, '_> {
 
     // endregion
     // endregion
+}
+
+/// A byte of a [`frame_helper`] pattern that may be anything: an address.
+const ANY: u16 = 0x100;
+
+/// Whether the 32-bit code at `target` is one of the MSVC runtime's frame helpers, known by
+/// their bytes: `__SEH_prolog4` (and `_GS`), the `_EH_prolog3` family, the old `_EH_prolog`, which
+/// build the caller's frame (its registration, `ebp`, the room for its locals and the registers
+/// it saves) and return past what they pushed; `__SEH_epilog4` and `_EH_epilog3`, which take it
+/// down and return to the caller's caller's frame; and the cookie checks in front of an epilog
+/// (`__SEH_epilog4_GS`, `_EH_epilog3_GS`), which jump to one. Each moves the caller's stack
+/// pointer, which the code after the call relies on.
+pub(crate) fn frame_helper(image: &Image, target: u64) -> bool {
+    const SEH_PROLOG4: &[u16] = &[
+        0x68, ANY, ANY, ANY, ANY, 0x64, 0xff, 0x35, 0, 0, 0, 0, 0x8b, 0x44, 0x24, 0x10, 0x89, 0x6c, 0x24, 0x10, 0x8d, 0x6c, 0x24, 0x10,
+        0x2b, 0xe0,
+    ];
+    const EH_PROLOG3: &[u16] =
+        &[0x50, 0x64, 0xff, 0x35, 0, 0, 0, 0, 0x8d, 0x44, 0x24, 0x0c, 0x2b, 0x64, 0x24, 0x0c, 0x53, 0x56, 0x57, 0x89, 0x28, 0x8b, 0xe8];
+    const EH_PROLOG: &[u16] = &[
+        0x6a, 0xff, 0x50, 0x64, 0xa1, 0, 0, 0, 0, 0x50, 0x8b, 0x44, 0x24, 0x0c, 0x64, 0x89, 0x25, 0, 0, 0, 0, 0x89, 0x6c, 0x24, 0x0c,
+        0x8d, 0x6c, 0x24, 0x0c, 0x50, 0xc3,
+    ];
+    // `__SEH_epilog4` unlinks the registration at `ebp-0x10`, `_EH_epilog3` the one at `ebp-0xc`.
+    const EPILOG: &[u16] =
+        &[0x8b, 0x4d, ANY, 0x64, 0x89, 0x0d, 0, 0, 0, 0, 0x59, 0x5f, 0x5f, 0x5e, 0x5b, 0x8b, 0xe5, 0x5d, 0x51, 0xc3];
+    // `mov ecx, [ebp-x]; xor ecx, ebp; call __security_check_cookie; jmp <epilog>`.
+    const GS_EPILOG: &[u16] = &[0x8b, 0x4d, ANY, 0x33, 0xcd, 0xe8, ANY, ANY, ANY, ANY, 0xe9];
+    if image.is_64() {
+        return false;
+    }
+    let matches = |pattern: &[u16]| {
+        image.read(target, pattern.len()).is_ok_and(|bytes| bytes.iter().zip(pattern).all(|(&b, &p)| p == ANY || u16::from(b) == p))
+    };
+    if [SEH_PROLOG4, EH_PROLOG3, EH_PROLOG].into_iter().any(matches) {
+        return true;
+    }
+    let epilog = |at: u64| {
+        image.read(at, EPILOG.len()).is_ok_and(|bytes| {
+            matches!(bytes[2], 0xf0 | 0xf4) && bytes.iter().zip(EPILOG).all(|(&b, &p)| p == ANY || u16::from(b) == p)
+        })
+    };
+    if epilog(target) {
+        return true;
+    }
+    matches(GS_EPILOG)
+        && image.read(target + GS_EPILOG.len() as u64, 4).is_ok_and(|rel| {
+            let rel = i32::from_le_bytes([rel[0], rel[1], rel[2], rel[3]]);
+            epilog((target + GS_EPILOG.len() as u64 + 4).wrapping_add(rel as i64 as u64) & 0xffff_ffff)
+        })
 }
 
 /// The blocks of the funclet a local call at `target` enters: the code outside the function's
