@@ -116,18 +116,30 @@ fn millis(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
 
+/// The least a stage of the larger function takes to be judged on its own: a shorter one is the
+/// timer's and the scheduler's noise, and the total still holds it.
+const JUDGED: Duration = Duration::from_millis(50);
+
+/// How much longer the larger function's `small` and `large` took.
+fn growth_of(small: Duration, large: Duration) -> f64 {
+    large.as_secs_f64() / small.as_secs_f64().max(1e-3)
+}
+
 /// Runs `stages` over the function of [`UNITS`] diamonds and of four times as many, and fails
-/// when the larger took more than [`GROWTH`] times as long, naming the stage that grew the most
-/// beyond linear. The smaller runs twice and keeps each stage's quicker time: the first run of a
-/// process pays for its pages and the allocator's growth.
+/// when the larger took more than [`GROWTH`] times as long, in all or in any stage long enough to
+/// time ([`JUDGED`]): a stage that grows with the square hides in the total while the others are
+/// longer. The failure names the stage that grew the most beyond linear. The smaller runs twice
+/// and keeps each stage's quicker time: the first run of a process pays for its pages and the
+/// allocator's growth.
 pub(crate) fn guard(stages: impl Fn(&Image, usize) -> Vec<Stage>) {
     let (small_image, large_image) = (image(UNITS), image(4 * UNITS));
     let first = stages(&small_image, UNITS);
     let second = stages(&small_image, UNITS);
     let small: Vec<Stage> = first.iter().zip(&second).map(|(a, b)| (a.0, a.1.min(b.1))).collect();
     let large = stages(&large_image, 4 * UNITS);
-    let growth = total(&large).as_secs_f64() / total(&small).as_secs_f64().max(1e-3);
-    if growth <= GROWTH {
+    let growth = growth_of(total(&small), total(&large));
+    let stage_grew = small.iter().zip(&large).any(|(s, l)| l.1 >= JUDGED && growth_of(s.1, l.1) > GROWTH);
+    if growth <= GROWTH && !stage_grew {
         return;
     }
     let beyond = |(s, l): (&Stage, &Stage)| l.1.as_secs_f64() - 4.0 * s.1.as_secs_f64();
@@ -135,12 +147,10 @@ pub(crate) fn guard(stages: impl Fn(&Image, usize) -> Vec<Stage>) {
     let table: Vec<String> = small
         .iter()
         .zip(&large)
-        .map(|(s, l)| {
-            format!("  {}: {:.0} ms to {:.0} ms ({:.1}x)", s.0, millis(s.1), millis(l.1), l.1.as_secs_f64() / s.1.as_secs_f64().max(1e-3))
-        })
+        .map(|(s, l)| format!("  {}: {:.0} ms to {:.0} ms ({:.1}x)", s.0, millis(s.1), millis(l.1), growth_of(s.1, l.1)))
         .collect();
     panic!(
-        "{} diamonds took {growth:.1} times as long as {UNITS} ({:.0} ms to {:.0} ms), more than {GROWTH}: the {worst} stage grew the most beyond linear\n{}",
+        "{} diamonds took {growth:.1} times as long as {UNITS} ({:.0} ms to {:.0} ms), in all or in a stage more than {GROWTH}: the {worst} stage grew the most beyond linear\n{}",
         4 * UNITS,
         millis(total(&small)),
         millis(total(&large)),

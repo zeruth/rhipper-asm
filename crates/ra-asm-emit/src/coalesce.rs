@@ -74,6 +74,8 @@ pub(crate) fn coalesce(p: &Printer<'_>) -> HashMap<ValueId, ValueId> {
     };
     // The phis' moves with a value that may share the phi's variable.
     let mut pairs: Vec<(ValueId, ValueId)> = Vec::new();
+    // The pairs taken, by which a pair is taken once: a search of the list made it quadratic.
+    let mut taken: HashSet<(ValueId, ValueId)> = HashSet::new();
     for b in &f.blocks {
         for (phi, o) in p.moves.get(&b.id).into_iter().flatten() {
             if let Operand::Local(v) = o
@@ -82,7 +84,7 @@ pub(crate) fn coalesce(p: &Printer<'_>) -> HashMap<ValueId, ValueId> {
                 && candidate(*phi)
                 && candidate(*v)
                 && f.value_type(*phi) == f.value_type(*v)
-                && !pairs.contains(&(*phi, *v))
+                && taken.insert((*phi, *v))
             {
                 pairs.push((*phi, *v));
             }
@@ -98,7 +100,7 @@ pub(crate) fn coalesce(p: &Printer<'_>) -> HashMap<ValueId, ValueId> {
             }
             match first.iter().find(|(w, q)| *w == o && f.value_type(*q) == f.value_type(*phi)) {
                 Some(&(_, q)) => {
-                    if q != *phi && !pairs.contains(&(q, *phi)) {
+                    if q != *phi && taken.insert((q, *phi)) {
                         pairs.push((q, *phi));
                     }
                 }

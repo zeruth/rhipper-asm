@@ -1662,9 +1662,10 @@ fn prune_locals(locals: &[Local], body: &mut String) -> String {
         if unread.is_empty() {
             break;
         }
+        let by_name = Unread::of(&unread);
         let mut kept = String::with_capacity(body.len());
         for line in body.lines() {
-            if let Some(line) = unassigned(line, &unread) {
+            if let Some(line) = unassigned(line, &by_name) {
                 kept.push_str(&line);
                 kept.push('\n');
             }
@@ -1757,13 +1758,33 @@ fn group_declarations(declarations: &str) -> String {
     out
 }
 
+/// The names [`unassigned`] drops the assignments of: the identifiers, which a line's leading
+/// word is looked up in, and any other name, tried at each line. A try of every name at every
+/// line made the pruning quadratic in a function's length.
+struct Unread<'n> {
+    words: HashSet<&'n str>,
+    others: Vec<&'n str>,
+}
+
+impl<'n> Unread<'n> {
+    fn of(names: &[&'n String]) -> Self {
+        let (words, others): (Vec<&str>, Vec<&str>) =
+            names.iter().map(|&n| n.as_str()).partition(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+        Self { words: words.into_iter().collect(), others }
+    }
+}
+
 /// `line` without its assignment when it assigns one of `unread`: nothing for a copy of a name or
 /// a constant, the bare call for a call, and the value cast to `void` for anything else, which may
 /// read memory as the machine did.
-fn unassigned(line: &str, unread: &[&String]) -> Option<String> {
+fn unassigned(line: &str, unread: &Unread<'_>) -> Option<String> {
     let value = line.trim_start();
     let pad = &line[..line.len() - value.len()];
-    let Some(rhs) = unread.iter().find_map(|n| value.strip_prefix(n.as_str())?.strip_prefix(" = ")?.strip_suffix(';')) else {
+    let assigned = |n: &str| value.strip_prefix(n)?.strip_prefix(" = ")?.strip_suffix(';');
+    // Only the line's leading word can be an identifier it assigns.
+    let word = &value[..value.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(value.len())];
+    let by_word = if unread.words.contains(word) { assigned(word) } else { None };
+    let Some(rhs) = by_word.or_else(|| unread.others.iter().find_map(|n| assigned(n))) else {
         return Some(line.to_owned());
     };
     if rhs.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
@@ -2116,6 +2137,7 @@ impl<'a> Emitter<'a> {
         // The phis live into some block of more than one way out, found when first asked.
         let mut live: HashMap<ValueId, HashSet<BlockId>> = HashMap::new();
         let preds = f.predecessors();
+        let mut readers: Option<HashMap<ValueId, Vec<BlockId>>> = None;
         for b in &f.blocks {
             let Some(moves) = self.defs.phi_moves.get(&b.id) else { continue };
             if moves.iter().any(|(q, _)| self.hoisted.contains(q)) {
@@ -2135,7 +2157,10 @@ impl<'a> Emitter<'a> {
                 let read_by_branch = b.terminator.operands().into_iter().any(|o| reads(o, *p));
                 let home = phi_block[p];
                 let escapes = successors.len() > 1 && {
-                    let blocks = live.entry(*p).or_insert_with(|| live_blocks(f, *p, home, &preds));
+                    let blocks = live.entry(*p).or_insert_with(|| {
+                        let readers = readers.get_or_insert_with(|| reading_blocks(f));
+                        live_blocks(*p, home, &preds, readers)
+                    });
                     successors.iter().any(|s| *s != home && blocks.contains(s))
                 };
                 if read_by_move || read_by_branch || escapes {
@@ -3643,36 +3668,89 @@ fn named_allocas(f: &Function) -> HashMap<ValueId, Type> {
     let order = ra_asm_ir::dom::reverse_post_order(f);
     let idom = ra_asm_ir::dom::dominators(&order, &f.predecessors());
     allocas.retain(|a, _| {
-        escapes.contains(a)
-            || loads.get(a).into_iter().flatten().all(|&(lb, li)| {
-                stores
-                    .get(a)
-                    .into_iter()
-                    .flatten()
-                    .any(|&(sb, si)| if sb == lb { si < li } else { ra_asm_ir::dom::dominates(&idom, sb, lb) })
-            })
+        if escapes.contains(a) {
+            return true;
+        }
+        // The first store of each block that stores `a`.
+        let mut first: HashMap<BlockId, usize> = HashMap::new();
+        for &(sb, si) in stores.get(a).into_iter().flatten() {
+            first.entry(sb).and_modify(|at| *at = (*at).min(si)).or_insert(si);
+        }
+        let mut above = HashMap::new();
+        loads
+            .get(a)
+            .into_iter()
+            .flatten()
+            .all(|&(lb, li)| first.get(&lb).is_some_and(|&si| si < li) || stored_above(&idom, &first, &mut above, lb))
     });
     allocas
 }
 
-/// The blocks `v`, defined in `home`, is live into: each block that reads it but `home`, each
-/// predecessor whose phi move reads it, and back from those to `home`.
-fn live_blocks(f: &Function, v: ValueId, home: BlockId, preds: &HashMap<BlockId, Vec<BlockId>>) -> HashSet<BlockId> {
-    let mut work: Vec<BlockId> = Vec::new();
+/// Whether a block that strictly dominates `b` is one of `stored`, with the answers of the blocks
+/// walked kept in `memo`: a walk to the root of the dominator tree from each load, against each
+/// store, made the emit cubic in a chain of blocks that spill and reload one slot.
+fn stored_above(idom: &HashMap<BlockId, BlockId>, stored: &HashMap<BlockId, usize>, memo: &mut HashMap<BlockId, bool>, b: BlockId) -> bool {
+    let mut walked = Vec::new();
+    let mut x = b;
+    let found = loop {
+        if let Some(&known) = memo.get(&x) {
+            break known;
+        }
+        let Some(&up) = idom.get(&x) else { break false };
+        if up == x {
+            break false;
+        }
+        walked.push(x);
+        if stored.contains_key(&up) {
+            break true;
+        }
+        x = up;
+    };
+    for w in walked {
+        memo.insert(w, found);
+    }
+    found
+}
+
+/// The blocks that read each value of `f`: the block of each instruction and branch that reads
+/// it, and for a phi the predecessor whose move reads it. Made once for [`live_blocks`]: a scan of
+/// the function for each phi asked about made the emit quadratic in a function's diamonds.
+fn reading_blocks(f: &Function) -> HashMap<ValueId, Vec<BlockId>> {
+    let mut out: HashMap<ValueId, Vec<BlockId>> = HashMap::new();
     for b in &f.blocks {
         for i in &b.instrs {
             match &i.inst {
                 Inst::Phi { incoming, .. } => {
-                    work.extend(incoming.iter().filter(|(o, from)| *o == Operand::Local(v) && *from != home).map(|(_, from)| *from));
+                    for (o, from) in incoming {
+                        if let Operand::Local(v) = o {
+                            out.entry(*v).or_default().push(*from);
+                        }
+                    }
                 }
-                inst if b.id != home && inst.uses().contains(&v) => work.push(b.id),
-                _ => {}
+                inst => {
+                    for v in inst.uses() {
+                        out.entry(v).or_default().push(b.id);
+                    }
+                }
             }
         }
-        if b.id != home && b.terminator.uses().contains(&v) {
-            work.push(b.id);
+        for v in b.terminator.uses() {
+            out.entry(v).or_default().push(b.id);
         }
     }
+    out
+}
+
+/// The blocks `v`, defined in `home`, is live into: each block that reads it but `home`, each
+/// predecessor whose phi move reads it, and back from those to `home`. `readers` is
+/// [`reading_blocks`] of the function.
+fn live_blocks(
+    v: ValueId,
+    home: BlockId,
+    preds: &HashMap<BlockId, Vec<BlockId>>,
+    readers: &HashMap<ValueId, Vec<BlockId>>,
+) -> HashSet<BlockId> {
+    let mut work: Vec<BlockId> = readers.get(&v).into_iter().flatten().copied().filter(|b| *b != home).collect();
     let mut live = HashSet::new();
     while let Some(b) = work.pop() {
         if live.insert(b) {
