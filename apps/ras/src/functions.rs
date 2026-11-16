@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::{Result, bail};
-use ra_asm_analysis::{Analysis, Kind, Origin, Terminator, analyze};
+use ra_asm_analysis::{Analysis, Kind, Origin, Reach, Terminator, analyze};
 use ra_asm_emit::FunctionInfo;
 use ra_asm_pe::Image;
 use serde_json::json;
@@ -142,10 +142,16 @@ pub(crate) fn functions_json(analysis: &Analysis<'_>) -> serde_json::Value {
                 "tail_calls": f.tail_calls.iter().map(|c| hex(*c)).collect::<Vec<_>>(),
                 "origins": f.origins.iter().map(origin_name).collect::<Vec<_>>(),
                 "strings": strings, "virtuals": virtuals,
+                "gap": f.reach != Reach::Named, "dead": match &f.reach { Reach::Dead(why) => Some(why.clone()), _ => None },
+                "address_taken": analysis.is_address_taken(f.entry),
             })
         })
         .collect();
-    json!({"functions": rows, "classes": classes_json(analysis), "warnings": analysis.warnings})
+    let (dead, gap) = analysis.gap_counts();
+    json!({
+        "functions": rows, "classes": classes_json(analysis), "warnings": analysis.warnings,
+        "gaps": {"fill": analysis.fill.len(), "dead": dead, "gap": gap},
+    })
 }
 
 /// Gives each function of a translation's table the evidence the ledger of `gen_dir` holds of the
@@ -198,6 +204,9 @@ pub(crate) fn functions(image: &Image, json: bool) -> Result<()> {
         if let Some(origin) = f.origins.first() {
             notes.push(origin_name(origin));
         }
+        if let Reach::Dead(why) = &f.reach {
+            notes.push(format!("dead: {why}"));
+        }
         let notes = if notes.is_empty() { String::new() } else { format!("  ({})", notes.join(", ")) };
         writeln!(
             out,
@@ -210,6 +219,13 @@ pub(crate) fn functions(image: &Image, json: bool) -> Result<()> {
         )?;
     }
     writeln!(out, "{} functions", analysis.functions.len())?;
+    let (dead, gap) = analysis.gap_counts();
+    writeln!(
+        out,
+        "gaps: {} fill (no functions), {dead} dead (not lifted), {gap} gap (lifted); {} address-taken",
+        analysis.fill.len(),
+        analysis.address_taken.as_ref().map_or(analysis.functions.len(), std::collections::BTreeSet::len)
+    )?;
     for warning in &analysis.warnings {
         eprintln!("warning: {warning}");
     }

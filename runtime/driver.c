@@ -2925,6 +2925,11 @@ static LONG WINAPI on_exception(EXCEPTION_POINTERS *info) {
     }
     uintptr_t module = (uintptr_t)ra_module;
     uintptr_t at = (uintptr_t)r->ExceptionAddress;
+    // Control at an address of the image: a computed call or jump to code the port has no
+    // function for (dead code the analysis left out, or a function only an address reached).
+    if (r->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && at >= RA_IMAGE_BASE && at < RA_IMAGE_BASE + RA_IMAGE_SIZE) {
+        fprintf(stderr, "ra: a computed call or jump to 0x%llx, which is no lifted function\n", (unsigned long long)at);
+    }
     fprintf(stderr, "ra: exception 0x%lx at 0x%llx", r->ExceptionCode, (unsigned long long)at);
     if (at >= module) fprintf(stderr, " (module+0x%llx)", (unsigned long long)(at - module));
     if (r->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && r->NumberParameters >= 2) {

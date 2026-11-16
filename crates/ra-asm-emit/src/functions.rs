@@ -164,6 +164,10 @@ pub struct FunctionInfo {
     pub object: Option<String>,
     /// The file name of the image the function is in, in a port of two images or more.
     pub image: Option<String>,
+    /// Whether only the gaps between the found functions showed it, nothing naming it.
+    pub gap: bool,
+    /// Why the function never runs, for gap code proven dead: it is in the table, not lifted.
+    pub dead: Option<String>,
     /// What the verification's ledger holds of the function, by step (a level of the lift, an
     /// output of the emit).
     pub evidence: BTreeMap<String, Evidence>,
@@ -201,6 +205,11 @@ pub fn infos(analysis: &ra_asm_analysis::Analysis) -> HashMap<String, FunctionIn
                 seen: analysis.facts.entered.contains(&f.entry),
                 seen_calls,
                 object: f.object.clone(),
+                gap: f.reach != ra_asm_analysis::Reach::Named,
+                dead: match &f.reach {
+                    ra_asm_analysis::Reach::Dead(why) => Some(why.clone()),
+                    _ => None,
+                },
                 ..Default::default()
             };
             (f.name.clone(), info)
@@ -269,6 +278,8 @@ pub fn table(functions: &[EmittedFunction], files: &[EmittedFile], infos: &HashM
             "thunk"
         } else if info.runtime.is_some() {
             "runtime"
+        } else if info.dead.is_some() {
+            "dead"
         } else {
             "not lifted"
         };
@@ -297,6 +308,12 @@ fn facts(entry: &mut Map<String, Value>, info: &FunctionInfo) {
     if let Some((class, slot)) = &info.class {
         entry.insert("class".into(), json!(class));
         entry.insert("slot".into(), json!(slot));
+    }
+    if info.gap {
+        entry.insert("gap".into(), json!(true));
+    }
+    if let Some(why) = &info.dead {
+        entry.insert("dead".into(), json!(why));
     }
     if info.seen {
         entry.insert("seen".into(), json!(true));

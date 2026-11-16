@@ -30,6 +30,23 @@ pub enum Origin {
     Residual,
 }
 
+/// What names a function, for the ones the gaps between the found functions show (see
+/// [`crate::gaps`]): a function something else names is [`Reach::Named`] whatever found it first.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Reach {
+    /// A call, a jump, a pointer, an immediate, a relocation, a vtable, an export, a TLS callback
+    /// or the exception table names it, or the image's entry is it.
+    #[default]
+    Named,
+    /// Nothing names it and nothing proves it dead: code after the fill that the linker kept, a
+    /// function of the program as any other.
+    Gap,
+    /// Nothing names it, and its bytes prove it never runs: the evidence, in a few words. It stays
+    /// in the function table and is neither lifted nor emitted.
+    Dead(String),
+}
+
 /// A slot of a class's vtable that holds the function.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct VirtualSlot {
@@ -162,6 +179,8 @@ pub struct Function {
     pub traced_calls: std::collections::BTreeMap<u64, Vec<u64>>,
     /// The vtable slots that hold the function: a virtual function of these classes.
     pub virtuals: Vec<VirtualSlot>,
+    /// Whether anything names it, for a function only the gaps showed.
+    pub reach: Reach,
 }
 
 impl Function {
@@ -203,6 +222,11 @@ impl Function {
 
     pub fn is_thunk(&self) -> bool {
         matches!(self.kind, Kind::ImportThunk(_))
+    }
+
+    /// Whether the gaps alone showed the function and its bytes prove it never runs.
+    pub fn is_dead(&self) -> bool {
+        matches!(self.reach, Reach::Dead(_))
     }
 }
 
