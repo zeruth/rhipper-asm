@@ -1109,6 +1109,20 @@ unsafe fn interlocked(target: u64) -> &'static core::sync::atomic::AtomicI32 {
     core::sync::atomic::AtomicI32::from_ptr(target as usize as *mut i32)
 }
 
+/// The key [`ra_x86_encode_pointer`] flips: the C runtime's `RA_POINTER_KEY`.
+const POINTER_KEY: u32 = 0x5ca1_ab1e;
+
+/// `EncodePointer` within the program's dword: the 64-bit kernel32's encoding takes all 64 bits,
+/// so its decode of the dword the program kept is no pointer. The null pointer encodes to the key.
+pub unsafe fn ra_x86_encode_pointer(pointer: u64) -> u64 {
+    u64::from(pointer as u32 ^ POINTER_KEY)
+}
+
+/// `DecodePointer` of what [`ra_x86_encode_pointer`] gave.
+pub unsafe fn ra_x86_decode_pointer(pointer: u64) -> u64 {
+    u64::from(pointer as u32 ^ POINTER_KEY)
+}
+
 /// The interlocked operations of the 32-bit kernel32, which the 64-bit one does not export: each a
 /// full barrier, the increment and the decrement returning the new value, the others the old one.
 pub unsafe fn ra_x86_interlocked_increment(target: u64) -> u64 {

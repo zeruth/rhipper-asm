@@ -19,6 +19,8 @@ use crate::state;
 
 /// The handles the runtime makes up: a thread it ran, its heap, a stream, a module of a 32-bit
 /// program. The values stay clear of the small even numbers the system uses.
+/// The key the runtime's `ra_x86_encode_pointer` flips, as the port's runtime does.
+const X86_POINTER_KEY: u32 = 0x5ca1_ab1e;
 const THREAD_HANDLES: u64 = 0x5a00_0000;
 const HEAP_HANDLE: u64 = 0x5a10_0000;
 const STREAMS: u64 = 0x5a20_0000;
@@ -1219,6 +1221,8 @@ impl<'a> Runtime<'a> {
                 }
                 int(0)
             }
+            // The runtime's encoding of a pointer, which keeps to the program's dword.
+            "ra_x86_encode_pointer" | "ra_x86_decode_pointer" => int(u64::from(a(0) as u32 ^ X86_POINTER_KEY)),
             // The interpreter runs one thread at a time: each is a plain read and write.
             "ra_x86_interlocked_increment" | "ra_x86_interlocked_decrement" => {
                 let old = vm.memory.read_u32(a(0))?;

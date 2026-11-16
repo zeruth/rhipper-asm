@@ -208,6 +208,9 @@ uint64_t ra_x86_interlocked_push_entry_slist(uint64_t head, uint64_t entry);
 uint64_t ra_x86_interlocked_pop_entry_slist(uint64_t head);
 uint64_t ra_x86_interlocked_flush_slist(uint64_t head);
 uint64_t ra_x86_query_depth_slist(uint64_t head);
+// EncodePointer and DecodePointer within the program's dword: the 64-bit kernel32's take 64 bits.
+uint64_t ra_x86_encode_pointer(uint64_t pointer);
+uint64_t ra_x86_decode_pointer(uint64_t pointer);
 // The interlocked operations of the 32-bit kernel32 on a 32-bit value, which the 64-bit one does
 // not export.
 uint64_t ra_x86_interlocked_increment(uint64_t target);

@@ -599,6 +599,20 @@ uint64_t ra_x86_query_depth_slist(uint64_t head) {
     return slist32_depth(__atomic_load_n(slist32_head(head), __ATOMIC_SEQ_CST));
 }
 
+// EncodePointer and DecodePointer for a program that keeps the encoded pointer in a dword: the
+// 64-bit kernel32's encoding takes all 64 bits, so its decode of the dword is no pointer. The
+// runtime's flips the bits of a constant: the null pointer encodes to something else, as kernel32's
+// does, and the encoding keeps to 32 bits.
+#define RA_POINTER_KEY 0x5ca1ab1eu
+
+uint64_t ra_x86_encode_pointer(uint64_t pointer) {
+    return (uint32_t)pointer ^ RA_POINTER_KEY;
+}
+
+uint64_t ra_x86_decode_pointer(uint64_t pointer) {
+    return (uint32_t)pointer ^ RA_POINTER_KEY;
+}
+
 // The interlocked operations of the 32-bit kernel32, on the program's 32-bit value at `target`:
 // the 64-bit kernel32 exports none of them. Each is a full barrier, as kernel32's is, and returns
 // what kernel32's does: the new value for the increment and the decrement, the old one otherwise.

@@ -218,6 +218,10 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "InterlockedExchange" => "ra_x86_interlocked_exchange",
         "InterlockedExchangeAdd" => "ra_x86_interlocked_exchange_add",
         "InterlockedCompareExchange" => "ra_x86_interlocked_compare_exchange",
+        // The 64-bit kernel32 encodes a pointer into all 64 bits, which the program keeps in a
+        // dword: the decode of what is left is no pointer. The runtime's encoding keeps 32.
+        "EncodePointer" | "EncodeSystemPointer" => "ra_x86_encode_pointer",
+        "DecodePointer" | "DecodeSystemPointer" => "ra_x86_decode_pointer",
         "_controlfp" | "_control87" => "ra_x86_controlfp",
         "_controlfp_s" => "ra_x86_controlfp_s",
         "_clearfp" => "ra_x86_clearfp",
@@ -642,6 +646,8 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_dispatch_message_a"
         | "ra_x86_interlocked_increment"
         | "ra_x86_interlocked_decrement"
+        | "ra_x86_encode_pointer"
+        | "ra_x86_decode_pointer"
         | "ra_x86_interlocked_pop_entry_slist"
         | "ra_x86_interlocked_flush_slist"
         | "ra_x86_query_depth_slist"
@@ -1046,5 +1052,20 @@ mod tests {
         assert!(typed("ChildWindowFromPoint").is_some_and(|t| t.params == [Kind::Int, Kind::Wide]));
         assert!(win32("wsprintfA").is_none(), "a variadic function is in the table");
         assert!(win32("printf").is_none());
+    }
+
+    /// A 32-bit program's `EncodePointer` and `DecodePointer` go to the runtime's, which keep the
+    /// encoding to the dword the program stores it in, and take their one argument.
+    #[test]
+    fn a_32_bit_programs_pointer_encoding_is_the_runtimes() {
+        for (import, shim) in [
+            ("EncodePointer", "ra_x86_encode_pointer"),
+            ("DecodePointer", "ra_x86_decode_pointer"),
+            ("EncodeSystemPointer", "ra_x86_encode_pointer"),
+            ("DecodeSystemPointer", "ra_x86_decode_pointer"),
+        ] {
+            assert_eq!(x86_shim(import), Some(shim), "{import}");
+            assert_eq!(arity(shim), Some(1), "{shim}");
+        }
     }
 }
