@@ -20,6 +20,7 @@ use std::sync::OnceLock;
 use ra_asm_ir::{Callee, Function, Global, Inst, Module, Operand, Terminator, Type};
 
 use super::abi::{Signature, SummaryCache, VtableIndex};
+use super::known::Constants;
 use super::liveness::slot_pointers;
 use super::stack::{CalleeStack, StackInfo};
 use super::{Level, Options, clean};
@@ -36,6 +37,9 @@ pub struct Context<'a> {
     /// The stack dwords a call through a pointer hands on past the universal six (see
     /// [`super::stubs::extra_dwords`]); none ahead of the signatures.
     pub extra_dwords: usize,
+    /// The index of the read-only globals the function steps are handed, built by the first step
+    /// that reads it: built for each function, it was the functions times the globals' fields.
+    constants: OnceLock<Constants>,
     /// The most a call through a pointer pops (see [`super::stores::most_pops`]), read from the
     /// module's globals once a step first asks.
     pub most_pops: OnceLock<Option<i64>>,
@@ -50,8 +54,15 @@ impl<'a> Context<'a> {
             vtables: VtableIndex::new(&options.vtables),
             summaries: SummaryCache::new(signatures, options.target()),
             extra_dwords: super::stubs::extra_dwords(signatures, roots, options.target()),
+            constants: OnceLock::new(),
             most_pops: OnceLock::new(),
         }
+    }
+
+    /// The index of `globals`, when it is the slice the context indexed first.
+    fn constants(&self, globals: &[Global]) -> Option<&Constants> {
+        let index = self.constants.get_or_init(|| Constants::of(globals));
+        index.indexes(globals).then_some(index)
     }
 }
 
@@ -257,8 +268,16 @@ fn frame(f: &mut Function, _: &Context<'_>, _: &[Global]) {
 /// Known values and branches, to a fixpoint with the cleanup; then the stores to the frame the
 /// forwarded loads left with no reader ([`super::stores`]).
 fn known(f: &mut Function, cx: &Context<'_>, globals: &[Global]) {
+    // A slice other than the one the context indexed is indexed for this function alone.
+    let own;
+    let constants = if let Some(constants) = cx.constants(globals) {
+        constants
+    } else {
+        own = Constants::of(globals);
+        &own
+    };
     for _ in 0..4 {
-        if !super::known::run(f, globals) {
+        if !super::known::run(f, globals, constants) {
             break;
         }
         clean(f);

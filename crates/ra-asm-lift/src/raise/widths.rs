@@ -147,8 +147,22 @@ fn analyze(f: &Function, plan: &Plan) -> Analysis {
                 changed = true;
             }
         };
-        for b in &f.blocks {
-            for i in &b.instrs {
+        // From the last use back to the definitions, which a demand flows to: walked forward, a
+        // chain of n values took n rounds. Each rule only raises, so the order changes no demand.
+        for b in f.blocks.iter().rev() {
+            match &b.terminator {
+                Terminator::Ret(Some((Type::I64, o))) => raise(&mut a, o, plan.results.get(&f.name).copied().unwrap_or(FULL)),
+                Terminator::Switch { ty: Type::I64, value, cases, .. } => {
+                    let w = a.switch_width(value, cases);
+                    raise(&mut a, value, w);
+                }
+                t => {
+                    for v in t.uses() {
+                        raise(&mut a, &Operand::Local(v), FULL);
+                    }
+                }
+            }
+            for i in b.instrs.iter().rev() {
                 let own = i.result.and_then(|v| a.demand.get(&v).copied());
                 match &i.inst {
                     Inst::Cast { cast: Cast::Trunc, from: Type::I64, value, to: Type::Int(n), .. } => raise(&mut a, value, *n),
@@ -192,18 +206,6 @@ fn analyze(f: &Function, plan: &Plan) -> Analysis {
                     }
                 }
             }
-            match &b.terminator {
-                Terminator::Ret(Some((Type::I64, o))) => raise(&mut a, o, plan.results.get(&f.name).copied().unwrap_or(FULL)),
-                Terminator::Switch { ty: Type::I64, value, cases, .. } => {
-                    let w = a.switch_width(value, cases);
-                    raise(&mut a, value, w);
-                }
-                t => {
-                    for v in t.uses() {
-                        raise(&mut a, &Operand::Local(v), FULL);
-                    }
-                }
-            }
         }
         if !changed {
             break;
@@ -238,9 +240,16 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
     let mut plan = Plan::default();
     let starts = super::held::map(&module.frozen, |_, f| {
         let params: Vec<Option<u16>> = f.params.iter().map(|p| is_i64(f, *p).then_some(8)).collect();
-        (params, f.ty.ret == Type::I64)
+        (params, f.ty.ret == Type::I64, callees(f))
     });
-    for (z, (params, wide)) in module.frozen.iter().zip(starts) {
+    // The functions whose analysis reads the plan of each name: its callers, and itself, whose
+    // returns read its own result's width.
+    let mut readers: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, (z, (params, wide, called))) in module.frozen.iter().zip(starts).enumerate() {
+        for callee in called {
+            readers.entry(callee).or_default().push(i);
+        }
+        readers.entry(z.name.clone()).or_default().push(i);
         if !eligible(&z.name) {
             continue;
         }
@@ -251,10 +260,21 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
             plan.results.insert(z.name.clone(), 8);
         }
     }
+    // What the plan reads of each function's analysis, kept alone: the whole analyses of a large
+    // program's functions do not fit at once. A round analyzes again only the functions that read
+    // a name whose plan the round before changed; the others' summaries are what they were.
+    let mut summaries: Vec<Option<Summary>> = (0..module.frozen.len()).map(|_| None).collect();
+    let mut dirty = vec![true; module.frozen.len()];
     for _ in 0..16 {
-        // What the plan reads of each function's analysis, made side by side and kept alone: the
-        // whole analyses of a large program's functions do not fit at once.
-        let summaries: Vec<Summary> = super::held::map(&module.frozen, |_, f| Summary::of(f, &analyze(f, &plan)));
+        let fresh =
+            super::abi::par_map(&module.frozen, |i, z| dirty[i].then(|| super::held::read(z, |f| Summary::of(f, &analyze(f, &plan)))));
+        for (slot, fresh) in summaries.iter_mut().zip(fresh) {
+            if fresh.is_some() {
+                *slot = fresh;
+            }
+        }
+        let summaries: Vec<&Summary> =
+            summaries.iter().map(|s| s.as_ref().expect("every function is analyzed in the first round")).collect();
         // The widest of each callee's results its callers read, in one walk of the module: asked
         // of every caller once per function, the walk was the module squared.
         let mut read_by_callers: HashMap<&str, u16> = HashMap::new();
@@ -282,6 +302,15 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
         if next == plan {
             break;
         }
+        dirty.fill(false);
+        let differs = |name: &String| next.params.get(name) != plan.params.get(name) || next.results.get(name) != plan.results.get(name);
+        for name in plan.params.keys().chain(plan.results.keys()).chain(next.params.keys()).chain(next.results.keys()) {
+            if differs(name) {
+                for &reader in readers.get(name).into_iter().flatten() {
+                    dirty[reader] = true;
+                }
+            }
+        }
         plan = next;
     }
 
@@ -293,6 +322,22 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
         }
     });
     changed.into_inner()
+}
+
+/// The functions `f` calls directly, each once: the names whose plan its analysis reads.
+fn callees(f: &Function) -> Vec<String> {
+    let mut names: Vec<String> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instrs)
+        .filter_map(|i| match &i.inst {
+            Inst::Call { callee: Callee::Direct(name), .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names
 }
 
 /// What the plan reads of one function's analysis: the width each parameter is demanded at, the

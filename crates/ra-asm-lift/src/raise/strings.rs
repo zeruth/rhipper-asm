@@ -120,6 +120,9 @@ pub fn run(module: &mut Module, low: bool) -> Vec<usize> {
     // Later calls first: a replacement of several instructions moves the ones after it.
     plain.sort_by_key(|(c, _)| std::cmp::Reverse((c.function, c.block, c.index)));
     let mut new_globals: Vec<Global> = Vec::new();
+    // The names the module's globals hold: asked of the globals for every new string, the walk
+    // was the strings times the globals.
+    let held: HashSet<String> = module.globals.iter().map(|g| g.name.clone()).collect();
     let mut counter = 0usize;
     let mut changed: Vec<usize> = Vec::new();
     for (c, buffers) in plain {
@@ -128,7 +131,8 @@ pub fn run(module: &mut Module, low: bool) -> Vec<usize> {
             loop {
                 counter += 1;
                 let name = format!("str_{counter}");
-                if module.global(&name).is_none() && !new_globals.iter().any(|g| g.name == name) {
+                // A name the counter gave once is not given again, so the new globals hold none.
+                if !held.contains(&name) {
                     names.push(name);
                     break;
                 }

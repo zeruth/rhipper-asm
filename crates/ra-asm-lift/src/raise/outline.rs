@@ -48,8 +48,12 @@ pub fn run(module: &mut Module) -> bool {
 /// changed functions and the helper are frozen back.
 pub fn run_frozen(module: &mut Module) -> bool {
     let mut changed = false;
+    // The shapes of each function, read again only where a round wrote: in the functions it
+    // thawed and in the helper it added. Read whole each round, they were the rounds times the
+    // module.
+    let shapes_of = |i: usize, f: &Function| regions_of(f, i).into_iter().map(|r| r.shape).collect::<Vec<_>>();
+    let mut shapes = super::held::map(&module.frozen, shapes_of);
     for _ in 0..MAX_ROUNDS {
-        let shapes = super::held::map(&module.frozen, |i, f| regions_of(f, i).into_iter().map(|r| r.shape).collect::<Vec<_>>());
         let mut count: HashMap<(usize, usize, bool), usize> = HashMap::new();
         for shape in shapes.iter().flatten() {
             *count.entry(*shape).or_default() += 1;
@@ -68,7 +72,16 @@ pub fn run_frozen(module: &mut Module) -> bool {
         for (&i, f) in holders.iter().zip(functions.by_ref()) {
             module.frozen[i] = ra_asm_ir::freeze::freeze(&f);
         }
+        let first_helper = module.frozen.len();
         module.frozen.extend(functions.map(|helper| ra_asm_ir::freeze::freeze(&helper)));
+        // Read as the next round finds them, frozen.
+        let written: Vec<usize> = holders.iter().copied().chain(first_helper..module.frozen.len()).collect();
+        let picked: Vec<&ra_asm_ir::freeze::Frozen> = written.iter().map(|&i| &module.frozen[i]).collect();
+        let fresh = super::abi::par_map(&picked, |k, z| super::held::read(z, |f| shapes_of(written[k], f)));
+        shapes.resize_with(module.frozen.len(), Vec::new);
+        for (&i, fresh) in written.iter().zip(fresh) {
+            shapes[i] = fresh;
+        }
         changed = true;
     }
     changed

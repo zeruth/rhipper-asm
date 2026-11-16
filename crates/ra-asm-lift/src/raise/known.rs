@@ -15,10 +15,10 @@ use ra_asm_ir::dom::{dominators, reverse_post_order};
 use ra_asm_ir::{BinOp, BlockId, Cast, Const, Function, Global, ICond, Inst, Operand, Terminator, Type, ValueId};
 
 /// Runs once; returns whether anything changed. `globals` are the module's, for the loads from
-/// its read-only sections.
-pub fn run(f: &mut Function, globals: &[Global]) -> bool {
+/// its read-only sections, and `constants` their index ([`Constants::of`] them).
+pub fn run(f: &mut Function, globals: &[Global], constants: &Constants) -> bool {
     let mut changed = number_values(f);
-    changed |= fold_constant_loads(f, globals);
+    changed |= fold_constant_loads(f, globals, constants);
     changed |= forward_stores(f);
     changed |= fold_opaque(f);
     changed |= fold_compares(f);
@@ -113,10 +113,56 @@ fn substitute(f: &mut Function, replace: &HashMap<ValueId, Operand>) -> bool {
     true
 }
 
+/// The read-only globals of a module by name, each with where its fields end: a load finds its
+/// bytes by a search of the ends, where a walk of the fields for every load was the loads times
+/// the relocated words of `.rdata`, and a lookup of the name in the globals for every load was
+/// the loads times the globals.
+pub struct Constants {
+    /// The globals the index was built of, by the address and the length of their slice.
+    of: (usize, usize),
+    /// The first read-only global of each name, by its index in the slice, and the end of each
+    /// field of a packed one up to the first field of no size; none for any other.
+    by_name: HashMap<String, (usize, Vec<u64>)>,
+}
+
+impl Constants {
+    pub fn of(globals: &[Global]) -> Self {
+        let mut by_name: HashMap<String, (usize, Vec<u64>)> = HashMap::new();
+        for (index, g) in globals.iter().enumerate().filter(|(_, g)| g.constant) {
+            let mut ends = Vec::new();
+            if let (Type::Packed(fields), Some(Const::Struct(items))) = (&g.ty, &g.init) {
+                let mut at = 0u64;
+                for (field, _) in fields.iter().zip(items) {
+                    let Some(size) = field.size(8) else { break };
+                    at += size;
+                    ends.push(at);
+                }
+            }
+            by_name.entry(g.name.clone()).or_insert((index, ends));
+        }
+        Self { of: Self::key(globals), by_name }
+    }
+
+    /// Whether the index is of `globals`, the slice it was built of.
+    pub fn indexes(&self, globals: &[Global]) -> bool {
+        self.of == Self::key(globals)
+    }
+
+    fn key(globals: &[Global]) -> (usize, usize) {
+        (globals.as_ptr() as usize, globals.len())
+    }
+
+    /// The read-only global `name` of `globals` and the ends of its fields.
+    fn get<'g>(&self, globals: &'g [Global], name: &str) -> Option<(&'g Global, &[u64])> {
+        let (index, ends) = self.by_name.get(name)?;
+        Some((globals.get(*index)?, ends))
+    }
+}
+
 /// A load from a read-only section at a known address is the bytes the image holds there. The
 /// words the loader patches (relocated addresses, the import slots) are not bytes in the global's
 /// initializer and stay loads.
-fn fold_constant_loads(f: &mut Function, globals: &[Global]) -> bool {
+fn fold_constant_loads(f: &mut Function, globals: &[Global], constants: &Constants) -> bool {
     let defs = definitions(f);
     let mut replace: HashMap<ValueId, Operand> = HashMap::new();
     for i in f.blocks.iter().flat_map(|b| &b.instrs) {
@@ -125,8 +171,8 @@ fn fold_constant_loads(f: &mut Function, globals: &[Global]) -> bool {
             continue;
         }
         let Some((Root::Global(name), offset)) = place(ptr, &defs) else { continue };
-        let Some(global) = globals.iter().find(|g| g.name == name && g.constant) else { continue };
-        let Some(bytes) = bytes_of(global, offset, u64::from(*bits / 8)) else { continue };
+        let Some((global, ends)) = constants.get(globals, &name) else { continue };
+        let Some(bytes) = bytes_of(global, ends, offset, u64::from(*bits / 8)) else { continue };
         let mut value = 0u128;
         for (n, byte) in bytes.iter().enumerate() {
             value |= u128::from(*byte) << (8 * n);
@@ -137,23 +183,19 @@ fn fold_constant_loads(f: &mut Function, globals: &[Global]) -> bool {
 }
 
 /// `size` verbatim bytes of a global's initializer at `offset`, when they lie in one byte run.
-fn bytes_of(global: &Global, offset: i64, size: u64) -> Option<&[u8]> {
+/// `ends` are where the fields of a packed one end (see [`Constants`]).
+fn bytes_of<'g>(global: &'g Global, ends: &[u64], offset: i64, size: u64) -> Option<&'g [u8]> {
     let offset = u64::try_from(offset).ok()?;
     match (&global.ty, global.init.as_ref()?) {
         (_, Const::Bytes(bytes)) => run_of(bytes, offset, size),
-        (Type::Packed(fields), Const::Struct(items)) => {
-            let mut at = 0u64;
-            for (field, item) in fields.iter().zip(items) {
-                let field_size = field.size(8)?;
-                if offset < at + field_size {
-                    return match item {
-                        Const::Bytes(bytes) if offset >= at => run_of(bytes, offset - at, size),
-                        _ => None,
-                    };
-                }
-                at += field_size;
+        (Type::Packed(_), Const::Struct(items)) => {
+            let field = ends.partition_point(|&end| end <= offset);
+            ends.get(field)?;
+            let at = if field == 0 { 0 } else { ends[field - 1] };
+            match items.get(field)? {
+                Const::Bytes(bytes) => run_of(bytes, offset - at, size),
+                _ => None,
             }
-            None
         }
         _ => None,
     }
@@ -644,3 +686,6 @@ pub fn fold_branches(f: &mut Function) -> bool {
     }
     changed
 }
+
+#[cfg(test)]
+mod tests;
