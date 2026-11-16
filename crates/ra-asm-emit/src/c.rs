@@ -270,9 +270,10 @@ impl Unit {
         let mut by_address: Vec<(u64, &str)> = self.functions.iter().filter_map(|f| Some((f.address?, f.ir_name.as_str()))).collect();
         by_address.sort_unstable();
         let mut order: Vec<&str> = Vec::new();
+        let mut seen: HashSet<&str> = HashSet::new();
         for &(_, name) in &by_address {
             if let Some(object) = object_of(name)
-                && !order.contains(&object)
+                && seen.insert(object)
             {
                 order.push(object);
             }
@@ -280,16 +281,22 @@ impl Unit {
         if order.len() < 2 {
             return None;
         }
+        // The module of the nearest placed function after each, from the end.
+        let mut after: Vec<Option<&str>> = vec![None; by_address.len()];
+        let mut next = None;
+        for (i, &(_, name)) in by_address.iter().enumerate().rev() {
+            after[i] = next;
+            next = object_of(name).or(next);
+        }
         let mut assigned: HashMap<&str, &str> = HashMap::new();
-        for (i, &(_, name)) in by_address.iter().enumerate() {
-            let object = object_of(name).or_else(|| {
-                let before = by_address[..i].iter().rev().find_map(|&(_, n)| object_of(n))?;
-                let after = by_address[i + 1..].iter().find_map(|&(_, n)| object_of(n))?;
-                (before == after).then_some(before)
-            });
+        let mut before = None;
+        for (&(_, name), after) in by_address.iter().zip(after) {
+            let own = object_of(name);
+            let object = own.or_else(|| before.zip(after).and_then(|(before, after)| (before == after).then_some(before)));
             if let Some(object) = object {
                 assigned.insert(name, object);
             }
+            before = own.or(before);
         }
         let stems = module_stems(&order);
         let index: HashMap<&str, usize> = order.iter().enumerate().map(|(i, o)| (*o, i)).collect();
@@ -438,7 +445,7 @@ pub fn emit_c(module: &Module, options: &Options) -> String {
 /// Writes `module` as C, in pieces.
 pub fn emit_unit(module: &Module, options: &Options) -> Unit {
     let mut parts = parts(module, options);
-    let functions = module.functions.iter().map(|f| parts.function(f, &module.types, options)).collect();
+    let functions = parts.functions(&module.functions, &module.types, options);
     parts.unit(functions, options)
 }
 
@@ -450,16 +457,70 @@ pub fn emit_unit_dropping(module: &mut Module, options: &Options) -> Unit {
     let mut parts = timed("translate: module parts", || parts(module, options));
     let functions = timed("translate: functions", || {
         let mut functions = Vec::with_capacity(module.functions.len());
-        for f in &mut module.functions {
-            functions.push(parts.function(f, &module.types, options));
-            f.blocks = Vec::new();
-            f.value_names = Vec::new();
-            f.value_types = Vec::new();
+        // A run of functions at a time: its IR goes once its source is written.
+        for chunk in module.functions.chunks_mut(DROP_RUN) {
+            functions.extend(parts.functions(chunk, &module.types, options));
+            for f in chunk {
+                f.blocks = Vec::new();
+                f.value_names = Vec::new();
+                f.value_types = Vec::new();
+            }
         }
         functions
     });
     timed("translate: unit", || parts.unit(functions, options))
 }
+
+/// The functions [`emit_unit_dropping`] writes before it drops their IR: enough that every thread
+/// has work, few enough that their IR and source are a small part of the program's.
+const DROP_RUN: usize = 4096;
+
+/// The functions a thread of [`par_map`] takes at a time.
+const BATCH: usize = 8;
+
+/// The stack of a thread of [`par_map`]: the one `ras` runs the emit on, for the structuring and
+/// the printer recurse as deep as a function nests.
+const STACK: usize = 64 << 20;
+
+/// `each` of every item of `items`, in order, on the host's threads.
+fn par_map<I: Sync, T: Send>(items: &[I], each: impl Fn(&I) -> T + Sync) -> Vec<T> {
+    let threads = std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).min(items.len().div_ceil(BATCH));
+    if threads <= 1 {
+        return items.iter().map(each).collect();
+    }
+    // The threads take small batches from a shared counter: a program's large functions sit
+    // together, and a thread given a fixed run of them would finish long after the others.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (each, next) = (&each, &next);
+    let mut done: Vec<(usize, T)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                std::thread::Builder::new()
+                    .name("ra-emit".into())
+                    .stack_size(STACK)
+                    .spawn_scoped(scope, move || {
+                        let mut out = Vec::new();
+                        loop {
+                            let start = next.fetch_add(BATCH, std::sync::atomic::Ordering::Relaxed);
+                            if start >= items.len() {
+                                return out;
+                            }
+                            let end = (start + BATCH).min(items.len());
+                            out.extend(items[start..end].iter().enumerate().map(|(i, x)| (start + i, each(x))));
+                        }
+                    })
+                    .unwrap_or_else(|e| panic!("no thread for the emit: {e}"))
+            })
+            .collect();
+        handles.into_iter().flat_map(|h| h.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+    });
+    done.sort_unstable_by_key(|(i, _)| *i);
+    done.into_iter().map(|(_, t)| t).collect()
+}
+
+/// One function's source written alone, from no SDK name: what it wrote, the checks it watched and
+/// the names it defined.
+type Alone = (EmittedFunction, Vec<u32>, BTreeMap<String, String>);
 
 /// What a unit's functions are written with, made from the whole module before the first of them:
 /// the rest of the unit, and what each function's text reads of the others.
@@ -488,14 +549,52 @@ struct Parts<'o> {
 }
 
 impl Parts<'_> {
-    /// One function's source.
-    fn function(&mut self, f: &Function, types: &[(String, Vec<Type>)], options: &Options) -> EmittedFunction {
+    /// The source of each of `functions`, in their order, as one after the other writes them. The
+    /// functions are written apart on the host's threads, each from no SDK name; one whose defines
+    /// differ from those of the functions before it is written again after them, for a constant
+    /// whose name an earlier function defined at another width stays numeric.
+    fn functions(&mut self, functions: &[Function], types: &[(String, Vec<Type>)], options: &Options) -> Vec<EmittedFunction> {
+        let alone: Vec<Alone> = par_map(functions, |f| {
+            let mut names = BTreeMap::new();
+            let (emitted, written) = self.function(f, types, options, &mut names);
+            (emitted, written, names)
+        });
+        let mut out = Vec::with_capacity(functions.len());
+        for (f, (emitted, written, names)) in functions.iter().zip(alone) {
+            // A function that defines a name the earlier ones did not, or the same one alike,
+            // makes the choices it makes after them.
+            if names.iter().all(|(name, literal)| self.sdk_names.get(name).is_none_or(|known| known == literal)) {
+                for (name, literal) in names {
+                    self.sdk_names.entry(name).or_insert(literal);
+                }
+                self.watched.extend(written);
+                out.push(emitted);
+                continue;
+            }
+            let mut names = std::mem::take(&mut self.sdk_names);
+            let (emitted, written) = self.function(f, types, options, &mut names);
+            self.sdk_names = names;
+            self.watched.extend(written);
+            out.push(emitted);
+        }
+        out
+    }
+
+    /// One function's source, after the functions that defined the SDK's `names`, and the checks
+    /// it wrote.
+    fn function(
+        &self,
+        f: &Function,
+        types: &[(String, Vec<Type>)],
+        options: &Options,
+        names: &mut BTreeMap<String, String>,
+    ) -> (EmittedFunction, Vec<u32>) {
         let mut text = String::new();
         let method = self.method_of.get(f.name.as_str()).map(|(c, m)| (*c, m));
         let source_name = options.names.get(&f.name).map(String::as_str);
         if options.hand.contains(&f.name) {
             let header_lines = declare_hand(&mut text, f, &self.prototypes[&f.name], source_name);
-            return EmittedFunction {
+            let emitted = EmittedFunction {
                 ir_name: f.name.clone(),
                 address: f.address,
                 header_lines,
@@ -505,18 +604,18 @@ impl Parts<'_> {
                 hand: true,
                 text,
             };
+            return (emitted, Vec::new());
         }
         // A checked build reads the values the checks name as the raise left them.
         let tidied = if options.checks.iter().any(|c| c.function == f.name) { None } else { crate::tidy::tidy(f, &self.nothrow) };
         let f = tidied.as_ref().unwrap_or(f);
         let shared = Shared { types, layouts: &self.layouts, trace: options.trace, checks: &options.checks };
         let (header_lines, copies, gotos, end, written) =
-            emit_function(&mut text, f, &self.prototypes[&f.name], source_name, method, &mut self.sdk_names, &shared);
-        self.watched.extend(written);
+            emit_function(&mut text, f, &self.prototypes[&f.name], source_name, method, names, &shared);
         // A method's grade is its definition's: the vtable's entry after it is the engine's.
         let definition = &text[..end];
         let grade = crate::functions::Grade::of(f, gotos, casts(definition), definition.lines().count() - header_lines);
-        EmittedFunction {
+        let emitted = EmittedFunction {
             ir_name: f.name.clone(),
             address: f.address,
             header_lines,
@@ -525,7 +624,8 @@ impl Parts<'_> {
             grade,
             hand: false,
             text,
-        }
+        };
+        (emitted, written)
     }
 
     /// The unit of `functions`, written with these parts.
@@ -705,8 +805,12 @@ fn assumption_table(checks: &[Check], names: &HashMap<String, String>) -> String
     let Some(last) = checks.iter().map(|c| c.id).max() else { return String::new() };
     let mut out = String::from("// The open assumptions the checked build watches, by the number `ra_assume` names each by.\n");
     out.push_str("const struct ra_assumption ra_assumptions[] = {\n");
+    let mut by_id: HashMap<u32, &Check> = HashMap::new();
+    for c in checks {
+        by_id.entry(c.id).or_insert(c);
+    }
     for id in 0..=last {
-        match checks.iter().find(|c| c.id == id) {
+        match by_id.get(&id) {
             Some(c) => {
                 let function = names.get(&c.function).unwrap_or(&c.function);
                 let _ = writeln!(out, "    {{\"{function}\", \"{}\", {:#x}ull}},", c.kind, c.site);
@@ -3511,5 +3615,77 @@ fn short_type(ty: &Type) -> String {
         Type::Double => "f64".into(),
         Type::Vector(n, e) => format!("v{n}{}", short_type(e)),
         other => c_type(other).replace([' ', '*'], ""),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use ra_asm_ir::{CallConv, Callee, Declaration, FnType, FunctionBuilder, Module, Operand, Terminator, Type};
+
+    use super::{Options, Unit, emit_unit, emit_unit_dropping, parts};
+
+    /// `module` written one function after the other on one thread, each after the SDK names the
+    /// ones before it defined: the emit as it was before its functions ran apart.
+    fn serial(module: &Module, options: &Options) -> Unit {
+        let mut parts = parts(module, options);
+        let mut names = BTreeMap::new();
+        let mut functions = Vec::with_capacity(module.functions.len());
+        for f in &module.functions {
+            let (emitted, written) = parts.function(f, &module.types, options, &mut names);
+            parts.watched.extend(written);
+            functions.push(emitted);
+        }
+        parts.sdk_names = names;
+        parts.unit(functions, options)
+    }
+
+    /// Functions that each open a file with an access mask the SDK names: `GENERIC_READ` alone or
+    /// or-ed with `GENERIC_WRITE`, mostly as a 32-bit argument, every fifth as a 64-bit one, whose
+    /// define has another literal; the first 64-bit one comes after a 32-bit one has defined it.
+    fn openers(count: u64) -> Module {
+        let mut module = Module::x86_64_windows("openers");
+        let params = |access: Type| vec![Type::Ptr, access, Type::I32, Type::Ptr, Type::I32, Type::I32, Type::Ptr];
+        module.declare(Declaration {
+            name: "CreateFileA".to_owned(),
+            ty: FnType::new(Type::Ptr, params(Type::I32)),
+            conv: CallConv::default(),
+            attrs: Vec::new(),
+        });
+        for i in 0..count {
+            let mut b = FunctionBuilder::new(&format!("F_{:08x}", 0x1000 + i * 0x10), FnType::new(Type::Void, Vec::new()), &[]);
+            b.set_address(0x1000 + i * 0x10);
+            let entry = b.block("entry");
+            let access_ty = if i % 5 == 3 { Type::I64 } else { Type::I32 };
+            let access = if i % 2 == 0 { 0x8000_0000 } else { 0xc000_0000 };
+            let args = vec![
+                (Type::Ptr, Operand::Null),
+                (access_ty.clone(), Operand::Int(access)),
+                (Type::I32, Operand::Int(1)),
+                (Type::Ptr, Operand::Null),
+                (Type::I32, Operand::Int(3)),
+                (Type::I32, Operand::Int(0x80)),
+                (Type::Ptr, Operand::Null),
+            ];
+            b.call(entry, FnType::new(Type::Ptr, params(access_ty)), Callee::Direct("CreateFileA".into()), args, "handle");
+            b.terminate(entry, Terminator::Ret(None));
+            module.functions.push(b.finish());
+        }
+        module
+    }
+
+    #[test]
+    fn functions_sharing_sdk_names_write_as_the_serial_emit() {
+        let module = openers(300);
+        let options = Options::default();
+        let expected = serial(&module, &options).text();
+        let calls: Vec<&str> = expected.lines().filter(|l| l.contains("CreateFileA(") && !l.starts_with("extern ")).collect();
+        let named = calls.iter().filter(|l| l.contains("GENERIC_READ")).count();
+        // Both choices are made: the names, and the numbers where a name has another width.
+        assert!(named > 0 && named < calls.len(), "{named} of {} calls name the mask:\n{expected}", calls.len());
+        assert!(expected.contains("#define GENERIC_READ "), "{expected}");
+        assert_eq!(emit_unit(&module, &options).text(), expected);
+        assert_eq!(emit_unit_dropping(&mut module.clone(), &options).text(), expected);
     }
 }
