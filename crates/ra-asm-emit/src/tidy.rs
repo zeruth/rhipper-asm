@@ -293,7 +293,9 @@ fn split_returns(f: &mut Function) -> bool {
             }
             Terminator::Switch { default, cases, .. } => {
                 to(default);
-                cases.iter_mut().for_each(|(_, t)| to(t));
+                for (_, t) in cases.iter_mut() {
+                    to(t);
+                }
             }
             _ => {}
         }
@@ -370,7 +372,7 @@ fn expand_returns(f: &mut Function, preds: &HashMap<BlockId, Vec<BlockId>>) -> b
             for i in &block.instrs {
                 match (&i.inst, i.result) {
                     (Inst::Phi { incoming, .. }, Some(p)) => {
-                        let o = incoming.iter().find(|(_, from)| *from == way).map(|(o, _)| o.clone()).unwrap_or(Operand::Undef);
+                        let o = incoming.iter().find(|(_, from)| *from == way).map_or(Operand::Undef, |(o, _)| o.clone());
                         map.insert(p, o);
                     }
                     (inst, result) => {
@@ -422,7 +424,9 @@ fn expand_returns(f: &mut Function, preds: &HashMap<BlockId, Vec<BlockId>>) -> b
                 }
                 Terminator::Switch { default, cases, .. } => {
                     to(default);
-                    cases.iter_mut().for_each(|(_, t)| to(t));
+                    for (_, t) in cases.iter_mut() {
+                        to(t);
+                    }
                 }
                 _ => {}
             }
@@ -507,8 +511,12 @@ fn fold_masks(f: &mut Function) -> bool {
     let defs: HashMap<ValueId, Inst> = f.blocks.iter().flat_map(|b| &b.instrs).filter_map(|i| Some((i.result?, i.inst.clone()))).collect();
     let masked = |o: &Operand, bits: u16| -> Option<(Operand, i128)> {
         match o.local().and_then(|v| defs.get(&v)) {
-            Some(Inst::Bin { op: BinOp::And, ty: Type::Int(b), lhs, rhs: Operand::Int(c) }) if *b == bits => Some((lhs.clone(), *c & width_mask(bits))),
-            Some(Inst::Bin { op: BinOp::Shl, ty: Type::Int(b), lhs, rhs: Operand::Int(k) }) if *b == bits && (1..i128::from(bits)).contains(k) => {
+            Some(Inst::Bin { op: BinOp::And, ty: Type::Int(b), lhs, rhs: Operand::Int(c) }) if *b == bits => {
+                Some((lhs.clone(), *c & width_mask(bits)))
+            }
+            Some(Inst::Bin { op: BinOp::Shl, ty: Type::Int(b), lhs, rhs: Operand::Int(k) })
+                if *b == bits && (1..i128::from(bits)).contains(k) =>
+            {
                 match lhs.local().and_then(|v| defs.get(&v)) {
                     Some(Inst::Bin { op: BinOp::LShr, ty: Type::Int(b2), lhs: x, rhs: Operand::Int(k2) }) if *b2 == bits && k2 == k => {
                         Some((x.clone(), (width_mask(bits) << *k) & width_mask(bits)))
@@ -541,7 +549,7 @@ fn fold_masks(f: &mut Function) -> bool {
         for i in &mut b.instrs {
             let Inst::Bin { op, ty: Type::Int(bits), lhs, rhs } = &i.inst else { continue };
             let bits = *bits;
-            if bits < 8 || bits > 64 {
+            if !(8..=64).contains(&bits) {
                 continue;
             }
             let new = match (op, rhs) {
@@ -549,7 +557,7 @@ fn fold_masks(f: &mut Function) -> bool {
                     masked(lhs, bits).filter(|(_, a)| *a != width_mask(bits)).map(|(x, a)| (x, a & *c & width_mask(bits)))
                 }
                 (BinOp::Or, _) => match (masked(lhs, bits), masked(rhs, bits)) {
-                    (Some((x, a)), Some((y, b))) if x == y => Some((x, a | b)),
+                    (Some((x, low)), Some((y, high))) if x == y => Some((x, low | high)),
                     _ => None,
                 },
                 _ => None,
@@ -574,7 +582,9 @@ fn fold_offsets(f: &mut Function) -> bool {
         let Some(&bi) = index.get(&id) else { continue };
         for i in &mut f.blocks[bi].instrs {
             let Some(result) = i.result else { continue };
-            let Inst::Bin { op: op @ (BinOp::Add | BinOp::Sub), ty: Type::Int(bits), lhs, rhs: Operand::Int(c) } = &i.inst else { continue };
+            let Inst::Bin { op: op @ (BinOp::Add | BinOp::Sub), ty: Type::Int(bits), lhs, rhs: Operand::Int(c) } = &i.inst else {
+                continue;
+            };
             let (bits, mask) = (*bits, width_mask(*bits));
             if bits < 8 {
                 continue;

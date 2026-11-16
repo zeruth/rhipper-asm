@@ -2453,7 +2453,11 @@ impl<'a> Emitter<'a> {
             for i in &b.instrs {
                 let Some(v) = i.result else { continue };
                 // A value that shares a phi's variable is declared as the phi.
-                if self.inlinable(v) || self.field_pointer(v) || self.skipped.contains(&v) || self.rename.contains_key(&v) || !declared.insert(v)
+                if self.inlinable(v)
+                    || self.field_pointer(v)
+                    || self.skipped.contains(&v)
+                    || self.rename.contains_key(&v)
+                    || !declared.insert(v)
                 {
                     continue;
                 }
@@ -2464,7 +2468,10 @@ impl<'a> Emitter<'a> {
                         let pointer = format!("    uint8_t *{name} = (uint8_t *)&{name}_mem;\n");
                         Local::Alloca { name, storage, pointer }
                     }
-                    Inst::Phi { .. } if self.direct.contains(&v) && let Some(s) = self.struct_of.get(&v) => {
+                    Inst::Phi { .. }
+                        if self.direct.contains(&v)
+                            && let Some(s) = self.struct_of.get(&v) =>
+                    {
                         let text = format!("    struct {s} *{name};\n");
                         Local::One { name, text }
                     }
@@ -2894,9 +2901,11 @@ impl<'a> Emitter<'a> {
         match c {
             // An integer tested against zero is the test: `if (x)`.
             Cond::Is(Operand::Local(v))
-                if let Some(v) = Some(self.cond_alias.iter().find(|(n, _)| n == v).map(|(_, p)| *p).or_else(|| self.alias.get(v).copied()).unwrap_or(*v))
-                    && self.inlinable(v)
-                    && let Some((_, _, Inst::ICmp { cond: ICond::Ne, ty: ty @ Type::Int(2..), lhs, rhs: Operand::Int(0) })) = self.def(v) =>
+                if let Some(v) = Some(
+                    self.cond_alias.iter().find(|(n, _)| n == v).map(|(_, p)| *p).or_else(|| self.alias.get(v).copied()).unwrap_or(*v),
+                ) && self.inlinable(v)
+                    && let Some((_, _, Inst::ICmp { cond: ICond::Ne, ty: ty @ Type::Int(2..), lhs, rhs: Operand::Int(0) })) =
+                        self.def(v) =>
             {
                 self.operand(ty, lhs)
             }
@@ -3275,7 +3284,7 @@ fn named_allocas(f: &Function) -> HashMap<ValueId, Type> {
     if allocas.is_empty() {
         return allocas;
     }
-    let own =|o: &Operand, ty: &Type| match o {
+    let own = |o: &Operand, ty: &Type| match o {
         Operand::Local(a) => allocas.get(a).is_some_and(|s| s == ty).then_some(*a),
         _ => None,
     };
@@ -3312,7 +3321,11 @@ fn named_allocas(f: &Function) -> HashMap<ValueId, Type> {
     allocas.retain(|a, _| {
         escapes.contains(a)
             || loads.get(a).into_iter().flatten().all(|&(lb, li)| {
-                stores.get(a).into_iter().flatten().any(|&(sb, si)| if sb == lb { si < li } else { ra_asm_ir::dom::dominates(&idom, sb, lb) })
+                stores
+                    .get(a)
+                    .into_iter()
+                    .flatten()
+                    .any(|&(sb, si)| if sb == lb { si < li } else { ra_asm_ir::dom::dominates(&idom, sb, lb) })
             })
     });
     allocas

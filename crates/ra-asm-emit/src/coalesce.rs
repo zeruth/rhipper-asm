@@ -135,7 +135,7 @@ struct Live<'a, 'p> {
     /// Where each value is read, as written.
     sites: HashMap<ValueId, Vec<(BlockId, Site)>>,
     /// The blocks each value is live into, as asked.
-    live_in: HashMap<ValueId, HashSet<BlockId>>,
+    into: HashMap<ValueId, HashSet<BlockId>>,
     /// The moves that assign each direct phi: the block and the operand.
     assigned: HashMap<ValueId, Vec<(BlockId, Operand)>>,
 }
@@ -187,7 +187,7 @@ impl<'a, 'p> Live<'a, 'p> {
                 }
             }
         }
-        Self { p, defs, preds: f.predecessors(), sites, live_in: HashMap::new(), assigned }
+        Self { p, defs, preds: f.predecessors(), sites, into: HashMap::new(), assigned }
     }
 
     fn sites_of(
@@ -212,7 +212,7 @@ impl<'a, 'p> Live<'a, 'p> {
 
     /// The blocks `v` is live into.
     fn live_in(&mut self, v: ValueId) -> &HashSet<BlockId> {
-        if !self.live_in.contains_key(&v) {
+        if !self.into.contains_key(&v) {
             let mut work = Vec::new();
             if let Some(&(home, def)) = self.defs.get(&v) {
                 for &(b, site) in self.sites.get(&v).into_iter().flatten() {
@@ -231,12 +231,12 @@ impl<'a, 'p> Live<'a, 'p> {
                         work.extend(self.preds.get(&b).into_iter().flatten().filter(|p| **p != home));
                     }
                 }
-                self.live_in.insert(v, live);
+                self.into.insert(v, live);
             } else {
-                self.live_in.insert(v, HashSet::new());
+                self.into.insert(v, HashSet::new());
             }
         }
-        &self.live_in[&v]
+        &self.into[&v]
     }
 
     fn live_out(&mut self, v: ValueId, b: BlockId) -> bool {

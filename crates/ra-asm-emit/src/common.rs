@@ -156,7 +156,7 @@ impl<'a> Defs<'a> {
             }
             // The words a call through a pointer hands on past the six are stored in their own
             // global, which a read of the stack does not see.
-            if reads_memory && n.inst.has_side_effects() && !(self.fold_moves && self.into_args(&n.inst) && !self.reads_args(v, 0)) {
+            if reads_memory && n.inst.has_side_effects() && !(self.fold_moves && self.stores_args(&n.inst) && !self.reads_args(v, 0)) {
                 return false;
             }
         }
@@ -169,13 +169,13 @@ impl<'a> Defs<'a> {
 
     /// Whether `inst` stores into the global of the words a call through a pointer hands on past
     /// the universal six: at its address, or a pointer made of it by offsets and casts.
-    fn into_args(&self, inst: &Inst) -> bool {
-        matches!(inst, Inst::Store { ptr, volatile: false, .. } if self.points_into_args(ptr))
+    fn stores_args(&self, inst: &Inst) -> bool {
+        matches!(inst, Inst::Store { ptr, volatile: false, .. } if self.points_stores_args(ptr))
     }
 
     /// Whether the address `ptr` is the global of the extra call words or an offset from it, as
     /// its arithmetic says: a pointer that comes from memory, a call or a phi is the stack's.
-    fn points_into_args(&self, ptr: &Operand) -> bool {
+    fn points_stores_args(&self, ptr: &Operand) -> bool {
         let mut at = ptr.clone();
         for _ in 0..16 {
             match &at {
@@ -187,7 +187,11 @@ impl<'a> Defs<'a> {
                     Some((_, _, Inst::Cast { value, .. })) => at = value.clone(),
                     Some((_, _, Inst::Bin { op: ra_asm_ir::BinOp::Add | ra_asm_ir::BinOp::Sub, lhs, rhs, .. })) => {
                         // The pointer side of a sum: the operand that is not a constant.
-                        at = if matches!(rhs, Operand::Int(_)) { lhs.clone() } else { return self.points_into_args(lhs) || self.points_into_args(rhs) };
+                        at = if matches!(rhs, Operand::Int(_)) {
+                            lhs.clone()
+                        } else {
+                            return self.points_stores_args(lhs) || self.points_stores_args(rhs);
+                        };
                     }
                     _ => return false,
                 },
@@ -205,7 +209,7 @@ impl<'a> Defs<'a> {
             return true;
         }
         if let Inst::Load { ptr, .. } = inst
-            && self.points_into_args(ptr)
+            && self.points_stores_args(ptr)
         {
             return true;
         }
