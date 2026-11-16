@@ -10,6 +10,8 @@
 //! - A chain of constant steps over one value is one step from its base: `(sp - 4) - 4` is
 //!   `sp - 8`, so each push of an argument reads the stack pointer it started from and the steps
 //!   between fold into their one use.
+//! - A 64-bit result of a 32-bit program that a shared landing takes from each check as its two
+//!   halves, and returns put back together, is taken whole ([`join_halves`]).
 //! - A block that only falls into a block nothing else enters is one block with it, so a value
 //!   computed before the seam folds into its use after it.
 //! - A call through a pointer that hands on stack words past the universal six, which the raise
@@ -116,7 +118,7 @@ pub(crate) fn tidy(f: &Function, nothrow: &HashSet<String>) -> Option<Function> 
     let clean = |f: &mut Function| -> bool {
         let mut any = false;
         loop {
-            let again = fold_masks(f) | simplify::run(f) | known::fold_branches(f);
+            let again = fold_masks(f) | join_halves(f) | simplify::run(f) | known::fold_branches(f);
             dce::run(f);
             any |= again;
             if !again {
@@ -567,6 +569,108 @@ fn fold_masks(f: &mut Function) -> bool {
     changed
 }
 
+/// The low half of a 64-bit value as a mask.
+const LOW_HALF: i128 = 0xffff_ffff;
+
+/// Type for the entry in a pair map: block and its incoming values.
+type ValuePairEntry = (BlockId, Vec<(Operand, BlockId)>);
+
+/// Each 64-bit value put back together from two phis, `(a & 0xffffffff) | (b << 32)`, where every
+/// way in brings the halves of one value `x` (`x` or `x` masked for `a`, `x >> 32` for `b`),
+/// becomes a phi of those values: a 32-bit program's 64-bit result that an exception path only
+/// passes on is returned whole, not through its halves. The phis must be read only as the halves.
+fn join_halves(func: &mut Function) -> bool {
+    let defs: HashMap<ValueId, Inst> =
+        func.blocks.iter().flat_map(|b| &b.instrs).filter_map(|i| Some((i.result?, i.inst.clone()))).collect();
+    let phis: HashMap<ValueId, ValuePairEntry> = func
+        .blocks
+        .iter()
+        .flat_map(|b| b.instrs.iter().map(move |i| (b.id, i)))
+        .filter_map(|(b, i)| match (&i.inst, i.result) {
+            (Inst::Phi { ty: Type::Int(64), incoming }, Some(p)) => Some((p, (b, incoming.clone()))),
+            _ => None,
+        })
+        .collect();
+    let low = |o: &Operand| match o.local().and_then(|v| defs.get(&v)) {
+        Some(Inst::Bin { op: BinOp::And, ty: Type::Int(64), lhs: Operand::Local(p), rhs: Operand::Int(LOW_HALF) }) => Some(*p),
+        _ => None,
+    };
+    let high = |o: &Operand| match o.local().and_then(|v| defs.get(&v)) {
+        Some(Inst::Bin { op: BinOp::Shl, ty: Type::Int(64), lhs: Operand::Local(q), rhs: Operand::Int(32) }) => Some(*q),
+        _ => None,
+    };
+    // The values read other than as a half: the operand of the mask or the shift above counts
+    // as a half, any other read does not.
+    let mut other: HashSet<ValueId> = HashSet::new();
+    for b in &func.blocks {
+        for i in &b.instrs {
+            match &i.inst {
+                Inst::Bin { op: BinOp::And, ty: Type::Int(64), lhs: Operand::Local(_), rhs: Operand::Int(LOW_HALF) }
+                | Inst::Bin { op: BinOp::Shl, ty: Type::Int(64), lhs: Operand::Local(_), rhs: Operand::Int(32) } => {}
+                inst => other.extend(inst.uses()),
+            }
+        }
+        other.extend(b.terminator.uses());
+    }
+    // The whole value of a way in, given the halves it brings.
+    let whole = |a: &Operand, b: &Operand| -> Option<Operand> {
+        let x = match b.local().and_then(|v| defs.get(&v)) {
+            Some(Inst::Bin { op: BinOp::LShr, ty: Type::Int(64), lhs: x @ Operand::Local(_), rhs: Operand::Int(32) }) => x.clone(),
+            _ => return None,
+        };
+        let keeps_low = *a == x
+            || matches!(a.local().and_then(|v| defs.get(&v)), Some(Inst::Bin { op: BinOp::And, ty: Type::Int(64), lhs, rhs: Operand::Int(c) })
+                if *lhs == x && c & LOW_HALF == LOW_HALF);
+        keeps_low.then_some(x)
+    };
+    // Each put-together value with the pair of phis it reads, and each pair's block and ways in.
+    let mut ors: Vec<(ValueId, (ValueId, ValueId))> = Vec::new();
+    let mut pairs: HashMap<(ValueId, ValueId), Option<ValuePairEntry>> = HashMap::new();
+    for i in func.blocks.iter().flat_map(|b| &b.instrs) {
+        let (Some(r), Inst::Bin { op: BinOp::Or, ty: Type::Int(64), lhs, rhs }) = (i.result, &i.inst) else { continue };
+        let ((Some(p), Some(q), _, _) | (_, _, Some(p), Some(q))) = (low(lhs), high(rhs), low(rhs), high(lhs)) else { continue };
+        if other.contains(&p) || other.contains(&q) {
+            continue;
+        }
+        pairs.entry((p, q)).or_insert_with(|| {
+            let ((block, lows), (high_block, highs)) = (phis.get(&p)?, phis.get(&q)?);
+            if block != high_block {
+                return None;
+            }
+            let incoming = lows.iter().map(|(a, from)| {
+                let (b, _) = highs.iter().find(|(_, h)| h == from)?;
+                Some((whole(a, b)?, *from))
+            });
+            Some((*block, incoming.collect::<Option<Vec<_>>>()?))
+        });
+        ors.push((r, (p, q)));
+    }
+    let mut made: HashMap<(ValueId, ValueId), ValueId> = HashMap::new();
+    let mut joined: HashMap<ValueId, Operand> = HashMap::new();
+    for (r, pair) in ors {
+        let Some(Some((block, incoming))) = pairs.get(&pair) else { continue };
+        let w = if let Some(w) = made.get(&pair) {
+            *w
+        } else {
+            let hint = incoming.iter().find_map(|(x, _)| x.local()).map_or("wide", |x| func.value_name(x)).to_owned();
+            let w = func.new_value(&hint, Type::I64);
+            let phi =
+                ra_asm_ir::Instruction { result: Some(w), inst: Inst::Phi { ty: Type::I64, incoming: incoming.clone() }, address: None };
+            if let Some(b) = func.blocks.iter_mut().find(|b| b.id == *block) {
+                b.instrs.insert(0, phi);
+            }
+            made.insert(pair, w);
+            w
+        };
+        joined.insert(r, Operand::Local(w));
+    }
+    if joined.is_empty() {
+        return false;
+    }
+    func.replace_uses(&joined);
+    true
+}
+
 /// Each add or subtract of a constant over a value that is itself one, written over the first
 /// value of the chain: `(x - 4) - 4` is `x - 8`, whatever else reads `x - 4`.
 fn fold_offsets(f: &mut Function) -> bool {
@@ -960,5 +1064,69 @@ mod tests {
         let (calls, stores) = calls_and_stores(&tidied);
         assert!(stores);
         assert!(matches!(calls.as_slice(), [Inst::Call { callee: Callee::Indirect(_), .. }]), "the call stays through its pointer");
+    }
+
+    /// `i64 wide()`: two calls of 64-bit results, each followed by an exception check whose
+    /// landing returns the halves the way in brings put back together. With `crossed`, the second
+    /// way brings the high half of the first call's result.
+    fn landing_of_halves(crossed: bool) -> (Function, [ValueId; 2], [BlockId; 2]) {
+        let mut b = ra_asm_ir::FunctionBuilder::new("wide", ra_asm_ir::FnType::new(Type::I64, Vec::new()), &[]);
+        let entry = b.block("entry");
+        let ok = b.block("ok");
+        let done = b.block("done");
+        let land = b.block("land");
+        let wide = || ra_asm_ir::FnType::new(Type::I64, Vec::new());
+        let mut halves = Vec::new();
+        let mut results = Vec::new();
+        for (block, next) in [(entry, ok), (ok, done)] {
+            let r = b.call(block, wide(), Callee::Direct("g".into()), Vec::new(), "ret").expect("a result");
+            let lo = b.bin(block, BinOp::And, Type::I64, r, LOW_HALF, "ret.lo");
+            let hi = b.bin(block, BinOp::LShr, Type::I64, r, 32i64, "ret.hi");
+            let pending = b.call(block, wide(), Callee::Direct("ra_eh_pending".into()), Vec::new(), "eh.pending").expect("a result");
+            let thrown = b.icmp(block, ra_asm_ir::ICond::Ne, Type::I64, pending, 0i64, "eh.thrown");
+            b.terminate(block, Terminator::CondBr { cond: thrown.into(), then: land, els: next });
+            halves.push((lo, hi));
+            results.push(r);
+        }
+        b.terminate(done, Terminator::Ret(Some((Type::I64, results[1].into()))));
+        let high_second = if crossed { halves[0].1 } else { halves[1].1 };
+        let a =
+            b.value(land, Inst::Phi { ty: Type::I64, incoming: vec![(halves[0].0.into(), entry), (halves[1].0.into(), ok)] }, "rax.phi");
+        let d =
+            b.value(land, Inst::Phi { ty: Type::I64, incoming: vec![(halves[0].1.into(), entry), (high_second.into(), ok)] }, "rdx.phi");
+        let _ = b.call(land, ra_asm_ir::FnType::new(Type::Void, Vec::new()), Callee::Direct("ra_eh_suspend".into()), Vec::new(), "");
+        let low = b.bin(land, BinOp::And, Type::I64, a, LOW_HALF, "ret.lo");
+        let high = b.bin(land, BinOp::Shl, Type::I64, d, 32i64, "ret.hi");
+        let whole = b.bin(land, BinOp::Or, Type::I64, low, high, "ret.wide");
+        b.terminate(land, Terminator::Ret(Some((Type::I64, whole.into()))));
+        (b.finish(), [results[0], results[1]], [entry, ok])
+    }
+
+    /// The value the block `b` of `f` returns, and its instruction.
+    fn returned(f: &Function, b: BlockId) -> (ValueId, Option<Inst>) {
+        let Some(Terminator::Ret(Some((_, Operand::Local(v))))) = f.block(b).map(|b| &b.terminator) else {
+            panic!("{b:?} returns a value")
+        };
+        (*v, f.blocks.iter().flat_map(|b| &b.instrs).find(|i| i.result == Some(*v)).map(|i| i.inst.clone()))
+    }
+
+    #[test]
+    fn a_landing_returns_the_results_whole_not_their_halves() {
+        let (mut f, [first, second], [entry, ok]) = landing_of_halves(false);
+        let land = BlockId(3);
+        assert!(join_halves(&mut f));
+        dce::run(&mut f);
+        let (_, inst) = returned(&f, land);
+        let incoming = vec![(Operand::Local(first), entry), (Operand::Local(second), ok)];
+        assert_eq!(inst, Some(Inst::Phi { ty: Type::I64, incoming }));
+        let halves = f.blocks.iter().flat_map(|b| &b.instrs).filter(|i| matches!(i.inst, Inst::Bin { op: BinOp::LShr | BinOp::Shl, .. }));
+        assert_eq!(halves.count(), 0, "the halves are gone");
+    }
+
+    #[test]
+    fn halves_of_two_values_stay_halves() {
+        let (mut f, ..) = landing_of_halves(true);
+        assert!(!join_halves(&mut f));
+        assert!(matches!(returned(&f, BlockId(3)).1, Some(Inst::Bin { op: BinOp::Or, .. })));
     }
 }
