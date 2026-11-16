@@ -599,7 +599,7 @@ fn apply_branch_facts(f: &mut Function) -> bool {
 
 /// A branch on a constant becomes a jump, and the blocks the entry no longer reaches go, with
 /// the phi entries that came from them.
-pub(super) fn fold_branches(f: &mut Function) -> bool {
+pub fn fold_branches(f: &mut Function) -> bool {
     let mut changed = false;
     for b in &mut f.blocks {
         let next = match &b.terminator {

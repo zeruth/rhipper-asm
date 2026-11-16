@@ -12,7 +12,7 @@ use crate::c::{EmittedFile, EmittedFunction};
 /// the includes in the order the declarations need, and a function's body below its definition
 /// line, where the table points.
 const CLANG_FORMAT_STYLE: &str = "{BasedOnStyle: LLVM, IndentWidth: 4, ColumnLimit: 0, SortIncludes: false, ReflowComments: false, \
-     AllowShortFunctionsOnASingleLine: None, AllowShortBlocksOnASingleLine: Never, AllowShortIfStatementsOnASingleLine: Never, \
+     AllowShortFunctionsOnASingleLine: None, AllowShortBlocksOnASingleLine: Never, AllowShortIfStatementsOnASingleLine: WithoutElse, \
      AllowShortLoopsOnASingleLine: false}";
 
 /// Passes the source files through their formatter and moves each function's line to where its

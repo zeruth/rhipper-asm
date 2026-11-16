@@ -12,6 +12,7 @@
 
 pub mod adapters;
 pub mod c;
+mod coalesce;
 mod common;
 pub mod cpp;
 mod format;
@@ -20,6 +21,7 @@ mod layout;
 pub mod rust;
 mod safety;
 pub mod structure;
+mod tidy;
 pub mod tree;
 
 pub use c::{

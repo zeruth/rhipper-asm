@@ -2,9 +2,13 @@
 //!
 //! Every IR value is a C local of its type (`uint64_t`, `double`, `uint8_t *`), assigned where
 //! its instruction stands; a pure value with one use in the same block is written inline at that
-//! use instead, recursively, so an expression reads as one. Signedness is a cast at the operation
-//! that needs it, as the IR says. Phis become copies at the end of each predecessor, through
-//! temporaries so parallel copies stay parallel. The data globals are byte arrays with address
+//! use instead, recursively, so an expression reads as one, and so is a call whose result the next
+//! arithmetic alone reads, with no load or call between. Signedness is a cast at the operation
+//! that needs it, as the IR says. Phis become copies at the end of each predecessor: straight into
+//! the phi where nothing reads it past the copy, through temporaries elsewhere so parallel copies
+//! stay parallel, and a value a phi copies shares its variable where their lives do not cross
+//! ([`crate::coalesce`]). The IR is tidied for the printer first ([`crate::tidy`]): the exception
+//! checks after callees that throw nothing go. The data globals are byte arrays with address
 //! words; a reference into one is an address plus an offset. The runtime header `rhipper.h` holds
 //! the helpers the intrinsics map to. A constant passed to a Windows API parameter the prototype
 //! table binds to an enumeration, or compared or masked with such a parameter or result, reads as
@@ -475,6 +479,8 @@ struct Parts<'o> {
     /// The checks the functions written so far wrote, by their numbers.
     watched: HashSet<u32>,
     adapters: String,
+    /// The functions that never return with an exception in flight ([`crate::tidy::nothrow`]).
+    nothrow: HashSet<String>,
 }
 
 impl Parts<'_> {
@@ -496,6 +502,9 @@ impl Parts<'_> {
                 text,
             };
         }
+        // A checked build reads the values the checks name as the raise left them.
+        let tidied = if options.checks.iter().any(|c| c.function == f.name) { None } else { crate::tidy::tidy(f, &self.nothrow) };
+        let f = tidied.as_ref().unwrap_or(f);
         let shared = Shared { types, layouts: &self.layouts, trace: options.trace, checks: &options.checks };
         let (header_lines, copies, gotos, end, written) =
             emit_function(&mut text, f, &self.prototypes[&f.name], source_name, method, &mut self.sdk_names, &shared);
@@ -680,6 +689,7 @@ fn parts<'o>(module: &Module, options: &'o Options) -> Parts<'o> {
         sdk_names: BTreeMap::new(),
         watched: HashSet::new(),
         adapters: adapters.text,
+        nothrow: crate::tidy::nothrow(module, &options.hand),
     }
 }
 
@@ -1336,6 +1346,8 @@ fn emit_function(
     let structured = structure(f, &graph);
     let mut e = Emitter::new(f, &structured.labels, types, layouts, std::mem::take(sdk_names), traced, checks);
     e.plan_loops(&structured.body, &graph);
+    e.plan_direct();
+    e.plan_coalesce();
     let locals = e.declare_locals();
     let mut body = String::new();
     e.stmts(&mut body, &structured.body, 1);
@@ -1376,6 +1388,9 @@ enum Local {
     /// A phi and its next value, declared together: `lead` is the type up to the first name,
     /// `star` what the second name takes of it.
     Phi { lead: String, star: &'static str, name: String },
+    /// An allocation: its storage `<name>_mem`, which an access of its own type reads by name,
+    /// and the pointer `<name>` to it, each declared when the body names it.
+    Alloca { name: String, storage: String, pointer: String },
 }
 
 /// The declarations of the locals `body` reads, with `body` rid of the assignments to the others:
@@ -1386,14 +1401,30 @@ fn prune_locals(locals: &[Local], body: &mut String) -> String {
     let declared: Vec<String> = locals
         .iter()
         .flat_map(|l| match l {
-            Local::One { name, .. } => vec![name.clone()],
+            Local::One { name, .. } | Local::Alloca { name, .. } => vec![name.clone()],
             Local::Phi { name, .. } => vec![name.clone(), format!("{name}_next")],
+        })
+        .collect();
+    // An allocation's storage, which its own accesses name: dead with its pointer, when nothing
+    // reads it by name either; its stores go then.
+    let storage: Vec<(String, String)> = locals
+        .iter()
+        .filter_map(|l| match l {
+            Local::Alloca { name, .. } => Some((name.clone(), format!("{name}_mem"))),
+            _ => None,
         })
         .collect();
     let mut dead: HashSet<String> = HashSet::new();
     loop {
         let read: HashSet<&str> = identifiers(body).into_iter().filter(|(_, assigned)| !assigned).map(|(n, _)| n).collect();
-        let unread: Vec<&String> = declared.iter().filter(|n| !dead.contains(*n) && !read.contains(n.as_str())).collect();
+        let mut unread: Vec<&String> = declared.iter().filter(|n| !dead.contains(*n) && !read.contains(n.as_str())).collect();
+        let pointer_gone = |p: &String, unread: &[&String]| dead.contains(p) || unread.contains(&p);
+        let gone: Vec<&String> = storage
+            .iter()
+            .filter(|(p, m)| !dead.contains(m) && !read.contains(m.as_str()) && pointer_gone(p, &unread))
+            .map(|(_, m)| m)
+            .collect();
+        unread.extend(gone);
         if unread.is_empty() {
             break;
         }
@@ -1407,11 +1438,26 @@ fn prune_locals(locals: &[Local], body: &mut String) -> String {
         dead.extend(unread.into_iter().cloned());
         *body = kept;
     }
+    // The storage of an allocation is named wherever an access of its own type reads or writes it.
+    let named: HashSet<&str> = if locals.iter().any(|l| matches!(l, Local::Alloca { .. })) {
+        identifiers(body).into_iter().map(|(n, _)| n).filter(|n| n.ends_with("_mem")).collect()
+    } else {
+        HashSet::new()
+    };
     let mut out = String::new();
     for l in locals {
         match l {
             Local::One { name, text } if !dead.contains(name) => out.push_str(text),
             Local::One { .. } => {}
+            Local::Alloca { name, storage, pointer } => {
+                let pointed = !dead.contains(name);
+                if pointed || named.contains(format!("{name}_mem").as_str()) {
+                    out.push_str(storage);
+                }
+                if pointed {
+                    out.push_str(pointer);
+                }
+            }
             Local::Phi { lead, star, name } => {
                 let next = format!("{name}_next");
                 match (dead.contains(name), dead.contains(&next)) {
@@ -1428,6 +1474,51 @@ fn prune_locals(locals: &[Local], body: &mut String) -> String {
                 }
             }
         }
+    }
+    group_declarations(&out)
+}
+
+/// The widest line a group of declarations takes.
+const DECLARATION_WIDTH: usize = 100;
+
+/// `declarations` with the plain ones of each type on shared lines, `uint32_t a, b, c;`, in the
+/// order each type first comes; a declaration with an initializer, an attribute or brackets keeps
+/// its own line, ahead of them.
+fn group_declarations(declarations: &str) -> String {
+    let mut out = String::new();
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    for line in declarations.lines() {
+        let body = line.strip_prefix("    ").and_then(|b| b.strip_suffix(';'));
+        let plain = body.filter(|b| !b.contains(['=', '(', '[', '{']) && !b.starts_with(' '));
+        let Some((ty, first)) = plain.and_then(|b| {
+            let (head, rest) = b.split_once(", ").map_or((b, None), |(h, r)| (h, Some(r)));
+            let (ty, first) = head.rsplit_once(' ')?;
+            Some((ty, std::iter::once(first).chain(rest.into_iter().flat_map(|r| r.split(", "))).collect::<Vec<_>>()))
+        }) else {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        };
+        let names = first.into_iter().map(str::to_owned);
+        match groups.iter_mut().find(|(t, _)| t == ty) {
+            Some((_, list)) => list.extend(names),
+            None => groups.push((ty.to_owned(), names.collect())),
+        }
+    }
+    for (ty, names) in groups {
+        let mut line = format!("    {ty} ");
+        let start = line.len();
+        for name in names {
+            if line.len() > start && line.len() + name.len() + 3 > DECLARATION_WIDTH {
+                line.truncate(line.len() - 2);
+                let _ = writeln!(out, "{line};");
+                line = format!("    {ty} ");
+            }
+            line.push_str(&name);
+            line.push_str(", ");
+        }
+        line.truncate(line.len() - 2);
+        let _ = writeln!(out, "{line};");
     }
     out
 }
@@ -1594,6 +1685,13 @@ struct Emitter<'a> {
     at_end: HashMap<BlockId, Vec<usize>>,
     /// The checks written so far, by index.
     written: BTreeSet<usize>,
+    /// The phis each way in assigns at once, with no `_next` and no copy at the head: no other
+    /// move of a predecessor, nor its branch, reads the phi, and no other way out of it does.
+    direct: HashSet<ValueId>,
+    /// The values that share a direct phi's variable, to the phi it is named after.
+    rename: HashMap<ValueId, ValueId>,
+    /// The allocations an access of their own type reads by name, with that type.
+    named_allocas: HashMap<ValueId, Type>,
 }
 
 /// Where the checks of a function are written, and the values they read (see [`place_checks`]).
@@ -1688,7 +1786,9 @@ struct StrlenLoop {
     phi: ValueId,
     init: Operand,
     next: ValueId,
-    base: Operand,
+    /// The value from outside the loop the address adds to the index; none when the index is the
+    /// address.
+    base: Option<Operand>,
     ty: Type,
     offset: i128,
     /// The pure values the header computes for the code after the loop (a widened copy of the
@@ -1706,7 +1806,7 @@ impl<'a> Emitter<'a> {
         traced: Option<String>,
         checks: Vec<&'a Check>,
     ) -> Self {
-        let defs = Defs::new(f);
+        let defs = Defs::with_moves(f);
         let Placement { watched, after, at_end } = place_checks(f, &defs, &checks);
         let mut struct_of = HashMap::new();
         for i in f.blocks.iter().flat_map(|b| &b.instrs) {
@@ -1740,7 +1840,109 @@ impl<'a> Emitter<'a> {
             after,
             at_end,
             written: BTreeSet::new(),
+            direct: HashSet::new(),
+            rename: HashMap::new(),
+            named_allocas: named_allocas(f),
         }
+    }
+
+    /// Decides the phis assigned directly, once the loops are planned: a phi is when at each
+    /// predecessor no other move's operand and not the branch reads it as written, the
+    /// predecessor moves no phi a `for` carries (whose step runs after the moves), and the phi is
+    /// not live into another successor of it. A checked function keeps every `_next`: a check
+    /// at a block's end reads the phis after the moves.
+    fn plan_direct(&mut self) {
+        if !self.checks.is_empty() {
+            return;
+        }
+        let f = self.f;
+        let mut direct: HashSet<ValueId> = HashSet::new();
+        let mut phi_block: HashMap<ValueId, BlockId> = HashMap::new();
+        for b in &f.blocks {
+            for i in &b.instrs {
+                if let (Some(p), Inst::Phi { .. }) = (i.result, &i.inst)
+                    && !self.hoisted.contains(&p)
+                {
+                    direct.insert(p);
+                    phi_block.insert(p, b.id);
+                }
+            }
+        }
+        if direct.is_empty() {
+            return;
+        }
+        let reads = |o: &Operand, p: ValueId| match o {
+            Operand::Local(v) if *v == p => true,
+            Operand::Local(v) => (self.inlinable(*v) || self.field_pointer(*v)) && self.reads_any(*v, &[p]),
+            _ => false,
+        };
+        // The phis live into some block of more than one way out, found when first asked.
+        let mut live: HashMap<ValueId, HashSet<BlockId>> = HashMap::new();
+        let preds = f.predecessors();
+        for b in &f.blocks {
+            let Some(moves) = self.defs.phi_moves.get(&b.id) else { continue };
+            if moves.iter().any(|(q, _)| self.hoisted.contains(q)) {
+                for (q, _) in moves {
+                    direct.remove(q);
+                }
+                continue;
+            }
+            let mut successors = b.terminator.successors();
+            successors.sort_unstable_by_key(|s| s.0);
+            successors.dedup();
+            for (p, _) in moves {
+                if !direct.contains(p) {
+                    continue;
+                }
+                let read_by_move = moves.iter().any(|(q, o)| q != p && reads(o, *p));
+                let read_by_branch = b.terminator.operands().into_iter().any(|o| reads(o, *p));
+                let home = phi_block[p];
+                let escapes = successors.len() > 1 && {
+                    let blocks = live.entry(*p).or_insert_with(|| live_blocks(f, *p, home, &preds));
+                    successors.iter().any(|s| *s != home && blocks.contains(s))
+                };
+                if read_by_move || read_by_branch || escapes {
+                    direct.remove(p);
+                }
+            }
+        }
+        self.direct = direct;
+    }
+
+    /// Decides the values that share a direct phi's variable ([`crate::coalesce`]). A function
+    /// with a `for` or a `strlen` loop keeps its variables apart: their steps are written away
+    /// from the instructions they come from.
+    fn plan_coalesce(&mut self) {
+        if !self.checks.is_empty() || !self.for_loops.is_empty() || !self.strlen_loops.is_empty() || self.direct.is_empty() {
+            return;
+        }
+        let f = self.f;
+        let inline = |v: ValueId| self.inlinable(v) || self.field_pointer(v);
+        let keep = |v: ValueId| {
+            f.params.contains(&v)
+                || self.struct_of.contains_key(&v)
+                || self.watched.contains(&v)
+                || self.hoisted.contains(&v)
+                || self.skipped.contains(&v)
+                || self.alias.contains_key(&v)
+                || matches!(
+                    self.def(v),
+                    Some((_, _, Inst::Alloca { .. } | Inst::ICmp { ty: Type::Vector(..), .. } | Inst::FCmp { ty: Type::Vector(..), .. }))
+                )
+        };
+        let printer = crate::coalesce::Printer { f, direct: &self.direct, inline: &inline, keep: &keep, moves: &self.defs.phi_moves };
+        self.rename = crate::coalesce::coalesce(&printer);
+    }
+
+    /// The C variable of `v`: its own, or the phi's whose variable it shares.
+    fn var(&self, v: ValueId) -> String {
+        name(self.f, self.rename.get(&v).copied().unwrap_or(v))
+    }
+
+    /// Whether `o` is the value already in `phi`'s variable.
+    fn holds(&self, phi: ValueId, o: &Operand) -> bool {
+        let rep = |v: ValueId| self.rename.get(&v).copied().unwrap_or(v);
+        matches!(o, Operand::Local(v) if rep(*v) == rep(phi))
     }
 
     /// The SDK's name of the constant `v` of `ty` in `enumeration`, or `None` where the names do
@@ -1881,7 +2083,8 @@ impl<'a> Emitter<'a> {
             _ => return None,
         };
         let Some((_, _, Inst::ICmp { cond: pred, ty: Type::Int(bits), lhs, rhs })) = self.def(c) else { return None };
-        if !self.inlinable(c) || self.reads_any(c, &names) {
+        // A `for` tests before its first round: a call in the test would run once more.
+        if !self.inlinable(c) || self.reads_any(c, &names) || self.defs.calls(c) {
             return None;
         }
         let at_start = |o: &Operand| match o {
@@ -1912,6 +2115,17 @@ impl<'a> Emitter<'a> {
         });
         if escapes {
             return None;
+        }
+        // A next-round value written inline at its move is written in the step, after the body:
+        // only one of the latch that holds to its end and reads no other phi moves there.
+        for (phi, _, next) in &phis {
+            let Some(n) = next.local().filter(|n| defined_in(*n) && self.inlinable(*n)) else { continue };
+            let stepped = matches!(self.def(n), Some((_, _, Inst::Bin { op: BinOp::Add | BinOp::Sub, lhs: Operand::Local(base), rhs: Operand::Int(_), .. })) if base == phi);
+            let others: Vec<ValueId> = names.iter().copied().filter(|p| p != phi).collect();
+            let in_latch = self.def(n).is_some_and(|(b, ..)| b.id == latch);
+            if !stepped && (!in_latch || !self.defs.holds_to_block_end(n) || self.reads_any(n, &others)) {
+                return None;
+            }
         }
         let mut aliases = Vec::new();
         let hoisted = phis
@@ -1972,7 +2186,8 @@ impl<'a> Emitter<'a> {
                 {
                     next = Some(n);
                 }
-                (_, Some(v)) if self.inlinable(v) => {}
+                // The loop becomes one call: a call inside it would run once.
+                (inst, Some(v)) if self.inlinable(v) && !inst.has_side_effects() => {}
                 (inst, Some(v)) if !inst.has_side_effects() => carried.push(v),
                 _ => return None,
             }
@@ -2028,7 +2243,11 @@ impl<'a> Emitter<'a> {
             return None;
         }
         let mask = if bits >= 128 { -1 } else { (1i128 << bits) - 1 };
-        Some(StrlenLoop { phi, init, next, base: base?, ty, offset: offset & mask, carried })
+        // No base: the index is the address itself, a pointer walked to its string's end.
+        if base.is_none() && ty != *self.f.value_type(phi) {
+            return None;
+        }
+        Some(StrlenLoop { phi, init, next, base, ty, offset: offset & mask, carried })
     }
 
     /// The terms of a sum written inline: `(a + b) + 3` is `a`, `b`, `3`.
@@ -2050,14 +2269,23 @@ impl<'a> Emitter<'a> {
         let Some(s) = self.strlen_loops.remove(&header) else { return };
         let f = self.f;
         let ty = f.value_type(s.phi);
-        let mut start = self.operand(&s.ty, &s.base);
+        let mut start = s.base.as_ref().map(|b| self.operand(&s.ty, b));
         let mut offset = sign_extended(&s.ty, s.offset);
         match &s.init {
             Operand::Int(k) => offset = sign_extended(&s.ty, offset + k),
             init => {
-                let _ = write!(start, " + {}", self.operand(ty, init));
+                let init = self.operand(ty, init);
+                start = Some(match start {
+                    Some(base) => format!("{base} + {init}"),
+                    None => init,
+                });
             }
         }
+        let mut start = start.unwrap_or_else(|| {
+            let at = Self::int_constant(&s.ty, offset);
+            offset = 0;
+            at
+        });
         if offset < 0 {
             let _ = write!(start, " - {}", Self::int_constant(&s.ty, -offset));
         } else if offset != 0 {
@@ -2143,6 +2371,12 @@ impl<'a> Emitter<'a> {
         if self.null_address(ptr) {
             return format!("*(volatile {} *)0", access_type(ty, align));
         }
+        // An access of an allocation's own scalar type is its storage by name.
+        if let Operand::Local(v) = ptr
+            && self.named_allocas.get(v) == Some(ty)
+        {
+            return format!("{}_mem", name(self.f, *v));
+        }
         match self.field_access(ptr) {
             Some((field, field_ty)) if field_ty == ty => field,
             Some((field, _)) => format!("*({} *)&{field}", access_type(ty, align)),
@@ -2218,20 +2452,26 @@ impl<'a> Emitter<'a> {
         for b in &self.f.blocks {
             for i in &b.instrs {
                 let Some(v) = i.result else { continue };
-                if self.inlinable(v) || self.field_pointer(v) || self.skipped.contains(&v) || !declared.insert(v) {
+                // A value that shares a phi's variable is declared as the phi.
+                if self.inlinable(v) || self.field_pointer(v) || self.skipped.contains(&v) || self.rename.contains_key(&v) || !declared.insert(v)
+                {
                     continue;
                 }
                 let name = name(self.f, v);
                 let local = match &i.inst {
                     Inst::Alloca { ty, align } => {
-                        let storage = declaration(ty, &format!("{name}_mem"));
-                        let text = format!("    {storage} RA_ALIGNED({align});\n    uint8_t *{name} = (uint8_t *)&{name}_mem;\n");
+                        let storage = format!("    {} RA_ALIGNED({align});\n", declaration(ty, &format!("{name}_mem")));
+                        let pointer = format!("    uint8_t *{name} = (uint8_t *)&{name}_mem;\n");
+                        Local::Alloca { name, storage, pointer }
+                    }
+                    Inst::Phi { .. } if self.direct.contains(&v) && let Some(s) = self.struct_of.get(&v) => {
+                        let text = format!("    struct {s} *{name};\n");
                         Local::One { name, text }
                     }
                     Inst::Phi { .. } if let Some(s) = self.struct_of.get(&v) => {
                         Local::Phi { lead: format!("struct {s} *"), star: "*", name }
                     }
-                    Inst::Phi { ty, .. } if self.hoisted.contains(&v) => {
+                    Inst::Phi { ty, .. } if self.hoisted.contains(&v) || self.direct.contains(&v) => {
                         let text = format!("    {};\n", declaration(ty, &name));
                         Local::One { name, text }
                     }
@@ -2316,7 +2556,7 @@ impl<'a> Emitter<'a> {
                 {
                     return self.expr(inst);
                 }
-                name(self.f, *v)
+                self.var(*v)
             }
             Operand::Int(v) => match ty {
                 Type::Vector(n, e) => {
@@ -2652,6 +2892,14 @@ impl<'a> Emitter<'a> {
 
     fn cond(&self, c: &Cond) -> String {
         match c {
+            // An integer tested against zero is the test: `if (x)`.
+            Cond::Is(Operand::Local(v))
+                if let Some(v) = Some(self.cond_alias.iter().find(|(n, _)| n == v).map(|(_, p)| *p).or_else(|| self.alias.get(v).copied()).unwrap_or(*v))
+                    && self.inlinable(v)
+                    && let Some((_, _, Inst::ICmp { cond: ICond::Ne, ty: ty @ Type::Int(2..), lhs, rhs: Operand::Int(0) })) = self.def(v) =>
+            {
+                self.operand(ty, lhs)
+            }
             Cond::Is(o) => self.operand(&Type::I1, o),
             // `!(a <= b)` is `a > b` for an integer comparison that inlines here.
             Cond::Not(inner) => {
@@ -2729,8 +2977,19 @@ impl<'a> Emitter<'a> {
         // An empty then-branch reads better inverted: `if (!c) { ... }`.
         let (cond, then, els) =
             if then.is_empty() && !els.is_empty() { (Cond::Not(Box::new(cond.clone())), els, then) } else { (cond.clone(), then, els) };
-        let _ = writeln!(out, "{lead}if ({}) {{", strip_parens(&self.cond(&cond)));
-        self.stmts(out, then, depth + 1);
+        let test = strip_parens(&self.cond(&cond));
+        let mut body = String::new();
+        self.stmts(&mut body, then, depth + 1);
+        // An arm that is one jump and nothing else reads on the line of its test: `if (c) return;`.
+        if els.is_empty() && !lead.is_empty() && body.lines().count() == 1 {
+            let jump = body.trim();
+            if ["return;", "return ", "break;", "continue;", "goto "].iter().any(|j| jump.starts_with(j)) && !jump.contains("//") {
+                let _ = writeln!(out, "{lead}if ({test}) {jump}");
+                return;
+            }
+        }
+        let _ = writeln!(out, "{lead}if ({test}) {{");
+        out.push_str(&body);
         match els {
             [] => {
                 let _ = writeln!(out, "{pad}}}");
@@ -2916,7 +3175,7 @@ impl<'a> Emitter<'a> {
         let checks = self.after.get(&id).cloned().unwrap_or_default();
         for (index, i) in block.instrs.iter().enumerate() {
             match (&i.inst, i.result) {
-                (Inst::Phi { .. }, Some(v)) if self.hoisted.contains(&v) => {}
+                (Inst::Phi { .. }, Some(v)) if self.hoisted.contains(&v) || self.direct.contains(&v) => {}
                 (Inst::Phi { .. }, Some(v)) => {
                     let _ = writeln!(out, "{pad}{} = {}_next;", name(f, v), name(f, v));
                 }
@@ -2931,7 +3190,7 @@ impl<'a> Emitter<'a> {
                     let _ = writeln!(out, "{pad}{} = (struct {s} *){};", name(f, v), self.operand(from, value));
                 }
                 (inst, Some(v)) => {
-                    let _ = writeln!(out, "{pad}{} = {}{};", name(f, v), self.struct_cast(v), strip_parens(&self.expr(inst)));
+                    let _ = writeln!(out, "{pad}{} = {}{};", self.var(v), self.struct_cast(v), strip_parens(&self.expr(inst)));
                 }
                 (inst, None) => {
                     let _ = writeln!(out, "{pad}{};", self.expr(inst));
@@ -2949,12 +3208,22 @@ impl<'a> Emitter<'a> {
         let pad = "    ".repeat(depth);
         let f = self.f;
         if let Some(moves) = self.defs.phi_moves.get(&id).cloned() {
+            // Two phis that share a variable and take one value here take one copy.
+            let mut copied: HashSet<(String, String)> = HashSet::new();
             for (phi, o) in &moves {
                 if self.hoisted.contains(phi) {
                     continue;
                 }
                 let ty = f.value_type(*phi).clone();
-                let _ = writeln!(out, "{pad}{}_next = {}{};", name(f, *phi), self.struct_cast(*phi), strip_parens(&self.operand(&ty, o)));
+                let value = strip_parens(&self.operand(&ty, o));
+                if self.direct.contains(phi) {
+                    // A phi whose variable holds the value already takes no copy.
+                    if !self.holds(*phi, o) && copied.insert((self.var(*phi), value.clone())) {
+                        let _ = writeln!(out, "{pad}{} = {}{value};", self.var(*phi), self.struct_cast(*phi));
+                    }
+                    continue;
+                }
+                let _ = writeln!(out, "{pad}{}_next = {}{value};", name(f, *phi), self.struct_cast(*phi));
             }
         }
     }
@@ -2988,6 +3257,92 @@ impl<'a> Emitter<'a> {
             None => self.assignment(h.phi, &h.next),
         }
     }
+}
+
+/// The allocations of a scalar type whose own accesses read their storage by name, with the
+/// type: each whose address goes elsewhere too, or whose every load a store of it comes before on
+/// every way there (a C compiler sees a read of an unset variable for what the machine read of
+/// its stack).
+fn named_allocas(f: &Function) -> HashMap<ValueId, Type> {
+    let mut allocas: HashMap<ValueId, Type> = HashMap::new();
+    for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+        if let (Some(a), Inst::Alloca { ty, .. }) = (i.result, &i.inst)
+            && matches!(ty, Type::Int(8 | 16 | 32 | 64) | Type::Float | Type::Double | Type::Ptr)
+        {
+            allocas.insert(a, ty.clone());
+        }
+    }
+    if allocas.is_empty() {
+        return allocas;
+    }
+    let own =|o: &Operand, ty: &Type| match o {
+        Operand::Local(a) => allocas.get(a).is_some_and(|s| s == ty).then_some(*a),
+        _ => None,
+    };
+    let mut escapes: HashSet<ValueId> = HashSet::new();
+    let mut loads: HashMap<ValueId, Vec<(BlockId, usize)>> = HashMap::new();
+    let mut stores: HashMap<ValueId, Vec<(BlockId, usize)>> = HashMap::new();
+    for b in &f.blocks {
+        for (at, i) in b.instrs.iter().enumerate() {
+            let accessed = match &i.inst {
+                Inst::Load { ty, ptr, .. } => own(ptr, ty).inspect(|a| loads.entry(*a).or_default().push((b.id, at))),
+                Inst::Store { ty, ptr, .. } => own(ptr, ty).inspect(|a| stores.entry(*a).or_default().push((b.id, at))),
+                _ => None,
+            };
+            for v in i.inst.uses() {
+                if allocas.contains_key(&v) && accessed != Some(v) {
+                    escapes.insert(v);
+                }
+            }
+            // A store of the allocation's address is an escape whatever it stores into.
+            if let Inst::Store { value: Operand::Local(v), .. } = &i.inst
+                && allocas.contains_key(v)
+            {
+                escapes.insert(*v);
+            }
+        }
+        for v in b.terminator.uses() {
+            if allocas.contains_key(&v) {
+                escapes.insert(v);
+            }
+        }
+    }
+    let order = ra_asm_ir::dom::reverse_post_order(f);
+    let idom = ra_asm_ir::dom::dominators(&order, &f.predecessors());
+    allocas.retain(|a, _| {
+        escapes.contains(a)
+            || loads.get(a).into_iter().flatten().all(|&(lb, li)| {
+                stores.get(a).into_iter().flatten().any(|&(sb, si)| if sb == lb { si < li } else { ra_asm_ir::dom::dominates(&idom, sb, lb) })
+            })
+    });
+    allocas
+}
+
+/// The blocks `v`, defined in `home`, is live into: each block that reads it but `home`, each
+/// predecessor whose phi move reads it, and back from those to `home`.
+fn live_blocks(f: &Function, v: ValueId, home: BlockId, preds: &HashMap<BlockId, Vec<BlockId>>) -> HashSet<BlockId> {
+    let mut work: Vec<BlockId> = Vec::new();
+    for b in &f.blocks {
+        for i in &b.instrs {
+            match &i.inst {
+                Inst::Phi { incoming, .. } => {
+                    work.extend(incoming.iter().filter(|(o, from)| *o == Operand::Local(v) && *from != home).map(|(_, from)| *from));
+                }
+                inst if b.id != home && inst.uses().contains(&v) => work.push(b.id),
+                _ => {}
+            }
+        }
+        if b.id != home && b.terminator.uses().contains(&v) {
+            work.push(b.id);
+        }
+    }
+    let mut live = HashSet::new();
+    while let Some(b) = work.pop() {
+        if live.insert(b) {
+            work.extend(preds.get(&b).into_iter().flatten().filter(|p| **p != home));
+        }
+    }
+    live
 }
 
 /// `v` as a signed value of `ty`.
