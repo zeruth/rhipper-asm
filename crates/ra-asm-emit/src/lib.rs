@@ -38,6 +38,43 @@ pub use rust::{Options as RustOptions, Output as RustOutput, emit_rust};
 /// header, which start with [`c::MODULE_MARK`], and the same as `.cpp`) and the import wrappers
 /// of an output that had them ([`ADAPTERS_FILE`]), so a stale part never builds again.
 pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Result<()> {
+    remove_stale(dir, files)?;
+    for f in files {
+        write_if_changed(&dir.join(&f.name), f.text.as_bytes())?;
+    }
+    Ok(())
+}
+
+/// Formats the files of `files` as [`format_files`] does and writes each into `dir` as
+/// [`write_files`] does, as soon as its pieces are back from the formatter and while the files
+/// after it are still being formatted; a file's text goes once it is written, so the formatted
+/// output is never whole in memory. The files keep their names and their functions' lines, for
+/// the table. Returns the bytes written.
+pub fn format_and_write_files(dir: &std::path::Path, files: &mut [EmittedFile], functions: &[EmittedFunction]) -> std::io::Result<usize> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Mutex, PoisonError};
+    remove_stale(dir, files)?;
+    let written = AtomicUsize::new(0);
+    let failure: Mutex<Option<std::io::Error>> = Mutex::new(None);
+    format::format_each(files, functions, |file| {
+        match write_if_changed(&dir.join(&file.name), file.text.as_bytes()) {
+            Ok(()) => {
+                written.fetch_add(file.text.len(), Ordering::Relaxed);
+            }
+            Err(e) => {
+                failure.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert(e);
+            }
+        }
+        file.text = String::new();
+    });
+    match failure.into_inner().unwrap_or_else(PoisonError::into_inner) {
+        Some(e) => Err(e),
+        None => Ok(written.into_inner()),
+    }
+}
+
+/// Removes from `dir` the files an earlier output wrote that `files` does not name, creating `dir`.
+fn remove_stale(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -64,9 +101,6 @@ pub fn write_files(dir: &std::path::Path, files: &[EmittedFile]) -> std::io::Res
                 std::fs::remove_file(entry.path())?;
             }
         }
-    }
-    for f in files {
-        write_if_changed(&dir.join(&f.name), f.text.as_bytes())?;
     }
     Ok(())
 }
@@ -139,3 +173,6 @@ fn holds(path: &std::path::Path, bytes: &[u8]) -> bool {
         rest = &rest[n..];
     }
 }
+
+#[cfg(test)]
+mod tests;

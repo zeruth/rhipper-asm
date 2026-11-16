@@ -65,6 +65,23 @@ impl Translation {
     /// Writes the files, the runtime and the function table into `dir`.
     pub(crate) fn write(&self, dir: &Path) -> Result<()> {
         ra_asm_emit::write_files(dir, &self.files).with_context(|| format!("cannot write into {}", dir.display()))?;
+        self.write_beside(dir)
+    }
+
+    /// Formats the source files as [`Translation::format`] does and writes each into `dir` as soon
+    /// as it is formatted, the files after it still with the formatters, then the runtime beside
+    /// them as [`Translation::write`] does. Each file's text goes once it is written: the files
+    /// keep their names and their functions' lines, for the table. Returns the bytes of source
+    /// written.
+    pub(crate) fn format_and_write(&mut self, dir: &Path) -> Result<usize> {
+        let bytes = ra_asm_emit::format_and_write_files(dir, &mut self.files, &self.functions)
+            .with_context(|| format!("cannot write into {}", dir.display()))?;
+        self.write_beside(dir)?;
+        Ok(bytes)
+    }
+
+    /// Writes the runtime, the resources and the module definition file into `dir`.
+    fn write_beside(&self, dir: &Path) -> Result<()> {
         let exports = self.exports.iter().map(|d| ("exports.def", d.as_bytes()));
         let files =
             self.runtime.iter().map(|(p, t)| (*p, t.as_bytes())).chain(self.resources.iter().map(|(p, b)| (p.as_str(), b.as_slice())));
@@ -830,12 +847,16 @@ pub(crate) fn emit(
     warnings.extend(with_analyses.iter().flat_map(|a| a.warnings.iter().cloned()));
     drop(companions);
     drop((analysis, with_analyses, lifted, signatures));
-    timed("format", || translation.format());
     match out {
-        None => timed("write", || print!("{}", translation.text())),
+        None => {
+            timed("format", || translation.format());
+            timed("write", || print!("{}", translation.text()));
+        }
         Some(dir) => {
+            // The sources are written as the formatters finish them, and their texts go: the
+            // format's time holds their writing, the write's the rest.
+            let bytes = timed("format", || translation.format_and_write(dir))?;
             timed("write", || -> Result<()> {
-                translation.write(dir)?;
                 std::fs::write(dir.join("image.h"), header.unwrap_or_default())?;
                 std::fs::write(dir.join("functions.json"), translation.table())?;
                 Ok(())
@@ -848,7 +869,7 @@ pub(crate) fn emit(
                 eprintln!(
                     "{} functions, {} bytes of {language} in {} files -> {}",
                     translation.functions.len(),
-                    translation.bytes(),
+                    bytes,
                     translation.files.len(),
                     dir.display()
                 );
