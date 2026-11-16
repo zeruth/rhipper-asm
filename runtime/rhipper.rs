@@ -1720,6 +1720,39 @@ pub unsafe fn ra_rdtsc() -> u64 {
     core::arch::x86_64::_rdtsc()
 }
 
+/// A Linux system call of a MIPS o32 program, by its number (`4000 + n`) on the four argument
+/// registers: the kernel's result, negative with the error number on a failure. `write` and
+/// `exit` are answered by the host, as the C runtime answers them; the arguments are o32's 32-bit
+/// words, its pointers the port's own below 4 GB.
+pub unsafe fn ra_syscall(number: u64, a0: u64, a1: u64, a2: u64, _a3: u64) -> u64 {
+    use std::io::Write;
+    match number {
+        // exit, exit_group
+        4001 | 4246 => {
+            let _ = std::io::stdout().flush();
+            let _ = std::io::stderr().flush();
+            std::process::exit(a0 as u32 as i32)
+        }
+        // write
+        4004 => {
+            let (fd, len) = (a0 as u32, a2 as u32);
+            let bytes: &[u8] = if len == 0 { &[] } else { core::slice::from_raw_parts(a1 as u32 as usize as *const u8, len as usize) };
+            let written = match fd {
+                1 => std::io::stdout().write_all(bytes).and_then(|()| std::io::stdout().flush()),
+                2 => std::io::stderr().write_all(bytes),
+                // -EBADF
+                _ => return 9u64.wrapping_neg(),
+            };
+            // -EIO
+            if written.is_err() { 5u64.wrapping_neg() } else { u64::from(len) }
+        }
+        _ => {
+            eprintln!("ra: the system call {number} is not answered");
+            std::process::exit(0xE000_0002u32 as i32)
+        }
+    }
+}
+
 // The exact x87 unit: a software f80. A slot holds an 80-bit value as the x87 stores a tbyte, the
 // 64-bit significand with its explicit integer bit then the sign and the 15-bit exponent, and six
 // bytes of padding. Every operation unpacks its operands, works in 128 bits with a sticky bit for

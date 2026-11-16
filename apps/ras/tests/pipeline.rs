@@ -884,6 +884,31 @@ mod fixtures {
         assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
     }
 
+    /// The static mipsel control program, an o32 Linux executable whose `write` and `exit` are
+    /// `syscall`s, ports end to end: the port keeps its 32-bit pointers, the runtime's `ra_syscall`
+    /// answers the two calls, and the run prints what the source prints. The reference is a MIPS
+    /// program this host cannot run, so the run is compared with the source's output only.
+    #[test]
+    fn the_pipeline_ports_a_mips_program() {
+        let dir = project_with("mips", r#"{ "name": "control", "exe": "ref/control" }"#);
+        std::fs::copy(root().join("testdata/mips/control"), dir.join("ref/control")).unwrap();
+        let (ok, text) = ras(&dir, &["--only", "emit"]);
+        assert!(ok, "{text}");
+        let image_h = std::fs::read_to_string(dir.join("src/gen/image.h")).unwrap();
+        assert!(image_h.contains("#define RA_POINTER_SIZE 4\n") && !image_h.contains("RA_WIN32"), "{image_h}");
+        if !port_builds_here() {
+            return;
+        }
+        let (ok, text) = ras(&dir, &["--from", "build"]);
+        assert!(ok, "{text}");
+        let expected = std::fs::read_to_string(root().join("testdata/mips/control.txt")).unwrap();
+        let run_log = std::fs::read_to_string(dir.join("build/pipeline/run.log")).unwrap().replace("\r\n", "\n");
+        assert!(run_log.contains(expected.trim_end()), "the run log:\n{run_log}");
+        let runs = std::fs::read_to_string(dir.join("build/pipeline/runs.jsonl")).unwrap();
+        let record: serde_json::Value = serde_json::from_str(runs.lines().last().unwrap()).unwrap();
+        assert_eq!(record["exit"], "0", "{record}");
+    }
+
     /// A fixture packed by UPX ports through the unpack step: the pipeline unpacks it first into
     /// `build/unpacked`, the steps after read what the stub unpacked, and the port prints what the
     /// unpacked twin, `<name>.exe`, prints when it runs natively. A second run finds the unpack done.

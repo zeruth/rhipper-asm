@@ -1415,6 +1415,28 @@ fn control64_runs_as_cpp() {
     run_oracle_with("control64.exe", "control.txt", "cpp", 4, ra_asm_emit::Dialect::Cpp);
 }
 
+/// The static mipsel control program, an o32 Linux executable with no C library: its `write` and
+/// `exit` are `syscall`s, which the port's `ra_syscall` hands to the host's C library. A program of
+/// a third architecture through the one raise and the three backends prints what its source does.
+fn mips_control() -> Fixture {
+    Fixture { binary: "mips/control".to_owned(), expected: "mips/control.txt".to_owned(), ..fixture("", "") }
+}
+
+#[test]
+fn mips_control_runs_as_c() {
+    run_fixture_as_c(&mips_control(), "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+}
+
+#[test]
+fn mips_control_runs_as_cpp() {
+    run_fixture_as_c(&mips_control(), "cpp", 4, ra_asm_emit::Dialect::Cpp);
+}
+
+#[test]
+fn mips_control_runs_as_rust() {
+    run_rust_oracle_with(&mips_control(), ra_asm_emit::FUNCTIONS_PER_FILE);
+}
+
 #[test]
 fn float64_runs_as_cpp() {
     run_oracle_with("float64.exe", "float.txt", "cpp", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);

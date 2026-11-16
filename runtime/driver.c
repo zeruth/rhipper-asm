@@ -446,6 +446,34 @@ uint64_t ra_rdtsc(void) {
 }
 #endif
 
+// A Linux system call of a MIPS o32 program, by its number (`4000 + n`) on the four argument
+// registers: the kernel's result, negative with the error number on a failure. A program without
+// a C library prints and ends through these; the host's C library answers them on any host, as
+// it answers the `write` and `exit` an ARM64 Linux program imports. The arguments are o32's
+// 32-bit words, its pointers the port's own below 4 GB.
+uint64_t ra_syscall(uint64_t number, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3) {
+    (void)a3;
+    switch (number) {
+    case 4001:  // exit
+    case 4246:  // exit_group
+        fflush(stdout);
+        fflush(stderr);
+        host_exit((int)(uint32_t)a0);
+    case 4004: {  // write
+        uint32_t fd = (uint32_t)a0, len = (uint32_t)a2;
+        if (fd != 1 && fd != 2) return (uint64_t)-9;  // -EBADF
+        FILE *out = fd == 2 ? stderr : stdout;
+        fwrite((const void *)(uintptr_t)(uint32_t)a1, 1, len, out);
+        fflush(out);
+        return len;
+    }
+    default:
+        fprintf(stderr, "ra: the system call %llu is not answered\n", (unsigned long long)number);
+        fflush(stderr);
+        host_exit(0xE0000002);
+    }
+}
+
 typedef uint64_t (*native8)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 // The C runtime functions a 32-bit program calls that walk or hand back a table of its own

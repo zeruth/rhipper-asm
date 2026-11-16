@@ -183,6 +183,10 @@ uint64_t ra_xgetbv(uint64_t which);
 uint64_t ra_rdtsc(void);
 // The thread environment block of the calling thread, which fs: and gs: accesses read.
 uint64_t ra_teb(void);
+// A MIPS `syscall` of an o32 Linux program: the number and the four argument registers, the
+// kernel's result back, negative with the error number on a failure. `write` and `exit` are
+// answered by the host's C library.
+uint64_t ra_syscall(uint64_t number, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3);
 // The C runtime functions a 32-bit program calls that walk or hand back a table of its own
 // pointers: the runtime's versions keep the program's pointer width.
 uint64_t ra_x86_initterm(uint64_t first, uint64_t last);
