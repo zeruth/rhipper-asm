@@ -193,10 +193,12 @@ call imp_strcpy
   result rax = 0x130022d0
   result rdx = 0x140070030
   result xmm0 = 0x0
+  effect 0x130022d0: 6e 75 74 00
 call imp_strcat.tail
   result rax = 0x130022d0
   result rdx = 0x14007007c
   result xmm0 = 0x0
+  effect 0x130022d3: 20 69 74 65 6d 73 00
 exit
   rax = 0x130022d0
   rcx = 0x130022d0
@@ -328,10 +330,12 @@ call imp_strcpy
   result rax = 0x13002320
   result rdx = 0x140070034
   result xmm0 = 0x0
+  effect 0x13002320: 62 6f 6c 74 00
 call imp_strcat.tail
   result rax = 0x13002320
   result rdx = 0x140070076
   result xmm0 = 0x0
+  effect 0x13002324: 20 69 74 65 6d 00
 exit
   rax = 0x13002320
   rcx = 0x13002320
@@ -463,10 +467,12 @@ call imp_strcpy
   result rax = 0x13002370
   result rdx = 0x140070039
   result xmm0 = 0x0
+  effect 0x13002370: 77 61 73 68 65 72 00
 call imp_strcat.tail
   result rax = 0x13002370
   result rdx = 0x14007007c
   result xmm0 = 0x0
+  effect 0x13002376: 20 69 74 65 6d 73 00
 exit
   rax = 0x13002370
   rcx = 0x13002370
@@ -613,6 +619,7 @@ call label
   effect 0x120fff50: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
     00 00 00 00 00 00 00 00
   effect 0x130022c0: 40 00 00 00 00 00 00 00
+  effect 0x130022d0: 6e 75 74 20 69 74 65 6d 73 00
 call ra_eh_pending
   result rax = 0x130022d0
   result rdx = 0x14007007c
@@ -639,6 +646,7 @@ call label
   effect 0x120fff50: 4e 00 07 40 01 00 00 00 d0 22 00 13 00 00 00 00
     53 00 07 40 01 00 00 00
   effect 0x13002310: 40 00 00 00 00 00 00 00
+  effect 0x13002320: 62 6f 6c 74 20 69 74 65 6d 00
 call ra_eh_pending
   result rax = 0x13002320
   result rdx = 0x140070076
@@ -665,6 +673,7 @@ call label
   effect 0x120fff50: 4e 00 07 40 01 00 00 00 20 23 00 13 00 00 00 00
     53 00 07 40 01 00 00 00
   effect 0x13002360: 40 00 00 00 00 00 00 00
+  effect 0x13002370: 77 61 73 68 65 72 20 69 74 65 6d 73 00
 call ra_eh_pending
   result rax = 0x13002370
   result rdx = 0x14007007c

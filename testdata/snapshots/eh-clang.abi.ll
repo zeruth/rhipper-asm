@@ -23,8 +23,8 @@ target triple = "x86_64-pc-windows-msvc"
 @sec_rdata = constant <{ i32, i32, i32, [16 x i8], i32, i32, [12 x i8], i32, i32, i32, [4 x i8], i32, [20 x i8], i32, [4 x i8], i32, [20 x i8], i32, [12 x i8], i32, i32, [4 x i8], i32, i32, i32, [12 x i8], i32, i32, i32, i32, i32, [12 x i8], i32, i32, [12 x i8], i32, i32, i32, [4 x i8], i32, [20 x i8], i32, [4 x i8], i32, [20 x i8], i32, [12 x i8], i32, i32, [4 x i8], i32, i32, i32, [12 x i8], i32, i32, i32, i32, i32, i32, i32, i32, [64 x i8], i32, i32, [4 x i8], i32, [108 x i8], i32, [16 x i8], i32, i32, [12 x i8], i32, i32, [4 x i8], i32, [20 x i8], i32, [188 x i8], i32, [8 x i8], i32, [8 x i8], i32, i32, [384 x i8], i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, [4 x i8], i32, i32, i32, i32, i32, i32, i32, i32, [4 x i8], i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, [4 x i8], i32, i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, i32, [1112 x i8], i32, [24 x i8], i32, [12 x i8], i32, [16 x i8], i32, [16 x i8], i32, [8 x i8], i32, [16 x i8], i32, [4 x i8], i32, i32, [4 x i8], i32, [4 x i8], i32, [12 x i8], i32, [16 x i8], i32, [8 x i8], i32, [16 x i8], i32, [4 x i8], i32, i32, [4 x i8], i32, [4 x i8], i32, [12 x i8], i32, [24 x i8], i32, [12 x i8], i32, [16 x i8], i32, [24 x i8], i32, [12 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [8 x i8], i32, [28 x i8], i32, [8 x i8], i32, [4 x i8], i32, [48 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [12 x i8], i32, [8 x i8], i32, [28 x i8], i32, [8 x i8], i32, [4 x i8], i32, [64 x i8], i32, [16 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [8 x i8], i32, [4 x i8], i32, [28 x i8], i32, [12 x i8], i32, [12 x i8], i32, [24 x i8], i32, [16 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [8 x i8], i32, [4 x i8], i32, [28 x i8], i32, [24 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, i32, [8 x i8], i32, [24 x i8], i32, i32, [24 x i8], i32, i32 }> <{ i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 16) to i32), i32 ptrtoint (ptr @U_00401b30 to i32), i32 ptrtoint (ptr @U_00401b10 to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 16) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 36) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 52) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 64) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 96) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 16) to i32), [20 x i8] c"\01\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 36) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [20 x i8] c"\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 124) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 140) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 96) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 160) to i32), i32 ptrtoint (ptr @U_00401b30 to i32), i32 ptrtoint (ptr @U_00401b20 to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 124) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 192) to i32), i32 ptrtoint (ptr @U_00401ba0 to i32), i32 ptrtoint (ptr @U_00401b50 to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 212) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 228) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 240) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 272) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [20 x i8] c"\01\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 212) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), [20 x i8] c"\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 300) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 316) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 272) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 336) to i32), i32 ptrtoint (ptr @U_00401b70 to i32), i32 ptrtoint (ptr @U_00401b60 to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 300) to i32), i32 4198556, i32 4198686, i32 4198592, i32 4198646, i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 576) to i32), i32 ptrtoint (ptr @U_00402540 to i32), [64 x i8] c"\00\00\00\00\C0\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 804) to i32), [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 836) to i32), [108 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 840) to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 292) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 596) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 612) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 620) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 292) to i32), [20 x i8] c"\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 596) to i32), [188 x i8] c"by_any\00by_int\00rethrows\00events\00ctor\00Unknown exception\00problem\00finally_param\00seh\000123456789abcdef\00by_base\00by_none\00by_std\00nested\00\00\00\00\00\00\00\A4X\09\CF\00\00\00\00\10\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\D0\1B\00\00\E0\1B\00\00\F0\1B\00\00\00\1C\00\00\10\1C\00\00 \1C\00\00p.\00\00\852\00\00", i32 ptrtoint (ptr @U_00402cb0 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr @U_00402660 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr @U_004025a0 to i32), i32 ptrtoint (ptr @U_00402650 to i32), [384 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\18D\00\00\00\00\00\00\00\00\00\00,I\00\00\E4D\00\00HD\00\00\00\00\00\00\00\00\00\009I\00\00\14E\00\00lD\00\00\00\00\00\00\00\00\00\00JI\00\008E\00\00\BCD\00\00\00\00\00\00\00\00\00\00lI\00\00\88E\00\00\C8D\00\00\00\00\00\00\00\00\00\00\8CI\00\00\94E\00\00\D0D\00\00\00\00\00\00\00\00\00\00\ABI\00\00\9CE\00\00\D8D\00\00\00\00\00\00\00\00\00\00\CCI\00\00\A4E\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\B0E\00\00\C6E\00\00\DCE\00\00\F0E\00\00\00F\00\00\1AF\00\000F\00\00LF\00\00fF\00\00xF\00\00\96F\00\00\00\00\00\00\A2F\00\00\B8F\00\00\CEF\00\00\E4F\00\00\02G\00\00\1AG\00\004G\00\00HG\00\00\00\00\00\00bG\00\00pG\00\00~G\00\00\88G\00\00\92G\00\00\ACG\00\00\BCG\00\00\CAG\00\00\D2G\00\00\F4G\00\00\16H\00\002H\00\00>H\00\00LH\00\00hH\00\00\96H\00\00\A8H\00\00\B8H\00\00\C0H\00\00\00\00\00\00\CCH\00\00\DCH\00\00\00\00\00\00\EAH\00\00\00\00\00\00\FEH\00\00\00\00\00\00\14I\00\00$I\00\00\00\00\00\00", i32 ptrtoint (ptr @GetCurrentProcessId to i32), i32 ptrtoint (ptr @GetCurrentThreadId to i32), i32 ptrtoint (ptr @ra_x86_get_module_handle_w to i32), i32 ptrtoint (ptr @GetStdHandle to i32), i32 ptrtoint (ptr @GetSystemTimeAsFileTime to i32), i32 ptrtoint (ptr @ra_x86_initialize_slist_head to i32), i32 ptrtoint (ptr @IsProcessorFeaturePresent to i32), i32 ptrtoint (ptr @QueryPerformanceCounter to i32), i32 ptrtoint (ptr @RaiseException to i32), i32 ptrtoint (ptr @SetUnhandledExceptionFilter to i32), i32 ptrtoint (ptr @WriteFile to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @_CxxThrowException to i32), i32 ptrtoint (ptr @__CxxFrameHandler3 to i32), i32 ptrtoint (ptr @__current_exception to i32), i32 ptrtoint (ptr @__current_exception_context to i32), i32 ptrtoint (ptr @__std_exception_copy to i32), i32 ptrtoint (ptr @__std_exception_destroy to i32), i32 ptrtoint (ptr @_except_handler3 to i32), i32 ptrtoint (ptr @_except_handler4_common to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @ra_x86_p_argc to i32), i32 ptrtoint (ptr @ra_x86_p_argv to i32), i32 ptrtoint (ptr @_c_exit to i32), i32 ptrtoint (ptr @_cexit to i32), i32 ptrtoint (ptr @_configure_narrow_argv to i32), i32 ptrtoint (ptr @ra_x86_controlfp_s to i32), i32 ptrtoint (ptr @_crt_atexit to i32), i32 ptrtoint (ptr @_exit to i32), i32 ptrtoint (ptr @ra_x86_initial_narrow_environment to i32), i32 ptrtoint (ptr @_initialize_narrow_environment to i32), i32 ptrtoint (ptr @ra_x86_initialize_onexit_table to i32), i32 ptrtoint (ptr @ra_x86_initterm to i32), i32 ptrtoint (ptr @ra_x86_initterm_e to i32), i32 ptrtoint (ptr @ra_x86_register_onexit_function to i32), i32 ptrtoint (ptr @_register_thread_local_exe_atexit_callback to i32), i32 ptrtoint (ptr @_seh_filter_exe to i32), i32 ptrtoint (ptr @_set_app_type to i32), i32 ptrtoint (ptr @exit to i32), i32 ptrtoint (ptr @terminate to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @ra_x86_p_commode to i32), i32 ptrtoint (ptr @_set_fmode to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @__setusermatherr to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @_configthreadlocale to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @_set_new_mode to i32), i32 ptrtoint (ptr @free to i32), [1112 x i8] c"\00\00\00\00<\02GetCurrentProcessId\00@\02GetCurrentThreadId\00\00\9F\02GetModuleHandleW\00\00\FC\02GetStdHandle\00\00\13\03GetSystemTimeAsFileTime\00\91\03InitializeSListHead\00\B5\03IsProcessorFeaturePresent\00~\04QueryPerformanceCounter\00\94\04RaiseException\00\00\A8\05SetUnhandledExceptionFilter\00O\06WriteFile\00\01\00_CxxThrowException\00\00\10\00__CxxFrameHandler3\00\00\1C\00__current_exception\00\1D\00__current_exception_context\00!\00__std_exception_copy\00\00\22\00__std_exception_destroy\004\00_except_handler3\00\005\00_except_handler4_common\00\05\00__p___argc\00\00\06\00__p___argv\00\00\16\00_c_exit\00\17\00_cexit\00\00\19\00_configure_narrow_argv\00\00\1D\00_controlfp_s\00\00\1F\00_crt_atexit\00%\00_exit\00*\00_get_initial_narrow_environment\005\00_initialize_narrow_environment\00\006\00_initialize_onexit_table\00\008\00_initterm\009\00_initterm_e\00>\00_register_onexit_function\00?\00_register_thread_local_exe_atexit_callback\00\00B\00_seh_filter_exe\00D\00_set_app_type\00X\00exit\00\00j\00terminate\00\01\00__p__commode\00\00T\00_set_fmode\00\00.\00__setusermatherr\00\00\08\00_configthreadlocale\00\16\00_set_new_mode\00\18\00free\00\00KERNEL32.dll\00VCRUNTIME140.dll\00api-ms-win-crt-runtime-l1-1-0.dll\00api-ms-win-crt-stdio-l1-1-0.dll\00api-ms-win-crt-math-l1-1-0.dll\00api-ms-win-crt-locale-l1-1-0.dll\00api-ms-win-crt-heap-l1-1-0.dll\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr @sec_data to i32), [24 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\04\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2560) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2588) to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 16) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\08\00\00\00", i32 ptrtoint (ptr @U_00401170 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\08\00\00\00", i32 ptrtoint (ptr @U_00401190 to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2624) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2656) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @U_004011b0 to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2684) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\10\00\00\00", i32 ptrtoint (ptr @U_004011c0 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\0C\00\00\00", i32 ptrtoint (ptr @U_00401200 to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2720) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2752) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @U_00401240 to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2780) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 140) to i32), [24 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\08\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2816) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2844) to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 152) to i32), [24 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\04\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2880) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2908) to i32), [4 x i8] c"\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2656) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @U_004011b0 to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2932) to i32), [8 x i8] c"\22\05\93\19\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2992) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF", i32 4198736, [8 x i8] c"\22\05\93\19\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3036) to i32), [4 x i8] c"\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3052) to i32), [48 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\04\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3072) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @sec_data to i32), [4 x i8] c"\E8\FF\FF\FF", i32 4199152, [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [4 x i8] c"\E4\FF\FF\FF", i32 4199184, [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4199248, [12 x i8] c"@\00\00\00\00\00\00\00\00\00\00\00", i32 4199296, [8 x i8] c"\22\05\93\19\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3172) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF", i32 4199504, [8 x i8] c"\22\05\93\19\04\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3216) to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3248) to i32), [64 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00\01\00\00\00\01\00\00\00\02\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3288) to i32), [16 x i8] c"\00\00\00\00\02\00\00\00\03\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3304) to i32), [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4199696, [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [4 x i8] c"\E4\FF\FF\FF", i32 4199648, [8 x i8] c"\22\05\93\19\07\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3356) to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3412) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00", i32 4199968, [12 x i8] c"\01\00\00\00\00\00\00\00\02\00\00\00", i32 4199904, [12 x i8] c"\01\00\00\00\00\00\00\00\04\00\00\00", i32 4199936, [24 x i8] c"\FF\FF\FF\FF\00\00\00\00\02\00\00\00\03\00\00\00\05\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3452) to i32), [16 x i8] c"\00\00\00\00\05\00\00\00\06\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3468) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 152) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4200048, [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @sec_data to i32), [4 x i8] c"\D8\FF\FF\FF", i32 4200000, [8 x i8] c"\22\05\93\19\03\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3520) to i32), [4 x i8] c"\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3544) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00", i32 4200336, [24 x i8] c"\FF\FF\FF\FF\00\00\00\00\00\00\00\00\01\00\00\00\02\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3564) to i32), [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4200304, [4 x i8] c"\FF\FF\FF\FF", i32 ptrtoint (ptr @U_004018c0 to i32), i32 4200566, [8 x i8] c"\00\00\00\00\00\00\00\00", i32 4200608, [24 x i8] c"\00\00\00\00\FE\FF\FF\FF\00\00\00\00\CC\FF\FF\FF\00\00\00\00\FE\FF\FF\FF", i32 4204547, i32 4204568, [24 x i8] c"\00\00\00\00\FE\FF\FF\FF\00\00\00\00\D8\FF\FF\FF\00\00\00\00\FE\FF\FF\FF", i32 4204914, i32 4204933 }>, align 16  ; 0x404000
 @sec_data = global <{ i32, [12 x i8], i32, [28 x i8], i32, [28 x i8], i32, [28 x i8], i32, [24 x i8], i32, [8 x i8], i32, [136 x i8], i32, [644 x i8] }> <{ i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [12 x i8] c"\00\00\00\00.H\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [28 x i8] c"\00\00\00\00.?AUDerived@@\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [28 x i8] c"\00\00\00\00.?AUBase@@\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [28 x i8] c"\00\00\00\00.?AUProblem@@\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [24 x i8] c"\00\00\00\00.?AVexception@std@@\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [8 x i8] c"\00\00\00\00.N\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [136 x i8] c"\00\00\00\00.I\00\00\07\00\00\00\C5\9D\1C\81\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00N\E6@\BB\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\B1\19\BFDu\98\00\00\FF\FF\FF\FF\01\00\00\00\01\00\00\00\00\00\00\00\FF\FF\FF\FF\FF\FF\FF\FF\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [644 x i8] c"\00\00\00\00.?AVtype_info@@\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00" }>, align 16  ; 0x405000
 @ra_tls = constant <{ i64, i64, i64, i64, i64 }> <{ i64 0, i64 0, i64 0, i64 0, i64 0 }>, align 16
-@ra_functions = constant [112 x { i64, ptr }] [{ i64, ptr } { i64 4198400, ptr @U_00401000 }, { i64, ptr } { i64 4198432, ptr @U_00401020 }, { i64, ptr } { i64 4198768, ptr @U_00401170 }, { i64, ptr } { i64 4198800, ptr @U_00401190 }, { i64, ptr } { i64 4198832, ptr @U_004011b0 }, { i64, ptr } { i64 4198848, ptr @U_004011c0 }, { i64, ptr } { i64 4198912, ptr @U_00401200 }, { i64, ptr } { i64 4198976, ptr @U_00401240 }, { i64, ptr } { i64 4199008, ptr @U_00401260 }, { i64, ptr } { i64 4199328, ptr @U_004013a0 }, { i64, ptr } { i64 4199536, ptr @U_00401470 }, { i64, ptr } { i64 4199744, ptr @U_00401540 }, { i64, ptr } { i64 4200112, ptr @U_004016b0 }, { i64, ptr } { i64 4200384, ptr @U_004017c0 }, { i64, ptr } { i64 4200416, ptr @U_004017e0 }, { i64, ptr } { i64 4200640, ptr @U_004018c0 }, { i64, ptr } { i64 4200688, ptr @U_004018f0 }, { i64, ptr } { i64 4200704, ptr @U_00401900 }, { i64, ptr } { i64 4200816, ptr @U_00401970 }, { i64, ptr } { i64 4201232, ptr @U_00401b10 }, { i64, ptr } { i64 4201248, ptr @U_00401b20 }, { i64, ptr } { i64 4201264, ptr @U_00401b30 }, { i64, ptr } { i64 4201296, ptr @U_00401b50 }, { i64, ptr } { i64 4201312, ptr @U_00401b60 }, { i64, ptr } { i64 4201328, ptr @U_00401b70 }, { i64, ptr } { i64 4201376, ptr @U_00401ba0 }, { i64, ptr } { i64 4201424, ptr @U_00401bd0 }, { i64, ptr } { i64 4201440, ptr @U_00401be0 }, { i64, ptr } { i64 4201456, ptr @U_00401bf0 }, { i64, ptr } { i64 4201472, ptr @U_00401c00 }, { i64, ptr } { i64 4201488, ptr @U_00401c10 }, { i64, ptr } { i64 4201504, ptr @U_00401c20 }, { i64, ptr } { i64 4201520, ptr @U_00401c30 }, { i64, ptr } { i64 4201536, ptr @U_00401c40 }, { i64, ptr } { i64 4202608, ptr @U_00402070 }, { i64, ptr } { i64 4202912, ptr @U_004021a0 }, { i64, ptr } { i64 4203824, ptr @U_00402530 }, { i64, ptr } { i64 4203840, ptr @U_00402540 }, { i64, ptr } { i64 4203888, ptr @U_00402570 }, { i64, ptr } { i64 4203904, ptr @U_00402580 }, { i64, ptr } { i64 4203920, ptr @U_00402590 }, { i64, ptr } { i64 4203936, ptr @U_004025a0 }, { i64, ptr } { i64 4204112, ptr @U_00402650 }, { i64, ptr } { i64 4204128, ptr @U_00402660 }, { i64, ptr } { i64 4204160, ptr @U_00402680 }, { i64, ptr } { i64 4204656, ptr @U_00402870 }, { i64, ptr } { i64 4204672, ptr @U_00402880 }, { i64, ptr } { i64 4204752, ptr @U_004028d0 }, { i64, ptr } { i64 4204976, ptr @U_004029b0 }, { i64, ptr } { i64 4205040, ptr @U_004029f0 }, { i64, ptr } { i64 4205072, ptr @U_00402a10 }, { i64, ptr } { i64 4205136, ptr @U_00402a50 }, { i64, ptr } { i64 4205184, ptr @U_00402a80 }, { i64, ptr } { i64 4205360, ptr @U_00402b30 }, { i64, ptr } { i64 4205440, ptr @U_00402b80 }, { i64, ptr } { i64 4205616, ptr @U_00402c30 }, { i64, ptr } { i64 4205632, ptr @U_00402c40 }, { i64, ptr } { i64 4205648, ptr @U_00402c50 }, { i64, ptr } { i64 4205664, ptr @U_00402c60 }, { i64, ptr } { i64 4205680, ptr @U_00402c70 }, { i64, ptr } { i64 4205696, ptr @U_00402c80 }, { i64, ptr } { i64 4205744, ptr @U_00402cb0 }, { i64, ptr } { i64 4205760, ptr @U_00402cc0 }, { i64, ptr } { i64 4205792, ptr @U_00402ce0 }, { i64, ptr } { i64 4205808, ptr @U_00402cf0 }, { i64, ptr } { i64 4205824, ptr @U_00402d00 }, { i64, ptr } { i64 4205840, ptr @U_00402d10 }, { i64, ptr } { i64 4205856, ptr @U_00402d20 }, { i64, ptr } { i64 4205872, ptr @U_00402d30 }, { i64, ptr } { i64 4205952, ptr @U_00402d80 }, { i64, ptr } { i64 4205968, ptr @U_00402d90 }, { i64, ptr } { i64 4205984, ptr @U_00402da0 }, { i64, ptr } { i64 4206000, ptr @U_00402db0 }, { i64, ptr } { i64 4206096, ptr @U_00402e10 }, { i64, ptr } { i64 4206144, ptr @U_00402e40 }, { i64, ptr } { i64 4206192, ptr @U_00402e70 }, { i64, ptr } { i64 4206240, ptr @U_00402ea0 }, { i64, ptr } { i64 4207056, ptr @U_004031d0 }, { i64, ptr } { i64 4207072, ptr @U_004031e0 }, { i64, ptr } { i64 4207201, ptr @U_00403261 }, { i64, ptr } { i64 4207207, ptr @U_00403267 }, { i64, ptr } { i64 4207213, ptr @U_0040326d }, { i64, ptr } { i64 4207219, ptr @U_00403273 }, { i64, ptr } { i64 4207225, ptr @U_00403279 }, { i64, ptr } { i64 4207231, ptr @U_0040327f }, { i64, ptr } { i64 4207237, ptr @U_00403285 }, { i64, ptr } { i64 4207243, ptr @U_0040328b }, { i64, ptr } { i64 4207249, ptr @U_00403291 }, { i64, ptr } { i64 4207255, ptr @U_00403297 }, { i64, ptr } { i64 4207261, ptr @U_0040329d }, { i64, ptr } { i64 4207267, ptr @U_004032a3 }, { i64, ptr } { i64 4207273, ptr @U_004032a9 }, { i64, ptr } { i64 4207279, ptr @U_004032af }, { i64, ptr } { i64 4207285, ptr @U_004032b5 }, { i64, ptr } { i64 4207291, ptr @U_004032bb }, { i64, ptr } { i64 4207297, ptr @U_004032c1 }, { i64, ptr } { i64 4207303, ptr @U_004032c7 }, { i64, ptr } { i64 4207309, ptr @U_004032cd }, { i64, ptr } { i64 4207315, ptr @U_004032d3 }, { i64, ptr } { i64 4207321, ptr @U_004032d9 }, { i64, ptr } { i64 4207327, ptr @U_004032df }, { i64, ptr } { i64 4207333, ptr @U_004032e5 }, { i64, ptr } { i64 4207339, ptr @U_004032eb }, { i64, ptr } { i64 4207345, ptr @U_004032f1 }, { i64, ptr } { i64 4207351, ptr @U_004032f7 }, { i64, ptr } { i64 4207357, ptr @U_004032fd }, { i64, ptr } { i64 4207363, ptr @U_00403303 }, { i64, ptr } { i64 4207369, ptr @U_00403309 }, { i64, ptr } { i64 4207375, ptr @U_0040330f }, { i64, ptr } { i64 4207381, ptr @U_00403315 }, { i64, ptr } { i64 4207387, ptr @U_0040331b }, { i64, ptr } { i64 4207393, ptr @U_00403321 }], align 16
-@ra_function_count = constant i64 112, align 8
+@ra_functions = constant [64 x { i64, ptr }] [{ i64, ptr } { i64 4198768, ptr @U_00401170 }, { i64, ptr } { i64 4198800, ptr @U_00401190 }, { i64, ptr } { i64 4198832, ptr @U_004011b0 }, { i64, ptr } { i64 4198848, ptr @U_004011c0 }, { i64, ptr } { i64 4198912, ptr @U_00401200 }, { i64, ptr } { i64 4198976, ptr @U_00401240 }, { i64, ptr } { i64 4200640, ptr @U_004018c0 }, { i64, ptr } { i64 4201232, ptr @U_00401b10 }, { i64, ptr } { i64 4201248, ptr @U_00401b20 }, { i64, ptr } { i64 4201264, ptr @U_00401b30 }, { i64, ptr } { i64 4201296, ptr @U_00401b50 }, { i64, ptr } { i64 4201312, ptr @U_00401b60 }, { i64, ptr } { i64 4201328, ptr @U_00401b70 }, { i64, ptr } { i64 4201376, ptr @U_00401ba0 }, { i64, ptr } { i64 4201424, ptr @U_00401bd0 }, { i64, ptr } { i64 4201440, ptr @U_00401be0 }, { i64, ptr } { i64 4201456, ptr @U_00401bf0 }, { i64, ptr } { i64 4201472, ptr @U_00401c00 }, { i64, ptr } { i64 4201488, ptr @U_00401c10 }, { i64, ptr } { i64 4201504, ptr @U_00401c20 }, { i64, ptr } { i64 4203840, ptr @U_00402540 }, { i64, ptr } { i64 4203888, ptr @U_00402570 }, { i64, ptr } { i64 4203936, ptr @U_004025a0 }, { i64, ptr } { i64 4204112, ptr @U_00402650 }, { i64, ptr } { i64 4204128, ptr @U_00402660 }, { i64, ptr } { i64 4204656, ptr @U_00402870 }, { i64, ptr } { i64 4205616, ptr @U_00402c30 }, { i64, ptr } { i64 4205744, ptr @U_00402cb0 }, { i64, ptr } { i64 4206000, ptr @U_00402db0 }, { i64, ptr } { i64 4206144, ptr @U_00402e40 }, { i64, ptr } { i64 4206192, ptr @U_00402e70 }, { i64, ptr } { i64 4207201, ptr @U_00403261 }, { i64, ptr } { i64 4207207, ptr @U_00403267 }, { i64, ptr } { i64 4207213, ptr @U_0040326d }, { i64, ptr } { i64 4207219, ptr @U_00403273 }, { i64, ptr } { i64 4207225, ptr @U_00403279 }, { i64, ptr } { i64 4207231, ptr @U_0040327f }, { i64, ptr } { i64 4207237, ptr @U_00403285 }, { i64, ptr } { i64 4207243, ptr @U_0040328b }, { i64, ptr } { i64 4207249, ptr @U_00403291 }, { i64, ptr } { i64 4207255, ptr @U_00403297 }, { i64, ptr } { i64 4207261, ptr @U_0040329d }, { i64, ptr } { i64 4207267, ptr @U_004032a3 }, { i64, ptr } { i64 4207273, ptr @U_004032a9 }, { i64, ptr } { i64 4207279, ptr @U_004032af }, { i64, ptr } { i64 4207285, ptr @U_004032b5 }, { i64, ptr } { i64 4207291, ptr @U_004032bb }, { i64, ptr } { i64 4207297, ptr @U_004032c1 }, { i64, ptr } { i64 4207303, ptr @U_004032c7 }, { i64, ptr } { i64 4207309, ptr @U_004032cd }, { i64, ptr } { i64 4207315, ptr @U_004032d3 }, { i64, ptr } { i64 4207321, ptr @U_004032d9 }, { i64, ptr } { i64 4207327, ptr @U_004032df }, { i64, ptr } { i64 4207333, ptr @U_004032e5 }, { i64, ptr } { i64 4207339, ptr @U_004032eb }, { i64, ptr } { i64 4207345, ptr @U_004032f1 }, { i64, ptr } { i64 4207351, ptr @U_004032f7 }, { i64, ptr } { i64 4207357, ptr @U_004032fd }, { i64, ptr } { i64 4207363, ptr @U_00403303 }, { i64, ptr } { i64 4207369, ptr @U_00403309 }, { i64, ptr } { i64 4207375, ptr @U_0040330f }, { i64, ptr } { i64 4207381, ptr @U_00403315 }, { i64, ptr } { i64 4207387, ptr @U_0040331b }, { i64, ptr } { i64 4207393, ptr @U_00403321 }], align 16
+@ra_function_count = constant i64 64, align 8
 @ra_import_pops = constant <{ i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64 }> <{ i64 ptrtoint (ptr @GetCurrentProcessId to i64), i64 ptrtoint (ptr @ra_import_names to i64), i64 0, i64 ptrtoint (ptr @GetCurrentThreadId to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 33) to i64), i64 0, i64 ptrtoint (ptr @GetStdHandle to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 65) to i64), i64 4, i64 ptrtoint (ptr @GetSystemTimeAsFileTime to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 91) to i64), i64 4, i64 ptrtoint (ptr @IsProcessorFeaturePresent to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 128) to i64), i64 4, i64 ptrtoint (ptr @QueryPerformanceCounter to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 167) to i64), i64 4, i64 ptrtoint (ptr @RaiseException to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 204) to i64), i64 16, i64 ptrtoint (ptr @SetUnhandledExceptionFilter to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 232) to i64), i64 4, i64 ptrtoint (ptr @WriteFile to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 273) to i64), i64 20, i64 ptrtoint (ptr @_CxxThrowException to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 296) to i64), i64 0, i64 ptrtoint (ptr @__CxxFrameHandler3 to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 332) to i64), i64 0, i64 ptrtoint (ptr @__current_exception to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 368) to i64), i64 0, i64 ptrtoint (ptr @__current_exception_context to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 405) to i64), i64 0, i64 ptrtoint (ptr @__setusermatherr to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 450) to i64), i64 0, i64 ptrtoint (ptr @__std_exception_copy to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 498) to i64), i64 0, i64 ptrtoint (ptr @__std_exception_destroy to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 536) to i64), i64 0, i64 ptrtoint (ptr @_c_exit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 577) to i64), i64 0, i64 ptrtoint (ptr @_cexit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 619) to i64), i64 0, i64 ptrtoint (ptr @_configthreadlocale to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 660) to i64), i64 0, i64 ptrtoint (ptr @_configure_narrow_argv to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 713) to i64), i64 0, i64 ptrtoint (ptr @_crt_atexit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 770) to i64), i64 0, i64 ptrtoint (ptr @_except_handler3 to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 816) to i64), i64 0, i64 ptrtoint (ptr @_except_handler4_common to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 850) to i64), i64 0, i64 ptrtoint (ptr @_exit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 891) to i64), i64 0, i64 ptrtoint (ptr @_initialize_narrow_environment to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 931) to i64), i64 0, i64 ptrtoint (ptr @_register_thread_local_exe_atexit_callback to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 996) to i64), i64 0, i64 ptrtoint (ptr @_seh_filter_exe to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1073) to i64), i64 0, i64 ptrtoint (ptr @_set_app_type to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1123) to i64), i64 0, i64 ptrtoint (ptr @_set_fmode to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1171) to i64), i64 0, i64 ptrtoint (ptr @_set_new_mode to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1214) to i64), i64 0, i64 ptrtoint (ptr @exit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1259) to i64), i64 0, i64 ptrtoint (ptr @free to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1298) to i64), i64 0, i64 ptrtoint (ptr @ra_x86_controlfp_s to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_get_module_handle_w to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initial_narrow_environment to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initialize_onexit_table to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initialize_slist_head to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initterm to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initterm_e to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_p_argc to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_p_argv to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_p_commode to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_register_onexit_function to i64), i64 0, i64 0, i64 ptrtoint (ptr @terminate to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1334) to i64), i64 0, i64 0, i64 0, i64 0 }>, align 16
 @ra_import_names = constant [1378 x i8] c"KERNEL32.dll\00GetCurrentProcessId\00KERNEL32.dll\00GetCurrentThreadId\00KERNEL32.dll\00GetStdHandle\00KERNEL32.dll\00GetSystemTimeAsFileTime\00KERNEL32.dll\00IsProcessorFeaturePresent\00KERNEL32.dll\00QueryPerformanceCounter\00KERNEL32.dll\00RaiseException\00KERNEL32.dll\00SetUnhandledExceptionFilter\00KERNEL32.dll\00WriteFile\00VCRUNTIME140.dll\00_CxxThrowException\00VCRUNTIME140.dll\00__CxxFrameHandler3\00VCRUNTIME140.dll\00__current_exception\00VCRUNTIME140.dll\00__current_exception_context\00api-ms-win-crt-math-l1-1-0.dll\00__setusermatherr\00VCRUNTIME140.dll\00__std_exception_copy\00VCRUNTIME140.dll\00__std_exception_destroy\00api-ms-win-crt-runtime-l1-1-0.dll\00_c_exit\00api-ms-win-crt-runtime-l1-1-0.dll\00_cexit\00api-ms-win-crt-locale-l1-1-0.dll\00_configthreadlocale\00api-ms-win-crt-runtime-l1-1-0.dll\00_configure_narrow_argv\00api-ms-win-crt-runtime-l1-1-0.dll\00_crt_atexit\00VCRUNTIME140.dll\00_except_handler3\00VCRUNTIME140.dll\00_except_handler4_common\00api-ms-win-crt-runtime-l1-1-0.dll\00_exit\00api-ms-win-crt-runtime-l1-1-0.dll\00_initialize_narrow_environment\00api-ms-win-crt-runtime-l1-1-0.dll\00_register_thread_local_exe_atexit_callback\00api-ms-win-crt-runtime-l1-1-0.dll\00_seh_filter_exe\00api-ms-win-crt-runtime-l1-1-0.dll\00_set_app_type\00api-ms-win-crt-stdio-l1-1-0.dll\00_set_fmode\00api-ms-win-crt-heap-l1-1-0.dll\00_set_new_mode\00api-ms-win-crt-runtime-l1-1-0.dll\00exit\00api-ms-win-crt-heap-l1-1-0.dll\00free\00api-ms-win-crt-runtime-l1-1-0.dll\00terminate\00", align 16
 @ra_proc_pops = constant [1 x i8] c"\00", align 16
@@ -7508,8 +7508,6 @@ b_401900:  ; 0x401900
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
-  %stack.arg1.p = getelementptr inbounds i8, ptr %frame.top, i64 8
-  store i32 %arg1, ptr %stack.arg1.p, align 4
   %esp = trunc i64 %rsp0 to i32  ; 0x401900
   %diff = sub i32 %esp, 8  ; 0x401900
   %eax.z = trunc i32 %arg1 to i8  ; 0x401903
@@ -8933,25 +8931,14 @@ b_402155:  ; 0x402155
   br i1 %not, label %b_402140, label %b_40215d
 b_40215d:  ; 0x40215d
   %sp.4 = sub i32 %rsp.phi, 4  ; 0x40215d
-  %st.p.17 = getelementptr inbounds i8, ptr %frame.top, i64 -40  ; 0x40215d
-  store i32 -11, ptr %st.p.17, align 1  ; 0x40215d
   %ret = call i64 @GetStdHandle(i64 4294967285)  ; 0x40215f
   %sp.5 = add i32 %sp.4, 4  ; 0x40215f
   %sp.6 = sub i32 %sp.5, 4  ; 0x402161
-  store i32 0, ptr %st.p.17, align 1  ; 0x402161
   %sp.7 = sub i32 %sp.6, 4  ; 0x402163
-  %st.p.19 = getelementptr inbounds i8, ptr %frame.top, i64 -44  ; 0x402163
-  store i32 %diff, ptr %st.p.19, align 1  ; 0x402163
   %sp.8 = sub i32 %sp.7, 4  ; 0x402164
-  %st.p.20 = getelementptr inbounds i8, ptr %frame.top, i64 -48  ; 0x402164
-  store i32 512, ptr %st.p.20, align 1  ; 0x402164
   %sp.9 = sub i32 %sp.8, 4  ; 0x402169
-  %st.p.21 = getelementptr inbounds i8, ptr %frame.top, i64 -52  ; 0x402169
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.21, align 1  ; 0x402169
   %eax.22 = trunc i64 %ret to i32  ; 0x40216e
   %sp.10 = sub i32 %sp.9, 4  ; 0x40216e
-  %st.p.22 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x40216e
-  store i32 %eax.22, ptr %st.p.22, align 1  ; 0x40216e
   %sarg0.1 = zext i32 %eax.22 to i64
   %sarg1.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %ret.1 = call i64 @WriteFile(i64 %sarg0.1, i64 %sarg1.1, i64 512, i64 %esp.z.4, i64 0)  ; 0x40216f
@@ -9011,25 +8998,14 @@ b_4021a0:  ; 0x4021a0
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.4021af
 b_4021c2:  ; 0x4021c2
   %sp.2 = sub i32 %rsp.131, 4  ; 0x4021c2
-  %st.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x4021c2
-  store i32 -11, ptr %st.p.3, align 1  ; 0x4021c2
   %ret.1 = call i64 @GetStdHandle(i64 4294967285)  ; 0x4021c4
   %sp.3 = add i32 %sp.2, 4  ; 0x4021c4
   %sp.4 = sub i32 %sp.3, 4  ; 0x4021cc
-  store i32 0, ptr %st.p.3, align 1  ; 0x4021cc
   %sp.5 = sub i32 %sp.4, 4  ; 0x4021ce
-  %st.p.5 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x4021ce
-  store i32 %sp.3, ptr %st.p.5, align 1  ; 0x4021ce
   %sp.6 = sub i32 %sp.5, 4  ; 0x4021cf
-  %st.p.6 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x4021cf
-  store i32 512, ptr %st.p.6, align 1  ; 0x4021cf
   %sp.7 = sub i32 %sp.6, 4  ; 0x4021d4
-  %st.p.7 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x4021d4
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.7, align 1  ; 0x4021d4
   %eax.2 = trunc i64 %ret.1 to i32  ; 0x4021d9
   %sp.8 = sub i32 %sp.7, 4  ; 0x4021d9
-  %st.p.8 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x4021d9
-  store i32 %eax.2, ptr %st.p.8, align 1  ; 0x4021d9
   %sarg0.1 = zext i32 %eax.2 to i64
   %sarg1.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.1 = zext i32 %sp.3 to i64
@@ -9049,25 +9025,14 @@ b_4021ee:  ; 0x4021ee
   br i1 %not.1, label %b_4022b4, label %b_402208
 b_402208:  ; 0x402208
   %sp.10 = sub i32 %rsp.131, 4  ; 0x402208
-  %st.p.12 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x402208
-  store i32 -11, ptr %st.p.12, align 1  ; 0x402208
   %ret.3 = call i64 @GetStdHandle(i64 4294967285)  ; 0x40220a
   %sp.11 = add i32 %sp.10, 4  ; 0x40220a
   %sp.12 = sub i32 %sp.11, 4  ; 0x402212
-  store i32 0, ptr %st.p.12, align 1  ; 0x402212
   %sp.13 = sub i32 %sp.12, 4  ; 0x402214
-  %st.p.14 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x402214
-  store i32 %sp.11, ptr %st.p.14, align 1  ; 0x402214
   %sp.14 = sub i32 %sp.13, 4  ; 0x402215
-  %st.p.15 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x402215
-  store i32 512, ptr %st.p.15, align 1  ; 0x402215
   %sp.15 = sub i32 %sp.14, 4  ; 0x40221a
-  %st.p.16 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x40221a
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.16, align 1  ; 0x40221a
   %eax.5 = trunc i64 %ret.3 to i32  ; 0x40221f
   %sp.16 = sub i32 %sp.15, 4  ; 0x40221f
-  %st.p.17 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x40221f
-  store i32 %eax.5, ptr %st.p.17, align 1  ; 0x40221f
   %sarg0.3 = zext i32 %eax.5 to i64
   %sarg1.3 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.3 = zext i32 %sp.11 to i64
@@ -9096,25 +9061,14 @@ b_402230:  ; 0x402230
   br i1 %not.2, label %b_40226d, label %b_402248
 b_402248:  ; 0x402248
   %sp.18 = sub i32 %rsp.phi.1, 4  ; 0x402248
-  %st.p.21 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x402248
-  store i32 -11, ptr %st.p.21, align 1  ; 0x402248
   %ret.7 = call i64 @GetStdHandle(i64 4294967285)  ; 0x40224a
   %sp.19 = add i32 %sp.18, 4  ; 0x40224a
   %sp.20 = sub i32 %sp.19, 4  ; 0x402252
-  store i32 0, ptr %st.p.21, align 1  ; 0x402252
   %sp.21 = sub i32 %sp.20, 4  ; 0x402254
-  %st.p.23 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x402254
-  store i32 %sp.19, ptr %st.p.23, align 1  ; 0x402254
   %sp.22 = sub i32 %sp.21, 4  ; 0x402255
-  %st.p.24 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x402255
-  store i32 512, ptr %st.p.24, align 1  ; 0x402255
   %sp.23 = sub i32 %sp.22, 4  ; 0x40225a
-  %st.p.25 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x40225a
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.25, align 1  ; 0x40225a
   %eax.10 = trunc i64 %ret.7 to i32  ; 0x40225f
   %sp.24 = sub i32 %sp.23, 4  ; 0x40225f
-  %st.p.26 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x40225f
-  store i32 %eax.10, ptr %st.p.26, align 1  ; 0x40225f
   %sarg0.7 = zext i32 %eax.10 to i64
   %sarg1.7 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.7 = zext i32 %sp.19 to i64
@@ -9132,25 +9086,14 @@ b_40226d:  ; 0x40226d
   br i1 %not.3, label %b_402300, label %b_402285
 b_402285:  ; 0x402285
   %sp.26 = sub i32 %rsp.phi.1, 4  ; 0x402285
-  %st.p.29 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x402285
-  store i32 -11, ptr %st.p.29, align 1  ; 0x402285
   %ret.9 = call i64 @GetStdHandle(i64 4294967285)  ; 0x402287
   %sp.27 = add i32 %sp.26, 4  ; 0x402287
   %sp.28 = sub i32 %sp.27, 4  ; 0x40228f
-  store i32 0, ptr %st.p.29, align 1  ; 0x40228f
   %sp.29 = sub i32 %sp.28, 4  ; 0x402291
-  %st.p.31 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x402291
-  store i32 %sp.27, ptr %st.p.31, align 1  ; 0x402291
   %sp.30 = sub i32 %sp.29, 4  ; 0x402292
-  %st.p.32 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x402292
-  store i32 512, ptr %st.p.32, align 1  ; 0x402292
   %sp.31 = sub i32 %sp.30, 4  ; 0x402297
-  %st.p.33 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x402297
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.33, align 1  ; 0x402297
   %eax.13 = trunc i64 %ret.9 to i32  ; 0x40229c
   %sp.32 = sub i32 %sp.31, 4  ; 0x40229c
-  %st.p.34 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x40229c
-  store i32 %eax.13, ptr %st.p.34, align 1  ; 0x40229c
   %sarg0.9 = zext i32 %eax.13 to i64
   %sarg1.9 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.9 = zext i32 %sp.27 to i64
@@ -9170,25 +9113,14 @@ b_4022b4:  ; 0x4022b4
   br i1 %not.4, label %b_402230, label %b_4022ce
 b_4022ce:  ; 0x4022ce
   %sp.34 = sub i32 %rsp.131, 4  ; 0x4022ce
-  %st.p.38 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x4022ce
-  store i32 -11, ptr %st.p.38, align 1  ; 0x4022ce
   %ret.5 = call i64 @GetStdHandle(i64 4294967285)  ; 0x4022d0
   %sp.35 = add i32 %sp.34, 4  ; 0x4022d0
   %sp.36 = sub i32 %sp.35, 4  ; 0x4022d8
-  store i32 0, ptr %st.p.38, align 1  ; 0x4022d8
   %sp.37 = sub i32 %sp.36, 4  ; 0x4022da
-  %st.p.40 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x4022da
-  store i32 %sp.35, ptr %st.p.40, align 1  ; 0x4022da
   %sp.38 = sub i32 %sp.37, 4  ; 0x4022db
-  %st.p.41 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x4022db
-  store i32 512, ptr %st.p.41, align 1  ; 0x4022db
   %sp.39 = sub i32 %sp.38, 4  ; 0x4022e0
-  %st.p.42 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x4022e0
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.42, align 1  ; 0x4022e0
   %eax.16 = trunc i64 %ret.5 to i32  ; 0x4022e5
   %sp.40 = sub i32 %sp.39, 4  ; 0x4022e5
-  %st.p.43 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x4022e5
-  store i32 %eax.16, ptr %st.p.43, align 1  ; 0x4022e5
   %sarg0.5 = zext i32 %eax.16 to i64
   %sarg1.5 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.5 = zext i32 %sp.35 to i64
@@ -9219,25 +9151,14 @@ b_402300:  ; 0x402300
   br i1 %not.5, label %b_402340, label %b_402316
 b_402316:  ; 0x402316
   %sp.42 = sub i32 %rsp.phi.3, 4  ; 0x402316
-  %st.p.48 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x402316
-  store i32 -11, ptr %st.p.48, align 1  ; 0x402316
   %ret.11 = call i64 @GetStdHandle(i64 4294967285)  ; 0x402318
   %sp.43 = add i32 %sp.42, 4  ; 0x402318
   %sp.44 = sub i32 %sp.43, 4  ; 0x402320
-  store i32 0, ptr %st.p.48, align 1  ; 0x402320
   %sp.45 = sub i32 %sp.44, 4  ; 0x402322
-  %st.p.50 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x402322
-  store i32 %sp.43, ptr %st.p.50, align 1  ; 0x402322
   %sp.46 = sub i32 %sp.45, 4  ; 0x402323
-  %st.p.51 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x402323
-  store i32 512, ptr %st.p.51, align 1  ; 0x402323
   %sp.47 = sub i32 %sp.46, 4  ; 0x402328
-  %st.p.52 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x402328
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.52, align 1  ; 0x402328
   %eax.19 = trunc i64 %ret.11 to i32  ; 0x40232d
   %sp.48 = sub i32 %sp.47, 4  ; 0x40232d
-  %st.p.53 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x40232d
-  store i32 %eax.19, ptr %st.p.53, align 1  ; 0x40232d
   %sarg0.11 = zext i32 %eax.19 to i64
   %sarg1.11 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.11 = zext i32 %sp.43 to i64
@@ -9264,25 +9185,14 @@ b_402340:  ; 0x402340
   br i1 %not.6, label %b_402382, label %b_402356
 b_402356:  ; 0x402356
   %sp.50 = sub i32 %rsp.phi.3, 4  ; 0x402356
-  %st.p.57 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x402356
-  store i32 -11, ptr %st.p.57, align 1  ; 0x402356
   %ret.13 = call i64 @GetStdHandle(i64 4294967285)  ; 0x402358
   %sp.51 = add i32 %sp.50, 4  ; 0x402358
   %sp.52 = sub i32 %sp.51, 4  ; 0x402360
-  store i32 0, ptr %st.p.57, align 1  ; 0x402360
   %sp.53 = sub i32 %sp.52, 4  ; 0x402362
-  %st.p.59 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x402362
-  store i32 %sp.51, ptr %st.p.59, align 1  ; 0x402362
   %sp.54 = sub i32 %sp.53, 4  ; 0x402363
-  %st.p.60 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x402363
-  store i32 512, ptr %st.p.60, align 1  ; 0x402363
   %sp.55 = sub i32 %sp.54, 4  ; 0x402368
-  %st.p.61 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x402368
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.61, align 1  ; 0x402368
   %eax.24 = trunc i64 %ret.13 to i32  ; 0x40236d
   %sp.56 = sub i32 %sp.55, 4  ; 0x40236d
-  %st.p.62 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x40236d
-  store i32 %eax.24, ptr %st.p.62, align 1  ; 0x40236d
   %sarg0.13 = zext i32 %eax.24 to i64
   %sarg1.13 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.13 = zext i32 %sp.51 to i64
@@ -9304,25 +9214,14 @@ b_402382:  ; 0x402382
   br i1 %not.7, label %b_4023c4, label %b_40239a
 b_40239a:  ; 0x40239a
   %sp.58 = sub i32 %rsp.phi.5, 4  ; 0x40239a
-  %st.p.66 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x40239a
-  store i32 -11, ptr %st.p.66, align 1  ; 0x40239a
   %ret.15 = call i64 @GetStdHandle(i64 4294967285)  ; 0x40239c
   %sp.59 = add i32 %sp.58, 4  ; 0x40239c
   %sp.60 = sub i32 %sp.59, 4  ; 0x4023a4
-  store i32 0, ptr %st.p.66, align 1  ; 0x4023a4
   %sp.61 = sub i32 %sp.60, 4  ; 0x4023a6
-  %st.p.68 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x4023a6
-  store i32 %sp.59, ptr %st.p.68, align 1  ; 0x4023a6
   %sp.62 = sub i32 %sp.61, 4  ; 0x4023a7
-  %st.p.69 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x4023a7
-  store i32 512, ptr %st.p.69, align 1  ; 0x4023a7
   %sp.63 = sub i32 %sp.62, 4  ; 0x4023ac
-  %st.p.70 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x4023ac
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.70, align 1  ; 0x4023ac
   %eax.27 = trunc i64 %ret.15 to i32  ; 0x4023b1
   %sp.64 = sub i32 %sp.63, 4  ; 0x4023b1
-  %st.p.71 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x4023b1
-  store i32 %eax.27, ptr %st.p.71, align 1  ; 0x4023b1
   %sarg0.15 = zext i32 %eax.27 to i64
   %sarg1.15 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.15 = zext i32 %sp.59 to i64
@@ -9349,25 +9248,14 @@ b_4023c4:  ; 0x4023c4
   br i1 %not.8, label %b_402408, label %b_4023dc
 b_4023dc:  ; 0x4023dc
   %sp.66 = sub i32 %rsp.phi.5, 4  ; 0x4023dc
-  %st.p.75 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x4023dc
-  store i32 -11, ptr %st.p.75, align 1  ; 0x4023dc
   %ret.17 = call i64 @GetStdHandle(i64 4294967285)  ; 0x4023de
   %sp.67 = add i32 %sp.66, 4  ; 0x4023de
   %sp.68 = sub i32 %sp.67, 4  ; 0x4023e6
-  store i32 0, ptr %st.p.75, align 1  ; 0x4023e6
   %sp.69 = sub i32 %sp.68, 4  ; 0x4023e8
-  %st.p.77 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x4023e8
-  store i32 %sp.67, ptr %st.p.77, align 1  ; 0x4023e8
   %sp.70 = sub i32 %sp.69, 4  ; 0x4023e9
-  %st.p.78 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x4023e9
-  store i32 512, ptr %st.p.78, align 1  ; 0x4023e9
   %sp.71 = sub i32 %sp.70, 4  ; 0x4023ee
-  %st.p.79 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x4023ee
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.79, align 1  ; 0x4023ee
   %eax.30 = trunc i64 %ret.17 to i32  ; 0x4023f3
   %sp.72 = sub i32 %sp.71, 4  ; 0x4023f3
-  %st.p.80 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x4023f3
-  store i32 %eax.30, ptr %st.p.80, align 1  ; 0x4023f3
   %sarg0.17 = zext i32 %eax.30 to i64
   %sarg1.17 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.17 = zext i32 %sp.67 to i64
@@ -9389,25 +9277,14 @@ b_402408:  ; 0x402408
   br i1 %not.9, label %b_402448, label %b_40241e
 b_40241e:  ; 0x40241e
   %sp.74 = sub i32 %rsp.phi.7, 4  ; 0x40241e
-  %st.p.84 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x40241e
-  store i32 -11, ptr %st.p.84, align 1  ; 0x40241e
   %ret.19 = call i64 @GetStdHandle(i64 4294967285)  ; 0x402420
   %sp.75 = add i32 %sp.74, 4  ; 0x402420
   %sp.76 = sub i32 %sp.75, 4  ; 0x402428
-  store i32 0, ptr %st.p.84, align 1  ; 0x402428
   %sp.77 = sub i32 %sp.76, 4  ; 0x40242a
-  %st.p.86 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x40242a
-  store i32 %sp.75, ptr %st.p.86, align 1  ; 0x40242a
   %sp.78 = sub i32 %sp.77, 4  ; 0x40242b
-  %st.p.87 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x40242b
-  store i32 512, ptr %st.p.87, align 1  ; 0x40242b
   %sp.79 = sub i32 %sp.78, 4  ; 0x402430
-  %st.p.88 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x402430
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.88, align 1  ; 0x402430
   %eax.33 = trunc i64 %ret.19 to i32  ; 0x402435
   %sp.80 = sub i32 %sp.79, 4  ; 0x402435
-  %st.p.89 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x402435
-  store i32 %eax.33, ptr %st.p.89, align 1  ; 0x402435
   %sarg0.19 = zext i32 %eax.33 to i64
   %sarg1.19 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.19 = zext i32 %sp.75 to i64
@@ -9434,25 +9311,14 @@ b_402448:  ; 0x402448
   br i1 %not.10, label %b_40247e, label %b_40245e
 b_40245e:  ; 0x40245e
   %sp.82 = sub i32 %rsp.phi.7, 4  ; 0x40245e
-  %st.p.93 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x40245e
-  store i32 -11, ptr %st.p.93, align 1  ; 0x40245e
   %ret.21 = call i64 @GetStdHandle(i64 4294967285)  ; 0x402460
   %sp.83 = add i32 %sp.82, 4  ; 0x402460
   %sp.84 = sub i32 %sp.83, 4  ; 0x402468
-  store i32 0, ptr %st.p.93, align 1  ; 0x402468
   %sp.85 = sub i32 %sp.84, 4  ; 0x40246a
-  %st.p.95 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x40246a
-  store i32 %sp.83, ptr %st.p.95, align 1  ; 0x40246a
   %sp.86 = sub i32 %sp.85, 4  ; 0x40246b
-  %st.p.96 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x40246b
-  store i32 512, ptr %st.p.96, align 1  ; 0x40246b
   %sp.87 = sub i32 %sp.86, 4  ; 0x402470
-  %st.p.97 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x402470
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.97, align 1  ; 0x402470
   %eax.38 = trunc i64 %ret.21 to i32  ; 0x402475
   %sp.88 = sub i32 %sp.87, 4  ; 0x402475
-  %st.p.98 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x402475
-  store i32 %eax.38, ptr %st.p.98, align 1  ; 0x402475
   %sarg0.21 = zext i32 %eax.38 to i64
   %sarg1.21 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.21 = zext i32 %sp.83 to i64
@@ -9479,25 +9345,14 @@ b_40247e:  ; 0x40247e
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.402494
 b_4024a5:  ; 0x4024a5
   %sp.91 = sub i32 %rsp.132, 4  ; 0x4024a5
-  %st.p.102 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x4024a5
-  store i32 -11, ptr %st.p.102, align 1  ; 0x4024a5
   %ret.24 = call i64 @GetStdHandle(i64 4294967285)  ; 0x4024a7
   %sp.92 = add i32 %sp.91, 4  ; 0x4024a7
   %sp.93 = sub i32 %sp.92, 4  ; 0x4024af
-  store i32 0, ptr %st.p.102, align 1  ; 0x4024af
   %sp.94 = sub i32 %sp.93, 4  ; 0x4024b1
-  %st.p.104 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x4024b1
-  store i32 %sp.92, ptr %st.p.104, align 1  ; 0x4024b1
   %sp.95 = sub i32 %sp.94, 4  ; 0x4024b2
-  %st.p.105 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x4024b2
-  store i32 512, ptr %st.p.105, align 1  ; 0x4024b2
   %sp.96 = sub i32 %sp.95, 4  ; 0x4024b7
-  %st.p.106 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x4024b7
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.106, align 1  ; 0x4024b7
   %eax.42 = trunc i64 %ret.24 to i32  ; 0x4024bc
   %sp.97 = sub i32 %sp.96, 4  ; 0x4024bc
-  %st.p.107 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x4024bc
-  store i32 %eax.42, ptr %st.p.107, align 1  ; 0x4024bc
   %sarg0.23 = zext i32 %eax.42 to i64
   %sarg1.23 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg3.23 = zext i32 %sp.92 to i64
@@ -9514,25 +9369,14 @@ b_4024c5:  ; 0x4024c5
   %st.p.109 = inttoptr i64 %addr.z.113 to ptr  ; 0x4024ce
   store i8 10, ptr %st.p.109, align 1  ; 0x4024ce
   %sp.99 = sub i32 %rsp.phi.10, 4  ; 0x4024d5
-  %st.p.110 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x4024d5
-  store i32 -11, ptr %st.p.110, align 1  ; 0x4024d5
   %ret.26 = call i64 @GetStdHandle(i64 4294967285)  ; 0x4024d7
   %sp.100 = add i32 %sp.99, 4  ; 0x4024d7
   %sp.101 = sub i32 %sp.100, 4  ; 0x4024df
-  store i32 0, ptr %st.p.110, align 1  ; 0x4024df
   %sp.102 = sub i32 %sp.101, 4  ; 0x4024e1
-  %st.p.112 = getelementptr inbounds i8, ptr %frame.top, i64 -20  ; 0x4024e1
-  store i32 %sp.100, ptr %st.p.112, align 1  ; 0x4024e1
   %sp.103 = sub i32 %sp.102, 4  ; 0x4024e2
-  %st.p.113 = getelementptr inbounds i8, ptr %frame.top, i64 -24  ; 0x4024e2
-  store i32 %addr.28, ptr %st.p.113, align 1  ; 0x4024e2
   %sp.104 = sub i32 %sp.103, 4  ; 0x4024e3
-  %st.p.114 = getelementptr inbounds i8, ptr %frame.top, i64 -28  ; 0x4024e3
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32), ptr %st.p.114, align 1  ; 0x4024e3
   %eax.45 = trunc i64 %ret.26 to i32  ; 0x4024e8
   %sp.105 = sub i32 %sp.104, 4  ; 0x4024e8
-  %st.p.115 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x4024e8
-  store i32 %eax.45, ptr %st.p.115, align 1  ; 0x4024e8
   %sarg0.25 = zext i32 %eax.45 to i64
   %sarg1.25 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 336) to i32) to i64
   %sarg2.25 = zext i32 %addr.28 to i64
@@ -13505,22 +13349,6 @@ entry:
   unreachable
 }
 
-define i64 @U_00401000(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00401000(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00401020(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00401020(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
 define i64 @U_00401170(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
   %ret = call i64 @F_00401170(i64 %ecx, i64 %u0)
@@ -13569,89 +13397,9 @@ entry:
   ret i64 0
 }
 
-define i64 @U_00401260(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00401260(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004013a0(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_004013a0(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00401470(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00401470(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00401540(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00401540(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004016b0(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_004016b0(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004017c0(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_004017c0(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004017e0(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_004017e0(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
 define i64 @U_004018c0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
   %ret = call i64 @F_004018c0()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i8 @U_004018f0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i32 %ecx, i64 %edx) {
-entry:
-  call void @F_004018f0(i32 %ecx)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 0
-}
-
-define i64 @U_00401900(i32 %u0, i32 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00401900(i32 %u0, i32 %u1)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00401970(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00401970()
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
   ret i64 %ret
@@ -13761,46 +13509,6 @@ entry:
   ret i64 %ret
 }
 
-define i64 @U_00401c30(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00401c30()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00401c40(i32 %u0, i32 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00401c40(i32 %u0, i32 %u1)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00402070(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i32 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402070(i32 %ecx)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004021a0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_004021a0()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00402530(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402530(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
 define i64 @U_00402540(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
   %ret = call i64 @type_info_vf0(i64 %ecx, i64 %u0)
@@ -13815,22 +13523,6 @@ entry:
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
   ret i64 0
-}
-
-define i64 @U_00402580(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402580(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i8 @U_00402590(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  call void @F_00402590()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 0
 }
 
 define i64 @U_004025a0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
@@ -13857,113 +13549,9 @@ entry:
   ret i64 0
 }
 
-define i64 @U_00402680(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402680()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
 define i64 @U_00402870(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
   %ret = call i64 @entry()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i8 @U_00402880(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  call void @F_00402880(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 0
-}
-
-define i32 @U_004028d0(i32 %u0, i32 %u1, i32 %u2, i32 %u3, i32 %u4, i32 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %args.p = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr
-  %u6 = load i64, ptr %args.p, align 8
-  %args.p.1 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr
-  %u7 = load i64, ptr %args.p.1, align 8
-  %varargs = alloca [8 x i32], align 16
-  %slot = getelementptr i32, ptr %varargs, i64 0
-  store i32 %u0, ptr %slot, align 4
-  %slot.1 = getelementptr i32, ptr %varargs, i64 1
-  store i32 %u1, ptr %slot.1, align 4
-  %slot.2 = getelementptr i32, ptr %varargs, i64 2
-  store i32 %u2, ptr %slot.2, align 4
-  %slot.3 = getelementptr i32, ptr %varargs, i64 3
-  store i32 %u3, ptr %slot.3, align 4
-  %slot.4 = getelementptr i32, ptr %varargs, i64 4
-  store i32 %u4, ptr %slot.4, align 4
-  %slot.5 = getelementptr i32, ptr %varargs, i64 5
-  store i32 %u5, ptr %slot.5, align 4
-  %slot.6 = getelementptr i32, ptr %varargs, i64 6
-  %lo.6 = trunc i64 %u6 to i32
-  store i32 %lo.6, ptr %slot.6, align 4
-  %slot.7 = getelementptr i32, ptr %varargs, i64 7
-  %lo.7 = trunc i64 %u7 to i32
-  store i32 %lo.7, ptr %slot.7, align 4
-  %varargs.i = ptrtoint ptr %varargs to i64
-  %ret = call i32 @F_004028d0(i64 %varargs.i)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i32 %ret
-}
-
-define i64 @U_004029b0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_004029b0()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i8 @U_004029f0(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  call void @F_004029f0(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 0
-}
-
-define i8 @U_00402a10(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i8 @F_00402a10(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 %ret
-}
-
-define i8 @U_00402a50(i32 %u0, i32 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  call void @F_00402a50(i32 %u0, i32 %u1)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 0
-}
-
-define i64 @U_00402a80(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402a80(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i32 @U_00402b30(i32 %u0, i32 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i32 @F_00402b30(i32 %u0, i32 %u1)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i32 %ret
-}
-
-define i64 @U_00402b80(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402b80()
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
   ret i64 %ret
@@ -13977,46 +13565,6 @@ entry:
   ret i64 %ret
 }
 
-define i64 @U_00402c40(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402c40()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00402c50(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402c50()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i8 @U_00402c60(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  call void @F_00402c60()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 0
-}
-
-define i8 @U_00402c70(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i8 @F_00402c70()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 %ret
-}
-
-define i8 @U_00402c80(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  call void @F_00402c80()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 0
-}
-
 define i64 @U_00402cb0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
   call void @F_00402cb0()
@@ -14025,100 +13573,12 @@ entry:
   ret i64 0
 }
 
-define i64 @U_00402cc0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402cc0()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00402ce0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402ce0()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00402cf0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402cf0()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00402d00(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402d00()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i32 @U_00402d10(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i32 @F_00402d10()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i32 %ret
-}
-
-define i32 @U_00402d20(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i32 @F_00402d20()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i32 %ret
-}
-
-define i64 @U_00402d30(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402d30()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00402d80(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_00402d80()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i8 @U_00402d90(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  call void @F_00402d90()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 0
-}
-
-define i8 @U_00402da0(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  call void @F_00402da0(i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 0
-}
-
 define i64 @U_00402db0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
   %ret = call i64 @F_00402db0(i64 %u0)
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 4, ptr %pops.p, align 8
   ret i64 %ret
-}
-
-define i8 @U_00402e10(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  call void @F_00402e10()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 0
 }
 
 define i64 @U_00402e40(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
@@ -14135,30 +13595,6 @@ entry:
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
   ret i64 0
-}
-
-define i8 @U_00402ea0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i8 @F_00402ea0()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i8 %ret
-}
-
-define i64 @U_004031d0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @F_004031d0()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i32 @U_004031e0(i32 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i32 %ecx, i64 %edx) {
-entry:
-  %ret = call i32 @F_004031e0(i32 %ecx, i32 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i32 %ret
 }
 
 define i64 @U_00403261(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
