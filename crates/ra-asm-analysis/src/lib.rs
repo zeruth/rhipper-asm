@@ -530,8 +530,17 @@ fn strings_of(image: &Image, function: &Function) -> Vec<(u64, String)> {
 /// The code addresses the instructions of the built functions hold, outside every function: the
 /// callbacks a program hands out by `push offset f` (an immediate of the address width) or by
 /// `lea r8, [rip + f]` (x64, where a leaf callback has no unwind entry to find it by).
+/// On a 32-bit image with relocations, an immediate is an address only where a relocation marks
+/// it: `cmp eax, 0x416d62` with a four-character code that happens to fall in the code is none,
+/// and a function seeded there (ffxiv.exe's) cut the real one it fell into, whose code past the
+/// cut became a function of its own that ran with the registers of neither.
 fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>, cover: &Cover) -> Vec<(u64, Origin)> {
     let bits = u16::from(image.pointer_size()) * 8;
+    let relocated: Option<std::collections::BTreeSet<u64>> =
+        (bits == 32 && !image.relocations.is_empty()).then(|| image.relocations.iter().map(|r| r.va).collect());
+    let marked = |i: &ra_asm_arch::Instr, va: u64| {
+        relocated.as_ref().is_none_or(|set| set.range(i.address..i.end()).any(|&at| image.u32(at).is_ok_and(|v| u64::from(v) == va)))
+    };
     let mut seeds = Vec::new();
     for f in functions.values() {
         for i in f.blocks.iter().flat_map(|b| &b.instrs) {
@@ -550,7 +559,7 @@ fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>, cover: &C
                     },
                     _ => continue,
                 };
-                if !image.is_code(va) || functions.contains_key(&va) || cover.covered(va) {
+                if !image.is_code(va) || functions.contains_key(&va) || cover.covered(va) || !marked(i, va) {
                     continue;
                 }
                 seeds.push((va, Origin::Pointer(i.address)));

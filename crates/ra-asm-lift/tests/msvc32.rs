@@ -67,9 +67,19 @@ fn section() -> Vec<u8> {
     s
 }
 
-/// A PE32 with the one section, read, written and run, and `main` its entry.
+/// The data section's address.
+const DATA: u64 = BASE + 0x2000;
+
+/// A PE32 with the code section, read, written and run, `main` its entry, and an empty data
+/// section after it.
 fn image(section: &[u8]) -> Vec<u8> {
-    let mut f = vec![0u8; 0x400];
+    image_with_data(section, &[0; 0x200])
+}
+
+/// A PE32 with the code section, read, written and run, `main` its entry, and `data` in a data
+/// section at [`DATA`].
+fn image_with_data(section: &[u8], data: &[u8]) -> Vec<u8> {
+    let mut f = vec![0u8; 0x600];
     let w16 = |f: &mut Vec<u8>, at: usize, v: u16| f[at..at + 2].copy_from_slice(&v.to_le_bytes());
     let w32 = |f: &mut Vec<u8>, at: usize, v: u32| f[at..at + 4].copy_from_slice(&v.to_le_bytes());
     f[0] = b'M';
@@ -78,7 +88,7 @@ fn image(section: &[u8]) -> Vec<u8> {
     f[0x40..0x44].copy_from_slice(b"PE\0\0");
     let coff = 0x44;
     w16(&mut f, coff, 0x14c);
-    w16(&mut f, coff + 2, 1);
+    w16(&mut f, coff + 2, 2);
     w16(&mut f, coff + 16, 0xe0);
     w16(&mut f, coff + 18, 0x0102);
     let opt = coff + 20;
@@ -92,7 +102,7 @@ fn image(section: &[u8]) -> Vec<u8> {
     w32(&mut f, opt + 36, 0x200);
     w16(&mut f, opt + 40, 6);
     w16(&mut f, opt + 48, 6);
-    w32(&mut f, opt + 56, 0x2000);
+    w32(&mut f, opt + 56, 0x3000);
     w32(&mut f, opt + 60, 0x200);
     w16(&mut f, opt + 68, 3);
     w32(&mut f, opt + 72, 0x10_0000);
@@ -108,6 +118,14 @@ fn image(section: &[u8]) -> Vec<u8> {
     w32(&mut f, sec + 20, 0x200);
     w32(&mut f, sec + 36, 0xe000_0060);
     f[0x200..0x400].copy_from_slice(section);
+    let sec = sec + 40;
+    f[sec..sec + 5].copy_from_slice(b".data");
+    w32(&mut f, sec + 8, 0x1000);
+    w32(&mut f, sec + 12, (DATA - BASE) as u32);
+    w32(&mut f, sec + 16, 0x200);
+    w32(&mut f, sec + 20, 0x400);
+    w32(&mut f, sec + 36, 0xc000_0040);
+    f[0x400..0x600].copy_from_slice(data);
     f
 }
 
@@ -174,4 +192,39 @@ fn a_static_function_takes_its_argument_in_the_register_its_callers_set() {
     assert_eq!(signature(SET).params.len(), 6, "set reads edi:\n{}", lifted.module.to_ll());
     assert!(signature(FIVE).params.is_empty(), "five only saves esi:\n{}", lifted.module.to_ll());
     assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 12, "main()\n{}", lifted.module.to_ll());
+}
+
+/// In an image with relocations, `cmp eax, imm` with a constant that falls inside a function
+/// (a four-character code, in ffxiv.exe) names no function: only a relocated immediate (`push
+/// offset table` here) is an address. The immediates are seeds before the pointers in data, so
+/// a function seeded at the constant came first and cut `three` (which only the table names) in
+/// two, and the half after the cut ran as a function of its own.
+#[test]
+fn an_immediate_no_relocation_marks_names_no_function() {
+    const THREE: u64 = CODE + 0x40;
+    const INSIDE: u64 = THREE + 5;
+    const TABLE: u64 = DATA;
+    let mut s = vec![0xccu8; 0x200];
+    let mut put = |at: u64, bytes: &[u8]| {
+        let o = (at - CODE) as usize;
+        s[o..o + bytes.len()].copy_from_slice(bytes);
+    };
+    // cmp eax, INSIDE; push offset TABLE; add esp, 4; ret
+    let mut main = vec![0x3d];
+    main.extend(le(INSIDE));
+    main.push(0x68);
+    main.extend(le(TABLE));
+    main.extend([0x83, 0xc4, 0x04, 0xc3]);
+    put(MAIN, &main);
+    // mov eax, 1; add eax, 2; ret
+    put(THREE, &[0xb8, 1, 0, 0, 0, 0x83, 0xc0, 0x02, 0xc3]);
+    let mut data = vec![0u8; 0x200];
+    data[..4].copy_from_slice(&le(THREE));
+    let mut image = ra_asm_pe::Image::parse(image_with_data(&s, &data)).expect("the image parses");
+    let relocation = |va: u64| ra_asm_pe::relocs::Relocation { va, kind: ra_asm_pe::relocs::RelocKind::HighLow };
+    image.relocations = vec![relocation(MAIN + 6), relocation(TABLE)];
+    let analysis = ra_asm_analysis::analyze(&image);
+    assert!(analysis.function(INSIDE).is_none(), "a function at the constant {INSIDE:#x}");
+    let three = analysis.function(THREE).expect("three is a function");
+    assert!(three.blocks.iter().any(|b| b.instrs.iter().any(|i| i.address == INSIDE)), "three keeps its add: {:?}", three.blocks);
 }
