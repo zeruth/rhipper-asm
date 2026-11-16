@@ -5,6 +5,9 @@
 //! directory the test binaries were built in, so the runs of several checkouts at once tell their
 //! directories apart. A person who wants to read a passing test's output too sets
 //! `RA_KEEP_SCRATCH` to any value: every scratch directory then stays and names its path on stderr.
+//! A suite whose kept output a person reads beside the source makes its scratch with
+//! [`Scratch::in_workspace`] instead, under the workspace's `var/`, and names it relative to the
+//! workspace.
 
 pub mod digest;
 pub mod manifest;
@@ -24,10 +27,12 @@ pub const KEEP: &str = "RA_KEEP_SCRATCH";
 /// a directory in use from a leftover: the worktrees of this machine run their tests at once.
 const LOCK: &str = ".scratch-lock";
 
-/// A directory under the system temp that lives as long as the guard.
+/// A directory under the system temp, or the workspace's `var/`, that lives as long as the guard.
 #[derive(Debug)]
 pub struct Scratch {
     path: PathBuf,
+    /// The path as a failure names it: relative to the workspace for a scratch under it.
+    shown: PathBuf,
     lock: Option<std::fs::File>,
 }
 
@@ -35,7 +40,21 @@ impl Scratch {
     /// Makes `<temp>/<suite>/<build>-<pid>-<name>`, empty: a directory left by a kept or killed
     /// run of the same process id goes first.
     pub fn new(suite: &str, name: &str) -> Self {
-        let path = suite_dir(suite).join(format!("{}-{}-{name}", build(), std::process::id()));
+        Self::make(&suite_dir(suite), name, None)
+    }
+
+    /// Makes `<workspace>/var/<suite>/<build>-<pid>-<name>`, empty, where the workspace is the
+    /// nearest directory over `manifest_dir` (a test's `CARGO_MANIFEST_DIR`) whose `Cargo.toml`
+    /// declares a `[workspace]`: a kept scratch sits beside the checkout that made it, and its
+    /// kept line names it relative to the workspace.
+    pub fn in_workspace(manifest_dir: &Path, suite: &str, name: &str) -> Self {
+        let workspace = workspace_root(manifest_dir);
+        Self::make(&workspace.join("var").join(suite), name, Some(&workspace))
+    }
+
+    fn make(suite_dir: &Path, name: &str, workspace: Option<&Path>) -> Self {
+        let path = suite_dir.join(format!("{}-{}-{name}", build(), std::process::id()));
+        let shown = workspace.and_then(|w| path.strip_prefix(w).ok()).map_or_else(|| path.clone(), Path::to_path_buf);
         let _ = std::fs::remove_dir_all(&path);
         // Another test of the process may remove the suite directory between its creation and
         // the directory's own: the second attempt finds it gone and makes both again.
@@ -43,11 +62,17 @@ impl Scratch {
             std::fs::create_dir_all(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         }
         let lock = lock_options().open(path.join(LOCK)).ok();
-        Self { path, lock }
+        Self { path, shown, lock }
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The path as a failure names it: relative to the workspace for a scratch made by
+    /// [`Self::in_workspace`], the whole path otherwise.
+    pub fn shown(&self) -> &Path {
+        &self.shown
     }
 
     /// The scratch directories of `suite` that the test binaries of this build made in other
@@ -72,6 +97,16 @@ impl Scratch {
 
 fn suite_dir(suite: &str) -> PathBuf {
     std::env::temp_dir().join(suite)
+}
+
+/// The nearest directory over `manifest_dir`, itself included, whose `Cargo.toml` declares a
+/// `[workspace]`; `manifest_dir` when none does, a package that is its own workspace.
+fn workspace_root(manifest_dir: &Path) -> PathBuf {
+    manifest_dir
+        .ancestors()
+        .find(|dir| std::fs::read_to_string(dir.join("Cargo.toml")).is_ok_and(|toml| toml.lines().any(|l| l.trim() == "[workspace]")))
+        .unwrap_or(manifest_dir)
+        .to_path_buf()
 }
 
 /// A short name of the directory this test binary lives in, which every test binary of one
@@ -132,13 +167,13 @@ impl Drop for Scratch {
         // The lock is closed first: Windows does not remove a directory with a file open in it.
         drop(self.lock.take());
         if std::env::var_os(KEEP).is_some() {
-            eprintln!("{KEEP} is set: {} is kept", self.path.display());
+            eprintln!("{KEEP} is set: {} is kept", self.shown.display());
             return;
         }
         // A failing check keeps what it was looking at: the panic message has been printed by
         // now, so this line closes the failure's output.
         if std::thread::panicking() {
-            eprintln!("scratch kept: {}", self.path.display());
+            eprintln!("scratch kept: {}", self.shown.display());
             return;
         }
         // A program the test just ran may still be held open for a moment on Windows.

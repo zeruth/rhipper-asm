@@ -109,10 +109,11 @@ fn builds_here(binary: &str) -> bool {
     (cfg!(all(target_os = "linux", target_arch = "x86_64")) && OVER_THE_LAYER.contains(&binary)) || windows_host(binary)
 }
 
-/// A test's own directory under the system temp, removed when the guard drops; `RA_KEEP_SCRATCH`
-/// keeps it for a person to read.
+/// A test's own directory under the workspace's `var/ra-asm-emit-tests`, removed when the guard
+/// drops after a pass; a failing case keeps it and names it relative to the workspace, and
+/// `RA_KEEP_SCRATCH` keeps every one for a person to read.
 fn scratch(name: &str) -> ra_asm_testing::Scratch {
-    ra_asm_testing::Scratch::new("ra-asm-emit-tests", name)
+    ra_asm_testing::Scratch::in_workspace(Path::new(env!("CARGO_MANIFEST_DIR")), "ra-asm-emit-tests", name)
 }
 
 /// A program and what it prints, as paths under `testdata`: the clang fixtures sit in `bin/` with
@@ -1542,7 +1543,7 @@ fn rhtest_core_o2_splits_into_the_maps_modules() {
     {
         let (dir, _, _) = emit(&fixture, "modules", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
         for file in ["program.h", "data.c", "core.c", "core.h", "rhtest_main.c", "rhtest_main.h"] {
-            assert!(dir.join(file).is_file(), "core-O2: no {file} in {}", dir.display());
+            assert!(dir.join(file).is_file(), "core-O2: no {file} in {}", dir.shown().display());
         }
         let header = std::fs::read_to_string(dir.join("core.h")).unwrap();
         assert!(header.starts_with(ra_asm_emit::MODULE_MARK) && header.contains(" rhtest_run("), "core-O2: core.h is\n{header}");

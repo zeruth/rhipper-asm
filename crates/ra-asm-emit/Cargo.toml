@@ -25,6 +25,9 @@ required-features = ["oracle"]
 [[test]]
 name = "adapters"
 
+[[test]]
+name = "scratch_dir"
+
 [dependencies]
 anyhow.workspace = true
 ra-asm-analysis.workspace = true
