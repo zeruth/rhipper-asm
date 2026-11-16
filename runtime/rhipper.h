@@ -148,6 +148,20 @@ void ra_call(void *state, uint64_t target);
 #endif
 // What the x86 function a pointer named popped beyond its return address.
 uint64_t ra_pops_of(uint64_t target);
+// A call through a pointer of a 32-bit program that hands on stack words past the six of the
+// universal call, as one expression: every argument is evaluated first, then the `n` words after
+// the count go to ra_args, where the callee's universal entry point reads them, and then the call
+// is made, the order the stores and the call had. The translation defines ra_args when one of its
+// calls takes this form.
+static inline uint64_t ra_args_call_into(uint64_t *words, void *fp, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4,
+                                         uint64_t a5, uint64_t a6, uint64_t a7, unsigned n, ...) {
+    __builtin_va_list extra;
+    __builtin_va_start(extra, n);
+    for (unsigned k = 0; k < n; k++) words[k] = __builtin_va_arg(extra, uint64_t);
+    __builtin_va_end(extra);
+    return ((uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t))fp)(a0, a1, a2, a3, a4, a5, a6, a7);
+}
+#define ra_args_call(...) ra_args_call_into((uint64_t *)(void *)ra_args, __VA_ARGS__)
 void ra_enter(const char *name);
 // The trace of a port emitted with tracing (`run.trace` of the project): every function records
 // its arguments as it starts and its result as it returns, one line per event, to the file the

@@ -12,11 +12,20 @@
 //!   between fold into their one use.
 //! - A block that only falls into a block nothing else enters is one block with it, so a value
 //!   computed before the seam folds into its use after it.
+//! - A call through a pointer that hands on stack words past the universal six, which the raise
+//!   writes as a store of each into `ra_args` and the call, is one call of the runtime's
+//!   [`ARGS_CALL`] that takes them all.
 
 use std::collections::{HashMap, HashSet};
 
-use ra_asm_ir::{BinOp, BlockId, Callee, Function, Inst, Module, Operand, Terminator, Type, ValueId};
+use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FnType, Function, Inst, Module, Operand, Terminator, Type, ValueId};
 use ra_asm_lift::raise::{dce, known, simplify};
+use ra_asm_lift::state::ARGS;
+
+/// The runtime's form of a call through a pointer with stack words past the universal six
+/// (`rhipper.h`): the callee, the eight universal words, the count of the words past them and
+/// those words, which it stores into [`ARGS`] once every argument is evaluated, before the call.
+pub(crate) const ARGS_CALL: &str = "ra_args_call";
 
 /// The runtime's adapters of a 32-bit program's imports that return with nothing a handler of the
 /// program sees, by the rule of [`ra_asm_protos::calls_no_code`]: each takes only integers, reads
@@ -52,7 +61,7 @@ fn quiet_external(name: &str) -> bool {
     if name.starts_with("ra_eh_") {
         return name == "ra_eh_pending";
     }
-    if name.starts_with("ra_call") || name.starts_with("F_") || name.starts_with("U_") {
+    if name.starts_with("ra_call") || name == ARGS_CALL || name.starts_with("F_") || name.starts_with("U_") {
         return false;
     }
     if name.starts_with("ra_x86_") {
@@ -124,6 +133,10 @@ pub(crate) fn tidy(f: &Function, nothrow: &HashSet<String>) -> Option<Function> 
     }
     changed |= merge_straight(&mut f);
     changed |= sink(&mut f);
+    if fold_arg_stores(&mut f) {
+        dce::run(&mut f);
+        changed = true;
+    }
     changed.then_some(f)
 }
 
@@ -662,6 +675,144 @@ fn merge_straight(f: &mut Function) -> bool {
     true
 }
 
+/// The byte offset into [`ARGS`] that `ptr` addresses, through its casts and constant steps.
+fn args_offset(defs: &HashMap<ValueId, &Inst>, ptr: &Operand) -> Option<i64> {
+    let (mut at, mut offset) = (ptr, 0i64);
+    for _ in 0..16 {
+        match at {
+            Operand::Global(g) if g == ARGS => return Some(offset),
+            Operand::Address { global, offset: k } if global == ARGS => return offset.checked_add(*k),
+            Operand::Local(v) => match defs.get(v)? {
+                Inst::Cast { cast: Cast::IntToPtr | Cast::PtrToInt | Cast::Bitcast, value, .. } => at = value,
+                Inst::Gep { base_ty: Type::Int(8), ptr, indices, .. } => {
+                    let [(_, Operand::Int(k))] = indices.as_slice() else { return None };
+                    offset = offset.checked_add(i64::try_from(*k).ok()?)?;
+                    at = ptr;
+                }
+                Inst::Bin { op: BinOp::Add, lhs, rhs: Operand::Int(k), .. } => {
+                    offset = offset.checked_add(i64::try_from(*k).ok()?)?;
+                    at = lhs;
+                }
+                _ => return None,
+            },
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// Whether the address `ptr` may be in [`ARGS`], by its arithmetic: a pointer that comes from
+/// memory, a call or a phi is the program's, which never holds a host global's address.
+fn may_point_at_args(defs: &HashMap<ValueId, &Inst>, ptr: &Operand, depth: usize) -> bool {
+    match ptr {
+        Operand::Global(g) | Operand::Address { global: g, .. } => g == ARGS,
+        Operand::Local(v) => match defs.get(v) {
+            _ if depth > 32 => true,
+            Some(Inst::Cast { value, .. }) => may_point_at_args(defs, value, depth + 1),
+            Some(Inst::Gep { ptr, indices, .. }) => {
+                may_point_at_args(defs, ptr, depth + 1) || indices.iter().any(|(_, i)| may_point_at_args(defs, i, depth + 1))
+            }
+            Some(Inst::Bin { lhs, rhs, .. }) => may_point_at_args(defs, lhs, depth + 1) || may_point_at_args(defs, rhs, depth + 1),
+            Some(Inst::Select { then, els, .. }) => may_point_at_args(defs, then, depth + 1) || may_point_at_args(defs, els, depth + 1),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Whether `word` is written in C as a `uint64_t`, as a word handed on through the variadic
+/// [`ARGS_CALL`] must be: a constant, a parameter, or a load or an integer cast of that width.
+fn plain_word(defs: &HashMap<ValueId, &Inst>, word: &Operand) -> bool {
+    match word {
+        Operand::Int(_) => true,
+        Operand::Local(v) => match defs.get(v) {
+            None
+            | Some(
+                Inst::Load { ty: Type::Int(64), .. }
+                | Inst::Cast { cast: Cast::ZExt | Cast::SExt | Cast::Trunc | Cast::PtrToInt, to: Type::Int(64), .. },
+            ) => true,
+            Some(_) => false,
+        },
+        _ => false,
+    }
+}
+
+/// Each call through a pointer whose stack words past the universal six are stored into
+/// [`ARGS`] just before it, as [`ARGS_CALL`] with those words among its arguments: one statement
+/// where the stores took one each. The runtime stores them after every argument is evaluated,
+/// which keeps the order when nothing between the first store and the call acts, besides the
+/// stores, or reads [`ARGS`].
+fn fold_arg_stores(f: &mut Function) -> bool {
+    if !f.blocks.iter().flat_map(|b| &b.instrs).any(|i| matches!(i.inst, Inst::Call { callee: Callee::Indirect(_), .. })) {
+        return false;
+    }
+    let defs: HashMap<ValueId, &Inst> = f.blocks.iter().flat_map(|b| &b.instrs).filter_map(|i| Some((i.result?, &i.inst))).collect();
+    // The calls rewritten, by their block and index, and the stores they took.
+    let mut calls: Vec<(usize, usize, Inst)> = Vec::new();
+    let mut taken: HashSet<(usize, usize)> = HashSet::new();
+    for (bi, b) in f.blocks.iter().enumerate() {
+        for (ci, call) in b.instrs.iter().enumerate() {
+            let Inst::Call { fn_ty, callee: Callee::Indirect(fp), args, tail: false } = &call.inst else { continue };
+            if fn_ty.ret != Type::I64 || fn_ty.varargs || args.len() != 8 || args.iter().any(|(t, _)| *t != Type::I64) {
+                continue;
+            }
+            let mut words: HashMap<i64, Operand> = HashMap::new();
+            let mut stores = Vec::new();
+            let mut whole = true;
+            for (si, before) in b.instrs[..ci].iter().enumerate().rev() {
+                match &before.inst {
+                    Inst::Store { ty: Type::Int(64), value, ptr, volatile: false, .. } if let Some(offset) = args_offset(&defs, ptr) => {
+                        // A word stored twice is no shape of the raise's.
+                        whole &= words.insert(offset, value.clone()).is_none();
+                        stores.push((bi, si));
+                    }
+                    Inst::Load { ptr, .. } if may_point_at_args(&defs, ptr, 0) => break,
+                    Inst::Call { .. } | Inst::AtomicRmw { .. } | Inst::CmpXchg { .. } => break,
+                    i if i.has_side_effects() => break,
+                    _ => {}
+                }
+            }
+            let n = words.len();
+            let mut extra = Vec::with_capacity(n);
+            for k in 0..n {
+                match i64::try_from(8 * k).ok().and_then(|offset| words.get(&offset)) {
+                    Some(word) if plain_word(&defs, word) => extra.push(word.clone()),
+                    _ => whole = false,
+                }
+            }
+            if !whole || n == 0 {
+                continue;
+            }
+            let mut params = vec![Type::Ptr];
+            params.extend(std::iter::repeat_n(Type::I64, 8));
+            params.push(Type::I32);
+            params.extend(std::iter::repeat_n(Type::I64, n));
+            let mut with = vec![(Type::Ptr, fp.clone())];
+            with.extend(args.iter().cloned());
+            with.push((Type::I32, Operand::Int(i128::try_from(n).unwrap_or_default())));
+            with.extend(extra.into_iter().map(|w| (Type::I64, w)));
+            let inst =
+                Inst::Call { fn_ty: FnType::new(Type::I64, params), callee: Callee::Direct(ARGS_CALL.into()), args: with, tail: false };
+            calls.push((bi, ci, inst));
+            taken.extend(stores);
+        }
+    }
+    if calls.is_empty() {
+        return false;
+    }
+    for (bi, ci, inst) in calls {
+        f.blocks[bi].instrs[ci].inst = inst;
+    }
+    for (bi, block) in f.blocks.iter_mut().enumerate() {
+        let mut at = 0;
+        block.instrs.retain(|_| {
+            at += 1;
+            !taken.contains(&(bi, at - 1))
+        });
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -745,5 +896,69 @@ mod tests {
         assert!(keeps_check(&calling_through("memcpy")));
         assert!(keeps_check(&calling_through("CloseHandle")));
         assert!(!keeps_check(&calling_through("GetTickCount")));
+    }
+
+    /// `f(target, sp)`: a call through `target` of the universal shape, with the two stack words
+    /// above its six loaded from `sp + 24` and `sp + 28` and stored into `ra_args` before it, as
+    /// the raise writes it; `between` is put between the stores and the call.
+    fn call_with_words(between: fn(&mut FunctionBuilder, BlockId)) -> Function {
+        let universal = FnType::new(Type::I64, vec![Type::I64; 8]);
+        let mut fb = FunctionBuilder::new("f", FnType::new(Type::I64, vec![Type::I64, Type::I64]), &["target", "sp"]);
+        let entry = fb.block("entry");
+        let (target, sp) = (fb.param(0), fb.param(1));
+        let fp = fb.cast(entry, Cast::IntToPtr, Type::I64, target, Type::Ptr, "fp");
+        for k in 0..2i64 {
+            let at = fb.bin(entry, BinOp::Add, Type::I64, sp, 24 + 4 * k, "at");
+            let p = fb.cast(entry, Cast::IntToPtr, Type::I64, at, Type::Ptr, "p");
+            let word = fb.load(entry, Type::I32, p, "word");
+            let word = fb.cast(entry, Cast::ZExt, Type::I32, word, Type::I64, "sarg");
+            let slot = Operand::Address { global: ARGS.to_owned(), offset: 8 * k };
+            let slot = fb.cast(entry, Cast::IntToPtr, Type::I64, slot, Type::Ptr, "args.p");
+            fb.store(entry, Type::I64, word, slot);
+        }
+        between(&mut fb, entry);
+        let args = (0..8).map(|k| (Type::I64, Operand::Local(if k % 2 == 0 { sp } else { target }))).collect();
+        let ret = fb.call(entry, universal, Callee::Indirect(fp.into()), args, "ret").expect("the call returns a value");
+        fb.terminate(entry, Terminator::Ret(Some((Type::I64, ret.into()))));
+        fb.finish()
+    }
+
+    /// The calls of `f` and whether it still stores into `ra_args`.
+    fn calls_and_stores(f: &Function) -> (Vec<&Inst>, bool) {
+        let instrs: Vec<&Inst> = f.blocks.iter().flat_map(|b| &b.instrs).map(|i| &i.inst).collect();
+        let stores = instrs.iter().any(|i| matches!(i, Inst::Store { .. }));
+        (instrs.into_iter().filter(|i| matches!(i, Inst::Call { .. })).collect(), stores)
+    }
+
+    #[test]
+    fn a_call_through_a_pointer_takes_its_words_past_the_six() {
+        let f = call_with_words(|_, _| {});
+        let tidied = tidy(&f, &HashSet::new()).expect("the stores fold into the call");
+        let (calls, stores) = calls_and_stores(&tidied);
+        assert!(!stores, "the stores into ra_args are the call's now");
+        let [Inst::Call { callee: Callee::Direct(name), args, .. }] = calls.as_slice() else { panic!("one call, {} found", calls.len()) };
+        assert_eq!(name, ARGS_CALL);
+        // The callee, the eight universal words, the count and the two words.
+        assert_eq!(args.len(), 12);
+        assert_eq!(args[9], (Type::I32, Operand::Int(2)));
+        let mut m = Module::x86_64_windows("test");
+        m.globals.push(ra_asm_lift::state::args_global(2));
+        m.functions.push(f);
+        let c = crate::c::emit_c(&m, &crate::c::Options::default());
+        assert!(c.contains("ra_args_call("), "the C makes the call in one statement:\n{c}");
+        assert!(!c.contains("&ra_args)"), "the C stores into ra_args nowhere:\n{c}");
+    }
+
+    #[test]
+    fn a_read_of_the_words_between_keeps_the_stores() {
+        let f = call_with_words(|fb, entry| {
+            let p = fb.cast(entry, Cast::IntToPtr, Type::I64, Operand::Address { global: ARGS.to_owned(), offset: 0 }, Type::Ptr, "q");
+            let read = fb.load(entry, Type::I64, p, "read");
+            fb.store(entry, Type::I64, read, Operand::Address { global: ARGS.to_owned(), offset: 8 });
+        });
+        let tidied = tidy(&f, &HashSet::new()).unwrap_or_else(|| f.clone());
+        let (calls, stores) = calls_and_stores(&tidied);
+        assert!(stores);
+        assert!(matches!(calls.as_slice(), [Inst::Call { callee: Callee::Indirect(_), .. }]), "the call stays through its pointer");
     }
 }

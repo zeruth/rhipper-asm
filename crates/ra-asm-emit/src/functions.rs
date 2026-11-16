@@ -73,9 +73,13 @@ pub struct Grade {
 
 impl Grade {
     /// The grade of `f`: `gotos` from its structuring, `casts` and `lines` from its text, the rest
-    /// from its IR.
+    /// from its IR. A call through a pointer the tidying wrote with its extra words is one still.
     pub(crate) fn of(f: &Function, gotos: usize, casts: usize, lines: usize) -> Self {
-        let calls = f.blocks.iter().flat_map(|b| &b.instrs).filter(|i| matches!(i.inst, Inst::Call { callee: Callee::Indirect(_), .. }));
+        let calls = f.blocks.iter().flat_map(|b| &b.instrs).filter(|i| match &i.inst {
+            Inst::Call { callee: Callee::Indirect(_), .. } => true,
+            Inst::Call { callee: Callee::Direct(n), .. } => n == crate::tidy::ARGS_CALL,
+            _ => false,
+        });
         Self { gotos, casts, unresolved_calls: calls.count(), stack_accesses: stack_accesses(f), lines }
     }
 
