@@ -584,6 +584,7 @@ impl Builder<'_> {
             register_import_calls: std::collections::HashMap::new(),
             traced_calls: std::collections::BTreeMap::new(),
             virtuals: Vec::new(),
+            reach: crate::function::Reach::Named,
         };
         Built { function, warnings: self.warnings }
     }

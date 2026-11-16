@@ -22,6 +22,7 @@ pub mod prototypes;
 pub mod simplify;
 pub mod stack;
 pub mod steps;
+pub mod stores;
 pub mod strings;
 pub mod stubs;
 pub mod types;

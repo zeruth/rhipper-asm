@@ -3,14 +3,14 @@ ra-asm-verify vectors 1
 
 vector decrypt at 0x4010e0
 entry
-  eax = 0x248
+  eax = 0x250
   ecx = 0x120fff8c
   edx = 0x402000
   ebx = 0x0
   esp = 0x120fff7c
   ebp = 0x0
   esi = 0x120fff8c
-  edi = 0x248
+  edi = 0x250
   eip = 0x0
   cf = 0x0
   pf = 0x1
@@ -62,7 +62,7 @@ exit
   esp = 0x120fff80
   ebp = 0x0
   esi = 0x120fff8c
-  edi = 0x248
+  edi = 0x250
   eip = 0x0
   cf = 0x0
   pf = 0x1
@@ -104,7 +104,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff6c: 8c ff 0f 12 48 02 00 00 00 00 00 00 00 00 00 00
+  0x120fff6c: 8c ff 0f 12 50 02 00 00 00 00 00 00 00 00 00 00
   0x120fff8c: 43 6f 6c 6c 61 74 7a 20 73 74 65 70 73 0d 0a 00
 left return
 
@@ -371,7 +371,7 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x403000: 48 02 00 00
+  0x403000: 50 02 00 00
   0x120fff84: 89 10 40 00
 call imp_WriteFile
   result eax = 0x1
@@ -428,7 +428,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff50: 48 02 00 00 71 ff 0f 12 03 00 00 00 64 ff 0f 12
+  0x120fff50: 50 02 00 00 71 ff 0f 12 03 00 00 00 64 ff 0f 12
     00 00 00 00 03 00 00 00
   0x120fff71: 38 0d 0a 8c ff 0f 12 06 00 00 00 88 ff 0f 12 a0
     04 00 10
@@ -697,7 +697,7 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x403000: 48 02 00 00
+  0x403000: 50 02 00 00
   0x120fff84: 89 10 40 00
 call imp_WriteFile
   result eax = 0x1
@@ -754,7 +754,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff50: 48 02 00 00 70 ff 0f 12 04 00 00 00 64 ff 0f 12
+  0x120fff50: 50 02 00 00 70 ff 0f 12 04 00 00 00 64 ff 0f 12
     00 00 00 00 04 00 00 00
   0x120fff70: 31 36 0d 0a 8c ff 0f 12 07 00 00 00 88 ff 0f 12
     a0 04 00 10
@@ -1023,7 +1023,7 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x403000: 48 02 00 00
+  0x403000: 50 02 00 00
   0x120fff84: 89 10 40 00
 call imp_WriteFile
   result eax = 0x1
@@ -1080,7 +1080,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff50: 48 02 00 00 71 ff 0f 12 03 00 00 00 64 ff 0f 12
+  0x120fff50: 50 02 00 00 71 ff 0f 12 03 00 00 00 64 ff 0f 12
     00 00 00 00 03 00 00 00
   0x120fff71: 33 0d 0a 8c ff 0f 12 08 00 00 00 88 ff 0f 12 a0
     04 00 10
@@ -1349,7 +1349,7 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x403000: 48 02 00 00
+  0x403000: 50 02 00 00
   0x120fff84: 89 10 40 00
 call imp_WriteFile
   result eax = 0x1
@@ -1406,7 +1406,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff50: 48 02 00 00 70 ff 0f 12 04 00 00 00 64 ff 0f 12
+  0x120fff50: 50 02 00 00 70 ff 0f 12 04 00 00 00 64 ff 0f 12
     00 00 00 00 04 00 00 00
   0x120fff70: 31 39 0d 0a 8c ff 0f 12 09 00 00 00 88 ff 0f 12
     a0 04 00 10
@@ -1466,7 +1466,7 @@ memory in
   0x402078: a0 04 00 10
   0x403004: 00 00 00 00
 call imp_GetStdHandle
-  result eax = 0x248
+  result eax = 0x250
   result edx = 0x0
   result xmm0 = 0x0
 call decrypt
@@ -1475,7 +1475,7 @@ call decrypt
   result esp = 0x120fff80
   result zf = 0x1
   result xmm0 = 0x0
-  effect 0x120fff6c: 8c ff 0f 12 48 02 00 00 00 00 00 00 00 00 00 00
+  effect 0x120fff6c: 8c ff 0f 12 50 02 00 00 00 00 00 00 00 00 00 00
   effect 0x120fff8c: 43 6f 6c 6c 61 74 7a 20 73 74 65 70 73 0d 0a 00
 call imp_WriteFile
   result eax = 0x1
@@ -1513,7 +1513,7 @@ call print_int
   result esp = 0x120fff88
   result zf = 0x0
   result xmm0 = 0x0
-  effect 0x120fff50: 48 02 00 00 71 ff 0f 12 03 00 00 00 64 ff 0f 12
+  effect 0x120fff50: 50 02 00 00 71 ff 0f 12 03 00 00 00 64 ff 0f 12
     00 00 00 00 03 00 00 00
   effect 0x120fff71: 38 0d 0a 8c ff 0f 12 06 00 00 00 88 ff 0f 12 a0
     04 00 10
@@ -1548,7 +1548,7 @@ call print_int
   result esp = 0x120fff88
   result zf = 0x0
   result xmm0 = 0x0
-  effect 0x120fff50: 48 02 00 00 70 ff 0f 12 04 00 00 00 64 ff 0f 12
+  effect 0x120fff50: 50 02 00 00 70 ff 0f 12 04 00 00 00 64 ff 0f 12
     00 00 00 00 04 00 00 00
   effect 0x120fff70: 31 36 0d 0a 8c ff 0f 12 07 00 00 00 88 ff 0f 12
     a0 04 00 10
@@ -1583,7 +1583,7 @@ call print_int
   result esp = 0x120fff88
   result zf = 0x0
   result xmm0 = 0x0
-  effect 0x120fff50: 48 02 00 00 71 ff 0f 12 03 00 00 00 64 ff 0f 12
+  effect 0x120fff50: 50 02 00 00 71 ff 0f 12 03 00 00 00 64 ff 0f 12
     00 00 00 00 03 00 00 00
   effect 0x120fff71: 33 0d 0a 8c ff 0f 12 08 00 00 00 88 ff 0f 12 a0
     04 00 10
@@ -1618,7 +1618,7 @@ call print_int
   result esp = 0x120fff88
   result zf = 0x0
   result xmm0 = 0x0
-  effect 0x120fff50: 48 02 00 00 70 ff 0f 12 04 00 00 00 64 ff 0f 12
+  effect 0x120fff50: 50 02 00 00 70 ff 0f 12 04 00 00 00 64 ff 0f 12
     00 00 00 00 04 00 00 00
   effect 0x120fff70: 31 39 0d 0a 8c ff 0f 12 09 00 00 00 88 ff 0f 12
     a0 04 00 10
@@ -1676,7 +1676,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x403000: 48 02 00 00
+  0x403000: 50 02 00 00
   0x120fff74: 8c ff 0f 12 09 00 00 00 88 ff 0f 12 a0 04 00 10
     00 00 00 00 06 00 00 00
   0x120fffac: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00

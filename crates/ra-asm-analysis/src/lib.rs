@@ -24,6 +24,7 @@ pub mod builder;
 pub mod eh32;
 pub mod facts;
 pub mod function;
+pub mod gaps;
 pub mod identity;
 pub mod imports;
 pub mod jumptable;
@@ -41,7 +42,7 @@ use ra_asm_pe::{CxxAbi, CxxFrame, Image, Machine, Toolset};
 
 pub use eh32::CxxFrame32;
 pub use facts::Facts;
-pub use function::{Block, Function, Kind, Origin, Terminator, VirtualSlot};
+pub use function::{Block, Function, Kind, Origin, Reach, Terminator, VirtualSlot};
 pub use identity::Identity;
 pub use rtti::{Class, Vtable};
 pub use seh32::{Scope, SehFrame};
@@ -88,6 +89,13 @@ pub struct Analysis<'a> {
     /// The function a port starts at: the image's entry point, or `main` when the entry is the
     /// startup of a C runtime linked into the image, whose work the host's own startup does.
     pub program_entry: Option<u64>,
+    /// The functions whose address the program takes ([`gaps::address_taken`]), which a computed
+    /// call or jump can reach and the port resolves by address; `None` when every function may be
+    /// (an analysis of a few functions built by hand).
+    pub address_taken: Option<BTreeSet<u64>>,
+    /// The entries the gaps showed whose bytes are fill alone, which are no functions
+    /// ([`gaps::classify`]).
+    pub fill: Vec<u64>,
     /// The facts of the traced run the analysis took, empty without one.
     pub facts: Facts,
     /// The toolset that built the image: its C++ ABI decides whose RTTI the classes are read
@@ -149,9 +157,22 @@ impl Analysis<'_> {
     }
 
     /// The functions a port lifts: every one but those of a C runtime linked into the image,
-    /// which the host's runtime supplies.
+    /// which the host's runtime supplies, and the dead code the gaps showed ([`Reach::Dead`]).
     pub fn ported(&self) -> impl Iterator<Item = &Function> {
-        self.functions.values().filter(|f| !matches!(f.kind, Kind::Runtime(_)))
+        self.functions.values().filter(|f| !matches!(f.kind, Kind::Runtime(_)) && !f.is_dead())
+    }
+
+    /// Whether the program takes the address of the function at `va`: a computed call or jump can
+    /// reach it, and the port resolves it by its address.
+    pub fn is_address_taken(&self, va: u64) -> bool {
+        self.address_taken.as_ref().is_none_or(|taken| taken.contains(&va))
+    }
+
+    /// How many functions only the gaps showed are dead and how many are not.
+    pub fn gap_counts(&self) -> (usize, usize) {
+        let dead = self.functions.values().filter(|f| f.is_dead()).count();
+        let gap = self.functions.values().filter(|f| f.reach == Reach::Gap).count();
+        (dead, gap)
     }
 
     /// Gives back the decoded instructions of every block, keeping the functions, their blocks'
@@ -425,6 +446,19 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
             f.traced_calls.insert(call.site, targets);
         }
     }
+    // With every function found and every call known, the ones only the gaps showed are judged:
+    // the fill goes, the dead stay marked, and what anything names is the program's.
+    // A RISC machine builds an address from two instructions (`lui` and `addiu`, `adrp` and `add`,
+    // `movw` and `movt`) or loads it from a literal pool, which no one operand shows: there every
+    // function may be address-taken, and the gaps are not searched. So is it for 32-bit x86 code
+    // of an ELF or Mach-O file, which addresses its functions from the global offset table.
+    let risc = matches!(image.machine(), Machine::Arm64 | Machine::Arm | Machine::Mips | Machine::Other(EM_MIPS));
+    let pic = !image.is_64() && (image.elf.is_some() || image.macho.is_some());
+    let mut address_taken = (!risc && !pic).then(|| gaps::address_taken(image, &functions, &classes, facts));
+    let fill = match &address_taken {
+        Some(taken) => gaps::classify(image, &mut functions, taken),
+        None => gaps::Fill::default(),
+    };
     // The names, strongest first: the exports are set, the symbols of the build (the PDB, else the
     // link map) name what they list, a vtable slot names what is left, and the last pass makes
     // them identifiers unique in the program.
@@ -432,6 +466,10 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     symbols::name_functions(image, &mut functions);
     name_virtual_functions(&classes, &mut functions);
     let program_entry = symbols::program_entry(image, &functions);
+    // The port's startup calls the program entry by its address.
+    if let Some(taken) = &mut address_taken {
+        taken.extend(program_entry);
+    }
     symbols::finish_names(&mut functions);
     // The x64 unwind data names a function's scope table; on 32-bit x86 its prologue does.
     let (seh_frames, seh_unread) =
@@ -454,6 +492,8 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
         cxx_frames32,
         cxx_unread32,
         program_entry,
+        address_taken,
+        fill: fill.0,
         facts: facts.clone(),
         toolset,
         warnings,

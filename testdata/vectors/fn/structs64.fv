@@ -3,7 +3,7 @@ ra-asm-verify vectors 1
 
 vector fill at 0x1400010a0
 entry
-  rax = 0x248
+  rax = 0x250
   rcx = 0x120fff88
   rdx = 0x0
   rbx = 0x0
@@ -309,7 +309,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff58: 34 10 00 40 01 00 00 00
-  0x140003008: 48 02 00 00 00 00 00 00
+  0x140003008: 50 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff54
@@ -317,7 +317,7 @@ call imp_WriteFile
   effect 0x120fff3c: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x248
+  rcx = 0x250
   rdx = 0x120fff54
   rbx = 0x0
   rsp = 0x120fff60
@@ -438,7 +438,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff58: 3d 10 00 40 01 00 00 00
-  0x140003008: 48 02 00 00 00 00 00 00
+  0x140003008: 50 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff55
@@ -446,7 +446,7 @@ call imp_WriteFile
   effect 0x120fff3c: 03 00 00 00
 exit
   rax = 0x1
-  rcx = 0x248
+  rcx = 0x250
   rdx = 0x120fff55
   rbx = 0x0
   rsp = 0x120fff60
@@ -689,7 +689,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff58: 4d 10 00 40 01 00 00 00
-  0x140003008: 48 02 00 00 00 00 00 00
+  0x140003008: 50 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff55
@@ -697,7 +697,7 @@ call imp_WriteFile
   effect 0x120fff3c: 03 00 00 00
 exit
   rax = 0x1
-  rcx = 0x248
+  rcx = 0x250
   rdx = 0x120fff55
   rbx = 0x0
   rsp = 0x120fff60
@@ -939,7 +939,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff58: 5d 10 00 40 01 00 00 00
-  0x140003008: 48 02 00 00 00 00 00 00
+  0x140003008: 50 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff53
@@ -947,7 +947,7 @@ call imp_WriteFile
   effect 0x120fff3c: 05 00 00 00
 exit
   rax = 0x1
-  rcx = 0x248
+  rcx = 0x250
   rdx = 0x120fff53
   rbx = 0x0
   rsp = 0x120fff60
@@ -1193,7 +1193,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff58: 79 10 00 40 01 00 00 00
-  0x140003008: 48 02 00 00 00 00 00 00
+  0x140003008: 50 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff53
@@ -1201,7 +1201,7 @@ call imp_WriteFile
   effect 0x120fff3c: 05 00 00 00
 exit
   rax = 0x1
-  rcx = 0x248
+  rcx = 0x250
   rdx = 0x120fff53
   rbx = 0x0
   rsp = 0x120fff60
@@ -1322,7 +1322,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff58: 82 10 00 40 01 00 00 00
-  0x140003008: 48 02 00 00 00 00 00 00
+  0x140003008: 50 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff54
@@ -1330,7 +1330,7 @@ call imp_WriteFile
   effect 0x120fff3c: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x248
+  rcx = 0x250
   rdx = 0x120fff54
   rbx = 0x0
   rsp = 0x120fff60
@@ -1572,7 +1572,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff58: 92 10 00 40 01 00 00 00
-  0x140003008: 48 02 00 00 00 00 00 00
+  0x140003008: 50 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff53
@@ -1580,7 +1580,7 @@ call imp_WriteFile
   effect 0x120fff3c: 05 00 00 00
 exit
   rax = 0x1
-  rcx = 0x248
+  rcx = 0x250
   rdx = 0x120fff53
   rbx = 0x0
   rsp = 0x120fff60
@@ -1701,7 +1701,7 @@ entry
   ymm15h = 0x0
 memory in
 call imp_GetStdHandle
-  result rax = 0x248
+  result rax = 0x250
   result rdx = 0x0
   result xmm0 = 0x0
 call fill
@@ -1724,7 +1724,7 @@ call weigh
   effect 0x120fffa8: 08 00 00 00
 call print_int
   result rax = 0x1
-  result rcx = 0x248
+  result rcx = 0x250
   result rdx = 0x120fff54
   result rsp = 0x120fff60
   result r8 = 0x4
@@ -1737,7 +1737,7 @@ call print_int
   effect 0x120fff54: 38 36 0d 0a
 call print_int
   result rax = 0x1
-  result rcx = 0x248
+  result rcx = 0x250
   result rdx = 0x120fff55
   result rsp = 0x120fff60
   result r8 = 0x3
@@ -1756,7 +1756,7 @@ call name_length
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x248
+  result rcx = 0x250
   result rdx = 0x120fff55
   result rsp = 0x120fff60
   result r11 = 0x35
@@ -1773,7 +1773,7 @@ call scaled
   result xmm0 = 0x4060200000000000
 call print_int
   result rax = 0x1
-  result rcx = 0x248
+  result rcx = 0x250
   result rdx = 0x120fff53
   result rsp = 0x120fff60
   result r8 = 0x5
@@ -1795,7 +1795,7 @@ call weigh
   effect 0x120fffa8: 28 00 00 00
 call print_int
   result rax = 0x1
-  result rcx = 0x248
+  result rcx = 0x250
   result rdx = 0x120fff53
   result rsp = 0x120fff60
   result r8 = 0x5
@@ -1806,7 +1806,7 @@ call print_int
   effect 0x120fff53: 31 35 36 0d 0a
 call print_int
   result rax = 0x1
-  result rcx = 0x248
+  result rcx = 0x250
   result rdx = 0x120fff54
   result rsp = 0x120fff60
   result r8 = 0x4
@@ -1823,7 +1823,7 @@ call scaled
   result xmm0 = 0x406d400000000000
 call print_int
   result rax = 0x1
-  result rcx = 0x248
+  result rcx = 0x250
   result rdx = 0x120fff53
   result rsp = 0x120fff60
   result r8 = 0x5
@@ -1899,5 +1899,5 @@ memory out
   0x120fff8c: 05
   0x120fff8e: 0a 00
   0x120fffb0: 00 00 00 00 00 00 00 00
-  0x140003008: 48 02 00 00 00 00 00 00
+  0x140003008: 50 02 00 00 00 00 00 00
 left exit 0x0

@@ -26,7 +26,7 @@ pub use raise::{Level as RaiseLevel, Options as RaiseOptions, raise};
 pub use state::Isa;
 pub use x87::X87Unit;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use ra_asm_analysis::{Analysis, Kind, Origin};
 use ra_asm_ir::{CallConv, Const, Declaration, Global, Linkage, Module, Type};
@@ -704,9 +704,24 @@ fn lift_on(
         }
     }
 
-    // The table the runtime resolves an indirect call through: { address, function } pairs.
-    let entries: Vec<Const> =
-        lifted.functions.iter().map(|(va, name)| Const::Struct(vec![Const::Int(i128::from(*va)), Const::Global(name.clone())])).collect();
+    // The table the runtime resolves an indirect call through: { address, function } pairs, of the
+    // functions whose address the program takes (the analysis's, the roots, what the module's data
+    // and operands name) and the entries the port starts at. A computed call to any other address
+    // finds no function and traps with the address, or goes to the residual engine; the functions
+    // left out need no universal entry ([`raise::stubs`]).
+    let mut named = raise::stubs::address_taken(&lifted.module);
+    named.extend(lifted.roots.iter().cloned());
+    let started: HashSet<u64> = lifted.entry.into_iter().chain(lifted.attach.iter().map(|(va, _)| *va)).collect();
+    let taken = |va: u64, name: &String| {
+        started.contains(&va) || named.contains(name) || images.iter().any(|(_, a)| a.functions.contains_key(&va) && a.is_address_taken(va))
+    };
+    let entries: Vec<Const> = lifted
+        .functions
+        .iter()
+        .filter(|(va, name)| taken(**va, name))
+        .map(|(va, name)| Const::Struct(vec![Const::Int(i128::from(*va)), Const::Global(name.clone())]))
+        .collect();
+    let entries_len = entries.len();
     let entry_ty = Type::Struct(vec![Type::I64, Type::Ptr]);
     lifted.module.globals.push(Global {
         name: "ra_functions".to_owned(),
@@ -720,7 +735,7 @@ fn lift_on(
     lifted.module.globals.push(Global {
         name: "ra_function_count".to_owned(),
         ty: Type::I64,
-        init: Some(Const::Int(lifted.functions.len() as i128)),
+        init: Some(Const::Int(entries_len as i128)),
         constant: true,
         linkage: Linkage::External,
         align: 8,

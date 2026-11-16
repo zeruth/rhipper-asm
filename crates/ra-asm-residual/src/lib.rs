@@ -440,6 +440,8 @@ impl Engine {
             cxx_frames32: BTreeMap::new(),
             cxx_unread32: BTreeMap::new(),
             program_entry: None,
+            address_taken: None,
+            fill: Vec::new(),
             facts: Facts::default(),
             toolset: Toolset::of(image),
             warnings: Vec::new(),
