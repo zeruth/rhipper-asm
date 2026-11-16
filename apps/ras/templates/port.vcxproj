@@ -33,6 +33,9 @@
     <OutDir>@OUT_DIR@\bin\$(Configuration)\</OutDir>
     <IntDir>@OUT_DIR@\obj\$(Configuration)\</IntDir>
     <TargetName>@TARGET@</TargetName>
+    <!-- The program's manifest, when it has one, is among its resources: the linker writes none
+         of its own, which would be a second resource of the type and the name. -->
+    <GenerateManifest Condition="Exists('$(RaGenDir)\resources.res')">false</GenerateManifest>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>

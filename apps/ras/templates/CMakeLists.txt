@@ -103,6 +103,18 @@ endif()
 # program's FindResource and LoadString find them as they did.
 if(EXISTS "${GEN_DIR}/resources.res")
   target_link_options(@TARGET@ PRIVATE "${GEN_DIR}/resources.res")
+  # The program's manifest, when it has one, is among them: the linker writes none of its own,
+  # which would be a second resource of the type and the name and fail the link. CMake's clang
+  # rules name /MANIFEST:EMBED after the target's options, so the rules themselves change.
+  if(WIN32)
+    if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+      target_link_options(@TARGET@ PRIVATE /MANIFEST:NO)
+    else()
+      foreach(rule C_LINK_EXECUTABLE CXX_LINK_EXECUTABLE C_CREATE_SHARED_LIBRARY CXX_CREATE_SHARED_LIBRARY)
+        string(REPLACE "/MANIFEST:EMBED" "/MANIFEST:NO" CMAKE_${rule} "${CMAKE_${rule}}")
+      endforeach()
+    endif()
+  endif()
 endif()
 
 # The residual engine (`build.residual` in rhipper.json), the static library of ra-asm-residual:

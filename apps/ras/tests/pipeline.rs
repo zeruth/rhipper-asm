@@ -816,6 +816,39 @@ mod fixtures {
         assert!(text.contains("verdict: same"), "{text}");
     }
 
+    /// A program whose resources hold a manifest, as most of a game's do: the port CMake builds
+    /// links the program's and adds none of its own, which would be a second `MANIFEST` 1 and
+    /// fail the link ("duplicate resource").
+    #[test]
+    fn the_port_of_a_program_with_a_manifest_links_its_own_alone() {
+        let dir = project_with("manifest", r#"{ "name": "manifest", "exe": "ref/resources64.exe", "run": { "compare": true } }"#);
+        std::fs::copy(root().join("testdata/bin/resources64.exe"), dir.join("ref/resources64.exe")).unwrap();
+        let (ok, text) = ras(&dir, &["--only", "emit"]);
+        assert!(ok, "{text}");
+        if !port_builds_here() {
+            return;
+        }
+        // The fixture's resources with a manifest added: type 24, name 1, US English.
+        let manifest = br#"<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"></assembly>"#;
+        let res = dir.join("src/gen/resources.res");
+        let mut bytes = std::fs::read(&res).unwrap();
+        bytes.extend_from_slice(&(manifest.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&32u32.to_le_bytes());
+        bytes.extend_from_slice(&[0xff, 0xff, 24, 0, 0xff, 0xff, 1, 0]);
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&0x1030u16.to_le_bytes());
+        bytes.extend_from_slice(&0x409u16.to_le_bytes());
+        bytes.extend_from_slice(&[0; 8]);
+        bytes.extend_from_slice(manifest);
+        while bytes.len() % 4 != 0 {
+            bytes.push(0);
+        }
+        std::fs::write(&res, bytes).unwrap();
+        let (ok, text) = ras(&dir, &["--from", "build"]);
+        assert!(ok, "{text}");
+        assert!(text.contains("verdict: same"), "{text}");
+    }
+
     /// A DLL ports as a DLL: the emit step writes the image's exports (by name and ordinal, the data
     /// export, the forwarder) as the definition file of the port and marks `image.h` with `RA_DLL`,
     /// the build makes a shared library, and the run step starts `run.exe`, the host that loads it,
