@@ -247,6 +247,11 @@ fn registers(f: &mut Function, cx: &Context<'_>) {
         extra_dwords: cx.extra_dwords,
     };
     super::promote::promote_abi(f, &abi);
+    // The double unit's stack, which the promotion leaves in its globals, into locals where the
+    // slots are counted; the exact unit's slots go through the runtime by their addresses.
+    if cx.options.x87 == crate::x87::X87Unit::Double {
+        super::x87::run(f);
+    }
     if own.noreturn && !f.attrs.iter().any(|a| a == "noreturn") {
         f.attrs.push("noreturn".into());
     }

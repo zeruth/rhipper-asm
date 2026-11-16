@@ -27,6 +27,7 @@ pub mod strings;
 pub mod stubs;
 pub mod types;
 pub mod widths;
+pub mod x87;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
