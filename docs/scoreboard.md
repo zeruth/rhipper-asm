@@ -10,7 +10,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | classes64.exe | ok | 15 | 15 | 15 | 0 | 0 | 15 | 15 | 10 | 0 | 35 | 354 | 0.0 | 446.3 |
 | computed32.exe | ok | 4 | 4 | 4 | 0 | 0 | 3 | 3 | 5 | 0 | 31 | 270 | 0.0 | 385.2 |
 | computed64.exe | ok | 4 | 4 | 4 | 0 | 0 | 3 | 3 | 11 | 0 | 25 | 162 | 0.0 | 302.5 |
-| control32-upx.exe | timeout | - | - | 3 | 0 | 0 | - | - | - | - | - | 10945 | 0.8 | 1900.9 |
+| control32-upx.exe | timeout | 3 | - | 3 | 0 | 0 | - | - | - | - | - | 10945 | 0.8 | 1900.9 |
 | control32.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 66 | 0 | 133 | 784 | 0.0 | 830.4 |
 | control64-O1.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 32 | 0 | 68 | 401 | 0.0 | 491.3 |
 | control64.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 66 | 0 | 133 | 420 | 0.0 | 478.6 |
@@ -29,9 +29,9 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | float64.exe | ok | 7 | 7 | 7 | 0 | 0 | 7 | 7 | 36 | 0 | 72 | 469 | 0.0 | 1198.3 |
 | floata64.exe | crash | - | - | 7 | 0 | 0 | - | - | - | - | - | - | - | - |
 | gte_psx.exe | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 3 | 0 | 7 | 251 | 0.0 | 629.5 |
-| hello32-upx.exe | timeout | - | - | 3 | 1 | 1 | - | - | - | - | - | 8906 | 0.9 | 1879.3 |
+| hello32-upx.exe | timeout | 3 | - | 3 | 1 | 1 | 2 | - | - | - | - | 8906 | 0.9 | 1879.3 |
 | hello32.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 202 | 0.0 | 297.0 |
-| hello64-upx.exe | timeout | 6 | - | 6 | 0 | 0 | 2 | - | - | - | - | 8781 | 0.7 | 1880.4 |
+| hello64-upx.exe | timeout | 6 | - | 6 | 0 | 0 | 2 | - | 2 | 0 | 22 | 8781 | 0.7 | 1880.4 |
 | hello64.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 109 | 0.0 | 211.0 |
 | hello_linux64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 155 | 0.0 | 264.5 |
 | hello_linux_a64 | ok | 5 | 5 | 5 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 180 | 0.0 | 338.9 |
@@ -58,7 +58,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 458 | 0.0 | 866.8 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 303 | 0.0 | 471.9 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 320 | 0.0 | 559.4 |
-| total | 48/52 ok | 330 | 324 | 343 | 5 | 5 | 269 | 267 | 730 | 0 | 1639 | 45041 | 0.6 | 1472.6 |
+| total | 48/52 ok | 336 | 324 | 343 | 5 | 5 | 271 | 267 | 732 | 0 | 1661 | 45041 | 0.6 | 1472.6 |
 
 | pending list | entries |
 |---|---|
