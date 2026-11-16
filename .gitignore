@@ -5,3 +5,5 @@
 /testdata/psp/hello.elf
 /testdata/psp/hello.o
 /testdata/ps2/hello.o
+# the MSYS shell's crash dumps (#539 committed a grep.exe.stackdump)
+*.stackdump
