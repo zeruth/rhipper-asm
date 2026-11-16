@@ -1,5 +1,4 @@
-uint32_t shared_tail(uint32_t n, uint8_t * p) {
-    RA_ENTER("shared_tail");
+uint32_t shared_tail(uint32_t n, uint8_t * p) { RA_ENTER("shared_tail");
     uint32_t i;
     if (n != 0u) {
         for (;;) {

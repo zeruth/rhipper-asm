@@ -1,6 +1,5 @@
 // 0x1100
-uint64_t F_00001100(uint64_t index) {
-    RA_ENTER("F_00001100");
+uint64_t F_00001100(uint64_t index) { RA_ENTER("F_00001100");
     ra_assume(1, index < 2ull);
     switch (index) {
     case 0:

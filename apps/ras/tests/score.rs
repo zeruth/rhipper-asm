@@ -404,11 +404,11 @@ fn listing(dir: &Path) -> Vec<String> {
 
 #[test]
 fn source_one_emit_case_has_its_known_counts() {
-    // `checked_switch.c`: 14 lines, a `switch` whose `case` and `default` lines are no labels,
+    // `checked_switch.c`: 13 lines, a `switch` whose `case` and `default` lines are no labels,
     // and no cast.
     let score = score(&root().join("testdata/cases/emit/checked_switch.c"));
     assert_eq!(score["files"], 1, "{score}");
-    assert_eq!(score["lines"], 14, "{score}");
+    assert_eq!(score["lines"], 13, "{score}");
     assert_eq!(score["gotos"], 0, "{score}");
     assert_eq!(score["casts"], 0, "{score}");
     assert_eq!(score["labels"], 0, "{score}");
@@ -425,7 +425,7 @@ fn source_emit_directory_sums_its_files_and_is_left_as_found() {
     let before = listing(dir);
     let score = score(dir);
     assert_eq!(score["files"], 4, "{score}");
-    assert_eq!(score["lines"], 36, "{score}");
+    assert_eq!(score["lines"], 33, "{score}");
     // `(rsp - n)` in `checked_return.c` is an expression, `ra_assume(...)` a call: no cast.
     assert_eq!(score["casts"], 0, "{score}");
     assert_eq!(score["gotos"], 0, "{score}");
@@ -436,7 +436,7 @@ fn source_emit_directory_sums_its_files_and_is_left_as_found() {
     let table = ras(&["score", "--source", dir.to_str().unwrap()]);
     assert!(table.status.success(), "{}", String::from_utf8_lossy(&table.stderr));
     let table = String::from_utf8_lossy(&table.stdout);
-    assert!(table.contains("lines    36"), "{table}");
+    assert!(table.contains("lines    33"), "{table}");
     assert!(table.contains("gotos    0        0.0 per thousand lines"), "{table}");
 }
 
@@ -479,10 +479,10 @@ done:
 
     let score = score(dir.path());
     assert_eq!(score["files"], 2, "{score}");
-    assert_eq!(score["lines"], 37, "{score}");
+    assert_eq!(score["lines"], 36, "{score}");
     assert_eq!(score["gotos"], 2, "{score}");
     assert_eq!(score["labels"], 2, "{score}");
     assert_eq!(score["casts"], 4, "{score}");
     let per_thousand = score["per_thousand"]["gotos"].as_f64().unwrap();
-    assert!((per_thousand - 2000.0 / 37.0).abs() < 1e-9, "{score}");
+    assert!((per_thousand - 2000.0 / 36.0).abs() < 1e-9, "{score}");
 }

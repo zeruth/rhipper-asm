@@ -10,6 +10,8 @@
 //!
 //! A tail two paths share, left from inside a loop, is a snapshot in C (a `goto` to its label)
 //! and in Rust (a labeled block), and its tree replays the function's vectors as its graph does.
+//!
+//! A file of an output split by size declares what it names and nothing else.
 
 use std::path::PathBuf;
 
@@ -265,6 +267,33 @@ fn shared_tail_in_c_goes_to_its_label_after_the_region() {
     module.functions.push(shared_tail());
     let unit = emit_unit(&module, &COptions::default());
     snapshot("shared_tail", &unit.functions[0].text);
+}
+
+/// `uint64_t name(uint64_t x) { return x; }` at `address`.
+fn identity(name: &str, address: u64) -> Function {
+    let mut b = FunctionBuilder::new(name, FnType::new(Type::I64, vec![Type::I64]), &["x"]);
+    b.set_address(address);
+    let x = b.param(0);
+    let entry = b.block("entry");
+    b.terminate(entry, Terminator::Ret(Some((Type::I64, x.into()))));
+    b.finish()
+}
+
+/// A file of a split output declares the functions it calls, and no other: one of its own it
+/// defines before naming it is declared by its definition, and the header declares none.
+#[test]
+fn a_split_file_declares_only_the_functions_it_names() {
+    let mut module = Module::x86_64_windows("split");
+    module.functions = vec![call().0, identity("F_00002000", 0x2000), identity("F_00003000", 0x3000)];
+    let unit = emit_unit(&module, &COptions::default());
+    let files = unit.files(2);
+    let text = |name: &str| files.iter().find(|f| f.name == name).map(|f| f.text.as_str()).unwrap_or_else(|| panic!("no {name}"));
+    assert!(!text("program.h").contains("F_0000"), "{}", text("program.h"));
+    let first = text("program_000.c");
+    assert!(first.starts_with("#include \"program.h\"\n\nuint64_t F_00002000(uint64_t x);\n\n// 0x1000\n"), "{first}");
+    assert!(first.contains("uint64_t F_00001000(uint64_t rbx) { RA_ENTER(\"F_00001000\");\n"), "{first}");
+    assert!(!first.contains("F_00003000"), "{first}");
+    assert_eq!(text("program_001.c").matches("F_00003000(uint64_t x)").count(), 1, "{}", text("program_001.c"));
 }
 
 /// Rust leaves the labeled block around the region: `'L_ret: { ... break 'L_ret; ... }`, then

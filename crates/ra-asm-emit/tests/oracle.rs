@@ -625,8 +625,10 @@ fn check_table(binary: &str, dir: &Path) {
             let text = file.lines().nth(line as usize - 1).unwrap_or("");
             // A C++ method, virtual or not, is defined as `Class::method(`, under the line of record.
             let defines = text.contains(&format!("{name}(")) || text.contains("::");
-            // rustfmt breaks a long signature after its name's parenthesis.
-            assert!(defines && (text.ends_with('{') || text.ends_with('(')), "{binary}: line {line} of {addr} is `{text}`");
+            // rustfmt breaks a long signature after its name's parenthesis; a C body opens with its
+            // entry hook on the definition line.
+            let opens = text.ends_with('{') || text.ends_with('(') || text.contains(" { RA_ENTER(\"");
+            assert!(defines && opens, "{binary}: line {line} of {addr} is `{text}`");
             assert_eq!(e["status"], if e["traps"] == 0 { "lifted" } else { "partial" });
             assert!(e["copies"].is_u64(), "{binary}: {e}");
             let grade = &e["grade"];
@@ -977,7 +979,7 @@ fn inline_reads_as_source() {
             let definition = c
                 .match_indices(&format!(" {caller}("))
                 .map(|(at, _)| &c[at..])
-                .find(|rest| rest.lines().next().is_some_and(|line| line.trim_end().ends_with('{')))
+                .find(|rest| rest.lines().next().is_some_and(|line| line.contains(" { RA_ENTER(\"")))
                 .unwrap_or_else(|| panic!("{binary}: no definition of {caller}:\n{c}"));
             let body = definition.split("\n}").next().unwrap();
             assert!(body.contains(&format!("{helper}(")), "{binary}: {caller} calls the helper:\n{body}");
@@ -1352,7 +1354,7 @@ fn a_traced_run_makes_the_dispatch_direct() {
         let (dir, c, _) = emit(&fixture, "facts", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
         // The definition of dispatch: the unindented line that opens it, to the closing brace.
         let lines: Vec<&str> = c.lines().collect();
-        let opens = lines.iter().position(|l| !l.starts_with(' ') && l.contains(" dispatch(") && l.ends_with('{')).unwrap();
+        let opens = lines.iter().position(|l| !l.starts_with(' ') && l.contains(" dispatch(") && l.contains(" { RA_ENTER(\"")).unwrap();
         let body = lines[opens..].iter().take_while(|l| **l != "}").copied().collect::<Vec<_>>().join("\n");
         for handler in ["h_add(", "h_sub(", "h_mul(", "h_xor("] {
             assert!(body.contains(handler), "{binary}: dispatch calls {handler}) directly:\n{body}");
@@ -1443,7 +1445,7 @@ fn classes64_reads_as_classes() {
         "class Named {\n",
         "class Rect : public Shape, public Named {\npublic:\n    uint64_t area(); // slot 0, overrides Shape\n",
         "    uint64_t weight(); // slot 1 of the vtable at offset 16",
-        "uint64_t Rect::area() {\n    RA_ENTER(\"Rect_area\");\n    uint64_t arg0 = (uint64_t)(uintptr_t)this;\n",
+        "uint64_t Rect::area() { RA_ENTER(\"Rect_area\");\n    uint64_t arg0 = (uint64_t)(uintptr_t)this;\n",
         "extern \"C\" uint64_t Rect_area(uint64_t arg0) {\n    return ((Rect *)(uintptr_t)arg0)->area();\n}\n",
         "extern \"C\" uint64_t Rect_name(void) {\n    return Rect::name();\n}\n",
     ] {

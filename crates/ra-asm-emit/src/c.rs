@@ -147,6 +147,9 @@ pub struct Unit {
     pub global_types: String,
     /// The `extern` declarations of the data globals, for the other files of a split output.
     pub global_decls: String,
+    /// The `extern` declaration of each data global by itself, by name, in the module's order,
+    /// without C++'s linkage: what a file split by size declares of the globals it names.
+    pub global_decl_of: Vec<(String, String)>,
     /// The definitions of the data globals, with their initializers.
     pub global_defs: String,
     /// The definition of each data global by itself, by name, in the module's order: what a split
@@ -219,8 +222,10 @@ impl Unit {
     }
 
     /// The files of the output: `program.c` alone up to `max_functions` functions, else
-    /// `program.h` with the declarations, `data.c` with the globals, and `program_NNN.c` each
-    /// with up to `max_functions` functions.
+    /// `program.h` with the types and the imports, `data.c` with the globals, and `program_NNN.c`
+    /// each with up to `max_functions` functions. A split file declares only the functions and the
+    /// globals it names: a large program's every prototype in every file was most of its lines and
+    /// of what the compiler read.
     pub fn files(&self, max_functions: usize) -> Vec<EmittedFile> {
         if self.functions.len() <= max_functions.max(1) {
             let mut text = String::new();
@@ -233,16 +238,20 @@ impl Unit {
         }
         let mut files = Vec::new();
         let mut header = String::from("#pragma once\n");
-        for part in [&self.include, &self.types, &self.externs, &self.prototypes, &self.global_types, &self.global_decls] {
+        for part in [&self.include, &self.types, &self.externs, &self.global_types] {
             header.push_str(part);
             header.push('\n');
         }
         files.push(EmittedFile { name: "program.h".into(), text: header, functions: Vec::new() });
+        // The data declares every global it defines: in C++ a `const` global has internal linkage
+        // without its `extern` declaration first.
         let mut data = String::from("#include \"program.h\"\n\n");
+        data.push_str(&self.declarations(&words(&self.global_defs).collect::<HashSet<_>>(), &HashSet::new(), true));
         data.push_str(&self.global_defs);
         files.push(EmittedFile { name: format!("data.{}", self.dialect.extension()), text: data, functions: Vec::new() });
         for (index, chunk) in self.functions.chunks(max_functions.max(1)).enumerate() {
             let mut text = String::from("#include \"program.h\"\n\n");
+            text.push_str(&self.file_declarations(chunk));
             let functions = Self::append_functions(&mut text, chunk);
             files.push(EmittedFile { name: format!("program_{index:03}.{}", self.dialect.extension()), text, functions });
         }
@@ -377,6 +386,45 @@ impl Unit {
         out
     }
 
+    /// The declarations a file of `functions` starts with: the prototypes of the functions they
+    /// name and the declarations of the globals they name. In C a function of the file whose
+    /// definition comes before any of them names it is declared by its definition; in C++ every
+    /// one takes its prototype, whose C linkage the definition inherits.
+    fn file_declarations(&self, functions: &[EmittedFunction]) -> String {
+        let (mut named, mut defined) = (HashSet::new(), HashSet::new());
+        for f in functions {
+            let head = f.text.lines().nth(f.header_lines);
+            let declares = self.prototype_of.get(&f.ir_name).is_some_and(|p| head.is_some_and(|l| l.starts_with(p.as_str())));
+            if self.dialect == Dialect::C && declares && !named.contains(f.ir_name.as_str()) {
+                defined.insert(f.ir_name.as_str());
+            }
+            named.extend(words(&f.text));
+        }
+        self.declarations(&named, &defined, false)
+    }
+
+    /// The prototypes of the functions in `named` but not in `defined` and the declarations of
+    /// the globals in `named`, or of every global with `every_global`, in the module's order and
+    /// with C linkage in C++.
+    fn declarations(&self, named: &HashSet<&str>, defined: &HashSet<&str>, every_global: bool) -> String {
+        let mut out = String::new();
+        for f in self.functions.iter().filter(|f| named.contains(f.ir_name.as_str()) && !defined.contains(f.ir_name.as_str())) {
+            if let Some(prototype) = self.prototype_of.get(&f.ir_name) {
+                let _ = writeln!(out, "{prototype};");
+            }
+        }
+        for (name, declaration) in &self.global_decl_of {
+            if every_global || named.contains(name.as_str()) {
+                out.push_str(declaration);
+            }
+        }
+        let mut out = self.linkage(out);
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out
+    }
+
     /// `part` with C linkage in C++: the driver is C, and a definition under a prototype with C
     /// linkage inherits it.
     fn linkage(&self, part: String) -> String {
@@ -435,6 +483,32 @@ fn module_stems(objects: &[&str]) -> Vec<String> {
         stems[i] = stem;
     }
     stems
+}
+
+/// The words of the C `text` that can be names, those of its comments and literals among them
+/// (unlike [`identifiers`]): a name only a comment holds costs a declaration the file does not
+/// need, never one it does.
+fn words(text: &str) -> impl Iterator<Item = &str> {
+    let bytes = text.as_bytes();
+    let word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut at = 0;
+    std::iter::from_fn(move || {
+        while at < bytes.len() {
+            if !word(bytes[at]) {
+                at += 1;
+                continue;
+            }
+            let start = at;
+            while at < bytes.len() && word(bytes[at]) {
+                at += 1;
+            }
+            // A number's digits and suffix are no name.
+            if !bytes[start].is_ascii_digit() {
+                return Some(&text[start..at]);
+            }
+        }
+        None
+    })
 }
 
 /// Writes `module` as one C translation unit.
@@ -530,6 +604,7 @@ struct Parts<'o> {
     prototype_lines: String,
     global_types: String,
     global_decls: String,
+    global_decl_of: Vec<(String, String)>,
     global_defs: String,
     globals: Vec<(String, String)>,
     global_rest: String,
@@ -648,6 +723,7 @@ impl Parts<'_> {
             prototypes: self.prototype_lines,
             global_types: self.global_types,
             global_decls: self.global_decls,
+            global_decl_of: self.global_decl_of,
             global_defs: self.global_defs,
             globals: self.globals,
             global_rest: self.global_rest,
@@ -702,6 +778,7 @@ fn parts<'o>(module: &Module, options: &'o Options) -> Parts<'o> {
     // The data sections as the code's uses type them: arrays, scalars and strings over the bytes.
     let layouts = crate::layout::layouts(module);
     let mut globals = Vec::with_capacity(module.globals.len());
+    let mut global_decl_of = Vec::with_capacity(module.globals.len());
     let mut blobs = Vec::new();
     for g in &module.globals {
         let layout = layouts.get(&g.name);
@@ -712,13 +789,19 @@ fn parts<'o>(module: &Module, options: &'o Options) -> Parts<'o> {
             && let Some(e) = embedded(g, layout)
         {
             global_decls.push_str(&e.declaration);
+            global_decl_of.push((g.name.clone(), e.declaration));
             init.push_str(&e.init);
             global_defs.push_str(&e.definition);
             globals.push((g.name.clone(), e.definition));
             blobs.push((format!("{}.bin", g.name), e.bytes));
             continue;
         }
-        declare_global(&mut global_decls, g, layout);
+        let mut declaration = String::new();
+        declare_global(&mut declaration, g, layout);
+        global_decls.push_str(&declaration);
+        if !declaration.is_empty() {
+            global_decl_of.push((g.name.clone(), declaration));
+        }
         let mut definition = String::new();
         define_global(&mut definition, &mut init, g, layout);
         global_defs.push_str(&definition);
@@ -781,6 +864,7 @@ fn parts<'o>(module: &Module, options: &'o Options) -> Parts<'o> {
         prototype_lines,
         global_types,
         global_decls,
+        global_decl_of,
         global_defs,
         globals,
         global_rest,
@@ -1418,16 +1502,13 @@ fn emit_function(
         }
         header_lines = 1;
     }
-    match method {
-        Some((class, m)) => {
-            let _ = writeln!(out, "{} {{", crate::cpp::method_prototype(f, class, m, true));
-        }
-        None => {
-            let _ = writeln!(out, "{prototype} {{");
-        }
-    }
-    // The entry hook: nothing, unless the port is built with RA_TRACE, when it names the function.
-    let _ = writeln!(out, "    RA_ENTER(\"{}\");", f.name);
+    let head = match method {
+        Some((class, m)) => crate::cpp::method_prototype(f, class, m, true),
+        None => prototype.to_owned(),
+    };
+    // The entry hook, on the definition line rather than one of its own in every function: nothing,
+    // unless the port is built with RA_TRACE, when it names the function.
+    let _ = writeln!(out, "{head} {{ RA_ENTER(\"{}\");", f.name);
     // The trace hooks name the function as the table does, so the reference's trace, recorded by
     // address and named through the table, reads the same.
     let traced = trace.then(|| source_name.unwrap_or(&f.name).to_owned());

@@ -233,7 +233,28 @@ fn formatted(name: &str, text: String) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    String::from_utf8(output.stdout).ok()
+    let text = String::from_utf8(output.stdout).ok()?;
+    Some(if is("rs") { text } else { hooks_on_heads(&text) })
+}
+
+/// `text` with each function's entry hook back on its definition line, where the backend writes
+/// it: the formatter breaks the line after the brace, and a line of its own in every function is
+/// a quarter of a million lines of a large port.
+fn hooks_on_heads(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        let hook = line.trim();
+        // The line before opens a body at the top level: a definition's.
+        let head = out.strip_suffix('\n').map_or("", |o| o.rsplit('\n').next().unwrap_or(o));
+        if hook.starts_with("RA_ENTER(\"") && hook.ends_with("\");") && head.ends_with(") {") && !head.starts_with(char::is_whitespace) {
+            out.pop();
+            out.push(' ');
+            out.push_str(line.trim_start());
+            continue;
+        }
+        out.push_str(line);
+    }
+    out
 }
 
 /// The definition lines of `functions` in `new`, the formatted `old`: each function is found again
@@ -275,5 +296,14 @@ mod tests {
         );
         let back = joined(parts.iter().map(|p| (*p).to_owned()).collect());
         assert_eq!(back.replace("\n\n", "\n"), text.replace("\n\n", "\n"));
+    }
+
+    #[test]
+    fn the_entry_hook_goes_back_on_the_definition_line() {
+        let formatted = "// 0x1000\nuint64_t F_1000(uint64_t a) {\n    RA_ENTER(\"F_1000\");\n    if (a) {\n        RA_ENTER(\"x\");\n    }\n    return a;\n}\n";
+        assert_eq!(
+            hooks_on_heads(formatted),
+            "// 0x1000\nuint64_t F_1000(uint64_t a) { RA_ENTER(\"F_1000\");\n    if (a) {\n        RA_ENTER(\"x\");\n    }\n    return a;\n}\n"
+        );
     }
 }
