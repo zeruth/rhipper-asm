@@ -221,18 +221,18 @@ impl Function {
         id
     }
 
-    /// Replaces every use of the values in `map` by their replacement, following chains.
+    /// Replaces every use of the values in `map` by their replacement, following chains to their
+    /// end however long they are: a run of a hundred trivial phis, each the one before it, leaves
+    /// no use of a phi the caller removed. A chain that comes back to itself (phis that are only
+    /// each other) has no value outside it and ends in `undef`; a value mapped to itself stays.
     pub fn replace_uses(&mut self, map: &HashMap<ValueId, crate::inst::Operand>) {
         use crate::inst::Operand;
+        let resolved = resolve_chains(map);
         let resolve = |o: &mut Operand| {
-            let mut guard = 0;
-            while let Operand::Local(v) = o {
-                let Some(r) = map.get(v) else { break };
+            if let Operand::Local(v) = o
+                && let Some(r) = resolved.get(v)
+            {
                 *o = r.clone();
-                guard += 1;
-                if guard > 64 {
-                    break;
-                }
             }
         };
         for b in &mut self.blocks {
@@ -331,6 +331,50 @@ impl Function {
         }
         counts
     }
+}
+
+/// Each value of `map` with what its chain of replacements ends in: the first operand that is not
+/// a value `map` replaces, `undef` for a chain that comes back to a value it passed (none of the
+/// values of a cycle has a definition left outside it), the value itself for one mapped to itself.
+/// Each value is walked once: the values a walk passes take the end it found.
+fn resolve_chains(map: &HashMap<ValueId, crate::inst::Operand>) -> HashMap<ValueId, crate::inst::Operand> {
+    use crate::inst::Operand;
+    let mut out: HashMap<ValueId, Operand> = HashMap::with_capacity(map.len());
+    let mut path: Vec<ValueId> = Vec::new();
+    let mut on_path: std::collections::HashSet<ValueId> = std::collections::HashSet::new();
+    for (&start, first) in map {
+        if out.contains_key(&start) {
+            continue;
+        }
+        path.clear();
+        on_path.clear();
+        path.push(start);
+        on_path.insert(start);
+        let mut at = start;
+        let mut next = first;
+        let end = loop {
+            match next {
+                Operand::Local(v) if *v == at => break Operand::Local(*v),
+                Operand::Local(v) => {
+                    if let Some(done) = out.get(v) {
+                        break done.clone();
+                    }
+                    let Some(after) = map.get(v) else { break next.clone() };
+                    if !on_path.insert(*v) {
+                        break Operand::Undef;
+                    }
+                    path.push(*v);
+                    at = *v;
+                    next = after;
+                }
+                other => break other.clone(),
+            }
+        };
+        for &v in &path {
+            out.insert(v, end.clone());
+        }
+    }
+    out
 }
 
 /// A module: the unit the printer writes.

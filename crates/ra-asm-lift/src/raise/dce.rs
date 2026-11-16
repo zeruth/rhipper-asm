@@ -94,3 +94,77 @@ fn prune_trivial_phis(f: &mut Function) -> bool {
     f.replace_uses(&map);
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use ra_asm_ir::{FnType, FunctionBuilder, ICond, Inst, Operand, Terminator, Type};
+
+    /// `f(x, c)`: `diamonds` ifs in a row, each joining in a phi of the value before it from both
+    /// arms, as the promotion writes a register no arm touches; the last phi is returned.
+    fn chain_of_trivial_phis(diamonds: usize) -> ra_asm_ir::Function {
+        let mut b = FunctionBuilder::new("f", FnType::new(Type::I64, vec![Type::I64, Type::I64]), &["x", "c"]);
+        let entry = b.block("entry");
+        let (x, c) = (b.param(0), b.param(1));
+        let cond = b.icmp(entry, ICond::Ne, Type::I64, c, 0i64, "cond");
+        let mut head = entry;
+        let mut value = Operand::Local(x);
+        for k in 0..diamonds {
+            let (then, els, join) = (b.block(&format!("then.{k}")), b.block(&format!("else.{k}")), b.block(&format!("join.{k}")));
+            b.terminate(head, Terminator::CondBr { cond: cond.into(), then, els });
+            b.terminate(then, Terminator::Br(join));
+            b.terminate(els, Terminator::Br(join));
+            let phi = b.value(join, Inst::Phi { ty: Type::I64, incoming: vec![(value.clone(), then), (value, els)] }, "rsi.phi");
+            value = Operand::Local(phi);
+            head = join;
+        }
+        b.terminate(head, Terminator::Ret(Some((Type::I64, value))));
+        b.finish()
+    }
+
+    /// A chain of a hundred trivial phis, each the one before it, collapses to the parameter: no
+    /// use is left of a phi the pass removed, however far down the chain it is.
+    #[test]
+    fn a_long_chain_of_trivial_phis_leaves_no_use_of_a_removed_phi() {
+        let mut f = chain_of_trivial_phis(100);
+        super::run(&mut f);
+        let defined: HashSet<_> = f.params.iter().copied().chain(f.blocks.iter().flat_map(|b| b.instrs.iter().filter_map(|i| i.result))).collect();
+        for b in &f.blocks {
+            for v in b.instrs.iter().flat_map(|i| i.inst.uses()).chain(b.terminator.uses()) {
+                assert!(defined.contains(&v), "block `{}` uses `{}`, which nothing defines", b.name, f.value_name(v));
+            }
+        }
+        let last = f.blocks.iter().find(|b| matches!(b.terminator, Terminator::Ret(_))).expect("a return");
+        assert_eq!(last.terminator, Terminator::Ret(Some((Type::I64, Operand::Local(f.params[0])))));
+    }
+
+    /// Two phis that are only each other have no value: both go, and their use reads `undef`.
+    #[test]
+    fn phis_that_are_only_each_other_become_undef() {
+        let mut b = FunctionBuilder::new("g", FnType::new(Type::I64, vec![Type::I64]), &["c"]);
+        let (entry, l1, l2, out) = (b.block("entry"), b.block("l1"), b.block("l2"), b.block("out"));
+        let c = b.param(0);
+        let cond = b.icmp(entry, ICond::Ne, Type::I64, c, 0i64, "cond");
+        b.terminate(entry, Terminator::Br(l1));
+        let p1 = b.value(l1, Inst::Phi { ty: Type::I64, incoming: Vec::new() }, "p1");
+        b.terminate(l1, Terminator::Br(l2));
+        let p2 = b.value(l2, Inst::Phi { ty: Type::I64, incoming: vec![(Operand::Local(p1), l1)] }, "p2");
+        b.terminate(l2, Terminator::CondBr { cond: cond.into(), then: l1, els: out });
+        b.terminate(out, Terminator::Ret(Some((Type::I64, Operand::Local(p2)))));
+        let mut f = b.finish();
+        // The first phi takes the second from both ways in, which the builder cannot name ahead.
+        for blk in &mut f.blocks {
+            for i in &mut blk.instrs {
+                if i.result == Some(p1)
+                    && let Inst::Phi { incoming, .. } = &mut i.inst
+                {
+                    *incoming = vec![(Operand::Local(p2), entry), (Operand::Local(p2), l2)];
+                }
+            }
+        }
+        super::run(&mut f);
+        let last = f.blocks.iter().find(|b| b.name == "out").expect("the exit");
+        assert_eq!(last.terminator, Terminator::Ret(Some((Type::I64, Operand::Undef))));
+    }
+}
