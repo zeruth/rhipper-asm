@@ -18,43 +18,23 @@ use std::collections::{HashMap, HashSet};
 use ra_asm_ir::{BinOp, BlockId, Callee, Function, Inst, Module, Operand, Terminator, Type, ValueId};
 use ra_asm_lift::raise::{dce, known, simplify};
 
-/// The parts of an import's name, lowercased and without its underscores, that say it may call
-/// code of the program back: a window procedure, an enumeration's callback, a comparator, the
-/// initializers and exit handlers, a raise. An exception such code leaves in flight passes the
-/// import, so a function that calls one may leave it in flight too.
-const CALLS_BACK: [&str; 32] = [
-    "dispatch",
-    "message",
-    "proc",
-    "enum",
-    "qsort",
-    "bsearch",
-    "callback",
-    "initterm",
-    "onexit",
-    "atexit",
-    "once",
-    "longjmp",
-    "raise",
-    "throw",
-    "rethrow",
-    "except",
-    "unwind",
-    "dialog",
-    "hook",
-    "createwindow",
-    "showwindow",
-    "setwindowpos",
-    "destroywindow",
-    "updatewindow",
-    "redrawwindow",
-    "movewindow",
-    "setfocus",
-    "invoke",
-    "signal",
-    "accelerator",
-    "trackpopupmenu",
-    "apc",
+/// The runtime's adapters of a 32-bit program's imports that return with nothing a handler of the
+/// program sees, by the rule of [`ra_asm_protos::calls_no_code`]: each takes only integers, reads
+/// or writes no pointer of the program and calls no import that may raise. The others (the
+/// initializers and exit tables, the window and message functions, the loader, `longjmp`, the
+/// stdio and `strto*` adapters, the run-time type casts, `operator new` and `delete`, the
+/// interlocked and critical-section functions over the program's memory, the waits, the math)
+/// may, and keep the check after them.
+const QUIET_SHIMS: &[&str] = &[
+    "ra_x86_p_argv",
+    "ra_x86_p_commode",
+    "ra_x86_p_fmode",
+    "ra_x86_p_argc",
+    "ra_x86_errno",
+    "ra_x86_controlfp",
+    "ra_x86_statusfp",
+    "ra_x86_clearfp",
+    "ra_x86_fesetround",
 ];
 
 /// The exception runtime's calls of the structured protocol: a function that makes one may run a
@@ -63,7 +43,8 @@ const STRUCTURED: [&str; 5] = ["ra_eh_probe", "ra_eh_raise", "ra_eh_pointers", "
 
 /// Whether a call of `name`, which is no function of the module, can leave no exception in
 /// flight: an LLVM intrinsic, a helper of the runtime (but the exception protocol's own and the
-/// call through an address), or an import that calls nothing back.
+/// call through an address), or an import known to run no code of the program. An import not
+/// known so keeps its check, whatever its name says.
 fn quiet_external(name: &str) -> bool {
     if name.starts_with("llvm.") {
         return true;
@@ -74,9 +55,11 @@ fn quiet_external(name: &str) -> bool {
     if name.starts_with("ra_call") || name.starts_with("F_") || name.starts_with("U_") {
         return false;
     }
-    if name.starts_with("ra_x86_") || !name.starts_with("ra_") {
-        let plain: String = name.chars().filter(|c| *c != '_').flat_map(char::to_lowercase).collect();
-        return !CALLS_BACK.iter().any(|part| plain.contains(part));
+    if name.starts_with("ra_x86_") {
+        return QUIET_SHIMS.contains(&name);
+    }
+    if !name.starts_with("ra_") {
+        return ra_asm_protos::calls_no_code(name);
     }
     true
 }
@@ -683,19 +666,84 @@ fn merge_straight(f: &mut Function) -> bool {
 mod tests {
     use super::*;
 
+    use ra_asm_ir::{FnType, FunctionBuilder};
+
     #[test]
-    fn imports_that_call_back_are_not_quiet() {
-        assert!(quiet_external("memcpy"));
-        assert!(quiet_external("HeapAlloc"));
+    fn only_imports_known_to_call_nothing_back_are_quiet() {
+        assert!(quiet_external("GetTickCount"));
+        assert!(quiet_external("ra_x86_p_argc"));
         assert!(quiet_external("ra_pops_of"));
         assert!(quiet_external("ra_eh_pending"));
         assert!(!quiet_external("ra_eh_throw"));
         assert!(!quiet_external("ra_call"));
         assert!(!quiet_external("DispatchMessageW"));
         assert!(!quiet_external("ra_x86_dispatch_message_a"));
+        assert!(!quiet_external("ra_x86_initterm"));
         assert!(!quiet_external("qsort"));
         assert!(!quiet_external("EnumWindows"));
         assert!(!quiet_external("RaiseException"));
         assert!(!quiet_external("F_00401000"));
+        // No word of the name says so, but each runs code of the program: an APC, a window
+        // procedure, a thread start.
+        assert!(!quiet_external("SleepEx"));
+        assert!(!quiet_external("SetWindowTextA"));
+        assert!(!quiet_external("CreateThread"));
+        // Each may raise into a handler of the program: a bad pointer, an invalid handle, a
+        // corrupt heap.
+        assert!(!quiet_external("memcpy"));
+        assert!(!quiet_external("strcpy"));
+        assert!(!quiet_external("CloseHandle"));
+        assert!(!quiet_external("WaitForSingleObject"));
+        assert!(!quiet_external("HeapFree"));
+        assert!(!quiet_external("ra_x86_enter_critical_section"));
+        assert!(!quiet_external("ra_x86_wait_for_multiple_objects"));
+    }
+
+    /// A module of two functions: `g` calls the import `import` and returns, and `f` calls `g`,
+    /// asks `ra_eh_pending` after it and lands on 1 when an exception is in flight, else 0.
+    fn calling_through(import: &str) -> Module {
+        let void = FnType::new(Type::Void, vec![]);
+        let mut gb = FunctionBuilder::new("g", void.clone(), &[]);
+        let entry = gb.block("entry");
+        gb.call(entry, void.clone(), Callee::Direct(import.into()), vec![], "");
+        gb.terminate(entry, Terminator::Ret(None));
+        let mut fb = FunctionBuilder::new("f", FnType::new(Type::I32, vec![]), &[]);
+        let (entry, landing, ok) = (fb.block("entry"), fb.block("eh.landing"), fb.block("eh.ok"));
+        fb.call(entry, void.clone(), Callee::Direct("g".into()), vec![], "");
+        let pending = fb.call(entry, FnType::new(Type::I64, vec![]), Callee::Direct("ra_eh_pending".into()), vec![], "eh.pending");
+        let pending = pending.expect("ra_eh_pending returns a value");
+        let thrown = fb.icmp(entry, ra_asm_ir::ICond::Ne, Type::I64, pending, 0i64, "eh.thrown");
+        fb.terminate(entry, Terminator::CondBr { cond: thrown.into(), then: landing, els: ok });
+        fb.terminate(landing, Terminator::Ret(Some((Type::I32, Operand::Int(1)))));
+        fb.terminate(ok, Terminator::Ret(Some((Type::I32, Operand::Int(0)))));
+        let mut m = Module::x86_64_windows("test");
+        for (name, ty) in [(import, void.clone()), ("ra_eh_pending", FnType::new(Type::I64, vec![]))] {
+            m.declare(ra_asm_ir::Declaration { name: name.into(), ty, conv: ra_asm_ir::CallConv::default(), attrs: Vec::new() });
+        }
+        m.functions.push(gb.finish());
+        m.functions.push(fb.finish());
+        m
+    }
+
+    /// Whether `f` of `module`, tidied, still asks `ra_eh_pending`.
+    fn keeps_check(module: &Module) -> bool {
+        let nothrow = nothrow(module, &HashSet::new());
+        let f = module.functions.iter().find(|f| f.name == "f").expect("f is in the module");
+        let f = tidy(f, &nothrow).unwrap_or_else(|| f.clone());
+        f.blocks
+            .iter()
+            .flat_map(|b| &b.instrs)
+            .any(|i| matches!(&i.inst, Inst::Call { callee: Callee::Direct(n), .. } if n == "ra_eh_pending"))
+    }
+
+    #[test]
+    fn a_call_through_an_unlisted_import_keeps_its_check() {
+        let unlisted = calling_through("SleepEx");
+        assert!(keeps_check(&unlisted));
+        let c = crate::c::emit_c(&unlisted, &crate::c::Options::default());
+        assert!(c.contains("ra_eh_pending()"), "the C of a call through SleepEx asks for the exception:\n{c}");
+        assert!(keeps_check(&calling_through("memcpy")));
+        assert!(keeps_check(&calling_through("CloseHandle")));
+        assert!(!keeps_check(&calling_through("GetTickCount")));
     }
 }

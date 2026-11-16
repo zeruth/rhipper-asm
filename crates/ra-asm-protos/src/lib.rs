@@ -252,6 +252,60 @@ pub fn size_parameter(function: &str) -> Option<(usize, usize, bool)> {
     SIZE_PARAMETERS.iter().find(|(name, ..)| *name == function).map(|&(_, size, of, result)| (size, of, result))
 }
 
+/// Whether the import `name` is known to return with nothing a handler of the program sees: it
+/// runs no code of the program (no procedure, hook, callback, comparator, APC, handler, new
+/// handler, invalid parameter handler or thread start of it) and raises nothing, a hardware fault
+/// included. An exception left in flight would pass the import, so every import not listed here
+/// may return with one. The rule leaves out every import that reads or writes through a pointer
+/// of the program (a bad one faults into a structured exception: `memcpy`, `strlen`,
+/// `EnterCriticalSection`, `GetSystemTime`), every one that takes a handle (an invalid one raises
+/// under a debugger: `CloseHandle`, `WaitForSingleObject`), every allocator and free (a corrupt
+/// heap or `HEAP_GENERATE_EXCEPTIONS` raises: `HeapAlloc`, `HeapFree`, `VirtualAlloc`), the
+/// character classes (an argument out of range reads past their table) and the loader (a DLL's
+/// entry). What is listed takes only integers and reads only the process's own state. When unsure,
+/// an import stays out.
+pub fn calls_no_code(name: &str) -> bool {
+    matches!(
+        name,
+        // kernel32: errors, the process, the thread, the clocks and the code pages
+        "GetLastError"
+            | "SetLastError"
+            | "GetCurrentProcess"
+            | "GetCurrentProcessId"
+            | "GetCurrentThread"
+            | "GetCurrentThreadId"
+            | "GetTickCount"
+            | "GetTickCount64"
+            | "GetVersion"
+            | "IsDebuggerPresent"
+            | "IsProcessorFeaturePresent"
+            | "GetCommandLineA"
+            | "GetCommandLineW"
+            | "GetProcessHeap"
+            | "TlsAlloc"
+            | "TlsFree"
+            | "TlsGetValue"
+            | "FlsGetValue"
+            | "Sleep"
+            | "SwitchToThread"
+            | "GetStdHandle"
+            | "GetConsoleCP"
+            | "GetConsoleOutputCP"
+            | "GetACP"
+            | "GetOEMCP"
+            | "IsValidCodePage"
+            | "GetUserDefaultLCID"
+            // the C runtime: the integer functions and the pointers to its globals
+            | "abs"
+            | "labs"
+            | "llabs"
+            | "__p___argc"
+            | "__p___argv"
+            | "__p__commode"
+            | "__p__fmode"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,5 +322,37 @@ mod tests {
             Some(vec![("GENERIC_READ", 0x8000_0000), ("GENERIC_WRITE", 0x4000_0000)])
         );
         assert_eq!(constant_name("WIN32_ERROR", 2, 32).map(|p| p[0].0), Some("ERROR_FILE_NOT_FOUND"));
+    }
+
+    /// An import is taken to call no code of the program only when it is listed.
+    #[test]
+    fn only_listed_imports_call_no_code() {
+        assert!(calls_no_code("GetTickCount"));
+        assert!(calls_no_code("GetLastError"));
+        for name in ["SleepEx", "SetWindowTextA", "CreateThread", "malloc", "qsort", "MessageBoxA", "LoadLibraryA", "strcpy_s"] {
+            assert!(!calls_no_code(name), "{name} may run code of the program");
+        }
+        // Each may raise: a corrupt heap, an invalid handle under a debugger, a bad pointer.
+        for name in [
+            "HeapAlloc",
+            "HeapFree",
+            "HeapDestroy",
+            "LocalAlloc",
+            "GlobalAlloc",
+            "VirtualAlloc",
+            "WaitForSingleObject",
+            "WaitForMultipleObjects",
+            "CloseHandle",
+            "DuplicateHandle",
+            "memcpy",
+            "strcpy",
+            "strcat",
+            "strncpy",
+            "wcscpy",
+            "strlen",
+            "EnterCriticalSection",
+        ] {
+            assert!(!calls_no_code(name), "{name} may raise");
+        }
     }
 }
