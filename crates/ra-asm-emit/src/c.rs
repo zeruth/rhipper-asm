@@ -1277,9 +1277,9 @@ fn define_global(out: &mut String, init: &mut String, g: &ra_asm_ir::Global, lay
     }
     match (&g.ty, &g.init) {
         (Type::Array(n, e), Some(Const::Bytes(bytes))) if **e == Type::I8 => {
-            let _ = write!(out, "{storage}uint8_t {}[{n}] RA_ALIGNED(16) = {{", g.name);
-            emit_bytes(out, bytes);
-            let _ = writeln!(out, "}};");
+            let _ = write!(out, "{storage}uint8_t {}[{n}] RA_ALIGNED(16) = ", g.name);
+            emit_bytes(out, bytes, *n);
+            let _ = writeln!(out, ";");
         }
         (Type::Array(n, e), Some(Const::Zero)) if **e == Type::I8 => {
             let _ = writeln!(out, "{storage}uint8_t {}[{n}] RA_ALIGNED(16);", g.name);
@@ -1295,9 +1295,8 @@ fn define_global(out: &mut String, init: &mut String, g: &ra_asm_ir::Global, lay
                 }
                 match item {
                     Const::Bytes(bytes) => {
-                        out.push('{');
-                        emit_bytes(out, bytes);
-                        out.push('}');
+                        let size = if let Type::Array(n, _) = field { *n } else { bytes.len() as u64 };
+                        emit_bytes(out, bytes, size);
                     }
                     other => word_item(out, init, &g.name, field, other, offset_in),
                 }
@@ -1370,7 +1369,8 @@ fn word_item(out: &mut String, init: &mut String, global_name: &str, field: &Typ
 
 /// The definition of a data global through its layout: each field initialized from the bytes it
 /// covers, the words as [`word_item`] writes them, a string as its literal, a float as its
-/// decimal. A zero-initialized section has no initializer.
+/// decimal, an array's trailing zeros left to the zero fill. A zero-initialized section has no
+/// initializer.
 fn define_laid_out(out: &mut String, init: &mut String, g: &ra_asm_ir::Global, layout: &Layout, storage: &str) {
     let _ = write!(out, "{storage}struct {}_t {} RA_ALIGNED(16)", g.name, g.name);
     if matches!(g.init, Some(Const::Zero)) {
@@ -1383,11 +1383,7 @@ fn define_laid_out(out: &mut String, init: &mut String, g: &ra_asm_ir::Global, l
             out.push_str(", ");
         }
         match &field.elem {
-            Elem::Bytes => {
-                out.push('{');
-                emit_bytes(out, &layout.bytes[field.offset as usize..field.end() as usize]);
-                out.push('}');
-            }
+            Elem::Bytes => emit_bytes(out, &layout.bytes[field.offset as usize..field.end() as usize], field.end() - field.offset),
             Elem::Char => {
                 // The run without its NUL: the literal supplies it.
                 out.push_str(&crate::layout::string_literal(&layout.bytes[field.offset as usize..field.end() as usize - 1]));
@@ -1410,25 +1406,25 @@ fn define_laid_out(out: &mut String, init: &mut String, g: &ra_asm_ir::Global, l
                     out.push_str(" }");
                 }
             }
-            Elem::Value(ty) => {
-                if field.array {
-                    out.push('{');
+            Elem::Value(ty) if field.array => {
+                // No comma after the last value: the formatter writes a list that ends in one a
+                // value a line.
+                let count = (0..field.count).rev().find(|&n| layout.element(field, n).iter().any(|&b| b != 0)).map_or(0, |n| n + 1);
+                if count == 0 {
+                    out.push_str("{0}");
+                    continue;
                 }
-                for n in 0..field.count {
-                    if field.array && n % 16 == 0 {
-                        out.push_str("\n    ");
-                    } else if n > 0 {
-                        out.push(' ');
-                    }
+                out.push('{');
+                for n in 0..count {
+                    out.push_str(if n % 16 == 0 { "\n    " } else { " " });
                     out.push_str(&value_literal(ty, layout.element(field, n)));
-                    if field.array {
+                    if n + 1 < count {
                         out.push(',');
                     }
                 }
-                if field.array {
-                    out.push_str("\n}");
-                }
+                out.push_str("\n}");
             }
+            Elem::Value(ty) => out.push_str(&value_literal(ty, layout.element(field, 0))),
         }
     }
     let _ = writeln!(out, " }};");
@@ -1450,14 +1446,62 @@ fn value_literal(ty: &Type, bytes: &[u8]) -> String {
     }
 }
 
-fn emit_bytes(out: &mut String, bytes: &[u8]) {
-    for (i, b) in bytes.iter().enumerate() {
-        if i % 32 == 0 {
-            out.push_str("\n    ");
-        }
-        let _ = write!(out, "{b},");
+/// The text width of a line of a byte array's string literal.
+const LITERAL_LINE: usize = 96;
+
+/// The braced initializer of a byte array of `size` bytes from `bytes`: a string literal a line
+/// of [`LITERAL_LINE`] at a time, its trailing zeros left to the zero fill. A literal needs room
+/// for its NUL (C++ requires it, clang warns in C), so an array whose last byte is not zero is the
+/// numbers, 32 a line and no comma after the last: the formatter writes a list that ends in one
+/// a value a line.
+fn emit_bytes(out: &mut String, bytes: &[u8], size: u64) {
+    let bytes = &bytes[..bytes.iter().rposition(|&b| b != 0).map_or(0, |n| n + 1)];
+    if bytes.is_empty() {
+        out.push_str("{0}");
+        return;
     }
-    out.push('\n');
+    out.push('{');
+    if bytes.len() as u64 >= size {
+        for (i, b) in bytes.iter().enumerate() {
+            out.push_str(if i % 32 == 0 { "\n    " } else { " " });
+            let _ = write!(out, "{b}");
+            if i + 1 < bytes.len() {
+                out.push(',');
+            }
+        }
+        out.push_str("\n}");
+        return;
+    }
+    let mut line = 0;
+    let mut previous = 0u8;
+    for (i, &b) in bytes.iter().enumerate() {
+        if i == 0 || out.len() - line >= LITERAL_LINE {
+            if i > 0 {
+                out.push('"');
+            }
+            out.push_str("\n    \"");
+            line = out.len();
+        }
+        match b {
+            b'\\' => out.push_str("\\\\"),
+            b'"' => out.push_str("\\\""),
+            b'\t' => out.push_str("\\t"),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            // An escaped `?` after a `?`, so no trigraph forms.
+            b'?' if previous == b'?' => out.push_str("\\?"),
+            b' '..=b'~' => out.push(b as char),
+            // An octal escape takes up to three digits: a short one only when no digit follows.
+            _ if bytes.get(i + 1).is_some_and(|n| (b'0'..=b'7').contains(n)) => {
+                let _ = write!(out, "\\{b:03o}");
+            }
+            _ => {
+                let _ = write!(out, "\\{b:o}");
+            }
+        }
+        previous = b;
+    }
+    out.push_str("\"\n}");
 }
 
 /// What every function of a unit is written with: the module's and the options' parts.
@@ -3768,5 +3812,69 @@ mod tests {
         assert!(expected.contains("#define GENERIC_READ "), "{expected}");
         assert_eq!(emit_unit(&module, &options).text(), expected);
         assert_eq!(emit_unit_dropping(&mut module.clone(), &options).text(), expected);
+    }
+
+    /// The bytes a C compiler reads from the braced initializer of a `size`-byte array that
+    /// [`emit_bytes`] wrote: the literals' escapes or the numbers, then the zero fill.
+    fn initialized(text: &str, size: usize) -> Vec<u8> {
+        let inner = text.strip_prefix('{').and_then(|t| t.strip_suffix('}')).expect(text).trim();
+        let mut out = Vec::new();
+        if inner.starts_with('"') {
+            let mut chars = inner.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c != '"' {
+                    assert!(c.is_whitespace(), "{c:?} between the literals of {text}");
+                    continue;
+                }
+                loop {
+                    match chars.next().expect(text) {
+                        '"' => break,
+                        '\\' => match chars.next().expect(text) {
+                            'n' => out.push(b'\n'),
+                            't' => out.push(b'\t'),
+                            'r' => out.push(b'\r'),
+                            d @ '0'..='7' => {
+                                let mut v = d.to_digit(8).unwrap();
+                                for _ in 0..2 {
+                                    match chars.peek().and_then(|c| c.to_digit(8)) {
+                                        Some(n) => {
+                                            v = v * 8 + n;
+                                            chars.next();
+                                        }
+                                        None => break,
+                                    }
+                                }
+                                out.push(u8::try_from(v).unwrap());
+                            }
+                            other => out.push(u8::try_from(other).unwrap()),
+                        },
+                        c => out.push(u8::try_from(c).unwrap()),
+                    }
+                }
+            }
+            assert!(out.len() < size, "no room for the NUL of {text}");
+        } else {
+            out.extend(inner.split(',').map(|n| n.trim().parse::<u8>().expect(text)));
+            assert!(out.len() <= size, "{text}");
+        }
+        out.resize(size, 0);
+        out
+    }
+
+    #[test]
+    fn a_byte_array_is_packed_and_reads_back_as_its_bytes() {
+        let mut every: Vec<u8> = (0..=255u8).chain(*b"??=??/?\"\\0\x017\x018").collect();
+        every.extend([0; 300]);
+        every.extend(b"tail\0\0\0");
+        let ends_in_one = [7u8, 0, 0, 0, 9, 0, 0, 1];
+        let cases: [&[u8]; 4] = [&every, &ends_in_one, &[0; 64], b"text\0"];
+        for bytes in cases {
+            let mut text = String::new();
+            super::emit_bytes(&mut text, bytes, bytes.len() as u64);
+            assert_eq!(initialized(&text, bytes.len()), bytes, "{text}");
+            // The trailing zeros are the zero fill's, and a line holds many bytes.
+            assert!(!text.contains("\\0\"\n}") && !text.contains(" 0\n}"), "{text}");
+            assert!(text.lines().count() * 16 <= bytes.len() + 48, "{} lines for {} bytes:\n{text}", text.lines().count(), bytes.len());
+        }
     }
 }
