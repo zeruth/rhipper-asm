@@ -124,6 +124,11 @@ impl<'a> Defs<'a> {
         self.inline.contains(&v)
     }
 
+    /// How many times `v` is read.
+    pub(crate) fn uses(&self, v: ValueId) -> usize {
+        self.uses.get(&v).copied().unwrap_or(0)
+    }
+
     /// The rule of `inlinable`, before the depth.
     fn inlinable_at_use(&self, v: ValueId) -> bool {
         let Some((block, index, inst)) = self.def(v) else { return false };

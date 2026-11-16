@@ -577,11 +577,31 @@ fn fold_offsets(f: &mut Function) -> bool {
     let order = ra_asm_ir::dom::reverse_post_order(f);
     let index: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
     let mut offsets: HashMap<ValueId, (Operand, i128)> = HashMap::new();
+    // The same for an element step of a pointer: `getelementptr i8, (getelementptr i8, p, a), b`
+    // is one of `a + b` from `p`.
+    let mut steps: HashMap<ValueId, (Type, Type, Operand, i128)> = HashMap::new();
     let mut changed = false;
     for id in order {
         let Some(&bi) = index.get(&id) else { continue };
         for i in &mut f.blocks[bi].instrs {
             let Some(result) = i.result else { continue };
+            if let Inst::Gep { base_ty, ptr, indices, .. } = &i.inst
+                && let [(index_ty @ Type::Int(64), Operand::Int(k))] = indices.as_slice()
+            {
+                let (base, total) = match ptr.local().and_then(|v| steps.get(&v)) {
+                    Some((t, it, base, a)) if t == base_ty && it == index_ty => (base.clone(), a.wrapping_add(*k)),
+                    _ => (ptr.clone(), *k),
+                };
+                steps.insert(result, (base_ty.clone(), index_ty.clone(), base.clone(), total));
+                if base != *ptr
+                    && let Inst::Gep { ptr, indices, .. } = &mut i.inst
+                {
+                    *ptr = base;
+                    indices[0].1 = Operand::Int(total);
+                    changed = true;
+                }
+                continue;
+            }
             let Inst::Bin { op: op @ (BinOp::Add | BinOp::Sub), ty: Type::Int(bits), lhs, rhs: Operand::Int(c) } = &i.inst else {
                 continue;
             };

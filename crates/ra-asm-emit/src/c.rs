@@ -1346,6 +1346,7 @@ fn emit_function(
     let structured = structure(f, &graph);
     let mut e = Emitter::new(f, &structured.labels, types, layouts, std::mem::take(sdk_names), traced, checks);
     e.plan_loops(&structured.body, &graph);
+    e.plan_remat();
     e.plan_direct();
     e.plan_coalesce();
     let locals = e.declare_locals();
@@ -1692,6 +1693,8 @@ struct Emitter<'a> {
     rename: HashMap<ValueId, ValueId>,
     /// The allocations an access of their own type reads by name, with that type.
     named_allocas: HashMap<ValueId, Type>,
+    /// The cheap values written at each of their uses ([`Self::plan_remat`]).
+    remat: HashSet<ValueId>,
 }
 
 /// Where the checks of a function are written, and the values they read (see [`place_checks`]).
@@ -1843,6 +1846,7 @@ impl<'a> Emitter<'a> {
             direct: HashSet::new(),
             rename: HashMap::new(),
             named_allocas: named_allocas(f),
+            remat: HashSet::new(),
         }
     }
 
@@ -1918,8 +1922,11 @@ impl<'a> Emitter<'a> {
         }
         let f = self.f;
         let inline = |v: ValueId| self.inlinable(v) || self.field_pointer(v);
+        // A value written at each use reads its base there: the base keeps its own variable.
+        let bases: HashSet<ValueId> = self.remat.iter().filter_map(|v| self.def(*v)).flat_map(|(_, _, inst)| inst.uses()).collect();
         let keep = |v: ValueId| {
-            f.params.contains(&v)
+            bases.contains(&v)
+                || f.params.contains(&v)
                 || self.struct_of.contains_key(&v)
                 || self.watched.contains(&v)
                 || self.hoisted.contains(&v)
@@ -2334,7 +2341,91 @@ impl<'a> Emitter<'a> {
     /// Whether `v` is a field pointer: a `getelementptr` of a named struct's field. It is written
     /// at each use as the field itself, however many uses it has.
     fn field_pointer(&self, v: ValueId) -> bool {
-        matches!(self.def(v), Some((_, _, Inst::Gep { base_ty, indices, .. })) if crate::common::field_of(self.types, base_ty, indices).is_some())
+        self.remat.contains(&v)
+            || matches!(self.def(v), Some((_, _, Inst::Gep { base_ty, indices, .. })) if crate::common::field_of(self.types, base_ty, indices).is_some())
+    }
+
+    /// Decides the values written at each of their few uses instead of named: a constant step
+    /// from a value that keeps its variable all its life (no phi, no shared variable), as a cast
+    /// or an offset (`frame - 48`), which reads at its use what it read where it stands.
+    fn plan_remat(&mut self) {
+        if !self.checks.is_empty() {
+            return;
+        }
+        const MOST_USES: usize = 6;
+        let f = self.f;
+        let entry = f.blocks[0].id;
+        // The entry runs once when nothing jumps back into it: what it defines holds for good.
+        let once = !f.blocks.iter().any(|b| b.terminator.successors().contains(&entry));
+        // Where each value is read: a value read only in its own block, after it, reads its
+        // base before anything could assign the base again.
+        let mut read_in: HashMap<ValueId, HashSet<BlockId>> = HashMap::new();
+        for b in &f.blocks {
+            for i in &b.instrs {
+                match &i.inst {
+                    Inst::Phi { incoming, .. } => {
+                        for (o, from) in incoming {
+                            if let Operand::Local(v) = o {
+                                read_in.entry(*v).or_default().insert(*from);
+                            }
+                        }
+                    }
+                    inst => {
+                        for v in inst.uses() {
+                            read_in.entry(v).or_default().insert(b.id);
+                        }
+                    }
+                }
+            }
+            for v in b.terminator.uses() {
+                read_in.entry(v).or_default().insert(b.id);
+            }
+        }
+        let mut remat: HashSet<ValueId> = HashSet::new();
+        // Whether the base `o` holds the same value wherever `v`, defined in `home`, is read.
+        let steady = |o: &Operand, home: BlockId, v: ValueId, remat: &HashSet<ValueId>| match o {
+            Operand::Global(_) | Operand::Address { .. } => true,
+            Operand::Local(b) if f.params.contains(b) => true,
+            // A base written inline (a load, a call) would run again at each use.
+            Operand::Local(b) if self.inlinable(*b) || (self.field_pointer(*b) && !remat.contains(b)) => false,
+            Operand::Local(b) => match self.def(*b) {
+                Some((_, _, Inst::Phi { .. })) | None => false,
+                Some((block, _, _)) if once && block.id == entry => true,
+                Some(_) => !remat.contains(b) && read_in.get(&v).is_some_and(|r| r.iter().all(|x| *x == home)),
+            },
+            _ => false,
+        };
+        for block in &f.blocks {
+            for i in &block.instrs {
+                let Some(v) = i.result else { continue };
+                if !(2..=MOST_USES).contains(&self.defs.uses(v))
+                    || self.inlinable(v)
+                    || self.struct_of.contains_key(&v)
+                    || self.watched.contains(&v)
+                    || self.hoisted.contains(&v)
+                    || self.skipped.contains(&v)
+                    || self.alias.contains_key(&v)
+                {
+                    continue;
+                }
+                let cheap = match &i.inst {
+                    Inst::Bin { op: BinOp::Add | BinOp::Sub, ty: Type::Int(_), lhs, rhs: Operand::Int(_) } => {
+                        steady(lhs, block.id, v, &remat)
+                    }
+                    Inst::Gep { ptr, indices, .. } => {
+                        indices.iter().all(|(_, k)| matches!(k, Operand::Int(_))) && steady(ptr, block.id, v, &remat)
+                    }
+                    Inst::Cast { cast: Cast::ZExt | Cast::Trunc | Cast::IntToPtr | Cast::PtrToInt, value, .. } => {
+                        steady(value, block.id, v, &remat)
+                    }
+                    _ => false,
+                };
+                if cheap {
+                    remat.insert(v);
+                }
+            }
+        }
+        self.remat = remat;
     }
 
     /// The field a pointer operand addresses, when it is a field pointer: the access expression
