@@ -250,12 +250,16 @@ fn frame(f: &mut Function, _: &Context<'_>, _: &[Global]) {
     broken("frame", f);
 }
 
-/// Known values and branches, to a fixpoint with the cleanup.
-fn known(f: &mut Function, _: &Context<'_>, globals: &[Global]) {
+/// Known values and branches, to a fixpoint with the cleanup; then the stores to the frame the
+/// forwarded loads left with no reader ([`super::stores`]).
+fn known(f: &mut Function, cx: &Context<'_>, globals: &[Global]) {
     for _ in 0..4 {
         if !super::known::run(f, globals) {
             break;
         }
+        clean(f);
+    }
+    if cx.options.level == Level::Abi && super::stores::run(f, cx.signatures) {
         clean(f);
     }
     broken("known", f);
