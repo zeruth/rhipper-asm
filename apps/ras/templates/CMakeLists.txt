@@ -49,6 +49,14 @@ else()
 endif()
 if(WIN32)
   target_link_libraries(@TARGET@ PRIVATE kernel32 user32)
+  # A C++ port calls msvcp140 under its decorated names, and the static part of its import
+  # library besides (`std::_Facet_Register`, the `__std_*` vector algorithms), which no definition
+  # file can give: msvcprt.lib links both, as the oracle's build does.
+  set(RA_CPP_SOURCES ${GEN_SOURCES})
+  list(FILTER RA_CPP_SOURCES INCLUDE REGEX "\\.cpp$")
+  if(RA_CPP_SOURCES)
+    target_link_libraries(@TARGET@ PRIVATE msvcprt)
+  endif()
   # The import library of each DLL the program imports, made from the definition file ras emit
   # wrote from the image's import table (`imports/<dll>.def`), so no SDK needs to have one: an
   # MSVC-style toolchain's librarian takes /def, a GNU-style clang's llvm-dlltool does the same.

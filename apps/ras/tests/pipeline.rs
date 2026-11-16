@@ -1,6 +1,7 @@
 //! `ras pipeline` over a project made of one fixture: every step runs, every output lands where
 //! the workbench looks for it, and the port prints what the reference prints. Those are the slow
-//! tier's, behind the `oracle` feature; the large program's run is ignored and needs no feature.
+//! tier's, behind the `oracle` feature; the large program's run is ignored and needs no feature,
+//! and the link of a C++ port from the template needs none either.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -157,6 +158,53 @@ fn per_function_raise_holds_one_function() {
     assert_eq!(most, 1, "a thread held {most} functions thawed at once");
     assert_eq!(between, 0, "a module step began or ended with {between} functions thawed beside the frozen ones");
     assert!(together < fewest, "a module step thawed {together} functions together, the whole of a program of {fewest}");
+}
+
+/// The C++ port of a program (`classes64`) builds from the `CMakeLists.txt` the pipeline writes
+/// and links, with msvcprt.lib, which gives a C++ port msvcp140's imports and the static part of
+/// its import library (`std::_Facet_Register`, the `__std_*` vector algorithms). Without
+/// Windows, cmake or clang the build is skipped and says why.
+#[test]
+fn a_cpp_port_links_msvcprt_through_the_template() {
+    let available = |tool: &str| Command::new(tool).arg("--version").output().is_ok_and(|o| o.status.success());
+    if !cfg!(windows) {
+        eprintln!("the port of a Windows program links on a Windows host: the C++ build is skipped");
+        return;
+    }
+    if !(available("cmake") && available("clang")) {
+        eprintln!("cmake or clang is not on the PATH: the C++ build is skipped");
+        return;
+    }
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin");
+    let dir = ra_asm_testing::Scratch::new("ras-pipeline-tests", "classes-cpp");
+    std::fs::create_dir_all(dir.join("ref")).unwrap();
+    std::fs::copy(fixtures.join("classes64.exe"), dir.join("ref/classes64.exe")).unwrap();
+    let json = r#"{ "name": "classes", "exe": "ref/classes64.exe", "lang": "cpp", "build": { "generator": "cmake" } }"#;
+    std::fs::write(dir.join("rhipper.json"), json).unwrap();
+    for step in ["emit", "build"] {
+        let output =
+            Command::new(env!("CARGO_BIN_EXE_ras")).args(["pipeline", "--project"]).arg(&*dir).args(["--only", step]).output().unwrap();
+        let log = std::fs::read_to_string(dir.join(format!("build/pipeline/{step}.log"))).unwrap_or_default();
+        let tail: Vec<&str> = log.lines().rev().take(40).collect();
+        assert!(
+            output.status.success(),
+            "the {step} step failed: {}{}\nthe end of its log, last line first:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+            tail.join("\n")
+        );
+    }
+    let gen_dir = dir.join("src/gen");
+    let cpp = std::fs::read_dir(&gen_dir).unwrap().flatten().any(|e| e.path().extension().is_some_and(|x| x == "cpp"));
+    assert!(cpp, "the translation under {} has no .cpp file", gen_dir.display());
+    let lists = std::fs::read_to_string(dir.join("CMakeLists.txt")).unwrap();
+    assert!(lists.contains("msvcprt"), "the CMakeLists.txt links no msvcprt:\n{lists}");
+    let bin = dir.join("build/cmake/bin");
+    assert!(
+        bin.join("classes.exe").is_file() || bin.join("Release/classes.exe").is_file(),
+        "the build linked no classes.exe under {}",
+        bin.display()
+    );
 }
 
 /// The pipeline over the fixtures: the slow tier, which builds and runs the ports.

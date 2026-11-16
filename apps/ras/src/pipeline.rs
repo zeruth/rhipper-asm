@@ -1340,6 +1340,11 @@ fn build_clang(project: &Project, bits: u32, dll: bool, log: &mut File) -> Resul
     clang.arg("-I").arg(gen_dir).arg("-I").arg(gen_dir.join("runtime")).args(&sources);
     if cfg!(windows) {
         clang.args(["-fuse-ld=lld", "-lkernel32", "-luser32"]);
+        // A C++ port takes msvcp140's imports and the static part of its import library
+        // (`std::_Facet_Register`, the vector algorithms) from msvcprt.lib.
+        if sources.iter().any(|s| s.extension().is_some_and(|e| e == "cpp")) {
+            clang.arg("-lmsvcprt");
+        }
         // A 32-bit program keeps its 32-bit pointers in the port, which is not large-address-aware.
         if bits == 32 {
             clang.arg("-Wl,/largeaddressaware:no");
