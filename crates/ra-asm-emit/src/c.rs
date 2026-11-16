@@ -399,6 +399,10 @@ impl Unit {
                 defined.insert(f.ir_name.as_str());
             }
             named.extend(words(&f.text));
+            // the runtime's `ra_args_call` macro reads `ra_args`, which the text never names
+            if named.contains(crate::tidy::ARGS_CALL) {
+                named.insert(ra_asm_lift::state::ARGS);
+            }
         }
         self.declarations(&named, &defined, false)
     }
