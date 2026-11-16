@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ra_asm_ir::{BlockId, Function, Inst, Operand, ValueId};
+use ra_asm_ir::{BlockId, Function, Inst, Operand, Terminator, ValueId};
 
 /// Where a value is read or assigned in a block, in the order the C runs them: the
 /// instructions, then the moves of the block's successors' phis, then its branch.
@@ -85,6 +85,24 @@ pub(crate) fn coalesce(p: &Printer<'_>) -> HashMap<ValueId, ValueId> {
                 && !pairs.contains(&(*phi, *v))
             {
                 pairs.push((*phi, *v));
+            }
+        }
+    }
+    // The phis of a `switch`'s targets that take one value from it share a variable too: the
+    // block assigns it once before the `switch`, not once for each target.
+    for b in f.blocks.iter().filter(|b| matches!(b.terminator, Terminator::Switch { .. })) {
+        let mut first: Vec<(&Operand, ValueId)> = Vec::new();
+        for (phi, o) in p.moves.get(&b.id).into_iter().flatten() {
+            if !candidate(*phi) {
+                continue;
+            }
+            match first.iter().find(|(w, q)| *w == o && f.value_type(*q) == f.value_type(*phi)) {
+                Some(&(_, q)) => {
+                    if q != *phi && !pairs.contains(&(q, *phi)) {
+                        pairs.push((q, *phi));
+                    }
+                }
+                None => first.push((o, *phi)),
             }
         }
     }
@@ -305,5 +323,53 @@ impl<'a, 'p> Live<'a, 'p> {
                 })
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ra_asm_ir::{BinOp, FnType, FunctionBuilder, Module, Type};
+
+    use super::*;
+
+    /// `int f(int n, int m)`: a `switch` on `n` whose two cases and default each take one value
+    /// into a phi of their own (`m` with `param`, else 7) and return it plus `m`, times a factor
+    /// of their own.
+    fn switch_handing_one_value(param: bool) -> Function {
+        let mut fb = FunctionBuilder::new("f", FnType::new(Type::I32, vec![Type::I32, Type::I32]), &["n", "m"]);
+        let (n, m) = (fb.param(0), fb.param(1));
+        let k = if param { Operand::Local(m) } else { Operand::Int(7) };
+        let entry = fb.block("entry");
+        let targets = [fb.block("one"), fb.block("two"), fb.block("other")];
+        fb.terminate(
+            entry,
+            Terminator::Switch { ty: Type::I32, value: n.into(), default: targets[2], cases: vec![(1, targets[0]), (2, targets[1])] },
+        );
+        for (add, t) in (3i64..).zip(targets) {
+            let x = fb.value(t, Inst::Phi { ty: Type::I32, incoming: vec![(k.clone(), entry)] }, "x");
+            let y = fb.bin(t, BinOp::Add, Type::I32, x, m, "y");
+            let r = fb.bin(t, BinOp::Mul, Type::I32, y, add, "r");
+            fb.terminate(t, Terminator::Ret(Some((Type::I32, r.into()))));
+        }
+        fb.finish()
+    }
+
+    fn c_of(f: Function) -> String {
+        let mut m = Module::x86_64_windows("test");
+        m.functions.push(f);
+        crate::c::emit_c(&m, &crate::c::Options::default())
+    }
+
+    #[test]
+    fn switch_targets_taking_one_constant_take_one_copy() {
+        let c = c_of(switch_handing_one_value(false));
+        assert_eq!(c.matches("= 7u;").count(), 1, "{c}");
+        assert!(c.find("= 7u;") < c.find("switch ("), "{c}");
+    }
+
+    #[test]
+    fn switch_targets_taking_one_parameter_take_one_copy() {
+        let c = c_of(switch_handing_one_value(true));
+        assert_eq!(c.matches(" = m;").count(), 1, "{c}");
     }
 }
