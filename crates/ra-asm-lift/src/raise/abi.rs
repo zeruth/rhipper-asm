@@ -1079,7 +1079,8 @@ fn gather(
     let conventional = target.int_param_slots().len();
     let private = target.private_int_param_slots();
     if private.len() > conventional {
-        let saves = saved_registers(f, &pointers, &stack, &private[conventional..]);
+        let mut saves = saved_registers(f, &pointers, &stack, &private[conventional..]);
+        saves.extend(pushed_only(f, &pointers, target, &private[conventional..]));
         let reads = if saves.is_empty() {
             live_in
         } else {
@@ -1090,40 +1091,67 @@ fn gather(
             int_positions[p] = reads[slot.index()];
         }
     }
-    // What the block of each direct call sets of those registers before it, by its own code: the
-    // result a call before it left in `eax` is no argument set for the next (a `push eax` making
-    // room in that one would read it as one), and a call clears what was set before it.
+    // What the function's own code has set of those registers on every path to each direct call:
+    // the result a call before it left in `eax` is no argument set for the next (a `push eax`
+    // making room in that one would read it as one), so a call clears what it writes.
     let mut sets_before_calls = Vec::new();
     if private.len() > conventional {
-        for b in &f.blocks {
-            let mut set = NO_SLOTS;
+        let extras = &private[conventional..];
+        let bit = |slot: Slot| extras.iter().position(|s| *s == slot).map_or(0u8, |k| 1 << k);
+        let index_of: HashMap<ra_asm_ir::BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
+        // One pass over a block from what is set at its entry: what is set at its exit, and the
+        // calls with what is set at each.
+        let walk = |b: &ra_asm_ir::Block, mut set: u8, calls: Option<&mut Vec<(String, u8)>>| -> u8 {
+            let mut calls = calls;
             for i in &b.instrs {
                 match &i.inst {
                     Inst::Store { ptr: Operand::Local(p), .. } => {
                         if let Some(slot) = pointers.get(p) {
-                            set[slot.index()] = true;
+                            set |= bit(*slot);
                         }
                     }
                     inst if super::liveness::call_kind(inst) == Some(super::liveness::CallKind::State) => {
-                        if let Inst::Call { callee: Callee::Direct(name), .. } = inst
+                        if let (Inst::Call { callee: Callee::Direct(name), .. }, Some(out)) = (inst, calls.as_deref_mut())
                             && name.starts_with("F_")
                         {
-                            let mask = private[conventional..]
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, s)| set[s.index()])
-                                .fold(0u8, |m, (k, _)| m | 1 << k);
-                            sets_before_calls.push((name.clone(), mask));
+                            out.push((name.clone(), set));
                         }
-                        for (s, written) in set.iter_mut().zip(model(inst).1) {
-                            if written {
-                                *s = false;
+                        let written = model(inst).1;
+                        for slot in extras {
+                            if written[slot.index()] {
+                                set &= !bit(*slot);
                             }
                         }
                     }
                     _ => {}
                 }
             }
+            set
+        };
+        // Forward to a fixpoint: a block has set what every way into it has, the entry nothing.
+        let mut entry_sets: Vec<u8> = vec![u8::MAX; f.blocks.len()];
+        if let Some(first) = entry_sets.first_mut() {
+            *first = 0;
+        }
+        for _ in 0..f.blocks.len().max(1) {
+            let mut changed = false;
+            for &bi in &order {
+                let out = walk(&f.blocks[bi], entry_sets[bi], None);
+                for s in f.blocks[bi].terminator.successors() {
+                    let si = index_of[&s];
+                    let joined = entry_sets[si] & out;
+                    if si != 0 && joined != entry_sets[si] {
+                        entry_sets[si] = joined;
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        for (bi, b) in f.blocks.iter().enumerate() {
+            walk(b, entry_sets[bi], Some(&mut sets_before_calls));
         }
     }
 
@@ -1316,6 +1344,52 @@ fn saved_registers(f: &Function, pointers: &HashMap<ValueId, Slot>, stack: &Stac
         }
     }
     out
+}
+
+/// The loads of a register of `slots` whose value goes only onto the stack (a `push eax` that
+/// makes room for a local, as clang and MSVC write one, or a `mov [esp+k], esi`): a value the
+/// function never uses itself, which makes no parameter of the register. The address of each
+/// store is the stack pointer's value, moved by constants.
+fn pushed_only(f: &Function, pointers: &HashMap<ValueId, Slot>, target: Target, slots: &[Slot]) -> Vec<ValueId> {
+    let defs: HashMap<ValueId, &Inst> = f.blocks.iter().flat_map(|b| &b.instrs).filter_map(|i| Some((i.result?, &i.inst))).collect();
+    let sp = target.sp();
+    let on_stack = |o: &Operand| {
+        let mut at = o.local();
+        for _ in 0..8 {
+            match at.and_then(|v| defs.get(&v)) {
+                Some(Inst::Load { ptr: Operand::Local(p), .. }) => return pointers.get(p) == Some(&sp),
+                Some(Inst::Cast { value, .. }) => at = value.local(),
+                Some(Inst::Bin { op: BinOp::Add | BinOp::Sub | BinOp::And, lhs, rhs: Operand::Int(_), .. }) => at = lhs.local(),
+                _ => return false,
+            }
+        }
+        false
+    };
+    let mut users: HashMap<ValueId, Vec<&ra_asm_ir::Instruction>> = HashMap::new();
+    for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+        for v in i.inst.uses() {
+            users.entry(v).or_default().push(i);
+        }
+    }
+    fn stacked(v: ValueId, users: &HashMap<ValueId, Vec<&ra_asm_ir::Instruction>>, on_stack: &dyn Fn(&Operand) -> bool, depth: u8) -> bool {
+        users.get(&v).is_some_and(|us| {
+            us.iter().all(|u| match (&u.inst, u.result) {
+                (Inst::Store { value: Operand::Local(x), ptr, .. }, _) => *x == v && ptr.local() != Some(v) && on_stack(ptr),
+                (Inst::Cast { cast: Cast::Trunc, .. }, Some(r)) if depth == 0 => stacked(r, users, on_stack, 1),
+                _ => false,
+            })
+        })
+    }
+    f.blocks
+        .iter()
+        .flat_map(|b| &b.instrs)
+        .filter_map(|i| match (&i.inst, i.result) {
+            (Inst::Load { ptr: Operand::Local(p), .. }, Some(v)) if pointers.get(p).is_some_and(|s| slots.contains(s)) => {
+                stacked(v, &users, &on_stack, 0).then_some(v)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// The kind of a float parameter in vector slot `slot`: `float` when the function reads it as a

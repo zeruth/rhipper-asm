@@ -194,6 +194,38 @@ fn a_static_function_takes_its_argument_in_the_register_its_callers_set() {
     assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 12, "main()\n{}", lifted.module.to_ll());
 }
 
+/// main sets `esi` in its first block and calls, from the next, `room` (whose `push eax` only
+/// makes room for a local, though main has just set `eax`) and `inc_esi` (which reads the `esi`
+/// main set a block before): main returns 3 + 31. `room` takes nothing; `inc_esi` takes `esi`.
+#[test]
+fn a_register_set_blocks_before_the_call_is_an_argument_and_a_push_that_makes_room_is_none() {
+    const ROOM: u64 = CODE + 0x40;
+    const INC_ESI: u64 = CODE + 0x60;
+    let mut s = vec![0xccu8; 0x200];
+    let mut put = |at: u64, bytes: &[u8]| {
+        let o = (at - CODE) as usize;
+        s[o..o + bytes.len()].copy_from_slice(bytes);
+    };
+    // push esi; mov esi, 30; jmp L; L: mov eax, 7; call room; mov ecx, eax; call inc_esi;
+    // add eax, ecx; pop esi; ret
+    let mut main = vec![0x56, 0xbe, 30, 0, 0, 0, 0xeb, 0x00, 0xb8, 7, 0, 0, 0];
+    main.extend(call_to(MAIN + main.len() as u64, ROOM));
+    main.extend([0x8b, 0xc8]);
+    main.extend(call_to(MAIN + main.len() as u64, INC_ESI));
+    main.extend([0x03, 0xc1, 0x5e, 0xc3]);
+    put(MAIN, &main);
+    // push eax; mov dword ptr [esp], 3; mov eax, [esp]; pop ecx; ret
+    put(ROOM, &[0x50, 0xc7, 0x04, 0x24, 3, 0, 0, 0, 0x8b, 0x04, 0x24, 0x59, 0xc3]);
+    // lea eax, [esi+1]; ret
+    put(INC_ESI, &[0x8d, 0x46, 0x01, 0xc3]);
+    let (image, lifted, signatures) = raised(&s);
+    let signature = |address: u64| &signatures[&lifted.functions[&address]];
+    assert!(signature(ROOM).params.is_empty(), "room's push only makes room:\n{}", lifted.module.to_ll());
+    // ecx, edx, eax, ebx, then esi.
+    assert_eq!(signature(INC_ESI).params.len(), 5, "inc_esi reads esi:\n{}", lifted.module.to_ll());
+    assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 34, "main()\n{}", lifted.module.to_ll());
+}
+
 /// The jump tables of the C runtime's `memcpy`, which no `cmp` bounds from zero: `and eax, 3`
 /// before the read (the entry for 0 is no code: that path has ruled it out), `sub ecx, 4` whose
 /// borrow jumps to `jmp [ecx*4 + table + 16]` (the index is -4 to -1), and `neg ecx` after the
