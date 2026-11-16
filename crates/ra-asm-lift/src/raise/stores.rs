@@ -19,12 +19,17 @@
 //!
 //! The addresses are offsets from the frame's `alloca` plus the values a call through a pointer
 //! popped (`ra_pops_of`), which are not negative: two addresses with the same such terms compare
-//! by their offsets, and one with more terms lies above the other's offset. A phi of stack
-//! pointers that differ by such terms (the arms of a dispatch, a loop's rounds) is the lowest of
-//! them plus a term of its own that is not negative, which for a loop holds by induction once what
-//! comes back round it is the phi plus what is not negative. A walk that comes back to where a
-//! term of the store's address is computed again keeps the store, since one value of the term is
-//! not every value; so does an escape that a term computed in a loop may have placed elsewhere.
+//! by their offsets, and one with more terms lies above the other's offset. A popped value is at
+//! most what the runtime can hand back for it, the largest of its tables of a native callee's pops
+//! and of what a universal entry point records: so an address whose terms the other lacks lies at
+//! most that much above its offset, and a store after an indirect call still compares with the
+//! slots and the escapes before it. A phi of stack pointers that differ by such terms (the arms of
+//! a dispatch, a loop's rounds) is the lowest of them plus a term of its own that is not negative,
+//! which for a loop holds by induction once what comes back round it is the phi plus what is not
+//! negative; the term of a dispatch's phi is at most what its arms lie above the lowest. A walk
+//! that comes back to where a term of the store's address is computed again keeps the store, since
+//! one value of the term is not every value; so does an escape that a term computed in a loop may
+//! have placed elsewhere.
 //!
 //! Two things are taken as C has them, as the frame's own locals are ([`super::frame`]): an
 //! address is read upward from where it points, never below; and the arithmetic no compiler forms
@@ -32,9 +37,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ra_asm_ir::{BinOp, BlockId, Callee, Cast, Function, Inst, Operand, Terminator, Type, ValueId};
+use ra_asm_ir::{BinOp, BlockId, Callee, Cast, Const, Function, Global, Inst, Operand, Terminator, Type, ValueId};
 
 use super::abi::Signature;
+use crate::state::{IMPORT_POPS, PROC_POPS};
 
 /// The most instructions one store's walk reads before it gives up and keeps the store.
 const BUDGET: usize = 20_000;
@@ -84,6 +90,9 @@ struct Places<'a> {
     /// The terms that are not negative: what a call through a pointer popped, and how far a
     /// phi lies above the lowest of the places it joins.
     nonneg: HashSet<ValueId>,
+    /// The most a term that is not negative can be: what a call through a pointer popped, and how
+    /// far a dispatch's phi lies above the lowest of its arms when each arm's distance is bounded.
+    most: HashMap<ValueId, i64>,
     /// The phis of a loop taken to lie at or above the place that enters it, with that place.
     assumed: HashMap<ValueId, Place>,
     /// The phis whose assumption what came back round the loop contradicted: values of their own.
@@ -96,7 +105,8 @@ impl<'a> Places<'a> {
     /// or above the place entering it, and the assumption checked once the place coming back is
     /// known: it holds when that place is the phi's plus what is not negative, by induction over
     /// the rounds. A phi it does not hold for is a value of its own, and the places are built again.
-    fn new(f: &'a Function) -> Self {
+    /// `most_pops` is the most a call through a pointer pops, when the runtime's tables bound it.
+    fn new(f: &'a Function, most_pops: Option<i64>) -> Self {
         let defs = f.blocks.iter().flat_map(|b| &b.instrs).filter_map(|i| i.result.map(|v| (v, &i.inst))).collect();
         let pops: HashSet<ValueId> = f
             .blocks
@@ -105,7 +115,15 @@ impl<'a> Places<'a> {
             .filter(|i| matches!(&i.inst, Inst::Call { callee: Callee::Direct(name), .. } if name == "ra_pops_of"))
             .filter_map(|i| i.result)
             .collect();
-        let mut places = Self { defs, memo: HashMap::new(), nonneg: pops.clone(), assumed: HashMap::new(), opaque: HashSet::new() };
+        let popped: HashMap<ValueId, i64> = most_pops.map(|most| pops.iter().map(|&v| (v, most)).collect()).unwrap_or_default();
+        let mut places = Self {
+            defs,
+            memo: HashMap::new(),
+            nonneg: pops.clone(),
+            most: popped.clone(),
+            assumed: HashMap::new(),
+            opaque: HashSet::new(),
+        };
         let index: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(n, b)| (b.id, n)).collect();
         let order = ra_asm_ir::dom::reverse_post_order(f);
         for round in 0.. {
@@ -144,8 +162,14 @@ impl<'a> Places<'a> {
             places.memo.clear();
             places.assumed.clear();
             places.nonneg.clone_from(&pops);
+            places.most.clone_from(&popped);
         }
         places
+    }
+
+    /// What the terms are known to lie in, once the places are built.
+    fn bounds(&self) -> Bounds {
+        Bounds { nonneg: self.nonneg.clone(), most: self.most.clone() }
     }
 
     fn of(&mut self, o: &Operand) -> Option<Place> {
@@ -229,7 +253,22 @@ impl<'a> Places<'a> {
                     return Some(Place::opaque(v));
                 }
                 self.nonneg.insert(v);
-                if !complete {
+                if complete {
+                    // How far the arms lie above the lowest, at most: their offsets past its and
+                    // the most their extra terms are.
+                    let distance = |p: &Place| {
+                        let mut rest = p.terms.clone();
+                        for t in &low.terms {
+                            let at = rest.iter().position(|x| x == t)?;
+                            rest.remove(at);
+                        }
+                        rest.iter().try_fold(p.offset.checked_sub(low.offset)?, |d, t| d.checked_add(*self.most.get(t)?))
+                    };
+                    let most = ins.iter().map(distance).collect::<Option<Vec<i64>>>().and_then(|d| d.into_iter().max());
+                    if let Some(most) = most {
+                        self.most.insert(v, most);
+                    }
+                } else {
                     self.assumed.insert(v, low.clone());
                 }
                 let mut terms = low.terms;
@@ -277,17 +316,68 @@ fn passes_taint(inst: &Inst) -> bool {
 
 /// How `a`, at `a_size` bytes, and `b`, at `b_size`, of one object may relate: `Some(false)` when
 /// they are apart, `Some(true)` when they overlap, `None` when the offsets cannot tell.
-fn overlap(a: &Place, a_size: i64, b: &Place, b_size: i64, nonneg: &HashSet<ValueId>) -> Option<bool> {
+fn overlap(a: &Place, a_size: i64, b: &Place, b_size: i64, bounds: &Bounds) -> Option<bool> {
     if a.terms == b.terms {
         return Some(a.offset < b.offset + b_size && b.offset < a.offset + a_size);
     }
-    // `b` has the terms of `a` and more that are not negative: `b` lies at or above its offset
-    // from `a`'s base, and is apart when that is past `a`'s end.
-    let above = |low: &Place, low_size: i64, high: &Place| extra(&low.terms, &high.terms, nonneg) && high.offset >= low.offset + low_size;
-    if above(a, a_size, b) || above(b, b_size, a) {
+    // Apart when one lies past the other's end whatever values their terms take.
+    if bounds.gap(b, a).is_some_and(|g| g >= a_size) || bounds.gap(a, b).is_some_and(|g| g >= b_size) {
         return Some(false);
     }
     None
+}
+
+/// What the terms of a function's places lie in: those that are not negative, and the most some
+/// of them can be.
+struct Bounds {
+    nonneg: HashSet<ValueId>,
+    most: HashMap<ValueId, i64>,
+}
+
+impl Bounds {
+    /// The least `high - low` can be over the values of their terms, when their terms bound it: a
+    /// term of `high` alone adds at least nothing when it is not negative, and one of `low` alone
+    /// takes away at most what it can be.
+    fn gap(&self, high: &Place, low: &Place) -> Option<i64> {
+        let mut only_low = low.terms.clone();
+        for t in &high.terms {
+            if let Some(at) = only_low.iter().position(|x| x == t) {
+                only_low.remove(at);
+            } else if !self.nonneg.contains(t) {
+                return None;
+            }
+        }
+        only_low.iter().try_fold(high.offset.checked_sub(low.offset)?, |g, t| g.checked_sub(*self.most.get(t)?))
+    }
+}
+
+/// The most a call through a pointer of the module pops, by what the runtime's `ra_pops_of` can
+/// hand back: a native callee's pops from the binding table ([`IMPORT_POPS`]) or from the table of
+/// the functions the program asks `GetProcAddress` for ([`PROC_POPS`]), else what a universal entry
+/// point recorded, which is its function's signature's pops. `None` without the tables, which the
+/// lift of a 32-bit program writes ahead of the raise.
+pub fn most_pops(globals: &[Global], signatures: &HashMap<String, Signature>) -> Option<i64> {
+    let init = |name: &str| globals.iter().find(|g| g.name == name).and_then(|g| g.init.as_ref());
+    let Some(Const::Struct(imports)) = init(IMPORT_POPS) else { return None };
+    let Some(Const::Bytes(procs)) = init(PROC_POPS) else { return None };
+    let mut most: i64 = 0;
+    // Three words an import: its symbol, its names, its pops.
+    for import in imports.chunks(3) {
+        let [_, _, Const::Int(pops)] = import else { return None };
+        most = most.max(i64::try_from(*pops).ok()?);
+    }
+    // `name\0` and a little-endian u16 each, then an empty name.
+    let mut at = 0;
+    while *procs.get(at)? != 0 {
+        let end = at + procs[at..].iter().position(|&b| b == 0)?;
+        let pops = u16::from_le_bytes([*procs.get(end + 1)?, *procs.get(end + 2)?]);
+        most = most.max(i64::from(pops));
+        at = end + 3;
+    }
+    for s in signatures.values() {
+        most = most.max(i64::try_from(s.pops).ok()?);
+    }
+    Some(most)
 }
 
 /// Whether `more` is `fewer` with terms added that are not negative.
@@ -302,9 +392,9 @@ fn extra(fewer: &[ValueId], more: &[ValueId], nonneg: &HashSet<ValueId>) -> bool
 
 /// Removes the stores to the frame of `f` that nothing reads; returns whether it removed any.
 /// `signatures` are the lifted functions': a call to one without is a machine call, which reads
-/// the stack.
-pub fn run(f: &mut Function, signatures: &HashMap<String, Signature>) -> bool {
-    let dead = dead_stores(f, signatures);
+/// the stack. `most_pops` is what [`most_pops`] found.
+pub fn run(f: &mut Function, signatures: &HashMap<String, Signature>, most_pops: Option<i64>) -> bool {
+    let dead = dead_stores(f, signatures, most_pops);
     if dead.is_empty() {
         return false;
     }
@@ -320,10 +410,10 @@ pub fn run(f: &mut Function, signatures: &HashMap<String, Signature>) -> bool {
 }
 
 /// The stores of `f` nothing reads, by block index and instruction index.
-fn dead_stores(f: &Function, signatures: &HashMap<String, Signature>) -> HashSet<(usize, usize)> {
+fn dead_stores(f: &Function, signatures: &HashMap<String, Signature>, most_pops: Option<i64>) -> HashSet<(usize, usize)> {
     let mut dead = HashSet::new();
     // The frame: the `alloca` under `%rsp0`, as the ABI rewrite names the frame top.
-    let mut places = Places::new(f);
+    let mut places = Places::new(f, most_pops);
     let Some(rsp0) = f.blocks.first().and_then(|b| b.instrs.iter().find_map(|i| i.result.filter(|v| f.value_name(*v) == "rsp0"))) else {
         return dead;
     };
@@ -368,9 +458,8 @@ fn dead_stores(f: &Function, signatures: &HashMap<String, Signature>) -> HashSet
             break;
         }
     }
-    // Every value's place is known once the places are built: the terms that are not negative
-    // are settled.
-    let nonneg = places.nonneg.clone();
+    // Every value's place is known once the places are built: the bounds of the terms are settled.
+    let bounds = places.bounds();
 
     // Where the frame escapes: a frame address any instruction takes as other than an address
     // to load or store at, or than arithmetic on it; an escape whose offset is unknown keeps
@@ -446,10 +535,9 @@ fn dead_stores(f: &Function, signatures: &HashMap<String, Signature>) -> HashSet
             };
             let varying: Vec<ValueId> =
                 place.terms.iter().copied().filter(|t| defined_in.get(t).is_some_and(|d| cyclic.contains(d))).collect();
-            let reachable = escapes.iter().any(|e| {
-                !(extra(&place.terms, &e.terms, &nonneg) && place.offset + size <= e.offset && !varying.iter().any(|t| e.terms.contains(t)))
-            });
-            if !reachable && unread(f, &index, &mut places, &frame, &tainted, &nonneg, (bi, k + 1), &place, size, &redefined).is_ok() {
+            let reachable =
+                escapes.iter().any(|e| bounds.gap(e, &place).is_none_or(|g| g < size) || varying.iter().any(|t| e.terms.contains(t)));
+            if !reachable && unread(f, &index, &mut places, &frame, &tainted, &bounds, (bi, k + 1), &place, size, &redefined).is_ok() {
                 dead.insert((bi, k));
             }
         }
@@ -467,7 +555,7 @@ fn unread(
     places: &mut Places<'_>,
     frame: &Root,
     tainted: &HashSet<ValueId>,
-    nonneg: &HashSet<ValueId>,
+    bounds: &Bounds,
     from: (usize, usize),
     place: &Place,
     size: i64,
@@ -491,10 +579,7 @@ fn unread(
             if let Inst::Call { args, .. } = &i.inst {
                 for (_, a) in args.iter().filter(|(_, a)| is_varargs(f, a)) {
                     match places.of(a) {
-                        Some(q)
-                            if q.root.as_ref() == Some(frame)
-                                && extra(&place.terms, &q.terms, nonneg)
-                                && place.offset + size <= q.offset => {}
+                        Some(q) if q.root.as_ref() == Some(frame) && bounds.gap(&q, place).is_some_and(|g| g >= size) => {}
                         _ => return Err("a variadic call reads it"),
                     }
                 }
@@ -521,7 +606,7 @@ fn unread(
             let Some(read_size) = read_size.and_then(|s| i64::try_from(s).ok()) else { return Err("a read of no size") };
             let q = places.of(ptr);
             match q {
-                Some(q) if q.root.as_ref() == Some(frame) => match overlap(place, size, &q, read_size, nonneg) {
+                Some(q) if q.root.as_ref() == Some(frame) => match overlap(place, size, &q, read_size, bounds) {
                     Some(false) => {}
                     Some(true) => return Err("a load reads it"),
                     None => return Err("a load from another base"),

@@ -36,6 +36,9 @@ pub struct Context<'a> {
     /// The stack dwords a call through a pointer hands on past the universal six (see
     /// [`super::stubs::extra_dwords`]); none ahead of the signatures.
     pub extra_dwords: usize,
+    /// The most a call through a pointer pops (see [`super::stores::most_pops`]), read from the
+    /// module's globals once a step first asks.
+    pub most_pops: OnceLock<Option<i64>>,
 }
 
 impl<'a> Context<'a> {
@@ -47,6 +50,7 @@ impl<'a> Context<'a> {
             vtables: VtableIndex::new(&options.vtables),
             summaries: SummaryCache::new(signatures, options.target()),
             extra_dwords: super::stubs::extra_dwords(signatures, roots, options.target()),
+            most_pops: OnceLock::new(),
         }
     }
 }
@@ -259,7 +263,9 @@ fn known(f: &mut Function, cx: &Context<'_>, globals: &[Global]) {
         }
         clean(f);
     }
-    if cx.options.level == Level::Abi && super::stores::run(f, cx.signatures) {
+    if cx.options.level == Level::Abi
+        && super::stores::run(f, cx.signatures, *cx.most_pops.get_or_init(|| super::stores::most_pops(globals, cx.signatures)))
+    {
         clean(f);
     }
     broken("known", f);
