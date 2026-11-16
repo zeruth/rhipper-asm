@@ -325,7 +325,8 @@ impl Lifted {
     /// Gives every lifted function the analysis's name for it (`main_`, `Shape_vf1`, `fib`) in
     /// place of `F_<address>`, at its definition, its calls and wherever its address is taken; a
     /// function nothing names keeps `F_<address>`. Runs after the raise, whose passes know a
-    /// lifted function by the `F_` prefix; `signatures`, keyed by the old names, follow.
+    /// lifted function by the `F_` prefix; `signatures`, keyed by the old names, follow. A frozen
+    /// function ([`raise::raise_frozen`]) is thawed while it is renamed and frozen again.
     pub fn apply_names(&mut self, analysis: &Analysis<'_>, signatures: Option<&mut HashMap<String, raise::abi::Signature>>) {
         use ra_asm_ir::{Callee, Inst};
         let renamed: HashMap<String, String> =
@@ -333,7 +334,7 @@ impl Lifted {
         if renamed.is_empty() {
             return;
         }
-        for f in &mut self.module.functions {
+        let rename = |f: &mut ra_asm_ir::Function| {
             if let Some(name) = renamed.get(&f.name) {
                 f.name = name.clone();
             }
@@ -352,7 +353,11 @@ impl Lifted {
                     raise::stubs::rename_operand(o, &renamed);
                 }
             }
+        };
+        for f in &mut self.module.functions {
+            rename(f);
         }
+        raise::held::each_mut(&mut self.module.frozen, |_, f| rename(f));
         for g in &mut self.module.globals {
             if let Some(init) = &mut g.init {
                 raise::stubs::rename_const(init, &renamed);
@@ -1227,6 +1232,29 @@ mod parallel_tests {
                 assert_eq!(kept_signatures, frozen_signatures, "{fixture} at {level:?}");
                 assert_eq!(kept.module.to_ll(), frozen.module.to_ll(), "{fixture} at {level:?}: the IR differs");
             }
+        }
+    }
+
+    /// A raise that leaves its functions frozen, named and then thawed, is the raise that thaws
+    /// them, named: the same signatures, the same IR in the same order.
+    #[test]
+    fn a_raise_kept_frozen_thaws_to_the_raise() {
+        let bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin");
+        for fixture in ["control64.exe", "classes32.exe", "throws64.exe"] {
+            let image = ra_asm_pe::load(&bin.join(fixture)).unwrap();
+            let analysis = ra_asm_analysis::analyze(&image);
+            let options = LiftOptions { standalone: true, x87: X87Unit::Double };
+            let mut thawed = lift_on(&image, &analysis, &[], options, None, true);
+            let mut frozen = lift_on(&image, &analysis, &[], options, None, true);
+            let (thawed_options, frozen_options) = (thawed.raise_options(RaiseLevel::Abi), frozen.raise_options(RaiseLevel::Abi));
+            let mut thawed_signatures = raise(&mut thawed.module, &thawed.roots, thawed_options);
+            let mut frozen_signatures = raise::raise_frozen(&mut frozen.module, &frozen.roots, frozen_options);
+            assert!(frozen.module.functions.is_empty(), "{fixture}: the raise left {} functions thawed", frozen.module.functions.len());
+            thawed.apply_names(&analysis, Some(&mut thawed_signatures));
+            frozen.apply_names(&analysis, Some(&mut frozen_signatures));
+            raise::thaw(&mut frozen.module);
+            assert_eq!(thawed_signatures, frozen_signatures, "{fixture}");
+            assert_eq!(thawed.module.to_ll(), frozen.module.to_ll(), "{fixture}: the IR differs");
         }
     }
 }

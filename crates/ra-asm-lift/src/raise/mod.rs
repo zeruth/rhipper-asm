@@ -447,20 +447,43 @@ impl Options {
 /// [`steps::steps`] gives. `roots` are the functions whose callers the lift does not see (see
 /// [`abi::infer`]).
 pub fn raise(module: &mut Module, roots: &BTreeSet<String>, options: Options) -> HashMap<String, abi::Signature> {
-    raise_before(module, roots, options, None)
+    raise_with(module, roots, options, None, false)
+}
+
+/// [`raise`] that leaves the raised functions frozen in the module's `frozen`, in the order the
+/// raise leaves them thawed, and none among its `functions`: for a reader that thaws one function
+/// at a time (the C emit), so the raised module is never whole. [`thaw`] thaws them all.
+pub fn raise_frozen(module: &mut Module, roots: &BTreeSet<String>, options: Options) -> HashMap<String, abi::Signature> {
+    raise_with(module, roots, options, None, true)
+}
+
+/// Every function of `module` [`raise_frozen`] left frozen, thawed after its own.
+pub fn thaw(module: &mut Module) {
+    held::thaw_all(module);
 }
 
 /// [`raise`], stopped ahead of the step called `before`: neither it nor any step after it runs,
 /// so the module is what that step is handed. `before` is a step of the level's order past the
 /// inference, which every raise makes; a name the order does not hold stops nothing.
-// The options are the raise's own, as its callers across the crates hand them: the steps borrow
-// them through the context.
-#[allow(clippy::needless_pass_by_value)]
 pub fn raise_before(
     module: &mut Module,
     roots: &BTreeSet<String>,
     options: Options,
     before: Option<&str>,
+) -> HashMap<String, abi::Signature> {
+    raise_with(module, roots, options, before, false)
+}
+
+/// [`raise_before`], which with `keep_frozen` leaves the raised functions frozen ([`raise_frozen`]).
+// The options are the raise's own, as its callers across the crates hand them: the steps borrow
+// them through the context.
+#[allow(clippy::needless_pass_by_value)]
+fn raise_with(
+    module: &mut Module,
+    roots: &BTreeSet<String>,
+    options: Options,
+    before: Option<&str>,
+    keep_frozen: bool,
 ) -> HashMap<String, abi::Signature> {
     use steps::{Context, Pass};
     // The order, in the three runs the raise makes of it: the function steps ahead of the
@@ -532,7 +555,7 @@ pub fn raise_before(
                 }
                 f.compact();
             };
-            if whole.is_empty() {
+            if whole.is_empty() && !keep_frozen {
                 // Each frozen function gives way to its raise as the raise reaches it: the frozen
                 // bytes and the raised module are never both whole.
                 timed("raise: functions", || {
@@ -577,9 +600,19 @@ pub fn raise_before(
             check_deadline(THE_MODULE, step.name);
             timed(&format!("raise: {}", step.name), || run(module, &cx));
         }
-        if abi_level && !whole.is_empty() {
+        if abi_level && !whole.is_empty() && !keep_frozen {
             timed("raise: thaw", || held::thaw_all(module));
         }
+    }
+    // The functions still thawed go ahead of the frozen ones, where a thaw would put them.
+    if keep_frozen && !module.functions.is_empty() {
+        timed("raise: freeze", || {
+            let functions = std::mem::take(&mut module.functions);
+            let mut frozen = abi::par_map(&functions, |_, f| ra_asm_ir::freeze::freeze(f));
+            drop(functions);
+            frozen.append(&mut module.frozen);
+            module.frozen = frozen;
+        });
     }
     // A pass that breaks the shape of its level shows in the builds the tests run, where it
     // happens; a function may still break its level (`testdata/levels/PENDING.txt`), so the

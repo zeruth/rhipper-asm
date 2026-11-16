@@ -51,7 +51,8 @@ fn the_program_calls_the_dll_lifted_export(bits: u32) {
     assert!(!dir.join(format!("imports/exports{bits}.def")).exists(), "{bits}: an import library of the DLL is still made");
     for function in ["ra_add", "ra_twice"] {
         // A definition starts its line and opens its body (`{ RA_ENTER(...);` on the head since
-        // #545); a call is indented and a prototype ends with `;` and no body.
+        // #545, so the line can end in a `;`); a call is indented and a prototype ends with `;`
+        // and no body.
         let defined = c.lines().any(|l| {
             !l.starts_with(char::is_whitespace) && l.contains(&format!(" {function}(")) && (l.contains('{') || !l.trim_end().ends_with(';'))
         });

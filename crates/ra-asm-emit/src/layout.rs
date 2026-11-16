@@ -169,43 +169,59 @@ struct Uses {
     strings: BTreeSet<u64>,
 }
 
-/// The layouts of the module's data sections, by global, for the globals whose uses type at
-/// least one field; a section no use types keeps the IR's shape.
-pub(crate) fn layouts(module: &Module) -> HashMap<String, Layout> {
-    let mut flat: HashMap<String, FlatSection> = HashMap::new();
-    for g in &module.globals {
-        if g.address.is_some()
-            && let Some(f) = flatten(g)
-        {
-            flat.insert(g.name.clone(), f);
-        }
-    }
-    let mut uses: HashMap<String, Uses> = HashMap::new();
-    for f in &module.functions {
-        collect_uses(f, &flat, &mut uses);
-    }
-    // An address word that points into a section names a string there as a passed pointer does.
-    for (_, words) in flat.values() {
-        for (_, item) in words.values() {
-            if let Const::Address { global, offset } = item
-                && flat.contains_key(global)
-                && let Ok(offset) = u64::try_from(*offset)
+/// The uses of the module's data sections, read one function at a time, which give their layouts:
+/// the functions of a large program need not be in memory together for them.
+pub(crate) struct LayoutUses {
+    flat: HashMap<String, FlatSection>,
+    uses: HashMap<String, Uses>,
+}
+
+impl LayoutUses {
+    /// The data sections of `module`, with no use read yet.
+    pub(crate) fn new(module: &Module) -> Self {
+        let mut flat: HashMap<String, FlatSection> = HashMap::new();
+        for g in &module.globals {
+            if g.address.is_some()
+                && let Some(f) = flatten(g)
             {
-                uses.entry(global.clone()).or_default().strings.insert(offset);
+                flat.insert(g.name.clone(), f);
             }
         }
+        Self { flat, uses: HashMap::new() }
     }
-    let mut out = HashMap::new();
-    for (name, (bytes, words)) in flat {
-        let Some(u) = uses.get(&name) else { continue };
-        let layout = Layout { fields: Vec::new(), bytes, words };
-        let fields = fields_of(&layout, u);
-        let typed = fields.iter().any(|f| !matches!(f.elem, Elem::Bytes) && (f.array || !matches!(f.elem, Elem::Word(_))));
-        if typed {
-            out.insert(name, Layout { fields, ..layout });
+
+    /// Reads the uses of `f`.
+    pub(crate) fn add(&mut self, f: &Function) {
+        collect_uses(f, &self.flat, &mut self.uses);
+    }
+
+    /// The layouts of the sections, by global, for the globals whose uses type at least one
+    /// field; a section no use types keeps the IR's shape.
+    pub(crate) fn layouts(self) -> HashMap<String, Layout> {
+        let Self { flat, mut uses } = self;
+        // An address word that points into a section names a string there as a passed pointer does.
+        for (_, words) in flat.values() {
+            for (_, item) in words.values() {
+                if let Const::Address { global, offset } = item
+                    && flat.contains_key(global)
+                    && let Ok(offset) = u64::try_from(*offset)
+                {
+                    uses.entry(global.clone()).or_default().strings.insert(offset);
+                }
+            }
         }
+        let mut out = HashMap::new();
+        for (name, (bytes, words)) in flat {
+            let Some(u) = uses.get(&name) else { continue };
+            let layout = Layout { fields: Vec::new(), bytes, words };
+            let fields = fields_of(&layout, u);
+            let typed = fields.iter().any(|f| !matches!(f.elem, Elem::Bytes) && (f.array || !matches!(f.elem, Elem::Word(_))));
+            if typed {
+                out.insert(name, Layout { fields, ..layout });
+            }
+        }
+        out
     }
-    out
 }
 
 /// The bytes and the address words of a data global, from the shapes the lift writes: one byte

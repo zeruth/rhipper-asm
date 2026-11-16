@@ -70,9 +70,10 @@ enum Role {
 }
 
 /// The wrappers of the imports of `module`, a 32-bit program's, that take a structure whose
-/// layouts differ.
+/// layouts differ. The module's functions are read by their names alone, frozen or not.
 pub fn adapters(module: &Module) -> Adapters {
-    let defined: BTreeSet<&str> = module.functions.iter().map(|f| f.name.as_str()).collect();
+    let defined: BTreeSet<&str> =
+        module.functions.iter().map(|f| f.name.as_str()).chain(module.frozen.iter().map(|z| z.name.as_str())).collect();
     let mut wrappers = String::new();
     let mut imports = BTreeSet::new();
     // The conversions the wrappers call, by the structure and whether it is the way back.

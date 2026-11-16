@@ -126,7 +126,8 @@ pub(crate) struct Options<'a> {
 /// Translates the raised module of `lifted` as `options` ask. `signatures` (by the final function
 /// names) tell the C++ output which virtual functions read their object. A C or C++ translation
 /// drops each function's IR once its source is written: `lifted` keeps its tables and its data, and
-/// of each function its name and type, not its body.
+/// of each function its name and type, not its body. The raised functions may be frozen
+/// ([`ra_asm_lift::raise::raise_frozen`]): the translation thaws them as it reads them.
 pub(crate) fn translate(
     image: &Image,
     analysis: &Analysis<'_>,
@@ -162,6 +163,8 @@ pub(crate) fn translate(
             .filter(|i| !lifted.bound.contains_key(&i.display_name()))
             .filter_map(|i| i.name.clone().map(|n| (n, i.dll.clone())))
             .collect();
+        // The Rust backend reads the module whole.
+        ra_asm_lift::raise::thaw(&mut lifted.module);
         let entry = lifted.entry.and_then(|e| lifted.functions.get(&e).cloned());
         let options = ra_asm_emit::RustOptions {
             names,
@@ -829,8 +832,10 @@ pub(crate) fn emit(
             with.release_instructions();
         }
     }
+    // The raised functions stay frozen: the translation thaws them a run at a time, so the raised
+    // module is never whole in memory.
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
-    let mut signatures = staged("raise", || ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options));
+    let mut signatures = staged("raise", || ra_asm_lift::raise::raise_frozen(&mut lifted.module, &lifted.roots, options));
     timed("apply_names", || {
         lifted.apply_names(&analysis, Some(&mut signatures));
         for with in &with_analyses {

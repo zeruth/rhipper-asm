@@ -20,7 +20,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FnType, Function, Inst, Module, Operand, Terminator, Type, ValueId};
+use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FnType, Function, Inst, Operand, Terminator, Type, ValueId};
 use ra_asm_lift::raise::{dce, known, simplify};
 use ra_asm_lift::state::ARGS;
 
@@ -75,41 +75,61 @@ fn quiet_external(name: &str) -> bool {
     true
 }
 
-/// The functions of `module` that never return with an exception in flight: no throw, no call
-/// through a pointer, and every call to such a function, a quiet helper or a quiet import. A
-/// function the hand-written sources own may do anything, and so may a function outside the
-/// module.
-pub(crate) fn nothrow(module: &Module, hand: &HashSet<String>) -> HashSet<String> {
-    let index: HashMap<&str, usize> = module.functions.iter().enumerate().map(|(i, f)| (f.name.as_str(), i)).collect();
-    let n = module.functions.len();
-    let mut throws = vec![false; n];
-    let mut callers: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for (i, f) in module.functions.iter().enumerate() {
-        if hand.contains(&f.name) {
-            throws[i] = true;
-        }
+/// What [`Calls::nothrow`] reads of each function of a module, read one function at a time: whether
+/// it may throw by itself, and the functions it calls by name. A function the hand-written sources
+/// own may do anything, and so may a function outside the module.
+#[derive(Default)]
+pub(crate) struct Calls {
+    names: Vec<String>,
+    throws: Vec<bool>,
+    callees: Vec<Vec<String>>,
+}
+
+impl Calls {
+    /// Reads the calls of `f`, which throws by itself when the hand-written sources `hand` own it.
+    pub(crate) fn add(&mut self, f: &Function, hand: &HashSet<String>) {
+        let mut throws = hand.contains(&f.name);
+        let mut callees = Vec::new();
         for inst in f.blocks.iter().flat_map(|b| &b.instrs) {
             let Inst::Call { callee, .. } = &inst.inst else { continue };
             match callee {
-                Callee::Direct(name) => match index.get(name.as_str()) {
+                Callee::Direct(name) => callees.push(name.clone()),
+                Callee::Indirect(_) => throws = true,
+            }
+        }
+        callees.sort_unstable();
+        callees.dedup();
+        self.names.push(f.name.clone());
+        self.throws.push(throws);
+        self.callees.push(callees);
+    }
+
+    /// The functions read that never return with an exception in flight: no throw, no call
+    /// through a pointer, and every call to such a function, a quiet helper or a quiet import.
+    pub(crate) fn nothrow(self) -> HashSet<String> {
+        let Self { names, mut throws, callees } = self;
+        let index: HashMap<&str, usize> = names.iter().enumerate().map(|(i, name)| (name.as_str(), i)).collect();
+        let mut callers: Vec<Vec<usize>> = vec![Vec::new(); names.len()];
+        for (i, called) in callees.iter().enumerate() {
+            for name in called {
+                match index.get(name.as_str()) {
                     Some(&j) => callers[j].push(i),
                     None if quiet_external(name) => {}
                     None => throws[i] = true,
-                },
-                Callee::Indirect(_) => throws[i] = true,
+                }
             }
         }
-    }
-    let mut work: Vec<usize> = (0..n).filter(|&i| throws[i]).collect();
-    while let Some(j) = work.pop() {
-        for &i in &callers[j] {
-            if !throws[i] {
-                throws[i] = true;
-                work.push(i);
+        let mut work: Vec<usize> = (0..names.len()).filter(|&i| throws[i]).collect();
+        while let Some(j) = work.pop() {
+            for &i in &callers[j] {
+                if !throws[i] {
+                    throws[i] = true;
+                    work.push(i);
+                }
             }
         }
+        names.iter().zip(&throws).filter(|(_, t)| !**t).map(|(name, _)| name.clone()).collect()
     }
-    module.functions.iter().zip(&throws).filter(|(_, t)| !**t).map(|(f, _)| f.name.clone()).collect()
 }
 
 /// `f` tidied, when anything changed.
@@ -921,7 +941,7 @@ fn fold_arg_stores(f: &mut Function) -> bool {
 mod tests {
     use super::*;
 
-    use ra_asm_ir::{FnType, FunctionBuilder};
+    use ra_asm_ir::{FnType, FunctionBuilder, Module};
 
     #[test]
     fn only_imports_known_to_call_nothing_back_are_quiet() {
@@ -982,7 +1002,11 @@ mod tests {
 
     /// Whether `f` of `module`, tidied, still asks `ra_eh_pending`.
     fn keeps_check(module: &Module) -> bool {
-        let nothrow = nothrow(module, &HashSet::new());
+        let mut calls = Calls::default();
+        for f in &module.functions {
+            calls.add(f, &HashSet::new());
+        }
+        let nothrow = calls.nothrow();
         let f = module.functions.iter().find(|f| f.name == "f").expect("f is in the module");
         let f = tidy(f, &nothrow).unwrap_or_else(|| f.clone());
         f.blocks
