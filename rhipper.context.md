@@ -44,6 +44,7 @@ Start a card that spans these crates from the definition, not from a whole-file 
   - No emulator is installed: a fixture's expected output comes from its source and the SDK's documented behaviour, or the card says it needs an emulator.
   - `upx` 5.3.0 is on Windows (winget): `C:\Users\tyler\AppData\Local\Microsoft\WinGet\Packages\UPX.UPX_Microsoft.Winget.Source_8wekyb3d8bbwe\upx-5.3.0-win64\upx.exe`.
 - `ras emit --quiet` hides the lift's warnings; without it every unsupported instruction prints with its address. The grade of a function is its trap count; a lift that guesses is a bug.
+- A raise that hangs on a large program: `ras case --pass promote` gives up before any work there and has no per-step timer, so it names nothing. The bisection that works is `ras lift --only <addr> --level machine|promoted <exe>`, one function (and its callees) at a time: the address whose promoted lift does not finish while its machine lift does is the function to look at.
 
 ## Conventions
 
