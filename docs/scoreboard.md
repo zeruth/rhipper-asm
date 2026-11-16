@@ -12,8 +12,8 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | computed64.exe | ok | 4 | 4 | 4 | 0 | 0 | 3 | 3 | 11 | 0 | 25 | 196 | 0.0 | 250.0 |
 | control32-upx.exe | timeout | - | - | 3 | 0 | 0 | - | - | - | - | - | 11457 | 0.8 | 2711.7 |
 | control32.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 66 | 0 | 133 | 1282 | 0.0 | 664.6 |
-| control64-O1.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 32 | 0 | 68 | 548 | 0.0 | 450.7 |
-| control64.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 66 | 0 | 133 | 553 | 0.0 | 415.9 |
+| control64-O1.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 32 | 0 | 68 | 518 | 0.0 | 422.8 |
+| control64.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 66 | 0 | 133 | 546 | 0.0 | 412.1 |
 | control_mipsel | ok | 23 | 23 | 23 | 1 | 1 | 17 | 17 | 11 | 0 | 70 | 811 | 1.2 | 461.2 |
 | crt64.exe | ok | 15 | 15 | 15 | 0 | 0 | 3 | 3 | 4 | 0 | 8 | 1720 | 0.0 | 2284.3 |
 | dispatch32.exe | ok | 8 | 8 | 8 | 0 | 0 | 8 | 8 | 15 | 0 | 33 | 526 | 0.0 | 431.6 |
@@ -21,7 +21,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | exports32.dll | ok | 4 | 4 | 4 | 0 | 0 | 1 | 1 | 0 | 0 | 0 | 204 | 0.0 | 269.6 |
 | exports64.dll | ok | 4 | 4 | 4 | 0 | 0 | 1 | 1 | 0 | 0 | 0 | 109 | 0.0 | 100.9 |
 | exports_host32.exe | ok | 3 | 3 | 3 | 0 | 0 | 2 | 2 | 8 | 0 | 25 | 639 | 3.1 | 550.9 |
-| exports_host64.exe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 8 | 0 | 25 | 343 | 2.9 | 414.0 |
+| exports_host64.exe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 8 | 0 | 25 | 323 | 3.1 | 383.9 |
 | extended32.exe | ok | 7 | 7 | 7 | 2 | 2 | 6 | 6 | 16 | 0 | 44 | 898 | 0.0 | 1120.3 |
 | files32.exe | ok | 7 | 7 | 7 | 0 | 0 | 5 | 5 | 14 | 0 | 28 | 691 | 0.0 | 526.8 |
 | files64.exe | ok | 7 | 7 | 7 | 0 | 0 | 5 | 5 | 14 | 0 | 28 | 373 | 0.0 | 348.5 |
@@ -31,7 +31,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | gte_psx.exe | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 3 | 0 | 7 | 359 | 0.0 | 529.2 |
 | hello32-upx.exe | timeout | 3 | - | 3 | 1 | 1 | - | - | - | - | - | 9446 | 0.8 | 2640.1 |
 | hello32.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 249 | 0.0 | 333.3 |
-| hello64-upx.exe | timeout | 6 | - | 6 | 0 | 0 | 2 | - | - | - | - | 9107 | 0.7 | 2714.8 |
+| hello64-upx.exe | timeout | 6 | - | 6 | 0 | 0 | 2 | - | - | - | - | 9098 | 0.7 | 2716.9 |
 | hello64.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 119 | 0.0 | 218.5 |
 | hello_linux64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 166 | 0.0 | 253.0 |
 | hello_linux_a64 | ok | 5 | 5 | 5 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 203 | 0.0 | 300.5 |
@@ -44,7 +44,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | inline64.exe | ok | 5 | 5 | 5 | 0 | 0 | 5 | 5 | 38 | 0 | 76 | 258 | 0.0 | 387.6 |
 | libmain_a64.so | ok | 6 | 6 | 6 | 0 | 0 | 0 | 0 | 2 | 0 | 2 | 201 | 0.0 | 194.0 |
 | linked32.exe | ok | 2 | 2 | 2 | 0 | 0 | 1 | 1 | 4 | 0 | 8 | 385 | 0.0 | 579.2 |
-| linked64.exe | ok | 2 | 2 | 2 | 0 | 0 | 1 | 1 | 4 | 0 | 8 | 218 | 0.0 | 431.2 |
+| linked64.exe | ok | 2 | 2 | 2 | 0 | 0 | 1 | 1 | 4 | 0 | 8 | 200 | 0.0 | 395.0 |
 | obfusc32.exe | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 5 | 0 | 10 | 565 | 0.0 | 401.8 |
 | obfusc64.exe | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 5 | 0 | 10 | 337 | 0.0 | 189.9 |
 | resources32.exe | ok | 9 | 9 | 9 | 0 | 0 | 9 | 9 | 62 | 0 | 124 | 697 | 0.0 | 512.2 |
@@ -58,7 +58,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 691 | 0.0 | 712.0 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 380 | 0.0 | 397.4 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 441 | 0.0 | 594.1 |
-| total | 48/52 ok | 333 | 324 | 343 | 5 | 5 | 269 | 267 | 730 | 0 | 1639 | 52256 | 0.5 | 1820.7 |
+| total | 48/52 ok | 333 | 324 | 343 | 5 | 5 | 269 | 267 | 730 | 0 | 1639 | 52172 | 0.5 | 1822.2 |
 
 | pending list | entries |
 |---|---|

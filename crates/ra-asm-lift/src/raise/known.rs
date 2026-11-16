@@ -231,7 +231,6 @@ fn number_values(f: &mut Function) -> bool {
     let order = reverse_post_order(f);
     let preds = f.predecessors();
     let idom = dominators(&order, &preds);
-    let mut tables: HashMap<BlockId, HashMap<String, ValueId>> = HashMap::new();
     let mut replace: HashMap<ValueId, Operand> = HashMap::new();
     let resolve = |o: &mut Operand, replace: &HashMap<ValueId, Operand>| {
         while let Operand::Local(v) = o {
@@ -239,9 +238,38 @@ fn number_values(f: &mut Function) -> bool {
             *o = r.clone();
         }
     };
+    // The dominator tree walked depth first, one table scoped to the walk: a block sees the values
+    // of its dominators alone, each found by one lookup. Walking up the dominators from each
+    // instruction instead cost instructions times depth: 56 s of ffxiv.exe's largest function.
+    let index: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(n, b)| (b.id, n)).collect();
+    let mut children: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
     for b in &order {
-        let Some(bi) = f.blocks.iter().position(|x| x.id == *b) else { continue };
-        let mut local: HashMap<String, ValueId> = HashMap::new();
+        if let Some(&d) = idom.get(b)
+            && d != *b
+        {
+            children.entry(d).or_default().push(*b);
+        }
+    }
+    let mut table: HashMap<String, ValueId> = HashMap::new();
+    // a block to enter, or the keys a block added to take out as the walk leaves it
+    enum Visit {
+        Enter(BlockId),
+        Leave(Vec<String>),
+    }
+    let roots = order.iter().filter(|b| idom.get(b).is_none_or(|d| d == *b)).copied().collect::<Vec<_>>();
+    let mut stack: Vec<Visit> = roots.into_iter().rev().map(Visit::Enter).collect();
+    while let Some(visit) = stack.pop() {
+        let b = match visit {
+            Visit::Enter(b) => b,
+            Visit::Leave(keys) => {
+                for key in keys {
+                    table.remove(&key);
+                }
+                continue;
+            }
+        };
+        let Some(&bi) = index.get(&b) else { continue };
+        let mut added: Vec<String> = Vec::new();
         let mut kept = Vec::with_capacity(f.blocks[bi].instrs.len());
         for mut i in std::mem::take(&mut f.blocks[bi].instrs) {
             for o in i.inst.operands_mut() {
@@ -256,20 +284,11 @@ fn number_values(f: &mut Function) -> bool {
                 continue;
             }
             let key = format!("{:?}", i.inst);
-            let mut found = local.get(&key).copied();
-            let mut up = *b;
-            while found.is_none() {
-                let Some(&d) = idom.get(&up) else { break };
-                if d == up {
-                    break;
-                }
-                found = tables.get(&d).and_then(|t| t.get(&key)).copied();
-                up = d;
-            }
-            if let Some(earlier) = found {
+            if let Some(&earlier) = table.get(&key) {
                 replace.insert(v, Operand::Local(earlier));
             } else {
-                local.insert(key, v);
+                table.insert(key.clone(), v);
+                added.push(key);
                 kept.push(i);
             }
         }
@@ -277,7 +296,10 @@ fn number_values(f: &mut Function) -> bool {
             resolve(o, &replace);
         }
         f.blocks[bi].instrs = kept;
-        tables.insert(*b, local);
+        stack.push(Visit::Leave(added));
+        if let Some(kids) = children.get(&b) {
+            stack.extend(kids.iter().rev().map(|k| Visit::Enter(*k)));
+        }
     }
     if replace.is_empty() {
         return false;
@@ -496,22 +518,56 @@ fn apply_branch_facts(f: &mut Function) -> bool {
         return false;
     }
     let mut changed = false;
-    for bi in 0..f.blocks.len() {
-        // the facts of this block and of every dominator
-        let mut known: HashMap<ValueId, Operand> = HashMap::new();
-        let mut x = f.blocks[bi].id;
-        loop {
-            if let Some(facts) = facts_at.get(&x) {
-                for fact in facts {
-                    known.entry(fact.value).or_insert_with(|| fact.constant.clone());
+    // The facts of a block and of every dominator, the nearest first, as one table scoped to a
+    // depth-first walk of the dominator tree: a walk up the dominators from every block cost
+    // blocks times depth on ffxiv.exe's largest functions.
+    let index: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(n, b)| (b.id, n)).collect();
+    let mut children: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
+    for b in &order {
+        if let Some(&d) = idom.get(b)
+            && d != *b
+        {
+            children.entry(d).or_default().push(*b);
+        }
+    }
+    let mut known: HashMap<ValueId, Operand> = HashMap::new();
+    // a block to enter, or what a block's facts covered, to put back as the walk leaves it
+    enum Visit {
+        Enter(BlockId),
+        Leave(Vec<(ValueId, Option<Operand>)>),
+    }
+    // every block the walk does not reach from another: the entry, and a block the entry does not
+    // reach, which keeps its own facts alone as before
+    let roots = f.blocks.iter().map(|b| b.id).filter(|b| idom.get(b).is_none_or(|d| d == b)).collect::<Vec<_>>();
+    let mut stack: Vec<Visit> = roots.into_iter().rev().map(Visit::Enter).collect();
+    while let Some(visit) = stack.pop() {
+        let b = match visit {
+            Visit::Enter(b) => b,
+            Visit::Leave(undo) => {
+                for (value, before) in undo.into_iter().rev() {
+                    match before {
+                        Some(k) => known.insert(value, k),
+                        None => known.remove(&value),
+                    };
+                }
+                continue;
+            }
+        };
+        let mut undo: Vec<(ValueId, Option<Operand>)> = Vec::new();
+        if let Some(facts) = facts_at.get(&b) {
+            // the block's own first fact of a value wins over its later ones and its dominators'
+            let mut set: HashSet<ValueId> = HashSet::new();
+            for fact in facts {
+                if set.insert(fact.value) {
+                    undo.push((fact.value, known.insert(fact.value, fact.constant.clone())));
                 }
             }
-            let Some(&up) = idom.get(&x) else { break };
-            if up == x {
-                break;
-            }
-            x = up;
         }
+        stack.push(Visit::Leave(undo));
+        if let Some(kids) = children.get(&b) {
+            stack.extend(kids.iter().rev().map(|k| Visit::Enter(*k)));
+        }
+        let Some(&bi) = index.get(&b) else { continue };
         if known.is_empty() {
             continue;
         }

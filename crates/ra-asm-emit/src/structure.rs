@@ -247,12 +247,23 @@ struct Walk<'a> {
     /// The tails [`Walk::skipped_join`] opened: left to even when short, since the edge that
     /// skips the join could not end a copy.
     skipped: HashSet<BlockId>,
+    /// The uses of each value of `f`, counted once: the walk reads `f` and never changes it, and
+    /// counting them at every condition block took 20 s of ffxiv.exe's 4932-block function.
+    uses: HashMap<ra_asm_ir::ValueId, usize>,
 }
 
 /// Structures `f`.
 pub fn structure(f: &Function, g: &Graph) -> Structured {
-    let mut w =
-        Walk { f, g, emitted: HashSet::new(), labels: HashSet::new(), loops: Vec::new(), tails: Vec::new(), skipped: HashSet::new() };
+    let mut w = Walk {
+        f,
+        g,
+        emitted: HashSet::new(),
+        labels: HashSet::new(),
+        loops: Vec::new(),
+        tails: Vec::new(),
+        skipped: HashSet::new(),
+        uses: f.use_counts(),
+    };
     let entry = f.blocks[0].id;
     let body = w.run(entry, None);
     Structured { body, labels: w.labels }
@@ -749,7 +760,7 @@ impl Walk<'_> {
         if self.emitted.contains(&b) || self.g.loops.contains_key(&b) || self.g.preds.get(&b).map_or(0, Vec::len) != 1 {
             return None;
         }
-        let uses = self.f.use_counts();
+        let uses = &self.uses;
         for i in &block.instrs {
             let v = i.result?;
             if i.inst.has_side_effects()

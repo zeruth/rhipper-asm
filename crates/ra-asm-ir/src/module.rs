@@ -129,6 +129,10 @@ pub struct NameIndex {
     names: std::collections::HashSet<String>,
     /// How many of `value_names` are in `names`.
     synced: usize,
+    /// For each hint, the lowest suffix not yet known taken: names are never freed, so the lowest
+    /// free one only moves up. Without it the k-th `rax` of a function tried k names, and ffxiv.exe's
+    /// largest functions spent half a minute in the ABI promotion naming registers.
+    next: std::collections::HashMap<String, u32>,
 }
 
 impl PartialEq for NameIndex {
@@ -146,12 +150,31 @@ impl Function {
         &self.value_types[v.0 as usize]
     }
 
+    /// The block `id`: where its number puts it, else by a search in id order, else by a scan. A
+    /// scan alone made a structuring walk quadratic: 20 s of ffxiv.exe's 4932-block function. The
+    /// search in order can only miss, never find another block, so the scan stays the answer of
+    /// last resort and the result is the scan's.
     pub fn block(&self, id: BlockId) -> Option<&Block> {
-        self.blocks.iter().find(|b| b.id == id)
+        self.block_index(id).map(|n| &self.blocks[n])
     }
 
     pub fn block_mut(&mut self, id: BlockId) -> Option<&mut Block> {
-        self.blocks.iter_mut().find(|b| b.id == id)
+        self.block_index(id).map(|n| &mut self.blocks[n])
+    }
+
+    /// Where the block `id` is in `blocks`: the first block with that id, as a scan finds it.
+    fn block_index(&self, id: BlockId) -> Option<usize> {
+        let at = id.0 as usize;
+        // a block id is unique in a function, so the one found is the scan's
+        if self.blocks.get(at).is_some_and(|b| b.id == id) {
+            return Some(at);
+        }
+        if let Ok(n) = self.blocks.binary_search_by_key(&id.0, |b| b.id.0)
+            && self.blocks[n].id == id
+        {
+            return Some(n);
+        }
+        self.blocks.iter().position(|b| b.id == id)
     }
 
     pub fn entry(&self) -> &Block {
@@ -183,12 +206,13 @@ impl Function {
             index.names.insert(name.clone());
         }
         index.synced = self.value_names.len();
-        let mut name = hint.to_owned();
-        let mut n = 0;
+        let mut n = index.next.get(hint).copied().unwrap_or(0);
+        let mut name = if n == 0 { hint.to_owned() } else { format!("{hint}.{n}") };
         while index.names.contains(&name) {
             n += 1;
             name = format!("{hint}.{n}");
         }
+        index.next.insert(hint.to_owned(), n + 1);
         index.names.insert(name.clone());
         index.synced += 1;
         let id = ValueId(self.value_names.len() as u32);
