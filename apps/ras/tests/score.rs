@@ -388,6 +388,35 @@ fn committed_board_is_never_worse() {
     );
 }
 
+#[test]
+fn write_keeps_a_timed_out_rows_committed_figures() {
+    // A limit of no time stops every program before its first line: each row times out blank.
+    let dir = board_tree("write-timeout");
+    let docs = dir.join("docs");
+    std::fs::create_dir_all(&docs).unwrap();
+    let committed = "# Scoreboard\n\n\
+        | program | status | machine | promoted | abi | traps | trapping | verified machine | verified promoted | \
+        discharged | checked | open | lines | gotos ‰ | casts ‰ |\n\
+        |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n\
+        | control64.exe | timeout | 11 | - | - | - | - | - | - | - | - | - | - | - | - |\n\
+        | gone.exe | ok | 1 | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 0 | 0 | 10 | 0.0 | 0.0 |\n\
+        | hello64.exe | ok | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 8 | 9 | 0 | 1234 | 12.3 | 45.6 |\n\
+        | total | 2/3 ok | 19 | 7 | 6 | 4 | 3 | 3 | 2 | 8 | 9 | 0 | 1244 | 12.2 | 45.2 |\n";
+    std::fs::write(docs.join("scoreboard.md"), committed).unwrap();
+    let bin = dir.join("testdata/bin");
+    let out = ras(&["score", "--write", "--timeout", "0", bin.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let board = std::fs::read_to_string(docs.join("scoreboard.md")).unwrap();
+    for row in [
+        "| control64.exe | timeout | 11 | - | - | - | - | - | - | - | - | - | - | - | - |",
+        "| hello64.exe | timeout | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 8 | 9 | 0 | 1234 | 12.3 | 45.6 |",
+        "| total | 0/2 ok | 18 | 6 | 5 | 4 | 3 | 2 | 1 | 8 | 9 | 0 | 1234 | 12.3 | 45.6 |",
+    ] {
+        assert_eq!(board.lines().filter(|l| *l == row).count(), 1, "{row}:\n{board}");
+    }
+    assert!(!board.contains("gone.exe"), "{board}");
+}
+
 /// `ras score --source <source> --json`, parsed.
 fn score(source: &Path) -> Value {
     let out = ras(&["score", "--json", "--source", source.to_str().unwrap()]);

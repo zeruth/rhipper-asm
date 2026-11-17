@@ -398,7 +398,8 @@ pub(crate) struct Options {
     pub signatures: Vec<PathBuf>,
     /// The board on stdout as JSON.
     pub json: bool,
-    /// The board written to [`BOARD`] beside the `testdata` the directory lies in, too.
+    /// The board written to [`BOARD`] beside the `testdata` the directory lies in, too; a program
+    /// that times out keeps the figures the board there had for what it did not reach.
     pub write: bool,
 }
 
@@ -449,6 +450,9 @@ struct Row {
     lines: Option<u64>,
     gotos: Option<u64>,
     casts: Option<u64>,
+    /// The gotos and the casts per thousand lines when the counts are not known: a timed-out
+    /// row's from the committed board, and the total's over such rows.
+    kept: [Option<f64>; 2],
     /// What stopped the recorded run, when anything did.
     stop: Option<String>,
     error: Option<String>,
@@ -478,9 +482,45 @@ impl Row {
             lines: n("lines"),
             gotos: n("gotos"),
             casts: n("casts"),
+            kept: [None, None],
             stop: s("stop"),
             error: s("error"),
         }
+    }
+
+    /// Fills each column this timed-out row did not reach from `committed`, its row of the
+    /// committed board by column: a run on a loaded machine stops early, and its blanks would
+    /// stand on the board as figures lost.
+    fn keep(&mut self, committed: &BTreeMap<String, String>) {
+        let n = |column: &str| committed.get(column).and_then(|cell| cell.parse::<u64>().ok());
+        for (column, value) in [
+            ("machine", &mut self.machine),
+            ("promoted", &mut self.promoted),
+            ("abi", &mut self.abi),
+            ("traps", &mut self.traps),
+            ("trapping", &mut self.trapping),
+            ("verified machine", &mut self.verified_machine),
+            ("verified promoted", &mut self.verified_promoted),
+            ("discharged", &mut self.discharged),
+            ("checked", &mut self.checked),
+            ("open", &mut self.open),
+        ] {
+            if value.is_none() {
+                *value = n(column);
+            }
+        }
+        // The lines, the gotos and the casts come in one line of the run: all three or none.
+        if self.lines.is_none() {
+            self.lines = n("lines");
+            let f = |column: &str| committed.get(column).and_then(|cell| cell.parse::<f64>().ok());
+            self.kept = [f("gotos ‰"), f("casts ‰")];
+        }
+    }
+
+    /// The gotos and the casts per thousand lines.
+    fn ratios(&self) -> [Option<f64>; 2] {
+        let [gotos, casts] = self.kept;
+        [gotos.or_else(|| per_thousand(self.gotos, self.lines)), casts.or_else(|| per_thousand(self.casts, self.lines))]
     }
 
     /// The `total` row: each column summed over the rows that have it, over `seconds` of wall time.
@@ -506,9 +546,30 @@ impl Row {
             lines: sum(|r| r.lines),
             gotos: sum(|r| r.gotos),
             casts: sum(|r| r.casts),
+            kept: Self::kept_total(rows),
             stop: None,
             error: None,
         }
+    }
+
+    /// The total's gotos and casts per thousand lines when a row holds only the committed board's
+    /// ratios: each row's ratio weighed by its lines.
+    #[allow(clippy::cast_precision_loss)] // Line counts stay far below 2^53.
+    fn kept_total(rows: &[Row]) -> [Option<f64>; 2] {
+        if rows.iter().all(|r| r.kept.iter().all(Option::is_none)) {
+            return [None, None];
+        }
+        let total = |at: usize| {
+            let (mut weighed, mut lines) = (0.0, 0u64);
+            for row in rows {
+                if let (Some(ratio), Some(n)) = (row.ratios()[at], row.lines) {
+                    weighed += ratio * n as f64;
+                    lines += n;
+                }
+            }
+            (lines > 0).then(|| weighed / lines as f64)
+        };
+        [total(0), total(1)]
     }
 
     fn json(&self) -> Value {
@@ -527,7 +588,7 @@ impl Row {
             "lines": self.lines,
             "gotos": self.gotos,
             "casts": self.casts,
-            "per_thousand": {"gotos": per_thousand(self.gotos, self.lines), "casts": per_thousand(self.casts, self.lines)},
+            "per_thousand": {"gotos": self.ratios()[0], "casts": self.ratios()[1]},
             "error": self.error,
         })
     }
@@ -536,6 +597,7 @@ impl Row {
     fn cells(&self) -> String {
         let n = |v: Option<u64>| v.map_or_else(|| "-".to_owned(), |v| v.to_string());
         let f = |v: Option<f64>| v.map_or_else(|| "-".to_owned(), |v| format!("{v:.1}"));
+        let [gotos, casts] = self.ratios();
         format!(
             "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             self.program,
@@ -551,8 +613,8 @@ impl Row {
             n(self.checked),
             n(self.open),
             n(self.lines),
-            f(per_thousand(self.gotos, self.lines)),
-            f(per_thousand(self.casts, self.lines)),
+            f(gotos),
+            f(casts),
         )
     }
 }
@@ -591,14 +653,28 @@ pub(crate) fn board(dir: &Path, options: &Options) -> Result<()> {
     let _ = std::fs::remove_dir_all(&scratch);
     let mut rows = rows.into_inner().unwrap_or_else(PoisonError::into_inner);
     rows.sort_by(|a, b| a.program.cmp(&b.program));
-    let total = Row::total(&rows, started.elapsed().as_secs_f64());
     let tree = testdata(dir);
+    let board = if options.write {
+        let root = tree.as_deref().and_then(Path::parent).with_context(|| format!("{} lies in no testdata tree", dir.display()))?;
+        Some(root.join(BOARD))
+    } else {
+        None
+    };
+    if let Some(path) = &board
+        && let Ok(text) = std::fs::read_to_string(path)
+    {
+        let committed = committed(&text);
+        for row in rows.iter_mut().filter(|r| r.status == "timeout") {
+            if let Some(cells) = committed.get(&row.program) {
+                row.keep(cells);
+            }
+        }
+    }
+    let total = Row::total(&rows, started.elapsed().as_secs_f64());
     let pending = tree.as_deref().map(pending).transpose()?.unwrap_or_default();
     let ignored = tree.as_deref().and_then(Path::parent).map(ignored).unwrap_or_default();
     let table = markdown(&rows, &total, &pending, &ignored)?;
-    if options.write {
-        let root = tree.as_deref().and_then(Path::parent).with_context(|| format!("{} lies in no testdata tree", dir.display()))?;
-        let path = root.join(BOARD);
+    if let Some(path) = board {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).with_context(|| format!("cannot make {}", parent.display()))?;
         }
@@ -706,6 +782,21 @@ fn markdown(rows: &[Row], total: &Row, pending: &[(String, usize)], ignored: &[(
         writeln!(out, "| total | {} |", lines.iter().map(|(_, count)| count).sum::<usize>())?;
     }
     Ok(out)
+}
+
+/// The program rows of a board's table of [`COLUMNS`], by program and column.
+fn committed(board: &str) -> BTreeMap<String, BTreeMap<String, String>> {
+    let split = |line: &str| line.trim().trim_matches('|').split('|').map(|cell| cell.trim().to_owned()).collect::<Vec<_>>();
+    let columns = split(COLUMNS);
+    let mut lines = board.lines().skip_while(|line| split(line) != columns).skip(1);
+    // The rule under the header, then the rows up to the table's end.
+    lines.next();
+    lines
+        .take_while(|line| line.trim_start().starts_with('|'))
+        .map(&split)
+        .filter(|row| row.len() == columns.len() && row[0] != "total")
+        .map(|row| (row[0].clone(), columns[1..].iter().cloned().zip(row[1..].iter().cloned()).collect()))
+        .collect()
 }
 
 /// One program in `ras score-file`, stopped at the time limit: its row from the lines it wrote.
