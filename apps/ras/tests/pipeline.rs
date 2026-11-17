@@ -210,6 +210,67 @@ fn a_cpp_port_links_msvcprt_through_the_template() {
     );
 }
 
+/// `scripts/build-port.ps1` builds the port `ras emit --out` wrote of `hello64` into one
+/// executable that prints what the native run prints, and says so in one line; a port that does
+/// not compile gives one line naming clang's first error. Without Windows or clang the build is
+/// skipped and says why.
+#[test]
+fn the_build_port_script_builds_an_emitted_port_in_one_line() {
+    let available = |tool: &str| Command::new(tool).arg("--version").output().is_ok_and(|o| o.status.success());
+    if !cfg!(windows) {
+        eprintln!("the port of a Windows program builds on a Windows host: the script is skipped");
+        return;
+    }
+    if !available("clang") {
+        eprintln!("clang is not on the PATH: the script is skipped");
+        return;
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = root.join("scripts/build-port.ps1");
+    let dir = ra_asm_testing::Scratch::new("ras-pipeline-tests", "build-port");
+    let emitted = Command::new(env!("CARGO_BIN_EXE_ras"))
+        .arg("emit")
+        .arg(root.join("testdata/bin/hello64.exe"))
+        .arg("--out")
+        .arg(dir.join("hello"))
+        .arg("--quiet")
+        .output()
+        .unwrap();
+    assert!(emitted.status.success(), "the emit failed: {}", String::from_utf8_lossy(&emitted.stderr));
+    let build = |name: &str| {
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(&script)
+            .arg(name)
+            .arg("-Out")
+            .arg(&*dir)
+            .arg("-DRA_BUILD_PORT_TEST")
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    };
+    let (ok, line, stderr) = build("hello");
+    let exe = dir.join("hello/hello.exe");
+    assert_eq!(line, format!("built {}", exe.display()).replace('\\', "/"), "{stderr}");
+    assert!(ok && exe.is_file(), "{line}\n{stderr}");
+    let run = Command::new(&exe).output().unwrap();
+    let expected = std::fs::read_to_string(root.join("testdata/expected/hello.txt")).unwrap();
+    let lines = |text: &str| text.lines().map(str::trim_end).filter(|l| !l.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    assert_eq!(lines(&String::from_utf8_lossy(&run.stdout)), lines(&expected), "the port printed otherwise than the native run");
+
+    std::fs::create_dir_all(dir.join("broken")).unwrap();
+    std::fs::write(dir.join("broken/broken.c"), "int main(void) { return undeclared; }\n").unwrap();
+    let (ok, line, stderr) = build("broken");
+    assert!(!ok, "a port that does not compile built: {line}");
+    assert!(line.starts_with("failed: ") && line.contains("undeclared") && !line.contains('\n'), "{line}\n{stderr}");
+    // clang's own line, not the text Windows PowerShell wraps a native command's stderr in.
+    assert!(line.contains("broken.c") && line.contains("error:") && !line.contains("NativeCommandError"), "{line}\n{stderr}");
+}
+
 /// The pipeline over the fixtures: the slow tier, which builds and runs the ports.
 #[cfg(feature = "oracle")]
 mod fixtures {
