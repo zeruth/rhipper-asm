@@ -217,7 +217,7 @@ struct Facts {
     /// Each direct call to a lifted function, with the registers a function may take arguments in
     /// ([`Target::private_int_param_slots`], the convention's first) the block sets before the
     /// call, by position: what the callee may take in them.
-    sets_before_calls: Vec<(String, u8)>,
+    sets_before_calls: Vec<HandedOn>,
     /// The callee-saved registers a function may take arguments in that its own code leaves
     /// changed at a return, each with whether the value it came in with may still reach one.
     changes: Vec<(Slot, bool)>,
@@ -225,6 +225,19 @@ struct Facts {
     /// call: one the callee leaves changed is a result.
     uses_saved_of: Vec<(String, Slot)>,
     noreturn: bool,
+}
+
+/// What one direct call hands its callee in the registers a function may take arguments in, a
+/// bit per position of [`Target::private_int_param_slots`].
+struct HandedOn {
+    callee: String,
+    /// The ones the caller's code set on every path to the call.
+    set: u8,
+    /// The ones it set or that still hold what it came in with: the callee takes these where the
+    /// caller takes them from its own callers.
+    given: u8,
+    /// Whether the call is a tail call's jump.
+    tail: bool,
 }
 
 /// The functions a call through a vtable slot can reach, by address and IR name.
@@ -791,12 +804,33 @@ fn infer_from(
                 }
             }
         }
-        // The private registers every direct call to a function sets before it.
+        // The private registers every direct call to a function sets before it, or hands on as
+        // the caller came in with them from callers that set them in turn: the greatest such
+        // sets, down from what the calls hand on at most. A root's callers are not all seen: it
+        // hands on the convention's registers at the jump of a tail call alone (an export's `jmp`
+        // to the method behind it enters it with the `this` the export's callers set), none
+        // elsewhere (main's `ecx` is no argument it passes).
+        let conventional = (0..ints.min(8)).fold(0u8, |mask, p| mask | (1 << p));
         let mut set_by_callers: HashMap<&str, u8> = HashMap::new();
         for fact in &facts {
-            for (callee, mask) in &fact.sets_before_calls {
-                *set_by_callers.entry(callee.as_str()).or_insert(u8::MAX) &= mask;
+            for call in &fact.sets_before_calls {
+                *set_by_callers.entry(call.callee.as_str()).or_insert(u8::MAX) &= call.given;
             }
+        }
+        loop {
+            let mut next: HashMap<&str, u8> = HashMap::new();
+            for fact in &facts {
+                let root = roots.contains(&fact.name);
+                let own = if root { 0 } else { set_by_callers.get(fact.name.as_str()).copied().unwrap_or(0) };
+                for call in &fact.sets_before_calls {
+                    let own = if root && call.tail { conventional } else { own };
+                    *next.entry(call.callee.as_str()).or_insert(u8::MAX) &= call.set | (call.given & own);
+                }
+            }
+            if next == set_by_callers {
+                break;
+            }
+            set_by_callers = next;
         }
         // The callee-saved registers some caller of a function reads after a call to it.
         let mut read_by_callers: HashMap<&str, SlotSet> = HashMap::new();
@@ -1189,21 +1223,36 @@ fn gather(
         let bit = |slot: Slot| extras.iter().position(|s| *s == slot).map_or(0u8, |k| 1 << k);
         let index_of: HashMap<ra_asm_ir::BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
         // One pass over a block from what is set at its entry: what is set at its exit, and the
-        // calls with what is set at each.
-        let walk = |b: &ra_asm_ir::Block, mut set: u8, calls: Option<&mut Vec<(String, u8)>>| -> u8 {
+        // calls with what is set at each. Beside what the code set, what it set or still holds
+        // as it came in: a method that hands its own `this` on unread (`erase` to `extract`) gives
+        // the callee the register its own callers set, and neither would read it as a parameter
+        // while waiting on the other.
+        let state_call = |inst: &Inst| super::liveness::call_kind(inst) == Some(super::liveness::CallKind::State);
+        // A call the block returns after, with nothing between that changes a register a function
+        // takes arguments in: the jump of a tail call, whose callee the function's own callers
+        // enter as they enter it.
+        let tail = |b: &ra_asm_ir::Block, k: usize| {
+            matches!(b.terminator, ra_asm_ir::Terminator::Ret(_))
+                && b.instrs[k + 1..].iter().all(|i| match &i.inst {
+                    Inst::Store { ptr: Operand::Local(p), .. } => pointers.get(p).is_none_or(|slot| bit(*slot) == 0),
+                    inst => !state_call(inst),
+                })
+        };
+        let walk = |b: &ra_asm_ir::Block, (mut set, mut given): (u8, u8), calls: Option<&mut Vec<HandedOn>>| -> (u8, u8) {
             let mut calls = calls;
-            for i in &b.instrs {
+            for (k, i) in b.instrs.iter().enumerate() {
                 match &i.inst {
                     Inst::Store { ptr: Operand::Local(p), .. } => {
                         if let Some(slot) = pointers.get(p) {
                             set |= bit(*slot);
+                            given |= bit(*slot);
                         }
                     }
-                    inst if super::liveness::call_kind(inst) == Some(super::liveness::CallKind::State) => {
+                    inst if state_call(inst) => {
                         if let (Inst::Call { callee: Callee::Direct(name), .. }, Some(out)) = (inst, calls.as_deref_mut())
                             && name.starts_with("F_")
                         {
-                            out.push((name.clone(), set));
+                            out.push(HandedOn { callee: name.clone(), set, given, tail: tail(b, k) });
                         }
                         // What the call writes is no argument it set for the next call, but for
                         // `edx`: a callee that writes it may leave the high half of a 64-bit
@@ -1215,8 +1264,10 @@ fn gather(
                             if written[slot.index()] {
                                 if *slot == high {
                                     set |= bit(high);
+                                    given |= bit(high);
                                 } else {
                                     set &= !bit(*slot);
+                                    given &= !bit(*slot);
                                 }
                             }
                         }
@@ -1224,7 +1275,7 @@ fn gather(
                     _ => {}
                 }
             }
-            set
+            (set, given)
         };
         // Forward to a fixpoint: a block has set what every way into it has, the entry the
         // registers the function takes as parameters, which its callers set: a constructor that
@@ -1232,9 +1283,9 @@ fn gather(
         // clear`), and without it the method's `this` was no parameter and its stores went to 0.
         let own_params = signatures.get(&f.name).map_or(NO_SLOTS, |s| s.param_slots(target));
         let entry_set = extras.iter().filter(|s| own_params[s.index()]).fold(0u8, |set, s| set | bit(*s));
-        let mut entry_sets: Vec<u8> = vec![u8::MAX; f.blocks.len()];
+        let mut entry_sets: Vec<(u8, u8)> = vec![(u8::MAX, u8::MAX); f.blocks.len()];
         if let Some(first) = entry_sets.first_mut() {
-            *first = entry_set;
+            *first = (entry_set, u8::MAX);
         }
         for _ in 0..f.blocks.len().max(1) {
             let mut changed = false;
@@ -1242,7 +1293,7 @@ fn gather(
                 let out = walk(&f.blocks[bi], entry_sets[bi], None);
                 for s in f.blocks[bi].terminator.successors() {
                     let si = index_of[&s];
-                    let joined = entry_sets[si] & out;
+                    let joined = (entry_sets[si].0 & out.0, entry_sets[si].1 & out.1);
                     if si != 0 && joined != entry_sets[si] {
                         entry_sets[si] = joined;
                         changed = true;

@@ -3756,28 +3756,7 @@ impl<'a> Emitter<'a> {
                 _ => format!("ra_f64({:#x}ull)", v.to_bits()),
             },
             Operand::Global(name) => format!("((uint8_t *)&{})", self.scoped(name)),
-            Operand::Address { global, offset } => {
-                // A read-only section's string by its literal, another field of a laid-out section
-                // by its name, the bytes else.
-                let layout = self.layouts.get(global);
-                let at = u64::try_from(*offset).ok();
-                let literal = layout.zip(at).and_then(|(l, at)| l.literal_at(at));
-                let field = layout.zip(at).and_then(|(l, at)| l.field_starting(at)).map(crate::layout::Field::name);
-                let global = self.scoped(global);
-                // The address itself, and whether it needs a byte pointer's type.
-                let (address, typed) = match (literal, field) {
-                    (Some(literal), _) => (literal, false),
-                    (None, Some(field)) => (format!("&{global}.{field}"), false),
-                    _ if *offset == 0 => (format!("(uint8_t *)&{global}"), true),
-                    _ => (format!("((uint8_t *)&{global} + {offset})"), true),
-                };
-                match ty {
-                    Type::Ptr if typed => address,
-                    Type::Ptr => format!("(uint8_t *){address}"),
-                    // Through uintptr_t: a 32-bit program's address is the low half of the host's.
-                    other => format!("({})(uintptr_t){address}", c_type(other)),
-                }
-            }
+            Operand::Address { global, offset } => self.address(ty, global, *offset, true),
             Operand::Null => "(uint8_t *)0".into(),
             Operand::Undef => match ty {
                 Type::Ptr => "(uint8_t *)0".into(),
@@ -3786,6 +3765,31 @@ impl<'a> Emitter<'a> {
                 _ => "0".into(),
             },
             Operand::Zero => format!("(({}){{0}})", c_type(ty)),
+        }
+    }
+
+    /// The address `offset` into `global` as `ty`: a read-only section's string by its literal when
+    /// `literal` allows, another field of a laid-out section by its name, the bytes else. A compare
+    /// takes no literal: the literal is another object than the section's string, and its address
+    /// compares unspecified.
+    fn address(&self, ty: &Type, global: &str, offset: i64, literal: bool) -> String {
+        let layout = self.layouts.get(global);
+        let at = u64::try_from(offset).ok();
+        let literal = if literal { layout.zip(at).and_then(|(l, at)| l.literal_at(at)) } else { None };
+        let field = layout.zip(at).and_then(|(l, at)| l.field_starting(at)).map(crate::layout::Field::name);
+        let global = self.scoped(global);
+        // The address itself, and whether it needs a byte pointer's type.
+        let (address, typed) = match (literal, field) {
+            (Some(literal), _) => (literal, false),
+            (None, Some(field)) => (format!("&{global}.{field}"), false),
+            _ if offset == 0 => (format!("(uint8_t *)&{global}"), true),
+            _ => (format!("((uint8_t *)&{global} + {offset})"), true),
+        };
+        match ty {
+            Type::Ptr if typed => address,
+            Type::Ptr => format!("(uint8_t *){address}"),
+            // Through uintptr_t: a 32-bit program's address is the low half of the host's.
+            other => format!("({})(uintptr_t){address}", c_type(other)),
         }
     }
 
@@ -3845,6 +3849,7 @@ impl<'a> Emitter<'a> {
                 // A constant against a value the API typed reads as the SDK's name.
                 let side = |o: &Operand, other: &Operand| match o {
                     Operand::Int(k) => self.named_or_constant(ty, other, *k),
+                    Operand::Address { global, offset } => self.address(ty, global, *offset, false),
                     _ => self.operand(ty, o),
                 };
                 let (a, b) = (side(lhs, rhs), side(rhs, lhs));

@@ -2294,6 +2294,8 @@ impl Lifter<'_, '_> {
             | M::Vpand
             | M::Vpxor
             | M::Vpsubd
+            | M::Vpaddd
+            | M::Vpshufd
             | M::Vpcmpeqb
             | M::Vpcmpeqd
             | M::Vpcmpgtd
@@ -2306,6 +2308,16 @@ impl Lifter<'_, '_> {
             | M::Ptest
             | M::Vptest
             | M::Pcmpestri => return self.vector_wide(block, i),
+            M::Pmovmskb | M::Vpmovmskb => self.byte_signs(block, i),
+            M::Vmovd => self.vex_movd(block, i),
+            // The upper half of every `ymm` the mode has clears; the `xmm` stay.
+            M::Vzeroupper => {
+                let registers = if self.addr_ty() == Type::I64 { 16 } else { 8 };
+                for n in 0..registers {
+                    let zero = self.m.value_of(block, Type::I128, 0i64);
+                    self.m.write_vreg(block, n + 16, Type::I128, zero, true);
+                }
+            }
 
             m if crate::x87::is_x87(m) => self.x87(block, i),
 
@@ -2877,6 +2889,8 @@ impl Lifter<'_, '_> {
             M::Vpand => self.lanes(block, i, &v2, |this, b, s| this.m.b.bin(b, BinOp::And, v2.clone(), s[0], s[1], "pand")),
             M::Vpxor => self.lanes(block, i, &v2, |this, b, s| this.m.b.bin(b, BinOp::Xor, v2.clone(), s[0], s[1], "pxor")),
             M::Vpsubd => self.lanes(block, i, &v4, |this, b, s| this.m.b.bin(b, BinOp::Sub, v4.clone(), s[0], s[1], "psub")),
+            M::Vpaddd => self.lanes(block, i, &v4, |this, b, s| this.m.b.bin(b, BinOp::Add, v4.clone(), s[0], s[1], "padd")),
+            M::Vpshufd => self.shuffle_dwords(block, i),
             M::Vpcmpeqb => self.lanes(block, i, &v16, |this, b, s| this.compare_mask(b, ICond::Eq, &v16, s[0], s[1])),
             M::Vpcmpeqd => self.lanes(block, i, &v4, |this, b, s| this.compare_mask(b, ICond::Eq, &v4, s[0], s[1])),
             M::Vpcmpgtd => self.lanes(block, i, &v4, |this, b, s| this.compare_mask(b, ICond::Sgt, &v4, s[0], s[1])),
@@ -3018,6 +3032,68 @@ impl Lifter<'_, '_> {
         let kept = self.read_half(block, i, 1, 1 - which, Type::I128);
         self.write_half(block, i, 0, which, Type::I128, inserted);
         self.write_half(block, i, 0, 1 - which, Type::I128, kept);
+    }
+
+    /// `vpshufd`: each dword of a half is the one of the source half's four that two bits of the
+    /// immediate name, the same immediate for both halves.
+    fn shuffle_dwords(&mut self, block: BlockId, i: &Instruction) {
+        let imm = Self::immediate(i, 2) as i32;
+        let v4 = Type::vector(4, Type::I32);
+        let halves = Self::halves(i);
+        for h in 0..halves {
+            let src = self.read_half(block, i, 1, h, v4.clone());
+            let mask = (0..4).map(|k| (imm >> (2 * k)) & 3).collect();
+            let r = self.m.b.value(block, Inst::ShuffleVector { ty: v4.clone(), a: src.into(), b: Operand::Undef, mask }, "pshufd");
+            self.write_half(block, i, 0, h, v4.clone(), r);
+        }
+        self.clear_upper(block, i, halves);
+    }
+
+    /// `pmovmskb` and `vpmovmskb`: the sign bit of each byte of the source, byte `k` to bit `k` of
+    /// the general register, the rest of which clears. A form over `mm` registers is not lifted.
+    fn byte_signs(&mut self, block: BlockId, i: &Instruction) {
+        let src = i.op_register(1);
+        if i.op_kind(1) != OpKind::Register || !(src.is_xmm() || src.is_ymm()) || i.encoding() == EncodingKind::EVEX {
+            self.warn(format!("{:#x}: {:?} is not lifted in this form ({:?})", i.ip(), i.mnemonic(), i.code()));
+            self.m.unsupported(block, i.ip(), i.code() as u64);
+            return;
+        }
+        let v16 = Type::vector(16, Type::I8);
+        let mut acc = self.m.value_of(block, Type::I32, 0i64);
+        for h in 0..Self::halves(i) {
+            let v = self.read_half(block, i, 1, h, v16.clone());
+            for k in 0..16u32 {
+                let lane = self.m.b.value(
+                    block,
+                    Inst::ExtractElement { ty: v16.clone(), vector: v.into(), index: Operand::Int(i128::from(k)) },
+                    "lane",
+                );
+                let neg = self.m.b.icmp(block, ICond::Slt, Type::I8, lane, 0i64, "neg");
+                let bit = self.m.zext(block, Type::I1, neg, Type::I32, "bit");
+                let placed = self.m.b.bin(block, BinOp::Shl, Type::I32, bit, i64::from(16 * h + k), "placed");
+                acc = self.m.b.bin(block, BinOp::Or, Type::I32, acc, placed, "mask");
+            }
+        }
+        self.write_as(block, i, 0, Type::I32, acc);
+    }
+
+    /// `vmovd`: a dword from a general register or memory into an `xmm`, the rest of its `ymm`
+    /// cleared, or the low dword of an `xmm` out to one. The EVEX form is not lifted.
+    fn vex_movd(&mut self, block: BlockId, i: &Instruction) {
+        if i.encoding() != EncodingKind::VEX {
+            self.warn(format!("{:#x}: {:?} is not lifted in this form ({:?})", i.ip(), i.mnemonic(), i.code()));
+            self.m.unsupported(block, i.ip(), i.code() as u64);
+            return;
+        }
+        let dst = i.op_register(0);
+        if i.op_kind(0) == OpKind::Register && dst.is_xmm() {
+            let v = self.read_as(block, i, 1, Type::I32);
+            self.m.write_xmm(block, dst, Type::I32, v, true);
+            self.clear_upper(block, i, 1);
+        } else {
+            let v = self.m.read_xmm(block, i.op_register(1), Type::I32);
+            self.write_as(block, i, 0, Type::I32, v);
+        }
     }
 
     /// `vpermq`: each quadword of the result is the one of the source's four that two bits of the

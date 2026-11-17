@@ -227,6 +227,37 @@ fn a_push_of_ecx_that_makes_room_is_no_argument() {
     assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 35, "main()\n{}", lifted.module.to_ll());
 }
 
+/// A method that hands its `this` on to another without reading it (a container's `erase` calls
+/// its `extract` with `ecx` as it came in): main sets `ecx` and calls `outer`, which calls
+/// `inner` and adds one to what it returns; `inner` returns its `ecx`. Each waited on the other
+/// to read `ecx` as a parameter, so neither took it and `inner` read 0. main returns 30 + 1.
+#[test]
+fn a_register_handed_on_unread_is_the_callers_argument_and_the_callees() {
+    const OUTER: u64 = CODE + 0x40;
+    const INNER: u64 = CODE + 0x60;
+    let mut s = vec![0xccu8; 0x200];
+    let mut put = |at: u64, bytes: &[u8]| {
+        let o = (at - CODE) as usize;
+        s[o..o + bytes.len()].copy_from_slice(bytes);
+    };
+    // mov ecx, 30; call outer; ret
+    let mut main = vec![0xb9, 30, 0, 0, 0];
+    main.extend(call_to(MAIN + 5, OUTER));
+    main.push(0xc3);
+    put(MAIN, &main);
+    // call inner; inc eax; ret
+    let mut outer = call_to(OUTER, INNER);
+    outer.extend([0x40, 0xc3]);
+    put(OUTER, &outer);
+    // mov eax, ecx; ret
+    put(INNER, &[0x8b, 0xc1, 0xc3]);
+    let (image, lifted, signatures) = raised(&s);
+    let signature = |address: u64| &signatures[&lifted.functions[&address]];
+    assert_eq!(signature(INNER).params.len(), 1, "inner reads the ecx outer hands on:\n{}", lifted.module.to_ll());
+    assert_eq!(signature(OUTER).params.len(), 1, "outer hands on the ecx main sets:\n{}", lifted.module.to_ll());
+    assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 31, "main()\n{}", lifted.module.to_ll());
+}
+
 /// main sets `esi` in its first block and calls, from the next, `room` (whose `push eax` only
 /// makes room for a local, though main has just set `eax`) and `inc_esi` (which reads the `esi`
 /// main set a block before): main returns 3 + 31. `room` takes nothing; `inc_esi` takes `esi`.

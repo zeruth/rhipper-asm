@@ -417,6 +417,204 @@ pub(super) fn has_form(forms: &Forms, form: &str) -> bool {
 
 // endregion
 
+// region The vector forms
+
+/// A form over the vector registers, which the files cannot name: its bytes, the general
+/// registers and vector slots it starts from (slot `16 + n` is the upper half of `ymm<n>`), and
+/// the ones it leaves changed, from the manual's definition.
+struct VectorForm {
+    asm: &'static str,
+    bytes: &'static [u8],
+    gprs: &'static [(usize, u32)],
+    vectors: &'static [(usize, u128)],
+    out_gprs: &'static [(usize, u32)],
+    out_vectors: &'static [(usize, u128)],
+}
+
+const X: u128 = 0x8899_aabb_ccdd_eeff_0011_2233_4455_6677;
+const Y: u128 = 0x8001_7f00_ff7f_8001_0000_0000_ffff_ffff;
+const Z: u128 = 0x7766_5545_ffee_ddcd_0000_0001_c000_0001;
+const EAX: usize = 0;
+const ECX: usize = 1;
+
+/// The SSE2 and AVX integer forms of the C++ runtime's string routines.
+const VECTOR_FORMS: [VectorForm; 9] = [
+    VectorForm {
+        asm: "vzeroupper",
+        bytes: &[0xC5, 0xF8, 0x77],
+        gprs: &[],
+        vectors: &[(1, X), (16, 1), (17, Y), (23, X)],
+        out_gprs: &[],
+        out_vectors: &[(16, 0), (17, 0), (23, 0)],
+    },
+    VectorForm {
+        asm: "pmovmskb eax, xmm1",
+        bytes: &[0x66, 0x0F, 0xD7, 0xC1],
+        gprs: &[(EAX, 0xdead_beef)],
+        vectors: &[(1, Y), (17, X)],
+        out_gprs: &[(EAX, 0x8A0F)],
+        out_vectors: &[],
+    },
+    VectorForm {
+        asm: "vpmovmskb eax, ymm1",
+        bytes: &[0xC5, 0xFD, 0xD7, 0xC1],
+        gprs: &[(EAX, 0xdead_beef)],
+        vectors: &[(1, Y), (17, X)],
+        out_gprs: &[(EAX, 0xFF00_8A0F)],
+        out_vectors: &[],
+    },
+    VectorForm {
+        asm: "vpshufd xmm0, xmm1, 0x1b",
+        bytes: &[0xC5, 0xF9, 0x70, 0xC1, 0x1B],
+        gprs: &[],
+        vectors: &[(0, 0x5555), (1, X), (16, 0x1234), (17, Y)],
+        out_gprs: &[],
+        out_vectors: &[(0, 0x4455_6677_0011_2233_ccdd_eeff_8899_aabb), (16, 0)],
+    },
+    VectorForm {
+        asm: "vpshufd ymm2, ymm1, 0x4e",
+        bytes: &[0xC5, 0xFD, 0x70, 0xD1, 0x4E],
+        gprs: &[],
+        vectors: &[(1, X), (17, Y)],
+        out_gprs: &[],
+        out_vectors: &[(2, 0x0011_2233_4455_6677_8899_aabb_ccdd_eeff), (18, 0x0000_0000_ffff_ffff_8001_7f00_ff7f_8001)],
+    },
+    VectorForm {
+        asm: "vmovd xmm2, eax",
+        bytes: &[0xC5, 0xF9, 0x6E, 0xD0],
+        gprs: &[(EAX, 0xdead_beef)],
+        vectors: &[(2, X), (18, Y)],
+        out_gprs: &[],
+        out_vectors: &[(2, 0xdead_beef), (18, 0)],
+    },
+    VectorForm {
+        asm: "vmovd ecx, xmm3",
+        bytes: &[0xC5, 0xF9, 0x7E, 0xD9],
+        gprs: &[(ECX, 0x1111)],
+        vectors: &[(3, X), (19, Y)],
+        out_gprs: &[(ECX, 0x4455_6677)],
+        out_vectors: &[],
+    },
+    VectorForm {
+        asm: "vpaddd xmm0, xmm1, xmm2",
+        bytes: &[0xC5, 0xF1, 0xFE, 0xC2],
+        gprs: &[],
+        vectors: &[(1, X), (2, Z), (16, 0x99), (17, Y), (18, X)],
+        out_gprs: &[],
+        out_vectors: &[(0, 0x0000_0000_cccc_cccc_0011_2234_0455_6678), (16, 0)],
+    },
+    VectorForm {
+        asm: "vpaddd ymm0, ymm1, ymm2",
+        bytes: &[0xC5, 0xF5, 0xFE, 0xC2],
+        gprs: &[],
+        vectors: &[(1, X), (2, Z), (17, Y), (18, X)],
+        out_gprs: &[],
+        out_vectors: &[(0, 0x0000_0000_cccc_cccc_0011_2234_0455_6678), (16, 0x089b_29bb_cc5d_6f00_0011_2233_4455_6676)],
+    },
+];
+
+/// Runs one vector form over its state: the first difference from what the manual says, if any.
+fn run_vector_form(vm: &mut Vm<'_>, name: &str, form: &VectorForm, fields: &Fields) -> Option<String> {
+    let esp = (VECTOR_BASE + STACK_END - 0x100) as u32;
+    vm.memory.fill(VECTOR_BASE, ARENA_LEN, 0).expect("the arena");
+    let mut gprs = [0u32; 8];
+    gprs[x86::ESP] = esp;
+    for &(reg, v) in form.gprs {
+        gprs[reg] = v;
+    }
+    let mut slots = [0u128; 32];
+    for &(slot, v) in form.vectors {
+        slots[slot] = v;
+    }
+    let mut state = vec![0u8; fields.size];
+    for (i, v) in gprs.iter().enumerate() {
+        state[fields.gprs + 8 * i..fields.gprs + 8 * i + 8].copy_from_slice(&u64::from(*v).to_le_bytes());
+    }
+    for (i, v) in slots.iter().enumerate() {
+        state[fields.xmm + 16 * i..fields.xmm + 16 * i + 16].copy_from_slice(&v.to_le_bytes());
+    }
+    vm.memory.write(VECTOR_BASE, &state).expect("the state");
+
+    vm.steps = 0;
+    if let Err(stop) = vm.call_named(&mut Ends, name, vec![Value::Int(u128::from(VECTOR_BASE))]) {
+        return Some(format!("the lifted code stopped: {stop:?}"));
+    }
+    // The lifted function returned: its `ret` popped four bytes.
+    gprs[x86::ESP] = esp + 4;
+    for &(reg, v) in form.out_gprs {
+        gprs[reg] = v;
+    }
+    for &(slot, v) in form.out_vectors {
+        slots[slot] = v;
+    }
+    let state = vm.memory.read_vec(VECTOR_BASE, fields.size as u64).expect("the state");
+    for (i, want) in gprs.iter().enumerate() {
+        let got = u64::from_le_bytes(state[fields.gprs + 8 * i..fields.gprs + 8 * i + 8].try_into().unwrap()) as u32;
+        if got != *want {
+            return Some(format!("{}: expected {want:#x}, lifted {got:#x}", GPR_NAMES32[i]));
+        }
+    }
+    for (i, want) in slots.iter().enumerate() {
+        let got = u128::from_le_bytes(state[fields.xmm + 16 * i..fields.xmm + 16 * i + 16].try_into().unwrap());
+        if got != *want {
+            let reg = if i < 16 { format!("xmm{i}") } else { format!("ymm{}.hi", i - 16) };
+            return Some(format!("{reg}: expected {want:#034x}, lifted {got:#034x}"));
+        }
+    }
+    None
+}
+
+/// The SSE2 and AVX integer forms the C++ runtime's string routines use lift without a warning
+/// and leave the general and vector registers as the manual defines.
+#[test]
+fn x86_32_vector_forms() {
+    let mut text = vec![0xCCu8; VECTOR_FORMS.len() * SLOT];
+    let mut slots = Vec::with_capacity(VECTOR_FORMS.len());
+    for (i, form) in VECTOR_FORMS.iter().enumerate() {
+        let start = i * SLOT;
+        text[start..start + form.bytes.len()].copy_from_slice(form.bytes);
+        text[start + form.bytes.len()] = 0xC3;
+        slots.push(IMAGE_BASE + TEXT_RVA + start as u64);
+    }
+    let image = ra_asm_pe::Image::parse(pe_with_text(&text)).expect("the synthetic image parses");
+    let facts = Facts { calls: vec![SeenCall { site: IMAGE_BASE, targets: slots.clone() }], ..Facts::default() };
+    let analysis = ra_asm_analysis::analyze_with(&image, &facts);
+    let lifted = ra_asm_lift::lift_with(&image, &analysis, ra_asm_lift::LiftOptions { standalone: false, x87: X87Unit::Double });
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+
+    let _turn = arena_turn();
+    ensure_arena();
+    let scratch_buffer = vec![0u128; SCRATCH_LEN / 16];
+    let scratch = scratch_buffer.as_ptr() as usize as u64;
+    let mut memory = Memory::new();
+    memory.add_region(Region::new(VECTOR_BASE, ARENA_LEN, "arena"));
+    memory.add_region(Region::new(scratch, SCRATCH_LEN as u64, "scratch"));
+    let mut vm = Vm::new(&lifted.module, memory);
+    vm.set_static_region(scratch + STATICS_AT, FRAMES_AT - STATICS_AT);
+    vm.set_frame_region(scratch + FRAMES_AT, SCRATCH_LEN as u64 - FRAMES_AT);
+    vm.limit = 1_000_000;
+    vm.place().expect("the module places");
+    let state_ty = Type::Named(ra_asm_lift::state::STATE_TYPE.to_owned());
+    let (offsets, size) = {
+        let layout = vm.layout();
+        (layout.offsets(&state_ty), layout.size(&state_ty))
+    };
+    let fields = Fields { gprs: offsets[0] as usize, flags: offsets[2] as usize, xmm: offsets[3] as usize, size: size as usize };
+
+    let wrong: Vec<String> = VECTOR_FORMS
+        .iter()
+        .zip(&slots)
+        .filter_map(|(form, &at)| {
+            run_vector_form(&mut vm, &ra_asm_lift::function_name(at), form, &fields).map(|found| format!("`{}`: {found}", form.asm))
+        })
+        .collect();
+    drop(vm);
+    drop(scratch_buffer);
+    assert!(wrong.is_empty(), "{} vector forms differ from the manual:\n{}", wrong.len(), wrong.join("\n"));
+}
+
+// endregion
+
 /// Every 32-bit x86 vector replays through the lift and the interpreter, and exactly the forms
 /// of `x86/PENDING.txt` differ; the files are written first when there are none.
 #[test]
