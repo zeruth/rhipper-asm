@@ -12,6 +12,9 @@
 //! and in Rust (a labeled block), and its tree replays the function's vectors as its graph does.
 //!
 //! A file of an output split by size declares what it names and nothing else.
+//!
+//! The printer's cases are `.ll` files in the same directory, each with the C written for it in
+//! the `.c` beside it; `RA_BLESS=1` rewrites those snapshots from what the printer writes.
 
 use std::path::PathBuf;
 
@@ -374,4 +377,63 @@ fn shared_tail_tree_replays_its_vectors() {
         let ran = run_tree(&mut vm, &mut NoHost, &f.name, &tree, vec![Value::Int(x)]);
         assert_eq!(ran, Ok(graph), "the tree of @{}({x}): {:#?}", f.name, tree.body);
     }
+}
+
+/// The printer's cases: every `.ll` file under `testdata/cases/emit`, in order.
+fn printer_cases() -> Vec<PathBuf> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/cases/emit");
+    let entries = std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    let mut cases: Vec<PathBuf> = entries.map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "ll")).collect();
+    cases.sort();
+    cases
+}
+
+/// The C the printer writes for the functions of the case at `path`, in their order, in an x64
+/// Windows module as the lift makes one.
+fn printed(path: &std::path::Path) -> String {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let parsed = ra_asm_ir::parse::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let stem = path.file_stem().and_then(|s| s.to_str()).expect("a case's name");
+    let mut module = Module::x86_64_windows(stem);
+    module.types = parsed.types;
+    module.globals = parsed.globals;
+    module.declarations = parsed.declarations;
+    module.functions = parsed.functions;
+    let unit = emit_unit(&module, &COptions::default());
+    unit.functions.iter().map(|f| f.text.as_str()).collect::<Vec<_>>().join("\n")
+}
+
+/// Each `.ll` case under `testdata/cases/emit` printed as C against the `.c` beside it: a change
+/// of the printer is a line diff of the snapshots it moves. `RA_BLESS=1` writes what the printer
+/// writes over them instead, so the review reads the change in the diff of the commit.
+#[test]
+fn printer_c99_writes_each_case_as_its_snapshot() {
+    let bless = std::env::var("RA_BLESS").is_ok_and(|v| v == "1");
+    let mut failures = Vec::new();
+    let mut compared = 0;
+    for case in printer_cases() {
+        let actual = printed(&case);
+        let path = case.with_extension("c");
+        let name = case.file_stem().and_then(|s| s.to_str()).expect("a case's name").to_owned();
+        if bless {
+            std::fs::write(&path, &actual).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            compared += 1;
+            continue;
+        }
+        let expected = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) => {
+                failures.push((format!("{name}: {}: {e}; RA_BLESS=1 writes it", path.display()), actual));
+                continue;
+            }
+        };
+        if let Err(line) = ra_asm_testing::digest::compare(&format!("emit-printer-{name}"), &expected, &actual) {
+            failures.push((line, actual));
+        }
+        compared += 1;
+    }
+    let lines: Vec<&str> = failures.iter().map(|(line, _)| line.as_str()).collect();
+    let texts: Vec<&str> = failures.iter().map(|(_, text)| text.as_str()).collect();
+    assert!(failures.is_empty(), "{} snapshots differ:\n{}\n\n{}", failures.len(), lines.join("\n"), texts.join("\n----\n"));
+    assert!(compared >= 12, "{compared} snapshots compared, not 12");
 }

@@ -711,7 +711,8 @@ pub(crate) fn run(case: &Case) -> Result<(), String> {
     }
 }
 
-/// The `.ll` files under `dir`, at any depth, in the order of their paths.
+/// The `.ll` files under `dir`, at any depth, in the order of their paths. Those under `emit` are
+/// the C printer's inputs, which `ra-asm-emit`'s snapshots read, and no pass's case.
 fn case_files(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut pending = vec![dir.to_path_buf()];
@@ -719,6 +720,9 @@ fn case_files(dir: &Path) -> Vec<PathBuf> {
         for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
             let path = entry.unwrap().path();
             if path.is_dir() {
+                if path.file_name().is_some_and(|name| name == "emit") {
+                    continue;
+                }
                 pending.push(path);
             } else if path.extension().is_some_and(|e| e == "ll") {
                 files.push(path);
