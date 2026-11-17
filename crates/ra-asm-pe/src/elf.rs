@@ -176,6 +176,9 @@ fn global_pointer(elf: &ElfFile) -> Option<u64> {
     if let Some(prx) = &elf.prx {
         return Some(prx.gp).filter(|&gp| gp != 0);
     }
+    if let Some(irx) = &elf.irx {
+        return Some(irx.gp).filter(|&gp| gp != 0);
+    }
     let recorded = elf.mips.as_ref().and_then(|m| m.reginfo).map(|r| r.gp);
     let symbol = || elf.symbols.iter().find(|s| s.name == "_gp" && s.section != 0).map(|s| s.value);
     recorded.filter(|&gp| gp != 0).map(u64::from).or_else(symbol)
@@ -199,14 +202,26 @@ pub fn psp_nid_name(library: &str, nid: u32) -> Option<&'static str> {
     table.binary_search_by(|&(l, n, _)| (l, n).cmp(&(library, nid))).ok().map(|i| table[i].2)
 }
 
-/// Writes a PRX's relocations over the mapped words: every value is computed from the words as
-/// the file holds them, before any is written, since a high half reads the low half after it.
-/// A kind the reader does not apply leaves its place as the file has it, with a warning.
+/// The name of the function an IOP library exports under `ordinal`, from the SDK's headers
+/// ([`crate::iop_names`]).
+pub fn iop_name(library: &str, ordinal: u16) -> Option<&'static str> {
+    let table = crate::iop_names::NAMES;
+    table.binary_search_by(|&(l, o, _)| (l, o).cmp(&(library, ordinal))).ok().map(|i| table[i].2)
+}
+
+/// Writes a PRX's or an IRX's relocations over the mapped words: every value is computed from the
+/// words as the file holds them, before any is written, since a high half reads the low half after
+/// it. A kind the reader does not apply leaves its place as the file has it, with a warning.
 fn apply_prx_relocations(image: &mut Image) {
-    let Some(prx) = image.elf.as_ref().and_then(|e| e.prx.as_ref()) else { return };
-    let mut words = Vec::with_capacity(prx.relocations.len());
+    let Some(elf) = image.elf.as_ref() else { return };
+    let relocations = match (&elf.prx, &elf.irx) {
+        (Some(prx), _) => &prx.relocations,
+        (None, Some(irx)) => &irx.relocations,
+        (None, None) => return,
+    };
+    let mut words = Vec::with_capacity(relocations.len());
     let mut warnings = Vec::new();
-    for r in &prx.relocations {
+    for r in relocations {
         match prx_word(image, r) {
             Ok(Some(word)) => words.push((r.place, word)),
             Ok(None) => {}
@@ -304,6 +319,9 @@ fn imports(elf: &ElfFile) -> Vec<Import> {
     if let Some(prx) = &elf.prx {
         return prx_imports(prx);
     }
+    if let Some(irx) = &elf.irx {
+        return irx_imports(irx);
+    }
     let sole = if let [only] = elf.needed.as_slice() { Some(only.clone()) } else { None };
     let mut imports: Vec<Import> = elf
         .relocations
@@ -365,11 +383,57 @@ fn prx_exports(prx: &format::Prx) -> ExportTable {
     ExportTable { dll_name: prx.name.clone(), ordinal_base: 0, timestamp: 0, exports }
 }
 
+/// The name of an IOP library's function: the SDK's, else `<library>_<ordinal>`.
+fn iop_function_name(library: &str, ordinal: u16) -> String {
+    iop_name(library, ordinal).map_or_else(|| format!("{library}_{ordinal}"), str::to_owned)
+}
+
+/// An IRX's imports: each function of each library, its stub its slot, named by its ordinal.
+fn irx_imports(irx: &format::Irx) -> Vec<Import> {
+    let mut imports: Vec<Import> = irx
+        .imports
+        .iter()
+        .flat_map(|library| {
+            library.functions.iter().map(|f| Import {
+                dll: library.name.clone(),
+                name: Some(iop_function_name(&library.name, f.ordinal)),
+                hint: f.ordinal,
+                ordinal: Some(f.ordinal),
+                iat_va: f.address,
+                delayed: false,
+            })
+        })
+        .collect();
+    imports.sort_by_key(|i| i.iat_va);
+    imports
+}
+
+/// An IRX's exports: the functions of each library it exports by their ordinals, the module's
+/// name the table's.
+fn irx_exports(irx: &format::Irx) -> ExportTable {
+    let exports = irx
+        .exports
+        .iter()
+        .flat_map(|library| {
+            library.functions.iter().map(|e| Export {
+                name: Some(iop_function_name(&library.name, e.ordinal)),
+                ordinal: u32::from(e.ordinal),
+                va: Some(e.address),
+                forwarder: None,
+            })
+        })
+        .collect();
+    ExportTable { dll_name: irx.name.clone(), ordinal_base: 0, timestamp: 0, exports }
+}
+
 /// The functions and data the dynamic table defines for another module to bind to, by their
 /// index in the table; `None` when there are none and the file names no `DT_SONAME`.
 fn exports(elf: &ElfFile) -> Option<ExportTable> {
     if let Some(prx) = &elf.prx {
         return Some(prx_exports(prx));
+    }
+    if let Some(irx) = &elf.irx {
+        return Some(irx_exports(irx));
     }
     let exports: Vec<Export> = elf
         .dynamic_symbols

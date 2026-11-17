@@ -32,6 +32,7 @@ pub mod imports;
 pub mod jumptable;
 pub mod matching;
 pub mod noreturn;
+pub mod rpc;
 pub mod rtti;
 pub mod seh32;
 pub mod signatures;
@@ -345,6 +346,16 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
 
     // Pointers in data: a function only a pointer reaches, such as a callback in a table.
     for (va, origin) in pointer_seeds(image) {
+        if state.cover.covered(va) || state.functions.contains_key(&va) {
+            continue;
+        }
+        state.seed(va, origin);
+    }
+    state.run();
+
+    // An IOP module hands the IOP's kernel its thread and its RPC dispatcher by an address its
+    // code builds in a `lui` pair, which its relocations name.
+    for (va, origin) in irx_address_seeds(image) {
         if state.cover.covered(va) || state.functions.contains_key(&va) {
             continue;
         }
@@ -1009,6 +1020,25 @@ fn pointer_seeds(image: &Image) -> Vec<(u64, Origin)> {
         }
     }
     seeds
+}
+
+/// The code addresses an IOP module's `lui` pairs build, each a high half its relocations pair
+/// with the low half after it, read from the relocated words; the library tables in its text are
+/// data and seed nothing.
+fn irx_address_seeds(image: &Image) -> Vec<(u64, Origin)> {
+    const R_MIPS_HI16: u32 = 5;
+    let Some(irx) = image.elf.as_ref().and_then(|e| e.irx.as_ref()) else { return Vec::new() };
+    let tables: Vec<(u64, u64)> = irx.exports.iter().chain(&irx.imports).map(|l| l.table).collect();
+    irx.relocations
+        .iter()
+        .filter(|r| r.kind == R_MIPS_HI16)
+        .filter_map(|r| {
+            let (high, low) = (image.u32(r.place).ok()?, image.u32(r.low?).ok()?);
+            let target = u64::from((high << 16).wrapping_add_signed(i32::from(low as u16 as i16)));
+            let data = tables.iter().any(|&(start, end)| (start..end).contains(&target));
+            (image.is_code(target) && !data).then_some((target, Origin::Pointer(r.place)))
+        })
+        .collect()
 }
 
 /// The code addresses the relocated words of a code section hold outside every built function,

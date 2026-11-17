@@ -4,7 +4,8 @@
 //! the image keeps a warning for it, because a packed or odd binary is still worth opening.
 //! [`object`] reads the relocatable objects (COFF, ELF) and the archives the signatures of a
 //! library are made from. [`xbe`] reads the original Xbox's container into the same image, and
-//! [`elf`] the executables and shared objects of Linux and the PSP's PRX modules, and [`macho`] the 64-bit executables and
+//! [`elf`] the executables and shared objects of Linux, the PSP's PRX modules and the `PlayStation 2`
+//! IOP's IRX modules, and [`macho`] the 64-bit executables and
 //! libraries of macOS, thin or fat; [`Image`] maps the PSX's `PS-X EXE` too. [`toolset`] fingerprints the compiler,
 //! linker and C runtime that built an image.
 
@@ -15,6 +16,7 @@ pub mod exports;
 pub mod headers;
 pub mod image;
 pub mod imports;
+mod iop_names;
 pub mod linkmap;
 pub mod macho;
 pub mod object;

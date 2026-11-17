@@ -22,6 +22,8 @@ pub const ET_EXEC: u16 = 2;
 pub const ET_DYN: u16 = 3;
 /// A PSP module, linked at zero and relocated by the PSP's own records; see [`psp`].
 pub const ET_PRX: u16 = 0xffa0;
+/// A `PlayStation 2` IOP module, linked at zero and relocated by its static relocations; see [`iop`].
+pub const ET_IRX: u16 = 0xff80;
 
 pub const EM_386: u16 = 3;
 /// MIPS of either byte order; ELF's class says 32 or 64 bits.
@@ -454,6 +456,65 @@ pub mod ps2 {
     }
 }
 
+/// The `PlayStation 2`'s I/O processor: its modules, IRX files, are ELF files of their own type
+/// linked at zero, whose `.iopmod` section says where the module's entry, `$gp` and parts are,
+/// and whose imports and exports are tables in the code that name a library and number its
+/// functions. The IOP's loader places a module wherever its memory is free; the reader moves one
+/// to [`iop::LOAD_ADDRESS`].
+pub mod iop {
+    /// The module header's section, or in a file stripped of its sections its program header.
+    pub const SHT_IOPMOD: u32 = 0x7000_0080;
+    /// Where the reader loads a module: inside the IOP's 2 MiB of RAM, past the kernel and the
+    /// modules of the boot, on a 64 KiB boundary so the low half of every address stays the link's.
+    pub const LOAD_ADDRESS: u64 = 0x0010_0000;
+    /// The first word of an export table, a library the module defines.
+    pub const EXPORT_MAGIC: u32 = 0x41c0_0000;
+    /// The first word of an import table, a library the module calls into.
+    pub const IMPORT_MAGIC: u32 = 0x41e0_0000;
+}
+
+/// A function of an IOP library, by its number: the stub a call to an import goes through, or
+/// what a module exports under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IopEntry {
+    pub ordinal: u16,
+    pub address: u64,
+}
+
+/// A library an IRX imports from or exports, by its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IopLibrary {
+    pub name: String,
+    /// The major version in the high byte, the minor in the low.
+    pub version: u16,
+    pub functions: Vec<IopEntry>,
+    /// The data of the table in the text, `(start, end)`: an export table from its magic word past
+    /// its last entry, an import table its header before the stubs, which are code.
+    pub table: (u64, u64),
+}
+
+/// What an IRX's `.iopmod` header and its library tables hold, at the address the reader loaded
+/// the module at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Irx {
+    /// [`iop::LOAD_ADDRESS`]: every address of the file, its segments and its sections are there.
+    pub load: u64,
+    /// The name `IRX_ID` gives the module, else the header's.
+    pub name: String,
+    /// The major version in the high byte, the minor in the low.
+    pub version: u16,
+    /// The value of `$gp` the module's code assumes.
+    pub gp: u64,
+    pub text_size: u32,
+    pub data_size: u32,
+    pub bss_size: u32,
+    pub exports: Vec<IopLibrary>,
+    pub imports: Vec<IopLibrary>,
+    /// The static relocations the IOP's loader applies, every one relative to the module's base,
+    /// in the file's order.
+    pub relocations: Vec<PrxRelocation>,
+}
+
 /// One relocation of a PRX, at the address the module loads at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PrxRelocation {
@@ -554,6 +615,9 @@ pub struct ElfFile {
     /// The module information and the relocations of a PSP module, [`ET_PRX`], which the reader
     /// moves to the address it loads at.
     pub prx: Option<Prx>,
+    /// The header and the library tables of an IOP module, [`ET_IRX`], which the reader moves to
+    /// the address it loads at.
+    pub irx: Option<Irx>,
     /// The functions `.eh_frame` describes, one FDE each: `(begin, end)` in address order.
     pub functions: Vec<(u64, u64)>,
     /// What the reader could not read beyond the headers: a table that fails lands here.
@@ -705,6 +769,7 @@ impl ElfFile {
             static_relocations: Vec::new(),
             mips: None,
             prx: None,
+            irx: None,
             functions: Vec::new(),
             warnings: Vec::new(),
         };
@@ -746,7 +811,139 @@ impl ElfFile {
         if kind == ET_PRX {
             elf.load_prx(d);
         }
+        if kind == ET_IRX && machine == EM_MIPS {
+            elf.load_irx(d);
+        }
         Ok(elf)
+    }
+
+    /// Reads an IRX's header and library tables at its link addresses, then moves the file to
+    /// [`iop::LOAD_ADDRESS`] as [`ElfFile::load_prx`] moves a PRX, its static relocations with it.
+    fn load_irx(&mut self, d: Data<'_>) {
+        let load = iop::LOAD_ADDRESS;
+        let irx = match self.read_irx(d, load) {
+            Ok(irx) => Some(irx),
+            Err(e) => {
+                self.warnings.push(format!("IRX module header: {e:#}"));
+                None
+            }
+        };
+        for s in self.segments.iter_mut().filter(|s| s.is_load()) {
+            s.vaddr += load;
+        }
+        for s in self.sections.iter_mut().filter(|s| s.flags & SHF_ALLOC != 0) {
+            s.addr += load;
+        }
+        self.entry += load;
+        for s in self.symbols.iter_mut().chain(&mut self.dynamic_symbols).filter(|s| s.is_defined()) {
+            s.value += load;
+        }
+        for (begin, end) in &mut self.functions {
+            *begin += load;
+            *end += load;
+        }
+        for r in &mut self.static_relocations {
+            r.offset += load;
+        }
+        self.irx = irx;
+    }
+
+    /// The `.iopmod` header of an IRX (its section, else its program header) and the library
+    /// tables its code holds, the addresses moved by `load`. The header gives the entry, `$gp` and
+    /// the sizes; the module's name and version are the `IRX_ID` the header points at, else its
+    /// own. A table is found by its magic word at a word of the text: an export table is its
+    /// library's name and the address of each function in ordinal order up to a zero word; an
+    /// import table its name and a stub per function, `jr $ra` over `addiu $zero, $zero, ordinal`,
+    /// which the loader writes the jump to the library over.
+    fn read_irx(&self, d: Data<'_>, load: u64) -> Result<Irx> {
+        let at = match self.sections.iter().find(|s| s.kind == iop::SHT_IOPMOD) {
+            Some(s) => s.offset as usize,
+            None => self.segments.iter().find(|s| s.kind == iop::SHT_IOPMOD).context("an IRX has no .iopmod header")?.offset as usize,
+        };
+        let what = |field: &str| format!("the .iopmod header's {field}");
+        let module = d.u32(at, &what("module"))?;
+        let gp = u64::from(d.u32(at + 8, &what("gp"))?);
+        let text_size = d.u32(at + 12, &what("text size"))?;
+        let data_size = d.u32(at + 16, &what("data size"))?;
+        let bss_size = d.u32(at + 20, &what("bss size"))?;
+        let mut version = d.u16(at + 24, &what("version"))?;
+        let mut name = d.string(at + 26, 256, &what("name"))?;
+        // No `IRX_ID` leaves all ones.
+        if module != u32::MAX {
+            let id = self.offset_or(u64::from(module), "the IRX_ID")?;
+            let pointer = d.u32(id, "the IRX_ID's name")?;
+            name = d.string(self.offset_or(u64::from(pointer), "the IRX_ID's name")?, 256, "the IRX_ID's name")?;
+            version = d.u16(id + 4, "the IRX_ID's version")?;
+        }
+
+        let text = self.segments.iter().find(|s| s.is_load()).context("an IRX has no loaded segment")?;
+        let end = text.filesz.min(u64::from(text_size));
+        let library = |at: usize| -> Result<(String, u16)> {
+            let bytes = d.bytes().get(at + 12..at + 20).context("a library table's name lies past the end of the file")?;
+            let name: String = bytes.iter().take_while(|&&b| b != 0).map(|&b| char::from(b)).collect();
+            Ok((name, d.u16(at + 8, "a library table's version")?))
+        };
+        let valid = |name: &str| !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_');
+        let (mut exports, mut imports) = (Vec::new(), Vec::new());
+        let mut va = text.vaddr;
+        while va + 20 <= text.vaddr + end {
+            let at = (text.offset + (va - text.vaddr)) as usize;
+            let magic = d.u32(at, "a library table's magic")?;
+            if !matches!(magic, iop::EXPORT_MAGIC | iop::IMPORT_MAGIC) || d.u32(at + 4, "a library table's link")? != 0 {
+                va += 4;
+                continue;
+            }
+            let (library_name, library_version) = library(at)?;
+            if !valid(&library_name) {
+                va += 4;
+                continue;
+            }
+            let mut functions = Vec::new();
+            let mut entry = va + 20;
+            let word = |entry: u64| d.u32((text.offset + (entry - text.vaddr)) as usize, "a library table's entry");
+            if magic == iop::EXPORT_MAGIC {
+                while entry + 4 <= text.vaddr + end && functions.len() < MAX_ENTRIES {
+                    let address = word(entry)?;
+                    entry += 4;
+                    if address == 0 {
+                        break;
+                    }
+                    let ordinal = u16::try_from(functions.len()).unwrap_or(u16::MAX);
+                    functions.push(IopEntry { ordinal, address: u64::from(address) + load });
+                }
+                exports.push(IopLibrary { name: library_name, version: library_version, functions, table: (va + load, entry + load) });
+            } else {
+                while entry + 8 <= text.vaddr + end && functions.len() < MAX_ENTRIES {
+                    let (jump, ordinal) = (word(entry)?, word(entry + 4)?);
+                    if jump != 0x03e0_0008 || ordinal >> 16 != 0x2400 {
+                        break;
+                    }
+                    functions.push(IopEntry { ordinal: ordinal as u16, address: entry + load });
+                    entry += 8;
+                }
+                imports.push(IopLibrary { name: library_name, version: library_version, functions, table: (va + load, va + 20 + load) });
+            }
+            va = entry.next_multiple_of(4);
+        }
+
+        // Each place is the module's own: its value is relative to the base, and a high half
+        // pairs with the first low half after it.
+        let mut relocations: Vec<PrxRelocation> = self
+            .static_relocations
+            .iter()
+            .filter(|r| r.symbol == 0)
+            .map(|r| PrxRelocation { place: r.offset + load, kind: r.kind, base: load, low: None })
+            .collect();
+        let mut next_low = None;
+        for r in relocations.iter_mut().rev() {
+            match r.kind {
+                reloc::MIPS_LO16 => next_low = Some(r.place),
+                reloc::MIPS_HI16 => r.low = next_low,
+                _ => {}
+            }
+        }
+        let gp = if gp == 0 { 0 } else { gp + load };
+        Ok(Irx { load, name, version, gp, text_size, data_size, bss_size, exports, imports, relocations })
     }
 
     /// Reads a PRX's relocations and module information at its link addresses, then moves the
@@ -1085,12 +1282,14 @@ impl ElfFile {
     /// maps; the dynamic tables are mapped themselves and are [`ElfFile::read_dynamic`]'s.
     fn read_static_relocations(&self, d: Data<'_>) -> Result<Vec<Relocation>> {
         let symtab = self.sections.iter().position(|s| s.kind == SHT_SYMTAB);
+        // An IOP module is linked at zero, its `.text` there too and mapped all the same.
+        let applies = |s: &SectionHeader| s.is_mapped() || (self.kind == ET_IRX && s.flags & SHF_ALLOC != 0 && s.size != 0);
         let mut relocations = Vec::new();
         for table in &self.sections {
             if !matches!(table.kind, SHT_REL | SHT_RELA)
                 || table.flags & SHF_ALLOC != 0
                 || Some(table.link as usize) != symtab
-                || !self.sections.get(table.info as usize).is_some_and(SectionHeader::is_mapped)
+                || !self.sections.get(table.info as usize).is_some_and(applies)
             {
                 continue;
             }

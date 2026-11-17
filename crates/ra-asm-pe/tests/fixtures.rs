@@ -707,6 +707,58 @@ fn a_boot_program_that_does_not_fit_is_refused() {
     assert_eq!(format!("{error:#}"), "the boot program's 0xff0001 bytes do not fit in the 0xff0000 bytes of RAM above 0x8c010000");
 }
 
+/// The IOP module fixture, an IRX linked at zero: loaded at the reader's address, its `.iopmod`
+/// header and `IRX_ID` read, its relocations applied, and every import stub named from its
+/// library's table by its ordinal.
+#[test]
+fn the_iop_hello_loads_with_its_imports_and_exports_named() {
+    const LOAD: u64 = 0x0010_0000;
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ps2/hello.irx");
+    let image = ra_asm_pe::load(&path).unwrap();
+    let unapplied: Vec<_> = image.warnings.iter().filter(|w| w.contains("PRX") || w.contains("IRX")).collect();
+    assert!(unapplied.is_empty(), "{unapplied:?}");
+    assert_eq!(image.machine(), Machine::Mips);
+    assert_eq!(image.platform(), Some("iop"));
+    assert_eq!(image.entry_point(), Some(LOAD + 0x174));
+
+    let irx = image.elf.as_ref().unwrap().irx.as_ref().unwrap();
+    assert_eq!((irx.name.as_str(), irx.version, irx.load), ("hello", 0x101, LOAD));
+
+    // `exports.tab`: `_start`, `_retonly` three times and `hello_version`, under the module's name.
+    let [hello] = irx.exports.as_slice() else { panic!("{:?}", irx.exports) };
+    assert_eq!((hello.name.as_str(), hello.version, hello.table), ("hello", 0x101, (LOAD, LOAD + 0x2c)));
+    let exported: Vec<u64> = hello.functions.iter().map(|f| f.address - LOAD).collect();
+    assert_eq!(exported, [0x174, 0x2c, 0x2c, 0x2c, 0x16c]);
+    let table = image.exports.as_ref().unwrap();
+    assert_eq!(table.dll_name, "hello");
+    assert_eq!(
+        table.exports.iter().map(|e| e.name.as_deref().unwrap()).collect::<Vec<_>>(),
+        ["hello_0", "hello_1", "hello_2", "hello_3", "hello_4"]
+    );
+
+    // `imports.lst`, a stub per function in its order.
+    let libraries: Vec<_> = irx.imports.iter().map(|l| (l.name.as_str(), l.functions.len())).collect();
+    assert_eq!(libraries, [("loadcore", 1), ("sifcmd", 4), ("stdio", 1), ("thbase", 3)]);
+    let named: Vec<_> = image.imports.iter().map(|i| (i.iat_va - LOAD, i.dll.as_str(), i.name.as_deref().unwrap())).collect();
+    assert_eq!(
+        named,
+        [
+            (0x214, "loadcore", "RegisterLibraryEntries"),
+            (0x238, "sifcmd", "sceSifInitRpc"),
+            (0x240, "sifcmd", "sceSifRegisterRpc"),
+            (0x248, "sifcmd", "sceSifSetRpcQueue"),
+            (0x250, "sifcmd", "sceSifRpcLoop"),
+            (0x274, "stdio", "printf"),
+            (0x298, "thbase", "CreateThread"),
+            (0x2a0, "thbase", "StartThread"),
+            (0x2a8, "thbase", "GetThreadId"),
+        ]
+    );
+    // The relocations moved the dispatcher's address the server registers to the load address.
+    let (high, low) = (image.u32(LOAD + 0xfc).unwrap(), image.u32(LOAD + 0x11c).unwrap());
+    assert_eq!(((high << 16) as i32 + i32::from(low as u16 as i16)) as u64, LOAD + 0x90);
+}
+
 // endregion
 
 // region The Nintendo 64

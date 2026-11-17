@@ -54,6 +54,36 @@ fn ras_names_the_platform_of_the_ps2_hello_ps2() {
     assert_eq!((json["platform"].as_str(), json["format"].as_str()), (Some("ps2"), Some("elf32")));
 }
 
+/// The EE caller of the IOP module fixture: each `SifCallRpc` names the function of `hello.irx`
+/// beside it that its number reaches through the dispatcher the module registers, and the module's
+/// own import stubs read by their names.
+#[test]
+fn ras_resolves_the_ps2_rpc_to_the_iop_module_function() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ps2");
+    let json: serde_json::Value = serde_json::from_str(&ras_on(&dir.join("rpc.elf"), &["--json", "functions"])).unwrap();
+    let rpc = json["rpc"].as_array().unwrap_or_else(|| panic!("no rpc in {json:#}"));
+    // The SDK's own calls go to the servers of the IOP's ROM modules, which no file here registers.
+    let resolved: Vec<_> = rpc
+        .iter()
+        .filter(|c| c["module"].is_string())
+        .map(|c| (c["server"].as_str(), c["function"].as_u64(), c["module"].as_str(), c["target"].as_str(), c["name"].as_str()))
+        .collect();
+    assert_eq!(
+        resolved,
+        [
+            (Some("0x48454c4f"), Some(0), Some("hello.irx"), Some("0x00100040"), Some("F_00100040")),
+            (Some("0x48454c4f"), Some(1), Some("hello.irx"), Some("0x0010013c"), Some("F_0010013c")),
+        ],
+        "{rpc:#?}"
+    );
+
+    let module: serde_json::Value = serde_json::from_str(&ras_on(&dir.join("hello.irx"), &["--json", "functions"])).unwrap();
+    let names: Vec<_> = module["functions"].as_array().unwrap().iter().filter_map(|f| f["name"].as_str()).collect();
+    for name in ["thunk_sceSifRegisterRpc", "thunk_RegisterLibraryEntries", "thunk_printf", "hello_0", "hello_4"] {
+        assert!(names.contains(&name), "no {name} in {names:?}");
+    }
+}
+
 #[test]
 fn ras_prints_the_psp_module_at_its_load_address() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/psp/hello.prx");

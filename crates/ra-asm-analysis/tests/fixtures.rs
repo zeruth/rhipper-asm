@@ -661,3 +661,35 @@ fn mipsel_tables_give_the_switch_its_cases_as_successors() {
     assert!(matches!(entry.terminator, Terminator::CondJump { taken: 0x2_07ac, fallthrough: 0x2_0670 }), "{:?}", entry.terminator);
     assert!(analysis.warnings.iter().all(|w| !w.contains("0x20680")), "{:?}", analysis.warnings);
 }
+
+/// The IOP module fixture registers one RPC server whose dispatcher calls through a table of
+/// three functions; the EE fixture binds a client to its id and calls numbers 0 and 1 on it.
+#[test]
+fn the_ps2_rpc_calls_reach_the_iop_module_functions() {
+    use ra_asm_analysis::rpc;
+    const LOAD: u64 = 0x0010_0000;
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ps2");
+    let module = ra_asm_pe::load(&dir.join("hello.irx")).unwrap();
+    let iop = analyze(&module);
+    assert_eq!(iop.name_of(LOAD + 0x240), "thunk_sceSifRegisterRpc");
+    let servers = rpc::servers(&iop);
+    let [server] = servers.as_slice() else { panic!("{servers:x?}") };
+    assert_eq!((server.id, server.dispatch), (0x4845_4c4f, LOAD + 0x90));
+    assert_eq!(server.functions, [(0, LOAD + 0x40), (1, LOAD + 0x13c), (2, LOAD + 0x70)]);
+
+    let program = ra_asm_pe::load(&dir.join("rpc.elf")).unwrap();
+    let ee = analyze(&program);
+    let calls = rpc::calls(&ee);
+    // The SDK's own calls (`SifLoadModule` to `loadfile`, the fileio of `printf`) are there too, on
+    // servers of the IOP's ROM modules, which no module beside the program registers.
+    let resolved: Vec<_> = calls.iter().map(|c| (c.client, c.server, c.function, rpc::resolve(c, &servers))).collect();
+    assert_eq!(
+        resolved[..2],
+        [
+            (Some(0x12_1700), Some(0x4845_4c4f), Some(0), Some(LOAD + 0x40)),
+            (Some(0x12_1700), Some(0x4845_4c4f), Some(1), Some(LOAD + 0x13c))
+        ],
+        "{calls:x?}"
+    );
+    assert!(resolved[2..].iter().all(|&(_, server, _, target)| server != Some(0x4845_4c4f) && target.is_none()), "{calls:x?}");
+}

@@ -373,9 +373,9 @@ impl Image {
     }
 
     /// The console the image runs on, when its container or its processor names one: `psx` for a
-    /// PS-X EXE, `psp` for a PRX module, `ps2` for an ELF of the R5900, `xbox` for an XBE,
-    /// `dreamcast` for a boot program, `n64` for a cartridge ROM; `None` for a program of an
-    /// operating system.
+    /// PS-X EXE, `psp` for a PRX module, `iop` for a `PlayStation 2` IRX module, `ps2` for an ELF
+    /// of the R5900, `xbox` for an XBE, `dreamcast` for a boot program, `n64` for a cartridge ROM;
+    /// `None` for a program of an operating system.
     pub fn platform(&self) -> Option<&'static str> {
         if self.psx.is_some() {
             Some("psx")
@@ -385,6 +385,8 @@ impl Image {
             Some("dreamcast")
         } else if self.elf.as_ref().is_some_and(|e| e.prx.is_some()) {
             Some("psp")
+        } else if self.elf.as_ref().is_some_and(|e| e.irx.is_some()) {
+            Some("iop")
         } else if self.is_ps2() {
             Some("ps2")
         } else if self.xbe.is_some() {

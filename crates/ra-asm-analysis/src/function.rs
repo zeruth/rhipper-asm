@@ -249,6 +249,13 @@ pub fn name_for(image: &Image, function: &Function) -> String {
     if let Kind::ImportThunk(import) = &function.kind {
         return format!("thunk_{import}");
     }
+    // An IOP module's import is a stub of its own whose jump the loader writes: the stub is the
+    // import's thunk, named by its library's table.
+    if image.platform() == Some("iop")
+        && let Some(import) = image.imports.iter().find(|i| i.iat_va == function.entry).and_then(|i| i.name.as_deref())
+    {
+        return format!("thunk_{import}");
+    }
     if image.entry_point() == Some(function.entry) {
         return "entry".to_owned();
     }

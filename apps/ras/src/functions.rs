@@ -154,6 +154,52 @@ pub(crate) fn functions_json(analysis: &Analysis<'_>) -> serde_json::Value {
     })
 }
 
+/// A `PlayStation 2` program's remote procedure calls, each joined with the server of the IOP
+/// modules beside the program (every `.irx` in its directory) that registers its id: the module,
+/// and the function the call's number reaches there by its address and name.
+fn rpc_json(analysis: &Analysis<'_>) -> serde_json::Value {
+    let calls = ra_asm_analysis::rpc::calls(analysis);
+    let mut servers = Vec::new();
+    // The module and the names of its server's functions, one per server.
+    let mut owners: Vec<(String, HashMap<u64, String>)> = Vec::new();
+    if !calls.is_empty() {
+        for path in modules_beside(analysis.image) {
+            let Ok(image) = ra_asm_pe::load(&path) else { continue };
+            let module = analyze(&image);
+            let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            for server in ra_asm_analysis::rpc::servers(&module) {
+                let reached = std::iter::once(server.dispatch).chain(server.functions.iter().map(|&(_, f)| f));
+                owners.push((file.clone(), reached.map(|f| (f, module.name_of(f))).collect()));
+                servers.push(server);
+            }
+        }
+    }
+    let rows: Vec<_> = calls
+        .iter()
+        .map(|c| {
+            let target = ra_asm_analysis::rpc::resolve(c, &servers);
+            let owner = c.server.and_then(|id| servers.iter().position(|s| s.id == id)).map(|i| &owners[i]);
+            json!({
+                "at": hex(c.at), "caller": hex(c.caller), "client": c.client.map(hex),
+                "server": c.server.map(|id| format!("{id:#010x}")), "function": c.function,
+                "module": owner.map(|o| o.0.clone()), "target": target.map(hex),
+                "name": target.and_then(|t| owner?.1.get(&t).cloned()),
+            })
+        })
+        .collect();
+    serde_json::Value::Array(rows)
+}
+
+/// The IOP modules in the directory of `image`'s file, by name.
+fn modules_beside(image: &Image) -> Vec<std::path::PathBuf> {
+    let Some(dir) = image.path.as_deref().and_then(Path::parent) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(if dir.as_os_str().is_empty() { Path::new(".") } else { dir }) else { return Vec::new() };
+    let mut modules: Vec<_> =
+        entries.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("irx"))).collect();
+    modules.sort();
+    modules
+}
+
 /// Gives each function of a translation's table the evidence the ledger of `gen_dir` holds of the
 /// function at its address; a gen directory without a ledger gives none.
 pub(crate) fn note_evidence(infos: &mut HashMap<String, FunctionInfo>, gen_dir: &Path) -> Result<()> {
@@ -191,6 +237,9 @@ pub(crate) fn functions(image: &Image, json: bool) -> Result<()> {
         let lifted = ra_asm_lift::lift(image, &analysis);
         let mut value = functions_json(&analysis);
         value["coverage"] = crate::report::coverage_json(&ra_asm_lift::coverage(&analysis, &lifted));
+        if image.platform() == Some("ps2") {
+            value["rpc"] = rpc_json(&analysis);
+        }
         serde_json::to_writer_pretty(&mut out, &value)?;
         writeln!(out)?;
         return Ok(());

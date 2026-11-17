@@ -95,8 +95,10 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         r5900,
         big: image.big_endian(),
     };
-    // A PSP import's stub holds the `syscall` the kernel writes only once it loads the module.
-    let import = image.imports.iter().find(|i| allegrex && i.iat_va == f.entry).and_then(|i| i.name.clone());
+    // A PSP import's stub holds the `syscall` the kernel writes only once it loads the module, an
+    // IOP one the jump the loader writes over its `jr $ra`.
+    let modular = allegrex || image.platform() == Some("iop");
+    let import = image.imports.iter().find(|i| modular && i.iat_va == f.entry).and_then(|i| i.name.clone());
     if let Some(import) = import {
         let block = lifter.blocks[&f.entry];
         lifter.import_call(block, &import);

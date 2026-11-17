@@ -118,6 +118,7 @@ fn elf_type(kind: u16) -> String {
         3 => "shared object".to_owned(),
         4 => "core".to_owned(),
         ra_asm_format::elf::ET_PRX => "psp module".to_owned(),
+        ra_asm_format::elf::ET_IRX => "iop module".to_owned(),
         other => format!("type {other:#x}"),
     }
 }

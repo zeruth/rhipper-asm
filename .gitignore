@@ -5,5 +5,8 @@
 /testdata/psp/hello.elf
 /testdata/psp/hello.o
 /testdata/ps2/hello.o
+/testdata/ps2/rpc.o
+/testdata/ps2/obj
+/testdata/ps2/hello.notiopmod*.elf
 # the MSYS shell's crash dumps (#539 committed a grep.exe.stackdump)
 *.stackdump
