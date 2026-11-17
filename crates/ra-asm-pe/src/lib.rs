@@ -22,6 +22,7 @@ pub mod macho;
 pub mod object;
 pub mod pdb;
 mod psp_nids;
+pub mod psx;
 pub mod relocs;
 pub mod resources;
 pub mod section;

@@ -420,6 +420,12 @@ impl Image {
         }
     }
 
+    /// The places of the console's memory map with their names and mirrors, on a PS-X EXE; empty
+    /// elsewhere. [`Image::memory_region`] folds one address through the same map.
+    pub fn memory_map(&self) -> &'static [crate::psx::Place] {
+        if self.psx.is_some() { &crate::psx::MAP } else { &[] }
+    }
+
     /// The whole mapped image, indexed by RVA.
     pub fn mapped(&self) -> &[u8] {
         &self.mapped
