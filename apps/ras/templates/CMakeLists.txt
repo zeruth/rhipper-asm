@@ -1,6 +1,16 @@
 # The CMake project of the port of @NAME@. ras wrote this file because the project had none.
 # ras does not write it again, so you can change it.
 cmake_minimum_required(VERSION 3.24)
+# The port needs clang (see the options below). An IDE that configures it with no compiler named
+# (CLion, Visual Studio: both find MSVC's cl first) gets clang from the PATH or LLVM's install.
+if(NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED ENV{CC})
+  find_program(RA_CLANG NAMES clang PATHS "$ENV{ProgramFiles}/LLVM/bin")
+  find_program(RA_CLANGXX NAMES clang++ PATHS "$ENV{ProgramFiles}/LLVM/bin")
+  if(RA_CLANG AND RA_CLANGXX)
+    set(CMAKE_C_COMPILER "${RA_CLANG}")
+    set(CMAKE_CXX_COMPILER "${RA_CLANGXX}")
+  endif()
+endif()
 project(@TARGET@ C CXX)
 
 # C23: the large data sections are `#embed`s of their bytes, beside the translation.
@@ -38,7 +48,14 @@ endif()
 target_include_directories(@TARGET@ PRIVATE "${GEN_DIR}" "${GEN_DIR}/runtime")
 
 # The translation uses the clang extensions the runtime header relies on: 128-bit integers and
-# vector types. A clang front end gets the GNU flags; clang-cl gets them through /clang:.
+# vector types. A clang front end gets the GNU flags; clang-cl gets them through /clang:. MSVC's
+# own cl has neither, and an IDE that picks it by default (CLion, Visual Studio) is told so here
+# rather than by the flags below failing.
+if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+  message(FATAL_ERROR "This port needs clang or clang-cl (128-bit integers, vector types), not "
+    "${CMAKE_C_COMPILER_ID} at ${CMAKE_C_COMPILER}. Configure with -DCMAKE_C_COMPILER=clang "
+    "-DCMAKE_CXX_COMPILER=clang++, or choose a clang toolchain in the IDE.")
+endif()
 if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
   target_compile_options(@TARGET@ PRIVATE /W1 /O1 /clang:-Wno-parentheses /clang:-Wno-unused-variable /clang:-Wno-unused-but-set-variable)
 else()

@@ -1615,7 +1615,9 @@ fn emit_function(
     };
     // The entry hook, on the definition line rather than one of its own in every function: nothing,
     // unless the port is built with RA_TRACE, when it names the function.
+    let head_at = out.len();
     let _ = writeln!(out, "{head} {{ RA_ENTER(\"{}\");", f.name);
+    let head_end = head_at + head.len();
     // The trace hooks name the function as the table does, so the reference's trace, recorded by
     // address and named through the table, reads the same.
     let traced = trace.then(|| source_name.unwrap_or(&f.name).to_owned());
@@ -1659,9 +1661,21 @@ fn emit_function(
         let ty = &f.ty.params[0];
         let _ = writeln!(out, "    {} = ({})(uintptr_t)this;", declaration(ty, &name(f, f.params[0])), c_type(ty));
     }
-    for p in f.params.iter().skip(usize::from(this)) {
-        let p = name(f, *p);
-        if !read.contains(p.as_str()) {
+    // Marked so in the signature (`uint64_t arg0 RA_UNUSED`), not by a statement of the body.
+    let unused: Vec<String> = f.params.iter().skip(usize::from(this)).map(|p| name(f, *p)).filter(|p| !read.contains(p.as_str())).collect();
+    if !unused.is_empty() {
+        let mut marked = out[head_at..head_end].to_owned();
+        let mut missed = Vec::new();
+        for p in &unused {
+            // The parameter's name, ending its declaration: before a comma or the closing paren.
+            let at = [",", ")"].iter().filter_map(|end| marked.find(&format!(" {p}{end}"))).min();
+            match at {
+                Some(at) => marked.insert_str(at + 1 + p.len(), " RA_UNUSED"),
+                None => missed.push(p),
+            }
+        }
+        out.replace_range(head_at..head_end, &marked);
+        for p in missed {
             let _ = writeln!(out, "    (void){p};");
         }
     }

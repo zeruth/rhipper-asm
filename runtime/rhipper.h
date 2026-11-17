@@ -21,6 +21,7 @@
 #if defined(_MSC_VER) && !defined(__clang__)
 #define RA_NORETURN __declspec(noreturn)
 #define RA_ALIGNED(n) __declspec(align(n))
+#define RA_UNUSED
 #define RA_PACKED_BEGIN __pragma(pack(push, 1))
 #define RA_PACKED_END __pragma(pack(pop))
 #define RA_UNREACHABLE() __assume(0)
@@ -34,6 +35,8 @@
 #else
 #define RA_NORETURN __attribute__((noreturn))
 #define RA_ALIGNED(n) __attribute__((aligned(n)))
+// A parameter the convention passes and the function ignores.
+#define RA_UNUSED __attribute__((unused))
 #define RA_PACKED_BEGIN
 #define RA_PACKED_END __attribute__((packed))
 #define RA_UNREACHABLE() __builtin_unreachable()
