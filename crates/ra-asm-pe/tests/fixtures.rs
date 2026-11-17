@@ -633,3 +633,78 @@ fn the_ps2_memory_map_folds_the_mirrors_of_ram() {
 }
 
 // endregion
+
+// region The Dreamcast
+
+fn dc_fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/dc").join(name)
+}
+
+/// The KallistiOS fixture, `1ST_READ.BIN`: the whole file at `0x8c010000`, entered at its first
+/// byte (KOS's `start`, the ELF's entry), its greeting where `grep -boa` finds it in the file.
+#[test]
+fn the_dreamcast_boot_program_maps_whole_at_the_boot_address() {
+    let path = dc_fixture("1ST_READ.BIN");
+    let bytes = std::fs::read(&path).unwrap();
+    let image = ra_asm_pe::load(&path).unwrap();
+    assert!(image.warnings.is_empty(), "{:?}", image.warnings);
+    assert_eq!(image.dreamcast, Some(ra_asm_format::dreamcast::Boot { scrambled: false }));
+    assert_eq!(image.machine(), Machine::Sh4);
+    assert!(!image.is_64() && !image.big_endian());
+    assert_eq!(image.platform(), Some("dreamcast"));
+    assert_eq!(image.image_base(), 0x8c01_0000);
+    assert_eq!(image.entry_point(), Some(0x8c01_0000));
+    assert_eq!(image.size_of_image() as usize, bytes.len());
+    assert!(image.is_code(0x8c01_0000));
+    assert_eq!(image.read(0x8c01_0000, bytes.len()).unwrap(), &bytes[..]);
+    assert!(image.read(0x8c01_0000 + bytes.len() as u64, 1).is_err(), "the image ends with the file");
+    assert!(image.read(0x8c00_fffc, 4).is_err(), "nothing of the image lies below the base");
+    let greeting = b"hello from the sh-4";
+    assert_eq!(image.read(0x8c03_a064, greeting.len()).unwrap(), greeting);
+}
+
+/// The scrambled form `scramble` made from the same file maps to the same image.
+#[test]
+fn the_scrambled_boot_program_unscrambles_to_the_plain_one() {
+    let plain = std::fs::read(dc_fixture("1ST_READ.BIN")).unwrap();
+    let scrambled = std::fs::read(dc_fixture("1ST_READ.scrambled")).unwrap();
+    assert_ne!(scrambled, plain);
+    assert_eq!(ra_asm_format::dreamcast::unscramble(&scrambled), plain);
+    assert_eq!(ra_asm_format::dreamcast::scramble(&plain), scrambled);
+    let image = Image::dreamcast(scrambled, true).unwrap();
+    assert_eq!(image.dreamcast, Some(ra_asm_format::dreamcast::Boot { scrambled: true }));
+    assert_eq!(image.read(0x8c01_0000, plain.len()).unwrap(), &plain[..]);
+}
+
+/// RAM reads the same through `P1` and `P2`; the Holly registers, the store queues and the
+/// control registers are places of the map that the image does not hold.
+#[test]
+fn the_dreamcast_memory_map_folds_the_mirrors_of_ram() {
+    use ra_asm_format::psx::Region;
+    let image = ra_asm_pe::load(&dc_fixture("1ST_READ.BIN")).unwrap();
+    let word = image.u32(0x8c01_0000).unwrap();
+    assert_eq!(image.u32(0xac01_0000).unwrap(), word);
+    assert_eq!(image.rva(0xac01_0000), Some(0));
+    assert_eq!(image.memory_region(0xac01_0000), Some((Region::Ram, 0x8c01_0000)));
+    assert_eq!(image.memory_region(0x0c01_0000), None, "P0 is the MMU's");
+    for (va, region, folded) in [
+        (0xa05f_8000, Region::Hardware, 0xa05f_8000),
+        (0x805f_6900, Region::Hardware, 0xa05f_6900),
+        (0xe000_0000, Region::StoreQueue, 0xe000_0000),
+        (0xffe8_000c, Region::Hardware, 0xffe8_000c),
+    ] {
+        assert_eq!(image.memory_region(va), Some((region, folded)), "{va:#x}");
+        assert!(image.read(va, 4).is_err(), "{va:#x} is no byte of the image");
+    }
+    assert_eq!(image.memory_region(0xa000_0000), Some((Region::Bios, 0xa000_0000)));
+}
+
+/// A file too large for the RAM above the base, or an empty one, is no boot program.
+#[test]
+fn a_boot_program_that_does_not_fit_is_refused() {
+    assert!(Image::dreamcast(Vec::new(), false).is_err());
+    let error = Image::dreamcast(vec![0; 0xff_0001], false).unwrap_err();
+    assert_eq!(format!("{error:#}"), "the boot program's 0xff0001 bytes do not fit in the 0xff0000 bytes of RAM above 0x8c010000");
+}
+
+// endregion

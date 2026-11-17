@@ -49,14 +49,20 @@ use std::path::Path;
 use anyhow::Context;
 
 /// Reads and parses the PE file at `path`, and the names of its functions from the PDB beside it
-/// when there is one, else from the link map beside it (`<exe>.map`) when there is one.
+/// when there is one, else from the link map beside it (`<exe>.map`) when there is one. A file
+/// named `1ST_READ.BIN`, which no header marks, is a Dreamcast boot program in its plain form.
 pub fn load(path: &Path) -> anyhow::Result<Image> {
     let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
-    let mut image = Image::parse(bytes).with_context(|| format!("{} is not a PE image this loader reads", path.display()))?;
+    let boot = path.file_name().is_some_and(|name| name.eq_ignore_ascii_case(ra_asm_format::dreamcast::FILE_NAME));
+    let mut image = if boot {
+        Image::dreamcast(bytes, false).with_context(|| format!("{} is not a Dreamcast boot program", path.display()))?
+    } else {
+        Image::parse(bytes).with_context(|| format!("{} is not a PE image this loader reads", path.display()))?
+    };
     image.path = Some(path.to_path_buf());
     // An ELF or a Mach-O file names its functions in its own symbol table; a PS-X EXE has no PDB,
-    // and the map beside one is `nm`'s over its ELF, not a link map.
-    if image.elf.is_some() || image.macho.is_some() || image.psx.is_some() {
+    // and the map beside one is `nm`'s over its ELF, not a link map; a boot program has neither.
+    if image.elf.is_some() || image.macho.is_some() || image.psx.is_some() || image.dreamcast.is_some() {
         return Ok(image);
     }
     match debug::load_pdb(&image) {

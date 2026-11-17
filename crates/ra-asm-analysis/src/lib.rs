@@ -61,6 +61,7 @@ pub fn arch_of(image: &Image) -> Box<dyn Arch> {
             r5900: image.platform() == Some("ps2"),
             allegrex: image.platform() == Some("psp"),
         }),
+        Machine::Sh4 => Box::new(ra_asm_sh::Sh4 { big_endian: image.big_endian(), ..ra_asm_sh::Sh4::default() }),
         _ => Box::new(ra_asm_x86::X86::for_pointer_size(image.pointer_size())),
     }
 }
@@ -406,7 +407,7 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     // exception table names every function with a frame, a Thumb image keeps its literal pools in
     // the gaps, and a MIPS image pads with zero words, which are `nop`s.
     for _ in 0..MAX_ROUNDS {
-        let seeds = if matches!(image.machine(), Machine::Arm64 | Machine::Arm | Machine::Mips | Machine::Other(EM_MIPS)) {
+        let seeds = if matches!(image.machine(), Machine::Arm64 | Machine::Arm | Machine::Mips | Machine::Other(EM_MIPS) | Machine::Sh4) {
             Vec::new()
         } else {
             gap_seeds(image, &state)
@@ -456,7 +457,7 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     // `movw` and `movt`) or loads it from a literal pool, which no one operand shows: there every
     // function may be address-taken, and the gaps are not searched. So is it for 32-bit x86 code
     // of an ELF or Mach-O file, which addresses its functions from the global offset table.
-    let risc = matches!(image.machine(), Machine::Arm64 | Machine::Arm | Machine::Mips | Machine::Other(EM_MIPS));
+    let risc = matches!(image.machine(), Machine::Arm64 | Machine::Arm | Machine::Mips | Machine::Other(EM_MIPS) | Machine::Sh4);
     let pic = !image.is_64() && (image.elf.is_some() || image.macho.is_some());
     let mut address_taken = (!risc && !pic).then(|| gaps::address_taken(image, &functions, &classes, facts));
     let fill = match &address_taken {

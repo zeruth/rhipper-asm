@@ -326,7 +326,7 @@ pub fn runtime_for(image: &Image) -> Option<Vec<PathBuf>> {
         Machine::I386 => "x86",
         Machine::Amd64 => "x64",
         Machine::Arm64 => "arm64",
-        Machine::Arm | Machine::Mips | Machine::Other(_) => return None,
+        Machine::Arm | Machine::Mips | Machine::Sh4 | Machine::Other(_) => return None,
     };
     if takes_installed_msvc_runtime(&toolset) { installed_msvc_runtime(arch) } else { None }
 }
@@ -389,6 +389,7 @@ pub fn machine_name(image: &Image) -> &'static str {
         Machine::Arm64 => "arm64",
         Machine::Arm => "arm",
         Machine::Mips => "mips",
+        Machine::Sh4 => "sh4",
         Machine::Other(_) => "other",
     }
 }

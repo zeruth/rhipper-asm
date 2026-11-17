@@ -20,6 +20,8 @@ pub enum Machine {
     Arm,
     /// 32-bit MIPS: ELF's `EM_MIPS` in a 32-bit file, of either byte order.
     Mips,
+    /// The SH-4 of the Dreamcast, little-endian: PE's `SH4`, ELF's `EM_SH`.
+    Sh4,
     /// A machine the pipeline does not lift. The value is kept for the report.
     Other(u16),
 }
@@ -32,6 +34,7 @@ impl Machine {
             0x8664 => Self::Amd64,
             0xaa64 => Self::Arm64,
             0x01c4 => Self::Arm,
+            0x01a6 => Self::Sh4,
             other => Self::Other(other),
         }
     }
@@ -39,7 +42,7 @@ impl Machine {
     /// The width of a pointer, in bytes.
     pub fn pointer_size(self) -> u8 {
         match self {
-            Self::I386 | Self::Arm | Self::Mips => 4,
+            Self::I386 | Self::Arm | Self::Mips | Self::Sh4 => 4,
             Self::Amd64 | Self::Arm64 | Self::Other(_) => 8,
         }
     }
@@ -51,6 +54,7 @@ impl Machine {
             Self::Arm64 => "arm64".to_owned(),
             Self::Arm => "arm".to_owned(),
             Self::Mips => "mips".to_owned(),
+            Self::Sh4 => "sh4".to_owned(),
             Self::Other(value) => format!("machine {value:#06x}"),
         }
     }

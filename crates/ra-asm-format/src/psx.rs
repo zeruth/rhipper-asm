@@ -39,6 +39,9 @@ pub enum Region {
     /// The device registers: an access is the platform runtime's to answer, never the image's.
     Hardware,
     Bios,
+    /// The SH-4's store queues: two 32-byte buffers a write fills and a `pref` sends on to the
+    /// memory its control registers name, so an access is the platform runtime's, as a device's is.
+    StoreQueue,
 }
 
 impl Region {
@@ -48,6 +51,7 @@ impl Region {
             Self::Scratchpad => "scratchpad",
             Self::Hardware => "hardware",
             Self::Bios => "bios",
+            Self::StoreQueue => "store queue",
         }
     }
 }

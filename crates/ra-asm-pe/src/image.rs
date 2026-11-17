@@ -4,12 +4,14 @@
 //! loaded segments, from the lowest one's page, and a Mach-O file ([`crate::macho`]) by its
 //! segments the same way. A PSX `PS-X EXE` maps its text at the header's address, and its
 //! addresses go through the console's memory map ([`ra_asm_format::psx`]): a RAM address of any
-//! segment reads the one byte it names.
+//! segment reads the one byte it names. A Dreamcast boot program ([`Image::dreamcast`]) has no
+//! container: it maps whole at [`dreamcast::BASE`], through the console's map the same way.
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail, ensure};
 use ra_asm_format::Reader;
+use ra_asm_format::dreamcast::{self, Boot};
 use ra_asm_format::psx::{self, PsxExe};
 
 use crate::debug::{self, DebugEntry};
@@ -65,6 +67,9 @@ pub struct Image {
     /// The `PlayStation` executable's header, when the image is one: its addresses fold through the
     /// console's memory map.
     pub psx: Option<PsxExe>,
+    /// The Dreamcast boot program the image is, when it is one: its addresses fold through the
+    /// console's memory map.
+    pub dreamcast: Option<Boot>,
     /// The value the start routine gives the global pointer, on a machine whose code addresses its
     /// data through one: a 32-bit MIPS ELF's `$gp`, from its `.reginfo` or its `_gp` symbol.
     pub global_pointer: Option<u64>,
@@ -76,10 +81,25 @@ pub struct Image {
 
 impl Image {
     /// Parses the bytes of a PE file (or an XBE, an ELF, a Mach-O file or a PS-X EXE) and maps them.
-    pub fn parse(mut file: Vec<u8>) -> Result<Self> {
+    pub fn parse(file: Vec<u8>) -> Result<Self> {
+        Self::parse_as(file, None)
+    }
+
+    /// Maps the bytes of a Dreamcast boot program, `1ST_READ.BIN`, at [`dreamcast::BASE`]: the file
+    /// is the image, with no header to say so, and `scrambled` says whether it is the form a disc
+    /// of the CD-ROM kind carries, which is unscrambled first.
+    pub fn dreamcast(file: Vec<u8>, scrambled: bool) -> Result<Self> {
+        let plain = if scrambled { dreamcast::unscramble(&file) } else { file };
+        Self::parse_as(plain, Some(Boot { scrambled }))
+    }
+
+    fn parse_as(mut file: Vec<u8>, boot: Option<Boot>) -> Result<Self> {
         let reader = Reader::new(&file);
         let mut psx = None;
-        let (headers, sections, xbe, elf, macho) = if psx::is_psx(&file) {
+        let (headers, sections, xbe, elf, macho) = if boot.is_some() {
+            let (headers, sections) = dreamcast_layout(file.len())?;
+            (headers, sections, None, None, None)
+        } else if psx::is_psx(&file) {
             let exe = PsxExe::parse(&file)?;
             let (headers, sections) = psx_layout(&exe)?;
             psx = Some(exe);
@@ -154,6 +174,7 @@ impl Image {
             elf,
             macho,
             psx,
+            dreamcast: boot,
             global_pointer: None,
             warnings,
             file,
@@ -168,6 +189,10 @@ impl Image {
         // routine's to set.
         if let Some(exe) = &self.psx {
             self.global_pointer = (exe.gp != 0).then_some(u64::from(exe.gp));
+            return;
+        }
+        // Nor has a Dreamcast boot program, which is its bytes and nothing else.
+        if self.dreamcast.is_some() {
             return;
         }
         // An ELF file has none of the PE's directories: its tables are its own.
@@ -245,10 +270,10 @@ impl Image {
     }
 
     /// The virtual address of the entry point, or `None` when the image has none. A PS-X EXE always
-    /// has one, which may be the first byte of its text.
+    /// has one, which may be the first byte of its text; a Dreamcast boot program's is its first byte.
     pub fn entry_point(&self) -> Option<u64> {
         let rva = self.headers.optional.entry_point;
-        (rva != 0 || self.psx.is_some()).then(|| self.va(rva))
+        (rva != 0 || self.psx.is_some() || self.dreamcast.is_some()).then(|| self.va(rva))
     }
 
     /// The virtual address of an RVA.
@@ -258,9 +283,10 @@ impl Image {
 
     /// The RVA of a virtual address inside the image, or `None` when it lies outside. A console's
     /// address is folded first: a PS-X EXE's `kuseg` and `kseg1` mirrors of RAM are the `kseg0`
-    /// address, a `PlayStation 2` program's `kseg` and uncached mirrors the `kuseg` one.
+    /// address, a `PlayStation 2` program's `kseg` and uncached mirrors the `kuseg` one, a Dreamcast
+    /// program's `P2` mirror the `P1` one.
     pub fn rva(&self, va: u64) -> Option<u32> {
-        let va = if self.psx.is_some() || self.is_ps2() { self.memory_region(va)?.1 } else { va };
+        let va = if self.psx.is_some() || self.is_ps2() || self.dreamcast.is_some() { self.memory_region(va)?.1 } else { va };
         let rva = va.checked_sub(self.image_base())?;
         (rva < u64::from(self.size_of_image())).then_some(rva as u32)
     }
@@ -305,11 +331,13 @@ impl Image {
     }
 
     /// The console the image runs on, when its container or its processor names one: `psx` for a
-    /// PS-X EXE, `psp` for a PRX module, `ps2` for an ELF of the R5900, `xbox` for an XBE; `None`
-    /// for a program of an operating system.
+    /// PS-X EXE, `psp` for a PRX module, `ps2` for an ELF of the R5900, `xbox` for an XBE,
+    /// `dreamcast` for a boot program; `None` for a program of an operating system.
     pub fn platform(&self) -> Option<&'static str> {
         if self.psx.is_some() {
             Some("psx")
+        } else if self.dreamcast.is_some() {
+            Some("dreamcast")
         } else if self.elf.as_ref().is_some_and(|e| e.prx.is_some()) {
             Some("psp")
         } else if self.is_ps2() {
@@ -327,12 +355,15 @@ impl Image {
     }
 
     /// The place of the console's memory map that `va` reaches, with its folded address, on an
-    /// image of a console that has one (the `PlayStation's`, the `PlayStation 2's`); `None`
-    /// elsewhere, or for an address no place answers. An access to [`psx::Region::Hardware`] is a
-    /// device's, which the platform runtime answers and the image does not hold.
+    /// image of a console that has one (the `PlayStation's`, the `PlayStation 2's`, the
+    /// Dreamcast's); `None` elsewhere, or for an address no place answers. An access to
+    /// [`psx::Region::Hardware`] or [`psx::Region::StoreQueue`] is a device's, which the platform
+    /// runtime answers and the image does not hold.
     pub fn memory_region(&self, va: u64) -> Option<(psx::Region, u64)> {
         if self.psx.is_some() {
             psx::fold(va)
+        } else if self.dreamcast.is_some() {
+            dreamcast::fold(va)
         } else if self.is_ps2() {
             ra_asm_format::elf::ps2::fold(va)
         } else {
@@ -519,6 +550,65 @@ fn psx_layout(exe: &PsxExe) -> Result<(Headers, Vec<Section>)> {
             image_version: (0, 0),
             subsystem_version: (0, 0),
             size_of_image,
+            size_of_headers: 0,
+            checksum: 0,
+            subsystem: 0,
+            dll_characteristics: 0,
+            stack_reserve: 0,
+            stack_commit: 0,
+            heap_reserve: 0,
+            heap_commit: 0,
+            directories: vec![DataDirectory::default(); 16],
+        },
+        section_table_offset: 0,
+        rich: None,
+    };
+    Ok((headers, sections))
+}
+
+/// The headers and the one section a Dreamcast boot program of `len` bytes stands for, laid out as
+/// the boot ROM loads it: `.text`, the whole file at [`dreamcast::BASE`], code and data both and
+/// writable, entered at its first byte. The file must fit in the RAM above the base.
+fn dreamcast_layout(len: usize) -> Result<(Headers, Vec<Section>)> {
+    ensure!(len != 0, "the boot program is empty");
+    let size = u32::try_from(len).ok().filter(|&size| u64::from(size) <= dreamcast::MAX_SIZE);
+    let Some(size) = size else {
+        bail!("the boot program's {len:#x} bytes do not fit in the {:#x} bytes of RAM above {:#x}", dreamcast::MAX_SIZE, dreamcast::BASE)
+    };
+    let sections = vec![Section {
+        name: ".text".to_owned(),
+        virtual_size: size,
+        virtual_address: 0,
+        raw_size: size,
+        raw_offset: 0,
+        characteristics: crate::elf::characteristics(true, true, false),
+    }];
+    let headers = Headers {
+        pe_offset: 0,
+        coff: CoffHeader {
+            machine: Machine::Sh4,
+            sections: 1,
+            timestamp: 0,
+            symbol_table: 0,
+            symbols: 0,
+            optional_header_size: 0,
+            characteristics: CoffHeader::EXECUTABLE_IMAGE | CoffHeader::RELOCS_STRIPPED,
+        },
+        optional: OptionalHeader {
+            magic: OptionalMagic::Pe32,
+            linker_version: (0, 0),
+            size_of_code: size,
+            size_of_initialized_data: 0,
+            size_of_uninitialized_data: 0,
+            entry_point: 0,
+            base_of_code: 0,
+            image_base: dreamcast::BASE,
+            section_alignment: 1,
+            file_alignment: 1,
+            os_version: (0, 0),
+            image_version: (0, 0),
+            subsystem_version: (0, 0),
+            size_of_image: size,
             size_of_headers: 0,
             checksum: 0,
             subsystem: 0,

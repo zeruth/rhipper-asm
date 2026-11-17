@@ -55,6 +55,8 @@ fn directories_of(image: &Image) -> Vec<(&'static str, String, u32)> {
 fn format_name(image: &Image) -> &'static str {
     if image.psx.is_some() {
         "psx-exe"
+    } else if image.dreamcast.is_some() {
+        "bin"
     } else if image.xbe.is_some() {
         "xbe"
     } else if let Some(elf) = &image.elf {
@@ -177,6 +179,7 @@ pub(crate) fn info_json(image: &Image) -> serde_json::Value {
                 "sp": p.initial_sp().map(|sp| hex(u64::from(sp))),
                 "marker": p.marker,
             })),
+            "dreamcast": image.dreamcast.map(|d| json!({ "scrambled": d.scrambled })),
             "xbe": image.xbe.as_ref().map(|x| json!({
                 "kernel": x.kernel.name(),
                 "title": x.title_name,
@@ -255,6 +258,9 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
             println!("bss            {:#010x}, {:#x} bytes", p.bss.0, p.bss.1);
         }
         println!("region         {}", if p.marker.is_empty() { "none" } else { &p.marker });
+    }
+    if let Some(d) = &image.dreamcast {
+        println!("boot program   {}", if d.scrambled { "scrambled, unscrambled to map" } else { "plain" });
     }
     if let Some(x) = &image.xbe {
         println!("title          {} ({:#010x}, region {:#x}, {} kernel)", x.title_name, x.title_id, x.region, x.kernel.name());
