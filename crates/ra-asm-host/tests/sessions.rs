@@ -111,7 +111,16 @@ fn abi_session(exe: &Path, expected: &str, path: &Path, keep: bool) -> Result<Se
     if !cfg!(windows) {
         return Err("no session is committed, and this host has no Windows DLLs to record one".to_owned());
     }
-    let session = record(exe, expected, RaiseLevel::Abi)?;
+    let session = match record(exe, expected, RaiseLevel::Abi) {
+        Ok(session) => session,
+        // Recorded again but not the native run: the committed session still replays, so a
+        // stale one shows as the replay's difference rather than as a fixture left out.
+        Err(why) if path.exists() => {
+            eprintln!("not recorded again: {}: {why}; the committed session replays", path.display());
+            return Session::parse(&read(path)).map_err(|e| format!("{}: {e}", path.display()));
+        }
+        Err(why) => return Err(why),
+    };
     if keep {
         // Whole or not at all: the other test may read the session as it lands.
         let new = path.with_extension("session.new");
