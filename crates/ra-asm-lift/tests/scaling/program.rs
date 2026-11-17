@@ -131,7 +131,15 @@ fn growth_of(small: Duration, large: Duration) -> f64 {
 /// longer. The failure names the stage that grew the most beyond linear. The smaller runs twice
 /// and keeps each stage's quicker time: the first run of a process pays for its pages and the
 /// allocator's growth.
+///
+/// It times only on CI (`CI` set, as GitHub Actions sets it): a local run shares the machine with
+/// the walk's workers and builds, and a loaded run measured 6.3x to 9.8x on an unchanged raise,
+/// sending back cards whose work had nothing to do with it (asm #205, #512 and #558, 2026-11-17).
 pub(crate) fn guard(stages: impl Fn(&Image, usize) -> Vec<Stage>) {
+    if std::env::var_os("CI").is_none() {
+        eprintln!("the scaling guard times only on CI (CI unset): skipped");
+        return;
+    }
     let (small_image, large_image) = (image(UNITS), image(4 * UNITS));
     let first = stages(&small_image, UNITS);
     let second = stages(&small_image, UNITS);
