@@ -1,0 +1,435 @@
+
+control-O1.el:	file format elf32-mips
+
+Disassembly of section .text:
+
+00020200 <_start>:
+   20200: 04 00 1c 3c  	lui	$gp, 0x4
+   20204: 50 88 9c 27  	addiu	$gp, $gp, -0x77b0 <sink+0xfffffffffffc7fd8>
+   20208: f0 ff bd 27  	addiu	$sp, $sp, -0x10 <sink+0xfffffffffffcf778>
+   2020c: 93 80 00 0c  	jal	0x2024c <control>
+   20210: 00 00 00 00  	nop
+
+00020214 <write>:
+   20214: a4 0f 02 24  	addiu	$2, $zero, 0xfa4
+   20218: 0c 00 00 00  	syscall
+   2021c: 01 00 e1 2c  	sltiu	$1, $7, 0x1
+   20220: 02 00 20 14  	bnez	$1, 0x2022c <write+0x18>
+   20224: 00 00 00 00  	nop
+   20228: 23 10 02 00  	negu	$2, $2
+   2022c: 08 00 e0 03  	jr	$ra
+   20230: 00 00 00 00  	nop
+
+00020234 <exit>:
+   20234: 00 00 05 24  	addiu	$5, $zero, 0x0
+   20238: 00 00 06 24  	addiu	$6, $zero, 0x0
+   2023c: 96 10 02 24  	addiu	$2, $zero, 0x1096
+   20240: 0c 00 00 00  	syscall
+   20244: 8f 80 00 08  	j	0x2023c <exit+0x8>
+   20248: 00 00 00 00  	nop
+
+0002024c <control>:
+   2024c: d0 ff bd 27  	addiu	$sp, $sp, -0x30 <sink+0xfffffffffffcf758>
+   20250: 2c 00 bf af  	sw	$ra, 0x2c($sp)
+   20254: 28 00 b6 af  	sw	$22, 0x28($sp)
+   20258: 24 00 b5 af  	sw	$21, 0x24($sp)
+   2025c: 20 00 b4 af  	sw	$20, 0x20($sp)
+   20260: 1c 00 b3 af  	sw	$19, 0x1c($sp)
+   20264: 18 00 b2 af  	sw	$18, 0x18($sp)
+   20268: 14 00 b1 af  	sw	$17, 0x14($sp)
+   2026c: 10 00 b0 af  	sw	$16, 0x10($sp)
+   20270: 02 00 01 3c  	lui	$1, 0x2
+   20274: 14 02 21 24  	addiu	$1, $1, 0x214
+   20278: 03 00 02 3c  	lui	$2, 0x3
+   2027c: 70 08 41 ac  	sw	$1, 0x870($2)
+   20280: 70 08 41 8c  	lw	$1, 0x870($2)
+   20284: 03 00 02 3c  	lui	$2, 0x3
+   20288: f9 80 00 0c  	jal	0x203e4 <print_slot>
+   2028c: 74 08 41 ac  	sw	$1, 0x874($2)
+   20290: 05 81 00 0c  	jal	0x20414 <print_proc>
+   20294: 00 00 00 00  	nop
+   20298: 36 81 00 0c  	jal	0x204d8 <collatz>
+   2029c: 00 00 00 00  	nop
+   202a0: 11 81 00 0c  	jal	0x20444 <print_int>
+   202a4: 25 20 40 00  	move	$4, $2
+   202a8: 48 81 00 0c  	jal	0x20520 <fib>
+   202ac: 0f 00 04 24  	addiu	$4, $zero, 0xf
+   202b0: 11 81 00 0c  	jal	0x20444 <print_int>
+   202b4: 25 20 40 00  	move	$4, $2
+   202b8: 00 00 11 24  	addiu	$17, $zero, 0x0
+   202bc: 0a 00 12 24  	addiu	$18, $zero, 0xa
+   202c0: 00 00 10 24  	addiu	$16, $zero, 0x0
+   202c4: 5c 81 00 0c  	jal	0x20570 <classify>
+   202c8: 25 20 20 02  	move	$4, $17
+   202cc: 01 00 31 26  	addiu	$17, $17, 0x1
+   202d0: fc ff 32 16  	bne	$17, $18, 0x202c4 <control+0x78>
+   202d4: 21 80 50 00  	addu	$16, $2, $16
+   202d8: 01 00 01 3c  	lui	$1, 0x1
+   202dc: b7 81 00 0c  	jal	0x206dc <print_str>
+   202e0: cb 01 24 24  	addiu	$4, $1, 0x1cb
+   202e4: 11 81 00 0c  	jal	0x20444 <print_int>
+   202e8: 25 20 00 02  	move	$4, $16
+   202ec: 00 00 10 24  	addiu	$16, $zero, 0x0
+   202f0: 01 00 01 3c  	lui	$1, 0x1
+   202f4: 6c 01 31 24  	addiu	$17, $1, 0x16c
+   202f8: 10 00 12 24  	addiu	$18, $zero, 0x10
+   202fc: 21 08 30 02  	addu	$1, $17, $16
+   20300: 00 00 39 8c  	lw	$25, 0x0($1)
+   20304: 2a 00 04 24  	addiu	$4, $zero, 0x2a
+   20308: 09 f8 20 03  	jalr	$25
+   2030c: 06 00 05 24  	addiu	$5, $zero, 0x6
+   20310: 11 81 00 0c  	jal	0x20444 <print_int>
+   20314: 25 20 40 00  	move	$4, $2
+   20318: 04 00 10 26  	addiu	$16, $16, 0x4
+   2031c: f7 ff 12 16  	bne	$16, $18, 0x202fc <control+0xb0>
+   20320: 00 00 00 00  	nop
+   20324: c5 81 00 0c  	jal	0x20714 <sum_table>
+   20328: 00 00 00 00  	nop
+   2032c: 11 81 00 0c  	jal	0x20444 <print_int>
+   20330: 25 20 40 00  	move	$4, $2
+   20334: d1 81 00 0c  	jal	0x20744 <sort_table>
+   20338: 00 00 00 00  	nop
+   2033c: 00 00 10 24  	addiu	$16, $zero, 0x0
+   20340: 03 00 01 3c  	lui	$1, 0x3
+   20344: 30 08 31 24  	addiu	$17, $1, 0x830
+   20348: 01 00 01 3c  	lui	$1, 0x1
+   2034c: 7c 01 32 24  	addiu	$18, $1, 0x17c
+   20350: 24 00 13 24  	addiu	$19, $zero, 0x24
+   20354: 01 00 14 3c  	lui	$20, 0x1
+   20358: 01 00 15 3c  	lui	$21, 0x1
+   2035c: de 80 00 08  	j	0x20378 <control+0x12c>
+   20360: 28 00 16 24  	addiu	$22, $zero, 0x28
+   20364: b7 81 00 0c  	jal	0x206dc <print_str>
+   20368: 00 00 00 00  	nop
+   2036c: 04 00 10 26  	addiu	$16, $16, 0x4
+   20370: 0e 00 16 12  	beq	$16, $22, 0x203ac <control+0x160>
+   20374: 00 00 00 00  	nop
+   20378: 21 08 30 02  	addu	$1, $17, $16
+   2037c: 00 00 21 8c  	lw	$1, 0x0($1)
+   20380: 80 08 01 00  	sll	$1, $1, 0x2
+   20384: 21 08 41 02  	addu	$1, $18, $1
+   20388: 00 00 24 8c  	lw	$4, 0x0($1)
+   2038c: b7 81 00 0c  	jal	0x206dc <print_str>
+   20390: 00 00 00 00  	nop
+   20394: 26 08 13 02  	xor	$1, $16, $19
+   20398: 01 00 21 2c  	sltiu	$1, $1, 0x1
+   2039c: f1 ff 20 14  	bnez	$1, 0x20364 <control+0x118>
+   203a0: cb 01 a4 26  	addiu	$4, $21, 0x1cb
+   203a4: d9 80 00 08  	j	0x20364 <control+0x118>
+   203a8: a4 01 84 26  	addiu	$4, $20, 0x1a4
+   203ac: 11 81 00 0c  	jal	0x20444 <print_int>
+   203b0: 46 55 04 24  	addiu	$4, $zero, 0x5546
+   203b4: ff 7f 01 3c  	lui	$1, 0x7fff
+   203b8: ff ff 21 34  	ori	$1, $1, 0xffff
+   203bc: 03 00 02 3c  	lui	$2, 0x3
+   203c0: 78 08 43 8c  	lw	$3, 0x878($2)
+   203c4: 03 00 61 14  	bne	$3, $1, 0x203d4 <control+0x188>
+   203c8: 00 00 00 00  	nop
+   203cc: f3 81 00 0c  	jal	0x207cc <fail>
+   203d0: 02 00 04 24  	addiu	$4, $zero, 0x2
+   203d4: 11 81 00 0c  	jal	0x20444 <print_int>
+   203d8: 78 08 44 8c  	lw	$4, 0x878($2)
+   203dc: 8d 80 00 0c  	jal	0x20234 <exit>
+   203e0: 00 00 04 24  	addiu	$4, $zero, 0x0
+
+000203e4 <print_slot>:
+   203e4: e8 ff bd 27  	addiu	$sp, $sp, -0x18 <sink+0xfffffffffffcf770>
+   203e8: 14 00 bf af  	sw	$ra, 0x14($sp)
+   203ec: 03 00 01 3c  	lui	$1, 0x3
+   203f0: 70 08 39 8c  	lw	$25, 0x870($1)
+   203f4: 01 00 01 3c  	lui	$1, 0x1
+   203f8: e3 01 25 24  	addiu	$5, $1, 0x1e3
+   203fc: 01 00 04 24  	addiu	$4, $zero, 0x1
+   20400: 09 f8 20 03  	jalr	$25
+   20404: 05 00 06 24  	addiu	$6, $zero, 0x5
+   20408: 14 00 bf 8f  	lw	$ra, 0x14($sp)
+   2040c: 08 00 e0 03  	jr	$ra
+   20410: 18 00 bd 27  	addiu	$sp, $sp, 0x18
+
+00020414 <print_proc>:
+   20414: e8 ff bd 27  	addiu	$sp, $sp, -0x18 <sink+0xfffffffffffcf770>
+   20418: 14 00 bf af  	sw	$ra, 0x14($sp)
+   2041c: 03 00 01 3c  	lui	$1, 0x3
+   20420: 74 08 39 8c  	lw	$25, 0x874($1)
+   20424: 01 00 01 3c  	lui	$1, 0x1
+   20428: e9 01 25 24  	addiu	$5, $1, 0x1e9
+   2042c: 01 00 04 24  	addiu	$4, $zero, 0x1
+   20430: 09 f8 20 03  	jalr	$25
+   20434: 05 00 06 24  	addiu	$6, $zero, 0x5
+   20438: 14 00 bf 8f  	lw	$ra, 0x14($sp)
+   2043c: 08 00 e0 03  	jr	$ra
+   20440: 18 00 bd 27  	addiu	$sp, $sp, 0x18
+
+00020444 <print_int>:
+   20444: d8 ff bd 27  	addiu	$sp, $sp, -0x28 <sink+0xfffffffffffcf760>
+   20448: 24 00 bf af  	sw	$ra, 0x24($sp)
+   2044c: 0a 00 01 24  	addiu	$1, $zero, 0xa
+   20450: 23 00 a1 a3  	sb	$1, 0x23($sp)
+   20454: c3 0f 04 00  	sra	$1, $4, 0x1f
+   20458: 26 10 81 00  	xor	$2, $4, $1
+   2045c: 23 30 41 00  	subu	$6, $2, $1
+   20460: 14 00 a2 27  	addiu	$2, $sp, 0x14
+   20464: 0e 00 43 24  	addiu	$3, $2, 0xe
+   20468: cc cc 01 3c  	lui	$1, 0xcccc
+   2046c: cd cc 25 34  	ori	$5, $1, 0xcccd
+   20470: 19 00 c5 00  	multu	$6, $5
+   20474: 10 08 00 00  	mfhi	$1
+   20478: f8 00 27 30  	andi	$7, $1, 0xf8
+   2047c: c2 08 01 00  	srl	$1, $1, 0x3
+   20480: 40 40 01 00  	sll	$8, $1, 0x1
+   20484: 21 38 e8 00  	addu	$7, $7, $8
+   20488: 23 40 c7 00  	subu	$8, $6, $7
+   2048c: ff ff 67 24  	addiu	$7, $3, -0x1 <sink+0xfffffffffffcf787>
+   20490: 0a 00 c9 2c  	sltiu	$9, $6, 0xa
+   20494: 30 00 06 35  	ori	$6, $8, 0x30
+   20498: 00 00 66 a0  	sb	$6, 0x0($3)
+   2049c: 25 18 e0 00  	move	$3, $7
+   204a0: f3 ff 20 11  	beqz	$9, 0x20470 <print_int+0x2c>
+   204a4: 25 30 20 00  	move	$6, $1
+   204a8: 04 00 81 04  	bgez	$4, 0x204bc <print_int+0x78>
+   204ac: 01 00 e5 24  	addiu	$5, $7, 0x1
+   204b0: 2d 00 01 24  	addiu	$1, $zero, 0x2d
+   204b4: 00 00 e1 a0  	sb	$1, 0x0($7)
+   204b8: 25 28 e0 00  	move	$5, $7
+   204bc: 23 08 45 00  	subu	$1, $2, $5
+   204c0: 10 00 26 24  	addiu	$6, $1, 0x10
+   204c4: 85 80 00 0c  	jal	0x20214 <write>
+   204c8: 01 00 04 24  	addiu	$4, $zero, 0x1
+   204cc: 24 00 bf 8f  	lw	$ra, 0x24($sp)
+   204d0: 08 00 e0 03  	jr	$ra
+   204d4: 28 00 bd 27  	addiu	$sp, $sp, 0x28
+
+000204d8 <collatz>:
+   204d8: 1b 00 03 24  	addiu	$3, $zero, 0x1b
+   204dc: 00 00 02 24  	addiu	$2, $zero, 0x0
+   204e0: 3f 81 00 08  	j	0x204fc <collatz+0x24>
+   204e4: 01 00 04 24  	addiu	$4, $zero, 0x1
+   204e8: 40 08 03 00  	sll	$1, $3, 0x1
+   204ec: 21 08 23 00  	addu	$1, $1, $3
+   204f0: 01 00 23 24  	addiu	$3, $1, 0x1
+   204f4: 08 00 64 10  	beq	$3, $4, 0x20518 <collatz+0x40>
+   204f8: 01 00 42 24  	addiu	$2, $2, 0x1
+   204fc: 01 00 61 30  	andi	$1, $3, 0x1
+   20500: 01 00 21 2c  	sltiu	$1, $1, 0x1
+   20504: f8 ff 20 10  	beqz	$1, 0x204e8 <collatz+0x10>
+   20508: 00 00 00 00  	nop
+   2050c: 43 18 03 00  	sra	$3, $3, 0x1
+   20510: fa ff 64 14  	bne	$3, $4, 0x204fc <collatz+0x24>
+   20514: 01 00 42 24  	addiu	$2, $2, 0x1
+   20518: 08 00 e0 03  	jr	$ra
+   2051c: 00 00 00 00  	nop
+
+00020520 <fib>:
+   20520: f0 ff bd 27  	addiu	$sp, $sp, -0x10 <sink+0xfffffffffffcf778>
+   20524: 0c 00 bf af  	sw	$ra, 0xc($sp)
+   20528: 08 00 b1 af  	sw	$17, 0x8($sp)
+   2052c: 04 00 b0 af  	sw	$16, 0x4($sp)
+   20530: 25 80 80 00  	move	$16, $4
+   20534: 02 00 01 2a  	slti	$1, $16, 0x2
+   20538: 07 00 20 14  	bnez	$1, 0x20558 <fib+0x38>
+   2053c: 00 00 11 24  	addiu	$17, $zero, 0x0
+   20540: 48 81 00 0c  	jal	0x20520 <fib>
+   20544: ff ff 04 26  	addiu	$4, $16, -0x1 <sink+0xfffffffffffcf787>
+   20548: fe ff 10 26  	addiu	$16, $16, -0x2 <sink+0xfffffffffffcf786>
+   2054c: 02 00 01 2a  	slti	$1, $16, 0x2
+   20550: fb ff 20 10  	beqz	$1, 0x20540 <fib+0x20>
+   20554: 21 88 22 02  	addu	$17, $17, $2
+   20558: 21 10 11 02  	addu	$2, $16, $17
+   2055c: 04 00 b0 8f  	lw	$16, 0x4($sp)
+   20560: 08 00 b1 8f  	lw	$17, 0x8($sp)
+   20564: 0c 00 bf 8f  	lw	$ra, 0xc($sp)
+   20568: 08 00 e0 03  	jr	$ra
+   2056c: 10 00 bd 27  	addiu	$sp, $sp, 0x10
+
+00020570 <classify>:
+   20570: f8 ff bd 27  	addiu	$sp, $sp, -0x8 <sink+0xfffffffffffcf780>
+   20574: 04 00 bf af  	sw	$ra, 0x4($sp)
+   20578: 09 00 81 2c  	sltiu	$1, $4, 0x9
+   2057c: 50 00 20 10  	beqz	$1, 0x206c0 <classify+0x150>
+   20580: 00 00 00 00  	nop
+   20584: 80 08 04 00  	sll	$1, $4, 0x2
+   20588: 01 00 02 3c  	lui	$2, 0x1
+   2058c: 21 08 22 00  	addu	$1, $1, $2
+   20590: 48 01 21 8c  	lw	$1, 0x148($1)
+   20594: 08 00 20 00  	jr	$1
+   20598: 00 00 00 00  	nop
+   2059c: 01 00 01 3c  	lui	$1, 0x1
+   205a0: b7 81 00 0c  	jal	0x206dc <print_str>
+   205a4: bd 01 24 24  	addiu	$4, $1, 0x1bd
+   205a8: b4 81 00 08  	j	0x206d0 <classify+0x160>
+   205ac: 0a 00 02 24  	addiu	$2, $zero, 0xa
+   205b0: 01 00 01 3c  	lui	$1, 0x1
+   205b4: b7 81 00 0c  	jal	0x206dc <print_str>
+   205b8: bf 01 24 24  	addiu	$4, $1, 0x1bf
+   205bc: 03 00 01 3c  	lui	$1, 0x3
+   205c0: 78 08 22 8c  	lw	$2, 0x878($1)
+   205c4: 07 00 42 38  	xori	$2, $2, 0x7
+   205c8: 78 08 22 ac  	sw	$2, 0x878($1)
+   205cc: b4 81 00 08  	j	0x206d0 <classify+0x160>
+   205d0: 0e 00 02 24  	addiu	$2, $zero, 0xe
+   205d4: 01 00 01 3c  	lui	$1, 0x1
+   205d8: b7 81 00 0c  	jal	0x206dc <print_str>
+   205dc: d4 01 24 24  	addiu	$4, $1, 0x1d4
+   205e0: 03 00 01 3c  	lui	$1, 0x3
+   205e4: 78 08 22 8c  	lw	$2, 0x878($1)
+   205e8: 40 18 02 00  	sll	$3, $2, 0x1
+   205ec: 21 10 62 00  	addu	$2, $3, $2
+   205f0: 78 08 22 ac  	sw	$2, 0x878($1)
+   205f4: b4 81 00 08  	j	0x206d0 <classify+0x160>
+   205f8: 0c 00 02 24  	addiu	$2, $zero, 0xc
+   205fc: 01 00 01 3c  	lui	$1, 0x1
+   20600: b7 81 00 0c  	jal	0x206dc <print_str>
+   20604: c1 01 24 24  	addiu	$4, $1, 0x1c1
+   20608: 36 81 00 0c  	jal	0x204d8 <collatz>
+   2060c: 00 00 00 00  	nop
+   20610: b4 81 00 08  	j	0x206d0 <classify+0x160>
+   20614: 00 00 00 00  	nop
+   20618: 01 00 01 3c  	lui	$1, 0x1
+   2061c: b7 81 00 0c  	jal	0x206dc <print_str>
+   20620: ac 01 24 24  	addiu	$4, $1, 0x1ac
+   20624: 03 00 01 3c  	lui	$1, 0x3
+   20628: 30 08 21 24  	addiu	$1, $1, 0x830
+   2062c: 1c 00 22 8c  	lw	$2, 0x1c($1)
+   20630: b4 81 00 08  	j	0x206d0 <classify+0x160>
+   20634: 00 00 00 00  	nop
+   20638: 01 00 01 3c  	lui	$1, 0x1
+   2063c: b7 81 00 0c  	jal	0x206dc <print_str>
+   20640: cd 01 24 24  	addiu	$4, $1, 0x1cd
+   20644: 03 00 01 3c  	lui	$1, 0x3
+   20648: 78 08 22 8c  	lw	$2, 0x878($1)
+   2064c: 02 00 42 24  	addiu	$2, $2, 0x2
+   20650: 78 08 22 ac  	sw	$2, 0x878($1)
+   20654: b4 81 00 08  	j	0x206d0 <classify+0x160>
+   20658: 0b 00 02 24  	addiu	$2, $zero, 0xb
+   2065c: 01 00 01 3c  	lui	$1, 0x1
+   20660: b7 81 00 0c  	jal	0x206dc <print_str>
+   20664: d6 01 24 24  	addiu	$4, $1, 0x1d6
+   20668: 48 81 00 0c  	jal	0x20520 <fib>
+   2066c: 0a 00 04 24  	addiu	$4, $zero, 0xa
+   20670: b4 81 00 08  	j	0x206d0 <classify+0x160>
+   20674: 00 00 00 00  	nop
+   20678: 01 00 01 3c  	lui	$1, 0x1
+   2067c: b7 81 00 0c  	jal	0x206dc <print_str>
+   20680: c3 01 24 24  	addiu	$4, $1, 0x1c3
+   20684: 03 00 01 3c  	lui	$1, 0x3
+   20688: 78 08 22 8c  	lw	$2, 0x878($1)
+   2068c: ff ff 42 24  	addiu	$2, $2, -0x1 <sink+0xfffffffffffcf787>
+   20690: 78 08 22 ac  	sw	$2, 0x878($1)
+   20694: b4 81 00 08  	j	0x206d0 <classify+0x160>
+   20698: 10 00 02 24  	addiu	$2, $zero, 0x10
+   2069c: 01 00 01 3c  	lui	$1, 0x1
+   206a0: b7 81 00 0c  	jal	0x206dc <print_str>
+   206a4: f8 01 24 24  	addiu	$4, $1, 0x1f8
+   206a8: 03 00 01 3c  	lui	$1, 0x3
+   206ac: 78 08 22 8c  	lw	$2, 0x878($1)
+   206b0: 09 00 42 34  	ori	$2, $2, 0x9
+   206b4: 78 08 22 ac  	sw	$2, 0x878($1)
+   206b8: b4 81 00 08  	j	0x206d0 <classify+0x160>
+   206bc: 12 00 02 24  	addiu	$2, $zero, 0x12
+   206c0: 01 00 01 3c  	lui	$1, 0x1
+   206c4: b7 81 00 0c  	jal	0x206dc <print_str>
+   206c8: ae 01 24 24  	addiu	$4, $1, 0x1ae
+   206cc: ff ff 02 24  	addiu	$2, $zero, -0x1 <sink+0xfffffffffffcf787>
+   206d0: 04 00 bf 8f  	lw	$ra, 0x4($sp)
+   206d4: 08 00 e0 03  	jr	$ra
+   206d8: 08 00 bd 27  	addiu	$sp, $sp, 0x8
+
+000206dc <print_str>:
+   206dc: 25 28 80 00  	move	$5, $4
+   206e0: 00 00 02 24  	addiu	$2, $zero, 0x0
+   206e4: 21 08 a2 00  	addu	$1, $5, $2
+   206e8: 00 00 21 90  	lbu	$1, 0x0($1)
+   206ec: fd ff 20 14  	bnez	$1, 0x206e4 <print_str+0x8>
+   206f0: 01 00 42 24  	addiu	$2, $2, 0x1
+   206f4: e8 ff bd 27  	addiu	$sp, $sp, -0x18 <sink+0xfffffffffffcf770>
+   206f8: 14 00 bf af  	sw	$ra, 0x14($sp)
+   206fc: ff ff 46 24  	addiu	$6, $2, -0x1 <sink+0xfffffffffffcf787>
+   20700: 85 80 00 0c  	jal	0x20214 <write>
+   20704: 01 00 04 24  	addiu	$4, $zero, 0x1
+   20708: 14 00 bf 8f  	lw	$ra, 0x14($sp)
+   2070c: 08 00 e0 03  	jr	$ra
+   20710: 18 00 bd 27  	addiu	$sp, $sp, 0x18
+
+00020714 <sum_table>:
+   20714: 00 00 03 24  	addiu	$3, $zero, 0x0
+   20718: 03 00 01 3c  	lui	$1, 0x3
+   2071c: 30 08 24 24  	addiu	$4, $1, 0x830
+   20720: 28 00 05 24  	addiu	$5, $zero, 0x28
+   20724: 00 00 02 24  	addiu	$2, $zero, 0x0
+   20728: 21 08 83 00  	addu	$1, $4, $3
+   2072c: 00 00 21 8c  	lw	$1, 0x0($1)
+   20730: 04 00 63 24  	addiu	$3, $3, 0x4
+   20734: fc ff 65 14  	bne	$3, $5, 0x20728 <sum_table+0x14>
+   20738: 21 10 22 00  	addu	$2, $1, $2
+   2073c: 08 00 e0 03  	jr	$ra
+   20740: 00 00 00 00  	nop
+
+00020744 <sort_table>:
+   20744: 03 00 02 3c  	lui	$2, 0x3
+   20748: 30 08 43 24  	addiu	$3, $2, 0x830
+   2074c: 04 00 64 24  	addiu	$4, $3, 0x4
+   20750: 01 00 05 24  	addiu	$5, $zero, 0x1
+   20754: 02 00 06 24  	addiu	$6, $zero, 0x2
+   20758: e1 81 00 08  	j	0x20784 <sort_table+0x40>
+   2075c: 0a 00 07 24  	addiu	$7, $zero, 0xa
+   20760: ff ff 29 25  	addiu	$9, $9, -0x1 <sink+0xfffffffffffcf787>
+   20764: 80 08 09 00  	sll	$1, $9, 0x2
+   20768: 30 08 49 24  	addiu	$9, $2, 0x830
+   2076c: 21 08 21 01  	addu	$1, $9, $1
+   20770: 00 00 28 ac  	sw	$8, 0x0($1)
+   20774: 04 00 84 24  	addiu	$4, $4, 0x4
+   20778: 01 00 a5 24  	addiu	$5, $5, 0x1
+   2077c: 11 00 a7 10  	beq	$5, $7, 0x207c4 <sort_table+0x80>
+   20780: 01 00 c6 24  	addiu	$6, $6, 0x1
+   20784: 80 08 05 00  	sll	$1, $5, 0x2
+   20788: 21 08 61 00  	addu	$1, $3, $1
+   2078c: 00 00 28 8c  	lw	$8, 0x0($1)
+   20790: 25 50 80 00  	move	$10, $4
+   20794: 25 48 c0 00  	move	$9, $6
+   20798: fc ff 4b 8d  	lw	$11, -0x4($10)
+   2079c: 2a 08 0b 01  	slt	$1, $8, $11
+   207a0: ef ff 20 10  	beqz	$1, 0x20760 <sort_table+0x1c>
+   207a4: 00 00 00 00  	nop
+   207a8: 00 00 4b ad  	sw	$11, 0x0($10)
+   207ac: ff ff 29 25  	addiu	$9, $9, -0x1 <sink+0xfffffffffffcf787>
+   207b0: 02 00 21 29  	slti	$1, $9, 0x2
+   207b4: f8 ff 20 10  	beqz	$1, 0x20798 <sort_table+0x54>
+   207b8: fc ff 4a 25  	addiu	$10, $10, -0x4 <sink+0xfffffffffffcf784>
+   207bc: d9 81 00 08  	j	0x20764 <sort_table+0x20>
+   207c0: 00 00 09 24  	addiu	$9, $zero, 0x0
+   207c4: 08 00 e0 03  	jr	$ra
+   207c8: 00 00 00 00  	nop
+
+000207cc <fail>:
+   207cc: e8 ff bd 27  	addiu	$sp, $sp, -0x18 <sink+0xfffffffffffcf770>
+   207d0: 14 00 bf af  	sw	$ra, 0x14($sp)
+   207d4: 10 00 b0 af  	sw	$16, 0x10($sp)
+   207d8: 25 80 80 00  	move	$16, $4
+   207dc: 01 00 01 3c  	lui	$1, 0x1
+   207e0: b7 81 00 0c  	jal	0x206dc <print_str>
+   207e4: c5 01 24 24  	addiu	$4, $1, 0x1c5
+   207e8: 8d 80 00 0c  	jal	0x20234 <exit>
+   207ec: 25 20 00 02  	move	$4, $16
+
+000207f0 <op_add>:
+   207f0: 08 00 e0 03  	jr	$ra
+   207f4: 21 10 a4 00  	addu	$2, $5, $4
+
+000207f8 <op_sub>:
+   207f8: 08 00 e0 03  	jr	$ra
+   207fc: 23 10 85 00  	subu	$2, $4, $5
+
+00020800 <op_mul>:
+   20800: 18 00 a4 00  	mult	$5, $4
+   20804: 08 00 e0 03  	jr	$ra
+   20808: 12 10 00 00  	mflo	$2
+
+0002080c <op_div>:
+   2080c: 05 00 a0 10  	beqz	$5, 0x20824 <op_div+0x18>
+   20810: 00 00 00 00  	nop
+   20814: 1a 00 85 00  	div	$zero, $4, $5
+   20818: f4 01 a0 00  	teq	$5, $zero, 0x7
+   2081c: 08 00 e0 03  	jr	$ra
+   20820: 12 10 00 00  	mflo	$2
+   20824: f3 81 00 0c  	jal	0x207cc <fail>
+   20828: 03 00 04 24  	addiu	$4, $zero, 0x3
