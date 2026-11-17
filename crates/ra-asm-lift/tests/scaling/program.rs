@@ -125,12 +125,36 @@ fn growth_of(small: Duration, large: Duration) -> f64 {
     large.as_secs_f64() / small.as_secs_f64().max(1e-3)
 }
 
+/// Each stage's quicker time of two runs of the same function.
+fn quicker(a: &[Stage], b: &[Stage]) -> Vec<Stage> {
+    a.iter().zip(b).map(|(a, b)| (a.0, a.1.min(b.1))).collect()
+}
+
+/// Whether the larger function took more than [`GROWTH`] times as long as the smaller, in all or
+/// in a stage long enough to time.
+fn over(small: &[Stage], large: &[Stage]) -> bool {
+    growth_of(total(small), total(large)) > GROWTH || small.iter().zip(large).any(|(s, l)| l.1 >= JUDGED && growth_of(s.1, l.1) > GROWTH)
+}
+
+/// One measure's line per stage, its total first.
+fn table(name: &str, small: &[Stage], large: &[Stage]) -> String {
+    let line =
+        |stage: &str, s: Duration, l: Duration| format!("  {stage}: {:.0} ms to {:.0} ms ({:.1}x)", millis(s), millis(l), growth_of(s, l));
+    let mut lines = vec![format!("{name} measure:"), line("total", total(small), total(large))];
+    lines.extend(small.iter().zip(large).map(|(s, l)| line(s.0, s.1, l.1)));
+    lines.join("\n")
+}
+
 /// Runs `stages` over the function of [`UNITS`] diamonds and of four times as many, and fails
 /// when the larger took more than [`GROWTH`] times as long, in all or in any stage long enough to
 /// time ([`JUDGED`]): a stage that grows with the square hides in the total while the others are
 /// longer. The failure names the stage that grew the most beyond linear. The smaller runs twice
 /// and keeps each stage's quicker time: the first run of a process pays for its pages and the
 /// allocator's growth.
+///
+/// A first measure over the limit times both sizes once more and judges each stage by the quicker
+/// of its two timings, failing only when that second measure is over too: load alone moved one
+/// tree from 5.5x to 6.9x, and a burst of it rarely lasts through two measures.
 ///
 /// It times only on CI (`CI` set, as GitHub Actions sets it): a local run shares the machine with
 /// the walk's workers and builds, and a loaded run measured 6.3x to 9.8x on an unchanged raise,
@@ -141,27 +165,26 @@ pub(crate) fn guard(stages: impl Fn(&Image, usize) -> Vec<Stage>) {
         return;
     }
     let (small_image, large_image) = (image(UNITS), image(4 * UNITS));
-    let first = stages(&small_image, UNITS);
-    let second = stages(&small_image, UNITS);
-    let small: Vec<Stage> = first.iter().zip(&second).map(|(a, b)| (a.0, a.1.min(b.1))).collect();
+    let small = quicker(&stages(&small_image, UNITS), &stages(&small_image, UNITS));
     let large = stages(&large_image, 4 * UNITS);
-    let growth = growth_of(total(&small), total(&large));
-    let stage_grew = small.iter().zip(&large).any(|(s, l)| l.1 >= JUDGED && growth_of(s.1, l.1) > GROWTH);
-    if growth <= GROWTH && !stage_grew {
+    if !over(&small, &large) {
         return;
     }
+    let (second_small, second_large) = (stages(&small_image, UNITS), stages(&large_image, 4 * UNITS));
+    let again_small = quicker(&small, &second_small);
+    let again_large = quicker(&large, &second_large);
+    if !over(&again_small, &again_large) {
+        return;
+    }
+    let growth = growth_of(total(&again_small), total(&again_large));
     let beyond = |(s, l): (&Stage, &Stage)| l.1.as_secs_f64() - 4.0 * s.1.as_secs_f64();
-    let worst = small.iter().zip(&large).max_by(|a, b| beyond(*a).total_cmp(&beyond(*b))).map_or("none", |(s, _)| s.0);
-    let table: Vec<String> = small
-        .iter()
-        .zip(&large)
-        .map(|(s, l)| format!("  {}: {:.0} ms to {:.0} ms ({:.1}x)", s.0, millis(s.1), millis(l.1), growth_of(s.1, l.1)))
-        .collect();
+    let worst = again_small.iter().zip(&again_large).max_by(|a, b| beyond(*a).total_cmp(&beyond(*b))).map_or("none", |(s, _)| s.0);
     panic!(
-        "{} diamonds took {growth:.1} times as long as {UNITS} ({:.0} ms to {:.0} ms), in all or in a stage more than {GROWTH}: the {worst} stage grew the most beyond linear\n{}",
+        "{} diamonds took {growth:.1} times as long as {UNITS} ({:.0} ms to {:.0} ms) in the quicker of two measures, in all or in a stage more than {GROWTH}: the {worst} stage grew the most beyond linear\n{}\n{}",
         4 * UNITS,
-        millis(total(&small)),
-        millis(total(&large)),
-        table.join("\n")
+        millis(total(&again_small)),
+        millis(total(&again_large)),
+        table("first", &small, &large),
+        table("second", &second_small, &second_large)
     );
 }
