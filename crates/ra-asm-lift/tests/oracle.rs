@@ -14,7 +14,7 @@ fn root() -> PathBuf {
 
 // region The Allegrex's integer instructions
 
-/// Where the PSP hello's `module_start` loads: the program overwrites it.
+/// Where the PSP hello's `module_start` loads: the program of the Allegrex's cases overwrites it.
 const PSP_ENTRY: u64 = 0x0880_40ec;
 /// The operands: `$9` and `$10`; each case's result goes to `$11`.
 const A: u32 = 0xf0e1_d2c3;
@@ -118,6 +118,26 @@ fn allegrex_integer_ops() {
     assert_eq!(outcome.stop, None, "the run stopped ({} steps)", outcome.steps);
     let wrong: Vec<_> = (0..).zip(&cases).filter(|(bit, _)| outcome.exit as u32 & (1 << bit) != 0).map(|(_, (name, ..))| *name).collect();
     assert!(wrong.is_empty(), "the lift differs from the manual on {wrong:?}");
+}
+
+/// The PSP hello from its `module_start`, at the machine level over the mapped module: the thread
+/// the start creates, the C library's set-up in it (its locks, its descriptors, its heap) and the
+/// program's writes, to `sceKernelExitGame`; what it prints is `testdata/psp/hello.txt`.
+#[test]
+fn psp_hello_prints() {
+    let image = ra_asm_pe::load(&root().join("testdata/psp/hello.prx")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+    assert!(coverage.functions.is_empty(), "the image traps: {:?}", coverage.functions);
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.entry = Some(PSP_ENTRY);
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    assert_eq!(outcome.stop, None, "the run stopped ({} steps)", outcome.steps);
+    let expected = std::fs::read_to_string(root().join("testdata/psp/hello.txt")).unwrap().replace("\r\n", "\n");
+    assert_eq!(String::from_utf8_lossy(&outcome.output), expected);
 }
 
 // endregion

@@ -88,6 +88,64 @@ struct Thread {
     id: u32,
 }
 
+/// The ids the PSP kernel layer hands out, each kind's from a base of its own, positive as a
+/// kernel's `SceUID` is: the loader's thread, which runs `module_start`, is the threads' base.
+const PSP_THREADS: u64 = 0x0410_0000;
+const PSP_SEMAPHORES: u64 = 0x0420_0000;
+const PSP_BLOCKS: u64 = 0x0430_0000;
+const PSP_LW_MUTEXES: u64 = 0x0440_0000;
+/// The user partition of the PSP's RAM, which a module shares with the memory it allocates.
+const PSP_USER_MEMORY: u64 = 24 << 20;
+/// `SceKernelThreadInfo`, which `sceKernelReferThreadStatus` fills to the size its caller set.
+const PSP_THREAD_INFO: u64 = 104;
+/// A light mutex's attribute that lets its owner lock it again.
+const PSP_LW_RECURSIVE: u32 = 0x200;
+/// `SCE_ERROR_ERRNO_EBADF`.
+const PSP_EBADF: u64 = 0x8001_0009;
+/// `SCE_KERNEL_ERROR_MEMBLOCK_ALLOC_FAILED`.
+const PSP_NO_MEMORY: u64 = 0x8002_00d9;
+
+/// What the PSP kernel keeps for a module: the threads it created, its semaphores and its blocks of
+/// partition memory, each by its index from its kind's base, less one.
+#[derive(Default)]
+struct Psp {
+    threads: Vec<PspThread>,
+    /// The thread running: `None` for the loader's.
+    current: Option<usize>,
+    /// Each semaphore's count and most.
+    semaphores: Vec<(u32, u32)>,
+    blocks: Vec<u64>,
+    lw_mutexes: u64,
+}
+
+/// A thread `sceKernelCreateThread` made: its name (31 bytes at most), entry, priority and stack.
+struct PspThread {
+    name: Vec<u8>,
+    entry: u64,
+    priority: u64,
+    stack: u64,
+    stack_size: u64,
+}
+
+impl Psp {
+    /// The index behind an id of the kind from `base`, among `len`.
+    fn index(id: u64, base: u64, len: usize) -> Option<usize> {
+        let i = id.checked_sub(base + 1)?;
+        (i < len as u64).then_some(i as usize)
+    }
+
+    fn current_id(&self) -> u64 {
+        self.current.map_or(PSP_THREADS, |i| PSP_THREADS + 1 + i as u64)
+    }
+
+    fn semaphore(&mut self, id: u64) -> Result<&mut (u32, u32), Stop> {
+        match Self::index(id, PSP_SEMAPHORES, self.semaphores.len()) {
+            Some(i) => Ok(&mut self.semaphores[i]),
+            None => Err(Stop::fault(format!("the semaphore {id:#x}, which the kernel did not make"))),
+        }
+    }
+}
+
 /// A C++ exception: the thrown object's copy and the types it can be caught as, held by the
 /// catches and the flight.
 struct Exception {
@@ -177,6 +235,7 @@ pub(super) struct Runtime<'a> {
     event: Option<usize>,
     /// The calls the run made into the host's DLLs.
     pub(super) hosted: u64,
+    psp: Psp,
 }
 
 /// The calls across the platform boundary a run made, and those still running.
@@ -449,6 +508,7 @@ impl<'a> Runtime<'a> {
             answers: None,
             event: None,
             hosted: 0,
+            psp: Psp::default(),
         };
         runtime.thread.stack_bottom = runtime.allocations[0].start;
         runtime
@@ -880,6 +940,186 @@ impl<'a> Runtime<'a> {
             }
             _ => Err(Stop::fault(format!("the system call {number} is not interpreted"))),
         }
+    }
+
+    /// A function of the PSP kernel a module imports, by the name its NID stands for, on the words
+    /// of `a0..a3`: the threads (a started one runs to its end inside `sceKernelStartThread`), the
+    /// light mutexes and semaphores of a run with one thread, the standard descriptors and the
+    /// writes to output and error, partition memory out of the interpreter's heap, the timezone of
+    /// a console set to UTC, and the game's exit. Another function, an argument the PSP's
+    /// convention passes past `a3` (in `t0` and up, which the import's wrapper does not read), or
+    /// a wait no other thread could end, stops the run.
+    #[allow(clippy::too_many_lines)]
+    fn psp(&mut self, vm: &mut Vm<'_>, name: &str, args: &[Value]) -> Result<Value, Stop> {
+        let word = |i: usize| u64::from(arg(args, i) as u32);
+        match name {
+            "sceKernelExitGame" => Err(Stop::Exit(0)),
+            "sceIoWrite" => match word(0) {
+                fd @ (1 | 2) => {
+                    let bytes = vm.memory.read_vec(word(1), word(2))?;
+                    self.emit(fd == 2, &bytes);
+                    int(word(2))
+                }
+                _ => int(PSP_EBADF),
+            },
+            "sceKernelStdin" => int(3),
+            "sceKernelStdout" => int(1),
+            "sceKernelStderr" => int(2),
+            "sceKernelCreateThread" => {
+                let name = vm.memory.read_cstr(word(0), 31)?;
+                let stack_size = word(3);
+                let stack = self.allocate(vm, stack_size, 256)?;
+                self.psp.threads.push(PspThread { name, entry: word(1), priority: word(2), stack, stack_size });
+                int(PSP_THREADS + self.psp.threads.len() as u64)
+            }
+            "sceKernelStartThread" => self.psp_start_thread(vm, word(0), word(1), word(2)),
+            "sceKernelGetThreadId" => int(self.psp.current_id()),
+            "sceKernelReferThreadStatus" => {
+                let id = if word(0) == 0 { self.psp.current_id() } else { word(0) };
+                let Some(i) = Psp::index(id, PSP_THREADS, self.psp.threads.len()) else {
+                    return Err(Stop::fault(format!("sceKernelReferThreadStatus of {id:#x}, a thread the run did not create")));
+                };
+                let info = word(1);
+                let size = u64::from(vm.memory.read_u32(info)?).min(PSP_THREAD_INFO) as usize;
+                let t = &self.psp.threads[i];
+                // Running, or dormant: one not started, or one that ended.
+                let status = if self.psp.current == Some(i) { 1 } else { 16 };
+                let gp = self.image.global_pointer.unwrap_or(0);
+                let mut bytes = vec![0u8; PSP_THREAD_INFO as usize];
+                bytes[4..4 + t.name.len()].copy_from_slice(&t.name);
+                for (offset, v) in
+                    [(40, status), (44, t.entry), (48, t.stack), (52, t.stack_size), (56, gp), (60, t.priority), (64, t.priority)]
+                {
+                    bytes[offset..offset + 4].copy_from_slice(&(v as u32).to_le_bytes());
+                }
+                if size > 4 {
+                    vm.memory.write(info + 4, &bytes[4..size])?;
+                }
+                int(0)
+            }
+            "sceKernelDelayThread"
+            | "sceKernelDeleteThread"
+            | "sceKernelDeleteLwMutex"
+            | "sceKernelDeleteSema"
+            | "sceKernelFreePartitionMemory" => int(0),
+            // The work area: the lock count, the owner, the attributes, the waiting threads, the id.
+            "sceKernelCreateLwMutex" => {
+                let (work, count) = (word(0), word(3));
+                let owner = if count > 0 { self.psp.current_id() } else { 0 };
+                self.psp.lw_mutexes += 1;
+                for (offset, v) in [(0, count), (4, owner), (8, word(2)), (12, 0), (16, PSP_LW_MUTEXES + self.psp.lw_mutexes)] {
+                    vm.memory.write_u32(work + offset, v as u32)?;
+                }
+                int(0)
+            }
+            "sceKernelLockLwMutex" | "sceKernelUnlockLwMutex" => {
+                let (work, count) = (word(0), word(1) as u32);
+                let (level, owner, attr) = (vm.memory.read_u32(work)?, vm.memory.read_u32(work + 4)?, vm.memory.read_u32(work + 8)?);
+                let me = self.psp.current_id() as u32;
+                let (level, owner) = if name == "sceKernelLockLwMutex" {
+                    if level != 0 && (owner != me || attr & PSP_LW_RECURSIVE == 0) {
+                        return Err(Stop::fault(format!("a lock of the light mutex at {work:#x}, which its owner {owner:#x} holds")));
+                    }
+                    (level.saturating_add(count), me)
+                } else {
+                    if level < count || owner != me {
+                        return Err(Stop::fault(format!("an unlock of the light mutex at {work:#x}, which the thread does not hold")));
+                    }
+                    (level - count, if level == count { 0 } else { me })
+                };
+                vm.memory.write_u32(work, level)?;
+                vm.memory.write_u32(work + 4, owner)?;
+                int(0)
+            }
+            "sceKernelCreateSema" => {
+                self.psp.semaphores.push((word(2) as u32, word(3) as u32));
+                int(PSP_SEMAPHORES + self.psp.semaphores.len() as u64)
+            }
+            "sceKernelWaitSema" => {
+                let (id, take) = (word(0), word(1) as u32);
+                let semaphore = self.psp.semaphore(id)?;
+                if semaphore.0 < take {
+                    return Err(Stop::fault(format!("a wait on the semaphore {id:#x}, which no other thread can signal")));
+                }
+                semaphore.0 -= take;
+                int(0)
+            }
+            "sceKernelSignalSema" => {
+                let (id, give) = (word(0), word(1) as u32);
+                let semaphore = self.psp.semaphore(id)?;
+                if semaphore.0.checked_add(give).is_none_or(|count| count > semaphore.1) {
+                    return Err(Stop::fault(format!("a signal of the semaphore {id:#x} past its most")));
+                }
+                semaphore.0 += give;
+                int(0)
+            }
+            "sceKernelMaxFreeMemSize" => int(self.psp_free_memory()),
+            // Low or high in the partition: the interpreter's heap has no sides.
+            "sceKernelAllocPartitionMemory" if word(2) <= 1 => {
+                let size = word(3);
+                if size > self.psp_free_memory() {
+                    return int(PSP_NO_MEMORY);
+                }
+                let at = self.allocate(vm, size, 256)?;
+                self.psp.blocks.push(at);
+                int(PSP_BLOCKS + self.psp.blocks.len() as u64)
+            }
+            "sceKernelGetBlockHeadAddr" => match Psp::index(word(0), PSP_BLOCKS, self.psp.blocks.len()) {
+                Some(i) => int(self.psp.blocks[i]),
+                None => Err(Stop::fault(format!("the memory block {:#x}, which the kernel did not allocate", word(0)))),
+            },
+            // The timezone's offset in minutes and the daylight saving.
+            "sceUtilityGetSystemParamInt" if matches!(word(0), 6 | 7) => {
+                vm.memory.write_u32(word(1), 0)?;
+                int(0)
+            }
+            _ => Err(Stop::fault(format!("the PSP kernel function {name} is not interpreted"))),
+        }
+    }
+
+    /// What `sceKernelMaxFreeMemSize` answers: the user partition less the module, or what the
+    /// interpreter's heap has left when that is less, in the kernel's 256-byte units.
+    fn psp_free_memory(&self) -> u64 {
+        let partition = PSP_USER_MEMORY - u64::from(self.image.size_of_image());
+        partition.min(self.heap.end.saturating_sub(self.heap.next + 4096)) & !0xff
+    }
+
+    /// `sceKernelStartThread`: the kernel copies the `length` bytes at `argp` to the top of the
+    /// thread's stack and calls its entry with the length and the copy, `gp` the module's. The
+    /// thread runs here to its end, the one thread the run has while it runs.
+    fn psp_start_thread(&mut self, vm: &mut Vm<'_>, id: u64, length: u64, argp: u64) -> Result<Value, Stop> {
+        let Some(index) = Psp::index(id, PSP_THREADS, self.psp.threads.len()) else {
+            return Err(Stop::fault(format!("sceKernelStartThread of {id:#x}, a thread the run did not create")));
+        };
+        let (entry, stack, stack_size) = {
+            let t = &self.psp.threads[index];
+            (t.entry, t.stack, t.stack_size)
+        };
+        if length + 256 > stack_size {
+            return Err(Stop::fault(format!("sceKernelStartThread of {id:#x} with {length} bytes, past its stack")));
+        }
+        let copy = (stack + stack_size - length) & !15;
+        if argp != 0 && length != 0 {
+            let bytes = vm.memory.read_vec(argp, length)?;
+            vm.memory.write(copy, &bytes)?;
+        }
+        let Some(name) = vm.name_at(entry).map(str::to_owned) else {
+            return Err(Stop::fault(format!("a thread's entry at {entry:#x}, which is no function")));
+        };
+        if !vm.function(&name).is_some_and(|f| f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void) {
+            return Err(Stop::fault(format!("a thread's entry @{name}, which is not of the machine shape")));
+        }
+        let state = self.new_state(vm)?;
+        vm.memory.write_u64(state + 4 * 8, length)?;
+        vm.memory.write_u64(state + 5 * 8, if argp == 0 { 0 } else { copy })?;
+        if let Some(gp) = self.image.global_pointer {
+            vm.memory.write_u64(state + 28 * 8, gp)?;
+        }
+        vm.memory.write_u64(state + 29 * 8, (copy - 64) & !15)?;
+        let outer = self.psp.current.replace(index);
+        let result = vm.call_named(self, &name, vec![Value::Int(u128::from(state))]);
+        self.psp.current = outer;
+        result.map(|_| Value::Int(0))
     }
 
     /// An indirect call of the machine model: a lifted function at `target` takes the state; a
@@ -1455,6 +1695,9 @@ impl<'a> Runtime<'a> {
     // region The imports
 
     fn import_call(&mut self, vm: &mut Vm<'_>, name: &str, ty: &FnType, args: &[Value]) -> Result<Value, Stop> {
+        if self.image.platform() == Some("psp") {
+            return self.psp(vm, name, args);
+        }
         if self.bits == 32
             && let Some(shim) = prototypes::x86_shim(name)
         {

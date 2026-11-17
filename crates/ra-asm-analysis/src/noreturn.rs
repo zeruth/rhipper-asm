@@ -76,24 +76,24 @@ pub fn settle(functions: &BTreeMap<u64, Function>, known: &mut HashSet<u64>) -> 
 }
 
 /// A function never returns when no block returns, no block leaves by a path the analysis cannot
-/// follow, and every tail call goes to a function that never returns. A function of a C runtime
-/// linked into the image is judged by its name, as an import is: the host's runtime supplies it,
-/// and its own body is not followed.
+/// follow, and every tail call goes to a function that never returns: a branch to an address no
+/// block of the function starts at (a conditional branch into another function's entry, as a
+/// MIPS compiler shares a tail) is a tail call too. A function of a C runtime linked into the
+/// image is judged by its name, as an import is: the host's runtime supplies it, and its own body
+/// is not followed.
 fn never_returns(f: &Function, known: &HashSet<u64>) -> bool {
     if let Kind::Runtime(name) = &f.kind {
         return import_never_returns(name);
     }
+    let starts: HashSet<u64> = f.blocks.iter().map(|b| b.start).collect();
+    let stays = |target: &u64| starts.contains(target) || known.contains(target);
     f.blocks.iter().all(|b| match &b.terminator {
         Terminator::Return | Terminator::IndirectJump | Terminator::Invalid => false,
         Terminator::TailCall(target) => known.contains(target),
         Terminator::ImportTailCall(import) => import_never_returns(import),
-        Terminator::FallThrough(_)
-        | Terminator::Jump(_)
-        | Terminator::CondJump { .. }
-        | Terminator::Switch { .. }
-        | Terminator::NoReturnCall(_)
-        | Terminator::NoReturnImportCall(_)
-        | Terminator::Trap
-        | Terminator::Halt => true,
+        Terminator::FallThrough(_) | Terminator::Jump(_) | Terminator::CondJump { .. } | Terminator::Switch { .. } => {
+            b.successors().iter().all(stays)
+        }
+        Terminator::NoReturnCall(_) | Terminator::NoReturnImportCall(_) | Terminator::Trap | Terminator::Halt => true,
     })
 }
