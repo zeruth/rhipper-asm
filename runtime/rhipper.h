@@ -509,4 +509,35 @@ static inline double ra_ceil_f64(double v) { return __builtin_ceil(v); }
 static inline float ra_rint_f32(float v) { return __builtin_rintf(v); }
 static inline double ra_rint_f64(double v) { return __builtin_rint(v); }
 
+// A port built with RA_SESSION and runtime/replay.c calls these imports through the session's
+// wrappers, which record the run to the file RA_RECORD names or answer it from the one RA_REPLAY
+// names, without the host: the translation's declarations, calls and import slots all take the
+// wrapper's name.
+#ifdef RA_SESSION
+#define GetStdHandle ra_session_GetStdHandle
+#define WriteFile ra_session_WriteFile
+#define ExitProcess ra_session_ExitProcess
+#define GetModuleHandleA ra_session_GetModuleHandleA
+#define RegisterClassA ra_session_RegisterClassA
+#define RegisterClassExA ra_session_RegisterClassExA
+#define CreateWindowExA ra_session_CreateWindowExA
+#define DefWindowProcA ra_session_DefWindowProcA
+#define DestroyWindow ra_session_DestroyWindow
+#define ShowWindow ra_session_ShowWindow
+#define UpdateWindow ra_session_UpdateWindow
+#define InvalidateRect ra_session_InvalidateRect
+#define GetMessageA ra_session_GetMessageA
+#define PeekMessageA ra_session_PeekMessageA
+#define TranslateMessage ra_session_TranslateMessage
+#define DispatchMessageA ra_session_DispatchMessageA
+#define PostMessageA ra_session_PostMessageA
+#define SendMessageA ra_session_SendMessageA
+#define PostQuitMessage ra_session_PostQuitMessage
+#define BeginPaint ra_session_BeginPaint
+#define EndPaint ra_session_EndPaint
+#define FillRect ra_session_FillRect
+#define GetClientRect ra_session_GetClientRect
+#define GetWindowRect ra_session_GetWindowRect
+#endif
+
 #endif

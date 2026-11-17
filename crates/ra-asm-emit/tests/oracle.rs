@@ -730,6 +730,22 @@ struct PortRun {
 /// Emits, builds and runs the C port of `fixture`, or `None` where clang is missing or this host
 /// does not build the port; a build that fails fails the test.
 fn run_port_as_c(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm_emit::Dialect, trace: bool) -> Option<PortRun> {
+    let (test, dir, exe) = build_port_as_c(fixture, tag, functions_per_file, dialect, trace, false)?;
+    let run = output_within(Command::new(&exe).current_dir(&dir), RUN_LIMIT);
+    Some(PortRun { test, dir, exe, run })
+}
+
+/// Emits and builds the C port of `fixture`: the name it fails under, its directory and its
+/// executable, or `None` where clang is missing or this host does not build the port. With
+/// `session`, the port's imports go through the session's wrappers (`runtime/replay.c`).
+fn build_port_as_c(
+    fixture: &Fixture,
+    tag: &str,
+    functions_per_file: usize,
+    dialect: ra_asm_emit::Dialect,
+    trace: bool,
+    session: bool,
+) -> Option<(String, ra_asm_testing::Scratch, PathBuf)> {
     if ra_asm_testing::tool("clang").is_none() {
         return None;
     }
@@ -779,6 +795,9 @@ fn run_port_as_c(fixture: &Fixture, tag: &str, functions_per_file: usize, dialec
     // A crash or a trap names the last lifted functions entered, which the whole trace of a port
     // with a second image would bury: the DLL's attach runs hundreds before the program's `main`.
     build.arg(if trace { "-DRA_TRACE" } else { "-DRA_TRACE_LAST" });
+    if session {
+        build.arg("-DRA_SESSION").arg(root().join("runtime/replay.c"));
+    }
     build.args(&sources).arg(root().join("runtime/driver.c")).arg("-I").arg(&dir).arg("-I").arg(root().join("runtime")).arg("-o").arg(&exe);
     if cfg!(windows) {
         // The system libraries the fixtures import from; an unused one costs nothing.
@@ -795,8 +814,7 @@ fn run_port_as_c(fixture: &Fixture, tag: &str, functions_per_file: usize, dialec
     }
     let build = output_within(&mut build, BUILD_LIMIT);
     assert_built(&test, "clang", &dir, &build);
-    let run = output_within(Command::new(&exe).current_dir(&dir), RUN_LIMIT);
-    Some(PortRun { test, dir, exe, run })
+    Some((test, dir, exe))
 }
 
 /// An rhtest program, MSVC-built for x86 with its static C runtime, as `<name>-<variant>.exe`;
@@ -1179,6 +1197,44 @@ fn tls32_runs_as_rust() {
 #[test]
 fn window64_runs_as_c() {
     run_oracle("window64.exe", "window.txt");
+}
+
+/// The window program's port built with the session's wrappers: a run with `RA_RECORD` writes
+/// every import it calls and every message the host calls its window procedure with, and a run
+/// with `RA_REPLAY` answers each call from that file and calls the procedure itself, with no
+/// window, and prints what the native program prints. A session that differs from what the port
+/// calls stops the replay at that event.
+#[test]
+fn window64_replays_its_session() {
+    let fixture = fixture("window64.exe", "window.txt");
+    let Some((test, dir, exe)) =
+        build_port_as_c(&fixture, "session", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C, false, true)
+    else {
+        return;
+    };
+    let session = dir.join("window64.session");
+    let record = output_within(Command::new(&exe).current_dir(&dir).env("RA_RECORD", &session), RUN_LIMIT);
+    fixture.compare(&format!("{test}, recording"), &record, &exe);
+    let text = std::fs::read_to_string(&session).unwrap();
+    for event in ["call RegisterClassA ", "back i+0x", "call DispatchMessageA ", "call ExitProcess 0x0 ! exit"] {
+        assert!(text.contains(event), "{test}: the session has no `{event}`:\n{text}");
+    }
+    let replay = output_within(Command::new(&exe).current_dir(&dir).env("RA_REPLAY", &session), RUN_LIMIT);
+    fixture.compare(&format!("{test}, replaying"), &replay, &exe);
+    let stderr = String::from_utf8_lossy(&replay.stderr);
+    assert!(stderr.contains("ra: replayed the "), "{test}: the replay did not reach the session's end:\n{stderr}");
+    // The class's instance handle, changed in the session, is a call the port does not make.
+    let changed = dir.join("window64-changed.session");
+    let module = "call GetModuleHandleA 0x0 = i+0x0";
+    assert!(text.contains(module), "{test}: the session has no `{module}`:\n{text}");
+    std::fs::write(&changed, text.replacen(module, "call GetModuleHandleA 0x1 = i+0x0", 1)).unwrap();
+    let differs = output_within(Command::new(&exe).current_dir(&dir).env("RA_REPLAY", &changed), RUN_LIMIT);
+    let stderr = String::from_utf8_lossy(&differs.stderr);
+    assert_eq!(differs.status.code(), Some(3), "{test}: a changed session replays:\n{stderr}");
+    assert!(
+        stderr.contains("differs at event") && stderr.contains("`call GetModuleHandleA 0x0`"),
+        "{test}: the replay of a changed session does not name the call:\n{stderr}"
+    );
 }
 
 #[test]
