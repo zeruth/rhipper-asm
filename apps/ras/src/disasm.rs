@@ -135,6 +135,41 @@ pub(crate) fn disasm(image: &Image, address: u64, length: Option<u64>, json: boo
     Ok(())
 }
 
+/// Prints the listing of the function that starts at each of `addresses`, in their order, under a
+/// line naming its address and function; an address that starts no function gets that line alone,
+/// saying so, and the function that holds it if one does. The cut applies to each listing, never
+/// to the lines that name them.
+pub(crate) fn functions(image: &Image, addresses: &[u64], json: bool, cut: &crate::Cut) -> Result<()> {
+    let analysis = ra_asm_analysis::analyze(image);
+    let listing = |f: &ra_asm_analysis::Function| decode(image, f.start(), Some(f.size()));
+    if json {
+        let mut rows = Vec::with_capacity(addresses.len());
+        for &address in addresses {
+            rows.push(match analysis.function(address) {
+                Some(f) => json!({"address": hex(address), "name": f.name, "instrs": disasm_json(image, &listing(f)?)}),
+                None => json!({
+                    "address": hex(address), "name": null, "instrs": null,
+                    "inside": analysis.containing(address).map(|f| f.name.clone()),
+                }),
+            });
+        }
+        let mut out = std::io::stdout().lock();
+        serde_json::to_writer_pretty(&mut out, &serde_json::Value::Array(rows))?;
+        writeln!(out)?;
+        return Ok(());
+    }
+    for &address in addresses {
+        let Some(f) = analysis.function(address) else {
+            let inside = analysis.containing(address).map_or(String::new(), |f| format!(", inside {} at {}", f.name, hex(f.entry)));
+            writeln!(std::io::stdout().lock(), "== {} starts no function{inside} ==", hex(address))?;
+            continue;
+        };
+        writeln!(std::io::stdout().lock(), "== {} {} ==", hex(address), f.name)?;
+        cut.print(&disasm_text(image, &listing(f)?))?;
+    }
+    Ok(())
+}
+
 fn flow_name(flow: Flow) -> &'static str {
     match flow {
         Flow::Next => "next",

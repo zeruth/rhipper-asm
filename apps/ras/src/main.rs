@@ -299,9 +299,14 @@ enum Command {
     Disasm {
         pe: PathBuf,
         /// `0x140001000`, `140001000` or `F_140001000`.
-        address: String,
+        address: Option<String>,
         /// The number of bytes, in hexadecimal.
         length: Option<String>,
+        /// The listing of the function that starts at an address, under a line naming it, in the
+        /// order given; an address that starts no function is named as such. Repeatable, and a
+        /// comma-separated list; instead of the address and length.
+        #[arg(long, value_delimiter = ',')]
+        at: Vec<String>,
         #[command(flatten)]
         cut: Cut,
     },
@@ -647,8 +652,13 @@ fn command() -> anyhow::Result<()> {
             let code = run::run(&load(&pe, sigs)?, &run::Options { level, x87, trace, limit, args, quiet, facts, record })?;
             std::process::exit(code)
         }
-        Command::Disasm { pe, address, length, cut } => {
-            let address = disasm::parse_address(&address)?;
+        Command::Disasm { pe, address, length, at, cut } if !at.is_empty() => {
+            anyhow::ensure!(address.is_none() && length.is_none(), "--at takes every address itself: give no address or length beside it");
+            let addresses = at.iter().map(|a| disasm::parse_address(a)).collect::<anyhow::Result<Vec<_>>>()?;
+            disasm::functions(&load(&pe, sigs)?, &addresses, json, &cut)
+        }
+        Command::Disasm { pe, address, length, at: _, cut } => {
+            let address = disasm::parse_address(&address.context("an address, or --at with one or more")?)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;
             disasm::disasm(&load(&pe, sigs)?, address, length, json, &cut)
         }
