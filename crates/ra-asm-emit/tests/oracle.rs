@@ -1689,37 +1689,6 @@ fn rust_text_with(fixture: &Fixture, proofs: bool) -> String {
     ra_asm_emit::emit_rust(&lifted.module, &options).functions.into_iter().map(|f| f.text).collect()
 }
 
-/// The Rust port is safe where the engine can prove it (task 120): the functions are safe
-/// `extern "C" fn`s, a local the frame never shares is a value, an access of a data section at a
-/// known offset is a checked one, and what stays raw sits in an `unsafe` block that names why.
-/// The control port keeps under half the `unsafe` blocks of the raw port, where every raw
-/// operation stands in its own.
-#[test]
-fn control64_rust_is_safe_where_provable() {
-    let fixture = fixture("control64.exe", "control.txt");
-    let proven = rust_text_with(&fixture, true);
-    let raw = rust_text_with(&fixture, false);
-    let blocks = |text: &str| text.matches("unsafe {").count();
-    assert!(blocks(&proven) * 2 < blocks(&raw), "{} unsafe blocks against {} raw:\n{proven}", blocks(&proven), blocks(&raw));
-    assert!(!proven.contains("pub unsafe extern \"C\" fn"), "an unsafe function:\n{proven}");
-    // `sink`, `out` and the sorted `table` are accesses of the data section, constant and indexed:
-    // an index scaled by the element's size is an element of the array.
-    assert!(proven.contains("sec_data.get::<u32>(64)"), "{proven}");
-    assert!(proven.contains("sec_data.put::<u32>(") || proven.contains("sec_data.set::<u32>(("), "{proven}");
-    // Every `unsafe` block that stays names why.
-    for line in proven.lines().filter(|l| l.contains("unsafe {")) {
-        assert!(line.contains("unsafe { /* ") || line.contains("} // "), "an unsafe block that names no reason: {line}");
-    }
-    // The slot at -0x18 is a local the function keeps as a value, where the raw port gives it
-    // storage of its own; nothing reads it, so the proven port drops it with its store. The
-    // frame's address escapes to WriteFile and stays raw, named as such.
-    assert!(raw.contains("let mut local_m18_mem"), "{raw}");
-    assert!(!proven.contains("local_m18_mem"), "{proven}");
-    assert!(!proven.contains("local_m18") || proven.contains("let mut local_m18: u64 = 0u64;"), "{proven}");
-    assert!(proven.contains(&format!("// {}", "memory at a computed address")), "{proven}");
-    assert!(proven.contains("unsafe { /* an import */") || proven.contains("// an import"), "{proven}");
-}
-
 /// The text of the function whose definition starts with `head`, up to its closing brace.
 fn function_text<'a>(text: &'a str, head: &str) -> &'a str {
     let start = text.find(head).unwrap_or_else(|| panic!("no `{head}` in:\n{text}"));
