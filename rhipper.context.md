@@ -49,6 +49,7 @@ Start a card that spans these crates from the definition, not from a whole-file 
 - `ras lift` and `ras disasm` cut their own output, so neither needs `grep`, `head` or `Select-Object`: `--match <text>` keeps the lines that contain the text (case-insensitive; repeatable, a line holding any of them is kept), `--limit <n>` stops after n lines and ends with `... <k> more lines left out by --limit`. They cut the IR printed to stdout and the text of `disasm`, not `--json` or `lift --report`.
 - `ras emit --quiet` hides the lift's warnings; without it every unsupported instruction prints with its address. The grade of a function is its trap count; a lift that guesses is a bug.
 - A raise that hangs on a large program: `ras case --pass promote` gives up before any work there and has no per-step timer, so it names nothing. The bisection that works is `ras lift --only <addr> --level machine|promoted <exe>`, one function (and its callees) at a time: the address whose promoted lift does not finish while its machine lift does is the function to look at.
+- No card measures a program or file outside the workspace, and no worker builds release for a measurement: the pairing session measures the large reference program after the cards land. A card that asks for figures (timings, trap counts, function counts, sizes) takes them on the `testdata/bin` fixtures with `target/debug/ras.exe`, and its report says so.
 
 ## Conventions
 
