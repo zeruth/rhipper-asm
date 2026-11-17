@@ -1,0 +1,61 @@
+; A VU1 micro program that transforms a strip of vertices by a matrix and kicks it to the GS:
+; the decoder's fixture for every upper and lower field the micro mode has. Built in WSL with
+; `dvp-as -aln=testdata/ps2/vu1.lst testdata/ps2/vu1.vsm -o testdata/ps2/vu1.o`; the listing is
+; the oracle of the text, `mips64r5900el-ps2-elf-objdump -d` of the object (vu1.objdump) of the words.
+        .vu
+        .text
+        .p2align 3
+        .globl  vu1_transform
+vu1_transform:
+        nop                             xtop vi02
+        nop                             lq.xyzw vf01, 0(vi02)
+        nop                             lq.xyzw vf02, 1(vi02)
+        nop                             lq.xyzw vf03, 2(vi02)
+        nop                             lq.xyzw vf04, 3(vi02)
+        nop                             ilw.x vi03, 4(vi02)
+        nop                             iaddiu vi04, vi02, 5
+        nop                             iaddiu vi05, vi02, 256
+        nop                             iadd vi06, vi05, vi00
+        nop                             lq.xyzw vf05, 0(vi04)
+        nop                             sqi.xyzw vf05, (vi06++)
+        nop                             iaddi vi04, vi04, 1
+        sub.xyzw vf09, vf00, vf00       loi 0.5
+        addi.xyzw vf10, vf09, i         mr32.xyzw vf11, vf10
+        maxi.w vf10, vf10, i            move.xyz vf12, vf11
+loop:
+        nop                             lqi.xyzw vf06, (vi04++)
+        mulax.xyzw acc, vf01, vf06x     nop
+        madday.xyzw acc, vf02, vf06y    nop
+        maddaz.xyzw acc, vf03, vf06z    nop
+        maddw.xyzw vf07, vf04, vf06w    nop
+        clipw.xyz vf07xyz, vf07w        div q, vf00w, vf07w
+        abs.xyzw vf13, vf07             waitq
+        mulq.xyz vf07, vf07, q          fcand vi01, 0x3f
+        add.xyz vf07, vf07, vf10        nop
+        mini.xyz vf07, vf07, vf12       nop
+        ftoi4.xyzw vf08, vf07           isubiu vi03, vi03, 1
+        nop                             sqi.xyzw vf08, (vi06++)
+        nop                             ibne vi03, vi00, loop
+        nop                             nop
+        itof0.xyzw vf14, vf08           mfir.x vf15, vi03
+        opmula.xyz acc, vf01, vf02      mtir vi07, vf15x
+        opmsub.xyz vf16, vf02, vf01     iand vi08, vi07, vi05
+        mul.xyzw vf17, vf16, vf16       ior vi09, vi08, vi04
+        madd.xyzw vf17, vf16, vf13      isw.x vi09, 0(vi05)
+        msubi.xyzw vf17, vf17, i        sq.xyzw vf17, 1(vi05)
+        nop[d]                          fsand vi10, 0x80
+        nop[t]                          fmand vi11, vi10
+        nop                             esadd p, vf17
+        nop                             waitp
+        nop                             mfp.x vf18, p
+        nop[m]                          xgkick vi05
+        nop                             bal vi15, done
+        nop                             nop
+        nop                             b vi1_end
+        nop                             nop
+done:
+        nop                             jr vi15
+        nop                             nop
+vi1_end:
+        nop[e]                          nop
+        nop                             nop

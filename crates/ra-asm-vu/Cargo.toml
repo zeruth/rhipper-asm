@@ -1,0 +1,14 @@
+[package]
+name = "ra-asm-vu"
+description = "The PlayStation 2 vector units' micro mode: the 64-bit upper and lower pair, its flag bits and the delay slots of its branches"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ra-asm-arch.workspace = true

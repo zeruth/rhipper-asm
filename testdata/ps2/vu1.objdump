@@ -1,0 +1,111 @@
+
+testdata/ps2/vu1.o:     file format elf32-nlittlemips
+
+
+Disassembly of section .vutext:
+
+00000000 <vu1_transform>:
+   0:	800206bc 	lb	v0,1724(zero)
+   4:	000002ff 	dsra32	zero,zero,0xb
+   8:	01e11000 	.word	0x1e11000
+   c:	000002ff 	dsra32	zero,zero,0xb
+  10:	01e21001 	.word	0x1e21001
+  14:	000002ff 	dsra32	zero,zero,0xb
+  18:	01e31002 	.word	0x1e31002
+  1c:	000002ff 	dsra32	zero,zero,0xb
+  20:	01e41003 	.word	0x1e41003
+  24:	000002ff 	dsra32	zero,zero,0xb
+  28:	09031004 	j	40c4010 <vi1_end+0x40c3e98>
+  2c:	000002ff 	dsra32	zero,zero,0xb
+  30:	10041005 	beq	zero,a0,4048 <vi1_end+0x3ed0>
+  34:	000002ff 	dsra32	zero,zero,0xb
+  38:	10051100 	beq	zero,a1,443c <vi1_end+0x42c4>
+  3c:	000002ff 	dsra32	zero,zero,0xb
+  40:	800029b0 	lb	zero,10672(zero)
+  44:	000002ff 	dsra32	zero,zero,0xb
+  48:	01e52000 	.word	0x1e52000
+  4c:	000002ff 	dsra32	zero,zero,0xb
+  50:	81e62b7d 	lb	a2,11133(t3)
+  54:	000002ff 	dsra32	zero,zero,0xb
+  58:	80042072 	lb	a0,8306(zero)
+  5c:	000002ff 	dsra32	zero,zero,0xb
+  60:	3f000000 	.word	0x3f000000
+  64:	81e0026c 	lb	zero,620(t3)
+  68:	81eb533d 	lb	a7,21309(t3)
+  6c:	01e04aa2 	.word	0x1e04aa2
+  70:	81cc5b3c 	lb	t0,23356(t2)
+  74:	0020529d 	.word	0x20529d
+
+00000078 <loop>:
+  78:	81e6237c 	lb	a2,9084(t3)
+  7c:	000002ff 	dsra32	zero,zero,0xb
+  80:	8000033c 	lb	zero,828(zero)
+  84:	01e609bc 	.word	0x1e609bc
+  88:	8000033c 	lb	zero,828(zero)
+  8c:	01e610bd 	.word	0x1e610bd
+  90:	8000033c 	lb	zero,828(zero)
+  94:	01e618be 	.word	0x1e618be
+  98:	8000033c 	lb	zero,828(zero)
+  9c:	01e621cb 	.word	0x1e621cb
+  a0:	81e703bc 	lb	a3,956(t3)
+  a4:	01c739ff 	.word	0x1c739ff
+  a8:	800003bf 	lb	zero,959(zero)
+  ac:	01ed39fd 	.word	0x1ed39fd
+  b0:	2400003f 	li	zero,63
+  b4:	01c039dc 	.word	0x1c039dc
+  b8:	8000033c 	lb	zero,828(zero)
+  bc:	01ca39e8 	.word	0x1ca39e8
+  c0:	8000033c 	lb	zero,828(zero)
+  c4:	01cc39ef 	.word	0x1cc39ef
+  c8:	12031801 	beq	s0,v1,60d0 <vi1_end+0x5f58>
+  cc:	01e8397d 	.word	0x1e8397d
+  d0:	81e6437d 	lb	a2,17277(t3)
+  d4:	000002ff 	dsra32	zero,zero,0xb
+  d8:	520307f3 	beql	s0,v1,20a8 <vi1_end+0x1f30>
+  dc:	000002ff 	dsra32	zero,zero,0xb
+  e0:	8000033c 	lb	zero,828(zero)
+  e4:	000002ff 	dsra32	zero,zero,0xb
+  e8:	810f1bfd 	lb	t3,7165(a4)
+  ec:	01ee413c 	.word	0x1ee413c
+  f0:	80077bfc 	lb	a3,31740(zero)
+  f4:	01c20afe 	.word	0x1c20afe
+  f8:	80053a34 	lb	a1,14900(zero)
+  fc:	01c1142e 	.word	0x1c1142e
+ 100:	80044275 	lb	a0,17013(zero)
+ 104:	01f0846a 	.word	0x1f0846a
+ 108:	0b092800 	j	c24a000 <vi1_end+0xc249e88>
+ 10c:	01ed8469 	.word	0x1ed8469
+ 110:	03e58801 	.word	0x3e58801
+ 114:	01e08c67 	.word	0x1e08c67
+ 118:	2c0a0080 	sltiu	a6,zero,128
+ 11c:	100002ff 	b	d1c <vi1_end+0xba4>
+ 120:	340b5000 	li	a7,0x5000
+ 124:	080002ff 	j	bfc <vi1_end+0xa84>
+ 128:	81c08f3c 	lb	zero,-28868(t2)
+ 12c:	000002ff 	dsra32	zero,zero,0xb
+ 130:	800007bf 	lb	zero,1983(zero)
+ 134:	000002ff 	dsra32	zero,zero,0xb
+ 138:	8112067c 	lb	s2,1660(a4)
+ 13c:	000002ff 	dsra32	zero,zero,0xb
+ 140:	80002efc 	lb	zero,12028(zero)
+ 144:	200002ff 	addi	zero,zero,767
+ 148:	420f0003 	c0	0xf0003
+ 14c:	000002ff 	dsra32	zero,zero,0xb
+ 150:	8000033c 	lb	zero,828(zero)
+ 154:	000002ff 	dsra32	zero,zero,0xb
+ 158:	40000003 	.word	0x40000003
+ 15c:	000002ff 	dsra32	zero,zero,0xb
+ 160:	8000033c 	lb	zero,828(zero)
+ 164:	000002ff 	dsra32	zero,zero,0xb
+
+00000168 <done>:
+ 168:	48007800 	.word	0x48007800
+ 16c:	000002ff 	dsra32	zero,zero,0xb
+ 170:	8000033c 	lb	zero,828(zero)
+ 174:	000002ff 	dsra32	zero,zero,0xb
+
+00000178 <vi1_end>:
+ 178:	8000033c 	lb	zero,828(zero)
+ 17c:	400002ff 	.word	0x400002ff
+ 180:	8000033c 	lb	zero,828(zero)
+ 184:	000002ff 	dsra32	zero,zero,0xb

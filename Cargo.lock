@@ -398,6 +398,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ra-asm-vu"
+version = "0.2.0"
+dependencies = [
+ "ra-asm-arch",
+]
+
+[[package]]
 name = "ra-asm-wasm"
 version = "0.2.0"
 

@@ -1,0 +1,110 @@
+   1              	; A VU1 micro program that transforms a strip of vertices by a matrix and kicks it to the GS:
+   2              	; the decoder's fixture for every upper and lower field the micro mode has. Built in WSL with
+   3              	; `dvp-as -aln=testdata/ps2/vu1.lst testdata/ps2/vu1.vsm -o testdata/ps2/vu1.o`; the listing is
+   4              	; the oracle of the text, `mips64r5900el-ps2-elf-objdump -d` of the object (vu1.objdump) of the wor
+   5              	        .vu
+   6              	        .text
+   7              	        .p2align 3
+   8              	        .globl  vu1_transform
+   9              	vu1_transform:
+  10 0000 BC060280 	        nop                             xtop vi02
+  10      FF020000 
+  11 0008 0010E101 	        nop                             lq.xyzw vf01, 0(vi02)
+  11      FF020000 
+  12 0010 0110E201 	        nop                             lq.xyzw vf02, 1(vi02)
+  12      FF020000 
+  13 0018 0210E301 	        nop                             lq.xyzw vf03, 2(vi02)
+  13      FF020000 
+  14 0020 0310E401 	        nop                             lq.xyzw vf04, 3(vi02)
+  14      FF020000 
+  15 0028 04100309 	        nop                             ilw.x vi03, 4(vi02)
+  15      FF020000 
+  16 0030 05100410 	        nop                             iaddiu vi04, vi02, 5
+  16      FF020000 
+  17 0038 00110510 	        nop                             iaddiu vi05, vi02, 256
+  17      FF020000 
+  18 0040 B0290080 	        nop                             iadd vi06, vi05, vi00
+  18      FF020000 
+  19 0048 0020E501 	        nop                             lq.xyzw vf05, 0(vi04)
+  19      FF020000 
+  20 0050 7D2BE681 	        nop                             sqi.xyzw vf05, (vi06++)
+  20      FF020000 
+  21 0058 72200480 	        nop                             iaddi vi04, vi04, 1
+  21      FF020000 
+  22 0060 0000003F 	        sub.xyzw vf09, vf00, vf00       loi 0.5
+  22      6C02E081 
+  23 0068 3D53EB81 	        addi.xyzw vf10, vf09, i         mr32.xyzw vf11, vf10
+  23      A24AE001 
+  24 0070 3C5BCC81 	        maxi.w vf10, vf10, i            move.xyz vf12, vf11
+  24      9D522000 
+  25              	loop:
+  26 0078 7C23E681 	        nop                             lqi.xyzw vf06, (vi04++)
+  26      FF020000 
+  27 0080 3C030080 	        mulax.xyzw acc, vf01, vf06x     nop
+  27      BC09E601 
+  28 0088 3C030080 	        madday.xyzw acc, vf02, vf06y    nop
+  28      BD10E601 
+  29 0090 3C030080 	        maddaz.xyzw acc, vf03, vf06z    nop
+  29      BE18E601 
+  30 0098 3C030080 	        maddw.xyzw vf07, vf04, vf06w    nop
+  30      CB21E601 
+  31 00a0 BC03E781 	        clipw.xyz vf07xyz, vf07w        div q, vf00w, vf07w
+  31      FF39C701 
+  32 00a8 BF030080 	        abs.xyzw vf13, vf07             waitq
+  32      FD39ED01 
+  33 00b0 3F000024 	        mulq.xyz vf07, vf07, q          fcand vi01, 0x3f
+  33      DC39C001 
+  34 00b8 3C030080 	        add.xyz vf07, vf07, vf10        nop
+  34      E839CA01 
+  35 00c0 3C030080 	        mini.xyz vf07, vf07, vf12       nop
+  35      EF39CC01 
+  36 00c8 01180312 	        ftoi4.xyzw vf08, vf07           isubiu vi03, vi03, 1
+  36      7D39E801 
+  37 00d0 7D43E681 	        nop                             sqi.xyzw vf08, (vi06++)
+  37      FF020000 
+  38 00d8 F3070352 	        nop                             ibne vi03, vi00, loop
+  38      FF020000 
+  39 00e0 3C030080 	        nop                             nop
+  39      FF020000 
+  40 00e8 FD1B0F81 	        itof0.xyzw vf14, vf08           mfir.x vf15, vi03
+  40      3C41EE01 
+  41 00f0 FC7B0780 	        opmula.xyz acc, vf01, vf02      mtir vi07, vf15x
+  41      FE0AC201 
+  42 00f8 343A0580 	        opmsub.xyz vf16, vf02, vf01     iand vi08, vi07, vi05
+  42      2E14C101 
+  43 0100 75420480 	        mul.xyzw vf17, vf16, vf16       ior vi09, vi08, vi04
+  43      6A84F001 
+  44 0108 0028090B 	        madd.xyzw vf17, vf16, vf13      isw.x vi09, 0(vi05)
+  44      6984ED01 
+  45 0110 0188E503 	        msubi.xyzw vf17, vf17, i        sq.xyzw vf17, 1(vi05)
+  45      678CE001 
+  46 0118 80000A2C 	        nop[d]                          fsand vi10, 0x80
+  46      FF020010 
+  47 0120 00500B34 	        nop[t]                          fmand vi11, vi10
+  47      FF020008 
+  48 0128 3C8FC081 	        nop                             esadd p, vf17
+  48      FF020000 
+  49 0130 BF070080 	        nop                             waitp
+  49      FF020000 
+  50 0138 7C061281 	        nop                             mfp.x vf18, p
+  50      FF020000 
+  51 0140 FC2E0080 	        nop[m]                          xgkick vi05
+  51      FF020020 
+  52 0148 03000F42 	        nop                             bal vi15, done
+  52      FF020000 
+  53 0150 3C030080 	        nop                             nop
+  53      FF020000 
+  54 0158 03000040 	        nop                             b vi1_end
+  54      FF020000 
+  55 0160 3C030080 	        nop                             nop
+  55      FF020000 
+  56              	done:
+  57 0168 00780048 	        nop                             jr vi15
+  57      FF020000 
+  58 0170 3C030080 	        nop                             nop
+  58      FF020000 
+  59              	vi1_end:
+  60 0178 3C030080 	        nop[e]                          nop
+  60      FF020040 
+  61 0180 3C030080 	        nop                             nop
+  61      FF020000 
