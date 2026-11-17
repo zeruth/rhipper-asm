@@ -1055,6 +1055,21 @@ fn access_type(ty: &Type, align: u32) -> String {
     }
 }
 
+/// An address a memory macro takes, without the parentheses around it or a `(uint64_t)` before
+/// one operand: the macro's own uintptr_t widens the operand just as the cast did on a 64-bit host,
+/// a negative 32-bit one too.
+fn widened(address: &str) -> String {
+    let a = strip_parens(address);
+    if let Some(rest) = a.strip_prefix("(uint64_t)") {
+        let operand = rest.trim_start();
+        let one = strip_parens(operand) != operand || operand.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if one && !operand.is_empty() {
+            return strip_parens(operand);
+        }
+    }
+    a
+}
+
 /// The runtime header's macro for a scalar of `ty` at an integer address (`RA_U32(a)`, an lvalue,
 /// unaligned), when `ty` has one.
 fn memory_macro(ty: &Type) -> Option<&'static str> {
@@ -2884,10 +2899,12 @@ impl<'a> Emitter<'a> {
             None => {
                 if let Some(access) = self.section_access(ty, ptr) {
                     access
-                } else if let (Some(at), Some(int)) = (memory_macro(ty), self.int_address_narrow(ptr)) {
-                    // An integer address read or written at a scalar width: `RA_U32(m + 40u)`, the
-                    // dword there, in place of `*(ra_ua_uint32 *)((uint64_t)(m + 40u))`.
-                    format!("{at}({})", strip_parens(&int))
+                } else if let Some(at) = memory_macro(ty) {
+                    // A scalar read or written at an address: `RA_U32(m + 40u)`, the dword there,
+                    // in place of `*(ra_ua_uint32 *)((uint64_t)(m + 40u))`. The address is an
+                    // integer or a pointer, which the macro takes through uintptr_t alike.
+                    let address = self.int_address_narrow(ptr).unwrap_or_else(|| self.operand(&Type::Ptr, ptr));
+                    format!("{at}({})", widened(&address))
                 } else {
                     let address = self.int_address(ptr).map_or_else(|| self.operand(&Type::Ptr, ptr), |int| strip_parens(&int));
                     format!("*({} *)({address})", access_type(ty, align))
