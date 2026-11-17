@@ -3508,7 +3508,14 @@ impl<'a> Emitter<'a> {
                     _ => format!("0x{u:X}u"),
                 }
             }
-            Type::Int(n) => format!("(uint{n}_t){}", (v as u64) & ((1u64 << n) - 1)),
+            Type::Int(n) if *n < 64 => format!("(uint{n}_t){}", (v as u64) & ((1u64 << n) - 1)),
+            // Wider than a word and narrower than 128 bits: the value masked to its width, as the
+            // 128-bit form writes it (a shift of a u64 by the width overflowed here).
+            Type::Int(n) => {
+                let masked = if *n >= 128 { v as u128 } else { (v as u128) & ((1u128 << n) - 1) };
+                let (high, low) = ((masked >> 64) as u64, masked as u64);
+                if high == 0 { format!("((uint{n}_t){low}ull)") } else { format!("(((uint{n}_t){high}ull << 64) | {low}ull)") }
+            }
             Type::Ptr => format!("(uint8_t *){}ull", v as u64),
             _ => format!("{v}"),
         }

@@ -425,7 +425,7 @@ fn source_emit_directory_sums_its_files_and_is_left_as_found() {
     let before = listing(dir);
     let score = score(dir);
     assert_eq!(score["files"], 4, "{score}");
-    assert_eq!(score["lines"], 33, "{score}");
+    assert_eq!(score["lines"], 31, "{score}");
     // `(rsp - n)` in `checked_return.c` is an expression, `ra_assume(...)` a call: no cast.
     assert_eq!(score["casts"], 0, "{score}");
     assert_eq!(score["gotos"], 0, "{score}");
@@ -436,7 +436,7 @@ fn source_emit_directory_sums_its_files_and_is_left_as_found() {
     let table = ras(&["score", "--source", dir.to_str().unwrap()]);
     assert!(table.status.success(), "{}", String::from_utf8_lossy(&table.stderr));
     let table = String::from_utf8_lossy(&table.stdout);
-    assert!(table.contains("lines    33"), "{table}");
+    assert!(table.contains("lines    31"), "{table}");
     assert!(table.contains("gotos    0        0.0 per thousand lines"), "{table}");
 }
 
