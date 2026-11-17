@@ -1226,10 +1226,15 @@ fn gather(
             }
             set
         };
-        // Forward to a fixpoint: a block has set what every way into it has, the entry nothing.
+        // Forward to a fixpoint: a block has set what every way into it has, the entry the
+        // registers the function takes as parameters, which its callers set: a constructor that
+        // calls a method on `this` with `ecx` as it came in passes it on (`mov esi, ecx; call
+        // clear`), and without it the method's `this` was no parameter and its stores went to 0.
+        let own_params = signatures.get(&f.name).map_or(NO_SLOTS, |s| s.param_slots(target));
+        let entry_set = extras.iter().filter(|s| own_params[s.index()]).fold(0u8, |set, s| set | bit(*s));
         let mut entry_sets: Vec<u8> = vec![u8::MAX; f.blocks.len()];
         if let Some(first) = entry_sets.first_mut() {
-            *first = 0;
+            *first = entry_set;
         }
         for _ in 0..f.blocks.len().max(1) {
             let mut changed = false;
