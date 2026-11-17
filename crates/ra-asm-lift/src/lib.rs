@@ -67,6 +67,9 @@ pub struct Lifted {
     /// The vtables of the program's classes, from the RTTI: the raise resolves a call through a
     /// slot of one to the functions that fill the slot.
     pub vtables: Vec<ra_asm_analysis::rtti::Vtable>,
+    /// Whether the program imports the C++ standard library (`msvcp140`), whose objects the
+    /// host's runtime makes with its own vtables of host functions.
+    pub host_objects: bool,
     /// Whether the lift references data through globals rather than the mapped image.
     pub standalone: bool,
     /// 32 or 64: the address width of the image.
@@ -321,6 +324,7 @@ impl Lifted {
             x87: self.x87,
             isa: self.isa,
             vtables: self.vtables.clone(),
+            host_objects: self.host_objects,
             traced_calls: self.traced_calls.clone(),
         }
     }
@@ -394,6 +398,7 @@ impl Lifted {
             sysv: self.sysv,
             data: self.data.clone(),
             vtables: Vec::new(),
+            host_objects: self.host_objects,
             standalone: self.standalone,
             bits: self.bits,
             isa: self.isa,
@@ -643,6 +648,7 @@ fn lift_on(
         sysv: image.elf.is_some() || image.macho.is_some(),
         data: Vec::new(),
         vtables: images.iter().flat_map(|(_, a)| ra_asm_analysis::rtti::vtables(&a.classes)).collect(),
+        host_objects: images.iter().flat_map(|(i, _)| &i.imports).any(|i| i.dll.to_ascii_lowercase().starts_with("msvcp")),
         standalone: options.standalone,
         bits: if image.is_64() { 64 } else { 32 },
         isa,
@@ -907,6 +913,7 @@ fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, t
             sysv: _,
             data,
             vtables,
+            host_objects: _,
             standalone: _,
             bits: _,
             isa: _,

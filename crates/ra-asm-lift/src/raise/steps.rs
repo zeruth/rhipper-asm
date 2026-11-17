@@ -256,6 +256,7 @@ fn registers(f: &mut Function, cx: &Context<'_>) {
         seen: &seen,
         summaries: Some(&cx.summaries),
         extra_dwords: cx.extra_dwords,
+        host_objects: cx.options.host_objects,
     };
     super::promote::promote_abi(f, &abi);
     // The double unit's stack, which the promotion leaves in its globals, into locals where the

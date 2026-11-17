@@ -470,6 +470,10 @@ pub struct Options {
     /// The vtables of the program's classes: a call through a slot of one resolves to the
     /// functions that fill the slot (see [`abi::virtual_calls`]).
     pub vtables: Vec<Vtable>,
+    /// Whether an object may come from the host's C++ runtime (the program imports `msvcp140`),
+    /// whose vtable holds host functions: an x64 call through a slot then takes the indirect call
+    /// for an address outside the slot's functions rather than trapping.
+    pub host_objects: bool,
     /// The indirect calls a traced run resolved, by address, with the lifted functions each
     /// reached: a call to them directly, with the indirect call kept for any other target (see
     /// [`abi::traced_calls`]).
@@ -484,6 +488,7 @@ impl Default for Options {
             x87: crate::x87::X87Unit::Double,
             isa: Isa::X86,
             vtables: Vec::new(),
+            host_objects: false,
             traced_calls: BTreeMap::new(),
         }
     }
