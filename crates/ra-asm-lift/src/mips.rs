@@ -39,7 +39,10 @@
 //! A PSP program runs on the Allegrex, MIPS II with the `SPECIAL` and `SPECIAL3` forms of
 //! MIPS32 release 2 (`ext`, `ins`, `seb`, `seh`, `wsbh`, `bitrev`, the rotates) and its own
 //! (`min`, `max`, `clz`, `clo`, `madd`, `msub`) in the encodings MIPS III gives its doubleword
-//! operations, which it lacks; the VFPU traps with its address. An import's stub, the
+//! operations, which it lacks. Its VFPU's 128 singles are a field of the state, and an operation
+//! on them is vector IR on its lanes, which the `vpfx` prefixes before it select, negate, clamp
+//! or mask; an operation whose hardware result is not IEEE's (the dot products, the
+//! transcendentals, the reciprocals) traps with its address. An import's stub, the
 //! `jr $ra` over the `syscall` the kernel writes when it loads the module, is the call on the
 //! import its NID names.
 //!
@@ -108,6 +111,7 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         r5900,
         vr4300: image.platform() == Some("n64"),
         big: image.big_endian(),
+        prefix: [None; 3],
     };
     // A PSP import's stub holds the `syscall` the kernel writes only once it loads the module, an
     // IOP one the jump the loader writes over its `jr $ra`.
@@ -225,6 +229,9 @@ struct Lifter<'a, 'b> {
     vr4300: bool,
     /// A big-endian program, whose memory keeps its order: every load and store swaps its bytes.
     big: bool,
+    /// The VFPU prefixes set and not yet taken, `vpfxs`, `vpfxt` and `vpfxd`: each its word's
+    /// low 24 bits and its address. The next vector operation takes them.
+    prefix: [Option<(u32, u64)>; 3],
 }
 
 impl Lifter<'_, '_> {
@@ -272,6 +279,7 @@ impl Lifter<'_, '_> {
         self.cond = None;
         self.jump_target = None;
         self.consts.clear();
+        self.prefix = [None; 3];
         let mut n = 0;
         while let Some(i) = blk.instrs.get(n) {
             if self.m.b.has_terminator(block) {
@@ -284,6 +292,9 @@ impl Lifter<'_, '_> {
             };
             n += 1;
             if w.is_branch() {
+                if self.vfpu_pending(block) {
+                    break;
+                }
                 let slot = blk.instrs.get(n).filter(|s| s.address == i.address.wrapping_add(4));
                 if slot.is_some() {
                     n += 1;
@@ -295,7 +306,7 @@ impl Lifter<'_, '_> {
                 block = self.lift_instr(block, w, i.address);
             }
         }
-        if self.m.b.has_terminator(block) {
+        if self.m.b.has_terminator(block) || self.vfpu_pending(block) {
             return;
         }
         let last = blk.instrs.last().map_or(blk.start, |i| i.address);
@@ -440,12 +451,15 @@ impl Lifter<'_, '_> {
                     let next = self.m.b.block(&format!("taken_{ip:x}"));
                     self.m.b.terminate(block, Terminator::CondBr { cond: c.into(), then, els: next });
                     let end = self.lift_instr(then, sw, s.address);
-                    if !self.m.b.has_terminator(end) {
+                    if !self.vfpu_pending(end) && !self.m.b.has_terminator(end) {
                         self.m.b.terminate(end, Terminator::Br(next));
                     }
                     return self.after_slot(next, ip, cond, jump, call);
                 }
                 let end = self.lift_instr(block, sw, s.address);
+                if self.vfpu_pending(end) {
+                    return end;
+                }
                 if let Some(entry) = bios {
                     // `j` and `jr` leave for the BIOS, which returns to the caller's `ra`.
                     let tail = w.op() == 2 || (w.op() == 0 && w.funct() == 8);
@@ -787,9 +801,9 @@ impl Lifter<'_, '_> {
             17 | 49 | 53 | 57 | 61 if self.r3000 => return self.unsupported(block, w, ip),
             18 | 50 | 58 if self.r3000 => return self.cop2(block, w, ip),
             31 if self.allegrex => return self.special3(block, w, ip),
-            // The Allegrex gives the doubleword opcodes of MIPS III to the VFPU, which the lift
-            // does not read.
-            24 | 25 | 52 | 55 | 60 | 63 if self.allegrex => return self.unsupported(block, w, ip),
+            // The Allegrex gives coprocessor 2, its loads and stores, and the doubleword opcodes
+            // of MIPS III to the VFPU.
+            18 | 24 | 25 | 27 | 50 | 52..=55 | 58 | 60..=63 if self.allegrex => return self.vfpu(block, w, ip),
             28 if self.r5900 => return self.mmi(block, w, ip),
             16 if self.vr4300 => return self.cop0(block, w, ip),
             // cache: the port's memory has no cache to write back or invalidate.
@@ -2030,6 +2044,655 @@ impl Lifter<'_, '_> {
     }
 
     // endregion
+
+    // region VFPU
+
+    /// The Allegrex's VFPU. `lv.s`, `sv.s`, `lv.q` and `sv.q` move singles and quads between
+    /// memory and its registers, `mfv` and `mtv` a single to and from a general register; an
+    /// operation on vectors of one to four lanes is vector IR on their lanes, its operands and its
+    /// result through the prefixes before it, and one on matrices goes element by element. An
+    /// operation whose hardware result is not IEEE's (`vdot`, `vhdp`, `vdet`, the matrix products,
+    /// `vocp`, the reciprocals, the roots and the transcendentals) traps with its address, as do
+    /// `vsbn`, `vsrt*`, `vsgn`, `vrnd*`, `vrot`, `vwbn`, the conversions to halves, colours and
+    /// narrow integers, the control registers, and `lvl.q`, `lvr.q`, `svl.q` and `svr.q`.
+    fn vfpu(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
+        let op = w.0;
+        let n = 1 + ((op >> 7) & 1) + ((op >> 14) & 2);
+        let (vd, vs, vt) = (op & 0x7f, (op >> 8) & 0x7f, (op >> 16) & 0x7f);
+        let lifted = match w.op() {
+            // mfv, mtv; the forms of the control registers set bit 7.
+            18 if op & 0xff80 == 0 && matches!(w.rs(), 3 | 7) => {
+                let p = self.m.vfpu_ptr(block, vd);
+                if w.rs() == 3 {
+                    let v = self.m.b.load(block, Type::I32, p, "mfv");
+                    self.set32(block, w.rt(), v);
+                } else {
+                    let v = self.reg32(block, w.rt());
+                    self.m.b.store(block, Type::I32, v, p);
+                }
+                true
+            }
+            // lv.s, sv.s: the register's top two bits in the offset's low two.
+            50 | 58 => {
+                let addr = self.vfpu_address(block, w);
+                let p = self.m.vfpu_ptr(block, ((op >> 16) & 0x1f) | ((op & 3) << 5));
+                if w.op() == 50 {
+                    let v = self.guest_load(block, Type::I32, addr, "lv");
+                    self.m.b.store(block, Type::I32, v, p);
+                } else {
+                    let v = self.m.b.load(block, Type::I32, p, "sv");
+                    self.guest_store(block, Type::I32, v, addr);
+                }
+                true
+            }
+            // lv.q, sv.q: a column or, with bit 0 of the offset, a row; bit 1 of `sv.q` writes
+            // past a cache the port does not have.
+            54 | 62 => {
+                let addr = self.vfpu_address(block, w);
+                for (k, reg) in (0i64..).zip(vfpu_lanes(((op >> 16) & 0x1f) | ((op & 1) << 5), 4)) {
+                    let at = self.m.b.bin(block, BinOp::Add, Type::I32, addr, 4 * k, "lane");
+                    let p = self.m.vfpu_ptr(block, reg);
+                    if w.op() == 54 {
+                        let v = self.guest_load(block, Type::I32, at, "lv");
+                        self.m.b.store(block, Type::I32, v, p);
+                    } else {
+                        let v = self.m.b.load(block, Type::I32, p, "sv");
+                        self.guest_store(block, Type::I32, v, at);
+                    }
+                }
+                true
+            }
+            24 => match (op >> 23) & 7 {
+                0 => self.vfpu_binary(block, BinOp::FAdd, n, [vd, vs, vt]),
+                1 => self.vfpu_binary(block, BinOp::FSub, n, [vd, vs, vt]),
+                7 => self.vfpu_binary(block, BinOp::FDiv, n, [vd, vs, vt]),
+                _ => false,
+            },
+            25 => match (op >> 23) & 7 {
+                0 => self.vfpu_binary(block, BinOp::FMul, n, [vd, vs, vt]),
+                2 => self.vfpu_scale(block, n, [vd, vs, vt]),
+                5 if n == 3 => self.vfpu_cross(block, [vd, vs, vt]),
+                _ => false,
+            },
+            27 => match (op >> 23) & 7 {
+                0 => self.vfpu_compare(block, op & 15, n, vs, vt),
+                k @ (2 | 3 | 5..=7) => self.vfpu_order(block, k, n, [vd, vs, vt]),
+                _ => false,
+            },
+            52 => self.vfpu4(block, op, n, vd, vs),
+            55 => self.vfpu5(block, op, ip),
+            60 => self.vfpu_matrix(block, op, n, [vd, vs, vt]),
+            // vnop, vsync, vflush: one thread's VFPU has nothing to wait for.
+            63 => matches!(op, 0xffff_0000 | 0xffff_0320 | 0xffff_040d),
+            _ => false,
+        };
+        if lifted { block } else { self.unsupported(block, w, ip) }
+    }
+
+    /// The address of `lv` and `sv`: the base plus the offset, whose low two bits name the register.
+    fn vfpu_address(&mut self, block: BlockId, w: Word) -> ValueId {
+        let base = self.reg32(block, w.rs());
+        self.m.b.bin(block, BinOp::Add, Type::I32, base, w.simm() & !3, "addr")
+    }
+
+    /// The prefixes an operation takes, `vpfxs`, `vpfxt` and `vpfxd`, as their words set them or,
+    /// where none is set, as leaving each lane as it is; taking them clears them. `None` when one
+    /// is set that the operation does not take, whose effect on it the lift does not know.
+    fn vfpu_prefixes(&mut self, takes: [bool; 3]) -> Option<[u32; 3]> {
+        let set = std::mem::take(&mut self.prefix);
+        let mut data = [SOURCE_IDENTITY, SOURCE_IDENTITY, 0];
+        for ((data, set), takes) in data.iter_mut().zip(set).zip(takes) {
+            if let Some((word, _)) = set {
+                if !takes {
+                    return None;
+                }
+                *data = word;
+            }
+        }
+        Some(data)
+    }
+
+    /// Traps at a prefix no operation of its block took: the operation it is for lies past the
+    /// block, where the lift no longer knows it. Whether the block ends there.
+    fn vfpu_pending(&mut self, block: BlockId) -> bool {
+        let Some(at) = self.prefix.iter().flatten().map(|&(_, at)| at).min() else {
+            return false;
+        };
+        self.prefix = [None; 3];
+        if !self.m.b.has_terminator(block) {
+            self.warn(format!("{at:#x}: a VFPU prefix whose operation is not in its block"));
+            self.m.trap(block, at, trap::INVALID);
+        }
+        true
+    }
+
+    fn vfpu_reg(&mut self, block: BlockId, reg: u32) -> ValueId {
+        let p = self.m.vfpu_ptr(block, reg);
+        self.m.b.load(block, Type::I32, p, &format!("v{reg}"))
+    }
+
+    /// The lanes of the vector `reg` of `n` lanes through the source prefix `prefix`, as the bits
+    /// of singles: each lane one of the vector's or a constant, then its magnitude, then negated.
+    /// `None` when a lane selects one past the vector's end.
+    fn vfpu_source(&mut self, block: BlockId, reg: u32, n: u32, prefix: u32) -> Option<Vec<ValueId>> {
+        let raw: Vec<ValueId> = vfpu_lanes(reg, n).into_iter().map(|r| self.vfpu_reg(block, r)).collect();
+        let mut lanes = Vec::with_capacity(raw.len());
+        for i in 0..n {
+            let (select, abs) = ((prefix >> (2 * i)) & 3, (prefix >> (8 + i)) & 1);
+            let mut v = if (prefix >> (12 + i)) & 1 == 1 {
+                self.m.value_of(block, Type::I32, single(PREFIX_CONSTANTS[(select + 4 * abs) as usize]))
+            } else if abs == 1 {
+                let v = *raw.get(select as usize)?;
+                self.m.b.bin(block, BinOp::And, Type::I32, v, 0x7fff_ffff_i64, "abs")
+            } else {
+                *raw.get(select as usize)?
+            };
+            if (prefix >> (16 + i)) & 1 == 1 {
+                v = self.m.b.bin(block, BinOp::Xor, Type::I32, v, i64::from(i32::MIN), "neg");
+            }
+            lanes.push(v);
+        }
+        Some(lanes)
+    }
+
+    /// Writes lanes of single bits to the vector `reg` through the destination prefix `prefix`: a
+    /// lane it masks keeps its value, and a lane it saturates is clamped to `[0, 1]` or `[-1, 1]`.
+    /// `false`, before any write, for a saturation of `float`-less lanes or of the reserved mode.
+    fn vfpu_write(&mut self, block: BlockId, reg: u32, lanes: &[ValueId], prefix: u32, float: bool) -> bool {
+        let n = lanes.len() as u32;
+        let saturation = |i: u32| (prefix >> (2 * i)) & 3;
+        if (0..n).any(|i| saturation(i) == 2 || (saturation(i) != 0 && !float)) {
+            return false;
+        }
+        for ((i, reg), &v) in (0..n).zip(vfpu_lanes(reg, n)).zip(lanes) {
+            if (prefix >> (8 + i)) & 1 == 1 {
+                continue;
+            }
+            let v = match saturation(i) {
+                0 => v,
+                s => self.vfpu_clamp(block, v, s == 3),
+            };
+            let p = self.m.vfpu_ptr(block, reg);
+            self.m.b.store(block, Type::I32, v, p);
+        }
+        true
+    }
+
+    /// A single's bits clamped to `[0, 1]`, which takes `-0` to `0`, or to `[-1, 1]` when
+    /// `signed`; a NaN passes as it is.
+    fn vfpu_clamp(&mut self, block: BlockId, v: ValueId, signed: bool) -> ValueId {
+        let f = self.m.b.cast(block, Cast::Bitcast, Type::I32, v, Type::Float, "sat.f");
+        let over = self.vfpu_fcmp(block, FCond::Ogt, Type::Float, f, Operand::Float(1.0));
+        let r = self.m.select(block, over, Type::Float, Operand::Float(1.0), f, "sat.hi");
+        let (cond, low) = if signed { (FCond::Olt, -1.0) } else { (FCond::Ole, 0.0) };
+        let under = self.vfpu_fcmp(block, cond, Type::Float, r, Operand::Float(low));
+        let r = self.m.select(block, under, Type::Float, Operand::Float(low), r, "sat");
+        self.m.b.cast(block, Cast::Bitcast, Type::Float, r, Type::I32, "sat.b")
+    }
+
+    fn vfpu_fcmp(&mut self, block: BlockId, cond: FCond, ty: Type, a: impl Into<Operand>, b: impl Into<Operand>) -> ValueId {
+        self.m.b.value(block, Inst::FCmp { cond, ty, lhs: a.into(), rhs: b.into() }, cond.name())
+    }
+
+    /// Lanes of single bits as one value of [`vfpu_type`].
+    fn vfpu_pack(&mut self, block: BlockId, lanes: &[ValueId]) -> ValueId {
+        let n = lanes.len() as u32;
+        if n == 1 {
+            return self.m.b.cast(block, Cast::Bitcast, Type::I32, lanes[0], Type::Float, "vec");
+        }
+        let ity = Type::vector(n, Type::I32);
+        let mut v = Operand::Undef;
+        for (k, &lane) in (0i128..).zip(lanes) {
+            let inst = Inst::InsertElement { ty: ity.clone(), vector: v, element: lane.into(), index: Operand::Int(k) };
+            v = self.m.b.value(block, inst, "lanes").into();
+        }
+        self.m.b.cast(block, Cast::Bitcast, ity, v, vfpu_type(n), "vec")
+    }
+
+    /// A value of [`vfpu_type`] as its lanes' bits.
+    fn vfpu_unpack(&mut self, block: BlockId, v: ValueId, n: u32) -> Vec<ValueId> {
+        if n == 1 {
+            return vec![self.m.b.cast(block, Cast::Bitcast, Type::Float, v, Type::I32, "bits")];
+        }
+        let ity = Type::vector(n, Type::I32);
+        let bits = self.m.b.cast(block, Cast::Bitcast, vfpu_type(n), v, ity.clone(), "bits");
+        (0..n)
+            .map(|k| {
+                let inst = Inst::ExtractElement { ty: ity.clone(), vector: bits.into(), index: Operand::Int(i128::from(k)) };
+                self.m.b.value(block, inst, "lane")
+            })
+            .collect()
+    }
+
+    fn vfpu_shuffle(&mut self, block: BlockId, n: u32, a: ValueId, b: ValueId, mask: Vec<i32>) -> ValueId {
+        self.m.b.value(block, Inst::ShuffleVector { ty: vfpu_type(n), a: a.into(), b: b.into(), mask }, "shuffle")
+    }
+
+    /// `vadd`, `vsub`, `vmul`, `vdiv`: lane by lane.
+    fn vfpu_binary(&mut self, block: BlockId, op: BinOp, n: u32, [vd, vs, vt]: [u32; 3]) -> bool {
+        let Some([ps, pt, pd]) = self.vfpu_prefixes([true; 3]) else { return false };
+        let (Some(s), Some(t)) = (self.vfpu_source(block, vs, n, ps), self.vfpu_source(block, vt, n, pt)) else { return false };
+        let a = self.vfpu_pack(block, &s);
+        let b = self.vfpu_pack(block, &t);
+        let r = self.m.b.bin(block, op, vfpu_type(n), a, b, "v");
+        let lanes = self.vfpu_unpack(block, r, n);
+        self.vfpu_write(block, vd, &lanes, pd, true)
+    }
+
+    /// `vscl`: each lane times the single `vt`, which no prefix reaches.
+    fn vfpu_scale(&mut self, block: BlockId, n: u32, [vd, vs, vt]: [u32; 3]) -> bool {
+        let Some([ps, _, pd]) = self.vfpu_prefixes([true, false, true]) else { return false };
+        let Some(s) = self.vfpu_source(block, vs, n, ps) else { return false };
+        let a = self.vfpu_pack(block, &s);
+        let t = self.vfpu_reg(block, vt);
+        let b = self.vfpu_pack(block, &vec![t; n as usize]);
+        let r = self.m.b.bin(block, BinOp::FMul, vfpu_type(n), a, b, "vscl");
+        let lanes = self.vfpu_unpack(block, r, n);
+        self.vfpu_write(block, vd, &lanes, pd, true)
+    }
+
+    /// `vcrs.t`: the products a cross product pairs, `(s.y t.z, s.z t.x, s.x t.y)`.
+    fn vfpu_cross(&mut self, block: BlockId, [vd, vs, vt]: [u32; 3]) -> bool {
+        let Some([ps, pt, pd]) = self.vfpu_prefixes([true; 3]) else { return false };
+        let (Some(s), Some(t)) = (self.vfpu_source(block, vs, 3, ps), self.vfpu_source(block, vt, 3, pt)) else { return false };
+        let a = self.vfpu_pack(block, &s);
+        let b = self.vfpu_pack(block, &t);
+        let a = self.vfpu_shuffle(block, 3, a, a, vec![1, 2, 0]);
+        let b = self.vfpu_shuffle(block, 3, b, b, vec![2, 0, 1]);
+        let r = self.m.b.bin(block, BinOp::FMul, vfpu_type(3), a, b, "vcrs");
+        let lanes = self.vfpu_unpack(block, r, 3);
+        self.vfpu_write(block, vd, &lanes, pd, true)
+    }
+
+    /// `vcmp`: the condition `cond` on each lane in bit `i` of the condition bits, whether it holds
+    /// on any lane in bit 4 and on every lane in bit 5; the bits of lanes past the vector's keep
+    /// their values.
+    fn vfpu_compare(&mut self, block: BlockId, cond: u32, n: u32, vs: u32, vt: u32) -> bool {
+        let Some([ps, pt, _]) = self.vfpu_prefixes([true, true, false]) else { return false };
+        let (Some(s), Some(t)) = (self.vfpu_source(block, vs, n, ps), self.vfpu_source(block, vt, n, pt)) else { return false };
+        let mut cc = self.m.value_of(block, Type::I32, 0i64);
+        for (i, (&a, &b)) in (0i64..).zip(s.iter().zip(&t)) {
+            let c = self.vfpu_condition(block, cond, a, b);
+            let bit = self.m.b.cast(block, Cast::ZExt, Type::I1, c, Type::I32, "cc.lane");
+            let bit = self.m.b.bin(block, BinOp::Shl, Type::I32, bit, i, "cc.at");
+            cc = self.m.b.bin(block, BinOp::Or, Type::I32, cc, bit, "cc");
+        }
+        let lanes = (1i64 << n) - 1;
+        for (cond, against, at) in [(ICond::Ne, 0, 4i64), (ICond::Eq, lanes, 5)] {
+            let c = self.m.b.icmp(block, cond, Type::I32, cc, against, "cc.all");
+            let bit = self.m.b.cast(block, Cast::ZExt, Type::I1, c, Type::I32, "cc.all");
+            let bit = self.m.b.bin(block, BinOp::Shl, Type::I32, bit, at, "cc.at");
+            cc = self.m.b.bin(block, BinOp::Or, Type::I32, cc, bit, "cc");
+        }
+        let p = self.m.vfpu_cc_ptr(block);
+        let old = self.m.b.load(block, Type::I32, p, "cc.old");
+        let kept = self.m.b.bin(block, BinOp::And, Type::I32, old, !(lanes | 0x30), "cc.kept");
+        let cc = self.m.b.bin(block, BinOp::Or, Type::I32, kept, cc, "cc");
+        self.m.b.store(block, Type::I32, cc, p);
+        true
+    }
+
+    /// One lane's condition of `vcmp`: false, the ordered compares (`!=` unordered) and true, then
+    /// the tests on `s` alone of zero, NaN, infinity and either, and their negations.
+    fn vfpu_condition(&mut self, block: BlockId, cond: u32, a: ValueId, b: ValueId) -> ValueId {
+        let fcond = match cond {
+            0 | 4 => return self.m.value_of(block, Type::I1, i64::from(cond == 4)),
+            1 => FCond::Oeq,
+            2 => FCond::Olt,
+            3 => FCond::Ole,
+            5 => FCond::Une,
+            6 => FCond::Oge,
+            7 => FCond::Ogt,
+            _ => {
+                let magnitude = self.m.b.bin(block, BinOp::And, Type::I32, a, 0x7fff_ffff_i64, "mag");
+                let (icond, against) = match cond & 3 {
+                    0 => (ICond::Eq, 0),
+                    1 => (ICond::Ugt, 0x7f80_0000),
+                    2 => (ICond::Eq, 0x7f80_0000),
+                    _ => (ICond::Uge, 0x7f80_0000),
+                };
+                let c = self.m.b.icmp(block, icond, Type::I32, magnitude, against, "class");
+                return if cond >= 12 { self.m.b.bin(block, BinOp::Xor, Type::I1, c, 1i64, "not") } else { c };
+            }
+        };
+        let fa = self.m.b.cast(block, Cast::Bitcast, Type::I32, a, Type::Float, "s");
+        let fb = self.m.b.cast(block, Cast::Bitcast, Type::I32, b, Type::Float, "t");
+        self.vfpu_fcmp(block, fcond, Type::Float, fa, fb)
+    }
+
+    /// `vmin` and `vmax` (`k` 2 and 3), `vscmp` (5: the sign of `s - t` as a single), `vsge` and
+    /// `vslt` (6 and 7: `1` where `s >= t` or `s < t`, else `0`); a NaN compares false.
+    fn vfpu_order(&mut self, block: BlockId, k: u32, n: u32, [vd, vs, vt]: [u32; 3]) -> bool {
+        let Some([ps, pt, pd]) = self.vfpu_prefixes([true; 3]) else { return false };
+        let (Some(s), Some(t)) = (self.vfpu_source(block, vs, n, ps), self.vfpu_source(block, vt, n, pt)) else { return false };
+        let mut lanes = Vec::with_capacity(s.len());
+        for (&a, &b) in s.iter().zip(&t) {
+            if k <= 3 {
+                lanes.push(self.vfpu_min_max(block, a, b, k == 3));
+                continue;
+            }
+            let fa = self.m.b.cast(block, Cast::Bitcast, Type::I32, a, Type::Float, "s");
+            let fb = self.m.b.cast(block, Cast::Bitcast, Type::I32, b, Type::Float, "t");
+            let r = if k == 5 {
+                let less = self.vfpu_fcmp(block, FCond::Olt, Type::Float, fa, fb);
+                let greater = self.vfpu_fcmp(block, FCond::Ogt, Type::Float, fa, fb);
+                let r = self.m.select(block, less, Type::I32, single(-1.0), 0i64, "vscmp");
+                self.m.select(block, greater, Type::I32, single(1.0), r, "vscmp")
+            } else {
+                let c = self.vfpu_fcmp(block, if k == 6 { FCond::Oge } else { FCond::Olt }, Type::Float, fa, fb);
+                self.m.select(block, c, Type::I32, single(1.0), 0i64, "vset")
+            };
+            lanes.push(r);
+        }
+        self.vfpu_write(block, vd, &lanes, pd, true)
+    }
+
+    /// One lane of `vmin` or `vmax`: IEEE's order on finite values, `s` on a tie of `0` and `-0`;
+    /// with an infinity or a NaN, the order of the bits as sign and magnitude, where a NaN lies
+    /// past the infinity of its sign.
+    fn vfpu_min_max(&mut self, block: BlockId, a: ValueId, b: ValueId, max: bool) -> ValueId {
+        let fa = self.m.b.cast(block, Cast::Bitcast, Type::I32, a, Type::Float, "s");
+        let fb = self.m.b.cast(block, Cast::Bitcast, Type::I32, b, Type::Float, "t");
+        let (x, y) = if max { (fa, fb) } else { (fb, fa) };
+        let takes_b = self.vfpu_fcmp(block, FCond::Olt, Type::Float, x, y);
+        let by_value = self.m.select(block, takes_b, Type::I32, b, a, "minmax");
+        let ka = self.vfpu_key(block, a);
+        let kb = self.vfpu_key(block, b);
+        let (x, y) = if max { (ka, kb) } else { (kb, ka) };
+        let takes_b = self.m.b.icmp(block, ICond::Slt, Type::I32, x, y, "minmax.bits");
+        let by_bits = self.m.select(block, takes_b, Type::I32, b, a, "minmax");
+        let mut special = self.m.value_of(block, Type::I1, 0i64);
+        for v in [a, b] {
+            let exponent = self.m.b.bin(block, BinOp::And, Type::I32, v, 0x7f80_0000_i64, "exp");
+            let c = self.m.b.icmp(block, ICond::Eq, Type::I32, exponent, 0x7f80_0000_i64, "special");
+            special = self.m.b.bin(block, BinOp::Or, Type::I1, special, c, "special");
+        }
+        self.m.select(block, special, Type::I32, by_bits, by_value, "minmax")
+    }
+
+    /// A single's bits as a signed integer in the order of sign and magnitude.
+    fn vfpu_key(&mut self, block: BlockId, v: ValueId) -> ValueId {
+        let flipped = self.m.b.bin(block, BinOp::Xor, Type::I32, v, 0x7fff_ffff_i64, "key.neg");
+        let negative = self.m.b.icmp(block, ICond::Slt, Type::I32, v, 0i64, "key.sign");
+        self.m.select(block, negative, Type::I32, flipped, v, "key")
+    }
+
+    /// The `0xd0` group: the moves, the constants, the butterflies, the conversions between
+    /// singles and words, and the conditional move.
+    fn vfpu4(&mut self, block: BlockId, op: u32, n: u32, vd: u32, vs: u32) -> bool {
+        let sub = (op >> 16) & 0x1f;
+        match (op >> 21) & 0x1f {
+            0 => match sub {
+                0..=2 | 4 | 5 => self.vfpu_unary(block, sub, n, vd, vs),
+                // vidt: the row of an identity matrix the register's column names.
+                3 if n == 2 || n == 4 => {
+                    let one = (vd & (n - 1)) as usize;
+                    let lanes: Vec<i64> = (0..n as usize).map(|i| if i == one { single(1.0) } else { 0 }).collect();
+                    self.vfpu_constants(block, vd, &lanes)
+                }
+                6 | 7 => self.vfpu_constants(block, vd, &vec![single(if sub == 7 { 1.0 } else { 0.0 }); n as usize]),
+                _ => false,
+            },
+            // vbfy1, vbfy2.
+            2 if sub == 2 || sub == 3 => self.vfpu_butterfly(block, sub == 3, n, vd, vs),
+            // vcst.
+            3 => VCST.get(sub as usize).is_some_and(|&c| self.vfpu_constants(block, vd, &vec![single(c); n as usize])),
+            16..=19 => self.vfpu_to_int(block, op, n, vd, vs),
+            20 => self.vfpu_from_int(block, sub, n, vd, vs),
+            21 => self.vfpu_cmov(block, op, n, vd, vs),
+            _ => false,
+        }
+    }
+
+    /// `vmov`, `vabs`, `vneg` on the bits, and `vsat0`, `vsat1` as the destination prefix clamps.
+    fn vfpu_unary(&mut self, block: BlockId, sub: u32, n: u32, vd: u32, vs: u32) -> bool {
+        let Some([ps, _, pd]) = self.vfpu_prefixes([true, false, true]) else { return false };
+        let Some(s) = self.vfpu_source(block, vs, n, ps) else { return false };
+        let lanes: Vec<ValueId> = s
+            .into_iter()
+            .map(|v| match sub {
+                0 => v,
+                1 => self.m.b.bin(block, BinOp::And, Type::I32, v, 0x7fff_ffff_i64, "vabs"),
+                2 => self.m.b.bin(block, BinOp::Xor, Type::I32, v, i64::from(i32::MIN), "vneg"),
+                _ => self.vfpu_clamp(block, v, sub == 5),
+            })
+            .collect();
+        self.vfpu_write(block, vd, &lanes, pd, true)
+    }
+
+    /// Constant lanes, the bits of singles, through the destination prefix.
+    fn vfpu_constants(&mut self, block: BlockId, vd: u32, bits: &[i64]) -> bool {
+        let Some([_, _, pd]) = self.vfpu_prefixes([false, false, true]) else { return false };
+        let lanes: Vec<ValueId> = bits.iter().map(|&b| self.m.value_of(block, Type::I32, b)).collect();
+        self.vfpu_write(block, vd, &lanes, pd, true)
+    }
+
+    /// `vbfy1`, the sum and the difference of each pair of lanes, and `vbfy2`, of each lane of a
+    /// quad's low half and the lane of its high half under it.
+    fn vfpu_butterfly(&mut self, block: BlockId, halves: bool, n: u32, vd: u32, vs: u32) -> bool {
+        if n != 4 && (halves || n != 2) {
+            return false;
+        }
+        let Some([ps, _, pd]) = self.vfpu_prefixes([true, false, true]) else { return false };
+        let Some(s) = self.vfpu_source(block, vs, n, ps) else { return false };
+        let (first, second, take) = match (halves, n) {
+            (true, _) => (vec![0, 1, 0, 1], vec![2, 3, 2, 3], vec![0, 1, 6, 7]),
+            (false, 2) => (vec![0, 0], vec![1, 1], vec![0, 3]),
+            _ => (vec![0, 0, 2, 2], vec![1, 1, 3, 3], vec![0, 5, 2, 7]),
+        };
+        let v = self.vfpu_pack(block, &s);
+        let a = self.vfpu_shuffle(block, n, v, v, first);
+        let b = self.vfpu_shuffle(block, n, v, v, second);
+        let sum = self.m.b.bin(block, BinOp::FAdd, vfpu_type(n), a, b, "vbfy.sum");
+        let difference = self.m.b.bin(block, BinOp::FSub, vfpu_type(n), a, b, "vbfy.diff");
+        let r = self.vfpu_shuffle(block, n, sum, difference, take);
+        let lanes = self.vfpu_unpack(block, r, n);
+        self.vfpu_write(block, vd, &lanes, pd, true)
+    }
+
+    /// `vf2in`, `vf2iz`, `vf2iu`, `vf2id`: each lane times `2^scale`, rounded to nearest, toward
+    /// zero, up or down, to a word that saturates; a NaN gives the largest.
+    fn vfpu_to_int(&mut self, block: BlockId, op: u32, n: u32, vd: u32, vs: u32) -> bool {
+        let Some([ps, _, pd]) = self.vfpu_prefixes([true, false, true]) else { return false };
+        let Some(s) = self.vfpu_source(block, vs, n, ps) else { return false };
+        let rounding = ["roundeven", "trunc", "ceil", "floor"][((op >> 21) & 3) as usize];
+        let scale = 2f64.powi(((op >> 16) & 0x1f) as i32);
+        let mut lanes = Vec::with_capacity(s.len());
+        for v in s {
+            let f = self.m.b.cast(block, Cast::Bitcast, Type::I32, v, Type::Float, "s");
+            let wide = self.m.b.cast(block, Cast::FPExt, Type::Float, f, Type::Double, "s.d");
+            let scaled = self.m.b.bin(block, BinOp::FMul, Type::Double, wide, Operand::Float(scale), "scaled");
+            let r = self.m.intrinsic(block, &format!("llvm.{rounding}.f64"), Type::Double, vec![(Type::Double, scaled.into())], "rounded");
+            let i = self.m.intrinsic(block, "llvm.fptosi.sat.i32.f64", Type::I32, vec![(Type::Double, r.into())], "int");
+            let nan = self.vfpu_fcmp(block, FCond::Uno, Type::Double, r, r);
+            lanes.push(self.m.select(block, nan, Type::I32, i64::from(i32::MAX), i, "vf2i"));
+        }
+        self.vfpu_write(block, vd, &lanes, pd, false)
+    }
+
+    /// `vi2f`: each lane a word, converted to the nearest single and times `2^-scale`.
+    fn vfpu_from_int(&mut self, block: BlockId, scale: u32, n: u32, vd: u32, vs: u32) -> bool {
+        let Some([_, _, pd]) = self.vfpu_prefixes([false, false, true]) else { return false };
+        let factor = 2f64.powi(-(scale as i32));
+        let mut lanes = Vec::with_capacity(n as usize);
+        for reg in vfpu_lanes(vs, n) {
+            let v = self.vfpu_reg(block, reg);
+            let f = self.m.b.cast(block, Cast::SIToFP, Type::I32, v, Type::Float, "vi2f");
+            let r = self.m.b.bin(block, BinOp::FMul, Type::Float, f, Operand::Float(factor), "vi2f");
+            lanes.push(self.m.b.cast(block, Cast::Bitcast, Type::Float, r, Type::I32, "bits"));
+        }
+        self.vfpu_write(block, vd, &lanes, pd, true)
+    }
+
+    /// `vcmovt` and `vcmovf`: the lanes of `vs` where condition bit `imm` is set (or clear), or
+    /// with `imm` 6 each lane where its own bit is; the others keep `vd`'s.
+    fn vfpu_cmov(&mut self, block: BlockId, op: u32, n: u32, vd: u32, vs: u32) -> bool {
+        let (imm, want) = ((op >> 16) & 7, i64::from((op >> 19) & 1 == 0));
+        if imm == 7 {
+            return false;
+        }
+        let Some([ps, _, _]) = self.vfpu_prefixes([true, false, false]) else { return false };
+        let Some(s) = self.vfpu_source(block, vs, n, ps) else { return false };
+        let old: Vec<ValueId> = vfpu_lanes(vd, n).into_iter().map(|r| self.vfpu_reg(block, r)).collect();
+        let p = self.m.vfpu_cc_ptr(block);
+        let cc = self.m.b.load(block, Type::I32, p, "cc");
+        let mut lanes = Vec::with_capacity(s.len());
+        for (i, (&new, &old)) in (0i64..).zip(s.iter().zip(&old)) {
+            let at = if imm == 6 { i } else { i64::from(imm) };
+            let bit = self.m.b.bin(block, BinOp::LShr, Type::I32, cc, at, "cc.at");
+            let bit = self.m.b.bin(block, BinOp::And, Type::I32, bit, 1i64, "cc.bit");
+            let c = self.m.b.icmp(block, ICond::Eq, Type::I32, bit, want, "moves");
+            lanes.push(self.m.select(block, c, Type::I32, new, old, "vcmov"));
+        }
+        self.vfpu_write(block, vd, &lanes, 0, true)
+    }
+
+    /// The prefixes (`vpfxs`, `vpfxt`, `vpfxd`), which the next operation takes, and `viim.s` and
+    /// `vfim.s`, a single from a 16-bit integer or a half.
+    fn vfpu5(&mut self, block: BlockId, op: u32, ip: u64) -> bool {
+        let k = (op >> 23) & 7;
+        if k < 6 {
+            self.prefix[(k / 2) as usize] = Some((op & 0x00ff_ffff, ip));
+            return true;
+        }
+        if self.vfpu_prefixes([false; 3]).is_none() {
+            return false;
+        }
+        let imm = op as u16;
+        let value = if k == 6 { f32::from(imm as i16) } else { half_to_single(imm) };
+        let p = self.m.vfpu_ptr(block, (op >> 16) & 0x7f);
+        self.m.b.store(block, Type::I32, single(value), p);
+        true
+    }
+
+    /// The `0xf0` group's element-wise matrix operations: `vmscl` (times the single `vt`),
+    /// `vmmov`, `vmidt`, `vmzero` and `vmone`, each row a vector; no prefix reaches them.
+    fn vfpu_matrix(&mut self, block: BlockId, op: u32, n: u32, [vd, vs, vt]: [u32; 3]) -> bool {
+        let form = ((op >> 23) & 7, (op >> 21) & 3, (op >> 16) & 0x1f);
+        if n == 1 || !matches!(form, (4, ..) | (7, 0, 0 | 3 | 6 | 7)) || self.vfpu_prefixes([false; 3]).is_none() {
+            return false;
+        }
+        let size = n as usize;
+        let values: Vec<ValueId> = match form {
+            (4, ..) | (7, 0, 0) => {
+                let source: Vec<ValueId> = vfpu_matrix_regs(vs, n).into_iter().map(|r| self.vfpu_reg(block, r)).collect();
+                if form.0 == 4 {
+                    let t = self.vfpu_reg(block, vt);
+                    let factor = self.vfpu_pack(block, &vec![t; size]);
+                    let mut scaled = Vec::with_capacity(source.len());
+                    for row in source.chunks(size) {
+                        let v = self.vfpu_pack(block, row);
+                        let r = self.m.b.bin(block, BinOp::FMul, vfpu_type(n), v, factor, "vmscl");
+                        scaled.extend(self.vfpu_unpack(block, r, n));
+                    }
+                    scaled
+                } else {
+                    source
+                }
+            }
+            (.., sub) => (0..size * size)
+                .map(|e| {
+                    let one = sub == 7 || (sub == 3 && e / size == e % size);
+                    self.m.value_of(block, Type::I32, if one { single(1.0) } else { 0 })
+                })
+                .collect(),
+        };
+        for (reg, v) in vfpu_matrix_regs(vd, n).into_iter().zip(values) {
+            let p = self.m.vfpu_ptr(block, reg);
+            self.m.b.store(block, Type::I32, v, p);
+        }
+        true
+    }
+
+    // endregion
+}
+
+/// A source prefix that leaves each lane as it is: lane `i` selects lane `i`.
+const SOURCE_IDENTITY: u32 = 0xe4;
+
+/// The constants a source prefix gives a lane, by its selector and, as bit 2, its magnitude bit.
+const PREFIX_CONSTANTS: [f32; 8] = [0.0, 1.0, 2.0, 0.5, 3.0, 1.0 / 3.0, 0.25, 1.0 / 6.0];
+
+/// The constants of `vcst`, by its index.
+const VCST: [f32; 20] = [
+    0.0,
+    f32::MAX,
+    std::f32::consts::SQRT_2,
+    std::f32::consts::FRAC_1_SQRT_2,
+    std::f32::consts::FRAC_2_SQRT_PI,
+    std::f32::consts::FRAC_2_PI,
+    std::f32::consts::FRAC_1_PI,
+    std::f32::consts::FRAC_PI_4,
+    std::f32::consts::FRAC_PI_2,
+    std::f32::consts::PI,
+    std::f32::consts::E,
+    std::f32::consts::LOG2_E,
+    std::f32::consts::LOG10_E,
+    std::f32::consts::LN_2,
+    std::f32::consts::LN_10,
+    std::f32::consts::TAU,
+    std::f32::consts::FRAC_PI_6,
+    std::f32::consts::LOG10_2,
+    std::f32::consts::LOG2_10,
+    0.866_025_403_784_438_6_f64 as f32,
+];
+
+/// The bits of a single, as the operand of an `i32`.
+fn single(value: f32) -> i64 {
+    i64::from(value.to_bits() as i32)
+}
+
+/// The type of `n` single lanes: a float for one.
+fn vfpu_type(n: u32) -> Type {
+    if n == 1 { Type::Float } else { Type::vector(n, Type::Float) }
+}
+
+/// The registers of the `n` lanes of the VFPU vector `reg`: its seven bits name a matrix (bits 2
+/// to 4), a column (bits 0 and 1) and the row of the first lane (bits 5 and 6, a pair's and a
+/// quad's from bit 6 alone, a triple's its row 0 or 1); bit 5 of a vector longer than one turns it
+/// into a row, its lanes along the columns. Register `r` of matrix `m` at column `c` is
+/// `m * 4 + c + r * 32`, the number of the single there.
+fn vfpu_lanes(reg: u32, n: u32) -> Vec<u32> {
+    let (matrix, column) = ((reg >> 2) & 7, reg & 3);
+    let (row, transposed) = match n {
+        1 => ((reg >> 5) & 3, false),
+        3 => ((reg >> 6) & 1, reg & 0x20 != 0),
+        _ => ((reg >> 5) & 2, reg & 0x20 != 0),
+    };
+    (0..n)
+        .map(|i| {
+            let along = (row + i) & 3;
+            matrix * 4 + if transposed { along + column * 32 } else { column + along * 32 }
+        })
+        .collect()
+}
+
+/// The registers of the `n` by `n` VFPU matrix `reg`, row by row, its rows read as
+/// [`vfpu_lanes`] reads a vector's start, and bit 5 transposing it.
+fn vfpu_matrix_regs(reg: u32, n: u32) -> Vec<u32> {
+    let (matrix, column, transposed) = ((reg >> 2) & 7, reg & 3, reg & 0x20 != 0);
+    let row = if n == 3 { (reg >> 6) & 1 } else { (reg >> 5) & 2 };
+    let mut regs = Vec::with_capacity((n * n) as usize);
+    for i in 0..n {
+        for j in 0..n {
+            let (r, c) = ((row + i) & 3, (column + j) & 3);
+            regs.push(matrix * 4 + if transposed { r + c * 32 } else { c + r * 32 });
+        }
+    }
+    regs
+}
+
+/// A half's value as a single: its exponent rebased, a subnormal's exact value, an infinity and
+/// a NaN with the NaN's payload.
+fn half_to_single(h: u16) -> f32 {
+    let sign = u32::from(h >> 15) << 31;
+    let (exponent, fraction) = (u32::from((h >> 10) & 0x1f), u32::from(h & 0x3ff));
+    let bits = match exponent {
+        0 => (f32::from(h & 0x3ff) * 2f32.powi(-24)).to_bits(),
+        31 => 0x7f80_0000 | (fraction << 13),
+        _ => ((exponent + 112) << 23) | (fraction << 13),
+    };
+    f32::from_bits(sign | bits)
 }
 
 /// The condition codes' bits in the FCSR: `cc0` at 23, `cc1` to `cc7` at 25 to 31.

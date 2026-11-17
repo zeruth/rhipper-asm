@@ -8,9 +8,9 @@
 //! x86 shape holds `r0..r15`, the flags as ARM64 keeps them and `q0..q15`. On MIPS the four
 //! fields hold `$0..$31` at 64 bits (MIPS III's width, every 32-bit result sign-extended into
 //! it) with `hi` and `lo` after them as `$32` and `$33`, `pc`, the FPU's eight condition codes as
-//! bytes and `$f0..$f31`, and five follow: the FPU's control and status register, the 64
+//! bytes and `$f0..$f31`, and six follow: the FPU's control and status register, the 64
 //! registers of the `PlayStation`'s GTE, the upper halves of the R5900's 128-bit registers, the
-//! R5900 FPU's accumulator, and the 128 single registers of the PSP's VFPU.
+//! R5900 FPU's accumulator, the 128 single registers of the PSP's VFPU and its condition bits.
 
 use ra_asm_arch::state::{self as layout, StateSpec};
 use ra_asm_ir::{AtomicOp, BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Operand, Type, ValueId};
@@ -58,6 +58,9 @@ pub const MIPS_ACC: i64 = 7;
 /// The field of the PSP's VFPU: its 128 single registers, register `n` of an instruction's
 /// seven-bit field in slot `n`, so a matrix, a column and a row are views of the same singles.
 pub const MIPS_VFPU: i64 = 8;
+/// The field of the VFPU's condition bits: a lane's result of `vcmp` in bits 0 to 3, any lane's in
+/// bit 4 and every lane's in bit 5.
+pub const MIPS_VFPU_CC: i64 = 9;
 
 /// The MIPS general registers by their number, in the o32 names (n32 calls `$8..$11` `a4..a7`),
 /// then `hi` and `lo`.
@@ -815,6 +818,23 @@ impl Machine<'_> {
         )
     }
 
+    /// The pointer to VFPU register `number`, a single.
+    pub fn vfpu_ptr(&mut self, block: BlockId, number: u32) -> ValueId {
+        let hint = format!("p.v{number}");
+        self.b.gep(
+            block,
+            Self::state_ty(),
+            self.state,
+            vec![(Type::I32, 0i64.into()), (Type::I32, MIPS_VFPU.into()), (Type::I32, i64::from(number).into())],
+            &hint,
+        )
+    }
+
+    /// The pointer to the VFPU's condition bits, which `vcmp` sets and `vcmov` reads.
+    pub fn vfpu_cc_ptr(&mut self, block: BlockId) -> ValueId {
+        self.b.gep(block, Self::state_ty(), self.state, vec![(Type::I32, 0i64.into()), (Type::I32, MIPS_VFPU_CC.into())], "p.vfpucc")
+    }
+
     pub fn xmm_ptr(&mut self, block: BlockId, number: u32) -> ValueId {
         let hint = match self.isa {
             Isa::X86 => format!("p.xmm{number}"),
@@ -1231,14 +1251,16 @@ mod spec {
         let spec = Isa::Mips.spec();
         assert_eq!(Isa::MipsN32.spec(), spec);
         let fields = state_fields_for(Isa::Mips);
-        assert_eq!(fields.len(), 9);
+        assert_eq!(fields.len(), 10);
         assert_eq!(fields[MIPS_VFPU as usize], Type::array(128, Type::I32));
-        let named: Vec<_> = [MIPS_FCSR, MIPS_GTE, MIPS_UPPER, MIPS_ACC, MIPS_VFPU].map(|i| spec.fields[i as usize].name).into();
-        assert_eq!(named, ["fcsr", "gte", "upper", "acc", "vfpu"]);
-        assert_eq!(laid_out(spec), (vec![0, 272, 280, 288, 800, 804, 1064, 1336, 1340], 1856));
+        assert_eq!(fields[MIPS_VFPU_CC as usize], Type::I32);
+        let named: Vec<_> =
+            [MIPS_FCSR, MIPS_GTE, MIPS_UPPER, MIPS_ACC, MIPS_VFPU, MIPS_VFPU_CC].map(|i| spec.fields[i as usize].name).into();
+        assert_eq!(named, ["fcsr", "gte", "upper", "acc", "vfpu", "vfpucc"]);
+        assert_eq!(laid_out(spec), (vec![0, 272, 280, 288, 800, 804, 1064, 1336, 1340, 1852], 1856));
         let (index, vfpu) = (MIPS_VFPU as usize, &spec.fields[MIPS_VFPU as usize]);
         assert_eq!((vfpu.role, vfpu.slots(), vfpu.slot_size()), (Role::Extra, 128, 4));
-        assert_eq!(spec.offsets()[index] + vfpu.size(), 1852, "the VFPU is the last field");
+        assert_eq!(spec.offsets()[index] + vfpu.size(), 1852, "the condition bits follow the VFPU's singles");
     }
 
     #[test]

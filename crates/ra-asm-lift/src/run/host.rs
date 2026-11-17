@@ -39,9 +39,9 @@ pub(super) const STATE_SIZE: u64 = 16 * 8 + 8 + 8 + 32 * 16;
 const ARM64_STATE_SIZE: u64 = 32 * 8 + 8 + 8 + 32 * 16;
 /// The bytes of a MIPS `%State`: `$0..$31`, `hi` and `lo`, `pc`, the condition codes, `$f0..$f31`,
 /// the FPU's control and status register, the GTE's 64 registers, and the R5900's upper halves of
-/// `$0..$31`, `hi` and `lo`, and the R5900 FPU's accumulator, each field at its alignment and the
-/// whole padded to the vectors'.
-const MIPS_STATE_SIZE: u64 = 34 * 8 + 8 + 8 + 32 * 16 + 4 + 64 * 4 + 4 + 34 * 8 + 4 + 4;
+/// `$0..$31`, `hi` and `lo`, the R5900 FPU's accumulator, and the VFPU's 128 registers and its
+/// condition bits, each field at its alignment and the whole padded to the vectors'.
+const MIPS_STATE_SIZE: u64 = 34 * 8 + 8 + 8 + 32 * 16 + 4 + 64 * 4 + 4 + 34 * 8 + 4 + 128 * 4 + 4;
 
 /// The end of the `PlayStation 2`'s hardware registers, which begin at 256 MB.
 pub(super) const PS2_HARDWARE_END: u64 = 0x1200_0000;

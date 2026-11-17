@@ -78,12 +78,14 @@ fn allegrex_cases() -> Vec<(&'static str, Vec<u32>, u32)> {
     ]
 }
 
-/// The program: the operands, then each case's words and the comparison of its result with the
-/// expected word, which sets the case's bit of `v0` when they differ; `v0` is the run's exit code.
-fn allegrex_program(cases: &[(&str, Vec<u32>, u32)]) -> Vec<u32> {
+/// The program: the operands and `setup`, then each case's words and the comparison of its result
+/// with the expected word, which sets the case's bit of `v0` when they differ; `v0` is the run's
+/// exit code.
+fn allegrex_program(setup: &[u32], cases: &[(&str, Vec<u32>, u32)]) -> Vec<u32> {
     let mut code = vec![r(0, 0, 0, 2, 0, 0x25)];
     code.extend(constant(RS, A));
     code.extend(constant(RT, B));
+    code.extend(setup);
     for (bit, (_, words, expected)) in (0..).zip(cases) {
         code.extend(words);
         code.extend(constant(12, *expected));
@@ -99,11 +101,79 @@ fn allegrex_program(cases: &[(&str, Vec<u32>, u32)]) -> Vec<u32> {
 /// definition gives; the interpreter runs it over the mapped module.
 #[test]
 fn allegrex_integer_ops() {
-    let cases = allegrex_cases();
+    run_allegrex_cases(&[], &allegrex_cases());
+}
+
+/// The VFPU's singles in its storage order: register `r` of matrix `m` at column `c` is
+/// `m * 4 + c + r * 32`. `C000` (matrix 0, column 0) holds 1 to 4, `C010` 10 to 40.
+const C000: u32 = 0;
+const C010: u32 = 1;
+const C020: u32 = 2;
+
+/// `mtv $12, reg` after `$12` is set to the single `v`.
+fn vfpu_set(reg: u32, v: f32) -> Vec<u32> {
+    let mut words = constant(12, v.to_bits()).to_vec();
+    words.push(0x48e0_0000 | (12 << 16) | reg);
+    words
+}
+
+/// `mfv $11, reg`: the single the case checks.
+fn mfv(reg: u32) -> u32 {
+    0x4860_0000 | (RD << 16) | reg
+}
+
+/// A quad operation of `vd`, `vs` and `vt` on the word `base`.
+fn quad(base: u32, vd: u32, vs: u32, vt: u32) -> u32 {
+    base | (vt << 16) | 0x8000 | (vs << 8) | 0x80 | vd
+}
+
+/// Each VFPU case's words, ending in the `mfv` of one lane, and the bits that lane holds.
+fn vfpu_cases() -> Vec<(&'static str, Vec<u32>, u32)> {
+    let bits = f32::to_bits;
+    vec![
+        ("vadd.q", vec![quad(0x6000_0000, C020, C000, C010), mfv(C020 + 32)], bits(22.0)),
+        // vpfxs: lane 0 is lane 1 negated, the others as they are.
+        ("vpfxs swizzle and negate", vec![0xdc01_00e5, quad(0xd000_0000, C020, C000, 0), mfv(C020)], bits(-2.0)),
+        // vpfxt: lane 0 is the constant 3.
+        ("vpfxt constant", vec![0xdd00_11e4, quad(0x6000_0000, C020, C000, C010), mfv(C020)], bits(4.0)),
+        // vpfxd: lane 1 keeps its value, 22 from the case before the last.
+        (
+            "vpfxd mask",
+            vec![quad(0x6000_0000, C020, C000, C010), 0xde00_0200, quad(0xd000_0000, C020, C000, 0), mfv(C020 + 32)],
+            bits(22.0),
+        ),
+        // vpfxd: lane 2 saturates to [-1, 1].
+        ("vpfxd saturate", vec![0xde00_0030, quad(0xd000_0000, C020, C000, 0), mfv(C020 + 64)], bits(1.0)),
+        ("vscl.q", vec![quad(0x6500_0000, C020, C000, C010), mfv(C020 + 64)], bits(30.0)),
+        ("vmin.q", vec![quad(0x6d00_0000, C020, C000, C010), mfv(C020 + 32)], bits(2.0)),
+        ("vslt.q", vec![quad(0x6f80_0000, C020, C000, C010), mfv(C020 + 96)], bits(1.0)),
+        // sv.q C010, -32($sp), then lv.q C020 from there.
+        ("lv.q and sv.q", vec![0xfba1_ffe0, 0xdba2_ffe0, mfv(C020 + 32)], bits(20.0)),
+        ("vcst.s pi", vec![0xd069_0000 | C020, mfv(C020)], bits(std::f32::consts::PI)),
+        ("vfim.s", vec![0xdf80_3e00 | (C020 << 16), mfv(C020)], bits(1.5)),
+        ("vf2iz.s", vec![0xd220_0000 | (C010 << 8) | C020, mfv(C020)], 10),
+    ]
+}
+
+/// The Allegrex's VFPU: `C000` and `C010` set through `mtv`, then each operation and prefix on
+/// them, its lane moved out with `mfv` and compared with the bits the manual's definition gives.
+#[test]
+fn allegrex_vfpu_ops() {
+    let mut setup = Vec::new();
+    for (k, v) in (0..4u32).zip([1.0f32, 2.0, 3.0, 4.0]) {
+        setup.extend(vfpu_set(C000 + 32 * k, v));
+        setup.extend(vfpu_set(C010 + 32 * k, v * 10.0));
+    }
+    run_allegrex_cases(&setup, &vfpu_cases());
+}
+
+/// Overwrites the PSP hello's `module_start` with the program of `setup` and `cases`, which must
+/// lift without a trap, and runs it at the machine level over the mapped module.
+fn run_allegrex_cases(setup: &[u32], cases: &[(&str, Vec<u32>, u32)]) {
     assert!(cases.len() < 32, "a case's bit in the exit code");
     let mut image = ra_asm_pe::load(&root().join("testdata/psp/hello.prx")).unwrap();
     assert_eq!((image.platform(), image.entry_point()), (Some("psp"), Some(PSP_ENTRY)), "the PSP hello");
-    let bytes: Vec<u8> = allegrex_program(&cases).iter().flat_map(|w| w.to_le_bytes()).collect();
+    let bytes: Vec<u8> = allegrex_program(setup, cases).iter().flat_map(|w| w.to_le_bytes()).collect();
     image.write(PSP_ENTRY, &bytes).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
     let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
@@ -116,7 +186,7 @@ fn allegrex_integer_ops() {
     lifted.entry = Some(PSP_ENTRY);
     let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
     assert_eq!(outcome.stop, None, "the run stopped ({} steps)", outcome.steps);
-    let wrong: Vec<_> = (0..).zip(&cases).filter(|(bit, _)| outcome.exit as u32 & (1 << bit) != 0).map(|(_, (name, ..))| *name).collect();
+    let wrong: Vec<_> = (0..).zip(cases).filter(|(bit, _)| outcome.exit as u32 & (1 << bit) != 0).map(|(_, (name, ..))| *name).collect();
     assert!(wrong.is_empty(), "the lift differs from the manual on {wrong:?}");
 }
 

@@ -244,7 +244,7 @@ const ALLEGREX: &[Form] = &[
     plain("seb", 0xffe0_07ff, op(0x1f) | (0x10 << 6) | 0x20, &[RD, RT]),
     plain("bitrev", 0xffe0_07ff, op(0x1f) | (0x14 << 6) | 0x20, &[RD, RT]),
     plain("seh", 0xffe0_07ff, op(0x1f) | (0x18 << 6) | 0x20, &[RD, RT]),
-    // The VFPU's opcodes, decoded so a function's blocks reach past them; the lift traps on each.
+    // The VFPU's opcodes, whose fields the lift reads from the word.
     plain("lv.s", OP, op(0x32), &[RS, D32]),
     plain("lv.q", OP, op(0x36), &[RS, D32]),
     plain("sv.s", OP, op(0x3a), &[RS, D32]),
@@ -257,6 +257,7 @@ const ALLEGREX: &[Form] = &[
     plain("vfpu4", OP, op(0x34), &[]),
     plain("vfpu5", OP, op(0x37), &[]),
     plain("vfpu6", OP, op(0x3c), &[]),
+    plain("vfpu7", OP, op(0x3f), &[]),
 ];
 
 /// The R5900's rows past [`FORMS`]: MIPS III's doubleword forms, which the 32-bit programs of the
