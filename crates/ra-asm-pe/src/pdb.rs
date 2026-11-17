@@ -129,7 +129,8 @@ pub fn read(image: &Image, path: &Path, guid: &str, age: u32) -> Result<Pdb> {
             return;
         }
         let r = Reader::new(record);
-        let (Ok(ty), Ok(offset), Ok(segment), Ok(name)) = (r.u32(0, "type"), r.u32(4, "offset"), r.u16(8, "segment"), r.cstr(10, 4096, "name"))
+        let (Ok(ty), Ok(offset), Ok(segment), Ok(name)) =
+            (r.u32(0, "type"), r.u32(4, "offset"), r.u16(8, "segment"), r.cstr(10, 4096, "name"))
         else {
             return;
         };

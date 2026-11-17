@@ -455,7 +455,8 @@ fn signed_indices(block: &[Instr], last: usize, predecessors: &[&[Instr]], index
             let start = block.first()?.address;
             predecessors.iter().find_map(|p| {
                 let [.., sub, jump] = p else { return None };
-                let borrow = matches!(jump.mnemonic.as_str(), "jb" | "jc" | "jnae") && jump.flow == Flow::CondJump(ra_asm_arch::Target::Direct(start));
+                let borrow = matches!(jump.mnemonic.as_str(), "jb" | "jc" | "jnae")
+                    && jump.flow == Flow::CondJump(ra_asm_arch::Target::Direct(start));
                 match (sub.mnemonic.as_str(), sub.operands.first().and_then(reg_of), sub.operands.get(1)) {
                     ("sub", Some(d), Some(Operand::Imm { value: k, .. })) if borrow && same(d, index) && (1..1024).contains(k) => {
                         Some(((-*k..0).collect(), true))

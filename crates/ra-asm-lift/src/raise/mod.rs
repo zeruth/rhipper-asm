@@ -162,18 +162,60 @@ const AAPCS32_INTS: [Slot; convention::AAPCS32.int_params.len()] = slots(convent
 const O32_INTS: [Slot; convention::O32.int_params.len()] = slots(convention::O32.int_params);
 const N32_INTS: [Slot; convention::N32.int_params.len()] = slots(convention::N32.int_params);
 
-const WIN64_MACHINE: Machine =
-    Machine { abi: &convention::WIN64, int_params: &WIN64_INTS, private_ints: &WIN64_INTS, gprs: 16, xmms: 16, register_arguments: true, high_result: None };
-const X86_MACHINE: Machine =
-    Machine { abi: &convention::X86, int_params: &X86_INTS, private_ints: &X86_PRIVATE_INTS, gprs: 16, xmms: 16, register_arguments: false, high_result: None };
-const ARM64_MACHINE: Machine =
-    Machine { abi: &convention::AAPCS64, int_params: &AAPCS64_INTS, private_ints: &AAPCS64_INTS, gprs: 32, xmms: 32, register_arguments: true, high_result: None };
-const ARM32_MACHINE: Machine =
-    Machine { abi: &convention::AAPCS32, int_params: &AAPCS32_INTS, private_ints: &AAPCS32_INTS, gprs: 16, xmms: 16, register_arguments: false, high_result: None };
-const O32_MACHINE: Machine =
-    Machine { abi: &convention::O32, int_params: &O32_INTS, private_ints: &O32_INTS, gprs: 34, xmms: 32, register_arguments: true, high_result: Some(MIPS_V1) };
-const N32_MACHINE: Machine =
-    Machine { abi: &convention::N32, int_params: &N32_INTS, private_ints: &N32_INTS, gprs: 34, xmms: 32, register_arguments: true, high_result: Some(MIPS_V1) };
+const WIN64_MACHINE: Machine = Machine {
+    abi: &convention::WIN64,
+    int_params: &WIN64_INTS,
+    private_ints: &WIN64_INTS,
+    gprs: 16,
+    xmms: 16,
+    register_arguments: true,
+    high_result: None,
+};
+const X86_MACHINE: Machine = Machine {
+    abi: &convention::X86,
+    int_params: &X86_INTS,
+    private_ints: &X86_PRIVATE_INTS,
+    gprs: 16,
+    xmms: 16,
+    register_arguments: false,
+    high_result: None,
+};
+const ARM64_MACHINE: Machine = Machine {
+    abi: &convention::AAPCS64,
+    int_params: &AAPCS64_INTS,
+    private_ints: &AAPCS64_INTS,
+    gprs: 32,
+    xmms: 32,
+    register_arguments: true,
+    high_result: None,
+};
+const ARM32_MACHINE: Machine = Machine {
+    abi: &convention::AAPCS32,
+    int_params: &AAPCS32_INTS,
+    private_ints: &AAPCS32_INTS,
+    gprs: 16,
+    xmms: 16,
+    register_arguments: false,
+    high_result: None,
+};
+const O32_MACHINE: Machine = Machine {
+    abi: &convention::O32,
+    int_params: &O32_INTS,
+    private_ints: &O32_INTS,
+    gprs: 34,
+    xmms: 32,
+    register_arguments: true,
+    high_result: Some(MIPS_V1),
+};
+const N32_MACHINE: Machine = Machine {
+    abi: &convention::N32,
+    int_params: &N32_INTS,
+    private_ints: &N32_INTS,
+    gprs: 34,
+    xmms: 32,
+    register_arguments: true,
+    high_result: Some(MIPS_V1),
+};
 
 /// The one place a target's instruction set and width pick its convention: Win64 for 64-bit
 /// x86, the x86 conventions for 32-bit, AAPCS64 and AAPCS32 for the ARMs, o32 and n32 for MIPS.

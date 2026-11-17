@@ -366,8 +366,12 @@ pub fn analyze(
                                             // The arguments in the function's own argument area,
                                             // above its return address.
                                             if let Some(k) = regs[sp] {
-                                                let bytes =
-                                                    possible.iter().filter(|c| !c.forwards || k >= 0).map(|c| c.arguments).max().unwrap_or(0);
+                                                let bytes = possible
+                                                    .iter()
+                                                    .filter(|c| !c.forwards || k >= 0)
+                                                    .map(|c| c.arguments)
+                                                    .max()
+                                                    .unwrap_or(0);
                                                 if k >= 0 && possible.iter().any(|c| c.forwards) {
                                                     info.forwards = true;
                                                 }

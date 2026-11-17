@@ -128,9 +128,8 @@ pub(crate) fn place(defs: &Defs<'_>, op: &Operand) -> Option<Place> {
         Operand::Global(global) => Some(Place { global: global.clone(), offset: 0, index: None }),
         Operand::Local(v) => match defs.def(*v)?.2 {
             Inst::Cast { cast: Cast::IntToPtr | Cast::PtrToInt, value, .. } => place(defs, value),
-            Inst::Cast { cast: Cast::Trunc, to: Type::Int(32), value, .. } | Inst::Cast { cast: Cast::ZExt, from: Type::Int(32), value, .. } => {
-                place(defs, value)
-            }
+            Inst::Cast { cast: Cast::Trunc, to: Type::Int(32), value, .. }
+            | Inst::Cast { cast: Cast::ZExt, from: Type::Int(32), value, .. } => place(defs, value),
             Inst::Bin { op: BinOp::Add, ty, lhs, rhs } => {
                 let (base, other) = match place(defs, lhs) {
                     Some(p) if p.index.is_none() => (p, rhs),

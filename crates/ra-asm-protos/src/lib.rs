@@ -249,8 +249,11 @@ pub fn callback(record: &str, field: &str) -> Option<&'static Callback> {
 
 /// SDL_mixer's music hook, `void (*)(void *udata, Uint8 *stream, int len)`, which the mixer
 /// calls on its audio thread for each buffer: chocolate-doom's OPL music fills it.
-const MIX_MUSIC_HOOK: Callback =
-    Callback { name: "Mix_MusicHook", result: (Kind::Signed, 4), params: &[(Kind::Pointer, 4, 8), (Kind::Pointer, 4, 8), (Kind::Signed, 4, 4)] };
+const MIX_MUSIC_HOOK: Callback = Callback {
+    name: "Mix_MusicHook",
+    result: (Kind::Signed, 4),
+    params: &[(Kind::Pointer, 4, 8), (Kind::Pointer, 4, 8), (Kind::Signed, 4, 4)],
+};
 
 /// `Mix_EffectFunc_t`, `void (*)(int chan, void *stream, int len, void *udata)`.
 const MIX_EFFECT: Callback = Callback {
@@ -264,8 +267,7 @@ const MIX_EFFECT_DONE: Callback =
     Callback { name: "Mix_EffectDone_t", result: (Kind::Signed, 4), params: &[(Kind::Signed, 4, 4), (Kind::Pointer, 4, 8)] };
 
 /// `SDL_ThreadFunction`, `int (*)(void *data)`, which a thread SDL starts runs.
-const SDL_THREAD_FUNCTION: Callback =
-    Callback { name: "SDL_ThreadFunction", result: (Kind::Signed, 4), params: &[(Kind::Pointer, 4, 8)] };
+const SDL_THREAD_FUNCTION: Callback = Callback { name: "SDL_ThreadFunction", result: (Kind::Signed, 4), params: &[(Kind::Pointer, 4, 8)] };
 
 /// The parameters of the libraries' functions that hand the host a code pointer it calls back
 /// after the call, by the function and the parameter's index.

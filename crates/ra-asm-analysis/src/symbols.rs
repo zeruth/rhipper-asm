@@ -211,8 +211,7 @@ pub fn program_entry(image: &Image, functions: &BTreeMap<u64, Function>) -> Opti
     if !functions.get(&entry).is_some_and(|f| matches!(f.kind, Kind::Runtime(_))) {
         return Some(entry);
     }
-    let named =
-        |name: &str| functions.values().find(|f| f.name == name && matches!(f.kind, Kind::Normal) && !f.is_dead()).map(|f| f.entry);
+    let named = |name: &str| functions.values().find(|f| f.name == name && matches!(f.kind, Kind::Normal) && !f.is_dead()).map(|f| f.entry);
     named("main").or_else(|| named(WIN_MAIN)).or(Some(entry))
 }
 

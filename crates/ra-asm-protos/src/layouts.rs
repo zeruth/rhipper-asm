@@ -48,7 +48,14 @@ static POINTER_CELL_RECORD: Record = Record {
     align32: 4,
     size64: 8,
     align64: 8,
-    fields: &[Field { name: "pointer", kind: Kind::Pointer, count: 1, at32: Place { offset: 0, size: 4 }, at64: Place { offset: 0, size: 8 }, record: "" }],
+    fields: &[Field {
+        name: "pointer",
+        kind: Kind::Pointer,
+        count: 1,
+        at32: Place { offset: 0, size: 4 },
+        at64: Place { offset: 0, size: 8 },
+        record: "",
+    }],
 };
 
 /// The structures the host makes and keeps, and hands the program a pointer to: the program reads
@@ -59,8 +66,11 @@ const OBJECTS: &[&str] = &["SDL_Palette", "SDL_PixelFormat", "SDL_Surface"];
 
 /// The pointer fields of an object that point to another, by the record, the field and the
 /// record pointed to. Bound by hand: the layouts say a field is a pointer, not to what.
-const OBJECT_FIELDS: &[(&str, &str, &str)] =
-    &[("SDL_PixelFormat", "next", "SDL_PixelFormat"), ("SDL_PixelFormat", "palette", "SDL_Palette"), ("SDL_Surface", "format", "SDL_PixelFormat")];
+const OBJECT_FIELDS: &[(&str, &str, &str)] = &[
+    ("SDL_PixelFormat", "next", "SDL_PixelFormat"),
+    ("SDL_PixelFormat", "palette", "SDL_Palette"),
+    ("SDL_Surface", "format", "SDL_PixelFormat"),
+];
 
 /// The functions after which the object they take may be gone: its copy is not read again from
 /// the host's.

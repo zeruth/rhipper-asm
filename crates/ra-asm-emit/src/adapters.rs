@@ -155,12 +155,13 @@ pub fn adapters(module: &Module) -> Adapters {
                     let reason = reason.replace('\\', "\\\\").replace('"', "\\\"");
                     let _ = writeln!(object_text, "static uint64_t ra_object_to_guest_{}(uint64_t host) {{", record.name);
                     let _ = writeln!(object_text, "    if (host) ra_adapt_failed(\"{reason}\", host);\n    return 0;\n}}\n");
-                    let _ = writeln!(object_text, "static uint64_t ra_object_to_host_{}(uint64_t guest) {{\n    return guest;\n}}\n", record.name);
                     let _ = writeln!(
                         object_text,
-                        "static void ra_object_refresh_{}(uint64_t guest) {{\n    (void)guest;\n}}\n",
+                        "static uint64_t ra_object_to_host_{}(uint64_t guest) {{\n    return guest;\n}}\n",
                         record.name
                     );
+                    let _ =
+                        writeln!(object_text, "static void ra_object_refresh_{}(uint64_t guest) {{\n    (void)guest;\n}}\n", record.name);
                 }
             }
         }
@@ -729,12 +730,20 @@ fn wrapper(out: &mut String, d: &Declaration, crossing: &Crossing<'_>, back: boo
             (Some(_), _) => format!("guest{i} ? ({})(uintptr_t)host{i} : 0", c_type(&d.ty.params[i])),
             (None, Some((_, record))) => {
                 let host = format!("ra_object_to_host_{}({})", record.name, address(i));
-                if d.ty.params[i] == Type::Ptr { format!("(uint8_t *)(uintptr_t){host}") } else { format!("({}){host}", c_type(&d.ty.params[i])) }
+                if d.ty.params[i] == Type::Ptr {
+                    format!("(uint8_t *)(uintptr_t){host}")
+                } else {
+                    format!("({}){host}", c_type(&d.ty.params[i]))
+                }
             }
             (None, None) => match (sized, crossing.callbacks.iter().find(|(p, _)| *p == i)) {
                 (_, Some((_, c))) => {
                     let host = format!("ra_callback_to_host_{}({})", c.name, address(i));
-                    if d.ty.params[i] == Type::Ptr { format!("(uint8_t *)(uintptr_t){host}") } else { format!("({}){host}", c_type(&d.ty.params[i])) }
+                    if d.ty.params[i] == Type::Ptr {
+                        format!("(uint8_t *)(uintptr_t){host}")
+                    } else {
+                        format!("({}){host}", c_type(&d.ty.params[i]))
+                    }
                 }
                 (Some(s), None) if s.param == i => format!("ra_resize(a{i}, {}, {})", s.size32, s.size64),
                 _ => format!("a{i}"),

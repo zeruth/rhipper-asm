@@ -99,9 +99,7 @@ pub fn typed(name: &str) -> Option<Typed> {
         | "expm1" | "log" | "log2" | "log10" | "log1p" | "logb" | "sqrt" | "ra_x86_sqrt" | "cbrt" | "floor" | "ceil" | "trunc"
         | "round" | "rint" | "nearbyint" | "fabs" | "erf" | "erfc" | "tgamma" | "lgamma" | "_j0" | "_j1" | "_y0" | "_y1" | "_chgsign"
         | "ra_x86_sqrt_sse2" | "ra_x86_sin_sse2" | "ra_x86_cos_sse2" | "ra_x86_tan_sse2" | "ra_x86_asin_sse2" | "ra_x86_acos_sse2"
-        | "ra_x86_atan_sse2" | "ra_x86_exp_sse2" | "ra_x86_log_sse2" | "ra_x86_log10_sse2" => {
-            (vec![Double], Some(Double))
-        }
+        | "ra_x86_atan_sse2" | "ra_x86_exp_sse2" | "ra_x86_log_sse2" | "ra_x86_log10_sse2" => (vec![Double], Some(Double)),
         "sinf" | "cosf" | "tanf" | "asinf" | "acosf" | "atanf" | "sinhf" | "coshf" | "tanhf" | "expf" | "exp2f" | "logf" | "log2f"
         | "log10f" | "sqrtf" | "cbrtf" | "floorf" | "ceilf" | "truncf" | "roundf" | "rintf" | "nearbyintf" | "fabsf" | "_chgsignf" => {
             (vec![Float], Some(Float))

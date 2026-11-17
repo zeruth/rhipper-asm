@@ -129,7 +129,8 @@ mod tests {
     fn a_long_chain_of_trivial_phis_leaves_no_use_of_a_removed_phi() {
         let mut f = chain_of_trivial_phis(100);
         super::run(&mut f);
-        let defined: HashSet<_> = f.params.iter().copied().chain(f.blocks.iter().flat_map(|b| b.instrs.iter().filter_map(|i| i.result))).collect();
+        let defined: HashSet<_> =
+            f.params.iter().copied().chain(f.blocks.iter().flat_map(|b| b.instrs.iter().filter_map(|i| i.result))).collect();
         for b in &f.blocks {
             for v in b.instrs.iter().flat_map(|i| i.inst.uses()).chain(b.terminator.uses()) {
                 assert!(defined.contains(&v), "block `{}` uses `{}`, which nothing defines", b.name, f.value_name(v));

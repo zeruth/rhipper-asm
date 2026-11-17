@@ -1270,7 +1270,12 @@ fn gather(
 /// one the function writes and holds its entry value again at every return ([`StackInfo::kept`]),
 /// and the load's value goes only into memory (a `push esi`), whole or truncated to its low bits.
 /// Such a load keeps the register's value rather than use it: it makes no parameter.
-fn saved_registers(f: &Function, pointers: &HashMap<ValueId, Slot>, stack: &StackInfo, slots: &[Slot]) -> std::collections::HashSet<ValueId> {
+fn saved_registers(
+    f: &Function,
+    pointers: &HashMap<ValueId, Slot>,
+    stack: &StackInfo,
+    slots: &[Slot],
+) -> std::collections::HashSet<ValueId> {
     let mut out = std::collections::HashSet::new();
     let saved = |slot: Slot| match slot {
         Slot::Gpr(r) => stack.kept & (1u64 << r) != 0,
