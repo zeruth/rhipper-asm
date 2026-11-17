@@ -101,15 +101,16 @@ pub(crate) fn disasm_text(image: &Image, decoded: &Decoded<'_>) -> String {
     out
 }
 
-pub(crate) fn disasm(image: &Image, address: u64, length: Option<u64>, json: bool) -> Result<()> {
+/// Prints the instructions at `address`, as text through `cut`, or as JSON whole.
+pub(crate) fn disasm(image: &Image, address: u64, length: Option<u64>, json: bool, cut: &crate::Cut) -> Result<()> {
     let decoded = decode(image, address, length)?;
-    let mut out = std::io::stdout().lock();
     if json {
+        let mut out = std::io::stdout().lock();
         serde_json::to_writer_pretty(&mut out, &disasm_json(image, &decoded))?;
         writeln!(out)?;
         return Ok(());
     }
-    out.write_all(disasm_text(image, &decoded).as_bytes())?;
+    cut.print(&disasm_text(image, &decoded))?;
     Ok(())
 }
 

@@ -26,12 +26,14 @@ pub(crate) struct Options {
     pub x87: ra_asm_lift::X87Unit,
     /// Lift only these functions and what they call, as `ras emit --only` translates them.
     pub only: Vec<String>,
+    /// What of the IR printed to stdout to keep.
+    pub cut: crate::Cut,
 }
 
 /// Writes `program.ll`, `image.bin` and `image.h` into `out`, or the IR to stdout without `out`.
 /// With `report`, stdout gets the coverage report instead of the IR (JSON with `json`).
 pub(crate) fn lift(image: &Image, out: Option<&Path>, options: &Options) -> Result<()> {
-    let Options { level, standalone, quiet, report, json, x87, ref only } = *options;
+    let Options { level, standalone, quiet, report, json, x87, ref only, ref cut } = *options;
     let mut analysis = ra_asm_analysis::analyze(image);
     crate::emit::keep_reached(&mut analysis, only)?;
     let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone, x87 });
@@ -40,9 +42,7 @@ pub(crate) fn lift(image: &Image, out: Option<&Path>, options: &Options) -> Resu
     let text = lifted.module.to_ll();
     match out {
         None if report => {}
-        None => {
-            print!("{text}");
-        }
+        None => cut.print(&text)?,
         Some(dir) => {
             std::fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
             std::fs::write(dir.join("program.ll"), &text)?;

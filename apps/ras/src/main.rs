@@ -59,6 +59,50 @@ fn load(pe: &Path, signatures: &[PathBuf]) -> anyhow::Result<ra_asm_pe::Image> {
     Ok(image)
 }
 
+/// What a command keeps of the text it prints, so a reader cuts it without a pipe: the lines that
+/// hold one of the `--match` texts, the first `--limit` of them, and a last line that counts the rest.
+#[derive(clap::Args, Debug, Clone, Default)]
+struct Cut {
+    /// Keep only the lines that contain this text, case-insensitive. Repeatable: a line that holds
+    /// any of them is kept.
+    #[arg(long = "match", value_name = "TEXT")]
+    matches: Vec<String>,
+    /// Stop after this many lines and print how many were left out.
+    #[arg(long, value_name = "N")]
+    limit: Option<usize>,
+}
+
+impl Cut {
+    /// Writes `text` to stdout through the cut.
+    fn print(&self, text: &str) -> std::io::Result<()> {
+        use std::io::Write as _;
+        let mut out = std::io::stdout().lock();
+        if self.matches.is_empty() && self.limit.is_none() {
+            return out.write_all(text.as_bytes());
+        }
+        let needles: Vec<String> = self.matches.iter().map(|m| m.to_lowercase()).collect();
+        let (mut kept, mut left) = (0usize, 0usize);
+        for line in text.lines() {
+            if !needles.is_empty() {
+                let lower = line.to_lowercase();
+                if !needles.iter().any(|n| lower.contains(n.as_str())) {
+                    continue;
+                }
+            }
+            if self.limit.is_some_and(|limit| kept >= limit) {
+                left += 1;
+                continue;
+            }
+            writeln!(out, "{line}")?;
+            kept += 1;
+        }
+        if left > 0 {
+            writeln!(out, "... {left} more lines left out by --limit")?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// The headers of a PE image: machine, subsystem, base, entry point, and the directories present.
@@ -209,6 +253,8 @@ enum Command {
         /// function and the step it was at, and exit non-zero.
         #[arg(long, value_name = "SECONDS")]
         deadline: Option<u64>,
+        #[command(flatten)]
+        cut: Cut,
     },
     /// The program through the IR interpreter: what it prints goes to stdout, its exit code is
     /// the command's. The lift traps and the faults of the machine stop the run with a message
@@ -251,6 +297,8 @@ enum Command {
         address: String,
         /// The number of bytes, in hexadecimal.
         length: Option<String>,
+        #[command(flatten)]
+        cut: Cut,
     },
     /// Every call or jump to a function, and every pointer to it in the data.
     Callers {
@@ -549,9 +597,9 @@ fn command() -> anyhow::Result<()> {
         Command::Functions { pe, pdata: true } => report::functions(&load(&pe, sigs)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&load(&pe, sigs)?, json),
         Command::Cfg { pe, address } => functions::cfg(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),
-        Command::Lift { pe, out, quiet, level, standalone, report, x87, only, deadline: _ } => {
+        Command::Lift { pe, out, quiet, level, standalone, report, x87, only, deadline: _, cut } => {
             let standalone = standalone || level == ra_asm_lift::RaiseLevel::Abi;
-            lift::lift(&load(&pe, sigs)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87, only })
+            lift::lift(&load(&pe, sigs)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87, only, cut })
         }
         Command::Signatures { pe, build: Some(libraries), installed, toolset, store, .. } => {
             let image = pe.as_deref().map(ra_asm_pe::load).transpose()?;
@@ -587,10 +635,10 @@ fn command() -> anyhow::Result<()> {
             let code = run::run(&load(&pe, sigs)?, &run::Options { level, x87, trace, limit, args, quiet, facts, record })?;
             std::process::exit(code)
         }
-        Command::Disasm { pe, address, length } => {
+        Command::Disasm { pe, address, length, cut } => {
             let address = disasm::parse_address(&address)?;
             let length = length.as_deref().map(disasm::parse_address).transpose()?;
-            disasm::disasm(&load(&pe, sigs)?, address, length, json)
+            disasm::disasm(&load(&pe, sigs)?, address, length, json, &cut)
         }
         Command::Callers { pe, address } => xrefs::callers(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),
         Command::Xrefs { pe, lo, hi } => {
