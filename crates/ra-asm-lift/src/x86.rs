@@ -1602,6 +1602,14 @@ impl Lifter<'_, '_> {
                         } else if let Some(symbol) = self.lifted.runtime.get(&target).cloned() {
                             // The host's runtime takes the call, as it takes an import's.
                             self.import_call_as(block, &symbol, false, true);
+                        } else if let Some(import) =
+                            self.lifted.thunks.get(&target).filter(|i| self.m.bits == 32 && crate::raise::prototypes::is_x86_sse2_math(i))
+                        {
+                            // A call to the `jmp [slot]` of the x86 runtime's SSE2 math is the
+                            // import's own: its argument and result are in the caller's `xmm0`,
+                            // which a lifted thunk, with vector registers of its own, never sees.
+                            let import = import.clone();
+                            self.import_call(block, &import, false);
                         } else if self.lifted.functions.contains_key(&target) {
                             self.m.push(block, ret);
                             self.call_lifted(block, target);

@@ -1207,7 +1207,25 @@ impl Rewriter<'_> {
                 // leaves a float result on the x87 stack.
                 if let Some(proto) = super::prototypes::typed(&symbol) {
                     let sig = proto.signature(target);
-                    let args = self.arguments(f, &sig, current, stack_base, out);
+                    // The x86 runtime's SSE2 math takes its doubles in `xmm0` and `xmm1` and
+                    // returns in `xmm0`, with nothing on the stack or the x87 unit.
+                    let sse2 = !target.is_64() && super::prototypes::is_x86_sse2_math(&symbol);
+                    let args = if sse2 {
+                        let mut args = Vec::new();
+                        for (p, kind) in proto.params.iter().enumerate().take(2) {
+                            let slot = self.xmm_slot(f, p as u8, out);
+                            let v = f.new_value(&format!("farg{p}"), kind.ty());
+                            out.push(Instruction {
+                                result: Some(v),
+                                inst: Inst::Load { ty: kind.ty(), ptr: Operand::Local(slot), align: 8, volatile: false },
+                                address: None,
+                            });
+                            args.push((kind.ty(), Operand::Local(v)));
+                        }
+                        args
+                    } else {
+                        self.arguments(f, &sig, current, stack_base, out)
+                    };
                     let fn_ty = proto.fn_type();
                     let result = (fn_ty.ret != Type::Void).then(|| f.new_value("ret", fn_ty.ret.clone()));
                     out.push(Instruction {
@@ -1216,7 +1234,7 @@ impl Rewriter<'_> {
                         address,
                     });
                     match (proto.returns, result) {
-                        (Some(kind @ (Kind::Float | Kind::Double)), Some(v)) if !target.is_64() => {
+                        (Some(kind @ (Kind::Float | Kind::Double)), Some(v)) if !target.is_64() && !sse2 => {
                             self.after_call(f, current, None, None, &NO_SLOTS, out);
                             push_x87(f, kind, v, abi.x87, out);
                         }
