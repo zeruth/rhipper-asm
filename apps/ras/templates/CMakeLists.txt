@@ -163,3 +163,16 @@ elseif(RA_POINTER_BITS EQUAL 32)
   target_compile_options(@TARGET@ PRIVATE -fno-pie)
   target_link_options(@TARGET@ PRIVATE -no-pie)
 endif()
+
+# The host's builds of the DLLs the program imports that Windows does not have (SDL's, say): the
+# port links them through import libraries made from the image, so CMake does not know where they
+# are. Every DLL of these directories goes beside the executable after each build, so it starts
+# from any build directory, an IDE's too. Set it (-DRA_DLL_DIRS=...) to where they are.
+set(RA_DLL_DIRS "" CACHE STRING "Directories whose DLLs go beside the port")
+foreach(dir IN LISTS RA_DLL_DIRS)
+  file(GLOB dlls "${dir}/*.dll")
+  if(dlls)
+    add_custom_command(TARGET @TARGET@ POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different ${dlls} "$<TARGET_FILE_DIR:@TARGET@>")
+  endif()
+endforeach()
