@@ -251,6 +251,63 @@ fn psx_hello_runs_interpreted() {
     }
 }
 
+/// The ps2sdk hello, an R5900 ELF: its own code (`main` and the `sio_puts` it calls, down to
+/// `sio_putc`) lifts with no trap, and run from `main` over the mapped image it prints through
+/// the EE's serial port the console output its source writes. The C library's start, which waits
+/// on the IOP, does not run.
+#[test]
+fn ps2_hello_runs_interpreted() {
+    let path = root().join("testdata/ps2/hello.elf");
+    let expected = std::fs::read_to_string(root().join("testdata/ps2/hello.txt")).unwrap();
+    let image = ra_asm_pe::load(&path).unwrap();
+    assert_eq!(image.platform(), Some("ps2"), "an R5900 ELF");
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    let symbol = |name: &str| image.symbols.iter().find(|s| s.name == name).map(|s| s.va).unwrap_or_else(|| panic!("no symbol {name}"));
+    let main = symbol("main");
+    let root = lifted.functions.get(&main).cloned().expect("main is lifted");
+
+    let own = reached_from(&lifted.module, &root);
+    for name in ["sio_puts", "sio_putsn", "sio_putc"] {
+        assert!(own.contains(&symbol(name)), "ps2 hello: main does not reach {name}: {own:x?}");
+    }
+    let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+    let trapped: Vec<_> = coverage.functions.iter().filter(|(entry, ..)| own.contains(entry)).collect();
+    assert!(trapped.is_empty(), "ps2 hello: the program's own code traps: {trapped:?}");
+
+    lifted.entry = Some(main);
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let head = &outcome.output[..outcome.output.len().min(8)];
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps, the output starting {head:02x?}", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("ps2 hello: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!(outcome.exit, 0, "ps2 hello: main's result (stop: {:?})", outcome.stop);
+}
+
+/// The image addresses of the functions of `module` that `root` reaches by its direct calls,
+/// its own among them.
+fn reached_from(module: &ra_asm_ir::Module, root: &str) -> std::collections::BTreeSet<u64> {
+    let by_name: std::collections::HashMap<&str, &ra_asm_ir::Function> = module.functions.iter().map(|f| (f.name.as_str(), f)).collect();
+    let mut names = std::collections::BTreeSet::new();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut work = vec![root.to_owned()];
+    while let Some(name) = work.pop() {
+        let Some(f) = by_name.get(name.as_str()) else { continue };
+        if !names.insert(name) {
+            continue;
+        }
+        seen.extend(f.address);
+        for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+            if let ra_asm_ir::Inst::Call { callee: ra_asm_ir::Callee::Direct(callee), .. } = &i.inst {
+                work.push(callee.clone());
+            }
+        }
+    }
+    seen
+}
+
 /// The homebrew XBE: a 32-bit x86 program whose imports are the kernel's, by ordinal, named from
 /// the loader's table; the interpreter runs it at every level and answers the kernel calls. The
 /// clang run waits for the kernel's platform runtime.

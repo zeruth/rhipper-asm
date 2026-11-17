@@ -586,6 +586,9 @@ fn lift_on(
     if image.platform() == Some("psx") {
         state::declare_psx(&mut module);
     }
+    if image.platform() == Some("ps2") {
+        state::declare_ps2(&mut module);
+    }
     state::define_runtime_globals(&mut module, options.x87);
     let functions = || images.iter().flat_map(|(_, a)| a.functions.values());
     let runtime: BTreeMap<u64, String> = functions()

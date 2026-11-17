@@ -8,8 +8,9 @@
 //! x86 shape holds `r0..r15`, the flags as ARM64 keeps them and `q0..q15`. On MIPS the four
 //! fields hold `$0..$31` at 64 bits (MIPS III's width, every 32-bit result sign-extended into
 //! it) with `hi` and `lo` after them as `$32` and `$33`, `pc`, the FPU's eight condition codes as
-//! bytes and `$f0..$f31`, and two follow: the FPU's control and status register, and the 64
-//! registers of the `PlayStation`'s GTE.
+//! bytes and `$f0..$f31`, and three follow: the FPU's control and status register, the 64
+//! registers of the `PlayStation`'s GTE, the upper halves of the R5900's 128-bit registers, and
+//! the R5900 FPU's accumulator.
 
 use ra_asm_arch::state::{self as layout, StateSpec};
 use ra_asm_ir::{AtomicOp, BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Operand, Type, ValueId};
@@ -48,6 +49,12 @@ pub const MIPS_FCSR: i64 = 4;
 /// The field of the GTE's registers: data register `n` in slot `n`, control register `n` in
 /// slot `32 + n`.
 pub const MIPS_GTE: i64 = 5;
+/// The field of the R5900's upper halves: bits 64 to 127 of general register `n` in slot `n`,
+/// `hi1` and `lo1` (the upper halves of `hi` and `lo`) in [`MIPS_HI`] and [`MIPS_LO`].
+pub const MIPS_UPPER: i64 = 6;
+/// The field of the R5900 FPU's accumulator, a single the `adda`, `mula`, `madd` and `msub`
+/// families read and write.
+pub const MIPS_ACC: i64 = 7;
 
 /// The MIPS general registers by their number, in the o32 names (n32 calls `$8..$11` `a4..a7`),
 /// then `hi` and `lo`.
@@ -139,6 +146,24 @@ pub fn declare_psx(module: &mut ra_asm_ir::Module) {
     }
     for (_, name) in GTE_COMMANDS {
         module.declare(Declaration { name: format!("ra_gte_{name}"), ty: gte_type(), conv: CallConv::C, attrs: vec![] });
+    }
+}
+
+/// The arithmetic of the R5900's FPU, `ra_f32_ftz_<name>`, by its operand count: on the bits of
+/// its single registers, denormals as zeros, exponent 255 as a number, each result rounded toward
+/// zero, clamped to the largest magnitude and flushed below the smallest normal, as IEEE's is not.
+const EE_FPU: [(&str, usize); 8] =
+    [("add", 2), ("sub", 2), ("mul", 2), ("div", 2), ("rsqrt", 2), ("sqrt", 1), ("cvt_s_w", 1), ("cvt_w_s", 1)];
+
+/// The type of an R5900 FPU function of `operands` singles: `i32 (i32, ...)`.
+pub fn ee_fpu_type(operands: usize) -> FnType {
+    FnType::new(Type::I32, vec![Type::I32; operands])
+}
+
+/// The runtime of a `PlayStation 2` program: the R5900 FPU's functions.
+pub fn declare_ps2(module: &mut ra_asm_ir::Module) {
+    for (name, operands) in EE_FPU {
+        module.declare(Declaration { name: format!("ra_f32_ftz_{name}"), ty: ee_fpu_type(operands), conv: CallConv::C, attrs: vec![] });
     }
 }
 
@@ -746,6 +771,19 @@ impl Machine<'_> {
             Self::state_ty(),
             self.state,
             vec![(Type::I32, 0i64.into()), (Type::I32, MIPS_GTE.into()), (Type::I32, i64::from(slot).into())],
+            &hint,
+        )
+    }
+
+    /// The pointer to the upper half of the R5900's general register `number` (`hi1` and `lo1`
+    /// past `$31`).
+    pub fn upper_ptr(&mut self, block: BlockId, number: u32) -> ValueId {
+        let hint = format!("p.{}.u", self.gpr_name(number));
+        self.b.gep(
+            block,
+            Self::state_ty(),
+            self.state,
+            vec![(Type::I32, 0i64.into()), (Type::I32, MIPS_UPPER.into()), (Type::I32, i64::from(number).into())],
             &hint,
         )
     }

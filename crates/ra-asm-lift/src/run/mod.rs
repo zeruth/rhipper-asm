@@ -9,6 +9,7 @@
 //! one address, and two runs would want it at once.
 
 mod f80;
+mod ftz;
 mod host;
 pub(crate) mod os;
 mod printf;
@@ -360,7 +361,11 @@ fn run_here(
     let (start, len) = if image.platform() == Some("psx") { (PSX_RAM, PSX_RAM_SIZE) } else { (base, size) };
     let image_region = patiently(|| os::allocate_at(start, len))
         .ok_or_else(|| anyhow!("cannot map the image at {base:#x}: the address is taken in this process"))?;
-    let low = |len: u64, what: &str| patiently(|| os::allocate_low(len)).ok_or_else(|| anyhow!("no room below 4 GB for the {what}"));
+    // A PlayStation 2's hardware registers from 256 MB, which its device answers ahead of the
+    // memory: the run's own regions lie above them.
+    let floor = if image.platform() == Some("ps2") { host::PS2_HARDWARE_END } else { 0x1000_0000 };
+    let low =
+        |len: u64, what: &str| patiently(|| os::allocate_low_from(floor, len)).ok_or_else(|| anyhow!("no room below 4 GB for the {what}"));
     let statics = low(4 << 20, "globals")?;
     let frames = low(16 << 20, "frames")?;
     let stack = low(1 << 20, "stack")?;
@@ -389,6 +394,12 @@ fn run_here(
     vm.observer = options.observer.clone().map(|watch| Box::new(watch) as Box<dyn Observer>);
     vm.set_static_region(statics.start, statics.len);
     vm.set_frame_region(frames.start, frames.len);
+    // A PlayStation 2 program's console is the EE's serial port: `sio_puts` writes its registers.
+    let console = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    if image.platform() == Some("ps2") {
+        let sio = host::Sio { out: console.clone(), live: options.live };
+        vm.memory.add_device(host::SIO, host::SIO_LEN, Box::new(sio));
+    }
     if !lifted.standalone {
         vm.memory.write(base, image.mapped()).map_err(setup)?;
     }
@@ -452,7 +463,8 @@ fn run_here(
         None => Vec::new(),
     };
     let resolved = std::mem::take(&mut runtime.resolved);
-    let output = std::mem::take(&mut runtime.output);
+    let mut output = std::mem::take(&mut runtime.output);
+    output.extend(console.take());
     let outcome =
         Outcome { output, exit, stop, steps: vm.steps, facts, boundary, unpacked, image: image_bytes, resolved, hosted: runtime.hosted };
     Ok((outcome, returned))

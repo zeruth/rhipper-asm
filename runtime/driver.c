@@ -204,6 +204,101 @@ uint64_t ra_f32_bits(float value) {
     return bits;
 }
 
+// The R5900's FPU, as the interpreter's crates/ra-asm-lift/src/run/ftz.rs computes it: a register's
+// value is exact in a double, and the double's result is truncated into a register.
+#define RA_FTZ_MAX 0x7fffffffu
+#define RA_FTZ_SIGN 0x80000000u
+#define RA_FTZ_MIN_NORMAL 0x00800000u
+
+static double ra_ftz_value(uint32_t bits) {
+    uint64_t sign = (uint64_t)(bits & RA_FTZ_SIGN) << 32, exponent = (bits >> 23) & 0xff, out;
+    double value;
+    out = exponent == 0 ? sign : sign | ((exponent + 1023 - 127) << 52) | ((uint64_t)(bits & 0x7fffff) << 29);
+    memcpy(&value, &out, sizeof value);
+    return value;
+}
+
+static uint32_t ra_ftz_bits(double x) {
+    uint64_t b;
+    memcpy(&b, &x, sizeof b);
+    uint32_t sign = (uint32_t)(b >> 32) & RA_FTZ_SIGN;
+    int64_t exponent = (int64_t)((b >> 52) & 0x7ff) - 1023 + 127;
+    if (x == 0.0 || exponent < 1) return sign;
+    if (exponent > 255) return sign | RA_FTZ_MAX;
+    return sign | ((uint32_t)exponent << 23) | ((uint32_t)(b >> 29) & 0x7fffff);
+}
+
+// The sum rounded to nearest and its exact error (the two-sum): a sum on the register's grid with
+// the exact value nearer zero steps toward zero.
+static uint32_t ra_ftz_sum(double a, double b) {
+    double s = a + b;
+    double bb = s - a, error = (a - (s - bb)) + (b - bb);
+    uint32_t r = ra_ftz_bits(s);
+    if (error != 0.0 && ra_ftz_value(r) == s && (error < 0.0) != (s < 0.0))
+        return (r & RA_FTZ_MAX) == RA_FTZ_MIN_NORMAL ? r & RA_FTZ_SIGN : r - 1;
+    return r;
+}
+
+// Whether g * sqrt(b) <= a for the normal magnitudes g, a and b, in integers: g * g * b against
+// a * a, both of up to 96 bits as two words.
+static int ra_ftz_root_at_most(uint32_t g, uint32_t a, uint32_t b) {
+    uint64_t mg = (g & 0x7fffff) | RA_FTZ_MIN_NORMAL, ma = (a & 0x7fffff) | RA_FTZ_MIN_NORMAL, mb = (b & 0x7fffff) | RA_FTZ_MIN_NORMAL;
+    int eg = (int)((g >> 23) & 0xff), ea = (int)((a >> 23) & 0xff), eb = (int)((b >> 23) & 0xff);
+    int k = 2 * ea - 2 * eg - eb + 127 + 23;
+    if (k < 0) return 0;
+    if (k > 48) return 1;
+    uint64_t p = mg * mg, p0 = p & 0xffffffffu, p1 = p >> 32;
+    uint64_t low = p0 * mb, high = p1 * mb + (low >> 32);
+    uint64_t left_hi = high >> 32, left_lo = (high << 32) | (low & 0xffffffffu);
+    uint64_t q = ma * ma, right_hi = k == 0 ? 0 : q >> (64 - k), right_lo = q << k;
+    return left_hi != right_hi ? left_hi < right_hi : left_lo <= right_lo;
+}
+
+uint32_t ra_f32_ftz_add(uint32_t a, uint32_t b) {
+    return ra_ftz_sum(ra_ftz_value(a), ra_ftz_value(b));
+}
+
+uint32_t ra_f32_ftz_sub(uint32_t a, uint32_t b) {
+    return ra_ftz_sum(ra_ftz_value(a), -ra_ftz_value(b));
+}
+
+uint32_t ra_f32_ftz_mul(uint32_t a, uint32_t b) {
+    return ra_ftz_bits(ra_ftz_value(a) * ra_ftz_value(b));
+}
+
+uint32_t ra_f32_ftz_div(uint32_t a, uint32_t b) {
+    if ((b & 0x7f800000) == 0) return ((a ^ b) & RA_FTZ_SIGN) | RA_FTZ_MAX;
+    return ra_ftz_bits(ra_ftz_value(a) / ra_ftz_value(b));
+}
+
+uint32_t ra_f32_ftz_sqrt(uint32_t a) {
+    if ((a & 0x7f800000) == 0) return a & RA_FTZ_SIGN;
+    return ra_ftz_bits(sqrt(ra_ftz_value(a & RA_FTZ_MAX)));
+}
+
+uint32_t ra_f32_ftz_rsqrt(uint32_t a, uint32_t b) {
+    uint32_t sign = a & RA_FTZ_SIGN, r;
+    if ((b & 0x7f800000) == 0) return sign | RA_FTZ_MAX;
+    if ((a & 0x7f800000) == 0) return sign;
+    a &= RA_FTZ_MAX;
+    b &= RA_FTZ_MAX;
+    r = ra_ftz_bits(ra_ftz_value(a) / sqrt(ra_ftz_value(b)));
+    if (r < RA_FTZ_MIN_NORMAL) r = RA_FTZ_MIN_NORMAL;
+    while (r > RA_FTZ_MIN_NORMAL && !ra_ftz_root_at_most(r, a, b)) r--;
+    if (r == RA_FTZ_MIN_NORMAL && !ra_ftz_root_at_most(r, a, b)) return sign;
+    while (r < RA_FTZ_MAX && ra_ftz_root_at_most(r + 1, a, b)) r++;
+    return sign | r;
+}
+
+uint32_t ra_f32_ftz_cvt_s_w(uint32_t a) {
+    return ra_ftz_bits((double)(int32_t)a);
+}
+
+uint32_t ra_f32_ftz_cvt_w_s(uint32_t a) {
+    if ((a & 0x7f800000) > 0x4e800000) return (a & RA_FTZ_SIGN) ? 0x80000000u : 0x7fffffffu;
+    return (uint32_t)(int32_t)trunc(ra_ftz_value(a));
+}
+
 // Lockstep: with RHIPPER_STEP naming a pipe, the port serves the pipe and stops at each traced
 // entry, writing `> name kinds value...` (`-` for no arguments, the values in hexadecimal) and
 // reading commands until one lets it go on: `n` to the next entry, `r address size` for the bytes

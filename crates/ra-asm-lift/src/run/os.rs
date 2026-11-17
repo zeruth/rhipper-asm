@@ -116,7 +116,13 @@ pub(super) fn allocate_at(base: u64, len: u64) -> Option<Allocation> {
 /// Memory below 4 GB, where a 32-bit program's pointers reach: the first free spot of a walk
 /// from 256 MB up in 16 MB steps.
 pub(crate) fn allocate_low(len: u64) -> Option<Allocation> {
-    (0x1000_0000u64..0x8000_0000).step_by(0x0100_0000).find_map(|base| allocate_at(base, len))
+    allocate_low_from(0x1000_0000, len)
+}
+
+/// Memory below 4 GB from `floor` up, in the steps of [`allocate_low`]: above a range the
+/// program's machine gives its devices.
+pub(crate) fn allocate_low_from(floor: u64, len: u64) -> Option<Allocation> {
+    (floor..0x8000_0000).step_by(0x0100_0000).find_map(|base| allocate_at(base, len))
 }
 
 #[cfg(windows)]

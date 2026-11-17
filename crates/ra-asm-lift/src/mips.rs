@@ -21,6 +21,17 @@
 //! `ctc2`, `lwc2` and `swc2` move, and whose commands are calls on `ra_gte_<op>`. A jump to the
 //! BIOS's `A0`, `B0` or `C0` entry with the function's number in `t1`, both constants of the block,
 //! is a call on the function the table names.
+//!
+//! A `PlayStation 2` program runs on the R5900, whose registers are 128 bits: every instruction
+//! of MIPS III writes the low 64 as above and leaves the upper 64, a field of their own in the
+//! state, as they are. `lq` and `sq` move the whole register; `mult` and `madd` also write `lo`
+//! to `rd`, and their forms ending in `1` work on the second pair, `hi1` and `lo1`, the upper
+//! halves of `hi` and `lo`; the multimedia instructions are vector IR on the register's words,
+//! halfwords or bytes. Its FPU has singles only and is not IEEE's: no infinity, denormals as
+//! zeros, every result rounded toward zero, so its arithmetic and its conversions are calls on
+//! the runtime's `ra_f32_ftz_*` on the registers' bits, and its accumulator, which the
+//! multiply-adds keep, is a field of the state. The VU0 macro instructions of coprocessor 2 and
+//! the EE kernel's `syscall` trap with their address.
 #![allow(clippy::many_single_char_names)]
 
 use std::collections::HashMap;
@@ -31,7 +42,7 @@ use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, IC
 use ra_asm_pe::Image;
 
 use crate::raise::prototypes::{BiosCall, psx_bios};
-use crate::state::{Isa, MIPS_FCSR, MIPS_GTE, MIPS_HI, MIPS_LO, Machine, PSX_GP};
+use crate::state::{Isa, MIPS_ACC, MIPS_FCSR, MIPS_GTE, MIPS_HI, MIPS_LO, Machine, PSX_GP};
 use crate::x86::trap;
 use crate::{Lifted, function_name};
 
@@ -60,6 +71,7 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
     }
     let (x87, isa) = (lifted.x87, lifted.isa);
     let r3000 = image.platform() == Some("psx");
+    let r5900 = image.platform() == Some("ps2");
     let mut lifter = Lifter {
         m: Machine { b: &mut b, state, bits: 32, x87, isa },
         image,
@@ -69,6 +81,7 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         jump_target: None,
         consts: HashMap::new(),
         r3000,
+        r5900,
     };
     for blk in &f.blocks {
         lifter.lift_block(blk);
@@ -167,6 +180,9 @@ struct Lifter<'a, 'b> {
     consts: HashMap<u8, u32>,
     /// A `PlayStation` program: the R3000, with the GTE and no FPU.
     r3000: bool,
+    /// A `PlayStation 2` program: the R5900, with its 128-bit registers and multimedia
+    /// instructions.
+    r5900: bool,
 }
 
 impl Lifter<'_, '_> {
@@ -671,6 +687,32 @@ impl Lifter<'_, '_> {
             // The R3000 has no FPU.
             17 | 49 | 53 | 57 | 61 if self.r3000 => return self.unsupported(block, w, ip),
             18 | 50 | 58 if self.r3000 => return self.cop2(block, w, ip),
+            28 if self.r5900 => return self.mmi(block, w, ip),
+            17 if self.r5900 => return self.ee_cop1(block, w, ip),
+            // The R5900's coprocessor 2 is VU0 in macro mode (`cop2`, `lqc2`, `sqc2`), and its
+            // FPU has no doubles (`ldc1`, `sdc1`).
+            18 | 53 | 54 | 61 | 62 if self.r5900 => return self.unsupported(block, w, ip),
+            // lq, sq: the low four bits of the address are not used.
+            30 | 31 if self.r5900 => {
+                let addr = self.address(block, w);
+                let aligned = self.m.b.bin(block, BinOp::And, Type::I32, addr, -16i64, "aligned");
+                if w.op() == 30 {
+                    let v = self.m.load(block, Type::I128, aligned, "lq");
+                    self.set128(block, rt, v);
+                } else {
+                    let v = self.reg128(block, rt);
+                    self.m.store(block, Type::I128, v, aligned);
+                }
+            }
+            // ldl, ldr, sdl, sdr: the doubleword merges of MIPS III.
+            26 | 27 if !self.r3000 => {
+                let addr = self.address(block, w);
+                self.unaligned_load(block, addr, rt, w.op() == 26, &Type::I64);
+            }
+            44 | 45 if !self.r3000 => {
+                let addr = self.address(block, w);
+                self.unaligned_store(block, addr, rt, w.op() == 44, &Type::I64);
+            }
             // addi, daddi: the signed add that traps on overflow.
             8 | 24 => {
                 let ty = if w.op() == 8 { Type::I32 } else { Type::I64 };
@@ -720,7 +762,7 @@ impl Lifter<'_, '_> {
             }
             42 | 46 => {
                 let addr = self.address(block, w);
-                self.unaligned_store(block, addr, rt, w.op() == 42);
+                self.unaligned_store(block, addr, rt, w.op() == 42, &Type::I32);
             }
             49 | 53 => {
                 let addr = self.address(block, w);
@@ -752,58 +794,67 @@ impl Lifter<'_, '_> {
             35 | 48 => (Type::I32, true),
             39 => (Type::I32, false),
             52 | 55 => (Type::I64, true),
-            op => return self.unaligned_load(block, addr, rt, op == 34),
+            op => return self.unaligned_load(block, addr, rt, op == 34, &Type::I32),
         };
         let v = self.m.load(block, ty.clone(), addr, "ld");
         let r = if signed { self.m.sext(block, ty, v, Type::I64, "ld.x") } else { self.m.zext(block, ty, v, Type::I64, "ld.x") };
         self.set64(block, rt, r);
     }
 
-    /// `lwl` (`left`) and `lwr` on a little-endian machine: the bytes of the aligned word from the
-    /// address to its end become the register's high bytes, or from its start to the address its
-    /// low bytes; the rest of the register stays.
-    fn unaligned_load(&mut self, block: BlockId, addr: ValueId, rt: u8, left: bool) {
-        let k = self.m.b.bin(block, BinOp::And, Type::I32, addr, 3i64, "k");
-        let aligned = self.m.b.bin(block, BinOp::And, Type::I32, addr, -4i64, "aligned");
-        let word = self.m.load(block, Type::I32, aligned, "word");
-        let old = self.reg32(block, rt);
-        let bits = self.m.b.bin(block, BinOp::Shl, Type::I32, k, 3i64, "bits");
-        let (part, keep) = if left {
-            let s = self.m.b.bin(block, BinOp::Sub, Type::I32, 24i64, bits, "s");
-            let part = self.m.b.bin(block, BinOp::Shl, Type::I32, word, s, "part");
-            let one = self.m.b.bin(block, BinOp::Shl, Type::I32, 1i64, s, "one");
-            (part, self.m.b.bin(block, BinOp::Sub, Type::I32, one, 1i64, "keep"))
-        } else {
-            let part = self.m.b.bin(block, BinOp::LShr, Type::I32, word, bits, "part");
-            let mask = self.m.b.bin(block, BinOp::LShr, Type::I32, -1i64, bits, "mask");
-            (part, self.m.b.bin(block, BinOp::Xor, Type::I32, mask, -1i64, "keep"))
-        };
-        let kept = self.m.b.bin(block, BinOp::And, Type::I32, old, keep, "kept");
-        let merged = self.m.b.bin(block, BinOp::Or, Type::I32, part, kept, "merged");
-        self.set32(block, rt, merged);
+    /// The offset of `addr` in its aligned word (`ty` wide) as a shift of `ty`, in bits, and the
+    /// aligned address.
+    fn unaligned_parts(&mut self, block: BlockId, addr: ValueId, ty: &Type) -> (ValueId, ValueId) {
+        let bytes: i64 = if *ty == Type::I32 { 4 } else { 8 };
+        let k = self.m.b.bin(block, BinOp::And, Type::I32, addr, bytes - 1, "k");
+        let aligned = self.m.b.bin(block, BinOp::And, Type::I32, addr, -bytes, "aligned");
+        let k = if bytes == 8 { self.m.b.cast(block, Cast::ZExt, Type::I32, k, Type::I64, "k.x") } else { k };
+        (self.m.b.bin(block, BinOp::Shl, ty.clone(), k, 3i64, "bits"), aligned)
     }
 
-    /// `swl` (`left`) and `swr` on a little-endian machine: the register's high bytes go to the
-    /// aligned word from its start to the address, or its low bytes from the address to its end.
-    fn unaligned_store(&mut self, block: BlockId, addr: ValueId, rt: u8, left: bool) {
-        let k = self.m.b.bin(block, BinOp::And, Type::I32, addr, 3i64, "k");
-        let aligned = self.m.b.bin(block, BinOp::And, Type::I32, addr, -4i64, "aligned");
-        let word = self.m.load(block, Type::I32, aligned, "word");
-        let value = self.reg32(block, rt);
-        let bits = self.m.b.bin(block, BinOp::Shl, Type::I32, k, 3i64, "bits");
+    /// `lwl` (`left`) and `lwr` on a little-endian machine, or `ldl` and `ldr` at `ty` I64: the
+    /// bytes of the aligned word from the address to its end become the register's high bytes,
+    /// or from its start to the address its low bytes; the rest of the register stays.
+    fn unaligned_load(&mut self, block: BlockId, addr: ValueId, rt: u8, left: bool, ty: &Type) {
+        let top = if *ty == Type::I32 { 24i64 } else { 56 };
+        let (bits, aligned) = self.unaligned_parts(block, addr, ty);
+        let word = self.m.load(block, ty.clone(), aligned, "word");
+        let old = self.reg(block, rt, ty);
         let (part, keep) = if left {
-            let s = self.m.b.bin(block, BinOp::Sub, Type::I32, 24i64, bits, "s");
-            let part = self.m.b.bin(block, BinOp::LShr, Type::I32, value, s, "part");
-            let mask = self.m.b.bin(block, BinOp::LShr, Type::I32, -1i64, s, "mask");
-            (part, self.m.b.bin(block, BinOp::Xor, Type::I32, mask, -1i64, "keep"))
+            let s = self.m.b.bin(block, BinOp::Sub, ty.clone(), top, bits, "s");
+            let part = self.m.b.bin(block, BinOp::Shl, ty.clone(), word, s, "part");
+            let one = self.m.b.bin(block, BinOp::Shl, ty.clone(), 1i64, s, "one");
+            (part, self.m.b.bin(block, BinOp::Sub, ty.clone(), one, 1i64, "keep"))
         } else {
-            let part = self.m.b.bin(block, BinOp::Shl, Type::I32, value, bits, "part");
-            let one = self.m.b.bin(block, BinOp::Shl, Type::I32, 1i64, bits, "one");
-            (part, self.m.b.bin(block, BinOp::Sub, Type::I32, one, 1i64, "keep"))
+            let part = self.m.b.bin(block, BinOp::LShr, ty.clone(), word, bits, "part");
+            let mask = self.m.b.bin(block, BinOp::LShr, ty.clone(), -1i64, bits, "mask");
+            (part, self.m.b.bin(block, BinOp::Xor, ty.clone(), mask, -1i64, "keep"))
         };
-        let kept = self.m.b.bin(block, BinOp::And, Type::I32, word, keep, "kept");
-        let merged = self.m.b.bin(block, BinOp::Or, Type::I32, part, kept, "merged");
-        self.m.store(block, Type::I32, merged, aligned);
+        let kept = self.m.b.bin(block, BinOp::And, ty.clone(), old, keep, "kept");
+        let merged = self.m.b.bin(block, BinOp::Or, ty.clone(), part, kept, "merged");
+        self.set(block, rt, ty, merged);
+    }
+
+    /// `swl` (`left`) and `swr` on a little-endian machine, or `sdl` and `sdr` at `ty` I64: the
+    /// register's high bytes go to the aligned word from its start to the address, or its low
+    /// bytes from the address to its end.
+    fn unaligned_store(&mut self, block: BlockId, addr: ValueId, rt: u8, left: bool, ty: &Type) {
+        let top = if *ty == Type::I32 { 24i64 } else { 56 };
+        let (bits, aligned) = self.unaligned_parts(block, addr, ty);
+        let word = self.m.load(block, ty.clone(), aligned, "word");
+        let value = self.reg(block, rt, ty);
+        let (part, keep) = if left {
+            let s = self.m.b.bin(block, BinOp::Sub, ty.clone(), top, bits, "s");
+            let part = self.m.b.bin(block, BinOp::LShr, ty.clone(), value, s, "part");
+            let mask = self.m.b.bin(block, BinOp::LShr, ty.clone(), -1i64, s, "mask");
+            (part, self.m.b.bin(block, BinOp::Xor, ty.clone(), mask, -1i64, "keep"))
+        } else {
+            let part = self.m.b.bin(block, BinOp::Shl, ty.clone(), value, bits, "part");
+            let one = self.m.b.bin(block, BinOp::Shl, ty.clone(), 1i64, bits, "one");
+            (part, self.m.b.bin(block, BinOp::Sub, ty.clone(), one, 1i64, "keep"))
+        };
+        let kept = self.m.b.bin(block, BinOp::And, ty.clone(), word, keep, "kept");
+        let merged = self.m.b.bin(block, BinOp::Or, ty.clone(), part, kept, "merged");
+        self.m.store(block, ty.clone(), merged, aligned);
     }
 
     /// The `SPECIAL` opcode: the register-to-register operations.
@@ -840,6 +891,9 @@ impl Lifter<'_, '_> {
                 let c = self.m.b.icmp(block, cc, Type::I64, t, 0i64, "c");
                 self.move_if(block, c, rs, rd);
             }
+            // The EE kernel's calls take their number in `v1`: no o32 Linux call. The R5900 has
+            // no doubleword multiply or divide.
+            12 | 28..=31 if self.r5900 => return self.unsupported(block, w, ip),
             // syscall, by o32 Linux: the number in `v0`, the arguments from `a0`; the result in
             // `v0` and the error flag in `a3`, which a failure sets with the error number in `v0`.
             12 => {
@@ -870,6 +924,8 @@ impl Lifter<'_, '_> {
                 let v = self.reg64(block, rs);
                 self.set_field(block, if funct == 17 { MIPS_HI } else { MIPS_LO }, &Type::I64, v);
             }
+            // The R5900's multiply also writes `lo` to `rd`.
+            24 | 25 if self.r5900 => self.multiply(block, w, funct == 24, false, false),
             24 | 25 | 28 | 29 => {
                 let (ty, wide, bits) = if funct < 28 { (Type::I32, Type::I64, 32) } else { (Type::I64, Type::I128, 64) };
                 let cast = if funct & 1 == 0 { Cast::SExt } else { Cast::ZExt };
@@ -886,26 +942,7 @@ impl Lifter<'_, '_> {
             }
             26 | 27 | 30 | 31 => {
                 let ty = if funct < 30 { Type::I32 } else { Type::I64 };
-                let signed = funct & 1 == 0;
-                let a = self.reg(block, rs, &ty);
-                let b = self.reg(block, rt, &ty);
-                // The quotient of a division by zero, and of the most negative number by -1, is
-                // unpredictable: the lift stops rather than pick one.
-                let zero = self.m.b.icmp(block, ICond::Eq, ty.clone(), b, 0i64, "zero");
-                let mut block = self.trap_if(block, zero, ip, trap::DIVIDE);
-                if signed {
-                    let min = if ty == Type::I32 { i64::from(i32::MIN) } else { i64::MIN };
-                    let is_min = self.m.b.icmp(block, ICond::Eq, ty.clone(), a, min, "min");
-                    let minus = self.m.b.icmp(block, ICond::Eq, ty.clone(), b, -1i64, "minus");
-                    let both = self.m.b.bin(block, BinOp::And, Type::I1, is_min, minus, "overflow");
-                    block = self.trap_if(block, both, ip, trap::DIVIDE_WIDE);
-                }
-                let (div, rem) = if signed { (BinOp::SDiv, BinOp::SRem) } else { (BinOp::UDiv, BinOp::URem) };
-                let q = self.m.b.bin(block, div, ty.clone(), a, b, "quotient");
-                let r = self.m.b.bin(block, rem, ty.clone(), a, b, "remainder");
-                self.set_field(block, MIPS_LO, &ty, q);
-                self.set_field(block, MIPS_HI, &ty, r);
-                return block;
+                return self.divide(block, w, ip, &ty, false);
             }
             32 | 34 | 44 | 46 => {
                 let ty = if funct < 44 { Type::I32 } else { Type::I64 };
@@ -965,6 +1002,343 @@ impl Lifter<'_, '_> {
         let old = self.reg64(block, rd);
         let r = self.m.select(block, c, Type::I64, from, old, "moved");
         self.set64(block, rd, r);
+    }
+
+    /// `div` and `divu` (`ddiv` and `ddivu` at `ty` I64): the quotient to `lo` and the remainder
+    /// to `hi`, or to the R5900's `lo1` and `hi1` with `second`.
+    fn divide(&mut self, block: BlockId, w: Word, ip: u64, ty: &Type, second: bool) -> BlockId {
+        let signed = w.funct() & 1 == 0;
+        let a = self.reg(block, w.rs(), ty);
+        let b = self.reg(block, w.rt(), ty);
+        // The quotient of a division by zero, and of the most negative number by -1, is
+        // unpredictable: the lift stops rather than pick one.
+        let zero = self.m.b.icmp(block, ICond::Eq, ty.clone(), b, 0i64, "zero");
+        let mut block = self.trap_if(block, zero, ip, trap::DIVIDE);
+        if signed {
+            let min = if *ty == Type::I32 { i64::from(i32::MIN) } else { i64::MIN };
+            let is_min = self.m.b.icmp(block, ICond::Eq, ty.clone(), a, min, "min");
+            let minus = self.m.b.icmp(block, ICond::Eq, ty.clone(), b, -1i64, "minus");
+            let both = self.m.b.bin(block, BinOp::And, Type::I1, is_min, minus, "overflow");
+            block = self.trap_if(block, both, ip, trap::DIVIDE_WIDE);
+        }
+        let (div, rem) = if signed { (BinOp::SDiv, BinOp::SRem) } else { (BinOp::UDiv, BinOp::URem) };
+        let q = self.m.b.bin(block, div, ty.clone(), a, b, "quotient");
+        let r = self.m.b.bin(block, rem, ty.clone(), a, b, "remainder");
+        self.set_pair(block, second, ty, q, r);
+        block
+    }
+
+    // endregion
+
+    // region The R5900
+
+    /// The upper half of the R5900's general register `n`, or past `$31` of `hi` (`hi1`) and `lo`
+    /// (`lo1`); `$0`'s is zero.
+    fn upper(&mut self, block: BlockId, n: u8) -> ValueId {
+        if n == 0 {
+            return self.m.value_of(block, Type::I64, 0i64);
+        }
+        let p = self.m.upper_ptr(block, u32::from(n));
+        let name = format!("{}.u", self.m.gpr_name(u32::from(n)));
+        self.m.b.load(block, Type::I64, p, &name)
+    }
+
+    fn set_upper(&mut self, block: BlockId, n: u8, value: impl Into<Operand>) {
+        if n == 0 {
+            return;
+        }
+        let p = self.m.upper_ptr(block, u32::from(n));
+        self.m.b.store(block, Type::I64, value, p);
+    }
+
+    /// The 128 bits of register `n`.
+    fn reg128(&mut self, block: BlockId, n: u8) -> ValueId {
+        if n == 0 {
+            return self.m.value_of(block, Type::I128, 0i64);
+        }
+        let low = self.reg64(block, n);
+        let high = self.upper(block, n);
+        let low = self.m.b.cast(block, Cast::ZExt, Type::I64, low, Type::I128, "q.lo");
+        let high = self.m.b.cast(block, Cast::ZExt, Type::I64, high, Type::I128, "q.hi");
+        let high = self.m.b.bin(block, BinOp::Shl, Type::I128, high, 64i64, "q.high");
+        self.m.b.bin(block, BinOp::Or, Type::I128, high, low, "q")
+    }
+
+    /// Writes the 128 bits of register `n`; a write to `$0` is dropped.
+    fn set128(&mut self, block: BlockId, n: u8, value: ValueId) {
+        if n == 0 {
+            return;
+        }
+        let low = self.m.b.cast(block, Cast::Trunc, Type::I128, value, Type::I64, "q.lo");
+        let high = self.m.b.bin(block, BinOp::LShr, Type::I128, value, 64i64, "q.high");
+        let high = self.m.b.cast(block, Cast::Trunc, Type::I128, high, Type::I64, "q.hi");
+        self.set64(block, n, low);
+        self.set_upper(block, n, high);
+    }
+
+    /// Register `n` as the vector `ty` of its 128 bits.
+    fn vec(&mut self, block: BlockId, n: u8, ty: &Type) -> ValueId {
+        let q = self.reg128(block, n);
+        self.m.b.cast(block, Cast::Bitcast, Type::I128, q, ty.clone(), "v")
+    }
+
+    fn set_vec(&mut self, block: BlockId, n: u8, ty: &Type, value: ValueId) {
+        if n == 0 {
+            return;
+        }
+        let q = self.m.b.cast(block, Cast::Bitcast, ty.clone(), value, Type::I128, "q");
+        self.set128(block, n, q);
+    }
+
+    /// Writes the `lo` and `hi` of a multiply or a divide: the first pair, or the R5900's second
+    /// (`lo1`, `hi1`) with `second`; a 32-bit half is sign-extended into its register.
+    fn set_pair(&mut self, block: BlockId, second: bool, ty: &Type, lo: ValueId, hi: ValueId) {
+        if !second {
+            self.set_field(block, MIPS_LO, ty, lo);
+            self.set_field(block, MIPS_HI, ty, hi);
+            return;
+        }
+        let lo = self.m.b.cast(block, Cast::SExt, Type::I32, lo, Type::I64, "lo1.x");
+        let hi = self.m.b.cast(block, Cast::SExt, Type::I32, hi, Type::I64, "hi1.x");
+        self.set_upper(block, MIPS_LO, lo);
+        self.set_upper(block, MIPS_HI, hi);
+    }
+
+    /// The low word of `lo` or `hi` (`n`), of the first pair or the second.
+    fn pair_word(&mut self, block: BlockId, second: bool, n: u8) -> ValueId {
+        let whole = if second { self.upper(block, n) } else { self.reg64(block, n) };
+        self.m.b.cast(block, Cast::Trunc, Type::I64, whole, Type::I32, "w")
+    }
+
+    /// The R5900's 32-bit multiplies: `rs * rt`, signed or not, into `lo` and `hi`, or the second
+    /// pair with `second`; `accumulate` adds the product to the 64 bits the pair held (`madd`).
+    /// Each half is sign-extended into its register, and `rd` takes the new `lo`.
+    fn multiply(&mut self, block: BlockId, w: Word, signed: bool, accumulate: bool, second: bool) {
+        let cast = if signed { Cast::SExt } else { Cast::ZExt };
+        let a = self.reg32(block, w.rs());
+        let b = self.reg32(block, w.rt());
+        let a = self.m.b.cast(block, cast, Type::I32, a, Type::I64, "a");
+        let b = self.m.b.cast(block, cast, Type::I32, b, Type::I64, "b");
+        let mut p = self.m.b.bin(block, BinOp::Mul, Type::I64, a, b, "product");
+        if accumulate {
+            let lo = self.pair_word(block, second, MIPS_LO);
+            let hi = self.pair_word(block, second, MIPS_HI);
+            let lo = self.m.b.cast(block, Cast::ZExt, Type::I32, lo, Type::I64, "acc.lo");
+            let hi = self.m.b.cast(block, Cast::ZExt, Type::I32, hi, Type::I64, "acc.hi");
+            let high = self.m.b.bin(block, BinOp::Shl, Type::I64, hi, 32i64, "acc.high");
+            let acc = self.m.b.bin(block, BinOp::Or, Type::I64, high, lo, "acc");
+            p = self.m.b.bin(block, BinOp::Add, Type::I64, p, acc, "sum");
+        }
+        let lo = self.m.b.cast(block, Cast::Trunc, Type::I64, p, Type::I32, "lo");
+        let high = self.m.b.bin(block, BinOp::LShr, Type::I64, p, 32i64, "high");
+        let hi = self.m.b.cast(block, Cast::Trunc, Type::I64, high, Type::I32, "hi");
+        self.set_pair(block, second, &Type::I32, lo, hi);
+        self.set32(block, w.rd(), lo);
+    }
+
+    /// The `MMI` opcode: the multiplies of the second pipeline and the moves of `hi1` and `lo1`,
+    /// the parallel shifts, and the four groups of the multimedia instructions on the 128-bit
+    /// registers as vectors of words, halfwords or bytes. An operation the lift does not cover
+    /// (the parallel multiplies and divides, `pmfhl`, `pmthl`, `qfsrv`, `plzcw`, `pext5`,
+    /// `ppac5`, `padsbh`) traps with its address.
+    fn mmi(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
+        let funct = w.funct();
+        match funct {
+            0x00 | 0x01 | 0x20 | 0x21 => self.multiply(block, w, funct & 1 == 0, true, funct >= 0x20),
+            0x18 | 0x19 => self.multiply(block, w, funct == 0x18, false, true),
+            0x1a | 0x1b => return self.divide(block, w, ip, &Type::I32, true),
+            0x10 | 0x12 => {
+                let v = self.upper(block, if funct == 0x10 { MIPS_HI } else { MIPS_LO });
+                self.set64(block, w.rd(), v);
+            }
+            0x11 | 0x13 => {
+                let v = self.reg64(block, w.rs());
+                self.set_upper(block, if funct == 0x11 { MIPS_HI } else { MIPS_LO }, v);
+            }
+            // psllh, psrlh, psrah, psllw, psrlw, psraw: each lane by the shift amount, of which a
+            // halfword takes the low four bits.
+            0x34 | 0x36 | 0x37 | 0x3c | 0x3e | 0x3f => {
+                let (ty, amount) = if funct < 0x3c {
+                    (Type::vector(8, Type::I16), i64::from(w.sa() & 15))
+                } else {
+                    (Type::vector(4, Type::I32), i64::from(w.sa()))
+                };
+                let op = [BinOp::Shl, BinOp::Shl, BinOp::LShr, BinOp::AShr][(funct & 3) as usize];
+                let v = self.vec(block, w.rt(), &ty);
+                let r = self.m.b.bin(block, op, ty.clone(), v, amount, "pshift");
+                self.set_vec(block, w.rd(), &ty, r);
+            }
+            0x08 => return self.mmi_lanes(block, w, ip, false),
+            0x28 => return self.mmi_lanes(block, w, ip, true),
+            0x09 => return self.mmi_whole(block, w, ip, false),
+            0x29 => return self.mmi_whole(block, w, ip, true),
+            _ => return self.unsupported(block, w, ip),
+        }
+        block
+    }
+
+    /// MMI0 and MMI1 (`one`), whose operation number in the shift-amount field says the lanes
+    /// (bits 2 and 3: words, halfwords, bytes) and the operation: the sums, wrapping or saturated
+    /// (signed in MMI0, unsigned in MMI1), the compares, the maxima and minima, the absolute
+    /// values (saturated, as the EE's are), the extensions that interleave the low (MMI0) or the
+    /// high (MMI1) halves of `rt` and `rs`, and the packs of their even lanes.
+    fn mmi_lanes(&mut self, block: BlockId, w: Word, ip: u64, one: bool) -> BlockId {
+        let sa = w.sa();
+        let (count, bits) = match (sa >> 2) & 3 {
+            0 => (4, 32),
+            1 => (8, 16),
+            2 => (16, 8),
+            _ => return self.unsupported(block, w, ip),
+        };
+        let ty = Type::vector(count, Type::Int(bits));
+        let a = self.vec(block, w.rs(), &ty);
+        let b = self.vec(block, w.rt(), &ty);
+        let half = count / 2;
+        let r = match (one, sa >= 16, sa & 3) {
+            (false, false, 0) => self.m.b.bin(block, BinOp::Add, ty.clone(), a, b, "padd"),
+            (false, false, 1) => self.m.b.bin(block, BinOp::Sub, ty.clone(), a, b, "psub"),
+            (false, false, 2) => self.lane_compare(block, ICond::Sgt, &ty, a, b),
+            (false, false, 3) if bits != 8 => self.lane_pick(block, ICond::Sgt, &ty, a, b),
+            (true, false, 1) if bits != 8 => self.lane_abs(block, &ty, b),
+            (true, false, 2) => self.lane_compare(block, ICond::Eq, &ty, a, b),
+            (true, false, 3) if bits != 8 => self.lane_pick(block, ICond::Slt, &ty, a, b),
+            (_, true, 0 | 1) => self.lane_saturate(block, &ty, a, b, !one, sa & 1 == 1),
+            (_, true, 2) => {
+                let base = if one { half } else { 0 };
+                let mask: Vec<i32> = (0..half).flat_map(|k| [(base + k) as i32, (count + base + k) as i32]).collect();
+                self.shuffle(block, &ty, b, a, mask)
+            }
+            (false, true, 3) => {
+                let mask: Vec<i32> = (0..count).map(|k| (2 * k) as i32).collect();
+                self.shuffle(block, &ty, b, a, mask)
+            }
+            _ => return self.unsupported(block, w, ip),
+        };
+        self.set_vec(block, w.rd(), &ty, r);
+        block
+    }
+
+    /// MMI2 and MMI3 (`three`): the moves of the 128-bit `hi` and `lo`, the logic on the whole
+    /// register, the variable shifts of the even words, and the copies, interleaves and
+    /// exchanges of lanes.
+    fn mmi_whole(&mut self, block: BlockId, w: Word, ip: u64, three: bool) -> BlockId {
+        let (rs, rt, rd) = (w.rs(), w.rt(), w.rd());
+        let (w64, w32, w16) = (Type::vector(2, Type::I64), Type::vector(4, Type::I32), Type::vector(8, Type::I16));
+        match (three, w.sa()) {
+            (false, 2) => self.shift_words(block, w, BinOp::Shl),
+            (false, 3) => self.shift_words(block, w, BinOp::LShr),
+            (true, 3) => self.shift_words(block, w, BinOp::AShr),
+            (false, 8 | 9) => {
+                let v = self.reg128(block, if w.sa() == 8 { MIPS_HI } else { MIPS_LO });
+                self.set128(block, rd, v);
+            }
+            (true, 8 | 9) => {
+                let v = self.reg128(block, rs);
+                self.set128(block, if w.sa() == 8 { MIPS_HI } else { MIPS_LO }, v);
+            }
+            (_, 18 | 19) => {
+                let a = self.reg128(block, rs);
+                let b = self.reg128(block, rt);
+                let op = match (three, w.sa()) {
+                    (false, 18) => BinOp::And,
+                    (false, _) => BinOp::Xor,
+                    _ => BinOp::Or,
+                };
+                let mut r = self.m.b.bin(block, op, Type::I128, a, b, "plogic");
+                if three && w.sa() == 19 {
+                    r = self.m.b.bin(block, BinOp::Xor, Type::I128, r, -1i64, "pnor");
+                }
+                self.set128(block, rd, r);
+            }
+            // pcpyld: rt's low doubleword, then rs's; pcpyud: rs's high doubleword, then rt's.
+            (false, 14) => self.permute(block, rd, &w64, rt, rs, &[0, 2]),
+            (true, 14) => self.permute(block, rd, &w64, rs, rt, &[1, 3]),
+            // pinth: rt's low halfwords between rs's high ones; pinteh: the even halfwords of each.
+            (false, 10) => self.permute(block, rd, &w16, rt, rs, &[0, 12, 1, 13, 2, 14, 3, 15]),
+            (true, 10) => self.permute(block, rd, &w16, rt, rs, &[0, 8, 2, 10, 4, 12, 6, 14]),
+            // pexeh, prevh, pexch, pcpyh: the halfwords of rt in each doubleword; pexew, prot3w,
+            // pexcw: its words.
+            (false, 26) => self.permute(block, rd, &w16, rt, rt, &[2, 1, 0, 3, 6, 5, 4, 7]),
+            (false, 27) => self.permute(block, rd, &w16, rt, rt, &[3, 2, 1, 0, 7, 6, 5, 4]),
+            (true, 26) => self.permute(block, rd, &w16, rt, rt, &[0, 2, 1, 3, 4, 6, 5, 7]),
+            (true, 27) => self.permute(block, rd, &w16, rt, rt, &[0, 0, 0, 0, 4, 4, 4, 4]),
+            (false, 30) => self.permute(block, rd, &w32, rt, rt, &[2, 1, 0, 3]),
+            (false, 31) => self.permute(block, rd, &w32, rt, rt, &[1, 2, 0, 3]),
+            (true, 30) => self.permute(block, rd, &w32, rt, rt, &[0, 2, 1, 3]),
+            _ => return self.unsupported(block, w, ip),
+        }
+        block
+    }
+
+    /// The lanes `mask` picks of `a` and `b` taken together.
+    fn shuffle(&mut self, block: BlockId, ty: &Type, a: ValueId, b: ValueId, mask: Vec<i32>) -> ValueId {
+        self.m.b.value(block, Inst::ShuffleVector { ty: ty.clone(), a: a.into(), b: b.into(), mask }, "pshuf")
+    }
+
+    /// `rd` = the lanes `mask` picks of registers `first` and `second` as vectors `ty`.
+    fn permute(&mut self, block: BlockId, rd: u8, ty: &Type, first: u8, second: u8, mask: &[i32]) {
+        let a = self.vec(block, first, ty);
+        let b = self.vec(block, second, ty);
+        let r = self.shuffle(block, ty, a, b, mask.to_vec());
+        self.set_vec(block, rd, ty, r);
+    }
+
+    /// All ones in each lane where `a cond b` holds.
+    fn lane_compare(&mut self, block: BlockId, cond: ICond, ty: &Type, a: ValueId, b: ValueId) -> ValueId {
+        let Type::Vector(n, _) = ty else { unreachable!("a lane compare on {ty}") };
+        let c = self.m.b.icmp(block, cond, ty.clone(), a, b, "pc");
+        self.m.b.cast(block, Cast::SExt, Type::vector(*n, Type::I1), c, ty.clone(), "pc.m")
+    }
+
+    /// `a` in each lane where `a cond b` holds, `b` elsewhere: the maxima and minima.
+    fn lane_pick(&mut self, block: BlockId, cond: ICond, ty: &Type, a: ValueId, b: ValueId) -> ValueId {
+        let c = self.m.b.icmp(block, cond, ty.clone(), a, b, "pc");
+        self.m.select(block, c, ty.clone(), a, b, "ppick")
+    }
+
+    /// The absolute value of each lane, the most negative number's the most positive.
+    fn lane_abs(&mut self, block: BlockId, ty: &Type, v: ValueId) -> ValueId {
+        let bits = ty.bits().unwrap_or(0) / ty_lanes(ty);
+        let (min, max) = (-(1i64 << (bits - 1)), (1i64 << (bits - 1)) - 1);
+        let not = self.m.b.bin(block, BinOp::Xor, ty.clone(), v, -1i64, "pnot");
+        let neg = self.m.b.bin(block, BinOp::Add, ty.clone(), not, 1i64, "pneg");
+        let below = self.m.b.icmp(block, ICond::Slt, ty.clone(), v, 0i64, "pneg.c");
+        let r = self.m.select(block, below, ty.clone(), neg, v, "pabs");
+        let at_min = self.m.b.icmp(block, ICond::Eq, ty.clone(), v, min, "pmin.c");
+        self.m.select(block, at_min, ty.clone(), max, r, "pabs.s")
+    }
+
+    /// Each lane's `a + b`, or `a - b` with `sub`, saturated to the lane's range, signed or not:
+    /// the sum at twice the width, clamped.
+    fn lane_saturate(&mut self, block: BlockId, ty: &Type, a: ValueId, b: ValueId, signed: bool, sub: bool) -> ValueId {
+        let n = ty_lanes(ty);
+        let bits = ty.bits().unwrap_or(0) / n;
+        let wide = Type::vector(n, Type::Int((bits * 2) as u16));
+        let cast = if signed { Cast::SExt } else { Cast::ZExt };
+        let a = self.m.b.cast(block, cast, ty.clone(), a, wide.clone(), "sat.a");
+        let b = self.m.b.cast(block, cast, ty.clone(), b, wide.clone(), "sat.b");
+        let r = self.m.b.bin(block, if sub { BinOp::Sub } else { BinOp::Add }, wide.clone(), a, b, "sat");
+        let (min, max) = if signed { (-(1i64 << (bits - 1)), (1i64 << (bits - 1)) - 1) } else { (0, (1i64 << bits) - 1) };
+        let over = self.m.b.icmp(block, ICond::Sgt, wide.clone(), r, max, "sat.over");
+        let r = self.m.select(block, over, wide.clone(), max, r, "sat.max");
+        let under = self.m.b.icmp(block, ICond::Slt, wide.clone(), r, min, "sat.under");
+        let r = self.m.select(block, under, wide.clone(), min, r, "sat.min");
+        self.m.b.cast(block, Cast::Trunc, wide, r, ty.clone(), "sat.r")
+    }
+
+    /// `psllvw`, `psrlvw`, `psravw`: each even word of `rt` shifted by the low five bits of the
+    /// same word of `rs`, its 32-bit result sign-extended into the doubleword.
+    fn shift_words(&mut self, block: BlockId, w: Word, op: BinOp) {
+        let (w32, pair) = (Type::vector(4, Type::I32), Type::vector(2, Type::I32));
+        let v = self.vec(block, w.rt(), &w32);
+        let s = self.vec(block, w.rs(), &w32);
+        let v = self.shuffle(block, &w32, v, v, vec![0, 2]);
+        let s = self.shuffle(block, &w32, s, s, vec![0, 2]);
+        let s = self.m.b.bin(block, BinOp::And, pair.clone(), s, 31i64, "pamount");
+        let r = self.m.b.bin(block, op, pair.clone(), v, s, "pshift");
+        let w64 = Type::vector(2, Type::I64);
+        let r = self.m.b.cast(block, Cast::SExt, pair, r, w64.clone(), "pshift.x");
+        self.set_vec(block, w.rd(), &w64, r);
     }
 
     // endregion
@@ -1267,6 +1641,117 @@ impl Lifter<'_, '_> {
         self.m.select(block, fits, ity, v, invalid, "cvt")
     }
 
+    /// The R5900's FPU: the moves to and from the general registers and the control register as
+    /// MIPS's; the `S` format's arithmetic, its conversions and its multiply-adds as calls on
+    /// `ra_f32_ftz_*`; `mov`, `abs` and `neg` on the bits; the compares, `max` and `min` on the
+    /// order of the values; and `cvt.s.w` of the `W` format.
+    fn ee_cop1(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
+        let (fmt, ft, fs, fd, funct) = (w.rs(), w.rt(), w.rd(), w.sa(), w.funct());
+        match (fmt, funct) {
+            (0 | 2 | 4 | 6, _) => return self.cop1(block, w, ip),
+            (16, 5..=7) => return self.fpu_arith(block, w, ip, false),
+            (16, 0..=3) => {
+                let r = self.ee_on(block, ["add", "sub", "mul", "div"][funct as usize], &[fs, ft]);
+                self.set_fpr(block, fd, false, r);
+            }
+            // sqrt.s fd, ft and rsqrt.s fd, fs, ft: `fs / sqrt(ft)`.
+            (16, 4) => {
+                let r = self.ee_on(block, "sqrt", &[ft]);
+                self.set_fpr(block, fd, false, r);
+            }
+            (16, 0x16) => {
+                let r = self.ee_on(block, "rsqrt", &[fs, ft]);
+                self.set_fpr(block, fd, false, r);
+            }
+            (16, 0x24) => {
+                let r = self.ee_on(block, "cvt_w_s", &[fs]);
+                self.set_fpr(block, fd, false, r);
+            }
+            (20, 0x20) => {
+                let r = self.ee_on(block, "cvt_s_w", &[fs]);
+                self.set_fpr(block, fd, false, r);
+            }
+            // adda, suba, mula: the accumulator takes `fs op ft`.
+            (16, 0x18..=0x1a) => {
+                let r = self.ee_on(block, ["add", "sub", "mul"][(funct - 0x18) as usize], &[fs, ft]);
+                self.set_acc(block, r);
+            }
+            // madd, msub into `fd`, madda, msuba into the accumulator: the accumulator plus or
+            // minus the product, which is rounded as `mul.s` rounds it.
+            (16, 0x1c..=0x1f) => {
+                let product = self.ee_on(block, "mul", &[fs, ft]);
+                let acc = self.acc(block);
+                let r = self.ee_fpu(block, if funct & 1 == 0 { "add" } else { "sub" }, vec![acc, product]);
+                if funct < 0x1e {
+                    self.set_fpr(block, fd, false, r);
+                } else {
+                    self.set_acc(block, r);
+                }
+            }
+            // max, min: the operand itself, `fs` on a tie.
+            (16, 0x28 | 0x29) => {
+                let (a, b) = (self.fpr(block, fs, false), self.fpr(block, ft, false));
+                let (x, y) = (self.ee_order(block, a), self.ee_order(block, b));
+                let c = if funct == 0x28 {
+                    self.m.b.icmp(block, ICond::Slt, Type::I32, x, y, "lt")
+                } else {
+                    self.m.b.icmp(block, ICond::Slt, Type::I32, y, x, "gt")
+                };
+                let r = self.m.select(block, c, Type::I32, b, a, if funct == 0x28 { "max" } else { "min" });
+                self.set_fpr(block, fd, false, r);
+            }
+            // c.f, c.eq, c.lt, c.le: the one condition flag, no NaN to be unordered.
+            (16, 0x30 | 0x32 | 0x34 | 0x36) => {
+                let c = if funct == 0x30 {
+                    self.m.value_of(block, Type::I1, 0i64)
+                } else {
+                    let (a, b) = (self.fpr(block, fs, false), self.fpr(block, ft, false));
+                    let (x, y) = (self.ee_order(block, a), self.ee_order(block, b));
+                    let cond = [ICond::Eq, ICond::Slt, ICond::Sle][((funct - 0x32) / 2) as usize];
+                    self.m.b.icmp(block, cond, Type::I32, x, y, "fcc")
+                };
+                self.set_fcc(block, 0, c);
+            }
+            _ => return self.unsupported(block, w, ip),
+        }
+        block
+    }
+
+    /// `ra_f32_ftz_<name>` on the bits of `args`, the bits of its result.
+    fn ee_fpu(&mut self, block: BlockId, name: &str, args: Vec<ValueId>) -> ValueId {
+        let ty = crate::state::ee_fpu_type(args.len());
+        let args = args.into_iter().map(|v| (Type::I32, Operand::from(v))).collect();
+        self.m.b.call(block, ty, Callee::Direct(format!("ra_f32_ftz_{name}")), args, name).expect("an R5900 FPU function has a result")
+    }
+
+    /// `ra_f32_ftz_<name>` on the FPU registers `regs`.
+    fn ee_on(&mut self, block: BlockId, name: &str, regs: &[u8]) -> ValueId {
+        let args = regs.iter().map(|&n| self.fpr(block, n, false)).collect();
+        self.ee_fpu(block, name, args)
+    }
+
+    /// A single's place in the order of the R5900's values as a signed word: its magnitude,
+    /// negated when its sign is set, and zero's for a denormal, so both zeros are one value.
+    fn ee_order(&mut self, block: BlockId, bits: ValueId) -> ValueId {
+        let exponent = self.m.b.bin(block, BinOp::And, Type::I32, bits, 0x7f80_0000i64, "exp");
+        let flushed = self.m.b.icmp(block, ICond::Eq, Type::I32, exponent, 0i64, "flushed");
+        let magnitude = self.m.b.bin(block, BinOp::And, Type::I32, bits, 0x7fff_ffffi64, "mag");
+        let magnitude = self.m.select(block, flushed, Type::I32, 0i64, magnitude, "mag");
+        let negative = self.m.b.icmp(block, ICond::Slt, Type::I32, bits, 0i64, "neg");
+        let minus = self.m.b.bin(block, BinOp::Sub, Type::I32, 0i64, magnitude, "minus");
+        self.m.select(block, negative, Type::I32, minus, magnitude, "order")
+    }
+
+    fn acc(&mut self, block: BlockId) -> ValueId {
+        let p = self.m.field_ptr(block, MIPS_ACC, "p.acc");
+        self.m.b.load(block, Type::I32, p, "acc")
+    }
+
+    fn set_acc(&mut self, block: BlockId, value: ValueId) {
+        let p = self.m.field_ptr(block, MIPS_ACC, "p.acc");
+        self.m.b.store(block, Type::I32, value, p);
+    }
+
     // endregion
 }
 
@@ -1275,6 +1760,11 @@ const FCC_BITS: i64 = 0xfe80_0000_u32 as i32 as i64;
 
 fn fcc_bit(cc: i64) -> i64 {
     if cc == 0 { 23 } else { 24 + cc }
+}
+
+/// The lanes of a vector type; one of a scalar.
+fn ty_lanes(ty: &Type) -> u32 {
+    if let Type::Vector(n, _) = ty { *n } else { 1 }
 }
 
 /// The integer and the float type of a single or a double.

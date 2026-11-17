@@ -166,7 +166,10 @@ pub const ARM32: StateSpec = StateSpec {
 /// sign-extended into it) and `hi`, `lo` after them as `$32` and `$33`, so the raise promotes them
 /// as it does a register; `pc`, the FPU's eight condition codes as bytes, `$f0..$f31`, the FPU's
 /// control and status register, then the 64 registers of the `PlayStation`'s GTE (coprocessor 2):
-/// its 32 data registers and its 32 control registers after them.
+/// its 32 data registers and its 32 control registers after them, and last the upper halves of
+/// the R5900's 128-bit `$0..$31`, `hi` and `lo` (`hi1` and `lo1`), which every instruction of
+/// MIPS III leaves as they are and only the multimedia ones, `lq` and `sq` read and write, and the
+/// R5900 FPU's accumulator, which its multiply-adds keep.
 pub const MIPS: StateSpec = StateSpec {
     machine: "mips",
     fields: &[
@@ -182,5 +185,7 @@ pub const MIPS: StateSpec = StateSpec {
         ]),
         Field::single("fcsr", Role::Extra, 32),
         Field::group("gte", Role::Extra, 64, 32),
+        Field::group("upper", Role::Extra, 34, 64),
+        Field::single("acc", Role::Extra, 32),
     ],
 };

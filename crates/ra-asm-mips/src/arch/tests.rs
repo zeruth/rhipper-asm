@@ -3,11 +3,30 @@ use super::*;
 #[test]
 fn the_rows_make_a_table() {
     assert_eq!(Mips::machine().table.rows().len(), FORMS.len());
+    assert_eq!(Mips::r5900_machine().table.rows().len(), FORMS.len() + R5900_FORMS.len());
+}
+
+#[test]
+fn the_r5900_rows_decode_only_for_the_r5900() {
+    let (mips, ee) = (Mips::default(), Mips { r5900: true, ..Mips::default() });
+    // `sq $11, 0($sp)`, `paddw $11, $9, $10`, and `sd $ra, 8($sp)`, which MIPS III has too.
+    let name = |arch: Mips, word: u32| arch.decode(&word.to_le_bytes(), 0x10_0000).map(|i| i.mnemonic);
+    assert_eq!(name(ee, 0x7fab_0000).as_deref(), Some("sq"));
+    assert_eq!(name(mips, 0x7fab_0000), None);
+    assert_eq!(name(ee, 0x712a_5808).as_deref(), Some("paddw"));
+    assert_eq!(name(mips, 0x712a_5808), None);
+    assert_eq!(name(ee, 0xffbf_0008).as_deref(), Some("sd"));
+    assert_eq!(name(mips, 0xffbf_0008), None);
+    // `madd.s $f3, $f1, $f2`, `bc1t` and `lwc1 $f1, 0($sp)`: the EE's FPU.
+    assert_eq!(name(ee, 0x4602_08dc).as_deref(), Some("madd.s"));
+    assert_eq!(name(mips, 0x4602_08dc), None);
+    assert_eq!(name(ee, 0x4501_0003).as_deref(), Some("bc1t"));
+    assert_eq!(name(ee, 0xc7a1_0000).as_deref(), Some("lwc1"));
 }
 
 #[test]
 fn every_transfer_is_delayed_and_nothing_else_is() {
-    for form in FORMS {
+    for form in FORMS.iter().chain(R5900_FORMS) {
         let transfers = matches!(form.row.flow, Flow::Jump | Flow::Branch | Flow::Call | Flow::Return);
         assert_eq!(form.delay != Delay::None, transfers, "{}", form.row.name);
         assert_eq!(form.reach == Reach::Region, matches!(form.row.name, "j" | "jal"), "{}", form.row.name);

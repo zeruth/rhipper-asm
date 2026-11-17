@@ -43,9 +43,17 @@ const fn disp(bits: u16) -> Field {
     Field { name: "offset", lo: 0, width: 16, signed: true, kind: Kind::Mem { base: "rs", bits } }
 }
 
+/// The FPU's registers, which no field of [`Kind::Reg`] names: the machine's register file is the
+/// general one.
+const FS: Field = Field { name: "fs", lo: 11, width: 5, signed: false, kind: Kind::Imm };
+const FT: Field = Field { name: "ft", lo: 16, width: 5, signed: false, kind: Kind::Imm };
+const FD: Field = Field { name: "fd", lo: 6, width: 5, signed: false, kind: Kind::Imm };
+
 const D8: Field = disp(8);
 const D16: Field = disp(16);
 const D32: Field = disp(32);
+const D64: Field = disp(64);
+const D128: Field = disp(128);
 
 /// The opcode alone: the immediate forms.
 const OP: u32 = 0xfc00_0000;
@@ -66,6 +74,18 @@ const fn regimm(rt: u32) -> u32 {
 
 const fn plain(name: &'static str, mask: u32, bits: u32, fields: &'static [Field]) -> Form {
     Form { row: Row { name, mask, bits, fields, flow: Flow::Next, outlined: false, sem: None }, delay: Delay::None, reach: Reach::Row }
+}
+
+/// A multimedia instruction of the R5900: the `MMI` opcode, the group's function and the
+/// operation's number in the shift-amount field.
+const fn mmi(name: &'static str, funct: u32, sa: u32) -> Form {
+    plain(name, R3, op(0x1c) | (sa << 6) | funct, &[RD, RS, RT])
+}
+
+/// An instruction of the R5900's FPU in the `S` format: `COP1`, the format and the function, with
+/// `zero` the bits of the fields the form leaves at zero.
+const fn single(name: &'static str, funct: u32, zero: u32, fields: &'static [Field]) -> Form {
+    plain(name, 0xffe0_003f | zero, op(0x11) | (16 << 21) | funct, fields)
 }
 
 const fn transfer(name: &'static str, mask: u32, bits: u32, fields: &'static [Field], flow: Flow, delay: Delay) -> Form {
@@ -185,6 +205,159 @@ const FORMS: &[Form] = &[
     plain("sc", OP, op(0x38), &[RT, RS, D32]),
 ];
 
+/// The R5900's rows past [`FORMS`]: MIPS III's doubleword forms, which the 32-bit programs of the
+/// other MIPS loaders do not have, and the Emotion Engine's own, which take encodings other MIPS
+/// processors give other instructions (`SPECIAL2`, `SPECIAL3`) or leave reserved. Its table is
+/// [`FORMS`] and these after them, so a row of both has the same index in either.
+const R5900_FORMS: &[Form] = &[
+    plain("dsllv", R3, 0x14, &[RD, RT, RS]),
+    plain("dsrlv", R3, 0x16, &[RD, RT, RS]),
+    plain("dsrav", R3, 0x17, &[RD, RT, RS]),
+    plain("dadd", R3, 0x2c, &[RD, RS, RT]),
+    plain("daddu", R3, 0x2d, &[RD, RS, RT]),
+    plain("dsub", R3, 0x2e, &[RD, RS, RT]),
+    plain("dsubu", R3, 0x2f, &[RD, RS, RT]),
+    plain("dsll", 0xffe0_003f, 0x38, &[RD, RT, SA]),
+    plain("dsrl", 0xffe0_003f, 0x3a, &[RD, RT, SA]),
+    plain("dsra", 0xffe0_003f, 0x3b, &[RD, RT, SA]),
+    plain("dsll32", 0xffe0_003f, 0x3c, &[RD, RT, SA]),
+    plain("dsrl32", 0xffe0_003f, 0x3e, &[RD, RT, SA]),
+    plain("dsra32", 0xffe0_003f, 0x3f, &[RD, RT, SA]),
+    plain("daddi", OP, op(0x18), &[RT, RS, IMM]),
+    plain("daddiu", OP, op(0x19), &[RT, RS, IMM]),
+    plain("ldl", OP, op(0x1a), &[RT, RS, D64]),
+    plain("ldr", OP, op(0x1b), &[RT, RS, D64]),
+    plain("lwu", OP, op(0x27), &[RT, RS, D32]),
+    plain("sdl", OP, op(0x2c), &[RT, RS, D64]),
+    plain("sdr", OP, op(0x2d), &[RT, RS, D64]),
+    plain("ld", OP, op(0x37), &[RT, RS, D64]),
+    plain("sd", OP, op(0x3f), &[RT, RS, D64]),
+    // The multiplies that also write `rd`, the second `hi` and `lo`, the quadword accesses and
+    // the multimedia instructions.
+    plain("mult", R3, 0x18, &[RD, RS, RT]),
+    plain("multu", R3, 0x19, &[RD, RS, RT]),
+    plain("lq", OP, op(0x1e), &[RT, RS, D128]),
+    plain("sq", OP, op(0x1f), &[RT, RS, D128]),
+    plain("madd", R3, op(0x1c), &[RD, RS, RT]),
+    plain("maddu", R3, op(0x1c) | 0x01, &[RD, RS, RT]),
+    plain("mfhi1", 0xffff_07ff, op(0x1c) | 0x10, &[RD]),
+    plain("mthi1", 0xfc1f_ffff, op(0x1c) | 0x11, &[RS]),
+    plain("mflo1", 0xffff_07ff, op(0x1c) | 0x12, &[RD]),
+    plain("mtlo1", 0xfc1f_ffff, op(0x1c) | 0x13, &[RS]),
+    plain("mult1", R3, op(0x1c) | 0x18, &[RD, RS, RT]),
+    plain("multu1", R3, op(0x1c) | 0x19, &[RD, RS, RT]),
+    plain("div1", 0xfc00_ffff, op(0x1c) | 0x1a, &[RS, RT]),
+    plain("divu1", 0xfc00_ffff, op(0x1c) | 0x1b, &[RS, RT]),
+    plain("madd1", R3, op(0x1c) | 0x20, &[RD, RS, RT]),
+    plain("maddu1", R3, op(0x1c) | 0x21, &[RD, RS, RT]),
+    plain("psllh", 0xffe0_003f, op(0x1c) | 0x34, &[RD, RT, SA]),
+    plain("psrlh", 0xffe0_003f, op(0x1c) | 0x36, &[RD, RT, SA]),
+    plain("psrah", 0xffe0_003f, op(0x1c) | 0x37, &[RD, RT, SA]),
+    plain("psllw", 0xffe0_003f, op(0x1c) | 0x3c, &[RD, RT, SA]),
+    plain("psrlw", 0xffe0_003f, op(0x1c) | 0x3e, &[RD, RT, SA]),
+    plain("psraw", 0xffe0_003f, op(0x1c) | 0x3f, &[RD, RT, SA]),
+    // MMI0.
+    mmi("paddw", 0x08, 0),
+    mmi("psubw", 0x08, 1),
+    mmi("pcgtw", 0x08, 2),
+    mmi("pmaxw", 0x08, 3),
+    mmi("paddh", 0x08, 4),
+    mmi("psubh", 0x08, 5),
+    mmi("pcgth", 0x08, 6),
+    mmi("pmaxh", 0x08, 7),
+    mmi("paddb", 0x08, 8),
+    mmi("psubb", 0x08, 9),
+    mmi("pcgtb", 0x08, 10),
+    mmi("paddsw", 0x08, 16),
+    mmi("psubsw", 0x08, 17),
+    mmi("pextlw", 0x08, 18),
+    mmi("ppacw", 0x08, 19),
+    mmi("paddsh", 0x08, 20),
+    mmi("psubsh", 0x08, 21),
+    mmi("pextlh", 0x08, 22),
+    mmi("ppach", 0x08, 23),
+    mmi("paddsb", 0x08, 24),
+    mmi("psubsb", 0x08, 25),
+    mmi("pextlb", 0x08, 26),
+    mmi("ppacb", 0x08, 27),
+    // MMI1.
+    mmi("pabsw", 0x28, 1),
+    mmi("pceqw", 0x28, 2),
+    mmi("pminw", 0x28, 3),
+    mmi("pabsh", 0x28, 5),
+    mmi("pceqh", 0x28, 6),
+    mmi("pminh", 0x28, 7),
+    mmi("pceqb", 0x28, 10),
+    mmi("padduw", 0x28, 16),
+    mmi("psubuw", 0x28, 17),
+    mmi("pextuw", 0x28, 18),
+    mmi("padduh", 0x28, 20),
+    mmi("psubuh", 0x28, 21),
+    mmi("pextuh", 0x28, 22),
+    mmi("paddub", 0x28, 24),
+    mmi("psubub", 0x28, 25),
+    mmi("pextub", 0x28, 26),
+    // MMI2.
+    mmi("psllvw", 0x09, 2),
+    mmi("psrlvw", 0x09, 3),
+    mmi("pmfhi", 0x09, 8),
+    mmi("pmflo", 0x09, 9),
+    mmi("pinth", 0x09, 10),
+    mmi("pcpyld", 0x09, 14),
+    mmi("pand", 0x09, 18),
+    mmi("pxor", 0x09, 19),
+    mmi("pexeh", 0x09, 26),
+    mmi("prevh", 0x09, 27),
+    mmi("pexew", 0x09, 30),
+    mmi("prot3w", 0x09, 31),
+    // MMI3.
+    mmi("psravw", 0x29, 3),
+    mmi("pmthi", 0x29, 8),
+    mmi("pmtlo", 0x29, 9),
+    mmi("pinteh", 0x29, 10),
+    mmi("pcpyud", 0x29, 14),
+    mmi("por", 0x29, 18),
+    mmi("pnor", 0x29, 19),
+    mmi("pexch", 0x29, 26),
+    mmi("pcpyh", 0x29, 27),
+    mmi("pexcw", 0x29, 30),
+    // The FPU, singles only, with its accumulator and its one condition flag.
+    plain("mfc1", 0xffe0_07ff, op(0x11), &[RT, FS]),
+    plain("cfc1", 0xffe0_07ff, op(0x11) | (2 << 21), &[RT, FS]),
+    plain("mtc1", 0xffe0_07ff, op(0x11) | (4 << 21), &[RT, FS]),
+    plain("ctc1", 0xffe0_07ff, op(0x11) | (6 << 21), &[RT, FS]),
+    transfer("bc1f", 0xffff_0000, op(0x11) | (8 << 21), &[OFFSET], Flow::Branch, Delay::Slot),
+    transfer("bc1t", 0xffff_0000, op(0x11) | (8 << 21) | (1 << 16), &[OFFSET], Flow::Branch, Delay::Slot),
+    transfer("bc1fl", 0xffff_0000, op(0x11) | (8 << 21) | (2 << 16), &[OFFSET], Flow::Branch, Delay::Likely),
+    transfer("bc1tl", 0xffff_0000, op(0x11) | (8 << 21) | (3 << 16), &[OFFSET], Flow::Branch, Delay::Likely),
+    single("add.s", 0x00, 0, &[FD, FS, FT]),
+    single("sub.s", 0x01, 0, &[FD, FS, FT]),
+    single("mul.s", 0x02, 0, &[FD, FS, FT]),
+    single("div.s", 0x03, 0, &[FD, FS, FT]),
+    single("sqrt.s", 0x04, 0xf800, &[FD, FT]),
+    single("abs.s", 0x05, 0x1f_0000, &[FD, FS]),
+    single("mov.s", 0x06, 0x1f_0000, &[FD, FS]),
+    single("neg.s", 0x07, 0x1f_0000, &[FD, FS]),
+    single("rsqrt.s", 0x16, 0, &[FD, FS, FT]),
+    single("adda.s", 0x18, 0x7c0, &[FS, FT]),
+    single("suba.s", 0x19, 0x7c0, &[FS, FT]),
+    single("mula.s", 0x1a, 0x7c0, &[FS, FT]),
+    single("madd.s", 0x1c, 0, &[FD, FS, FT]),
+    single("msub.s", 0x1d, 0, &[FD, FS, FT]),
+    single("madda.s", 0x1e, 0x7c0, &[FS, FT]),
+    single("msuba.s", 0x1f, 0x7c0, &[FS, FT]),
+    single("cvt.w.s", 0x24, 0x1f_0000, &[FD, FS]),
+    single("max.s", 0x28, 0, &[FD, FS, FT]),
+    single("min.s", 0x29, 0, &[FD, FS, FT]),
+    single("c.f.s", 0x30, 0x7c0, &[FS, FT]),
+    single("c.eq.s", 0x32, 0x7c0, &[FS, FT]),
+    single("c.lt.s", 0x34, 0x7c0, &[FS, FT]),
+    single("c.le.s", 0x36, 0x7c0, &[FS, FT]),
+    plain("cvt.s.w", 0xffff_003f, op(0x11) | (20 << 21) | 0x20, &[FD, FS]),
+    plain("lwc1", OP, op(0x31), &[FT, RS, D32]),
+    plain("swc1", OP, op(0x39), &[FT, RS, D32]),
+];
+
 /// The general registers by number, as llvm-objdump names them.
 const NAMES: [&str; 32] = [
     "$zero", "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "$15", "$16", "$17", "$18", "$19",
@@ -208,21 +381,31 @@ static REGISTERS: [Register; 32] = file();
 
 const PC: Register = Register { id: 32, name: "pc", class: RegClass::InstructionPointer, full: 32, bits: 32, shift: 0 };
 
-static MACHINE: LazyLock<Machine> = LazyLock::new(|| {
-    let rows: Vec<Row> = FORMS.iter().map(|form| form.row).collect();
+fn machine_of(name: &'static str, forms: &[&[Form]]) -> Machine {
+    let rows: Vec<Row> = forms.iter().flat_map(|f| f.iter()).map(|form| form.row).collect();
     Machine {
-        name: "mips",
+        name,
         table: Table::new(&rows).expect("the MIPS rows make a table"),
         registers: &REGISTERS,
         address_bits: 32,
         syntax: Syntax { immediate_prefix: "", hex: true },
     }
-});
+}
 
-/// The 32-bit MIPS decoder, in the byte order of the file it reads.
+static MACHINE: LazyLock<Machine> = LazyLock::new(|| machine_of("mips", &[FORMS]));
+static R5900: LazyLock<Machine> = LazyLock::new(|| machine_of("r5900", &[FORMS, R5900_FORMS]));
+
+/// The form of row `at` of either table.
+fn form(at: usize) -> Option<&'static Form> {
+    FORMS.get(at).or_else(|| R5900_FORMS.get(at.checked_sub(FORMS.len())?))
+}
+
+/// The 32-bit MIPS decoder, in the byte order of the file it reads; with `r5900`, the Emotion
+/// Engine's, whose rows take encodings other MIPS processors give other instructions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Mips {
     pub big_endian: bool,
+    pub r5900: bool,
 }
 
 impl Mips {
@@ -231,9 +414,14 @@ impl Mips {
         &MACHINE
     }
 
+    /// The machine of the R5900's rows.
+    pub fn r5900_machine() -> &'static Machine {
+        &R5900
+    }
+
     /// When the flow of `instr`, decoded by this crate, takes effect.
     pub fn delay(instr: &Instr) -> Delay {
-        usize::try_from(instr.code).ok().and_then(|at| FORMS.get(at)).map_or(Delay::None, |form| form.delay)
+        usize::try_from(instr.code).ok().and_then(form).map_or(Delay::None, |form| form.delay)
     }
 
     /// Where control goes once the flow of `instr` has taken effect, the taken target first: a
@@ -278,8 +466,9 @@ impl Arch for Mips {
     fn decode(&self, bytes: &[u8], address: u64) -> Option<Instr> {
         let word: [u8; 4] = bytes.get(..4)?.try_into().ok()?;
         let word = if self.big_endian { u32::from_be_bytes(word) } else { u32::from_le_bytes(word) };
-        let mut instr = MACHINE.instr(word, address)?;
-        let form = FORMS.get(usize::try_from(instr.code).ok()?)?;
+        let machine: &Machine = if self.r5900 { &R5900 } else { &MACHINE };
+        let mut instr = machine.instr(word, address)?;
+        let form = form(usize::try_from(instr.code).ok()?)?;
         match form.reach {
             Reach::Row => {}
             Reach::Region => {
