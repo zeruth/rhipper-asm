@@ -152,6 +152,24 @@ pub fn declare_psx(module: &mut ra_asm_ir::Module) {
     }
 }
 
+/// The VR4300's coprocessor 0 registers, register `n` in the `n`th 64-bit slot: a global of the
+/// module, as the one coprocessor of the machine is, which `mfc0` and `mtc0` move and nothing else
+/// reads, so a port needs no runtime for it.
+pub const N64_COP0: &str = "ra_cop0";
+
+/// The globals of a Nintendo 64 program: the [`N64_COP0`] registers.
+pub fn declare_n64(module: &mut ra_asm_ir::Module) {
+    module.globals.push(ra_asm_ir::Global {
+        name: N64_COP0.to_owned(),
+        ty: Type::array(32, Type::I64),
+        init: Some(ra_asm_ir::Const::Zero),
+        constant: false,
+        linkage: ra_asm_ir::Linkage::External,
+        align: 8,
+        address: None,
+    });
+}
+
 /// The arithmetic of the R5900's FPU, `ra_f32_ftz_<name>`, by its operand count: on the bits of
 /// its single registers, denormals as zeros, exponent 255 as a number, each result rounded toward
 /// zero, clamped to the largest magnitude and flushed below the smallest normal, as IEEE's is not.
@@ -696,6 +714,7 @@ pub fn is_runtime_global(name: &str) -> bool {
             | PROC_POPS
             | RTTI
             | PSX_GP
+            | N64_COP0
     )
 }
 

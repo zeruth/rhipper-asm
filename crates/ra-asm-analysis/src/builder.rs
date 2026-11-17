@@ -501,7 +501,9 @@ impl Builder<'_> {
         let predecessors: Vec<&[Instr]> =
             self.blocks.values().filter(|b| b.terminator.successors().contains(&draft.start)).map(|b| b.instrs.as_slice()).collect();
         let resolved = if self.delays {
-            jumptable::resolve_mips(self.image, body, &predecessors)
+            let function: Vec<&[Instr]> =
+                self.blocks.values().map(|b| b.instrs.as_slice()).chain(std::iter::once(draft.instrs.as_slice())).collect();
+            jumptable::resolve_mips(self.image, body, &predecessors, &function)
         } else {
             jumptable::resolve(self.image, body, &predecessors)
         };

@@ -15,7 +15,7 @@
 //! keeps its order and every load and store swaps its bytes, so the registers hold the values the
 //! machine sees and `lwl`/`lwr`/`swl`/`swr` merge from the word's other end. The arithmetic and the
 //! conversions to an integer that round by the FCSR take its default mode, to nearest. Every
-//! encoding outside the subset (the coprocessor 0, `COP1X`, the doubleword unaligned accesses,
+//! encoding outside the subset (the coprocessor 0 of a processor other than the VR4300, `COP1X`, the doubleword unaligned accesses,
 //! the conditional traps on an immediate, a branch in a delay slot) traps with its address.
 //!
 //! A `PlayStation` program runs on the R3000: no FPU, so a COP1 word traps with its address, and the
@@ -41,6 +41,11 @@
 //! operations, which it lacks; the VFPU traps with its address. An import's stub, the
 //! `jr $ra` over the `syscall` the kernel writes when it loads the module, is the call on the
 //! import its NID names.
+//!
+//! A Nintendo 64 program runs on the VR4300, MIPS III with the FPU's 64-bit registers
+//! (`Status.FR = 1`, as libdragon starts it): coprocessor 0's registers are a global the moves
+//! read and write, the TLB maps every address as itself, and `cache`, like `sync`, has nothing to
+//! do in a port's memory.
 #![allow(clippy::many_single_char_names)]
 
 use std::collections::HashMap;
@@ -51,7 +56,7 @@ use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, IC
 use ra_asm_pe::Image;
 
 use crate::raise::prototypes::{BiosCall, psx_bios};
-use crate::state::{Isa, MIPS_ACC, MIPS_FCSR, MIPS_GTE, MIPS_HI, MIPS_LO, Machine, PSX_GP};
+use crate::state::{Isa, MIPS_ACC, MIPS_FCSR, MIPS_GTE, MIPS_HI, MIPS_LO, Machine, N64_COP0, PSX_GP};
 use crate::x86::trap;
 use crate::{Lifted, function_name};
 
@@ -61,6 +66,11 @@ const RA: u8 = 31;
 const T1: u8 = 9;
 /// `gp`, the small-data pointer.
 const GP: u8 = 28;
+/// The VR4300's `Count`, coprocessor 0's register 9.
+const COUNT: u8 = 9;
+/// The ticks of `Count` between two reads of it: a loop that polls it runs some eight
+/// instructions, a cycle each, and `Count` ticks every other cycle.
+const COUNT_STEP: i64 = 4;
 
 /// Lifts one function.
 pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm_ir::Function {
@@ -93,6 +103,7 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         r3000,
         allegrex,
         r5900,
+        vr4300: image.platform() == Some("n64"),
         big: image.big_endian(),
     };
     // A PSP import's stub holds the `syscall` the kernel writes only once it loads the module, an
@@ -207,6 +218,8 @@ struct Lifter<'a, 'b> {
     /// A `PlayStation 2` program: the R5900, with its 128-bit registers and multimedia
     /// instructions.
     r5900: bool,
+    /// A Nintendo 64 program: the VR4300, with its coprocessor 0 and `cache`.
+    vr4300: bool,
     /// A big-endian program, whose memory keeps its order: every load and store swaps its bytes.
     big: bool,
 }
@@ -752,6 +765,9 @@ impl Lifter<'_, '_> {
             // does not read.
             24 | 25 | 52 | 55 | 60 | 63 if self.allegrex => return self.unsupported(block, w, ip),
             28 if self.r5900 => return self.mmi(block, w, ip),
+            16 if self.vr4300 => return self.cop0(block, w, ip),
+            // cache: the port's memory has no cache to write back or invalidate.
+            47 if self.vr4300 => {}
             17 if self.r5900 => return self.ee_cop1(block, w, ip),
             // The R5900's coprocessor 2 is VU0 in macro mode (`cop2`, `lqc2`, `sqc2`), and its
             // FPU has no doubles (`ldc1`, `sdc1`).
@@ -845,6 +861,50 @@ impl Lifter<'_, '_> {
             _ => return self.unsupported(block, w, ip),
         }
         block
+    }
+
+    /// Coprocessor 0 of the VR4300, its registers the [`N64_COP0`] global: `mfc0` and `dmfc0` read
+    /// one, `mtc0` and `dmtc0` write it. `Count` runs at half the processor's clock, so a read of it
+    /// moves it on by [`COUNT_STEP`], the time a loop that polls it takes, and a wait on it ends. The
+    /// TLB maps every address as itself, so its operations change nothing, and `eret` leaves as
+    /// the return its block ends in.
+    fn cop0(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
+        let (rt, rd) = (w.rt(), w.rd());
+        match w.rs() {
+            0 | 1 => {
+                let p = self.cop0_ptr(block, rd);
+                let mut v = self.m.b.load(block, Type::I64, p, "cop0");
+                if rd == COUNT {
+                    v = self.m.b.bin(block, BinOp::Add, Type::I64, v, COUNT_STEP, "count");
+                    self.m.b.store(block, Type::I64, v, p);
+                }
+                if w.rs() == 0 {
+                    let low = self.m.trunc(block, Type::I64, v, Type::I32, "cop0.w");
+                    self.set32(block, rt, low);
+                } else {
+                    self.set64(block, rt, v);
+                }
+            }
+            4 | 5 => {
+                let v = if w.rs() == 4 {
+                    let low = self.reg32(block, rt);
+                    self.m.sext(block, Type::I32, low, Type::I64, "cop0.x")
+                } else {
+                    self.reg64(block, rt)
+                };
+                let p = self.cop0_ptr(block, rd);
+                self.m.b.store(block, Type::I64, v, p);
+            }
+            // tlbr, tlbwi, tlbwr, tlbp, eret.
+            16 if matches!(w.funct(), 1 | 2 | 6 | 8 | 0x18) => {}
+            _ => return self.unsupported(block, w, ip),
+        }
+        block
+    }
+
+    fn cop0_ptr(&mut self, block: BlockId, n: u8) -> ValueId {
+        let at = Operand::Address { global: N64_COP0.to_owned(), offset: i64::from(n) * 8 };
+        self.m.b.cast(block, Cast::IntToPtr, Type::I64, at, Type::Ptr, "p.cop0")
     }
 
     fn load(&mut self, block: BlockId, w: Word) {

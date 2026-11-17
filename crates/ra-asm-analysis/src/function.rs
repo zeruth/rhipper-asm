@@ -12,6 +12,9 @@ pub enum Origin {
     Export(String),
     TlsCallback,
     ExceptionTable,
+    /// The build's symbols define a function there: those of the ELF a cartridge ROM was made
+    /// from, the one record of the functions its data tables (the constructors) reach.
+    Symbol,
     /// A direct call from the function at the address.
     Call(u64),
     /// A jump out of the function at the address.

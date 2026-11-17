@@ -64,6 +64,7 @@ pub fn arch_of(image: &Image) -> Box<dyn Arch> {
             big_endian: image.big_endian(),
             r5900: image.platform() == Some("ps2"),
             allegrex: image.platform() == Some("psp"),
+            vr4300: image.platform() == Some("n64"),
         }),
         Machine::Sh4 => Box::new(ra_asm_sh::Sh4 { big_endian: image.big_endian(), ..ra_asm_sh::Sh4::default() }),
         _ => Box::new(ra_asm_x86::X86::for_pointer_size(image.pointer_size())),
@@ -312,6 +313,13 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     for &(begin, _) in image.unwind_extents() {
         if image.is_code(begin) {
             state.seed(begin, Origin::ExceptionTable);
+        }
+    }
+    // A cartridge ROM maps its code and data as one section, with no relocations to tell its
+    // pointers apart: the symbols of its ELF are what name the functions only a table reaches.
+    if image.n64.is_some() {
+        for symbol in &image.symbols {
+            state.seed(symbol.va, Origin::Symbol);
         }
     }
     state.run();

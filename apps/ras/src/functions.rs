@@ -19,6 +19,7 @@ pub(crate) fn origin_name(origin: &Origin) -> String {
         Origin::Export(name) => format!("export {name}"),
         Origin::TlsCallback => "tls callback".to_owned(),
         Origin::ExceptionTable => "pdata".to_owned(),
+        Origin::Symbol => "symbol".to_owned(),
         Origin::Call(from) => format!("call from {}", hex(*from)),
         Origin::TailCall(from) => format!("jump from {}", hex(*from)),
         Origin::Pointer(slot) => format!("pointer at {}", hex(*slot)),

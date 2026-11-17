@@ -63,7 +63,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | pending list | entries |
 |---|---|
 | testdata/csmith/EMIT_PENDING.txt | 67 |
-| testdata/csmith/PENDING.txt | 43 |
+| testdata/csmith/PENDING.txt | 42 |
 | testdata/levels/PENDING.txt | 1 |
 | testdata/vectors/arm32/PENDING.txt | 12 |
 | testdata/vectors/arm64/PENDING.txt | 0 |
@@ -72,7 +72,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | testdata/vectors/x86/PENDING.txt | 1 |
 | testdata/vectors/x86_64/PENDING.txt | 0 |
 | testdata/vectors/x87/PENDING.txt | 29 |
-| total | 153 |
+| total | 152 |
 
 | oracle | ignored tests |
 |---|---|

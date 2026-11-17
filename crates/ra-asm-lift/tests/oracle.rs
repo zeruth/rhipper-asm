@@ -155,3 +155,45 @@ fn psp_hello_prints() {
 }
 
 // endregion
+
+// region The Nintendo 64
+
+/// Where `hello.elf` links the libdragon hello's `main` and `sum`.
+const N64_MAIN: u64 = 0x8000_ea00;
+const N64_SUM: u64 = 0x8000_e9c0;
+/// The IR instructions the run takes at most: `main` returns to the start routine, which falls
+/// into `_abort`, a loop on itself, as a console has nothing to return to.
+const N64_LIMIT: u64 = 50_000_000;
+
+/// The libdragon hello from its ROM, at the machine level from the start routine: the boot code's
+/// report in the RSP's memory, the constructors, `debug_init_emulog`'s probe of the ISViewer and
+/// the two prints through it, which are `testdata/n64/hello.txt`. The ROM's functions are named by
+/// the `hello.elf` beside it, so `main`'s calls are libdragon's and newlib's by name.
+#[test]
+fn n64_hello_prints() {
+    let image = ra_asm_pe::load(&root().join("testdata/n64/hello.z64")).unwrap();
+    assert_eq!(image.platform(), Some("n64"));
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+    let own: Vec<_> = coverage.functions.iter().filter(|(entry, ..)| matches!(*entry, N64_MAIN | N64_SUM)).collect();
+    assert!(own.is_empty(), "the program's own code traps: {own:?}\n{:?}", lifted.warnings);
+    let main = &analysis.functions[&N64_MAIN];
+    assert!(!image.warnings.iter().any(|w| w.starts_with("symbols:")), "{:?}", image.warnings);
+    // The ELF's names, as the symbols have them: the port's own names step aside from the host C
+    // library's (`fprintf_`).
+    let mut called: Vec<&str> = main.calls.iter().filter_map(|c| analysis.functions.get(c)).filter_map(|f| f.symbol.as_deref()).collect();
+    called.sort_unstable();
+    called.dedup();
+    assert_eq!(called, ["debug_init_emulog", "fprintf", "fwrite", "sum"], "main's calls by name");
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    let run_options = ra_asm_lift::run::Options { limit: N64_LIMIT, ..ra_asm_lift::run::Options::default() };
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &run_options).unwrap();
+    let expected = std::fs::read_to_string(root().join("testdata/n64/hello.txt")).unwrap().replace("\r\n", "\n");
+    assert_eq!(String::from_utf8_lossy(&outcome.output), expected, "the run stopped with {:?} ({} steps)", outcome.stop, outcome.steps);
+    assert!(outcome.stop.as_deref().is_some_and(|s| s.contains("limit")), "the run ended in {:?}, not in `_abort`'s loop", outcome.stop);
+}
+
+// endregion

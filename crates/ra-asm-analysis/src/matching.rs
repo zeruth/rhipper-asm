@@ -254,6 +254,7 @@ fn origin_kind(origin: &Origin) -> u16 {
         Origin::Gap(_) => 8,
         Origin::Trace(_) => 9,
         Origin::Residual => 10,
+        Origin::Symbol => 11,
     }
 }
 

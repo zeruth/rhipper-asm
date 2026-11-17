@@ -288,6 +288,9 @@ const PROGRAM_STACK: usize = THREAD_STACK - (32 << 20);
 /// The `PlayStation`'s 2 MiB of RAM at its `kseg0` address, where the image's text and data fold.
 const PSX_RAM: u64 = 0x8000_0000;
 const PSX_RAM_SIZE: u64 = 0x20_0000;
+/// The Nintendo 64's 4 MiB of RDRAM at its `kseg0` address.
+const N64_RDRAM: u64 = 0x8000_0000;
+const N64_RDRAM_SIZE: u64 = 0x40_0000;
 
 /// Runs `lifted` (raised to any level, with the `signatures` of the ABI level when it is at that
 /// level) through the interpreter. The run takes a thread of its own with a deep stack, since the
@@ -361,7 +364,12 @@ fn run_here(
     let granule = base & !0xffff;
     let size = (base - granule + u64::from(image.size_of_image())).div_ceil(0x10000) * 0x10000;
     // A PlayStation program has the console's RAM, the kernel's part below its text with it.
-    let (start, len) = if image.platform() == Some("psx") { (PSX_RAM, PSX_RAM_SIZE) } else { (granule, size) };
+    // A Nintendo 64 program, its RDRAM, the heap libdragon takes past its data with it.
+    let (start, len) = match image.platform() {
+        Some("psx") => (PSX_RAM, PSX_RAM_SIZE),
+        Some("n64") => (N64_RDRAM, N64_RDRAM_SIZE.max(size)),
+        _ => (granule, size),
+    };
     let image_region = patiently(|| os::allocate_at(start, len))
         .ok_or_else(|| anyhow!("cannot map the image at {base:#x}: the address is taken in this process"))?;
     // A PlayStation 2's hardware registers from 256 MB, which its device answers ahead of the
@@ -402,6 +410,12 @@ fn run_here(
     if image.platform() == Some("ps2") {
         let sio = host::Sio { out: console.clone(), live: options.live };
         vm.memory.add_device(host::SIO, host::SIO_LEN, Box::new(sio));
+    }
+    // A Nintendo 64 program's console is the ISViewer buffer in the cartridge's domain, which
+    // `debugf` writes through the PI.
+    if image.platform() == Some("n64") {
+        let devices = host::N64::new(console.clone(), options.live, len);
+        vm.memory.add_device(host::N64_DEVICES, host::N64_DEVICES_LEN, Box::new(devices));
     }
     if !lifted.standalone {
         vm.memory.write(base, image.mapped()).map_err(setup)?;

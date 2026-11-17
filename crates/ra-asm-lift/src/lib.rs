@@ -566,7 +566,9 @@ fn lift_on(
     let isa = match image.machine() {
         ra_asm_pe::Machine::Arm64 => Isa::Arm64,
         ra_asm_pe::Machine::Arm => Isa::Arm32,
-        // o32: the n32 convention comes with the platforms that use it.
+        // o32: the n32 convention comes with the platforms that use it. libdragon starts the
+        // VR4300 with `Status.FR = 1`, the FPU's 64-bit registers.
+        ra_asm_pe::Machine::Mips if image.platform() == Some("n64") => Isa::MipsN32,
         ra_asm_pe::Machine::Mips => Isa::Mips,
         _ => Isa::X86,
     };
@@ -588,6 +590,9 @@ fn lift_on(
     }
     if image.platform() == Some("ps2") {
         state::declare_ps2(&mut module);
+    }
+    if image.platform() == Some("n64") {
+        state::declare_n64(&mut module);
     }
     state::define_runtime_globals(&mut module, options.x87);
     let functions = || images.iter().flat_map(|(_, a)| a.functions.values());
@@ -657,7 +662,13 @@ fn lift_on(
             let root = f.origins.iter().any(|o| {
                 matches!(
                     o,
-                    Origin::Entry | Origin::Export(_) | Origin::TlsCallback | Origin::Pointer(_) | Origin::Vtable(_) | Origin::Residual
+                    Origin::Entry
+                        | Origin::Export(_)
+                        | Origin::TlsCallback
+                        | Origin::Symbol
+                        | Origin::Pointer(_)
+                        | Origin::Vtable(_)
+                        | Origin::Residual
                 )
             });
             // The `jmp [slot]` of an import the prototype tables do not know hands on the universal

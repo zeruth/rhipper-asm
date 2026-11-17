@@ -79,6 +79,71 @@ impl ra_asm_ir::interp::memory::Device for Sio {
     }
 }
 
+/// The Nintendo 64's devices in `kseg1`: the RSP's memories and the RCP's registers from
+/// `0xa4000000`, the PI's domains, the cartridge among them, from `0xb0000000` to the segment's end.
+pub(super) const N64_DEVICES: u64 = 0xa400_0000;
+pub(super) const N64_DEVICES_LEN: u64 = 0xc000_0000 - N64_DEVICES;
+/// The end of the RSP's data and instruction memories, which keep what is written to them.
+const N64_SP_MEMORY_END: u64 = 0xa400_2000;
+/// The start of the PI's domains, whose addresses keep what is written to them as a cartridge's
+/// memory does.
+const N64_PI_DOMAINS: u64 = 0xb000_0000;
+/// The `ISViewer`'s length register: a write of a length prints that many bytes of its buffer.
+const ISVIEWER_LENGTH: u64 = 0xb3ff_0014;
+const ISVIEWER_BUFFER: u64 = 0xb3ff_0020;
+
+/// The Nintendo 64's devices as a program that boots, prints and returns sees them: the RSP's
+/// memories and the PI's domains keep the bytes written to them, the registers read as zero (no
+/// DMA busy, no interrupt pending) and drop what is written, and the `ISViewer` is the program's
+/// console. The boot code leaves its report in the RSP's data memory: the size of the RDRAM, then
+/// an NTSC set, a cold reset and a retail console.
+pub(super) struct N64 {
+    out: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
+    live: bool,
+    kept: BTreeMap<u64, u8>,
+}
+
+impl N64 {
+    pub(super) fn new(out: std::rc::Rc<std::cell::RefCell<Vec<u8>>>, live: bool, memory: u64) -> Self {
+        let size = u32::try_from(memory).unwrap_or(u32::MAX);
+        let mut kept: BTreeMap<u64, u8> = (N64_DEVICES..).zip(size.to_be_bytes()).collect();
+        kept.insert(N64_DEVICES + 9, 1);
+        Self { out, live, kept }
+    }
+
+    fn keeps(address: u64) -> bool {
+        !(N64_SP_MEMORY_END..N64_PI_DOMAINS).contains(&address)
+    }
+}
+
+impl ra_asm_ir::interp::memory::Device for N64 {
+    fn read(&mut self, address: u64, buf: &mut [u8]) {
+        for (byte, at) in buf.iter_mut().zip(address..) {
+            *byte = if Self::keeps(at) { self.kept.get(&at).copied().unwrap_or(0) } else { 0 };
+        }
+    }
+
+    fn write(&mut self, address: u64, bytes: &[u8]) {
+        use std::io::Write;
+        if address == ISVIEWER_LENGTH
+            && let Ok(word) = <[u8; 4]>::try_from(bytes)
+        {
+            let length = u64::from(u32::from_be_bytes(word));
+            let text: Vec<u8> = (ISVIEWER_BUFFER..ISVIEWER_BUFFER + length).map(|at| self.kept.get(&at).copied().unwrap_or(0)).collect();
+            self.out.borrow_mut().extend_from_slice(&text);
+            if self.live {
+                let mut out = std::io::stdout().lock();
+                let _ = out.write_all(&text);
+                let _ = out.flush();
+            }
+            return;
+        }
+        if Self::keeps(address) {
+            self.kept.extend((address..).zip(bytes.iter().copied()));
+        }
+    }
+}
+
 /// A thread of the program as the interpreter runs it: one at a time, a created one to its end
 /// inside `CreateThread`.
 struct Thread {

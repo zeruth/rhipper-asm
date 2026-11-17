@@ -64,7 +64,18 @@ pub fn load(path: &Path) -> anyhow::Result<Image> {
     image.path = Some(path.to_path_buf());
     // An ELF or a Mach-O file names its functions in its own symbol table; a PS-X EXE has no PDB,
     // and the map beside one is `nm`'s over its ELF, not a link map; a boot program and a cartridge
-    // ROM have neither.
+    // ROM have neither. A cartridge ROM is named by the ELF it was made from, beside it under its
+    // stem, as a PE by its link map.
+    if image.n64.is_some() {
+        let elf = path.with_extension("elf");
+        if elf.is_file() {
+            match symbols_of_elf(&image, &elf) {
+                Ok(symbols) => image.symbols = symbols,
+                Err(e) => image.warnings.push(format!("symbols: {e:#}")),
+            }
+        }
+        return Ok(image);
+    }
     if image.elf.is_some() || image.macho.is_some() || image.psx.is_some() || image.dreamcast.is_some() || image.n64.is_some() {
         return Ok(image);
     }
@@ -85,6 +96,17 @@ pub fn load(path: &Path) -> anyhow::Result<Image> {
         }
     }
     Ok(image)
+}
+
+/// The function symbols of the ELF at `path` that `image` was made from: an ELF that starts
+/// elsewhere, or whose code differs at its entry, is another build's.
+fn symbols_of_elf(image: &Image, path: &Path) -> anyhow::Result<Vec<pdb::Symbol>> {
+    let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+    let elf = Image::parse(bytes).with_context(|| format!("{} is not an ELF this loader reads", path.display()))?;
+    let entry = image.entry_point();
+    let same = elf.elf.is_some() && elf.entry_point() == entry && entry.is_some_and(|at| elf.read(at, 32).ok() == image.read(at, 32).ok());
+    anyhow::ensure!(same, "{} is the ELF of another build", path.display());
+    Ok(elf.symbols)
 }
 
 /// [`load`], with the names of the functions from the link map at `map`, which the person named:

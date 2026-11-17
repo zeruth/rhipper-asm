@@ -412,6 +412,51 @@ const R5900_FORMS: &[Form] = &[
     plain("swc1", OP, op(0x39), &[FT, RS, D32]),
 ];
 
+/// The rows of [`R5900_FORMS`] that are MIPS III's doubleword forms, which the VR4300 shares: the
+/// R5900's own come after them.
+const MIPS3_ROWS: usize = 22;
+
+/// The VR4300's rows past [`FORMS`] and MIPS III's doubleword forms of [`R5900_FORMS`]: the
+/// doubleword multiplies and divides, the linked doubleword accesses, coprocessor 0 (its moves, the
+/// TLB's operations and `eret`), `cache`, and the FPU of the singles, doubles, words and longs
+/// with its doubleword moves.
+const VR4300: &[Form] = &[
+    plain("dmult", 0xfc00_ffff, 0x1c, &[RS, RT]),
+    plain("dmultu", 0xfc00_ffff, 0x1d, &[RS, RT]),
+    plain("ddiv", 0xfc00_ffff, 0x1e, &[RS, RT]),
+    plain("ddivu", 0xfc00_ffff, 0x1f, &[RS, RT]),
+    plain("lld", OP, op(0x34), &[RT, RS, D64]),
+    plain("scd", OP, op(0x3c), &[RT, RS, D64]),
+    plain("mfc0", 0xffe0_07ff, op(0x10), &[RT, RD]),
+    plain("dmfc0", 0xffe0_07ff, op(0x10) | (1 << 21), &[RT, RD]),
+    plain("mtc0", 0xffe0_07ff, op(0x10) | (4 << 21), &[RT, RD]),
+    plain("dmtc0", 0xffe0_07ff, op(0x10) | (5 << 21), &[RT, RD]),
+    plain("tlbr", u32::MAX, op(0x10) | (16 << 21) | 0x01, &[]),
+    plain("tlbwi", u32::MAX, op(0x10) | (16 << 21) | 0x02, &[]),
+    plain("tlbwr", u32::MAX, op(0x10) | (16 << 21) | 0x06, &[]),
+    plain("tlbp", u32::MAX, op(0x10) | (16 << 21) | 0x08, &[]),
+    transfer("eret", u32::MAX, op(0x10) | (16 << 21) | 0x18, &[], Flow::Return, Delay::None),
+    plain("cache", OP, op(0x2f), &[RS, D32]),
+    plain("lwc1", OP, op(0x31), &[FT, RS, D32]),
+    plain("ldc1", OP, op(0x35), &[FT, RS, D64]),
+    plain("swc1", OP, op(0x39), &[FT, RS, D32]),
+    plain("sdc1", OP, op(0x3d), &[FT, RS, D64]),
+    plain("mfc1", 0xffe0_07ff, op(0x11), &[RT, FS]),
+    plain("dmfc1", 0xffe0_07ff, op(0x11) | (1 << 21), &[RT, FS]),
+    plain("cfc1", 0xffe0_07ff, op(0x11) | (2 << 21), &[RT, FS]),
+    plain("mtc1", 0xffe0_07ff, op(0x11) | (4 << 21), &[RT, FS]),
+    plain("dmtc1", 0xffe0_07ff, op(0x11) | (5 << 21), &[RT, FS]),
+    plain("ctc1", 0xffe0_07ff, op(0x11) | (6 << 21), &[RT, FS]),
+    plain("cop1.s", 0xffe0_0000, op(0x11) | (16 << 21), &[FD, FS, FT]),
+    plain("cop1.d", 0xffe0_0000, op(0x11) | (17 << 21), &[FD, FS, FT]),
+    plain("cop1.w", 0xffe0_0000, op(0x11) | (20 << 21), &[FD, FS]),
+    plain("cop1.l", 0xffe0_0000, op(0x11) | (21 << 21), &[FD, FS]),
+    transfer("bc1f", 0xffff_0000, op(0x11) | (8 << 21), &[OFFSET], Flow::Branch, Delay::Slot),
+    transfer("bc1t", 0xffff_0000, op(0x11) | (8 << 21) | (1 << 16), &[OFFSET], Flow::Branch, Delay::Slot),
+    transfer("bc1fl", 0xffff_0000, op(0x11) | (8 << 21) | (2 << 16), &[OFFSET], Flow::Branch, Delay::Likely),
+    transfer("bc1tl", 0xffff_0000, op(0x11) | (8 << 21) | (3 << 16), &[OFFSET], Flow::Branch, Delay::Likely),
+];
+
 /// The general registers by number, as llvm-objdump names them.
 const NAMES: [&str; 32] = [
     "$zero", "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9", "$10", "$11", "$12", "$13", "$14", "$15", "$16", "$17", "$18", "$19",
@@ -449,22 +494,28 @@ fn machine_of(name: &'static str, forms: &[&[Form]]) -> Machine {
 static MACHINE: LazyLock<Machine> = LazyLock::new(|| machine_of("mips", &[FORMS]));
 static R5900: LazyLock<Machine> = LazyLock::new(|| machine_of("r5900", &[FORMS, R5900_FORMS]));
 static ALLEGREX_MACHINE: LazyLock<Machine> = LazyLock::new(|| machine_of("allegrex", &[FORMS, ALLEGREX]));
+static VR4300_MACHINE: LazyLock<Machine> = LazyLock::new(|| machine_of("vr4300", &[FORMS, &R5900_FORMS[..MIPS3_ROWS], VR4300]));
 
 /// The form of an instruction's code: a row of [`FORMS`], then of [`R5900_FORMS`], then of
-/// [`ALLEGREX`].
+/// [`ALLEGREX`], then of [`VR4300`].
 fn form(at: usize) -> Option<&'static Form> {
     let past = |n: usize| at.checked_sub(n);
-    FORMS.get(at).or_else(|| R5900_FORMS.get(past(FORMS.len())?)).or_else(|| ALLEGREX.get(past(FORMS.len() + R5900_FORMS.len())?))
+    FORMS
+        .get(at)
+        .or_else(|| R5900_FORMS.get(past(FORMS.len())?))
+        .or_else(|| ALLEGREX.get(past(FORMS.len() + R5900_FORMS.len())?))
+        .or_else(|| VR4300.get(past(FORMS.len() + R5900_FORMS.len() + ALLEGREX.len())?))
 }
 
 /// The 32-bit MIPS decoder, in the byte order of the file it reads; with `r5900`, the Emotion
-/// Engine's, and with `allegrex`, the PSP's, whose rows take encodings other MIPS processors
-/// give other instructions.
+/// Engine's, with `allegrex`, the PSP's, whose rows take encodings other MIPS processors give
+/// other instructions, and with `vr4300`, the Nintendo 64's MIPS III.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Mips {
     pub big_endian: bool,
     pub r5900: bool,
     pub allegrex: bool,
+    pub vr4300: bool,
 }
 
 impl Mips {
@@ -534,12 +585,17 @@ impl Arch for Mips {
             &ALLEGREX_MACHINE
         } else if self.r5900 {
             &R5900
+        } else if self.vr4300 {
+            &VR4300_MACHINE
         } else {
             &MACHINE
         };
         let mut instr = machine.instr(word, address)?;
         if self.allegrex && usize::try_from(instr.code).ok()? >= FORMS.len() {
             instr.code += u32::try_from(R5900_FORMS.len()).ok()?;
+        }
+        if self.vr4300 && usize::try_from(instr.code).ok()? >= FORMS.len() + MIPS3_ROWS {
+            instr.code += u32::try_from(R5900_FORMS.len() - MIPS3_ROWS + ALLEGREX.len()).ok()?;
         }
         let form = form(usize::try_from(instr.code).ok()?)?;
         match form.reach {

@@ -245,8 +245,9 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
 /// into it: `sll s, idx, 2; lui b, %hi(table); addu a, s, b; lw t, %lo(table)(a)`, the entries
 /// absolute addresses, the index bounded by `sltiu c, idx, n` and a `beqz c` or `bnez c` to the
 /// default before it. The base may come whole from a `lui`/`addiu` pair, from `$gp` or from a
-/// `.got` slot, and may be formed in the block before.
-pub fn resolve_mips(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Option<Table> {
+/// `.got` slot, and may be formed in the block before, or anywhere in the `function` (the blocks
+/// it has so far) when a stack slot holds it.
+pub fn resolve_mips(image: &Image, block: &[Instr], predecessors: &[&[Instr]], function: &[&[Instr]]) -> Option<Table> {
     let jump = block.last()?;
     let target = reg_of(jump.operands.first()?)?;
     let (load_at, load) = mips_writer(block, block.len() - 1, target)?;
@@ -262,9 +263,9 @@ pub fn resolve_mips(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -
     let mut context: Vec<&[Instr]> = vec![block];
     context.extend_from_slice(predecessors);
     // One addend is the table's address, or its high half, the other the index times four.
-    let (base, index) = [(x, y), (y, x)]
-        .into_iter()
-        .find_map(|(high, scaled)| Some((mips_constant(image, &context, add_at, high)?, mips_scaled_index(block, add_at, scaled)?)))?;
+    let (base, index) = [(x, y), (y, x)].into_iter().find_map(|(high, scaled)| {
+        Some((mips_constant(image, function, &context, add_at, high)?, mips_scaled_index(block, add_at, scaled)?))
+    })?;
     let address = base.wrapping_add(entry.disp as u64) & 0xffff_ffff;
     let (count, bound) = mips_bound(&context, index).unzip();
     let table = read_table(image, address, 4, count, Relative::Absolute, index, load.address)?;
@@ -291,6 +292,8 @@ enum Write<'a> {
 
 /// The MIPS global pointer, `$gp`.
 const GP: u16 = 28;
+/// The MIPS stack pointer, `$sp`.
+const SP: u16 = 29;
 
 fn mips_write(instrs: &[Instr], until: usize, reg: Register) -> Write<'_> {
     for (n, i) in instrs[..until].iter().enumerate().rev() {
@@ -315,9 +318,10 @@ fn mips_writer(instrs: &[Instr], until: usize, reg: Register) -> Option<(usize, 
 /// The constant a MIPS register holds before `until` in the first of `blocks`: `$zero`; a `lui`, or
 /// an `addiu` or `ori` to a constant, as `%hi`/`%lo` build an address; `$gp` as the start routine
 /// sets it, and an `addiu` to it as `%gp_rel` reaches small data; or a `lw` of a `.got` slot, as
-/// position-independent code reaches its data through `%got`. When the block does not write the
-/// register, the other blocks, the ones that lead into it, must all give it the same value.
-fn mips_constant(image: &Image, blocks: &[&[Instr]], until: usize, reg: Register) -> Option<u64> {
+/// position-independent code reaches its data through `%got`; or a `lw` of a stack slot the
+/// `function` stores once ([`mips_spilled`]). When the block does not write the register, the
+/// other blocks, the ones that lead into it, must all give it the same value.
+fn mips_constant(image: &Image, function: &[&[Instr]], blocks: &[&[Instr]], until: usize, reg: Register) -> Option<u64> {
     if reg.full == 0 {
         return Some(0);
     }
@@ -329,7 +333,7 @@ fn mips_constant(image: &Image, blocks: &[&[Instr]], until: usize, reg: Register
         // arrives at the same one.
         Write::Unwritten if before.is_empty() => return if reg.full == GP { image.global_pointer } else { None },
         Write::Unwritten => {
-            let mut values = before.iter().map(|b| mips_constant(image, &[*b], b.len(), reg));
+            let mut values = before.iter().map(|b| mips_constant(image, function, &[*b], b.len(), reg));
             let first = values.next()??;
             return values.all(|v| v == Some(first)).then_some(first);
         }
@@ -338,11 +342,12 @@ fn mips_constant(image: &Image, blocks: &[&[Instr]], until: usize, reg: Register
     match (i.mnemonic.as_str(), i.operands.get(1), i.operands.get(2)) {
         ("lui", Some(Operand::Imm { value, .. }), None) => Some(mask((*value as u64) << 16)),
         ("addiu" | "ori", Some(Operand::Reg(source)), Some(Operand::Imm { value, .. })) => {
-            let source = mips_constant(image, blocks, at, *source)?;
+            let source = mips_constant(image, function, blocks, at, *source)?;
             Some(if i.mnemonic == "ori" { source | mask(*value as u64) } else { mask(source.wrapping_add(*value as u64)) })
         }
+        ("lw", Some(Operand::Mem(slot)), _) if slot.base.is_some_and(|b| b.full == SP) => mips_spilled(image, function, slot.disp),
         ("lw", Some(Operand::Mem(slot)), _) if slot.base.is_some_and(|b| b.full == GP) => {
-            let slot = mask(mips_constant(image, blocks, at, slot.base?)?.wrapping_add(slot.disp as u64));
+            let slot = mask(mips_constant(image, function, blocks, at, slot.base?)?.wrapping_add(slot.disp as u64));
             // Only the GOT holds a constant: small data reached the same way is a variable.
             if image.section_of(slot)?.name != ".got" {
                 return None;
@@ -351,6 +356,43 @@ fn mips_constant(image: &Image, blocks: &[&[Instr]], until: usize, reg: Register
         }
         _ => None,
     }
+}
+
+/// The constant the stack slot at `disp($sp)` holds, when the `function` stores to it once, a `sw`
+/// of a register its block gives a constant (`_vfprintf_r` keeps its jump table's address there
+/// across the format loop), and moves `$sp` only by the frame's `addiu`. Any other store that
+/// touches the slot, of any width, leaves it unknown.
+fn mips_spilled(image: &Image, function: &[&[Instr]], disp: i64) -> Option<u64> {
+    let mut stores = function.iter().flat_map(|b| b.iter().enumerate().map(move |(n, i)| (*b, n, i))).filter(|(_, _, i)| {
+        let Some(Operand::Mem(m)) = i.operands.get(1) else { return false };
+        if m.base.is_none_or(|b| b.full != SP) || i.mnemonic.starts_with('l') || matches!(i.mnemonic.as_str(), "cache" | "pref") {
+            return false;
+        }
+        // The unaligned forms touch the bytes before their address too.
+        let (start, width) = match i.mnemonic.as_str() {
+            "sb" => (m.disp, 1),
+            "sh" => (m.disp, 2),
+            "sw" | "sc" | "swc1" => (m.disp, 4),
+            "sq" => (m.disp, 16),
+            _ => (m.disp - 7, 15),
+        };
+        start < disp + 4 && disp < start + width
+    });
+    let (block, at, store) = stores.next()?;
+    if stores.next().is_some() || store.mnemonic != "sw" || !matches!(store.operands.get(1), Some(Operand::Mem(m)) if m.disp == disp) {
+        return None;
+    }
+    let frame_only = function
+        .iter()
+        .flat_map(|b| b.iter())
+        .filter(|i| writes_first(i) && i.operands.first().and_then(reg_of).is_some_and(|d| d.full == SP))
+        .all(|i| i.mnemonic == "addiu" && i.operands.get(1).and_then(reg_of).is_some_and(|s| s.full == SP));
+    if !frame_only {
+        return None;
+    }
+    // The stored value from its own block, with no slot of its own: a slot is not read through another.
+    let source = store.operands.first().and_then(reg_of)?;
+    mips_constant(image, &[], &[block], at, source)
 }
 
 /// The index a MIPS register holds four times of before `until`: `sll s, idx, 2`.
