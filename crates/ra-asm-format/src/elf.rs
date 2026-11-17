@@ -1533,7 +1533,11 @@ fn read_sections(d: Data<'_>, shoff: u64, shentsize: usize, shnum: usize, shstrn
         if let Some((offset, size)) = table
             && index < size
         {
-            s.name = d.string(offset + index, size - index, "a section name")?;
+            // Both come from the file: a name table near the end of the address space wraps.
+            let Some(at) = offset.checked_add(index) else {
+                bail!("section name {index} of the table at {offset:#x} lies past the end of the address space");
+            };
+            s.name = d.string(at, size - index, "a section name")?;
         }
         sections.push(s);
     }
@@ -1735,6 +1739,22 @@ mod tests {
             assert_eq!(elf.offset_of(0x40_0010), Some(0x10));
             assert!(elf.sections.is_empty() && elf.warnings.is_empty(), "{:?}", elf.warnings);
         }
+    }
+
+    #[test]
+    fn a_section_name_table_at_the_end_of_the_address_space_is_an_error() {
+        // The fuzzer's crash: the name table's offset plus a name's index overflowed.
+        let mut b = minimal(false);
+        b.resize(0x78 + 64, 0);
+        b[40..48].copy_from_slice(&0x78u64.to_le_bytes()); // e_shoff
+        b[58..60].copy_from_slice(&64u16.to_le_bytes()); // e_shentsize
+        b[60..62].copy_from_slice(&1u16.to_le_bytes()); // e_shnum
+        b[62..64].copy_from_slice(&0u16.to_le_bytes()); // e_shstrndx: this one section
+        b[0x78..0x7c].copy_from_slice(&8u32.to_le_bytes()); // sh_name
+        b[0x78 + 24..0x78 + 32].copy_from_slice(&u64::MAX.to_le_bytes()); // sh_offset
+        b[0x78 + 32..0x78 + 40].copy_from_slice(&16u64.to_le_bytes()); // sh_size
+        let e = ElfFile::parse(&b).unwrap_err();
+        assert!(format!("{e:#}").contains("past the end of the address space"), "{e:#}");
     }
 
     #[test]
