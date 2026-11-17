@@ -210,19 +210,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
     };
     let exit_set = match abi {
         None => all,
-        Some(abi) => {
-            let mut set = NO_SLOTS;
-            match abi.own.returns {
-                Some(Kind::Int) => set[abi.target.int_return().index()] = true,
-                Some(Kind::Wide) => {
-                    set[abi.target.int_return().index()] = true;
-                    set[abi.target.high_return().index()] = true;
-                }
-                Some(Kind::Float | Kind::Double) => set[Slot::Xmm(0).index()] = true,
-                None => {}
-            }
-            set
-        }
+        Some(abi) => abi.own.result_slots(abi.target),
     };
     let liveness = if abi.is_some() {
         Liveness::with_calls(f, &pointers, &order, exit_set, &abi_model)
@@ -549,12 +537,12 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
             match rw.abi {
                 None => flush(f, state, &current, &dirty, block.instrs.last().and_then(|i| i.address), &mut instrs),
                 Some(abi) => {
-                    let (low_slot, high_slot) = (abi.target.int_return(), abi.target.high_return());
+                    let (low_slot, high_slot) = abi.own.result_registers(abi.target);
                     terminator = match abi.own.returns {
                         None => Terminator::Ret(None),
                         Some(Kind::Int) => Terminator::Ret(Some((Type::I64, current.get(&low_slot).cloned().unwrap_or(Operand::Undef)))),
                         Some(Kind::Wide) => {
-                            // edx:eax as one 64-bit value.
+                            // edx:eax, or the registers the signature names, as one 64-bit value.
                             let low = f.new_value("ret.lo", Type::I64);
                             instrs.push(Instruction {
                                 result: Some(low),
@@ -839,7 +827,9 @@ impl Rewriter<'_> {
     }
 
     /// After a call: the caller-saved registers are gone, but for the ones the callee is known to
-    /// preserve; the result is in `rax` or `xmm0`.
+    /// preserve; the result is in `rax` or `xmm0`, or in the registers `results` names (see
+    /// [`Signature::results`]).
+    #[allow(clippy::too_many_arguments)]
     fn after_call(
         &self,
         f: &mut Function,
@@ -847,6 +837,7 @@ impl Rewriter<'_> {
         returns: Option<Kind>,
         result: Option<ValueId>,
         preserves: &SlotSet,
+        results: &[Slot],
         out: &mut Vec<Instruction>,
     ) {
         let target = self.target();
@@ -855,12 +846,16 @@ impl Rewriter<'_> {
                 current.insert(slot, Operand::Undef);
             }
         }
+        let (low_slot, high_slot) = (
+            results.first().copied().unwrap_or_else(|| target.int_return()),
+            results.get(1).copied().unwrap_or_else(|| target.high_return()),
+        );
         match (returns, result) {
             (Some(Kind::Int), Some(v)) => {
-                current.insert(target.int_return(), Operand::Local(v));
+                current.insert(low_slot, Operand::Local(v));
             }
             (Some(Kind::Wide), Some(v)) => {
-                // The 64-bit result lands in edx:eax.
+                // The 64-bit result lands in edx:eax, or the registers the signature names.
                 let low = f.new_value("ret.lo", Type::I64);
                 out.push(Instruction {
                     result: Some(low),
@@ -873,8 +868,8 @@ impl Rewriter<'_> {
                     inst: Inst::Bin { op: BinOp::LShr, ty: Type::I64, lhs: Operand::Local(v), rhs: Operand::Int(32) },
                     address: None,
                 });
-                current.insert(target.int_return(), Operand::Local(low));
-                current.insert(target.high_return(), Operand::Local(high));
+                current.insert(low_slot, Operand::Local(low));
+                current.insert(high_slot, Operand::Local(high));
             }
             (Some(kind @ (Kind::Float | Kind::Double)), Some(v)) => {
                 let slot = self.xmm_slot(f, 0, out);
@@ -924,7 +919,7 @@ impl Rewriter<'_> {
             address,
         });
         let popped = pop.then(|| self.pop_after_call(f, current, sig.pops as i64, address, out));
-        self.after_call(f, current, sig.returns, result, &sig.preserves, out);
+        self.after_call(f, current, sig.returns, result, &sig.preserves, &sig.results, out);
         if let Some(popped) = popped {
             current.insert(self.target.sp(), Operand::Local(popped));
         }
@@ -1009,7 +1004,7 @@ impl Rewriter<'_> {
         }
         let popped = f.new_value("rsp", Type::I64);
         out.push(Instruction { result: Some(popped), inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: up }, address });
-        self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, out);
+        self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, &[], out);
         // An x86 callee that returns 64 bits leaves the high half in edx (a virtual `xsputn`
         // hands back a `streamsize`): the universal result carries it above the low half, and a
         // caller that takes 32 bits never reads it.
@@ -1235,10 +1230,10 @@ impl Rewriter<'_> {
                     });
                     match (proto.returns, result) {
                         (Some(kind @ (Kind::Float | Kind::Double)), Some(v)) if !target.is_64() && !sse2 => {
-                            self.after_call(f, current, None, None, &NO_SLOTS, out);
+                            self.after_call(f, current, None, None, &NO_SLOTS, &[], out);
                             push_x87(f, kind, v, abi.x87, out);
                         }
-                        _ => self.after_call(f, current, proto.returns, result, &NO_SLOTS, out),
+                        _ => self.after_call(f, current, proto.returns, result, &NO_SLOTS, &[], out),
                     }
                     return None;
                 }
@@ -1270,7 +1265,7 @@ impl Rewriter<'_> {
                     inst: Inst::Call { fn_ty, callee: Callee::Direct(symbol), args, tail: false },
                     address,
                 });
-                self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, out);
+                self.after_call(f, current, Some(Kind::Int), Some(result), &NO_SLOTS, &[], out);
             }
             Callee::Direct(name) if name == "ra_call" => {
                 drop_return_address_push(out, address);
@@ -1280,7 +1275,7 @@ impl Rewriter<'_> {
             _ => {
                 // Something else that takes the state: keep it, with undefined registers after.
                 out.push(i.clone());
-                self.after_call(f, current, None, None, &NO_SLOTS, out);
+                self.after_call(f, current, None, None, &NO_SLOTS, &[], out);
             }
         }
         None

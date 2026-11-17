@@ -4,7 +4,8 @@
 //!   function of its own cannot: the lift copies them into the caller, and the caller reads its
 //!   arguments and locals through the `ebp` the prolog set;
 //! - a static function's arguments in registers of the compiler's choosing (`edi`, `esi`), which
-//!   its callers set and it reads, while the `push esi` of another function only saves it.
+//!   its callers set and it reads, while the `push esi` of another function only saves it; and
+//!   its result in one it leaves changed, which its callers read after the call.
 
 /// The image's base and the addresses of its pieces, all in one section at RVA 0x1000.
 const BASE: u64 = 0x40_0000;
@@ -256,6 +257,35 @@ fn a_register_set_blocks_before_the_call_is_an_argument_and_a_push_that_makes_ro
     // ecx, edx, eax, ebx, then esi.
     assert_eq!(signature(INC_ESI).params.len(), 5, "inc_esi reads esi:\n{}", lifted.module.to_ll());
     assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 34, "main()\n{}", lifted.module.to_ll());
+}
+
+/// MSVC hands a static function's result back in a register of its choosing too: `next` takes
+/// the address of a count in `edi` and leaves the count plus one in `esi`, which it does not
+/// save, and main reads `esi` after the call. `next` takes `edi` and returns in `esi`, and main
+/// returns 41 + 1 at the ABI level, not the `esi` it holds across the call.
+#[test]
+fn a_static_function_returns_in_the_register_its_callers_read() {
+    const NEXT: u64 = CODE + 0x40;
+    let mut s = vec![0xccu8; 0x200];
+    let mut put = |at: u64, bytes: &[u8]| {
+        let o = (at - CODE) as usize;
+        s[o..o + bytes.len()].copy_from_slice(bytes);
+    };
+    // push esi; push edi; sub esp, 4; mov edi, esp; mov dword ptr [edi], 41; call next;
+    // mov eax, esi; add esp, 4; pop edi; pop esi; ret
+    let mut main = vec![0x56, 0x57, 0x83, 0xec, 0x04, 0x8b, 0xfc, 0xc7, 0x07, 41, 0, 0, 0];
+    main.extend(call_to(MAIN + main.len() as u64, NEXT));
+    main.extend([0x8b, 0xc6, 0x83, 0xc4, 0x04, 0x5f, 0x5e, 0xc3]);
+    put(MAIN, &main);
+    // mov esi, [edi]; inc esi; ret
+    put(NEXT, &[0x8b, 0x37, 0x46, 0xc3]);
+    let (image, lifted, signatures) = raised(&s);
+    let next = &signatures[&lifted.functions[&NEXT]];
+    // ecx, edx, eax, ebx, esi, then edi.
+    assert_eq!(next.params.len(), 6, "next reads edi:\n{}", lifted.module.to_ll());
+    let esi = ra_asm_lift::raise::liveness::Slot::Gpr(6);
+    assert_eq!((next.returns, next.results.as_slice()), (Some(ra_asm_lift::raise::abi::Kind::Int), [esi].as_slice()), "{next:?}");
+    assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 42, "main()\n{}", lifted.module.to_ll());
 }
 
 /// The jump tables of the C runtime's `memcpy`, which no `cmp` bounds from zero: `and eax, 3`

@@ -52,6 +52,10 @@ pub struct Signature {
     /// The stack parameters after them, from the first stack argument up.
     pub stack_params: Vec<Kind>,
     pub returns: Option<Kind>,
+    /// The registers an integer result comes back in, the low half first, where they are not the
+    /// convention's `eax` and `edx`: MSVC hands a static x86 function's result back in whichever
+    /// register it likes, `esi` or `edi` too, and the callers read it there after the call.
+    pub results: Vec<Slot>,
     /// Whether the function never returns.
     pub noreturn: bool,
     /// The bytes the frame needs below the entry stack pointer.
@@ -79,6 +83,7 @@ impl Default for Signature {
             params: Vec::new(),
             stack_params: Vec::new(),
             returns: None,
+            results: Vec::new(),
             noreturn: false,
             frame_below: 0,
             dynamic_stack: false,
@@ -102,6 +107,29 @@ impl Signature {
             if let Some(slot) = target.param_slot(&self.params, p) {
                 set[slot.index()] = true;
             }
+        }
+        set
+    }
+
+    /// The registers an integer result comes back in, its low and its high half: the ones
+    /// [`Self::results`] names, else the convention's.
+    pub fn result_registers(&self, target: Target) -> (Slot, Slot) {
+        let low = self.results.first().copied().unwrap_or_else(|| target.int_return());
+        (low, self.results.get(1).copied().unwrap_or_else(|| target.high_return()))
+    }
+
+    /// The register slots the result lies in at a return.
+    pub fn result_slots(&self, target: Target) -> SlotSet {
+        let mut set = NO_SLOTS;
+        let (low, high) = self.result_registers(target);
+        match self.returns {
+            Some(Kind::Int) => set[low.index()] = true,
+            Some(Kind::Wide) => {
+                set[low.index()] = true;
+                set[high.index()] = true;
+            }
+            Some(Kind::Float | Kind::Double) => set[Slot::Xmm(0).index()] = true,
+            None => {}
         }
         set
     }
@@ -190,6 +218,12 @@ struct Facts {
     /// ([`Target::private_int_param_slots`], the convention's first) the block sets before the
     /// call, by position: what the callee may take in them.
     sets_before_calls: Vec<(String, u8)>,
+    /// The callee-saved registers a function may take arguments in that its own code leaves
+    /// changed at a return, each with whether the value it came in with may still reach one.
+    changes: Vec<(Slot, bool)>,
+    /// Each lifted callee with a callee-saved register of those this function reads after the
+    /// call: one the callee leaves changed is a result.
+    uses_saved_of: Vec<(String, Slot)>,
     noreturn: bool,
 }
 
@@ -764,6 +798,13 @@ fn infer_from(
                 *set_by_callers.entry(callee.as_str()).or_insert(u8::MAX) &= mask;
             }
         }
+        // The callee-saved registers some caller of a function reads after a call to it.
+        let mut read_by_callers: HashMap<&str, SlotSet> = HashMap::new();
+        for fact in &facts {
+            for (callee, slot) in &fact.uses_saved_of {
+                read_by_callers.entry(callee.as_str()).or_insert(NO_SLOTS)[slot.index()] = true;
+            }
+        }
         let mut next: HashMap<String, Signature> = HashMap::new();
         for fact in facts {
             let params: Vec<Kind> = if target.shares_positions() {
@@ -815,6 +856,29 @@ fn infer_from(
                 }
             }
             let returns = if fact.noreturn { None } else { returns.get(&fact.name).copied().flatten() };
+            // A function the lift sees every caller of hands back, besides what the convention
+            // says, each callee-saved register it leaves changed that a caller reads after the
+            // call: the caller reads the callee's value there, not its own. Where the value the
+            // register came in with may still reach a return, it is a parameter, or the result
+            // would be no value on that path. The result is one integer, or two halves of a wide
+            // one: a register past those stays the caller's own, as before.
+            let read = read_by_callers.get(fact.name.as_str());
+            let taken: Vec<Slot> = if fact.noreturn || roots.contains(&fact.name) {
+                Vec::new()
+            } else {
+                let param = |slot: Slot| (0..params.len()).any(|p| target.param_slot(&params, p) == Some(slot));
+                fact.changes
+                    .iter()
+                    .filter(|(slot, flows)| read.is_some_and(|r| r[slot.index()]) && (!flows || param(*slot)))
+                    .map(|(slot, _)| *slot)
+                    .collect()
+            };
+            let (returns, results) = match (returns, taken.as_slice()) {
+                (None, [one]) => (Some(Kind::Int), vec![*one]),
+                (None, [low, high]) => (Some(Kind::Wide), vec![*low, *high]),
+                (Some(Kind::Int), [high]) => (Some(Kind::Wide), vec![target.int_return(), *high]),
+                (returns, _) => (returns, Vec::new()),
+            };
             let frame_below = (-fact.stack.min_offset).max(0) as u64;
             let mut preserves = caller_saved(target);
             for (kept, written) in preserves.iter_mut().zip(fact.writes) {
@@ -829,6 +893,7 @@ fn infer_from(
                     params,
                     stack_params: if variadic { Vec::new() } else { stack_params },
                     returns,
+                    results,
                     noreturn: fact.noreturn,
                     frame_below: (frame_below + 15) & !15,
                     dynamic_stack: fact.stack.dynamic,
@@ -985,6 +1050,12 @@ fn call_model(
         for (w, kept) in writes.iter_mut().zip(s.preserves) {
             *w &= !kept;
         }
+        // A result in a callee-saved register is the callee's, not the caller's kept value.
+        if !s.results.is_empty() {
+            for (w, result) in writes.iter_mut().zip(s.result_slots(target)) {
+                *w |= result;
+            }
+        }
     }
     if let Some(candidates) = virtual_candidates(inst, virtual_calls) {
         let (reads, kept_by_all) = summaries.map_or_else(|| summarize(candidates, signatures, target), |s| s.get(candidates));
@@ -1038,16 +1109,7 @@ fn gather(
     // result); one where it hands back nothing, for what the function itself reads at entry.
     // Without the second, the result register would look like a parameter.
     let (low, high) = (target.int_return(), target.high_return());
-    let mut exit_set = NO_SLOTS;
-    match signatures.get(&f.name).and_then(|s| s.returns) {
-        Some(Kind::Int) => exit_set[low.index()] = true,
-        Some(Kind::Wide) => {
-            exit_set[low.index()] = true;
-            exit_set[high.index()] = true;
-        }
-        Some(Kind::Float | Kind::Double) => exit_set[Slot::Xmm(0).index()] = true,
-        None => {}
-    }
+    let exit_set = signatures.get(&f.name).map_or(NO_SLOTS, |s| s.result_slots(target));
     let liveness = Liveness::with_calls(f, &pointers, &order, exit_set, &model);
     let own_reads = Liveness::with_calls(f, &pointers, &order, NO_SLOTS, &model);
     let live_in = own_reads.live_in.first().copied().unwrap_or([false; SLOTS]);
@@ -1092,6 +1154,13 @@ fn gather(
     // where the save of a callee-saved register it writes and puts back is no read.
     let conventional = target.int_param_slots().len();
     let private = target.private_int_param_slots();
+    // The ones among them the callee keeps by the convention, which a function only its own code
+    // calls may hand a result back in all the same.
+    let saved_private: Vec<Slot> = if private.len() > conventional {
+        private[conventional..].iter().copied().filter(|s| target.callee_saved(*s)).collect()
+    } else {
+        Vec::new()
+    };
     if private.len() > conventional {
         let mut saves = saved_registers(f, &pointers, &stack, &private[conventional..]);
         saves.extend(pushed_only(f, &pointers, target, &private[conventional..]));
@@ -1185,6 +1254,8 @@ fn gather(
     let mut writes_rax = false;
     let mut writes_xmm0: Option<Kind> = None;
     let mut writes = NO_SLOTS;
+    let mut own_writes = NO_SLOTS;
+    let mut uses_saved_of = Vec::new();
     // The blocks a return is reached from. A block no path of which returns (one that ends in
     // `unreachable`, a call that never returns such as the report after a failed cookie check, or
     // one every path out of which does: the report inlined into the check, which asks whether the
@@ -1217,6 +1288,7 @@ fn gather(
                 Inst::Store { ptr: Operand::Local(p), .. } => {
                     if let Some(slot) = pointers.get(p) {
                         writes[slot.index()] = true;
+                        own_writes[slot.index()] = true;
                     }
                 }
                 inst if super::liveness::call_kind(inst) == Some(super::liveness::CallKind::State) => {
@@ -1254,6 +1326,9 @@ fn gather(
                             if live[Slot::Xmm(0).index()] {
                                 uses_xmm0_of.push(name.clone());
                             }
+                            for slot in saved_private.iter().filter(|s| live[s.index()]) {
+                                uses_saved_of.push((name.clone(), *slot));
+                            }
                         }
                     }
                     calls += 1;
@@ -1263,8 +1338,29 @@ fn gather(
             }
         }
     }
+    // The callee-saved registers its own code writes and does not put back at every return, and
+    // whether the value one came in with may still reach a return: through a path that leaves it
+    // alone, or a save that one return reloads.
+    let changed: Vec<Slot> = saved_private
+        .iter()
+        .copied()
+        .filter(|slot| own_writes[slot.index()] && matches!(*slot, Slot::Gpr(r) if stack.kept & (1u64 << r) == 0))
+        .collect();
+    let changes = if changed.is_empty() {
+        Vec::new()
+    } else {
+        let mut exit = NO_SLOTS;
+        for slot in &changed {
+            exit[slot.index()] = true;
+        }
+        let flows = Liveness::with_calls(f, &pointers, &order, exit, &model);
+        let entry = flows.live_in.first().copied().unwrap_or([false; SLOTS]);
+        changed.into_iter().map(|slot| (slot, entry[slot.index()])).collect()
+    };
     Facts {
         name: f.name.clone(),
+        changes,
+        uses_saved_of,
         int_positions,
         float_positions,
         stack,
