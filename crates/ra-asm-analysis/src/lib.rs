@@ -10,8 +10,10 @@
 //! them first. Last, each function learns the string literals it addresses and the vtable slots
 //! that hold it, and the names settle: a PDB beside the image names what it describes and marks
 //! the functions of a linked-in C runtime as the host's, a link map beside it (or one the project
-//! names) names what it lists, a function nothing names takes the name of its vtable slot, and
-//! every name becomes an identifier unique in the program. The signatures of a library
+//! names) names what it lists, a function the program instantiated from the standard library's
+//! templates is named after its container and member ([`stl`]: `std::vector<unsigned int>::insert`
+//! as the identifier `std_vector_unsigned_int_insert`), a function nothing names takes the name of
+//! its vtable slot, and every name becomes an identifier unique in the program. The signatures of a library
 //! ([`signatures`]) name the functions of a build without symbols the same way: applied to the
 //! image first, they fill the symbols and the library ranges the analysis reads. The facts of a
 //! traced run ([`facts`]) come last among the seeds and first among the resolutions: a target the
@@ -33,6 +35,7 @@ pub mod noreturn;
 pub mod rtti;
 pub mod seh32;
 pub mod signatures;
+pub mod stl;
 pub mod symbols;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};

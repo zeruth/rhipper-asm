@@ -253,11 +253,20 @@ pub fn is_runtime_library(library: &str) -> bool {
 
 /// The source name of a linkage name: on x86 the `_` of `cdecl`, the `_name@N` of `stdcall` and
 /// the `@name@N` of `fastcall` come off; a C++ name (`?area@Rect@@UEBANXZ`) reads as `Rect::area`,
-/// with `ctor`, `dtor` and `operator_N` for the special names and the whole mangled name, made
-/// an identifier, for a template or anything else beyond nested names.
+/// with `ctor`, `dtor` and `operator_N` for the special names. A function of the standard library's
+/// templates, MSVC's or the Itanium ABI's, reads under its container as an identifier
+/// (`std_vector_unsigned_int_insert`, [`crate::stl`]), and any other template, or anything else
+/// beyond nested names, as the whole mangled name made an identifier.
 pub fn undecorate(name: &str, is_64: bool) -> String {
+    let itanium = if is_64 { name } else { name.strip_prefix('_').unwrap_or(name) };
+    if itanium.starts_with("_Z")
+        && let Some(source) = crate::stl::source_name(itanium)
+    {
+        return identifier(&source);
+    }
     if let Some(rest) = name.strip_prefix('?') {
-        return demangle(rest).unwrap_or_else(|| identifier(name));
+        let library = || crate::stl::source_name(name).map(|source| identifier(&source));
+        return demangle(rest).or_else(library).unwrap_or_else(|| identifier(name));
     }
     if is_64 {
         return name.to_owned();
@@ -660,6 +669,8 @@ mod tests {
         assert_eq!(undecorate("??_GRect@@UEAAPEAXI@Z", true), "Rect::scalar_deleting_dtor");
         assert_eq!(undecorate("?f@@YAXXZ", true), "f");
         assert_eq!(undecorate("??$f@H@@YAXXZ", true), "f_H_YAXXZ");
+        assert_eq!(undecorate("?shrink_to_fit@?$vector@IV?$allocator@I@std@@@std@@QAEXXZ", false), "std_vector_unsigned_int_shrink_to_fit");
+        assert_eq!(undecorate("__ZNSt6vectorIjSaIjEE9push_backERKj", false), "std_vector_unsigned_int_push_back");
     }
 
     /// The program's `WinMain` is defined under [`WIN_MAIN_C`], since the driver's `windows.h`

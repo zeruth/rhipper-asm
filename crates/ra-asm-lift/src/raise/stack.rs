@@ -122,6 +122,9 @@ pub fn analyze(
     saves_entry[0] = Some(Saves { intact, kept: intact, bytes: BTreeSet::new(), slots: BTreeMap::new() });
     let mut info = StackInfo::default();
     let mut symbolic: HashMap<ValueId, i64> = HashMap::new();
+    // The values that are a constant: an x64 frame larger than a page moves the stack pointer by
+    // a register (`mov eax, N; call __chkstk; sub rsp, rax`), which holds one.
+    let mut constants: HashMap<ValueId, i64> = HashMap::new();
     // The values that are a callee-saved register's value from the entry, by the register.
     let mut entry_values: HashMap<ValueId, u8> = HashMap::new();
     // The values read back from where such a value was saved, by the register it was.
@@ -162,6 +165,8 @@ pub fn analyze(
             }
             let Some(mut regs) = entry[bi] else { continue };
             let mut saves = saves_entry[bi].clone().unwrap_or_default();
+            // The constant each register holds, from a write in this block.
+            let mut held: [Option<i64>; GPRS] = [None; GPRS];
             for (ii, i) in f.blocks[bi].instrs.iter().enumerate() {
                 let first = target.first_stack_arg();
                 let symbolic_arg = |o: &Operand| matches!(o, Operand::Local(v) if symbolic.get(v).is_some_and(|&k| k >= first));
@@ -187,6 +192,10 @@ pub fn analyze(
                                 Some(k) => symbolic.insert(result, k),
                                 None => symbolic.remove(&result),
                             };
+                            match held[usize::from(*r)] {
+                                Some(c) => constants.insert(result, c),
+                                None => constants.remove(&result),
+                            };
                             if saves.intact & (1u64 << *r) != 0 {
                                 entry_values.insert(result, *r);
                             } else {
@@ -201,6 +210,11 @@ pub fn analyze(
                             _ => None,
                         };
                         regs[usize::from(*r)] = k;
+                        held[usize::from(*r)] = match value {
+                            Operand::Int(c) => i64::try_from(*c).ok(),
+                            Operand::Local(v) => constants.get(v).copied(),
+                            _ => None,
+                        };
                         saves.intact &= !(1u64 << *r);
                         // A register reloaded from where its entry value was saved holds it again.
                         if matches!(value, Operand::Local(v) if restored.get(v) == Some(r)) {
@@ -228,6 +242,24 @@ pub fn analyze(
                     Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Int(c), rhs: Operand::Local(r), .. } => {
                         if let (Some(result), Some(&k)) = (i.result, symbolic.get(r)) {
                             symbolic.insert(result, k.wrapping_add(super::frame::signed(*c, *bits)));
+                        }
+                    }
+                    // The stack pointer moved by a register that holds a constant.
+                    Inst::Bin { op: BinOp::Add | BinOp::Sub, lhs: Operand::Local(l), rhs: Operand::Local(r), .. } => {
+                        if let (Some(result), Some(&k), Some(&c)) = (i.result, symbolic.get(l), constants.get(r)) {
+                            let off =
+                                if matches!(i.inst, Inst::Bin { op: BinOp::Add, .. }) { k.wrapping_add(c) } else { k.wrapping_sub(c) };
+                            symbolic.insert(result, off);
+                        }
+                    }
+                    // A 32-bit write of a constant (`mov eax, N`) widens it to the register.
+                    Inst::Cast { cast: Cast::ZExt, from: Type::Int(bits), value: Operand::Int(c), .. } => {
+                        if let Some(result) = i.result {
+                            let mask = if *bits >= 64 { -1 } else { (1i128 << bits) - 1 };
+                            match i64::try_from(c & mask) {
+                                Ok(c) => constants.insert(result, c),
+                                Err(_) => constants.remove(&result),
+                            };
                         }
                     }
                     // The 32-bit model reads the pointer as a dword and widens it back: the same
@@ -311,6 +343,7 @@ pub fn analyze(
                                     *offset = None;
                                 }
                             }
+                            held = [None; GPRS];
                             // An import wrapper runs in place of the native call: nothing was
                             // pushed and the stack pointer stays. For a lifted callee the machine
                             // model pushed the return address before the call and the callee

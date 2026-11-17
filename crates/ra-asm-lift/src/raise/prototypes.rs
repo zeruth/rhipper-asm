@@ -94,6 +94,11 @@ impl Typed {
 /// pointer arguments (`frexp`'s exponent, `modf`'s integer part) as integers of the address width.
 pub fn typed(name: &str) -> Option<Typed> {
     use Kind::{Double, Float, Int, Wide};
+    // The x64 C++ library's inserter of a floating-point value: `this`, then the value in `xmm1`;
+    // the stream back.
+    if let Some(value) = inserted_float(name) {
+        return Some(Typed { params: vec![Int, value], returns: Some(Int) });
+    }
     let (params, returns) = match name {
         "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh" | "exp" | "exp2"
         | "expm1" | "log" | "log2" | "log10" | "log1p" | "logb" | "sqrt" | "ra_x86_sqrt" | "cbrt" | "floor" | "ceil" | "trunc"
@@ -154,6 +159,19 @@ pub fn typed(name: &str) -> Option<Typed> {
         }
     };
     Some(Typed { params, returns })
+}
+
+/// The kind of the value a 64-bit `basic_ostream<C>::operator<<` of a floating-point type inserts,
+/// by its decorated name: `M` a `float`, `N` a `double`, `O` a `long double`, which Microsoft's
+/// compiler makes a `double`.
+fn inserted_float(name: &str) -> Option<Kind> {
+    let body = name.strip_prefix("??6?$basic_ostream@")?.strip_suffix("@Z")?;
+    let kind = match body.chars().last()? {
+        'M' => Kind::Float,
+        'N' | 'O' => Kind::Double,
+        _ => return None,
+    };
+    body[..body.len() - 1].ends_with("@std@@QEAAAEAV01@").then_some(kind)
 }
 
 /// The bytes a 32-bit import pops on return: four per argument for the `stdcall` of the Win32

@@ -14,7 +14,8 @@
 //! A call through a vtable slot (see [`super::abi::virtual_calls`]) is a direct call when one
 //! function fills the slot, and otherwise a dispatch over the code address the slot holds: the
 //! block ends in a chain of tests against the functions' addresses, one arm per function calls
-//! it by its signature, a trap takes any other address, and the block goes on in a continuation
+//! it by its signature, a trap takes any other address on x86 (the indirect call on x64, where an
+//! object of the host's C++ runtime holds host functions), and the block goes on in a continuation
 //! whose phis join the arms' results. A call a traced run resolved (see
 //! [`super::abi::traced_calls`]) is the same dispatch over the functions the run saw, with the
 //! indirect call itself in place of the trap: the run proved the targets it took, not that there
@@ -1053,9 +1054,8 @@ impl Rewriter<'_> {
     /// from a run, so each test compares with both rather than switch over constants. The arms
     /// join in the continuation, where the result and, when the candidates pop differently, the
     /// stack pointer are phis; the instructions so far become the head, which ends in the first
-    /// test. With `seen`, the
-    /// candidates are what a run saw and any other address takes the indirect call, which pops
-    /// by itself, so every arm pops its own.
+    /// test. With `seen`, the candidates are what a run saw; then, and on x64, any other address
+    /// takes the indirect call, which pops by itself, so every arm pops its own.
     #[allow(clippy::too_many_arguments)]
     fn virtual_dispatch(
         &mut self,
@@ -1068,10 +1068,14 @@ impl Rewriter<'_> {
         current: &mut HashMap<Slot, Operand>,
         out: &mut Vec<Instruction>,
     ) -> Split {
+        // An x64 object may come from the host's own C++ runtime (the facet `_Getcat` makes), whose
+        // vtable holds host functions: any other address there takes the indirect call, which
+        // reaches a host function or a lifted one at its image address. An x86 one holds dwords.
+        let other = seen || abi.target.is_64();
         let (continuation, continuation_name) = self.fresh_block("vcall.join");
-        let (default, default_name) = self.fresh_block(if seen { "vcall.other" } else { "vcall.trap" });
+        let (default, default_name) = self.fresh_block(if other { "vcall.other" } else { "vcall.trap" });
         let pops: Vec<i64> = candidates.iter().map(|(_, name)| abi.all.get(name).map_or(0, |s| s.pops as i64)).collect();
-        let same_pops = !seen && pops.iter().all(|&p| p == pops[0]);
+        let same_pops = !other && pops.iter().all(|&p| p == pops[0]);
         let arms: Vec<(BlockId, String)> = candidates.iter().map(|_| self.fresh_block("vcall")).collect();
         let tests: Vec<(BlockId, String)> = candidates.iter().skip(1).map(|_| self.fresh_block("vcall.test")).collect();
         let mut blocks = Vec::new();
@@ -1115,7 +1119,7 @@ impl Rewriter<'_> {
             blocks.push(Block { id, name: block_name, instrs, terminator: Terminator::Br(continuation), address });
             finals.push((id, arm));
         }
-        if seen {
+        if other {
             let mut instrs = Vec::new();
             let mut arm = current.clone();
             self.indirect_call(f, abi, code, address, &mut arm, &mut instrs);

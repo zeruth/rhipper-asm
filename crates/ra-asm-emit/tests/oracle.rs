@@ -638,7 +638,10 @@ fn check_table(binary: &str, dir: &Path) {
             }
             assert!(grade["lines"].as_u64() > Some(1), "{binary}: {e}");
         } else {
-            assert!(e["status"] == "thunk" || e["status"] == "not lifted" || e["status"] == "runtime", "{binary}: {e}");
+            // A dead function (code no path reaches) is listed with why, and not written.
+            let unwritten = ["thunk", "not lifted", "runtime", "dead"];
+            assert!(unwritten.iter().any(|s| e["status"] == *s), "{binary}: {e}");
+            assert!(e["status"] != "dead" || e["dead"].is_string(), "{binary}: a dead function without its reason: {e}");
         }
     }
 }
@@ -1538,6 +1541,16 @@ fn classes64_reads_as_classes() {
 #[test]
 fn rhtest_cpp_clang_runs_as_cpp() {
     run_fixture_as_c(&rhtest("cpp", "clang"), "cpp", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
+}
+
+/// The rhtest `stl` program in its x64 build (`stl-clang64.exe`) as C++: its msvcp140 imports
+/// link under their x64 names through assembler labels, the two variables among them through the
+/// import table, and the member functions of its containers carry their `std::` names from the
+/// map. The port prints `stl64.txt`.
+#[test]
+fn rhtest_stl_clang64_runs_as_cpp() {
+    let fixture = Fixture { expected: "rhtest/stl64.txt".to_owned(), ..rhtest("stl", "clang64") };
+    run_fixture_as_c(&fixture, "cpp", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
 }
 
 /// The declaration of the class `head` opens, up to its closing brace.

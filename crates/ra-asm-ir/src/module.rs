@@ -196,7 +196,8 @@ impl Function {
         self.blocks.iter().map(|b| b.instrs.len()).sum()
     }
 
-    /// A fresh local value for a pass: named `hint`, made unique with a suffix.
+    /// A fresh local value for a pass: named `hint`, made unique with a suffix: the lowest free
+    /// of `hint`, `hint.1`, `hint.2`, and so on.
     pub fn new_value(&mut self, hint: &str, ty: Type) -> ValueId {
         let index = &mut self.name_index;
         if index.synced > self.value_names.len() {
