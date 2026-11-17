@@ -1351,8 +1351,9 @@ fn resources64_data_reads_as_arrays() {
         emit(&fixture("resources64.exe", "resources.txt"), "arrays", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
     for expected in [
         "uint32_t f0[8]; uint64_t f32[4]; double f64[4]; double f96; ",
-        "\n    0u, 1u, 4u, 9u, 16u, 25u, 36u, 49u,\n",
-        "0.5, 1.5, 2.5, 3.5,",
+        // A value array's last element takes no comma, so the formatter packs the list.
+        "{\n    0u, 1u, 4u, 9u, 16u, 25u, 36u, 49u\n}",
+        "{\n    0.5, 1.5, 2.5, 3.5\n}",
         "\"zero\"",
         "\"three\"",
         "\"\\r\\n\"",
