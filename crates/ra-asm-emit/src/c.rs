@@ -733,7 +733,9 @@ impl Parts<'_> {
             return (emitted, Vec::new());
         }
         // A checked build reads the values the checks name as the raise left them.
+        let mut lap = crate::Lap::start();
         let tidied = if options.checks.iter().any(|c| c.function == f.name) { None } else { crate::tidy::tidy(f, &self.nothrow) };
+        lap.end("tidy");
         let f = tidied.as_ref().unwrap_or(f);
         let shared = Shared { types, layouts: &self.layouts, trace: options.trace, checks: &options.checks, members: &self.members };
         let (header_lines, copies, gotos, end, written) =
@@ -1851,14 +1853,19 @@ fn emit_function(
         }
         let _ = writeln!(entry, "    ra_trace_enter(\"{traced}\", \"{kinds}\"{args});");
     }
+    // The pass times of `time_passes`: the head and the plans before the coalesce are the print's.
+    let mut lap = crate::Lap::start();
     let graph = Graph::of(f);
     let structured = structure(f, &graph);
+    lap.end("structure");
     let mut e = Emitter::new(f, &structured.labels, types, layouts, std::mem::take(sdk_names), traced, checks);
     e.members = method.is_some().then_some(shared.members);
     e.plan_loops(&structured.body, &graph);
     e.plan_remat();
     e.plan_direct();
+    lap.end("print");
     e.plan_coalesce();
+    lap.end("coalesce");
     let locals = e.declare_locals();
     let mut body = String::new();
     e.stmts(&mut body, &structured.body, 1);
@@ -1902,6 +1909,7 @@ fn emit_function(
         out.push('\n');
         crate::cpp::trampoline(out, f, class, m, prototype);
     }
+    lap.end("print");
     (header_lines, structured.copies(), structured.gotos(), end, written)
 }
 

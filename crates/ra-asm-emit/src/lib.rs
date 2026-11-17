@@ -33,6 +33,38 @@ pub use format::format_files;
 pub use functions::{FunctionInfo, Grade, format_address, table};
 pub use rust::{Options as RustOptions, Output as RustOutput, emit_rust};
 
+/// The hook [`time_passes`] sets: each pass's name and how long one function's run of it took.
+static PASS_TIMER: std::sync::OnceLock<fn(&'static str, std::time::Duration)> = std::sync::OnceLock::new();
+
+/// Has the emit call `hook` with the name of each of its passes over a function (`structure`,
+/// `coalesce`, `tidy`, `print`) and the time that run took, from every thread it writes on, so a
+/// pass that grows faster than the function shows by name. A pass may report a function more than
+/// once, a piece at a time; the hook sums them. The first hook set stays for the process; unset,
+/// the emit reads no clock.
+pub fn time_passes(hook: fn(&'static str, std::time::Duration)) {
+    let _ = PASS_TIMER.set(hook);
+}
+
+/// A stopwatch over the passes of one function: each [`Lap::end`] reports the time since the
+/// last to the hook of [`time_passes`], and is nothing when no hook is set.
+type LapState = (fn(&'static str, std::time::Duration), std::time::Instant);
+pub(crate) struct Lap(Option<LapState>);
+
+impl Lap {
+    pub(crate) fn start() -> Self {
+        Self(PASS_TIMER.get().map(|hook| (*hook, std::time::Instant::now())))
+    }
+
+    /// Reports the time since the start or the last lap as `pass`'s.
+    pub(crate) fn end(&mut self, pass: &'static str) {
+        if let Some((hook, start)) = &mut self.0 {
+            let now = std::time::Instant::now();
+            hook(pass, now - *start);
+            *start = now;
+        }
+    }
+}
+
 /// Writes the files of `unit` into `dir`, after removing the files of an earlier, larger output
 /// or another dialect (`program.c`, `program.h`, `data.c`, `program_NNN.c`, a module's source and
 /// header, which start with [`c::MODULE_MARK`], and the same as `.cpp`) and the import wrappers
