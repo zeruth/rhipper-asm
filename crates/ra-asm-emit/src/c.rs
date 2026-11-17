@@ -1710,7 +1710,7 @@ fn emit_function(
     }
     out.push_str(&entry);
     out.push_str(&declarations);
-    out.push_str(&body);
+    out.push_str(&early_exits(&body));
     let _ = writeln!(out, "}}");
     let end = out.len();
     if let Some((class, m)) = method {
@@ -1904,6 +1904,115 @@ fn unassigned(line: &str, unread: &Unread<'_>) -> Option<String> {
         && callee.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         && strip_parens(args).len() + 2 == args.len();
     Some(if call { format!("{pad}{rhs};") } else { format!("{pad}(void)({rhs});") })
+}
+
+/// Whether a statement leaves the code after it unreached: a `return`, `goto`, `break`,
+/// `continue`, or the call that marks the end of a path that does not return.
+fn exits(statement: &str) -> bool {
+    let s = statement.trim();
+    s == "return;"
+        || (s.starts_with("return ") && s.ends_with(';'))
+        || (s.starts_with("goto ") && s.ends_with(';'))
+        || s == "break;"
+        || s == "continue;"
+        || s == "RA_UNREACHABLE();"
+}
+
+/// Whether every arm of the `if` chain that the `} else` at `lines[at]` continues ends in an exit
+/// one level in: the arm just before it, and each one up to the chain's `if`.
+fn chain_exits(lines: &[String], at: usize, pad: usize) -> bool {
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let mut end = at;
+    loop {
+        // The arm's last statement, and the line that opens it at the chain's indentation.
+        let Some(last) = end.checked_sub(1) else { return false };
+        if !(exits(&lines[last]) && indent(&lines[last]) == pad + 4) {
+            return false;
+        }
+        let Some(open) = (0..last).rev().find(|&j| indent(&lines[j]) <= pad && !lines[j].trim_end().ends_with(":;")) else {
+            return false;
+        };
+        let head = lines[open].trim_start();
+        if indent(&lines[open]) != pad {
+            return false;
+        }
+        if head.starts_with("if (") && head.ends_with('{') {
+            return true;
+        }
+        if !(head.starts_with("} else if ") && head.ends_with('{')) {
+            return false;
+        }
+        end = open;
+    }
+}
+
+/// A function's body with the `else` of an arm that exits written after the `if`, as a person
+/// writes it (`if (bad) { error(); return; }` and the rest unindented), and an arm that is one
+/// exit on the line of its `if` (`if (m == 0u) return;`). Repeated until nothing changes, so an
+/// `if` the inner one leaves ending in an exit flattens too.
+fn early_exits(body: &str) -> String {
+    let mut lines: Vec<String> = body.lines().map(str::to_owned).collect();
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    loop {
+        let mut changed = false;
+        let mut i = 1;
+        while i < lines.len() {
+            let line = lines[i].clone();
+            let pad = indent(&line);
+            let trimmed = line.trim_start();
+            // Every arm of the chain before it ends in an exit, one level in: an `else` after
+            // `if (a) {..} else if (b) { goto L; }` is the chain's, which `a` falls past.
+            let after_exit = trimmed.starts_with("} else") && chain_exits(&lines, i, pad);
+            if after_exit && trimmed == "} else {" {
+                // The else's body, up to the `}` that closes it at this indentation.
+                let end = (i + 1..lines.len()).find(|&j| indent(&lines[j]) == pad && lines[j].trim_start().starts_with('}'));
+                if let Some(end) = end
+                    && lines[end].trim_start() == "}"
+                {
+                    lines[i] = format!("{}}}", &line[..pad]);
+                    for l in &mut lines[i + 1..end] {
+                        if indent(l) >= pad + 4 {
+                            l.drain(..4);
+                        }
+                    }
+                    lines.remove(end);
+                    changed = true;
+                }
+            } else if after_exit && let Some(rest) = trimmed.strip_prefix("} else if ") {
+                lines[i] = format!("{}}}", &line[..pad]);
+                lines.insert(i + 1, format!("{}if {rest}", &line[..pad]));
+                changed = true;
+            }
+            i += 1;
+        }
+        // `if (c) {` / one exit / `}` on one line.
+        let mut i = 0;
+        while i + 2 < lines.len() {
+            let head = lines[i].trim_start();
+            let pad = indent(&lines[i]);
+            if head.starts_with("if (")
+                && head.ends_with(") {")
+                && exits(&lines[i + 1])
+                && indent(&lines[i + 1]) == pad + 4
+                && lines[i + 2].trim_start() == "}"
+                && indent(&lines[i + 2]) == pad
+            {
+                let joined = format!("{} {}", head.trim_end_matches(" {"), lines[i + 1].trim());
+                lines[i] = format!("{}{joined}", &lines[i][..pad]);
+                lines.drain(i + 1..i + 3);
+                changed = true;
+            }
+            i += 1;
+        }
+        if !changed {
+            break;
+        }
+    }
+    let mut out = lines.join("\n");
+    if body.ends_with('\n') {
+        out.push('\n');
+    }
+    out
 }
 
 /// Whether `expr` reads nothing and does nothing, so a statement of it alone says nothing: casts
