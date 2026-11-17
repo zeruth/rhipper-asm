@@ -341,6 +341,7 @@ name = "ra-asm-mips"
 version = "0.2.0"
 dependencies = [
  "ra-asm-arch",
+ "ra-asm-ir",
  "ra-asm-machine",
  "ra-asm-pe",
 ]

@@ -9,4 +9,9 @@
 
 pub mod arch;
 
+/// The Emotion Engine's processor: its state and the rows over it.
+pub mod r5900 {
+    pub mod spec;
+}
+
 pub use arch::{Delay, Mips};

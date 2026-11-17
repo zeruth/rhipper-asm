@@ -15,4 +15,5 @@ ra-asm-arch.workspace = true
 ra-asm-machine = { path = "../ra-asm-machine" }
 
 [dev-dependencies]
+ra-asm-ir.workspace = true
 ra-asm-pe.workspace = true
