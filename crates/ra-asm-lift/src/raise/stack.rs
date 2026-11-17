@@ -42,6 +42,10 @@ pub struct StackInfo {
     pub argument_reads: BTreeMap<i64, u16>,
     /// The function moves the stack pointer by a run-time amount somewhere.
     pub dynamic: bool,
+    /// The bytes the function moves the stack pointer down by constants after the analysis lost
+    /// it: a frame realigned with `and esp, -16` and then probed for (`mov eax, N; call
+    /// __chkstk`), and the pushes after. Room the frame needs below what `min_offset` places.
+    pub dynamic_below: i64,
     /// The address of a stack argument leaves the stack arithmetic: stored to memory, passed on,
     /// or added to a register. A `va_list`, or a pointer to the arguments: the function reads
     /// them through it, not only by their slots.
@@ -125,6 +129,11 @@ pub fn analyze(
     // The values that are a constant: an x64 frame larger than a page moves the stack pointer by
     // a register (`mov eax, N; call __chkstk; sub rsp, rax`), which holds one.
     let mut constants: HashMap<ValueId, i64> = HashMap::new();
+    // The values that are the stack pointer moved by a constant from where some read of it was,
+    // placed or not, by the move: what a stack pointer the analysis lost still moves down by.
+    let mut lost: HashMap<ValueId, i64> = HashMap::new();
+    // Each block's moves down of a lost stack pointer, as of the last round.
+    let mut moved_below: Vec<i64> = vec![0; n];
     // The values that are a callee-saved register's value from the entry, by the register.
     let mut entry_values: HashMap<ValueId, u8> = HashMap::new();
     // The values read back from where such a value was saved, by the register it was.
@@ -167,6 +176,7 @@ pub fn analyze(
             let mut saves = saves_entry[bi].clone().unwrap_or_default();
             // The constant each register holds, from a write in this block.
             let mut held: [Option<i64>; GPRS] = [None; GPRS];
+            let mut moved = 0i64;
             for (ii, i) in f.blocks[bi].instrs.iter().enumerate() {
                 let first = target.first_stack_arg();
                 let symbolic_arg = |o: &Operand| matches!(o, Operand::Local(v) if symbolic.get(v).is_some_and(|&k| k >= first));
@@ -201,6 +211,11 @@ pub fn analyze(
                             } else {
                                 entry_values.remove(&result);
                             }
+                            if usize::from(*r) == sp {
+                                lost.insert(result, 0);
+                            } else {
+                                lost.remove(&result);
+                            }
                         }
                     }
                     Inst::Store { ptr: Operand::Local(p), value, .. } if matches!(pointers.get(p), Some(Slot::Gpr(_))) => {
@@ -224,6 +239,11 @@ pub fn analyze(
                         }
                         if usize::from(*r) == sp && k.is_none() {
                             info.dynamic = true;
+                            if let Operand::Local(v) = value
+                                && let Some(&d) = lost.get(v)
+                            {
+                                moved += (-d).max(0);
+                            }
                             // A push through a stack pointer the analysis lost writes where it cannot see.
                             saves.bytes.clear();
                             saves.slots.clear();
@@ -232,24 +252,52 @@ pub fn analyze(
                     Inst::Bin {
                         op: BinOp::Add | BinOp::Sub, ty: Type::Int(bits), lhs: Operand::Local(l), rhs: Operand::Int(c), ..
                     } => {
+                        let add = matches!(i.inst, Inst::Bin { op: BinOp::Add, .. });
+                        let c = super::frame::signed(*c, *bits);
                         if let (Some(result), Some(&k)) = (i.result, symbolic.get(l)) {
-                            let c = super::frame::signed(*c, *bits);
-                            let off =
-                                if matches!(i.inst, Inst::Bin { op: BinOp::Add, .. }) { k.wrapping_add(c) } else { k.wrapping_sub(c) };
-                            symbolic.insert(result, off);
+                            symbolic.insert(result, if add { k.wrapping_add(c) } else { k.wrapping_sub(c) });
+                        }
+                        if let Some(result) = i.result {
+                            match lost.get(l) {
+                                Some(&d) => lost.insert(result, if add { d.wrapping_add(c) } else { d.wrapping_sub(c) }),
+                                None => lost.remove(&result),
+                            };
                         }
                     }
                     Inst::Bin { op: BinOp::Add, ty: Type::Int(bits), lhs: Operand::Int(c), rhs: Operand::Local(r), .. } => {
+                        let c = super::frame::signed(*c, *bits);
                         if let (Some(result), Some(&k)) = (i.result, symbolic.get(r)) {
-                            symbolic.insert(result, k.wrapping_add(super::frame::signed(*c, *bits)));
+                            symbolic.insert(result, k.wrapping_add(c));
+                        }
+                        if let Some(result) = i.result {
+                            match lost.get(r) {
+                                Some(&d) => lost.insert(result, d.wrapping_add(c)),
+                                None => lost.remove(&result),
+                            };
                         }
                     }
                     // The stack pointer moved by a register that holds a constant.
                     Inst::Bin { op: BinOp::Add | BinOp::Sub, lhs: Operand::Local(l), rhs: Operand::Local(r), .. } => {
+                        let add = matches!(i.inst, Inst::Bin { op: BinOp::Add, .. });
                         if let (Some(result), Some(&k), Some(&c)) = (i.result, symbolic.get(l), constants.get(r)) {
-                            let off =
-                                if matches!(i.inst, Inst::Bin { op: BinOp::Add, .. }) { k.wrapping_add(c) } else { k.wrapping_sub(c) };
-                            symbolic.insert(result, off);
+                            symbolic.insert(result, if add { k.wrapping_add(c) } else { k.wrapping_sub(c) });
+                        }
+                        if let Some(result) = i.result {
+                            match (lost.get(l), constants.get(r)) {
+                                (Some(&d), Some(&c)) => lost.insert(result, if add { d.wrapping_add(c) } else { d.wrapping_sub(c) }),
+                                _ => lost.remove(&result),
+                            };
+                        }
+                    }
+                    // A realignment (`and esp, -16`, the probe's rounding) moves the stack pointer
+                    // down by up to the alignment less one.
+                    Inst::Bin { op: BinOp::And, ty: Type::Int(bits), lhs: Operand::Local(l), rhs: Operand::Int(c), .. } => {
+                        if let Some(result) = i.result {
+                            let c = super::frame::signed(*c, *bits);
+                            match lost.get(l) {
+                                Some(&d) if c < 0 => lost.insert(result, d.wrapping_add(c).wrapping_add(1)),
+                                _ => lost.remove(&result),
+                            };
                         }
                     }
                     // A 32-bit write of a constant (`mov eax, N`) widens it to the register.
@@ -270,8 +318,12 @@ pub fn analyze(
                         if let (Some(result), Some(&k)) = (i.result, symbolic.get(v)) {
                             symbolic.insert(result, k);
                         }
-                        // The 32-bit push of a register stores its low dword.
                         if let Some(result) = i.result {
+                            match lost.get(v).copied() {
+                                Some(d) => lost.insert(result, d),
+                                None => lost.remove(&result),
+                            };
+                            // The 32-bit push of a register stores its low dword.
                             match entry_values.get(v).copied().filter(|_| matches!(cast, Cast::Trunc | Cast::ZExt)) {
                                 Some(r) => entry_values.insert(result, r),
                                 None => entry_values.remove(&result),
@@ -461,6 +513,7 @@ pub fn analyze(
                     }
                 }
             }
+            moved_below[bi] = moved;
             if exit[bi] != Some(regs) {
                 exit[bi] = Some(regs);
                 changed = true;
@@ -475,6 +528,8 @@ pub fn analyze(
             break;
         }
     }
+    // Every path's moves at once: more room than any one path takes, never less.
+    info.dynamic_below = moved_below.iter().sum();
     // What every return leaves as the entry had it. A round that still changed something left
     // the blocks' states half joined, which proves nothing.
     if settled {

@@ -33,6 +33,23 @@
 # testdata/bin: the Windows fixtures of build.ps1, each binary with the map the linker wrote.
 
 [[file]]
+path = "testdata/bin/aligned32.exe"
+sha256 = "2e53287e7136c19714f716cccebcc0bcde572965bbad47d6ee0e9239294b8e3c"
+evidence = "native"
+expected = "testdata/expected/aligned.txt"
+source = "testdata/src/aligned.c"
+command = "testdata/build.ps1 aligned"
+tools = "clang 22.1.7, LLD 22.1.7, the static MSVC C runtime of this machine (x86, its stack probe)"
+
+[[file]]
+path = "testdata/bin/aligned32.map"
+sha256 = "b4ecaa6a7ec00d82d4184ac80a4cb67d527ba97f64c2e6addedb46f0cb68fa1d"
+evidence = "native"
+source = "testdata/src/aligned.c"
+command = "testdata/build.ps1 aligned"
+tools = "clang 22.1.7, LLD 22.1.7, the static MSVC C runtime of this machine (x86, its stack probe)"
+
+[[file]]
 path = "testdata/bin/classes32.exe"
 sha256 = "571a67fdf011c6c9cb7de9866891285b6bb93b7d493a5fd2ee8958eb2209c2e8"
 evidence = "native"
@@ -933,6 +950,14 @@ tools = "PSn00bSDK 0.24, mipsel-none-elf-gcc 12.3.0, mipsel-none-elf-nm (WSL Ubu
 
 # testdata/expected: what a program prints. A `native` one is the output of the Windows build of
 # its source run on this machine; the command that captured it was not kept as a script.
+
+[[file]]
+path = "testdata/expected/aligned.txt"
+sha256 = "7ca7d7a6883309af7996a441a0c3c3dc9a97564e70719efaa0399d1ce128008a"
+evidence = "native"
+source = "testdata/src/aligned.c"
+command = "the native run of the aligned fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
 
 [[file]]
 path = "testdata/expected/classes.txt"

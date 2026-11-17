@@ -62,6 +62,10 @@ pub struct Signature {
     pub frame_below: u64,
     /// The function moves the stack pointer by a run-time amount.
     pub dynamic_stack: bool,
+    /// The bytes it moves the stack pointer down by constants after the run-time move: a frame
+    /// realigned before its stack probe takes its locals there (see
+    /// [`super::stack::StackInfo::dynamic_below`]).
+    pub dynamic_below: u64,
     /// The bytes the function pops on return beyond the return address (x86 `stdcall`, `thiscall`).
     pub pops: u64,
     /// The caller-saved registers the function leaves as they were: neither it nor anything it
@@ -87,6 +91,7 @@ impl Default for Signature {
             noreturn: false,
             frame_below: 0,
             dynamic_stack: false,
+            dynamic_below: 0,
             pops: 0,
             preserves: NO_SLOTS,
             variadic: false,
@@ -931,6 +936,7 @@ fn infer_from(
                     noreturn: fact.noreturn,
                     frame_below: (frame_below + 15) & !15,
                     dynamic_stack: fact.stack.dynamic,
+                    dynamic_below: (fact.stack.dynamic_below.max(0) as u64 + 15) & !15,
                     pops: if target.is_64() { 0 } else { fact.stack.pops.max(0) as u64 },
                     preserves,
                     variadic,

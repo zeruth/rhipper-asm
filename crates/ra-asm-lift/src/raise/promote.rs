@@ -304,8 +304,9 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
         // slot, the home space and the stack parameters above it. The entry stack pointer sits past
         // a 16-byte boundary as after a native call, so aligned spills land right. A function
         // whose stack pointer the analysis lost (an x86 call through a pointer pops an amount
-        // known at run time) gets room below for what it may still push.
-        let slack = if abi.own.dynamic_stack { 4096 } else { 0 };
+        // known at run time) gets room below for what it may still push: a page, or the constant
+        // moves made after the loss when they take more (a realigned frame's `__chkstk`).
+        let slack = if abi.own.dynamic_stack { abi.own.dynamic_below.max(4096) } else { 0 };
         let below = abi.own.frame_below.max(16) + 16 + slack;
         let entry = target.entry_misalignment();
         let above = target.first_stack_arg() as u64 + abi.own.stack_bytes(target) as u64;

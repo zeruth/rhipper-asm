@@ -133,6 +133,9 @@ if (Wanted 'inline') { Build-Exe 'inline' @() }
 # scan reaches one loop from both arms of a branch, a loop whose head tests two compares and which
 # leaves only by returns: the fixture of the structuring of a shared loop head.
 if (Wanted 'scan') { Build-Exe 'scan' @() }
+# aligned has a function of over 8 KB of 16-byte-aligned locals: x86 realigns the stack and then
+# probes it, through libcmt's __chkstk. x86 only: x64 needs no realignment for 16 bytes.
+if (Wanted 'aligned') { Build-Exe 'aligned' @('-llibcmt') 'c' @() @('32') }
 # crt links the static C runtime; its PDB stays, the engine reads the names from it.
 if (Wanted 'crt') { Build-Crt 'crt' }
 # window registers a class, shows a popup, paints once and quits through the message loop: user32

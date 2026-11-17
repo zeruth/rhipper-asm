@@ -223,6 +223,38 @@ fn stack_lists_nothing_for_a_balanced_function() {
     assert!(list.is_empty(), "{list:?}");
 }
 
+/// `op esp, c` as the 32-bit model writes it: the dword of the pointer, the operation, widened back.
+fn dword_op(b: &mut FunctionBuilder, block: BlockId, op: BinOp, c: i128) {
+    let p = register(b, block, RSP);
+    let v = b.load(block, Type::I64, p, "v");
+    let low = b.cast(block, Cast::Trunc, Type::I64, v, Type::I32, "low");
+    let moved = b.bin(block, op, Type::I32, low, Operand::Int(c), "moved");
+    let wide = b.cast(block, Cast::ZExt, Type::I32, moved, Type::I64, "wide");
+    b.store(block, Type::I64, wide, p);
+}
+
+/// A frame realigned before its probe (`and esp, -16; mov eax, N; call __chkstk`) loses the stack
+/// pointer at the `and`; the moves after it are still counted, the probe's and a push's, with the
+/// alignment's fifteen bytes at most.
+#[test]
+fn stack_counts_the_moves_of_a_realigned_frame() {
+    let (mut b, entry) = machine_builder("F_00001000", 0x1000);
+    adjust(&mut b, entry, RSP, -4);
+    copy(&mut b, entry, RSP, RBP);
+    dword_op(&mut b, entry, BinOp::And, -16);
+    dword_op(&mut b, entry, BinOp::Sub, 0x2580);
+    adjust(&mut b, entry, RSP, -4);
+    copy(&mut b, entry, RBP, RSP);
+    adjust(&mut b, entry, RSP, 4);
+    adjust(&mut b, entry, RSP, 4);
+    b.terminate(entry, Terminator::Ret(None));
+    let f = b.finish();
+    let state = f.params[0];
+    let info = stack::analyze(&f, state, &slot_pointers(&f, state), Target::X86, &|_: &Inst| None);
+    assert!(info.dynamic, "{info:?}");
+    assert_eq!(info.dynamic_below, 15 + 0x2580 + 4, "{info:?}");
+}
+
 #[test]
 fn stack_lists_a_return_that_leaves_the_stack_elsewhere() {
     let (mut b, entry) = machine_builder("F_00001000", 0x1000);

@@ -25,8 +25,8 @@ use crate::vector::{Register, Run, Vector};
 /// raise gives the frame it allocates, where the return address of a call lands.
 const MARGIN: u64 = 16;
 
-/// The bytes below that a function has when it moves its stack pointer by an amount known at run
-/// time, as the raise's frame has them.
+/// The bytes below that a function has at least when it moves its stack pointer by an amount known
+/// at run time, as the raise's frame has them: more when its constant moves after take more.
 const DYNAMIC: u64 = 4096;
 
 /// A result as a record holds it.
@@ -175,7 +175,7 @@ impl Convention {
     /// arguments above. The activation's bytes there died with it, and the ABI level keeps them
     /// in a frame of its own, somewhere else.
     pub fn frame(&self, signature: &Signature, entry: u64) -> (u64, u64) {
-        let slack = if signature.dynamic_stack { DYNAMIC } else { 0 };
+        let slack = if signature.dynamic_stack { signature.dynamic_below.max(DYNAMIC) } else { 0 };
         let below = signature.frame_below.max(MARGIN) + MARGIN + slack;
         let above = self.target.first_stack_arg() as u64 + signature.stack_bytes(self.target) as u64;
         (entry.saturating_sub(below), entry.saturating_add(above))
