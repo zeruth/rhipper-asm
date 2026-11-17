@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result, bail, ensure};
 
-use crate::Reader;
+use crate::{ByteOrder, Reader};
 
 pub const MAGIC: &[u8; 4] = b"\x7fELF";
 
@@ -629,11 +629,11 @@ pub fn is_elf(bytes: &[u8]) -> bool {
     bytes.starts_with(MAGIC)
 }
 
-/// The fixed-width reads of the file in its own byte order and width.
+/// The fixed-width reads of the file in its own width; the reader carries its byte order, which the
+/// identification states once.
 #[derive(Debug, Clone, Copy)]
 struct Data<'a> {
     reader: Reader<'a>,
-    big: bool,
     wide: bool,
 }
 
@@ -647,18 +647,15 @@ impl<'a> Data<'a> {
     }
 
     fn u16(&self, offset: usize, what: &str) -> Result<u16> {
-        let v = self.reader.u16(offset, what)?;
-        Ok(if self.big { v.swap_bytes() } else { v })
+        self.reader.u16(offset, what)
     }
 
     fn u32(&self, offset: usize, what: &str) -> Result<u32> {
-        let v = self.reader.u32(offset, what)?;
-        Ok(if self.big { v.swap_bytes() } else { v })
+        self.reader.u32(offset, what)
     }
 
     fn u64(&self, offset: usize, what: &str) -> Result<u64> {
-        let v = self.reader.u64(offset, what)?;
-        Ok(if self.big { v.swap_bytes() } else { v })
+        self.reader.u64(offset, what)
     }
 
     /// A word of the file's class: eight bytes in a 64-bit file, four in a 32-bit one.
@@ -696,12 +693,13 @@ impl ElfFile {
             2 => true,
             other => bail!("the ELF class at offset 0x4 is {other}, neither 32 (1) nor 64 bits (2)"),
         };
-        let big = match encoding {
-            1 => false,
-            2 => true,
+        let order = match encoding {
+            1 => ByteOrder::Little,
+            2 => ByteOrder::Big,
             other => bail!("the ELF data encoding at offset 0x5 is {other}, neither little (1) nor big-endian (2)"),
         };
-        let d = Data { reader, big, wide };
+        let big = order == ByteOrder::Big;
+        let d = Data { reader: reader.with_order(order), wide };
         let kind = d.u16(16, "e_type")?;
         let machine = d.u16(18, "e_machine")?;
         let (entry, phoff, shoff, rest) = if wide {
@@ -1767,7 +1765,7 @@ mod tests {
 
     #[test]
     fn the_leb128_numbers_read_as_dwarf_writes_them() {
-        let d = Data { reader: Reader::new(&[0xe5, 0x8e, 0x26, 0x7f, 0x80, 0x7f]), big: false, wide: true };
+        let d = Data { reader: Reader::new(&[0xe5, 0x8e, 0x26, 0x7f, 0x80, 0x7f]), wide: true };
         let mut at = 0;
         assert_eq!(leb128(d, &mut at, false).unwrap(), 624_485);
         assert_eq!(leb128(d, &mut at, true).unwrap() as i64, -1);

@@ -43,4 +43,8 @@ if [ -z "$only" ] || [ "$only" = mipsel ]; then
   # is absolute (and clang 18 cannot select a gp-relative address under -fdata-sections anyway).
   build_machine mipsel mipsel-linux-gnu sys_mipsel.c qemu-mipsel-static -mno-abicalls -mno-gpopt -msoft-float
 fi
+if [ -z "$only" ] || [ "$only" = mips ]; then
+  # The same machine big-endian: o32 is one ABI in either order, so the syscall file is shared.
+  build_machine mips mips-linux-gnu sys_mipsel.c qemu-mips-static -mno-abicalls -mno-gpopt -msoft-float
+fi
 echo "tools: $(clang --version | head -1); $(ld.lld --version | head -1); $(qemu-mipsel-static --version | head -1)"

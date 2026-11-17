@@ -1,4 +1,4 @@
-// The MIPS32 little-endian Linux machine (the o32 ABI): the entry and the two syscalls. Built
+// The MIPS32 Linux machine (the o32 ABI), little- or big-endian: the entry and the two syscalls. Built
 // without abicalls and without PIC, so nothing sets up $gp and a call is a plain `jal`.
 #include "freestanding.h"
 

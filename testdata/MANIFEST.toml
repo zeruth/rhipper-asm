@@ -874,6 +874,24 @@ source = "testdata/src/control.c"
 command = "testdata/src/freestanding/build.sh mipsel"
 tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-mipsel 8.2.2 (WSL Ubuntu 24.04)"
 
+[[file]]
+path = "testdata/bin/hello_mips"
+sha256 = "33c1ddbbe8f8c3cd42d123563cf565bdd6c131559fd7c8e1a008b255287865bc"
+evidence = "emulator"
+expected = "testdata/expected/hello.txt"
+source = "testdata/src/hello.c"
+command = "testdata/src/freestanding/build.sh mips"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-mips 8.2.2 (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/bin/control_mips"
+sha256 = "356fbdfa67f9f6c701cd1c2e2679190ff131aa302a2f206020e3898212e40041"
+evidence = "emulator"
+expected = "testdata/expected/control.txt"
+source = "testdata/src/control.c"
+command = "testdata/src/freestanding/build.sh mips"
+tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-mips 8.2.2 (WSL Ubuntu 24.04)"
+
 # The PlayStation fixtures: PS-EXEs built with PSn00bSDK, the output through the BIOS's printf.
 # hello_psx.txt is what the one printf of the source formats; gte_psx.txt is the GTE's documented
 # arithmetic (psx-spx: RTPS, RTPT, NCLIP, AVSZ3 and the FLAG register) over the inputs the source

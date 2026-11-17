@@ -196,6 +196,57 @@ fn the_mips_control_keeps_its_static_relocations() {
     assert_eq!(image.relocations.len(), elf.static_relocations.len());
 }
 
+/// The freestanding hello for `mips-linux-gnu`: the mipsel hello's big-endian twin, whose figures
+/// are `llvm-readobj`'s.
+fn mips_be_hello() -> ra_asm_pe::Image {
+    let image = ra_asm_pe::load(&fixture("hello_mips")).unwrap();
+    assert!(image.warnings.is_empty(), "{:?}", image.warnings);
+    let elf = image.elf.as_ref().unwrap();
+    assert!(!elf.wide && elf.big_endian && image.big_endian());
+    assert_eq!(image.order(), ra_asm_format::ByteOrder::Big);
+    assert_eq!(image.machine(), ra_asm_pe::Machine::Mips);
+    assert_eq!(image.pointer_size(), 4);
+    image
+}
+
+#[test]
+fn mips_be_hello_enters_at_start() {
+    let image = mips_be_hello();
+    let elf = image.elf.as_ref().unwrap();
+    assert_eq!((elf.kind, elf.machine, elf.flags), (ra_asm_format::elf::ET_EXEC, 8, 0x7000_1001));
+    assert_eq!(image.entry_point(), Some(0x2_01c0));
+    let start = image.symbols.iter().find(|s| s.name == "__start").unwrap();
+    assert_eq!(image.entry_point(), Some(start.va));
+    assert!(image.is_code(start.va));
+    // `addiu $sp, $sp, -16`, the start routine's first word, read in the file's order.
+    assert_eq!(image.u32(start.va).unwrap(), 0x27bd_fff0);
+    assert!(image.imports.is_empty() && image.exports.is_none() && image.relocations.is_empty());
+}
+
+#[test]
+fn mips_be_hello_symbols_are_llvm_readobjs() {
+    let image = mips_be_hello();
+    let symbols: Vec<(u64, &str)> = image.symbols.iter().map(|s| (s.va, s.name.as_str())).collect();
+    assert_eq!(
+        symbols,
+        [
+            (0x2_0150, "GetStdHandle"),
+            (0x2_0164, "WriteFile"),
+            (0x2_01a8, "ExitProcess"),
+            (0x2_01c0, "__start"),
+            (0x2_01d8, "fs_write"),
+            (0x2_01f0, "fs_exit"),
+            (0x2_0208, "square"),
+            (0x2_0210, "main"),
+        ]
+    );
+    let elf = image.elf.as_ref().unwrap();
+    let sized: Vec<(&str, u64)> = elf.symbols.iter().filter(|s| s.is_function()).map(|s| (s.name.as_str(), s.size)).collect();
+    assert!(sized.contains(&("main", 136)) && sized.contains(&("WriteFile", 68)), "{sized:?}");
+    // `.reginfo`'s `$gp` reads big-endian too, and is `_gp`'s.
+    assert_eq!(image.global_pointer, Some(0x3_8290));
+}
+
 #[test]
 fn an_x86_elf_has_no_global_pointer() {
     let image = ra_asm_pe::load(&fixture("hello_linux64")).unwrap();
