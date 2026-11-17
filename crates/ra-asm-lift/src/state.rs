@@ -8,9 +8,9 @@
 //! x86 shape holds `r0..r15`, the flags as ARM64 keeps them and `q0..q15`. On MIPS the four
 //! fields hold `$0..$31` at 64 bits (MIPS III's width, every 32-bit result sign-extended into
 //! it) with `hi` and `lo` after them as `$32` and `$33`, `pc`, the FPU's eight condition codes as
-//! bytes and `$f0..$f31`, and three follow: the FPU's control and status register, the 64
-//! registers of the `PlayStation`'s GTE, the upper halves of the R5900's 128-bit registers, and
-//! the R5900 FPU's accumulator.
+//! bytes and `$f0..$f31`, and five follow: the FPU's control and status register, the 64
+//! registers of the `PlayStation`'s GTE, the upper halves of the R5900's 128-bit registers, the
+//! R5900 FPU's accumulator, and the 128 single registers of the PSP's VFPU.
 
 use ra_asm_arch::state::{self as layout, StateSpec};
 use ra_asm_ir::{AtomicOp, BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Operand, Type, ValueId};
@@ -55,6 +55,9 @@ pub const MIPS_UPPER: i64 = 6;
 /// The field of the R5900 FPU's accumulator, a single the `adda`, `mula`, `madd` and `msub`
 /// families read and write.
 pub const MIPS_ACC: i64 = 7;
+/// The field of the PSP's VFPU: its 128 single registers, register `n` of an instruction's
+/// seven-bit field in slot `n`, so a matrix, a column and a row are views of the same singles.
+pub const MIPS_VFPU: i64 = 8;
 
 /// The MIPS general registers by their number, in the o32 names (n32 calls `$8..$11` `a4..a7`),
 /// then `hi` and `lo`.
@@ -1197,6 +1200,21 @@ mod spec {
         assert_eq!(laid_out(Isa::Arm32.spec()), (vec![0, 128, 136, 144], 400));
         let decoder: Vec<_> = (0..16).map(|n| ra_asm_arm64::thumb::register(n).name).collect();
         assert_eq!(slot_names(Isa::Arm32, Role::General), decoder);
+    }
+
+    #[test]
+    fn mips_state_holds_the_vfpu() {
+        let spec = Isa::Mips.spec();
+        assert_eq!(Isa::MipsN32.spec(), spec);
+        let fields = state_fields_for(Isa::Mips);
+        assert_eq!(fields.len(), 9);
+        assert_eq!(fields[MIPS_VFPU as usize], Type::array(128, Type::I32));
+        let named: Vec<_> = [MIPS_FCSR, MIPS_GTE, MIPS_UPPER, MIPS_ACC, MIPS_VFPU].map(|i| spec.fields[i as usize].name).into();
+        assert_eq!(named, ["fcsr", "gte", "upper", "acc", "vfpu"]);
+        assert_eq!(laid_out(spec), (vec![0, 272, 280, 288, 800, 804, 1064, 1336, 1340], 1856));
+        let (index, vfpu) = (MIPS_VFPU as usize, &spec.fields[MIPS_VFPU as usize]);
+        assert_eq!((vfpu.role, vfpu.slots(), vfpu.slot_size()), (Role::Extra, 128, 4));
+        assert_eq!(spec.offsets()[index] + vfpu.size(), 1852, "the VFPU is the last field");
     }
 
     #[test]

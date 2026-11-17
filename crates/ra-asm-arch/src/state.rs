@@ -169,7 +169,8 @@ pub const ARM32: StateSpec = StateSpec {
 /// its 32 data registers and its 32 control registers after them, and last the upper halves of
 /// the R5900's 128-bit `$0..$31`, `hi` and `lo` (`hi1` and `lo1`), which every instruction of
 /// MIPS III leaves as they are and only the multimedia ones, `lq` and `sq` read and write, and the
-/// R5900 FPU's accumulator, which its multiply-adds keep.
+/// R5900 FPU's accumulator, which its multiply-adds keep, and the 128 single registers of the
+/// PSP's VFPU, register `n` of an instruction's seven-bit field in slot `n`.
 pub const MIPS: StateSpec = StateSpec {
     machine: "mips",
     fields: &[
@@ -187,5 +188,6 @@ pub const MIPS: StateSpec = StateSpec {
         Field::group("gte", Role::Extra, 64, 32),
         Field::group("upper", Role::Extra, 34, 64),
         Field::single("acc", Role::Extra, 32),
+        Field::group("vfpu", Role::Extra, 128, 32),
     ],
 };
