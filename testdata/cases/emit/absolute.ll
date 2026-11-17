@@ -1,4 +1,7 @@
 ; A diamond whose join takes a phi: an `if` that assigns the joined value on one side.
+; call: @absolute(i64 -7) = 7
+; call: @absolute(i64 12) = 12
+; call: @absolute(i64 0) = 0
 
 define i64 @absolute(i64 %x) {
 entry:

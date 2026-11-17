@@ -11,7 +11,8 @@ license.workspace = true
 workspace = true
 
 [features]
-# The slow tier: the oracle compiles every fixture's C, C++ and Rust with clang and runs it.
+# The slow tier: the oracle compiles every fixture's C, C++ and Rust with clang and runs it, and
+# the printer's snapshots are built with clang and rustc and run their cases' calls.
 oracle = []
 
 [[test]]

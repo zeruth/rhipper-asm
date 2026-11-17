@@ -1,4 +1,10 @@
 ; A `switch` whose cases each return, and two cases that share a block.
+; call: @dispatch(i32 0) = 100
+; call: @dispatch(i32 1) = 200
+; call: @dispatch(i32 2) = 200
+; call: @dispatch(i32 7) = 700
+; call: @dispatch(i32 3) = 4
+; call: @dispatch(i32 -1) = 0
 
 define i32 @dispatch(i32 %k) {
 entry:

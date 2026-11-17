@@ -1,4 +1,5 @@
 ; Two loads and two stores through pointer arguments, and no result.
+; call: @swap(ptr &3, ptr &4) = void &4 &3
 
 define void @swap(ptr %a, ptr %b) {
 entry:

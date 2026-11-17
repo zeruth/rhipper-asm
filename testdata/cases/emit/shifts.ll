@@ -1,4 +1,7 @@
 ; The shifts and divisions whose signedness C spells by a cast of the operand.
+; call: @shifts(i32 5, i32 3) = 13
+; call: @shifts(i32 -16, i32 100) = -3
+; call: @shifts(i32 7, i32 1000) = 3
 
 define i32 @shifts(i32 %a, i32 %b) {
 entry:

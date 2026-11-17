@@ -1,4 +1,6 @@
 ; Calls of a declaration: one whose result is read, one whose result is dropped.
+; call: @calls(i64 3) = 34
+; call: @calls(i64 0) = 1
 
 declare i64 @report(i64, i64)
 

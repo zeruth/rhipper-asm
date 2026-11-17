@@ -1,4 +1,8 @@
 ; A chain of tests that each return early, and the fall-through return after them.
+; call: @early_return(i32 5, ptr null) = -1
+; call: @early_return(i32 5, ptr &0) = 0 &0
+; call: @early_return(i32 5, ptr &9) = 1 &9
+; call: @early_return(i32 5, ptr &3) = 2 &3
 
 define i32 @early_return(i32 %x, ptr %p) {
 entry:

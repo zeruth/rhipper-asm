@@ -1,4 +1,7 @@
 ; A global read, bumped and written back: the access of a global by name.
+; call: @counter(i64 5) = 0
+; call: @counter(i64 2) = 5
+; call: @counter(i64 1) = 7
 
 @count = global i64 0, align 8
 

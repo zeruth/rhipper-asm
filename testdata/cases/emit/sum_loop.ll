@@ -1,4 +1,7 @@
 ; A counted loop with an accumulator: two phis carried around the back edge.
+; call: @sum_loop(i64 0) = 0
+; call: @sum_loop(i64 1) = 0
+; call: @sum_loop(i64 5) = 10
 
 define i64 @sum_loop(i64 %n) {
 entry:
