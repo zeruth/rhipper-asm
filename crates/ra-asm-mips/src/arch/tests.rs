@@ -25,6 +25,47 @@ fn the_r5900_rows_decode_only_for_the_r5900() {
 }
 
 #[test]
+fn allegrex_rows_decode() {
+    let psp = Mips { allegrex: true, ..Mips::default() };
+    let text = |word: u32| psp.decode(&word.to_le_bytes(), 0x10_0000).map(|i| i.text);
+    let rows: &[(u32, &str)] = &[
+        // SPECIAL3: the bit fields and the byte and bit shuffles.
+        (0x7ca4_38c0, "ext\t$4, $5, 0x3, 0x7"),
+        (0x7ca4_38c4, "ins\t$4, $5, 0x3, 0x7"),
+        (0x7c03_1420, "seb\t$2, $3"),
+        (0x7c03_1620, "seh\t$2, $3"),
+        (0x7c03_10a0, "wsbh\t$2, $3"),
+        (0x7c03_1520, "bitrev\t$2, $3"),
+        // SPECIAL: the functions MIPS III gives its doubleword operations.
+        (0x0064_102d, "min\t$2, $3, $4"),
+        (0x0064_102c, "max\t$2, $3, $4"),
+        (0x0060_1016, "clz\t$2, $3"),
+        (0x0060_1017, "clo\t$2, $3"),
+        (0x0064_001c, "madd\t$3, $4"),
+        (0x0064_001d, "maddu\t$3, $4"),
+        (0x0064_002e, "msub\t$3, $4"),
+        (0x0064_002f, "msubu\t$3, $4"),
+        // COP1: the loads and stores, the moves, the formats and the branches.
+        (0xc7a1_0000, "lwc1\t0x1, 0x0($sp)"),
+        (0xe7a1_0004, "swc1\t0x1, 0x4($sp)"),
+        (0x4402_0800, "mfc1\t$2, 0x1"),
+        (0x4442_0800, "cfc1\t$2, 0x1"),
+        (0x4482_0800, "mtc1\t$2, 0x1"),
+        (0x44c2_0800, "ctc1\t$2, 0x1"),
+        (0x4602_08c0, "cop1.s\t0x3, 0x1, 0x2"),
+        (0x4622_08c0, "cop1.d\t0x3, 0x1, 0x2"),
+        (0x4680_08e0, "cop1.w\t0x3, 0x1"),
+        (0x4500_0003, "bc1f\t0x100010"),
+        (0x4501_0003, "bc1t\t0x100010"),
+        (0x4502_0003, "bc1fl\t0x100010"),
+        (0x4503_0003, "bc1tl\t0x100010"),
+    ];
+    for &(word, expected) in rows {
+        assert_eq!(text(word).as_deref(), Some(expected), "{word:#010x}");
+    }
+}
+
+#[test]
 fn every_transfer_is_delayed_and_nothing_else_is() {
     for form in FORMS.iter().chain(R5900_FORMS) {
         let transfers = matches!(form.row.flow, Flow::Jump | Flow::Branch | Flow::Call | Flow::Return);
