@@ -21,14 +21,16 @@ const BUDGET_VARIABLE: &str = "RA_PIPELINE_BUDGET";
 /// it 1800, its build included, and mshtml's lift alone takes longer than that.
 const BUDGET: u64 = 1200;
 
+/// The most memory a step of the large program's pipeline may hold, in bytes.
+const BOUND: u64 = 4 << 30;
+
 /// A large program runs the analyze, lift and emit steps, each in a process of its own, and the
 /// peak memory of each goes to the test's standard error as the step ends, past the harness's
-/// capture: the baseline the work towards a bound of 4 GB a step measures itself against. The
-/// emit's process analyzes, lifts and raises the program again before it translates it, so its
-/// peak is that of the whole pipeline up to the source. Once the budget of [`BUDGET_VARIABLE`] has
-/// passed, the step running is stopped with its peak so far and the test passes with the peaks it
-/// has, naming the steps it did not finish. The build and the run of such a port are the person's
-/// to start.
+/// capture, and stays under [`BOUND`]. The emit's process analyzes, lifts and raises the program
+/// again before it translates it, so its peak is that of the whole pipeline up to the source.
+/// Once the budget of [`BUDGET_VARIABLE`] has passed, the step running is stopped with its peak so
+/// far, which stays under the bound too, and the test passes with the peaks it has, naming the
+/// steps it did not finish. The build and the run of such a port are the person's to start.
 #[test]
 #[ignore = "runs the pipeline over mshtml.dll, about 100k functions"]
 fn a_large_program_runs_the_pipeline_and_gives_its_peak() {
@@ -73,13 +75,22 @@ fn a_large_program_runs_the_pipeline_and_gives_its_peak() {
         let log = std::fs::read_to_string(dir.join(format!("build/pipeline/{step}.log"))).unwrap_or_default();
         let Some(status) = status else {
             // The process is gone but its handle is open: its peak until the stop is still there.
-            let peak = peak_memory(&child).map_or_else(|| "not measured".to_owned(), |b| format!("{} MB", b >> 20));
+            let measured = peak_memory(&child);
+            let peak = measured.map_or_else(|| "not measured".to_owned(), |b| format!("{} MB", b >> 20));
             let _ = writeln!(
                 std::io::stderr(),
                 "{step} peak memory: {peak} until it was stopped unfinished after {}s, the budget of {budget}s spent; not reached: {}",
                 started.elapsed().as_secs(),
                 if i + 1 < steps.len() { steps[i + 1..].join(", ") } else { "none".to_owned() }
             );
+            if let Some(bytes) = measured {
+                assert!(
+                    bytes < BOUND,
+                    "the {step} step held {} MB before it was stopped, past the bound of {} MB",
+                    bytes >> 20,
+                    BOUND >> 20
+                );
+            }
             return;
         };
         let tail: Vec<&str> = log.lines().rev().take(40).collect();
@@ -93,6 +104,7 @@ fn a_large_program_runs_the_pipeline_and_gives_its_peak() {
         let summary = log.lines().rev().find(|l| l.contains("functions,")).unwrap_or("");
         // Straight to the standard error, which the harness does not capture of a passing test.
         let _ = writeln!(std::io::stderr(), "{step} peak memory: {} MB in {}s; {summary}", peak >> 20, started.elapsed().as_secs());
+        assert!(peak < BOUND, "the {step} step held {} MB, past the bound of {} MB", peak >> 20, BOUND >> 20);
     }
     assert!(dir.join("build/program.ll").is_file() && dir.join("build/functions.json").is_file());
 }

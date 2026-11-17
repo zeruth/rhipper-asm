@@ -476,7 +476,8 @@ impl Module {
     }
 
     /// Writes the text of [`Module::to_ll`] to `sink` a function at a time, and returns where
-    /// each function landed: the whole text of a large program is never in memory at once.
+    /// each function landed: the whole text of a large program is never in memory at once. A
+    /// module whose functions are frozen is written as its thaw would be, a function thawed at a time.
     pub fn write_ll(&self, sink: &mut dyn std::io::Write) -> std::io::Result<LlLayout> {
         crate::printer::write(self, sink)
     }

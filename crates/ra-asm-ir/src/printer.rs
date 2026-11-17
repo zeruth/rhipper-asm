@@ -20,14 +20,15 @@ pub fn print(module: &Module) -> String {
 }
 
 /// Writes the text [`print`] makes to `sink` a function at a time, so a module of many functions
-/// never has its whole text in memory; returns where each function landed.
+/// never has its whole text in memory; returns where each function landed. The frozen functions
+/// follow the thawed ones, where a thaw puts them, each thawed while it is written alone.
 pub fn write(module: &Module, sink: &mut dyn std::io::Write) -> std::io::Result<crate::module::LlLayout> {
     let mut out = String::new();
     print_head(&mut out, module);
     sink.write_all(out.as_bytes())?;
     let mut written = out.len() as u64;
-    let mut functions = Vec::with_capacity(module.functions.len());
-    for f in &module.functions {
+    let mut functions = Vec::with_capacity(module.functions.len() + module.frozen.len());
+    let mut one = |f: &Function| -> std::io::Result<()> {
         out.clear();
         out.push('\n');
         print_function(&mut out, f);
@@ -35,6 +36,13 @@ pub fn write(module: &Module, sink: &mut dyn std::io::Write) -> std::io::Result<
         // The definition starts past the blank line that parts it from the one before.
         functions.push((written + 1, out.len() as u64 - 1));
         written += out.len() as u64;
+        Ok(())
+    };
+    for f in &module.functions {
+        one(f)?;
+    }
+    for z in &module.frozen {
+        one(&crate::freeze::thaw(z))?;
     }
     Ok(crate::module::LlLayout { bytes: written, functions })
 }

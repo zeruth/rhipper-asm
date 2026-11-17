@@ -29,9 +29,10 @@
 //! `analyze took 0.012 s, peak 23.4 MB`, and `build/pipeline/status.json` keeps the last numbers
 //! of each step with their totals; a step its stamp skips keeps the numbers of the run that did it.
 //! The log of each of the analyze, lift and emit steps ends with the peak memory of the run so far.
-//! The lift writes `program.ll` a function at a time, so a large program's text is never held
-//! whole, and `program.index` beside it, where each function's IR lies in it, so the workbench
-//! reads one function's IR back alone once the emit has dropped it from memory.
+//! The raised program stays frozen, and the lift writes `program.ll` a function thawed at a time,
+//! so neither a large program's IR nor its text is ever held whole, and `program.index` beside it,
+//! where each function's IR lies in it, so the workbench reads one function's IR back alone once
+//! the emit has dropped it from memory.
 
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, HashMap};
@@ -94,9 +95,11 @@ fn write_ir(build_dir: &Path, module: &ra_asm_ir::Module) -> Result<(u64, Vec<(P
     drop(sink);
     ra_asm_emit::replace_if_changed(&new, &file).with_context(|| format!("cannot write {}", file.display()))?;
     let mut index = String::new();
-    for (f, (offset, length)) in module.functions.iter().zip(&layout.functions) {
+    // The frozen functions follow the thawed ones in the text, as the printer writes them.
+    let names = module.functions.iter().map(|f| &f.name).chain(module.frozen.iter().map(|z| &z.name));
+    for (name, (offset, length)) in names.zip(&layout.functions) {
         use std::fmt::Write as _;
-        let _ = writeln!(index, "{offset} {length} {}", f.name);
+        let _ = writeln!(index, "{offset} {length} {name}");
     }
     let index_file = build_dir.join(IR_INDEX);
     ra_asm_emit::write_if_changed(&index_file, index.as_bytes())?;
@@ -398,7 +401,8 @@ fn peak_memory() -> Option<u64> {
 }
 
 /// The program as the lift writes it and the emit translates it: the analysis with the person's
-/// annotations, lifted standalone, raised to the ABI level and named. A run makes it once.
+/// annotations, lifted standalone, raised to the ABI level with its functions left frozen, and
+/// named; the analyses keep no decoded instructions past the lift. A run makes it once.
 struct Ported<'a> {
     analysis: ra_asm_analysis::Analysis<'a>,
     /// The analyses of the project's `with` images, in the project's order, named apart from the
@@ -458,12 +462,20 @@ impl<'a> Pipeline<'a> {
                 None => ra_asm_analysis::analyze_with(image, &self.facts(log)?),
             };
             let (annotations, annotated) = annotate(&self.project.root, &mut analysis);
-            let with = crate::emit::analyze_companions(&analysis, with_images);
+            let mut with = crate::emit::analyze_companions(&analysis, with_images);
             let companions = crate::emit::companions_of(with_images, &with);
             let options = ra_asm_lift::LiftOptions { standalone: true, x87: self.project.x87 };
             let mut lifted = ra_asm_lift::lift_frozen_with(image, &analysis, &companions, options);
+            drop(companions);
+            // Past the lift the steps read the IR: the decoded instructions go.
+            analysis.release_instructions();
+            for with in &mut with {
+                with.release_instructions();
+            }
+            // The raised functions stay frozen: the IR is written and translated a function
+            // thawed at a time, so the raised program is never whole in memory.
             let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
-            let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+            let mut signatures = ra_asm_lift::raise::raise_frozen(&mut lifted.module, &lifted.roots, options);
             lifted.apply_names(&analysis, Some(&mut signatures));
             for analysis in &with {
                 lifted.apply_names(analysis, Some(&mut signatures));
@@ -1712,5 +1724,24 @@ mod tests {
         assert_eq!(function_ir(&dir, "F_1").as_deref(), Some("define void @F_1() {\n  ret void\n}\n"));
         assert_eq!(function_ir(&dir, "F_2").as_deref(), Some("define i32 @F_2() {\n  ret i32 0\n}\n"));
         assert_eq!(function_ir(&dir, "F_3"), None);
+    }
+
+    /// A module whose functions are frozen, as the pipeline raises it, writes the text and the
+    /// index of its thaw, and each function reads back alone.
+    #[test]
+    fn a_frozen_module_writes_as_its_thaw() {
+        let text = "define void @F_1() {\nentry:\n  ret void\n}\n\ndefine i32 @F_2() {\nentry:\n  ret i32 0\n}\n";
+        let thawed = ra_asm_ir::parse::parse(text).unwrap();
+        let mut frozen = thawed.clone();
+        frozen.frozen = frozen.functions.drain(1..).map(|f| ra_asm_ir::freeze::freeze(&f)).collect();
+        let (dir_thawed, dir_frozen) =
+            (ra_asm_testing::Scratch::new("ras-unit-tests", "thawed-ir"), ra_asm_testing::Scratch::new("ras-unit-tests", "frozen-ir"));
+        write_ir(&dir_thawed, &thawed).unwrap();
+        write_ir(&dir_frozen, &frozen).unwrap();
+        for file in ["program.ll", IR_INDEX] {
+            assert_eq!(fs::read_to_string(dir_frozen.join(file)).unwrap(), fs::read_to_string(dir_thawed.join(file)).unwrap(), "{file}");
+        }
+        let f_2 = function_ir(&dir_frozen, "F_2").unwrap();
+        assert!(f_2.starts_with("define i32 @F_2()") && f_2.ends_with("}\n"), "{f_2}");
     }
 }
