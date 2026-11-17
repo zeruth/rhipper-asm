@@ -38,9 +38,46 @@ pub(super) const STATE_SIZE: u64 = 16 * 8 + 8 + 8 + 32 * 16;
 /// The bytes of an ARM64 `%State`: `x0..x30` and `sp`, `pc`, the flags, `v0..v31`.
 const ARM64_STATE_SIZE: u64 = 32 * 8 + 8 + 8 + 32 * 16;
 /// The bytes of a MIPS `%State`: `$0..$31`, `hi` and `lo`, `pc`, the condition codes, `$f0..$f31`,
-/// the FPU's control and status register and the GTE's 64 registers, padded to the vectors'
-/// alignment.
-const MIPS_STATE_SIZE: u64 = 34 * 8 + 8 + 8 + 32 * 16 + 4 + 64 * 4 + 12;
+/// the FPU's control and status register, the GTE's 64 registers, and the R5900's upper halves of
+/// `$0..$31`, `hi` and `lo`, and the R5900 FPU's accumulator, each field at its alignment and the
+/// whole padded to the vectors'.
+const MIPS_STATE_SIZE: u64 = 34 * 8 + 8 + 8 + 32 * 16 + 4 + 64 * 4 + 4 + 34 * 8 + 4 + 4;
+
+/// The end of the `PlayStation 2`'s hardware registers, which begin at 256 MB.
+pub(super) const PS2_HARDWARE_END: u64 = 0x1200_0000;
+/// The `PlayStation 2`'s serial port, the registers of the EE's SIO.
+pub(super) const SIO: u64 = 0x1000_f100;
+pub(super) const SIO_LEN: u64 = 0x100;
+/// `SIO_TXFIFO`: a byte written here goes out on the serial line.
+const SIO_TXFIFO: u64 = 0x1000_f180;
+
+/// The EE's serial port as the program's console: a byte written to the transmit FIFO is the
+/// program's output, captured and written through as it comes when asked, and every register
+/// reads as zero, which `SIO_ISR` gives as a transmit FIFO with room.
+pub(super) struct Sio {
+    pub(super) out: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
+    pub(super) live: bool,
+}
+
+impl ra_asm_ir::interp::memory::Device for Sio {
+    fn read(&mut self, _address: u64, buf: &mut [u8]) {
+        buf.fill(0);
+    }
+
+    fn write(&mut self, address: u64, bytes: &[u8]) {
+        use std::io::Write;
+        if address != SIO_TXFIFO {
+            return;
+        }
+        let byte = &bytes[..1];
+        self.out.borrow_mut().extend_from_slice(byte);
+        if self.live {
+            let mut out = std::io::stdout().lock();
+            let _ = out.write_all(byte);
+            let _ = out.flush();
+        }
+    }
+}
 
 /// A thread of the program as the interpreter runs it: one at a time, a created one to its end
 /// inside `CreateThread`.
@@ -749,6 +786,26 @@ impl<'a> Runtime<'a> {
                 let regs = [arg(args, 1) as u32, arg(args, 2) as u32, arg(args, 3) as u32];
                 let result = self.linux(vm, number, true, regs)?;
                 Ok(Value::Int(u128::from(i64::from(result as i32) as u64)))
+            }
+            "ra_f32_ftz_add" | "ra_f32_ftz_sub" | "ra_f32_ftz_mul" | "ra_f32_ftz_div" | "ra_f32_ftz_rsqrt" => {
+                let (a, b) = (arg(args, 0) as u32, arg(args, 1) as u32);
+                let op = match name {
+                    "ra_f32_ftz_add" => super::ftz::add,
+                    "ra_f32_ftz_sub" => super::ftz::sub,
+                    "ra_f32_ftz_mul" => super::ftz::mul,
+                    "ra_f32_ftz_div" => super::ftz::div,
+                    _ => super::ftz::rsqrt,
+                };
+                int(u64::from(op(a, b)))
+            }
+            "ra_f32_ftz_sqrt" | "ra_f32_ftz_cvt_s_w" | "ra_f32_ftz_cvt_w_s" => {
+                let a = arg(args, 0) as u32;
+                let op = match name {
+                    "ra_f32_ftz_sqrt" => super::ftz::sqrt,
+                    "ra_f32_ftz_cvt_s_w" => super::ftz::cvt_s_w,
+                    _ => super::ftz::cvt_w_s,
+                };
+                int(u64::from(op(a)))
             }
             n if n.starts_with("ra_f80_") => self.f80_call(vm, n, args),
             n if n.starts_with("ra_bios_") => self.bios(vm, &n["ra_bios_".len()..], args),

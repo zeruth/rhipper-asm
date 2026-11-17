@@ -46,6 +46,26 @@ impl Region {
 /// What the host answers for an address outside every region: the committed range it lies in.
 pub type Probe = Box<dyn FnMut(u64) -> Option<Region>>;
 
+/// A range of a machine's device registers, which hold no memory: a read asks the device for the
+/// register's value and a write hands it the bytes, as the console's hardware takes them.
+pub trait Device {
+    fn read(&mut self, address: u64, buf: &mut [u8]);
+    fn write(&mut self, address: u64, bytes: &[u8]);
+}
+
+/// A device and the addresses it answers.
+struct Mapped {
+    start: u64,
+    len: u64,
+    device: Box<dyn Device>,
+}
+
+impl Mapped {
+    fn holds(&self, address: u64, len: u64) -> bool {
+        address >= self.start && address.saturating_add(len) <= self.start.saturating_add(self.len)
+    }
+}
+
 /// What the program did to the memory while it was armed, as runs of adjacent bytes in address
 /// order: `reads` holds the bytes it read before writing them itself, as they were at their first
 /// read, and `writes` the bytes it wrote, as it left them.
@@ -84,6 +104,8 @@ pub struct Memory {
     log: Option<Log>,
     /// The pages written since [`Memory::track`], by their first address; none while untracked.
     written: Option<BTreeSet<u64>>,
+    /// The device registers, which an access reaches ahead of the regions.
+    devices: Vec<Mapped>,
 }
 
 /// The page the writes are tracked by.
@@ -100,6 +122,16 @@ impl Memory {
 
     pub fn add_region(&mut self, region: Region) {
         self.regions.push(region);
+    }
+
+    /// Maps `device` at the `len` bytes from `start`: an access there is the device's, never
+    /// the memory's, and is not logged.
+    pub fn add_device(&mut self, start: u64, len: u64, device: Box<dyn Device>) {
+        self.devices.push(Mapped { start, len, device });
+    }
+
+    fn device(&mut self, address: u64, len: u64) -> Option<&mut Mapped> {
+        self.devices.iter_mut().find(|d| d.holds(address, len))
     }
 
     pub fn remove_region(&mut self, start: u64) {
@@ -165,6 +197,10 @@ impl Memory {
         if buf.is_empty() {
             return Ok(());
         }
+        if let Some(mapped) = self.device(address, buf.len() as u64) {
+            mapped.device.read(address, buf);
+            return Ok(());
+        }
         let region = self.locate(address, buf.len() as u64)?;
         let region = &self.regions[region];
         match &region.bytes {
@@ -190,6 +226,10 @@ impl Memory {
     /// Writes `bytes` at `address`.
     pub fn write(&mut self, address: u64, bytes: &[u8]) -> Result<(), Stop> {
         if bytes.is_empty() {
+            return Ok(());
+        }
+        if let Some(mapped) = self.device(address, bytes.len() as u64) {
+            mapped.device.write(address, bytes);
             return Ok(());
         }
         let region = self.locate(address, bytes.len() as u64)?;

@@ -123,7 +123,7 @@ fn the_entry_decodes_in_full_and_the_stop_word_does_not() {
 #[test]
 fn a_big_endian_word_is_the_same_instruction() {
     let image = hello();
-    let big = Mips { big_endian: true };
+    let big = Mips { big_endian: true, ..Mips::default() };
     assert_eq!((big.name(), Mips::default().name()), ("mips", "mipsel"));
     let jal = big.decode(&word(&image, 0x2_0170).to_be_bytes(), 0x2_0170).unwrap();
     assert_eq!(jal, at(&image, 0x2_0170));

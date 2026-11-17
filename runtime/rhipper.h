@@ -189,6 +189,18 @@ float ra_trace_ret_f32(const char *name, float value);
 void ra_trace_leave(const char *name);
 uint64_t ra_f64_bits(double value);
 uint64_t ra_f32_bits(float value);
+// The R5900's FPU on the bits of its singles, which IEEE arithmetic is not: a denormal operand is a
+// zero, exponent 255 a number (no infinity, no NaN), every result rounded toward zero, clamped to
+// the largest magnitude 0x7fffffff and flushed to a zero of its sign below the smallest normal; a
+// division by zero gives the largest magnitude, a square root takes its operand's magnitude.
+uint32_t ra_f32_ftz_add(uint32_t a, uint32_t b);
+uint32_t ra_f32_ftz_sub(uint32_t a, uint32_t b);
+uint32_t ra_f32_ftz_mul(uint32_t a, uint32_t b);
+uint32_t ra_f32_ftz_div(uint32_t a, uint32_t b);
+uint32_t ra_f32_ftz_rsqrt(uint32_t a, uint32_t b);
+uint32_t ra_f32_ftz_sqrt(uint32_t a);
+uint32_t ra_f32_ftz_cvt_s_w(uint32_t a);
+uint32_t ra_f32_ftz_cvt_w_s(uint32_t a);
 // The processor's answers, from the host.
 void ra_cpuid(uint64_t leaf, uint64_t subleaf, void *out);
 uint64_t ra_xgetbv(uint64_t which);
