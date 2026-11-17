@@ -161,6 +161,27 @@ fn the_link_map_beside_the_image_names_its_functions() {
     assert_eq!(run.name, "rhtest_run");
 }
 
+/// A Windows program the runtime's `WinMainCRTStartup` starts has no `main`: the port starts at
+/// `WinMain`. A dead `main` is no entry: chocolate-doom links SDL's `WinMain` and, after it, a
+/// `main` that nothing calls, which the port left out and its startup called.
+#[test]
+fn a_program_without_a_live_main_starts_at_win_main() {
+    use ra_asm_analysis::{Reach, symbols};
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/rhtest");
+    let image = ra_asm_pe::load(&dir.join("core-static.exe")).unwrap();
+    let analysis = analyze(&image);
+    let mut functions = analysis.functions.clone();
+    let main = functions.values_mut().find(|f| f.symbol.as_deref() == Some("_main")).expect("_main");
+    main.name = "main".to_owned();
+    main.reach = Reach::Dead("after a ret and fill".to_owned());
+    let mut win_main = main.clone();
+    win_main.entry = 0x40fff0;
+    win_main.name = symbols::WIN_MAIN.to_owned();
+    win_main.reach = Reach::Named;
+    functions.insert(win_main.entry, win_main);
+    assert_eq!(symbols::program_entry(&image, &functions), Some(0x40fff0));
+}
+
 /// A `/MT` build with no PDB (`core-static.exe`, `int64-static.exe`): the map's libraries tell
 /// the C runtime's functions apart, the startup among them, so the port starts at `main`; the
 /// host links a runtime function by its plain name, underscores kept; the x86 helpers the host
@@ -482,6 +503,52 @@ fn the_linux_hello_has_its_functions_and_its_plt_thunks() {
     assert!(!analysis.functions.values().any(|f| f.origins.iter().any(|o| matches!(o, Origin::Pointer(_)))), "a slot seeded a function");
 }
 
+/// A PDB's public symbols name each `jmp [slot]` the linker adds after its import (control32's map
+/// has `_WriteFile@20` at 0x401a00, which the map reader leaves out): the thunk keeps that symbol,
+/// but not the import's own name, which the port's call to the import is by. A thunk named
+/// `SDLNet_Init` called itself in the port of chocolate-doom.
+#[test]
+fn an_import_thunk_the_symbols_name_is_not_named_as_its_import() {
+    use ra_asm_analysis::{Kind, function, symbols};
+    let mut image = load("control32.exe");
+    let symbol = ra_asm_pe::pdb::Symbol { va: 0x401a00, name: "_WriteFile@20".to_owned(), display: false, library: None, object: None };
+    image.symbols.push(symbol.clone());
+    image.symbols.sort_by_key(|s| s.va);
+    let analysis = analyze(&image);
+    let mut thunk = analysis.functions.values().next().unwrap().clone();
+    thunk.entry = symbol.va;
+    thunk.kind = Kind::ImportThunk("WriteFile".to_owned());
+    thunk.origins.clear();
+    thunk.name = function::name_for(&image, &thunk);
+    let mut functions = BTreeMap::from([(thunk.entry, thunk)]);
+    symbols::name_functions(&image, &mut functions);
+    let thunk = &functions[&symbol.va];
+    assert_eq!(thunk.symbol.as_deref(), Some("_WriteFile@20"));
+    assert_eq!(thunk.name, "thunk_WriteFile");
+}
+
+/// A PDB's procedure record names a function as the source did (`_alldiv`, `__scrt_fastfail`),
+/// where a public symbol or a link map has the 32-bit linkage name (`__alldiv`): the function is
+/// named the procedure's name whole. With an underscore taken off, the port of chocolate-doom
+/// called `alldiv` and `_security_check_cookie`, which nothing defines.
+#[test]
+fn a_procedure_name_of_a_32_bit_pdb_loses_no_underscore() {
+    use ra_asm_analysis::symbols;
+    let mut image = load("control32.exe");
+    let analysis = analyze(&image);
+    let mut functions = analysis.functions.clone();
+    let mut f = functions.values().next().unwrap().clone();
+    drop(analysis);
+    f.entry = 0x40fff0;
+    f.origins.clear();
+    f.name = ra_asm_analysis::function::name_for(&image, &f);
+    functions.insert(f.entry, f);
+    image.symbols.push(ra_asm_pe::pdb::Symbol { va: 0x40fff0, name: "_alldiv".to_owned(), display: true, library: None, object: None });
+    image.symbols.sort_by_key(|s| s.va);
+    symbols::name_functions(&image, &mut functions);
+    assert_eq!(functions[&0x40fff0].name, "_alldiv");
+}
+
 /// The fixtures packed by UPX are named by the sections its stub leaves, and their unpacked twins
 /// are not: what is in a packed image's code is the stub, not the program.
 #[test]
@@ -574,7 +641,7 @@ fn mipsel_tables_give_the_switch_its_cases_as_successors() {
     let analysis = analyze(&image);
     let classify = analysis.function(0x2_065c).unwrap();
     let jump = block_at(classify, 0x2_0670);
-    let Terminator::Switch { table, targets, index, load_at, cases, bound } = &jump.terminator else {
+    let Terminator::Switch { table, targets, index, load_at, cases, bound, .. } = &jump.terminator else {
         panic!("the block of the jr switches: {:?}", jump.terminator)
     };
     assert_eq!((*table, *load_at, *bound), (0x1_0148, 0x2_067c, Some(0x2_0664)));

@@ -613,6 +613,37 @@ uint64_t ra_x86_decode_pointer(uint64_t pointer) {
     return (uint32_t)pointer ^ RA_POINTER_KEY;
 }
 
+#ifdef _WIN32
+// CommandLineToArgvW for a program whose pointers are dwords: shell32's table holds 8-byte
+// pointers, whose high halves the program would read as the next argument. The runtime's is one
+// LocalAlloc block, the table of dword pointers and the strings after it, below 4 GB as every
+// allocation of the port is, so the program's LocalFree frees it all.
+uint64_t ra_x86_command_line_to_argv_w(uint64_t line, uint64_t count) {
+    typedef LPWSTR *(WINAPI * split_fn)(LPCWSTR, int *);
+    static split_fn split;
+    if (!split) split = (split_fn)(void *)GetProcAddress(LoadLibraryA("shell32.dll"), "CommandLineToArgvW");
+    int n = 0;
+    LPWSTR *wide = split ? split((LPCWSTR)(uintptr_t)line, &n) : NULL;
+    if (!wide) return 0;
+    size_t bytes = ((size_t)n + 1) * sizeof(uint32_t);
+    for (int i = 0; i < n; i++) bytes += (wcslen(wide[i]) + 1) * sizeof(WCHAR);
+    uint32_t *table = (uint32_t *)LocalAlloc(LMEM_FIXED, bytes);
+    if (table) {
+        WCHAR *text = (WCHAR *)(table + n + 1);
+        for (int i = 0; i < n; i++) {
+            size_t length = wcslen(wide[i]) + 1;
+            memcpy(text, wide[i], length * sizeof(WCHAR));
+            table[i] = (uint32_t)(uintptr_t)text;
+            text += length;
+        }
+        table[n] = 0;
+        if (count) *(int32_t *)(uintptr_t)count = n;
+    }
+    LocalFree(wide);
+    return (uint64_t)(uintptr_t)table;
+}
+#endif
+
 // The interlocked operations of the 32-bit kernel32, on the program's 32-bit value at `target`:
 // the 64-bit kernel32 exports none of them. Each is a full barrier, as kernel32's is, and returns
 // what kernel32's does: the new value for the increment and the decrement, the old one otherwise.
@@ -1265,8 +1296,8 @@ uint64_t ra_x86_end_paint(uint64_t hwnd, uint64_t narrow) {
 // status word; the double unit and the host's own arithmetic use the host's) and the host's in
 // step: a mode goes to both, a report merges both. The host's word has no precision control, so
 // that field is the lifted word's alone.
-extern uint16_t ra_x87_cw;
-extern uint16_t ra_x87_sw;
+extern _Thread_local uint16_t ra_x87_cw;
+extern _Thread_local uint16_t ra_x87_sw;
 
 enum { RA_MCW_EM = 0x8001f, RA_MCW_RC = 0x300, RA_MCW_PC = 0x30000, RA_MCW_IC = 0x40000 };
 
@@ -1378,9 +1409,19 @@ double ra_x86_sqrt(double x) {
     return ((ra_x87_cw >> 8) & 3) == 0 ? (double)(float)r : r;
 }
 
-// The x86 C runtime's SSE2 power (`_libm_sse2_pow_precise`, the operands in xmm0 and xmm1), which
-// the 64-bit runtime does not export: its `pow` is the same precise algorithm.
+// The x86 C runtime's SSE2 math (`_libm_sse2_pow_precise` and the rest, the operands in xmm0 and
+// xmm1), which the 64-bit runtime does not export: its own are the same precise algorithms.
 double ra_x86_pow_sse2(double x, double y) { return pow(x, y); }
+double ra_x86_sqrt_sse2(double x) { return sqrt(x); }
+double ra_x86_sin_sse2(double x) { return sin(x); }
+double ra_x86_cos_sse2(double x) { return cos(x); }
+double ra_x86_tan_sse2(double x) { return tan(x); }
+double ra_x86_asin_sse2(double x) { return asin(x); }
+double ra_x86_acos_sse2(double x) { return acos(x); }
+double ra_x86_atan_sse2(double x) { return atan(x); }
+double ra_x86_exp_sse2(double x) { return exp(x); }
+double ra_x86_log_sse2(double x) { return log(x); }
+double ra_x86_log10_sse2(double x) { return log10(x); }
 
 // setjmp and longjmp: the program's jmp_buf is a key, and the host's buffer lives in a table slot
 // found by it. setjmp itself runs in the lifted function, through the macro in rhipper.h, so the
@@ -1954,6 +1995,15 @@ uint64_t ra_x86_vsscanf(uint64_t options, uint64_t buffer, uint64_t count, uint6
                                                      (_locale_t)(uintptr_t)locale, (va_list)slots);
 }
 
+// fscanf's: chocolate-doom reads its config with `fscanf(f, "%79s %99[^\n]\n", ...)`, whose two
+// pointers are dwords the host's would read as 8-byte slots.
+uint64_t ra_x86_vfscanf(uint64_t options, uint64_t stream, uint64_t format, uint64_t locale, uint64_t args) {
+    uint64_t slots[64] = {0};
+    widen_scanf_args((const char *)(uintptr_t)format, (const uint32_t *)(uintptr_t)args, slots, 64);
+    return (uint64_t)(int64_t)__stdio_common_vfscanf(options, (FILE *)(uintptr_t)stream, (const char *)(uintptr_t)format,
+                                                     (_locale_t)(uintptr_t)locale, (va_list)slots);
+}
+
 // The addresses of a FILE's buffer fields, which the C++ runtime's filebuf reads the stream
 // through: the host writes three pointers of eight bytes where the program's locals are dwords, so
 // they go to locals here and their low halves to the program's. The fields themselves are the
@@ -2005,6 +2055,28 @@ static uint32_t *environment32;
 #else
 #define ra_low_string(s) strdup(s)
 #endif
+
+// `WinMain`'s command line: the arguments past the program's name, joined and quoted where they
+// hold a space, on the heap the Win32 layer keeps low.
+uint64_t ra_win_main_command_line(void) {
+    static char *line;
+    if (!line) {
+        size_t size = 1;
+        for (int i = 1; i < ra_argc; i++) size += strlen(ra_argv[i]) + 3;
+        line = (char *)calloc(size, 1);
+        char *p = line;
+        for (int i = 1; i < ra_argc; i++) {
+            int quote = strchr(ra_argv[i], ' ') != NULL;
+            size_t length = strlen(ra_argv[i]);
+            if (i > 1) *p++ = ' ';
+            if (quote) *p++ = '"';
+            memcpy(p, ra_argv[i], length);
+            p += length;
+            if (quote) *p++ = '"';
+        }
+    }
+    return (uint64_t)(uintptr_t)line;
+}
 
 uint64_t ra_x86_p_argv(void) {
     if (!argv32) {
@@ -2060,6 +2132,7 @@ uint64_t ra_x86_initial_narrow_environment(void) {
 void ra_x86_report_gsfailure(void) {
     fprintf(stderr, "ra: the stack cookie check failed\n");
     fflush(stderr);
+    report_entered();
     host_exit(0xC0000409u);
 }
 
@@ -2331,7 +2404,7 @@ static void eh_check_uncaught(void) {
 // pointer is found by its linked address or by the DLL's own address of its name, which a bound
 // slot or GetProcAddress hands the program; the DLL addresses are resolved at the first lookup.
 extern const uint64_t ra_import_pops[];
-extern uint64_t ra_pops;
+extern _Thread_local uint64_t ra_pops;
 static uint64_t *import_addresses;
 
 // The trampolines a 32-bit program reaches a host function through, whose address does not fit

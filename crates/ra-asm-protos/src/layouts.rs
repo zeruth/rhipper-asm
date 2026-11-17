@@ -4,7 +4,100 @@
 //! `win32_layouts`, generated from the SDK headers by clang's record layouts
 //! (`tests/win32_layouts.rs`); a structure the headers' layouts do not cover is not in it.
 
-use crate::win32_layouts::{ALIASES, POINTEES, RECORDS};
+use crate::sdl2_layouts;
+use crate::win32_layouts;
+
+/// One generated table: its structures, the typedef names of each, the parameters of each
+/// function that point to one, and the functions whose result points to one, every list sorted
+/// by name.
+struct Table {
+    records: &'static [Record],
+    aliases: &'static [(&'static str, &'static str)],
+    pointees: &'static [(&'static str, &'static [(u8, &'static str)])],
+    results: &'static [(&'static str, &'static str)],
+}
+
+/// The tables, the Windows API's first: SDL2's (`sdl2_layouts`, its mixer's and network
+/// library's beside it) lays out the structures a program's SDL calls point to.
+fn tables() -> [Table; 2] {
+    [
+        Table {
+            records: win32_layouts::RECORDS,
+            aliases: win32_layouts::ALIASES,
+            pointees: win32_layouts::POINTEES,
+            results: win32_layouts::RESULTS,
+        },
+        Table {
+            records: sdl2_layouts::RECORDS,
+            aliases: sdl2_layouts::ALIASES,
+            pointees: sdl2_layouts::POINTEES,
+            results: sdl2_layouts::RESULTS,
+        },
+    ]
+}
+
+/// The record of a `void **` parameter, through which the callee writes a pointer back
+/// (`SDL_LockTexture`'s pixels): one pointer, 4 bytes in the program and 8 in the host.
+pub const POINTER_CELL: &str = "ra_pointer";
+
+static POINTER_CELL_RECORD: Record = Record {
+    name: POINTER_CELL,
+    overlapping: false,
+    same: false,
+    size32: 4,
+    align32: 4,
+    size64: 8,
+    align64: 8,
+    fields: &[Field { name: "pointer", kind: Kind::Pointer, count: 1, at32: Place { offset: 0, size: 4 }, at64: Place { offset: 0, size: 8 }, record: "" }],
+};
+
+/// The structures the host makes and keeps, and hands the program a pointer to: the program reads
+/// their fields, and hands the same pointer back. Each crosses as an object, a copy laid out for
+/// the program that stands for the host's, and not as a structure converted around one call. Bound
+/// by hand: the headers do not say who owns a structure.
+const OBJECTS: &[&str] = &["SDL_Palette", "SDL_PixelFormat", "SDL_Surface"];
+
+/// The pointer fields of an object that point to another, by the record, the field and the
+/// record pointed to. Bound by hand: the layouts say a field is a pointer, not to what.
+const OBJECT_FIELDS: &[(&str, &str, &str)] =
+    &[("SDL_PixelFormat", "next", "SDL_PixelFormat"), ("SDL_PixelFormat", "palette", "SDL_Palette"), ("SDL_Surface", "format", "SDL_PixelFormat")];
+
+/// The functions after which the object they take may be gone: its copy is not read again from
+/// the host's.
+const OBJECT_FREES: &[&str] = &["SDL_FreeFormat", "SDL_FreePalette", "SDL_FreeSurface"];
+
+/// Whether `function` may free the object it takes ([`OBJECT_FREES`]).
+pub fn frees_object(function: &str) -> bool {
+    OBJECT_FREES.contains(&function)
+}
+
+/// The structures the program makes and hands the host, which the host keeps a pointer to past
+/// the call: SDL_mixer plays a chunk after `Mix_PlayChannel` returns. Each crosses as a lasting copy
+/// of the host's per structure of the program's, written anew at every call that hands it over.
+const KEPT: &[&str] = &["Mix_Chunk"];
+
+/// Whether the host keeps a pointer to the program's `record` past the call ([`KEPT`]).
+pub fn is_kept(record: &str) -> bool {
+    KEPT.contains(&record)
+}
+
+/// Whether the structure `record` is an object the host keeps ([`OBJECTS`]).
+pub fn is_object(record: &str) -> bool {
+    OBJECTS.contains(&record)
+}
+
+/// The object a pointer field of `record` points to, by its record's name.
+pub fn object_field(record: &str, field: &str) -> Option<&'static str> {
+    OBJECT_FIELDS.iter().find(|&&(r, f, _)| r == record && f == field).map(|&(_, _, to)| to)
+}
+
+/// The structure a function's result points to, when the tables have one.
+pub fn result(function: &str) -> Option<&'static Record> {
+    tables().into_iter().find_map(|t| {
+        let i = t.results.binary_search_by_key(&function, |(name, _)| name).ok()?;
+        layout(t.results[i].1)
+    })
+}
 
 /// What a field holds, the same at both widths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -115,21 +208,35 @@ pub(crate) const fn record(
 /// The layout of a structure, by its tag (`tagWNDCLASSEXA`) or one of its typedef names
 /// (`WNDCLASSEXA`, `WNDCLASSEX`); `None` for one the table does not have.
 pub fn layout(name: &str) -> Option<&'static Record> {
-    let by_name = |name: &str| RECORDS.binary_search_by_key(&name, |r| r.name).ok().map(|i| &RECORDS[i]);
-    by_name(name).or_else(|| {
-        let i = ALIASES.binary_search_by_key(&name, |(alias, _)| alias).ok()?;
-        by_name(ALIASES[i].1)
+    if name == POINTER_CELL {
+        return Some(&POINTER_CELL_RECORD);
+    }
+    tables().into_iter().find_map(|t| {
+        let by_name = |name: &str| t.records.binary_search_by_key(&name, |r| r.name).ok().map(|i| &t.records[i]);
+        by_name(name).or_else(|| {
+            let i = t.aliases.binary_search_by_key(&name, |(alias, _)| alias).ok()?;
+            by_name(t.aliases[i].1)
+        })
     })
 }
 
-/// The parameters of a Windows API function that point to a structure the table has: the
-/// parameter's index, from 0, and the structure, in order; empty for a function with none.
+/// The parameters of a Windows API or SDL2 function that point to a structure the tables have:
+/// the parameter's index, from 0, and the structure, in order; empty for a function with none.
 pub fn pointees(function: &str) -> Vec<(usize, &'static Record)> {
-    let Ok(i) = POINTEES.binary_search_by_key(&function, |(name, _)| name) else { return Vec::new() };
-    POINTEES[i].1.iter().filter_map(|&(param, record)| Some((usize::from(param), layout(record)?))).collect()
+    for t in tables() {
+        if let Ok(i) = t.pointees.binary_search_by_key(&function, |(name, _)| name) {
+            return t.pointees[i].1.iter().filter_map(|&(param, record)| Some((usize::from(param), layout(record)?))).collect();
+        }
+    }
+    Vec::new()
 }
 
-/// Every structure of the table, by name.
+/// Every structure of the Windows API's table, by name.
 pub fn records() -> &'static [Record] {
-    RECORDS
+    win32_layouts::RECORDS
+}
+
+/// Every structure of SDL2's table, by name.
+pub fn sdl2_records() -> &'static [Record] {
+    sdl2_layouts::RECORDS
 }

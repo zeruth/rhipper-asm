@@ -195,6 +195,8 @@ uint64_t ra_x86_initialize_onexit_table(uint64_t table);
 uint64_t ra_x86_register_onexit_function(uint64_t table, uint64_t function);
 uint64_t ra_x86_execute_onexit_table(uint64_t table);
 uint64_t ra_x86_p_argv(void);
+// The command line `WinMain` takes when the driver's startup stands in for the runtime's.
+uint64_t ra_win_main_command_line(void);
 // The C runtime's globals behind `__p__commode`, `__p__fmode`, `__p___argc` and `_errno`, as
 // dwords at a 32-bit address.
 uint64_t ra_x86_p_commode(void);
@@ -211,6 +213,8 @@ uint64_t ra_x86_query_depth_slist(uint64_t head);
 // EncodePointer and DecodePointer within the program's dword: the 64-bit kernel32's take 64 bits.
 uint64_t ra_x86_encode_pointer(uint64_t pointer);
 uint64_t ra_x86_decode_pointer(uint64_t pointer);
+// CommandLineToArgvW with a table of dword pointers, in one LocalAlloc block.
+uint64_t ra_x86_command_line_to_argv_w(uint64_t line, uint64_t count);
 // The interlocked operations of the 32-bit kernel32 on a 32-bit value, which the 64-bit one does
 // not export.
 uint64_t ra_x86_interlocked_increment(uint64_t target);
@@ -279,6 +283,16 @@ uint64_t ra_x86_fetestexcept(uint64_t excepts);
 uint64_t ra_x86_feclearexcept(uint64_t excepts);
 double ra_x86_sqrt(double x);
 double ra_x86_pow_sse2(double x, double y);
+double ra_x86_sqrt_sse2(double x);
+double ra_x86_sin_sse2(double x);
+double ra_x86_cos_sse2(double x);
+double ra_x86_tan_sse2(double x);
+double ra_x86_asin_sse2(double x);
+double ra_x86_acos_sse2(double x);
+double ra_x86_atan_sse2(double x);
+double ra_x86_exp_sse2(double x);
+double ra_x86_log_sse2(double x);
+double ra_x86_log10_sse2(double x);
 // The fail-fast reports of the x86 /GS checks: the program ends as it would natively, with
 // STATUS_STACK_BUFFER_OVERRUN.
 RA_NORETURN void ra_x86_report_gsfailure(void);
@@ -289,6 +303,7 @@ uint64_t ra_x86_vsprintf(uint64_t options, uint64_t buffer, uint64_t count, uint
 uint64_t ra_x86_vsprintf_s(uint64_t options, uint64_t buffer, uint64_t count, uint64_t format, uint64_t locale, uint64_t args);
 uint64_t ra_x86_vsnprintf_s(uint64_t options, uint64_t buffer, uint64_t count, uint64_t max, uint64_t format, uint64_t locale, uint64_t args);
 uint64_t ra_x86_vfprintf(uint64_t options, uint64_t stream, uint64_t format, uint64_t locale, uint64_t args);
+uint64_t ra_x86_vfscanf(uint64_t options, uint64_t stream, uint64_t format, uint64_t locale, uint64_t args);
 uint64_t ra_x86_vsscanf(uint64_t options, uint64_t buffer, uint64_t count, uint64_t format, uint64_t locale, uint64_t args);
 // The strto* family, their end pointer written at the program's width.
 uint64_t ra_x86_strtol(uint64_t s, uint64_t end, uint64_t base);

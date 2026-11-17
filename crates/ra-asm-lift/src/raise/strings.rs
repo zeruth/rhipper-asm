@@ -265,8 +265,10 @@ pub fn run_frozen(module: &mut Module, low: bool) -> Vec<usize> {
         triple: module.triple.clone(),
         data_layout: module.data_layout.clone(),
         frozen: Vec::new(),
+        variables: std::mem::take(&mut module.variables),
     };
     let changed = run(&mut part, low);
+    module.variables = std::mem::take(&mut part.variables);
     module.globals = std::mem::take(&mut part.globals);
     module.declarations = std::mem::take(&mut part.declarations);
     module.types = std::mem::take(&mut part.types);

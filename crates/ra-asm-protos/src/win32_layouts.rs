@@ -150,3 +150,6 @@ pub(super) static POINTEES: &[(&str, &[(u8, &str)])] = &[
     ("WSAStartup", &[(1, "WSAData")]),
     ("WriteFile", &[(4, "_OVERLAPPED")]),
 ];
+
+pub(super) static RESULTS: &[(&str, &str)] = &[
+];

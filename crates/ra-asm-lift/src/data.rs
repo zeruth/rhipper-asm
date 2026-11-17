@@ -28,7 +28,7 @@ pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted,
     if headers > 0 {
         let start = image.image_base();
         let name = format!("sec_{tag}headers");
-        lifted.data.push(DataSection { global: name.clone(), start, end: start + headers });
+        lifted.data.push(DataSection { global: name.clone(), start, end: start + headers, in_code: false });
         if let Ok(bytes) = image.read(start, headers as usize) {
             lifted.module.globals.push(Global {
                 name,
@@ -43,6 +43,7 @@ pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted,
     }
     // The sections first, so a pointer from one into another resolves whatever the order.
     let data_in_code = image.data_in_code();
+    let mut pieces: Vec<DataSection> = Vec::new();
     for section in &image.sections {
         let code = section.is_code() || section.is_executable();
         if (code && !data_in_code) || !section.is_readable() || section.mapped_size() == 0 {
@@ -52,8 +53,25 @@ pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted,
             continue; // the unwinder's, the loader's and the resource compiler's: no code reads them
         }
         let start = image.va(section.virtual_address);
-        lifted.data.push(DataSection { global: global_name(&section.name, tag), start, end: start + u64::from(section.mapped_size()) });
+        let end = start + u64::from(section.mapped_size());
+        // One global a section: the program's addresses into it, a table's base folded before it
+        // or the end of one array that is the start of the next, keep their layout. The variables
+        // the symbols name in it name its bytes.
+        let global = global_name(&section.name, tag);
+        let first = image.data_symbols.partition_point(|d| d.va < start);
+        let mut at = start;
+        for d in image.data_symbols[first..].iter().take_while(|d| d.va < end) {
+            let Some(size) = d.size.filter(|&s| s > 0).map(u64::from) else { continue };
+            if d.va < at || d.va + size > end {
+                continue;
+            }
+            let name: String = d.name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect();
+            lifted.module.variables.push(ra_asm_ir::Variable { global: global.clone(), offset: d.va - start, size, name });
+            at = d.va + size;
+        }
+        pieces.push(DataSection { global, start, end, in_code: false });
     }
+    lifted.data.extend(pieces.iter().cloned());
     let width = u64::from(image.pointer_size());
     // A word of a code section is data when it lies outside the functions and on a pointer
     // boundary, as the compiler lays data out; the operands of the code are not read as data.
@@ -62,8 +80,8 @@ pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted,
         !(section.is_code() || section.is_executable()) || (va.is_multiple_of(width) && !functions.contains(va))
     };
 
-    for section in &image.sections {
-        let Some(data) = lifted.data.iter().find(|d| d.start == image.va(section.virtual_address)).cloned() else { continue };
+    for data in pieces {
+        let Some(section) = image.section_of(data.start) else { continue };
         let size = data.end - data.start;
         let constant = !section.is_writable();
         if section.is_uninitialized() {
@@ -162,7 +180,9 @@ pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted,
             fields.push(Type::array(run.len() as u64, Type::I8));
             items.push(Const::Bytes(run.to_vec()));
         }
-        let (ty, init) = if fields.len() == 1 && words.is_empty() {
+        let (ty, init) = if words.is_empty() && bytes[..size as usize].iter().all(|&b| b == 0) {
+            (Type::array(size, Type::I8), Const::Zero)
+        } else if fields.len() == 1 && words.is_empty() {
             (Type::array(size, Type::I8), Const::Bytes(bytes[..size as usize].to_vec()))
         } else {
             (Type::Packed(fields), Const::Struct(items))
@@ -176,6 +196,31 @@ pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted,
             align: 16,
             address: Some(data.start),
         });
+    }
+
+    // The case numbers of a two-level switch lie in the code section after its function, and the
+    // code reads one before it jumps: a global of their own bytes each, unless a section global
+    // already holds them.
+    for f in analysis.functions.values() {
+        for b in &f.blocks {
+            let ra_asm_analysis::Terminator::Switch { case_table: Some((start, length)), .. } = b.terminator else { continue };
+            let end = start + length;
+            if lifted.data.iter().any(|d| start < d.end && d.start < end) {
+                continue;
+            }
+            let Ok(bytes) = image.read(start, length as usize) else { continue };
+            let global = format!("sec_{tag}cases_{start:x}");
+            lifted.data.push(DataSection { global: global.clone(), start, end, in_code: true });
+            lifted.module.globals.push(Global {
+                name: global,
+                ty: Type::array(length, Type::I8),
+                init: Some(Const::Bytes(bytes.to_vec())),
+                constant: true,
+                linkage: Linkage::External,
+                align: 1,
+                address: Some(start),
+            });
+        }
     }
 }
 

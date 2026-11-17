@@ -702,6 +702,7 @@ unsafe extern "C" {
     ) -> i32;
     fn __stdio_common_vfprintf(options: u64, stream: usize, format: *const u8, locale: usize, args: *const u64) -> i32;
     fn __stdio_common_vsscanf(options: u64, buffer: *const u8, count: usize, format: *const u8, locale: usize, args: *const u64) -> i32;
+    fn __stdio_common_vfscanf(options: u64, stream: usize, format: *const u8, locale: usize, args: *const u64) -> i32;
     fn _get_stream_buffer_pointers(stream: usize, base: *mut *mut *mut u8, pointer: *mut *mut *mut u8, count: *mut *mut i32) -> i32;
 }
 
@@ -932,6 +933,11 @@ pub unsafe fn ra_x86_vsscanf(options: u64, buffer: u64, count: u64, format: u64,
     let slots = widen_scanf_args(format as usize as *const u8, args);
     __stdio_common_vsscanf(options, buffer as usize as *const u8, count as usize, format as usize as *const u8, locale as usize, slots.as_ptr())
         as i64 as u64
+}
+
+pub unsafe fn ra_x86_vfscanf(options: u64, stream: u64, format: u64, locale: u64, args: u64) -> u64 {
+    let slots = widen_scanf_args(format as usize as *const u8, args);
+    __stdio_common_vfscanf(options, stream as usize, format as usize as *const u8, locale as usize, slots.as_ptr()) as i64 as u64
 }
 
 /// The C runtime functions a 32-bit program calls that walk or hand back a table of its own
@@ -1524,10 +1530,40 @@ pub unsafe fn ra_x86_sqrt(x: f64) -> f64 {
     if (x87_cw() >> 8) & 3 == 0 { f64::from(r as f32) } else { r }
 }
 
-/// The x86 C runtime's SSE2 power (`_libm_sse2_pow_precise`, the operands in xmm0 and xmm1),
-/// which the 64-bit runtime does not export.
+/// The x86 C runtime's SSE2 math (`_libm_sse2_pow_precise` and the rest, the operands in xmm0
+/// and xmm1), which the 64-bit runtime does not export.
 pub unsafe fn ra_x86_pow_sse2(x: f64, y: f64) -> f64 {
     x.powf(y)
+}
+pub unsafe fn ra_x86_sqrt_sse2(x: f64) -> f64 {
+    x.sqrt()
+}
+pub unsafe fn ra_x86_sin_sse2(x: f64) -> f64 {
+    x.sin()
+}
+pub unsafe fn ra_x86_cos_sse2(x: f64) -> f64 {
+    x.cos()
+}
+pub unsafe fn ra_x86_tan_sse2(x: f64) -> f64 {
+    x.tan()
+}
+pub unsafe fn ra_x86_asin_sse2(x: f64) -> f64 {
+    x.asin()
+}
+pub unsafe fn ra_x86_acos_sse2(x: f64) -> f64 {
+    x.acos()
+}
+pub unsafe fn ra_x86_atan_sse2(x: f64) -> f64 {
+    x.atan()
+}
+pub unsafe fn ra_x86_exp_sse2(x: f64) -> f64 {
+    x.exp()
+}
+pub unsafe fn ra_x86_log_sse2(x: f64) -> f64 {
+    x.ln()
+}
+pub unsafe fn ra_x86_log10_sse2(x: f64) -> f64 {
+    x.log10()
 }
 
 static mut ARGV32: Vec<u32> = Vec::new();

@@ -29,6 +29,7 @@ const IMPORTS: &[&str] = &[
     "_amsg_exit",
     "__report_gsfailure",
     "__report_rangecheckfailure",
+    "__raise_securityfailure",
     "_CxxThrowException",
     "__std_terminate",
     "__std_exception_destroy_and_rethrow",
@@ -40,6 +41,17 @@ const IMPORTS: &[&str] = &[
 /// Whether an import, by display name, never returns.
 pub fn import_never_returns(name: &str) -> bool {
     IMPORTS.contains(&name)
+}
+
+#[cfg(test)]
+mod tests {
+    /// The cookie check of a `/MD` build ends its inlined report in `__raise_securityfailure`:
+    /// with the call taken to return, the check hands back a value in `eax` on that path, and the
+    /// callers that set their result before the check lose it.
+    #[test]
+    fn the_security_failure_of_the_dll_runtime_never_returns() {
+        assert!(super::import_never_returns("__raise_securityfailure"));
+    }
 }
 
 /// Adds to `known` every function that never returns, by its blocks. Returns the entries it added.

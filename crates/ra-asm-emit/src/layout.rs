@@ -34,12 +34,15 @@ pub(crate) struct Field {
     pub(crate) elem: Elem,
     /// Whether the field is an array: an indexed use said so, or it holds several elements.
     pub(crate) array: bool,
+    /// The program's name for it, from the variable of the build's symbols it is or lies in.
+    pub(crate) name: Option<String>,
 }
 
 impl Field {
-    /// The field's name: by its offset, as a struct's fields are named.
+    /// The field's name: the program's variable's, else by its offset, as a struct's fields are
+    /// named.
     pub(crate) fn name(&self) -> String {
-        format!("f{}", self.offset)
+        self.name.clone().unwrap_or_else(|| format!("f{}", self.offset))
     }
 
     /// The IR type of one element, or `None` for untyped bytes.
@@ -68,9 +71,25 @@ pub(crate) struct Layout {
     pub(crate) bytes: Vec<u8>,
     /// The address words by offset, with the IR's type and constant for each.
     pub(crate) words: BTreeMap<u64, (Type, Const)>,
+    /// The section is read-only: a string of it reads as the literal the source wrote.
+    pub(crate) constant: bool,
 }
 
 impl Layout {
+    /// The C literal of the string field that starts at `offset` of a read-only section.
+    pub(crate) fn literal_at(&self, offset: u64) -> Option<String> {
+        if !self.constant {
+            return None;
+        }
+        let field = self.fields.iter().find(|f| f.offset == offset && f.elem == Elem::Char)?;
+        let text = &self.bytes[field.offset as usize..(field.end() - 1) as usize];
+        Some(string_literal(text))
+    }
+
+    /// The field that starts at `offset`.
+    pub(crate) fn field_starting(&self, offset: u64) -> Option<&Field> {
+        self.fields.iter().find(|f| f.offset == offset)
+    }
     /// The field that holds the byte at `offset`.
     pub(crate) fn field_at(&self, offset: u64) -> Option<&Field> {
         self.fields.iter().find(|f| offset >= f.offset && offset < f.end())
@@ -100,13 +119,18 @@ pub(crate) struct Index {
 }
 
 /// The place a pointer or address operand names: an address of a global, through the casts
-/// between integers and pointers, plus a constant, plus a scaled index.
+/// between integers and pointers, plus a constant, plus a scaled index. A 32-bit program's
+/// address goes through its dword and back (`trunc` to 32 bits, `zext` to 64), which keeps a
+/// global's address: the port lays its globals out below 4 GB.
 pub(crate) fn place(defs: &Defs<'_>, op: &Operand) -> Option<Place> {
     match op {
         Operand::Address { global, offset } => Some(Place { global: global.clone(), offset: *offset, index: None }),
         Operand::Global(global) => Some(Place { global: global.clone(), offset: 0, index: None }),
         Operand::Local(v) => match defs.def(*v)?.2 {
             Inst::Cast { cast: Cast::IntToPtr | Cast::PtrToInt, value, .. } => place(defs, value),
+            Inst::Cast { cast: Cast::Trunc, to: Type::Int(32), value, .. } | Inst::Cast { cast: Cast::ZExt, from: Type::Int(32), value, .. } => {
+                place(defs, value)
+            }
             Inst::Bin { op: BinOp::Add, ty, lhs, rhs } => {
                 let (base, other) = match place(defs, lhs) {
                     Some(p) if p.index.is_none() => (p, rhs),
@@ -174,6 +198,10 @@ struct Uses {
 pub(crate) struct LayoutUses {
     flat: HashMap<String, FlatSection>,
     uses: HashMap<String, Uses>,
+    /// The program's variables in each section: offset, size and name.
+    variables: HashMap<String, Vec<(u64, u64, String)>>,
+    /// The read-only sections.
+    constant: HashSet<String>,
 }
 
 impl LayoutUses {
@@ -187,7 +215,12 @@ impl LayoutUses {
                 flat.insert(g.name.clone(), f);
             }
         }
-        Self { flat, uses: HashMap::new() }
+        let mut variables: HashMap<String, Vec<(u64, u64, String)>> = HashMap::new();
+        for v in &module.variables {
+            variables.entry(v.global.clone()).or_default().push((v.offset, v.size, v.name.clone()));
+        }
+        let constant = module.globals.iter().filter(|g| g.constant && flat.contains_key(&g.name)).map(|g| g.name.clone()).collect();
+        Self { flat, uses: HashMap::new(), variables, constant }
     }
 
     /// Reads the uses of `f`.
@@ -198,7 +231,7 @@ impl LayoutUses {
     /// The layouts of the sections, by global, for the globals whose uses type at least one
     /// field; a section no use types keeps the IR's shape.
     pub(crate) fn layouts(self) -> HashMap<String, Layout> {
-        let Self { flat, mut uses } = self;
+        let Self { flat, mut uses, variables, constant } = self;
         // An address word that points into a section names a string there as a passed pointer does.
         for (_, words) in flat.values() {
             for (_, item) in words.values() {
@@ -213,14 +246,36 @@ impl LayoutUses {
         let mut out = HashMap::new();
         for (name, (bytes, words)) in flat {
             let Some(u) = uses.get(&name) else { continue };
-            let layout = Layout { fields: Vec::new(), bytes, words };
-            let fields = fields_of(&layout, u);
+            let layout = Layout { fields: Vec::new(), bytes, words, constant: constant.contains(&name) };
+            let mut fields = fields_of(&layout, u);
             let typed = fields.iter().any(|f| !matches!(f.elem, Elem::Bytes) && (f.array || !matches!(f.elem, Elem::Word(_))));
             if typed {
+                name_fields(&mut fields, variables.get(&name).map_or(&[][..], Vec::as_slice));
                 out.insert(name, Layout { fields, ..layout });
             }
         }
         out
+    }
+}
+
+/// Names the fields that the program's variables (`variables`, by offset, size and name, in
+/// address order) hold: the field a variable starts at by the variable's name, another field
+/// inside it by the name and its offset into it (`players_8`). A name the section uses twice (two
+/// files' statics) takes the offset too, and a field no variable holds keeps its offset's name.
+fn name_fields(fields: &mut [Field], variables: &[(u64, u64, String)]) {
+    let mut used: HashSet<String> = HashSet::new();
+    for field in fields.iter_mut() {
+        let i = variables.partition_point(|(offset, _, _)| *offset <= field.offset);
+        let Some((offset, size, name)) = i.checked_sub(1).map(|i| &variables[i]) else { continue };
+        if field.offset >= offset + size || field.end() > offset + size {
+            continue;
+        }
+        let mut chosen = if field.offset == *offset { name.clone() } else { format!("{name}_{}", field.offset - offset) };
+        if !used.insert(chosen.clone()) {
+            chosen = format!("{chosen}_{}", field.offset);
+            used.insert(chosen.clone());
+        }
+        field.name = Some(chosen);
     }
 }
 
@@ -372,13 +427,13 @@ fn fields_of(layout: &Layout, uses: &Uses) -> Vec<Field> {
             continue;
         }
         if start > at {
-            fields.push(Field { offset: at, count: start - at, elem: Elem::Bytes, array: true });
+            fields.push(Field { offset: at, count: start - at, elem: Elem::Bytes, array: true, name: None });
         }
         at = field.end();
         fields.push(field);
     }
     if at < size {
-        fields.push(Field { offset: at, count: size - at, elem: Elem::Bytes, array: true });
+        fields.push(Field { offset: at, count: size - at, elem: Elem::Bytes, array: true, name: None });
     }
     fields
 }
@@ -424,7 +479,7 @@ fn word_field(layout: &Layout, uses: &Uses, start: u64, ty: &Type) -> Option<Fie
             next += width;
         }
     }
-    Some(Field { offset: start, count, elem: Elem::Word(ty.clone()), array: indexed })
+    Some(Field { offset: start, count, elem: Elem::Word(ty.clone()), array: indexed, name: None })
 }
 
 /// A scalar at `start`, or the array an indexed use reads up to the next known thing. A float
@@ -435,7 +490,7 @@ fn cell_field(layout: &Layout, start: u64, next: u64, cell: &Cell) -> Option<Fie
         return None;
     }
     let count = if cell.indexed { (next - start) / size } else { 1 };
-    let field = Field { offset: start, count, elem: Elem::Value(cell.ty.clone()), array: cell.indexed };
+    let field = Field { offset: start, count, elem: Elem::Value(cell.ty.clone()), array: cell.indexed, name: None };
     if cell.ty.is_float()
         && (0..count).any(|i| !float_literal(&cell.ty, layout.element(&field, i)).is_some_and(|l| !l.contains("inf") && !l.contains("NaN")))
     {
@@ -451,7 +506,7 @@ fn string_field(layout: &Layout, start: u64, next: u64) -> Option<Field> {
     if len == 0 || !run[..len].iter().all(|&b| b == b'\t' || b == b'\n' || b == b'\r' || (b' '..=b'~').contains(&b)) {
         return None;
     }
-    Some(Field { offset: start, count: len as u64 + 1, elem: Elem::Char, array: true })
+    Some(Field { offset: start, count: len as u64 + 1, elem: Elem::Char, array: true, name: None })
 }
 
 /// The C literal of a float or double from its bytes: the shortest decimal that reads back to

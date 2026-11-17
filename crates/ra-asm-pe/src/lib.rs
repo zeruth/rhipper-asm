@@ -36,7 +36,7 @@ pub use headers::{DataDirectory, Directory, Headers, Machine, OptionalMagic, Ric
 pub use image::Image;
 pub use imports::Import;
 pub use object::{Library, Object, ObjectFunction, ObjectReloc, ObjectSection};
-pub use pdb::{LibraryRange, Symbol};
+pub use pdb::{DataSymbol, LibraryRange, Symbol};
 pub use relocs::{RelocKind, Relocation};
 pub use resources::{Resource, ResourceId};
 pub use section::Section;
@@ -63,6 +63,7 @@ pub fn load(path: &Path) -> anyhow::Result<Image> {
         Ok(pdb) => {
             image.symbols = pdb.symbols;
             image.libraries = pdb.libraries;
+            image.data_symbols = pdb.data;
         }
         Err(e) => image.warnings.push(format!("symbols: {e:#}")),
     }

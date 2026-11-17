@@ -48,6 +48,11 @@ pub(crate) struct Builder<'a> {
     tail_calls: Vec<u64>,
     local_calls: Vec<u64>,
     warnings: Vec<String>,
+    /// The indirect jumps that did not resolve with the blocks known when they were reached, by
+    /// address: each is tried again once the rest of the function is, since a table's bound may
+    /// lie on a way in found later (MSVC jumps into a `switch` from another's case, past its
+    /// compare).
+    unresolved: Vec<u64>,
 }
 
 /// Builds the function at `entry`.
@@ -76,11 +81,17 @@ pub fn build(
         tail_calls: Vec::new(),
         local_calls: Vec::new(),
         warnings: Vec::new(),
+        unresolved: Vec::new(),
     };
     let mut tried = BTreeSet::new();
     loop {
         while let Some(start) = b.worklist.pop() {
             b.block(start);
+        }
+        // The jumps that did not resolve, with every way into them known now; one that resolves
+        // adds its cases to the walk.
+        if b.retry_unresolved() {
+            continue;
         }
         // The funclets an exception frame registers are reached by the handler, not by the code;
         // they belong to the function that registers them.
@@ -495,7 +506,9 @@ impl Builder<'_> {
             jumptable::resolve(self.image, body, &predecessors)
         };
         let Some(table) = resolved else {
-            self.warnings.push(format!("the indirect jump at {:#x} in the function at {:#x} did not resolve", jump.address, self.entry));
+            if !self.unresolved.contains(&jump.address) {
+                self.unresolved.push(jump.address);
+            }
             return Terminator::IndirectJump;
         };
         let mut targets = Vec::new();
@@ -511,7 +524,15 @@ impl Builder<'_> {
                 self.tail_calls.push(target);
             }
         }
-        Terminator::Switch { table: table.address, targets, index: table.index, load_at: table.load_at, cases, bound: table.bound }
+        Terminator::Switch {
+            table: table.address,
+            targets,
+            index: table.index,
+            load_at: table.load_at,
+            cases,
+            bound: table.bound,
+            case_table: table.case_table,
+        }
     }
 
     /// The direct calls into the function's own code, outside its flow from the entry: MSVC calls
@@ -556,7 +577,28 @@ impl Builder<'_> {
         targets
     }
 
-    fn finish(self) -> Built {
+    /// Tries each unresolved indirect jump again with the blocks known now. Whether one resolved.
+    fn retry_unresolved(&mut self) -> bool {
+        let mut resolved = false;
+        for jump in std::mem::take(&mut self.unresolved) {
+            // The jump ends its block, or comes just before its delay slot.
+            let ends = |d: &Draft| d.instrs.iter().rev().take(2).any(|i| i.address == jump);
+            let Some(start) = self.blocks.values().find(|d| ends(d)).map(|d| d.start) else {
+                continue;
+            };
+            let Some(mut draft) = self.blocks.remove(&start) else { continue };
+            let terminator = self.indirect_jump(&draft);
+            resolved |= !matches!(terminator, Terminator::IndirectJump);
+            draft.terminator = terminator;
+            self.blocks.insert(start, draft);
+        }
+        resolved
+    }
+
+    fn finish(mut self) -> Built {
+        for jump in std::mem::take(&mut self.unresolved) {
+            self.warnings.push(format!("the indirect jump at {jump:#x} in the function at {:#x} did not resolve", self.entry));
+        }
         let blocks: Vec<Block> =
             self.blocks.into_values().map(|d| Block { start: d.start, end: d.end, instrs: d.instrs, terminator: d.terminator }).collect();
         // A thunk is one block: `jmp [slot]`.

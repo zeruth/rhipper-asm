@@ -6,6 +6,21 @@ fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/bin").join(name)
 }
 
+/// The PDB names the variables too, with their sizes from the type stream: the runtime's stack
+/// cookie is a `uintptr_t` of 8 bytes in the data, one name per address in address order.
+#[test]
+fn the_crt_fixture_names_its_variables_from_its_pdb() {
+    let image = ra_asm_pe::load(&fixture("crt64.exe")).unwrap();
+    let cookie = image.data_symbols.iter().find(|d| d.name == "__security_cookie").expect("the cookie is named");
+    assert_eq!(cookie.size, Some(8));
+    assert!(!cookie.scalar, "an 8-byte integer is not a 4-byte word");
+    assert!(image.section_of(cookie.va).is_some_and(|s| !s.is_code()), "the cookie lies outside the data");
+    assert!(image.data_symbols.windows(2).all(|w| w[0].va < w[1].va));
+    let missing: Vec<&str> = image.data_symbols.iter().filter(|d| d.size.is_none()).map(|d| d.name.as_str()).collect();
+    assert!(missing.is_empty(), "unsized: {missing:?}");
+    assert!(image.data_symbols.iter().all(|d| !d.name.is_empty()));
+}
+
 #[test]
 fn the_crt_fixture_names_its_functions_from_its_pdb() {
     let image = ra_asm_pe::load(&fixture("crt64.exe")).unwrap();

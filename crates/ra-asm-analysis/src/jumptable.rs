@@ -35,6 +35,10 @@ pub struct Table {
     /// table ends where its entries stop pointing at code, and the index is assumed to stay
     /// inside what was read.
     pub bound: Option<u64>,
+    /// The byte or word table of a two-level table, by its address and its length in bytes: the
+    /// code reads the case number out of it before the entry, and the number may live on past the
+    /// jump (in `eax`, which a function may return), so a port reads it as the program does.
+    pub case_table: Option<(u64, u64)>,
 }
 
 /// The most entries a table is read for when no compare bounds it.
@@ -173,19 +177,30 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
                 let table = read_table(image, address, m.scale.max(1), count, Relative::Absolute, index, jump.address)?;
                 return Some(Table { bound, ..table });
             };
+            // The indices the case table is read at: `0..n` under a compare's bound, else the
+            // values an `and idx, mask` before the read leaves (`OPL3_WriteReg`'s `reg & 0xF0`,
+            // whose sixteen values are the case table's slots), the mask's submasks.
+            let indices: Vec<u64> = match count {
+                Some(count) => (0..count.min(MAX_ENTRIES) as u64).collect(),
+                None => {
+                    let at = block.iter().position(|i| i.address == load_at)?;
+                    let mask = mask_of(&block[..at], index)?;
+                    (0..=mask).filter(|v| v & !mask == 0).collect()
+                }
+            };
             // The case of each index, then the target of each case.
-            let count = count?.min(MAX_ENTRIES);
-            let mut numbers = Vec::with_capacity(count);
-            for n in 0..count {
-                let slot = cases_address + n as u64 * u64::from(case_bits / 8);
+            let mut numbers = Vec::with_capacity(indices.len());
+            for &n in &indices {
+                let slot = cases_address + n * u64::from(case_bits / 8);
                 let case = if case_bits == 8 { image.u8(slot).ok().map(u64::from) } else { image.u16(slot).ok().map(u64::from) }?;
                 numbers.push(case as usize);
             }
             let entries = numbers.iter().max().copied()? + 1;
             let table = read_table(image, address, m.scale.max(1), Some(entries), Relative::Absolute, index, load_at)?;
             let targets = numbers.iter().map(|&c| table.targets[c]).collect();
-            let indices = (0..numbers.len() as u64).collect();
-            Some(Table { targets, indices, bound, ..table })
+            let span = indices.last().map_or(0, |&n| n + 1);
+            let case_table = Some((cases_address, span * u64::from(case_bits / 8)));
+            Some(Table { targets, indices, bound, case_table, ..table })
         }
         // x64: jmp v, where v = base + entry
         Operand::Reg(value) => {
@@ -411,7 +426,7 @@ fn read_table(
         targets.push(target);
     }
     let indices = (0..targets.len() as u64).collect();
-    (!targets.is_empty()).then_some(Table { address, entry_size, targets, indices, index, load_at, bound: None })
+    (!targets.is_empty()).then_some(Table { address, entry_size, targets, indices, index, load_at, bound: None, case_table: None })
 }
 
 /// The index values an x86 `jmp [table + idx*4]` can take that no `cmp` bounds from zero, as the
@@ -452,6 +467,18 @@ fn signed_indices(block: &[Instr], last: usize, predecessors: &[&[Instr]], index
     }
 }
 
+/// The mask of an `and idx, mask` that last writes `index` in `instrs`, when one does and the mask
+/// is small enough to read the table at every value it leaves.
+fn mask_of(instrs: &[Instr], index: Register) -> Option<u64> {
+    let writer = instrs.iter().rev().find(|i| i.writes(index))?;
+    if writer.mnemonic != "and" || !writer.operands.first().and_then(reg_of).is_some_and(|d| same(d, index)) {
+        return None;
+    }
+    let Some(Operand::Imm { value, .. }) = writer.operands.get(1) else { return None };
+    let mask = u64::try_from(*value).ok()?;
+    (1..MAX_ENTRIES as u64).contains(&mask).then_some(mask)
+}
+
 /// The table at `address` read at the entries of `indices`, each index wrapped to the width of
 /// `index`: with `all`, a table only when every entry points at code; without, the entries that
 /// do, when one does.
@@ -470,5 +497,5 @@ fn read_indexed(image: &Image, address: u64, scale: u8, indices: &[i64], all: bo
             None => {}
         }
     }
-    (!targets.is_empty()).then_some(Table { address, entry_size: 4, targets, indices: kept, index, load_at, bound: None })
+    (!targets.is_empty()).then_some(Table { address, entry_size: 4, targets, indices: kept, index, load_at, bound: None, case_table: None })
 }

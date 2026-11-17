@@ -68,6 +68,9 @@ pub struct Signature {
     /// place of stack parameters it takes the address of its caller's argument block, as the
     /// trailing parameter `varargs`, and reads every stack argument through it.
     pub variadic: bool,
+    /// Its stack parameters include the universal words a jump through an unresolved pointer
+    /// hands on ([`super::stack::StackInfo::forwards`]).
+    pub forwards: bool,
 }
 
 impl Default for Signature {
@@ -82,6 +85,7 @@ impl Default for Signature {
             pops: 0,
             preserves: NO_SLOTS,
             variadic: false,
+            forwards: false,
         }
     }
 }
@@ -182,9 +186,9 @@ struct Facts {
     uses_rdx_of: Vec<String>,
     /// Callees whose `xmm0` this function reads after the call.
     uses_xmm0_of: Vec<String>,
-    /// Each direct call to a lifted function, with the private registers past the convention's
-    /// ([`Target::private_int_param_slots`]) the block sets before the call, by position from the
-    /// first past the convention's: what the callee may take in them.
+    /// Each direct call to a lifted function, with the registers a function may take arguments in
+    /// ([`Target::private_int_param_slots`], the convention's first) the block sets before the
+    /// call, by position: what the callee may take in them.
     sets_before_calls: Vec<(String, u8)>,
     noreturn: bool,
 }
@@ -779,10 +783,13 @@ fn infer_from(
                 // x86 and ARM64 count each class on its own.
                 // A function the lift does not see every caller of takes the convention's: its
                 // callers outside the lift pass nothing in the private registers. One it does
-                // takes a private register its code reads when every call to it sets it first:
-                // a `push eax` that only makes room reads `eax` too, and no caller sets it for it.
-                let confirmed = if roots.contains(&fact.name) { 0 } else { set_by_callers.get(fact.name.as_str()).copied().unwrap_or(0) };
-                let read = |p: usize| fact.int_positions[p] && (p < ints || confirmed & (1 << (p - ints)) != 0);
+                // takes a register its code reads when every call to it sets it first, the
+                // convention's `ecx` and `edx` too: a `push eax` or a `push ecx` that only makes
+                // room for a local (MSVC's `push ebp; mov ebp, esp; push ecx`) reads the register,
+                // and no caller sets it for it.
+                let root = roots.contains(&fact.name);
+                let confirmed = if root { 0 } else { set_by_callers.get(fact.name.as_str()).copied().unwrap_or(0) };
+                let read = |p: usize| fact.int_positions[p] && ((root && p < ints) || confirmed & (1 << p) != 0);
                 let int_count = (0..private_ints).rev().find(|&p| read(p)).map_or(0, |p| p + 1);
                 let float_count = (0..floats).rev().find(|&p| fact.float_positions[p].is_some()).map_or(0, |p| p + 1);
                 (0..int_count).map(|_| Kind::Int).chain((0..float_count).map(|p| fact.float_positions[p].unwrap_or(Kind::Double))).collect()
@@ -824,6 +831,7 @@ fn infer_from(
                     pops: if target.is_64() { 0 } else { fact.stack.pops.max(0) as u64 },
                     preserves,
                     variadic,
+                    forwards: !variadic && fact.stack.forwards,
                 },
             );
         }
@@ -1052,14 +1060,16 @@ fn gather(
     // functions does, which the stack analysis narrows to those that can take the arguments at
     // the call.
     let stack_of = |name: &str| {
-        signatures.get(name).map_or(CalleeStack { pops: Some(0), arguments: 0 }, |s| CalleeStack {
+        signatures.get(name).map_or(CalleeStack { pops: Some(0), arguments: 0, forwards: false }, |s| CalleeStack {
             pops: Some(s.pops as i64),
             arguments: s.stack_bytes(target),
+            forwards: s.forwards,
         })
     };
     // A slot a runtime class's method fills too stays an indirect call, but its lifted functions
     // still say what arguments it may take.
-    let slot_stack_of = |name: &str| if signatures.contains_key(name) { stack_of(name) } else { CalleeStack { pops: None, arguments: 0 } };
+    let slot_stack_of =
+        |name: &str| if signatures.contains_key(name) { stack_of(name) } else { CalleeStack { pops: None, arguments: 0, forwards: false } };
     let call_pops = |inst: &Inst| -> Option<Vec<CalleeStack>> {
         if let Inst::Call { callee: Callee::Direct(name), .. } = inst
             && name.starts_with("F_")
@@ -1091,12 +1101,13 @@ fn gather(
             int_positions[p] = reads[slot.index()];
         }
     }
-    // What the function's own code has set of those registers on every path to each direct call:
-    // the result a call before it left in `eax` is no argument set for the next (a `push eax`
-    // making room in that one would read it as one), so a call clears what it writes.
+    // What the function's own code has set of the registers a function may take arguments in, the
+    // convention's and the private ones, on every path to each direct call: the result a call
+    // before it left in `eax` is no argument set for the next (a `push eax` making room in that
+    // one would read it as one), so a call clears what it writes.
     let mut sets_before_calls = Vec::new();
     if private.len() > conventional {
-        let extras = &private[conventional..];
+        let extras = &private[..];
         let bit = |slot: Slot| extras.iter().position(|s| *s == slot).map_or(0u8, |k| 1 << k);
         let index_of: HashMap<ra_asm_ir::BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
         // One pass over a block from what is set at its entry: what is set at its exit, and the
@@ -1161,11 +1172,29 @@ fn gather(
     let mut writes_rax = false;
     let mut writes_xmm0: Option<Kind> = None;
     let mut writes = NO_SLOTS;
+    // The blocks a return is reached from. A block no path of which returns (one that ends in
+    // `unreachable`, a call that never returns such as the report after a failed cookie check, or
+    // one every path out of which does: the report inlined into the check, which asks whether the
+    // processor can fail fast first) hands nothing back: what it writes reaches no return, so a
+    // caller reading a register after the call reads its own value through it.
+    let block_index: HashMap<ra_asm_ir::BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
+    let mut returns_from = vec![false; f.blocks.len()];
+    for _ in 0..f.blocks.len() {
+        let mut changed = false;
+        for (bi, b) in f.blocks.iter().enumerate().rev() {
+            let returns = matches!(b.terminator, ra_asm_ir::Terminator::Ret(_))
+                || b.terminator.successors().into_iter().any(|s| block_index.get(&s).is_some_and(|&si| returns_from[si]));
+            if returns && !returns_from[bi] {
+                returns_from[bi] = true;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
     for (bi, b) in f.blocks.iter().enumerate() {
-        // A block that ends in `unreachable` (a call that never returns, such as the report after
-        // a failed cookie check) hands nothing back: what it writes reaches no return, so a caller
-        // reading a register after the call reads its own value through it.
-        let dead_end = matches!(b.terminator, ra_asm_ir::Terminator::Unreachable);
+        let dead_end = !returns_from[bi];
         let returning = matches!(b.terminator, ra_asm_ir::Terminator::Ret(_));
         let mut calls = 0usize;
         for i in &b.instrs {

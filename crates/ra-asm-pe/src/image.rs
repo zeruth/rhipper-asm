@@ -51,6 +51,9 @@ pub struct Image {
     /// The ranges of the image that the objects of static libraries fill, from the same PDB, in
     /// address order.
     pub libraries: Vec<crate::pdb::LibraryRange>,
+    /// The variables the PDB beside the image names, in address order, one per address; empty
+    /// without one.
+    pub data_symbols: Vec<crate::pdb::DataSymbol>,
     /// What the XBE header holds beyond the PE's, when the image is one.
     pub xbe: Option<Xbe>,
     /// The ELF file the image was mapped from, when it is one: its interpreter, its libraries and
@@ -146,6 +149,7 @@ impl Image {
             resources: Vec::new(),
             symbols: Vec::new(),
             libraries: Vec::new(),
+            data_symbols: Vec::new(),
             xbe,
             elf,
             macho,

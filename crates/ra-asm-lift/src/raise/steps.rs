@@ -196,7 +196,7 @@ fn stack(f: &Function, cx: &Context<'_>) -> Option<StackInfo> {
     let pops = |inst: &Inst| -> Option<Vec<CalleeStack>> {
         let Inst::Call { callee: Callee::Direct(name), .. } = inst else { return None };
         let s = cx.signatures.get(name)?;
-        Some(vec![CalleeStack { pops: Some(s.pops as i64), arguments: s.stack_bytes(target) }])
+        Some(vec![CalleeStack { pops: Some(s.pops as i64), arguments: s.stack_bytes(target), forwards: s.forwards }])
     };
     Some(super::stack::analyze(f, state, &slot_pointers(f, state), target, &pops))
 }

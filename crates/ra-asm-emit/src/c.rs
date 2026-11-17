@@ -1180,7 +1180,18 @@ fn written_at_startup(g: &ra_asm_ir::Global) -> bool {
 }
 
 fn storage_of(g: &ra_asm_ir::Global) -> &'static str {
+    if per_thread(&g.name) {
+        return "_Thread_local ";
+    }
     if g.constant && !written_at_startup(g) { "const " } else { "" }
+}
+
+/// Whether the global is the lift's machine state of one thread: the x87 unit, the SSE control
+/// word, what the last call through a pointer popped and the stack words it passed. A callback the
+/// host makes on a thread of its own (an audio mixer's) runs the program's code there.
+fn per_thread(name: &str) -> bool {
+    use ra_asm_lift::state::{ARGS, MXCSR, POPS, X87_CW, X87_STACK, X87_SW, X87_TMP, X87_TOP};
+    [X87_STACK, X87_TOP, X87_CW, X87_SW, X87_TMP, MXCSR, POPS, ARGS].contains(&name)
 }
 
 /// The `extern` declaration of a data global, for the files that do not define it.
@@ -2999,11 +3010,24 @@ impl<'a> Emitter<'a> {
             },
             Operand::Global(name) => format!("((uint8_t *)&{name})"),
             Operand::Address { global, offset } => {
-                let pointer = if *offset == 0 { format!("(uint8_t *)&{global}") } else { format!("((uint8_t *)&{global} + {offset})") };
+                // A read-only section's string by its literal, another field of a laid-out section
+                // by its name, the bytes else.
+                let layout = self.layouts.get(global);
+                let at = u64::try_from(*offset).ok();
+                let literal = layout.zip(at).and_then(|(l, at)| l.literal_at(at));
+                let field = layout.zip(at).and_then(|(l, at)| l.field_starting(at)).map(crate::layout::Field::name);
+                // The address itself, and whether it needs a byte pointer's type.
+                let (address, typed) = match (literal, field) {
+                    (Some(literal), _) => (literal, false),
+                    (None, Some(field)) => (format!("&{global}.{field}"), false),
+                    _ if *offset == 0 => (format!("(uint8_t *)&{global}"), true),
+                    _ => (format!("((uint8_t *)&{global} + {offset})"), true),
+                };
                 match ty {
-                    Type::Ptr => pointer,
+                    Type::Ptr if typed => address,
+                    Type::Ptr => format!("(uint8_t *){address}"),
                     // Through uintptr_t: a 32-bit program's address is the low half of the host's.
-                    other => format!("({})(uintptr_t){pointer}", c_type(other)),
+                    other => format!("({})(uintptr_t){address}", c_type(other)),
                 }
             }
             Operand::Null => "(uint8_t *)0".into(),

@@ -161,7 +161,7 @@ pub fn discharge<'a>(
     let pops = |inst: &Inst| -> Option<Vec<CalleeStack>> {
         let Inst::Call { callee: Callee::Direct(name), .. } = inst else { return None };
         let s = signatures.get(name)?;
-        Some(vec![CalleeStack { pops: Some(s.pops as i64), arguments: s.stack_bytes(target) }])
+        Some(vec![CalleeStack { pops: Some(s.pops as i64), arguments: s.stack_bytes(target), forwards: s.forwards }])
     };
     // Whether each function keeps every callee-saved register: by its own code first.
     let mut keeps: HashMap<&str, bool> = HashMap::new();

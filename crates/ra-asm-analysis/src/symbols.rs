@@ -76,7 +76,7 @@ pub fn classify(image: &Image, runtime: &RuntimeRanges, f: &mut Function) {
         // is known by ([`ra_asm_lift`'s `x86_shim`]).
         Ok(i) if image.is_64() && image.symbols[i].name.starts_with('?') => image.symbols[i].name.clone(),
         Ok(i) => {
-            let plain = undecorate(&image.symbols[i].name, image.is_64());
+            let plain = source_name(&image.symbols[i], image.is_64());
             if plain.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') { plain } else { identifier(&plain) }
         }
         Err(_) => function::default_name(f.entry),
@@ -88,8 +88,8 @@ pub fn classify(image: &Image, runtime: &RuntimeRanges, f: &mut Function) {
 }
 
 /// The helpers of the 32-bit C runtime that a port keeps as the program's own code even when a
-/// runtime library supplies them: the 64-bit arithmetic (`_alldiv`), the x87 conversions
-/// (`_ftol2`) and the `_CI*` intrinsics that take their operands in the x87 stack, the stack
+/// runtime library supplies them: the 64-bit arithmetic (`_alldiv`), the conversions between
+/// floating point and integers (`_ftol2`, and `_ftol3` and its kin of the newer compilers) and the `_CI*` intrinsics that take their operands in the x87 stack, the stack
 /// probe, and the security cookie's check, which compares against the program's own cookie. The
 /// host has no function of the same shape, and their code lifts exactly.
 pub fn is_ported_helper(name: &str) -> bool {
@@ -110,6 +110,18 @@ pub fn is_ported_helper(name: &str) -> bool {
             | "_ftol2_sse"
             | "_ftol2_sse_excpt"
             | "_ftoul2_legacy"
+            | "_ftol3"
+            | "_ftoui3"
+            | "_ftoul3"
+            | "_ftoul3_legacy"
+            | "_dtol3"
+            | "_dtoui3"
+            | "_dtoul3"
+            | "_dtoul3_legacy"
+            | "_ltof3"
+            | "_ultof3"
+            | "_ltod3"
+            | "_ultod3"
             | "_chkstk"
             | "_alloca_probe"
             | "_alloca_probe_8"
@@ -165,27 +177,43 @@ pub fn port_import_library(image: &Image, functions: &mut BTreeMap<u64, Function
 }
 
 /// Names every function the symbols (the PDB, else the link map) name, and keeps each one's symbol
-/// as the build has it. An export keeps its export name; the placeholders (`F_<address>`, `entry`,
-/// `thunk_<import>`) give way.
+/// as the build has it. An export keeps its export name; the placeholders (`F_<address>`, `entry`)
+/// give way. An import thunk keeps `thunk_<import>`: the PDB names the linker's `jmp [slot]` after
+/// the import, which is the name the port calls the import by.
 pub fn name_functions(image: &Image, functions: &mut BTreeMap<u64, Function>) {
     for symbol in &image.symbols {
         let Some(f) = functions.get_mut(&symbol.va) else { continue };
         f.symbol = Some(symbol.name.clone());
         f.object = symbol.object.as_ref().map(|o| symbol.library.as_ref().map_or_else(|| o.clone(), |l| format!("{l}:{o}")));
-        if f.name == function::name_for(image, f) && !f.origins.iter().any(|o| matches!(o, crate::Origin::Export(_))) {
-            f.name = undecorate(&symbol.name, image.is_64());
+        if !f.is_thunk() && f.name == function::name_for(image, f) && !f.origins.iter().any(|o| matches!(o, crate::Origin::Export(_))) {
+            f.name = source_name(symbol, image.is_64());
         }
     }
 }
 
-/// The function the port starts at: `main` when the image's entry is a C runtime's startup, which
-/// the host's own startup replaces, else the image's entry point.
+/// The source name of a symbol: a PDB procedure's display name as it is, a linkage name
+/// [`undecorate`]d.
+fn source_name(symbol: &ra_asm_pe::Symbol, is_64: bool) -> String {
+    if symbol.display { symbol.name.clone() } else { undecorate(&symbol.name, is_64) }
+}
+
+/// The entry of a Windows program the runtime's `WinMainCRTStartup` starts.
+pub const WIN_MAIN: &str = "WinMain";
+
+/// The C name of the program's [`WIN_MAIN`]: `windows.h` declares `WinMain` ([`is_reserved`]).
+pub const WIN_MAIN_C: &str = "WinMain_";
+
+/// The function the port starts at: `main`, else `WinMain`, when the image's entry is a C
+/// runtime's startup, which the host's own startup replaces, else the image's entry point. A dead
+/// one is not it: SDL's `SDL2main.lib` links a `main` beside its `WinMain` that nothing calls.
 pub fn program_entry(image: &Image, functions: &BTreeMap<u64, Function>) -> Option<u64> {
     let entry = image.entry_point()?;
     if !functions.get(&entry).is_some_and(|f| matches!(f.kind, Kind::Runtime(_))) {
         return Some(entry);
     }
-    functions.values().find(|f| f.name == "main" && matches!(f.kind, Kind::Normal)).map(|f| f.entry).or(Some(entry))
+    let named =
+        |name: &str| functions.values().find(|f| f.name == name && matches!(f.kind, Kind::Normal) && !f.is_dead()).map(|f| f.entry);
+    named("main").or_else(|| named(WIN_MAIN)).or(Some(entry))
 }
 
 /// Makes every name an identifier, unique in the program and free of the names the port's
@@ -285,10 +313,20 @@ fn is_identifier(name: &str) -> bool {
 /// The names a lifted function cannot take: the keywords of C, C++ and Rust, the driver's `main`,
 /// the lift's own prefixes (the import wrappers, the universal entries), the identifiers C
 /// reserves (`__*`), the functions of the host's C library, which the port links against, and
-/// the entry points of the host's C runtime, which the linker would take from the port instead.
+/// the entry points of the host's C runtime, which the linker would take from the port instead,
+/// and the ones `windows.h` declares, which the driver includes.
 pub fn is_reserved(name: &str) -> bool {
-    const HOST_RUNTIME: &[&str] =
-        &["mainCRTStartup", "wmainCRTStartup", "WinMainCRTStartup", "wWinMainCRTStartup", "_DllMainCRTStartup", "DllMainCRTStartup"];
+    const HOST_RUNTIME: &[&str] = &[
+        "mainCRTStartup",
+        "wmainCRTStartup",
+        "WinMainCRTStartup",
+        "wWinMainCRTStartup",
+        "_DllMainCRTStartup",
+        "DllMainCRTStartup",
+        "WinMain",
+        "wWinMain",
+        "DllMain",
+    ];
     const KEYWORDS: &[&str] = &[
         "auto",
         "break",
@@ -611,6 +649,15 @@ mod tests {
         assert_eq!(undecorate("??$f@H@@YAXXZ", true), "f_H_YAXXZ");
     }
 
+    /// The program's `WinMain` is defined under [`WIN_MAIN_C`], since the driver's `windows.h`
+    /// declares `WinMain` with a prototype of its own.
+    #[test]
+    fn the_programs_win_main_takes_a_name_windows_h_leaves_free() {
+        assert!(is_reserved(WIN_MAIN));
+        assert_eq!(format!("{WIN_MAIN}_"), WIN_MAIN_C);
+        assert!(!is_reserved(WIN_MAIN_C));
+    }
+
     #[test]
     fn runtime_libraries_are_known_by_name() {
         assert!(is_runtime_library("libucrt.lib"));
@@ -622,7 +669,7 @@ mod tests {
 
     #[test]
     fn the_x86_helpers_stay_the_programs() {
-        for name in ["_alldiv", "_aulldvrm", "_ftol2", "_CIpow", "_alloca_probe_16", "__security_check_cookie"] {
+        for name in ["_alldiv", "_aulldvrm", "_ftol2", "_ftol3", "_ultod3", "_CIpow", "_alloca_probe_16", "__security_check_cookie"] {
             assert!(is_ported_helper(name), "{name}");
         }
         for name in ["printf", "malloc", "_mainCRTStartup", "_tmainCRTStartup", "__security_init_cookie"] {

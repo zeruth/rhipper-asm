@@ -46,24 +46,98 @@ const HEADERS: &[&str] = &[
 /// The 32-bit and the 64-bit target, in the table's order.
 const TARGETS: [&str; 2] = ["i686-pc-windows-msvc", "x86_64-pc-windows-msvc"];
 
+/// A library whose layouts a table holds: its headers, where they are, which of its functions the
+/// table covers, and the module the table is written to.
+struct Library {
+    /// The text that includes the headers, with what they want defined first.
+    includes: String,
+    /// The directories the headers are found in beside the SDK's.
+    dirs: Vec<PathBuf>,
+    /// The functions of the preprocessed headers the table covers.
+    functions: fn(&[&str]) -> BTreeSet<String>,
+    /// The fewest functions and structures a complete reading of the headers finds.
+    least: (usize, usize),
+    /// The module's file, from the repository's root.
+    file: &'static str,
+    /// The first lines of the module's documentation: what the table is of.
+    of: &'static str,
+    /// The ignored test that writes the module.
+    by: &'static str,
+    /// Whether the module also holds the kinds of the functions' results and parameters, for a
+    /// library the Windows API's prototype table does not cover.
+    kinds: bool,
+}
+
 #[test]
 #[ignore = "a maintenance aid: regenerates the win32 layouts from the SDK headers with clang-cl"]
 fn regenerate_win32_layouts() {
-    let dir = ra_asm_testing::Scratch::new("ra-asm-protos-tests", "win32-layouts");
     let mut includes = String::from("#define _WIN32_WINNT 0x0A00\n#define NTDDI_VERSION 0x0A000000\n");
     for header in HEADERS {
         let _ = writeln!(includes, "#include <{header}>");
     }
+    regenerate(&Library {
+        includes,
+        dirs: Vec::new(),
+        functions: |tokens| stdcall_functions(tokens).into_iter().filter(|name| ra_asm_protos::win32_kinds(name).is_some()).collect(),
+        least: (1000, 100),
+        file: TABLE_FILE,
+        of: "the Windows API's prototypes point to, from the SDK headers",
+        by: "regenerate_win32_layouts` in `tests/win32_layouts.rs",
+        kinds: false,
+    });
+}
+
+/// The file of the `sdl2_layouts` module, from the repository's root.
+const SDL2_FILE: &str = "crates/ra-asm-protos/src/sdl2_layouts.rs";
+
+/// The include directory of SDL2 and its mixer and network libraries: `RA_SDL2_INCLUDE`, else
+/// vcpkg's under `RA_VCPKG_ROOT` (`D:/rhipper/vcpkg` without it). SDL's headers are one for every
+/// target.
+fn sdl2_include() -> PathBuf {
+    if let Some(dir) = std::env::var_os("RA_SDL2_INCLUDE") {
+        return PathBuf::from(dir);
+    }
+    let vcpkg = std::env::var_os("RA_VCPKG_ROOT").map_or_else(|| PathBuf::from("D:/rhipper/vcpkg"), PathBuf::from);
+    vcpkg.join("installed/x86-windows/include")
+}
+
+#[test]
+#[ignore = "a maintenance aid: regenerates the SDL2 layouts from SDL2's headers with clang-cl"]
+fn regenerate_sdl2_layouts() {
+    let include = sdl2_include();
+    regenerate(&Library {
+        includes: "#include <SDL2/SDL.h>\n#include <SDL2/SDL_mixer.h>\n#include <SDL2/SDL_net.h>\n".to_owned(),
+        dirs: vec![include.clone(), include.join("SDL2")],
+        functions: |tokens| {
+            cdecl_functions(tokens).into_iter().filter(|name| ["SDL_", "Mix_", "SDLNet_"].iter().any(|p| name.starts_with(p))).collect()
+        },
+        least: (500, 10),
+        file: SDL2_FILE,
+        of: "SDL2's, SDL2_mixer's and SDL2_net's prototypes point to, from their headers",
+        by: "regenerate_sdl2_layouts` in `tests/win32_layouts.rs",
+        kinds: true,
+    });
+}
+
+/// Writes the layouts of `library`'s structures to its module.
+fn regenerate(library: &Library) {
+    let stem = Path::new(library.file).file_stem().and_then(|s| s.to_str()).unwrap_or("layouts");
+    let dir = ra_asm_testing::Scratch::new("ra-asm-protos-tests", stem);
     let headers = dir.join("headers.c");
-    std::fs::write(&headers, &includes).unwrap();
+    std::fs::write(&headers, &library.includes).unwrap();
+    let dirs: Vec<String> = library.dirs.iter().map(|d| format!("/I{}", d.display())).collect();
+    let with_dirs = |args: &[&str]| -> Vec<String> { args.iter().map(|a| (*a).to_owned()).chain(dirs.iter().cloned()).collect() };
     // A function or a name the headers declare at one width only is not probed.
     let mut functions: Option<BTreeSet<String>> = None;
     let mut names: Option<BTreeSet<String>> = None;
+    let mut enums: BTreeSet<String> = BTreeSet::new();
     for target in TARGETS {
-        let text = clang(&[&format!("--target={target}"), "/nologo", "/E", "/W0"], &headers);
+        let target = format!("--target={target}");
+        let args = with_dirs(&[&target, "/nologo", "/E", "/W0"]);
+        let text = clang(&args.iter().map(String::as_str).collect::<Vec<_>>(), &headers);
         let tokens = tokens_of(&text);
-        let found: BTreeSet<String> =
-            stdcall_functions(&tokens).into_iter().filter(|name| ra_asm_protos::win32_kinds(name).is_some()).collect();
+        enums.extend(enum_typedefs(&tokens));
+        let found = (library.functions)(&tokens);
         functions = Some(match functions {
             Some(before) => before.intersection(&found).cloned().collect(),
             None => found,
@@ -75,8 +149,8 @@ fn regenerate_win32_layouts() {
         });
     }
     let (functions, names) = (functions.unwrap(), names.unwrap());
-    assert!(functions.len() > 1000, "{} functions read, which is too few for windows.h", functions.len());
-    let mut probe = includes;
+    assert!(functions.len() > library.least.0, "{} functions read, which is too few for {}", functions.len(), library.file);
+    let mut probe = library.includes.clone();
     probe.push_str("struct ra_functions {\n");
     for function in &functions {
         let _ = writeln!(probe, "    __typeof__({function}) *ra_{function};");
@@ -95,12 +169,17 @@ fn regenerate_win32_layouts() {
         let mut args = vec![target.as_str()];
         args.extend(flags);
         args.push(&object);
-        dumps_of(&clang(&args, &source))
+        let args = with_dirs(&args);
+        dumps_of(&clang(&args.iter().map(String::as_str).collect::<Vec<_>>(), &source))
     });
     let table = Table::of(&at32, &at64);
-    assert!(table.records.len() > 100, "{} structures laid out, which is too few for windows.h", table.records.len());
-    let path = root().join(TABLE_FILE);
-    std::fs::write(&path, table.render()).unwrap();
+    assert!(table.records.len() > library.least.1, "{} structures laid out, which is too few for {}", table.records.len(), library.file);
+    let path = root().join(library.file);
+    let mut text = table.render(library.of, library.by);
+    if library.kinds {
+        text.push_str(&render_kinds(&kinds_of(&at32, &enums)));
+    }
+    std::fs::write(&path, text).unwrap();
     eprintln!(
         "{} structures, {} names, {} functions -> {}",
         table.records.len(),
@@ -187,9 +266,19 @@ fn statements<'a>(tokens: &'a [&'a str]) -> Vec<&'a [&'a str]> {
 
 /// The `__stdcall` functions the statements declare, as the prototype table reads them.
 fn stdcall_functions(tokens: &[&str]) -> BTreeSet<String> {
+    functions_of(tokens, "__stdcall")
+}
+
+/// The `__cdecl` functions the statements declare: a library's `SDLCALL` ones.
+fn cdecl_functions(tokens: &[&str]) -> BTreeSet<String> {
+    functions_of(tokens, "__cdecl")
+}
+
+/// The functions of the `convention` the statements declare.
+fn functions_of(tokens: &[&str], convention: &str) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for statement in statements(tokens) {
-        let Some(at) = statement.iter().position(|&t| t == "__stdcall") else { continue };
+        let Some(at) = statement.iter().position(|&t| t == convention) else { continue };
         let (Some(&name), Some(&"(")) = (statement.get(at + 1), statement.get(at + 2)) else { continue };
         if is_identifier(name)
             && !statement[..at].iter().any(|&t| matches!(t, "typedef" | "static" | "inline" | "__inline" | "__forceinline"))
@@ -394,10 +483,106 @@ fn params(ty: &str) -> Option<Vec<&str>> {
     None
 }
 
+/// The names `typedef enum { ... } NAME;` gives an enumeration without a tag, which clang's
+/// canonical types keep (`SDL_bool`).
+fn enum_typedefs(tokens: &[&str]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for statement in statements(tokens) {
+        if statement.first() != Some(&"typedef") || statement.get(1) != Some(&"enum") {
+            continue;
+        }
+        let Some(open) = statement.iter().position(|&t| t == "{") else { continue };
+        let Some(close) = closing_brace(statement, open) else { continue };
+        for declarator in statement[close + 1..].split(|&t| t == ",") {
+            if let [name] = declarator
+                && is_identifier(name)
+            {
+                out.insert((*name).to_owned());
+            }
+        }
+    }
+    out
+}
+
+/// The kind letter of a canonical type at 32 bits, as the prototype tables write it: `i` an
+/// integer, an enumeration or a pointer of up to 4 bytes, `w` a 64-bit integer or an 8-byte
+/// structure by value, `d` a double, `f` a float, `v` none (a result alone); `None` for a type a
+/// table cannot say (a structure of another size by value). `enums` are the names of enumerations
+/// without a tag.
+fn kind_letter(ty: &str, dumps: &BTreeMap<String, Dump>, enums: &BTreeSet<String>) -> Option<char> {
+    let ty = ty.trim();
+    let ty = ty.strip_prefix("const ").unwrap_or(ty);
+    if ty == "void" {
+        return Some('v');
+    }
+    if ty.ends_with('*') || ty.contains("(*)") || ty.starts_with("enum ") || enums.contains(ty) {
+        return Some('i');
+    }
+    if let Some(identity) = ty.strip_prefix("struct ").or_else(|| ty.strip_prefix("union ")) {
+        return (dumps.get(identity)?.size == 8).then_some('w');
+    }
+    match ty {
+        "char" | "signed char" | "unsigned char" | "_Bool" | "short" | "unsigned short" | "int" | "unsigned int" | "long"
+        | "unsigned long" => Some('i'),
+        "long long" | "unsigned long long" => Some('w'),
+        "double" => Some('d'),
+        "float" => Some('f'),
+        _ => None,
+    }
+}
+
+/// The kinds of every probed function the reading can say all of, from the 32-bit dump: the
+/// result's letter, then each parameter's. A variadic function is left out.
+fn kinds_of(at32: &BTreeMap<String, Dump>, enums: &BTreeSet<String>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let Some(probe) = at32.get("ra_functions") else { return out };
+    for member in &probe.members {
+        let (Some(function), Some(types), Some(result)) = (member.name.strip_prefix("ra_"), params(&member.ty), result(&member.ty)) else {
+            continue;
+        };
+        if types.contains(&"...") {
+            continue;
+        }
+        let mut letters = String::new();
+        let all = std::iter::once(result).chain(types.iter().copied()).enumerate().all(|(i, ty)| match kind_letter(ty, at32, enums) {
+            Some('v') if i > 0 => false,
+            Some(c) => {
+                letters.push(c);
+                true
+            }
+            None => false,
+        });
+        if all {
+            out.insert(function.to_owned(), letters);
+        }
+    }
+    out
+}
+
+/// The `KINDS` table of a library's module, sorted by name.
+fn render_kinds(kinds: &BTreeMap<String, String>) -> String {
+    let mut out = String::from("\npub(super) static KINDS: &[(&str, &str)] = &[\n");
+    for (function, letters) in kinds {
+        let _ = writeln!(out, "    ({function:?}, {letters:?}),");
+    }
+    out.push_str("];\n");
+    out
+}
+
+/// The result's type of a canonical function pointer type: `struct SDL_Surface *` of
+/// `struct SDL_Surface *(*)(unsigned int, int)`.
+fn result(ty: &str) -> Option<&str> {
+    Some(ty[..ty.find("(*)(")?].trim())
+}
+
 /// The record a canonical type points to, through one pointer: `const struct tagMSG *` is
-/// `tagMSG`.
+/// `tagMSG`. A `void **`, where the callee writes a pointer back (`SDL_LockTexture`'s pixels), is
+/// [`ra_asm_protos::POINTER_CELL`]'s.
 fn pointee(ty: &str) -> Option<&str> {
     let ty = ty.trim();
+    if ty == "void **" {
+        return Some(ra_asm_protos::POINTER_CELL);
+    }
     let inner = ty.strip_prefix("const ").unwrap_or(ty).strip_suffix(" *")?;
     let identity = inner.strip_prefix("struct ").or_else(|| inner.strip_prefix("union "))?;
     (!identity.contains('*')).then_some(identity)
@@ -407,8 +592,12 @@ fn pointee(ty: &str) -> Option<&str> {
 /// its size, and the record of its elements; `None` for a type the reading does not know.
 fn type_of(ty: &str, bits: bool, pointer: u32, dumps: &BTreeMap<String, Dump>) -> Option<(char, u32, u32, Option<String>)> {
     let mut element = ty.trim();
-    if element.contains("(*[") {
-        return None;
+    // An array of code pointers (`SDL_AudioCVT`'s `void (*[10])(...)` filters): pointers, which
+    // the host writes and calls itself.
+    if let Some(open) = element.find("(*[") {
+        let rest = &element[open + 3..];
+        let count: u32 = rest[..rest.find(']')?].parse().ok()?;
+        return (!bits).then_some(('p', count, pointer * count, None));
     }
     let mut count = 1u32;
     while element.ends_with(']') {
@@ -527,11 +716,12 @@ impl Laid {
 }
 
 /// The generated table: the structures by their name in the table, the typedef names of each,
-/// and the parameters of each function that point to one.
+/// the parameters of each function that point to one, and the functions whose result does.
 struct Table {
     records: BTreeMap<String, Laid>,
     aliases: BTreeMap<String, String>,
     pointees: BTreeMap<String, Vec<(usize, String)>>,
+    results: BTreeMap<String, String>,
 }
 
 impl Table {
@@ -549,18 +739,23 @@ impl Table {
             if identity.contains("(unnamed") { names.get(identity)?.first().map(|n| (*n).to_owned()) } else { Some(identity.to_owned()) }
         };
         let mut calls: BTreeMap<String, Vec<(usize, &str)>> = BTreeMap::new();
+        let mut returned: BTreeMap<String, &str> = BTreeMap::new();
         for member in members("ra_functions") {
             let (Some(function), Some(types)) = (member.name.strip_prefix("ra_"), params(&member.ty)) else { continue };
             let pointed: Vec<(usize, &str)> = types.iter().enumerate().filter_map(|(i, ty)| Some((i, pointee(ty)?))).collect();
             if !pointed.is_empty() {
                 calls.insert(function.to_owned(), pointed);
             }
+            if let Some(identity) = result(&member.ty).and_then(pointee) {
+                returned.insert(function.to_owned(), identity);
+            }
         }
-        // Every record a parameter points to, and every record an array of the first holds.
+        // Every record a parameter or a result points to, and every record an array of the first
+        // holds.
         let mut laid: BTreeMap<&str, Option<Laid>> = BTreeMap::new();
-        let mut work: Vec<&str> = calls.values().flatten().map(|&(_, identity)| identity).collect();
+        let mut work: Vec<&str> = calls.values().flatten().map(|&(_, identity)| identity).chain(returned.values().copied()).collect();
         while let Some(identity) = work.pop() {
-            if laid.contains_key(identity) {
+            if laid.contains_key(identity) || identity == ra_asm_protos::POINTER_CELL {
                 continue;
             }
             let layout = Laid::of(identity, at32, at64).filter(|l| !l.is_handle(identity));
@@ -604,28 +799,50 @@ impl Table {
                 }
             }
         }
+        // A pointer cell is the protos crate's own record.
+        let name_of = |identity: &str| -> Option<String> {
+            if identity == ra_asm_protos::POINTER_CELL {
+                Some(identity.to_owned())
+            } else {
+                kept.contains(identity).then(|| key(identity)).flatten()
+            }
+        };
         let mut pointees = BTreeMap::new();
         for (function, pointed) in calls {
-            let pointed: Vec<(usize, String)> = pointed
-                .into_iter()
-                .filter(|&(_, identity)| kept.contains(identity))
-                .filter_map(|(i, identity)| Some((i, key(identity)?)))
-                .collect();
+            let pointed: Vec<(usize, String)> = pointed.into_iter().filter_map(|(i, identity)| Some((i, name_of(identity)?))).collect();
             if !pointed.is_empty() {
                 pointees.insert(function, pointed);
             }
         }
-        Table { records, aliases, pointees }
+        let results = returned
+            .into_iter()
+            .filter(|&(_, identity)| identity != ra_asm_protos::POINTER_CELL)
+            .filter_map(|(function, identity)| Some((function, name_of(identity)?)))
+            .collect();
+        Table { records, aliases, pointees, results }
     }
 
-    /// The `win32_layouts` module.
-    fn render(&self) -> String {
+    /// The table's module: the layouts of the structures `of`, written by the test `by`.
+    fn render(&self, of: &str, by: &str) -> String {
         let mut file = String::new();
-        file.push_str("//! The layouts of the structures the Windows API's prototypes point to, from the SDK headers at 32 and\n");
-        file.push_str("//! at 64 bits: every field's kind (`p` pointer, `i` signed, `u` unsigned, `f` floating, `b` bit field,\n");
-        file.push_str("//! `r` record), count, and offset and size at each width; the typedef names of the structures; and the\n");
-        file.push_str("//! parameters of each function that point to one. Generated by the ignored test\n");
-        file.push_str("//! `regenerate_win32_layouts` in `tests/win32_layouts.rs`; do not edit.\n\n");
+        let doc = format!(
+            "The layouts of the structures {of} at 32 and at 64 bits: every field's kind (`p` pointer, `i` signed, \
+             `u` unsigned, `f` floating, `b` bit field, `r` record), count, and offset and size at each width; the \
+             typedef names of the structures; and the parameters of each function that point to one. Generated by \
+             the ignored test `{by}`; do not edit."
+        );
+        let mut line = String::from("//!");
+        for word in doc.split(' ') {
+            if line.len() + 1 + word.len() > 104 {
+                file.push_str(&line);
+                file.push('\n');
+                line = String::from("//!");
+            }
+            line.push(' ');
+            line.push_str(word);
+        }
+        file.push_str(&line);
+        file.push_str("\n\n");
         file.push_str("use crate::layouts::{Record, field as f, record as r};\n\n");
         file.push_str("pub(super) static RECORDS: &[Record] = &[\n");
         for (name, layout) in &self.records {
@@ -663,6 +880,10 @@ impl Table {
         for (function, pointed) in &self.pointees {
             let list: Vec<String> = pointed.iter().map(|(i, name)| format!("({i}, {name:?})")).collect();
             let _ = writeln!(file, "    ({function:?}, &[{}]),", list.join(", "));
+        }
+        file.push_str("];\n\npub(super) static RESULTS: &[(&str, &str)] = &[\n");
+        for (function, name) in &self.results {
+            let _ = writeln!(file, "    ({function:?}, {name:?}),");
         }
         file.push_str("];\n");
         file
@@ -838,7 +1059,7 @@ fn the_probe_reads_as_a_table() {
     assert_eq!(table.aliases.iter().map(|(a, n)| (a.as_str(), n.as_str())).collect::<Vec<_>>(), [("MSG", "tagMSG"), ("POINT", "tagPOINT")]);
     assert_eq!(table.pointees["GetMessageA"], [(0, "tagMSG".to_owned())]);
     assert!(!table.pointees.contains_key("GetLastInputTick"));
-    let file = table.render();
+    let file = table.render("the probe's functions point to", "a test");
     assert!(file.contains("    r(\"tagMSG\", false, false, 28, 4, 48, 8, &[\n        f(\"hwnd\", 'p', 1, 0, 4, 0, 8, \"\"),\n"), "{file}");
     assert!(file.contains("    (\"GetCursorPos\", &[(0, \"tagPOINT\")]),\n"), "{file}");
 }

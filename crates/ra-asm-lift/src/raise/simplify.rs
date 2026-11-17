@@ -8,8 +8,75 @@ use std::collections::HashMap;
 
 use ra_asm_ir::{BinOp, Function, Inst, Operand, Type, ValueId};
 
+/// The code of the processor's divide error, `ra_trap`'s second argument (a zero divisor, or a
+/// quotient too large for its register).
+const DIVIDE_ERROR: i128 = 4;
+
+/// The branches to a divide error that the lift writes ahead of a division, for a zero divisor
+/// and for a quotient its register cannot hold: the host's division of the same width faults on
+/// the same operands, so the branch goes on to the division, as the source's `a / b` does. A
+/// 32-bit `idiv` whose dividend `cdq` sign-extended overflows for `INT_MIN / -1` alone, which the
+/// host's 64-bit division of the extended operands computes rather than faults on.
+fn drop_divide_guards(f: &mut Function) -> bool {
+    let traps: std::collections::HashSet<ra_asm_ir::BlockId> = f
+        .blocks
+        .iter()
+        .filter(|b| {
+            matches!(b.terminator, ra_asm_ir::Terminator::Unreachable)
+                && matches!(b.instrs.as_slice(), [i] if matches!(&i.inst, Inst::Call { callee: ra_asm_ir::Callee::Direct(n), args, .. }
+                    if n == "ra_trap" && matches!(args.get(1), Some((_, Operand::Int(DIVIDE_ERROR))))))
+        })
+        .map(|b| b.id)
+        .collect();
+    if traps.is_empty() {
+        return false;
+    }
+    let mut changed = false;
+    for b in &mut f.blocks {
+        if let ra_asm_ir::Terminator::CondBr { then, els, .. } = &b.terminator {
+            let next = match (traps.contains(then), traps.contains(els)) {
+                (true, false) => *els,
+                (false, true) => *then,
+                _ => continue,
+            };
+            b.terminator = ra_asm_ir::Terminator::Br(next);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// `trunc (ext a op ext b)` to the operands' width, for a division or a remainder whose operands
+/// are both extended the way the operation reads them (`sext` for the signed ones, `zext` for the
+/// unsigned ones): the same operation at the narrow width.
+fn narrow_division(inst: &Inst, defs: &HashMap<ValueId, &Inst>) -> Option<Inst> {
+    let Inst::Cast { cast: ra_asm_ir::Cast::Trunc, value: Operand::Local(q), to, .. } = inst else { return None };
+    let Some(Inst::Bin { op, lhs, rhs, .. }) = defs.get(q) else { return None };
+    let extension = match op {
+        BinOp::SDiv | BinOp::SRem => ra_asm_ir::Cast::SExt,
+        BinOp::UDiv | BinOp::URem => ra_asm_ir::Cast::ZExt,
+        _ => return None,
+    };
+    let narrow = |o: &Operand| -> Option<Operand> {
+        match o {
+            Operand::Local(v) => match defs.get(v) {
+                Some(Inst::Cast { cast, from, value, .. }) if *cast == extension && from == to => Some(value.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    };
+    let (a, b) = (narrow(lhs)?, narrow(rhs)?);
+    Some(Inst::Bin { op: *op, ty: to.clone(), lhs: a, rhs: b })
+}
+
 /// Runs once; returns whether anything changed.
 pub fn run(f: &mut Function) -> bool {
+    let guards = drop_divide_guards(f);
+    run_rest(f) || guards
+}
+
+fn run_rest(f: &mut Function) -> bool {
     let mut map: HashMap<ValueId, Operand> = HashMap::new();
     // The casts each value came through, for the chains the lift writes: a register read widens
     // on the write and narrows on the next read.
@@ -68,6 +135,13 @@ pub fn run(f: &mut Function) -> bool {
                 && [a, b].iter().any(|o| matches!(o, Operand::Int(c) if *c & width_mask(*bits) != 0))
             {
                 map.insert(result, Operand::Int(i128::from(*cond == ra_asm_ir::ICond::Ne)));
+                continue;
+            }
+            // A 32-bit division the lift widened to its double-width dividend: `trunc (sext a /s
+            // sext b)` is `a /s b`, and so for the remainder and for the unsigned pair through
+            // `zext`. Both fault where the processor's did (a zero divisor, `INT_MIN / -1`).
+            if let Some(narrow) = narrow_division(&i.inst, &defs) {
+                rewrite.insert(result, narrow);
                 continue;
             }
             // `cdq`: `(zext (x >>s 31) << 32) | zext x` is `sext x`.

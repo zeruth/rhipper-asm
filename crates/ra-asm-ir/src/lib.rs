@@ -26,5 +26,5 @@ pub mod types;
 
 pub use builder::FunctionBuilder;
 pub use inst::{AtomicOp, BinOp, Callee, Cast, FCond, ICond, Inst, Instruction, Operand, Terminator};
-pub use module::{Block, BlockId, CallConv, Const, Declaration, Function, Global, Linkage, LlLayout, Module, ValueId};
+pub use module::{Block, BlockId, CallConv, Const, Declaration, Function, Global, Linkage, LlLayout, Module, ValueId, Variable};
 pub use types::{FnType, Type};

@@ -19,7 +19,23 @@ use super::abi::{Kind, KindType, Signature};
 /// The prototype of a Windows API function from the generated table: the kind of its result
 /// (`None` for a `void` function) and of each parameter.
 pub fn win32(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
-    let kinds = ra_asm_protos::win32_kinds(name)?.as_bytes();
+    ra_asm_protos::win32_kinds(name).map(kinds_of)
+}
+
+/// The prototype of an SDL2 function (its mixer's and network library's too) from the table
+/// generated from SDL's headers: `cdecl`, so the caller pops ([`stdcall_pops`]).
+pub fn sdl2(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
+    ra_asm_protos::sdl2_kinds(name).map(kinds_of)
+}
+
+/// The prototype of a library function, the Windows API's or SDL2's.
+fn library(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
+    win32(name).or_else(|| sdl2(name))
+}
+
+/// A prototype from a table's letters: the result's, then each parameter's.
+fn kinds_of(letters: &str) -> (Option<Kind>, Vec<Kind>) {
+    let kinds = letters.as_bytes();
     let kind = |c: u8| match c {
         b'w' => Kind::Wide,
         b'd' => Kind::Double,
@@ -27,7 +43,7 @@ pub fn win32(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
         _ => Kind::Int,
     };
     let returns = (kinds[0] != b'v').then(|| kind(kinds[0]));
-    Some((returns, kinds[1..].iter().map(|&c| kind(c)).collect()))
+    (returns, kinds[1..].iter().map(|&c| kind(c)).collect())
 }
 
 /// The prototype of an import whose arguments or result are not all integers: the C runtime's
@@ -81,7 +97,9 @@ pub fn typed(name: &str) -> Option<Typed> {
     let (params, returns) = match name {
         "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh" | "exp" | "exp2"
         | "expm1" | "log" | "log2" | "log10" | "log1p" | "logb" | "sqrt" | "ra_x86_sqrt" | "cbrt" | "floor" | "ceil" | "trunc"
-        | "round" | "rint" | "nearbyint" | "fabs" | "erf" | "erfc" | "tgamma" | "lgamma" | "_j0" | "_j1" | "_y0" | "_y1" | "_chgsign" => {
+        | "round" | "rint" | "nearbyint" | "fabs" | "erf" | "erfc" | "tgamma" | "lgamma" | "_j0" | "_j1" | "_y0" | "_y1" | "_chgsign"
+        | "ra_x86_sqrt_sse2" | "ra_x86_sin_sse2" | "ra_x86_cos_sse2" | "ra_x86_tan_sse2" | "ra_x86_asin_sse2" | "ra_x86_acos_sse2"
+        | "ra_x86_atan_sse2" | "ra_x86_exp_sse2" | "ra_x86_log_sse2" | "ra_x86_log10_sse2" => {
             (vec![Double], Some(Double))
         }
         "sinf" | "cosf" | "tanf" | "asinf" | "acosf" | "atanf" | "sinhf" | "coshf" | "tanhf" | "expf" | "exp2f" | "logf" | "log2f"
@@ -122,12 +140,12 @@ pub fn typed(name: &str) -> Option<Typed> {
         // The stdio adapters: the options word is 64 bits, two x86 slots.
         "ra_x86_vsprintf" | "ra_x86_vsprintf_s" | "ra_x86_vsscanf" => (vec![Wide, Int, Int, Int, Int, Int], Some(Int)),
         "ra_x86_vsnprintf_s" => (vec![Wide, Int, Int, Int, Int, Int, Int], Some(Int)),
-        "ra_x86_vfprintf" => (vec![Wide, Int, Int, Int, Int], Some(Int)),
-        // A Windows API function whose arguments or result are not all integers of the address
-        // width: the generated table knows which. One that takes integers only needs no type,
-        // only its arity.
+        "ra_x86_vfprintf" | "ra_x86_vfscanf" => (vec![Wide, Int, Int, Int, Int], Some(Int)),
+        // A Windows API or SDL2 function whose arguments or result are not all integers of the
+        // address width: the generated tables know which. One that takes integers only needs no
+        // type, only its arity.
         _ => {
-            let (returns, params) = win32(name)?;
+            let (returns, params) = library(name)?;
             let wide = |k: &Kind| !matches!(k, Int);
             if !params.iter().any(wide) && !returns.as_ref().is_some_and(wide) {
                 return None;
@@ -147,6 +165,10 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
     }
     if ra_asm_pe::xbe::is_kernel_dll(dll) {
         return ra_asm_pe::xbe::kernel_export_named(name).and_then(|e| e.stack_bytes());
+    }
+    // SDL's functions are `cdecl`.
+    if win32(name).is_none() && sdl2(name).is_some() {
+        return Some(0);
     }
     if let Some(proto) = typed(name) {
         return Some(proto.stack_bytes_x86() as u64);
@@ -222,6 +244,8 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         // dword: the decode of what is left is no pointer. The runtime's encoding keeps 32.
         "EncodePointer" | "EncodeSystemPointer" => "ra_x86_encode_pointer",
         "DecodePointer" | "DecodeSystemPointer" => "ra_x86_decode_pointer",
+        // shell32 hands back a table of 8-byte pointers to the arguments; the program reads dwords
+        "CommandLineToArgvW" => "ra_x86_command_line_to_argv_w",
         "_controlfp" | "_control87" => "ra_x86_controlfp",
         "_controlfp_s" => "ra_x86_controlfp_s",
         "_clearfp" => "ra_x86_clearfp",
@@ -231,14 +255,24 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "feclearexcept" => "ra_x86_feclearexcept",
         // The x86 C runtime's square root is the x87's, rounded to the precision control.
         "sqrt" => "ra_x86_sqrt",
-        // The x86 C runtime's SSE2 power, which the 64-bit one does not export: the host's `pow`,
-        // under a name of its own since `pow` may be an import of the stack convention too.
+        // The x86 C runtime's SSE2 math, which the 64-bit one does not export: the host's, under a
+        // name of its own since `pow` and the rest may be imports of the stack convention too.
         "_libm_sse2_pow_precise" => "ra_x86_pow_sse2",
+        "_libm_sse2_sqrt_precise" => "ra_x86_sqrt_sse2",
+        "_libm_sse2_sin_precise" => "ra_x86_sin_sse2",
+        "_libm_sse2_cos_precise" => "ra_x86_cos_sse2",
+        "_libm_sse2_tan_precise" => "ra_x86_tan_sse2",
+        "_libm_sse2_asin_precise" => "ra_x86_asin_sse2",
+        "_libm_sse2_acos_precise" => "ra_x86_acos_sse2",
+        "_libm_sse2_atan_precise" => "ra_x86_atan_sse2",
+        "_libm_sse2_exp_precise" => "ra_x86_exp_sse2",
+        "_libm_sse2_log_precise" => "ra_x86_log_sse2",
+        "_libm_sse2_log10_precise" => "ra_x86_log10_sse2",
         "_setjmp3" | "_setjmp" => "ra_x86_setjmp3",
         "longjmp" | "_longjmpex" => "ra_x86_longjmp",
         // The fail-fast reports of the /GS checks take no argument on x86, and the host has its
         // own once in the DLL and once in the static library: the runtime's end the program.
-        "__report_gsfailure" => "ra_x86_report_gsfailure",
+        "__report_gsfailure" | "__raise_securityfailure" => "ra_x86_report_gsfailure",
         "__report_rangecheckfailure" => "ra_x86_report_rangecheckfailure",
         // The printf and scanf family hand the program's dword arguments on as a va_list, which
         // the host reads in 8-byte slots: the adapter widens them by the format.
@@ -247,6 +281,7 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "__stdio_common_vsnprintf_s" => "ra_x86_vsnprintf_s",
         "__stdio_common_vfprintf" => "ra_x86_vfprintf",
         "__stdio_common_vsscanf" => "ra_x86_vsscanf",
+        "__stdio_common_vfscanf" => "ra_x86_vfscanf",
         // The strto* family writes a `char *` of eight bytes where the program expects four.
         "strtol" => "ra_x86_strtol",
         "strtoul" => "ra_x86_strtoul",
@@ -352,10 +387,11 @@ pub fn is_xbox_fastcall(dll: &str, name: &str) -> bool {
 }
 
 /// Whether `name` is an SSE2 math function of the x86 C runtime (`_libm_sse2_pow_precise`, or
-/// the runtime's version of it): a `cdecl` function that takes its doubles in `xmm0` and `xmm1`
-/// and returns in `xmm0`, with nothing on the stack. The import wrapper reads them there.
+/// the runtime's version of it, `ra_x86_pow_sse2`): a `cdecl` function that takes its doubles in
+/// `xmm0` and `xmm1` and returns in `xmm0`, with nothing on the stack. The import wrapper reads
+/// them there.
 pub fn is_x86_sse2_math(name: &str) -> bool {
-    matches!(name, "_libm_sse2_pow_precise" | "ra_x86_pow_sse2")
+    (name.starts_with("_libm_sse2_") && name.ends_with("_precise")) || (name.starts_with("ra_x86_") && name.ends_with("_sse2"))
 }
 
 /// Whether `dll` is a C runtime, whose functions are `cdecl`.
@@ -756,7 +792,8 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_interlocked_push_entry_slist"
         | "__std_type_info_name"
         | "ra_x86_std_type_info_name"
-        | "ra_x86_initialize_critical_section_and_spin_count" => 2,
+        | "ra_x86_initialize_critical_section_and_spin_count"
+        | "ra_x86_command_line_to_argv_w" => 2,
 
         "VirtualFree"
         | "VirtualQuery"
@@ -878,7 +915,7 @@ pub fn arity(name: &str) -> Option<usize> {
         "CreateFileA" | "CreateFileW" | "FormatMessageA" | "FormatMessageW" | "ra_x86_create_timer_queue_timer" => 7,
         "WideCharToMultiByte" | "RtlVirtualUnwind" => 8,
         "CreateWindowExA" | "CreateWindowExW" => 12,
-        _ => return win32(name).map(|(_, params)| params.len()).or_else(|| ra_asm_pe::xbe::kernel_export_named(name)?.arity()),
+        _ => return library(name).map(|(_, params)| params.len()).or_else(|| ra_asm_pe::xbe::kernel_export_named(name)?.arity()),
     })
 }
 
@@ -1067,5 +1104,28 @@ mod tests {
             assert_eq!(x86_shim(import), Some(shim), "{import}");
             assert_eq!(arity(shim), Some(1), "{shim}");
         }
+    }
+
+    /// SDL's functions take what its headers say, and pop nothing: with the universal eight
+    /// arguments for `SDL_GetTicks`, chocolate-doom's `I_GetTimeMS` took its caller's stack words
+    /// as parameters, and every function above it did.
+    #[test]
+    fn sdl_functions_take_what_their_headers_say() {
+        assert_eq!(arity("SDL_GetTicks"), Some(0));
+        assert_eq!(arity("SDL_Delay"), Some(1));
+        assert_eq!(arity("SDL_CreateRGBSurface"), Some(8));
+        assert_eq!(stdcall_pops("SDL2.dll", "SDL_CreateRGBSurface"), Some(0));
+        assert_eq!(stdcall_pops("SDL2_mixer.dll", "Mix_PlayChannelTimed"), Some(0));
+        assert!(typed("SDL_SetWindowOpacity").is_some_and(|t| t.params == [Kind::Int, Kind::Float]));
+        assert_eq!(arity("SDL_Log"), None, "a variadic function is in the table");
+    }
+
+    /// A 32-bit program's `CommandLineToArgvW` is the runtime's, whose table holds dword
+    /// pointers: SDL's `main_getcmdline` read the high half of shell32's first pointer as its
+    /// second argument, and `SDL_wcslen` read address 0.
+    #[test]
+    fn a_32_bit_programs_argument_table_is_the_runtimes() {
+        assert_eq!(x86_shim("CommandLineToArgvW"), Some("ra_x86_command_line_to_argv_w"));
+        assert_eq!(arity("ra_x86_command_line_to_argv_w"), Some(2));
     }
 }

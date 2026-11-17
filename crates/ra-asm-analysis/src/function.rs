@@ -91,6 +91,9 @@ pub enum Terminator {
         load_at: u64,
         cases: Vec<(u64, u64)>,
         bound: Option<u64>,
+        /// The byte or word table of a two-level table, by address and length in bytes
+        /// ([`crate::jumptable::Table::case_table`]).
+        case_table: Option<(u64, u64)>,
     },
     /// An indirect jump the analysis could not resolve.
     IndirectJump,

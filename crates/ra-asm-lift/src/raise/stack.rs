@@ -54,6 +54,10 @@ pub struct StackInfo {
     pub call_offsets: HashMap<(usize, usize), i64>,
     /// The bytes the function pops on return beyond the return address: the `N` of `ret N`.
     pub pops: i64,
+    /// Some of `argument_reads` are the universal call's words a jump through an unresolved
+    /// pointer hands on, not reads the function's own code makes: how many its callers pass is
+    /// theirs to say.
+    pub forwards: bool,
     /// What the analysis relied on without seeing it hold, in the order of the function's code.
     /// That pushes and pops balance, where they do not visibly: at a block the paths reach with
     /// the stack at different depths, after which the analysis no longer knows the depth, and at
@@ -79,6 +83,10 @@ pub struct CalleeStack {
     pub pops: Option<i64>,
     /// The bytes of stack arguments it reads, from the first stack argument up.
     pub arguments: i64,
+    /// Its arguments are the universal words it hands on through a pointer ([`StackInfo::forwards`]):
+    /// a caller's call passes what the caller pushed, and only a jump to it with the caller's own
+    /// arguments as they came hands on the caller's.
+    pub forwards: bool,
 }
 
 /// Analyzes `f`, whose state pointer is `state`. `call_pops` is what the lifted callee of a call
@@ -358,7 +366,11 @@ pub fn analyze(
                                             // The arguments in the function's own argument area,
                                             // above its return address.
                                             if let Some(k) = regs[sp] {
-                                                let bytes = possible.iter().map(|c| c.arguments).max().unwrap_or(0);
+                                                let bytes =
+                                                    possible.iter().filter(|c| !c.forwards || k >= 0).map(|c| c.arguments).max().unwrap_or(0);
+                                                if k >= 0 && possible.iter().any(|c| c.forwards) {
+                                                    info.forwards = true;
+                                                }
                                                 for at in ((k + first).max(first)..k + first + bytes).step_by(ptr as usize) {
                                                     touch(&mut info, at, (ptr * 8) as u16);
                                                     let e = info.argument_reads.entry(at).or_insert(0);
@@ -370,7 +382,25 @@ pub fn analyze(
                                                 None => unknown,
                                             }
                                         }
-                                        None => unknown,
+                                        None => {
+                                            // A jump through a pointer no one resolves (`jmp
+                                            // [ecx + 8]` through a structure of functions) with
+                                            // the stack as the function was entered: the callee
+                                            // takes the universal call's stack words from the
+                                            // function's own argument area.
+                                            if !target.is_64()
+                                                && let Some(k) = regs[sp].filter(|&k| k >= 0)
+                                            {
+                                                let words = super::stubs::UNIVERSAL_DWORDS as i64;
+                                                info.forwards = true;
+                                                for at in (k + first..k + first + words * ptr).step_by(ptr as usize) {
+                                                    touch(&mut info, at, (ptr * 8) as u16);
+                                                    let e = info.argument_reads.entry(at).or_insert(0);
+                                                    *e = (*e).max((ptr * 8) as u16);
+                                                }
+                                            }
+                                            unknown
+                                        }
                                     };
                                     match pops {
                                         Some(pops) => regs[sp] = regs[sp].map(|k| k + pushed + pops),

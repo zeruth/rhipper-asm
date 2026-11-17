@@ -391,6 +391,18 @@ pub struct Module {
     /// Functions the lift froze ([`crate::freeze`]) for a pass to thaw one at a time: the raise
     /// takes them back into `functions`, in their order and before the others.
     pub frozen: Vec<crate::freeze::Frozen>,
+    /// The variables the build's symbols name inside the data globals, in address order: a
+    /// backend calls a global's bytes there by the variable's name.
+    pub variables: Vec<Variable>,
+}
+
+/// A variable of the program inside a data global: `size` bytes at `offset` into `global`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Variable {
+    pub global: String,
+    pub offset: u64,
+    pub size: u64,
+    pub name: String,
 }
 
 impl Module {

@@ -23,12 +23,17 @@
 
 pub mod kind;
 mod layouts;
+#[rustfmt::skip]
+mod sdl2_layouts;
 mod win32;
 #[rustfmt::skip]
 mod win32_layouts;
 mod win32_names;
 
-pub use layouts::{Field, Kind, Place, Record, layout, pointees, records};
+pub use layouts::{
+    Field, Kind, POINTER_CELL, Place, Record, frees_object, is_kept, is_object, layout, object_field, pointees, records, result,
+    sdl2_records,
+};
 
 /// The Windows API functions whose parameters or result take a named constant: the enumeration
 /// of the result (empty for none), then of each parameter in order (empty for none; a parameter
@@ -131,6 +136,15 @@ pub fn win32_kinds(name: &str) -> Option<&'static str> {
     Some(win32::TABLE[i].1)
 }
 
+/// The kinds of an SDL2, SDL2_mixer or SDL2_net function, as [`win32_kinds`] writes them: the
+/// `cdecl` functions of SDL's headers (`SDLCALL`), generated with their layouts into
+/// `sdl2_layouts`. A variadic function, and one that takes or returns a structure by value that
+/// is not 8 bytes, is not in the table.
+pub fn sdl2_kinds(name: &str) -> Option<&'static str> {
+    let i = sdl2_layouts::KINDS.binary_search_by_key(&name, |(n, _)| n).ok()?;
+    Some(sdl2_layouts::KINDS[i].1)
+}
+
 /// The fields of `record` a converter crosses the widths by, in order: a field the 32-bit layout
 /// does not have (`MEMORY_BASIC_INFORMATION`'s `PartitionId`) is left out, the host's being zero
 /// and the program having none to read back; and the members of a union are crossed by those that
@@ -231,6 +245,41 @@ const CALLBACKS: &[(&str, &str, Callback)] = &[("tagWNDCLASSA", "lpfnWndProc", W
 /// `None` for a field the host does not call.
 pub fn callback(record: &str, field: &str) -> Option<&'static Callback> {
     CALLBACKS.iter().find(|(r, f, _)| *r == record && *f == field).map(|(.., c)| c)
+}
+
+/// SDL_mixer's music hook, `void (*)(void *udata, Uint8 *stream, int len)`, which the mixer
+/// calls on its audio thread for each buffer: chocolate-doom's OPL music fills it.
+const MIX_MUSIC_HOOK: Callback =
+    Callback { name: "Mix_MusicHook", result: (Kind::Signed, 4), params: &[(Kind::Pointer, 4, 8), (Kind::Pointer, 4, 8), (Kind::Signed, 4, 4)] };
+
+/// `Mix_EffectFunc_t`, `void (*)(int chan, void *stream, int len, void *udata)`.
+const MIX_EFFECT: Callback = Callback {
+    name: "Mix_EffectFunc_t",
+    result: (Kind::Signed, 4),
+    params: &[(Kind::Signed, 4, 4), (Kind::Pointer, 4, 8), (Kind::Signed, 4, 4), (Kind::Pointer, 4, 8)],
+};
+
+/// `Mix_EffectDone_t`, `void (*)(int chan, void *udata)`.
+const MIX_EFFECT_DONE: Callback =
+    Callback { name: "Mix_EffectDone_t", result: (Kind::Signed, 4), params: &[(Kind::Signed, 4, 4), (Kind::Pointer, 4, 8)] };
+
+/// `SDL_ThreadFunction`, `int (*)(void *data)`, which a thread SDL starts runs.
+const SDL_THREAD_FUNCTION: Callback =
+    Callback { name: "SDL_ThreadFunction", result: (Kind::Signed, 4), params: &[(Kind::Pointer, 4, 8)] };
+
+/// The parameters of the libraries' functions that hand the host a code pointer it calls back
+/// after the call, by the function and the parameter's index.
+const PARAMETER_CALLBACKS: &[(&str, usize, Callback)] = &[
+    ("Mix_HookMusic", 0, MIX_MUSIC_HOOK),
+    ("Mix_RegisterEffect", 1, MIX_EFFECT),
+    ("Mix_RegisterEffect", 2, MIX_EFFECT_DONE),
+    ("SDL_CreateThread", 0, SDL_THREAD_FUNCTION),
+];
+
+/// The parameters of `function` that hand the host a code pointer it calls back: the index and
+/// the callback, in order; empty for a function with none.
+pub fn parameter_callbacks(function: &str) -> Vec<(usize, &'static Callback)> {
+    PARAMETER_CALLBACKS.iter().filter(|(f, ..)| *f == function).map(|(_, p, c)| (*p, c)).collect()
 }
 
 /// The fields that hold their own structure's size, which the host checks against its layout's.

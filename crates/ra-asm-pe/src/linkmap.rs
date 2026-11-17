@@ -65,6 +65,7 @@ fn parse(image: &Image, text: &str) -> Result<Vec<Symbol>> {
         symbols.push(Symbol {
             va,
             name: symbol.to_owned(),
+            display: false,
             library: library.map(|l| format!("{}.lib", l.to_ascii_lowercase())),
             object: object.then(|| file.to_owned()),
         });

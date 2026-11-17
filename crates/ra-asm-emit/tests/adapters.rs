@@ -97,7 +97,7 @@ fn union_and_callback_adapters() {
     assert_has(text, "// RegisterClassA: tagWNDCLASSA (parameter 0) widened for the host.\n");
     assert_has(text, "// GetClassInfoA: tagWNDCLASSA (parameter 2) widened for the host and narrowed back.\n");
 
-    syntax_check(text);
+    syntax_check("sys-and-win", text);
 }
 
 /// What a 32-bit program reads back from the host: `SYSTEM_INFO` as `WoW64` shows an x86 process,
@@ -120,12 +120,12 @@ fn the_program_sees_an_x86_view() {
 }
 
 /// The wrappers parse as C and as C++ against the runtime's header, when clang is on the PATH.
-fn syntax_check(text: &str) {
+fn syntax_check(name: &str, text: &str) {
     let Some(clang) = std::env::var_os("PATH").and_then(|path| ra_asm_testing::tools::find_in("clang", &path)) else {
         eprintln!("union_and_callback_adapters: clang is not on the PATH, the wrappers' C is not parsed");
         return;
     };
-    let dir = ra_asm_testing::Scratch::new("emit-adapters", "sys-and-win");
+    let dir = ra_asm_testing::Scratch::new("emit-adapters", name);
     let file = dir.join(ADAPTERS_FILE);
     std::fs::write(&file, text).unwrap();
     let runtime = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
@@ -138,4 +138,45 @@ fn syntax_check(text: &str) {
             .unwrap_or_else(|e| panic!("{}: {e}", clang.display()));
         assert!(output.status.success(), "{language}: {}\n{text}", String::from_utf8_lossy(&output.stderr));
     }
+}
+
+/// The SDL calls of chocolate-doom: a surface the host makes is handed to the program as a copy
+/// laid out for 4-byte pointers, its format and the format's palette as copies of their own, and
+/// handed back to the host as the host's; a renderer's information and a display mode convert
+/// around the call; a texture's pixels come back through a pointer of the program's width.
+#[test]
+fn sdl_surfaces_cross_as_objects() {
+    let imports = [
+        ("SDL_CreateRGBSurface", 8),
+        ("SDL_FillRect", 3),
+        ("SDL_FreeSurface", 1),
+        ("SDL_GetRendererInfo", 2),
+        ("SDL_GetCurrentDisplayMode", 2),
+        ("SDL_LockTexture", 4),
+    ];
+    let unit = imports_unit(&imports);
+    let text = &unit.adapters;
+    for (import, _) in imports {
+        assert_has(&unit.externs, &format!("#define {import} ra_adapt_{import}\n"));
+    }
+    assert!(!text.contains("does not convert"), "every structure converts:\n{text}");
+    // The surface's copy reads its format through the format's own copy, and that its palette.
+    assert_has(text, "// SDL_Surface: 60 bytes in the program's copy, 96 in the host's.\n");
+    assert_has(text, "    ra_put(guest + 4, 4, ra_object_to_guest_SDL_PixelFormat(ra_get(host + 8, 8))); // format\n");
+    assert_has(text, "    ra_put(guest + 4, 4, ra_object_to_guest_SDL_Palette(ra_get(host + 8, 8))); // palette\n");
+    assert_has(text, "    ra_narrow(guest + 20, host + 32, 4, 8, 0, \"the host's SDL_Surface.pixels does not fit in 4 bytes\");\n");
+    // Made by the host: the result is the program's copy.
+    assert_has(text, "    result = (uint64_t)ra_object_to_guest_SDL_Surface((uint64_t)(uintptr_t)result);\n");
+    // Handed back: the host's own, and the copy read again after; but not after the surface is freed.
+    assert_has(text, "    uint64_t result = SDL_FillRect((uint64_t)ra_object_to_host_SDL_Surface((uint64_t)a0), a1, a2);\n");
+    assert_has(text, "    ra_object_refresh_SDL_Surface((uint64_t)a0);\n");
+    let free = &text[text.find("ra_adapt_SDL_FreeSurface(").unwrap()..];
+    let free = &free[..free.find("\n}\n").unwrap()];
+    assert!(!free.contains("refresh"), "the freed surface is read again:\n{free}");
+    // Converted around the call: the renderer's name and the mode's driver data are pointers.
+    assert_has(text, "// SDL_RendererInfo: 84 bytes at 32 bits, 88 at 64.\n");
+    assert_has(text, "    ra_widen(host + 0, guest + 0, 4, 8, 2); // name\n");
+    assert_has(text, "// SDL_DisplayMode: 20 bytes at 32 bits, 24 at 64.\n");
+    assert_has(text, "    if (guest2) ra_to_guest_ra_pointer(guest2, host2);\n");
+    syntax_check("sdl", text);
 }

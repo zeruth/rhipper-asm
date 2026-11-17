@@ -216,7 +216,7 @@ fn symbols(macho: &MachOFile) -> Vec<Symbol> {
             let section = macho.sections.get(usize::from(s.section) - 1);
             section.is_some_and(|section| section.has_instructions() && section.contains(s.value))
         })
-        .map(|s| Symbol { va: s.value, name: source_name(&s.name), library: None, object: None })
+        .map(|s| Symbol { va: s.value, name: source_name(&s.name), display: false, library: None, object: None })
         .collect();
     symbols.sort_by_key(|s| s.va);
     symbols.dedup_by_key(|s| s.va);

@@ -600,3 +600,19 @@ pub(crate) fn symbols(image: &Image, json: bool) -> Result<()> {
     print_warnings(image);
     Ok(())
 }
+
+pub(crate) fn data_symbols(image: &Image, json: bool) -> Result<()> {
+    if json {
+        let rows: Vec<_> = image.data_symbols.iter().map(|d| json!({"va": hex(d.va), "name": d.name, "size": d.size})).collect();
+        return print_json(&rows);
+    }
+    for d in &image.data_symbols {
+        match d.size {
+            Some(size) => println!("{}  {:>8}  {}", hex(d.va), size, d.name),
+            None => println!("{}  {:>8}  {}", hex(d.va), "?", d.name),
+        }
+    }
+    println!("{} variables", image.data_symbols.len());
+    print_warnings(image);
+    Ok(())
+}

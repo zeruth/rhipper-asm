@@ -1315,6 +1315,16 @@ impl<'a> Runtime<'a> {
                 Ok(Value::F64(if cw & 0x300 == 0 { f64::from(r as f32) } else { r }))
             }
             "ra_x86_pow_sse2" => Ok(Value::F64(farg(args, 0).powf(farg(args, 1)))),
+            "ra_x86_sqrt_sse2" => Ok(Value::F64(farg(args, 0).sqrt())),
+            "ra_x86_sin_sse2" => Ok(Value::F64(farg(args, 0).sin())),
+            "ra_x86_cos_sse2" => Ok(Value::F64(farg(args, 0).cos())),
+            "ra_x86_tan_sse2" => Ok(Value::F64(farg(args, 0).tan())),
+            "ra_x86_asin_sse2" => Ok(Value::F64(farg(args, 0).asin())),
+            "ra_x86_acos_sse2" => Ok(Value::F64(farg(args, 0).acos())),
+            "ra_x86_atan_sse2" => Ok(Value::F64(farg(args, 0).atan())),
+            "ra_x86_exp_sse2" => Ok(Value::F64(farg(args, 0).exp())),
+            "ra_x86_log_sse2" => Ok(Value::F64(farg(args, 0).ln())),
+            "ra_x86_log10_sse2" => Ok(Value::F64(farg(args, 0).log10())),
             "ra_x86_report_gsfailure" => Err(Stop::fault("the stack cookie check failed")),
             "ra_x86_report_rangecheckfailure" => Err(Stop::fault("an array index was out of range")),
             "ra_x86_setjmp3" | "ra_x86_longjmp" => Err(Stop::fault("a setjmp or longjmp, which the interpreter does not run yet")),

@@ -194,6 +194,38 @@ fn a_static_function_takes_its_argument_in_the_register_its_callers_set() {
     assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 12, "main()\n{}", lifted.module.to_ll());
 }
 
+/// MSVC makes room for a local with `push ecx` after the frame (`push ebp; mov ebp, esp; push
+/// ecx`): `local` reads no argument in `ecx`, and none of its callers sets one, so it takes none
+/// (chocolate-doom's `AM_changeWindowLoc` took one, and `AM_Ticker`, its caller, then took one to
+/// hand on). `this_of` reads `ecx`, which main sets before each call: it keeps it. main returns
+/// local() + this_of(30) = 5 + 30.
+#[test]
+fn a_push_of_ecx_that_makes_room_is_no_argument() {
+    const LOCAL: u64 = CODE + 0x40;
+    const THIS_OF: u64 = CODE + 0x60;
+    let mut s = vec![0xccu8; 0x200];
+    let mut put = |at: u64, bytes: &[u8]| {
+        let o = (at - CODE) as usize;
+        s[o..o + bytes.len()].copy_from_slice(bytes);
+    };
+    // push esi; call local; mov esi, eax; mov ecx, 30; call this_of; add eax, esi; pop esi; ret
+    let mut main = vec![0x56];
+    main.extend(call_to(MAIN + 1, LOCAL));
+    main.extend([0x8b, 0xf0, 0xb9, 30, 0, 0, 0]);
+    main.extend(call_to(MAIN + 13, THIS_OF));
+    main.extend([0x03, 0xc6, 0x5e, 0xc3]);
+    put(MAIN, &main);
+    // push ebp; mov ebp, esp; push ecx; mov dword [ebp-4], 5; mov eax, [ebp-4]; mov esp, ebp; pop ebp; ret
+    put(LOCAL, &[0x55, 0x8b, 0xec, 0x51, 0xc7, 0x45, 0xfc, 5, 0, 0, 0, 0x8b, 0x45, 0xfc, 0x8b, 0xe5, 0x5d, 0xc3]);
+    // mov eax, ecx; ret
+    put(THIS_OF, &[0x8b, 0xc1, 0xc3]);
+    let (image, lifted, signatures) = raised(&s);
+    let signature = |address: u64| &signatures[&lifted.functions[&address]];
+    assert!(signature(LOCAL).params.is_empty(), "local only makes room with ecx:\n{}", lifted.module.to_ll());
+    assert_eq!(signature(THIS_OF).params.len(), 1, "this_of reads the ecx main sets:\n{}", lifted.module.to_ll());
+    assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 35, "main()\n{}", lifted.module.to_ll());
+}
+
 /// main sets `esi` in its first block and calls, from the next, `room` (whose `push eax` only
 /// makes room for a local, though main has just set `eax`) and `inc_esi` (which reads the `esi`
 /// main set a block before): main returns 3 + 31. `room` takes nothing; `inc_esi` takes `esi`.
@@ -330,4 +362,128 @@ fn an_immediate_no_relocation_marks_names_no_function() {
     assert!(analysis.function(INSIDE).is_none(), "a function at the constant {INSIDE:#x}");
     let three = analysis.function(THREE).expect("three is a function");
     assert!(three.blocks.iter().any(|b| b.instrs.iter().any(|i| i.address == INSIDE)), "three keeps its add: {:?}", three.blocks);
+}
+
+/// MSVC jumps into a two-level `switch` from a case of another, past the compare that bounds
+/// it (chocolate-doom's `P_UseSpecialLine`): the table's bound lies on the other way in, which the
+/// walk may find after the jump. `f`'s first switch sends 0 to a case that sets the index to 2 and
+/// jumps to the second's table read; the second's compare bounds it to 0..3. f(0) = 100 (case
+/// number 0 of index 2), f(1) = 10, f(3) = 101, f(5) = 99. With the second table left unresolved,
+/// its read went through the image's address, which a standalone port has no memory at.
+#[test]
+fn a_switch_entered_past_its_compare_resolves_by_the_other_way_in() {
+    const F2: u64 = CODE + 0x40;
+    let mut s = vec![0xccu8; 0x200];
+    let mut put = |at: u64, bytes: &[u8]| {
+        let o = (at - CODE) as usize;
+        s[o..o + bytes.len()].copy_from_slice(bytes);
+    };
+    let (t1, c2, t2) = (DATA, DATA + 0x10, DATA + 0x20);
+    // push 3; call f; add esp, 4; ret
+    let mut main = vec![0x6a, 0x03];
+    main.extend(call_to(MAIN + 2, F2));
+    main.extend([0x83, 0xc4, 0x04, 0xc3]);
+    put(MAIN, &main);
+    let mut f = vec![0x8b, 0x44, 0x24, 0x04, 0x83, 0xf8, 0x01, 0x77, 0x14, 0xff, 0x24, 0x85]; // mov eax, [esp+4]; cmp eax, 1; ja second; jmp [eax*4 + t1]
+    f.extend(le(t1));
+    f.extend([0xb8, 2, 0, 0, 0, 0xeb, 0x0b]); // case 0: mov eax, 2; jmp load
+    f.extend([0xb8, 10, 0, 0, 0, 0xc3]); // case 1: mov eax, 10; ret
+    f.extend([0x83, 0xf8, 0x03, 0x77, 0x1a, 0x0f, 0xb6, 0x80]); // second: cmp eax, 3; ja default; load: movzx eax, byte [eax + c2]
+    f.extend(le(c2));
+    f.extend([0xff, 0x24, 0x85]); // jmp [eax*4 + t2]
+    f.extend(le(t2));
+    f.extend([0xb8, 100, 0, 0, 0, 0xc3, 0xb8, 101, 0, 0, 0, 0xc3, 0xb8, 99, 0, 0, 0, 0xc3]);
+    put(F2, &f);
+    let mut data = vec![0u8; 0x200];
+    data[..4].copy_from_slice(&le(F2 + 0x10));
+    data[4..8].copy_from_slice(&le(F2 + 0x17));
+    data[0x10..0x14].copy_from_slice(&[0, 1, 0, 1]);
+    data[0x20..0x24].copy_from_slice(&le(F2 + 0x30));
+    data[0x24..0x28].copy_from_slice(&le(F2 + 0x36));
+    let image = ra_asm_pe::Image::parse(image_with_data(&s, &data)).expect("the image parses");
+    let analysis = ra_asm_analysis::analyze(&image);
+    assert!(analysis.warnings.iter().all(|w| !w.contains("did not resolve")), "{:#?}", analysis.warnings);
+    let options = ra_asm_lift::LiftOptions { standalone: true, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
+    for (n, expected) in [(0, 100), (1, 10), (3, 101), (5, 99)] {
+        assert_eq!(call(&image, &lifted, &signatures, F2, vec![n]), expected, "f({n})\n{}", lifted.module.to_ll());
+    }
+}
+
+/// The cookie check of a `/MD` build has the report inlined: when the cookie differs it asks
+/// whether the processor can fail fast (`eax` is the answer) and then traps either way, so `eax`
+/// is written only on paths that never return, and the check returns with it as it came. A
+/// function that sets its result before the check (`mov eax, esi`) returns that: chocolate-doom's
+/// `__inode` handed back no pointer to its result. Here `check` writes `eax` on such paths alone,
+/// and `main` returns the 7 it set before calling it.
+#[test]
+fn a_register_written_only_on_the_way_to_a_trap_is_kept_by_the_call() {
+    const CHECK: u64 = CODE + 0x40;
+    let mut s = vec![0xccu8; 0x200];
+    let mut put = |at: u64, bytes: &[u8]| {
+        let o = (at - CODE) as usize;
+        s[o..o + bytes.len()].copy_from_slice(bytes);
+    };
+    // mov eax, 7; mov ecx, [cookie]; call check; ret
+    let mut main = vec![0xb8, 7, 0, 0, 0, 0x8b, 0x0d];
+    main.extend(le(DATA));
+    main.extend(call_to(MAIN + 11, CHECK));
+    main.push(0xc3);
+    put(MAIN, &main);
+    // cmp ecx, [cookie]; jne fail; ret; fail: mov eax, 99; test eax, eax; jne t; ud2; t: ud2
+    let mut check = vec![0x3b, 0x0d];
+    check.extend(le(DATA));
+    check.extend([0x75, 0x01, 0xc3, 0xb8, 99, 0, 0, 0, 0x85, 0xc0, 0x75, 0x02, 0x0f, 0x0b, 0x0f, 0x0b]);
+    put(CHECK, &check);
+    let image = ra_asm_pe::Image::parse(image(&s)).expect("the image parses");
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: true, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
+    assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 7, "main()\n{}", lifted.module.to_ll());
+}
+
+/// chocolate-doom's `W_Read(wad, offset, buffer, length)` is `return
+/// wad->file_class->Read(wad, offset, buffer, length)`, which MSVC makes a jump through the
+/// class's pointer with the stack as it came: the callee reads the forwarder's own arguments. Here
+/// `forward` jumps through `obj->class->add`, and `main` calls `forward(obj, 4, 3)`, which returns
+/// 4 + 3. With `forward` taken to read only `obj`, the jump handed `add` two words of nothing, and
+/// `W_Read` read the WAD's header into no buffer.
+#[test]
+fn a_jump_through_a_pointer_hands_the_functions_own_arguments_on() {
+    const FORWARD: u64 = CODE + 0x40;
+    const ADD: u64 = CODE + 0x60;
+    const OBJ: u64 = DATA;
+    const CLASS: u64 = DATA + 0x10;
+    let mut s = vec![0xccu8; 0x200];
+    let mut put = |at: u64, bytes: &[u8]| {
+        let o = (at - CODE) as usize;
+        s[o..o + bytes.len()].copy_from_slice(bytes);
+    };
+    // push 3; push 4; push offset obj; call forward; add esp, 12; ret
+    let mut main = vec![0x6a, 0x03, 0x6a, 0x04, 0x68];
+    main.extend(le(OBJ));
+    main.extend(call_to(MAIN + 9, FORWARD));
+    main.extend([0x83, 0xc4, 0x0c, 0xc3]);
+    put(MAIN, &main);
+    // mov eax, [esp+4]; mov ecx, [eax]; jmp [ecx+8]
+    put(FORWARD, &[0x8b, 0x44, 0x24, 0x04, 0x8b, 0x08, 0xff, 0x61, 0x08]);
+    // mov eax, [esp+8]; add eax, [esp+12]; ret
+    put(ADD, &[0x8b, 0x44, 0x24, 0x08, 0x03, 0x44, 0x24, 0x0c, 0xc3]);
+    let mut data = vec![0u8; 0x200];
+    data[..4].copy_from_slice(&le(CLASS));
+    data[0x18..0x1c].copy_from_slice(&le(ADD));
+    let image = ra_asm_pe::Image::parse(image_with_data(&s, &data)).expect("the image parses");
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: true, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
+    assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 7, "main()\n{}", lifted.module.to_ll());
 }

@@ -74,7 +74,12 @@ enum Command {
     /// The debug directory and the PDB record.
     Debug { pe: PathBuf },
     /// The named functions: from the PDB or the link map of a PE, from the symbol table of an ELF.
-    Symbols { pe: PathBuf },
+    /// With `--data`, the variables the PDB names instead, with their sizes.
+    Symbols {
+        pe: PathBuf,
+        #[arg(long)]
+        data: bool,
+    },
     /// The functions of the image. With `--pdata`, the raw exception table entries, or the function
     /// extents of an ELF file's `.eh_frame`.
     Functions {
@@ -535,7 +540,8 @@ fn command() -> anyhow::Result<()> {
         Command::Exports { pe } => report::exports(&load(&pe, sigs)?, json),
         Command::Relocs { pe } => report::relocs(&load(&pe, sigs)?, json),
         Command::Debug { pe } => report::debug(&load(&pe, sigs)?, json),
-        Command::Symbols { pe } => report::symbols(&load(&pe, sigs)?, json),
+        Command::Symbols { pe, data: false } => report::symbols(&load(&pe, sigs)?, json),
+        Command::Symbols { pe, data: true } => report::data_symbols(&load(&pe, sigs)?, json),
         Command::Functions { pe, pdata: true } => report::functions(&load(&pe, sigs)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&load(&pe, sigs)?, json),
         Command::Cfg { pe, address } => functions::cfg(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),

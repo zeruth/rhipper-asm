@@ -301,12 +301,15 @@ pub struct LiftOptions {
     pub x87: X87Unit,
 }
 
-/// A data section of the image as a global.
+/// A data section of the image as a global, or a table that lies among the code.
 #[derive(Debug, Clone)]
 pub struct DataSection {
     pub global: String,
     pub start: u64,
     pub end: u64,
+    /// A table in a code section (a two-level switch's case numbers): only an address inside it
+    /// names it, never a base just before it, which is code.
+    pub in_code: bool,
 }
 
 impl Lifted {
@@ -415,7 +418,8 @@ impl Lifted {
         if let Some(section) = self.data.iter().find(|s| address >= s.start && address < s.end) {
             return Some(ra_asm_ir::Operand::Address { global: section.global.clone(), offset: (address - section.start) as i64 });
         }
-        let section = self.data.iter().filter(|s| address < s.start && s.start - address < 0x1000).min_by_key(|s| s.start - address)?;
+        let section =
+            self.data.iter().filter(|s| !s.in_code && address < s.start && s.start - address < 0x1000).min_by_key(|s| s.start - address)?;
         Some(ra_asm_ir::Operand::Address { global: section.global.clone(), offset: -((section.start - address) as i64) })
     }
 }
@@ -653,7 +657,10 @@ fn lift_on(
                     Origin::Entry | Origin::Export(_) | Origin::TlsCallback | Origin::Pointer(_) | Origin::Vtable(_) | Origin::Residual
                 )
             });
-            if root || matches!(f.kind, Kind::ImportThunk(_)) || analysis.program_entry == Some(f.entry) {
+            // The `jmp [slot]` of an import the prototype tables do not know hands on the universal
+            // arguments; one they know takes the import's own, which its body says.
+            let unknown_thunk = matches!(&f.kind, Kind::ImportThunk(import) if raise::prototypes::arity(import).is_none());
+            if root || unknown_thunk || analysis.program_entry == Some(f.entry) {
                 lifted.roots.insert(name.clone());
             }
             if let Some(other) = lifted.functions.insert(f.entry, name) {
@@ -895,7 +902,8 @@ fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, t
             attach: _,
             warnings,
         } = worker;
-        let Module { name: _, triple: _, data_layout: _, types, globals, declarations, functions: built, frozen } = module;
+        let Module { name: _, triple: _, data_layout: _, types, globals, declarations, functions: built, frozen, variables } = module;
+        lifted.module.variables.extend(variables);
         lifted.module.types.extend(types);
         lifted.module.globals.extend(globals);
         lifted.module.declarations.extend(declarations);
@@ -968,11 +976,19 @@ pub fn image_header(
                 let (ret, params) = abi_prototype(sig);
                 let _ = writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
                 // `main(argc, argv)` takes the driver's; the argv of a 32-bit program is the
-                // runtime's table of dword pointers. A DLL's entry takes the loader's three.
+                // runtime's table of dword pointers. `WinMain` takes the image as its instance,
+                // the arguments as its command line and `SW_SHOWDEFAULT`. A DLL's entry takes the
+                // loader's three.
+                let win_main = is_main && name == ra_asm_analysis::symbols::WIN_MAIN_C;
                 let args: Vec<&str> = params
                     .iter()
                     .enumerate()
                     .map(|(i, _)| match (is_main, dll, i, image.pointer_size()) {
+                        (true, _, 0, _) if win_main => "RA_IMAGE_BASE",
+                        (true, _, 1, _) if win_main => "0",
+                        (true, _, 2, _) if win_main => "ra_win_main_command_line()",
+                        (true, _, 3, _) if win_main => "10",
+                        (true, _, _, _) if win_main => "0",
                         (true, _, 0, _) => "(unsigned long long)ra_argc",
                         (true, _, 1, 8) => "(unsigned long long)(uintptr_t)ra_argv",
                         (true, _, 1, _) => "*(unsigned *)(uintptr_t)ra_x86_p_argv()",
