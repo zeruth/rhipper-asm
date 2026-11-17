@@ -44,18 +44,6 @@ fn phi(b: &mut FunctionBuilder, block: BlockId, incoming: Vec<(Operand, BlockId)
     b.value(block, Inst::Phi { ty: Type::I32, incoming }, hint)
 }
 
-/// Gives the phi `of` in `block` the value it takes from `from`: the value of a back edge is
-/// defined after the phi that reads it.
-fn feed(f: &mut Function, block: BlockId, of: ValueId, value: ValueId, from: BlockId) {
-    for i in &mut f.blocks[block.0 as usize].instrs {
-        if i.result == Some(of)
-            && let Inst::Phi { incoming, .. } = &mut i.inst
-        {
-            incoming.push((value.into(), from));
-        }
-    }
-}
-
 /// Whether any statement of `stmts`, at any depth, is `this`.
 fn any(stmts: &[Stmt], this: fn(&Stmt) -> bool) -> bool {
     stmts.iter().any(|s| {
@@ -155,10 +143,9 @@ fn sum() -> Function {
     let next = b.bin(body, BinOp::Add, Type::I32, i, 1i64, "next");
     b.terminate(body, Terminator::Br(header));
     b.terminate(exit, ret(s));
-    let mut f = b.finish();
-    feed(&mut f, header, i, next, body);
-    feed(&mut f, header, s, added, body);
-    f
+    b.add_incoming(i, body, next);
+    b.add_incoming(s, body, added);
+    b.finish()
 }
 
 /// `i = 0; do i++; while (i < x); return i;`, the test at the bottom.
@@ -174,9 +161,8 @@ fn count() -> Function {
     let more = b.icmp(body, ICond::Slt, Type::I32, next, x, "more");
     b.terminate(body, Terminator::CondBr { cond: more.into(), then: body, els: exit });
     b.terminate(exit, ret(next));
-    let mut f = b.finish();
-    feed(&mut f, body, i, next, body);
-    f
+    b.add_incoming(i, body, next);
+    b.finish()
 }
 
 /// `for (i = 0, s = 0; i < x; i++) { if (i == 3) continue; s += i; } return s;`.
@@ -202,10 +188,9 @@ fn skip() -> Function {
     let next = b.bin(latch, BinOp::Add, Type::I32, i, 1i64, "next");
     b.terminate(latch, Terminator::Br(header));
     b.terminate(exit, ret(s));
-    let mut f = b.finish();
-    feed(&mut f, header, i, next, latch);
-    feed(&mut f, header, s, kept, latch);
-    f
+    b.add_incoming(i, latch, next);
+    b.add_incoming(s, latch, kept);
+    b.finish()
 }
 
 /// A `switch` on `x`: case 1 runs into case 2's block, which returns 1 coming from it and 2 on
@@ -286,9 +271,8 @@ fn two_exits(tail: usize) -> Function {
         r = b.bin(last, BinOp::Add, Type::I32, r, i64::try_from(k).expect("a small count"), "r");
     }
     b.terminate(last, ret(r));
-    let mut f = b.finish();
-    feed(&mut f, header, i, next, latch);
-    f
+    b.add_incoming(i, latch, next);
+    b.finish()
 }
 
 /// What the return block of [`two_exits`] adds.

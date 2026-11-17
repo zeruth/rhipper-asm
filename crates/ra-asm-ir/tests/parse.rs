@@ -629,15 +629,9 @@ mod bodies {
         let done = b.icmp(lp, ICond::Eq, Type::I32, next, n, "done");
         b.terminate(lp, Terminator::CondBr { cond: done.into(), then: exit, els: lp });
         b.terminate(exit, ret(Type::I32, i));
-        let mut f = b.finish();
-        // The values that come back around the loop are defined after the phis that read them.
-        if let Inst::Phi { incoming, .. } = &mut f.blocks[1].instrs[0].inst {
-            incoming.push((next.into(), lp));
-        }
-        if let Inst::Phi { incoming, .. } = &mut f.blocks[1].instrs[1].inst {
-            incoming.push((twice.into(), lp));
-        }
-        trip(f);
+        b.add_incoming(i, lp, next);
+        b.add_incoming(x, lp, twice);
+        trip(b.finish());
     }
 
     #[test]

@@ -119,6 +119,26 @@ impl FunctionBuilder {
         self.push(block, inst, hint).expect("the instruction defines a value")
     }
 
+    /// Gives the phi `phi` the value it takes from `block`: a loop's phi reads the value of its back
+    /// edge, which is defined after it.
+    ///
+    /// # Panics
+    ///
+    /// When no phi of the function defines `phi`.
+    pub fn add_incoming(&mut self, phi: ValueId, block: BlockId, value: impl Into<Operand>) {
+        let incoming = self
+            .function
+            .blocks
+            .iter_mut()
+            .flat_map(|b| b.instrs.iter_mut())
+            .find_map(|i| match &mut i.inst {
+                Inst::Phi { incoming, .. } if i.result == Some(phi) => Some(incoming),
+                _ => None,
+            })
+            .expect("the value is a phi of the function");
+        incoming.push((value.into(), block));
+    }
+
     pub fn terminate(&mut self, block: BlockId, terminator: Terminator) {
         self.function.blocks[block.0 as usize].terminator = terminator;
     }

@@ -349,16 +349,8 @@ fn shared_tail_of_values() -> Function {
         r = b.bin(last, BinOp::Add, Type::I32, r, i64::try_from(k).expect("a small count"), "r");
     }
     b.terminate(last, Terminator::Ret(Some((Type::I32, r.into()))));
-    let mut f = b.finish();
-    // The back edge's value is defined after the phi that reads it.
-    for ins in &mut f.blocks[header.0 as usize].instrs {
-        if ins.result == Some(i)
-            && let Inst::Phi { incoming, .. } = &mut ins.inst
-        {
-            incoming.push((next.into(), latch));
-        }
-    }
-    f
+    b.add_incoming(i, latch, next);
+    b.finish()
 }
 
 /// The tree of a function with a shared tail replays its vectors: each way into the tail (the
