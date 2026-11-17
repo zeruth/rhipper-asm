@@ -1055,6 +1055,20 @@ fn access_type(ty: &Type, align: u32) -> String {
     }
 }
 
+/// The runtime header's macro for a scalar of `ty` at an integer address (`RA_U32(a)`, an lvalue,
+/// unaligned), when `ty` has one.
+fn memory_macro(ty: &Type) -> Option<&'static str> {
+    Some(match ty {
+        Type::Int(8) => "RA_U8",
+        Type::Int(16) => "RA_U16",
+        Type::Int(32) => "RA_U32",
+        Type::Int(64) => "RA_U64",
+        Type::Float => "RA_F32",
+        Type::Double => "RA_F64",
+        _ => return None,
+    })
+}
+
 /// The integer vector a compare of `ty` (a vector) yields in C: one lane of the compared width per lane.
 fn mask_type(ty: &Type) -> Type {
     match ty {
@@ -1869,8 +1883,11 @@ fn unassigned(line: &str, unread: &Unread<'_>) -> Option<String> {
     }
     let callee = rhs.find('(').map_or(rhs, |at| &rhs[..at]);
     let args = &rhs[callee.len()..];
-    let call =
-        !callee.is_empty() && callee.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && strip_parens(args).len() + 2 == args.len();
+    // A memory macro (`RA_U32(a)`) is a read, not a call: it stays one through `(void)`.
+    let call = !callee.is_empty()
+        && !callee.starts_with("RA_")
+        && callee.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && strip_parens(args).len() + 2 == args.len();
     Some(if call { format!("{pad}{rhs};") } else { format!("{pad}(void)({rhs});") })
 }
 
@@ -1899,7 +1916,37 @@ fn inert(expr: &str) -> bool {
     }
     let word = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
     let literal = e.len() >= 2 && e.starts_with('"') && e.ends_with('"') && !e[1..e.len() - 1].contains(['"', '\\']);
-    literal || e.strip_prefix('&').is_some_and(word) || word(&e)
+    literal || e.strip_prefix('&').is_some_and(word) || word(&e) || arithmetic(expr)
+}
+
+/// Whether `expr` is arithmetic on names, constants and addresses with no read through memory: no
+/// dereference, index, `->`, call, string, assignment or increment (`(rdi_phi * 4u)`, an address
+/// `&sec_data.banners + i * 4u` the program computed and did not use).
+fn arithmetic(expr: &str) -> bool {
+    let bytes = expr.as_bytes();
+    let mut previous = b'(';
+    for (i, &c) in bytes.iter().enumerate() {
+        match c {
+            b'"' | b'\'' | b'[' | b'=' | b'?' => return false,
+            b'-' if bytes.get(i + 1).is_some_and(|n| *n == b'>' || *n == b'-') => return false,
+            b'+' if bytes.get(i + 1) == Some(&b'+') => return false,
+            // A `*` after an operand multiplies; after an operator or a parenthesis it reads.
+            b'*' if !(previous.is_ascii_alphanumeric() || previous == b')' || previous == b'_') => {
+                // `(uint8_t *)`: the star of a cast's type, which a `)` closes after spaces.
+                let rest = expr[i + 1..].trim_start();
+                if !rest.starts_with(')') && !rest.starts_with('*') {
+                    return false;
+                }
+            }
+            // A name followed by `(` is a call (a cast's `(` follows an operator or a parenthesis).
+            b'(' if previous.is_ascii_alphanumeric() || previous == b'_' => return false,
+            _ => {}
+        }
+        if !c.is_ascii_whitespace() {
+            previous = c;
+        }
+    }
+    true
 }
 
 /// The casts a function's C writes: each parenthesized type before an operand, but the `(void)`
@@ -2837,12 +2884,37 @@ impl<'a> Emitter<'a> {
             None => {
                 if let Some(access) = self.section_access(ty, ptr) {
                     access
+                } else if let (Some(at), Some(int)) = (memory_macro(ty), self.int_address_narrow(ptr)) {
+                    // An integer address read or written at a scalar width: `RA_U32(m + 40u)`, the
+                    // dword there, in place of `*(ra_ua_uint32 *)((uint64_t)(m + 40u))`.
+                    format!("{at}({})", strip_parens(&int))
                 } else {
                     let address = self.int_address(ptr).map_or_else(|| self.operand(&Type::Ptr, ptr), |int| strip_parens(&int));
                     format!("*({} *)({address})", access_type(ty, align))
                 }
             }
         }
+    }
+
+    /// [`Self::int_address`], with a 32-bit address the access widened (`zext i32 a to i64`, the
+    /// 32-bit model's) as the 32-bit `a`: the memory macros widen it the same way themselves.
+    fn int_address_narrow(&self, ptr: &Operand) -> Option<String> {
+        let Operand::Local(v) = ptr else { return None };
+        if !self.inlinable(*v) || self.alias.contains_key(v) || self.cond_alias.iter().any(|(n, _)| n == v) {
+            return None;
+        }
+        let Some((_, _, Inst::Cast { cast: Cast::IntToPtr, from, value, .. })) = self.def(*v) else { return None };
+        if matches!(value, Operand::Address { .. }) {
+            return None;
+        }
+        if let Operand::Local(z) = value
+            && self.inlinable(*z)
+            && !self.alias.contains_key(z)
+            && let Some((_, _, Inst::Cast { cast: Cast::ZExt, from: narrow @ Type::Int(32), value: inner, .. })) = self.def(*z)
+        {
+            return Some(self.operand(narrow, inner));
+        }
+        Some(self.operand(from, value))
     }
 
     /// The integer an address operand is made of, when it is an integer made a pointer in place:
@@ -4055,9 +4127,9 @@ mod tests {
         b.terminate(entry, Terminator::Ret(Some((Type::I32, Operand::Local(read)))));
         module.functions.push(b.finish());
         let text = emit_unit(&module, &Options::default()).functions[0].text.clone();
-        // The integer goes straight to the access's pointer type, without a byte pointer between.
+        // The integer goes straight to the access's macro, without a byte pointer between.
         assert!(!text.contains("((uint8_t *)"), "{text}");
-        assert!(text.contains("*(uint8_t *)(") && text.contains("*(uint32_t *)("), "{text}");
+        assert!(text.contains("RA_U8(") && text.contains("RA_U32("), "{text}");
     }
 
     /// A module whose functions are frozen past its first ones writes as it does thawed, and the

@@ -83,6 +83,15 @@ RA_UNALIGNED(uint64_t, ra_ua_uint64)
 RA_UNALIGNED(ra_u128, ra_ua_u128)
 RA_UNALIGNED(float, ra_ua_float)
 RA_UNALIGNED(double, ra_ua_double)
+// The scalar at an integer address of the program, as an lvalue: `RA_U32(m + 40u)` reads the
+// dword there, `RA_U32(m + 40u) = 1u;` writes it. A 32-bit program's address widens through
+// uintptr_t as the 32-bit model's zero extension does.
+#define RA_U8(a) (*(uint8_t *)(uintptr_t)(a))
+#define RA_U16(a) (*(ra_ua_uint16 *)(uintptr_t)(a))
+#define RA_U32(a) (*(ra_ua_uint32 *)(uintptr_t)(a))
+#define RA_U64(a) (*(ra_ua_uint64 *)(uintptr_t)(a))
+#define RA_F32(a) (*(ra_ua_float *)(uintptr_t)(a))
+#define RA_F64(a) (*(ra_ua_double *)(uintptr_t)(a))
 RA_UNALIGNED(ra_v16u8, ra_ua_v16u8)
 RA_UNALIGNED(ra_v8u16, ra_ua_v8u16)
 RA_UNALIGNED(ra_v4u32, ra_ua_v4u32)
