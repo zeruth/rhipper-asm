@@ -16,6 +16,7 @@ pub mod frame;
 pub mod held;
 pub mod known;
 pub mod liveness;
+pub mod locals;
 pub mod outline;
 pub mod promote;
 pub mod prototypes;

@@ -23,8 +23,8 @@ target triple = "x86_64-pc-windows-msvc"
 @sec_rdata = constant <{ i32, i32, i32, [16 x i8], i32, i32, [12 x i8], i32, i32, i32, [4 x i8], i32, [20 x i8], i32, [4 x i8], i32, [20 x i8], i32, [12 x i8], i32, i32, [4 x i8], i32, i32, i32, [12 x i8], i32, i32, i32, i32, i32, [12 x i8], i32, i32, [12 x i8], i32, i32, i32, [4 x i8], i32, [20 x i8], i32, [4 x i8], i32, [20 x i8], i32, [12 x i8], i32, i32, [4 x i8], i32, i32, i32, [12 x i8], i32, i32, i32, i32, i32, i32, i32, i32, [64 x i8], i32, i32, [4 x i8], i32, [108 x i8], i32, [16 x i8], i32, i32, [12 x i8], i32, i32, [4 x i8], i32, [20 x i8], i32, [188 x i8], i32, [8 x i8], i32, [8 x i8], i32, i32, [384 x i8], i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, [4 x i8], i32, i32, i32, i32, i32, i32, i32, i32, [4 x i8], i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, [4 x i8], i32, i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, i32, [1112 x i8], i32, [24 x i8], i32, [12 x i8], i32, [16 x i8], i32, [16 x i8], i32, [8 x i8], i32, [16 x i8], i32, [4 x i8], i32, i32, [4 x i8], i32, [4 x i8], i32, [12 x i8], i32, [16 x i8], i32, [8 x i8], i32, [16 x i8], i32, [4 x i8], i32, i32, [4 x i8], i32, [4 x i8], i32, [12 x i8], i32, [24 x i8], i32, [12 x i8], i32, [16 x i8], i32, [24 x i8], i32, [12 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [8 x i8], i32, [28 x i8], i32, [8 x i8], i32, [4 x i8], i32, [48 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [12 x i8], i32, [8 x i8], i32, [28 x i8], i32, [8 x i8], i32, [4 x i8], i32, [64 x i8], i32, [16 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [8 x i8], i32, [4 x i8], i32, [28 x i8], i32, [12 x i8], i32, [12 x i8], i32, [24 x i8], i32, [16 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [8 x i8], i32, [4 x i8], i32, [28 x i8], i32, [24 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, i32, [8 x i8], i32, [24 x i8], i32, i32, [24 x i8], i32, i32 }> <{ i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 16) to i32), i32 ptrtoint (ptr @U_00401b30 to i32), i32 ptrtoint (ptr @U_00401b10 to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 16) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 36) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 52) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 64) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 96) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 16) to i32), [20 x i8] c"\01\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 36) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [20 x i8] c"\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 124) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 140) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 96) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 160) to i32), i32 ptrtoint (ptr @U_00401b30 to i32), i32 ptrtoint (ptr @U_00401b20 to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 124) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 192) to i32), i32 ptrtoint (ptr @U_00401ba0 to i32), i32 ptrtoint (ptr @U_00401b50 to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 212) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 228) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 240) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 272) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [20 x i8] c"\01\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 212) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), [20 x i8] c"\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 300) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 316) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 272) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 336) to i32), i32 ptrtoint (ptr @U_00401b70 to i32), i32 ptrtoint (ptr @U_00401b60 to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 300) to i32), i32 4198556, i32 4198686, i32 4198592, i32 4198646, i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 576) to i32), i32 ptrtoint (ptr @U_00402540 to i32), [64 x i8] c"\00\00\00\00\C0\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 804) to i32), [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 836) to i32), [108 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 840) to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 292) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 596) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 612) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 620) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 292) to i32), [20 x i8] c"\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 596) to i32), [188 x i8] c"by_any\00by_int\00rethrows\00events\00ctor\00Unknown exception\00problem\00finally_param\00seh\000123456789abcdef\00by_base\00by_none\00by_std\00nested\00\00\00\00\00\00\00\A4X\09\CF\00\00\00\00\10\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\D0\1B\00\00\E0\1B\00\00\F0\1B\00\00\00\1C\00\00\10\1C\00\00 \1C\00\00p.\00\00\852\00\00", i32 ptrtoint (ptr @U_00402cb0 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr @U_00402660 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr @U_004025a0 to i32), i32 ptrtoint (ptr @U_00402650 to i32), [384 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\18D\00\00\00\00\00\00\00\00\00\00,I\00\00\E4D\00\00HD\00\00\00\00\00\00\00\00\00\009I\00\00\14E\00\00lD\00\00\00\00\00\00\00\00\00\00JI\00\008E\00\00\BCD\00\00\00\00\00\00\00\00\00\00lI\00\00\88E\00\00\C8D\00\00\00\00\00\00\00\00\00\00\8CI\00\00\94E\00\00\D0D\00\00\00\00\00\00\00\00\00\00\ABI\00\00\9CE\00\00\D8D\00\00\00\00\00\00\00\00\00\00\CCI\00\00\A4E\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\B0E\00\00\C6E\00\00\DCE\00\00\F0E\00\00\00F\00\00\1AF\00\000F\00\00LF\00\00fF\00\00xF\00\00\96F\00\00\00\00\00\00\A2F\00\00\B8F\00\00\CEF\00\00\E4F\00\00\02G\00\00\1AG\00\004G\00\00HG\00\00\00\00\00\00bG\00\00pG\00\00~G\00\00\88G\00\00\92G\00\00\ACG\00\00\BCG\00\00\CAG\00\00\D2G\00\00\F4G\00\00\16H\00\002H\00\00>H\00\00LH\00\00hH\00\00\96H\00\00\A8H\00\00\B8H\00\00\C0H\00\00\00\00\00\00\CCH\00\00\DCH\00\00\00\00\00\00\EAH\00\00\00\00\00\00\FEH\00\00\00\00\00\00\14I\00\00$I\00\00\00\00\00\00", i32 ptrtoint (ptr @GetCurrentProcessId to i32), i32 ptrtoint (ptr @GetCurrentThreadId to i32), i32 ptrtoint (ptr @ra_x86_get_module_handle_w to i32), i32 ptrtoint (ptr @GetStdHandle to i32), i32 ptrtoint (ptr @GetSystemTimeAsFileTime to i32), i32 ptrtoint (ptr @ra_x86_initialize_slist_head to i32), i32 ptrtoint (ptr @IsProcessorFeaturePresent to i32), i32 ptrtoint (ptr @QueryPerformanceCounter to i32), i32 ptrtoint (ptr @RaiseException to i32), i32 ptrtoint (ptr @SetUnhandledExceptionFilter to i32), i32 ptrtoint (ptr @WriteFile to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @_CxxThrowException to i32), i32 ptrtoint (ptr @__CxxFrameHandler3 to i32), i32 ptrtoint (ptr @__current_exception to i32), i32 ptrtoint (ptr @__current_exception_context to i32), i32 ptrtoint (ptr @__std_exception_copy to i32), i32 ptrtoint (ptr @__std_exception_destroy to i32), i32 ptrtoint (ptr @_except_handler3 to i32), i32 ptrtoint (ptr @_except_handler4_common to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @ra_x86_p_argc to i32), i32 ptrtoint (ptr @ra_x86_p_argv to i32), i32 ptrtoint (ptr @_c_exit to i32), i32 ptrtoint (ptr @_cexit to i32), i32 ptrtoint (ptr @_configure_narrow_argv to i32), i32 ptrtoint (ptr @ra_x86_controlfp_s to i32), i32 ptrtoint (ptr @_crt_atexit to i32), i32 ptrtoint (ptr @_exit to i32), i32 ptrtoint (ptr @ra_x86_initial_narrow_environment to i32), i32 ptrtoint (ptr @_initialize_narrow_environment to i32), i32 ptrtoint (ptr @ra_x86_initialize_onexit_table to i32), i32 ptrtoint (ptr @ra_x86_initterm to i32), i32 ptrtoint (ptr @ra_x86_initterm_e to i32), i32 ptrtoint (ptr @ra_x86_register_onexit_function to i32), i32 ptrtoint (ptr @_register_thread_local_exe_atexit_callback to i32), i32 ptrtoint (ptr @_seh_filter_exe to i32), i32 ptrtoint (ptr @_set_app_type to i32), i32 ptrtoint (ptr @exit to i32), i32 ptrtoint (ptr @terminate to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @ra_x86_p_commode to i32), i32 ptrtoint (ptr @_set_fmode to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @__setusermatherr to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @_configthreadlocale to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @_set_new_mode to i32), i32 ptrtoint (ptr @free to i32), [1112 x i8] c"\00\00\00\00<\02GetCurrentProcessId\00@\02GetCurrentThreadId\00\00\9F\02GetModuleHandleW\00\00\FC\02GetStdHandle\00\00\13\03GetSystemTimeAsFileTime\00\91\03InitializeSListHead\00\B5\03IsProcessorFeaturePresent\00~\04QueryPerformanceCounter\00\94\04RaiseException\00\00\A8\05SetUnhandledExceptionFilter\00O\06WriteFile\00\01\00_CxxThrowException\00\00\10\00__CxxFrameHandler3\00\00\1C\00__current_exception\00\1D\00__current_exception_context\00!\00__std_exception_copy\00\00\22\00__std_exception_destroy\004\00_except_handler3\00\005\00_except_handler4_common\00\05\00__p___argc\00\00\06\00__p___argv\00\00\16\00_c_exit\00\17\00_cexit\00\00\19\00_configure_narrow_argv\00\00\1D\00_controlfp_s\00\00\1F\00_crt_atexit\00%\00_exit\00*\00_get_initial_narrow_environment\005\00_initialize_narrow_environment\00\006\00_initialize_onexit_table\00\008\00_initterm\009\00_initterm_e\00>\00_register_onexit_function\00?\00_register_thread_local_exe_atexit_callback\00\00B\00_seh_filter_exe\00D\00_set_app_type\00X\00exit\00\00j\00terminate\00\01\00__p__commode\00\00T\00_set_fmode\00\00.\00__setusermatherr\00\00\08\00_configthreadlocale\00\16\00_set_new_mode\00\18\00free\00\00KERNEL32.dll\00VCRUNTIME140.dll\00api-ms-win-crt-runtime-l1-1-0.dll\00api-ms-win-crt-stdio-l1-1-0.dll\00api-ms-win-crt-math-l1-1-0.dll\00api-ms-win-crt-locale-l1-1-0.dll\00api-ms-win-crt-heap-l1-1-0.dll\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr @sec_data to i32), [24 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\04\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2560) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2588) to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 16) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\08\00\00\00", i32 ptrtoint (ptr @U_00401170 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\08\00\00\00", i32 ptrtoint (ptr @U_00401190 to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2624) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2656) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @U_004011b0 to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2684) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\10\00\00\00", i32 ptrtoint (ptr @U_004011c0 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\0C\00\00\00", i32 ptrtoint (ptr @U_00401200 to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2720) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2752) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @U_00401240 to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2780) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 140) to i32), [24 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\08\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2816) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2844) to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 152) to i32), [24 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\04\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2880) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2908) to i32), [4 x i8] c"\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2656) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @U_004011b0 to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2932) to i32), [8 x i8] c"\22\05\93\19\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2992) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF", i32 4198736, [8 x i8] c"\22\05\93\19\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3036) to i32), [4 x i8] c"\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3052) to i32), [48 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\04\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3072) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @sec_data to i32), [4 x i8] c"\E8\FF\FF\FF", i32 4199152, [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [4 x i8] c"\E4\FF\FF\FF", i32 4199184, [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4199248, [12 x i8] c"@\00\00\00\00\00\00\00\00\00\00\00", i32 4199296, [8 x i8] c"\22\05\93\19\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3172) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF", i32 4199504, [8 x i8] c"\22\05\93\19\04\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3216) to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3248) to i32), [64 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00\01\00\00\00\01\00\00\00\02\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3288) to i32), [16 x i8] c"\00\00\00\00\02\00\00\00\03\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3304) to i32), [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4199696, [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [4 x i8] c"\E4\FF\FF\FF", i32 4199648, [8 x i8] c"\22\05\93\19\07\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3356) to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3412) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00", i32 4199968, [12 x i8] c"\01\00\00\00\00\00\00\00\02\00\00\00", i32 4199904, [12 x i8] c"\01\00\00\00\00\00\00\00\04\00\00\00", i32 4199936, [24 x i8] c"\FF\FF\FF\FF\00\00\00\00\02\00\00\00\03\00\00\00\05\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3452) to i32), [16 x i8] c"\00\00\00\00\05\00\00\00\06\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3468) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 152) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4200048, [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @sec_data to i32), [4 x i8] c"\D8\FF\FF\FF", i32 4200000, [8 x i8] c"\22\05\93\19\03\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3520) to i32), [4 x i8] c"\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3544) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00", i32 4200336, [24 x i8] c"\FF\FF\FF\FF\00\00\00\00\00\00\00\00\01\00\00\00\02\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3564) to i32), [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4200304, [4 x i8] c"\FF\FF\FF\FF", i32 ptrtoint (ptr @U_004018c0 to i32), i32 4200566, [8 x i8] c"\00\00\00\00\00\00\00\00", i32 4200608, [24 x i8] c"\00\00\00\00\FE\FF\FF\FF\00\00\00\00\CC\FF\FF\FF\00\00\00\00\FE\FF\FF\FF", i32 4204547, i32 4204568, [24 x i8] c"\00\00\00\00\FE\FF\FF\FF\00\00\00\00\D8\FF\FF\FF\00\00\00\00\FE\FF\FF\FF", i32 4204914, i32 4204933 }>, align 16  ; 0x404000
 @sec_data = global <{ i32, [12 x i8], i32, [28 x i8], i32, [28 x i8], i32, [28 x i8], i32, [24 x i8], i32, [8 x i8], i32, [136 x i8], i32, [644 x i8] }> <{ i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [12 x i8] c"\00\00\00\00.H\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [28 x i8] c"\00\00\00\00.?AUDerived@@\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [28 x i8] c"\00\00\00\00.?AUBase@@\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [28 x i8] c"\00\00\00\00.?AUProblem@@\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [24 x i8] c"\00\00\00\00.?AVexception@std@@\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [8 x i8] c"\00\00\00\00.N\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [136 x i8] c"\00\00\00\00.I\00\00\07\00\00\00\C5\9D\1C\81\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00N\E6@\BB\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\B1\19\BFDu\98\00\00\FF\FF\FF\FF\01\00\00\00\01\00\00\00\00\00\00\00\FF\FF\FF\FF\FF\FF\FF\FF\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [644 x i8] c"\00\00\00\00.?AVtype_info@@\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00" }>, align 16  ; 0x405000
 @ra_tls = constant <{ i64, i64, i64, i64, i64 }> <{ i64 0, i64 0, i64 0, i64 0, i64 0 }>, align 16
-@ra_functions = constant [64 x { i64, ptr }] [{ i64, ptr } { i64 4198768, ptr @U_00401170 }, { i64, ptr } { i64 4198800, ptr @U_00401190 }, { i64, ptr } { i64 4198832, ptr @U_004011b0 }, { i64, ptr } { i64 4198848, ptr @U_004011c0 }, { i64, ptr } { i64 4198912, ptr @U_00401200 }, { i64, ptr } { i64 4198976, ptr @U_00401240 }, { i64, ptr } { i64 4200640, ptr @U_004018c0 }, { i64, ptr } { i64 4201232, ptr @U_00401b10 }, { i64, ptr } { i64 4201248, ptr @U_00401b20 }, { i64, ptr } { i64 4201264, ptr @U_00401b30 }, { i64, ptr } { i64 4201296, ptr @U_00401b50 }, { i64, ptr } { i64 4201312, ptr @U_00401b60 }, { i64, ptr } { i64 4201328, ptr @U_00401b70 }, { i64, ptr } { i64 4201376, ptr @U_00401ba0 }, { i64, ptr } { i64 4201424, ptr @U_00401bd0 }, { i64, ptr } { i64 4201440, ptr @U_00401be0 }, { i64, ptr } { i64 4201456, ptr @U_00401bf0 }, { i64, ptr } { i64 4201472, ptr @U_00401c00 }, { i64, ptr } { i64 4201488, ptr @U_00401c10 }, { i64, ptr } { i64 4201504, ptr @U_00401c20 }, { i64, ptr } { i64 4203840, ptr @U_00402540 }, { i64, ptr } { i64 4203888, ptr @U_00402570 }, { i64, ptr } { i64 4203936, ptr @U_004025a0 }, { i64, ptr } { i64 4204112, ptr @U_00402650 }, { i64, ptr } { i64 4204128, ptr @U_00402660 }, { i64, ptr } { i64 4204656, ptr @U_00402870 }, { i64, ptr } { i64 4205616, ptr @U_00402c30 }, { i64, ptr } { i64 4205744, ptr @U_00402cb0 }, { i64, ptr } { i64 4206000, ptr @U_00402db0 }, { i64, ptr } { i64 4206144, ptr @U_00402e40 }, { i64, ptr } { i64 4206192, ptr @U_00402e70 }, { i64, ptr } { i64 4207201, ptr @U_00403261 }, { i64, ptr } { i64 4207207, ptr @U_00403267 }, { i64, ptr } { i64 4207213, ptr @U_0040326d }, { i64, ptr } { i64 4207219, ptr @U_00403273 }, { i64, ptr } { i64 4207225, ptr @U_00403279 }, { i64, ptr } { i64 4207231, ptr @U_0040327f }, { i64, ptr } { i64 4207237, ptr @U_00403285 }, { i64, ptr } { i64 4207243, ptr @U_0040328b }, { i64, ptr } { i64 4207249, ptr @U_00403291 }, { i64, ptr } { i64 4207255, ptr @U_00403297 }, { i64, ptr } { i64 4207261, ptr @U_0040329d }, { i64, ptr } { i64 4207267, ptr @U_004032a3 }, { i64, ptr } { i64 4207273, ptr @U_004032a9 }, { i64, ptr } { i64 4207279, ptr @U_004032af }, { i64, ptr } { i64 4207285, ptr @U_004032b5 }, { i64, ptr } { i64 4207291, ptr @U_004032bb }, { i64, ptr } { i64 4207297, ptr @U_004032c1 }, { i64, ptr } { i64 4207303, ptr @U_004032c7 }, { i64, ptr } { i64 4207309, ptr @U_004032cd }, { i64, ptr } { i64 4207315, ptr @U_004032d3 }, { i64, ptr } { i64 4207321, ptr @U_004032d9 }, { i64, ptr } { i64 4207327, ptr @U_004032df }, { i64, ptr } { i64 4207333, ptr @U_004032e5 }, { i64, ptr } { i64 4207339, ptr @U_004032eb }, { i64, ptr } { i64 4207345, ptr @U_004032f1 }, { i64, ptr } { i64 4207351, ptr @U_004032f7 }, { i64, ptr } { i64 4207357, ptr @U_004032fd }, { i64, ptr } { i64 4207363, ptr @U_00403303 }, { i64, ptr } { i64 4207369, ptr @U_00403309 }, { i64, ptr } { i64 4207375, ptr @U_0040330f }, { i64, ptr } { i64 4207381, ptr @U_00403315 }, { i64, ptr } { i64 4207387, ptr @U_0040331b }, { i64, ptr } { i64 4207393, ptr @U_00403321 }], align 16
-@ra_function_count = constant i64 64, align 8
+@ra_functions = constant [34 x { i64, ptr }] [{ i64, ptr } { i64 4198768, ptr @U_00401170 }, { i64, ptr } { i64 4198800, ptr @U_00401190 }, { i64, ptr } { i64 4198832, ptr @U_004011b0 }, { i64, ptr } { i64 4198848, ptr @U_004011c0 }, { i64, ptr } { i64 4198912, ptr @U_00401200 }, { i64, ptr } { i64 4198976, ptr @U_00401240 }, { i64, ptr } { i64 4200640, ptr @U_004018c0 }, { i64, ptr } { i64 4201232, ptr @U_00401b10 }, { i64, ptr } { i64 4201248, ptr @U_00401b20 }, { i64, ptr } { i64 4201264, ptr @U_00401b30 }, { i64, ptr } { i64 4201296, ptr @U_00401b50 }, { i64, ptr } { i64 4201312, ptr @U_00401b60 }, { i64, ptr } { i64 4201328, ptr @U_00401b70 }, { i64, ptr } { i64 4201376, ptr @U_00401ba0 }, { i64, ptr } { i64 4201424, ptr @U_00401bd0 }, { i64, ptr } { i64 4201440, ptr @U_00401be0 }, { i64, ptr } { i64 4201456, ptr @U_00401bf0 }, { i64, ptr } { i64 4201472, ptr @U_00401c00 }, { i64, ptr } { i64 4201488, ptr @U_00401c10 }, { i64, ptr } { i64 4201504, ptr @U_00401c20 }, { i64, ptr } { i64 4203840, ptr @U_00402540 }, { i64, ptr } { i64 4203888, ptr @U_00402570 }, { i64, ptr } { i64 4203936, ptr @U_004025a0 }, { i64, ptr } { i64 4204112, ptr @U_00402650 }, { i64, ptr } { i64 4204128, ptr @U_00402660 }, { i64, ptr } { i64 4204656, ptr @U_00402870 }, { i64, ptr } { i64 4205616, ptr @U_00402c30 }, { i64, ptr } { i64 4205744, ptr @U_00402cb0 }, { i64, ptr } { i64 4206000, ptr @U_00402db0 }, { i64, ptr } { i64 4206144, ptr @U_00402e40 }, { i64, ptr } { i64 4206192, ptr @U_00402e70 }, { i64, ptr } { i64 4207225, ptr @U_00403279 }, { i64, ptr } { i64 4207231, ptr @U_0040327f }, { i64, ptr } { i64 4207237, ptr @U_00403285 }], align 16
+@ra_function_count = constant i64 34, align 8
 @ra_import_pops = constant <{ i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64 }> <{ i64 ptrtoint (ptr @GetCurrentProcessId to i64), i64 ptrtoint (ptr @ra_import_names to i64), i64 0, i64 ptrtoint (ptr @GetCurrentThreadId to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 33) to i64), i64 0, i64 ptrtoint (ptr @GetStdHandle to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 65) to i64), i64 4, i64 ptrtoint (ptr @GetSystemTimeAsFileTime to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 91) to i64), i64 4, i64 ptrtoint (ptr @IsProcessorFeaturePresent to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 128) to i64), i64 4, i64 ptrtoint (ptr @QueryPerformanceCounter to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 167) to i64), i64 4, i64 ptrtoint (ptr @RaiseException to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 204) to i64), i64 16, i64 ptrtoint (ptr @SetUnhandledExceptionFilter to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 232) to i64), i64 4, i64 ptrtoint (ptr @WriteFile to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 273) to i64), i64 20, i64 ptrtoint (ptr @_CxxThrowException to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 296) to i64), i64 0, i64 ptrtoint (ptr @__CxxFrameHandler3 to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 332) to i64), i64 0, i64 ptrtoint (ptr @__current_exception to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 368) to i64), i64 0, i64 ptrtoint (ptr @__current_exception_context to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 405) to i64), i64 0, i64 ptrtoint (ptr @__setusermatherr to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 450) to i64), i64 0, i64 ptrtoint (ptr @__std_exception_copy to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 498) to i64), i64 0, i64 ptrtoint (ptr @__std_exception_destroy to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 536) to i64), i64 0, i64 ptrtoint (ptr @_c_exit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 577) to i64), i64 0, i64 ptrtoint (ptr @_cexit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 619) to i64), i64 0, i64 ptrtoint (ptr @_configthreadlocale to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 660) to i64), i64 0, i64 ptrtoint (ptr @_configure_narrow_argv to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 713) to i64), i64 0, i64 ptrtoint (ptr @_crt_atexit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 770) to i64), i64 0, i64 ptrtoint (ptr @_except_handler3 to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 816) to i64), i64 0, i64 ptrtoint (ptr @_except_handler4_common to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 850) to i64), i64 0, i64 ptrtoint (ptr @_exit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 891) to i64), i64 0, i64 ptrtoint (ptr @_initialize_narrow_environment to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 931) to i64), i64 0, i64 ptrtoint (ptr @_register_thread_local_exe_atexit_callback to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 996) to i64), i64 0, i64 ptrtoint (ptr @_seh_filter_exe to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1073) to i64), i64 0, i64 ptrtoint (ptr @_set_app_type to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1123) to i64), i64 0, i64 ptrtoint (ptr @_set_fmode to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1171) to i64), i64 0, i64 ptrtoint (ptr @_set_new_mode to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1214) to i64), i64 0, i64 ptrtoint (ptr @exit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1259) to i64), i64 0, i64 ptrtoint (ptr @free to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1298) to i64), i64 0, i64 ptrtoint (ptr @ra_x86_controlfp_s to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_get_module_handle_w to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initial_narrow_environment to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initialize_onexit_table to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initialize_slist_head to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initterm to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initterm_e to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_p_argc to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_p_argv to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_p_commode to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_register_onexit_function to i64), i64 0, i64 0, i64 ptrtoint (ptr @terminate to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1334) to i64), i64 0, i64 0, i64 0, i64 0 }>, align 16
 @ra_import_names = constant [1378 x i8] c"KERNEL32.dll\00GetCurrentProcessId\00KERNEL32.dll\00GetCurrentThreadId\00KERNEL32.dll\00GetStdHandle\00KERNEL32.dll\00GetSystemTimeAsFileTime\00KERNEL32.dll\00IsProcessorFeaturePresent\00KERNEL32.dll\00QueryPerformanceCounter\00KERNEL32.dll\00RaiseException\00KERNEL32.dll\00SetUnhandledExceptionFilter\00KERNEL32.dll\00WriteFile\00VCRUNTIME140.dll\00_CxxThrowException\00VCRUNTIME140.dll\00__CxxFrameHandler3\00VCRUNTIME140.dll\00__current_exception\00VCRUNTIME140.dll\00__current_exception_context\00api-ms-win-crt-math-l1-1-0.dll\00__setusermatherr\00VCRUNTIME140.dll\00__std_exception_copy\00VCRUNTIME140.dll\00__std_exception_destroy\00api-ms-win-crt-runtime-l1-1-0.dll\00_c_exit\00api-ms-win-crt-runtime-l1-1-0.dll\00_cexit\00api-ms-win-crt-locale-l1-1-0.dll\00_configthreadlocale\00api-ms-win-crt-runtime-l1-1-0.dll\00_configure_narrow_argv\00api-ms-win-crt-runtime-l1-1-0.dll\00_crt_atexit\00VCRUNTIME140.dll\00_except_handler3\00VCRUNTIME140.dll\00_except_handler4_common\00api-ms-win-crt-runtime-l1-1-0.dll\00_exit\00api-ms-win-crt-runtime-l1-1-0.dll\00_initialize_narrow_environment\00api-ms-win-crt-runtime-l1-1-0.dll\00_register_thread_local_exe_atexit_callback\00api-ms-win-crt-runtime-l1-1-0.dll\00_seh_filter_exe\00api-ms-win-crt-runtime-l1-1-0.dll\00_set_app_type\00api-ms-win-crt-stdio-l1-1-0.dll\00_set_fmode\00api-ms-win-crt-heap-l1-1-0.dll\00_set_new_mode\00api-ms-win-crt-runtime-l1-1-0.dll\00exit\00api-ms-win-crt-heap-l1-1-0.dll\00free\00api-ms-win-crt-runtime-l1-1-0.dll\00terminate\00", align 16
 @ra_proc_pops = constant [1 x i8] c"\00", align 16
@@ -160,8 +160,6 @@ declare i64 @terminate()
 
 define i64 @F_00401000(i32 %arg0) {  ; 0x401000
 b_401000:  ; 0x401000
-  %local_p4 = alloca i32, align 4
-  store i32 %arg0, ptr %local_p4, align 4
   %addr.z = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 316) to i32) to i64  ; 0x401000
   %m.p = inttoptr i64 %addr.z to ptr  ; 0x401000
   %m = load i32, ptr %m.p, align 1  ; 0x401000
@@ -180,20 +178,11 @@ b_401020:  ; 0x401020
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x401020
   %esp = trunc i64 %rsp0 to i32  ; 0x401020
   %sp = sub i32 %esp, 4  ; 0x401020
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x401020
-  store i32 %ebp, ptr %st.p, align 1  ; 0x401020
   %sp.1 = sub i32 %sp, 4  ; 0x401023
-  %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x401023
-  store i32 %ebp, ptr %st.p.1, align 1  ; 0x401023
   %sp.2 = sub i32 %sp.1, 4  ; 0x401024
-  %st.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -12  ; 0x401024
-  store i32 %ebp, ptr %st.p.2, align 1  ; 0x401024
   %sp.3 = sub i32 %sp.2, 4  ; 0x401025
-  %st.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x401025
-  store i32 %ebp, ptr %st.p.3, align 1  ; 0x401025
   %logic = and i32 %sp.3, -8  ; 0x401026
   %diff = sub i32 %logic, 64  ; 0x401029
   %addr = add i32 %diff, 40  ; 0x40102e
@@ -563,9 +552,7 @@ switch.bad:  ; 0x401095
 
 define i64 @F_00401170(i64 %arg0, i64 %arg1) {  ; 0x401170
 b_401170:  ; 0x401170
-  %local_p4 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %ecx = trunc i64 %arg0 to i32  ; 0x401170
   %eax.z = zext i32 %ecx to i64  ; 0x401170
   %st.p = inttoptr i64 %eax.z to ptr  ; 0x401176
@@ -584,9 +571,7 @@ b_401170:  ; 0x401170
 
 define i64 @F_00401190(i64 %arg0, i64 %arg1) {  ; 0x401190
 b_401190:  ; 0x401190
-  %local_p4 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %ecx = trunc i64 %arg0 to i32  ; 0x401190
   %eax.z = zext i32 %ecx to i64  ; 0x401190
   %st.p = inttoptr i64 %eax.z to ptr  ; 0x401196
@@ -609,23 +594,9 @@ b_4011b0:  ; 0x4011b0
 
 define i64 @F_004011c0(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x4011c0
 b_4011c0:  ; 0x4011c0
-  %local_m10 = alloca i32, align 4
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p0 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
-  %edi = trunc i64 undef to i32  ; 0x4011c0
-  store i32 %edi, ptr %local_m4, align 1  ; 0x4011c0
-  store i32 %edi, ptr %local_m8, align 1  ; 0x4011c1
   %ecx = trunc i64 %arg0 to i32  ; 0x4011c2
   %addr.z.3 = zext i32 %ecx to i64  ; 0x4011c8
   %st.p.2 = inttoptr i64 %addr.z.3 to ptr  ; 0x4011c8
@@ -640,21 +611,11 @@ b_4011c0:  ; 0x4011c0
   store i32 0, ptr %st.p.4, align 1  ; 0x4011d8
   %addr.4 = add i32 %stack.arg0.lo, 4  ; 0x4011df
   %ecx.z = zext i32 %addr.4 to i64  ; 0x4011df
-  store i32 %addr.1, ptr %local_mc, align 1  ; 0x4011e2
-  store i32 %addr.4, ptr %local_m10, align 1  ; 0x4011e3
-  %sarg2.d = load i32, ptr %local_m8, align 4
-  %sarg2 = zext i32 %sarg2.d to i64
-  %sarg3.d = load i32, ptr %local_m4, align 4
-  %sarg3 = zext i32 %sarg3.d to i64
-  %sarg4.d = load i32, ptr %local_p0, align 4
-  %sarg4 = zext i32 %sarg4.d to i64
-  %sarg5.d = load i32, ptr %local_p4, align 4
-  %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.d = load i32, ptr %local_p8, align 4
-  %sarg6 = zext i32 %sarg6.d to i64
-  %sarg7.d = load i32, ptr %local_pc, align 4
-  %sarg7 = zext i32 %sarg7.d to i64
-  %ret = call i64 @thunk___std_exception_copy(i64 %ecx.z, i64 %ecx.z, i64 %addr.z.5, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x4011e4
+  %sarg2 = zext i32 undef to i64
+  %sarg5 = zext i32 %stack.arg0.lo to i64
+  %sarg6 = zext i32 %stack.arg1.lo to i64
+  %sarg7 = zext i32 %stack.arg2.lo to i64
+  %ret = call i64 @thunk___std_exception_copy(i64 %ecx.z, i64 %ecx.z, i64 %addr.z.5, i64 %sarg2, i64 %sarg2, i64 %sarg2, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x4011e4
   %eh.pending = call i64 @ra_eh_pending()  ; 0x4011e4
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4011e4
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.4011e4
@@ -675,24 +636,10 @@ eh.ok.4011e4:  ; 0x4011e4
 
 define i64 @F_00401200(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4) {  ; 0x401200
 b_401200:  ; 0x401200
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p0 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg4 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
-  %esi = trunc i64 undef to i32  ; 0x401200
-  store i32 %esi, ptr %local_m4, align 1  ; 0x401200
   %ecx = trunc i64 %arg0 to i32  ; 0x401201
   %addr.z.2 = zext i32 %ecx to i64  ; 0x401207
   %st.p.1 = inttoptr i64 %addr.z.2 to ptr  ; 0x401207
@@ -706,22 +653,13 @@ b_401200:  ; 0x401200
   %st.p.3 = inttoptr i64 %ecx.z to ptr  ; 0x401217
   store i32 0, ptr %st.p.3, align 1  ; 0x401217
   %sum.1 = add i32 %stack.arg0.lo, 4  ; 0x40121e
-  store i32 %sum, ptr %local_m8, align 1  ; 0x401221
-  store i32 %sum.1, ptr %local_mc, align 1  ; 0x401222
   %sarg0 = zext i32 %sum.1 to i64
-  %sarg2.d = load i32, ptr %local_m4, align 4
-  %sarg2 = zext i32 %sarg2.d to i64
-  %sarg3.d = load i32, ptr %local_p0, align 4
-  %sarg3 = zext i32 %sarg3.d to i64
-  %sarg4.d = load i32, ptr %local_p4, align 4
-  %sarg4 = zext i32 %sarg4.d to i64
-  %sarg5.d = load i32, ptr %local_p8, align 4
-  %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.d = load i32, ptr %local_pc, align 4
-  %sarg6 = zext i32 %sarg6.d to i64
-  %sarg7.d = load i32, ptr %local_p10, align 4
-  %sarg7 = zext i32 %sarg7.d to i64
-  %ret = call i64 @thunk___std_exception_copy(i64 %ecx.z, i64 %sarg0, i64 %ecx.z, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x401223
+  %sarg2 = zext i32 undef to i64
+  %sarg4 = zext i32 %stack.arg0.lo to i64
+  %sarg5 = zext i32 %stack.arg1.lo to i64
+  %sarg6 = zext i32 %stack.arg2.lo to i64
+  %sarg7 = zext i32 %stack.arg3.lo to i64
+  %ret = call i64 @thunk___std_exception_copy(i64 %ecx.z, i64 %sarg0, i64 %ecx.z, i64 %sarg2, i64 %sarg2, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x401223
   %eh.pending = call i64 @ra_eh_pending()  ; 0x401223
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x401223
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.401223
@@ -733,47 +671,25 @@ eh.ok.401223:  ; 0x401223
 
 define void @F_00401240(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4, i64 %arg5, i64 %arg6) {  ; 0x401240
 b_401240:  ; 0x401240
-  %local_m4 = alloca i32, align 4
-  %local_p0 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
-  %local_p14 = alloca i32, align 4
-  %local_p18 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg4 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
   %stack.arg4.lo = trunc i64 %arg5 to i32
-  store i32 %stack.arg4.lo, ptr %local_p14, align 4
   %stack.arg5.lo = trunc i64 %arg6 to i32
-  store i32 %stack.arg5.lo, ptr %local_p18, align 4
   %ecx = trunc i64 %arg0 to i32  ; 0x401240
   %addr.z = zext i32 %ecx to i64  ; 0x401240
   %st.p = inttoptr i64 %addr.z to ptr  ; 0x401240
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 328) to i32), ptr %st.p, align 1  ; 0x401240
   %sum = add i32 %ecx, 4  ; 0x401246
   %ecx.z = zext i32 %sum to i64  ; 0x401246
-  store i32 %sum, ptr %local_m4, align 1  ; 0x401249
-  %sarg1.d = load i32, ptr %local_p0, align 4
-  %sarg1 = zext i32 %sarg1.d to i64
-  %sarg2.d = load i32, ptr %local_p4, align 4
-  %sarg2 = zext i32 %sarg2.d to i64
-  %sarg3.d = load i32, ptr %local_p8, align 4
-  %sarg3 = zext i32 %sarg3.d to i64
-  %sarg4.d = load i32, ptr %local_pc, align 4
-  %sarg4 = zext i32 %sarg4.d to i64
-  %sarg5.d = load i32, ptr %local_p10, align 4
-  %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.d = load i32, ptr %local_p14, align 4
-  %sarg6 = zext i32 %sarg6.d to i64
-  %sarg7.d = load i32, ptr %local_p18, align 4
-  %sarg7 = zext i32 %sarg7.d to i64
+  %sarg1 = zext i32 undef to i64
+  %sarg2 = zext i32 %stack.arg0.lo to i64
+  %sarg3 = zext i32 %stack.arg1.lo to i64
+  %sarg4 = zext i32 %stack.arg2.lo to i64
+  %sarg5 = zext i32 %stack.arg3.lo to i64
+  %sarg6 = zext i32 %stack.arg4.lo to i64
+  %sarg7 = zext i32 %stack.arg5.lo to i64
   %ret = call i64 @thunk___std_exception_destroy(i64 %ecx.z, i64 %ecx.z, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x40124a
   %eh.pending = call i64 @ra_eh_pending()  ; 0x40124a
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x40124a
@@ -791,20 +707,11 @@ b_401260:  ; 0x401260
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x401260
   %esp = trunc i64 %rsp0 to i32  ; 0x401260
   %sp = sub i32 %esp, 4  ; 0x401260
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x401260
-  store i32 %ebp, ptr %st.p, align 1  ; 0x401260
   %sp.1 = sub i32 %sp, 4  ; 0x401263
-  %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x401263
-  store i32 %ebp, ptr %st.p.1, align 1  ; 0x401263
   %sp.2 = sub i32 %sp.1, 4  ; 0x401264
-  %st.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -12  ; 0x401264
-  store i32 %ebp, ptr %st.p.2, align 1  ; 0x401264
   %sp.3 = sub i32 %sp.2, 4  ; 0x401265
-  %st.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x401265
-  store i32 %ebp, ptr %st.p.3, align 1  ; 0x401265
   %diff = sub i32 %sp.3, 32  ; 0x401266
   %st.p.4 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x40126c
   store i32 %diff, ptr %st.p.4, align 1  ; 0x40126c
@@ -2105,20 +2012,11 @@ b_4013a0:  ; 0x4013a0
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x4013a0
   %esp = trunc i64 %rsp0 to i32  ; 0x4013a0
   %sp = sub i32 %esp, 4  ; 0x4013a0
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x4013a0
-  store i32 %ebp, ptr %st.p, align 1  ; 0x4013a0
   %sp.1 = sub i32 %sp, 4  ; 0x4013a3
-  %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x4013a3
-  store i32 %ebp, ptr %st.p.1, align 1  ; 0x4013a3
   %sp.2 = sub i32 %sp.1, 4  ; 0x4013a4
-  %st.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -12  ; 0x4013a4
-  store i32 %ebp, ptr %st.p.2, align 1  ; 0x4013a4
   %sp.3 = sub i32 %sp.2, 4  ; 0x4013a5
-  %st.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x4013a5
-  store i32 %ebp, ptr %st.p.3, align 1  ; 0x4013a5
   %diff = sub i32 %sp.3, 32  ; 0x4013a6
   %st.p.4 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x4013ac
   store i32 %diff, ptr %st.p.4, align 1  ; 0x4013ac
@@ -2388,20 +2286,11 @@ b_401470:  ; 0x401470
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x401470
   %esp = trunc i64 %rsp0 to i32  ; 0x401470
   %sp = sub i32 %esp, 4  ; 0x401470
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x401470
-  store i32 %ebp, ptr %st.p, align 1  ; 0x401470
   %sp.1 = sub i32 %sp, 4  ; 0x401473
-  %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x401473
-  store i32 %ebp, ptr %st.p.1, align 1  ; 0x401473
   %sp.2 = sub i32 %sp.1, 4  ; 0x401474
-  %st.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -12  ; 0x401474
-  store i32 %ebp, ptr %st.p.2, align 1  ; 0x401474
   %sp.3 = sub i32 %sp.2, 4  ; 0x401475
-  %st.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x401475
-  store i32 %ebp, ptr %st.p.3, align 1  ; 0x401475
   %diff = sub i32 %sp.3, 32  ; 0x401476
   %st.p.4 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x40147c
   store i32 %diff, ptr %st.p.4, align 1  ; 0x40147c
@@ -3368,20 +3257,11 @@ b_401540:  ; 0x401540
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x401540
   %esp = trunc i64 %rsp0 to i32  ; 0x401540
   %sp = sub i32 %esp, 4  ; 0x401540
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x401540
-  store i32 %ebp, ptr %st.p, align 1  ; 0x401540
   %sp.1 = sub i32 %sp, 4  ; 0x401543
-  %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x401543
-  store i32 %ebp, ptr %st.p.1, align 1  ; 0x401543
   %sp.2 = sub i32 %sp.1, 4  ; 0x401544
-  %st.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -12  ; 0x401544
-  store i32 %ebp, ptr %st.p.2, align 1  ; 0x401544
   %sp.3 = sub i32 %sp.2, 4  ; 0x401545
-  %st.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x401545
-  store i32 %ebp, ptr %st.p.3, align 1  ; 0x401545
   %diff = sub i32 %sp.3, 40  ; 0x401546
   %st.p.4 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x40154c
   store i32 %diff, ptr %st.p.4, align 1  ; 0x40154c
@@ -5931,20 +5811,11 @@ b_4016b0:  ; 0x4016b0
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x4016b0
   %esp = trunc i64 %rsp0 to i32  ; 0x4016b0
   %sp = sub i32 %esp, 4  ; 0x4016b0
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x4016b0
-  store i32 %ebp, ptr %st.p, align 1  ; 0x4016b0
   %sp.1 = sub i32 %sp, 4  ; 0x4016b3
-  %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x4016b3
-  store i32 %ebp, ptr %st.p.1, align 1  ; 0x4016b3
   %sp.2 = sub i32 %sp.1, 4  ; 0x4016b4
-  %st.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -12  ; 0x4016b4
-  store i32 %ebp, ptr %st.p.2, align 1  ; 0x4016b4
   %sp.3 = sub i32 %sp.2, 4  ; 0x4016b5
-  %st.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x4016b5
-  store i32 %ebp, ptr %st.p.3, align 1  ; 0x4016b5
   %diff = sub i32 %sp.3, 32  ; 0x4016b6
   %st.p.4 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x4016bc
   store i32 %diff, ptr %st.p.4, align 1  ; 0x4016bc
@@ -6746,8 +6617,6 @@ eh.ok.401718:  ; 0x401718
 
 define i64 @F_004017c0(i32 %arg0) {  ; 0x4017c0
 b_4017c0:  ; 0x4017c0
-  %local_p4 = alloca i32, align 4
-  store i32 %arg0, ptr %local_p4, align 4
   %addr.z.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 320) to i32) to i64  ; 0x4017c4
   %st.p = inttoptr i64 %addr.z.1 to ptr  ; 0x4017c4
   store i32 %arg0, ptr %st.p, align 1  ; 0x4017c4
@@ -6763,20 +6632,11 @@ b_4017e0:  ; 0x4017e0
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x4017e0
   %esp = trunc i64 %rsp0 to i32  ; 0x4017e0
   %sp = sub i32 %esp, 4  ; 0x4017e0
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x4017e0
-  store i32 %ebp, ptr %st.p, align 1  ; 0x4017e0
   %sp.1 = sub i32 %sp, 4  ; 0x4017e3
-  %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x4017e3
-  store i32 %ebp, ptr %st.p.1, align 1  ; 0x4017e3
   %sp.2 = sub i32 %sp.1, 4  ; 0x4017e4
-  %st.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -12  ; 0x4017e4
-  store i32 %ebp, ptr %st.p.2, align 1  ; 0x4017e4
   %sp.3 = sub i32 %sp.2, 4  ; 0x4017e5
-  %st.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x4017e5
-  store i32 %ebp, ptr %st.p.3, align 1  ; 0x4017e5
   %diff = sub i32 %sp.3, 36  ; 0x4017e6
   %st.p.4 = getelementptr inbounds i8, ptr %frame.top, i64 -40  ; 0x4017ec
   store i32 %diff, ptr %st.p.4, align 1  ; 0x4017ec
@@ -7457,13 +7317,7 @@ eh.access.40185d:  ; 0x4018ed
 
 define i64 @F_004018c0() {  ; 0x4018c0
 b_4018c0:  ; 0x4018c0
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %ebp = trunc i64 undef to i32  ; 0x4018c0
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x4018c0
-  store i32 %ebp, ptr %local_m8, align 1  ; 0x4018c3
-  %addr = add i32 %ebp, -20  ; 0x4018cc
+  %addr = add i32 undef, -20  ; 0x4018cc
   %addr.z.3 = zext i32 %addr to i64  ; 0x4018cc
   %m.p.1 = inttoptr i64 %addr.z.3 to ptr  ; 0x4018cc
   %m.1 = load i32, ptr %m.p.1, align 1  ; 0x4018cc
@@ -7473,13 +7327,12 @@ b_4018c0:  ; 0x4018c0
   %edx.z.1 = zext i32 %m.2 to i64  ; 0x4018cf
   %m.p.3 = inttoptr i64 %edx.z.1 to ptr  ; 0x4018d1
   %m.3 = load i32, ptr %m.p.3, align 1  ; 0x4018d1
-  %diff = sub i32 %ebp, -36  ; 0x4018d8
+  %diff = sub i32 undef, -36  ; 0x4018d8
   %addr.1 = add i32 -48, %diff  ; 0x4018da
   %addr.2 = add i32 %addr.1, -24  ; 0x4018da
   %addr.z.6 = zext i32 %addr.2 to i64  ; 0x4018da
   %st.p.2 = inttoptr i64 %addr.z.6 to ptr  ; 0x4018da
   store i32 %m.3, ptr %st.p.2, align 1  ; 0x4018da
-  store i32 -536866252, ptr %local_mc, align 1  ; 0x4018de
   %ret = call i64 @F_004017c0(i32 -536866252)  ; 0x4018e3
   %eh.pending = call i64 @ra_eh_pending()  ; 0x4018e3
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4018e3
@@ -7573,11 +7426,6 @@ eh.ok.40195f:  ; 0x40195f
 
 define i64 @F_00401970() {  ; 0x401970
 b_401970:  ; 0x401970
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %esi = trunc i64 undef to i32  ; 0x401970
-  store i32 %esi, ptr %local_m4, align 1  ; 0x401970
   %ret = call i64 @F_00401c30()  ; 0x401971
   %eh.pending = call i64 @ra_eh_pending()  ; 0x401971
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x401971
@@ -7588,15 +7436,12 @@ eh.landing:  ; 0x401971
 eh.ok.401971:  ; 0x401971
   %eax = trunc i64 %ret to i32  ; 0x401976
   %sum = add i32 %eax, -6  ; 0x401978
-  store i32 %sum, ptr %local_m8, align 1  ; 0x40197b
   %ret.1 = call i64 @F_00401260(i32 %sum)  ; 0x40197c
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x40197c
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x40197c
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.40197c
 eh.ok.40197c:  ; 0x40197c
   %eax.3 = trunc i64 %ret.1 to i32  ; 0x401984
-  store i32 %eax.3, ptr %local_m8, align 1  ; 0x401984
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 655) to i32), ptr %local_mc, align 1  ; 0x401985
   %ret.2 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 655) to i32), i32 %eax.3)  ; 0x40198a
   %eh.pending.2 = call i64 @ra_eh_pending()  ; 0x40198a
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x40198a
@@ -7605,195 +7450,151 @@ eh.ok.40198a:  ; 0x40198a
   %addr.z.7 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 316) to i32) to i64  ; 0x401992
   %m.p = inttoptr i64 %addr.z.7 to ptr  ; 0x401992
   %m = load i32, ptr %m.p, align 1  ; 0x401992
-  store i32 %m, ptr %local_m8, align 1  ; 0x401992
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), ptr %local_mc, align 1  ; 0x401998
   %ret.3 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m)  ; 0x40199d
   %eh.pending.3 = call i64 @ra_eh_pending()  ; 0x40199d
   %eh.thrown.3 = icmp ne i64 %eh.pending.3, 0  ; 0x40199d
   br i1 %eh.thrown.3, label %eh.landing, label %eh.ok.40199d
 eh.ok.40199d:  ; 0x40199d
   %addr = add i32 %eax, -5  ; 0x4019a5
-  store i32 %addr, ptr %local_m8, align 1  ; 0x4019a8
   %ret.4 = call i64 @F_00401260(i32 %addr)  ; 0x4019a9
   %eh.pending.4 = call i64 @ra_eh_pending()  ; 0x4019a9
   %eh.thrown.4 = icmp ne i64 %eh.pending.4, 0  ; 0x4019a9
   br i1 %eh.thrown.4, label %eh.landing, label %eh.ok.4019a9
 eh.ok.4019a9:  ; 0x4019a9
   %eax.5 = trunc i64 %ret.4 to i32  ; 0x4019b1
-  store i32 %eax.5, ptr %local_m8, align 1  ; 0x4019b1
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 744) to i32), ptr %local_mc, align 1  ; 0x4019b2
   %ret.5 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 744) to i32), i32 %eax.5)  ; 0x4019b7
   %eh.pending.5 = call i64 @ra_eh_pending()  ; 0x4019b7
   %eh.thrown.5 = icmp ne i64 %eh.pending.5, 0  ; 0x4019b7
   br i1 %eh.thrown.5, label %eh.landing, label %eh.ok.4019b7
 eh.ok.4019b7:  ; 0x4019b7
   %m.1 = load i32, ptr %m.p, align 1  ; 0x4019bf
-  store i32 %m.1, ptr %local_m8, align 1  ; 0x4019bf
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), ptr %local_mc, align 1  ; 0x4019c5
   %ret.6 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.1)  ; 0x4019ca
   %eh.pending.6 = call i64 @ra_eh_pending()  ; 0x4019ca
   %eh.thrown.6 = icmp ne i64 %eh.pending.6, 0  ; 0x4019ca
   br i1 %eh.thrown.6, label %eh.landing, label %eh.ok.4019ca
 eh.ok.4019ca:  ; 0x4019ca
   %addr.1 = add i32 %eax, -4  ; 0x4019d2
-  store i32 %addr.1, ptr %local_m8, align 1  ; 0x4019d5
   %ret.7 = call i64 @F_00401260(i32 %addr.1)  ; 0x4019d6
   %eh.pending.7 = call i64 @ra_eh_pending()  ; 0x4019d6
   %eh.thrown.7 = icmp ne i64 %eh.pending.7, 0  ; 0x4019d6
   br i1 %eh.thrown.7, label %eh.landing, label %eh.ok.4019d6
 eh.ok.4019d6:  ; 0x4019d6
   %eax.7 = trunc i64 %ret.7 to i32  ; 0x4019de
-  store i32 %eax.7, ptr %local_m8, align 1  ; 0x4019de
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 760) to i32), ptr %local_mc, align 1  ; 0x4019df
   %ret.8 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 760) to i32), i32 %eax.7)  ; 0x4019e4
   %eh.pending.8 = call i64 @ra_eh_pending()  ; 0x4019e4
   %eh.thrown.8 = icmp ne i64 %eh.pending.8, 0  ; 0x4019e4
   br i1 %eh.thrown.8, label %eh.landing, label %eh.ok.4019e4
 eh.ok.4019e4:  ; 0x4019e4
   %m.2 = load i32, ptr %m.p, align 1  ; 0x4019ec
-  store i32 %m.2, ptr %local_m8, align 1  ; 0x4019ec
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), ptr %local_mc, align 1  ; 0x4019f2
   %ret.9 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.2)  ; 0x4019f7
   %eh.pending.9 = call i64 @ra_eh_pending()  ; 0x4019f7
   %eh.thrown.9 = icmp ne i64 %eh.pending.9, 0  ; 0x4019f7
   br i1 %eh.thrown.9, label %eh.landing, label %eh.ok.4019f7
 eh.ok.4019f7:  ; 0x4019f7
   %addr.2 = add i32 %eax, -3  ; 0x4019ff
-  store i32 %addr.2, ptr %local_m8, align 1  ; 0x401a02
   %ret.10 = call i64 @F_00401260(i32 %addr.2)  ; 0x401a03
   %eh.pending.10 = call i64 @ra_eh_pending()  ; 0x401a03
   %eh.thrown.10 = icmp ne i64 %eh.pending.10, 0  ; 0x401a03
   br i1 %eh.thrown.10, label %eh.landing, label %eh.ok.401a03
 eh.ok.401a03:  ; 0x401a03
   %eax.9 = trunc i64 %ret.10 to i32  ; 0x401a0b
-  store i32 %eax.9, ptr %local_m8, align 1  ; 0x401a0b
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 648) to i32), ptr %local_mc, align 1  ; 0x401a0c
   %ret.11 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 648) to i32), i32 %eax.9)  ; 0x401a11
   %eh.pending.11 = call i64 @ra_eh_pending()  ; 0x401a11
   %eh.thrown.11 = icmp ne i64 %eh.pending.11, 0  ; 0x401a11
   br i1 %eh.thrown.11, label %eh.landing, label %eh.ok.401a11
 eh.ok.401a11:  ; 0x401a11
   %m.3 = load i32, ptr %m.p, align 1  ; 0x401a19
-  store i32 %m.3, ptr %local_m8, align 1  ; 0x401a19
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), ptr %local_mc, align 1  ; 0x401a1f
   %ret.12 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.3)  ; 0x401a24
   %eh.pending.12 = call i64 @ra_eh_pending()  ; 0x401a24
   %eh.thrown.12 = icmp ne i64 %eh.pending.12, 0  ; 0x401a24
   br i1 %eh.thrown.12, label %eh.landing, label %eh.ok.401a24
 eh.ok.401a24:  ; 0x401a24
   %addr.3 = add i32 %eax, -2  ; 0x401a2c
-  store i32 %addr.3, ptr %local_m8, align 1  ; 0x401a2f
   %ret.13 = call i64 @F_00401260(i32 %addr.3)  ; 0x401a30
   %eh.pending.13 = call i64 @ra_eh_pending()  ; 0x401a30
   %eh.thrown.13 = icmp ne i64 %eh.pending.13, 0  ; 0x401a30
   br i1 %eh.thrown.13, label %eh.landing, label %eh.ok.401a30
 eh.ok.401a30:  ; 0x401a30
   %eax.11 = trunc i64 %ret.13 to i32  ; 0x401a38
-  store i32 %eax.11, ptr %local_m8, align 1  ; 0x401a38
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 752) to i32), ptr %local_mc, align 1  ; 0x401a39
   %ret.14 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 752) to i32), i32 %eax.11)  ; 0x401a3e
   %eh.pending.14 = call i64 @ra_eh_pending()  ; 0x401a3e
   %eh.thrown.14 = icmp ne i64 %eh.pending.14, 0  ; 0x401a3e
   br i1 %eh.thrown.14, label %eh.landing, label %eh.ok.401a3e
 eh.ok.401a3e:  ; 0x401a3e
   %m.4 = load i32, ptr %m.p, align 1  ; 0x401a46
-  store i32 %m.4, ptr %local_m8, align 1  ; 0x401a46
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), ptr %local_mc, align 1  ; 0x401a4c
   %ret.15 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.4)  ; 0x401a51
   %eh.pending.15 = call i64 @ra_eh_pending()  ; 0x401a51
   %eh.thrown.15 = icmp ne i64 %eh.pending.15, 0  ; 0x401a51
   br i1 %eh.thrown.15, label %eh.landing, label %eh.ok.401a51
 eh.ok.401a51:  ; 0x401a51
-  store i32 %eax, ptr %local_m8, align 1  ; 0x401a59
   %ret.16 = call i64 @F_00401470(i32 %eax)  ; 0x401a5a
   %eh.pending.16 = call i64 @ra_eh_pending()  ; 0x401a5a
   %eh.thrown.16 = icmp ne i64 %eh.pending.16, 0  ; 0x401a5a
   br i1 %eh.thrown.16, label %eh.landing, label %eh.ok.401a5a
 eh.ok.401a5a:  ; 0x401a5a
   %eax.12 = trunc i64 %ret.16 to i32  ; 0x401a62
-  store i32 %eax.12, ptr %local_m8, align 1  ; 0x401a62
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 662) to i32), ptr %local_mc, align 1  ; 0x401a63
   %ret.17 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 662) to i32), i32 %eax.12)  ; 0x401a68
   %eh.pending.17 = call i64 @ra_eh_pending()  ; 0x401a68
   %eh.thrown.17 = icmp ne i64 %eh.pending.17, 0  ; 0x401a68
   br i1 %eh.thrown.17, label %eh.landing, label %eh.ok.401a68
 eh.ok.401a68:  ; 0x401a68
   %m.5 = load i32, ptr %m.p, align 1  ; 0x401a70
-  store i32 %m.5, ptr %local_m8, align 1  ; 0x401a70
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), ptr %local_mc, align 1  ; 0x401a76
   %ret.18 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.5)  ; 0x401a7b
   %eh.pending.18 = call i64 @ra_eh_pending()  ; 0x401a7b
   %eh.thrown.18 = icmp ne i64 %eh.pending.18, 0  ; 0x401a7b
   br i1 %eh.thrown.18, label %eh.landing, label %eh.ok.401a7b
 eh.ok.401a7b:  ; 0x401a7b
-  store i32 %eax, ptr %local_m8, align 1  ; 0x401a83
   %ret.19 = call i64 @F_00401540(i32 %eax)  ; 0x401a84
   %eh.pending.19 = call i64 @ra_eh_pending()  ; 0x401a84
   %eh.thrown.19 = icmp ne i64 %eh.pending.19, 0  ; 0x401a84
   br i1 %eh.thrown.19, label %eh.landing, label %eh.ok.401a84
 eh.ok.401a84:  ; 0x401a84
   %eax.13 = trunc i64 %ret.19 to i32  ; 0x401a8c
-  store i32 %eax.13, ptr %local_m8, align 1  ; 0x401a8c
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 767) to i32), ptr %local_mc, align 1  ; 0x401a8d
   %ret.20 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 767) to i32), i32 %eax.13)  ; 0x401a92
   %eh.pending.20 = call i64 @ra_eh_pending()  ; 0x401a92
   %eh.thrown.20 = icmp ne i64 %eh.pending.20, 0  ; 0x401a92
   br i1 %eh.thrown.20, label %eh.landing, label %eh.ok.401a92
 eh.ok.401a92:  ; 0x401a92
   %m.6 = load i32, ptr %m.p, align 1  ; 0x401a9a
-  store i32 %m.6, ptr %local_m8, align 1  ; 0x401a9a
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), ptr %local_mc, align 1  ; 0x401aa0
   %ret.21 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.6)  ; 0x401aa5
   %eh.pending.21 = call i64 @ra_eh_pending()  ; 0x401aa5
   %eh.thrown.21 = icmp ne i64 %eh.pending.21, 0  ; 0x401aa5
   br i1 %eh.thrown.21, label %eh.landing, label %eh.ok.401aa5
 eh.ok.401aa5:  ; 0x401aa5
-  store i32 %eax, ptr %local_m8, align 1  ; 0x401aad
   %ret.22 = call i64 @F_004016b0(i32 %eax)  ; 0x401aae
   %eh.pending.22 = call i64 @ra_eh_pending()  ; 0x401aae
   %eh.thrown.22 = icmp ne i64 %eh.pending.22, 0  ; 0x401aae
   br i1 %eh.thrown.22, label %eh.landing, label %eh.ok.401aae
 eh.ok.401aae:  ; 0x401aae
   %eax.14 = trunc i64 %ret.22 to i32  ; 0x401ab6
-  store i32 %eax.14, ptr %local_m8, align 1  ; 0x401ab6
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 678) to i32), ptr %local_mc, align 1  ; 0x401ab7
   %ret.23 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 678) to i32), i32 %eax.14)  ; 0x401abc
   %eh.pending.23 = call i64 @ra_eh_pending()  ; 0x401abc
   %eh.thrown.23 = icmp ne i64 %eh.pending.23, 0  ; 0x401abc
   br i1 %eh.thrown.23, label %eh.landing, label %eh.ok.401abc
 eh.ok.401abc:  ; 0x401abc
   %m.7 = load i32, ptr %m.p, align 1  ; 0x401ac4
-  store i32 %m.7, ptr %local_m8, align 1  ; 0x401ac4
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), ptr %local_mc, align 1  ; 0x401aca
   %ret.24 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.7)  ; 0x401acf
   %eh.pending.24 = call i64 @ra_eh_pending()  ; 0x401acf
   %eh.thrown.24 = icmp ne i64 %eh.pending.24, 0  ; 0x401acf
   br i1 %eh.thrown.24, label %eh.landing, label %eh.ok.401acf
 eh.ok.401acf:  ; 0x401acf
-  store i32 %eax, ptr %local_m8, align 1  ; 0x401ad7
   %ret.25 = call i64 @F_004017e0(i32 %eax)  ; 0x401ad8
   %eh.pending.25 = call i64 @ra_eh_pending()  ; 0x401ad8
   %eh.thrown.25 = icmp ne i64 %eh.pending.25, 0  ; 0x401ad8
   br i1 %eh.thrown.25, label %eh.landing, label %eh.ok.401ad8
 eh.ok.401ad8:  ; 0x401ad8
   %eax.15 = trunc i64 %ret.25 to i32  ; 0x401ae0
-  store i32 %eax.15, ptr %local_m8, align 1  ; 0x401ae0
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 723) to i32), ptr %local_mc, align 1  ; 0x401ae1
   %ret.26 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 723) to i32), i32 %eax.15)  ; 0x401ae6
   %eh.pending.26 = call i64 @ra_eh_pending()  ; 0x401ae6
   %eh.thrown.26 = icmp ne i64 %eh.pending.26, 0  ; 0x401ae6
   br i1 %eh.thrown.26, label %eh.landing, label %eh.ok.401ae6
 eh.ok.401ae6:  ; 0x401ae6
-  store i32 %eax, ptr %local_m8, align 1  ; 0x401aee
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 324) to i32), ptr %local_mc, align 1  ; 0x401aef
   %ret.27 = call i64 @F_00401900(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 324) to i32), i32 %eax)  ; 0x401af4
   %eh.pending.27 = call i64 @ra_eh_pending()  ; 0x401af4
   %eh.thrown.27 = icmp ne i64 %eh.pending.27, 0  ; 0x401af4
   br i1 %eh.thrown.27, label %eh.landing, label %eh.ok.401af4
 eh.ok.401af4:  ; 0x401af4
   %eax.16 = trunc i64 %ret.27 to i32  ; 0x401afc
-  store i32 %eax.16, ptr %local_m8, align 1  ; 0x401afc
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 709) to i32), ptr %local_mc, align 1  ; 0x401afd
   %ret.28 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 709) to i32), i32 %eax.16)  ; 0x401b02
   %eh.pending.28 = call i64 @ra_eh_pending()  ; 0x401b02
   %eh.thrown.28 = icmp ne i64 %eh.pending.28, 0  ; 0x401b02
@@ -7816,22 +7617,15 @@ define i64 @Base_vf0(i64 %arg0, i64 %arg1) {  ; 0x401b30
 b_401b30:  ; 0x401b30
   %frame = alloca [124 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
   store i32 %stack.arg0.lo, ptr %stack.arg0.p, align 4
-  %esi = trunc i64 undef to i32  ; 0x401b30
-  store i32 %esi, ptr %local_m4, align 1  ; 0x401b30
   %ecx = trunc i64 %arg0 to i32  ; 0x401b31
   %m = load i8, ptr %stack.arg0.p, align 1  ; 0x401b33
   %logic = and i8 %m, 1  ; 0x401b33
   %zf = icmp eq i8 %logic, 0  ; 0x401b33
   br i1 %zf, label %b_401b45, label %b_401b3a
 b_401b3a:  ; 0x401b3a
-  store i32 8, ptr %local_m8, align 1  ; 0x401b3a
-  store i32 %ecx, ptr %local_mc, align 1  ; 0x401b3c
   %ret = call i64 @F_00402530(i32 %ecx)  ; 0x401b3d
   %eh.pending = call i64 @ra_eh_pending()  ; 0x401b3d
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x401b3d
@@ -7868,55 +7662,31 @@ define i64 @std_exception_vf0(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %a
 b_401b70:  ; 0x401b70
   %frame = alloca [140 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p0 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
-  %local_p14 = alloca i32, align 4
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
   store i32 %stack.arg0.lo, ptr %stack.arg0.p, align 4
   %stack.arg1.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg4 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
   %stack.arg4.lo = trunc i64 %arg5 to i32
-  store i32 %stack.arg4.lo, ptr %local_p14, align 4
-  %esi = trunc i64 undef to i32  ; 0x401b70
-  store i32 %esi, ptr %local_m4, align 1  ; 0x401b70
   %ecx = trunc i64 %arg0 to i32  ; 0x401b71
   %esi.z = zext i32 %ecx to i64  ; 0x401b71
   %st.p.1 = inttoptr i64 %esi.z to ptr  ; 0x401b73
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 328) to i32), ptr %st.p.1, align 1  ; 0x401b73
   %addr = add i32 %ecx, 4  ; 0x401b79
-  store i32 %addr, ptr %local_m8, align 1  ; 0x401b7c
   %sarg0 = zext i32 %addr to i64
-  %sarg1.d = load i32, ptr %local_m4, align 4
-  %sarg1 = zext i32 %sarg1.d to i64
-  %sarg2.d = load i32, ptr %local_p0, align 4
-  %sarg2 = zext i32 %sarg2.d to i64
+  %sarg1 = zext i32 undef to i64
   %sarg3.d = load i32, ptr %stack.arg0.p, align 4
   %sarg3 = zext i32 %sarg3.d to i64
-  %sarg4.d = load i32, ptr %local_p8, align 4
-  %sarg4 = zext i32 %sarg4.d to i64
-  %sarg5.d = load i32, ptr %local_pc, align 4
-  %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.d = load i32, ptr %local_p10, align 4
-  %sarg6 = zext i32 %sarg6.d to i64
-  %sarg7.d = load i32, ptr %local_p14, align 4
-  %sarg7 = zext i32 %sarg7.d to i64
-  %ret = call i64 @thunk___std_exception_destroy(i64 %arg0, i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x401b7d
+  %sarg4 = zext i32 %stack.arg1.lo to i64
+  %sarg5 = zext i32 %stack.arg2.lo to i64
+  %sarg6 = zext i32 %stack.arg3.lo to i64
+  %sarg7 = zext i32 %stack.arg4.lo to i64
+  %ret = call i64 @thunk___std_exception_destroy(i64 %arg0, i64 %sarg0, i64 %sarg1, i64 %sarg1, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x401b7d
   %eh.pending = call i64 @ra_eh_pending()  ; 0x401b7d
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x401b7d
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.401b7d
 b_401b8c:  ; 0x401b8c
-  store i32 12, ptr %local_m8, align 1  ; 0x401b8c
-  store i32 %ecx, ptr %local_mc, align 1  ; 0x401b8e
   %ret.1 = call i64 @F_00402530(i32 %ecx)  ; 0x401b8f
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x401b8f
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x401b8f
@@ -7939,55 +7709,31 @@ define i64 @Problem_vf0(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4, i
 b_401ba0:  ; 0x401ba0
   %frame = alloca [140 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p0 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
-  %local_p14 = alloca i32, align 4
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
   store i32 %stack.arg0.lo, ptr %stack.arg0.p, align 4
   %stack.arg1.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg4 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
   %stack.arg4.lo = trunc i64 %arg5 to i32
-  store i32 %stack.arg4.lo, ptr %local_p14, align 4
-  %esi = trunc i64 undef to i32  ; 0x401ba0
-  store i32 %esi, ptr %local_m4, align 1  ; 0x401ba0
   %ecx = trunc i64 %arg0 to i32  ; 0x401ba1
   %esi.z = zext i32 %ecx to i64  ; 0x401ba1
   %st.p.1 = inttoptr i64 %esi.z to ptr  ; 0x401ba3
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 328) to i32), ptr %st.p.1, align 1  ; 0x401ba3
   %addr = add i32 %ecx, 4  ; 0x401ba9
-  store i32 %addr, ptr %local_m8, align 1  ; 0x401bac
   %sarg0 = zext i32 %addr to i64
-  %sarg1.d = load i32, ptr %local_m4, align 4
-  %sarg1 = zext i32 %sarg1.d to i64
-  %sarg2.d = load i32, ptr %local_p0, align 4
-  %sarg2 = zext i32 %sarg2.d to i64
+  %sarg1 = zext i32 undef to i64
   %sarg3.d = load i32, ptr %stack.arg0.p, align 4
   %sarg3 = zext i32 %sarg3.d to i64
-  %sarg4.d = load i32, ptr %local_p8, align 4
-  %sarg4 = zext i32 %sarg4.d to i64
-  %sarg5.d = load i32, ptr %local_pc, align 4
-  %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.d = load i32, ptr %local_p10, align 4
-  %sarg6 = zext i32 %sarg6.d to i64
-  %sarg7.d = load i32, ptr %local_p14, align 4
-  %sarg7 = zext i32 %sarg7.d to i64
-  %ret = call i64 @thunk___std_exception_destroy(i64 %arg0, i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x401bad
+  %sarg4 = zext i32 %stack.arg1.lo to i64
+  %sarg5 = zext i32 %stack.arg2.lo to i64
+  %sarg6 = zext i32 %stack.arg3.lo to i64
+  %sarg7 = zext i32 %stack.arg4.lo to i64
+  %ret = call i64 @thunk___std_exception_destroy(i64 %arg0, i64 %sarg0, i64 %sarg1, i64 %sarg1, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x401bad
   %eh.pending = call i64 @ra_eh_pending()  ; 0x401bad
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x401bad
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.401bad
 b_401bbc:  ; 0x401bbc
-  store i32 16, ptr %local_m8, align 1  ; 0x401bbc
-  store i32 %ecx, ptr %local_mc, align 1  ; 0x401bbe
   %ret.1 = call i64 @F_00402530(i32 %ecx)  ; 0x401bbf
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x401bbf
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x401bbf
@@ -8008,133 +7754,61 @@ eh.ok.401bbf:  ; 0x401bbf
 
 define i64 @F_00401bd0(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x401bd0
 b_401bd0:  ; 0x401bd0
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
-  %sarg3 = zext i32 %stack.arg3.lo to i64
-  %ret = call i64 @thunk___CxxFrameHandler3(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3)  ; 0x401bd5
+  %ret = call i64 @thunk___CxxFrameHandler3(i32 %stack.arg0.lo, i32 %stack.arg1.lo, i32 %stack.arg2.lo, i32 %stack.arg3.lo)  ; 0x401bd5
   ret i64 %ret
 }
 
 define i64 @F_00401be0(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x401be0
 b_401be0:  ; 0x401be0
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
-  %sarg3 = zext i32 %stack.arg3.lo to i64
-  %ret = call i64 @thunk___CxxFrameHandler3(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3)  ; 0x401be5
+  %ret = call i64 @thunk___CxxFrameHandler3(i32 %stack.arg0.lo, i32 %stack.arg1.lo, i32 %stack.arg2.lo, i32 %stack.arg3.lo)  ; 0x401be5
   ret i64 %ret
 }
 
 define i64 @F_00401bf0(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x401bf0
 b_401bf0:  ; 0x401bf0
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
-  %sarg3 = zext i32 %stack.arg3.lo to i64
-  %ret = call i64 @thunk___CxxFrameHandler3(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3)  ; 0x401bf5
+  %ret = call i64 @thunk___CxxFrameHandler3(i32 %stack.arg0.lo, i32 %stack.arg1.lo, i32 %stack.arg2.lo, i32 %stack.arg3.lo)  ; 0x401bf5
   ret i64 %ret
 }
 
 define i64 @F_00401c00(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x401c00
 b_401c00:  ; 0x401c00
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
-  %sarg3 = zext i32 %stack.arg3.lo to i64
-  %ret = call i64 @thunk___CxxFrameHandler3(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3)  ; 0x401c05
+  %ret = call i64 @thunk___CxxFrameHandler3(i32 %stack.arg0.lo, i32 %stack.arg1.lo, i32 %stack.arg2.lo, i32 %stack.arg3.lo)  ; 0x401c05
   ret i64 %ret
 }
 
 define i64 @F_00401c10(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x401c10
 b_401c10:  ; 0x401c10
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
-  %sarg3 = zext i32 %stack.arg3.lo to i64
-  %ret = call i64 @thunk___CxxFrameHandler3(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3)  ; 0x401c15
+  %ret = call i64 @thunk___CxxFrameHandler3(i32 %stack.arg0.lo, i32 %stack.arg1.lo, i32 %stack.arg2.lo, i32 %stack.arg3.lo)  ; 0x401c15
   ret i64 %ret
 }
 
 define i64 @F_00401c20(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x401c20
 b_401c20:  ; 0x401c20
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
-  %sarg3 = zext i32 %stack.arg3.lo to i64
-  %ret = call i64 @thunk___CxxFrameHandler3(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3)  ; 0x401c25
+  %ret = call i64 @thunk___CxxFrameHandler3(i32 %stack.arg0.lo, i32 %stack.arg1.lo, i32 %stack.arg2.lo, i32 %stack.arg3.lo)  ; 0x401c25
   ret i64 %ret
 }
 
@@ -8156,20 +7830,11 @@ b_401c40:  ; 0x401c40
   store i32 %arg0, ptr %stack.arg0.p, align 4
   %stack.arg1.p = getelementptr inbounds i8, ptr %frame.top, i64 8
   store i32 %arg1, ptr %stack.arg1.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x401c40
   %esp = trunc i64 %rsp0 to i32  ; 0x401c40
   %sp = sub i32 %esp, 4  ; 0x401c40
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x401c40
-  store i32 %ebp, ptr %st.p, align 1  ; 0x401c40
   %sp.1 = sub i32 %sp, 4  ; 0x401c41
-  %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x401c41
-  store i32 %ebp, ptr %st.p.1, align 1  ; 0x401c41
   %sp.2 = sub i32 %sp.1, 4  ; 0x401c42
-  %st.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -12  ; 0x401c42
-  store i32 %ebp, ptr %st.p.2, align 1  ; 0x401c42
   %sp.3 = sub i32 %sp.2, 4  ; 0x401c43
-  %st.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x401c43
-  store i32 %ebp, ptr %st.p.3, align 1  ; 0x401c43
   %diff = sub i32 %sp.3, 20  ; 0x401c44
   %esi.z = zext i32 %arg0 to i64  ; 0x401c47
   %addr.z.5 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32) to i64  ; 0x401c4b
@@ -8813,20 +8478,11 @@ b_402070:  ; 0x402070
   %frame = alloca [168 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 92
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %ebp = trunc i64 undef to i32  ; 0x402070
   %esp = trunc i64 %rsp0 to i32  ; 0x402070
   %sp = sub i32 %esp, 4  ; 0x402070
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x402070
-  store i32 %ebp, ptr %st.p, align 1  ; 0x402070
   %sp.1 = sub i32 %sp, 4  ; 0x402071
-  %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x402071
-  store i32 %ebp, ptr %st.p.1, align 1  ; 0x402071
   %sp.2 = sub i32 %sp.1, 4  ; 0x402072
-  %st.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -12  ; 0x402072
-  store i32 %ebp, ptr %st.p.2, align 1  ; 0x402072
   %sp.3 = sub i32 %sp.2, 4  ; 0x402073
-  %st.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -16  ; 0x402073
-  store i32 %ebp, ptr %st.p.3, align 1  ; 0x402073
   %diff = sub i32 %sp.3, 20  ; 0x402074
   %esp.z.4 = zext i32 %diff to i64  ; 0x402074
   %addr.z.4 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32) to i64  ; 0x402077
@@ -8978,11 +8634,8 @@ b_4021a0:  ; 0x4021a0
   %frame = alloca [136 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 60
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %esi = trunc i64 undef to i32  ; 0x4021a0
   %esp = trunc i64 %rsp0 to i32  ; 0x4021a0
   %sp = sub i32 %esp, 4  ; 0x4021a0
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x4021a0
-  store i32 %esi, ptr %st.p, align 1  ; 0x4021a0
   %diff = sub i32 %sp, 8  ; 0x4021a1
   %addr.z.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32) to i64  ; 0x4021a4
   %m.p = inttoptr i64 %addr.z.1 to ptr  ; 0x4021a4
@@ -9424,13 +9077,6 @@ eh.ok.40251c:  ; 0x40251c
 
 define i64 @F_00402530(i32 %arg0) {  ; 0x402530
 b_402530:  ; 0x402530
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  store i32 %arg0, ptr %local_p4, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402530
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402530
-  store i32 %arg0, ptr %local_m8, align 1  ; 0x402533
   %ret = call i64 @F_00402580(i32 %arg0)  ; 0x402536
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402536
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402536
@@ -9445,27 +9091,18 @@ define i64 @type_info_vf0(i64 %arg0, i64 %arg1) {  ; 0x402540
 b_402540:  ; 0x402540
   %frame = alloca [140 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 60
-  %local_m10 = alloca i32, align 4
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
   store i32 %stack.arg0.lo, ptr %stack.arg0.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402540
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402540
   %m = load i8, ptr %stack.arg0.p, align 1  ; 0x402543
   %logic = and i8 %m, 1  ; 0x402543
   %zf = icmp eq i8 %logic, 0  ; 0x402543
-  store i32 %ebp, ptr %local_m8, align 1  ; 0x402547
   %ecx = trunc i64 %arg0 to i32  ; 0x402548
   %esi.z = zext i32 %ecx to i64  ; 0x402548
   %st.p.2 = inttoptr i64 %esi.z to ptr  ; 0x40254a
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), ptr %st.p.2, align 1  ; 0x40254a
   br i1 %zf, label %b_40255d, label %b_402552
 b_402552:  ; 0x402552
-  store i32 12, ptr %local_mc, align 1  ; 0x402552
-  store i32 %ecx, ptr %local_m10, align 1  ; 0x402554
   %ret = call i64 @F_00402530(i32 %ecx)  ; 0x402555
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402555
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402555
@@ -9495,10 +9132,7 @@ b_402579:  ; 0x402579
 
 define i64 @F_00402580(i32 %arg0) {  ; 0x402580
 b_402580:  ; 0x402580
-  %local_p4 = alloca i32, align 4
-  store i32 %arg0, ptr %local_p4, align 4
-  %sarg0 = zext i32 %arg0 to i64
-  %ret = call i64 @thunk_free(i64 %sarg0)  ; 0x402580
+  %ret = call i64 @thunk_free(i32 %arg0)  ; 0x402580
   ret i64 %ret
 }
 
@@ -9511,14 +9145,7 @@ b_402590:  ; 0x402590
 
 define void @F_004025a0() {  ; 0x4025a0
 b_4025a0:  ; 0x4025a0
-  %local_m10 = alloca i32, align 4
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %esi = trunc i64 undef to i32  ; 0x4025a0
-  store i32 %esi, ptr %local_m4, align 1  ; 0x4025a0
-  store i32 1, ptr %local_m8, align 1  ; 0x4025a1
-  %ret = call i64 @thunk__set_app_type(i64 1)  ; 0x4025a3
+  call void @thunk__set_app_type(i32 1)  ; 0x4025a3
   %eh.pending = call i64 @ra_eh_pending()  ; 0x4025a3
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4025a3
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.4025a3
@@ -9537,9 +9164,7 @@ b_4025f3:  ; 0x4025f3
   %eh.thrown.10 = icmp ne i64 %eh.pending.10, 0  ; 0x4025f3
   br i1 %eh.thrown.10, label %eh.landing, label %eh.ok.4025f3
 b_402601:  ; 0x402601
-  store i32 ptrtoint (ptr @U_00402c30 to i32), ptr %local_m4, align 1  ; 0x402601
-  %sarg0.5 = zext i32 ptrtoint (ptr @U_00402c30 to i32) to i64
-  %ret.9 = call i64 @thunk___setusermatherr(i64 %sarg0.5)  ; 0x402606
+  call void @thunk___setusermatherr(i32 ptrtoint (ptr @U_00402c30 to i32))  ; 0x402606
   %eh.pending.12 = call i64 @ra_eh_pending()  ; 0x402606
   %eh.thrown.12 = icmp ne i64 %eh.pending.12, 0  ; 0x402606
   br i1 %eh.thrown.12, label %eh.landing, label %eh.ok.402606
@@ -9549,94 +9174,86 @@ b_40260e:  ; 0x40260e
   %eh.thrown.13 = icmp ne i64 %eh.pending.13, 0  ; 0x40260e
   br i1 %eh.thrown.13, label %eh.landing, label %eh.ok.40260e
 b_402634:  ; 0x402634
-  %ret.13 = call i64 @thunk__initialize_narrow_environment()  ; 0x402634
+  call void @thunk__initialize_narrow_environment()  ; 0x402634
   %eh.pending.19 = call i64 @ra_eh_pending()  ; 0x402634
   %eh.thrown.19 = icmp ne i64 %eh.pending.19, 0  ; 0x402634
   br i1 %eh.thrown.19, label %eh.landing, label %eh.ok.402634
 b_402639:  ; 0x402639
-  %ret.14 = call i64 @F_00402c30()  ; 0x402639
+  %ret.9 = call i64 @F_00402c30()  ; 0x402639
   %eh.pending.20 = call i64 @ra_eh_pending()  ; 0x402639
   %eh.thrown.20 = icmp ne i64 %eh.pending.20, 0  ; 0x402639
   br i1 %eh.thrown.20, label %eh.landing, label %eh.ok.402639
 b_402647:  ; 0x402647
   ret void
 b_402648:  ; 0x402648
-  store i32 7, ptr %local_m4, align 1  ; 0x402648
-  call void @F_00402da0(i32 7)  ; 0x40264a
+  call void @F_00402da0(i64 7)  ; 0x40264a
   %eh.pending.22 = call i64 @ra_eh_pending()  ; 0x40264a
   %eh.thrown.22 = icmp ne i64 %eh.pending.22, 0  ; 0x40264a
   br i1 %eh.thrown.22, label %eh.landing, label %eh.ok.40264a
 eh.landing:  ; 0x4025a3
   ret void
 eh.ok.4025a3:  ; 0x4025a3
-  %ret.1 = call i64 @F_00402c50()  ; 0x4025a8
+  %ret = call i64 @F_00402c50()  ; 0x4025a8
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x4025a8
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x4025a8
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.4025a8
 eh.ok.4025a8:  ; 0x4025a8
-  %eax = trunc i64 %ret.1 to i32  ; 0x4025ad
-  store i32 %eax, ptr %local_mc, align 1  ; 0x4025ad
-  %sarg0.1 = zext i32 %eax to i64
-  %ret.2 = call i64 @thunk__set_fmode(i64 %sarg0.1)  ; 0x4025ae
+  %eax = trunc i64 %ret to i32  ; 0x4025ad
+  call void @thunk__set_fmode(i32 %eax)  ; 0x4025ae
   %eh.pending.2 = call i64 @ra_eh_pending()  ; 0x4025ae
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x4025ae
   br i1 %eh.thrown.2, label %eh.landing, label %eh.ok.4025ae
 eh.ok.4025ae:  ; 0x4025ae
-  %ret.3 = call i64 @F_00402c30()  ; 0x4025b3
+  %ret.1 = call i64 @F_00402c30()  ; 0x4025b3
   %eh.pending.3 = call i64 @ra_eh_pending()  ; 0x4025b3
   %eh.thrown.3 = icmp ne i64 %eh.pending.3, 0  ; 0x4025b3
   br i1 %eh.thrown.3, label %eh.landing, label %eh.ok.4025b3
 eh.ok.4025b3:  ; 0x4025b3
-  %eax.1 = trunc i64 %ret.3 to i32  ; 0x4025b8
-  %ret.4 = call i64 @thunk___p__commode()  ; 0x4025ba
+  %eax.1 = trunc i64 %ret.1 to i32  ; 0x4025b8
+  %ret.2 = call i64 @thunk___p__commode()  ; 0x4025ba
   %eh.pending.4 = call i64 @ra_eh_pending()  ; 0x4025ba
   %eh.thrown.4 = icmp ne i64 %eh.pending.4, 0  ; 0x4025ba
   br i1 %eh.thrown.4, label %eh.landing, label %eh.ok.4025ba
 eh.ok.4025ba:  ; 0x4025ba
-  store i32 1, ptr %local_m10, align 1  ; 0x4025bf
-  %eax.2 = trunc i64 %ret.4 to i32  ; 0x4025c1
+  %eax.2 = trunc i64 %ret.2 to i32  ; 0x4025c1
   %addr.z.9 = zext i32 %eax.2 to i64  ; 0x4025c1
   %st.p.9 = inttoptr i64 %addr.z.9 to ptr  ; 0x4025c1
   store i32 %eax.1, ptr %st.p.9, align 1  ; 0x4025c1
-  %sarg0.d.2 = load i32, ptr %local_m10, align 4
-  %ret.5 = call i64 @F_00402a80(i32 %sarg0.d.2)  ; 0x4025c3
+  %ret.3 = call i64 @F_00402a80(i32 1)  ; 0x4025c3
   %eh.pending.5 = call i64 @ra_eh_pending()  ; 0x4025c3
   %eh.thrown.5 = icmp ne i64 %eh.pending.5, 0  ; 0x4025c3
   br i1 %eh.thrown.5, label %eh.landing, label %eh.ok.4025c3
 eh.ok.4025c3:  ; 0x4025c3
-  %al = trunc i64 %ret.5 to i8  ; 0x4025cc
+  %al = trunc i64 %ret.3 to i8  ; 0x4025cc
   %zf.1 = icmp eq i8 %al, 0  ; 0x4025cc
   br i1 %zf.1, label %b_402648, label %b_4025d0
 eh.ok.4025d2:  ; 0x4025d2
-  store i32 ptrtoint (ptr @U_00402e40 to i32), ptr %local_m4, align 1  ; 0x4025d7
   call void @F_00402880(i32 ptrtoint (ptr @U_00402e40 to i32))  ; 0x4025dc
   %eh.pending.7 = call i64 @ra_eh_pending()  ; 0x4025dc
   %eh.thrown.7 = icmp ne i64 %eh.pending.7, 0  ; 0x4025dc
   br i1 %eh.thrown.7, label %eh.landing, label %eh.ok.4025dc
 eh.ok.4025dc:  ; 0x4025dc
-  %ret.6 = call i64 @F_00402c40()  ; 0x4025e1
+  %ret.4 = call i64 @F_00402c40()  ; 0x4025e1
   %eh.pending.8 = call i64 @ra_eh_pending()  ; 0x4025e1
   %eh.thrown.8 = icmp ne i64 %eh.pending.8, 0  ; 0x4025e1
   br i1 %eh.thrown.8, label %eh.landing, label %eh.ok.4025e1
 eh.ok.4025e1:  ; 0x4025e1
-  %eax.3 = trunc i64 %ret.6 to i32  ; 0x4025e6
-  store i32 %eax.3, ptr %local_m8, align 1  ; 0x4025e6
-  %sarg0.4 = zext i32 %eax.3 to i64
-  %ret.7 = call i64 @thunk__configure_narrow_argv(i64 %sarg0.4)  ; 0x4025e7
+  %eax.3 = trunc i64 %ret.4 to i32  ; 0x4025e6
+  %ret.5 = call i64 @thunk__configure_narrow_argv(i32 %eax.3)  ; 0x4025e7
   %eh.pending.9 = call i64 @ra_eh_pending()  ; 0x4025e7
   %eh.thrown.9 = icmp ne i64 %eh.pending.9, 0  ; 0x4025e7
   br i1 %eh.thrown.9, label %eh.landing, label %eh.ok.4025e7
 eh.ok.4025e7:  ; 0x4025e7
-  %eax.4 = trunc i64 %ret.7 to i32  ; 0x4025ef
+  %eax.4 = trunc i64 %ret.5 to i32  ; 0x4025ef
   %not = icmp ne i32 %eax.4, 0  ; 0x4025f1
   br i1 %not, label %b_402648, label %b_4025f3
 eh.ok.4025f3:  ; 0x4025f3
-  %ret.8 = call i64 @F_00402d00()  ; 0x4025f8
+  %ret.6 = call i64 @F_00402d00()  ; 0x4025f8
   %eh.pending.11 = call i64 @ra_eh_pending()  ; 0x4025f8
   %eh.thrown.11 = icmp ne i64 %eh.pending.11, 0  ; 0x4025f8
   br i1 %eh.thrown.11, label %eh.landing, label %eh.ok.4025f8
 eh.ok.4025f8:  ; 0x4025f8
-  %eax.6 = trunc i64 %ret.8 to i32  ; 0x4025fd
+  %eax.6 = trunc i64 %ret.6 to i32  ; 0x4025fd
   %zf.6 = icmp eq i32 %eax.6, 0  ; 0x4025fd
   br i1 %zf.6, label %b_40260e, label %b_402601
 eh.ok.402606:  ; 0x402606
@@ -9652,35 +9269,33 @@ eh.ok.402613:  ; 0x402613
   %eh.thrown.15 = icmp ne i64 %eh.pending.15, 0  ; 0x402618
   br i1 %eh.thrown.15, label %eh.landing, label %eh.ok.402618
 eh.ok.402618:  ; 0x402618
-  %ret.10 = call i64 @F_00402c30()  ; 0x40261d
+  %ret.7 = call i64 @F_00402c30()  ; 0x40261d
   %eh.pending.16 = call i64 @ra_eh_pending()  ; 0x40261d
   %eh.thrown.16 = icmp ne i64 %eh.pending.16, 0  ; 0x40261d
   br i1 %eh.thrown.16, label %eh.landing, label %eh.ok.40261d
 eh.ok.40261d:  ; 0x40261d
-  %eax.8 = trunc i64 %ret.10 to i32  ; 0x402622
-  store i32 %eax.8, ptr %local_m4, align 1  ; 0x402622
-  %sarg0.6 = zext i32 %eax.8 to i64
-  %ret.11 = call i64 @thunk__configthreadlocale(i64 %sarg0.6)  ; 0x402623
+  %eax.8 = trunc i64 %ret.7 to i32  ; 0x402622
+  call void @thunk__configthreadlocale(i32 %eax.8)  ; 0x402623
   %eh.pending.17 = call i64 @ra_eh_pending()  ; 0x402623
   %eh.thrown.17 = icmp ne i64 %eh.pending.17, 0  ; 0x402623
   br i1 %eh.thrown.17, label %eh.landing, label %eh.ok.402623
 eh.ok.402623:  ; 0x402623
-  %ret.12 = call i8 @F_00402c70()  ; 0x40262b
+  %ret.8 = call i8 @F_00402c70()  ; 0x40262b
   %eh.pending.18 = call i64 @ra_eh_pending()  ; 0x40262b
   %eh.thrown.18 = icmp ne i64 %eh.pending.18, 0  ; 0x40262b
   br i1 %eh.thrown.18, label %eh.landing, label %eh.ok.40262b
 eh.ok.40262b:  ; 0x40262b
-  %zf.10 = icmp eq i8 %ret.12, 0  ; 0x402630
+  %zf.10 = icmp eq i8 %ret.8, 0  ; 0x402630
   br i1 %zf.10, label %b_402639, label %b_402634
 eh.ok.402634:  ; 0x402634
   br label %b_402639
 eh.ok.402639:  ; 0x402639
-  %ret.15 = call i64 @F_00402d80()  ; 0x40263e
+  %ret.10 = call i64 @F_00402d80()  ; 0x40263e
   %eh.pending.21 = call i64 @ra_eh_pending()  ; 0x40263e
   %eh.thrown.21 = icmp ne i64 %eh.pending.21, 0  ; 0x40263e
   br i1 %eh.thrown.21, label %eh.landing, label %eh.ok.40263e
 eh.ok.40263e:  ; 0x40263e
-  %eax.9 = trunc i64 %ret.15 to i32  ; 0x402643
+  %eax.9 = trunc i64 %ret.10 to i32  ; 0x402643
   %not.1 = icmp ne i32 %eax.9, 0  ; 0x402645
   br i1 %not.1, label %b_402648, label %b_402647
 eh.ok.40264a:  ; 0x40264a
@@ -9701,7 +9316,6 @@ eh.ok.402650:  ; 0x402650
 
 define void @F_00402660() {  ; 0x402660
 b_402660:  ; 0x402660
-  %local_m4 = alloca i32, align 4
   call void @F_00402d90()  ; 0x402660
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402660
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402660
@@ -9715,9 +9329,7 @@ eh.ok.402660:  ; 0x402660
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.402665
 eh.ok.402665:  ; 0x402665
   %eax = trunc i64 %ret to i32  ; 0x40266a
-  store i32 %eax, ptr %local_m4, align 1  ; 0x40266a
-  %sarg0 = zext i32 %eax to i64
-  %ret.1 = call i64 @thunk__set_new_mode(i64 %sarg0)  ; 0x40266b
+  call void @thunk__set_new_mode(i32 %eax)  ; 0x40266b
   %eh.pending.2 = call i64 @ra_eh_pending()  ; 0x40266b
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x40266b
   br i1 %eh.thrown.2, label %eh.landing, label %eh.ok.40266b
@@ -9730,11 +9342,8 @@ b_402680:  ; 0x402680
   %frame = alloca [4296 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 4220
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %ebp = trunc i64 undef to i32  ; 0x402680
   %esp = trunc i64 %rsp0 to i32  ; 0x402680
   %sp = sub i32 %esp, 4  ; 0x402680
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x402680
-  store i32 %ebp, ptr %st.p, align 1  ; 0x402680
   %sp.1 = sub i32 %sp, 4  ; 0x402683
   %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x402683
   store i32 -2, ptr %st.p.1, align 1  ; 0x402683
@@ -9754,14 +9363,8 @@ b_402680:  ; 0x402680
   store i32 %m, ptr %st.p.4, align 1  ; 0x402695
   %diff = sub i32 %sp.4, 20  ; 0x402696
   %sp.5 = sub i32 %diff, 4  ; 0x402699
-  %st.p.5 = getelementptr inbounds i8, ptr %frame.top, i64 -44  ; 0x402699
-  store i32 %ebp, ptr %st.p.5, align 1  ; 0x402699
   %sp.6 = sub i32 %sp.5, 4  ; 0x40269a
-  %st.p.6 = getelementptr inbounds i8, ptr %frame.top, i64 -48  ; 0x40269a
-  store i32 %ebp, ptr %st.p.6, align 1  ; 0x40269a
   %sp.7 = sub i32 %sp.6, 4  ; 0x40269b
-  %st.p.7 = getelementptr inbounds i8, ptr %frame.top, i64 -52  ; 0x40269b
-  store i32 %ebp, ptr %st.p.7, align 1  ; 0x40269b
   %addr.z.9 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32) to i64  ; 0x40269c
   %m.p.1 = inttoptr i64 %addr.z.9 to ptr  ; 0x40269c
   %m.1 = load i32, ptr %m.p.1, align 1  ; 0x40269c
@@ -9813,9 +9416,7 @@ b_402729:  ; 0x402729
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 844) to i32), ptr %st.p.41, align 1  ; 0x40272e
   %sp.43 = sub i32 %sp.42, 4  ; 0x402733
   %sarg0.a.3 = add i32 %sp.43, 4
-  %sarg0.3 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 844) to i32) to i64
-  %sarg1.2 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 852) to i32) to i64
-  %ret.4 = call i64 @thunk__initterm(i64 %sarg0.3, i64 %sarg1.2)  ; 0x402733
+  call void @thunk__initterm(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 844) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 852) to i32))  ; 0x402733
   %eh.pending.7 = call i64 @ra_eh_pending()  ; 0x402733
   %eh.thrown.7 = icmp ne i64 %eh.pending.7, 0  ; 0x402733
   br i1 %eh.thrown.7, label %eh.landing, label %eh.ok.402733
@@ -9827,11 +9428,11 @@ b_40274c:  ; 0x40274c
   br label %eh.probe.40274c
 b_402763:  ; 0x402763
   %sp.67 = sub i32 %rsp.phi.8, 4  ; 0x402763
-  store i32 %ret.7, ptr %st.p.12, align 1  ; 0x402763
+  store i32 %ret.6, ptr %st.p.12, align 1  ; 0x402763
   %sp.68 = sub i32 %sp.67, 4  ; 0x402764
   %varargs.a = add i32 %sp.68, 4
   %varargs = ptrtoint ptr %st.p.12 to i64
-  %ret.8 = call i32 @F_004028d0(i64 %varargs)  ; 0x402764
+  %ret.7 = call i32 @F_004028d0(i64 %varargs)  ; 0x402764
   %eh.pending.14 = call i64 @ra_eh_pending()  ; 0x402764
   %eh.thrown.14 = icmp ne i64 %eh.pending.14, 0  ; 0x402764
   br i1 %eh.thrown.14, label %eh.landing, label %eh.ok.402764
@@ -9840,7 +9441,7 @@ b_402770:  ; 0x402770
 b_402782:  ; 0x402782
   %rsp.phi.11 = phi i32 [ %rsp.phi.8, %eh.access.40275e ], [ %sum.12, %eh.ok.402764 ], [ %rsp.186, %eh.ok.402780 ]  ; 0x402782
   %sp.84 = sub i32 %rsp.phi.11, 4  ; 0x402782
-  %ret.13 = call i32 @F_00402d20()  ; 0x402782
+  %ret.12 = call i32 @F_00402d20()  ; 0x402782
   %rsp.189 = add i32 %sp.84, 4  ; 0x402782
   %eh.pending.19 = call i64 @ra_eh_pending()  ; 0x402782
   %eh.thrown.19 = icmp ne i64 %eh.pending.19, 0  ; 0x402782
@@ -9849,13 +9450,13 @@ b_40278e:  ; 0x40278e
   %sp.90 = sub i32 %rsp.phi.12, 4  ; 0x40278e
   %addr.z.177 = zext i32 %sp.90 to i64  ; 0x40278e
   %st.p.117 = inttoptr i64 %addr.z.177 to ptr  ; 0x40278e
-  store i32 %ret.13, ptr %st.p.117, align 1  ; 0x40278e
+  store i32 %ret.12, ptr %st.p.117, align 1  ; 0x40278e
   %sp.91 = sub i32 %sp.90, 4  ; 0x40278f
   %addr.z.178 = zext i32 %sp.91 to i64  ; 0x40278f
   %varargs.a.1 = add i64 %addr.z.178, 4
   %varargs.p.1 = inttoptr i64 %varargs.a.1 to ptr
   %varargs.1 = ptrtoint ptr %varargs.p.1 to i64
-  %ret.14 = call i32 @F_004028d0(i64 %varargs.1)  ; 0x40278f
+  %ret.13 = call i32 @F_004028d0(i64 %varargs.1)  ; 0x40278f
   %eh.pending.21 = call i64 @ra_eh_pending()  ; 0x40278f
   %eh.thrown.21 = icmp ne i64 %eh.pending.21, 0  ; 0x40278f
   br i1 %eh.thrown.21, label %eh.landing, label %eh.ok.40278f
@@ -9864,7 +9465,7 @@ b_40279b:  ; 0x40279b
 b_4027a5:  ; 0x4027a5
   %rsp.phi.14 = phi i32 [ %rsp.phi.12, %eh.access.402789 ], [ %sum.16, %eh.ok.40278f ], [ %sum.18, %eh.ok.40279d ]  ; 0x4027a5
   %sp.99 = sub i32 %rsp.phi.14, 4  ; 0x4027a5
-  %ret.17 = call i64 @thunk__get_initial_narrow_environment()  ; 0x4027a5
+  %ret.15 = call i64 @thunk__get_initial_narrow_environment()  ; 0x4027a5
   %rsp.193 = add i32 %sp.99, 4  ; 0x4027a5
   %eh.pending.24 = call i64 @ra_eh_pending()  ; 0x4027a5
   %eh.thrown.24 = icmp ne i64 %eh.pending.24, 0  ; 0x4027a5
@@ -9874,7 +9475,7 @@ b_4027d3:  ; 0x4027d3
   br i1 %not.1, label %b_4027dc, label %b_4027d7
 b_4027d7:  ; 0x4027d7
   %sp.117 = sub i32 %rsp.197, 4  ; 0x4027d7
-  %ret.22 = call i64 @thunk__cexit()  ; 0x4027d7
+  call void @thunk__cexit()  ; 0x4027d7
   %rsp.198 = add i32 %sp.117, 4  ; 0x4027d7
   %eh.pending.31 = call i64 @ra_eh_pending()  ; 0x4027d7
   %eh.thrown.31 = icmp ne i64 %eh.pending.31, 0  ; 0x4027d7
@@ -9891,14 +9492,14 @@ b_4027dc:  ; 0x4027dc
   store i32 1, ptr %st.p.152, align 1  ; 0x4027de
   %sp.120 = sub i32 %sp.119, 4  ; 0x4027e0
   %sarg0.a.13 = add i32 %sp.120, 4
-  call void @F_00402a50(i32 1, i32 0)  ; 0x4027e0
+  call void @F_00402a50(i64 1, i32 0)  ; 0x4027e0
   %eh.pending.32 = call i64 @ra_eh_pending()  ; 0x4027e0
   %eh.thrown.32 = icmp ne i64 %eh.pending.32, 0  ; 0x4027e0
   br i1 %eh.thrown.32, label %eh.landing, label %eh.ok.4027e0
 b_402818:  ; 0x402818
   %m.59 = load i32, ptr %st.p.11, align 1  ; 0x402818
   %sp.132 = sub i32 %m.59, 4  ; 0x40281b
-  %ret.33 = call i64 @F_00402d30()  ; 0x40281b
+  %ret.29 = call i64 @F_00402d30()  ; 0x40281b
   %rsp.211 = add i32 %sp.132, 4  ; 0x40281b
   %eh.pending.34 = call i64 @ra_eh_pending()  ; 0x40281b
   %eh.thrown.34 = icmp ne i64 %eh.pending.34, 0  ; 0x40281b
@@ -9908,7 +9509,7 @@ b_402824:  ; 0x402824
   %not.2 = icmp ne i8 %m.60, 0  ; 0x402828
   br i1 %not.2, label %b_40282f, label %b_40282a
 b_40282a:  ; 0x40282a
-  %ret.34 = call i64 @thunk__c_exit()  ; 0x40282a
+  call void @thunk__c_exit()  ; 0x40282a
   %eh.pending.35 = call i64 @ra_eh_pending()  ; 0x40282a
   %eh.thrown.35 = icmp ne i64 %eh.pending.35, 0  ; 0x40282a
   br i1 %eh.thrown.35, label %eh.landing, label %eh.ok.40282a
@@ -9926,13 +9527,13 @@ b_40282f:  ; 0x40282f
   ret i64 %eax.z.37
 b_40284b:  ; 0x40284b
   store i32 7, ptr %st.p.12, align 1  ; 0x40284b
-  call void @F_00402da0(i32 7)  ; 0x40284d
+  call void @F_00402da0(i64 7)  ; 0x40284d
   %eh.pending.36 = call i64 @ra_eh_pending()  ; 0x40284d
   %eh.thrown.36 = icmp ne i64 %eh.pending.36, 0  ; 0x40284d
   br i1 %eh.thrown.36, label %eh.landing, label %eh.ok.40284d
 b_402852:  ; 0x402852
   store i32 7, ptr %st.p.12, align 1  ; 0x402852
-  call void @F_00402da0(i32 7)  ; 0x402854
+  call void @F_00402da0(i64 7)  ; 0x402854
   %eh.pending.37 = call i64 @ra_eh_pending()  ; 0x402854
   %eh.thrown.37 = icmp ne i64 %eh.pending.37, 0  ; 0x402854
   br i1 %eh.thrown.37, label %eh.landing, label %eh.ok.402854
@@ -9941,8 +9542,7 @@ b_402859:  ; 0x402859
   %addr.z.267 = zext i32 %sp.144 to i64  ; 0x402859
   %st.p.171 = inttoptr i64 %addr.z.267 to ptr  ; 0x402859
   store i32 %eax.73, ptr %st.p.171, align 1  ; 0x402859
-  %sarg0.15 = zext i32 %eax.73 to i64
-  %ret.24 = call i64 @thunk_exit(i64 %sarg0.15)  ; 0x40285a
+  call void @thunk_exit(i32 %eax.73)  ; 0x40285a
   %eh.pending.38 = call i64 @ra_eh_pending()  ; 0x40285a
   %eh.thrown.38 = icmp ne i64 %eh.pending.38, 0  ; 0x40285a
   br i1 %eh.thrown.38, label %eh.landing, label %eh.ok.40285a
@@ -9953,8 +9553,7 @@ b_40285f:  ; 0x40285f
   %addr.z.270 = zext i32 %sp.146 to i64  ; 0x40285f
   %st.p.173 = inttoptr i64 %addr.z.270 to ptr  ; 0x40285f
   store i32 %m.63, ptr %st.p.173, align 1  ; 0x40285f
-  %sarg0.25 = zext i32 %m.63 to i64
-  %ret.35 = call i64 @thunk__exit(i64 %sarg0.25)  ; 0x402862
+  call void @thunk__exit(i32 %m.63)  ; 0x402862
   %eh.pending.39 = call i64 @ra_eh_pending()  ; 0x402862
   %eh.thrown.39 = icmp ne i64 %eh.pending.39, 0  ; 0x402862
   br i1 %eh.thrown.39, label %eh.landing, label %eh.ok.402862
@@ -9985,7 +9584,7 @@ eh.seh.4026d6:  ; 0x4026d6
   store i32 0, ptr %st.p.12, align 1  ; 0x4026d6
   br label %f1_402803
 eh.filtered.4026d6.0:  ; 0x4026d6
-  %eax.8 = trunc i64 %ret.32 to i32  ; 0x402817
+  %eax.8 = trunc i64 %ret.28 to i32  ; 0x402817
   %eh.execute = icmp sgt i32 %eax.8, 0  ; 0x402817
   br i1 %eh.execute, label %eh.except.4026d6.0, label %eh.verdict.4026d6.0
 f1_402803:  ; 0x402803
@@ -10006,8 +9605,7 @@ f1_402803:  ; 0x402803
   store i32 %m.5, ptr %st.p.21, align 1  ; 0x40280e
   %sp.15 = sub i32 %sp.14, 4  ; 0x40280f
   %sarg0.a.24 = add i32 %sp.15, 4
-  %sarg0.24 = zext i32 %m.5 to i64
-  %ret.32 = call i64 @thunk__seh_filter_exe(i64 %sarg0.24, i64 %ecx.z)  ; 0x40280f
+  %ret.28 = call i64 @thunk__seh_filter_exe(i32 %m.5, i32 %m.3)  ; 0x40280f
   %eh.pending.2 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x40280f
   br i1 %eh.thrown.2, label %eh.landing.1, label %eh.ok.40280f
@@ -10027,7 +9625,7 @@ eh.verdict.4026d6.0:  ; 0x402817
   br i1 %eh.continue, label %eh.resume.4026d6.0, label %eh.search.4026d6.0
 eh.resume.4026d6.0:  ; 0x402817
   call void @ra_eh_handled()  ; 0x402817
-  %n.1 = trunc i64 %ret.32 to i8
+  %n.1 = trunc i64 %ret.28 to i8
   br label %eh.probe.4026d6
 eh.search.4026d6.0:  ; 0x402817
   call void @ra_eh_unhandled(i64 4204246)  ; 0x402817
@@ -10051,7 +9649,7 @@ eh.seh.4026d9:  ; 0x4026d9
   store i32 0, ptr %st.p.12, align 1  ; 0x4026d9
   br label %f2_402803
 eh.filtered.4026d9.0:  ; 0x4026d9
-  %eax.12 = trunc i64 %ret.31 to i32  ; 0x402817
+  %eax.12 = trunc i64 %ret.27 to i32  ; 0x402817
   %eh.execute.1 = icmp sgt i32 %eax.12, 0  ; 0x402817
   br i1 %eh.execute.1, label %eh.except.4026d9.0, label %eh.verdict.4026d9.0
 f2_402803:  ; 0x402803
@@ -10072,8 +9670,7 @@ f2_402803:  ; 0x402803
   store i32 %m.8, ptr %st.p.29, align 1  ; 0x40280e
   %sp.20 = sub i32 %sp.19, 4  ; 0x40280f
   %sarg0.a.23 = add i32 %sp.20, 4
-  %sarg0.23 = zext i32 %m.8 to i64
-  %ret.31 = call i64 @thunk__seh_filter_exe(i64 %sarg0.23, i64 %ecx.z.1)  ; 0x40280f
+  %ret.27 = call i64 @thunk__seh_filter_exe(i32 %m.8, i32 %m.6)  ; 0x40280f
   %eh.pending.3 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.3 = icmp ne i64 %eh.pending.3, 0  ; 0x40280f
   br i1 %eh.thrown.3, label %eh.landing.1, label %eh.ok.40280f.1
@@ -10113,7 +9710,7 @@ eh.seh.4026eb:  ; 0x4026eb
   store i32 0, ptr %st.p.12, align 1  ; 0x4026eb
   br label %f3_402803
 eh.filtered.4026eb.0:  ; 0x4026eb
-  %eax.19 = trunc i64 %ret.6 to i32  ; 0x402817
+  %eax.19 = trunc i64 %ret.5 to i32  ; 0x402817
   %eh.execute.2 = icmp sgt i32 %eax.19, 0  ; 0x402817
   br i1 %eh.execute.2, label %eh.except.4026eb.0, label %eh.verdict.4026eb.0
 f3_402803:  ; 0x402803
@@ -10134,8 +9731,7 @@ f3_402803:  ; 0x402803
   store i32 %m.12, ptr %st.p.36, align 1  ; 0x40280e
   %sp.25 = sub i32 %sp.24, 4  ; 0x40280f
   %sarg0.a.5 = add i32 %sp.25, 4
-  %sarg0.5 = zext i32 %m.12 to i64
-  %ret.6 = call i64 @thunk__seh_filter_exe(i64 %sarg0.5, i64 %ecx.z.2)  ; 0x40280f
+  %ret.5 = call i64 @thunk__seh_filter_exe(i32 %m.12, i32 %m.10)  ; 0x40280f
   %eh.pending.4 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.4 = icmp ne i64 %eh.pending.4, 0  ; 0x40280f
   br i1 %eh.thrown.4, label %eh.landing.1, label %eh.ok.40280f.2
@@ -10165,9 +9761,7 @@ eh.access.4026eb:  ; 0x402817
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 856) to i32), ptr %st.p.41, align 1  ; 0x4026fa
   %sp.29 = sub i32 %sp.28, 4  ; 0x4026ff
   %sarg0.a.1 = add i32 %sp.29, 4
-  %sarg0.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 856) to i32) to i64
-  %sarg1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 868) to i32) to i64
-  %ret.2 = call i64 @thunk__initterm_e(i64 %sarg0.1, i64 %sarg1)  ; 0x4026ff
+  %ret.2 = call i64 @thunk__initterm_e(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 856) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 868) to i32))  ; 0x4026ff
   %eh.pending.5 = call i64 @ra_eh_pending()  ; 0x4026ff
   %eh.thrown.5 = icmp ne i64 %eh.pending.5, 0  ; 0x4026ff
   br i1 %eh.thrown.5, label %eh.landing, label %eh.ok.4026ff
@@ -10206,8 +9800,7 @@ f4_402803:  ; 0x402803
   store i32 %m.13, ptr %st.p.41, align 1  ; 0x40280d
   %st.p.47 = getelementptr inbounds i8, ptr %frame.top, i64 -68  ; 0x40280e
   store i32 %m.15, ptr %st.p.47, align 1  ; 0x40280e
-  %sarg0.2 = zext i32 %m.15 to i64
-  %ret.3 = call i64 @thunk__seh_filter_exe(i64 %sarg0.2, i64 %ecx.z.3)  ; 0x40280f
+  %ret.3 = call i64 @thunk__seh_filter_exe(i32 %m.15, i32 %m.13)  ; 0x40280f
   %eh.pending.6 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.6 = icmp ne i64 %eh.pending.6, 0  ; 0x40280f
   br i1 %eh.thrown.6, label %eh.landing.1, label %eh.ok.40280f.3
@@ -10252,7 +9845,7 @@ eh.seh.40273b:  ; 0x40273b
   store i32 0, ptr %st.p.12, align 1  ; 0x40273b
   br label %f5_402803
 eh.filtered.40273b.0:  ; 0x40273b
-  %eax.29 = trunc i64 %ret.5 to i32  ; 0x402817
+  %eax.29 = trunc i64 %ret.4 to i32  ; 0x402817
   %eh.execute.4 = icmp sgt i32 %eax.29, 0  ; 0x402817
   br i1 %eh.execute.4, label %eh.except.40273b.0, label %eh.verdict.40273b.0
 f5_402803:  ; 0x402803
@@ -10272,8 +9865,7 @@ f5_402803:  ; 0x402803
   store i32 %m.19, ptr %st.p.59, align 1  ; 0x40280e
   %sp.47 = sub i32 %sp.46, 4  ; 0x40280f
   %sarg0.a.4 = add i32 %sp.47, 4
-  %sarg0.4 = zext i32 %m.19 to i64
-  %ret.5 = call i64 @thunk__seh_filter_exe(i64 %sarg0.4, i64 %ecx.z.6)  ; 0x40280f
+  %ret.4 = call i64 @thunk__seh_filter_exe(i32 %m.19, i32 %m.17)  ; 0x40280f
   %eh.pending.8 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.8 = icmp ne i64 %eh.pending.8, 0  ; 0x40280f
   br i1 %eh.thrown.8, label %eh.landing.1, label %eh.ok.40280f.4
@@ -10313,7 +9905,7 @@ eh.seh.402749:  ; 0x402749
   store i32 0, ptr %st.p.12, align 1  ; 0x402749
   br label %f6_402803
 eh.filtered.402749.0:  ; 0x402749
-  %eax.33 = trunc i64 %ret.30 to i32  ; 0x402817
+  %eax.33 = trunc i64 %ret.26 to i32  ; 0x402817
   %eh.execute.5 = icmp sgt i32 %eax.33, 0  ; 0x402817
   br i1 %eh.execute.5, label %eh.except.402749.0, label %eh.verdict.402749.0
 f6_402803:  ; 0x402803
@@ -10334,8 +9926,7 @@ f6_402803:  ; 0x402803
   store i32 %m.22, ptr %st.p.67, align 1  ; 0x40280e
   %sp.52 = sub i32 %sp.51, 4  ; 0x40280f
   %sarg0.a.21 = add i32 %sp.52, 4
-  %sarg0.21 = zext i32 %m.22 to i64
-  %ret.30 = call i64 @thunk__seh_filter_exe(i64 %sarg0.21, i64 %ecx.z.7)  ; 0x40280f
+  %ret.26 = call i64 @thunk__seh_filter_exe(i32 %m.22, i32 %m.20)  ; 0x40280f
   %eh.pending.9 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.9 = icmp ne i64 %eh.pending.9, 0  ; 0x40280f
   br i1 %eh.thrown.9, label %eh.landing.1, label %eh.ok.40280f.5
@@ -10375,7 +9966,7 @@ eh.seh.40274c:  ; 0x40274c
   store i32 0, ptr %st.p.12, align 1  ; 0x40274c
   br label %f7_402803
 eh.filtered.40274c.0:  ; 0x40274c
-  %eax.37 = trunc i64 %ret.29 to i32  ; 0x402817
+  %eax.37 = trunc i64 %ret.25 to i32  ; 0x402817
   %eh.execute.6 = icmp sgt i32 %eax.37, 0  ; 0x402817
   br i1 %eh.execute.6, label %eh.except.40274c.0, label %eh.verdict.40274c.0
 f7_402803:  ; 0x402803
@@ -10396,8 +9987,7 @@ f7_402803:  ; 0x402803
   store i32 %m.25, ptr %st.p.75, align 1  ; 0x40280e
   %sp.57 = sub i32 %sp.56, 4  ; 0x40280f
   %sarg0.a.20 = add i32 %sp.57, 4
-  %sarg0.20 = zext i32 %m.25 to i64
-  %ret.29 = call i64 @thunk__seh_filter_exe(i64 %sarg0.20, i64 %ecx.z.8)  ; 0x40280f
+  %ret.25 = call i64 @thunk__seh_filter_exe(i32 %m.25, i32 %m.23)  ; 0x40280f
   %eh.pending.10 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.10 = icmp ne i64 %eh.pending.10, 0  ; 0x40280f
   br i1 %eh.thrown.10, label %eh.landing.1, label %eh.ok.40280f.6
@@ -10431,7 +10021,7 @@ eh.access.40274c:  ; 0x402817
 eh.ok.40274f:  ; 0x40274f
   %sum.10 = add i32 %sarg0.a.6, 4  ; 0x402754
   %sp.61 = sub i32 %sum.10, 4  ; 0x402757
-  %ret.7 = call i32 @F_00402d10()  ; 0x402757
+  %ret.6 = call i32 @F_00402d10()  ; 0x402757
   %rsp.183 = add i32 %sp.61, 4  ; 0x402757
   %eh.pending.12 = call i64 @ra_eh_pending()  ; 0x402757
   %eh.thrown.12 = icmp ne i64 %eh.pending.12, 0  ; 0x402757
@@ -10440,7 +10030,7 @@ eh.ok.402757:  ; 0x402757
   br label %eh.probe.40275e
 eh.probe.40275e:  ; 0x40275e
   %rsp.phi.8 = phi i32 [ %rsp.183, %eh.ok.402757 ], [ %sp.66, %eh.resume.40275e.0 ]  ; 0x40275e
-  %eh.at.7 = zext i32 %ret.7 to i64  ; 0x40275e
+  %eh.at.7 = zext i32 %ret.6 to i64  ; 0x40275e
   %eh.fault.7 = call i64 @ra_eh_probe(i64 %eh.at.7, i64 4, i64 0, i64 4204382)  ; 0x40275e
   %eh.faults.7 = icmp ne i64 %eh.fault.7, 0  ; 0x40275e
   br i1 %eh.faults.7, label %eh.seh.40275e, label %eh.access.40275e
@@ -10453,7 +10043,7 @@ eh.seh.40275e:  ; 0x40275e
   store i32 0, ptr %st.p.12, align 1  ; 0x40275e
   br label %f8_402803
 eh.filtered.40275e.0:  ; 0x40275e
-  %eax.42 = trunc i64 %ret.28 to i32  ; 0x402817
+  %eax.42 = trunc i64 %ret.24 to i32  ; 0x402817
   %eh.execute.7 = icmp sgt i32 %eax.42, 0  ; 0x402817
   br i1 %eh.execute.7, label %eh.except.40275e.0, label %eh.verdict.40275e.0
 f8_402803:  ; 0x402803
@@ -10474,8 +10064,7 @@ f8_402803:  ; 0x402803
   store i32 %m.29, ptr %st.p.85, align 1  ; 0x40280e
   %sp.65 = sub i32 %sp.64, 4  ; 0x40280f
   %sarg0.a.19 = add i32 %sp.65, 4
-  %sarg0.19 = zext i32 %m.29 to i64
-  %ret.28 = call i64 @thunk__seh_filter_exe(i64 %sarg0.19, i64 %ecx.z.9)  ; 0x40280f
+  %ret.24 = call i64 @thunk__seh_filter_exe(i32 %m.29, i32 %m.27)  ; 0x40280f
   %eh.pending.13 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.13 = icmp ne i64 %eh.pending.13, 0  ; 0x40280f
   br i1 %eh.thrown.13, label %eh.landing.1, label %eh.ok.40280f.7
@@ -10503,7 +10092,7 @@ eh.access.40275e:  ; 0x402817
   br i1 %zf.24, label %b_402782, label %b_402763
 eh.ok.402764:  ; 0x402764
   %sum.12 = add i32 %varargs.a, 4  ; 0x402769
-  %al.3 = trunc i32 %ret.8 to i8  ; 0x40276c
+  %al.3 = trunc i32 %ret.7 to i8  ; 0x40276c
   %zf.27 = icmp eq i8 %al.3, 0  ; 0x40276c
   br i1 %zf.27, label %b_402782, label %b_402770
 eh.probe.402770:  ; 0x402770
@@ -10520,7 +10109,7 @@ eh.seh.402770:  ; 0x402770
   store i32 0, ptr %st.p.12, align 1  ; 0x402770
   br label %f9_402803
 eh.filtered.402770.0:  ; 0x402770
-  %eax.46 = trunc i64 %ret.12 to i32  ; 0x402817
+  %eax.46 = trunc i64 %ret.11 to i32  ; 0x402817
   %eh.execute.8 = icmp sgt i32 %eax.46, 0  ; 0x402817
   br i1 %eh.execute.8, label %eh.except.402770.0, label %eh.verdict.402770.0
 f9_402803:  ; 0x402803
@@ -10541,8 +10130,7 @@ f9_402803:  ; 0x402803
   store i32 %m.33, ptr %st.p.94, align 1  ; 0x40280e
   %sp.72 = sub i32 %sp.71, 4  ; 0x40280f
   %sarg0.a.10 = add i32 %sp.72, 4
-  %sarg0.10 = zext i32 %m.33 to i64
-  %ret.12 = call i64 @thunk__seh_filter_exe(i64 %sarg0.10, i64 %ecx.z.10)  ; 0x40280f
+  %ret.11 = call i64 @thunk__seh_filter_exe(i32 %m.33, i32 %m.31)  ; 0x40280f
   %eh.pending.15 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.15 = icmp ne i64 %eh.pending.15, 0  ; 0x40280f
   br i1 %eh.thrown.15, label %eh.landing.1, label %eh.ok.40280f.8
@@ -10592,7 +10180,7 @@ eh.seh.40277a:  ; 0x40277a
   store i32 0, ptr %st.p.101, align 1  ; 0x40277a
   br label %f10_402803
 eh.filtered.40277a.0:  ; 0x40277a
-  %eax.50 = trunc i64 %ret.11 to i32  ; 0x402817
+  %eax.50 = trunc i64 %ret.10 to i32  ; 0x402817
   %eh.execute.9 = icmp sgt i32 %eax.50, 0  ; 0x402817
   br i1 %eh.execute.9, label %eh.except.40277a.0, label %eh.verdict.40277a.0
 f10_402803:  ; 0x402803
@@ -10613,8 +10201,7 @@ f10_402803:  ; 0x402803
   store i32 %m.37, ptr %st.p.104, align 1  ; 0x40280e
   %sp.80 = sub i32 %sp.79, 4  ; 0x40280f
   %sarg0.a.9 = add i32 %sp.80, 4
-  %sarg0.9 = zext i32 %m.37 to i64
-  %ret.11 = call i64 @thunk__seh_filter_exe(i64 %sarg0.9, i64 %ecx.z.12)  ; 0x40280f
+  %ret.10 = call i64 @thunk__seh_filter_exe(i32 %m.37, i32 %m.35)  ; 0x40280f
   %eh.pending.16 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.16 = icmp ne i64 %eh.pending.16, 0  ; 0x40280f
   br i1 %eh.thrown.16, label %eh.landing.1, label %eh.ok.40280f.9
@@ -10651,11 +10238,14 @@ eh.access.40277a:  ; 0x402817
   %sarg2 = zext i32 %sarg2.d to i64
   %sarg3.d = load i32, ptr %st.p.9, align 4
   %sarg3 = zext i32 %sarg3.d to i64
-  %sarg4.d = load i32, ptr %st.p.7, align 4
+  %sarg4.p = getelementptr inbounds i8, ptr %frame.top, i64 -52
+  %sarg4.d = load i32, ptr %sarg4.p, align 4
   %sarg4 = zext i32 %sarg4.d to i64
-  %sarg5.d = load i32, ptr %st.p.6, align 4
+  %sarg5.p = getelementptr inbounds i8, ptr %frame.top, i64 -48
+  %sarg5.d = load i32, ptr %sarg5.p, align 4
   %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.d = load i32, ptr %st.p.5, align 4
+  %sarg6.p = getelementptr inbounds i8, ptr %frame.top, i64 -44
+  %sarg6.d = load i32, ptr %sarg6.p, align 4
   %sarg6 = zext i32 %sarg6.d to i64
   %args.p = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x402817
   store i64 %sarg6, ptr %args.p, align 8  ; 0x402817
@@ -10663,14 +10253,14 @@ eh.access.40277a:  ; 0x402817
   %sarg7 = zext i32 %sarg7.d to i64
   %args.p.1 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x402817
   store i64 %sarg7, ptr %args.p.1, align 8  ; 0x402817
-  %ret.9 = call i64 %fp(i64 %sarg0.7, i64 %sarg1.5, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %rcx.phi, i64 undef)  ; 0x402817
+  %ret.8 = call i64 %fp(i64 %sarg0.7, i64 %sarg1.5, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %rcx.phi, i64 undef)  ; 0x402817
   %pops = call i64 @ra_pops_of(i64 %target)  ; 0x402817
   %n.2 = trunc i64 %pops to i32
   %pops.a = add i32 %n.2, 4  ; 0x402817
   %rsp.185 = add i32 %sp.82, %pops.a  ; 0x402817
   %rsp.185.s.w = zext i32 %rsp.185 to i64  ; 0x402817
   %rsp.185.s = inttoptr i64 %rsp.185.s.w to ptr  ; 0x402817
-  %ret.hi = lshr i64 %ret.9, 32  ; 0x402817
+  %ret.hi = lshr i64 %ret.8, 32  ; 0x402817
   %eh.pending.17 = call i64 @ra_eh_pending()  ; 0x402817
   %eh.thrown.17 = icmp ne i64 %eh.pending.17, 0  ; 0x402817
   br i1 %eh.thrown.17, label %eh.landing, label %eh.ok.40277a
@@ -10703,7 +10293,7 @@ eh.ok.40277a:  ; 0x402817
   %sarg7.d.1 = load i32, ptr %rsp.185.f28, align 4
   %sarg7.1 = zext i32 %sarg7.d.1 to i64
   store i64 %sarg7.1, ptr %args.p.1, align 8  ; 0x402780
-  %ret.10 = call i64 %fp.1(i64 %sarg0.8, i64 %sarg1.6, i64 %sarg2.1, i64 %sarg3.1, i64 %sarg4.1, i64 %sarg5.1, i64 undef, i64 %ret.hi)  ; 0x402780
+  %ret.9 = call i64 %fp.1(i64 %sarg0.8, i64 %sarg1.6, i64 %sarg2.1, i64 %sarg3.1, i64 %sarg4.1, i64 %sarg5.1, i64 undef, i64 %ret.hi)  ; 0x402780
   %pops.1 = call i64 @ra_pops_of(i64 %esi.z.2)  ; 0x402780
   %n.3 = trunc i64 %pops.1 to i32
   %pops.a.1 = add i32 %n.3, 4  ; 0x402780
@@ -10717,7 +10307,7 @@ eh.ok.402782:  ; 0x402782
   br label %eh.probe.402789
 eh.probe.402789:  ; 0x402789
   %rsp.phi.12 = phi i32 [ %rsp.189, %eh.ok.402782 ], [ %sp.89, %eh.resume.402789.0 ]  ; 0x402789
-  %eh.at.10 = zext i32 %ret.13 to i64  ; 0x402789
+  %eh.at.10 = zext i32 %ret.12 to i64  ; 0x402789
   %eh.fault.10 = call i64 @ra_eh_probe(i64 %eh.at.10, i64 4, i64 0, i64 4204425)  ; 0x402789
   %eh.faults.10 = icmp ne i64 %eh.fault.10, 0  ; 0x402789
   br i1 %eh.faults.10, label %eh.seh.402789, label %eh.access.402789
@@ -10732,7 +10322,7 @@ eh.seh.402789:  ; 0x402789
   store i32 0, ptr %st.p.111, align 1  ; 0x402789
   br label %f11_402803
 eh.filtered.402789.0:  ; 0x402789
-  %eax.55 = trunc i64 %ret.27 to i32  ; 0x402817
+  %eax.55 = trunc i64 %ret.23 to i32  ; 0x402817
   %eh.execute.10 = icmp sgt i32 %eax.55, 0  ; 0x402817
   br i1 %eh.execute.10, label %eh.except.402789.0, label %eh.verdict.402789.0
 f11_402803:  ; 0x402803
@@ -10755,8 +10345,7 @@ f11_402803:  ; 0x402803
   store i32 %m.41, ptr %st.p.114, align 1  ; 0x40280e
   %sp.88 = sub i32 %sp.87, 4  ; 0x40280f
   %sarg0.a.18 = add i32 %sp.88, 4
-  %sarg0.18 = zext i32 %m.41 to i64
-  %ret.27 = call i64 @thunk__seh_filter_exe(i64 %sarg0.18, i64 %ecx.z.13)  ; 0x40280f
+  %ret.23 = call i64 @thunk__seh_filter_exe(i32 %m.41, i32 %m.39)  ; 0x40280f
   %eh.pending.20 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.20 = icmp ne i64 %eh.pending.20, 0  ; 0x40280f
   br i1 %eh.thrown.20, label %eh.landing.1, label %eh.ok.40280f.10
@@ -10785,7 +10374,7 @@ eh.access.402789:  ; 0x402817
 eh.ok.40278f:  ; 0x40278f
   %esp.111 = trunc i64 %varargs.a.1 to i32  ; 0x402794
   %sum.16 = add i32 %esp.111, 4  ; 0x402794
-  %al.5 = trunc i32 %ret.14 to i8  ; 0x402797
+  %al.5 = trunc i32 %ret.13 to i8  ; 0x402797
   %zf.35 = icmp eq i8 %al.5, 0  ; 0x402797
   br i1 %zf.35, label %b_4027a5, label %b_40279b
 eh.probe.40279b:  ; 0x40279b
@@ -10804,7 +10393,7 @@ eh.seh.40279b:  ; 0x40279b
   store i32 0, ptr %st.p.120, align 1  ; 0x40279b
   br label %f12_402803
 eh.filtered.40279b.0:  ; 0x40279b
-  %eax.59 = trunc i64 %ret.16 to i32  ; 0x402817
+  %eax.59 = trunc i64 %ret.14 to i32  ; 0x402817
   %eh.execute.11 = icmp sgt i32 %eax.59, 0  ; 0x402817
   br i1 %eh.execute.11, label %eh.except.40279b.0, label %eh.verdict.40279b.0
 f12_402803:  ; 0x402803
@@ -10827,8 +10416,7 @@ f12_402803:  ; 0x402803
   store i32 %m.45, ptr %st.p.123, align 1  ; 0x40280e
   %sp.95 = sub i32 %sp.94, 4  ; 0x40280f
   %sarg0.a.12 = add i32 %sp.95, 4
-  %sarg0.12 = zext i32 %m.45 to i64
-  %ret.16 = call i64 @thunk__seh_filter_exe(i64 %sarg0.12, i64 %ecx.z.14)  ; 0x40280f
+  %ret.14 = call i64 @thunk__seh_filter_exe(i32 %m.45, i32 %m.43)  ; 0x40280f
   %eh.pending.22 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.22 = icmp ne i64 %eh.pending.22, 0  ; 0x40280f
   br i1 %eh.thrown.22, label %eh.landing.1, label %eh.ok.40280f.11
@@ -10857,8 +10445,7 @@ eh.access.40279b:  ; 0x402817
   store i32 %m.46, ptr %st.p.126, align 1  ; 0x402817
   %sp.98 = sub i32 %sp.97, 4  ; 0x40279d
   %sarg0.a.11 = add i32 %sp.98, 4
-  %sarg0.11 = zext i32 %m.46 to i64
-  %ret.15 = call i64 @thunk__register_thread_local_exe_atexit_callback(i64 %sarg0.11)  ; 0x40279d
+  call void @thunk__register_thread_local_exe_atexit_callback(i32 %m.46)  ; 0x40279d
   %eh.pending.23 = call i64 @ra_eh_pending()  ; 0x40279d
   %eh.thrown.23 = icmp ne i64 %eh.pending.23, 0  ; 0x40279d
   br i1 %eh.thrown.23, label %eh.landing, label %eh.ok.40279d
@@ -10866,15 +10453,15 @@ eh.ok.40279d:  ; 0x40279d
   %sum.18 = add i32 %sarg0.a.11, 4  ; 0x4027a2
   br label %b_4027a5
 eh.ok.4027a5:  ; 0x4027a5
-  %eax.60 = trunc i64 %ret.17 to i32  ; 0x4027aa
+  %eax.60 = trunc i64 %ret.15 to i32  ; 0x4027aa
   %sp.100 = sub i32 %rsp.193, 4  ; 0x4027ac
-  %ret.18 = call i64 @thunk___p___argv()  ; 0x4027ac
+  %ret.16 = call i64 @thunk___p___argv()  ; 0x4027ac
   %rsp.194 = add i32 %sp.100, 4  ; 0x4027ac
   %eh.pending.25 = call i64 @ra_eh_pending()  ; 0x4027ac
   %eh.thrown.25 = icmp ne i64 %eh.pending.25, 0  ; 0x4027ac
   br i1 %eh.thrown.25, label %eh.landing, label %eh.ok.4027ac
 eh.ok.4027ac:  ; 0x4027ac
-  %n.5 = trunc i64 %ret.18 to i32
+  %n.5 = trunc i64 %ret.16 to i32
   br label %eh.probe.4027b1
 eh.probe.4027b1:  ; 0x4027b1
   %rax.phi.1 = phi i32 [ %n.5, %eh.ok.4027ac ], [ %n.6, %eh.resume.4027b1.0 ]  ; 0x4027b1
@@ -10894,7 +10481,7 @@ eh.seh.4027b1:  ; 0x4027b1
   store i32 0, ptr %st.p.131, align 1  ; 0x4027b1
   br label %f13_402803
 eh.filtered.4027b1.0:  ; 0x4027b1
-  %eax.65 = trunc i64 %ret.26 to i32  ; 0x402817
+  %eax.65 = trunc i64 %ret.22 to i32  ; 0x402817
   %eh.execute.12 = icmp sgt i32 %eax.65, 0  ; 0x402817
   br i1 %eh.execute.12, label %eh.except.4027b1.0, label %eh.verdict.4027b1.0
 f13_402803:  ; 0x402803
@@ -10917,8 +10504,7 @@ f13_402803:  ; 0x402803
   store i32 %m.49, ptr %st.p.134, align 1  ; 0x40280e
   %sp.104 = sub i32 %sp.103, 4  ; 0x40280f
   %sarg0.a.17 = add i32 %sp.104, 4
-  %sarg0.17 = zext i32 %m.49 to i64
-  %ret.26 = call i64 @thunk__seh_filter_exe(i64 %sarg0.17, i64 %ecx.z.15)  ; 0x40280f
+  %ret.22 = call i64 @thunk__seh_filter_exe(i32 %m.49, i32 %m.47)  ; 0x40280f
   %eh.pending.26 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.26 = icmp ne i64 %eh.pending.26, 0  ; 0x40280f
   br i1 %eh.thrown.26, label %eh.landing.1, label %eh.ok.40280f.12
@@ -10935,7 +10521,7 @@ eh.verdict.4027b1.0:  ; 0x402817
   br i1 %eh.continue.12, label %eh.resume.4027b1.0, label %eh.search.4027b1.0
 eh.resume.4027b1.0:  ; 0x402817
   call void @ra_eh_handled()  ; 0x402817
-  %n.6 = trunc i64 %ret.26 to i32
+  %n.6 = trunc i64 %ret.22 to i32
   br label %eh.probe.4027b1
 eh.search.4027b1.0:  ; 0x402817
   call void @ra_eh_unhandled(i64 4204465)  ; 0x402817
@@ -10944,7 +10530,7 @@ eh.access.4027b1:  ; 0x402817
   %m.p.50 = inttoptr i64 %eh.at.12 to ptr  ; 0x402817
   %m.50 = load i32, ptr %m.p.50, align 1  ; 0x402817
   %sp.106 = sub i32 %rsp.phi.15, 4  ; 0x4027b3
-  %ret.19 = call i64 @thunk___p___argc()  ; 0x4027b3
+  %ret.17 = call i64 @thunk___p___argc()  ; 0x4027b3
   %rsp.195 = add i32 %sp.106, 4  ; 0x4027b3
   %eh.pending.27 = call i64 @ra_eh_pending()  ; 0x4027b3
   %eh.thrown.27 = icmp ne i64 %eh.pending.27, 0  ; 0x4027b3
@@ -10958,7 +10544,7 @@ eh.ok.4027b3:  ; 0x4027b3
   %addr.z.209 = zext i32 %sp.108 to i64  ; 0x4027b9
   %st.p.139 = inttoptr i64 %addr.z.209 to ptr  ; 0x4027b9
   store i32 %m.50, ptr %st.p.139, align 1  ; 0x4027b9
-  %n.7 = trunc i64 %ret.19 to i32
+  %n.7 = trunc i64 %ret.17 to i32
   br label %eh.probe.4027ba
 eh.probe.4027ba:  ; 0x4027ba
   %rax.phi.2 = phi i32 [ %n.7, %eh.ok.4027b3 ], [ %n.8, %eh.resume.4027ba.0 ]  ; 0x4027ba
@@ -10978,7 +10564,7 @@ eh.seh.4027ba:  ; 0x4027ba
   store i32 0, ptr %st.p.141, align 1  ; 0x4027ba
   br label %f14_402803
 eh.filtered.4027ba.0:  ; 0x4027ba
-  %eax.71 = trunc i64 %ret.25 to i32  ; 0x402817
+  %eax.71 = trunc i64 %ret.21 to i32  ; 0x402817
   %eh.execute.13 = icmp sgt i32 %eax.71, 0  ; 0x402817
   br i1 %eh.execute.13, label %eh.except.4027ba.0, label %eh.verdict.4027ba.0
 f14_402803:  ; 0x402803
@@ -11001,8 +10587,7 @@ f14_402803:  ; 0x402803
   store i32 %m.53, ptr %st.p.144, align 1  ; 0x40280e
   %sp.112 = sub i32 %sp.111, 4  ; 0x40280f
   %sarg0.a.16 = add i32 %sp.112, 4
-  %sarg0.16 = zext i32 %m.53 to i64
-  %ret.25 = call i64 @thunk__seh_filter_exe(i64 %sarg0.16, i64 %ecx.z.16)  ; 0x40280f
+  %ret.21 = call i64 @thunk__seh_filter_exe(i32 %m.53, i32 %m.51)  ; 0x40280f
   %eh.pending.28 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.28 = icmp ne i64 %eh.pending.28, 0  ; 0x40280f
   br i1 %eh.thrown.28, label %eh.landing.1, label %eh.ok.40280f.13
@@ -11019,7 +10604,7 @@ eh.verdict.4027ba.0:  ; 0x402817
   br i1 %eh.continue.13, label %eh.resume.4027ba.0, label %eh.search.4027ba.0
 eh.resume.4027ba.0:  ; 0x402817
   call void @ra_eh_handled()  ; 0x402817
-  %n.8 = trunc i64 %ret.25 to i32
+  %n.8 = trunc i64 %ret.21 to i32
   br label %eh.probe.4027ba
 eh.search.4027ba.0:  ; 0x402817
   call void @ra_eh_unhandled(i64 4204474)  ; 0x402817
@@ -11032,22 +10617,22 @@ eh.access.4027ba:  ; 0x402817
   %st.p.147 = inttoptr i64 %addr.z.222 to ptr  ; 0x402817
   store i32 %m.54, ptr %st.p.147, align 1  ; 0x402817
   %sp.115 = sub i32 %sp.114, 4  ; 0x4027bc
-  %ret.20 = call i64 @F_004021a0()  ; 0x4027bc
+  %ret.18 = call i64 @F_004021a0()  ; 0x4027bc
   %rsp.196 = add i32 %sp.115, 4  ; 0x4027bc
   %eh.pending.29 = call i64 @ra_eh_pending()  ; 0x4027bc
   %eh.thrown.29 = icmp ne i64 %eh.pending.29, 0  ; 0x4027bc
   br i1 %eh.thrown.29, label %eh.landing, label %eh.ok.4027bc
 eh.ok.4027bc:  ; 0x4027bc
   %sum.21 = add i32 %rsp.196, 12  ; 0x4027c1
-  %eax.73 = trunc i64 %ret.20 to i32  ; 0x4027c4
+  %eax.73 = trunc i64 %ret.18 to i32  ; 0x4027c4
   %sp.116 = sub i32 %sum.21, 4  ; 0x4027c6
-  %ret.21 = call i64 @F_00402d30()  ; 0x4027c6
+  %ret.19 = call i64 @F_00402d30()  ; 0x4027c6
   %rsp.197 = add i32 %sp.116, 4  ; 0x4027c6
   %eh.pending.30 = call i64 @ra_eh_pending()  ; 0x4027c6
   %eh.thrown.30 = icmp ne i64 %eh.pending.30, 0  ; 0x4027c6
   br i1 %eh.thrown.30, label %eh.landing, label %eh.ok.4027c6
 eh.ok.4027c6:  ; 0x4027c6
-  %al.7 = trunc i64 %ret.21 to i8  ; 0x4027cb
+  %al.7 = trunc i64 %ret.19 to i8  ; 0x4027cb
   %zf.42 = icmp eq i8 %al.7, 0  ; 0x4027cb
   br i1 %zf.42, label %b_402859, label %b_4027d3
 eh.ok.4027d7:  ; 0x4027d7
@@ -11073,7 +10658,7 @@ eh.seh.4027e8:  ; 0x4027e8
   store i32 0, ptr %st.p.155, align 1  ; 0x4027e8
   br label %f15_402803
 eh.filtered.4027e8.0:  ; 0x4027e8
-  %eax.77 = trunc i64 %ret.23 to i32  ; 0x402817
+  %eax.77 = trunc i64 %ret.20 to i32  ; 0x402817
   %eh.execute.14 = icmp sgt i32 %eax.77, 0  ; 0x402817
   br i1 %eh.execute.14, label %eh.except.4027e8.0, label %eh.verdict.4027e8.0
 f15_402803:  ; 0x402803
@@ -11096,8 +10681,7 @@ f15_402803:  ; 0x402803
   store i32 %m.57, ptr %st.p.158, align 1  ; 0x40280e
   %sp.124 = sub i32 %sp.123, 4  ; 0x40280f
   %sarg0.a.14 = add i32 %sp.124, 4
-  %sarg0.14 = zext i32 %m.57 to i64
-  %ret.23 = call i64 @thunk__seh_filter_exe(i64 %sarg0.14, i64 %ecx.z.17)  ; 0x40280f
+  %ret.20 = call i64 @thunk__seh_filter_exe(i32 %m.57, i32 %m.55)  ; 0x40280f
   %eh.pending.33 = call i64 @ra_eh_pending()  ; 0x40280f
   %eh.thrown.33 = icmp ne i64 %eh.pending.33, 0  ; 0x40280f
   br i1 %eh.thrown.33, label %eh.landing.1, label %eh.ok.40280f.14
@@ -11129,7 +10713,7 @@ eh.access.4027e8:  ; 0x402817
   store i32 %m.58, ptr %st.p.162, align 1  ; 0x4027f4
   ret i64 %eax.z.36
 eh.ok.40281b:  ; 0x40281b
-  %al.9 = trunc i64 %ret.33 to i8  ; 0x402820
+  %al.9 = trunc i64 %ret.29 to i8  ; 0x402820
   %zf.48 = icmp eq i8 %al.9, 0  ; 0x402820
   br i1 %zf.48, label %b_40285f, label %b_402824
 eh.ok.40282a:  ; 0x40282a
@@ -11159,33 +10743,18 @@ eh.ok.402870:  ; 0x402870
 
 define void @F_00402880(i32 %arg0) {  ; 0x402880
 b_402880:  ; 0x402880
-  %local_m10 = alloca i32, align 4
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  store i32 %arg0, ptr %local_p4, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402880
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402880
   %addr.z.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 860) to i32) to i64  ; 0x402883
   %m.p = inttoptr i64 %addr.z.1 to ptr  ; 0x402883
   %m = load i32, ptr %m.p, align 1  ; 0x402883
-  store i32 %ebp, ptr %local_m8, align 1  ; 0x40288a
-  store i32 %arg0, ptr %local_mc, align 1  ; 0x40288e
   %not = icmp ne i32 %m, -1  ; 0x40288f
   br i1 %not, label %b_4028ac, label %b_402891
 b_402891:  ; 0x402891
-  %sarg0.d = load i32, ptr %local_mc, align 4
-  %sarg0 = zext i32 %sarg0.d to i64
-  %ret = call i64 @thunk__crt_atexit(i64 %sarg0)  ; 0x402891
+  %ret = call i64 @thunk__crt_atexit(i32 %arg0)  ; 0x402891
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402891
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402891
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.402891
 b_4028ac:  ; 0x4028ac
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 860) to i32), ptr %local_m10, align 1  ; 0x4028ac
-  %sarg1.d = load i32, ptr %local_mc, align 4
-  %sarg1 = zext i32 %sarg1.d to i64
-  %ret.1 = call i64 @thunk__register_onexit_function(i64 %addr.z.1, i64 %sarg1)  ; 0x4028b1
+  %ret.1 = call i64 @thunk__register_onexit_function(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 860) to i32), i32 %arg0)  ; 0x4028b1
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x4028b1
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x4028b1
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.4028b1
@@ -11202,11 +10771,8 @@ b_4028d0:  ; 0x4028d0
   %frame = alloca [4264 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 4188
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %ebp = trunc i64 undef to i32  ; 0x4028d0
   %esp = trunc i64 %rsp0 to i32  ; 0x4028d0
   %sp = sub i32 %esp, 4  ; 0x4028d0
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x4028d0
-  store i32 %ebp, ptr %st.p, align 1  ; 0x4028d0
   %sp.1 = sub i32 %sp, 4  ; 0x4028d3
   %st.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -8  ; 0x4028d3
   store i32 -2, ptr %st.p.1, align 1  ; 0x4028d3
@@ -11226,14 +10792,8 @@ b_4028d0:  ; 0x4028d0
   store i32 %m, ptr %st.p.4, align 1  ; 0x4028e5
   %diff = sub i32 %sp.4, 8  ; 0x4028e6
   %sp.5 = sub i32 %diff, 4  ; 0x4028e9
-  %st.p.5 = getelementptr inbounds i8, ptr %frame.top, i64 -32  ; 0x4028e9
-  store i32 %ebp, ptr %st.p.5, align 1  ; 0x4028e9
   %sp.6 = sub i32 %sp.5, 4  ; 0x4028ea
-  %st.p.6 = getelementptr inbounds i8, ptr %frame.top, i64 -36  ; 0x4028ea
-  store i32 %ebp, ptr %st.p.6, align 1  ; 0x4028ea
   %sp.7 = sub i32 %sp.6, 4  ; 0x4028eb
-  %st.p.7 = getelementptr inbounds i8, ptr %frame.top, i64 -40  ; 0x4028eb
-  store i32 %ebp, ptr %st.p.7, align 1  ; 0x4028eb
   %addr.z.9 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32) to i64  ; 0x4028ec
   %m.p.1 = inttoptr i64 %addr.z.9 to ptr  ; 0x4028ec
   %m.1 = load i32, ptr %m.p.1, align 1  ; 0x4028ec
@@ -11712,9 +11272,6 @@ eh.access.402988:  ; 0x402984
 
 define i64 @F_004029b0() {  ; 0x4029b0
 b_4029b0:  ; 0x4029b0
-  %local_m4 = alloca i32, align 4
-  %esi = trunc i64 undef to i32  ; 0x4029b0
-  store i32 %esi, ptr %local_m4, align 1  ; 0x4029b0
   %ret = call i64 @F_004031d0()  ; 0x4029b1
   %eh.pending = call i64 @ra_eh_pending()  ; 0x4029b1
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4029b1
@@ -11782,11 +11339,8 @@ define void @F_004029f0(i32 %arg0) {  ; 0x4029f0
 b_4029f0:  ; 0x4029f0
   %frame = alloca [124 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
-  %local_m4 = alloca i32, align 4
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x4029f0
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x4029f0
   %ret = call i64 @F_004031d0()  ; 0x4029f3
   %eh.pending = call i64 @ra_eh_pending()  ; 0x4029f3
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4029f3
@@ -11812,12 +11366,6 @@ eh.ok.4029f3:  ; 0x4029f3
 
 define i8 @F_00402a10(i32 %arg0) {  ; 0x402a10
 b_402a10:  ; 0x402a10
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  store i32 %arg0, ptr %local_p4, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402a10
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402a10
   %not = icmp ne i32 %arg0, 0  ; 0x402a17
   br i1 %not, label %b_402a20, label %b_402a19
 b_402a19:  ; 0x402a19
@@ -11836,7 +11384,6 @@ b_402a2e:  ; 0x402a2e
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x402a2e
   br i1 %eh.thrown.2, label %eh.landing, label %eh.ok.402a2e
 b_402a37:  ; 0x402a37
-  store i32 0, ptr %local_m8, align 1  ; 0x402a37
   %ret.3 = call i8 @F_00402c70()  ; 0x402a39
   %eh.pending.3 = call i64 @ra_eh_pending()  ; 0x402a39
   %eh.thrown.3 = icmp ne i64 %eh.pending.3, 0  ; 0x402a39
@@ -11863,19 +11410,12 @@ eh.ok.402a39:  ; 0x402a39
   br label %b_402a41
 }
 
-define void @F_00402a50(i32 %arg0, i32 %arg1) {  ; 0x402a50
+define void @F_00402a50(i64 %arg0, i32 %arg1) {  ; 0x402a50
 b_402a50:  ; 0x402a50
   %frame = alloca [128 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  store i32 %arg0, ptr %local_p4, align 4
   %stack.arg1.p = getelementptr inbounds i8, ptr %frame.top, i64 8
   store i32 %arg1, ptr %stack.arg1.p, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402a50
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402a50
   %addr.z.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 856) to i32) to i64  ; 0x402a53
   %m.p = inttoptr i64 %addr.z.1 to ptr  ; 0x402a53
   %m = load i8, ptr %m.p, align 1  ; 0x402a53
@@ -11886,8 +11426,6 @@ b_402a5c:  ; 0x402a5c
   %not = icmp ne i8 %m.1, 0  ; 0x402a60
   br i1 %not, label %b_402a75, label %b_402a62
 b_402a62:  ; 0x402a62
-  %m.2 = load i32, ptr %local_p4, align 1  ; 0x402a62
-  store i32 %m.2, ptr %local_m8, align 1  ; 0x402a62
   %ret = call i8 @F_00402c70()  ; 0x402a65
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402a65
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402a65
@@ -11897,8 +11435,6 @@ b_402a75:  ; 0x402a75
 eh.landing:  ; 0x402a65
   ret void
 eh.ok.402a65:  ; 0x402a65
-  %m.3 = load i32, ptr %local_p4, align 1  ; 0x402a6a
-  store i32 %m.3, ptr %local_mc, align 1  ; 0x402a6a
   %ret.1 = call i8 @F_00402c70()  ; 0x402a6d
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x402a6d
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x402a6d
@@ -11909,13 +11445,6 @@ eh.ok.402a6d:  ; 0x402a6d
 
 define i64 @F_00402a80(i32 %arg0) {  ; 0x402a80
 b_402a80:  ; 0x402a80
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  store i32 %arg0, ptr %local_p4, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402a80
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402a80
   %addr.z.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 857) to i32) to i64  ; 0x402a83
   %m.p = inttoptr i64 %addr.z.1 to ptr  ; 0x402a83
   %m = load i8, ptr %m.p, align 1  ; 0x402a83
@@ -11926,12 +11455,10 @@ b_402a8c:  ; 0x402a8c
   %rax.1 = or i64 %kept, 1  ; 0x402a8c
   ret i64 %rax.1
 b_402a90:  ; 0x402a90
-  store i32 %ebp, ptr %local_m8, align 1  ; 0x402a90
-  %m.1 = load i32, ptr %local_p4, align 1  ; 0x402a91
-  %zf.2 = icmp eq i32 %m.1, 0  ; 0x402a94
+  %zf.2 = icmp eq i32 %arg0, 0  ; 0x402a94
   br i1 %zf.2, label %b_402a9d, label %b_402a98
 b_402a98:  ; 0x402a98
-  %not = icmp ne i32 %m.1, 1  ; 0x402a9b
+  %not = icmp ne i32 %arg0, 1  ; 0x402a9b
   br i1 %not, label %b_402b19, label %b_402a9d
 b_402a9d:  ; 0x402a9d
   %ret = call i64 @F_004031d0()  ; 0x402a9d
@@ -11939,19 +11466,15 @@ b_402a9d:  ; 0x402a9d
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402a9d
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.402a9d
 b_402aa6:  ; 0x402aa6
-  %not.1 = icmp ne i32 %m.1, 0  ; 0x402aa8
+  %not.1 = icmp ne i32 %arg0, 0  ; 0x402aa8
   br i1 %not.1, label %b_402ad1, label %b_402aaa
 b_402aaa:  ; 0x402aaa
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 860) to i32), ptr %local_mc, align 1  ; 0x402aaa
-  %sarg0.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 860) to i32) to i64
-  %ret.1 = call i64 @thunk__initialize_onexit_table(i64 %sarg0.1)  ; 0x402aaf
+  %ret.1 = call i64 @thunk__initialize_onexit_table(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 860) to i32))  ; 0x402aaf
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x402aaf
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x402aaf
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.402aaf
 b_402abb:  ; 0x402abb
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 872) to i32), ptr %local_mc, align 1  ; 0x402abb
-  %sarg0.2 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 872) to i32) to i64
-  %ret.2 = call i64 @thunk__initialize_onexit_table(i64 %sarg0.2)  ; 0x402ac0
+  %ret.2 = call i64 @thunk__initialize_onexit_table(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 872) to i32))  ; 0x402ac0
   %eh.pending.2 = call i64 @ra_eh_pending()  ; 0x402ac0
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x402ac0
   br i1 %eh.thrown.2, label %eh.landing, label %eh.ok.402ac0
@@ -11986,8 +11509,7 @@ b_402b0d:  ; 0x402b0d
   %rax.11 = or i64 %kept.2, 1  ; 0x402b14
   ret i64 %rax.11
 b_402b19:  ; 0x402b19
-  store i32 5, ptr %local_mc, align 1  ; 0x402b19
-  call void @F_00402da0(i32 5)  ; 0x402b1b
+  call void @F_00402da0(i64 5)  ; 0x402b1b
   %eh.pending.3 = call i64 @ra_eh_pending()  ; 0x402b1b
   %eh.thrown.3 = icmp ne i64 %eh.pending.3, 0  ; 0x402b1b
   br i1 %eh.thrown.3, label %eh.landing, label %eh.ok.402b1b
@@ -12012,17 +11534,6 @@ eh.ok.402b1b:  ; 0x402b1b
 
 define i32 @F_00402b30(i32 %arg0, i32 %arg1) {  ; 0x402b30
 b_402b30:  ; 0x402b30
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  store i32 %arg0, ptr %local_p4, align 4
-  store i32 %arg1, ptr %local_p8, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402b30
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402b30
-  store i32 %ebp, ptr %local_m8, align 1  ; 0x402b36
-  store i32 %ebp, ptr %local_mc, align 1  ; 0x402b37
   %addr.1 = add i32 %arg0, 60  ; 0x402b38
   %addr.z.4 = zext i32 %addr.1 to i64  ; 0x402b38
   %m.p.1 = inttoptr i64 %addr.z.4 to ptr  ; 0x402b38
@@ -12043,7 +11554,6 @@ b_402b30:  ; 0x402b30
   %zf.3 = icmp eq i32 %sum.2, %addr.5  ; 0x402b50
   br i1 %zf.3, label %b_402b6e, label %b_402b54
 b_402b54:  ; 0x402b54
-  %m.4 = load i32, ptr %local_p8, align 1  ; 0x402b54
   br label %b_402b57
 b_402b57:  ; 0x402b57
   %rax.phi = phi i32 [ %sum.2, %b_402b54 ], [ %sum.4, %b_402b67 ]  ; 0x402b57
@@ -12051,13 +11561,13 @@ b_402b57:  ; 0x402b57
   %rax.phi.s = inttoptr i64 %rax.phi.s.w to ptr  ; 0x402b57
   %rax.phi.f12 = getelementptr inbounds %S5, ptr %rax.phi.s, i64 0, i32 2  ; 0x402b57
   %m.5 = load i32, ptr %rax.phi.f12, align 1  ; 0x402b57
-  %cf.4 = icmp ult i32 %m.4, %m.5  ; 0x402b5a
+  %cf.4 = icmp ult i32 %arg1, %m.5  ; 0x402b5a
   br i1 %cf.4, label %b_402b67, label %b_402b5e
 b_402b5e:  ; 0x402b5e
   %rax.phi.f8 = getelementptr inbounds %S5, ptr %rax.phi.s, i64 0, i32 1  ; 0x402b5e
   %m.6 = load i32, ptr %rax.phi.f8, align 1  ; 0x402b5e
   %sum.3 = add i32 %m.6, %m.5  ; 0x402b61
-  %cf.7 = icmp ult i32 %m.4, %sum.3  ; 0x402b63
+  %cf.7 = icmp ult i32 %arg1, %sum.3  ; 0x402b63
   br i1 %cf.7, label %b_402b70, label %b_402b67
 b_402b67:  ; 0x402b67
   %sum.4 = add i32 %rax.phi, 40  ; 0x402b67
@@ -12076,11 +11586,8 @@ b_402b80:  ; 0x402b80
   %frame = alloca [136 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 60
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %ebp = trunc i64 undef to i32  ; 0x402b80
   %esp = trunc i64 %rsp0 to i32  ; 0x402b80
   %sp = sub i32 %esp, 4  ; 0x402b80
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x402b80
-  store i32 %ebp, ptr %st.p, align 1  ; 0x402b80
   %addr.z.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32) to i64  ; 0x402b83
   %m.p = inttoptr i64 %addr.z.1 to ptr  ; 0x402b83
   %m = load i32, ptr %m.p, align 1  ; 0x402b83
@@ -12183,8 +11690,6 @@ b_402c50:  ; 0x402c50
 
 define void @F_00402c60() {  ; 0x402c60
 b_402c60:  ; 0x402c60
-  %local_m4 = alloca i32, align 4
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 888) to i32), ptr %local_m4, align 1  ; 0x402c60
   %sarg0 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 888) to i32) to i64
   %ret = call i64 @ra_x86_initialize_slist_head(i64 %sarg0)  ; 0x402c65
   ret void
@@ -12197,21 +11702,14 @@ b_402c70:  ; 0x402c70
 
 define void @F_00402c80() {  ; 0x402c80
 b_402c80:  ; 0x402c80
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  store i32 196608, ptr %local_m4, align 1  ; 0x402c80
-  store i32 65536, ptr %local_m8, align 1  ; 0x402c85
-  store i32 0, ptr %local_mc, align 1  ; 0x402c8a
-  %ret = call i64 @thunk__controlfp_s(i64 0, i64 65536, i64 196608)  ; 0x402c8c
+  %ret = call i64 @thunk__controlfp_s(i32 0, i32 65536, i32 196608)  ; 0x402c8c
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402c8c
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402c8c
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.402c8c
 b_402c98:  ; 0x402c98
   ret void
 b_402c99:  ; 0x402c99
-  store i32 7, ptr %local_m4, align 1  ; 0x402c99
-  call void @F_00402da0(i32 7)  ; 0x402c9b
+  call void @F_00402da0(i64 7)  ; 0x402c9b
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x402c9b
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x402c9b
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.402c9b
@@ -12304,8 +11802,6 @@ b_402d20:  ; 0x402d20
 
 define i64 @F_00402d30() {  ; 0x402d30
 b_402d30:  ; 0x402d30
-  %local_m4 = alloca i32, align 4
-  store i32 0, ptr %local_m4, align 1  ; 0x402d30
   %ret = call i64 @ra_x86_get_module_handle_w(i64 0)  ; 0x402d32
   %eax = trunc i64 %ret to i32  ; 0x402d38
   %zf = icmp eq i32 %eax, 0  ; 0x402d38
@@ -12359,20 +11855,13 @@ b_402d80:  ; 0x402d80
 
 define void @F_00402d90() {  ; 0x402d90
 b_402d90:  ; 0x402d90
-  %local_m4 = alloca i32, align 4
-  store i32 ptrtoint (ptr @U_00402db0 to i32), ptr %local_m4, align 1  ; 0x402d90
   %sarg0 = zext i32 ptrtoint (ptr @U_00402db0 to i32) to i64
   %ret = call i64 @SetUnhandledExceptionFilter(i64 %sarg0)  ; 0x402d95
   ret void
 }
 
-define void @F_00402da0(i32 %arg0) {  ; 0x402da0
+define void @F_00402da0(i64 %arg0) {  ; 0x402da0
 b_402da0:  ; 0x402da0
-  %local_m4 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  store i32 %arg0, ptr %local_p4, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402da0
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402da0
   call void @ra_trap(i64 4205990, i64 6)  ; 0x402da6
   call void @ra_trap(i64 4205990, i64 1)  ; 0x402da6
   unreachable
@@ -12380,16 +11869,7 @@ b_402da0:  ; 0x402da0
 
 define i64 @F_00402db0(i64 %arg0) {  ; 0x402db0
 b_402db0:  ; 0x402db0
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402db0
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402db0
-  store i32 %ebp, ptr %local_m8, align 1  ; 0x402db3
-  store i32 %ebp, ptr %local_mc, align 1  ; 0x402db4
   %edi.z = zext i32 %stack.arg0.lo to i64  ; 0x402db5
   %m.p.1 = inttoptr i64 %edi.z to ptr  ; 0x402db8
   %m.1 = load i32, ptr %m.p.1, align 1  ; 0x402db8
@@ -12456,11 +11936,6 @@ eh.ok.402e00:  ; 0x402e00
 
 define void @F_00402e10() {  ; 0x402e10
 b_402e10:  ; 0x402e10
-  %frame = alloca [120 x i8], align 16
-  %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
-  %esi = trunc i64 undef to i32  ; 0x402e10
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x402e10
-  store i32 %esi, ptr %st.p, align 1  ; 0x402e10
   br label %b_402e3c
 b_402e3c:  ; 0x402e3c
   ret void
@@ -12468,69 +11943,28 @@ b_402e3c:  ; 0x402e3c
 
 define i64 @F_00402e40() {  ; 0x402e40
 b_402e40:  ; 0x402e40
-  %frame = alloca [120 x i8], align 16
-  %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
-  %esi = trunc i64 undef to i32  ; 0x402e40
-  %st.p = getelementptr inbounds i8, ptr %frame.top, i64 -4  ; 0x402e40
-  store i32 %esi, ptr %st.p, align 1  ; 0x402e40
   %esi.z = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2552) to i32) to i64  ; 0x402e41
   br label %b_402e6c
 b_402e6c:  ; 0x402e6c
   ret i64 %esi.z
 }
 
-define void @F_00402e70(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4) {  ; 0x402e70
+define void @F_00402e70(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x402e70
 b_402e70:  ; 0x402e70
-  %local_m24 = alloca i32, align 4
-  %local_m20 = alloca i32, align 4
-  %local_m1c = alloca i32, align 4
-  %local_m18 = alloca i32, align 4
-  %local_m14 = alloca i32, align 4
-  %local_m10 = alloca i32, align 4
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %stack.arg1.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
-  %stack.arg2.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
-  %stack.arg3.lo = trunc i64 %arg4 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402e70
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402e70
-  store i32 %ebp, ptr %local_m8, align 1  ; 0x402e73
+  %stack.arg0.lo = trunc i64 %arg0 to i32
+  %stack.arg1.lo = trunc i64 %arg1 to i32
   %esi.z = zext i32 %stack.arg0.lo to i64  ; 0x402e74
   %m.p.1 = inttoptr i64 %esi.z to ptr  ; 0x402e77
   %m.1 = load i32, ptr %m.p.1, align 1  ; 0x402e77
-  store i32 %m.1, ptr %local_mc, align 1  ; 0x402e77
-  %a = trunc i64 %arg0 to i32
-  %ret = call i32 @F_004031e0(i32 %a, i32 %m.1)  ; 0x402e79
+  %ret = call i32 @F_004031e0(i32 %m.1)  ; 0x402e79
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402e79
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402e79
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.402e79
 eh.landing:  ; 0x402e79
   ret void
 eh.ok.402e79:  ; 0x402e79
-  %m.2 = load i32, ptr %local_p10, align 1  ; 0x402e7e
-  store i32 %m.2, ptr %local_m10, align 1  ; 0x402e7e
   store i32 %ret, ptr %m.p.1, align 1  ; 0x402e81
-  %m.3 = load i32, ptr %local_pc, align 1  ; 0x402e83
-  store i32 %m.3, ptr %local_m14, align 1  ; 0x402e83
-  %m.4 = load i32, ptr %local_p8, align 1  ; 0x402e86
-  store i32 %m.4, ptr %local_m18, align 1  ; 0x402e86
-  store i32 %stack.arg0.lo, ptr %local_m1c, align 1  ; 0x402e89
-  store i32 ptrtoint (ptr @U_00402570 to i32), ptr %local_m20, align 1  ; 0x402e8a
-  store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32), ptr %local_m24, align 1  ; 0x402e8f
-  %sarg0.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32) to i64
-  %sarg1 = zext i32 ptrtoint (ptr @U_00402570 to i32) to i64
-  %sarg3 = zext i32 %m.4 to i64
-  %ret.1 = call i64 @thunk__except_handler4_common(i64 %sarg0.1, i64 %sarg1, i64 %esi.z, i64 %sarg3)  ; 0x402e94
+  call void @thunk__except_handler4_common(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32), i32 ptrtoint (ptr @U_00402570 to i32), i32 %stack.arg0.lo, i32 %stack.arg1.lo)  ; 0x402e94
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x402e94
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x402e94
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.402e94
@@ -12540,24 +11974,6 @@ eh.ok.402e94:  ; 0x402e94
 
 define i8 @F_00402ea0() {  ; 0x402ea0
 b_402ea0:  ; 0x402ea0
-  %local_m40 = alloca i32, align 4
-  %local_m3c = alloca i32, align 4
-  %local_m38 = alloca i32, align 4
-  %local_m34 = alloca i32, align 4
-  %local_m30 = alloca i32, align 4
-  %local_m2c = alloca i32, align 4
-  %local_m28 = alloca i32, align 4
-  %local_m24 = alloca i32, align 4
-  %local_m20 = alloca i32, align 4
-  %local_m1c = alloca i32, align 4
-  %local_m18 = alloca i32, align 4
-  %local_m14 = alloca i32, align 4
-  %local_m10 = alloca i32, align 4
-  %local_mc = alloca i32, align 4
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %ebp = trunc i64 undef to i32  ; 0x402ea0
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x402ea0
   %addr.z.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 272) to i32) to i64  ; 0x402ea3
   %m.p = inttoptr i64 %addr.z.1 to ptr  ; 0x402ea3
   %m = load i32, ptr %m.p, align 1  ; 0x402ea3
@@ -12566,16 +11982,11 @@ b_402ea0:  ; 0x402ea0
   %addr.z.3 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 924) to i32) to i64  ; 0x402ead
   %st.p.2 = inttoptr i64 %addr.z.3 to ptr  ; 0x402ead
   store i32 0, ptr %st.p.2, align 1  ; 0x402ead
-  store i32 10, ptr %local_m34, align 1  ; 0x402eb7
   %ret = call i64 @IsProcessorFeaturePresent(i64 10)  ; 0x402eb9
   %eax = trunc i64 %ret to i32  ; 0x402ebf
   %zf.2 = icmp eq i32 %eax, 0  ; 0x402ebf
   br i1 %zf.2, label %b_4031c5, label %b_402ec7
 b_402ec7:  ; 0x402ec7
-  store i32 %ebp, ptr %local_m34, align 1  ; 0x402ec7
-  store i32 %ebp, ptr %local_m38, align 1  ; 0x402ec8
-  store i32 %ebp, ptr %local_m3c, align 1  ; 0x402ec9
-  store i32 %ebp, ptr %local_m40, align 1  ; 0x402ed1
   %cpuid = alloca [4 x i32], align 16  ; 0x402ed2
   call void @ra_cpuid(i64 0, i64 0, ptr %cpuid)  ; 0x402ed2
   %cpuid.p = getelementptr [4 x i32], ptr %cpuid, i64 0, i64 0  ; 0x402ed2
@@ -12586,37 +11997,21 @@ b_402ec7:  ; 0x402ec7
   %cpuid.v.2 = load i32, ptr %cpuid.p.2, align 4  ; 0x402ed2
   %cpuid.p.3 = getelementptr [4 x i32], ptr %cpuid, i64 0, i64 3  ; 0x402ed2
   %cpuid.v.3 = load i32, ptr %cpuid.p.3, align 4  ; 0x402ed2
-  %pop = load i32, ptr %local_m40, align 1  ; 0x402ed6
-  store i32 %cpuid.v, ptr %local_m30, align 1  ; 0x402ed8
-  store i32 %cpuid.v.1, ptr %local_m2c, align 1  ; 0x402eda
-  store i32 %cpuid.v.2, ptr %local_m28, align 1  ; 0x402edd
-  store i32 %cpuid.v.3, ptr %local_m24, align 1  ; 0x402ee0
-  store i32 %cpuid.v, ptr %local_m8, align 1  ; 0x402ee9
   %logic.2 = xor i32 %cpuid.v.3, 1231384169  ; 0x402eec
   %logic.3 = xor i32 %cpuid.v.2, 1818588270  ; 0x402ef5
   %logic.4 = or i32 %logic.2, %logic.3  ; 0x402efa
   %logic.5 = xor i32 %cpuid.v.1, 1970169159  ; 0x402eff
   %logic.6 = or i32 %logic.4, %logic.5  ; 0x402f04
-  store i32 %pop, ptr %local_m40, align 1  ; 0x402f10
   %cpuid.1 = alloca [4 x i32], align 16  ; 0x402f11
   call void @ra_cpuid(i64 1, i64 0, ptr %cpuid.1)  ; 0x402f11
   %cpuid.p.4 = getelementptr [4 x i32], ptr %cpuid.1, i64 0, i64 0  ; 0x402f11
   %cpuid.v.4 = load i32, ptr %cpuid.p.4, align 4  ; 0x402f11
-  %cpuid.p.5 = getelementptr [4 x i32], ptr %cpuid.1, i64 0, i64 1  ; 0x402f11
-  %cpuid.v.5 = load i32, ptr %cpuid.p.5, align 4  ; 0x402f11
   %cpuid.p.6 = getelementptr [4 x i32], ptr %cpuid.1, i64 0, i64 2  ; 0x402f11
   %cpuid.v.6 = load i32, ptr %cpuid.p.6, align 4  ; 0x402f11
-  %cpuid.p.7 = getelementptr [4 x i32], ptr %cpuid.1, i64 0, i64 3  ; 0x402f11
-  %cpuid.v.7 = load i32, ptr %cpuid.p.7, align 4  ; 0x402f11
-  store i32 %cpuid.v.4, ptr %local_m30, align 1  ; 0x402f17
-  store i32 %cpuid.v.5, ptr %local_m2c, align 1  ; 0x402f19
-  store i32 %cpuid.v.6, ptr %local_m28, align 1  ; 0x402f1c
-  store i32 %cpuid.v.7, ptr %local_m24, align 1  ; 0x402f1f
   %not = icmp ne i32 %logic.6, 0  ; 0x402f22
   br i1 %not, label %b_402f67, label %b_402f24
 b_402f24:  ; 0x402f24
-  %m.5 = load i32, ptr %local_m30, align 1  ; 0x402f24
-  %logic.7 = and i32 %m.5, 268386288  ; 0x402f27
+  %logic.7 = and i32 %cpuid.v.4, 268386288  ; 0x402f27
   %zf.13 = icmp eq i32 %logic.7, 67264  ; 0x402f2c
   br i1 %zf.13, label %b_402f56, label %b_402f33
 b_402f33:  ; 0x402f33
@@ -12648,32 +12043,17 @@ b_402f67:  ; 0x402f67
   br label %b_402f6d
 b_402f6d:  ; 0x402f6d
   %rdi.phi = phi i32 [ %logic.8, %b_402f56 ], [ %m.7, %b_402f67 ]  ; 0x402f6d
-  %m.8 = load i32, ptr %local_m28, align 1  ; 0x402f6d
-  store i32 %m.8, ptr %local_m14, align 1  ; 0x402f74
-  %m.9 = load i32, ptr %local_m8, align 1  ; 0x402f77
-  store i32 0, ptr %local_m1c, align 1  ; 0x402f7b
-  store i32 0, ptr %local_m10, align 1  ; 0x402f7e
-  store i32 0, ptr %local_m20, align 1  ; 0x402f81
-  %l = icmp slt i32 %m.9, 7  ; 0x402f84
+  %l = icmp slt i32 %cpuid.v, 7  ; 0x402f84
   br i1 %l, label %b_403026, label %b_402f8a
 b_402f8a:  ; 0x402f8a
-  store i32 0, ptr %local_m40, align 1  ; 0x402f91
   %cpuid.2 = alloca [4 x i32], align 16  ; 0x402f92
   call void @ra_cpuid(i64 7, i64 0, ptr %cpuid.2)  ; 0x402f92
   %cpuid.p.8 = getelementptr [4 x i32], ptr %cpuid.2, i64 0, i64 0  ; 0x402f92
   %cpuid.v.8 = load i32, ptr %cpuid.p.8, align 4  ; 0x402f92
   %cpuid.p.9 = getelementptr [4 x i32], ptr %cpuid.2, i64 0, i64 1  ; 0x402f92
   %cpuid.v.9 = load i32, ptr %cpuid.p.9, align 4  ; 0x402f92
-  %cpuid.p.10 = getelementptr [4 x i32], ptr %cpuid.2, i64 0, i64 2  ; 0x402f92
-  %cpuid.v.10 = load i32, ptr %cpuid.p.10, align 4  ; 0x402f92
   %cpuid.p.11 = getelementptr [4 x i32], ptr %cpuid.2, i64 0, i64 3  ; 0x402f92
   %cpuid.v.11 = load i32, ptr %cpuid.p.11, align 4  ; 0x402f92
-  store i32 %cpuid.v.8, ptr %local_m30, align 1  ; 0x402f9b
-  store i32 %cpuid.v.9, ptr %local_m2c, align 1  ; 0x402f9d
-  store i32 %cpuid.v.10, ptr %local_m28, align 1  ; 0x402fa0
-  store i32 %cpuid.v.11, ptr %local_m24, align 1  ; 0x402fa3
-  store i32 %cpuid.v.9, ptr %local_mc, align 1  ; 0x402fac
-  store i32 %cpuid.v.11, ptr %local_m1c, align 1  ; 0x402faf
   %logic.9 = and i32 %cpuid.v.9, 512  ; 0x402fb2
   %zf.30 = icmp eq i32 %logic.9, 0  ; 0x402fb2
   br i1 %zf.30, label %b_402fc3, label %b_402fba
@@ -12684,64 +12064,35 @@ b_402fba:  ; 0x402fba
   store i32 %logic.10, ptr %st.p.30, align 1  ; 0x402fbd
   br label %b_402fc3
 b_402fc3:  ; 0x402fc3
-  %m.12 = load i32, ptr %local_m30, align 1  ; 0x402fc3
-  %l.1 = icmp slt i32 %m.12, 1  ; 0x402fc7
+  %l.1 = icmp slt i32 %cpuid.v.8, 1  ; 0x402fc7
   br i1 %l.1, label %b_402ff3, label %b_402fc9
 b_402fc9:  ; 0x402fc9
-  store i32 %cpuid.v.9, ptr %local_m40, align 1  ; 0x402fd6
   %cpuid.3 = alloca [4 x i32], align 16  ; 0x402fd7
   call void @ra_cpuid(i64 7, i64 1, ptr %cpuid.3)  ; 0x402fd7
-  %cpuid.p.12 = getelementptr [4 x i32], ptr %cpuid.3, i64 0, i64 0  ; 0x402fd7
-  %cpuid.v.12 = load i32, ptr %cpuid.p.12, align 4  ; 0x402fd7
-  %cpuid.p.13 = getelementptr [4 x i32], ptr %cpuid.3, i64 0, i64 1  ; 0x402fd7
-  %cpuid.v.13 = load i32, ptr %cpuid.p.13, align 4  ; 0x402fd7
-  %cpuid.p.14 = getelementptr [4 x i32], ptr %cpuid.3, i64 0, i64 2  ; 0x402fd7
-  %cpuid.v.14 = load i32, ptr %cpuid.p.14, align 4  ; 0x402fd7
   %cpuid.p.15 = getelementptr [4 x i32], ptr %cpuid.3, i64 0, i64 3  ; 0x402fd7
   %cpuid.v.15 = load i32, ptr %cpuid.p.15, align 4  ; 0x402fd7
-  %m.13 = load i32, ptr %local_mc, align 1  ; 0x402fdd
-  store i32 %cpuid.v.12, ptr %local_m30, align 1  ; 0x402fe0
-  store i32 %cpuid.v.13, ptr %local_m2c, align 1  ; 0x402fe2
-  store i32 %cpuid.v.14, ptr %local_m28, align 1  ; 0x402fe5
-  store i32 %cpuid.v.15, ptr %local_m24, align 1  ; 0x402fe8
-  store i32 %cpuid.v.15, ptr %local_m10, align 1  ; 0x402fee
   br label %b_402ff5
 b_402ff3:  ; 0x402ff3
   br label %b_402ff5
 b_402ff5:  ; 0x402ff5
-  %rbx.phi.1 = phi i32 [ %m.13, %b_402fc9 ], [ %cpuid.v.9, %b_402ff3 ]  ; 0x402ff5
+  %local_m10.phi = phi i32 [ 0, %b_402ff3 ], [ %cpuid.v.15, %b_402fc9 ]
   %rsi.phi = phi i32 [ %cpuid.v.15, %b_402fc9 ], [ 0, %b_402ff3 ]  ; 0x402ff5
-  %m.15 = load i32, ptr %local_m8, align 1  ; 0x402ff5
-  %l.2 = icmp slt i32 %m.15, 36  ; 0x402ff9
+  %l.2 = icmp slt i32 %cpuid.v, 36  ; 0x402ff9
   br i1 %l.2, label %b_403023, label %b_402ffb
 b_402ffb:  ; 0x402ffb
-  store i32 %rbx.phi.1, ptr %local_m40, align 1  ; 0x403005
   %cpuid.4 = alloca [4 x i32], align 16  ; 0x403006
   call void @ra_cpuid(i64 36, i64 0, ptr %cpuid.4)  ; 0x403006
-  %cpuid.p.16 = getelementptr [4 x i32], ptr %cpuid.4, i64 0, i64 0  ; 0x403006
-  %cpuid.v.16 = load i32, ptr %cpuid.p.16, align 4  ; 0x403006
   %cpuid.p.17 = getelementptr [4 x i32], ptr %cpuid.4, i64 0, i64 1  ; 0x403006
   %cpuid.v.17 = load i32, ptr %cpuid.p.17, align 4  ; 0x403006
-  %cpuid.p.18 = getelementptr [4 x i32], ptr %cpuid.4, i64 0, i64 2  ; 0x403006
-  %cpuid.v.18 = load i32, ptr %cpuid.p.18, align 4  ; 0x403006
-  %cpuid.p.19 = getelementptr [4 x i32], ptr %cpuid.4, i64 0, i64 3  ; 0x403006
-  %cpuid.v.19 = load i32, ptr %cpuid.p.19, align 4  ; 0x403006
-  %m.16 = load i32, ptr %local_mc, align 1  ; 0x40300c
-  store i32 %cpuid.v.16, ptr %local_m30, align 1  ; 0x40300f
-  store i32 %cpuid.v.17, ptr %local_m2c, align 1  ; 0x403011
-  %m.17 = load i32, ptr %local_m10, align 1  ; 0x403014
-  store i32 %cpuid.v.18, ptr %local_m28, align 1  ; 0x403017
-  store i32 %cpuid.v.19, ptr %local_m24, align 1  ; 0x40301a
-  store i32 %cpuid.v.17, ptr %local_m20, align 1  ; 0x403020
   br label %b_403023
 b_403023:  ; 0x403023
-  %rbx.phi.2 = phi i32 [ %rbx.phi.1, %b_402ff5 ], [ %m.16, %b_402ffb ]  ; 0x403023
-  %rsi.phi.1 = phi i32 [ %rsi.phi, %b_402ff5 ], [ %m.17, %b_402ffb ]  ; 0x403023
-  %m.19 = load i32, ptr %local_m14, align 1  ; 0x403023
+  %local_m20.phi = phi i32 [ 0, %b_402ff5 ], [ %cpuid.v.17, %b_402ffb ]
+  %rsi.phi.1 = phi i32 [ %rsi.phi, %b_402ff5 ], [ %local_m10.phi, %b_402ffb ]  ; 0x403023
   br label %b_403026
 b_403026:  ; 0x403026
-  %rdx.phi = phi i32 [ %m.8, %b_402f6d ], [ %m.19, %b_403023 ]  ; 0x403026
-  %rbx.phi.3 = phi i32 [ 0, %b_402f6d ], [ %rbx.phi.2, %b_403023 ]  ; 0x403026
+  %local_m1c.phi = phi i32 [ 0, %b_402f6d ], [ %cpuid.v.11, %b_403023 ]
+  %local_m20.phi.1 = phi i32 [ 0, %b_402f6d ], [ %local_m20.phi, %b_403023 ]
+  %rbx.phi.3 = phi i32 [ 0, %b_402f6d ], [ %cpuid.v.9, %b_403023 ]  ; 0x403026
   %rsi.phi.2 = phi i32 [ 0, %b_402f6d ], [ %rsi.phi.1, %b_403023 ]  ; 0x403026
   %m.20 = load i32, ptr %m.p, align 1  ; 0x403026
   %addr.z.69 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 280) to i32) to i64  ; 0x40302b
@@ -12756,7 +12107,7 @@ b_403026:  ; 0x403026
   store i32 %logic.11, ptr %m.p, align 1  ; 0x403047
   store i32 %logic.12, ptr %m.p.21, align 1  ; 0x40304c
   store i32 %m.22, ptr %m.p.22, align 1  ; 0x403052
-  %logic.13 = and i32 %rdx.phi, 1048576  ; 0x403058
+  %logic.13 = and i32 %cpuid.v.6, 1048576  ; 0x403058
   %zf.39 = icmp eq i32 %logic.13, 0  ; 0x403058
   br i1 %zf.39, label %b_4031c2, label %b_403064
 b_403064:  ; 0x403064
@@ -12764,7 +12115,7 @@ b_403064:  ; 0x403064
   store i32 2, ptr %st.p.2, align 1  ; 0x403067
   %logic.15 = and i32 %logic.12, -17  ; 0x403071
   store i32 %logic.14, ptr %m.p, align 1  ; 0x403074
-  %logic.16 = and i32 %rdx.phi, 402653184  ; 0x403079
+  %logic.16 = and i32 %cpuid.v.6, 402653184  ; 0x403079
   store i32 %logic.15, ptr %m.p.21, align 1  ; 0x40307f
   store i32 %m.22, ptr %m.p.22, align 1  ; 0x403085
   %not.2 = icmp ne i32 %logic.16, 402653184  ; 0x403091
@@ -12772,10 +12123,6 @@ b_403064:  ; 0x403064
 b_403097:  ; 0x403097
   %xgetbv = call i64 @ra_xgetbv(i64 0)  ; 0x403099
   %xcr.lo = trunc i64 %xgetbv to i32  ; 0x403099
-  %xcr.hs = lshr i64 %xgetbv, 32  ; 0x403099
-  %xcr.hi = trunc i64 %xcr.hs to i32  ; 0x403099
-  store i32 %xcr.lo, ptr %local_m18, align 1  ; 0x40309c
-  store i32 %xcr.hi, ptr %local_m14, align 1  ; 0x40309f
   %logic.17 = and i32 %xcr.lo, 6  ; 0x4030a8
   %not.3 = icmp ne i32 %logic.17, 6  ; 0x4030ae
   br i1 %not.3, label %b_4031c2, label %b_4030b4
@@ -12801,8 +12148,7 @@ b_4030d0:  ; 0x4030d0
   %not.4 = icmp ne i32 %logic.21, -805109760  ; 0x403107
   br i1 %not.4, label %b_403152, label %b_403109
 b_403109:  ; 0x403109
-  %m.28 = load i32, ptr %local_m18, align 1  ; 0x403109
-  %logic.23 = and i32 %m.28, 224  ; 0x40310f
+  %logic.23 = and i32 %xcr.lo, 224  ; 0x40310f
   %not.5 = icmp ne i32 %logic.23, 224  ; 0x403119
   br i1 %not.5, label %b_403147, label %b_40311b
 b_40311b:  ; 0x40311b
@@ -12823,8 +12169,7 @@ b_403147:  ; 0x403147
 b_403152:  ; 0x403152
   %rax.phi = phi i32 [ %logic.22, %b_4030d0 ], [ %logic.25, %b_40311b ], [ %m.34, %b_403147 ]  ; 0x403152
   %rcx.phi = phi i32 [ %m.26, %b_4030d0 ], [ %m.32, %b_40311b ], [ %m.33, %b_403147 ]  ; 0x403152
-  %m.35 = load i32, ptr %local_m1c, align 1  ; 0x403152
-  %logic.26 = and i32 %m.35, 8388608  ; 0x403152
+  %logic.26 = and i32 %local_m1c.phi, 8388608  ; 0x403152
   %zf.63 = icmp eq i32 %logic.26, 0  ; 0x403152
   br i1 %zf.63, label %b_40316b, label %b_40315b
 b_40315b:  ; 0x40315b
@@ -12837,13 +12182,11 @@ b_40316b:  ; 0x40316b
   %zf.66 = icmp eq i32 %logic.28, 0  ; 0x40316b
   br i1 %zf.66, label %b_4031c2, label %b_403173
 b_403173:  ; 0x403173
-  %m.36 = load i32, ptr %local_m18, align 1  ; 0x403173
-  %logic.29 = and i32 %m.36, 224  ; 0x403179
+  %logic.29 = and i32 %xcr.lo, 224  ; 0x403179
   %not.6 = icmp ne i32 %logic.29, 224  ; 0x403183
   br i1 %not.6, label %b_4031c2, label %b_403185
 b_403185:  ; 0x403185
-  %m.38 = load i32, ptr %local_m20, align 1  ; 0x403185
-  %eax.z.38 = trunc i32 %m.38 to i8  ; 0x403185
+  %eax.z.38 = trunc i32 %local_m20.phi.1 to i8  ; 0x403185
   %m.39 = load i32, ptr %m.p.21, align 1  ; 0x403188
   %m.40 = load i32, ptr %m.p.22, align 1  ; 0x40318e
   %logic.30 = and i32 %m.39, -16777264  ; 0x403194
@@ -12876,30 +12219,22 @@ b_4031d0:  ; 0x4031d0
   ret i64 %al.z
 }
 
-define i32 @F_004031e0(i32 %arg0, i32 %arg1) {  ; 0x4031e0
+define i32 @F_004031e0(i32 %arg0) {  ; 0x4031e0
 b_4031e0:  ; 0x4031e0
-  %local_m8 = alloca i32, align 4
-  %local_m4 = alloca i32, align 4
-  %local_p4 = alloca i32, align 4
-  store i32 %arg1, ptr %local_p4, align 4
-  %ebp = trunc i64 undef to i32  ; 0x4031e0
-  store i32 %ebp, ptr %local_m4, align 1  ; 0x4031e0
-  store i32 %arg0, ptr %local_m8, align 1  ; 0x4031e3
   %addr.z.2 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 924) to i32) to i64  ; 0x4031e4
   %m.p = inttoptr i64 %addr.z.2 to ptr  ; 0x4031e4
   %m = load i32, ptr %m.p, align 1  ; 0x4031e4
   %l = icmp slt i32 %m, 1  ; 0x4031ee
   br i1 %l, label %b_403252, label %b_4031f0
 b_4031f0:  ; 0x4031f0
-  %zf.1 = icmp eq i32 %arg1, -1073741132  ; 0x4031f0
+  %zf.1 = icmp eq i32 %arg0, -1073741132  ; 0x4031f0
   br i1 %zf.1, label %b_403200, label %b_4031f8
 b_4031f8:  ; 0x4031f8
-  %not = icmp ne i32 %arg1, -1073741131  ; 0x4031fe
+  %not = icmp ne i32 %arg0, -1073741131  ; 0x4031fe
   br i1 %not, label %b_403252, label %b_403200
 b_403200:  ; 0x403200
   %mxcsr.p = inttoptr i64 ptrtoint (ptr @ra_mxcsr to i64) to ptr  ; 0x403200
   %mxcsr = load i32, ptr %mxcsr.p, align 4  ; 0x403200
-  store i32 %mxcsr, ptr %local_m8, align 1  ; 0x403200
   %logic = xor i32 %mxcsr, 63  ; 0x403207
   %eax.z.1 = trunc i32 %logic to i8  ; 0x403207
   %logic.1 = and i8 %eax.z.1, -127  ; 0x40320a
@@ -12930,47 +12265,29 @@ b_40323c:  ; 0x40323c
 b_403245:  ; 0x403245
   %logic.6 = and i32 %logic, 4128  ; 0x403245
   %zf.16 = icmp eq i32 %logic.6, 0  ; 0x403245
-  %cmov = select i1 %zf.16, i32 -1073741681, i32 %arg1  ; 0x40324f
+  %cmov = select i1 %zf.16, i32 -1073741681, i32 %arg0  ; 0x40324f
   br label %b_403252
 b_403252:  ; 0x403252
-  %rcx.phi.1 = phi i32 [ %arg1, %b_4031e0 ], [ %arg1, %b_4031f8 ], [ %cmov, %b_403245 ]  ; 0x403252
+  %rcx.phi.1 = phi i32 [ %arg0, %b_4031e0 ], [ %arg0, %b_4031f8 ], [ %cmov, %b_403245 ]  ; 0x403252
   ret i32 %rcx.phi.1
 b_403258:  ; 0x403258
   ret i32 -1073741680
 }
 
-define i64 @thunk__CxxThrowException(i64 %arg0, i64 %arg1) {  ; 0x403261
+define void @thunk__CxxThrowException(i32 %arg0, i32 %arg1) {  ; 0x403261
 b_403261:  ; 0x403261
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
+  %sarg1 = zext i32 %arg1 to i64
   %ret = call i64 @_CxxThrowException(i64 %sarg0, i64 %sarg1)  ; 0x403261
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk___CxxFrameHandler3(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x403267
+define i64 @thunk___CxxFrameHandler3(i32 %arg0, i32 %arg1, i32 %arg2, i32 %arg3) {  ; 0x403267
 b_403267:  ; 0x403267
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
-  %stack.arg2.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
-  %stack.arg3.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
-  %sarg3 = zext i32 %stack.arg3.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
+  %sarg1 = zext i32 %arg1 to i64
+  %sarg2 = zext i32 %arg2 to i64
+  %sarg3 = zext i32 %arg3 to i64
   %ret = call i64 @__CxxFrameHandler3(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3)  ; 0x403267
   ret i64 %ret
 }
@@ -12989,30 +12306,12 @@ b_403273:  ; 0x403273
 
 define i64 @thunk___std_exception_copy(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4, i64 %arg5, i64 %arg6, i64 %arg7, i64 %arg8) {  ; 0x403279
 b_403279:  ; 0x403279
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
-  %local_p14 = alloca i32, align 4
-  %local_p18 = alloca i32, align 4
-  %local_p1c = alloca i32, align 4
-  %local_p20 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg4 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
   %stack.arg4.lo = trunc i64 %arg5 to i32
-  store i32 %stack.arg4.lo, ptr %local_p14, align 4
   %stack.arg5.lo = trunc i64 %arg6 to i32
-  store i32 %stack.arg5.lo, ptr %local_p18, align 4
-  %stack.arg6.lo = trunc i64 %arg7 to i32
-  store i32 %stack.arg6.lo, ptr %local_p1c, align 4
-  %stack.arg7.lo = trunc i64 %arg8 to i32
-  store i32 %stack.arg7.lo, ptr %local_p20, align 4
   %sarg0 = zext i32 %stack.arg0.lo to i64
   %sarg1 = zext i32 %stack.arg1.lo to i64
   %sarg2 = zext i32 %stack.arg2.lo to i64
@@ -13025,30 +12324,12 @@ b_403279:  ; 0x403279
 
 define i64 @thunk___std_exception_destroy(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4, i64 %arg5, i64 %arg6, i64 %arg7, i64 %arg8) {  ; 0x40327f
 b_40327f:  ; 0x40327f
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
-  %local_p14 = alloca i32, align 4
-  %local_p18 = alloca i32, align 4
-  %local_p1c = alloca i32, align 4
-  %local_p20 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %stack.arg2.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
   %stack.arg3.lo = trunc i64 %arg4 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
   %stack.arg4.lo = trunc i64 %arg5 to i32
-  store i32 %stack.arg4.lo, ptr %local_p14, align 4
   %stack.arg5.lo = trunc i64 %arg6 to i32
-  store i32 %stack.arg5.lo, ptr %local_p18, align 4
-  %stack.arg6.lo = trunc i64 %arg7 to i32
-  store i32 %stack.arg6.lo, ptr %local_p1c, align 4
-  %stack.arg7.lo = trunc i64 %arg8 to i32
-  store i32 %stack.arg7.lo, ptr %local_p20, align 4
   %sarg0 = zext i32 %stack.arg0.lo to i64
   %sarg1 = zext i32 %stack.arg1.lo to i64
   %sarg2 = zext i32 %stack.arg2.lo to i64
@@ -13061,38 +12342,22 @@ b_40327f:  ; 0x40327f
 
 define i64 @thunk__except_handler3(i64 %arg0, i64 %arg1) {  ; 0x403285
 b_403285:  ; 0x403285
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
   %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
   %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
   %sarg0 = zext i32 %stack.arg0.lo to i64
   %sarg1 = zext i32 %stack.arg1.lo to i64
   %ret = call i64 @_except_handler3(i64 %sarg0, i64 %sarg1)  ; 0x403285
   ret i64 %ret
 }
 
-define i64 @thunk__except_handler4_common(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x40328b
+define void @thunk__except_handler4_common(i32 %arg0, i32 %arg1, i32 %arg2, i32 %arg3) {  ; 0x40328b
 b_40328b:  ; 0x40328b
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %local_p10 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
-  %stack.arg2.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
-  %stack.arg3.lo = trunc i64 %arg3 to i32
-  store i32 %stack.arg3.lo, ptr %local_p10, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
-  %sarg3 = zext i32 %stack.arg3.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
+  %sarg1 = zext i32 %arg1 to i64
+  %sarg2 = zext i32 %arg2 to i64
+  %sarg3 = zext i32 %arg3 to i64
   %ret = call i64 @_except_handler4_common(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3)  ; 0x40328b
-  ret i64 %ret
+  ret void
 }
 
 define i64 @thunk___p___argc() {  ; 0x403291
@@ -13113,84 +12378,60 @@ b_40329d:  ; 0x40329d
   ret i64 %ret
 }
 
-define i64 @thunk___setusermatherr(i64 %arg0) {  ; 0x4032a3
+define void @thunk___setusermatherr(i32 %arg0) {  ; 0x4032a3
 b_4032a3:  ; 0x4032a3
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @__setusermatherr(i64 %sarg0)  ; 0x4032a3
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk__c_exit() {  ; 0x4032a9
+define void @thunk__c_exit() {  ; 0x4032a9
 b_4032a9:  ; 0x4032a9
   %ret = call i64 @_c_exit()  ; 0x4032a9
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk__cexit() {  ; 0x4032af
+define void @thunk__cexit() {  ; 0x4032af
 b_4032af:  ; 0x4032af
   %ret = call i64 @_cexit()  ; 0x4032af
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk__configthreadlocale(i64 %arg0) {  ; 0x4032b5
+define void @thunk__configthreadlocale(i32 %arg0) {  ; 0x4032b5
 b_4032b5:  ; 0x4032b5
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_configthreadlocale(i64 %sarg0)  ; 0x4032b5
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk__configure_narrow_argv(i64 %arg0) {  ; 0x4032bb
+define i64 @thunk__configure_narrow_argv(i32 %arg0) {  ; 0x4032bb
 b_4032bb:  ; 0x4032bb
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_configure_narrow_argv(i64 %sarg0)  ; 0x4032bb
   ret i64 %ret
 }
 
-define i64 @thunk__controlfp_s(i64 %arg0, i64 %arg1, i64 %arg2) {  ; 0x4032c1
+define i64 @thunk__controlfp_s(i32 %arg0, i32 %arg1, i32 %arg2) {  ; 0x4032c1
 b_4032c1:  ; 0x4032c1
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %local_pc = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
-  %stack.arg2.lo = trunc i64 %arg2 to i32
-  store i32 %stack.arg2.lo, ptr %local_pc, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
+  %sarg1 = zext i32 %arg1 to i64
+  %sarg2 = zext i32 %arg2 to i64
   %ret = call i64 @ra_x86_controlfp_s(i64 %sarg0, i64 %sarg1, i64 %sarg2)  ; 0x4032c1
   ret i64 %ret
 }
 
-define i64 @thunk__crt_atexit(i64 %arg0) {  ; 0x4032c7
+define i64 @thunk__crt_atexit(i32 %arg0) {  ; 0x4032c7
 b_4032c7:  ; 0x4032c7
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_crt_atexit(i64 %sarg0)  ; 0x4032c7
   ret i64 %ret
 }
 
-define i64 @thunk__exit(i64 %arg0) {  ; 0x4032cd
+define void @thunk__exit(i32 %arg0) {  ; 0x4032cd
 b_4032cd:  ; 0x4032cd
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_exit(i64 %sarg0)  ; 0x4032cd
-  ret i64 %ret
+  ret void
 }
 
 define i64 @thunk__get_initial_narrow_environment() {  ; 0x4032d3
@@ -13199,134 +12440,89 @@ b_4032d3:  ; 0x4032d3
   ret i64 %ret
 }
 
-define i64 @thunk__initialize_narrow_environment() {  ; 0x4032d9
+define void @thunk__initialize_narrow_environment() {  ; 0x4032d9
 b_4032d9:  ; 0x4032d9
   %ret = call i64 @_initialize_narrow_environment()  ; 0x4032d9
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk__initialize_onexit_table(i64 %arg0) {  ; 0x4032df
+define i64 @thunk__initialize_onexit_table(i32 %arg0) {  ; 0x4032df
 b_4032df:  ; 0x4032df
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @ra_x86_initialize_onexit_table(i64 %sarg0)  ; 0x4032df
   ret i64 %ret
 }
 
-define i64 @thunk__initterm(i64 %arg0, i64 %arg1) {  ; 0x4032e5
+define void @thunk__initterm(i32 %arg0, i32 %arg1) {  ; 0x4032e5
 b_4032e5:  ; 0x4032e5
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
+  %sarg1 = zext i32 %arg1 to i64
   %ret = call i64 @ra_x86_initterm(i64 %sarg0, i64 %sarg1)  ; 0x4032e5
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk__initterm_e(i64 %arg0, i64 %arg1) {  ; 0x4032eb
+define i64 @thunk__initterm_e(i32 %arg0, i32 %arg1) {  ; 0x4032eb
 b_4032eb:  ; 0x4032eb
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
+  %sarg1 = zext i32 %arg1 to i64
   %ret = call i64 @ra_x86_initterm_e(i64 %sarg0, i64 %sarg1)  ; 0x4032eb
   ret i64 %ret
 }
 
-define i64 @thunk__register_onexit_function(i64 %arg0, i64 %arg1) {  ; 0x4032f1
+define i64 @thunk__register_onexit_function(i32 %arg0, i32 %arg1) {  ; 0x4032f1
 b_4032f1:  ; 0x4032f1
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
+  %sarg1 = zext i32 %arg1 to i64
   %ret = call i64 @ra_x86_register_onexit_function(i64 %sarg0, i64 %sarg1)  ; 0x4032f1
   ret i64 %ret
 }
 
-define i64 @thunk__register_thread_local_exe_atexit_callback(i64 %arg0) {  ; 0x4032f7
+define void @thunk__register_thread_local_exe_atexit_callback(i32 %arg0) {  ; 0x4032f7
 b_4032f7:  ; 0x4032f7
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_register_thread_local_exe_atexit_callback(i64 %sarg0)  ; 0x4032f7
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk__seh_filter_exe(i64 %arg0, i64 %arg1) {  ; 0x4032fd
+define i64 @thunk__seh_filter_exe(i32 %arg0, i32 %arg1) {  ; 0x4032fd
 b_4032fd:  ; 0x4032fd
-  %local_p4 = alloca i32, align 4
-  %local_p8 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %stack.arg1.lo = trunc i64 %arg1 to i32
-  store i32 %stack.arg1.lo, ptr %local_p8, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
+  %sarg1 = zext i32 %arg1 to i64
   %ret = call i64 @_seh_filter_exe(i64 %sarg0, i64 %sarg1)  ; 0x4032fd
   ret i64 %ret
 }
 
-define i64 @thunk__set_app_type(i64 %arg0) {  ; 0x403303
+define void @thunk__set_app_type(i32 %arg0) {  ; 0x403303
 b_403303:  ; 0x403303
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_set_app_type(i64 %sarg0)  ; 0x403303
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk__set_fmode(i64 %arg0) {  ; 0x403309
+define void @thunk__set_fmode(i32 %arg0) {  ; 0x403309
 b_403309:  ; 0x403309
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_set_fmode(i64 %sarg0)  ; 0x403309
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk__set_new_mode(i64 %arg0) {  ; 0x40330f
+define void @thunk__set_new_mode(i32 %arg0) {  ; 0x40330f
 b_40330f:  ; 0x40330f
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_set_new_mode(i64 %sarg0)  ; 0x40330f
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk_exit(i64 %arg0) {  ; 0x403315
+define void @thunk_exit(i32 %arg0) {  ; 0x403315
 b_403315:  ; 0x403315
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @exit(i64 %sarg0)  ; 0x403315
-  ret i64 %ret
+  ret void
 }
 
-define i64 @thunk_free(i64 %arg0) {  ; 0x40331b
+define i64 @thunk_free(i32 %arg0) {  ; 0x40331b
 b_40331b:  ; 0x40331b
-  %local_p4 = alloca i32, align 4
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  store i32 %stack.arg0.lo, ptr %local_p4, align 4
-  %sarg0 = zext i32 %stack.arg0.lo to i64
+  %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @free(i64 %sarg0)  ; 0x40331b
   ret i64 %ret
 }
@@ -13591,42 +12787,10 @@ entry:
 
 define i64 @U_00402e70(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
-  call void @F_00402e70(i64 %ecx, i64 %u0, i64 %u1, i64 %u2, i64 %u3)
+  call void @F_00402e70(i64 %u0, i64 %u1, i64 %u2, i64 %u3)
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
   ret i64 0
-}
-
-define i64 @U_00403261(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__CxxThrowException(i64 %u0, i64 %u1)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00403267(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk___CxxFrameHandler3(i64 %u0, i64 %u1, i64 %u2, i64 %u3)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_0040326d(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk___current_exception()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00403273(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk___current_exception_context()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
 }
 
 define i64 @U_00403279(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
@@ -13656,214 +12820,6 @@ entry:
 define i64 @U_00403285(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
   %ret = call i64 @thunk__except_handler3(i64 %u0, i64 %u1)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_0040328b(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__except_handler4_common(i64 %u0, i64 %u1, i64 %u2, i64 %u3)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00403291(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk___p___argc()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00403297(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk___p___argv()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_0040329d(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk___p__commode()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032a3(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk___setusermatherr(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032a9(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__c_exit()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032af(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__cexit()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032b5(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__configthreadlocale(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032bb(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__configure_narrow_argv(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032c1(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__controlfp_s(i64 %u0, i64 %u1, i64 %u2)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032c7(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__crt_atexit(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032cd(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__exit(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032d3(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__get_initial_narrow_environment()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032d9(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__initialize_narrow_environment()
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032df(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__initialize_onexit_table(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032e5(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__initterm(i64 %u0, i64 %u1)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032eb(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__initterm_e(i64 %u0, i64 %u1)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032f1(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__register_onexit_function(i64 %u0, i64 %u1)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032f7(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__register_thread_local_exe_atexit_callback(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_004032fd(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__seh_filter_exe(i64 %u0, i64 %u1)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00403303(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__set_app_type(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00403309(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__set_fmode(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_0040330f(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk__set_new_mode(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00403315(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk_exit(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_0040331b(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk_free(i64 %u0)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_00403321(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %ret = call i64 @thunk_terminate()
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
   ret i64 %ret

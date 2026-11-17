@@ -583,12 +583,19 @@ impl Builder<'_> {
         for jump in std::mem::take(&mut self.unresolved) {
             // The jump ends its block, or comes just before its delay slot.
             let ends = |d: &Draft| d.instrs.iter().rev().take(2).any(|i| i.address == jump);
-            let Some(start) = self.blocks.values().find(|d| ends(d)).map(|d| d.start) else {
+            // Only a block still ending in the unresolved jump: one the walk made something else
+            // of (a PLT stub's `br x17` as a jump to its import) keeps it.
+            let Some(start) = self.blocks.values().find(|d| ends(d) && matches!(d.terminator, Terminator::IndirectJump)).map(|d| d.start)
+            else {
                 continue;
             };
             let Some(mut draft) = self.blocks.remove(&start) else { continue };
             let terminator = self.indirect_jump(&draft);
-            resolved |= !matches!(terminator, Terminator::IndirectJump);
+            if matches!(terminator, Terminator::IndirectJump) {
+                self.blocks.insert(start, draft);
+                continue;
+            }
+            resolved = true;
             draft.terminator = terminator;
             self.blocks.insert(start, draft);
         }

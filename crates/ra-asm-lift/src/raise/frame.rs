@@ -2,7 +2,9 @@
 //! arithmetic on `%rsp0`, the address of its frame's top. This pass follows that arithmetic: a
 //! pointer that is `rsp0 + k` for a constant `k` becomes a `getelementptr` from the frame top, and
 //! a slot that is only loaded and stored at one type, with no address taken, becomes its own
-//! `alloca`. A store of `undef` (a saved register the function never needed) goes.
+//! `alloca`, and one whose address escapes too when it is bounded: the next slot starts where it
+//! ends. A store of `undef` (a saved register the function never needed) goes. The locals then
+//! become values ([`super::locals`]).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -27,7 +29,9 @@ pub fn run(f: &mut Function) -> bool {
 /// assumed of are the ones that would have to run down the frame, or come from outside it.
 pub fn run_assuming(f: &mut Function) -> (bool, Vec<Assumption>) {
     let mut assumptions = Vec::new();
-    let changed = rewrite(f, &mut assumptions);
+    let mut changed = rewrite(f, &mut assumptions);
+    // The locals the rewrite made, loaded and stored and no more, as values.
+    changed |= super::locals::run(f);
     assume::sort(&mut assumptions);
     (changed, assumptions)
 }
@@ -141,7 +145,29 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
         sizes.push((*k, size));
     }
     let overlaps = |k: i64, size: i64| sizes.iter().any(|&(o, s)| o != k && k < o + s && o < k + size);
-    let lowest_escape = slots.iter().filter(|(_, u)| u.escapes).map(|(k, _)| *k).min();
+    let single_typed = |u: &Use| u.types.first().is_some_and(|t| u.types.iter().all(|x| x == t));
+
+    // An escaping slot that is one variable of its own (`int size; I_ZoneBase(&size)`, MSVC's
+    // `lea eax, [ebp-4]`): accessed at one type, with the next slot of the frame (a saved
+    // register, another local) or the frame's top right where it ends, so the callee its address
+    // goes to has no room past it to read; and no other escape below it, whose array or structure
+    // may cover it. It gets its own local, whose address goes where the slot's went. The code's
+    // own arithmetic on addresses (the stack pointer passing through the slot's offset on its way
+    // down) needs nothing: every pointer it makes at a known offset is rewritten all the same.
+    let mut own: HashSet<i64> = HashSet::new();
+    if !dynamic {
+        for (k, u) in slots.iter().filter(|(_, u)| u.escapes) {
+            let size = u.types.iter().filter_map(|t| t.size(8)).max().unwrap_or(8) as i64;
+            let end = k + size;
+            let bounded = end <= 0 && slots.range(k + 1..).next().map_or(end == 0, |(n, _)| *n == end || (end == 0 && *n >= 0));
+            if !(single_typed(u) && bounded && !overlaps(*k, size)) {
+                // The lowest escape that is no variable of its own: the slots above it stay.
+                break;
+            }
+            own.insert(*k);
+        }
+    }
+    let lowest_escape = slots.iter().filter(|(k, u)| u.escapes && !own.contains(k)).map(|(k, _)| *k).min();
     let reachable = |k: i64| lowest_escape.is_some_and(|e| k >= e);
 
     // The rewrite: each pointer at a known offset becomes a gep from the frame top, or a load/store
@@ -151,8 +177,7 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
     let mut new_entry: Vec<Instruction> = Vec::new();
     for (k, u) in &slots {
         let size = u.types.iter().filter_map(|t| t.size(8)).max().unwrap_or(8) as i64;
-        let single = u.types.first().is_some_and(|t| u.types.iter().all(|x| x == t));
-        if single && !dynamic && !u.escapes && !reachable(*k) && !overlaps(*k, size) {
+        if single_typed(u) && !dynamic && (!u.escapes || own.contains(k)) && !reachable(*k) && !overlaps(*k, size) {
             let ty = u.types[0].clone();
             let v = f.new_value(&format!("local_{}", offset_name(*k)), Type::Ptr);
             new_entry.push(Instruction {
@@ -170,6 +195,17 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
             });
         }
     }
+    // The values a store of which is no value: `undef` cast to a width (a register pushed to
+    // make room or saved, whose value the lift does not know).
+    let mut undefs: HashSet<ValueId> = HashSet::new();
+    for b in &f.blocks {
+        for i in &b.instrs {
+            if let (Some(v), Inst::Cast { value: Operand::Undef, .. }) = (i.result, &i.inst) {
+                undefs.insert(v);
+            }
+        }
+    }
+    let is_undef = |o: &Operand| matches!(o, Operand::Undef) || o.local().is_some_and(|l| undefs.contains(&l));
     for b in &mut f.blocks {
         let mut out = Vec::with_capacity(b.instrs.len());
         for i in b.instrs.drain(..) {
@@ -195,7 +231,7 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
                         });
                     }
                 }
-                (Inst::Store { value: Operand::Undef, .. }, _) => changed = true,
+                (Inst::Store { value, .. }, _) if is_undef(value) => changed = true,
                 _ => out.push(i),
             }
         }
@@ -209,7 +245,75 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
         f.blocks[0].instrs.extend(tail);
     }
     f.replace_uses(&replace);
+    // Where the integer address of an escaping slot that got its own local escapes (a call's
+    // argument, a stored value, a returned one), its local's address goes, at the width the code
+    // had it (the low dword in the 32-bit model).
+    let own_slot = |l: ValueId| offsets.get(&l).and_then(|k| allocas.get(k).filter(|_| own.contains(k))).map(|(a, _)| *a);
+    if !own.is_empty() {
+        for bi in 0..f.blocks.len() {
+            let instrs = std::mem::take(&mut f.blocks[bi].instrs);
+            let mut out = Vec::with_capacity(instrs.len());
+            for mut i in instrs {
+                let arithmetic = matches!(
+                    &i.inst,
+                    Inst::Bin { op: BinOp::Add | BinOp::Sub, ty: Type::Int(_), .. }
+                        | Inst::Cast { cast: Cast::IntToPtr | Cast::Trunc | Cast::ZExt | Cast::SExt, .. }
+                        // A phi of addresses at one offset is one: its own uses are replaced.
+                        | Inst::Phi { .. }
+                );
+                if !arithmetic {
+                    let address = i.address;
+                    let operands: Vec<&mut Operand> = match &mut i.inst {
+                        Inst::Store { value, .. } => vec![value],
+                        inst => inst.operands_mut(),
+                    };
+                    for o in operands {
+                        changed |= own_address(f, o, &own_slot, &mut out, address);
+                    }
+                }
+                out.push(i);
+            }
+            let mut t = std::mem::replace(&mut f.blocks[bi].terminator, ra_asm_ir::Terminator::Unreachable);
+            for o in t.operands_mut() {
+                changed |= own_address(f, o, &own_slot, &mut out, None);
+            }
+            f.blocks[bi].terminator = t;
+            f.blocks[bi].instrs = out;
+        }
+    }
     changed
+}
+
+/// `o` as its local's address when it is the integer address of an escaping slot that got a local
+/// of its own (`own_slot`): the address computed into `out` ahead of its use. Whether it was.
+fn own_address(
+    f: &mut Function,
+    o: &mut Operand,
+    own_slot: &impl Fn(ValueId) -> Option<ValueId>,
+    out: &mut Vec<Instruction>,
+    address: Option<u64>,
+) -> bool {
+    let Some(l) = o.local() else { return false };
+    let Type::Int(bits) = *f.value_type(l) else { return false };
+    let Some(local) = own_slot(l) else { return false };
+    let wide = f.new_value("addr.w", Type::I64);
+    out.push(Instruction {
+        result: Some(wide),
+        inst: Inst::Cast { cast: Cast::PtrToInt, from: Type::Ptr, value: Operand::Local(local), to: Type::I64 },
+        address,
+    });
+    if bits == 64 {
+        *o = Operand::Local(wide);
+    } else {
+        let narrow = f.new_value("addr", Type::Int(bits));
+        out.push(Instruction {
+            result: Some(narrow),
+            inst: Inst::Cast { cast: Cast::Trunc, from: Type::I64, value: Operand::Local(wide), to: Type::Int(bits) },
+            address,
+        });
+        *o = Operand::Local(narrow);
+    }
+    true
 }
 
 /// Offsets from the frame top, through adds and subs of constants. Phis of equal offsets too,

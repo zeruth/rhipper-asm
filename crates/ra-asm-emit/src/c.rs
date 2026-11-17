@@ -1850,7 +1850,7 @@ fn unassigned(line: &str, unread: &Unread<'_>) -> Option<String> {
     let Some(rhs) = by_word.or_else(|| unread.others.iter().find_map(|n| assigned(n))) else {
         return Some(line.to_owned());
     };
-    if rhs.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+    if rhs.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || inert(rhs) {
         return None;
     }
     let callee = rhs.find('(').map_or(rhs, |at| &rhs[..at]);
@@ -1858,6 +1858,34 @@ fn unassigned(line: &str, unread: &Unread<'_>) -> Option<String> {
     let call =
         !callee.is_empty() && callee.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && strip_parens(args).len() + 2 == args.len();
     Some(if call { format!("{pad}{rhs};") } else { format!("{pad}(void)({rhs});") })
+}
+
+/// Whether `expr` reads nothing and does nothing, so a statement of it alone says nothing: casts
+/// of a literal, a name, or the address of a global or of a field of one
+/// (`(uint32_t)(uintptr_t)"-zonescan"`, `(uint8_t *)(uintptr_t)&sec_data.eventhead`).
+fn inert(expr: &str) -> bool {
+    let mut e = expr.trim().to_owned();
+    loop {
+        let inner = strip_parens(&e);
+        if inner != e {
+            e = inner.trim().to_owned();
+            continue;
+        }
+        // A leading cast: a type of words, spaces and stars in parentheses, then its operand.
+        if e.starts_with('(')
+            && let Some(close) = e.find(')')
+            && close > 1
+            && close + 1 < e.len()
+            && e[1..close].chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ' ' || c == '*')
+        {
+            e = e[close + 1..].trim().to_owned();
+            continue;
+        }
+        break;
+    }
+    let word = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
+    let literal = e.len() >= 2 && e.starts_with('"') && e.ends_with('"') && !e[1..e.len() - 1].contains(['"', '\\']);
+    literal || e.strip_prefix('&').is_some_and(word) || word(&e)
 }
 
 /// The casts a function's C writes: each parenthesized type before an operand, but the `(void)`
@@ -2963,12 +2991,22 @@ impl<'a> Emitter<'a> {
                 if high == 0 { format!("((ra_u128){low}ull)") } else { format!("(((ra_u128){high}ull << 64) | {low}ull)") }
             }
             Type::Int(64) => {
+                // A small negative number reads as one (`(uint64_t)-8`), a large one as the mask it
+                // mostly is (`0x8000000000000001ull`).
                 let u = v as u64;
-                if u > 0x8000_0000_0000_0000 { format!("(uint64_t)-{}", u.wrapping_neg()) } else { format!("{u}ull") }
+                match u.wrapping_neg() {
+                    _ if u <= 0x8000_0000_0000_0000 => format!("{u}ull"),
+                    n if n <= 0xffff => format!("(uint64_t)-{n}"),
+                    _ => format!("0x{u:X}ull"),
+                }
             }
             Type::Int(32) => {
-                let u = (v as u64) & 0xffff_ffff;
-                if u > 0x8000_0000 { format!("(uint32_t)-{}", (u as u32).wrapping_neg()) } else { format!("{u}u") }
+                let u = (v as u64 & 0xffff_ffff) as u32;
+                match u.wrapping_neg() {
+                    _ if u <= 0x8000_0000 => format!("{u}u"),
+                    n if n <= 0xffff => format!("(uint32_t)-{n}"),
+                    _ => format!("0x{u:X}u"),
+                }
             }
             Type::Int(n) => format!("(uint{n}_t){}", (v as u64) & ((1u64 << n) - 1)),
             Type::Ptr => format!("(uint8_t *){}ull", v as u64),

@@ -787,9 +787,13 @@ fn infer_from(
                 // convention's `ecx` and `edx` too: a `push eax` or a `push ecx` that only makes
                 // room for a local (MSVC's `push ebp; mov ebp, esp; push ecx`) reads the register,
                 // and no caller sets it for it.
+                // Only where the lift has private registers past the convention's (x86) does it
+                // see what callers set: elsewhere (ARM64, MIPS, Win64) the convention's registers
+                // are the arguments a function reads.
                 let root = roots.contains(&fact.name);
+                let checks_callers = private_ints > ints;
                 let confirmed = if root { 0 } else { set_by_callers.get(fact.name.as_str()).copied().unwrap_or(0) };
-                let read = |p: usize| fact.int_positions[p] && ((root && p < ints) || confirmed & (1 << p) != 0);
+                let read = |p: usize| fact.int_positions[p] && ((p < ints && (root || !checks_callers)) || confirmed & (1 << p) != 0);
                 let int_count = (0..private_ints).rev().find(|&p| read(p)).map_or(0, |p| p + 1);
                 let float_count = (0..floats).rev().find(|&p| fact.float_positions[p].is_some()).map_or(0, |p| p + 1);
                 (0..int_count).map(|_| Kind::Int).chain((0..float_count).map(|p| fact.float_positions[p].unwrap_or(Kind::Double))).collect()
@@ -1127,10 +1131,19 @@ fn gather(
                         {
                             out.push((name.clone(), set));
                         }
+                        // What the call writes is no argument it set for the next call, but for
+                        // `edx`: a callee that writes it may leave the high half of a 64-bit
+                        // result there, which the next call takes (`print_int(milli(x))`, through
+                        // the `ecx:edx` pair of clang's own convention). Whether it does depends on
+                        // whether the next callee reads `edx`, so this cannot wait for the result.
                         let written = model(inst).1;
                         for slot in extras {
                             if written[slot.index()] {
-                                set &= !bit(*slot);
+                                if *slot == high {
+                                    set |= bit(high);
+                                } else {
+                                    set &= !bit(*slot);
+                                }
                             }
                         }
                     }
