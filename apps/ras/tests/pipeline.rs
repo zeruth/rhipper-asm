@@ -133,8 +133,9 @@ fn peak_memory(_: &std::process::Child) -> Option<u64> {
 
 /// The program as the pipeline lifts and raises it (frozen, standalone, to the ABI level) holds
 /// one function at a time on each thread through the raise, the whole-module steps included: they
-/// read the other functions through the tables they build, and only a step that reads several
-/// functions at once thaws those, never the whole program. The module stays frozen from one step
+/// read the other functions through the table the raise writes as it freezes each function and
+/// the steps keep, never building it again, and only a step that reads several functions at once
+/// thaws those, never the whole program. The module stays frozen from one step
 /// to the next, and the raise still ends with every function thawed for the emit.
 #[test]
 fn per_function_raise_holds_one_function() {
@@ -154,8 +155,10 @@ fn per_function_raise_holds_one_function() {
     }
     let (most, together) = (ra_asm_lift::raise::held::most_thawed(), ra_asm_lift::raise::held::most_together());
     let between = ra_asm_lift::raise::held::thawed_between();
+    let rebuilt = ra_asm_lift::raise::held::tables_rebuilt();
     eprintln!("the raise held at most {most} function(s) thawed on a thread, and thawed {together} together");
     assert_eq!(most, 1, "a thread held {most} functions thawed at once");
+    assert_eq!(rebuilt, 0, "a module step found the table of the functions out of step {rebuilt} time(s) and thawed them all for it");
     assert_eq!(between, 0, "a module step began or ended with {between} functions thawed beside the frozen ones");
     assert!(together < fewest, "a module step thawed {together} functions together, the whole of a program of {fewest}");
 }

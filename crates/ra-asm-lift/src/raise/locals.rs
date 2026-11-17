@@ -178,8 +178,11 @@ pub fn run(f: &mut Function) -> bool {
             _ => true,
         });
     }
-    // The phis, first in their blocks, with the values resolved through the loads replaced.
-    for (&(b, a), &v) in &phis {
+    // The phis, first in their blocks, with the values resolved through the loads replaced; in the
+    // order of their blocks and allocas, not the map's, which differs from one run to the next.
+    let mut in_order: Vec<((BlockId, ValueId), ValueId)> = phis.into_iter().collect();
+    in_order.sort_unstable();
+    for ((b, a), v) in in_order {
         let mut ins: Vec<(Operand, BlockId)> =
             incoming.remove(&v).unwrap_or_default().into_iter().map(|(o, p)| (resolve(&o, &replace), p)).collect();
         // A predecessor no path reaches brings nothing.

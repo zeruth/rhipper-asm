@@ -1013,12 +1013,17 @@ fn summarize(candidates: &Candidates, signatures: &HashMap<String, Signature>, t
 /// The summaries ([`summarize`]) of the candidate lists under one set of signatures, by the
 /// list's address: a slot's list is shared by every call through it, so each is summarized once
 /// rather than at every call of every liveness pass of every function. Made anew whenever the
-/// signatures change (each round of the inference), and once for the raise.
+/// signatures change (each round of the inference), and once for the raise. Each entry holds its
+/// list: a function's traced lists are its own and go with its raise, and an address freed and
+/// given to another list would read that list's summary.
 pub struct SummaryCache<'a> {
     signatures: &'a HashMap<String, Signature>,
     target: Target,
-    lists: std::sync::RwLock<HashMap<usize, (SlotSet, SlotSet)>>,
+    lists: std::sync::RwLock<HashMap<usize, Summarized>>,
 }
+
+/// A candidate list held beside its summary ([`summarize`]), so its address is not reused.
+type Summarized = (Candidates, (SlotSet, SlotSet));
 
 impl<'a> SummaryCache<'a> {
     pub fn new(signatures: &'a HashMap<String, Signature>, target: Target) -> Self {
@@ -1027,11 +1032,11 @@ impl<'a> SummaryCache<'a> {
 
     fn get(&self, candidates: &Candidates) -> (SlotSet, SlotSet) {
         let key = std::sync::Arc::as_ptr(candidates).cast::<()>() as usize;
-        if let Some(summary) = self.lists.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key) {
+        if let Some((_, summary)) = self.lists.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key) {
             return *summary;
         }
         let summary = summarize(candidates, self.signatures, self.target);
-        self.lists.write().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key, summary);
+        self.lists.write().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key, (candidates.clone(), summary));
         summary
     }
 }

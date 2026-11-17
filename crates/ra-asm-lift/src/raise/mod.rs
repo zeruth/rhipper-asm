@@ -632,15 +632,18 @@ fn raise_with(
             } else {
                 // The module steps read the functions frozen (see [`held`]): each function is
                 // frozen again as its raise ends, so the raised module is never whole before the
-                // steps have run.
+                // steps have run, and its row of the steps' tables is written as it is frozen.
                 timed("raise: functions", || {
                     let mut frozen = frozen;
-                    held::each_mut(&mut frozen, |_, f| raise_one(f));
+                    let mut rows = Vec::new();
+                    held::rewrite(&mut frozen, &mut rows, |_| true, |_, f| raise_one(f));
                     let mut own = std::mem::take(&mut module.functions);
                     abi::par_each_mut(&mut own, |_, f| raise_one(f));
+                    rows.extend(abi::par_map(&own, |_, f| held::Row::of(f)));
                     frozen.extend(abi::par_map(&own, |_, f| ra_asm_ir::freeze::freeze(f)));
                     drop(own);
                     module.frozen = frozen;
+                    *cx.rows() = rows;
                 });
             }
         } else {

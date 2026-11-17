@@ -17,6 +17,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, Const, Function, ICond, Inst, Instruction, Module, Operand, Terminator, Type, ValueId};
 
+use super::held::Row;
+
 const FULL: u16 = 64;
 
 /// The width a demand of `bits` rounds to: the C integer types.
@@ -226,11 +228,12 @@ fn narrowable(inst: &Inst) -> bool {
     )
 }
 
-/// Runs the pass over the frozen functions of the module, each thawed alone: the plan reads a
-/// summary of each, and the rewrite reads the plan. `roots` are the functions outside callers
-/// reach; their signatures stay. Returns whether anything changed.
-pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
-    let taken = address_taken(module);
+/// Runs the pass over the frozen functions of the module, each thawed alone: the plan starts from
+/// their `rows` and reads a summary of each, and the rewrite reads the plan. `roots` are the
+/// functions outside callers reach; their signatures stay. Returns whether anything changed.
+pub(crate) fn run(module: &mut Module, rows: &mut Vec<Row>, roots: &BTreeSet<String>) -> bool {
+    super::held::table(rows, &module.frozen);
+    let taken = address_taken(module, rows);
     let names: HashSet<String> = module.frozen.iter().map(|z| z.name.clone()).collect();
     let eligible = |name: &str| names.contains(name) && !roots.contains(name) && !taken.contains(name);
 
@@ -238,26 +241,22 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
     // depends on what its callers demand, and a caller that returns the result as it is demands
     // what its own result's width allows. Each round widens, so the rounds end.
     let mut plan = Plan::default();
-    let starts = super::held::map(&module.frozen, |_, f| {
-        let params: Vec<Option<u16>> = f.params.iter().map(|p| is_i64(f, *p).then_some(8)).collect();
-        (params, f.ty.ret == Type::I64, callees(f))
-    });
     // The functions whose analysis reads the plan of each name: its callers, and itself, whose
     // returns read its own result's width.
     let mut readers: HashMap<String, Vec<usize>> = HashMap::new();
-    for (i, (z, (params, wide, called))) in module.frozen.iter().zip(starts).enumerate() {
-        for callee in called {
-            readers.entry(callee).or_default().push(i);
+    for (i, row) in rows.iter().enumerate() {
+        for callee in &row.callees {
+            readers.entry(callee.clone()).or_default().push(i);
         }
-        readers.entry(z.name.clone()).or_default().push(i);
-        if !eligible(&z.name) {
+        readers.entry(row.name.clone()).or_default().push(i);
+        if !eligible(&row.name) {
             continue;
         }
-        if params.iter().any(Option::is_some) {
-            plan.params.insert(z.name.clone(), params);
+        if row.wide_params.iter().any(|&w| w) {
+            plan.params.insert(row.name.clone(), row.wide_params.iter().map(|&w| w.then_some(8)).collect());
         }
-        if wide {
-            plan.results.insert(z.name.clone(), 8);
+        if row.wide_ret {
+            plan.results.insert(row.name.clone(), 8);
         }
     }
     // What the plan reads of each function's analysis, kept alone: the whole analyses of a large
@@ -315,17 +314,22 @@ pub fn run(module: &mut Module, roots: &BTreeSet<String>) -> bool {
     }
 
     let changed = std::sync::atomic::AtomicBool::new(false);
-    super::held::each_mut(&mut module.frozen, |_, f| {
-        let a = analyze(f, &plan);
-        if rewrite(f, &a, &plan) {
-            changed.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-    });
+    super::held::rewrite(
+        &mut module.frozen,
+        rows,
+        |_| true,
+        |_, f| {
+            let a = analyze(f, &plan);
+            if rewrite(f, &a, &plan) {
+                changed.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        },
+    );
     changed.into_inner()
 }
 
 /// The functions `f` calls directly, each once: the names whose plan its analysis reads.
-fn callees(f: &Function) -> Vec<String> {
+pub(super) fn callees(f: &Function) -> Vec<String> {
     let mut names: Vec<String> = f
         .blocks
         .iter()
@@ -381,8 +385,8 @@ impl Summary {
 }
 
 /// The functions whose address the module takes: in the data, or as an operand of a function,
-/// frozen ones thawed alone to be read.
-fn address_taken(module: &Module) -> HashSet<String> {
+/// the frozen ones' read from their `rows`.
+fn address_taken(module: &Module, rows: &[Row]) -> HashSet<String> {
     fn consts(c: &Const, out: &mut HashSet<String>) {
         match c {
             Const::Address { global, .. } | Const::Global(global) => {
@@ -406,8 +410,8 @@ fn address_taken(module: &Module) -> HashSet<String> {
     for f in &module.functions {
         out.extend(super::stubs::named_in(f).cloned());
     }
-    for named in super::held::map(&module.frozen, |_, f| super::stubs::named_in(f).cloned().collect::<Vec<String>>()) {
-        out.extend(named);
+    for row in rows {
+        out.extend(row.named.iter().cloned());
     }
     out
 }

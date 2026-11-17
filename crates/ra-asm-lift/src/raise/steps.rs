@@ -15,11 +15,12 @@
 //! `abi` and `stack` rewrite nothing and are not broken.
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::OnceLock;
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 use ra_asm_ir::{Callee, Function, Global, Inst, Module, Operand, Terminator, Type};
 
 use super::abi::{Signature, SummaryCache, VtableIndex};
+use super::held::Row;
 use super::known::Constants;
 use super::liveness::slot_pointers;
 use super::stack::{CalleeStack, StackInfo};
@@ -43,6 +44,10 @@ pub struct Context<'a> {
     /// The most a call through a pointer pops (see [`super::stores::most_pops`]), read from the
     /// module's globals once a step first asks.
     pub most_pops: OnceLock<Option<i64>>,
+    /// What the module steps read of the frozen functions, a row each in the module's order (see
+    /// [`super::held::Row`]): written as the raise freezes each function, and kept by each step
+    /// that rewrites, adds or drops one.
+    rows: Mutex<Vec<Row>>,
 }
 
 impl<'a> Context<'a> {
@@ -56,7 +61,13 @@ impl<'a> Context<'a> {
             extra_dwords: super::stubs::extra_dwords(signatures, roots, options.target()),
             constants: OnceLock::new(),
             most_pops: OnceLock::new(),
+            rows: Mutex::new(Vec::new()),
         }
+    }
+
+    /// The rows of the frozen functions, held for one module step.
+    pub(crate) fn rows(&self) -> MutexGuard<'_, Vec<Row>> {
+        self.rows.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The index of `globals`, when it is the slice the context indexed first.
@@ -307,34 +318,38 @@ fn flatten(f: &mut Function, cx: &Context<'_>, globals: &[Global]) {
     broken("flatten", f);
 }
 
-// The module steps work over the functions frozen (see [`super::held`]): each thaws one function
-// at a time, reading the others through the tables it builds of them.
+// The module steps work over the functions frozen (see [`super::held`]): each reads the others
+// through the context's rows and thaws one function at a time, keeping the row of each function
+// it rewrites, adds or drops.
 
 /// The strings a decryptor would compute at run time are computed here. The runs read the
 /// callers, the decryptors and what they reach at once, and those alone are thawed for them.
 fn strings(module: &mut Module, cx: &Context<'_>) {
     super::held::step(module, |module| {
+        let mut written = vec![false; module.frozen.len()];
         for index in super::strings::run_frozen(module, !cx.options.target().is_64()) {
-            super::held::each_mut(std::slice::from_mut(&mut module.frozen[index]), |_, f| clean(f));
+            written[index] = true;
         }
+        super::held::rewrite(&mut module.frozen, &mut cx.rows(), |i| written[i], |_, f| clean(f));
         broken_all("strings", module);
     });
 }
 
 /// The import wrappers served the machine model; the calls now go to the imports.
-fn wrappers(module: &mut Module, _: &Context<'_>) {
+fn wrappers(module: &mut Module, cx: &Context<'_>) {
     super::held::step(module, |module| {
         module.frozen.retain(|z| crate::import_of_wrapper(&z.name).is_none());
+        cx.rows().retain(|r| crate::import_of_wrapper(&r.name).is_none());
         broken_all("wrappers", module);
     });
 }
 
 /// The helpers the compiler inlined, read back as functions: a loop whose shape repeats across
 /// the functions becomes one, and each copy a call to it.
-fn outline(module: &mut Module, _: &Context<'_>) {
+fn outline(module: &mut Module, cx: &Context<'_>) {
     super::held::step(module, |module| {
         if super::outline::run_frozen(module) {
-            clean_all(module);
+            clean_all(module, &mut cx.rows());
         }
         broken_all("outline", module);
     });
@@ -346,7 +361,7 @@ fn stubs(module: &mut Module, cx: &Context<'_>) {
     super::held::step(module, |module| {
         let target = cx.options.target();
         if !target.register_arguments() {
-            super::stubs::add_universal_stubs(module, cx.signatures, target, cx.extra_dwords);
+            super::stubs::add_universal_stubs(module, &mut cx.rows(), cx.signatures, target, cx.extra_dwords);
         }
         broken_all("stubs", module);
     });
@@ -355,11 +370,12 @@ fn stubs(module: &mut Module, cx: &Context<'_>) {
 /// The widths, to a fixpoint: each narrowing exposes the next through the cleanup.
 fn widths(module: &mut Module, cx: &Context<'_>) {
     super::held::step(module, |module| {
+        let mut rows = cx.rows();
         for _ in 0..4 {
-            if !super::widths::run(module, cx.roots) {
+            if !super::widths::run(module, &mut rows, cx.roots) {
                 break;
             }
-            clean_all(module);
+            clean_all(module, &mut rows);
         }
         broken_all("widths", module);
     });
@@ -367,10 +383,11 @@ fn widths(module: &mut Module, cx: &Context<'_>) {
 
 /// The structs behind the pointers, once the widths are settled; the address arithmetic the
 /// field pointers replace goes with the cleanup.
-fn types(module: &mut Module, _: &Context<'_>) {
+fn types(module: &mut Module, cx: &Context<'_>) {
     super::held::step(module, |module| {
-        if super::types::run(module) {
-            clean_all(module);
+        let mut rows = cx.rows();
+        if super::types::run(module, &mut rows) {
+            clean_all(module, &mut rows);
         }
         broken_all("types", module);
     });
@@ -388,9 +405,9 @@ fn prototypes(module: &mut Module, _: &Context<'_>) {
     super::held::step(module, |module| broken_all("prototypes", module));
 }
 
-/// The cleanup over every frozen function, each thawed alone.
-fn clean_all(module: &mut Module) {
-    super::held::each_mut(&mut module.frozen, |_, f| clean(f));
+/// The cleanup over every frozen function, each thawed alone, and its row written again.
+fn clean_all(module: &mut Module, rows: &mut Vec<Row>) {
+    super::held::rewrite(&mut module.frozen, rows, |_| true, |_, f| clean(f));
 }
 
 #[cfg(test)]

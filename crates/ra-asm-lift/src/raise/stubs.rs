@@ -26,6 +26,7 @@ use ra_asm_ir::{BinOp, Callee, Cast, Const, FnType, FunctionBuilder, Inst, Linka
 
 use super::Target;
 use super::abi::{Kind, KindType, Signature};
+use super::held::Row;
 use crate::state::{ARGS, POPS, import_adapter_type};
 
 /// The stub of the function `name`: `U_<address>` for `F_<address>`.
@@ -57,12 +58,20 @@ fn stack_dwords(sig: &Signature, target: Target) -> usize {
 }
 
 /// Adds a universal stub for every address-taken `F_` function of the frozen functions of
-/// `module` and points the addresses at it; each function is thawed alone, to build its stub and
-/// to rename what it names. `extra` is what [`extra_dwords`] counted, the dwords of [`ARGS`].
-pub fn add_universal_stubs(module: &mut Module, signatures: &HashMap<String, Signature>, target: Target, extra: usize) {
+/// `module` and points the addresses at it. What each function names is read from its row of
+/// `rows`; a function is thawed alone to build its stub, and to rename what it names when it
+/// names one that has a stub. `extra` is what [`extra_dwords`] counted, the dwords of [`ARGS`].
+pub(crate) fn add_universal_stubs(
+    module: &mut Module,
+    rows: &mut Vec<Row>,
+    signatures: &HashMap<String, Signature>,
+    target: Target,
+    extra: usize,
+) {
+    super::held::table(rows, &module.frozen);
     let mut taken = address_taken(module);
-    for named in super::held::map(&module.frozen, |_, f| named_in(f).cloned().collect::<Vec<String>>()) {
-        taken.extend(named);
+    for row in rows.iter() {
+        taken.extend(row.named.iter().cloned());
     }
     let mut renamed: HashMap<String, String> = HashMap::new();
     let mut stubs = Vec::new();
@@ -83,18 +92,25 @@ pub fn add_universal_stubs(module: &mut Module, signatures: &HashMap<String, Sig
             rename_const(init, &renamed);
         }
     }
-    super::held::each_mut(&mut module.frozen, |_, f| {
-        for b in &mut f.blocks {
-            for i in &mut b.instrs {
-                for o in i.inst.operands_mut() {
+    let names: Vec<bool> = rows.iter().map(|r| r.named.iter().chain(&r.ended).any(|n| renamed.contains_key(n))).collect();
+    super::held::rewrite(
+        &mut module.frozen,
+        rows,
+        |i| names[i],
+        |_, f| {
+            for b in &mut f.blocks {
+                for i in &mut b.instrs {
+                    for o in i.inst.operands_mut() {
+                        rename_operand(o, &renamed);
+                    }
+                }
+                for o in b.terminator.operands_mut() {
                     rename_operand(o, &renamed);
                 }
             }
-            for o in b.terminator.operands_mut() {
-                rename_operand(o, &renamed);
-            }
-        }
-    });
+        },
+    );
+    rows.extend(stubs.iter().map(Row::of));
     module.frozen.extend(stubs.iter().map(ra_asm_ir::freeze::freeze));
 }
 
