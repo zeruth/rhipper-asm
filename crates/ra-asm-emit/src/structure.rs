@@ -934,7 +934,10 @@ impl Walk<'_> {
             {
                 // The join is placed already: the arm runs to it and jumps, or writes it again.
                 let mut body = self.run(target, join);
-                if !ends_in_jump(&body) {
+                // Only a jump, or a copy that ends in one: a copy that runs off its end runs on into
+                // what follows the branch, where the walk writes the join again, and the join would
+                // run twice (a `switch`'s cases sharing the block of an `fprintf`, printed twice).
+                if !ends_in_jump(&body) && diverges(&stmts) {
                     body.extend(stmts);
                 }
                 return body;
