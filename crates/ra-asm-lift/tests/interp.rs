@@ -300,6 +300,34 @@ fn ps2_hello_runs_interpreted() {
     assert_eq!(outcome.exit, 0, "ps2 hello: main's result (stop: {:?})", outcome.stop);
 }
 
+/// The pspdev hello, an Allegrex PRX: every function of the module, its C library with it, lifts
+/// with no trap, and run from its `module_start` at the machine level over the mapped module it
+/// prints, through `sceIoWrite`, the console output its source writes, then ends in
+/// `sceKernelExitGame` with 0.
+#[test]
+fn psp_hello_runs_interpreted() {
+    let path = root().join("testdata/psp/hello.prx");
+    let expected = std::fs::read_to_string(root().join("testdata/psp/hello.txt")).unwrap().replace("\r\n", "\n");
+    let image = ra_asm_pe::load(&path).unwrap();
+    assert_eq!(image.platform(), Some("psp"), "an Allegrex PRX");
+    let start = image.entry_point().expect("the PRX's module_start");
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+    assert_eq!(coverage.traps(), 0, "psp hello: unsupported instructions: {:?}", coverage.uncovered);
+    assert!(coverage.functions.is_empty(), "psp hello: the module's own code traps: {:?}", coverage.functions);
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+
+    lifted.entry = Some(start);
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("psp hello: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!(outcome.stop, None, "psp hello: the run stopped ({} steps)", outcome.steps);
+    assert_eq!(outcome.exit, 0, "psp hello: the interpreted program's exit");
+}
+
 /// The image addresses of the functions of `module` that `root` reaches by its direct calls,
 /// its own among them.
 fn reached_from(module: &ra_asm_ir::Module, root: &str) -> std::collections::BTreeSet<u64> {
