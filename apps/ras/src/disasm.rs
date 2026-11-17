@@ -4,7 +4,7 @@
 use std::io::Write;
 
 use anyhow::{Context, Result, bail};
-use ra_asm_arch::{Flow, Instr, Operand, Target};
+use ra_asm_arch::{Delay, Flow, Instr, Operand, Target};
 use ra_asm_pe::Image;
 use serde_json::json;
 
@@ -35,9 +35,13 @@ pub(crate) struct Decoded<'a> {
     pub start: u64,
     pub bytes: &'a [u8],
     pub instrs: Vec<Instr>,
+    /// For each instruction, the delay of the transfer before it when it is that transfer's delay
+    /// slot (MIPS, `SuperH`), else `Delay::None`.
+    pub slots: Vec<Delay>,
 }
 
 /// Decodes the instructions at `address`: `length` bytes, the `.pdata` extent, or one run of code.
+/// A run of code ends after the delay slot of its last transfer, which runs before it.
 pub(crate) fn decode(image: &Image, address: u64, length: Option<u64>) -> Result<Decoded<'_>> {
     if !image.is_code(address) {
         bail!("{} lies in no code section", hex(address));
@@ -49,7 +53,10 @@ pub(crate) fn decode(image: &Image, address: u64, length: Option<u64>) -> Result
         None => image.read_to_section_end(start)?,
     };
     let mut instrs = Vec::new();
+    let mut slots = Vec::new();
     let mut offset = 0usize;
+    let mut slot = Delay::None;
+    let mut stop_after_slot = false;
     while offset < bytes.len() {
         let Some(mut i) = arch.decode(&bytes[offset..], start + offset as u64) else {
             eprintln!("warning: no instruction at {}", hex(start + offset as u64));
@@ -57,13 +64,19 @@ pub(crate) fn decode(image: &Image, address: u64, length: Option<u64>) -> Result
         };
         arch.link(&instrs, &mut i);
         offset += i.len as usize;
-        let stop = len.is_none() && matches!(i.flow, Flow::Return | Flow::Jump(_) | Flow::Trap | Flow::Halt);
+        // A transfer in a slot is unpredictable, so a slot never delays the one after it.
+        let delay = if slot == Delay::None { arch.delay(&i) } else { Delay::None };
+        let ends = len.is_none() && matches!(i.flow, Flow::Return | Flow::Jump(_) | Flow::Trap | Flow::Halt);
+        let stop = stop_after_slot || ends && delay == Delay::None;
+        stop_after_slot = ends && delay != Delay::None;
         instrs.push(i);
-        if stop || offset >= 0x1000 && len.is_none() {
+        slots.push(slot);
+        slot = delay;
+        if stop || offset >= 0x1000 && len.is_none() && !stop_after_slot {
             break;
         }
     }
-    Ok(Decoded { start, bytes, instrs })
+    Ok(Decoded { start, bytes, instrs, slots })
 }
 
 /// The instructions as JSON rows: what `ras disasm --json` prints and `ras serve` answers.
@@ -88,15 +101,23 @@ pub(crate) fn disasm_json(image: &Image, decoded: &Decoded<'_>) -> serde_json::V
     serde_json::Value::Array(rows)
 }
 
-/// The instructions as text, one per line, with a note where an operand points into the image.
+/// The instructions as text, one per line, with a note where an operand points into the image. A
+/// delay slot sits indented under its transfer, and a likely branch's slot says it runs only on
+/// the taken edge.
 pub(crate) fn disasm_text(image: &Image, decoded: &Decoded<'_>) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
-    for i in &decoded.instrs {
+    for (i, slot) in decoded.instrs.iter().zip(&decoded.slots) {
         // A note that only repeats an address the text already shows says nothing.
         let note = note(image, i).filter(|n| !(n.starts_with("0x") && !n.contains(' ') && i.text.contains(n.as_str())));
-        let note = note.map(|n| format!("   ; {n}")).unwrap_or_default();
-        let _ = writeln!(out, "{}  {}{note}", hex(i.address), i.text);
+        let (indent, slot) = match slot {
+            Delay::None => ("", None),
+            Delay::Slot => ("  ", Some("delay slot")),
+            Delay::Likely => ("  ", Some("delay slot, taken edge only")),
+        };
+        let notes: Vec<String> = slot.map(str::to_owned).into_iter().chain(note).collect();
+        let note = if notes.is_empty() { String::new() } else { format!("   ; {}", notes.join("; ")) };
+        let _ = writeln!(out, "{}  {indent}{}{note}", hex(i.address), i.text);
     }
     out
 }
