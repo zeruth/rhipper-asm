@@ -2085,7 +2085,6 @@ fn rhtest_seh_clang_runs_as_rust() {
 }
 
 #[test]
-#[ignore = "needs the x86 frame handler's registration frames, and thrown objects with destructors, which task 49 left after the x64 tables"]
 fn rhtest_eh_clang_runs_as_c() {
     run_rhtest_as_c("eh", "clang");
 }

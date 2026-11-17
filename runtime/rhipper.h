@@ -387,9 +387,11 @@ void ra_eh_enter_catch(void);
 void ra_eh_leave_catch(void);
 void ra_eh_suspend(void);
 void ra_eh_resume(void);
-// The x86 frame handler's protocol on top: the thrown object's destructor and the copy constructor
-// of the catchable type named last; at the end of a catch the object, the destructor to run on it
-// (0 when the exception is held elsewhere) and the esp the handler saved when the catch began.
+// What the x86 frame handler's protocol adds: the thrown object's destructor and the copy
+// constructor of the catchable type just named; at the end of a catch, before ra_eh_leave_catch, the
+// object and the destructor to run on it when the end of the catch ends the exception (zero when
+// something still holds it); and the esp the handler saved when the catch began, which an unwind
+// out of the catch puts back under the registration.
 void ra_eh_throw_destructor(uint64_t destructor);
 void ra_eh_throw_copy(uint64_t copy);
 uint64_t ra_eh_ending_object(void);

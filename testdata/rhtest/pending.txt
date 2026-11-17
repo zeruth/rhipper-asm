@@ -7,7 +7,6 @@ misc | clang | Rust | needs the Win32 structure adapters (a card of milestone I)
 sys | clang | Rust | needs the Win32 structure adapters (a card of milestone I): OVERLAPPED, MEMORY_BASIC_INFORMATION, SLIST, INIT_ONCE, MSG
 win | clang | Rust | needs the Win32 structure adapters (a card of milestone I): WNDCLASSA, CREATESTRUCT, MSG, WSADATA, CRITICAL_SECTION
 seh | clang | Rust | needs structured exception handling (`__try`, `_except_handler4`'s scope tables), which task 49 left after the C++ tables
-eh | clang | C | needs the x86 frame handler's registration frames, and thrown objects with destructors, which task 49 left after the x64 tables
 eh | clang | Rust | needs the x86 frame handler's registration frames, and thrown objects with destructors, which task 49 left after the x64 tables
 cpp | clang | C | ports but goes wrong at `multi`: the C++ object model under the x64 runtime, with task 49's exceptions
 cpp | clang | Rust | ports but goes wrong at `multi`: the C++ object model under the x64 runtime, with task 49's exceptions

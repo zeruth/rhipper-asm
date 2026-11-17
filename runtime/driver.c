@@ -2260,19 +2260,22 @@ struct ra_exception {
     uint64_t size;
     // key, displacement and size of each catchable type.
     uint64_t types[3 * 16];
-    uint64_t count;
-    // the x86 frame handler's protocol: each catchable type's copy constructor, and the thrown
-    // object's destructor, which the end of its last catch runs (rhipper.h, ra_eh_throw_copy)
+    // The copy constructor of each catchable type, zero for a type copied by its bytes (x86).
     uint64_t copies[16];
+    uint64_t count;
+    // The destructor the end of the exception runs on the object, zero for none (x86), and whether
+    // ra_eh_ending_destructor handed it out: the port runs it after ra_eh_leave_catch, on the object.
     uint64_t destructor;
+    int destroyed;
     int holds;
 };
 
 static struct ra_exception *eh_in_flight, *eh_staged;
 static struct ra_exception *eh_caught[64], *eh_suspended[64];
-// the esp the x86 handler saved as each catch began, beside eh_caught
-static uint64_t eh_catch_sp[64];
 static int eh_caught_depth, eh_suspended_depth;
+// Beside each catch being run, the esp the x86 frame handler saved under the registration when the
+// catch began, which an unwind out of the catch puts back.
+static uint64_t eh_catch_sp[64];
 
 _Noreturn static void eh_fatal(const char *what) {
     fprintf(stderr, "ra: %s\n", what);
@@ -2282,7 +2285,9 @@ _Noreturn static void eh_fatal(const char *what) {
 
 static void eh_release(struct ra_exception *e) {
     if (--e->holds == 0) {
-        free(e->object);
+        // An object whose destructor the port runs after the catch ends outlives the exception: the
+        // protocol has no call after the destructor, so its bytes stay allocated.
+        if (!e->destroyed) free(e->object);
         free(e);
     }
 }
@@ -2303,7 +2308,71 @@ void ra_eh_throw_type(uint64_t key, uint64_t displacement, uint64_t size) {
     e->types[3 * e->count] = key;
     e->types[3 * e->count + 1] = displacement;
     e->types[3 * e->count + 2] = size;
+    e->copies[e->count] = 0;
     e->count++;
+}
+
+void ra_eh_throw_copy(uint64_t copy) {
+    struct ra_exception *e = eh_in_flight;
+    if (!e || e->count == 0) eh_fatal("a copy constructor with no catchable type to belong to");
+    e->copies[e->count - 1] = copy;
+}
+
+// The throw names the destructor by its image address, which the port's call through ra_call at
+// the ABI level reaches only as the function's entry in the table the lift wrote: an indirect call
+// there is a native one, as the interpreter's alias of the table makes it.
+void ra_eh_throw_destructor(uint64_t destructor) {
+    struct ra_exception *e = eh_in_flight;
+    if (!e) eh_fatal("a destructor with no throw to belong to");
+#ifdef RA_ABI
+    uint64_t image = destructor;
+    destructor = 0;
+    for (uint64_t i = 0; i < ra_function_count; i++) {
+        if (ra_functions[i].address == image) {
+            destructor = (uint64_t)(uintptr_t)ra_functions[i].function;
+            break;
+        }
+    }
+    if (!destructor) {
+        fprintf(stderr, "ra: the destructor of a thrown object at 0x%llx is no lifted function\n", (unsigned long long)image);
+        eh_fatal("a thrown object's destructor cannot be called");
+    }
+#endif
+    e->destructor = destructor;
+}
+
+// The exception of the catch that ends, and whether something else still holds it: in flight again,
+// staged for a catch, or held by a catch or an unwind further out.
+static struct ra_exception *eh_ending(int *held) {
+    if (eh_caught_depth == 0) eh_fatal("the end of a catch body with no exception caught");
+    struct ra_exception *e = eh_caught[eh_caught_depth - 1];
+    *held = eh_in_flight == e || eh_staged == e;
+    for (int i = 0; i < eh_caught_depth - 1; i++) *held |= eh_caught[i] == e;
+    for (int i = 0; i < eh_suspended_depth; i++) *held |= eh_suspended[i] == e;
+    return e;
+}
+
+uint64_t ra_eh_ending_object(void) {
+    int held;
+    return (uint64_t)(uintptr_t)eh_ending(&held)->object;
+}
+
+uint64_t ra_eh_ending_destructor(void) {
+    int held;
+    struct ra_exception *e = eh_ending(&held);
+    if (held || !e->destructor) return 0;
+    e->destroyed = 1;
+    return e->destructor;
+}
+
+void ra_eh_catch_sp(uint64_t sp) {
+    if (eh_caught_depth == 0) eh_fatal("a saved esp with no catch being run");
+    eh_catch_sp[eh_caught_depth - 1] = sp;
+}
+
+uint64_t ra_eh_ending_sp(void) {
+    if (eh_caught_depth == 0) eh_fatal("the end of a catch body with no exception caught");
+    return eh_catch_sp[eh_caught_depth - 1];
 }
 
 void ra_eh_rethrow(void) {
@@ -2323,6 +2392,7 @@ uint64_t ra_eh_catches(uint64_t key, uint64_t slot, uint64_t flags) {
     if (!e) eh_fatal("a catch with no exception in flight");
     for (uint64_t i = 0; i < e->count; i++) {
         if (key != 0 && e->types[3 * i] != key) continue;
+        if (slot && !(flags & 8) && e->copies[i]) eh_fatal("a catch by value of an object with a copy constructor is not ported yet");
         if (slot) {
             char *subobject = (char *)e->object + e->types[3 * i + 1];
             if (flags & 8) {
@@ -2349,51 +2419,6 @@ void ra_eh_enter_catch(void) {
     eh_catch_sp[eh_caught_depth] = 0;
     eh_caught[eh_caught_depth++] = eh_staged;
     eh_staged = NULL;
-}
-
-void ra_eh_throw_copy(uint64_t copy) {
-    struct ra_exception *e = eh_in_flight;
-    if (!e || e->count == 0) eh_fatal("a copy constructor with no catchable type to belong to");
-    e->copies[e->count - 1] = copy;
-}
-
-void ra_eh_throw_destructor(uint64_t destructor) {
-    if (!eh_in_flight) eh_fatal("a destructor with no throw to belong to");
-    eh_in_flight->destructor = destructor;
-}
-
-// Whether the exception of the catch now ending is held elsewhere: in flight again, staged, caught
-// further out or suspended, so the end of this catch does not destroy it.
-static int eh_held(struct ra_exception *e) {
-    if (e == eh_in_flight || e == eh_staged) return 1;
-    for (int i = 0; i < eh_caught_depth - 1; i++) {
-        if (eh_caught[i] == e) return 1;
-    }
-    for (int i = 0; i < eh_suspended_depth; i++) {
-        if (eh_suspended[i] == e) return 1;
-    }
-    return 0;
-}
-
-uint64_t ra_eh_ending_object(void) {
-    if (eh_caught_depth == 0) eh_fatal("the end of a catch body with no exception caught");
-    return (uint64_t)(uintptr_t)eh_caught[eh_caught_depth - 1]->object;
-}
-
-uint64_t ra_eh_ending_destructor(void) {
-    if (eh_caught_depth == 0) eh_fatal("the end of a catch body with no exception caught");
-    struct ra_exception *e = eh_caught[eh_caught_depth - 1];
-    return eh_held(e) ? 0 : e->destructor;
-}
-
-void ra_eh_catch_sp(uint64_t sp) {
-    if (eh_caught_depth == 0) eh_fatal("a saved esp with no catch being run");
-    eh_catch_sp[eh_caught_depth - 1] = sp;
-}
-
-uint64_t ra_eh_ending_sp(void) {
-    if (eh_caught_depth == 0) eh_fatal("the end of a catch body with no exception caught");
-    return eh_catch_sp[eh_caught_depth - 1];
 }
 
 void ra_eh_leave_catch(void) {
