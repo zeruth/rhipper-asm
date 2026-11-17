@@ -265,7 +265,7 @@ struct Walk<'a> {
     /// skips the join could not end a copy.
     skipped: HashSet<BlockId>,
     /// The uses of each value of `f`, counted once: the walk reads `f` and never changes it, and
-    /// counting them at every condition block took 20 s of ffxiv.exe's 4932-block function.
+    /// counting them at every condition block took 20 s of a 4932-block function.
     uses: HashMap<ra_asm_ir::ValueId, usize>,
 }
 

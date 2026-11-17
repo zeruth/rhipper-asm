@@ -162,8 +162,9 @@ fn the_link_map_beside_the_image_names_its_functions() {
 }
 
 /// A Windows program the runtime's `WinMainCRTStartup` starts has no `main`: the port starts at
-/// `WinMain`. A dead `main` is no entry: chocolate-doom links SDL's `WinMain` and, after it, a
-/// `main` that nothing calls, which the port left out and its startup called.
+/// `WinMain`. A dead `main` is no entry: a program linked with SDL's `SDL2main.lib` has SDL's
+/// `WinMain` and, after it, a `main` that nothing calls, which the port left out and its startup
+/// called.
 #[test]
 fn a_program_without_a_live_main_starts_at_win_main() {
     use ra_asm_analysis::{Reach, symbols};
@@ -506,7 +507,7 @@ fn the_linux_hello_has_its_functions_and_its_plt_thunks() {
 /// A PDB's public symbols name each `jmp [slot]` the linker adds after its import (control32's map
 /// has `_WriteFile@20` at 0x401a00, which the map reader leaves out): the thunk keeps that symbol,
 /// but not the import's own name, which the port's call to the import is by. A thunk named
-/// `SDLNet_Init` called itself in the port of chocolate-doom.
+/// `SDLNet_Init` after its import called itself.
 #[test]
 fn an_import_thunk_the_symbols_name_is_not_named_as_its_import() {
     use ra_asm_analysis::{Kind, function, symbols};
@@ -529,8 +530,8 @@ fn an_import_thunk_the_symbols_name_is_not_named_as_its_import() {
 
 /// A PDB's procedure record names a function as the source did (`_alldiv`, `__scrt_fastfail`),
 /// where a public symbol or a link map has the 32-bit linkage name (`__alldiv`): the function is
-/// named the procedure's name whole. With an underscore taken off, the port of chocolate-doom
-/// called `alldiv` and `_security_check_cookie`, which nothing defines.
+/// named the procedure's name whole. With an underscore taken off, a port called `alldiv` and
+/// `_security_check_cookie`, which nothing defines.
 #[test]
 fn a_procedure_name_of_a_32_bit_pdb_loses_no_underscore() {
     use ra_asm_analysis::symbols;

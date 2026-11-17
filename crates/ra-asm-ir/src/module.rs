@@ -130,8 +130,8 @@ pub struct NameIndex {
     /// How many of `value_names` are in `names`.
     synced: usize,
     /// For each hint, the lowest suffix not yet known taken: names are never freed, so the lowest
-    /// free one only moves up. Without it the k-th `rax` of a function tried k names, and ffxiv.exe's
-    /// largest functions spent half a minute in the ABI promotion naming registers.
+    /// free one only moves up. Without it the k-th `rax` of a function tried k names, and a large
+    /// program's largest functions spent half a minute in the ABI promotion naming registers.
     next: std::collections::HashMap<String, u32>,
 }
 
@@ -151,7 +151,7 @@ impl Function {
     }
 
     /// The block `id`: where its number puts it, else by a search in id order, else by a scan. A
-    /// scan alone made a structuring walk quadratic: 20 s of ffxiv.exe's 4932-block function. The
+    /// scan alone made a structuring walk quadratic: 20 s of a 4932-block function. The
     /// search in order can only miss, never find another block, so the scan stays the answer of
     /// last resort and the result is the scan's.
     pub fn block(&self, id: BlockId) -> Option<&Block> {

@@ -191,7 +191,7 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
     let single_typed = |u: &Use| u.types.first().is_some_and(|t| u.types.iter().all(|x| x == t));
     let size_of = |u: &Use| u.types.iter().filter_map(|t| t.size(8)).max().unwrap_or(8) as i64;
 
-    // The argument blocks of variadic calls (`I_Error(fmt, x)`, `sscanf(s, fmt, &v)`): from a slot
+    // The argument blocks of variadic calls (`error(fmt, x)`, `sscanf(s, fmt, &v)`): from a slot
     // whose address goes only to such a call as its block, up through the slots right above it
     // that the function writes and never reads, the arguments it pushed. Each block, merged with
     // those it overlaps (the outgoing area serves call after call), is an array of its own: the
@@ -233,7 +233,7 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
     }
     let in_block = |k: i64| blocks.iter().copied().find(|&(s, e)| s <= k && k < e);
 
-    // An escaping slot that is one variable of its own (`int size; I_ZoneBase(&size)`, MSVC's
+    // An escaping slot that is one variable of its own (`int size; get_base(&size)`, MSVC's
     // `lea eax, [ebp-4]`): accessed at one type, with the next slot of the frame (a saved
     // register, another local) or the frame's top right where it ends, so the callee its address
     // goes to has no room past it to read; and no other escape below it, whose array or structure

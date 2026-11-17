@@ -140,7 +140,7 @@ fn syntax_check(name: &str, text: &str) {
     }
 }
 
-/// The SDL calls of chocolate-doom: a surface the host makes is handed to the program as a copy
+/// The SDL calls of a 32-bit SDL game: a surface the host makes is handed to the program as a copy
 /// laid out for 4-byte pointers, its format and the format's palette as copies of their own, and
 /// handed back to the host as the host's; a renderer's information and a display mode convert
 /// around the call; a texture's pixels come back through a pointer of the program's width.

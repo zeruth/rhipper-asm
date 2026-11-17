@@ -53,7 +53,7 @@ NOINLINE u32 f2u(float a) { return (u32)a; }
 NOINLINE short d2s(double a) { return (short)a; }
 /* (each the decompiler's FLOAT_TRUNC, printed as Ghidra32.h's gen_ftrunc<size>: C's cast saturates
    out of range on AArch64 and gives 0 for a NaN or a negative unsigned, where x86 gives its integer
-   indefinite and the signed bits; FFXIV's skinned characters on Android, 2026-11-02) */
+   indefinite and the signed bits) */
 
 /* comparisons: ordered, unordered, equal, the NaN cases */
 NOINLINE u32 dcmp(double a, double b) {

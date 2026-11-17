@@ -100,6 +100,8 @@ pub fn typed(name: &str) -> Option<Typed> {
         | "round" | "rint" | "nearbyint" | "fabs" | "erf" | "erfc" | "tgamma" | "lgamma" | "_j0" | "_j1" | "_y0" | "_y1" | "_chgsign"
         | "ra_x86_sqrt_sse2" | "ra_x86_sin_sse2" | "ra_x86_cos_sse2" | "ra_x86_tan_sse2" | "ra_x86_asin_sse2" | "ra_x86_acos_sse2"
         | "ra_x86_atan_sse2" | "ra_x86_exp_sse2" | "ra_x86_log_sse2" | "ra_x86_log10_sse2" => (vec![Double], Some(Double)),
+        // Its operands and result are on the x87 stack, in memory the call reads and writes.
+        "ra_x86_ci_atan2" => (vec![], None),
         "sinf" | "cosf" | "tanf" | "asinf" | "acosf" | "atanf" | "sinhf" | "coshf" | "tanhf" | "expf" | "exp2f" | "logf" | "log2f"
         | "log10f" | "sqrtf" | "cbrtf" | "floorf" | "ceilf" | "truncf" | "roundf" | "rintf" | "nearbyintf" | "fabsf" | "_chgsignf" => {
             (vec![Float], Some(Float))
@@ -263,6 +265,8 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "_libm_sse2_asin_precise" => "ra_x86_asin_sse2",
         "_libm_sse2_acos_precise" => "ra_x86_acos_sse2",
         "_libm_sse2_atan_precise" => "ra_x86_atan_sse2",
+        // The x87 one, whose operands are on the unit's stack: the runtime works on the lift's.
+        "_CIatan2" => "ra_x86_ci_atan2",
         "_libm_sse2_exp_precise" => "ra_x86_exp_sse2",
         "_libm_sse2_log_precise" => "ra_x86_log_sse2",
         "_libm_sse2_log10_precise" => "ra_x86_log10_sse2",
@@ -1105,7 +1109,7 @@ mod tests {
     }
 
     /// SDL's functions take what its headers say, and pop nothing: with the universal eight
-    /// arguments for `SDL_GetTicks`, chocolate-doom's `I_GetTimeMS` took its caller's stack words
+    /// arguments for `SDL_GetTicks`, a function that only called it took its caller's stack words
     /// as parameters, and every function above it did.
     #[test]
     fn sdl_functions_take_what_their_headers_say() {

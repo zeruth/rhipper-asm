@@ -248,7 +248,7 @@ pub fn callback(record: &str, field: &str) -> Option<&'static Callback> {
 }
 
 /// SDL_mixer's music hook, `void (*)(void *udata, Uint8 *stream, int len)`, which the mixer
-/// calls on its audio thread for each buffer: chocolate-doom's OPL music fills it.
+/// calls on its audio thread for each buffer: a program's own music synthesizer fills it.
 const MIX_MUSIC_HOOK: Callback = Callback {
     name: "Mix_MusicHook",
     result: (Kind::Signed, 4),

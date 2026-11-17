@@ -54,7 +54,7 @@ pub struct LibraryRange {
 #[derive(Debug, Clone, Serialize)]
 pub struct DataSymbol {
     pub va: u64,
-    /// The name as the source has it (`ticdup`, `mainzone`).
+    /// The name as the source has it (`frame_count`, `main_heap`).
     pub name: String,
     /// Its size in bytes, from its type; `None` for a type the reading does not size.
     pub size: Option<u32>,

@@ -532,7 +532,7 @@ fn strings_of(image: &Image, function: &Function) -> Vec<(u64, String)> {
 /// `lea r8, [rip + f]` (x64, where a leaf callback has no unwind entry to find it by).
 /// On a 32-bit image with relocations, an immediate is an address only where a relocation marks
 /// it: `cmp eax, 0x416d62` with a four-character code that happens to fall in the code is none,
-/// and a function seeded there (ffxiv.exe's) cut the real one it fell into, whose code past the
+/// and a function seeded there cut the real one it fell into, whose code past the
 /// cut became a function of its own that ran with the registers of neither.
 fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>, cover: &Cover) -> Vec<(u64, Origin)> {
     let bits = u16::from(image.pointer_size()) * 8;

@@ -1571,8 +1571,21 @@ impl Lifter<'_, '_> {
                         if let Some(align) = self.stack_probe(target) {
                             // The probe is the caller's `esp -= eax`, rounded down to the
                             // alignment its front end asks; eax is the probe's to clobber.
+                            // With the size a constant the instruction before it sets (MSVC's
+                            // `mov eax, imm32` right before the call), the move is by that
+                            // constant, which the stack analysis counts into the frame: a frame
+                            // of large local arrays addressed only through arithmetic would else
+                            // get none of their room.
                             let sp = self.m.read_sp(block);
-                            let eax = self.m.read_gpr(block, R::EAX);
+                            let size = self
+                                .block_index
+                                .checked_sub(1)
+                                .map(|p| self.block_instrs[p])
+                                .filter(|p| p.code() == Code::Mov_r32_imm32 && p.op0_register() == R::EAX);
+                            let eax: Operand = match size {
+                                Some(p) => Operand::Int(i128::from(p.immediate32())),
+                                None => self.m.read_gpr(block, R::EAX).into(),
+                            };
                             let moved = self.m.b.bin(block, BinOp::Sub, Type::I32, sp, eax, "sp.probe");
                             let aligned = if align > 1 {
                                 self.m.b.bin(block, BinOp::And, Type::I32, moved, -(align as i64), "sp.aligned")

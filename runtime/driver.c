@@ -1419,6 +1419,18 @@ double ra_x86_tan_sse2(double x) { return tan(x); }
 double ra_x86_asin_sse2(double x) { return asin(x); }
 double ra_x86_acos_sse2(double x) { return acos(x); }
 double ra_x86_atan_sse2(double x) { return atan(x); }
+
+// The x86 C runtime's x87 `_CIatan2`, which takes its operands on the x87 stack (st0 the x, st1
+// the y) and leaves atan2(y, x) in their place: here on the lift's stack of doubles, which a
+// program lifted with the double unit keeps in `ra_x87_stack` from `ra_x87_top` up.
+extern _Thread_local double ra_x87_stack[8];
+extern _Thread_local uint64_t ra_x87_top;
+void ra_x86_ci_atan2(void) {
+    uint64_t top = ra_x87_top & 7;
+    double x = ra_x87_stack[top], y = ra_x87_stack[(top + 1) & 7];
+    ra_x87_top = (top + 1) & 7;
+    ra_x87_stack[ra_x87_top] = atan2(y, x);
+}
 double ra_x86_exp_sse2(double x) { return exp(x); }
 double ra_x86_log_sse2(double x) { return log(x); }
 double ra_x86_log10_sse2(double x) { return log10(x); }
@@ -1995,8 +2007,8 @@ uint64_t ra_x86_vsscanf(uint64_t options, uint64_t buffer, uint64_t count, uint6
                                                      (_locale_t)(uintptr_t)locale, (va_list)slots);
 }
 
-// fscanf's: chocolate-doom reads its config with `fscanf(f, "%79s %99[^\n]\n", ...)`, whose two
-// pointers are dwords the host's would read as 8-byte slots.
+// fscanf's: a program reading a file with `fscanf(f, "%79s %99[^\n]\n", ...)` passes pointers
+// that are dwords, which the host's would read as 8-byte slots.
 uint64_t ra_x86_vfscanf(uint64_t options, uint64_t stream, uint64_t format, uint64_t locale, uint64_t args) {
     uint64_t slots[64] = {0};
     widen_scanf_args((const char *)(uintptr_t)format, (const uint32_t *)(uintptr_t)args, slots, 64);

@@ -196,8 +196,8 @@ fn a_static_function_takes_its_argument_in_the_register_its_callers_set() {
 
 /// MSVC makes room for a local with `push ecx` after the frame (`push ebp; mov ebp, esp; push
 /// ecx`): `local` reads no argument in `ecx`, and none of its callers sets one, so it takes none
-/// (chocolate-doom's `AM_changeWindowLoc` took one, and `AM_Ticker`, its caller, then took one to
-/// hand on). `this_of` reads `ecx`, which main sets before each call: it keeps it. main returns
+/// (taking one, its caller then took one too, to hand on). `this_of` reads `ecx`, which main sets
+/// before each call: it keeps it. main returns
 /// local() + this_of(30) = 5 + 30.
 #[test]
 fn a_push_of_ecx_that_makes_room_is_no_argument() {
@@ -330,7 +330,7 @@ fn jump_tables_indexed_by_a_mask_a_borrow_and_a_negation_resolve() {
 }
 
 /// In an image with relocations, `cmp eax, imm` with a constant that falls inside a function
-/// (a four-character code, in ffxiv.exe) names no function: only a relocated immediate (`push
+/// (a four-character code) names no function: only a relocated immediate (`push
 /// offset table` here) is an address. The immediates are seeds before the pointers in data, so
 /// a function seeded at the constant came first and cut `three` (which only the table names) in
 /// two, and the half after the cut ran as a function of its own.
@@ -365,7 +365,7 @@ fn an_immediate_no_relocation_marks_names_no_function() {
 }
 
 /// MSVC jumps into a two-level `switch` from a case of another, past the compare that bounds
-/// it (chocolate-doom's `P_UseSpecialLine`): the table's bound lies on the other way in, which the
+/// it: the table's bound lies on the other way in, which the
 /// walk may find after the jump. `f`'s first switch sends 0 to a case that sets the index to 2 and
 /// jumps to the second's table read; the second's compare bounds it to 0..3. f(0) = 100 (case
 /// number 0 of index 2), f(1) = 10, f(3) = 101, f(5) = 99. With the second table left unresolved,
@@ -416,8 +416,8 @@ fn a_switch_entered_past_its_compare_resolves_by_the_other_way_in() {
 /// The cookie check of a `/MD` build has the report inlined: when the cookie differs it asks
 /// whether the processor can fail fast (`eax` is the answer) and then traps either way, so `eax`
 /// is written only on paths that never return, and the check returns with it as it came. A
-/// function that sets its result before the check (`mov eax, esi`) returns that: chocolate-doom's
-/// `__inode` handed back no pointer to its result. Here `check` writes `eax` on such paths alone,
+/// function that sets its result before the check (`mov eax, esi`) returns that, where a port
+/// handed back no pointer to its result. Here `check` writes `eax` on such paths alone,
 /// and `main` returns the 7 it set before calling it.
 #[test]
 fn a_register_written_only_on_the_way_to_a_trap_is_kept_by_the_call() {
@@ -448,12 +448,12 @@ fn a_register_written_only_on_the_way_to_a_trap_is_kept_by_the_call() {
     assert_eq!(call(&image, &lifted, &signatures, MAIN, Vec::new()), 7, "main()\n{}", lifted.module.to_ll());
 }
 
-/// chocolate-doom's `W_Read(wad, offset, buffer, length)` is `return
-/// wad->file_class->Read(wad, offset, buffer, length)`, which MSVC makes a jump through the
+/// A forwarder `read(file, offset, buffer, length)` that is `return
+/// file->class->read(file, offset, buffer, length)`, which MSVC makes a jump through the
 /// class's pointer with the stack as it came: the callee reads the forwarder's own arguments. Here
 /// `forward` jumps through `obj->class->add`, and `main` calls `forward(obj, 4, 3)`, which returns
 /// 4 + 3. With `forward` taken to read only `obj`, the jump handed `add` two words of nothing, and
-/// `W_Read` read the WAD's header into no buffer.
+/// such a forwarder read a file into no buffer.
 #[test]
 fn a_jump_through_a_pointer_hands_the_functions_own_arguments_on() {
     const FORWARD: u64 = CODE + 0x40;

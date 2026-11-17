@@ -1,7 +1,7 @@
 //! The scaling guard of the analysis, the lift and the raise: a function four times as long takes
 //! no more than six times as long through them. A pass that grows with the square of a function's
-//! size passes every fixture, which are small, and fails here; on ffxiv.exe one took the emit from
-//! 5 minutes to over 40. The emit's own guard is `ra-asm-emit`'s `scaling` test.
+//! size passes every fixture, which are small, and fails here; on a large program one took the
+//! emit from 5 minutes to over 40. The emit's own guard is `ra-asm-emit`'s `scaling` test.
 
 #[path = "scaling/program.rs"]
 mod program;

@@ -178,8 +178,8 @@ pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Opt
                 return Some(Table { bound, ..table });
             };
             // The indices the case table is read at: `0..n` under a compare's bound, else the
-            // values an `and idx, mask` before the read leaves (`OPL3_WriteReg`'s `reg & 0xF0`,
-            // whose sixteen values are the case table's slots), the mask's submasks.
+            // values an `and idx, mask` before the read leaves (`switch (reg & 0xF0)`, whose
+            // sixteen values are the case table's slots), the mask's submasks.
             let indices: Vec<u64> = match count {
                 Some(count) => (0..count.min(MAX_ENTRIES) as u64).collect(),
                 None => {

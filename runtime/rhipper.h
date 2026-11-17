@@ -302,6 +302,7 @@ double ra_x86_tan_sse2(double x);
 double ra_x86_asin_sse2(double x);
 double ra_x86_acos_sse2(double x);
 double ra_x86_atan_sse2(double x);
+void ra_x86_ci_atan2(void);
 double ra_x86_exp_sse2(double x);
 double ra_x86_log_sse2(double x);
 double ra_x86_log10_sse2(double x);

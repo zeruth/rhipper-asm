@@ -282,7 +282,7 @@ fn number_values(f: &mut Function) -> bool {
     };
     // The dominator tree walked depth first, one table scoped to the walk: a block sees the values
     // of its dominators alone, each found by one lookup. Walking up the dominators from each
-    // instruction instead cost instructions times depth: 56 s of ffxiv.exe's largest function.
+    // instruction instead cost instructions times depth: 56 s of a large program's largest function.
     let index: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(n, b)| (b.id, n)).collect();
     let mut children: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
     for b in &order {
@@ -562,7 +562,7 @@ fn apply_branch_facts(f: &mut Function) -> bool {
     let mut changed = false;
     // The facts of a block and of every dominator, the nearest first, as one table scoped to a
     // depth-first walk of the dominator tree: a walk up the dominators from every block cost
-    // blocks times depth on ffxiv.exe's largest functions.
+    // blocks times depth on a large program's largest functions.
     let index: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(n, b)| (b.id, n)).collect();
     let mut children: HashMap<BlockId, Vec<BlockId>> = HashMap::new();
     for b in &order {

@@ -813,6 +813,12 @@ fn parts<'o>(module: &Module, options: &'o Options) -> Parts<'o> {
         if d.name.starts_with("llvm.") || d.name.starts_with("ra_") || prototypes.contains_key(&d.name) {
             continue;
         }
+        // MSVC's `vcruntime.h`, which `<stdint.h>` brings in, declares the security cookie's
+        // functions with their own types (`void __security_init_cookie(void)`): a lifted startup's
+        // call reaches the host's through that declaration, which one of the lift's would clash with.
+        if VCRUNTIME_DECLARED.contains(&d.name.as_str()) {
+            continue;
+        }
         // The calls keep the import's name and reach its wrapper, which converts the structures.
         if adapters.imports.contains(&d.name) {
             let _ = writeln!(externs, "#define {} {}{}", d.name, crate::adapters::WRAPPER_PREFIX, d.name);
@@ -1222,6 +1228,10 @@ fn per_thread(name: &str) -> bool {
     use ra_asm_lift::state::{ARGS, MXCSR, POPS, X87_CW, X87_STACK, X87_SW, X87_TMP, X87_TOP};
     [X87_STACK, X87_TOP, X87_CW, X87_SW, X87_TMP, MXCSR, POPS, ARGS].contains(&name)
 }
+
+/// The functions MSVC's `vcruntime.h` declares, which every translation unit includes through
+/// `<stdint.h>`: a port calls the host's under the header's declaration.
+const VCRUNTIME_DECLARED: &[&str] = &["__security_init_cookie", "__security_check_cookie", "__report_gsfailure"];
 
 /// The `extern` declaration of a data global, for the files that do not define it.
 fn declare_global(out: &mut String, g: &ra_asm_ir::Global, layout: Option<&Layout>) {
@@ -1709,6 +1719,7 @@ fn emit_function(
         }
     }
     let (declarations, body) = declared_in_place(&declarations, &early_exits(&body));
+    let (declarations, body) = named_temps(&out[head_at..], &entry, &declarations, &body);
     out.push_str(&entry);
     out.push_str(&declarations);
     out.push_str(&body);
@@ -1919,6 +1930,139 @@ fn exits(statement: &str) -> bool {
         || s == "RA_UNREACHABLE();"
 }
 
+/// A function's declarations and body with the lift's temporaries named as a person names them: a
+/// load of a named global's field (`m_3 = sec_data.count;`) after the field, and a loop's
+/// counter (a phi set to a constant and stepped by one) `i`, `j`, `k`, `n` in order. A name the
+/// function already uses anywhere (`head`, `entry`, the declarations, the body) is not taken.
+fn named_temps(head: &str, entry: &str, declarations: &str, body: &str) -> (String, String) {
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    // The identifiers of `s`, not the members after a `.` or `->`, which a local does not clash with.
+    let words = |s: &str| -> HashSet<String> {
+        let mut out = HashSet::new();
+        let mut word = String::new();
+        let mut member = false;
+        let mut previous = ' ';
+        for c in s.chars().chain(std::iter::once(' ')) {
+            if is_word(c) {
+                if word.is_empty() {
+                    member = previous == '.' || (previous == '>' && s.contains("->"));
+                }
+                word.push(c);
+            } else {
+                if !word.is_empty() && !member {
+                    out.insert(std::mem::take(&mut word));
+                }
+                word.clear();
+                previous = c;
+            }
+        }
+        out
+    };
+    let mut used: HashSet<String> = words(head);
+    used.extend(words(entry));
+    used.extend(words(declarations));
+    used.extend(words(body));
+    // How many lines assign each name.
+    let mut assigned: HashMap<&str, usize> = HashMap::new();
+    for l in body.lines() {
+        let t = l.trim_start();
+        let t = t.split_once(' ').filter(|(ty, _)| ty.ends_with("_t") || *ty == "struct").map_or(t, |(_, rest)| rest);
+        if let Some((lhs, _)) = t.split_once(" = ") {
+            let lhs = lhs.trim_start_matches('*');
+            if lhs.chars().all(is_word) {
+                *assigned.entry(lhs).or_default() += 1;
+            }
+        }
+    }
+    let temp = |n: &str| n == "m" || n.strip_prefix("m_").is_some_and(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_digit()));
+    let mut renames: Vec<(String, String)> = Vec::new();
+    let take = |from: &str, to: String, used: &mut HashSet<String>, renames: &mut Vec<(String, String)>| {
+        if !used.contains(&to) && !renames.iter().any(|(f, _)| f == from) {
+            used.insert(to.clone());
+            renames.push((from.to_owned(), to));
+        }
+    };
+    let mut counters = ["i", "j", "k", "n"].into_iter();
+    for l in body.lines() {
+        let t = l.trim_start();
+        let t = t.split_once(' ').filter(|(ty, _)| ty.ends_with("_t") || *ty == "struct").map_or(t, |(_, rest)| rest);
+        let Some((lhs, rhs)) = t.split_once(" = ") else { continue };
+        let rhs = rhs.trim_end_matches(';');
+        // A global's field: `sec_data.count`, a plain one (no index, no member of a member).
+        if temp(lhs)
+            && assigned.get(lhs) == Some(&1)
+            && let Some(field) =
+                rhs.strip_prefix("sec_data.").or_else(|| rhs.strip_prefix("sec_rdata.")).or_else(|| rhs.strip_prefix("sec_bss."))
+            && field.chars().all(is_word)
+            && field.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        {
+            take(lhs, field.to_owned(), &mut used, &mut renames);
+        }
+        // A counter: `x = x + 1u;` of a phi the body also sets to a constant.
+        if lhs.contains("_phi")
+            && (rhs == format!("{lhs} + 1u") || rhs == format!("{lhs} - 1u"))
+            && body.lines().any(|o| {
+                o.trim_start().strip_prefix(lhs).and_then(|r| r.strip_prefix(" = ")).is_some_and(|v| {
+                    let v = v.trim_end_matches(';');
+                    v.chars().next().is_some_and(|c| c.is_ascii_digit())
+                        && v.trim_end_matches(['u', 'l']).chars().all(|c| c.is_ascii_digit())
+                })
+            })
+            && !renames.iter().any(|(f, _)| f == lhs)
+        {
+            while let Some(c) = counters.next() {
+                if !used.contains(c) {
+                    take(lhs, c.to_owned(), &mut used, &mut renames);
+                    break;
+                }
+            }
+        }
+    }
+    if renames.is_empty() {
+        return (declarations.to_owned(), body.to_owned());
+    }
+    let map: HashMap<&str, &str> = renames.iter().map(|(f, t)| (f.as_str(), t.as_str())).collect();
+    let rename = |s: &str| -> String {
+        // Word by word, outside string literals.
+        let mut out = String::with_capacity(s.len());
+        let mut word = String::new();
+        let mut in_string = false;
+        let mut escaped = false;
+        // A word after `.` or `->` is a member, whatever its name.
+        let flush = |word: &mut String, out: &mut String| {
+            let member = out.ends_with('.') || out.ends_with("->");
+            let to = if member { None } else { map.get(word.as_str()).copied() };
+            out.push_str(to.unwrap_or(word));
+            word.clear();
+        };
+        for c in s.chars() {
+            if in_string {
+                out.push(c);
+                if escaped {
+                    escaped = false;
+                } else if c == '\\' {
+                    escaped = true;
+                } else if c == '"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            if is_word(c) {
+                word.push(c);
+                continue;
+            }
+            flush(&mut word, &mut out);
+            if c == '"' {
+                in_string = true;
+            }
+            out.push(c);
+        }
+        flush(&mut word, &mut out);
+        out
+    };
+    (rename(declarations), rename(body))
+}
+
 /// The declarations at a function's head and its body, with each local that the body assigns once
 /// and reads only after that, in the same block, declared at its assignment (`uint32_t m =
 /// sec_data.x;`), as a person declares it. A function with a `goto` or a `switch` keeps its
@@ -2109,7 +2253,7 @@ fn early_exits(body: &str) -> String {
 
 /// Whether `expr` reads nothing and does nothing, so a statement of it alone says nothing: casts
 /// of a literal, a name, or the address of a global or of a field of one
-/// (`(uint32_t)(uintptr_t)"-zonescan"`, `(uint8_t *)(uintptr_t)&sec_data.eventhead`).
+/// (`(uint32_t)(uintptr_t)"-verbose"`, `(uint8_t *)(uintptr_t)&sec_data.head`).
 fn inert(expr: &str) -> bool {
     let mut e = expr.trim().to_owned();
     loop {
@@ -2137,7 +2281,7 @@ fn inert(expr: &str) -> bool {
 
 /// Whether `expr` is arithmetic on names, constants and addresses with no read through memory: no
 /// dereference, index, `->`, call, string, assignment or increment (`(rdi_phi * 4u)`, an address
-/// `&sec_data.banners + i * 4u` the program computed and did not use).
+/// `&sec_data.names + i * 4u` the program computed and did not use).
 fn arithmetic(expr: &str) -> bool {
     let bytes = expr.as_bytes();
     let mut previous = b'(';

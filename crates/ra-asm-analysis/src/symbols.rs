@@ -207,7 +207,15 @@ pub const WIN_MAIN_C: &str = "WinMain_";
 /// runtime's startup, which the host's own startup replaces, else the image's entry point. A dead
 /// one is not it: SDL's `SDL2main.lib` links a `main` beside its `WinMain` that nothing calls.
 pub fn program_entry(image: &Image, functions: &BTreeMap<u64, Function>) -> Option<u64> {
-    let entry = image.entry_point()?;
+    // An entry that is one `jmp` (the stub an incremental link puts before each function) is
+    // the function it jumps to: the startup the stub leads to is what tells the runtime's apart.
+    let mut entry = image.entry_point()?;
+    for _ in 0..4 {
+        match functions.get(&entry) {
+            Some(f) if f.blocks.len() == 1 && f.blocks[0].instrs.len() == 1 && f.tail_calls.len() == 1 => entry = f.tail_calls[0],
+            _ => break,
+        }
+    }
     if !functions.get(&entry).is_some_and(|f| matches!(f.kind, Kind::Runtime(_))) {
         return Some(entry);
     }
@@ -457,6 +465,12 @@ pub fn is_reserved(name: &str) -> bool {
         "EOF",
     ];
     const C_LIBRARY: &[&str] = &[
+        // MSVC's `<vcruntime.h>` and `<process.h>` declare the security cookie's functions, which a
+        // /GS program's PDB names among its own (`__security_init_cookie`).
+        "__security_init_cookie",
+        "__security_check_cookie",
+        "__report_gsfailure",
+        "__security_cookie",
         "abort",
         "abs",
         "acos",
