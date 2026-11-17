@@ -2091,8 +2091,17 @@ fn early_exits(body: &str) -> String {
             break;
         }
     }
+    // A `return;` that ends the body: the function's end returns as well.
+    // Not after a label, which would then end the block (C++ before C++23 has no such label).
+    while lines.last().is_some_and(|l| l == "    return;")
+        && lines.len() >= 2
+        && !lines[lines.len() - 2].trim_end().ends_with(':')
+        && !lines[lines.len() - 2].trim_end().ends_with(":;")
+    {
+        lines.pop();
+    }
     let mut out = lines.join("\n");
-    if body.ends_with('\n') {
+    if body.ends_with('\n') && !out.is_empty() {
         out.push('\n');
     }
     out
@@ -3105,6 +3114,23 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// Whether `o` is written as an integer's zero or sign extension in place (`(uint64_t)x`,
+    /// with an integer `x`): a pointer made an integer is not, since C converts no pointer to an
+    /// integer parameter by itself.
+    fn widened_integer(&self, o: &Operand) -> bool {
+        let Operand::Local(v) = o else { return false };
+        // A narrower integer value passed at 64 bits (a 32-bit parameter), not one made of a pointer.
+        if matches!(self.f.value_type(*v), Type::Int(bits) if *bits < 64)
+            && !matches!(self.def(*v), Some((_, _, Inst::Cast { cast: Cast::PtrToInt, .. })))
+        {
+            return true;
+        }
+        if !self.inlinable(*v) || self.alias.contains_key(v) || self.cond_alias.iter().any(|(n, _)| n == v) {
+            return false;
+        }
+        matches!(self.def(*v), Some((_, _, Inst::Cast { cast: Cast::ZExt | Cast::SExt, from: Type::Int(_), .. })))
+    }
+
     /// [`Self::int_address`], with a 32-bit address the access widened (`zext i32 a to i64`, the
     /// 32-bit model's) as the 32-bit `a`: the memory macros widen it the same way themselves.
     fn int_address_narrow(&self, ptr: &Operand) -> Option<String> {
@@ -3634,6 +3660,15 @@ impl<'a> Emitter<'a> {
                     .map(|(n, (t, o))| match (o, params.get(n).copied().flatten()) {
                         (Operand::Int(k), Some(e)) => {
                             self.sdk_name(t, e, *k).map_or_else(|| strip_parens(&self.operand(t, o)), |s| strip_parens(&s))
+                        }
+                        // An integer widened to a 64-bit parameter of the prototype (not a variadic
+                        // one): C converts it to the parameter's type as the cast did.
+                        _ if *t == Type::I64
+                            && n < fn_ty.params.len()
+                            && !matches!(callee, Callee::Direct(name) if name.starts_with("llvm."))
+                            && self.widened_integer(o) =>
+                        {
+                            widened(&self.operand(t, o))
                         }
                         _ => strip_parens(&self.operand(t, o)),
                     })
