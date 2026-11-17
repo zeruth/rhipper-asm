@@ -1,0 +1,36 @@
+ scan32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 00000307H .text                   CODE
+ 0003:00000000 00000000H .data                   DATA
+ 0003:00000000 00000008H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     scan-7c6140.o
+ 0002:00000000       ??_C@_05ELLHAKAE@?5?5y?$AAz?$AA@ 0000000000402000     scan-7c6140.o
+ 0002:00000006       ??_C@_03IGBFPJHM@x?$ANy?$AA@ 0000000000402006     scan-7c6140.o
+ 0002:0000000a       ??_C@_04PGKBIGAP@?6?6?6x?$AA@ 000000000040200a     scan-7c6140.o
+ 0002:0000000f       ??_C@_0M@EKDENPGD@?7?5?$CD?5comment?$AA@ 000000000040200f     scan-7c6140.o
+ 0002:0000001b       ??_C@_0M@KGLPHCML@?5?5two?6lines?$AA@ 000000000040201b     scan-7c6140.o
+ 0002:00000027       ??_C@_05CGDPOPDB@plain?$AA@ 0000000000402027     scan-7c6140.o
+ 0002:0000002d       ??_C@_04GOKPGOLB@long?$AA@ 000000000040202d     scan-7c6140.o
+ 0002:00000032       ??_C@_07NIMJIKHB@?5?6?5lead?$AA@ 0000000000402032     scan-7c6140.o
+ 0002:0000003a       ??_C@_06GLBEOOJF@a?$AN?6b?6c?$AA@ 000000000040203a     scan-7c6140.o
+ 0002:00000098       __imp__ExitProcess@4       0000000000402098     kernel32:KERNEL32.dll
+ 0002:0000009c       __imp__GetStdHandle@4      000000000040209c     kernel32:KERNEL32.dll
+ 0002:000000a0       __imp__WriteFile@20        00000000004020a0     kernel32:KERNEL32.dll
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:00000200       _print_int                 0000000000401200     scan-7c6140.o
+ 0001:00000280       _scan                      0000000000401280     scan-7c6140.o
+ 0001:00000300       _count_line                0000000000401300     scan-7c6140.o
+ 0003:00000000       _out                       0000000000403000     scan-7c6140.o
+ 0003:00000004       _lines                     0000000000403004     scan-7c6140.o

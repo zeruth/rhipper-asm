@@ -349,7 +349,21 @@ impl Walk<'_> {
                 && !self.copyable(t)
                 && arms.iter().all(|&a| a == t || self.reaches(a, t, cur))
         })?;
-        let after = pdom(shared)?;
+        let mut after = pdom(shared)?;
+        // A shared loop header's post-dominator may lie inside its loop (the second test of a
+        // condition the loop's walk folds into the header's), which that walk places itself: the
+        // way past it is the first post-dominator out of the loop.
+        if let Some(body) = self.g.loops.get(&shared) {
+            for _ in 0..body.len() {
+                if !body.contains(&after) {
+                    break;
+                }
+                after = pdom(after)?;
+            }
+            if body.contains(&after) {
+                return None;
+            }
+        }
         // The way past the shared block has a name: the region's end, a jump of the loop, or a
         // region of its own around the branch and the shared block, which `after` follows.
         let named = Some(after) == stop
@@ -1144,6 +1158,107 @@ mod tests {
         let result = fb.load(ret, Type::I32, p, "r");
         fb.terminate(ret, Terminator::Ret(Some((Type::I32, result.into()))));
         fb.finish()
+    }
+
+    /// `int f(int n, int *p)`, a parser's shape: a branch whose arms both reach a loop, one directly
+    /// (`then`, which may also return) and one after a loop of its own (`skip`); the loop's header
+    /// tests for a newline and a second block for a return, which the header's condition folds in,
+    /// and the loop leaves only by returns, so its header's post-dominator is that second test.
+    fn shared_loop_header() -> Function {
+        let mut fb = FunctionBuilder::new("f", FnType::new(Type::I32, vec![Type::I32, Type::Ptr]), &["n", "p"]);
+        let (n, p) = (fb.param(0), fb.param(1));
+        let [entry, skip, skip_on, skip_next, skip_out, then, done, pre, header, second, newline, body, body_out, latch, end] = [
+            "entry",
+            "skip",
+            "skip_on",
+            "skip_next",
+            "skip_out",
+            "then",
+            "done",
+            "pre",
+            "header",
+            "second",
+            "newline",
+            "body",
+            "body_out",
+            "latch",
+            "end",
+        ]
+        .map(|name| fb.block(name));
+        fb.store(entry, Type::I32, 0i64, p);
+        let empty = fb.icmp(entry, ICond::Eq, Type::I32, n, 0i64, "empty");
+        fb.terminate(entry, Terminator::CondBr { cond: empty.into(), then, els: skip });
+        let s = fb.load(skip, Type::I32, p, "s");
+        let zero = fb.icmp(skip, ICond::Eq, Type::I32, s, 0i64, "zero");
+        fb.terminate(skip, Terminator::CondBr { cond: zero.into(), then: skip_next, els: skip_on });
+        fb.store(skip_on, Type::I32, 1i64, p);
+        let failed = fb.icmp(skip_on, ICond::Eq, Type::I32, n, 1i64, "failed");
+        fb.terminate(skip_on, Terminator::CondBr { cond: failed.into(), then: skip_out, els: skip_next });
+        fb.store(skip_next, Type::I32, 2i64, p);
+        let more = fb.icmp(skip_next, ICond::Slt, Type::I32, s, n, "more");
+        fb.terminate(skip_next, Terminator::CondBr { cond: more.into(), then: skip, els: then });
+        fb.terminate(skip_out, Terminator::Ret(Some((Type::I32, Operand::Int(1)))));
+        fb.store(then, Type::I32, 3i64, p);
+        let full = fb.icmp(then, ICond::Sgt, Type::I32, n, 9i64, "full");
+        fb.terminate(then, Terminator::CondBr { cond: full.into(), then: done, els: pre });
+        fb.terminate(done, Terminator::Ret(Some((Type::I32, Operand::Int(2)))));
+        fb.store(pre, Type::I32, 4i64, p);
+        fb.terminate(pre, Terminator::Br(header));
+        let c = fb.load(header, Type::I32, p, "c");
+        let lf = fb.icmp(header, ICond::Eq, Type::I32, c, 10i64, "lf");
+        fb.terminate(header, Terminator::CondBr { cond: lf.into(), then: newline, els: second });
+        let cr = fb.icmp(second, ICond::Eq, Type::I32, c, 13i64, "cr");
+        fb.terminate(second, Terminator::CondBr { cond: cr.into(), then: newline, els: body });
+        let step = fb.bin(newline, BinOp::Add, Type::I32, c, 1i64, "step");
+        fb.store(newline, Type::I32, step, p);
+        fb.terminate(newline, Terminator::Br(header));
+        fb.store(body, Type::I32, 5i64, p);
+        let bad = fb.icmp(body, ICond::Eq, Type::I32, c, 0i64, "bad");
+        fb.terminate(body, Terminator::CondBr { cond: bad.into(), then: body_out, els: latch });
+        fb.terminate(body_out, Terminator::Ret(Some((Type::I32, Operand::Int(3)))));
+        fb.store(latch, Type::I32, 6i64, p);
+        let again = fb.icmp(latch, ICond::Slt, Type::I32, c, n, "again");
+        fb.terminate(latch, Terminator::CondBr { cond: again.into(), then: header, els: end });
+        fb.terminate(end, Terminator::Ret(Some((Type::I32, Operand::Int(4)))));
+        fb.finish()
+    }
+
+    /// Every block placed as a block at any depth of `stmts`.
+    fn placed(stmts: &[Stmt], out: &mut HashSet<BlockId>) {
+        for s in stmts {
+            match s {
+                Stmt::Block(b) => {
+                    out.insert(*b);
+                }
+                Stmt::If { then, els, .. } => {
+                    placed(then, out);
+                    placed(els, out);
+                }
+                Stmt::Loop { body, .. } | Stmt::Tail { body, .. } => placed(body, out),
+                Stmt::Switch { cases, .. } => cases.iter().for_each(|c| placed(&c.body, out)),
+                _ => {}
+            }
+        }
+    }
+
+    /// A loop header both arms of a branch reach is the shared tail of a region around the
+    /// branch, but the way past it is out of the loop: a `goto` to the header's post-dominator,
+    /// a test the loop folds into its header's condition, names a label C never writes.
+    #[test]
+    fn shared_loop_header_goes_past_its_loop() {
+        let f = shared_loop_header();
+        let g = Graph::of(&f);
+        let s = structure(&f, &g);
+        let mut blocks = HashSet::new();
+        placed(&s.body, &mut blocks);
+        for label in &s.labels {
+            assert!(blocks.contains(label), "{label:?} is a label but no block: {:#?}", s.body);
+        }
+        let c = c_of(f);
+        for line in c.lines().filter_map(|l| l.trim().strip_prefix("goto ")) {
+            let label = line.trim_end_matches(';');
+            assert!(c.contains(&format!("{label}:;")), "{label}: {c}");
+        }
     }
 
     fn c_of(f: Function) -> String {

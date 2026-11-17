@@ -575,6 +575,40 @@ command = "testdata/build.ps1 resources"
 tools = "clang 22.1.7, LLD 22.1.7, llvm-rc 22.1.7"
 
 [[file]]
+path = "testdata/bin/scan32.exe"
+sha256 = "58fee0245229d64b70275e79ce6196a48e68dbca9f564f5940bad2ccb82433fd"
+evidence = "native"
+expected = "testdata/expected/scan.txt"
+source = "testdata/src/scan.c"
+command = "testdata/build.ps1 scan"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/scan32.map"
+sha256 = "f5b5f3d71ba74facd60051e413770030418da3990963667aa2c52ceafe2f4fd3"
+evidence = "native"
+source = "testdata/src/scan.c"
+command = "testdata/build.ps1 scan"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/scan64.exe"
+sha256 = "1d6ee8ba7b2713c46ecef40174796cd7042a6e8dd60a7d2d69f1c40bc2dba919"
+evidence = "native"
+expected = "testdata/expected/scan.txt"
+source = "testdata/src/scan.c"
+command = "testdata/build.ps1 scan"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/scan64.map"
+sha256 = "91f81f5effb5e78ced2f7a262bf7c177d68e0e3a12d38480a93128c02eee4693"
+evidence = "native"
+source = "testdata/src/scan.c"
+command = "testdata/build.ps1 scan"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
 path = "testdata/bin/structs32.exe"
 sha256 = "120084b1971e8007fc402aa7cbefa8068720225ca53aba9ebbbdde729b7d58da"
 evidence = "native"
@@ -993,6 +1027,14 @@ sha256 = "13a640f5969823f666c2146e4ce2f46958d71bd263b32443fc166ad54bd6dec9"
 evidence = "native"
 source = "testdata/src/resources.c"
 command = "the native run of the resources fixture, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/scan.txt"
+sha256 = "b8aa7900bbef4c8940abd63b604cff98c24fd0d8bc52db1bd8a5b74044d9b204"
+evidence = "native"
+source = "testdata/src/scan.c"
+command = "the native run of the scan fixture, its output captured"
 tools = "Windows 11 10.0.26200 x64"
 
 [[file]]

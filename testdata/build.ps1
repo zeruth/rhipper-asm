@@ -130,6 +130,9 @@ if (Wanted 'computed') { Build-Exe 'computed' @() }
 if (Wanted 'obfusc') { Build-Exe 'obfusc' @() }
 # inline has a helper the compiler inlines into three callers: the fixture of the outlining pass.
 if (Wanted 'inline') { Build-Exe 'inline' @() }
+# scan reaches one loop from both arms of a branch, a loop whose head tests two compares and which
+# leaves only by returns: the fixture of the structuring of a shared loop head.
+if (Wanted 'scan') { Build-Exe 'scan' @() }
 # crt links the static C runtime; its PDB stays, the engine reads the names from it.
 if (Wanted 'crt') { Build-Crt 'crt' }
 # window registers a class, shows a popup, paints once and quits through the message loop: user32

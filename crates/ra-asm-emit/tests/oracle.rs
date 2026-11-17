@@ -975,6 +975,16 @@ fn inline32_runs_as_c() {
 }
 
 #[test]
+fn scan64_runs_as_c() {
+    run_oracle("scan64.exe", "scan.txt");
+}
+
+#[test]
+fn scan32_runs_as_c() {
+    run_oracle("scan32.exe", "scan.txt");
+}
+
+#[test]
 fn inline64_runs_as_rust() {
     run_rust_oracle("inline64.exe", "inline.txt", ra_asm_emit::FUNCTIONS_PER_FILE);
 }
