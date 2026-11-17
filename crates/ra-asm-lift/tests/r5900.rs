@@ -372,3 +372,57 @@ fn the_second_pipeline_multiplies_into_hi1_and_lo1() {
     ];
     check("the second pipeline", &cases);
 }
+
+/// ps2sdk's kernel stubs (`li $v1, n; syscall; jr $ra`) lift to calls on the EE kernel's
+/// functions by their names, and the interpreter answers the ones a program's start and end
+/// reach: `FlushCache` returns, `KExit` ends the run, and one it does not interpret stops it with
+/// the function's name. Only the stubs the program calls are functions of the analysis: the
+/// fixture's `ExitThread`, `iSignalSema` and `_iGetThreadId` are never reached.
+#[test]
+fn the_ee_kernel_calls_are_named() {
+    let image = ra_asm_pe::load(&root().join("testdata/ps2/hello.elf")).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let symbol = |name: &str| image.symbols.iter().find(|s| s.name == name).map(|s| s.va).unwrap_or_else(|| panic!("no symbol {name}"));
+    let stubs = [
+        ("FlushCache", "FlushCache"),
+        ("CreateThread", "CreateThread"),
+        ("KExit", "KExit"),
+        ("sceSifSetDma", "SifSetDma"),
+        ("isceSifSetDma", "iSifSetDma"),
+        ("setup", "SetSyscall"),
+    ];
+    for (stub, kernel) in stubs {
+        let name = lifted.functions.get(&symbol(stub)).cloned().unwrap_or_else(|| panic!("{stub} is not lifted"));
+        let f = lifted.module.functions.iter().find(|f| f.name == name).unwrap();
+        let callees: Vec<_> = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instrs)
+            .filter_map(|i| match &i.inst {
+                ra_asm_ir::Inst::Call { callee: ra_asm_ir::Callee::Direct(callee), .. } => Some(callee.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(callees, [format!("ra_ee_{kernel}")], "{stub} calls the kernel's {kernel}");
+    }
+    let ll = lifted.module.to_ll();
+    for kernel in ["KExit", "FlushCache", "CreateThread", "SifSetDma"] {
+        let called = ["void", "i64"].iter().any(|ret| ll.contains(&format!("call {ret} @ra_ee_{kernel}(")));
+        assert!(called, "the .ll calls {kernel}");
+    }
+
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    let mut run = |stub: &str| {
+        lifted.entry = Some(symbol(stub));
+        ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap()
+    };
+    let flushed = run("FlushCache");
+    assert_eq!(flushed.stop, None, "FlushCache returns");
+    let exited = run("KExit");
+    assert_eq!(exited.stop, None, "KExit ends the run");
+    let created = run("CreateThread");
+    assert!(created.stop.as_ref().is_some_and(|s| s.contains("CreateThread")), "CreateThread stops the run: {:?}", created.stop);
+}

@@ -54,6 +54,30 @@ fn ras_names_the_platform_of_the_ps2_hello_ps2() {
     assert_eq!((json["platform"].as_str(), json["format"].as_str()), (Some("ps2"), Some("elf32")));
 }
 
+/// The table of the ps2sdk hello lists each kernel stub's `syscall` as a call on the EE kernel's
+/// function by its name.
+#[test]
+fn ras_lists_the_ee_kernel_calls_of_the_ps2_hello() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ps2/hello.elf");
+    let json: serde_json::Value = serde_json::from_str(&ras_on(&path, &["--json", "functions"])).unwrap();
+    let rows = json["functions"].as_array().unwrap();
+    let syscalls = |symbol: &str| {
+        let row = rows.iter().find(|r| r["symbol"] == symbol || r["name"] == symbol).unwrap_or_else(|| panic!("no {symbol} in the table"));
+        row["syscalls"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no syscalls in {row}"))
+            .iter()
+            .map(|s| s.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    for (stub, kernel) in
+        [("KExit", "KExit"), ("FlushCache", "FlushCache"), ("CreateThread", "CreateThread"), ("sceSifSetDma", "SifSetDma")]
+    {
+        assert_eq!(syscalls(stub), [kernel], "{stub}");
+    }
+    assert_eq!(syscalls("main"), Vec::<String>::new(), "main makes no system call of its own");
+}
+
 /// The EE caller of the IOP module fixture: each `SifCallRpc` names the function of `hello.irx`
 /// beside it that its number reaches through the dispatcher the module registers, and the module's
 /// own import stubs read by their names.

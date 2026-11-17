@@ -229,6 +229,31 @@ pub(crate) fn cfg_json(image: &Image, function: &ra_asm_analysis::Function) -> s
     json!({"addr": hex(function.entry), "name": function.name, "size": function.size(), "noreturn": function.noreturn, "blocks": blocks})
 }
 
+/// The system calls each lifted function makes by name, keyed by its address as the rows give it:
+/// a `PlayStation 2` program's calls on the EE kernel, as the lift of `syscall` names them.
+fn kernel_calls(module: &ra_asm_ir::Module) -> HashMap<String, Vec<&'static str>> {
+    module
+        .functions
+        .iter()
+        .filter_map(|f| {
+            let address = f.address?;
+            let calls: Vec<_> = f
+                .blocks
+                .iter()
+                .flat_map(|b| &b.instrs)
+                .filter_map(|i| match &i.inst {
+                    ra_asm_ir::Inst::Call { callee: ra_asm_ir::Callee::Direct(name), .. } => {
+                        ra_asm_lift::raise::prototypes::ee_syscall_named(name)
+                    }
+                    _ => None,
+                })
+                .map(|call| call.name)
+                .collect();
+            (!calls.is_empty()).then(|| (hex(address), calls))
+        })
+        .collect()
+}
+
 pub(crate) fn functions(image: &Image, json: bool) -> Result<()> {
     let analysis = analyze(image);
     let mut out = std::io::stdout().lock();
@@ -237,6 +262,13 @@ pub(crate) fn functions(image: &Image, json: bool) -> Result<()> {
         // reads the functions.
         let lifted = ra_asm_lift::lift(image, &analysis);
         let mut value = functions_json(&analysis);
+        let syscalls = kernel_calls(&lifted.module);
+        if let Some(rows) = value["functions"].as_array_mut() {
+            for row in rows {
+                let calls = row["addr"].as_str().and_then(|addr| syscalls.get(addr)).cloned().unwrap_or_default();
+                row["syscalls"] = json!(calls);
+            }
+        }
         value["coverage"] = crate::report::coverage_json(&ra_asm_lift::coverage(&analysis, &lifted));
         if image.platform() == Some("ps2") {
             value["rpc"] = rpc_json(&analysis);

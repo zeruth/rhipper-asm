@@ -513,6 +513,19 @@ fn int(v: u64) -> Result<Value, Stop> {
     Ok(Value::Int(u128::from(v)))
 }
 
+/// A function of the `PlayStation 2`'s EE kernel by its name in the table, on the registers of
+/// `a0` and up: `ExitThread` ends the run, since the interpreter runs the one thread, `KExit` ends
+/// it with the code in `a0`, and the cache flushes are nothing to memory that has no cache.
+/// Another function stops the run.
+fn ee_kernel(name: &str, args: &[Value]) -> Result<Value, Stop> {
+    match name {
+        "ExitThread" | "ExitDeleteThread" => Err(Stop::Exit(0)),
+        "KExit" => Err(Stop::Exit(arg(args, 0) as i32)),
+        "FlushCache" | "iFlushCache" => int(0),
+        _ => Err(Stop::fault(format!("the EE kernel function {name} is not interpreted"))),
+    }
+}
+
 impl<'a> Runtime<'a> {
     pub(super) fn new(
         image: &'a Image,
@@ -934,6 +947,7 @@ impl<'a> Runtime<'a> {
             }
             n if n.starts_with("ra_f80_") => self.f80_call(vm, n, args),
             n if n.starts_with("ra_bios_") => self.bios(vm, &n["ra_bios_".len()..], args),
+            n if n.starts_with("ra_ee_") => ee_kernel(&n["ra_ee_".len()..], args),
             n if n.starts_with("ra_eh_") => self.eh_call(vm, n, args),
             n if n.starts_with("ra_x86_") => self.shim_call(vm, n, args),
             _ => Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
@@ -2567,3 +2581,18 @@ fn parse_double(text: &[u8]) -> (f64, usize) {
 }
 
 // endregion
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The thread's exit and the kernel's end the run, a cache flush returns, and a function the
+    /// host does not answer stops the run with its name.
+    #[test]
+    fn the_ee_kernel_ends_the_run_and_flushes_nothing() {
+        assert!(matches!(ee_kernel("ExitThread", &[]), Err(Stop::Exit(0))));
+        assert!(matches!(ee_kernel("KExit", &[Value::Int(7)]), Err(Stop::Exit(7))));
+        assert!(matches!(ee_kernel("FlushCache", &[Value::Int(0)]), Ok(Value::Int(0))));
+        assert!(matches!(ee_kernel("CreateThread", &[Value::Int(0)]), Err(Stop::Fault(m)) if m.contains("CreateThread")));
+    }
+}

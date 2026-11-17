@@ -1089,6 +1089,177 @@ pub fn psx_bios_calls() -> Vec<BiosCall> {
         .collect()
 }
 
+/// A function of the `PlayStation 2`'s EE kernel, which a program calls with `syscall` and its
+/// number in `v1`: its name in ps2sdk's `kernel.h`, how many of `a0..a3` and `t0..t3` it reads,
+/// and the bits of its answer in `v0` (none, a word the register holds sign-extended, or a
+/// doubleword). The handler form of a call (`iSignalSema`) is the negated number of its slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KernelCall {
+    pub number: i32,
+    pub name: &'static str,
+    pub params: u8,
+    pub returns: u8,
+}
+
+impl KernelCall {
+    /// The runtime function the lift calls for it: `ra_ee_<name>`.
+    pub fn symbol(&self) -> String {
+        format!("{EE_PREFIX}{}", self.name)
+    }
+
+    /// `i64 (i64 ...)` of its register arguments, or `void` when it answers nothing.
+    pub fn fn_type(&self) -> FnType {
+        FnType::new(if self.returns == 0 { Type::Void } else { Type::I64 }, vec![Type::I64; usize::from(self.params)])
+    }
+}
+
+/// The prefix of an EE kernel function's runtime symbol.
+const EE_PREFIX: &str = "ra_ee_";
+
+/// The EE kernel's functions by their number, as ps2sdk's `kernel.h` and `syscallnr.h` declare
+/// them: the ones whose arguments are integers or pointers in registers. `_print`, which is
+/// variadic, and a number not here are no call the lift names; the `syscall` traps. The second
+/// forms of `AddIntcHandler` and `AddDmacHandler` share the slot and pass a fourth argument, which
+/// the kernel reads either way.
+const EE_KERNEL: &[(i32, &str, u8, u8)] = &[
+    (0x01, "ResetEE", 1, 0),
+    (0x02, "SetGsCrt", 3, 0),
+    (0x04, "KExit", 1, 0),
+    (0x06, "_LoadExecPS2", 3, 0),
+    (0x07, "_ExecPS2", 4, 32),
+    (0x0a, "AddSbusIntcHandler", 2, 32),
+    (0x0b, "RemoveSbusIntcHandler", 1, 32),
+    (0x0c, "Interrupt2Iop", 1, 32),
+    (0x0d, "SetVTLBRefillHandler", 2, 32),
+    (0x0e, "SetVCommonHandler", 2, 32),
+    (0x0f, "SetVInterruptHandler", 2, 32),
+    (0x10, "AddIntcHandler", 4, 32),
+    (0x11, "RemoveIntcHandler", 2, 32),
+    (0x12, "AddDmacHandler", 4, 32),
+    (0x13, "RemoveDmacHandler", 2, 32),
+    (0x14, "_EnableIntc", 1, 32),
+    (0x15, "_DisableIntc", 1, 32),
+    (0x16, "_EnableDmac", 1, 32),
+    (0x17, "_DisableDmac", 1, 32),
+    (0x18, "_SetAlarm", 3, 32),
+    (0x19, "_ReleaseAlarm", 1, 32),
+    (-0x1a, "_iEnableIntc", 1, 32),
+    (-0x1b, "_iDisableIntc", 1, 32),
+    (-0x1c, "_iEnableDmac", 1, 32),
+    (-0x1d, "_iDisableDmac", 1, 32),
+    (-0x1e, "_iSetAlarm", 3, 32),
+    (-0x1f, "_iReleaseAlarm", 1, 32),
+    (0x20, "CreateThread", 1, 32),
+    (0x21, "DeleteThread", 1, 32),
+    (0x22, "StartThread", 2, 32),
+    (0x23, "ExitThread", 0, 0),
+    (0x24, "ExitDeleteThread", 0, 0),
+    (0x25, "TerminateThread", 1, 32),
+    (-0x26, "iTerminateThread", 1, 32),
+    (0x27, "DisableDispatchThread", 0, 0),
+    (0x28, "EnableDispatchThread", 0, 0),
+    (0x29, "ChangeThreadPriority", 2, 32),
+    (-0x2a, "iChangeThreadPriority", 2, 32),
+    (0x2b, "RotateThreadReadyQueue", 1, 32),
+    (-0x2c, "_iRotateThreadReadyQueue", 1, 32),
+    (0x2d, "ReleaseWaitThread", 1, 32),
+    (-0x2e, "iReleaseWaitThread", 1, 32),
+    (0x2f, "GetThreadId", 0, 32),
+    (-0x2f, "_iGetThreadId", 0, 32),
+    (0x30, "ReferThreadStatus", 2, 32),
+    (-0x31, "iReferThreadStatus", 2, 32),
+    (0x32, "SleepThread", 0, 32),
+    (0x33, "WakeupThread", 1, 32),
+    (-0x34, "_iWakeupThread", 1, 32),
+    (0x35, "CancelWakeupThread", 1, 32),
+    (-0x36, "iCancelWakeupThread", 1, 32),
+    (0x37, "SuspendThread", 1, 32),
+    (-0x38, "_iSuspendThread", 1, 32),
+    (0x39, "ResumeThread", 1, 32),
+    (-0x3a, "iResumeThread", 1, 32),
+    (0x3c, "SetupThread", 5, 32),
+    (0x3d, "SetupHeap", 2, 32),
+    (0x3e, "EndOfHeap", 0, 32),
+    (0x40, "CreateSema", 1, 32),
+    (0x41, "DeleteSema", 1, 32),
+    (0x42, "SignalSema", 1, 32),
+    (-0x43, "iSignalSema", 1, 32),
+    (0x44, "WaitSema", 1, 32),
+    (0x45, "PollSema", 1, 32),
+    (-0x46, "iPollSema", 1, 32),
+    (0x47, "ReferSemaStatus", 2, 32),
+    (-0x48, "iReferSemaStatus", 2, 32),
+    (-0x49, "iDeleteSema", 1, 32),
+    (0x4a, "SetOsdConfigParam", 1, 0),
+    (0x4b, "GetOsdConfigParam", 1, 0),
+    (0x4c, "GetGsHParam", 4, 0),
+    (0x4d, "GetGsVParam", 4, 0),
+    (0x4e, "SetGsHParam", 4, 0),
+    (0x4f, "SetGsVParam", 4, 0),
+    (0x56, "_SetTLBEntry", 5, 32),
+    (0x5a, "Copy", 3, 32),
+    (0x5b, "GetEntryAddress", 1, 32),
+    (0x5c, "EnableIntcHandler", 1, 32),
+    (0x5d, "DisableIntcHandler", 1, 32),
+    (0x5e, "EnableDmacHandler", 1, 32),
+    (0x5f, "DisableDmacHandler", 1, 32),
+    (0x60, "KSeg0", 1, 0),
+    (0x61, "EnableCache", 1, 32),
+    (0x62, "DisableCache", 1, 32),
+    (0x63, "GetCop0", 1, 32),
+    (0x64, "FlushCache", 1, 0),
+    (0x66, "CpuConfig", 1, 32),
+    (-0x67, "iGetCop0", 1, 32),
+    (-0x68, "iFlushCache", 1, 0),
+    (-0x6a, "iCpuConfig", 1, 32),
+    (0x6b, "SifStopDma", 0, 0),
+    (0x6c, "SetCPUTimerHandler", 1, 0),
+    (0x6d, "SetCPUTimer", 1, 0),
+    (0x6e, "SetOsdConfigParam2", 3, 0),
+    (0x6f, "GetOsdConfigParam2", 3, 0),
+    (0x70, "GsGetIMR", 0, 64),
+    (-0x70, "iGsGetIMR", 0, 64),
+    (0x71, "GsPutIMR", 1, 64),
+    (-0x71, "iGsPutIMR", 1, 64),
+    (0x72, "SetPgifHandler", 1, 0),
+    (0x73, "SetVSyncFlag", 2, 0),
+    (0x74, "SetSyscall", 2, 0),
+    (0x76, "SifDmaStat", 1, 32),
+    (-0x76, "iSifDmaStat", 1, 32),
+    (0x77, "SifSetDma", 2, 32),
+    (-0x77, "iSifSetDma", 2, 32),
+    (0x78, "SifSetDChain", 0, 0),
+    (-0x78, "iSifSetDChain", 0, 0),
+    (0x79, "SifSetReg", 2, 32),
+    (0x7a, "SifGetReg", 1, 32),
+    (0x7b, "ExecOSD", 2, 0),
+    (0x7c, "Deci2Call", 2, 32),
+    (0x7d, "PSMode", 0, 0),
+    (0x7e, "MachineType", 0, 32),
+    (0x7f, "GetMemorySize", 0, 32),
+    (0x82, "_InitTLB", 0, 32),
+];
+
+fn kernel_call(&(number, name, params, returns): &(i32, &'static str, u8, u8)) -> KernelCall {
+    KernelCall { number, name, params, returns }
+}
+
+/// The EE kernel function a `syscall` with `number` in `v1` calls.
+pub fn ee_syscall(number: i32) -> Option<KernelCall> {
+    EE_KERNEL.iter().find(|e| e.0 == number).map(kernel_call)
+}
+
+/// The EE kernel function whose runtime symbol is `symbol`, as [`KernelCall::symbol`] makes it.
+pub fn ee_syscall_named(symbol: &str) -> Option<KernelCall> {
+    let name = symbol.strip_prefix(EE_PREFIX)?;
+    EE_KERNEL.iter().find(|e| e.1 == name).map(kernel_call)
+}
+
+/// Every EE kernel function of the table: the declarations of a `PlayStation 2` program's module.
+pub fn ee_syscalls() -> impl Iterator<Item = KernelCall> {
+    EE_KERNEL.iter().map(kernel_call)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1147,5 +1318,31 @@ mod tests {
     fn a_32_bit_programs_argument_table_is_the_runtimes() {
         assert_eq!(x86_shim("CommandLineToArgvW"), Some("ra_x86_command_line_to_argv_w"));
         assert_eq!(arity("ra_x86_command_line_to_argv_w"), Some(2));
+    }
+
+    /// The EE kernel's numbers name the functions of ps2sdk's stubs, a handler form by the negated
+    /// number of its slot, and each name is one runtime symbol that reads back as its call.
+    #[test]
+    fn the_ee_kernel_numbers_name_its_functions() {
+        let name = |n: i32| ee_syscall(n).map(|c| c.name);
+        assert_eq!(name(0x23), Some("ExitThread"));
+        assert_eq!(name(0x64), Some("FlushCache"));
+        assert_eq!(name(0x20), Some("CreateThread"));
+        assert_eq!(name(0x32), Some("SleepThread"));
+        assert_eq!(name(0x02), Some("SetGsCrt"));
+        assert_eq!(name(0x77), Some("SifSetDma"));
+        assert_eq!(name(-0x43), Some("iSignalSema"));
+        assert_eq!(name(-0x2f), Some("_iGetThreadId"));
+        assert_eq!(name(0x75), None, "the variadic _print is named");
+        let exit = ee_syscall(0x23).unwrap();
+        assert_eq!(exit.fn_type(), FnType::new(Type::Void, vec![]));
+        assert_eq!(ee_syscall(0x70).unwrap().fn_type(), FnType::new(Type::I64, vec![]));
+        let mut names = std::collections::HashSet::new();
+        let mut numbers = std::collections::HashSet::new();
+        for call in ee_syscalls() {
+            assert!(names.insert(call.name) && numbers.insert(call.number), "{call:?} twice");
+            assert_eq!(ee_syscall_named(&call.symbol()), Some(call));
+        }
+        assert_eq!(ee_syscall_named("ExitThread"), None, "a name without the runtime's prefix");
     }
 }

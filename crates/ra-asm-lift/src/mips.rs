@@ -32,8 +32,9 @@
 //! halfwords or bytes. Its FPU has singles only and is not IEEE's: no infinity, denormals as
 //! zeros, every result rounded toward zero, so its arithmetic and its conversions are calls on
 //! the runtime's `ra_f32_ftz_*` on the registers' bits, and its accumulator, which the
-//! multiply-adds keep, is a field of the state. The VU0 macro instructions of coprocessor 2 and
-//! the EE kernel's `syscall` trap with their address.
+//! multiply-adds keep, is a field of the state. The VU0 macro instructions of coprocessor 2 trap
+//! with their address. A `syscall` with the EE kernel's number in `v1`, a constant of the block,
+//! is a call on the function the kernel's table names, `ra_ee_<name>`.
 //!
 //! A PSP program runs on the Allegrex, MIPS II with the `SPECIAL` and `SPECIAL3` forms of
 //! MIPS32 release 2 (`ext`, `ins`, `seb`, `seh`, `wsbh`, `bitrev`, the rotates) and its own
@@ -55,13 +56,15 @@ use ra_asm_arch::Instr;
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, ICond, Inst, Operand, Terminator, Type, ValueId};
 use ra_asm_pe::Image;
 
-use crate::raise::prototypes::{BiosCall, psx_bios};
+use crate::raise::prototypes::{BiosCall, ee_syscall, psx_bios};
 use crate::state::{Isa, MIPS_ACC, MIPS_FCSR, MIPS_GTE, MIPS_HI, MIPS_LO, Machine, N64_COP0, PSX_GP};
 use crate::x86::trap;
 use crate::{Lifted, function_name};
 
 /// `ra`, the register a call links through.
 const RA: u8 = 31;
+/// `v1`, where an EE kernel call takes the function's number.
+const V1: u8 = 3;
 /// `t1`, where a BIOS call takes the function's number.
 const T1: u8 = 9;
 /// `gp`, the small-data pointer.
@@ -526,6 +529,29 @@ impl Lifter<'_, '_> {
             let word = self.m.b.cast(block, Cast::Trunc, Type::I64, r, Type::I32, "v0.w");
             self.set32(block, 2, word);
         }
+    }
+
+    /// A `syscall` of a `PlayStation 2` program: a call on the EE kernel's function its number in
+    /// `v1` names, which the block set, on its arguments from `a0` (and `t0` past `a3`), with its
+    /// result in `v0`. A number the block does not set, or one the table does not name, traps.
+    fn ee_syscall(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
+        let number = self.consts.get(&V1).copied().map(u32::cast_signed);
+        let Some(call) = number.and_then(ee_syscall) else {
+            let held = number.map_or_else(|| "no constant".to_owned(), |n| n.to_string());
+            self.warn(format!("{ip:#x}: an EE kernel call with {held} in v1, which the table does not name"));
+            self.m.unsupported(block, ip, u64::from(w.0));
+            return block;
+        };
+        let args: Vec<(Type, Operand)> = (0..call.params).map(|i| (Type::I64, self.reg64(block, 4 + i).into())).collect();
+        if let Some(r) = self.m.b.call(block, call.fn_type(), Callee::Direct(call.symbol()), args, call.name) {
+            if call.returns == 64 {
+                self.set64(block, 2, r);
+            } else {
+                let word = self.m.b.cast(block, Cast::Trunc, Type::I64, r, Type::I32, "v0.w");
+                self.set32(block, 2, word);
+            }
+        }
+        block
     }
 
     /// Follows the constants of the block through `w`: `lui`, and `addiu` and `ori` on `$0` or on
@@ -1057,9 +1083,10 @@ impl Lifter<'_, '_> {
                 let c = self.m.b.icmp(block, cc, Type::I64, t, 0i64, "c");
                 self.move_if(block, c, rs, rd);
             }
-            // The EE kernel's calls take their number in `v1`: no o32 Linux call. The R5900 has
-            // no doubleword multiply or divide.
-            12 | 28..=31 if self.r5900 => return self.unsupported(block, w, ip),
+            // The EE kernel's calls take their number in `v1`: no o32 Linux call.
+            12 if self.r5900 => return self.ee_syscall(block, w, ip),
+            // The R5900 has no doubleword multiply or divide.
+            28..=31 if self.r5900 => return self.unsupported(block, w, ip),
             // syscall, by o32 Linux: the number in `v0`, the arguments from `a0`; the result in
             // `v0` and the error flag in `a3`, which a failure sets with the error number in `v0`.
             12 => {
