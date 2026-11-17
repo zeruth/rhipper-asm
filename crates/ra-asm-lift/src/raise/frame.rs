@@ -20,6 +20,10 @@ struct Use {
     /// A load of it something reads, or a store of a value to it: more than a register saved or
     /// pushed to make room, whose value is `undef` and whose restore nothing reads.
     held: bool,
+    /// A load of it something reads.
+    read: bool,
+    /// Its address escapes other than as the argument block of a variadic call.
+    escapes_otherwise: bool,
 }
 
 pub fn run(f: &mut Function) -> bool {
@@ -129,6 +133,13 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
                         let slot = slots.entry(k).or_default();
                         slot.types.push(ty.clone());
                         slot.held |= i.result.is_some_and(|v| used.contains(&v));
+                        // Not the reads the ABI rewrite makes of a call's stack arguments (`sarg0`,
+                        // `stack.arg0`): the outgoing area serves every call, and one call's
+                        // arguments are another's block.
+                        slot.read |= i.result.is_some_and(|v| {
+                            let name = f.value_name(v);
+                            used.contains(&v) && !name.starts_with("sarg") && !name.starts_with("stack.arg")
+                        });
                     }
                 }
                 Inst::Store { ptr, value, ty, .. } => {
@@ -138,14 +149,22 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
                         slot.held |= !is_undef(value);
                     }
                     if let Some(k) = consumes_address(value) {
-                        slots.entry(k).or_default().escapes = true;
+                        let slot = slots.entry(k).or_default();
+                        slot.escapes = true;
+                        slot.escapes_otherwise = true;
                     }
                 }
                 inst => {
+                    // The address of the argument block a variadic callee reads, which the ABI
+                    // rewrite names `varargs` as it makes the call.
+                    let block = matches!(inst, Inst::Cast { cast: Cast::PtrToInt, .. })
+                        && i.result.is_some_and(|v| f.value_name(v).starts_with("varargs"));
                     let mut probe = inst.clone();
                     for o in probe.operands_mut() {
                         if let Some(k) = consumes_address(o) {
-                            slots.entry(k).or_default().escapes = true;
+                            let slot = slots.entry(k).or_default();
+                            slot.escapes = true;
+                            slot.escapes_otherwise |= !block;
                         }
                     }
                 }
@@ -154,7 +173,9 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
         let mut t = b.terminator.clone();
         for o in t.operands_mut() {
             if let Some(k) = o.local().and_then(|l| offsets.get(&l).copied()) {
-                slots.entry(k).or_default().escapes = true;
+                let slot = slots.entry(k).or_default();
+                slot.escapes = true;
+                slot.escapes_otherwise = true;
             }
         }
     }
@@ -168,6 +189,49 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
     }
     let overlaps = |k: i64, size: i64| sizes.iter().any(|&(o, s)| o != k && k < o + s && o < k + size);
     let single_typed = |u: &Use| u.types.first().is_some_and(|t| u.types.iter().all(|x| x == t));
+    let size_of = |u: &Use| u.types.iter().filter_map(|t| t.size(8)).max().unwrap_or(8) as i64;
+
+    // The argument blocks of variadic calls (`I_Error(fmt, x)`, `sscanf(s, fmt, &v)`): from a slot
+    // whose address goes only to such a call as its block, up through the slots right above it
+    // that the function writes and never reads, the arguments it pushed. Each block, merged with
+    // those it overlaps (the outgoing area serves call after call), is an array of its own: the
+    // callee reads what was pushed for it, not the frame above, whose slots are then the
+    // function's own to make locals of.
+    let mut blocks: Vec<(i64, i64)> = Vec::new();
+    if !dynamic {
+        for (k, u) in slots.iter().filter(|(_, u)| u.escapes && !u.escapes_otherwise && !u.read && !u.types.is_empty()) {
+            let mut end = k + size_of(u);
+            for (n, above) in slots.range(k + 1..) {
+                if *n != end || above.read || above.escapes_otherwise || above.types.is_empty() {
+                    break;
+                }
+                end = n + size_of(above);
+            }
+            blocks.push((*k, end));
+        }
+        blocks.sort();
+        let mut merged: Vec<(i64, i64)> = Vec::new();
+        for (s, e) in blocks {
+            match merged.last_mut() {
+                Some((_, last)) if s < *last => *last = (*last).max(e),
+                _ => merged.push((s, e)),
+            }
+        }
+        // A slot only partly inside a block (an access across its edge) leaves it in the frame,
+        // and so does one inside it that the function reads or whose address goes elsewhere (a
+        // byte local within a pushed dword's slot, whose integer address a callee writes through).
+        blocks = merged
+            .into_iter()
+            .filter(|&(s, e)| {
+                !slots.iter().any(|(k, u)| {
+                    (*k < s && k + size_of(u) > s)
+                        || (*k < e && k + size_of(u) > e)
+                        || ((s..e).contains(k) && (u.read || u.escapes_otherwise))
+                })
+            })
+            .collect();
+    }
+    let in_block = |k: i64| blocks.iter().copied().find(|&(s, e)| s <= k && k < e);
 
     // An escaping slot that is one variable of its own (`int size; I_ZoneBase(&size)`, MSVC's
     // `lea eax, [ebp-4]`): accessed at one type, with the next slot of the frame (a saved
@@ -178,7 +242,7 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
     // down) needs nothing: every pointer it makes at a known offset is rewritten all the same.
     let mut own: HashSet<i64> = HashSet::new();
     if !dynamic {
-        for (k, u) in slots.iter().filter(|(_, u)| u.escapes) {
+        for (k, u) in slots.iter().filter(|(k, u)| u.escapes && in_block(**k).is_none()) {
             let size = u.types.iter().filter_map(|t| t.size(8)).max().unwrap_or(8) as i64;
             let end = k + size;
             // What lies right above it is the frame's top, or a slot the function holds nothing
@@ -194,7 +258,7 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
             own.insert(*k);
         }
     }
-    let lowest_escape = slots.iter().filter(|(k, u)| u.escapes && !own.contains(k)).map(|(k, _)| *k).min();
+    let lowest_escape = slots.iter().filter(|(k, u)| u.escapes && !own.contains(k) && in_block(**k).is_none()).map(|(k, _)| *k).min();
     let reachable = |k: i64| lowest_escape.is_some_and(|e| k >= e);
 
     // The rewrite: each pointer at a known offset becomes a gep from the frame top, or a load/store
@@ -204,7 +268,8 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
     let mut new_entry: Vec<Instruction> = Vec::new();
     for (k, u) in &slots {
         let size = u.types.iter().filter_map(|t| t.size(8)).max().unwrap_or(8) as i64;
-        if single_typed(u) && !dynamic && (!u.escapes || own.contains(k)) && !reachable(*k) && !overlaps(*k, size) {
+        if single_typed(u) && !dynamic && in_block(*k).is_none() && (!u.escapes || own.contains(k)) && !reachable(*k) && !overlaps(*k, size)
+        {
             let ty = u.types[0].clone();
             let v = f.new_value(&format!("local_{}", offset_name(*k)), Type::Ptr);
             new_entry.push(Instruction {
@@ -222,10 +287,45 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
             });
         }
     }
+    // An array per argument block, its pointers rebased onto it.
+    let mut block_allocas: HashMap<i64, ValueId> = HashMap::new();
+    for &(s, e) in &blocks {
+        let v = f.new_value(&format!("va_{}", offset_name(s)), Type::Ptr);
+        new_entry.push(Instruction {
+            result: Some(v),
+            inst: Inst::Alloca { ty: Type::Array(u64::try_from(e - s).unwrap_or(0), Box::new(Type::I8)), align: 16 },
+            address: None,
+        });
+        block_allocas.insert(s, v);
+        assumptions.push(Assumption {
+            function: f.name.clone(),
+            step: Step::Frame,
+            kind: Kind::PrivateLocal,
+            site: first_use.get(&s).copied(),
+            discharged: None,
+        });
+    }
     for b in &mut f.blocks {
         let mut out = Vec::with_capacity(b.instrs.len());
         for i in b.instrs.drain(..) {
             match (&i.inst, i.result) {
+                (Inst::Cast { cast: Cast::IntToPtr, .. } | Inst::Gep { .. }, Some(v))
+                    if pointer_offsets.get(&v).is_some_and(|&k| in_block(k).is_some()) =>
+                {
+                    let k = pointer_offsets[&v];
+                    let (s, _) = in_block(k).expect("a block's pointer");
+                    changed = true;
+                    out.push(Instruction {
+                        result: Some(v),
+                        inst: Inst::Gep {
+                            base_ty: Type::I8,
+                            ptr: Operand::Local(block_allocas[&s]),
+                            indices: vec![(Type::I64, Operand::Int(i128::from(k - s)))],
+                            inbounds: true,
+                        },
+                        address: i.address,
+                    });
+                }
                 (Inst::Cast { cast: Cast::IntToPtr, .. } | Inst::Gep { .. }, Some(v)) if pointer_offsets.contains_key(&v) => {
                     let k = pointer_offsets[&v];
                     if let Some((a, _)) = allocas.get(&k) {
