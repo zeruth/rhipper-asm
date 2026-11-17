@@ -411,8 +411,17 @@ static inline int64_t ra_fptosi_64(double v) {
     return (v >= -9223372036854775808.0 && v < 9223372036854775808.0) ? (int64_t)v : (int64_t)0x8000000000000000ull;
 }
 
-// Bit casts between the widths the lift uses.
-#define RA_BITCAST(name, from, to) static inline to ra_bitcast_##name(from v) { to r; __builtin_memcpy(&r, &v, sizeof r); return r; }
+// Bit casts between the widths the lift uses. A cast between two widths (an MMX value the lift
+// keeps in a 64-bit integer, read as an SSE vector) takes the low bytes and zeroes the rest.
+#define RA_BITCAST(name, from, to)                                                     \
+    static inline to ra_bitcast_##name(from v) {                                       \
+        to r;                                                                          \
+        __builtin_memset(&r, 0, sizeof r);                                             \
+        __builtin_memcpy(&r, &v, sizeof r < sizeof v ? sizeof r : sizeof v);           \
+        return r;                                                                      \
+    }
+RA_BITCAST(u64_v4u32, uint64_t, ra_v4u32)
+RA_BITCAST(v8u16_u64, ra_v8u16, uint64_t)
 RA_BITCAST(u32_f32, uint32_t, float)
 RA_BITCAST(f32_u32, float, uint32_t)
 RA_BITCAST(u64_f64, uint64_t, double)

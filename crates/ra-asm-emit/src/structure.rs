@@ -1169,7 +1169,7 @@ mod tests {
         let order: Vec<(Vec<i128>, bool, bool)> = cases.iter().map(|c| (c.values.clone(), c.default, c.falls_through)).collect();
         assert_eq!(order, vec![(vec![1], false, true), (vec![2], false, false), (vec![3], false, false), (vec![], true, false)]);
         let c = c_of(f.clone());
-        assert!(c.contains("case F_1:\n        *(uint32_t *)(p) = 1u;\n        /* falls through */\n    case F_2:\n"), "{c}");
+        assert!(c.contains("case F_1:\n        RA_U32(p) = 1u;\n        /* falls through */\n    case F_2:\n"), "{c}");
         assert_eq!(c.matches("= 2u;").count(), 1, "{c}");
         let r = rust_of(f);
         assert!(r.contains("1u32 | 2u32 => {\n            if matches!(n, 1u32) {\n"), "{r}");

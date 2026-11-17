@@ -2081,6 +2081,18 @@ fn declared_in_place(declarations: &str, body: &str) -> (String, String) {
     let mentions = |line: &str, name: &str| {
         line.match_indices(name).any(|(at, _)| !line[..at].ends_with(is_word) && !line[at + name.len()..].starts_with(is_word))
     };
+    // The lines each word is on, once: a scan of the whole body per declared name made a long
+    // function's emit quadratic. A placement only puts a type in front of a line, which names no
+    // local, so the index stays good.
+    let mut on_lines: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, l) in lines.iter().enumerate() {
+        for w in l.split(|c: char| !is_word(c)).filter(|w| !w.is_empty()) {
+            let entry = on_lines.entry(w.to_owned()).or_default();
+            if entry.last() != Some(&i) {
+                entry.push(i);
+            }
+        }
+    }
     let mut kept = String::new();
     for decl in declarations.lines() {
         // `    uint32_t a, b;` or `    uint8_t *p, q;`: a type, then names with their stars.
@@ -2104,7 +2116,7 @@ fn declared_in_place(declarations: &str, body: &str) -> (String, String) {
             let stars = &item[..item.len() - name.len()];
             let ty = format!("{base} {stars}");
             // Where the name is assigned and every other line it is on.
-            let at: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| mentions(l, name)).map(|(i, _)| i).collect();
+            let at: Vec<usize> = on_lines.get(name).cloned().unwrap_or_default();
             let assigned = |i: usize| lines[i].trim_start().strip_prefix(name).is_some_and(|r| r.starts_with(" = "));
             let place = at.first().copied().filter(|&first| {
                 let depth = indent(&lines[first]);
@@ -2234,6 +2246,29 @@ fn early_exits(body: &str) -> String {
         if !changed {
             break;
         }
+    }
+    // What follows an exit in its block runs never, unless a label in it takes a jump: the
+    // statements after it go up to the block's end (`return x; goto L;`, whose label the walk never
+    // placed, is no C a compiler takes).
+    // A label stands at the margin, wherever its block is: it ends no block, and one inside the
+    // statements after the exit keeps them all.
+    let is_label = |l: &str| {
+        let t = l.trim();
+        t.ends_with(":;") || t.ends_with(':') || t.starts_with("case ") || t.starts_with("default")
+    };
+    let mut i = 0;
+    while i < lines.len() {
+        if exits(&lines[i]) {
+            let pad = indent(&lines[i]);
+            let end = (i + 1..lines.len())
+                .find(|&j| !lines[j].trim().is_empty() && !is_label(&lines[j]) && indent(&lines[j]) < pad)
+                .unwrap_or(lines.len());
+            let labelled = lines[i + 1..end].iter().any(|l| is_label(l));
+            if end > i + 1 && !labelled {
+                lines.drain(i + 1..end);
+            }
+        }
+        i += 1;
     }
     // A `return;` that ends the body: the function's end returns as well.
     // Not after a label, which would then end the block (C++ before C++23 has no such label).
