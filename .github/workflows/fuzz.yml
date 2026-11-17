@@ -30,9 +30,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
-      - uses: taiki-e/install-action@v2
+      # the prebuilt binary's install fails now and then (a release fetch, a rate limit) and failed
+      # a night's run before any fuzzing: build it from source when it does
+      - id: install
+        uses: taiki-e/install-action@v2
+        continue-on-error: true
         with:
           tool: cargo-fuzz
+      - name: cargo-fuzz from source
+        if: steps.install.outcome == 'failure'
+        run: cargo install cargo-fuzz --locked
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: fuzz

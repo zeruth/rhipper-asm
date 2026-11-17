@@ -3,7 +3,6 @@
 # machine, promoted and abi at which the program differs; after a `#` is a note. Each line is a
 # card of phase 2, opened by `ras bisect`.
 seed01_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140003f98, which is no
-seed02_64_O0 abi # printed "checksum = DC4C542F", exit 0x0, stop: None, 570119 steps
 seed02_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x140006868, which is no
 seed03_64_O2 machine # printed "nothing", exit 0xe0000001, stop: Some("an indirect call to 0x1400035a8, which is no
 seed04_32_O0 machine # printed "nothing", exit 0xe0000007, stop: Some("the run limit of 10000001 instructions was
