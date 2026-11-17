@@ -1708,9 +1708,10 @@ fn emit_function(
             let _ = writeln!(out, "    (void){p};");
         }
     }
+    let (declarations, body) = declared_in_place(&declarations, &early_exits(&body));
     out.push_str(&entry);
     out.push_str(&declarations);
-    out.push_str(&early_exits(&body));
+    out.push_str(&body);
     let _ = writeln!(out, "}}");
     let end = out.len();
     if let Some((class, m)) = method {
@@ -1916,6 +1917,88 @@ fn exits(statement: &str) -> bool {
         || s == "break;"
         || s == "continue;"
         || s == "RA_UNREACHABLE();"
+}
+
+/// The declarations at a function's head and its body, with each local that the body assigns once
+/// and reads only after that, in the same block, declared at its assignment (`uint32_t m =
+/// sec_data.x;`), as a person declares it. A function with a `goto` or a `switch` keeps its
+/// declarations: a jump past an initialized declaration into its scope is an error in C++, and a
+/// value a jump carries round a loop past the assignment would be lost.
+fn declared_in_place(declarations: &str, body: &str) -> (String, String) {
+    let mut lines: Vec<String> = body.lines().map(str::to_owned).collect();
+    if lines.iter().any(|l| {
+        let t = l.trim_start();
+        t.starts_with("goto ") || t.contains(" goto ") || t.starts_with("case ") || t.starts_with("default:") || t.ends_with(":;")
+    }) {
+        return (declarations.to_owned(), body.to_owned());
+    }
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mentions = |line: &str, name: &str| {
+        line.match_indices(name).any(|(at, _)| !line[..at].ends_with(is_word) && !line[at + name.len()..].starts_with(is_word))
+    };
+    let mut kept = String::new();
+    for decl in declarations.lines() {
+        // `    uint32_t a, b;` or `    uint8_t *p, q;`: a type, then names with their stars.
+        let t = decl.trim();
+        let plain = t.ends_with(';') && !t.contains(['=', '(', '[']) && !t.contains("RA_");
+        let Some(space) = t.find(' ').filter(|_| plain) else {
+            kept.push_str(decl);
+            kept.push('\n');
+            continue;
+        };
+        let (base, rest) = if let Some(rest) = t.strip_prefix("struct ") {
+            let at = rest.find(' ').map_or(t.len(), |a| a + 7);
+            (&t[..at], &t[at..])
+        } else {
+            (&t[..space], &t[space..])
+        };
+        let mut left = Vec::new();
+        for item in rest.trim_end_matches(';').split(',') {
+            let item = item.trim();
+            let name = item.trim_start_matches('*').trim();
+            let stars = &item[..item.len() - name.len()];
+            let ty = format!("{base} {stars}");
+            // Where the name is assigned and every other line it is on.
+            let at: Vec<usize> = lines.iter().enumerate().filter(|(_, l)| mentions(l, name)).map(|(i, _)| i).collect();
+            let assigned = |i: usize| lines[i].trim_start().strip_prefix(name).is_some_and(|r| r.starts_with(" = "));
+            let place = at.first().copied().filter(|&first| {
+                let depth = indent(&lines[first]);
+                let last = *at.last().expect("a first one");
+                assigned(first)
+                    // Not `x = x + 1`, whose `x` is the one before (round a loop, the last turn's).
+                    && !mentions(&lines[first].trim_start()[name.len()..], name)
+                    && at.iter().skip(1).all(|&i| !assigned(i) && !lines[i].contains(&format!("&{name}")))
+                    && !lines[first].contains(&format!("&{name}"))
+                    // Nothing in between leaves the assignment's block.
+                    && (first..=last).all(|i| lines[i].trim().is_empty() || indent(&lines[i]) >= depth)
+                    // A statement of its own, not the body of a brace-less `if` or loop.
+                    && first.checked_sub(1).is_none_or(|p| {
+                        let prev = lines[p].trim_end();
+                        prev.ends_with(['{', ';', '}']) || prev.is_empty()
+                    })
+            });
+            match place {
+                Some(first) => {
+                    let line = &lines[first];
+                    let pad = &line[..indent(line)];
+                    let ty = ty.trim_end();
+                    let sep = if ty.ends_with('*') { "" } else { " " };
+                    lines[first] = format!("{pad}{ty}{sep}{}", line.trim_start());
+                }
+                None => left.push(item.to_owned()),
+            }
+        }
+        if !left.is_empty() {
+            let pad = &decl[..indent(decl)];
+            kept.push_str(&format!("{pad}{base} {};\n", left.join(", ")));
+        }
+    }
+    let mut out = lines.join("\n");
+    if body.ends_with('\n') {
+        out.push('\n');
+    }
+    (kept, out)
 }
 
 /// Whether every arm of the `if` chain that the `} else` at `lines[at]` continues ends in an exit
