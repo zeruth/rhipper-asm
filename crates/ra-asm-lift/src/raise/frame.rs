@@ -17,6 +17,9 @@ use super::assume::{self, Assumption, Kind, Step};
 struct Use {
     types: Vec<Type>,
     escapes: bool,
+    /// A load of it something reads, or a store of a value to it: more than a register saved or
+    /// pushed to make room, whose value is `undef` and whose restore nothing reads.
+    held: bool,
 }
 
 pub fn run(f: &mut Function) -> bool {
@@ -89,6 +92,21 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
     // address goes somewhere (an argument, a store, a comparison). An address that flows into
     // arithmetic the tracking cannot follow (a phi of different offsets, an add of two values) is
     // a dynamic pointer into the frame: then no slot is private, since it may reach any of them.
+    // The values a store of which is no value: `undef` cast to a width (a register pushed to
+    // make room or saved, whose value the lift does not know).
+    let mut undefs: HashSet<ValueId> = HashSet::new();
+    // The values something reads.
+    let mut used: HashSet<ValueId> = HashSet::new();
+    for b in &f.blocks {
+        for i in &b.instrs {
+            if let (Some(v), Inst::Cast { value: Operand::Undef, .. }) = (i.result, &i.inst) {
+                undefs.insert(v);
+            }
+            used.extend(i.inst.uses());
+        }
+        used.extend(b.terminator.uses());
+    }
+    let is_undef = |o: &Operand| matches!(o, Operand::Undef) || o.local().is_some_and(|l| undefs.contains(&l));
     let mut dynamic = false;
     for b in &f.blocks {
         for i in &b.instrs {
@@ -108,12 +126,16 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
                 Inst::Select { then, els, .. } if consumes_address(then).is_some() || consumes_address(els).is_some() => dynamic = true,
                 Inst::Load { ptr, ty, .. } => {
                     if let Some(k) = ptr.local().and_then(|p| pointer_offsets.get(&p).copied()) {
-                        slots.entry(k).or_default().types.push(ty.clone());
+                        let slot = slots.entry(k).or_default();
+                        slot.types.push(ty.clone());
+                        slot.held |= i.result.is_some_and(|v| used.contains(&v));
                     }
                 }
                 Inst::Store { ptr, value, ty, .. } => {
                     if let Some(k) = ptr.local().and_then(|p| pointer_offsets.get(&p).copied()) {
-                        slots.entry(k).or_default().types.push(ty.clone());
+                        let slot = slots.entry(k).or_default();
+                        slot.types.push(ty.clone());
+                        slot.held |= !is_undef(value);
                     }
                     if let Some(k) = consumes_address(value) {
                         slots.entry(k).or_default().escapes = true;
@@ -159,7 +181,12 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
         for (k, u) in slots.iter().filter(|(_, u)| u.escapes) {
             let size = u.types.iter().filter_map(|t| t.size(8)).max().unwrap_or(8) as i64;
             let end = k + size;
-            let bounded = end <= 0 && slots.range(k + 1..).next().map_or(end == 0, |(n, _)| *n == end || (end == 0 && *n >= 0));
+            // What lies right above it is the frame's top, or a slot the function holds nothing
+            // in (a saved register): a slot above that holds a value (the next argument of a
+            // block a variadic callee reads, the next field of a structure) may be the callee's
+            // to read through the address too.
+            let bounded =
+                end <= 0 && slots.range(k + 1..).next().map_or(end == 0, |(n, above)| (*n == end && !above.held) || (end == 0 && *n >= 0));
             if !(single_typed(u) && bounded && !overlaps(*k, size)) {
                 // The lowest escape that is no variable of its own: the slots above it stay.
                 break;
@@ -195,17 +222,6 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
             });
         }
     }
-    // The values a store of which is no value: `undef` cast to a width (a register pushed to
-    // make room or saved, whose value the lift does not know).
-    let mut undefs: HashSet<ValueId> = HashSet::new();
-    for b in &f.blocks {
-        for i in &b.instrs {
-            if let (Some(v), Inst::Cast { value: Operand::Undef, .. }) = (i.result, &i.inst) {
-                undefs.insert(v);
-            }
-        }
-    }
-    let is_undef = |o: &Operand| matches!(o, Operand::Undef) || o.local().is_some_and(|l| undefs.contains(&l));
     for b in &mut f.blocks {
         let mut out = Vec::with_capacity(b.instrs.len());
         for i in b.instrs.drain(..) {
