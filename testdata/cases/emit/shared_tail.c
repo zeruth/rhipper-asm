@@ -2,36 +2,36 @@ uint32_t shared_tail(uint32_t n, uint8_t * p) { RA_ENTER("shared_tail");
     uint32_t i;
     if (n != 0u) {
         for (;;) {
-            i = *(uint32_t *)(p);
+            i = RA_U32(p);
             if ((int32_t)i < (int32_t)n) {
                 if (i == 7u) {
-                    *(uint32_t *)(p) = 1u;
+                    RA_U32(p) = 1u;
                 } else {
-                    *(uint32_t *)(p) = i + 1u;
+                    RA_U32(p) = i + 1u;
                     continue;
                 }
             } else {
-                *(uint32_t *)(p) = 0u;
+                RA_U32(p) = 0u;
             }
             goto L_ret;
         }
     }
 L_ret:;
-    *(uint32_t *)(p) = 1u;
-    *(uint32_t *)(p) = 2u;
-    *(uint32_t *)(p) = 3u;
-    *(uint32_t *)(p) = 4u;
-    *(uint32_t *)(p) = 5u;
-    *(uint32_t *)(p) = 6u;
-    *(uint32_t *)(p) = 7u;
-    *(uint32_t *)(p) = 8u;
-    *(uint32_t *)(p) = 9u;
-    *(uint32_t *)(p) = 10u;
-    *(uint32_t *)(p) = 11u;
-    *(uint32_t *)(p) = 12u;
-    *(uint32_t *)(p) = 13u;
-    *(uint32_t *)(p) = 14u;
-    *(uint32_t *)(p) = 15u;
-    *(uint32_t *)(p) = 16u;
-    return *(uint32_t *)(p);
+    RA_U32(p) = 1u;
+    RA_U32(p) = 2u;
+    RA_U32(p) = 3u;
+    RA_U32(p) = 4u;
+    RA_U32(p) = 5u;
+    RA_U32(p) = 6u;
+    RA_U32(p) = 7u;
+    RA_U32(p) = 8u;
+    RA_U32(p) = 9u;
+    RA_U32(p) = 10u;
+    RA_U32(p) = 11u;
+    RA_U32(p) = 12u;
+    RA_U32(p) = 13u;
+    RA_U32(p) = 14u;
+    RA_U32(p) = 15u;
+    RA_U32(p) = 16u;
+    return RA_U32(p);
 }
