@@ -17,6 +17,12 @@
 //! with `!` and the stop: `exit <code>`, `limit <instructions>` or `fault <message>`, the message
 //! with `\\`, `\n` and `\r` escaped. A write takes a line per 64 bytes, and adjacent lines read
 //! back as one run.
+//!
+//! The sessions committed at `testdata/sessions/<name>.session` are machine-level: each call
+//! carries the eight argument registers the machine level passes, whatever the function takes,
+//! and its pointers are into the machine level's stack. They compare only against a machine-level
+//! replay; the ABI level's calls, with their signature's arguments and its own stack, are recorded
+//! apart under `testdata/sessions/abi`.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;

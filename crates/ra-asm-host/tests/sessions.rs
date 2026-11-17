@@ -6,6 +6,10 @@
 //! the program's. With `RA_RECORD=write` every fixture is recorded again the same way, its
 //! committed session replaced only by a run that prints the native output.
 //!
+//! Those committed sessions are machine-level: eight argument registers to a call and pointers
+//! into the machine level's stack, so they compare only against a machine-level replay, never
+//! against a run at the ABI level.
+//!
 //! And the replays: each fixture's run at the ABI level, recorded the same way at
 //! `testdata/sessions/abi/<name>.session`, runs again with its session standing in for the host,
 //! makes no call into the host and prints what the native run printed; and a session with one
