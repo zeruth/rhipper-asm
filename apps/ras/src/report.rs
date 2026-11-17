@@ -51,10 +51,13 @@ fn directories_of(image: &Image) -> Vec<(&'static str, String, u32)> {
     .collect()
 }
 
-/// `pe32`, `pe32+`, `xbe`, `elf32`, `elf64`, `macho64` or `psx-exe`.
+/// `pe32`, `pe32+`, `xbe`, `elf32`, `elf64`, `macho64`, `psx-exe`, `bin`, or a cartridge ROM's
+/// order as dumped: `z64`, `v64` or `n64`.
 fn format_name(image: &Image) -> &'static str {
     if image.psx.is_some() {
         "psx-exe"
+    } else if let Some(rom) = &image.n64 {
+        rom.order.extension()
     } else if image.dreamcast.is_some() {
         "bin"
     } else if image.xbe.is_some() {
@@ -96,6 +99,15 @@ fn toolset_json(image: &Image) -> serde_json::Value {
             "count": e.count,
         })).collect::<Vec<_>>()),
     })
+}
+
+/// How a Nintendo 64 ROM's boot code loads its program: `flat at 0x80000400` or
+/// `elf at 0x1d00`.
+fn rom_boot(rom: &ra_asm_format::n64::Rom) -> String {
+    match rom.boot {
+        ra_asm_format::n64::Boot::Flat { address, .. } => format!("flat at {address:#010x}"),
+        ra_asm_format::n64::Boot::Elf { offset } => format!("elf at {offset:#x}"),
+    }
 }
 
 /// The name of an ELF `e_type`.
@@ -180,6 +192,14 @@ pub(crate) fn info_json(image: &Image) -> serde_json::Value {
                 "marker": p.marker,
             })),
             "dreamcast": image.dreamcast.map(|d| json!({ "scrambled": d.scrambled })),
+            "n64": image.n64.as_ref().map(|r| json!({
+                "title": r.title,
+                "game_code": r.game_code,
+                "version": r.version,
+                "entry": hex(u64::from(r.entry)),
+                "cic": r.cic.map(ra_asm_format::n64::Cic::name),
+                "boot": rom_boot(r),
+            })),
             "xbe": image.xbe.as_ref().map(|x| json!({
                 "kernel": x.kernel.name(),
                 "title": x.title_name,
@@ -261,6 +281,11 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
     }
     if let Some(d) = &image.dreamcast {
         println!("boot program   {}", if d.scrambled { "scrambled, unscrambled to map" } else { "plain" });
+    }
+    if let Some(r) = &image.n64 {
+        println!("title          {} ({}, version {})", r.title, r.game_code, r.version);
+        let cic = r.cic.map_or_else(|| "none known".to_owned(), |c| c.name().to_owned());
+        println!("boot code      CIC {cic}, entry {:#010x}, {}", r.entry, rom_boot(r));
     }
     if let Some(x) = &image.xbe {
         println!("title          {} ({:#010x}, region {:#x}, {} kernel)", x.title_name, x.title_id, x.region, x.kernel.name());

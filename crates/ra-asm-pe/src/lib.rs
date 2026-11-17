@@ -61,8 +61,9 @@ pub fn load(path: &Path) -> anyhow::Result<Image> {
     };
     image.path = Some(path.to_path_buf());
     // An ELF or a Mach-O file names its functions in its own symbol table; a PS-X EXE has no PDB,
-    // and the map beside one is `nm`'s over its ELF, not a link map; a boot program has neither.
-    if image.elf.is_some() || image.macho.is_some() || image.psx.is_some() || image.dreamcast.is_some() {
+    // and the map beside one is `nm`'s over its ELF, not a link map; a boot program and a cartridge
+    // ROM have neither.
+    if image.elf.is_some() || image.macho.is_some() || image.psx.is_some() || image.dreamcast.is_some() || image.n64.is_some() {
         return Ok(image);
     }
     match debug::load_pdb(&image) {

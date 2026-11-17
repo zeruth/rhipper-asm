@@ -5,12 +5,16 @@
 //! segments the same way. A PSX `PS-X EXE` maps its text at the header's address, and its
 //! addresses go through the console's memory map ([`ra_asm_format::psx`]): a RAM address of any
 //! segment reads the one byte it names. A Dreamcast boot program ([`Image::dreamcast`]) has no
-//! container: it maps whole at [`dreamcast::BASE`], through the console's map the same way.
+//! container: it maps whole at [`dreamcast::BASE`], through the console's map the same way. A
+//! Nintendo 64 ROM ([`Image::n64`]) maps the program its boot code loads, big-endian, through the
+//! console's map: the 1 MiB Nintendo's boot code copies to the entry point, or the ELF file
+//! libdragon's loads by its segments.
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail, ensure};
 use ra_asm_format::dreamcast::{self, Boot};
+use ra_asm_format::n64::{self, Rom};
 use ra_asm_format::psx::{self, PsxExe};
 use ra_asm_format::{ByteOrder, Reader};
 
@@ -70,6 +74,10 @@ pub struct Image {
     /// The Dreamcast boot program the image is, when it is one: its addresses fold through the
     /// console's memory map.
     pub dreamcast: Option<Boot>,
+    /// The Nintendo 64 ROM's header, when the image is one: its addresses fold through the
+    /// console's memory map. A ROM libdragon's boot code loads keeps its ELF file in [`Image::elf`]
+    /// too, whose offsets are the ELF file's own; the sections' are the ROM's.
+    pub n64: Option<Rom>,
     /// The value the start routine gives the global pointer, on a machine whose code addresses its
     /// data through one: a 32-bit MIPS ELF's `$gp`, from its `.reginfo` or its `_gp` symbol.
     pub global_pointer: Option<u64>,
@@ -94,11 +102,22 @@ impl Image {
     }
 
     fn parse_as(mut file: Vec<u8>, boot: Option<Boot>) -> Result<Self> {
+        // A ROM dumped in a swapped order is read in the cartridge's, which its sections map.
+        let rom_order = n64::Order::of(&file).filter(|_| boot.is_none());
+        if let Some(order) = rom_order {
+            n64::to_z64(&mut file, order)?;
+        }
         let reader = Reader::new(&file);
         let mut psx = None;
+        let mut rom = None;
         let (headers, sections, xbe, elf, macho) = if boot.is_some() {
             let (headers, sections) = dreamcast_layout(file.len())?;
             (headers, sections, None, None, None)
+        } else if let Some(order) = rom_order {
+            let header = Rom::parse(&file, order)?;
+            let (headers, sections, elf) = n64_layout(&file, &header)?;
+            rom = Some(header);
+            (headers, sections, None, elf, None)
         } else if psx::is_psx(&file) {
             let exe = PsxExe::parse(&file)?;
             let (headers, sections) = psx_layout(&exe)?;
@@ -175,6 +194,7 @@ impl Image {
             macho,
             psx,
             dreamcast: boot,
+            n64: rom,
             global_pointer: None,
             warnings,
             file,
@@ -193,6 +213,11 @@ impl Image {
         }
         // Nor has a Dreamcast boot program, which is its bytes and nothing else.
         if self.dreamcast.is_some() {
+            return;
+        }
+        // Nor has a ROM whose program Nintendo's boot code copies flat; one libdragon's loads is an
+        // ELF file, whose tables follow.
+        if self.n64.is_some() && self.elf.is_none() {
             return;
         }
         // An ELF file has none of the PE's directories: its tables are its own.
@@ -255,10 +280,11 @@ impl Image {
         if self.is_64() { 8 } else { 4 }
     }
 
-    /// Whether the image's words are big-endian: an ELF file's `ELFDATA2MSB`. A PE, an XBE and a
-    /// Mach-O file of the machines the loader maps are little-endian.
+    /// Whether the image's words are big-endian: an ELF file's `ELFDATA2MSB`, a Nintendo 64 ROM's,
+    /// whatever order its dump was in. A PE, an XBE and a Mach-O file of the machines the loader
+    /// maps are little-endian.
     pub fn big_endian(&self) -> bool {
-        self.elf.as_ref().is_some_and(|elf| elf.big_endian)
+        self.n64.is_some() || self.elf.as_ref().is_some_and(|elf| elf.big_endian)
     }
 
     /// The byte order of the program's words, which every read of a value of the image takes: the
@@ -284,10 +310,11 @@ impl Image {
     }
 
     /// The virtual address of the entry point, or `None` when the image has none. A PS-X EXE always
-    /// has one, which may be the first byte of its text; a Dreamcast boot program's is its first byte.
+    /// has one, which may be the first byte of its text; a Dreamcast boot program's is its first byte,
+    /// and so is the program's of a ROM that Nintendo's boot code copies flat.
     pub fn entry_point(&self) -> Option<u64> {
         let rva = self.headers.optional.entry_point;
-        (rva != 0 || self.psx.is_some() || self.dreamcast.is_some()).then(|| self.va(rva))
+        (rva != 0 || self.psx.is_some() || self.dreamcast.is_some() || self.n64.is_some()).then(|| self.va(rva))
     }
 
     /// The virtual address of an RVA.
@@ -298,9 +325,10 @@ impl Image {
     /// The RVA of a virtual address inside the image, or `None` when it lies outside. A console's
     /// address is folded first: a PS-X EXE's `kuseg` and `kseg1` mirrors of RAM are the `kseg0`
     /// address, a `PlayStation 2` program's `kseg` and uncached mirrors the `kuseg` one, a Dreamcast
-    /// program's `P2` mirror the `P1` one.
+    /// program's `P2` mirror the `P1` one, a Nintendo 64 program's `kseg1` mirror the `kseg0` one.
     pub fn rva(&self, va: u64) -> Option<u32> {
-        let va = if self.psx.is_some() || self.is_ps2() || self.dreamcast.is_some() { self.memory_region(va)?.1 } else { va };
+        let mapped = self.psx.is_some() || self.is_ps2() || self.dreamcast.is_some() || self.n64.is_some();
+        let va = if mapped { self.memory_region(va)?.1 } else { va };
         let rva = va.checked_sub(self.image_base())?;
         (rva < u64::from(self.size_of_image())).then_some(rva as u32)
     }
@@ -346,10 +374,13 @@ impl Image {
 
     /// The console the image runs on, when its container or its processor names one: `psx` for a
     /// PS-X EXE, `psp` for a PRX module, `ps2` for an ELF of the R5900, `xbox` for an XBE,
-    /// `dreamcast` for a boot program; `None` for a program of an operating system.
+    /// `dreamcast` for a boot program, `n64` for a cartridge ROM; `None` for a program of an
+    /// operating system.
     pub fn platform(&self) -> Option<&'static str> {
         if self.psx.is_some() {
             Some("psx")
+        } else if self.n64.is_some() {
+            Some("n64")
         } else if self.dreamcast.is_some() {
             Some("dreamcast")
         } else if self.elf.as_ref().is_some_and(|e| e.prx.is_some()) {
@@ -370,12 +401,14 @@ impl Image {
 
     /// The place of the console's memory map that `va` reaches, with its folded address, on an
     /// image of a console that has one (the `PlayStation's`, the `PlayStation 2's`, the
-    /// Dreamcast's); `None` elsewhere, or for an address no place answers. An access to
-    /// [`psx::Region::Hardware`] or [`psx::Region::StoreQueue`] is a device's, which the platform
-    /// runtime answers and the image does not hold.
+    /// Dreamcast's, the Nintendo 64's); `None` elsewhere, or for an address no place answers. An
+    /// access to [`psx::Region::Hardware`] or [`psx::Region::StoreQueue`] is a device's, which the
+    /// platform runtime answers and the image does not hold.
     pub fn memory_region(&self, va: u64) -> Option<(psx::Region, u64)> {
         if self.psx.is_some() {
             psx::fold(va)
+        } else if self.n64.is_some() {
+            n64::fold(va)
         } else if self.dreamcast.is_some() {
             dreamcast::fold(va)
         } else if self.is_ps2() {
@@ -650,6 +683,77 @@ fn dreamcast_layout(len: usize) -> Result<(Headers, Vec<Section>)> {
         rich: None,
     };
     Ok((headers, sections))
+}
+
+/// The headers and the sections of a Nintendo 64 ROM `rom`, already in the `.z64` order, as its
+/// boot code loads the program: libdragon's ELF file by its segments, the sections' file offsets
+/// moved to the ROM's; else `.text`, the bytes Nintendo's boot code copies to the entry point,
+/// code and data both and writable, entered at its first byte.
+fn n64_layout(rom: &[u8], header: &Rom) -> Result<(Headers, Vec<Section>, Option<ra_asm_format::elf::ElfFile>)> {
+    let (address, size) = match header.boot {
+        n64::Boot::Elf { offset } => {
+            let (mut headers, mut sections, elf) =
+                crate::elf::parse(&rom[offset..]).with_context(|| format!("the ELF file at ROM offset {offset:#x}"))?;
+            let shift = u32::try_from(offset).context("the ELF file lies past 4 GiB of the ROM")?;
+            for section in sections.iter_mut().filter(|s| s.raw_size != 0) {
+                section.raw_offset = section.raw_offset.saturating_add(shift);
+            }
+            // The ELF header is no part of what the boot code loads, and the ROM's own header stands
+            // at the file's start.
+            headers.optional.size_of_headers = 0;
+            return Ok((headers, sections, Some(elf)));
+        }
+        n64::Boot::Flat { address, size } => (address, size),
+    };
+    let base = n64::fold(address.into()).map_or(u64::from(address), |(_, va)| va);
+    let sections = vec![Section {
+        name: ".text".to_owned(),
+        virtual_size: size,
+        virtual_address: 0,
+        raw_size: size,
+        raw_offset: u32::try_from(n64::PROGRAM_OFFSET).unwrap_or(0),
+        characteristics: crate::elf::characteristics(true, true, false),
+    }];
+    let headers = Headers {
+        pe_offset: 0,
+        coff: CoffHeader {
+            machine: Machine::Mips,
+            sections: 1,
+            timestamp: 0,
+            symbol_table: 0,
+            symbols: 0,
+            optional_header_size: 0,
+            characteristics: CoffHeader::EXECUTABLE_IMAGE | CoffHeader::RELOCS_STRIPPED,
+        },
+        optional: OptionalHeader {
+            magic: OptionalMagic::Pe32,
+            linker_version: (0, 0),
+            size_of_code: size,
+            size_of_initialized_data: 0,
+            size_of_uninitialized_data: 0,
+            entry_point: 0,
+            base_of_code: 0,
+            image_base: base,
+            section_alignment: 1,
+            file_alignment: 1,
+            os_version: (0, 0),
+            image_version: (0, 0),
+            subsystem_version: (0, 0),
+            size_of_image: size,
+            size_of_headers: 0,
+            checksum: 0,
+            subsystem: 0,
+            dll_characteristics: 0,
+            stack_reserve: 0,
+            stack_commit: 0,
+            heap_reserve: 0,
+            heap_commit: 0,
+            directories: vec![DataDirectory::default(); 16],
+        },
+        section_table_offset: 0,
+        rich: None,
+    };
+    Ok((headers, sections, None))
 }
 
 #[cfg(test)]

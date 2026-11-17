@@ -708,3 +708,87 @@ fn a_boot_program_that_does_not_fit_is_refused() {
 }
 
 // endregion
+
+// region The Nintendo 64
+
+fn n64_fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/n64").join(name)
+}
+
+/// The libdragon fixture: libdragon's boot code, of no Nintendo CIC, loads the ELF file it finds
+/// at ROM offset `0x1d00` by its segments, so the program lands where `hello.elf` links it
+/// (`nm`: `_start` at `0x80000400`, `main` at `0x8000ea00`) and every allocated section of
+/// `hello.elf` reads the same in the ROM's image.
+#[test]
+fn the_n64_hello_maps_its_program_where_its_elf_links_it() {
+    use ra_asm_format::n64::{Boot, Order};
+    let rom = ra_asm_pe::load(&n64_fixture("hello.z64")).unwrap();
+    assert!(rom.warnings.is_empty(), "{:?}", rom.warnings);
+    let header = rom.n64.as_ref().expect("a cartridge ROM");
+    assert_eq!((header.order, header.title.as_str(), header.entry), (Order::Z64, "rhipper hello", 0x8000_0400));
+    assert_eq!((header.cic, header.boot), (None, Boot::Elf { offset: 0x1d00 }));
+    assert_eq!(rom.machine(), Machine::Mips);
+    assert!(!rom.is_64() && rom.big_endian());
+    assert_eq!(rom.platform(), Some("n64"));
+
+    let elf = ra_asm_pe::load(&n64_fixture("hello.elf")).unwrap();
+    assert_eq!(rom.entry_point(), Some(0x8000_0400));
+    assert_eq!(rom.entry_point(), elf.entry_point());
+    // `_start` is an assembler label of no function type, which the function symbols leave out; the
+    // ELF's entry point is its address.
+    let symbol = |name: &str| if name == "_start" { elf.entry_point() } else { elf.symbols.iter().find(|s| s.name == name).map(|s| s.va) };
+    assert_eq!(symbol("main"), Some(0x8000_ea00));
+    for name in ["_start", "main", "debug_init_emulog"] {
+        let va = symbol(name).unwrap_or_else(|| panic!("no {name} in hello.elf"));
+        assert!(rom.is_code(va), "{name} at {va:#x}");
+        assert_eq!(rom.read(va, 32).unwrap(), elf.read(va, 32).unwrap(), "{name} at {va:#x}");
+    }
+    for section in &elf.sections {
+        let va = elf.va(section.virtual_address);
+        let size = section.virtual_size as usize;
+        assert_eq!(rom.read(va, size).unwrap(), elf.read(va, size).unwrap(), "{} at {va:#x}", section.name);
+    }
+    assert_eq!(rom.u32(0x8000_ea00).unwrap(), elf.u32(0x8000_ea00).unwrap());
+}
+
+/// The `.v64` and `.n64` dumps of the same ROM, made here, fold back to the `.z64` order and map
+/// the same image.
+#[test]
+fn the_swapped_dumps_of_the_n64_hello_load_identically() {
+    use ra_asm_format::n64::Order;
+    let z64 = std::fs::read(n64_fixture("hello.z64")).unwrap();
+    let expected = Image::parse(z64.clone()).unwrap();
+    let swapped = |unit: usize| -> Vec<u8> { z64.chunks(unit).flat_map(|c| c.iter().rev().copied()).collect() };
+    for (bytes, order) in [(swapped(2), Order::V64), (swapped(4), Order::N64)] {
+        assert_ne!(bytes, z64);
+        let image = Image::parse(bytes).unwrap();
+        assert_eq!(image.n64.as_ref().map(|r| r.order), Some(order));
+        assert_eq!(image.file(), &z64[..], "{order:?}");
+        assert_eq!(image.entry_point(), expected.entry_point(), "{order:?}");
+        let layout = |i: &Image| i.sections.iter().map(|s| (s.name.clone(), i.va(s.virtual_address), s.virtual_size)).collect::<Vec<_>>();
+        assert_eq!(layout(&image), layout(&expected), "{order:?}");
+        assert_eq!(image.mapped(), expected.mapped(), "{order:?}");
+    }
+}
+
+/// RDRAM reads the same through `kseg0` and `kseg1`; the RCP's registers and the cartridge domain,
+/// where `debugf` writes the ISViewer buffer, are places of the map that the image does not hold.
+#[test]
+fn the_n64_memory_map_folds_the_mirrors_of_rdram() {
+    use ra_asm_format::psx::Region;
+    let image = ra_asm_pe::load(&n64_fixture("hello.z64")).unwrap();
+    let main = 0x8000_ea00;
+    let word = image.u32(main).unwrap();
+    for mirror in [main, 0xa000_ea00, 0xffff_ffff_a000_ea00] {
+        assert_eq!(image.u32(mirror).unwrap(), word, "{mirror:#x}");
+        assert_eq!(image.memory_region(mirror), Some((Region::Ram, main)), "{mirror:#x}");
+    }
+    assert_eq!(image.memory_region(0x0000_ea00), None, "kuseg is the TLB's");
+    for (device, folded) in [(0xa440_0010, 0xa440_0010), (0x8480_0018, 0xa480_0018), (0xb3ff_0020, 0xb3ff_0020)] {
+        assert_eq!(image.memory_region(device), Some((Region::Hardware, folded)), "{device:#x}");
+        assert!(image.read(device, 4).is_err(), "a device register is no byte of the image");
+    }
+    assert_eq!(ra_asm_pe::load(&n64_fixture("hello.elf")).unwrap().memory_region(main), None, "the ELF alone names no console");
+}
+
+// endregion
