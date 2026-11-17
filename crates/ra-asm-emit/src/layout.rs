@@ -190,6 +190,9 @@ fn masked_extent(defs: &Defs<'_>, index: &Operand) -> Option<u64> {
 struct Uses {
     cells: BTreeMap<u64, Cell>,
     strings: BTreeSet<u64>,
+    /// The accesses no field type holds (a vector, a 128-bit integer), by offset, the widest size
+    /// at each: a string literal ending inside one would be read past its end.
+    wide: BTreeMap<u64, u64>,
 }
 
 /// The uses of the module's data sections, read one function at a time, which give their layouts:
@@ -356,6 +359,16 @@ fn collect_uses(f: &Function, flat: &HashMap<String, FlatSection>, uses: &mut Ha
                 address(value, uses);
             }
             consumed.extend(i.result);
+        } else if let Some((ty, ptr)) = access
+            && value_size(ty).is_none()
+            && let Some(p) = place(&defs, ptr)
+            && p.index.is_none()
+            && flat.contains_key(&p.global)
+            && let Ok(offset) = u64::try_from(p.offset)
+            && let Some(size) = ty.size(8)
+        {
+            let wide = uses.entry(p.global).or_default().wide.entry(offset).or_insert(0);
+            *wide = (*wide).max(size);
         }
     }
     for i in f.blocks.iter().flat_map(|b| &b.instrs) {
@@ -400,7 +413,8 @@ fn value_size(ty: &Type) -> Option<u64> {
 
 /// The fields of a section from its uses: the words of the IR stay words, a cell becomes a
 /// scalar or an array that runs to the next word, cell or string, an addressed printable run
-/// becomes a string, and the bytes between stay bytes.
+/// becomes a string unless a vector access reads past its end (a constant whose first lane is a
+/// character), and the bytes between stay bytes.
 fn fields_of(layout: &Layout, uses: &Uses) -> Vec<Field> {
     let size = layout.bytes.len() as u64;
     let mut starts: BTreeSet<u64> = layout.words.keys().copied().collect();
@@ -419,7 +433,7 @@ fn fields_of(layout: &Layout, uses: &Uses) -> Vec<Field> {
         } else if let Some(cell) = uses.cells.get(&start) {
             cell_field(layout, start, next, cell)
         } else {
-            string_field(layout, start, next)
+            string_field(layout, start, next).filter(|f| uses.wide.range(f.offset..f.end()).all(|(&at, &size)| at + size <= f.end()))
         };
         let Some(field) = field else { continue };
         if field.end() > size {
