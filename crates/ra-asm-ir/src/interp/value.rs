@@ -120,7 +120,7 @@ impl Value {
         }
     }
 
-    /// The bytes of the value as `ty` lays it out in memory, little-endian.
+    /// The bytes of the value as `ty` lays it out in memory, in the layout's byte order.
     pub fn to_bytes(&self, ty: &Type, layout: &Layout<'_>) -> Vec<u8> {
         let size = layout.size(ty) as usize;
         let mut out = vec![0u8; size];
@@ -158,24 +158,15 @@ impl Value {
                     }
                 }
             }
-            (Type::Float, v) => out[..4].copy_from_slice(&v.as_f32().to_bits().to_le_bytes()),
-            (Type::Double, v) => out[..8].copy_from_slice(&v.as_f64().to_bits().to_le_bytes()),
-            (_, v) => {
-                let bytes = v.as_u128().to_le_bytes();
-                let n = out.len().min(16);
-                out[..n].copy_from_slice(&bytes[..n]);
-            }
+            (Type::Float, v) => put(&mut out[..4], u128::from(v.as_f32().to_bits()), layout.big_endian),
+            (Type::Double, v) => put(&mut out[..8], u128::from(v.as_f64().to_bits()), layout.big_endian),
+            (_, v) => put(out, v.as_u128(), layout.big_endian),
         }
     }
 
     /// The value of `ty` the bytes hold.
     pub fn from_bytes(ty: &Type, bytes: &[u8], layout: &Layout<'_>) -> Self {
-        let int = |bytes: &[u8]| {
-            let mut buf = [0u8; 16];
-            let n = bytes.len().min(16);
-            buf[..n].copy_from_slice(&bytes[..n]);
-            u128::from_le_bytes(buf)
-        };
+        let int = |bytes: &[u8]| take(bytes, layout.big_endian);
         match ty {
             Type::Float => Self::F32(f32::from_bits(int(bytes) as u32)),
             Type::Double => Self::F64(f64::from_bits(int(bytes) as u64)),
@@ -209,10 +200,38 @@ impl Value {
     }
 }
 
+/// The low bytes of an integer into `out`, in the byte order asked for; at most sixteen, at the
+/// end of a wider `out` when big-endian, where the low bytes of a wider integer lie.
+fn put(out: &mut [u8], v: u128, big_endian: bool) {
+    let n = out.len().min(16);
+    if big_endian {
+        let at = out.len() - n;
+        out[at..].copy_from_slice(&v.to_be_bytes()[16 - n..]);
+    } else {
+        out[..n].copy_from_slice(&v.to_le_bytes()[..n]);
+    }
+}
+
+/// The integer the bytes hold in the byte order asked for: the inverse of [`put`].
+fn take(bytes: &[u8], big_endian: bool) -> u128 {
+    let mut buf = [0u8; 16];
+    let n = bytes.len().min(16);
+    if big_endian {
+        buf[16 - n..].copy_from_slice(&bytes[bytes.len() - n..]);
+        u128::from_be_bytes(buf)
+    } else {
+        buf[..n].copy_from_slice(&bytes[..n]);
+        u128::from_le_bytes(buf)
+    }
+}
+
 /// The sizes and offsets of the types, with the module's named structs. Pointers are the host's,
 /// eight bytes: a lifted 32-bit program keeps its own pointers as `i32` values.
 pub struct Layout<'a> {
     pub named: &'a HashMap<String, Vec<Type>>,
+    /// Whether a value's bytes are big-endian, as the module's data layout says: an IR load and
+    /// store are in the module's order, as LLVM's are.
+    pub big_endian: bool,
 }
 
 impl Layout<'_> {

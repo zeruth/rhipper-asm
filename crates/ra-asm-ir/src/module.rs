@@ -450,6 +450,19 @@ impl Module {
         }
     }
 
+    /// Whether the data layout makes the module big-endian: its last `E` or `e` spec, as LLVM reads
+    /// it; little-endian without one.
+    pub fn big_endian(&self) -> bool {
+        self.data_layout.split('-').rev().find(|s| *s == "E" || *s == "e") == Some("E")
+    }
+
+    /// Sets the byte order in the data layout: `E` or `e` as its first spec, in place of any other.
+    pub fn set_big_endian(&mut self, big: bool) {
+        let order = if big { "E" } else { "e" };
+        let rest = self.data_layout.split('-').filter(|s| !s.is_empty() && *s != "E" && *s != "e");
+        self.data_layout = std::iter::once(order).chain(rest).collect::<Vec<_>>().join("-");
+    }
+
     pub fn function(&self, name: &str) -> Option<&Function> {
         self.functions.iter().find(|f| f.name == name)
     }

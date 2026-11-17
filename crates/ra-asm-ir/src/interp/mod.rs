@@ -13,6 +13,8 @@
 pub mod block;
 pub mod memory;
 pub mod observe;
+#[cfg(test)]
+mod order;
 pub mod value;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -95,6 +97,13 @@ struct Bump {
     at: u64,
 }
 
+/// The bytes of an integer constant of `size` bytes in the module's byte order: at most sixteen,
+/// what a `u128` holds.
+fn int_bytes(v: u128, size: u64, big_endian: bool) -> Vec<u8> {
+    let n = (size as usize).min(16);
+    if big_endian { v.to_be_bytes()[16 - n..].to_vec() } else { v.to_le_bytes()[..n].to_vec() }
+}
+
 /// The call depth the interpreter allows before it stops a runaway recursion.
 const MAX_DEPTH: usize = 20_000;
 
@@ -156,7 +165,8 @@ pub struct Vm<'m> {
 }
 
 impl<'m> Vm<'m> {
-    pub fn new(module: &'m Module, memory: Memory) -> Self {
+    pub fn new(module: &'m Module, mut memory: Memory) -> Self {
+        memory.set_big_endian(module.big_endian());
         let functions = module.functions.iter().enumerate().map(|(i, f)| (f.name.clone(), i)).collect();
         let named = module.types.iter().cloned().collect();
         let blocks = module.functions.iter().map(|f| f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect()).collect();
@@ -188,7 +198,7 @@ impl<'m> Vm<'m> {
     }
 
     pub fn layout(&self) -> Layout<'_> {
-        Layout { named: &self.named }
+        Layout { named: &self.named, big_endian: self.memory.big_endian() }
     }
 
     // region Setup
@@ -231,7 +241,7 @@ impl<'m> Vm<'m> {
             self.bind_external(&d.name)?;
         }
         for g in &module.globals {
-            let layout = Layout { named: &self.named };
+            let layout = Layout { named: &self.named, big_endian: self.memory.big_endian() };
             let size = layout.size(&g.ty);
             let align = u64::from(g.align).max(layout.align(&g.ty));
             let address = match g.address {
@@ -317,21 +327,18 @@ impl<'m> Vm<'m> {
     }
 
     fn write_const(&mut self, address: u64, ty: &Type, c: &Const) -> Result<(), Stop> {
-        let layout = Layout { named: &self.named };
+        let layout = Layout { named: &self.named, big_endian: self.memory.big_endian() };
         let size = layout.size(ty);
         match (ty, c) {
             (_, Const::Zero | Const::Null) => self.memory.fill(address, size, 0),
             (_, Const::Bytes(bytes)) => self.memory.write(address, bytes),
-            (Type::Float, Const::Float(f)) => self.memory.write_u32(address, (*f as f32).to_bits()),
-            (Type::Double, Const::Float(f)) => self.memory.write_u64(address, f.to_bits()),
-            (_, Const::Int(v)) => {
-                let bytes = (*v as u128).to_le_bytes();
-                self.memory.write(address, &bytes[..(size as usize).min(16)])
-            }
+            (Type::Float, Const::Float(f)) => self.memory.write(address, &Value::F32(*f as f32).to_bytes(ty, &layout)),
+            (Type::Double, Const::Float(f)) => self.memory.write(address, &Value::F64(*f).to_bytes(ty, &layout)),
+            (_, Const::Int(v)) => self.memory.write(address, &int_bytes(*v as u128, size, layout.big_endian)),
             (_, Const::Global(name)) => {
                 let target =
                     self.symbols.get(name).copied().ok_or_else(|| Stop::fault(format!("a reference to @{name}, which is not placed")))?;
-                self.memory.write(address, &u128::from(target).to_le_bytes()[..(size as usize).min(16)])
+                self.memory.write(address, &int_bytes(u128::from(target), size, layout.big_endian))
             }
             (_, Const::Address { global, offset }) => {
                 let target = self
@@ -340,7 +347,7 @@ impl<'m> Vm<'m> {
                     .copied()
                     .ok_or_else(|| Stop::fault(format!("a reference to @{global}, which is not placed")))?;
                 let value = target.wrapping_add(*offset as u64);
-                self.memory.write(address, &u128::from(value).to_le_bytes()[..(size as usize).min(16)])
+                self.memory.write(address, &int_bytes(u128::from(value), size, layout.big_endian))
             }
             (Type::Array(_, e) | Type::Vector(_, e), Const::Array(items) | Const::Struct(items)) => {
                 let stride = layout.size(e);
@@ -413,13 +420,13 @@ impl<'m> Vm<'m> {
         let module = self.module;
         let args = self.adapt(&module.functions[index], args);
         let result = self.run_function(host, index, args)?;
-        Ok(result.coerce(&site.ret, &Layout { named: &self.named }))
+        Ok(result.coerce(&site.ret, &Layout { named: &self.named, big_endian: self.memory.big_endian() }))
     }
 
     /// `args` as the parameters of `f` take them: one per parameter, zero for a missing one, each
     /// at its parameter's type.
     fn adapt(&self, f: &Function, args: Vec<Value>) -> Vec<Value> {
-        let layout = Layout { named: &self.named };
+        let layout = Layout { named: &self.named, big_endian: self.memory.big_endian() };
         let mut args = args;
         args.resize(f.ty.params.len().max(args.len()), Value::Int(0));
         args.truncate(f.ty.params.len());
@@ -549,7 +556,7 @@ impl<'m> Vm<'m> {
     // region Operands and instructions
 
     fn eval(&self, f: &Function, values: &[Option<Value>], op: &Operand, ty: &Type) -> Result<Value, Stop> {
-        let layout = Layout { named: &self.named };
+        let layout = Layout { named: &self.named, big_endian: self.memory.big_endian() };
         Ok(match op {
             Operand::Local(v) => {
                 return values
@@ -636,7 +643,7 @@ impl<'m> Vm<'m> {
                 self.cast(*cast, from, &v, to)
             }
             Inst::Gep { base_ty, ptr, indices, .. } => {
-                let layout = Layout { named: &self.named };
+                let layout = Layout { named: &self.named, big_endian: self.memory.big_endian() };
                 let mut address = self.eval(f, values, ptr, &Type::Ptr)?.as_u64();
                 let mut ty = base_ty.clone();
                 for (k, (ity, iop)) in indices.iter().enumerate() {
@@ -684,7 +691,7 @@ impl<'m> Vm<'m> {
                 Ok(Value::Vector(lanes))
             }
             Inst::ShuffleVector { ty, a, b, mask } => {
-                let layout = Layout { named: &self.named };
+                let layout = Layout { named: &self.named, big_endian: self.memory.big_endian() };
                 let mut lanes = self.eval(f, values, a, ty)?.lanes().to_vec();
                 lanes.extend(self.eval(f, values, b, ty)?.lanes().iter().cloned());
                 let zero = match ty {
@@ -820,7 +827,7 @@ impl<'m> Vm<'m> {
     // A 128-bit integer to a double loses what a double cannot hold: that is the instruction.
     #[allow(clippy::cast_precision_loss)]
     fn cast(&self, cast: Cast, from: &Type, v: &Value, to: &Type) -> Result<Value, Stop> {
-        let layout = Layout { named: &self.named };
+        let layout = Layout { named: &self.named, big_endian: self.memory.big_endian() };
         if cast == Cast::Bitcast {
             let bytes = v.to_bytes(from, &layout);
             if bytes.len() != layout.size(to) as usize {
@@ -849,7 +856,7 @@ impl<'m> Vm<'m> {
     fn intrinsic(&self, name: &str, ty: &FnType, args: &[Value]) -> Result<Option<Value>, Stop> {
         let Some(rest) = name.strip_prefix("llvm.") else { return Ok(None) };
         let (op, _suffix) = rest.split_once('.').unwrap_or((rest, ""));
-        let layout = Layout { named: &self.named };
+        let layout = Layout { named: &self.named, big_endian: self.memory.big_endian() };
         let bits = layout.bits(&ty.ret);
         let arg = |n: usize| args.get(n).map_or(0, Value::as_u128) & mask(bits);
         let farg = |n: usize| args.get(n).map_or(0.0, Value::as_f64);

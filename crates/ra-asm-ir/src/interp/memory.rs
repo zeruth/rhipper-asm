@@ -106,6 +106,10 @@ pub struct Memory {
     written: Option<BTreeSet<u64>>,
     /// The device registers, which an access reaches ahead of the regions.
     devices: Vec<Mapped>,
+    /// The byte order of the program's words: the module's, which [`Memory::read_word`] and
+    /// [`Memory::write_word`] follow; the fixed-width accessors stay in the host's order, the
+    /// order of the machine state.
+    big_endian: bool,
 }
 
 /// The page the writes are tracked by.
@@ -114,6 +118,16 @@ const PAGE: u64 = 0x1000;
 impl Memory {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Whether the program's words are big-endian.
+    pub fn big_endian(&self) -> bool {
+        self.big_endian
+    }
+
+    /// Sets the byte order of the program's words, as the module's data layout gives it.
+    pub fn set_big_endian(&mut self, big: bool) {
+        self.big_endian = big;
     }
 
     pub fn set_probe(&mut self, probe: Probe) {
@@ -286,9 +300,17 @@ impl Memory {
         Ok(u64::from_le_bytes(b))
     }
 
-    /// A word of `bytes` bytes (4 or 8), zero-extended.
+    /// A word of the program of `bytes` bytes (4 or 8) in its byte order, zero-extended.
     pub fn read_word(&mut self, address: u64, bytes: u64) -> Result<u64, Stop> {
-        if bytes == 4 { self.read_u32(address).map(u64::from) } else { self.read_u64(address) }
+        if bytes == 4 {
+            let mut b = [0u8; 4];
+            self.read(address, &mut b)?;
+            Ok(u64::from(if self.big_endian { u32::from_be_bytes(b) } else { u32::from_le_bytes(b) }))
+        } else {
+            let mut b = [0u8; 8];
+            self.read(address, &mut b)?;
+            Ok(if self.big_endian { u64::from_be_bytes(b) } else { u64::from_le_bytes(b) })
+        }
     }
 
     pub fn write_u8(&mut self, address: u64, v: u8) -> Result<(), Stop> {
@@ -307,8 +329,14 @@ impl Memory {
         self.write(address, &v.to_le_bytes())
     }
 
+    /// A word of the program of `bytes` bytes (4 or 8) in its byte order, truncated.
     pub fn write_word(&mut self, address: u64, bytes: u64, v: u64) -> Result<(), Stop> {
-        if bytes == 4 { self.write_u32(address, v as u32) } else { self.write_u64(address, v) }
+        match (bytes == 4, self.big_endian) {
+            (true, true) => self.write(address, &(v as u32).to_be_bytes()),
+            (true, false) => self.write(address, &(v as u32).to_le_bytes()),
+            (false, true) => self.write(address, &v.to_be_bytes()),
+            (false, false) => self.write(address, &v.to_le_bytes()),
+        }
     }
 
     /// The bytes of a NUL-terminated string at `address`, without the NUL; at most `limit` bytes.
