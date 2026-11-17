@@ -279,6 +279,10 @@ enum Command {
         /// The lines of context around each change of the IR diff.
         #[arg(long, default_value_t = 3)]
         context: usize,
+        /// Compare two sessions of a program instead (the original's and the port's): `equal, N
+        /// events` or the first event that differs, with the function that made it on each side.
+        #[arg(long, conflicts_with_all = ["structure", "ir"])]
+        sessions: bool,
     },
     /// The steps from the reference binary to a running port: unpack (of a packed reference),
     /// analyze, lift, emit, build and run, in the project whose `rhipper.json` is in `--project` (the current directory without it).
@@ -594,7 +598,10 @@ fn command() -> anyhow::Result<()> {
             let hi = hi.as_deref().map(disasm::parse_address).transpose()?;
             xrefs::xrefs(&load(&pe, sigs)?, lo, hi, json)
         }
-        Command::Diff { old, new, structure, ir, context } => {
+        Command::Diff { old, new, structure, ir, context, sessions } => {
+            if sessions {
+                return diff::sessions(&old, &new, json);
+            }
             let options = diff::Options { symbols: !structure, ir: ir.then_some(context), json };
             diff::diff(&load(&old, sigs)?, &load(&new, sigs)?, &options)
         }

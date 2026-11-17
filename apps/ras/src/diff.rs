@@ -2,11 +2,15 @@
 //! [`ra_asm_analysis::matching`]), the changed functions ranked by how much of their code changed,
 //! with the diff of their raised IR on request, and the functions one build has alone: a patch
 //! reads as the functions it touched. `ras serve` answers the same JSON for the workbench.
+//!
+//! `ras diff --sessions` compares two sessions of a program instead (the original's and the
+//! port's): equal, or the first event that differs with the function that made it on each side.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
+use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use ra_asm_analysis::Analysis;
 use ra_asm_analysis::matching::{self, Pair};
 use serde_json::{Value, json};
@@ -139,6 +143,120 @@ fn renamed(text: &str, renames: &HashMap<u64, u64>) -> String {
         rest = &rest[digits..];
     }
     out.push_str(rest);
+    out
+}
+
+/// The first lines of the sessions `ras diff --sessions` reads: the interpreter's and a port's.
+const SESSION_HEADERS: [&str; 2] = ["ra-session 1", "ra-port-session 1"];
+
+/// One event of a session: a call, a window procedure called back or its return, with the
+/// write lines after it and the function that made it.
+struct Event<'a> {
+    line: usize,
+    text: &'a str,
+    writes: Vec<&'a str>,
+    /// The program, or the window procedure whose callback the event falls in: a session records
+    /// no call site, so the procedure is the nearest function both sides name alike.
+    caller: String,
+}
+
+impl Event<'_> {
+    fn json(&self) -> Value {
+        json!({"line": self.line, "event": self.text, "writes": self.writes, "caller": self.caller})
+    }
+}
+
+/// Compares the sessions at `a` and `b` and prints `equal, N events` or the first event that
+/// differs on each side.
+pub(crate) fn sessions(a: &Path, b: &Path, json: bool) -> Result<()> {
+    let read = |path: &Path| std::fs::read_to_string(path).with_context(|| format!("cannot read the session {}", path.display()));
+    let (a_text, b_text) = (read(a)?, read(b)?);
+    let ((a_header, a_events), (b_header, b_events)) = (events_of(a, &a_text)?, events_of(b, &b_text)?);
+    if a_header != b_header {
+        bail!("{} is a `{a_header}` and {} a `{b_header}`: only sessions of one kind compare", a.display(), b.display());
+    }
+    let value = sessions_json(&a_events, &b_events);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
+    print!("{}", sessions_text(&value, (&a.display().to_string(), &b.display().to_string())));
+    Ok(())
+}
+
+/// The header and the events of a session's `text`, a line ending in CRLF read as one in LF.
+fn events_of<'a>(path: &Path, text: &'a str) -> Result<(&'a str, Vec<Event<'a>>)> {
+    let mut lines = text.lines().enumerate().map(|(index, line)| (index + 1, line.trim_end_matches('\r')));
+    let Some(header) = lines.next().map(|(_, line)| line).filter(|line| SESSION_HEADERS.contains(line)) else {
+        bail!("{}: the first line is not `{}`", path.display(), SESSION_HEADERS.join("` or `"));
+    };
+    let mut events: Vec<Event<'a>> = Vec::new();
+    let mut procedures: Vec<&str> = Vec::new();
+    for (line, text) in lines {
+        if text.is_empty() {
+            continue;
+        }
+        if let Some(write) = text.strip_prefix("  write ") {
+            let Some(event) = events.last_mut() else {
+                bail!("{}, line {line}: a write before the first event", path.display());
+            };
+            event.writes.push(write);
+            continue;
+        }
+        let caller = procedures.last().map_or_else(|| "the program".to_owned(), |procedure| format!("the window procedure {procedure}"));
+        if let Some(rest) = text.strip_prefix("back ") {
+            procedures.push(rest.split(' ').next().unwrap_or_default());
+        } else if text == "ret" || text.starts_with("ret ") {
+            if procedures.pop().is_none() {
+                bail!("{}, line {line}: a return outside any callback", path.display());
+            }
+        } else if !text.starts_with("call ") {
+            bail!("{}, line {line}: `{text}` is neither a call, a write, a callback nor a return", path.display());
+        }
+        events.push(Event { line, text, writes: Vec::new(), caller });
+    }
+    Ok((header, events))
+}
+
+/// `equal` with the count of events, or the number from one of the first event whose line or
+/// writes differ and that event on each side (none past a side's last).
+fn sessions_json(a: &[Event<'_>], b: &[Event<'_>]) -> Value {
+    let same = |i: usize| match (a.get(i), b.get(i)) {
+        (Some(a), Some(b)) => a.text == b.text && a.writes == b.writes,
+        _ => false,
+    };
+    match (0..a.len().max(b.len())).find(|&i| !same(i)) {
+        None => json!({"equal": true, "events": a.len()}),
+        Some(i) => json!({
+            "equal": false,
+            "event": i + 1,
+            "a": a.get(i).map(Event::json),
+            "b": b.get(i).map(Event::json),
+            "a_events": a.len(),
+            "b_events": b.len(),
+        }),
+    }
+}
+
+/// The comparison for a person, each side under its file's name.
+fn sessions_text(value: &Value, names: (&str, &str)) -> String {
+    if value["equal"] == true {
+        return format!("equal, {} events\n", value["events"]);
+    }
+    let mut out = String::new();
+    let _ = writeln!(out, "event {} differs", value["event"]);
+    for (side, name) in [("a", names.0), ("b", names.1)] {
+        let event = &value[side];
+        if event.is_null() {
+            let _ = writeln!(out, "  {name}: past its last event, of {}", value[format!("{side}_events")]);
+            continue;
+        }
+        let s = |v: &Value| v.as_str().unwrap_or_default().to_owned();
+        let _ = writeln!(out, "  {name}, line {}, in {}: {}", event["line"], s(&event["caller"]), s(&event["event"]));
+        for write in event["writes"].as_array().into_iter().flatten() {
+            let _ = writeln!(out, "      write {}", s(write));
+        }
+    }
     out
 }
 
