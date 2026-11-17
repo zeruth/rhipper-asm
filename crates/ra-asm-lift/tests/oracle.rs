@@ -122,9 +122,12 @@ fn allegrex_integer_ops() {
 
 /// The PSP hello from its `module_start`, at the machine level over the mapped module: the thread
 /// the start creates, the C library's set-up in it (its locks, its descriptors, its heap) and the
-/// program's writes, to `sceKernelExitGame`; what it prints is `testdata/psp/hello.txt`.
+/// program's writes, to `sceKernelExitGame`; what it prints is `testdata/psp/hello.txt`. The calls
+/// across the boundary show the prints are `sceIoWrite`s on descriptor 1, each answered with its
+/// length, and that the run ended in `sceKernelExitGame`, not in `main`'s return.
 #[test]
 fn psp_hello_prints() {
+    use ra_asm_ir::interp::{Stop, Value};
     let image = ra_asm_pe::load(&root().join("testdata/psp/hello.prx")).unwrap();
     let analysis = ra_asm_analysis::analyze(&image);
     let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
@@ -134,10 +137,21 @@ fn psp_hello_prints() {
     let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
     let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
     lifted.entry = Some(PSP_ENTRY);
-    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let run_options = ra_asm_lift::run::Options { session: true, ..ra_asm_lift::run::Options::default() };
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &run_options).unwrap();
     assert_eq!(outcome.stop, None, "the run stopped ({} steps)", outcome.steps);
+    assert_eq!(outcome.exit, 0);
     let expected = std::fs::read_to_string(root().join("testdata/psp/hello.txt")).unwrap().replace("\r\n", "\n");
     assert_eq!(String::from_utf8_lossy(&outcome.output), expected);
+    let writes: Vec<_> = outcome.boundary.iter().filter(|c| c.name == "sceIoWrite").collect();
+    assert_eq!(writes.len(), 2, "the greeting and the number");
+    for call in writes {
+        let (fd, length) = (call.args[0].as_u64() as u32, call.args[2].as_u64() as u32);
+        assert_eq!(fd, 1, "a write to standard output");
+        assert!(matches!(call.result, Ok(Value::Int(n)) if n == u128::from(length)), "{:?} for {length} bytes", call.result);
+    }
+    let last = outcome.boundary.last().map(|c| (c.name.as_str(), &c.result));
+    assert!(matches!(last, Some(("sceKernelExitGame", Err(Stop::Exit(0))))), "the last call: {last:?}");
 }
 
 // endregion
