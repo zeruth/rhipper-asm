@@ -14,6 +14,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | control32.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 66 | 0 | 133 | 685 | 0.0 | 424.8 |
 | control64-O1.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 32 | 0 | 68 | 343 | 0.0 | 393.6 |
 | control64.exe | ok | 15 | 15 | 15 | 0 | 0 | 14 | 14 | 66 | 0 | 133 | 365 | 0.0 | 397.3 |
+| control_mips | ok | 23 | 23 | 23 | 1 | 1 | 17 | 17 | 11 | 0 | 70 | 496 | 2.0 | 350.8 |
 | control_mipsel | ok | 23 | 23 | 23 | 1 | 1 | 17 | 17 | 11 | 0 | 70 | 498 | 2.0 | 451.8 |
 | crt64.exe | ok | 15 | 15 | 15 | 0 | 0 | 3 | 3 | 4 | 0 | 8 | 1388 | 0.0 | 2792.5 |
 | dispatch32.exe | ok | 8 | 8 | 8 | 0 | 0 | 8 | 8 | 15 | 0 | 33 | 268 | 0.0 | 276.1 |
@@ -37,6 +38,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | hello_linux_a64 | ok | 5 | 5 | 5 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 160 | 0.0 | 312.5 |
 | hello_macos_arm64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 2 | 100 | 0.0 | 200.0 |
 | hello_macos_x64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 109 | 0.0 | 119.3 |
+| hello_mips | ok | 8 | 8 | 8 | 1 | 1 | 4 | 4 | 3 | 0 | 5 | 148 | 0.0 | 236.5 |
 | hello_mipsel | ok | 8 | 8 | 8 | 1 | 1 | 4 | 4 | 3 | 0 | 5 | 143 | 0.0 | 244.8 |
 | hello_psx.exe | ok | 6 | 6 | 6 | 0 | 0 | 6 | 6 | 6 | 0 | 10 | 153 | 0.0 | 300.7 |
 | helloa64.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 1 | 87 | 0.0 | 183.9 |
@@ -60,7 +62,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 373 | 0.0 | 745.3 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 261 | 0.0 | 375.5 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 165 | 0.0 | 472.7 |
-| total | 51/54 ok | 351 | 351 | 351 | 5 | 5 | 288 | 290 | 844 | 0 | 1882 | 60481 | 0.5 | 727.9 |
+| total | 53/56 ok | 382 | 382 | 382 | 7 | 7 | 309 | 311 | 858 | 0 | 1957 | 61125 | 0.5 | 723.7 |
 
 | pending list | entries |
 |---|---|
