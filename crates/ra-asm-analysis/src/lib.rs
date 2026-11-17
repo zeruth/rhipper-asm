@@ -56,9 +56,11 @@ pub fn arch_of(image: &Image) -> Box<dyn Arch> {
     match image.machine() {
         Machine::Arm64 => Box::new(ra_asm_arm64::Arm64),
         Machine::Arm => Box::new(ra_asm_arm64::thumb::Thumb),
-        Machine::Mips | Machine::Other(EM_MIPS) => {
-            Box::new(ra_asm_mips::Mips { big_endian: image.big_endian(), r5900: image.platform() == Some("ps2") })
-        }
+        Machine::Mips | Machine::Other(EM_MIPS) => Box::new(ra_asm_mips::Mips {
+            big_endian: image.big_endian(),
+            r5900: image.platform() == Some("ps2"),
+            allegrex: image.platform() == Some("psp"),
+        }),
         _ => Box::new(ra_asm_x86::X86::for_pointer_size(image.pointer_size())),
     }
 }

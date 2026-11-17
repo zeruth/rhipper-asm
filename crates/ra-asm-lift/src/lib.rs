@@ -793,8 +793,10 @@ fn lift_on(
                 import_wrapper(symbol, *offset, *tail, lifted.bits, lifted.x87, convention)
             }
             Isa::Arm64 => arm64::import_wrapper(symbol, lifted.x87),
-            // The Thumb-2 and MIPS lifts call no import: they trap at a call they cannot resolve.
-            Isa::Arm32 | Isa::Mips | Isa::MipsN32 => continue,
+            // The MIPS lift calls an import only from a PSP module's stubs.
+            Isa::Mips | Isa::MipsN32 => mips::import_wrapper(symbol, lifted.x87, isa),
+            // The Thumb-2 lift calls no import: it traps at a call it cannot resolve.
+            Isa::Arm32 => continue,
         };
         lifted.module.functions.push(wrapper);
     }

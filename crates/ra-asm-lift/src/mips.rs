@@ -32,6 +32,13 @@
 //! the runtime's `ra_f32_ftz_*` on the registers' bits, and its accumulator, which the
 //! multiply-adds keep, is a field of the state. The VU0 macro instructions of coprocessor 2 and
 //! the EE kernel's `syscall` trap with their address.
+//!
+//! A PSP program runs on the Allegrex, MIPS II with the `SPECIAL` and `SPECIAL3` forms of
+//! MIPS32 release 2 (`ext`, `ins`, `seb`, `seh`, `wsbh`, `bitrev`, the rotates) and its own
+//! (`min`, `max`, `clz`, `clo`, `madd`, `msub`) in the encodings MIPS III gives its doubleword
+//! operations, which it lacks; the VFPU traps with its address. An import's stub, the
+//! `jr $ra` over the `syscall` the kernel writes when it loads the module, is the call on the
+//! import its NID names.
 #![allow(clippy::many_single_char_names)]
 
 use std::collections::HashMap;
@@ -71,6 +78,7 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
     }
     let (x87, isa) = (lifted.x87, lifted.isa);
     let r3000 = image.platform() == Some("psx");
+    let allegrex = image.platform() == Some("psp");
     let r5900 = image.platform() == Some("ps2");
     let mut lifter = Lifter {
         m: Machine { b: &mut b, state, bits: 32, x87, isa },
@@ -81,10 +89,19 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         jump_target: None,
         consts: HashMap::new(),
         r3000,
+        allegrex,
         r5900,
     };
-    for blk in &f.blocks {
-        lifter.lift_block(blk);
+    // A PSP import's stub holds the `syscall` the kernel writes only once it loads the module.
+    let import = image.imports.iter().find(|i| allegrex && i.iat_va == f.entry).and_then(|i| i.name.clone());
+    if let Some(import) = import {
+        let block = lifter.blocks[&f.entry];
+        lifter.import_call(block, &import);
+        lifter.m.b.terminate(block, Terminator::Ret(None));
+    } else {
+        for blk in &f.blocks {
+            lifter.lift_block(blk);
+        }
     }
     let mut built = b.finish();
     // A function that never returns has no `ret` to come back through.
@@ -180,6 +197,8 @@ struct Lifter<'a, 'b> {
     consts: HashMap<u8, u32>,
     /// A `PlayStation` program: the R3000, with the GTE and no FPU.
     r3000: bool,
+    /// A PSP program: the Allegrex, whose own `SPECIAL` and `SPECIAL3` forms replace MIPS III's.
+    allegrex: bool,
     /// A `PlayStation 2` program: the R5900, with its 128-bit registers and multimedia
     /// instructions.
     r5900: bool,
@@ -481,7 +500,8 @@ impl Lifter<'_, '_> {
             0 => Some(w.rd()),
             1 if rt & 16 != 0 => Some(RA),
             3 => Some(RA),
-            8..=15 | 24..=27 | 32..=39 | 48 | 52 | 55 | 56 | 60 => Some(rt),
+            31 if w.funct() == 0x20 => Some(w.rd()),
+            8..=15 | 24..=27 | 31 | 32..=39 | 48 | 52 | 55 | 56 | 60 => Some(rt),
             16..=18 if rs < 4 => Some(rt),
             _ => None,
         };
@@ -497,6 +517,16 @@ impl Lifter<'_, '_> {
     fn call_lifted(&mut self, block: BlockId, target: u64) {
         let name = function_name(target);
         self.m.b.call(block, FnType::new(Type::Void, vec![Type::Ptr]), Callee::Direct(name), vec![(Type::Ptr, self.m.state.into())], "");
+    }
+
+    /// Calls an import through its wrapper, `imp_<name>(ptr %state)`, which reads `a0..a3` and
+    /// the stack past their home slots and leaves the result in `v0`: see [`import_wrapper`].
+    fn import_call(&mut self, block: BlockId, import: &str) {
+        let symbol = crate::x86::import_symbol(import);
+        self.lifted.imports.insert(symbol.clone());
+        self.lifted.wrappers.insert((symbol.clone(), 0, false));
+        let wrapper = crate::import_wrapper_name(&symbol, false);
+        self.m.b.call(block, FnType::new(Type::Void, vec![Type::Ptr]), Callee::Direct(wrapper), vec![(Type::Ptr, self.m.state.into())], "");
     }
 
     /// `call @ra_call(state, target)`: the runtime finds the lifted function at the address.
@@ -687,6 +717,10 @@ impl Lifter<'_, '_> {
             // The R3000 has no FPU.
             17 | 49 | 53 | 57 | 61 if self.r3000 => return self.unsupported(block, w, ip),
             18 | 50 | 58 if self.r3000 => return self.cop2(block, w, ip),
+            31 if self.allegrex => return self.special3(block, w, ip),
+            // The Allegrex gives the doubleword opcodes of MIPS III to the VFPU, which the lift
+            // does not read.
+            24 | 25 | 52 | 55 | 60 | 63 if self.allegrex => return self.unsupported(block, w, ip),
             28 if self.r5900 => return self.mmi(block, w, ip),
             17 if self.r5900 => return self.ee_cop1(block, w, ip),
             // The R5900's coprocessor 2 is VU0 in macro mode (`cop2`, `lqc2`, `sqc2`), and its
@@ -704,12 +738,12 @@ impl Lifter<'_, '_> {
                     self.m.store(block, Type::I128, v, aligned);
                 }
             }
-            // ldl, ldr, sdl, sdr: the doubleword merges of MIPS III.
-            26 | 27 if !self.r3000 => {
+            // ldl, ldr, sdl, sdr: the doubleword merges of MIPS III, which the Allegrex lacks.
+            26 | 27 if !self.r3000 && !self.allegrex => {
                 let addr = self.address(block, w);
                 self.unaligned_load(block, addr, rt, w.op() == 26, &Type::I64);
             }
-            44 | 45 if !self.r3000 => {
+            44 | 45 if !self.r3000 && !self.allegrex => {
                 let addr = self.address(block, w);
                 self.unaligned_store(block, addr, rt, w.op() == 44, &Type::I64);
             }
@@ -863,6 +897,45 @@ impl Lifter<'_, '_> {
         let funct = w.funct();
         let shift_op = || [BinOp::Shl, BinOp::Shl, BinOp::LShr, BinOp::AShr][(funct & 3) as usize];
         match funct {
+            // rotr, rotrv, of the Allegrex and MIPS32 release 2: `srl` with `rs` (or `srlv` with
+            // `sa`) at one.
+            2 | 6 if self.allegrex && (if funct == 2 { rs } else { sa }) == 1 => {
+                let v = self.reg32(block, rt);
+                let amount: Operand = if funct == 2 { i64::from(sa).into() } else { self.reg_masked(block, rs, Type::I32, 31).into() };
+                let r = self.m.intrinsic(
+                    block,
+                    "llvm.fshr.i32",
+                    Type::I32,
+                    vec![(Type::I32, v.into()), (Type::I32, v.into()), (Type::I32, amount)],
+                    "rotr",
+                );
+                self.set32(block, rd, r);
+            }
+            // The other values of those fields are reserved.
+            2 | 6 if self.allegrex && (if funct == 2 { rs } else { sa }) != 0 => return self.unsupported(block, w, ip),
+            // clz, clo: the leading zeros, or ones, of the word; 32 for a word of none.
+            22 | 23 if self.allegrex => {
+                let mut v = self.reg32(block, rs);
+                if funct == 23 {
+                    v = self.m.b.bin(block, BinOp::Xor, Type::I32, v, -1i64, "ones");
+                }
+                let r = self.m.intrinsic(block, "llvm.ctlz.i32", Type::I32, vec![(Type::I32, v.into()), (Type::I1, 0i64.into())], "count");
+                self.set32(block, rd, r);
+            }
+            // madd, maddu, msub, msubu: the 64-bit product of the words added to `hi:lo`, or
+            // taken from it.
+            28 | 29 | 46 | 47 if self.allegrex => self.multiply_accumulate(block, rs, rt, funct & 1 == 0, funct >= 46),
+            // max, min: of the signed words.
+            44 | 45 if self.allegrex => {
+                let a = self.reg32(block, rs);
+                let b = self.reg32(block, rt);
+                let cc = if funct == 44 { ICond::Sgt } else { ICond::Slt };
+                let c = self.m.b.icmp(block, cc, Type::I32, a, b, "pick");
+                let r = self.m.select(block, c, Type::I32, a, b, if funct == 44 { "max" } else { "min" });
+                self.set32(block, rd, r);
+            }
+            // The rest of MIPS III's doubleword functions are no Allegrex instruction.
+            20 | 30 | 31 | 56..=63 if self.allegrex => return self.unsupported(block, w, ip),
             0 | 2 | 3 | 4 | 6 | 7 => {
                 let v = self.reg32(block, rt);
                 let amount: Operand = if funct < 4 { i64::from(sa).into() } else { self.reg_masked(block, rs, Type::I32, 31).into() };
@@ -984,6 +1057,90 @@ impl Lifter<'_, '_> {
                 let cc = [ICond::Sge, ICond::Uge, ICond::Slt, ICond::Ult, ICond::Eq, ICond::Ne, ICond::Ne][(funct - 48) as usize];
                 let c = self.m.b.icmp(block, cc, Type::I64, a, b, "trap");
                 return self.trap_if(block, c, ip, trap::INT);
+            }
+            _ => return self.unsupported(block, w, ip),
+        }
+        block
+    }
+
+    /// `hi:lo ±= rs * rt`, the words' product at 64 bits, signed or not; each half lands
+    /// sign-extended, as a 32-bit result does.
+    fn multiply_accumulate(&mut self, block: BlockId, rs: u8, rt: u8, signed: bool, subtract: bool) {
+        let cast = if signed { Cast::SExt } else { Cast::ZExt };
+        let a = self.reg32(block, rs);
+        let b = self.reg32(block, rt);
+        let a = self.m.b.cast(block, cast, Type::I32, a, Type::I64, "a");
+        let b = self.m.b.cast(block, cast, Type::I32, b, Type::I64, "b");
+        let product = self.m.b.bin(block, BinOp::Mul, Type::I64, a, b, "product");
+        let hi = self.field(block, MIPS_HI);
+        let lo = self.field(block, MIPS_LO);
+        let high = self.m.b.bin(block, BinOp::Shl, Type::I64, hi, 32i64, "acc.hi");
+        let low = self.m.b.bin(block, BinOp::And, Type::I64, lo, 0xffff_ffff_i64, "acc.lo");
+        let acc = self.m.b.bin(block, BinOp::Or, Type::I64, high, low, "acc");
+        let acc = self.m.b.bin(block, if subtract { BinOp::Sub } else { BinOp::Add }, Type::I64, acc, product, "acc");
+        let lo = self.m.b.cast(block, Cast::Trunc, Type::I64, acc, Type::I32, "lo");
+        let high = self.m.b.bin(block, BinOp::LShr, Type::I64, acc, 32i64, "high");
+        let hi = self.m.b.cast(block, Cast::Trunc, Type::I64, high, Type::I32, "hi");
+        self.set_field(block, MIPS_LO, &Type::I32, lo);
+        self.set_field(block, MIPS_HI, &Type::I32, hi);
+    }
+
+    /// The Allegrex's `SPECIAL3`: `ext` and `ins` on a range of bits, and the byte and bit
+    /// shuffles of `BSHFL` (`wsbh`, `wsbw`, `seb`, `bitrev`, `seh`). A range past the word's
+    /// end, and another shuffle, are unpredictable or reserved and trap.
+    fn special3(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
+        let (rs, rt, rd, sa) = (w.rs(), w.rt(), w.rd(), u32::from(w.sa()));
+        let msb = u32::from(rd);
+        match w.funct() {
+            0 if sa + msb < 32 => {
+                let mask = (1u64 << (msb + 1)) - 1;
+                let v = self.reg32(block, rs);
+                let shifted = self.m.b.bin(block, BinOp::LShr, Type::I32, v, i64::from(sa), "ext.at");
+                let r = self.m.b.bin(block, BinOp::And, Type::I32, shifted, i64::from(mask as u32 as i32), "ext");
+                self.set32(block, rt, r);
+            }
+            4 if msb >= sa => {
+                let mask = (((1u64 << (msb - sa + 1)) - 1) << sa) as u32;
+                let from = self.reg32(block, rs);
+                let old = self.reg32(block, rt);
+                let moved = self.m.b.bin(block, BinOp::Shl, Type::I32, from, i64::from(sa), "ins.at");
+                let field = self.m.b.bin(block, BinOp::And, Type::I32, moved, i64::from(mask as i32), "ins.field");
+                let kept = self.m.b.bin(block, BinOp::And, Type::I32, old, i64::from(!mask as i32), "ins.kept");
+                let r = self.m.b.bin(block, BinOp::Or, Type::I32, kept, field, "ins");
+                self.set32(block, rt, r);
+            }
+            0x20 if rs == 0 => {
+                let v = self.reg32(block, rt);
+                let r = match sa {
+                    0x02 => {
+                        let up = self.m.b.bin(block, BinOp::Shl, Type::I32, v, 8i64, "wsbh.up");
+                        let up = self.m.b.bin(block, BinOp::And, Type::I32, up, i64::from(0xff00_ff00_u32 as i32), "wsbh.hi");
+                        let down = self.m.b.bin(block, BinOp::LShr, Type::I32, v, 8i64, "wsbh.down");
+                        let down = self.m.b.bin(block, BinOp::And, Type::I32, down, 0x00ff_00ff_i64, "wsbh.lo");
+                        self.m.b.bin(block, BinOp::Or, Type::I32, up, down, "wsbh")
+                    }
+                    0x03 => self.m.intrinsic(block, "llvm.bswap.i32", Type::I32, vec![(Type::I32, v.into())], "wsbw"),
+                    0x10 | 0x18 => {
+                        let narrow = if sa == 0x10 { Type::I8 } else { Type::I16 };
+                        let part = self.m.b.cast(block, Cast::Trunc, Type::I32, v, narrow.clone(), "part");
+                        self.m.b.cast(block, Cast::SExt, narrow, part, Type::I32, "sext")
+                    }
+                    // bitrev: the bits of each byte swapped in pairs, nibbles' pairs and nibbles,
+                    // then the bytes.
+                    0x14 => {
+                        let mut v = v;
+                        for (shift, mask) in [(1i64, 0x5555_5555_i64), (2, 0x3333_3333), (4, 0x0f0f_0f0f)] {
+                            let down = self.m.b.bin(block, BinOp::LShr, Type::I32, v, shift, "bitrev.down");
+                            let down = self.m.b.bin(block, BinOp::And, Type::I32, down, mask, "bitrev.lo");
+                            let up = self.m.b.bin(block, BinOp::And, Type::I32, v, mask, "bitrev.kept");
+                            let up = self.m.b.bin(block, BinOp::Shl, Type::I32, up, shift, "bitrev.up");
+                            v = self.m.b.bin(block, BinOp::Or, Type::I32, up, down, "bitrev");
+                        }
+                        self.m.intrinsic(block, "llvm.bswap.i32", Type::I32, vec![(Type::I32, v.into())], "bitrev")
+                    }
+                    _ => return self.unsupported(block, w, ip),
+                };
+                self.set32(block, rd, r);
             }
             _ => return self.unsupported(block, w, ip),
         }
@@ -1770,4 +1927,40 @@ fn ty_lanes(ty: &Type) -> u32 {
 /// The integer and the float type of a single or a double.
 fn float_types(double: bool) -> (Type, Type) {
     if double { (Type::I64, Type::Double) } else { (Type::I32, Type::Float) }
+}
+
+/// Builds the wrapper of an import for o32: the four words of `a0..a3` and the four the caller
+/// left past their home slots on its stack go to the import as the adapter's eight integers, and
+/// the word of its result lands in `v0`, sign-extended as a 32-bit result is.
+pub fn import_wrapper(symbol: &str, x87: crate::x87::X87Unit, isa: Isa) -> ra_asm_ir::Function {
+    let name = crate::import_wrapper_name(symbol, false);
+    let mut b = FunctionBuilder::new(&name, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
+    b.set_linkage(ra_asm_ir::Linkage::Internal);
+    let state = b.param(0);
+    let block = b.block("entry");
+    let mut m = Machine { b: &mut b, state, bits: 32, x87, isa };
+    let mut args = Vec::with_capacity(8);
+    for n in 4..8 {
+        let p = m.gpr_ptr(block, n);
+        let v = m.b.load(block, Type::I64, p, "arg");
+        args.push((Type::I64, v.into()));
+    }
+    let p = m.gpr_ptr(block, 29);
+    let sp = m.b.load(block, Type::I64, p, "sp");
+    for slot in 4..8i64 {
+        let addr = m.b.bin(block, BinOp::Add, Type::I64, sp, slot * 4, "arg.p");
+        let addr = m.b.cast(block, Cast::Trunc, Type::I64, addr, Type::I32, "arg.w");
+        let v = m.load(block, Type::I32, addr, "arg");
+        let v = m.b.cast(block, Cast::SExt, Type::I32, v, Type::I64, "arg.x");
+        args.push((Type::I64, v.into()));
+    }
+    let result = m.b.call(block, crate::state::import_adapter_type(), Callee::Direct(symbol.to_owned()), args, "ret");
+    if let Some(result) = result {
+        let word = m.b.cast(block, Cast::Trunc, Type::I64, result, Type::I32, "v0.w");
+        let v0 = m.b.cast(block, Cast::SExt, Type::I32, word, Type::I64, "v0");
+        let p = m.gpr_ptr(block, 2);
+        m.b.store(block, Type::I64, v0, p);
+    }
+    b.terminate(block, Terminator::Ret(None));
+    b.finish()
 }

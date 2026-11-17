@@ -356,9 +356,12 @@ fn run_here(
     call: Option<&Call>,
 ) -> Result<(Outcome, u64)> {
     let base = image.image_base();
-    let size = u64::from(image.size_of_image()).div_ceil(0x10000) * 0x10000;
+    // The mapping starts at the 64 KB granule that holds the base: a PSP module loads at
+    // `0x08804000`, past the granule's start.
+    let granule = base & !0xffff;
+    let size = (base - granule + u64::from(image.size_of_image())).div_ceil(0x10000) * 0x10000;
     // A PlayStation program has the console's RAM, the kernel's part below its text with it.
-    let (start, len) = if image.platform() == Some("psx") { (PSX_RAM, PSX_RAM_SIZE) } else { (base, size) };
+    let (start, len) = if image.platform() == Some("psx") { (PSX_RAM, PSX_RAM_SIZE) } else { (granule, size) };
     let image_region = patiently(|| os::allocate_at(start, len))
         .ok_or_else(|| anyhow!("cannot map the image at {base:#x}: the address is taken in this process"))?;
     // A PlayStation 2's hardware registers from 256 MB, which its device answers ahead of the

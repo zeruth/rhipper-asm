@@ -12,11 +12,8 @@ workspace = true
 
 [features]
 # The slow tier: the oracle lifts every fixture at each level, compiles the IR with clang and runs it.
+# The `oracle` test target builds without it: its instruction oracles need no tool.
 oracle = []
-
-[[test]]
-name = "oracle"
-required-features = ["oracle"]
 
 # The native x86 instruction oracle (Windows, two minutes): the vector files it writes replay in
 # `vectors` on any host in the fast tier.

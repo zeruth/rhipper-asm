@@ -1,0 +1,782 @@
+//! The execution oracle: a fixture is lifted, compiled with clang against the driver and run, and
+//! its output is compared with the native program's. The IR gate (`clang -c -x ir`) runs on every
+//! fixture; the clang run needs the C runtime and skips without it. The runs of the same fixtures
+//! through the IR interpreter, which need no clang, are in `interp.rs`.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn fixture(name: &str) -> PathBuf {
+    root().join("testdata/bin").join(name)
+}
+
+/// The one skip a missing tool does not explain: a program of another system, which this host
+/// cannot run. On a host that is not `native` it says on stderr why `what` is skipped, and answers
+/// whether it is.
+fn foreign_host(native: bool, program: &str, why: &str, what: &str) -> bool {
+    if !native {
+        eprintln!("SKIPPED: {program}: {why}: {what} is skipped");
+    }
+    !native
+}
+
+/// The digest's comparison of a run's output with the native program's, the two whole sides and
+/// the digest line written under `failed`. The blank end of either side does not count.
+fn compare_output(failed: &Path, test: &str, expected: &str, actual: &str) -> Result<(), String> {
+    ra_asm_testing::digest::compare_in(failed, test, expected.trim_end(), actual.trim_end())
+}
+
+/// Fails `test` with the digest's one line when its output differs from the expected one; how
+/// the run ended goes to stderr before it, and both whole sides are under `out/failed`.
+fn assert_output(test: &str, expected: &str, actual: &str, ended: &str) {
+    if let Err(line) = compare_output(&ra_asm_testing::digest::failed_dir(), test, expected, actual) {
+        eprintln!("{test}: {ended}");
+        panic!("{line}");
+    }
+}
+
+/// A test's own directory under the system temp, removed when the guard drops; `RA_KEEP_SCRATCH`
+/// keeps it for a person to read.
+fn scratch(name: &str) -> ra_asm_testing::Scratch {
+    ra_asm_testing::Scratch::new("ra-asm-lift-tests", name)
+}
+
+/// A fixture lifted and raised to the level the tag names.
+struct Raised {
+    image: ra_asm_pe::Image,
+    lifted: ra_asm_lift::Lifted,
+    signatures: std::collections::HashMap<String, ra_asm_lift::raise::abi::Signature>,
+    level: ra_asm_lift::RaiseLevel,
+}
+
+/// Lifts `binary` to the level and the x87 unit the tag names. The machine IR, the promoted IR
+/// and the ABI IR must all run; the tag picks one. The ABI IR stands alone: its data are globals
+/// and it never maps the image. The exact x87 unit when the tag asks for it.
+fn raise(binary: &str, tag: &str) -> Raised {
+    let image = ra_asm_pe::load(&fixture(binary)).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let level = if tag.contains("machine") {
+        ra_asm_lift::RaiseLevel::Machine
+    } else if tag.contains("promoted") {
+        ra_asm_lift::RaiseLevel::Promoted
+    } else {
+        ra_asm_lift::RaiseLevel::Abi
+    };
+    let x87 = if tag.contains("exact") { ra_asm_lift::X87Unit::Exact } else { ra_asm_lift::X87Unit::Double };
+    let options = ra_asm_lift::LiftOptions { standalone: level == ra_asm_lift::RaiseLevel::Abi, x87 };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let options = lifted.raise_options(level);
+    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.apply_names(&analysis, Some(&mut signatures));
+    Raised { image, lifted, signatures, level }
+}
+
+/// Lifts `binary` into a directory with `program.ll`, `image.bin` and `image.h`.
+fn lift_to(binary: &str, tag: &str) -> (ra_asm_testing::Scratch, ra_asm_lift::Lifted) {
+    let Raised { image, lifted, signatures, level } = raise(binary, tag);
+    let analysis = ra_asm_analysis::analyze(&image);
+    // The tests run in parallel: each one writes its own directory.
+    let dir = scratch(&format!("{tag}-{binary}"));
+    std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
+    std::fs::write(dir.join("image.bin"), image.mapped()).unwrap();
+    // The program's resources, linked into the port as the C port links them.
+    if !image.resources.is_empty() {
+        std::fs::write(dir.join("resources.res"), ra_asm_pe::resources::res_file(&image)).unwrap();
+    }
+    let abi = (level == ra_asm_lift::RaiseLevel::Abi).then_some(&signatures);
+    std::fs::write(dir.join("image.h"), ra_asm_lift::image_header(&image, &analysis, &lifted, abi)).unwrap();
+    (dir, lifted)
+}
+
+/// A host without the Windows DLLs answers only the imports the interpreter runs itself: a run
+/// stopped at another one says so and is skipped there.
+fn stopped_for_dlls(binary: &str, outcome: &ra_asm_lift::run::Outcome) -> bool {
+    match &outcome.stop {
+        Some(stop) if stop.starts_with("no binding for ") => {
+            foreign_host(cfg!(windows), binary, &format!("{stop}; this host has no Windows DLLs"), "the interpreted run")
+        }
+        _ => false,
+    }
+}
+
+#[test]
+fn the_lifted_fixtures_pass_the_ir_gate() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    for (binary, tag) in [
+        ("hello64.exe", "gate-machine"),
+        ("hello64.exe", "gate-abi"),
+        ("control64.exe", "gate-abi"),
+        ("inline64.exe", "gate-abi"),
+        ("float64.exe", "gate-abi"),
+        ("exports64.dll", "gate-machine"),
+        ("exports64.dll", "gate-abi"),
+        ("tls64.exe", "gate-machine"),
+        ("tls32.exe", "gate-machine"),
+        ("crt64.exe", "gate-abi"),
+        ("throws64.exe", "gate-machine"),
+    ] {
+        let (dir, lifted) = lift_to(binary, tag);
+        assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(
+            check.status.success(),
+            "{binary}: clang -c on {}:\n{}",
+            dir.join("program.ll").display(),
+            String::from_utf8_lossy(&check.stderr)
+        );
+    }
+}
+
+/// The ARM64 build of hello lifts without a trap, over the mapped image and standalone, and its IR
+/// passes the gate. The run is `helloa64_runs_interpreted` in `interp.rs`.
+#[test]
+fn the_arm64_fixture_lifts_and_passes_the_ir_gate() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let image = ra_asm_pe::load(&fixture("helloa64.exe")).unwrap();
+    assert_eq!(image.machine(), ra_asm_pe::Machine::Arm64);
+    let analysis = ra_asm_analysis::analyze(&image);
+    for standalone in [false, true] {
+        let options = ra_asm_lift::LiftOptions { standalone, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+        assert_eq!(lifted.isa, ra_asm_lift::Isa::Arm64);
+        assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+        let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+        assert_eq!(coverage.traps(), 0, "unsupported instructions: {:?}", coverage.uncovered);
+        lifted.apply_names(&analysis, None);
+        let ll = lifted.module.to_ll();
+        assert!(ll.contains("target triple = \"aarch64-pc-windows-msvc\""));
+        // The three imports are called through their wrappers, found through the adrp/ldr pair.
+        for import in ["GetStdHandle", "WriteFile", "ExitProcess"] {
+            assert!(lifted.imports.contains(import), "{import} is called: {:?}", lifted.imports);
+        }
+        let dir = scratch(&format!("gate-arm64-{standalone}-helloa64"));
+        std::fs::write(dir.join("program.ll"), &ll).unwrap();
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
+    }
+    // The ABI level: AAPCS64 signatures, the imports called by their prototypes.
+    let Raised { lifted, signatures, .. } = raise("helloa64.exe", "gate-abi");
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    assert!(!signatures.is_empty(), "the ARM64 raise inferred no signature");
+    let ll = lifted.module.to_ll();
+    let dir = scratch("gate-arm64-abi-helloa64");
+    std::fs::write(dir.join("program.ll"), &ll).unwrap();
+    let check =
+        Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+    assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
+}
+
+/// The ARM64 build of the float fixture: the scalar floating point lifts without a trap and
+/// passes the gate at the ABI level. The run is `floata64_runs_interpreted` in `interp.rs`.
+#[test]
+fn floata64_lifts_and_passes_the_ir_gate() {
+    let image = ra_asm_pe::load(&fixture("floata64.exe")).unwrap();
+    assert_eq!(image.machine(), ra_asm_pe::Machine::Arm64);
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+    assert_eq!(coverage.traps(), 0, "unsupported instructions: {:?}", coverage.uncovered);
+    if ra_asm_testing::tool("clang").is_some() {
+        let Raised { lifted, .. } = raise("floata64.exe", "gate-abi");
+        assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+        let dir = scratch("gate-arm64-abi-floata64");
+        std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
+    }
+}
+
+/// The Thumb-2 fixture, a static 32-bit ARM Linux program: it lifts without a trap (its IT block,
+/// its literal pool, its long multiply and its `svc`s included) and its IR passes the gate. The
+/// run is `thumb32_runs_interpreted` in `interp.rs`.
+#[test]
+fn thumb32_lifts_and_passes_the_ir_gate() {
+    let image = ra_asm_pe::load(&fixture("thumb32")).unwrap();
+    assert_eq!(image.machine(), ra_asm_pe::Machine::Arm);
+    let analysis = ra_asm_analysis::analyze(&image);
+    let lifted = ra_asm_lift::lift(&image, &analysis);
+    assert_eq!(lifted.isa, ra_asm_lift::Isa::Arm32);
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+    assert_eq!(coverage.traps(), 0, "unsupported instructions: {:?}", coverage.uncovered);
+    for entry in [0x20118u64, 0x2011c, 0x20124, 0x2013c, 0x20184] {
+        assert!(lifted.functions.contains_key(&entry), "no function at {entry:#x}: {:?}", lifted.functions);
+    }
+    if ra_asm_testing::tool("clang").is_some() {
+        let Raised { lifted, .. } = raise("thumb32", "gate-machine");
+        let dir = scratch("gate-machine-thumb32");
+        std::fs::write(dir.join("program.ll"), lifted.module.to_ll()).unwrap();
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
+    }
+}
+
+/// The Linux build of hello lifts without a trap at the machine level, over the mapped image and
+/// standalone: its imports are called through System V wrappers, which read `rdi` first, and its
+/// IR passes the gate. The run is [`hello_linux64_runs_lifted`], on a Linux host.
+#[test]
+fn the_linux_fixture_lifts_and_passes_the_ir_gate() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let image = ra_asm_pe::load(&fixture("hello_linux64")).unwrap();
+    assert!(image.elf.is_some() && image.machine() == ra_asm_pe::Machine::Amd64);
+    let analysis = ra_asm_analysis::analyze(&image);
+    for standalone in [false, true] {
+        let options = ra_asm_lift::LiftOptions { standalone, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+        assert!(lifted.sysv, "an ELF image's imports take the System V convention");
+        assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+        let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+        assert_eq!(coverage.traps(), 0, "unsupported instructions: {:?}", coverage.uncovered);
+        lifted.apply_names(&analysis, None);
+        for import in ["write", "exit"] {
+            assert!(lifted.imports.contains(import), "{import} is called: {:?}", lifted.imports);
+        }
+        let ll = lifted.module.to_ll();
+        // The wrapper of a call or of a tail call through the PLT stub: either reads `rdi` first.
+        let start =
+            ll.lines().position(|l| l.starts_with("define internal") && l.contains("imp_write")).expect("the wrapper of write is defined");
+        let wrapper: Vec<&str> = ll.lines().skip(start).take_while(|l| *l != "}").collect();
+        let wrapper = wrapper.join("\n");
+        let first_gpr = ["%rdi", "%rcx"].into_iter().filter_map(|r| wrapper.find(r).map(|at| (at, r))).min();
+        assert_eq!(first_gpr.map(|(_, r)| r), Some("%rdi"), "write's wrapper reads System V's registers:\n{wrapper}");
+        let dir = scratch(&format!("gate-linux-{standalone}-hello_linux64"));
+        std::fs::write(dir.join("program.ll"), &ll).unwrap();
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(check.status.success(), "clang -c on {}:\n{}", dir.join("program.ll").display(), String::from_utf8_lossy(&check.stderr));
+    }
+}
+
+/// The Linux fixture's port runs on an x86-64 Linux host, as the program itself does there.
+fn linux_host(what: &str) -> bool {
+    let linux = cfg!(all(target_os = "linux", target_arch = "x86_64"));
+    !foreign_host(linux, "hello_linux64", "a Linux x86-64 program, and the host is another", what)
+}
+
+/// The reference of the Linux fixture is what the program prints on Linux, over the host's C
+/// library rather than the stub it was linked against.
+#[test]
+fn hello_linux64_expected_is_the_native_output() {
+    if !linux_host("the native run") {
+        return;
+    }
+    // The fixture is tracked without the executable bit, which a Windows checkout cannot give it.
+    let dir = scratch("native-hello_linux64");
+    let exe = dir.join("hello_linux64");
+    std::fs::copy(fixture("hello_linux64"), &exe).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let run = Command::new(&exe).output().unwrap();
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello_linux.txt")).unwrap();
+    let ended = format!("exit {:?}, stderr: {}", run.status.code(), String::from_utf8_lossy(&run.stderr));
+    assert_output("hello_linux64: native", &expected, &String::from_utf8_lossy(&run.stdout), &ended);
+    assert!(run.status.success(), "hello_linux64: exit {:?}", run.status.code());
+}
+
+/// The Linux fixture lifted at the machine level, built by the host's clang beside the driver and
+/// run over the image: its imports bind to the host's C library by name, and it prints what the
+/// program prints.
+#[test]
+fn hello_linux64_runs_lifted() {
+    if !linux_host("the port's run") {
+        return;
+    }
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let binary = "hello_linux64";
+    let (dir, lifted) = lift_to(binary, "run-machine");
+    assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+    let exe = dir.join("lifted");
+    let build = Command::new("clang")
+        .args(["-O1", "-g", "-Wno-override-module"])
+        .arg(dir.join("program.ll"))
+        .arg(root().join("runtime/driver.c"))
+        .arg("-I")
+        .arg(&dir)
+        .arg("-o")
+        .arg(&exe)
+        .args(["-ldl", "-lm"])
+        .output()
+        .unwrap();
+    assert!(build.status.success(), "{binary}: clang link:\n{}", String::from_utf8_lossy(&build.stderr));
+    let run = Command::new(&exe).arg(dir.join("image.bin")).current_dir(&dir).output().unwrap();
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello_linux.txt")).unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    let ended = format!("exit {:?}, stderr: {stderr}", run.status.code());
+    assert_output(&format!("{binary}: lifted"), &expected, &String::from_utf8_lossy(&run.stdout), &ended);
+    assert!(run.status.success(), "{binary}: exit {:?}, stderr: {stderr}", run.status.code());
+}
+
+/// Lifts an ARM64 ELF fixture over the mapped image and standalone: no trap, no warning, the
+/// imports called through the PLT, and IR that passes the gate.
+fn gate_arm64_elf(binary: &str, imports: &[&str]) {
+    let image = ra_asm_pe::load(&fixture(binary)).unwrap();
+    assert!(image.elf.is_some() && image.machine() == ra_asm_pe::Machine::Arm64, "{binary}: an ARM64 ELF file");
+    let analysis = ra_asm_analysis::analyze(&image);
+    for standalone in [false, true] {
+        let options = ra_asm_lift::LiftOptions { standalone, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+        assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+        let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+        assert_eq!(coverage.traps(), 0, "{binary}: unsupported instructions: {:?}", coverage.uncovered);
+        lifted.apply_names(&analysis, None);
+        for import in imports {
+            assert!(lifted.imports.contains(*import), "{binary}: {import} is called: {:?}", lifted.imports);
+        }
+        let ll = lifted.module.to_ll();
+        assert!(ll.contains("target triple = \"aarch64-unknown-linux-gnu\""), "{binary}: the Linux triple");
+        if ra_asm_testing::tool("clang").is_none() {
+            continue;
+        }
+        let dir = scratch(&format!("gate-elf-{standalone}-{binary}"));
+        std::fs::write(dir.join("program.ll"), &ll).unwrap();
+        let check =
+            Command::new("clang").args(["-c", "-x", "ir", "-o"]).arg(dir.join("program.o")).arg(dir.join("program.ll")).output().unwrap();
+        assert!(
+            check.status.success(),
+            "{binary}: clang -c on {}:\n{}",
+            dir.join("program.ll").display(),
+            String::from_utf8_lossy(&check.stderr)
+        );
+    }
+}
+
+/// The ARM64 Linux hello: `bl write` and `bl exit` reach the C library through their PLT stubs.
+/// The run is `hello_linux_a64_runs_interpreted` in `interp.rs`.
+#[test]
+fn hello_linux_a64_lifts_and_passes_the_ir_gate() {
+    gate_arm64_elf("hello_linux_a64", &["write", "exit"]);
+}
+
+/// The Android fixture, a game's `libmain.so` in small: its functions port, and a host that loads
+/// it calls each export with the results of `testdata/expected/libmain.txt`, at the machine level
+/// over the mapped image and at the ABI level standalone. `ra_name_length` reads a table of
+/// pointers the loader relocated and calls `strlen` through the PLT.
+#[test]
+fn libmain_a64_ports_and_answers_its_host() {
+    let binary = "libmain_a64.so";
+    gate_arm64_elf(binary, &["strlen"]);
+    let expected = std::fs::read_to_string(root().join("testdata/expected/libmain.txt")).unwrap();
+    let calls: Vec<(&str, Vec<u64>, i64)> = expected
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| {
+            let words: Vec<&str> = l.split_whitespace().collect();
+            let number = |w: &str| w.parse::<i64>().unwrap_or_else(|e| panic!("libmain.txt: `{w}` in `{l}`: {e}"));
+            let (result, args) = words[1..].split_last().unwrap_or_else(|| panic!("libmain.txt: no result in `{l}`"));
+            (words[0], args.iter().map(|w| number(w) as u64).collect(), number(result))
+        })
+        .collect();
+    for tag in ["call-machine", "call-abi"] {
+        let Raised { image, lifted, signatures, .. } = raise(binary, tag);
+        assert!(lifted.warnings.is_empty(), "{binary} ({tag}): the lift warned:\n{}", lifted.warnings.join("\n"));
+        let exports = image.exports.as_ref().expect("the library exports its functions");
+        for (export, args, result) in &calls {
+            let va = exports.by_name(export).and_then(|e| e.va).unwrap_or_else(|| panic!("{binary}: no export {export}"));
+            let function =
+                lifted.functions.get(&va).cloned().unwrap_or_else(|| panic!("{binary}: the export {export} at {va:#x} is not lifted"));
+            let call = ra_asm_lift::run::Call { function, args: args.clone() };
+            let options = ra_asm_lift::run::Options::default();
+            let (value, outcome) = ra_asm_lift::run::call(&image, &lifted, &signatures, &call, &options).unwrap();
+            if stopped_for_dlls(binary, &outcome) {
+                return;
+            }
+            assert_eq!(outcome.stop, None, "{binary} ({tag}): {export}{args:?} stopped ({} steps)", outcome.steps);
+            assert_eq!(i64::from(value as u32 as i32), *result, "{binary} ({tag}): {export}{args:?}");
+        }
+    }
+}
+
+fn run_oracle(binary: &str, expected: &str) {
+    run_oracle_as(binary, expected, "run-machine");
+    run_oracle_as(binary, expected, "run-promoted");
+    run_oracle_as(binary, expected, "run-abi");
+}
+
+fn run_oracle_as(binary: &str, expected: &str, tag: &str) {
+    let (dir, lifted) = lift_to(binary, tag);
+    assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+    // The port links the Windows system libraries and runs as a Windows process; elsewhere the
+    // interpreter's run in `interp.rs` is the proof.
+    if foreign_host(cfg!(windows), &format!("{binary} ({tag})"), "the port of a Windows program runs on a Windows host", "the clang run") {
+        return;
+    }
+    let exe = dir.join("lifted.exe");
+    let mut build = Command::new("clang");
+    build.args(["-O1", "-g", "-gcodeview", "-fuse-ld=lld", "-Wno-override-module"]);
+    // A port of a 32-bit program keeps its 32-bit pointers: every address of the process must
+    // fit in them, which the linker arranges for an image that is not large-address-aware. The
+    // levels that map the image at its base cannot have that: the loader of such a process puts
+    // its own heap and environment block at the low addresses, so they run as a plain process
+    // with the driver's stack placed low.
+    if lifted.bits == 32 && lifted.standalone {
+        build.arg("-Wl,/largeaddressaware:no");
+    }
+    if dir.join("resources.res").is_file() {
+        build.arg(dir.join("resources.res"));
+    }
+    let build = build
+        .arg(dir.join("program.ll"))
+        .arg(root().join("runtime/driver.c"))
+        .arg("-I")
+        .arg(&dir)
+        .arg("-o")
+        .arg(&exe)
+        .args(["-lkernel32", "-luser32"])
+        .output()
+        .unwrap();
+    if !build.status.success() {
+        let text = String::from_utf8_lossy(&build.stderr);
+        if text.contains("cannot open input file") || text.contains("libcmt") || text.contains("msvcrt") {
+            eprintln!("the C runtime is not installed: the run is skipped\n{text}");
+            return;
+        }
+        panic!("{binary}: clang link:\n{text}");
+    }
+    let run = Command::new(&exe).arg(dir.join("image.bin")).current_dir(&dir).output().unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    let ended = format!("exit {:?}, stderr: {stderr}", run.status.code());
+    assert_output(&format!("{binary} ({tag}): lifted"), expected, &String::from_utf8_lossy(&run.stdout), &ended);
+    assert!(run.status.success(), "{binary}: exit {:?}, stderr: {stderr}", run.status.code());
+}
+
+#[test]
+fn hello64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello.txt")).unwrap();
+    run_oracle("hello64.exe", &expected);
+}
+
+#[test]
+fn float64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/float.txt")).unwrap();
+    run_oracle("float64.exe", &expected);
+}
+
+/// The 32-bit fixtures at every level.
+fn run_oracle_32(binary: &str, expected: &str) {
+    run_oracle(binary, expected);
+}
+
+/// The obfuscated fixture: a flattened function, encrypted strings and an opaque predicate. The
+/// machine and promoted levels run it as it is; the ABI level runs the rebuilt graph, the
+/// strings decrypted at lift time and the bogus branch folded.
+#[test]
+fn obfusc64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/obfusc.txt")).unwrap();
+    run_oracle("obfusc64.exe", &expected);
+}
+
+#[test]
+fn obfusc32_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/obfusc.txt")).unwrap();
+    run_oracle_32("obfusc32.exe", &expected);
+}
+
+#[test]
+fn hello32_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/hello.txt")).unwrap();
+    run_oracle_32("hello32.exe", &expected);
+}
+
+#[test]
+fn control32_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
+    run_oracle_32("control32.exe", &expected);
+}
+
+#[test]
+fn float32_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/float.txt")).unwrap();
+    run_oracle_32("float32.exe", &expected);
+}
+
+/// The x87 program under the exact unit: the series summed at 64 bits, the square root, the
+/// tbyte round trip, all to 17 digits.
+#[test]
+fn extended32_runs_lifted_exact() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/extended.txt")).unwrap();
+    run_oracle_as("extended32.exe", &expected, "run-machine-exact");
+    run_oracle_as("extended32.exe", &expected, "run-promoted-exact");
+    run_oracle_as("extended32.exe", &expected, "run-abi-exact");
+}
+
+#[test]
+fn classes32_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/classes.txt")).unwrap();
+    run_oracle_32("classes32.exe", &expected);
+}
+
+#[test]
+fn classes64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/classes.txt")).unwrap();
+    run_oracle("classes64.exe", &expected);
+}
+
+/// The exceptions program: a throw caught by value and one by reference to a base, through a
+/// function without a handler, a rethrow into a catch-all, and a local destroyed on the way out,
+/// all from the unwind data and the frame handler's tables.
+#[test]
+fn throws64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/throws.txt")).unwrap();
+    run_oracle("throws64.exe", &expected);
+}
+
+#[test]
+fn control64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/control.txt")).unwrap();
+    run_oracle("control64.exe", &expected);
+}
+
+/// The inline program: a helper the compiler inlined into three callers, which the raise outlines
+/// again into one function; the port must still print what the native program does.
+#[test]
+fn inline64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/inline.txt")).unwrap();
+    run_oracle("inline64.exe", &expected);
+}
+
+#[test]
+fn inline32_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/inline.txt")).unwrap();
+    run_oracle_32("inline32.exe", &expected);
+}
+
+/// The files program: a file created, written, read back and removed through kernel32, whose
+/// pushed and vector-stored arguments the raise forwards into the calls.
+#[test]
+fn files64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/files.txt")).unwrap();
+    run_oracle("files64.exe", &expected);
+}
+
+/// The thread-local storage program: a thread-local counter stepped from two threads, each with
+/// its own block, and the TLS callbacks counted. A thread kernel32 starts enters the lifted code
+/// through its native entry, which only the ABI level has, so the run is at that level alone;
+/// the gate takes the machine IR.
+#[test]
+fn tls64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/tls.txt")).unwrap();
+    run_oracle_as("tls64.exe", &expected, "run-abi");
+}
+
+/// A program over the static C runtime starts at `main` with the driver's arguments and calls
+/// the host's runtime for the functions the image links in: the ABI level is the one that has
+/// a `main` to call and a host runtime to call into.
+#[test]
+fn crt64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/crt.txt")).unwrap();
+    run_oracle_as("crt64.exe", &expected, "run-abi");
+}
+
+#[test]
+fn tls32_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/tls.txt")).unwrap();
+    run_oracle_as("tls32.exe", &expected, "run-abi");
+}
+
+/// The resources program: a string table and an RCDATA block read through user32 and kernel32,
+/// which the port finds in its own resource directory (the interpreter in the image's), and
+/// tables of integers, strings and doubles read by index.
+#[test]
+fn resources64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/resources.txt")).unwrap();
+    run_oracle("resources64.exe", &expected);
+}
+
+/// The struct program: a record of mixed fields filled and read through a pointer, which the
+/// type recovery turns into a named struct at the ABI level.
+#[test]
+fn structs64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/structs.txt")).unwrap();
+    run_oracle("structs64.exe", &expected);
+}
+
+#[test]
+fn structs32_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/structs.txt")).unwrap();
+    run_oracle_32("structs32.exe", &expected);
+}
+
+/// The dispatch program without facts: every call through its table stays an indirect call,
+/// which runs at every level.
+#[test]
+fn dispatch64_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/dispatch.txt")).unwrap();
+    run_oracle("dispatch64.exe", &expected);
+}
+
+#[test]
+fn dispatch32_runs_lifted() {
+    if ra_asm_testing::tool("clang").is_none() {
+        return;
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/dispatch.txt")).unwrap();
+    run_oracle_32("dispatch32.exe", &expected);
+}
+
+/// The facts of a traced run resolve the dispatch: the interpreter sees the four handlers behind
+/// the one call through the table (a tail jump through a register on x64, a call through the
+/// table on x86), the analysis of the next pass takes them, and the lift calls the handlers
+/// directly, with the indirect call kept for a target the run did not see. The resolved program
+/// runs the same, through the interpreter and (at the ABI level, as the port is) through clang.
+#[test]
+fn a_traced_run_resolves_the_dispatch() {
+    let expected = std::fs::read_to_string(root().join("testdata/expected/dispatch.txt")).unwrap();
+    for (binary, level) in [("dispatch64.exe", "machine"), ("dispatch64.exe", "abi"), ("dispatch32.exe", "abi")] {
+        let Raised { image, lifted, signatures, .. } = raise(binary, level);
+        let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+        if stopped_for_dlls(binary, &outcome) {
+            continue;
+        }
+        assert_eq!(outcome.exit, 0, "{binary} ({level}): the first run (stop: {:?})", outcome.stop);
+        let facts = outcome.facts;
+        assert!(facts.input.is_of(&image), "{binary}: the facts name their input: {:?}", facts.input);
+        let analysis = ra_asm_analysis::analyze(&image);
+        let handlers: Vec<u64> = ["h_add", "h_sub", "h_mul", "h_xor"]
+            .iter()
+            .map(|n| analysis.functions.values().find(|f| f.name == *n).unwrap().entry)
+            .collect();
+        let dispatch = analysis.functions.values().find(|f| f.name == "dispatch").unwrap();
+        let [call] = facts.calls.as_slice() else { panic!("{binary} ({level}): one call resolved, not {:?}", facts.calls) };
+        assert!(dispatch.contains(call.site), "{binary} ({level}): the call at {:#x} is in dispatch", call.site);
+        assert_eq!(call.targets, handlers, "{binary} ({level}): the targets are the handlers");
+        assert!(facts.entered.contains(&dispatch.entry), "{binary} ({level}): dispatch was entered");
+
+        // The next pass: the analysis knows the calls, and the ABI lift makes them direct.
+        let analysis = ra_asm_analysis::analyze_with(&image, &facts);
+        let dispatch = analysis.functions.values().find(|f| f.name == "dispatch").unwrap();
+        assert_eq!(dispatch.traced_calls.get(&call.site), Some(&handlers), "{binary}: dispatch knows its traced call");
+        assert!(handlers.iter().all(|h| dispatch.calls.contains(h)), "{binary}: the handlers are among dispatch's calls");
+        let options = ra_asm_lift::LiftOptions { standalone: true, x87: ra_asm_lift::X87Unit::Double };
+        let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+        assert_eq!(lifted.traced_calls.get(&call.site), Some(&handlers));
+        let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Abi);
+        let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+        lifted.apply_names(&analysis, Some(&mut signatures));
+        let f = lifted.module.functions.iter().find(|f| f.name == "dispatch").unwrap();
+        let direct: Vec<&str> = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instrs)
+            .filter_map(|i| match &i.inst {
+                ra_asm_ir::Inst::Call { callee: ra_asm_ir::Callee::Direct(name), .. } if name.starts_with("h_") => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            direct,
+            ["h_add", "h_sub", "h_mul", "h_xor"],
+            "{binary}: dispatch calls the handlers directly:\n{}",
+            lifted.module.to_ll()
+        );
+        let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+        let ended = format!("exit {:#x}, stop: {:?}", outcome.exit, outcome.stop);
+        assert_output(&format!("{binary} ({level}): resolved"), &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+        assert_eq!(outcome.exit, 0, "{binary}: the resolved program's exit (stop: {:?})", outcome.stop);
+    }
+}
+
+/// A run that prints the wrong text fails in the digest's one line, which names the test, the
+/// line and its two sides; the line is in the digest file and both whole sides are beside it.
+#[test]
+fn a_difference_is_one_line() {
+    let failed = scratch("a-difference-is-one-line");
+    let test = "hello64.exe (run-abi): interpreted";
+    let actual = "one\ntwo\nthree\nfour\nfive\n";
+    // The expected file of a Windows run ends its lines in CRLF, and its blank end does not count.
+    assert_eq!(compare_output(&failed, test, "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n\r\n", actual), Ok(()));
+    assert!(!failed.join("digest.txt").exists());
+    let wrong = "one\r\ntwo\r\nthree\r\nfour\r\nsix\r\n";
+    let message = compare_output(&failed, test, wrong, actual).unwrap_err();
+    assert_eq!(message, r#"hello64.exe (run-abi): interpreted: line 5: expected "six" got "five" after "two" | "three" | "four""#);
+    assert!(!message.contains('\n') && message.chars().count() < ra_asm_testing::digest::LIMIT, "{message}");
+    assert_eq!(std::fs::read_to_string(failed.join("digest.txt")).unwrap(), format!("{message}\n"));
+    let sides = failed.join("hello64.exe__run-abi___interpreted");
+    assert_eq!(std::fs::read_to_string(sides.join("expected.txt")).unwrap(), wrong.trim_end());
+    assert_eq!(std::fs::read_to_string(sides.join("actual.txt")).unwrap(), actual.trim_end());
+}

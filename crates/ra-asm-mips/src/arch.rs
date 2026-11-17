@@ -38,6 +38,8 @@ const UIMM: Field = Field { name: "imm", lo: 0, width: 16, signed: false, kind: 
 /// A branch's offset, in words from the delay slot.
 const OFFSET: Field = Field { name: "offset", lo: 0, width: 16, signed: true, kind: Kind::Rel { shift: 2, from: 4 } };
 const INDEX: Field = Field { name: "index", lo: 0, width: 26, signed: false, kind: Kind::Imm };
+/// The field `ext` and `ins` keep the last bit of their range in.
+const MSB: Field = Field { name: "msb", lo: 11, width: 5, signed: false, kind: Kind::Imm };
 
 const fn disp(bits: u16) -> Field {
     Field { name: "offset", lo: 0, width: 16, signed: true, kind: Kind::Mem { base: "rs", bits } }
@@ -203,6 +205,58 @@ const FORMS: &[Form] = &[
     plain("swr", OP, op(0x2e), &[RT, RS, D32]),
     plain("ll", OP, op(0x30), &[RT, RS, D32]),
     plain("sc", OP, op(0x38), &[RT, RS, D32]),
+];
+
+/// The forms the Allegrex of the PSP adds to MIPS II, which only its decoder reads: its
+/// `SPECIAL` functions sit where MIPS III has its doubleword operations, and `SPECIAL3` where
+/// the R5900 has `sq`. Its table is [`FORMS`] and these after them; an instruction's code
+/// past [`FORMS`] is moved past [`R5900_FORMS`], so the code of a row of any table indexes
+/// [`form`].
+const ALLEGREX: &[Form] = &[
+    // COP1: the moves, the single and double operations and the branches on a condition code.
+    plain("lwc1", OP, op(0x31), &[FT, RS, D32]),
+    plain("swc1", OP, op(0x39), &[FT, RS, D32]),
+    plain("mfc1", 0xffe0_07ff, op(0x11), &[RT, FS]),
+    plain("cfc1", 0xffe0_07ff, op(0x11) | (2 << 21), &[RT, FS]),
+    plain("mtc1", 0xffe0_07ff, op(0x11) | (4 << 21), &[RT, FS]),
+    plain("ctc1", 0xffe0_07ff, op(0x11) | (6 << 21), &[RT, FS]),
+    plain("cop1.s", 0xffe0_0000, op(0x11) | (16 << 21), &[FD, FS, FT]),
+    plain("cop1.d", 0xffe0_0000, op(0x11) | (17 << 21), &[FD, FS, FT]),
+    plain("cop1.w", 0xffe0_0000, op(0x11) | (20 << 21), &[FD, FS]),
+    transfer("bc1f", 0xffe3_0000, op(0x11) | (8 << 21), &[OFFSET], Flow::Branch, Delay::Slot),
+    transfer("bc1t", 0xffe3_0000, op(0x11) | (8 << 21) | (1 << 16), &[OFFSET], Flow::Branch, Delay::Slot),
+    transfer("bc1fl", 0xffe3_0000, op(0x11) | (8 << 21) | (2 << 16), &[OFFSET], Flow::Branch, Delay::Likely),
+    transfer("bc1tl", 0xffe3_0000, op(0x11) | (8 << 21) | (3 << 16), &[OFFSET], Flow::Branch, Delay::Likely),
+    plain("rotr", 0xffe0_003f, 0x0020_0002, &[RD, RT, SA]),
+    plain("rotrv", R3, 0x46, &[RD, RT, RS]),
+    plain("clz", 0xfc1f_07ff, 0x16, &[RD, RS]),
+    plain("clo", 0xfc1f_07ff, 0x17, &[RD, RS]),
+    plain("madd", 0xfc00_ffff, 0x1c, &[RS, RT]),
+    plain("maddu", 0xfc00_ffff, 0x1d, &[RS, RT]),
+    plain("max", R3, 0x2c, &[RD, RS, RT]),
+    plain("min", R3, 0x2d, &[RD, RS, RT]),
+    plain("msub", 0xfc00_ffff, 0x2e, &[RS, RT]),
+    plain("msubu", 0xfc00_ffff, 0x2f, &[RS, RT]),
+    plain("ext", 0xfc00_003f, op(0x1f), &[RT, RS, SA, MSB]),
+    plain("ins", 0xfc00_003f, op(0x1f) | 0x04, &[RT, RS, SA, MSB]),
+    plain("wsbh", 0xffe0_07ff, op(0x1f) | (0x02 << 6) | 0x20, &[RD, RT]),
+    plain("wsbw", 0xffe0_07ff, op(0x1f) | (0x03 << 6) | 0x20, &[RD, RT]),
+    plain("seb", 0xffe0_07ff, op(0x1f) | (0x10 << 6) | 0x20, &[RD, RT]),
+    plain("bitrev", 0xffe0_07ff, op(0x1f) | (0x14 << 6) | 0x20, &[RD, RT]),
+    plain("seh", 0xffe0_07ff, op(0x1f) | (0x18 << 6) | 0x20, &[RD, RT]),
+    // The VFPU's opcodes, decoded so a function's blocks reach past them; the lift traps on each.
+    plain("lv.s", OP, op(0x32), &[RS, D32]),
+    plain("lv.q", OP, op(0x36), &[RS, D32]),
+    plain("sv.s", OP, op(0x3a), &[RS, D32]),
+    plain("sv.q", OP, op(0x3e), &[RS, D32]),
+    plain("mfv", 0xffe0_ff80, op(0x12) | (3 << 21), &[RT]),
+    plain("mtv", 0xffe0_ff80, op(0x12) | (7 << 21), &[RT]),
+    plain("vfpu0", OP, op(0x18), &[]),
+    plain("vfpu1", OP, op(0x19), &[]),
+    plain("vfpu3", OP, op(0x1b), &[]),
+    plain("vfpu4", OP, op(0x34), &[]),
+    plain("vfpu5", OP, op(0x37), &[]),
+    plain("vfpu6", OP, op(0x3c), &[]),
 ];
 
 /// The R5900's rows past [`FORMS`]: MIPS III's doubleword forms, which the 32-bit programs of the
@@ -394,18 +448,23 @@ fn machine_of(name: &'static str, forms: &[&[Form]]) -> Machine {
 
 static MACHINE: LazyLock<Machine> = LazyLock::new(|| machine_of("mips", &[FORMS]));
 static R5900: LazyLock<Machine> = LazyLock::new(|| machine_of("r5900", &[FORMS, R5900_FORMS]));
+static ALLEGREX_MACHINE: LazyLock<Machine> = LazyLock::new(|| machine_of("allegrex", &[FORMS, ALLEGREX]));
 
-/// The form of row `at` of either table.
+/// The form of an instruction's code: a row of [`FORMS`], then of [`R5900_FORMS`], then of
+/// [`ALLEGREX`].
 fn form(at: usize) -> Option<&'static Form> {
-    FORMS.get(at).or_else(|| R5900_FORMS.get(at.checked_sub(FORMS.len())?))
+    let past = |n: usize| at.checked_sub(n);
+    FORMS.get(at).or_else(|| R5900_FORMS.get(past(FORMS.len())?)).or_else(|| ALLEGREX.get(past(FORMS.len() + R5900_FORMS.len())?))
 }
 
 /// The 32-bit MIPS decoder, in the byte order of the file it reads; with `r5900`, the Emotion
-/// Engine's, whose rows take encodings other MIPS processors give other instructions.
+/// Engine's, and with `allegrex`, the PSP's, whose rows take encodings other MIPS processors
+/// give other instructions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Mips {
     pub big_endian: bool,
     pub r5900: bool,
+    pub allegrex: bool,
 }
 
 impl Mips {
@@ -417,6 +476,11 @@ impl Mips {
     /// The machine of the R5900's rows.
     pub fn r5900_machine() -> &'static Machine {
         &R5900
+    }
+
+    /// The machine of the Allegrex's rows, the MIPS ones first.
+    pub fn allegrex_machine() -> &'static Machine {
+        &ALLEGREX_MACHINE
     }
 
     /// When the flow of `instr`, decoded by this crate, takes effect.
@@ -466,8 +530,17 @@ impl Arch for Mips {
     fn decode(&self, bytes: &[u8], address: u64) -> Option<Instr> {
         let word: [u8; 4] = bytes.get(..4)?.try_into().ok()?;
         let word = if self.big_endian { u32::from_be_bytes(word) } else { u32::from_le_bytes(word) };
-        let machine: &Machine = if self.r5900 { &R5900 } else { &MACHINE };
+        let machine: &Machine = if self.allegrex {
+            &ALLEGREX_MACHINE
+        } else if self.r5900 {
+            &R5900
+        } else {
+            &MACHINE
+        };
         let mut instr = machine.instr(word, address)?;
+        if self.allegrex && usize::try_from(instr.code).ok()? >= FORMS.len() {
+            instr.code += u32::try_from(R5900_FORMS.len()).ok()?;
+        }
         let form = form(usize::try_from(instr.code).ok()?)?;
         match form.reach {
             Reach::Row => {}
