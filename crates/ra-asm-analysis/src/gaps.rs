@@ -98,12 +98,7 @@ pub fn address_taken(image: &Image, functions: &BTreeMap<u64, Function>, classes
             let start = image.va(section.virtual_address);
             let Ok(bytes) = image.read_to_section_end(start) else { continue };
             for chunk in bytes.chunks_exact(width) {
-                let value = if width == 8 {
-                    u64::from_le_bytes(chunk.try_into().unwrap())
-                } else {
-                    u64::from(u32::from_le_bytes(chunk.try_into().unwrap()))
-                };
-                take(value);
+                take(image.pointer_in(chunk));
             }
         }
     }

@@ -10,9 +10,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail, ensure};
-use ra_asm_format::Reader;
 use ra_asm_format::dreamcast::{self, Boot};
 use ra_asm_format::psx::{self, PsxExe};
+use ra_asm_format::{ByteOrder, Reader};
 
 use crate::debug::{self, DebugEntry};
 use crate::exception::{self, RuntimeFunction};
@@ -261,6 +261,20 @@ impl Image {
         self.elf.as_ref().is_some_and(|elf| elf.big_endian)
     }
 
+    /// The byte order of the program's words, which every read of a value of the image takes: the
+    /// pointers, the tables and the instruction words of a big-endian program read big-endian.
+    pub fn order(&self) -> ByteOrder {
+        if self.big_endian() { ByteOrder::Big } else { ByteOrder::Little }
+    }
+
+    /// The pointer-width word at the start of `bytes`, in the image's order: a scan over a
+    /// section's bytes reads its words this way. Bytes shorter than a pointer read as zero.
+    pub fn pointer_in(&self, bytes: &[u8]) -> u64 {
+        let reader = Reader::new(bytes).with_order(self.order());
+        let word = if self.is_64() { reader.u64(0, "pointer") } else { reader.u32(0, "pointer").map(u64::from) };
+        word.unwrap_or(0)
+    }
+
     pub fn image_base(&self) -> u64 {
         self.headers.optional.image_base
     }
@@ -418,28 +432,45 @@ impl Image {
         Ok(())
     }
 
-    /// A [`Reader`] over the bytes at `va` to the end of the section.
+    /// A [`Reader`] over the bytes at `va` to the end of the section, in the image's order.
     pub fn reader_at(&self, va: u64) -> Result<Reader<'_>> {
-        Ok(Reader::new(self.read_to_section_end(va)?))
+        Ok(Reader::new(self.read_to_section_end(va)?).with_order(self.order()))
     }
 
     pub fn u8(&self, va: u64) -> Result<u8> {
         Ok(self.read(va, 1)?[0])
     }
 
+    /// The 16-bit value at `va`, in the image's order, as are [`Image::u32`] and [`Image::u64`].
     pub fn u16(&self, va: u64) -> Result<u16> {
-        let b = self.read(va, 2)?;
-        Ok(u16::from_le_bytes([b[0], b[1]]))
+        self.value_reader(va, 2)?.u16(0, "value")
     }
 
     pub fn u32(&self, va: u64) -> Result<u32> {
-        let b = self.read(va, 4)?;
-        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        self.value_reader(va, 4)?.u32(0, "value")
     }
 
     pub fn u64(&self, va: u64) -> Result<u64> {
-        let b = self.read(va, 8)?;
-        Ok(u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
+        self.value_reader(va, 8)?.u64(0, "value")
+    }
+
+    fn value_reader(&self, va: u64, len: usize) -> Result<Reader<'_>> {
+        Ok(Reader::new(self.read(va, len)?).with_order(self.order()))
+    }
+
+    /// The bytes `value` is at `width` bytes in the image's order: what a write of a word puts.
+    fn bytes_of(&self, value: u64, width: usize) -> Vec<u8> {
+        match self.order() {
+            ByteOrder::Little => value.to_le_bytes()[..width].to_vec(),
+            ByteOrder::Big => value.to_be_bytes()[8 - width..].to_vec(),
+        }
+    }
+
+    /// Writes the 32-bit `value` at `va` in the image's order, as a loader fills a field it
+    /// relocates.
+    pub(crate) fn write_u32(&mut self, va: u64, value: u32) -> Result<()> {
+        let bytes = self.bytes_of(u64::from(value), 4);
+        self.write(va, &bytes)
     }
 
     /// A pointer-width value at `va`.
@@ -450,12 +481,8 @@ impl Image {
     /// Writes a pointer-width `value` at `va` in the mapped image, as a loader fills a word it
     /// relocates. The word must lie in one section, as [`Image::read`] has it.
     pub(crate) fn write_pointer(&mut self, va: u64, value: u64) -> Result<()> {
-        let width = usize::from(self.pointer_size());
-        self.read(va, width)?;
-        let Some(rva) = self.rva(va) else { bail!("address {va:#x} lies outside the image") };
-        let start = rva as usize;
-        self.mapped[start..start + width].copy_from_slice(&value.to_le_bytes()[..width]);
-        Ok(())
+        let bytes = self.bytes_of(value, usize::from(self.pointer_size()));
+        self.write(va, &bytes)
     }
 
     /// The NUL-terminated string at `va`, at most `max` bytes long.
@@ -624,3 +651,6 @@ fn dreamcast_layout(len: usize) -> Result<(Headers, Vec<Section>)> {
     };
     Ok((headers, sections))
 }
+
+#[cfg(test)]
+mod tests;

@@ -105,11 +105,7 @@ pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted,
         let mut words: BTreeMap<u64, Const> = BTreeMap::new();
         if image.relocations.is_empty() {
             for (offset, chunk) in bytes[..size as usize].chunks_exact(width as usize).enumerate() {
-                let value = if width == 8 {
-                    u64::from_le_bytes(chunk.try_into().unwrap())
-                } else {
-                    u64::from(u32::from_le_bytes(chunk.try_into().unwrap()))
-                };
+                let value = image.pointer_in(chunk);
                 let named = lifted.functions.contains_key(&value) || image.section_of(value).is_some_and(|s| !s.is_code() || data_in_code);
                 if !named || !is_word(section, data.start + offset as u64 * width) {
                     continue;
@@ -155,6 +151,12 @@ pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted,
                 lifted.imports.insert(symbol.clone());
                 words.insert(import.iat_va - data.start, Const::Address { global: symbol, offset: 0 });
             }
+        }
+        // A big-endian program's memory keeps its own order, which its loads swap: a word a
+        // constant holds would land in the host's. Its words keep their bytes, the image's
+        // addresses, at which the globals stay and which the runtime's function table answers.
+        if image.big_endian() {
+            words.clear();
         }
 
         // The structure: byte runs between the words.

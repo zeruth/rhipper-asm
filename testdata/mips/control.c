@@ -10,6 +10,9 @@
 //     -fuse-ld=lld -Wl,--entry=_start -Wl,--emit-relocs -Wl,--build-id=none
 //     testdata/mips/control.c -o testdata/mips/control
 //
+// `control.be` is the same big-endian: `--target=mips-linux-gnu` and `-mno-gpopt` (clang 18 fails
+// to select a `$gp`-relative address there), `-o testdata/mips/control.be`.
+//
 // It prints what the Windows program prints, with LF line ends: testdata/mips/control.txt.
 
 #define NOINLINE __attribute__((noinline))

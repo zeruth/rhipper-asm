@@ -990,11 +990,7 @@ fn pointer_seeds(image: &Image) -> Vec<(u64, Origin)> {
             let start = image.va(section.virtual_address);
             let Ok(bytes) = image.read_to_section_end(start) else { continue };
             for (offset, chunk) in bytes.chunks_exact(width).enumerate() {
-                let value = if width == 8 {
-                    u64::from_le_bytes(chunk.try_into().unwrap())
-                } else {
-                    u64::from(u32::from_le_bytes(chunk.try_into().unwrap()))
-                };
+                let value = image.pointer_in(chunk);
                 // An import's slot is the loader's: a lazily bound ELF slot holds the address of its
                 // PLT stub's second half until the first call binds it.
                 let slot = start + (offset * width) as u64;

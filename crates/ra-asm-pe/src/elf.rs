@@ -214,7 +214,7 @@ fn apply_prx_relocations(image: &mut Image) {
         }
     }
     for (va, word) in words {
-        if let Err(e) = image.write(va, &word.to_le_bytes()) {
+        if let Err(e) = image.write_u32(va, word) {
             warnings.push(format!("the PRX relocation at {va:#x}: {e:#}"));
         }
     }

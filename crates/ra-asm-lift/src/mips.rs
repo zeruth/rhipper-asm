@@ -11,7 +11,9 @@
 //! A branch's delay slot is the instruction after it in the block, as the builder places it: the
 //! branch's condition, its target and its link are taken from the registers before the slot runs,
 //! then the slot runs, then control leaves; a likely branch's slot that shares the block runs on
-//! the taken path only. The words are read little-endian (mipsel). The arithmetic and the
+//! the taken path only. The words are read in the image's order; a big-endian program's memory
+//! keeps its order and every load and store swaps its bytes, so the registers hold the values the
+//! machine sees and `lwl`/`lwr`/`swl`/`swr` merge from the word's other end. The arithmetic and the
 //! conversions to an integer that round by the FCSR take its default mode, to nearest. Every
 //! encoding outside the subset (the coprocessor 0, `COP1X`, the doubleword unaligned accesses,
 //! the conditional traps on an immediate, a branch in a delay slot) traps with its address.
@@ -91,6 +93,7 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         r3000,
         allegrex,
         r5900,
+        big: image.big_endian(),
     };
     // A PSP import's stub holds the `syscall` the kernel writes only once it loads the module.
     let import = image.imports.iter().find(|i| allegrex && i.iat_va == f.entry).and_then(|i| i.name.clone());
@@ -202,6 +205,8 @@ struct Lifter<'a, 'b> {
     /// A `PlayStation 2` program: the R5900, with its 128-bit registers and multimedia
     /// instructions.
     r5900: bool,
+    /// A big-endian program, whose memory keeps its order: every load and store swaps its bytes.
+    big: bool,
 }
 
 impl Lifter<'_, '_> {
@@ -210,8 +215,31 @@ impl Lifter<'_, '_> {
     }
 
     fn word(&self, address: u64) -> Option<Word> {
-        let bytes = self.image.read(address, 4).ok()?;
-        Some(Word(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])))
+        self.image.u32(address).ok().map(Word)
+    }
+
+    /// A load of `ty` from guest memory: a big-endian program's bytes are swapped into the host's
+    /// order, so a register holds the value the machine sees.
+    fn guest_load(&mut self, block: BlockId, ty: Type, addr: impl Into<Operand>, hint: &str) -> ValueId {
+        let v = self.m.load(block, ty.clone(), addr, hint);
+        self.swap(block, ty, v)
+    }
+
+    /// A store of `ty` to guest memory, in the program's order as [`Self::guest_load`] reads it.
+    fn guest_store(&mut self, block: BlockId, ty: Type, v: ValueId, addr: impl Into<Operand>) {
+        let v = self.swap(block, ty.clone(), v);
+        self.m.store(block, ty, v, addr);
+    }
+
+    /// `v` with its bytes reversed in a big-endian program, as is in a little-endian one: the swap
+    /// between the program's order and the host's goes both ways.
+    fn swap(&mut self, block: BlockId, ty: Type, v: ValueId) -> ValueId {
+        match ty {
+            Type::Int(bits @ (16 | 32 | 64)) if self.big => {
+                self.m.intrinsic(block, &format!("llvm.bswap.i{bits}"), ty.clone(), vec![(ty, v.into())], "be")
+            }
+            _ => v,
+        }
     }
 
     fn fr64(&self) -> bool {
@@ -788,7 +816,7 @@ impl Lifter<'_, '_> {
                 let addr = self.address(block, w);
                 let v = self.reg64(block, rt);
                 let v = self.m.trunc(block, Type::I64, v, ty.clone(), "st");
-                self.m.store(block, ty, v, addr);
+                self.guest_store(block, ty, v, addr);
                 // sc, scd: one thread, so the conditional store always succeeds.
                 if matches!(w.op(), 56 | 60) {
                     self.set64(block, rt, 1i64);
@@ -801,14 +829,14 @@ impl Lifter<'_, '_> {
             49 | 53 => {
                 let addr = self.address(block, w);
                 let double = w.op() == 53;
-                let v = self.m.load(block, float_types(double).0, addr, "ld");
+                let v = self.guest_load(block, float_types(double).0, addr, "ld");
                 self.set_fpr(block, rt, double, v);
             }
             57 | 61 => {
                 let addr = self.address(block, w);
                 let double = w.op() == 61;
                 let v = self.fpr(block, rt, double);
-                self.m.store(block, float_types(double).0, v, addr);
+                self.guest_store(block, float_types(double).0, v, addr);
             }
             // pref: a hint.
             51 => {}
@@ -830,16 +858,19 @@ impl Lifter<'_, '_> {
             52 | 55 => (Type::I64, true),
             op => return self.unaligned_load(block, addr, rt, op == 34, &Type::I32),
         };
-        let v = self.m.load(block, ty.clone(), addr, "ld");
+        let v = self.guest_load(block, ty.clone(), addr, "ld");
         let r = if signed { self.m.sext(block, ty, v, Type::I64, "ld.x") } else { self.m.zext(block, ty, v, Type::I64, "ld.x") };
         self.set64(block, rt, r);
     }
 
     /// The offset of `addr` in its aligned word (`ty` wide) as a shift of `ty`, in bits, and the
-    /// aligned address.
+    /// aligned address. A big-endian machine numbers the word's bytes from its high end, so its
+    /// offset is counted from the other end: the merges below are then the little-endian ones over
+    /// the word as [`Self::guest_load`] reads it.
     fn unaligned_parts(&mut self, block: BlockId, addr: ValueId, ty: &Type) -> (ValueId, ValueId) {
         let bytes: i64 = if *ty == Type::I32 { 4 } else { 8 };
         let k = self.m.b.bin(block, BinOp::And, Type::I32, addr, bytes - 1, "k");
+        let k = if self.big { self.m.b.bin(block, BinOp::Xor, Type::I32, k, bytes - 1, "k.be") } else { k };
         let aligned = self.m.b.bin(block, BinOp::And, Type::I32, addr, -bytes, "aligned");
         let k = if bytes == 8 { self.m.b.cast(block, Cast::ZExt, Type::I32, k, Type::I64, "k.x") } else { k };
         (self.m.b.bin(block, BinOp::Shl, ty.clone(), k, 3i64, "bits"), aligned)
@@ -851,7 +882,7 @@ impl Lifter<'_, '_> {
     fn unaligned_load(&mut self, block: BlockId, addr: ValueId, rt: u8, left: bool, ty: &Type) {
         let top = if *ty == Type::I32 { 24i64 } else { 56 };
         let (bits, aligned) = self.unaligned_parts(block, addr, ty);
-        let word = self.m.load(block, ty.clone(), aligned, "word");
+        let word = self.guest_load(block, ty.clone(), aligned, "word");
         let old = self.reg(block, rt, ty);
         let (part, keep) = if left {
             let s = self.m.b.bin(block, BinOp::Sub, ty.clone(), top, bits, "s");
@@ -874,7 +905,7 @@ impl Lifter<'_, '_> {
     fn unaligned_store(&mut self, block: BlockId, addr: ValueId, rt: u8, left: bool, ty: &Type) {
         let top = if *ty == Type::I32 { 24i64 } else { 56 };
         let (bits, aligned) = self.unaligned_parts(block, addr, ty);
-        let word = self.m.load(block, ty.clone(), aligned, "word");
+        let word = self.guest_load(block, ty.clone(), aligned, "word");
         let value = self.reg(block, rt, ty);
         let (part, keep) = if left {
             let s = self.m.b.bin(block, BinOp::Sub, ty.clone(), top, bits, "s");
@@ -888,7 +919,7 @@ impl Lifter<'_, '_> {
         };
         let kept = self.m.b.bin(block, BinOp::And, ty.clone(), word, keep, "kept");
         let merged = self.m.b.bin(block, BinOp::Or, ty.clone(), part, kept, "merged");
-        self.m.store(block, ty.clone(), merged, aligned);
+        self.guest_store(block, ty.clone(), merged, aligned);
     }
 
     /// The `SPECIAL` opcode: the register-to-register operations.
@@ -1534,13 +1565,13 @@ impl Lifter<'_, '_> {
             }
             (50, _) => {
                 let addr = self.address(block, w);
-                let v = self.m.load(block, Type::I32, addr, "ld");
+                let v = self.guest_load(block, Type::I32, addr, "ld");
                 self.set_gte_data(block, rt, v);
             }
             (58, _) => {
                 let addr = self.address(block, w);
                 let v = self.gte_data(block, rt);
-                self.m.store(block, Type::I32, v, addr);
+                self.guest_store(block, Type::I32, v, addr);
             }
             _ => return self.unsupported(block, w, ip),
         }
