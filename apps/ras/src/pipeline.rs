@@ -304,12 +304,17 @@ pub(crate) fn peak_working_set() -> Option<u64> {
     peak_counters().map(|(working_set, _)| working_set)
 }
 
-/// The peak resident set of this process in bytes, where `/proc` tells it.
+/// The peak resident set of this process in bytes, where `/proc` tells it. The kernel's `VmHWM`
+/// is the larger of a high-water mark it updates only as mappings go and the current resident
+/// set, so it falls when freed pages return through `madvise`: the peak is the largest this
+/// process has read.
 #[cfg(not(windows))]
 pub(crate) fn peak_working_set() -> Option<u64> {
+    static SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let status = fs::read_to_string("/proc/self/status").ok()?;
     let kilobytes = status.lines().find_map(|line| line.strip_prefix("VmHWM:"))?.trim().strip_suffix("kB")?.trim().parse::<u64>().ok()?;
-    Some(kilobytes * 1024)
+    let bytes = kilobytes * 1024;
+    Some(SEEN.fetch_max(bytes, std::sync::atomic::Ordering::Relaxed).max(bytes))
 }
 
 /// What a step that stamps its work did: its summary line, and every file it wrote with the
