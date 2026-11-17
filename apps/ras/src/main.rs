@@ -253,6 +253,11 @@ enum Command {
         /// function and the step it was at, and exit non-zero.
         #[arg(long, value_name = "SECONDS")]
         deadline: Option<u64>,
+        /// Print a line on stderr for each pass of the raise over each function, `raise: <function> <pass> <ms>`, written up
+        /// to the pass before it runs: the last line of a raise that hangs names the function and the pass. The passes run one
+        /// at a time.
+        #[arg(long)]
+        timings: bool,
         #[command(flatten)]
         cut: Cut,
     },
@@ -476,6 +481,10 @@ enum Command {
         /// function and the step it was at, and exit non-zero.
         #[arg(long, value_name = "SECONDS")]
         deadline: Option<u64>,
+        /// Print a line on stderr for each pass of the raise over each function, `raise: <function> <pass> <ms>`, as `ras lift
+        /// --timings` does.
+        #[arg(long)]
+        timings: bool,
     },
     /// The vectors of the image replayed at the machine, the promoted and the ABI level: a line
     /// per function with the vectors each level replayed or the first difference, and a last line
@@ -583,6 +592,9 @@ fn command() -> anyhow::Result<()> {
         let _ = DEADLINE_SECONDS.set(seconds);
         ra_asm_lift::raise::stop_at(std::time::Instant::now() + std::time::Duration::from_secs(seconds), deadline_passed);
     }
+    if let Command::Lift { timings: true, .. } | Command::Case { timings: true, .. } = options.command {
+        ra_asm_lift::raise::print_pass_timings(true);
+    }
     let json = options.json;
     let sigs = &options.signatures;
     match options.command {
@@ -597,7 +609,7 @@ fn command() -> anyhow::Result<()> {
         Command::Functions { pe, pdata: true } => report::functions(&load(&pe, sigs)?, true, json),
         Command::Functions { pe, pdata: false } => functions::functions(&load(&pe, sigs)?, json),
         Command::Cfg { pe, address } => functions::cfg(&load(&pe, sigs)?, disasm::parse_address(&address)?, json),
-        Command::Lift { pe, out, quiet, level, standalone, report, x87, only, deadline: _, cut } => {
+        Command::Lift { pe, out, quiet, level, standalone, report, x87, only, deadline: _, timings: _, cut } => {
             let standalone = standalone || level == ra_asm_lift::RaiseLevel::Abi;
             lift::lift(&load(&pe, sigs)?, out.as_deref(), &lift::Options { level, standalone, quiet, report, json, x87, only, cut })
         }
@@ -682,7 +694,7 @@ fn command() -> anyhow::Result<()> {
             anyhow::ensure!(pending, "`ras cards` writes the cards of the pending lists: pass --pending");
             cards::pending(&paths, milestone.as_deref())
         }
-        Command::Case { pe, function, pass, deadline: _ } => case::case(&load(&pe, sigs)?, &function, &pass),
+        Command::Case { pe, function, pass, deadline: _, timings: _ } => case::case(&load(&pe, sigs)?, &function, &pass),
         Command::Verify { pe, vectors, write, function, ledger, generate, built, out } => {
             let options = verify::Options {
                 program: &pe,

@@ -68,6 +68,35 @@ pub fn timed<T>(name: &str, run: impl FnOnce() -> T) -> T {
     out
 }
 
+/// Whether each pass prints its function and milliseconds, as `ras lift --timings` asks (see
+/// [`print_pass_timings`]).
+static PASS_TIMINGS: AtomicBool = AtomicBool::new(false);
+
+/// Has every raise from now on write a line per pass on stderr, `raise: <function> <pass> <ms>`:
+/// the line up to the pass is flushed before the pass runs and the milliseconds end it after, so
+/// the last line of a raise that hangs names the function and the pass it hangs in. The passes run
+/// one at a time while the timings print, so the lines are whole and the last is the one running.
+pub fn print_pass_timings(on: bool) {
+    PASS_TIMINGS.store(on, Ordering::Relaxed);
+}
+
+/// Runs `run` as the pass `pass` of `function`, timed on stderr when [`print_pass_timings`] asked.
+fn timed_pass<T>(function: &str, pass: &str, run: impl FnOnce() -> T) -> T {
+    use std::io::Write as _;
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    if !PASS_TIMINGS.load(Ordering::Relaxed) {
+        return run();
+    }
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut err = std::io::stderr();
+    let _ = write!(err, "raise: {function} {pass} ");
+    let _ = err.flush();
+    let start = Instant::now();
+    let out = run();
+    let _ = writeln!(err, "{}", start.elapsed().as_millis());
+    out
+}
+
 /// The moment past which a raise stops, and what stops it (see [`stop_at`]).
 struct Deadline {
     at: Instant,
@@ -594,7 +623,7 @@ fn raise_with(
             });
         }
         check_deadline(THE_MODULE, inference_name);
-        timed(&format!("raise: {inference_name}"), || infer(module, &cx))
+        timed(&format!("raise: {inference_name}"), || timed_pass(THE_MODULE, inference_name, || infer(module, &cx)))
     };
     {
         let cx = Context::new(roots, &options, &signatures);
@@ -662,7 +691,7 @@ fn raise_with(
         for step in whole {
             let Pass::Module(run) = step.pass else { unreachable!("`{}` follows the module steps", step.name) };
             check_deadline(THE_MODULE, step.name);
-            timed(&format!("raise: {}", step.name), || run(module, &cx));
+            timed(&format!("raise: {}", step.name), || timed_pass(THE_MODULE, step.name, || run(module, &cx)));
         }
         if abi_level && !whole.is_empty() && !keep_frozen {
             timed("raise: thaw", || held::thaw_all(module));
@@ -702,7 +731,8 @@ fn run_each(order: &[steps::Step], f: &mut ra_asm_ir::Function, cx: &steps::Cont
     for step in order {
         if let steps::Pass::Function(run) = step.pass {
             check_deadline(&f.name, step.name);
-            run(f, cx, globals);
+            let name = f.name.clone();
+            timed_pass(&name, step.name, || run(f, cx, globals));
         }
     }
 }
