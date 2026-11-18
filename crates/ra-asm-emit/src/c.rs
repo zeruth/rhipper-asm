@@ -3002,8 +3002,30 @@ impl<'a> Emitter<'a> {
         let inline = |v: ValueId| self.inlinable(v) || self.field_pointer(v);
         // A value written at each use reads its base there: the base keeps its own variable.
         let bases: HashSet<ValueId> = self.remat.iter().filter_map(|v| self.def(*v)).flat_map(|(_, _, inst)| inst.uses()).collect();
+        // A section access writes its index where the access is (`sec_data.com_cmdline[i]`), not
+        // where its address was computed: the index keeps its own variable. Shared with the next
+        // round's `i + 1`, the store after the increment read the stepped index, and a command
+        // line copy wrote every byte one place too far (`com_cmdline[0]` stayed 0).
+        let mut indexes: HashSet<ValueId> = HashSet::new();
+        for b in &f.blocks {
+            for i in &b.instrs {
+                let ptr = match &i.inst {
+                    Inst::Load { ptr, .. } | Inst::Store { ptr, .. } => ptr,
+                    _ => continue,
+                };
+                if let Some(index) = crate::layout::place(&self.defs, ptr).and_then(|p| p.index)
+                    && let Operand::Local(v) = index.value
+                {
+                    indexes.insert(v);
+                    if self.inlinable(v) {
+                        indexes.extend(self.def(v).map(|(_, _, inst)| inst.uses()).unwrap_or_default());
+                    }
+                }
+            }
+        }
         let keep = |v: ValueId| {
-            bases.contains(&v)
+            indexes.contains(&v)
+                || bases.contains(&v)
                 || f.params.contains(&v)
                 || self.struct_of.contains_key(&v)
                 || self.watched.contains(&v)
