@@ -1617,7 +1617,11 @@ impl Lifter<'_, '_> {
                                 let eax = self.m.read_gpr(block, R::EAX);
                                 let from = self.m.zext(block, Type::I32, sp, Type::I64, "sp.w");
                                 let bytes = self.m.zext(block, Type::I32, eax, Type::I64, "probe.n");
-                                let args = vec![(Type::I64, from.into()), (Type::I64, bytes.into()), (Type::I64, Operand::Int(i128::from(align.max(1))))];
+                                let args = vec![
+                                    (Type::I64, from.into()),
+                                    (Type::I64, bytes.into()),
+                                    (Type::I64, Operand::Int(i128::from(align.max(1)))),
+                                ];
                                 let to = self.m.intrinsic(block, "ra_stack_probe", Type::I64, args, "sp.probe");
                                 let narrow = self.m.trunc(block, Type::I64, to, Type::I32, "sp.aligned");
                                 self.m.write_sp(block, narrow);
