@@ -3,30 +3,30 @@
 # on a function and level that differs and is not here, and on one here that replays now; the
 # test writes the file anew when it records the vectors again.
 control32 print_proc abi vector 1: call 1 of ra_call: the record does not hold esp, which the answer lies in
-float32 milli promoted vector 1: memory at 0xc0000508: recorded 00, replayed nothing (the first of 18 bytes)
-float32 mainCRTStartup_ promoted vector 1: memory at 0xc0000508: recorded 00, replayed nothing (the first of 18 bytes)
-float32 milli abi vector 1: memory at 0xc0000508: recorded 00, replayed nothing (the first of 18 bytes)
-float32 mainCRTStartup_ abi vector 1: memory at 0xc0000508: recorded 00, replayed nothing (the first of 18 bytes)
+float32 milli promoted vector 1: memory at 0xc0000578: recorded 00, replayed nothing (the first of 18 bytes)
+float32 mainCRTStartup_ promoted vector 1: memory at 0xc0000578: recorded 00, replayed nothing (the first of 18 bytes)
+float32 milli abi vector 1: memory at 0xc0000578: recorded 00, replayed nothing (the first of 18 bytes)
+float32 mainCRTStartup_ abi vector 1: memory at 0xc0000578: recorded 00, replayed nothing (the first of 18 bytes)
 obfusc32 mainCRTStartup_ abi vector 1: call 2: memcpy is called where the record calls decrypt
 obfusc64 mainCRTStartup_ abi vector 1: call 2: memcpy is called where the record calls decrypt
 extended32 harmonic machine vector 1: memory at 0x100004f8: recorded b4, replayed nothing (the first of 96 bytes)
 extended32 leibniz machine vector 1: memory at 0x100004f8: recorded 47, replayed nothing (the first of 96 bytes)
 extended32 root machine vector 1: memory at 0x10000518: recorded cd, replayed nothing (the first of 32 bytes)
-extended32 third machine vector 1: memory at 0x10000518: recorded 55, replayed nothing (the first of 32 bytes)
+extended32 third machine vector 1: call 1: ra_f80_store_f64 is called where the record calls ra_unsupported
 extended32 mainCRTStartup_ machine vector 1: register esi: recorded 0xfc3247d0, replayed 0x0
 extended32 harmonic promoted vector 1: memory at 0x100004f8: recorded b4, replayed nothing (the first of 48 bytes)
 extended32 leibniz promoted vector 1: memory at 0x100004f8: recorded 47, replayed nothing (the first of 48 bytes)
 extended32 root promoted vector 1: memory at 0x10000518: recorded cd, replayed nothing (the first of 16 bytes)
-extended32 third promoted vector 1: memory at 0x10000518: recorded 55, replayed nothing (the first of 16 bytes)
+extended32 third promoted vector 1: call 1: ra_f80_store_f64 is called where the record calls ra_unsupported
 extended32 mainCRTStartup_ promoted vector 1: register esi: recorded 0xfc3247d0, replayed 0x0
 extended32 harmonic abi vector 1: memory at 0x100004f8: recorded b4, replayed nothing (the first of 48 bytes)
 extended32 leibniz abi vector 1: memory at 0x100004f8: recorded 47, replayed nothing (the first of 48 bytes)
 extended32 root abi vector 1: memory at 0x10000518: recorded cd, replayed nothing (the first of 16 bytes)
-extended32 third abi vector 1: memory at 0x10000518: recorded 55, replayed nothing (the first of 16 bytes)
+extended32 third abi vector 1: call 1: ra_f80_store_f64 is called where the record calls ra_unsupported
 extended32 mainCRTStartup_ abi vector 1: memory at 0x10000510: recorded 00, replayed nothing (the first of 26 bytes)
 throws64 F_140001300 abi vector 2: call 1 of ra_eh_throw: recorded with (0x120ffeb8, 0x8), replayed with (0x110ff68, 0x8)
 throws64 F_140001100 abi vector 2: call 3 of ra_eh_catches: recorded with (0x592281df782b68a, 0x120fff78, 0x4008), replayed with (0x592281df782b68a, 0x110ff88, 0x4008)
 throws64 F_1400011b0 abi vector 1: call 1 of ra_eh_throw: recorded with (0x120fff6c, 0x4), replayed with (0x110ff7c, 0x4)
 throws64 entry abi vector 1: register rsp: recorded 0x120fff90, replayed 0x120fffc0
-structs32 scaled promoted vector 1: memory at 0xc0000508: recorded 00, replayed nothing (the first of 18 bytes)
-structs32 scaled abi vector 1: memory at 0xc0000508: recorded 00, replayed nothing (the first of 18 bytes)
+structs32 scaled promoted vector 1: memory at 0xc0000578: recorded 00, replayed nothing (the first of 18 bytes)
+structs32 scaled abi vector 1: memory at 0xc0000578: recorded 00, replayed nothing (the first of 18 bytes)

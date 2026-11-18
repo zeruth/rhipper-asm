@@ -123,13 +123,43 @@ impl Builder<'_> {
     /// Nothing pads the inside of a function with `int 3` up to a 16-byte boundary: clang's lone
     /// `int 3` after a call that never returns precedes a block of the same function, which is
     /// not aligned. On x64 the exception table bounds a function exactly.
-    fn beyond_fill(&self, target: u64) -> bool {
-        !self.delays
-            && self.arch.address_bits() == 32
-            && target.is_multiple_of(16)
-            && !self.blocks.contains_key(&target)
-            && target != self.entry
-            && self.image.u8(target - 1).is_ok_and(|b| b == 0xcc)
+    ///
+    /// The byte before the target is `0xcc` as the last byte of an instruction too: `mov [ebp -
+    /// 0x34], edx` ends in it, and MSVC aligns the head of a loop to 16 bytes as it does a
+    /// function. A jump over that `mov` to the loop's head left the function there, the loop and
+    /// everything after it became functions of their own on the first one's frame, and each read
+    /// that frame as its arguments. So the bytes from where the code is known (`after`, the end of
+    /// the jump, or the end of the last block built below the target) are read as instructions up
+    /// to the target: an `int 3` among them is the fill, and reaching the target without one is
+    /// code of this function all the way. Only where no such run reaches the target does the byte
+    /// decide.
+    fn beyond_fill(&self, target: u64, after: u64) -> bool {
+        if self.delays
+            || self.arch.address_bits() != 32
+            || !target.is_multiple_of(16)
+            || self.blocks.contains_key(&target)
+            || target == self.entry
+            || !self.image.u8(target - 1).is_ok_and(|b| b == 0xcc)
+        {
+            return false;
+        }
+        let below = self.blocks.range(..target).next_back().map(|(_, b)| b.end);
+        for start in [Some(after), below].into_iter().flatten() {
+            if start > target || target - start > 256 {
+                continue;
+            }
+            let mut va = start;
+            let mut fill = false;
+            while va < target {
+                let Some(instr) = self.decode(va) else { break };
+                fill |= matches!(instr.flow, Flow::Trap);
+                va = instr.end();
+            }
+            if va == target {
+                return fill;
+            }
+        }
+        true
     }
 
     /// The funclets of the exception frame this function registers on x86. The prologue stores the
@@ -407,7 +437,7 @@ impl Builder<'_> {
                 }
                 Flow::Next | Flow::Interrupt => {}
                 Flow::Jump(Target::Direct(target)) => {
-                    draft.terminator = if self.internal(target) && !self.beyond_fill(target) {
+                    draft.terminator = if self.internal(target) && !self.beyond_fill(target, next) {
                         self.worklist.push(target);
                         Terminator::Jump(target)
                     } else {

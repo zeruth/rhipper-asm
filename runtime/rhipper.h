@@ -165,10 +165,14 @@ uint64_t ra_pops_of(uint64_t target);
 // the count go to ra_args, where the callee's universal entry point reads them, and then the call
 // is made, the order the stores and the call had. The translation defines ra_args when one of its
 // calls takes this form.
+extern uint64_t *ra_args_at;
 static inline uint64_t ra_args_call_into(uint64_t *words, void *fp, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4,
                                          uint64_t a5, uint64_t a6, uint64_t a7, unsigned n, ...) {
     __builtin_va_list extra;
     __builtin_va_start(extra, n);
+    // The runtime's own callees (the adapters of the OpenGL functions asked by name) read the
+    // words where this call wrote them.
+    ra_args_at = words;
     for (unsigned k = 0; k < n; k++) words[k] = __builtin_va_arg(extra, uint64_t);
     __builtin_va_end(extra);
     return ((uint64_t (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t))fp)(a0, a1, a2, a3, a4, a5, a6, a7);
@@ -302,6 +306,10 @@ uint64_t ra_x86_load_library_w(uint64_t name);
 uint64_t ra_x86_load_library_ex_a(uint64_t name, uint64_t file, uint64_t flags);
 uint64_t ra_x86_load_library_ex_w(uint64_t name, uint64_t file, uint64_t flags);
 uint64_t ra_x86_get_proc_address(uint64_t module, uint64_t name);
+// An OpenGL function by name from the context, of SDL or of WGL: one that carries what the call
+// pops and takes the program's stack words as the host's arguments, floats and all.
+uint64_t ra_x86_sdl_gl_get_proc_address(uint64_t name);
+uint64_t ra_x86_wgl_get_proc_address(uint64_t name);
 // GetAdaptersInfo of iphlpapi, whose chain of records holds pointers: written in the program's
 // layout into the program's buffer.
 uint64_t ra_x86_get_adapters_info(uint64_t buffer, uint64_t length);
@@ -413,6 +421,7 @@ void ra_f80_load(void *slot, const void *memory);
 void ra_f80_store(void *memory, const void *slot);
 void ra_f80_pack(void *slot, uint64_t significand, uint64_t sign_exponent);
 void ra_f80_from_f64(void *slot, double value);
+void ra_f80_store_f64(void *memory, double value);
 void ra_f80_from_i64(void *slot, uint64_t value);
 double ra_f80_to_f64(const void *slot, uint64_t cw);
 float ra_f80_to_f32(const void *slot, uint64_t cw);

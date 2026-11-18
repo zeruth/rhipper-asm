@@ -3,7 +3,7 @@ ra-asm-verify vectors 1
 
 vector install at 0x4010e0
 entry
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x3
   edx = 0x4010f0
   ebx = 0x0
@@ -54,7 +54,7 @@ entry
 memory in
   0x120fffa8: 23 10 40 00
 exit
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x3
   edx = 0x4010f0
   ebx = 0x0
@@ -108,7 +108,7 @@ left return
 
 vector install at 0x4010e0
 entry
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x4
   edx = 0x401100
   ebx = 0x0
@@ -159,7 +159,7 @@ entry
 memory in
   0x120fffa8: 32 10 40 00
 exit
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x4
   edx = 0x401100
   ebx = 0x0
@@ -213,7 +213,7 @@ left return
 
 vector install at 0x4010e0
 entry
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x5
   edx = 0x401110
   ebx = 0x0
@@ -264,7 +264,7 @@ entry
 memory in
   0x120fffa8: 41 10 40 00
 exit
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x5
   edx = 0x401110
   ebx = 0x0
@@ -318,7 +318,7 @@ left return
 
 vector install at 0x4010e0
 entry
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x6
   edx = 0x401120
   ebx = 0x6
@@ -369,7 +369,7 @@ entry
 memory in
   0x120fffa8: 50 10 40 00
 exit
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x6
   edx = 0x401120
   ebx = 0x6
@@ -423,7 +423,7 @@ left return
 
 vector h_add at 0x4010f0
 entry
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x3
   edx = 0x28
   ebx = 0x6
@@ -527,7 +527,7 @@ left return
 
 vector dispatch at 0x4011b0
 entry
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x3
   edx = 0x28
   ebx = 0x6
@@ -690,7 +690,7 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x403004: 50 02 00 00
+  0x403004: 5c 02 00 00
   0x120fffa8: 68 10 40 00
 call imp_WriteFile
   result eax = 0x1
@@ -747,7 +747,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff70: 50 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
+  0x120fff70: 5c 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
     00 00 00 00 04 00 00 00
   0x120fff94: 34 32 0d 0a 03 00 00 00 05 00 00 00 06 00 00 00
     04 00 00 00
@@ -1021,7 +1021,7 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x403004: 50 02 00 00
+  0x403004: 5c 02 00 00
   0x120fffa8: 80 10 40 00
 call imp_WriteFile
   result eax = 0x1
@@ -1078,7 +1078,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff70: 50 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
+  0x120fff70: 5c 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
     00 00 00 00 04 00 00 00
   0x120fff94: 33 38 0d 0a 03 00 00 00 05 00 00 00 06 00 00 00
     04 00 00 00
@@ -1352,7 +1352,7 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x403004: 50 02 00 00
+  0x403004: 5c 02 00 00
   0x120fffa8: 98 10 40 00
 call imp_WriteFile
   result eax = 0x1
@@ -1409,7 +1409,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff70: 50 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
+  0x120fff70: 5c 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
     00 00 00 00 04 00 00 00
   0x120fff94: 38 30 0d 0a 03 00 00 00 05 00 00 00 06 00 00 00
     04 00 00 00
@@ -1684,7 +1684,7 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x403004: 50 02 00 00
+  0x403004: 5c 02 00 00
   0x120fffa8: b0 10 40 00
 call imp_WriteFile
   result eax = 0x1
@@ -1741,7 +1741,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff70: 50 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
+  0x120fff70: 5c 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
     00 00 00 00 04 00 00 00
   0x120fff94: 34 32 0d 0a 03 00 00 00 05 00 00 00 06 00 00 00
     04 00 00 00
@@ -2233,7 +2233,7 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x403004: 50 02 00 00
+  0x403004: 5c 02 00 00
   0x120fffa8: d6 10 40 00
 call imp_WriteFile
   result eax = 0x1
@@ -2290,7 +2290,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff70: 50 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
+  0x120fff70: 5c 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
     00 00 00 00 04 00 00 00
   0x120fff94: 37 37 0d 0a 03 00 00 00 05 00 00 00 06 00 00 00
     04 00 00 00
@@ -2349,32 +2349,32 @@ entry
 memory in
   0x403000: 03 00 00 00
 call imp_GetStdHandle
-  result eax = 0x250
+  result eax = 0x25c
   result edx = 0x0
   result xmm0 = 0x0
 call install
-  result eax = 0x250
+  result eax = 0x25c
   result edx = 0x4010f0
   result esp = 0x120fffac
   result pf = 0x1
   result xmm0 = 0x0
   effect 0x403014: f0 10 40 00
 call install
-  result eax = 0x250
+  result eax = 0x25c
   result edx = 0x401100
   result esp = 0x120fffac
   result pf = 0x0
   result xmm0 = 0x0
   effect 0x403018: 00 11 40 00
 call install
-  result eax = 0x250
+  result eax = 0x25c
   result edx = 0x401110
   result esp = 0x120fffac
   result pf = 0x1
   result xmm0 = 0x0
   effect 0x40301c: 10 11 40 00
 call install
-  result eax = 0x250
+  result eax = 0x25c
   result edx = 0x401120
   result esp = 0x120fffac
   result xmm0 = 0x0
@@ -2394,7 +2394,7 @@ call print_int
   result esp = 0x120fffac
   result pf = 0x0
   result xmm0 = 0x0
-  effect 0x120fff70: 50 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
+  effect 0x120fff70: 5c 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
     00 00 00 00 04 00 00 00
   effect 0x120fff94: 34 32 0d 0a 03 00 00 00 05 00 00 00 06 00 00 00
     04 00 00 00
@@ -2412,7 +2412,7 @@ call print_int
   result esp = 0x120fffac
   result pf = 0x0
   result xmm0 = 0x0
-  effect 0x120fff70: 50 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
+  effect 0x120fff70: 5c 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
     00 00 00 00 04 00 00 00
   effect 0x120fff94: 33 38 0d 0a 03 00 00 00 05 00 00 00 06 00 00 00
     04 00 00 00
@@ -2430,7 +2430,7 @@ call print_int
   result esp = 0x120fffac
   result pf = 0x0
   result xmm0 = 0x0
-  effect 0x120fff70: 50 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
+  effect 0x120fff70: 5c 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
     00 00 00 00 04 00 00 00
   effect 0x120fff94: 38 30 0d 0a 03 00 00 00 05 00 00 00 06 00 00 00
     04 00 00 00
@@ -2448,7 +2448,7 @@ call print_int
   result esp = 0x120fffac
   result pf = 0x0
   result xmm0 = 0x0
-  effect 0x120fff70: 50 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
+  effect 0x120fff70: 5c 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
     00 00 00 00 04 00 00 00
   effect 0x120fff94: 34 32 0d 0a 03 00 00 00 05 00 00 00 06 00 00 00
     04 00 00 00
@@ -2474,7 +2474,7 @@ call print_int
   result esp = 0x120fffac
   result pf = 0x0
   result xmm0 = 0x0
-  effect 0x120fff70: 50 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
+  effect 0x120fff70: 5c 02 00 00 94 ff 0f 12 04 00 00 00 84 ff 0f 12
     00 00 00 00 04 00 00 00
   effect 0x120fff94: 37 37 0d 0a 03 00 00 00 05 00 00 00 06 00 00 00
     04 00 00 00
@@ -2532,7 +2532,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x403004: 50 02 00 00
+  0x403004: 5c 02 00 00
   0x120fffa4: 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
     00 00 00 00 00 00 00 00
 left exit 0x0

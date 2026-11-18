@@ -3,10 +3,10 @@ ra-asm-verify vectors 1
 
 vector decrypt at 0x140001150
 entry
-  rax = 0x250
+  rax = 0x25c
   rcx = 0x120fff60
   rdx = 0x140002000
-  rbx = 0x250
+  rbx = 0x25c
   rsp = 0x120fff28
   rbp = 0x0
   rsi = 0x120fff60
@@ -66,7 +66,7 @@ exit
   rax = 0xf
   rcx = 0x120fff60
   rdx = 0x140002000
-  rbx = 0x250
+  rbx = 0x25c
   rsp = 0x120fff30
   rbp = 0x0
   rsi = 0x120fff60
@@ -120,7 +120,7 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff20: 50 02 00 00 00 00 00 00
+  0x120fff20: 5c 02 00 00 00 00 00 00
   0x120fff60: 43 6f 6c 6c 61 74 7a 20 73 74 65 70 73 0d 0a 00
 left return
 
@@ -138,7 +138,7 @@ entry
   r9 = 0x120fffd0
   r10 = 0xf
   r11 = 0xa
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -198,7 +198,7 @@ exit
   r9 = 0x120fffd0
   r10 = 0x6
   r11 = 0x20
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -261,7 +261,7 @@ entry
   r9 = 0x120fff5c
   r10 = 0x6
   r11 = 0x20
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -320,7 +320,7 @@ exit
   r9 = 0x77
   r10 = 0x5c
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -382,7 +382,7 @@ entry
   r9 = 0x77
   r10 = 0x5c
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -428,7 +428,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff28: d9 10 00 40 01 00 00 00
-  0x140003000: 50 02 00 00 00 00 00 00
+  0x140003000: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff25
@@ -436,7 +436,7 @@ call imp_WriteFile
   effect 0x120fff18: 03 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff25
   rbx = 0x6
   rsp = 0x120fff30
@@ -447,7 +447,7 @@ exit
   r9 = 0x120fff18
   r10 = 0x38
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -510,7 +510,7 @@ entry
   r9 = 0x120fffd0
   r10 = 0x38
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -570,7 +570,7 @@ exit
   r9 = 0x120fffd0
   r10 = 0x6
   r11 = 0x20
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -633,7 +633,7 @@ entry
   r9 = 0x120fff5c
   r10 = 0x6
   r11 = 0x20
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -692,7 +692,7 @@ exit
   r9 = 0x77
   r10 = 0x5c
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -754,7 +754,7 @@ entry
   r9 = 0x77
   r10 = 0x5c
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -800,7 +800,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff28: d9 10 00 40 01 00 00 00
-  0x140003000: 50 02 00 00 00 00 00 00
+  0x140003000: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff24
@@ -808,7 +808,7 @@ call imp_WriteFile
   effect 0x120fff18: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff24
   rbx = 0x7
   rsp = 0x120fff30
@@ -819,7 +819,7 @@ exit
   r9 = 0x120fff18
   r10 = 0x31
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -882,7 +882,7 @@ entry
   r9 = 0x120fffd0
   r10 = 0x31
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -942,7 +942,7 @@ exit
   r9 = 0x120fffd0
   r10 = 0x6
   r11 = 0x20
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1005,7 +1005,7 @@ entry
   r9 = 0x120fff5c
   r10 = 0x6
   r11 = 0x20
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1064,7 +1064,7 @@ exit
   r9 = 0x77
   r10 = 0x5c
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1126,7 +1126,7 @@ entry
   r9 = 0x77
   r10 = 0x5c
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1172,7 +1172,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff28: d9 10 00 40 01 00 00 00
-  0x140003000: 50 02 00 00 00 00 00 00
+  0x140003000: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff25
@@ -1180,7 +1180,7 @@ call imp_WriteFile
   effect 0x120fff18: 03 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff25
   rbx = 0x8
   rsp = 0x120fff30
@@ -1191,7 +1191,7 @@ exit
   r9 = 0x120fff18
   r10 = 0x33
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1254,7 +1254,7 @@ entry
   r9 = 0x120fffd0
   r10 = 0x33
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1314,7 +1314,7 @@ exit
   r9 = 0x120fffd0
   r10 = 0x6
   r11 = 0x20
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1377,7 +1377,7 @@ entry
   r9 = 0x120fff5c
   r10 = 0x6
   r11 = 0x20
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1436,7 +1436,7 @@ exit
   r9 = 0x77
   r10 = 0x5c
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1498,7 +1498,7 @@ entry
   r9 = 0x77
   r10 = 0x5c
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1544,7 +1544,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff28: d9 10 00 40 01 00 00 00
-  0x140003000: 50 02 00 00 00 00 00 00
+  0x140003000: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff24
@@ -1552,7 +1552,7 @@ call imp_WriteFile
   effect 0x120fff18: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff24
   rbx = 0x9
   rsp = 0x120fff30
@@ -1563,7 +1563,7 @@ exit
   r9 = 0x120fff18
   r10 = 0x31
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1671,10 +1671,10 @@ entry
   ymm14h = 0x0
   ymm15h = 0x0
 memory in
-  0x140002090: a0 04 00 10 00 00 00 00
+  0x140002090: 10 05 00 10 00 00 00 00
   0x140003008: 00 00 00 00
 call imp_GetStdHandle
-  result rax = 0x250
+  result rax = 0x25c
   result rdx = 0x0
   result xmm0 = 0x0
 call decrypt
@@ -1686,7 +1686,7 @@ call decrypt
   result r11 = 0xa
   result zf = 0x1
   result xmm0 = 0x0
-  effect 0x120fff20: 50 02 00 00 00 00 00 00
+  effect 0x120fff20: 5c 02 00 00 00 00 00 00
   effect 0x120fff60: 43 6f 6c 6c 61 74 7a 20 73 74 65 70 73 0d 0a 00
 call imp_WriteFile
   result rax = 0x1
@@ -1725,7 +1725,7 @@ call steps_of
   effect 0x120fff20: 60 ff 0f 12 00 00 00 00
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff25
   result rsp = 0x120fff30
   result r8 = 0x3
@@ -1767,7 +1767,7 @@ call steps_of
   effect 0x120fff20: 60 ff 0f 12 00 00 00 00
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff24
   result rsp = 0x120fff30
   result r8 = 0x4
@@ -1809,7 +1809,7 @@ call steps_of
   effect 0x120fff20: 60 ff 0f 12 00 00 00 00
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff25
   result rsp = 0x120fff30
   result r8 = 0x3
@@ -1851,7 +1851,7 @@ call steps_of
   effect 0x120fff20: 60 ff 0f 12 00 00 00 00
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff24
   result rsp = 0x120fff30
   result r8 = 0x4
@@ -1878,7 +1878,7 @@ exit
   r9 = 0x120fff18
   r10 = 0x31
   r11 = 0x77
-  r12 = 0x100004a0
+  r12 = 0x10000510
   r13 = 0x0
   r14 = 0x14000200f
   r15 = 0x140002015
@@ -1929,5 +1929,5 @@ memory out
   0x120fff88: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
     00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
     00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-  0x140003000: 50 02 00 00 00 00 00 00
+  0x140003000: 5c 02 00 00 00 00 00 00
 left exit 0x0

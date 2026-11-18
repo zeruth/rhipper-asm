@@ -759,6 +759,9 @@ struct State<'a> {
     /// Whether the image keeps its read-only data in its code section ([`Image::data_in_code`]),
     /// where a pointer into the section names data as readily as a function.
     data_in_code: bool,
+    /// The starts a word of the data named that turned out to be no function's: inside an
+    /// instruction of a function built since ([`State::unseed`]). Not seeded again.
+    rejected: HashSet<u64>,
     warnings: Vec<String>,
 }
 
@@ -781,6 +784,7 @@ impl<'a> State<'a> {
             funclets: frames.values().flat_map(|f| f.funclets.iter().map(|r| r.begin)).collect(),
             runtime: symbols::RuntimeRanges::of(image),
             data_in_code: image.data_in_code(),
+            rejected: HashSet::new(),
             warnings: Vec::new(),
         }
     }
@@ -799,8 +803,60 @@ impl<'a> State<'a> {
         Some(function)
     }
 
+    /// Takes back the start `bogus`, which only words of the data named and which lies inside an
+    /// instruction of the function at `entry`, being built: a word past the end of a vtable, or
+    /// any dword of the data, that happens to hold an address of the code. The start cut the
+    /// function it lies in, what ran on past the cut became functions of their own reached by
+    /// jumps, and each ran on the first one's frame with nothing of it. With the start go the
+    /// starts only it and those led to, by their calls and jumps, and the starts `entry` jumped
+    /// to when it was built cut short; a function another still calls or jumps to stays, and a
+    /// function cut at one of the starts builds again.
+    fn unseed(&mut self, bogus: u64, entry: u64) {
+        let mut going: HashSet<u64> = HashSet::from([entry]);
+        let mut work = vec![bogus];
+        // The jumps of the function being built, as its shorter builds recorded them.
+        let mut emptied = self.forget_origins(entry, false);
+        loop {
+            for t in emptied.drain(..) {
+                let held = self.extents.contains_key(&t)
+                    || self.functions.values().any(|f| !going.contains(&f.entry) && (f.calls.contains(&t) || f.tail_calls.contains(&t)));
+                if !held {
+                    work.push(t);
+                }
+            }
+            let Some(s) = work.pop() else { break };
+            if !going.insert(s) {
+                continue;
+            }
+            for cut in self.cover.owners(s.saturating_sub(1)) {
+                if !going.contains(&cut) && self.take(cut).is_some() {
+                    self.pending.push(cut);
+                }
+            }
+            self.known_starts.remove(&s);
+            self.take(s);
+            self.pending.retain(|p| *p != s);
+            self.origins.remove(&s);
+            emptied = self.forget_origins(s, true);
+        }
+    }
+
+    /// Drops the origins the function at `from` gave other starts, its jumps and (with `calls`)
+    /// its calls: the starts left with none.
+    fn forget_origins(&mut self, from: u64, calls: bool) -> Vec<u64> {
+        let mut emptied = Vec::new();
+        for (t, list) in &mut self.origins {
+            let before = list.len();
+            list.retain(|o| !matches!(o, Origin::TailCall(c) if *c == from) && !(calls && matches!(o, Origin::Call(c) if *c == from)));
+            if list.len() != before && list.is_empty() {
+                emptied.push(*t);
+            }
+        }
+        emptied
+    }
+
     fn seed(&mut self, va: u64, origin: Origin) {
-        if !self.image.is_code(va) {
+        if !self.image.is_code(va) || self.rejected.contains(&va) {
             return;
         }
         // A pointer into the code section of an image that keeps its data there names a string, a
@@ -863,6 +919,26 @@ impl<'a> State<'a> {
 
         let ranges = self.ranges_of(entry);
         let built = builder::build(self.image, self.arch, entry, &ranges, &self.known_starts, &self.noreturn, self.frames.get(&entry));
+        // A start inside the last instruction of a block, that only the data names, is no
+        // function: the function builds again without it.
+        let inside: Vec<u64> = built
+            .function
+            .blocks
+            .iter()
+            .filter_map(|b| b.instrs.last())
+            .flat_map(|i| self.known_starts.range(i.address + 1..i.end()).copied())
+            .filter(|s| {
+                self.origins.get(s).is_some_and(|o| !o.is_empty() && o.iter().all(|o| matches!(o, Origin::Pointer(_) | Origin::Vtable(_))))
+            })
+            .collect();
+        if !inside.is_empty() {
+            for s in inside {
+                self.rejected.insert(s);
+                self.unseed(s, entry);
+            }
+            self.pending.push(entry);
+            return;
+        }
         let mut function = built.function;
         function.register_import_calls = imports::resolve(self.image, &HashMap::new(), &mut function).calls;
         function.origins = self.origins.get(&entry).cloned().unwrap_or_default();

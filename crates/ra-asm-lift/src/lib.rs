@@ -796,6 +796,9 @@ fn lift_on(
         let images: Vec<&Image> = images.iter().map(|(i, _)| *i).collect();
         lifted.module.globals.extend(state::import_pops_globals(&images, &lifted));
         lifted.module.globals.push(state::proc_pops_global(&images, &lifted));
+        // The runtime names the table whoever the program is: empty for one that asks nothing.
+        let asks = lifted.imports.iter().any(|i| raise::prototypes::asks_opengl(i));
+        lifted.module.globals.push(state::proc_kinds_global(if asks { &images } else { &[] }));
     }
     // The host reads a 64-bit program's RTTI by offsets from the image's base, which the
     // standalone port's sections, placed apart, do not keep: the runtime rewrites them.
@@ -1011,10 +1014,8 @@ pub fn image_header(
                 // the arguments as its command line and `SW_SHOWDEFAULT`. A DLL's entry takes the
                 // loader's three.
                 let win_main = is_main && name == ra_asm_analysis::symbols::WIN_MAIN_C;
-                let args: Vec<&str> = params
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| match (is_main, dll, i, image.pointer_size()) {
+                let argument = |i: usize| -> &'static str {
+                    match (is_main, dll, i, image.pointer_size()) {
                         (true, _, 0, _) if win_main => "RA_IMAGE_BASE",
                         (true, _, 1, _) if win_main => "0",
                         (true, _, 2, _) if win_main => "ra_win_main_command_line()",
@@ -1027,8 +1028,16 @@ pub fn image_header(
                         (false, true, 1, _) => "(unsigned long long)(reason)",
                         (false, true, 2, _) => "(unsigned long long)(uintptr_t)(reserved)",
                         _ => "0",
-                    })
-                    .collect();
+                    }
+                };
+                // A variadic entry reads the four words the startup passes through its block.
+                let args: Vec<String> = if sig.variadic {
+                    let mut args = vec!["0".to_owned(); params.len() - 1];
+                    args.push(argument_block(&(0..4).map(|i| argument(i).to_owned()).collect::<Vec<_>>()));
+                    args
+                } else {
+                    (0..params.len()).map(|i| argument(i).to_owned()).collect()
+                };
                 let macro_params = if dll { "instance, reason, reserved" } else { "" };
                 let _ = writeln!(out, "#define RA_ENTRY_CALL({macro_params}) {name}({})", args.join(", "));
                 // `main`'s result is the exit code the runtime's startup would have passed to
@@ -1050,15 +1059,18 @@ pub fn image_header(
                             let _ = writeln!(out, "extern const unsigned char {headers}[];");
                         }
                         let _ = writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
-                        let args: Vec<String> = params
-                            .iter()
-                            .enumerate()
-                            .map(|(i, _)| match (i, headers) {
-                                (0, Some(headers)) => format!("(unsigned long long)(uintptr_t){headers}"),
-                                (1, _) => "1".to_owned(), // DLL_PROCESS_ATTACH
-                                _ => "0".to_owned(),
-                            })
-                            .collect();
+                        let argument = |i: usize| match (i, headers) {
+                            (0, Some(headers)) => format!("(unsigned long long)(uintptr_t){headers}"),
+                            (1, _) => "1".to_owned(), // DLL_PROCESS_ATTACH
+                            _ => "0".to_owned(),
+                        };
+                        let args: Vec<String> = if sig.variadic {
+                            let mut args = vec!["0".to_owned(); params.len() - 1];
+                            args.push(argument_block(&(0..3).map(argument).collect::<Vec<_>>()));
+                            args
+                        } else {
+                            (0..params.len()).map(argument).collect()
+                        };
                         let call = format!("{name}({})", args.join(", "));
                         let _ = if sig.returns.is_some() {
                             writeln!(calls, "    if (!(int){call}) return 1;")
@@ -1072,7 +1084,11 @@ pub fn image_header(
                         let Some(sig) = signatures.and_then(|s| s.get(name)) else { continue };
                         let (ret, params) = abi_prototype(sig);
                         let _ = writeln!(out, "{ret} {name}({});", if params.is_empty() { "void".to_owned() } else { params.join(", ") });
-                        let call = format!("{name}({})", vec!["0"; params.len()].join(", "));
+                        let mut args = vec!["0".to_owned(); params.len()];
+                        if sig.variadic {
+                            args[params.len() - 1] = argument_block(&[]);
+                        }
+                        let call = format!("{name}({})", args.join(", "));
                         let _ = if *checked && sig.returns.is_some() {
                             writeln!(calls, "    if ((int){call}) return 1;")
                         } else {
@@ -1125,7 +1141,21 @@ fn abi_prototype(sig: &raise::abi::Signature) -> (&'static str, Vec<&'static str
         raise::abi::Kind::Float => "float",
         raise::abi::Kind::Double => "double",
     };
-    (sig.returns.map_or("void", c_type), sig.params.iter().chain(&sig.stack_params).map(|k| c_type(*k)).collect())
+    let mut params: Vec<&'static str> = sig.params.iter().chain(&sig.stack_params).map(|k| c_type(*k)).collect();
+    // A variadic function takes the address of its argument block last.
+    if sig.variadic {
+        params.push("unsigned long long");
+    }
+    (sig.returns.map_or("void", c_type), params)
+}
+
+/// The argument block the driver hands a variadic function it calls: sixteen dwords, the first
+/// of them `words`, as the address the function takes. A function whose stack pointer the
+/// analysis lost copies that many, so an initializer of no arguments is handed a block all the
+/// same: called with none, it read its block at whatever the register held.
+fn argument_block(words: &[String]) -> String {
+    let words: Vec<String> = words.iter().map(|w| format!("(unsigned)({w})")).collect();
+    format!("(unsigned long long)(uintptr_t)(unsigned[16]){{{}}}", if words.is_empty() { "0".to_owned() } else { words.join(", ") })
 }
 
 /// The program's own initializers the C runtime's startup runs before `main`, in its order, each

@@ -40,7 +40,7 @@ use std::collections::{HashMap, HashSet};
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, Const, Function, Global, Inst, Operand, Terminator, Type, ValueId};
 
 use super::abi::Signature;
-use crate::state::{IMPORT_POPS, PROC_POPS};
+use crate::state::{IMPORT_POPS, PROC_KINDS, PROC_POPS};
 
 /// The most instructions one store's walk reads before it gives up and keeps the store.
 const BUDGET: usize = 20_000;
@@ -373,6 +373,18 @@ pub fn most_pops(globals: &[Global], signatures: &HashMap<String, Signature>) ->
         let pops = u16::from_le_bytes([*procs.get(end + 1)?, *procs.get(end + 2)?]);
         most = most.max(i64::from(pops));
         at = end + 3;
+    }
+    // The OpenGL functions asked by name: `name\0`, the result's letter and each parameter's,
+    // a zero; a double or a 64-bit integer is two dwords.
+    if let Some(Const::Bytes(kinds)) = init(PROC_KINDS) {
+        let mut at = 0;
+        while *kinds.get(at)? != 0 {
+            let letters = at + kinds[at..].iter().position(|&b| b == 0)? + 1;
+            let end = letters + kinds[letters..].iter().position(|&b| b == 0)?;
+            let pops: i64 = kinds[letters..end].iter().skip(1).map(|&c| if matches!(c, b'd' | b'w') { 8 } else { 4 }).sum();
+            most = most.max(pops);
+            at = end + 1;
+        }
     }
     for s in signatures.values() {
         most = most.max(i64::try_from(s.pops).ok()?);

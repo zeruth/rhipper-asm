@@ -86,6 +86,14 @@ pub struct Signature {
     /// and pops balance that way ([`super::stack::analyze_resolved`]), so the stack pointer after
     /// such a call is the one before it, not what the runtime says the callee popped.
     pub plain_pops: bool,
+    /// A variadic function only because its stack pointer is lost, not because the address of an
+    /// argument leaves it: it takes the block to copy it into its frame, and reads and writes
+    /// every argument there, the ones at a known place too. Reading those in the caller's block
+    /// and the others in the copy, it read back through one what it wrote through the other.
+    pub copies: bool,
+    /// The bytes of its argument block a variadic function whose stack pointer is lost copies
+    /// into its frame: what it pops, what it reads at known places, sixteen dwords at least.
+    pub block_bytes: u64,
 }
 
 impl Default for Signature {
@@ -105,6 +113,8 @@ impl Default for Signature {
             variadic: false,
             forwards: false,
             plain_pops: false,
+            copies: false,
+            block_bytes: 0,
         }
     }
 }
@@ -850,6 +860,11 @@ fn infer_from(
             // The registers some call shows the callee is handed: a root's plain call shows only
             // what it sets.
             let mut shown: HashMap<&str, u8> = HashMap::new();
+            // The callees some call decides for: one that is no plain call of a root. Where every
+            // call of a function is such a call, none decides and none says no: the function takes
+            // what they all came in with and left alone. A method whose only callers are virtual
+            // methods of its object, which pass their `this` on, lost it and read the object at 0.
+            let mut decided: std::collections::HashSet<&str> = std::collections::HashSet::new();
             for fact in &facts {
                 let root = open(&fact.name);
                 let own = if root { 0 } else { set_by_callers.get(fact.name.as_str()).copied().unwrap_or(0) };
@@ -857,10 +872,15 @@ fn infer_from(
                     let handed = call.set | (call.given & if root { conventional } else { own });
                     *next.entry(call.callee.as_str()).or_insert(u8::MAX) &= handed;
                     *shown.entry(call.callee.as_str()).or_insert(0) |= if root && !call.tail { call.set } else { handed };
+                    if !root || call.tail {
+                        decided.insert(call.callee.as_str());
+                    }
                 }
             }
             for (callee, mask) in &mut next {
-                *mask &= shown.get(callee).copied().unwrap_or(0);
+                if decided.contains(callee) {
+                    *mask &= shown.get(callee).copied().unwrap_or(0);
+                }
             }
             if next == set_by_callers {
                 break;
@@ -924,6 +944,17 @@ fn infer_from(
                     stack_params.push(kind);
                 }
             }
+            // A function that pops its arguments takes all it pops, read or not: `ret 24` is six
+            // dwords. One whose stack pointer is the run's to say after a call through a pointer
+            // reads its later arguments from it, which no read at a known place shows; with four
+            // parameters of its six, the last two were words of its frame nothing wrote.
+            if !target.is_64() {
+                let mut width: i64 = stack_params.iter().map(|k| k.stack_width(target.ptr())).sum();
+                while width < fact.stack.pops {
+                    stack_params.push(Kind::Int);
+                    width += slot;
+                }
+            }
             let returns = if fact.noreturn { None } else { returns.get(&fact.name).copied().flatten() };
             // A function the lift sees every caller of hands back, besides what the convention
             // says, each callee-saved register it leaves changed that a caller reads after the
@@ -953,9 +984,27 @@ fn infer_from(
             for (kept, written) in preserves.iter_mut().zip(fact.writes) {
                 *kept &= !written;
             }
-            // A function that hands the address of its arguments on reads them through it; one
-            // that also writes into their slots reuses a dead parameter's slot for a local.
-            let variadic = !target.is_64() && fact.stack.argument_address_escapes && !fact.stack.argument_area_written;
+            // A function that hands the address of its arguments on reads them where its caller
+            // wrote them, through that address. One that also writes into their slots does too:
+            // it is not only MSVC's reuse of a dead parameter's slot for a local, but an object
+            // passed by value, which the callee destroys in place. Copied into the callee's
+            // frame, a string that points into its own buffer no longer did, and its destructor
+            // freed the caller's stack.
+            // So does a function whose stack pointer the analysis lost (a call through a pointer
+            // pops what the run says): it reads its later arguments through that pointer, which
+            // no read at a known place shows, and a `cdecl` one pops nothing to count them by.
+            // A loader of three arguments took one, and wrote its two results through words of
+            // its frame nothing set. It takes the block and copies it into its frame.
+            // One that only hands its arguments on through a pointer it jumps through (`mov ecx,
+            // object; mov eax, [ecx]; jmp [eax + 100]`) takes the block too, for the words past
+            // the universal six (a seventh argument went on as zero); what it pops is what the
+            // function it jumps to popped, which `forwards` has its callers ask the runtime.
+            // Popping nothing by its signature, it left its caller's stack pointer twelve bytes
+            // off at its cookie check.
+            let variadic = !target.is_64() && (fact.stack.argument_address_escapes || fact.stack.dynamic);
+            // The bytes of arguments the function reads at known places.
+            let extent =
+                fact.stack.argument_reads.iter().map(|(&at, &bits)| at + i64::from(bits / 8).max(slot) - first).max().unwrap_or(0).max(0);
             next.insert(
                 fact.name.clone(),
                 Signature {
@@ -971,8 +1020,13 @@ fn infer_from(
                     pops: if target.is_64() { 0 } else { fact.stack.pops.max(0) as u64 },
                     preserves,
                     variadic,
-                    forwards: !variadic && fact.stack.forwards,
+                    forwards: !target.is_64() && fact.stack.forwards,
                     plain_pops: fact.stack.plain,
+                    // A piece of a function taken for one of its own reads its parent's frame as
+                    // its arguments, kilobytes of it: no copy holds that, and the parent's
+                    // objects are where they are. It reads them in place.
+                    copies: variadic && !fact.stack.argument_address_escapes && extent <= 256,
+                    block_bytes: (extent.max(64).max(fact.stack.pops.max(0)) as u64 + 3) & !3,
                 },
             );
         }
@@ -1042,7 +1096,15 @@ fn assumed(f: &Function, signatures: &HashMap<String, Signature>, target: Target
     }
 }
 
-/// [`call_model`] for the promotion pass.
+/// [`call_model`] for the promotion pass. There an x86 call through a pointer no list of
+/// functions answers for reads `edx` as well as `ecx`: MSVC's whole-program build gives a virtual
+/// method a convention of its own where it knows every implementation, an argument in `edx`
+/// beside `this` (`Zero16(dst in edx, count)` of a vector library, called through its vtable),
+/// and with `edx` unread the rewrite let the value the caller had just set die before the call
+/// and handed on none: the callee wrote through zero. Only there, not in the inference: a
+/// function that makes such a call does not take `edx` as a parameter for it, or every caller
+/// up the chain hands on an `edx` it never set, and the address that happens to lie in it
+/// counts as an escape of its frame.
 pub fn call_model_public(
     inst: &Inst,
     virtual_calls: &HashMap<ValueId, Candidates>,
@@ -1050,7 +1112,12 @@ pub fn call_model_public(
     target: Target,
     summaries: Option<&SummaryCache<'_>>,
 ) -> (SlotSet, SlotSet) {
-    call_model(inst, virtual_calls, signatures, target, summaries)
+    let (mut reads, writes) = call_model(inst, virtual_calls, signatures, target, summaries);
+    let through_pointer = matches!(inst, Inst::Call { callee: Callee::Direct(name), .. } if name == "ra_call");
+    if through_pointer && !target.register_arguments() && virtual_candidates(inst, virtual_calls).is_none() {
+        reads[super::liveness::RDX.index()] = true;
+    }
+    (reads, writes)
 }
 
 /// What a state call reads and writes under the current signatures. An import reads as many
@@ -1134,12 +1201,22 @@ fn call_model(
             }
         }
     }
+    // Every call reads its stack arguments above the stack pointer, whoever the callee is: a
+    // function that jumps to another with its own arguments as they came (`jmp thunk` after a
+    // join) and keeps nothing on the stack holds it live for that call alone. Unread, the
+    // callee's arguments were loaded from a stack pointer nothing set.
+    let with_stack = |mut reads: SlotSet| {
+        if !target.is_arm64() {
+            reads[target.sp().index()] = true;
+        }
+        reads
+    };
     if let Some(candidates) = virtual_candidates(inst, virtual_calls) {
         let (reads, kept_by_all) = summaries.map_or_else(|| summarize(candidates, signatures, target), |s| s.get(candidates));
         for (w, kept) in writes.iter_mut().zip(kept_by_all) {
             *w &= !kept;
         }
-        return (reads, writes);
+        return (with_stack(reads), writes);
     }
     let int_slots = |count: usize| {
         let mut set = NO_SLOTS;
@@ -1164,7 +1241,7 @@ fn call_model(
         },
         _ => all_argument_slots(target),
     };
-    (reads, writes)
+    (with_stack(reads), writes)
 }
 
 /// The facts of `f`. `slots` is every call through a vtable slot with the slot's functions, the
@@ -1204,7 +1281,7 @@ fn gather(
     // the call.
     let stack_of = |name: &str| {
         signatures.get(name).map_or(CalleeStack { pops: Some(0), arguments: 0, forwards: false }, |s| CalleeStack {
-            pops: Some(s.pops as i64),
+            pops: (!s.forwards).then_some(s.pops as i64),
             arguments: s.stack_bytes(target),
             forwards: s.forwards,
         })
@@ -1376,9 +1453,33 @@ fn gather(
             break;
         }
     }
+    // The blocks that return what `rax` holds as they start: one that ends in a return and neither
+    // stores `rax` nor calls, and one that goes on to such a block the same way. `call target;
+    // ret` of a function whose call may throw is two blocks, the check of the exception between
+    // them: a method that only calls another and returns handed back nothing, and its caller
+    // read a null string.
+    let passes: Vec<bool> = f
+        .blocks
+        .iter()
+        .map(|b| {
+            !b.instrs.iter().any(|i| match &i.inst {
+                Inst::Store { ptr: Operand::Local(p), .. } => pointers.get(p) == Some(&low),
+                inst => super::liveness::call_kind(inst).is_some(),
+            })
+        })
+        .collect();
+    let mut hands_back: Vec<bool> = f.blocks.iter().map(|b| matches!(b.terminator, ra_asm_ir::Terminator::Ret(_))).collect();
+    for _ in 0..4 {
+        for (bi, b) in f.blocks.iter().enumerate() {
+            if !hands_back[bi] {
+                hands_back[bi] =
+                    b.terminator.successors().into_iter().any(|s| block_index.get(&s).is_some_and(|&si| passes[si] && hands_back[si]));
+            }
+        }
+    }
     for (bi, b) in f.blocks.iter().enumerate() {
         let dead_end = !returns_from[bi];
-        let returning = matches!(b.terminator, ra_asm_ir::Terminator::Ret(_));
+        let returning = hands_back[bi];
         let mut calls = 0usize;
         for i in &b.instrs {
             // The slots the function writes, itself or through a call.

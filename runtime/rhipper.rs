@@ -2282,6 +2282,13 @@ pub unsafe fn ra_f80_store(memory: *mut u8, slot: *const u8) {
     core::ptr::copy_nonoverlapping(slot, memory, 10);
 }
 
+/// The double unit's `fstp tbyte`: the ten bytes of the 80-bit form of a double, and no more.
+pub unsafe fn ra_f80_store_f64(memory: *mut u8, value: f64) {
+    let mut slot = [0u8; 16];
+    ra_f80_from_f64(slot.as_mut_ptr(), value);
+    core::ptr::copy_nonoverlapping(slot.as_ptr(), memory, 10);
+}
+
 pub unsafe fn ra_f80_pack(slot: *mut u8, significand: u64, sign_exponent: u64) {
     f80_write(slot, sign_exponent >> 15 & 1 != 0, sign_exponent as u32 & 0x7fff, significand);
 }

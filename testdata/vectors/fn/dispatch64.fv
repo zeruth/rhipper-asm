@@ -3,7 +3,7 @@ ra-asm-verify vectors 1
 
 vector install at 0x140001100
 entry
-  rax = 0x250
+  rax = 0x25c
   rcx = 0x3
   rdx = 0x140001110
   rbx = 0x0
@@ -792,7 +792,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff68: 7a 10 00 40 01 00 00 00
-  0x140003010: 50 02 00 00 00 00 00 00
+  0x140003010: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff5c
@@ -800,7 +800,7 @@ call imp_WriteFile
   effect 0x120fff4c: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff5c
   rbx = 0x6
   rsp = 0x120fff70
@@ -1168,7 +1168,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff68: 93 10 00 40 01 00 00 00
-  0x140003010: 50 02 00 00 00 00 00 00
+  0x140003010: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff5c
@@ -1176,7 +1176,7 @@ call imp_WriteFile
   effect 0x120fff4c: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff5c
   rbx = 0x6
   rsp = 0x120fff70
@@ -1544,7 +1544,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff68: ac 10 00 40 01 00 00 00
-  0x140003010: 50 02 00 00 00 00 00 00
+  0x140003010: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff5c
@@ -1552,7 +1552,7 @@ call imp_WriteFile
   effect 0x120fff4c: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff5c
   rbx = 0x6
   rsp = 0x120fff70
@@ -1921,7 +1921,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff68: c5 10 00 40 01 00 00 00
-  0x140003010: 50 02 00 00 00 00 00 00
+  0x140003010: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff5c
@@ -1929,7 +1929,7 @@ call imp_WriteFile
   effect 0x120fff4c: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff5c
   rbx = 0x6
   rsp = 0x120fff70
@@ -2544,7 +2544,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff68: ed 10 00 40 01 00 00 00
-  0x140003010: 50 02 00 00 00 00 00 00
+  0x140003010: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff5c
@@ -2552,7 +2552,7 @@ call imp_WriteFile
   effect 0x120fff4c: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff5c
   rbx = 0x6
   rsp = 0x120fff70
@@ -2674,7 +2674,7 @@ entry
 memory in
   0x140003000: 03 00 00 00
 call imp_GetStdHandle
-  result rax = 0x250
+  result rax = 0x25c
   result rdx = 0x0
   result xmm0 = 0x0
 call install
@@ -2712,7 +2712,7 @@ call dispatch
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff5c
   result rsp = 0x120fff70
   result r8 = 0x4
@@ -2731,7 +2731,7 @@ call dispatch
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff5c
   result rsp = 0x120fff70
   result r8 = 0x4
@@ -2749,7 +2749,7 @@ call dispatch
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff5c
   result rsp = 0x120fff70
   result r8 = 0x4
@@ -2767,7 +2767,7 @@ call dispatch
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff5c
   result rsp = 0x120fff70
   result r8 = 0x4
@@ -2791,7 +2791,7 @@ call dispatch
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff5c
   result rsp = 0x120fff70
   result r8 = 0x4
@@ -2866,5 +2866,5 @@ memory out
   0x120fff68: ed 10 00 40 01 00 00 00
   0x120fff98: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
     00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-  0x140003010: 50 02 00 00 00 00 00 00
+  0x140003010: 5c 02 00 00 00 00 00 00
 left exit 0x0

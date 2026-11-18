@@ -114,7 +114,7 @@ static const char *trap_name(uint64_t code) {
 // a name in the report, not the port. A port built with RA_TRACE_LAST names every function all
 // the same when the RA_TRACE environment variable is set, so the one build that reported a
 // failure gives its whole trace on a second run.
-#define ENTERED 24
+#define ENTERED 128
 static const char *entered[ENTERED];
 static unsigned entered_count;
 
@@ -1786,6 +1786,15 @@ void ra_f80_store(void *memory, const void *slot) {
     memcpy(memory, slot, 10);
 }
 
+void ra_f80_from_f64(void *slot, double value);
+
+// The double unit's `fstp tbyte`: the ten bytes of the 80-bit form of a double, and no more.
+void ra_f80_store_f64(void *memory, double value) {
+    uint8_t slot[16];
+    ra_f80_from_f64(slot, value);
+    memcpy(memory, slot, 10);
+}
+
 void ra_f80_pack(void *slot, uint64_t significand, uint64_t sign_exponent) {
     f80_write(slot, (int)(sign_exponent >> 15) & 1, (uint32_t)sign_exponent & 0x7fff, significand);
 }
@@ -3007,6 +3016,182 @@ uint64_t ra_x86_get_proc_address(uint64_t module, uint64_t name) {
     int32_t pops = -1;
     if ((uint32_t)name > 0xFFFF) pops = is_crt_module(host) ? 0 : proc_pops(by);
     return trampoline(f, pops);
+}
+
+// The kinds of the OpenGL functions the program may ask its context for by name (see the lift's
+// `ra_proc_kinds`): `name\0`, the letters of its result and parameters and a zero each, then an
+// empty name.
+extern const uint8_t ra_proc_kinds[];
+
+static const char *proc_kinds(const char *name) {
+    for (const char *p = (const char *)ra_proc_kinds; *p;) {
+        const char *kinds = p + strlen(p) + 1;
+        if (strcmp(p, name) == 0) return kinds;
+        p = kinds + strlen(kinds) + 1;
+    }
+    return NULL;
+}
+
+// The stack words of a call through a pointer past the universal six, a word each, where the
+// last such call wrote them (rhipper.h's ra_args_call_into): none in a translation with no such
+// call. A weak reference to the translation's own `ra_args` linked, and read zeros.
+uint64_t *ra_args_at;
+
+// An OpenGL function whose arguments the universal call does not carry as the host takes them:
+// a float or a double, which the host takes in a vector register, a 64-bit integer, which is two
+// of the program's stack dwords, or more than six dwords. The program is handed one of the
+// adapters below for it, which knows the function by its place here.
+#define GL_ADAPTERS 512
+static struct {
+    FARPROC host;
+    const char *kinds;
+    const char *name;
+    unsigned reported;
+} gl_adapted[GL_ADAPTERS];
+static size_t gl_adapted_used;
+
+// With RA_GL_ERRORS set in the environment every OpenGL function the program asks for by name
+// goes through an adapter, which asks the context for its error after the call and names the
+// first few calls of each function that left one, with the host's arguments: which call of a
+// port a context refuses is otherwise the program's guess, a frame later.
+static int gl_errors_wanted(void) {
+    static int wanted = -1;
+    if (wanted < 0) wanted = GetEnvironmentVariableA("RA_GL_ERRORS", NULL, 0) != 0;
+    return wanted;
+}
+
+static void gl_report(unsigned slot, const uint64_t *h, unsigned n) {
+    typedef unsigned(WINAPI * get_error)(void);
+    static get_error get;
+    static int between;
+    const char *name = gl_adapted[slot].name;
+    // Between glBegin and glEnd the context answers no question.
+    if (strcmp(name, "glBegin") == 0) between = 1;
+    if (strcmp(name, "glEnd") == 0) between = 0;
+    if (between || strcmp(name, "glGetError") == 0) return;
+    if (!get) {
+        HMODULE module = LoadLibraryA("opengl32.dll");
+        get = module ? (get_error)(void *)GetProcAddress(module, "glGetError") : NULL;
+        if (!get) return;
+    }
+    unsigned error = get();
+    if (!error || gl_adapted[slot].reported >= 3) return;
+    gl_adapted[slot].reported++;
+    fprintf(stderr, "ra: OpenGL error 0x%x after %s(", error, name);
+    for (unsigned k = 0; k < n; k++) fprintf(stderr, "%s0x%llx", k ? ", " : "", (unsigned long long)h[k]);
+    fprintf(stderr, ") of kinds %s\n", gl_adapted[slot].kinds);
+    fflush(stderr);
+}
+
+// The host's arguments from the program's stack dwords, by the kinds, and the call. The first
+// four go by their place, each in the integer or the vector register of it: one of sixteen
+// function types. A float is the low half of the double that carries it, and past the fourth
+// every argument is a word of the stack.
+static uint64_t gl_adapt(unsigned slot, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
+    typedef uint64_t U;
+    typedef double D;
+    void *host = (void *)gl_adapted[slot].host;
+    const char *kinds = gl_adapted[slot].kinds + 1;
+    U words[40] = {a0, a1, a2, a3, a4, a5};
+    size_t dwords = 0;
+    for (const char *k = kinds; *k; k++) dwords += *k == 'd' || *k == 'w' ? 2 : 1;
+    if (dwords > 40 || (dwords > 6 && !ra_args_at)) {
+        fprintf(stderr, "ra: an OpenGL function of %zu stack dwords, which the call through a pointer does not hand on\n", dwords);
+        host_exit(0xE0000004);
+    }
+    for (size_t k = 6; k < dwords; k++) words[k] = ra_args_at[k - 6];
+    U h[16] = {0};
+    unsigned n = 0, fp = 0;
+    size_t at = 0;
+    for (const char *k = kinds; *k && n < 16; k++, n++) {
+        h[n] = (uint32_t)words[at++];
+        if (*k == 'd' || *k == 'w') h[n] |= (U)(uint32_t)words[at++] << 32;
+        if ((*k == 'd' || *k == 'f') && n < 4) fp |= 1u << n;
+    }
+    D d[4];
+    memcpy(d, h, sizeof d);
+    U result;
+#define GL_CALL(T0, x0, T1, x1, T2, x2, T3, x3) \
+    result = ((U (*)(T0, T1, T2, T3, U, U, U, U, U, U, U, U, U, U, U, U))host)(x0, x1, x2, x3, h[4], h[5], h[6], h[7], h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15]); \
+    break
+    switch (fp) {
+    case 0: GL_CALL(U, h[0], U, h[1], U, h[2], U, h[3]);
+    case 1: GL_CALL(D, d[0], U, h[1], U, h[2], U, h[3]);
+    case 2: GL_CALL(U, h[0], D, d[1], U, h[2], U, h[3]);
+    case 3: GL_CALL(D, d[0], D, d[1], U, h[2], U, h[3]);
+    case 4: GL_CALL(U, h[0], U, h[1], D, d[2], U, h[3]);
+    case 5: GL_CALL(D, d[0], U, h[1], D, d[2], U, h[3]);
+    case 6: GL_CALL(U, h[0], D, d[1], D, d[2], U, h[3]);
+    case 7: GL_CALL(D, d[0], D, d[1], D, d[2], U, h[3]);
+    case 8: GL_CALL(U, h[0], U, h[1], U, h[2], D, d[3]);
+    case 9: GL_CALL(D, d[0], U, h[1], U, h[2], D, d[3]);
+    case 10: GL_CALL(U, h[0], D, d[1], U, h[2], D, d[3]);
+    case 11: GL_CALL(D, d[0], D, d[1], U, h[2], D, d[3]);
+    case 12: GL_CALL(U, h[0], U, h[1], D, d[2], D, d[3]);
+    case 13: GL_CALL(D, d[0], U, h[1], D, d[2], D, d[3]);
+    case 14: GL_CALL(U, h[0], D, d[1], D, d[2], D, d[3]);
+    default: GL_CALL(D, d[0], D, d[1], D, d[2], D, d[3]);
+    }
+#undef GL_CALL
+    if (gl_errors_wanted()) gl_report(slot, h, n);
+    return result;
+}
+
+// The adapters, one for each place of the table: `o` is the place in three octal digits.
+#define GL_ADAPTER(o) \
+    static uint64_t gl_adapter_##o(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) { return gl_adapt(0##o, a0, a1, a2, a3, a4, a5); }
+#define GL_NAMED(o) (void *)gl_adapter_##o,
+#define GL_8(M, p) M(p##0) M(p##1) M(p##2) M(p##3) M(p##4) M(p##5) M(p##6) M(p##7)
+#define GL_64(M, p) GL_8(M, p##0) GL_8(M, p##1) GL_8(M, p##2) GL_8(M, p##3) GL_8(M, p##4) GL_8(M, p##5) GL_8(M, p##6) GL_8(M, p##7)
+#define GL_512(M) GL_64(M, 0) GL_64(M, 1) GL_64(M, 2) GL_64(M, 3) GL_64(M, 4) GL_64(M, 5) GL_64(M, 6) GL_64(M, 7)
+GL_512(GL_ADAPTER)
+static void *const gl_adapters[GL_ADAPTERS] = {GL_512(GL_NAMED)};
+
+// The OpenGL function `f` the context answered for `name`, as the program calls it: `stdcall`,
+// so what it hands out says what the call pops, and goes through an adapter where the kinds ask.
+static uint64_t gl_function(FARPROC f, const char *name) {
+    if (!f) return 0;
+    const char *kinds = proc_kinds(name);
+    if (!kinds) {
+        fprintf(stderr, "ra: the OpenGL function %s, asked for by name, is none the table knows: a call through it pops nothing\n", name);
+        return trampoline(f, -1);
+    }
+    int32_t pops = 0;
+    int plain = 1;
+    for (const char *k = kinds + 1; *k; k++) {
+        pops += *k == 'd' || *k == 'w' ? 8 : 4;
+        if (*k != 'i') plain = 0;
+    }
+    if (plain && pops <= 24 && !gl_errors_wanted()) return trampoline(f, pops);
+    size_t slot = 0;
+    while (slot < gl_adapted_used && gl_adapted[slot].host != f) slot++;
+    if (slot == GL_ADAPTERS) {
+        fprintf(stderr, "ra: all %d adapters of OpenGL functions are handed out\n", GL_ADAPTERS);
+        host_exit(0xE0000004);
+    }
+    if (slot == gl_adapted_used) {
+        gl_adapted[slot].host = f;
+        gl_adapted[slot].kinds = kinds;
+        gl_adapted[slot].name = name;
+        gl_adapted_used++;
+    }
+    return trampoline((FARPROC)gl_adapters[slot], pops);
+}
+
+uint64_t ra_x86_sdl_gl_get_proc_address(uint64_t name) {
+    typedef void *(*get_proc)(const char *);
+    HMODULE module = GetModuleHandleA("SDL2.dll");
+    get_proc get = module ? (get_proc)(void *)GetProcAddress(module, "SDL_GL_GetProcAddress") : NULL;
+    const char *by = (const char *)(uintptr_t)(uint32_t)name;
+    return get ? gl_function((FARPROC)get(by), by) : 0;
+}
+
+uint64_t ra_x86_wgl_get_proc_address(uint64_t name) {
+    typedef PROC(WINAPI * get_proc)(LPCSTR);
+    HMODULE module = LoadLibraryA("opengl32.dll");
+    get_proc get = module ? (get_proc)(void *)GetProcAddress(module, "wglGetProcAddress") : NULL;
+    const char *by = (const char *)(uintptr_t)(uint32_t)name;
+    return get ? gl_function((FARPROC)get(by), by) : 0;
 }
 #endif
 #endif
@@ -4939,6 +5124,38 @@ static int ra_entry(void) {
     return code;
 }
 
+#if defined(_WIN32) && RA_POINTER_SIZE == 4
+// A 32-bit program's entry on Windows runs on a stack of its own, a fiber of the main thread.
+// The port's frames are larger than the program's were (each holds the machine's stack of its
+// function and its vector registers), so the program's deepest recursion needs more than the
+// reserve its image asked for; and a larger reserve in the port's own header is the default of
+// every thread the process starts, the sound's, the driver's and the pools' among them: 64 MB
+// each of an address space of 2 GB, of which twenty threads left a map too little to load its
+// textures in. The fiber is still the main thread, which the window system asks for.
+#ifndef RA_STACK_RESERVE
+#define RA_STACK_RESERVE (64u << 20)
+#endif
+static int entry_code;
+static void *entry_caller;
+
+static void WINAPI entry_fiber(void *unused) {
+    (void)unused;
+    entry_code = ra_entry();
+    SwitchToFiber(entry_caller);
+}
+
+static int ra_entry_roomy(void) {
+    entry_caller = ConvertThreadToFiber(NULL);
+    void *fiber = entry_caller ? CreateFiberEx(1u << 16, RA_STACK_RESERVE, 0, entry_fiber, NULL) : NULL;
+    if (!fiber) return ra_entry();
+    SwitchToFiber(fiber);
+    DeleteFiber(fiber);
+    return entry_code;
+}
+#else
+#define ra_entry_roomy ra_entry
+#endif
+
 #if !defined(_WIN32) && defined(RA_WIN32)
 #if RA_POINTER_SIZE == 4
 // A 32-bit program runs on a thread whose stack and thread block its pointers reach, and exits
@@ -5020,7 +5237,88 @@ static void *host_map(uintptr_t at, size_t size, int executable) {
 }
 #endif
 
+#if defined(_WIN32) && RA_POINTER_SIZE == 4
+// The address space of a 32-bit program's port on Windows: all a dword reaches, 4 GB, and nothing
+// past it. The linker's own limit for a program that is not large-address-aware is 2 GB, of which
+// a 64-bit display driver takes one for an arena of its own the moment a context draws (the
+// program's own 32-bit driver took a fraction), and a map of any size finds no room for its
+// textures in the rest. So the port is linked large-address-aware at a fixed low base, and its
+// process starts twice: the first starts the second suspended, reserves every free range of it
+// from 4 GB up, and lets it run. Windows has loaded nothing into the second by then but the
+// image and its own loader, so every library, heap, stack and arena of it lands below 4 GB,
+// where the program's pointers reach. The first waits and ends with the second's exit code.
+// RA_CAGED in the environment marks the second.
+//
+// Not quite every range at first: Windows' own start of a process reserves terabytes for itself
+// (the bitmap of the control-flow guard is 2 TB), and with none free the second process ended
+// before its first instruction, out of memory. The first leaves it a hole of 4 TB far above; the
+// second reserves what is left of the hole as it starts, before it loads or allocates anything
+// more. An allocation searches from the bottom, so nothing of the start's own lands in the hole
+// but what cannot fit below.
+#define CAGE_HOLE_FROM ((uintptr_t)0x10000000000ull)
+#define CAGE_HOLE_TO ((uintptr_t)0x50000000000ull)
+
+// Reserves every free range of `process` from `at` to `end`.
+static void cage_reserve(HANDLE process, uintptr_t at, uintptr_t end, uintptr_t grain) {
+    MEMORY_BASIC_INFORMATION info;
+    while (at < end && VirtualQueryEx(process, (void *)at, &info, sizeof info)) {
+        uintptr_t base = (uintptr_t)info.BaseAddress, stop = base + info.RegionSize;
+        if (base < at) base = at;
+        if (stop > end) stop = end;
+        if (info.State == MEM_FREE) {
+            // A reservation starts on the allocation granularity; one of terabytes goes in
+            // pieces, each halved until Windows takes it.
+            uintptr_t from = (base + grain - 1) & ~(grain - 1);
+            uintptr_t piece = (uintptr_t)1 << 40;
+            while (from < stop) {
+                uintptr_t size = stop - from < piece ? stop - from : piece;
+                if (VirtualAllocEx(process, (void *)from, size, MEM_RESERVE, PAGE_NOACCESS)) {
+                    from += size;
+                } else if (piece > grain) {
+                    piece >>= 1;
+                } else {
+                    from += grain;
+                }
+            }
+        }
+        at = stop;
+    }
+}
+
+static int caged(int *code) {
+    SYSTEM_INFO system;
+    GetSystemInfo(&system);
+    const uintptr_t end = (uintptr_t)system.lpMaximumApplicationAddress, grain = system.dwAllocationGranularity;
+    if (end < 0x100000000ull) return 1;
+    if (GetEnvironmentVariableA("RA_CAGED", NULL, 0)) {
+        cage_reserve(GetCurrentProcess(), 0x100000000ull, end, grain);
+        return 1;
+    }
+    SetEnvironmentVariableA("RA_CAGED", "1");
+    STARTUPINFOW startup;
+    GetStartupInfoW(&startup);
+    PROCESS_INFORMATION process;
+    if (!CreateProcessW(NULL, GetCommandLineW(), NULL, NULL, TRUE, CREATE_SUSPENDED, NULL, NULL, &startup, &process)) {
+        fprintf(stderr, "ra: the port could not start itself again to bound its address space (error %lu)\n", GetLastError());
+        *code = 2;
+        return 0;
+    }
+    cage_reserve(process.hProcess, 0x100000000ull, CAGE_HOLE_FROM, grain);
+    cage_reserve(process.hProcess, CAGE_HOLE_TO, end, grain);
+    ResumeThread(process.hThread);
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 2;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    *code = (int)exit_code;
+    return 0;
+}
+#endif
+
 int main(int argc, char **argv) {
+#if defined(_WIN32) && RA_POINTER_SIZE == 4
+    int code = 0;
+    if (!caged(&code)) return code;
+#endif
 #ifdef _WIN32
     ra_module = GetModuleHandleA(NULL);
     AddVectoredExceptionHandler(1, on_exception);
@@ -5041,7 +5339,7 @@ int main(int argc, char **argv) {
     return win32_main();
 #else
     attach_process();
-    return ra_entry();
+    return ra_entry_roomy();
 #endif
 #else
     const char *image_path = argc > 1 ? argv[1] : "image.bin";
@@ -5074,7 +5372,7 @@ int main(int argc, char **argv) {
     return win32_main();
 #else
     attach_process();
-    return ra_entry();
+    return ra_entry_roomy();
 #endif
 #else
     static struct State state;

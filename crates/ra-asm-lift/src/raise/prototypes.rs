@@ -39,6 +39,17 @@ pub fn openal(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
     ra_asm_protos::openal_kinds(name).map(kinds_of)
 }
 
+/// The kinds of an OpenGL function a program has by name from its context, the result's letter
+/// and each parameter's: `stdcall` on 32-bit Windows.
+pub fn opengl(name: &str) -> Option<&'static str> {
+    ra_asm_protos::opengl_kinds(name)
+}
+
+/// Whether a program that imports `import` asks its OpenGL context for functions by name.
+pub fn asks_opengl(import: &str) -> bool {
+    matches!(import, "ra_x86_sdl_gl_get_proc_address" | "ra_x86_wgl_get_proc_address")
+}
+
 /// The prototype of a library function: the Windows API's, SDL2's or OpenAL's.
 fn library(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
     win32(name).or_else(|| sdl2(name)).or_else(|| openal(name))
@@ -195,7 +206,14 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
     if ra_asm_pe::xbe::is_kernel_dll(dll) {
         return ra_asm_pe::xbe::kernel_export_named(name).and_then(|e| e.stack_bytes());
     }
-    // SDL's functions are `cdecl`, and OpenAL's.
+    // SDL's functions are `cdecl`, and OpenAL's: those of the tables, and any other of their
+    // libraries, whose argument count from the hand table is no count of bytes popped (taken
+    // as `stdcall`, `SDL_GetWindowWMInfo` left its caller's stack eight bytes up, and the
+    // caller's cookie check failed).
+    let library = dll.to_ascii_lowercase();
+    if library.starts_with("sdl2") || library.starts_with("openal") || (win32(name).is_none() && name.starts_with("SDL_")) {
+        return Some(0);
+    }
     if win32(name).is_none() && (sdl2(name).is_some() || openal(name).is_some()) {
         return Some(0);
     }
@@ -386,6 +404,11 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "CreateProcessA" => "ra_x86_create_process_a",
         "gethostbyname" => "ra_x86_gethostbyname",
         "gethostbyaddr" => "ra_x86_gethostbyaddr",
+        // An OpenGL function by name from the context is `stdcall` and takes its floats in
+        // vector registers on the host: the runtime hands out one that says what it pops and,
+        // where its kinds ask, takes the program's stack words apart for the host.
+        "SDL_GL_GetProcAddress" => "ra_x86_sdl_gl_get_proc_address",
+        "wglGetProcAddress" => "ra_x86_wgl_get_proc_address",
         _ => return None,
     })
 }
@@ -664,6 +687,8 @@ pub fn arity(name: &str) -> Option<usize> {
         | "_mkdir"
         | "_findclose"
         | "ra_x86_gethostbyname"
+        | "ra_x86_sdl_gl_get_proc_address"
+        | "ra_x86_wgl_get_proc_address"
         | "_Init_thread_header"
         | "_Init_thread_footer"
         | "_Init_thread_abort"

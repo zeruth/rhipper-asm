@@ -183,6 +183,28 @@ fn asked_by_name(image: &ra_asm_pe::Image, lifted: &ra_asm_lift::Lifted) -> Vec<
     out
 }
 
+/// The OpenGL functions a 32-bit program may ask its context for by name that the OpenGL table
+/// does not know: a string of the image that reads as one (`gl` or `wgl` and a capital). The
+/// runtime hands such a function out as it is, and a call through it pops nothing and hands the
+/// host no float.
+fn asked_of_opengl(image: &ra_asm_pe::Image, lifted: &ra_asm_lift::Lifted) -> Vec<(String, String)> {
+    use ra_asm_lift::raise::prototypes;
+    if lifted.bits != 32 || !lifted.imports.iter().any(|i| prototypes::asks_opengl(i)) {
+        return Vec::new();
+    }
+    let imported: BTreeSet<String> = image.imports.iter().map(ra_asm_pe::Import::display_name).collect();
+    let reads_as_one = |name: &str| {
+        let rest = name.strip_prefix("wgl").or_else(|| name.strip_prefix("gl"));
+        rest.is_some_and(|r| r.as_bytes().first().is_some_and(u8::is_ascii_uppercase))
+    };
+    names_of(image)
+        .0
+        .into_iter()
+        .filter(|name| reads_as_one(name) && !imported.contains(name) && prototypes::opengl(name).is_none())
+        .map(|name| (name, "the OpenGL context".to_owned()))
+        .collect()
+}
+
 /// A list under its heading: the count, then at most [`MOST`] lines.
 fn list(out: &mut String, heading: &str, why: &str, lines: &[String]) {
     let _ = writeln!(out, "{heading} ({})", lines.len());
@@ -208,7 +230,8 @@ pub(crate) fn preflight(path: &Path, signatures: &[PathBuf], as_json: bool) -> R
     let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
     let coverage = ra_asm_lift::coverage(&analysis, &lifted);
     let boundary = crate::smoke::boundary(&lifted, &coverage);
-    let asked = asked_by_name(&image, &lifted);
+    let mut asked = asked_by_name(&image, &lifted);
+    asked.extend(asked_of_opengl(&image, &lifted));
     let unnamed: Vec<String> = lifted.imports.iter().filter(|i| i.starts_with("ra_ordinal_")).cloned().collect();
     let unread_frames = lifted.warnings.iter().filter(|w| w.contains("frame that was not read")).count();
     let _ = crate::lift::raise(&mut lifted, &analysis, ra_asm_lift::RaiseLevel::Abi);

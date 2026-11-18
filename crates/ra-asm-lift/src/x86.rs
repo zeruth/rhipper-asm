@@ -2046,6 +2046,48 @@ impl Lifter<'_, '_> {
                 };
                 self.write_vec(block, i, 0, ty, r);
             }
+            // The packed integer minimum and maximum, by the signed comparison of the lanes: an
+            // unsigned pair is compared with the sign bits turned, which keeps its order.
+            M::Pminub
+            | M::Pmaxub
+            | M::Pminsb
+            | M::Pmaxsb
+            | M::Pminuw
+            | M::Pmaxuw
+            | M::Pminsw
+            | M::Pmaxsw
+            | M::Pminud
+            | M::Pmaxud
+            | M::Pminsd
+            | M::Pmaxsd
+                if !Self::is_mmx(i) =>
+            {
+                let (ty, lanes, sign) = match i.mnemonic() {
+                    M::Pminub | M::Pmaxub | M::Pminsb | M::Pmaxsb => (Type::vector(16, Type::I8), 16, i64::from(i8::MIN)),
+                    M::Pminuw | M::Pmaxuw | M::Pminsw | M::Pmaxsw => (Type::vector(8, Type::I16), 8, i64::from(i16::MIN)),
+                    _ => (Type::vector(4, Type::I32), 4, i64::from(i32::MIN)),
+                };
+                let unsigned = matches!(i.mnemonic(), M::Pminub | M::Pmaxub | M::Pminuw | M::Pmaxuw | M::Pminud | M::Pmaxud);
+                let least = matches!(i.mnemonic(), M::Pminub | M::Pminsb | M::Pminuw | M::Pminsw | M::Pminud | M::Pminsd);
+                let a = self.read_vec(block, i, 0, ty.clone());
+                let b = self.read_vec(block, i, 1, ty.clone());
+                let (x, y) = if unsigned {
+                    (
+                        self.m.b.bin(block, BinOp::Xor, ty.clone(), a, sign, "pturn"),
+                        self.m.b.bin(block, BinOp::Xor, ty.clone(), b, sign, "pturn"),
+                    )
+                } else {
+                    (a, b)
+                };
+                let above = self.m.b.icmp(block, ICond::Sgt, ty.clone(), x, y, "pabove");
+                let mask = self.m.b.cast(block, Cast::SExt, Type::vector(lanes, Type::I1), above, ty.clone(), "pabove.m");
+                // Where the first is above the second, the least is the second and the greatest
+                // the first: the other operand, with the lanes that differ put right.
+                let differ = self.m.b.bin(block, BinOp::Xor, ty.clone(), a, b, "pdiffer");
+                let turn = self.m.b.bin(block, BinOp::And, ty.clone(), differ, mask, "pswap");
+                let r = self.m.b.bin(block, BinOp::Xor, ty.clone(), if least { a } else { b }, turn, "pminmax");
+                self.write_vec(block, i, 0, ty, r);
+            }
             M::Pcmpeqb | M::Pcmpeqw | M::Pcmpeqd | M::Pcmpgtb | M::Pcmpgtw | M::Pcmpgtd => {
                 let ty = match i.mnemonic() {
                     M::Pcmpeqb | M::Pcmpgtb => Type::vector(16, Type::I8),
@@ -2200,6 +2242,38 @@ impl Lifter<'_, '_> {
                         block,
                         Inst::InsertElement { ty: ty.clone(), vector: r.into(), element: pick.into(), index: Operand::Int(k) },
                         "fminmaxs",
+                    );
+                }
+                self.write_vec(block, i, 0, ty, r);
+            }
+            // The horizontal sums and differences of SSE3: the pairs of the first operand fill the
+            // low half, those of the second the high half.
+            M::Haddps | M::Hsubps | M::Haddpd | M::Hsubpd => {
+                let single = matches!(i.mnemonic(), M::Haddps | M::Hsubps);
+                let (lane_ty, lanes) = if single { (Type::Float, 4i128) } else { (Type::Double, 2i128) };
+                let ty = Type::vector(lanes as u32, lane_ty.clone());
+                let op = if matches!(i.mnemonic(), M::Haddps | M::Haddpd) { BinOp::FAdd } else { BinOp::FSub };
+                let a = self.read_vec(block, i, 0, ty.clone());
+                let b = self.read_vec(block, i, 1, ty.clone());
+                let mut r = a;
+                for k in 0..lanes {
+                    let from = if k < lanes / 2 { a } else { b };
+                    let pair = 2 * (k % (lanes / 2));
+                    let x = self.m.b.value(
+                        block,
+                        Inst::ExtractElement { ty: ty.clone(), vector: from.into(), index: Operand::Int(pair) },
+                        "lane",
+                    );
+                    let y = self.m.b.value(
+                        block,
+                        Inst::ExtractElement { ty: ty.clone(), vector: from.into(), index: Operand::Int(pair + 1) },
+                        "lane",
+                    );
+                    let sum = self.m.b.bin(block, op, lane_ty.clone(), x, y, "hsum");
+                    r = self.m.b.value(
+                        block,
+                        Inst::InsertElement { ty: ty.clone(), vector: r.into(), element: sum.into(), index: Operand::Int(k) },
+                        "hsums",
                     );
                 }
                 self.write_vec(block, i, 0, ty, r);

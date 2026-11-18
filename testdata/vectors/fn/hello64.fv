@@ -3,13 +3,13 @@ ra-asm-verify vectors 1
 
 vector square at 0x140001000
 entry
-  rax = 0x250
+  rax = 0x25c
   rcx = 0x3
   rdx = 0x0
   rbx = 0x0
   rsp = 0x120fff78
   rbp = 0x0
-  rsi = 0x250
+  rsi = 0x25c
   rdi = 0x0
   r8 = 0x0
   r9 = 0x0
@@ -68,7 +68,7 @@ exit
   rbx = 0x0
   rsp = 0x120fff80
   rbp = 0x0
-  rsi = 0x250
+  rsi = 0x25c
   rdi = 0x0
   r8 = 0x0
   r9 = 0x0
@@ -181,7 +181,7 @@ entry
   ymm15h = 0x0
 memory in
 call imp_GetStdHandle
-  result rax = 0x250
+  result rax = 0x25c
   result rdx = 0x0
   result xmm0 = 0x0
 call square
@@ -206,7 +206,7 @@ exit
   rbx = 0x0
   rsp = 0x120fff80
   rbp = 0x0
-  rsi = 0x250
+  rsi = 0x25c
   rdi = 0x0
   r8 = 0x4
   r9 = 0x120fffac

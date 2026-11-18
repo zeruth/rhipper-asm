@@ -633,7 +633,7 @@ fn enter(
     let signature = signatures.get(&name);
     let kinds: Vec<Kind> = signature.map(|s| s.params.iter().chain(&s.stack_params).copied().collect()).unwrap_or_default();
     let (argc, argv) = if is_main { runtime.argv(vm)? } else { (0, 0) };
-    let args = kinds
+    let mut args: Vec<Value> = kinds
         .iter()
         .enumerate()
         .map(|(i, k)| match (k, i, is_main) {
@@ -644,6 +644,21 @@ fn enter(
             _ => Value::Int(0),
         })
         .collect();
+    // A variadic entry takes the address of its argument block last: sixteen dwords at the top
+    // of the machine's stack, which the raised code does not use, `main`'s two in the first.
+    // Called without one, a start routine that copies its block read it at zero.
+    if signature.is_some_and(|s| s.variadic) {
+        let block = runtime.stack_top() - 128;
+        for k in 0..16u64 {
+            let word = match (k, is_main) {
+                (0, true) => argc,
+                (1, true) => argv,
+                _ => 0,
+            };
+            vm.memory.write_word(block + 4 * k, 4, word)?;
+        }
+        args.push(Value::Int(u128::from(block)));
+    }
     let result = vm.call_named(runtime, &name, args)?;
     Ok(if is_main && signature.is_some_and(|s| s.returns.is_some()) { result.as_u64() as i32 } else { 0 })
 }

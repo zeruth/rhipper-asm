@@ -3,13 +3,13 @@ ra-asm-verify vectors 1
 
 vector print_slot at 0x1400012b0
 entry
-  rax = 0x10000590
-  rcx = 0x7ffc0fb50000
+  rax = 0x10000600
+  rcx = 0x7ffc87f50000
   rdx = 0x140002080
   rbx = 0x0
   rsp = 0x120fff78
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x0
   r9 = 0x0
@@ -61,7 +61,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff78: 57 10 00 40 01 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00 90 05 00 10 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00 00 06 00 10 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x140002097
@@ -69,12 +69,12 @@ call imp_WriteFile
   effect 0x120fff74: 06 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x140002097
   rbx = 0x0
   rsp = 0x120fff80
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x6
   r9 = 0x120fff74
@@ -132,12 +132,12 @@ left return
 vector print_proc at 0x1400012f0
 entry
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x140002097
   rbx = 0x0
   rsp = 0x120fff78
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x6
   r9 = 0x120fff74
@@ -189,11 +189,11 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff78: 5c 10 00 40 01 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00
-  0x140003038: 90 05 00 10 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
+  0x140003038: 00 06 00 10 00 00 00 00
 call ra_call
   arg 0x13002030
-  arg 0x10000590
+  arg 0x10000600
   result rax = 0x1
   result rdx = 0x14000209e
   result rsp = 0x120fff40
@@ -201,12 +201,12 @@ call ra_call
   effect 0x120fff74: 06 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x14000209e
   rbx = 0x0
   rsp = 0x120fff80
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x6
   r9 = 0x120fff74
@@ -265,12 +265,12 @@ left return
 vector collatz at 0x1400013c0
 entry
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x14000209e
   rbx = 0x0
   rsp = 0x120fff78
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x6
   r9 = 0x120fff74
@@ -329,7 +329,7 @@ exit
   rbx = 0x0
   rsp = 0x120fff80
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x6
   r9 = 0x120fff74
@@ -390,7 +390,7 @@ entry
   rbx = 0x0
   rsp = 0x120fff78
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x6
   r9 = 0x120fff74
@@ -442,7 +442,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff78: 68 10 00 40 01 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff6b
@@ -450,12 +450,12 @@ call imp_WriteFile
   effect 0x120fff5c: 05 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6b
   rbx = 0x0
   rsp = 0x120fff80
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x5
   r9 = 0x120fff5c
@@ -1560,7 +1560,7 @@ entry
   rbx = 0x0
   rsp = 0x120fff78
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x5
   r9 = 0x120fff5c
@@ -1612,7 +1612,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff78: 79 10 00 40 01 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff6b
@@ -1620,12 +1620,12 @@ call imp_WriteFile
   effect 0x120fff5c: 05 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6b
   rbx = 0x0
   rsp = 0x120fff80
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x5
   r9 = 0x120fff5c
@@ -1689,7 +1689,7 @@ entry
   rbx = 0x0
   rsp = 0x120fff48
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x5
   r9 = 0x120fff5c
@@ -1742,7 +1742,7 @@ entry
 memory in
   0x120fff48: 5b 14 00 40 01 00 00 00
   0x1400020aa: 41 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x1400020aa
@@ -1750,12 +1750,12 @@ call imp_WriteFile
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020aa
   rbx = 0x0
   rsp = 0x120fff50
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x1
   r9 = 0x120fff44
@@ -1818,7 +1818,7 @@ entry
   rbx = 0x0
   rsp = 0x120fff78
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x5
   r9 = 0x120fff5c
@@ -1873,7 +1873,7 @@ memory in
   0x140002000: 4f f4 ff ff
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020aa
   result rsp = 0x120fff50
   result r8 = 0x1
@@ -1885,12 +1885,12 @@ call print_str
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0xa
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020aa
   rbx = 0x0
   rsp = 0x120fff80
   rbp = 0x0
-  rsi = 0x10000590
+  rsi = 0x10000600
   rdi = 0x0
   r8 = 0x1
   r9 = 0x120fff44
@@ -2005,7 +2005,7 @@ entry
 memory in
   0x120fff48: e0 14 00 40 01 00 00 00
   0x1400020ac: 42 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x1400020ac
@@ -2013,7 +2013,7 @@ call imp_WriteFile
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020ac
   rbx = 0x0
   rsp = 0x120fff50
@@ -2137,7 +2137,7 @@ memory in
   0x140003040: 00 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020ac
   result rsp = 0x120fff50
   result cf = 0x0
@@ -2146,7 +2146,7 @@ call print_str
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0xb
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020ac
   rbx = 0x0
   rsp = 0x120fff80
@@ -2267,7 +2267,7 @@ entry
 memory in
   0x120fff48: 8e 14 00 40 01 00 00 00
   0x1400020ae: 43 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x1400020ae
@@ -2275,7 +2275,7 @@ call imp_WriteFile
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020ae
   rbx = 0x0
   rsp = 0x120fff50
@@ -2399,7 +2399,7 @@ memory in
   0x140003040: 02 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020ae
   result rsp = 0x120fff50
   result cf = 0x0
@@ -2408,7 +2408,7 @@ call print_str
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0xc
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020ae
   rbx = 0x0
   rsp = 0x120fff80
@@ -2529,7 +2529,7 @@ entry
 memory in
   0x120fff48: b3 14 00 40 01 00 00 00
   0x1400020b0: 44 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x1400020b0
@@ -2537,7 +2537,7 @@ call imp_WriteFile
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020b0
   rbx = 0x0
   rsp = 0x120fff50
@@ -2600,7 +2600,7 @@ left return
 vector collatz at 0x1400013c0
 entry
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020b0
   rbx = 0x0
   rsp = 0x120fff78
@@ -2779,7 +2779,7 @@ memory in
   0x14000200c: a7 f4 ff ff
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020b0
   result rsp = 0x120fff50
   result cf = 0x0
@@ -2916,7 +2916,7 @@ entry
 memory in
   0x120fff48: 71 14 00 40 01 00 00 00
   0x1400020b2: 45 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x1400020b2
@@ -2924,7 +2924,7 @@ call imp_WriteFile
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020b2
   rbx = 0x0
   rsp = 0x120fff50
@@ -3048,7 +3048,7 @@ memory in
   0x140003040: 06 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020b2
   result rsp = 0x120fff50
   result cf = 0x0
@@ -3057,7 +3057,7 @@ call print_str
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0xe
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020b2
   rbx = 0x0
   rsp = 0x120fff80
@@ -3178,7 +3178,7 @@ entry
 memory in
   0x120fff48: fd 14 00 40 01 00 00 00
   0x1400020b4: 46 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x1400020b4
@@ -3186,7 +3186,7 @@ call imp_WriteFile
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020b4
   rbx = 0x0
   rsp = 0x120fff50
@@ -3308,7 +3308,7 @@ memory in
   0x140002014: f1 f4 ff ff
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020b4
   result rsp = 0x120fff50
   result cf = 0x0
@@ -3464,7 +3464,7 @@ entry
 memory in
   0x120fff48: 17 15 00 40 01 00 00 00
   0x1400020b6: 47 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x1400020b6
@@ -3472,7 +3472,7 @@ call imp_WriteFile
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020b6
   rbx = 0x0
   rsp = 0x120fff50
@@ -3596,7 +3596,7 @@ memory in
   0x140003040: 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020b6
   result rsp = 0x120fff50
   result cf = 0x0
@@ -3606,7 +3606,7 @@ call print_str
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x10
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020b6
   rbx = 0x0
   rsp = 0x120fff80
@@ -3727,7 +3727,7 @@ entry
 memory in
   0x120fff48: c9 14 00 40 01 00 00 00
   0x1400020b8: 48 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x1400020b8
@@ -3735,7 +3735,7 @@ call imp_WriteFile
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020b8
   rbx = 0x0
   rsp = 0x120fff50
@@ -3859,7 +3859,7 @@ memory in
   0x14000301c: 04 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020b8
   result rsp = 0x120fff50
   result cf = 0x0
@@ -3868,7 +3868,7 @@ call print_str
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x4
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020b8
   rbx = 0x0
   rsp = 0x120fff80
@@ -3991,7 +3991,7 @@ memory in
   0x140003040: 00 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020ba
   result rsp = 0x120fff50
   result cf = 0x0
@@ -4000,7 +4000,7 @@ call print_str
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0x12
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020ba
   rbx = 0x0
   rsp = 0x120fff80
@@ -4122,7 +4122,7 @@ memory in
   0x120fff78: f0 10 00 40 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020bc
   result rsp = 0x120fff50
   result pf = 0x1
@@ -4131,7 +4131,7 @@ call print_str
   effect 0x120fff44: 01 00 00 00
 exit
   rax = 0xffffffff
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x1400020bc
   rbx = 0x0
   rsp = 0x120fff80
@@ -4250,7 +4250,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff78: 0a 11 00 40 01 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff6b
@@ -4258,7 +4258,7 @@ call imp_WriteFile
   effect 0x120fff5c: 05 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6b
   rbx = 0x0
   rsp = 0x120fff80
@@ -4499,7 +4499,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff78: 20 11 00 40 01 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff6c
@@ -4507,7 +4507,7 @@ call imp_WriteFile
   effect 0x120fff5c: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6c
   rbx = 0x0
   rsp = 0x120fff80
@@ -4748,7 +4748,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff78: 36 11 00 40 01 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff6c
@@ -4756,7 +4756,7 @@ call imp_WriteFile
   effect 0x120fff5c: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6c
   rbx = 0x0
   rsp = 0x120fff80
@@ -4997,7 +4997,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff78: 4c 11 00 40 01 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff6b
@@ -5005,7 +5005,7 @@ call imp_WriteFile
   effect 0x120fff5c: 05 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6b
   rbx = 0x0
   rsp = 0x120fff80
@@ -5246,7 +5246,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff78: 62 11 00 40 01 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff6d
@@ -5254,7 +5254,7 @@ call imp_WriteFile
   effect 0x120fff5c: 03 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6d
   rbx = 0x0
   rsp = 0x120fff80
@@ -5318,7 +5318,7 @@ left return
 vector sum_table at 0x1400015b0
 entry
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6d
   rbx = 0x0
   rsp = 0x120fff78
@@ -5380,7 +5380,7 @@ memory in
     06 00 00 00 00 00 00 00
 exit
   rax = 0x2d
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6d
   rbx = 0x0
   rsp = 0x120fff80
@@ -5498,7 +5498,7 @@ entry
   ymm15h = 0x0
 memory in
   0x120fff78: 6e 11 00 40 01 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00
 call imp_WriteFile
   result rax = 0x1
   result rdx = 0x120fff6c
@@ -5506,7 +5506,7 @@ call imp_WriteFile
   effect 0x120fff5c: 04 00 00 00
 exit
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6c
   rbx = 0x0
   rsp = 0x120fff80
@@ -5570,7 +5570,7 @@ left return
 vector sort_table at 0x1400015f0
 entry
   rax = 0x1
-  rcx = 0x250
+  rcx = 0x25c
   rdx = 0x120fff6c
   rbx = 0x0
   rsp = 0x120fff78
@@ -5757,22 +5757,22 @@ memory in
     d1 20 00 40 01 00 00 00 d6 20 00 40 01 00 00 00
     db 20 00 40 01 00 00 00 df 20 00 40 01 00 00 00
     e5 20 00 40 01 00 00 00 eb 20 00 40 01 00 00 00
-  0x1400021d0: 90 05 00 10 00 00 00 00
+  0x1400021d0: 00 06 00 10 00 00 00 00
 call imp_GetStdHandle
-  result rax = 0x250
+  result rax = 0x25c
   result rdx = 0x0
   result xmm0 = 0x0
 call imp_GetModuleHandleA
-  result rax = 0x7ffc0fb50000
+  result rax = 0x7ffc87f50000
   result rdx = 0x0
   result xmm0 = 0x0
 call imp_GetProcAddress
-  result rax = 0x10000590
+  result rax = 0x10000600
   result rdx = 0x140002080
   result xmm0 = 0x0
 call print_slot
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x140002097
   result rsp = 0x120fff80
   result r8 = 0x6
@@ -5797,7 +5797,7 @@ call collatz
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff6b
   result rsp = 0x120fff80
   result r8 = 0x5
@@ -5843,10 +5843,10 @@ call fib
     18 14 00 40 01 00 00 00
   effect 0x120fff28: 03 00 00 00 00 00 00 00 60 02 00 00 00 00 00 00
     18 14 00 40 01 00 00 00
-  effect 0x120fff68: 00 00 00 00 00 00 00 00 90 05 00 10 00 00 00 00
+  effect 0x120fff68: 00 00 00 00 00 00 00 00 00 06 00 10 00 00 00 00
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff6b
   result rsp = 0x120fff80
   result r11 = 0x36
@@ -5857,7 +5857,7 @@ call print_int
   effect 0x120fff6b: 36 31 30 0d 0a
 call classify
   result rax = 0xa
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020aa
   result rsp = 0x120fff80
   result r8 = 0x1
@@ -5868,7 +5868,7 @@ call classify
   effect 0x120fff44: 01 00 00 00 5b 14 00 40 01 00 00 00
 call classify
   result rax = 0xb
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020ac
   result rsp = 0x120fff80
   result xmm0 = 0x0
@@ -5877,7 +5877,7 @@ call classify
   effect 0x140003040: 02 00 00 00
 call classify
   result rax = 0xc
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020ae
   result rsp = 0x120fff80
   result pf = 0x1
@@ -5897,7 +5897,7 @@ call classify
   effect 0x120fff44: 01 00 00 00 b3 14 00 40 01 00 00 00
 call classify
   result rax = 0xe
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020b2
   result rsp = 0x120fff80
   result af = 0x0
@@ -5934,7 +5934,7 @@ call classify
   effect 0x120fff68: 90 00 00 00 00 00 00 00 0e 00 00 00 00 00 00 00
 call classify
   result rax = 0x10
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020b6
   result rsp = 0x120fff80
   result pf = 0x1
@@ -5945,7 +5945,7 @@ call classify
   effect 0x140003040: 00 00 00 00
 call classify
   result rax = 0x4
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020b8
   result rsp = 0x120fff80
   result pf = 0x1
@@ -5954,7 +5954,7 @@ call classify
   effect 0x120fff44: 01 00 00 00 c9 14 00 40 01 00 00 00
 call classify
   result rax = 0x12
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020ba
   result rsp = 0x120fff80
   result xmm0 = 0x0
@@ -5963,7 +5963,7 @@ call classify
   effect 0x140003040: 09 00 00 00
 call classify
   result rax = 0xffffffff
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020bc
   result rsp = 0x120fff80
   result pf = 0x1
@@ -5972,7 +5972,7 @@ call classify
   effect 0x120fff44: 01 00 00 00 50 15 00 40 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a5
   result rsp = 0x120fff80
   result r8 = 0x2
@@ -5982,7 +5982,7 @@ call print_str
   effect 0x120fff74: 02 00 00 00
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff6b
   result rsp = 0x120fff80
   result r8 = 0x5
@@ -5999,7 +5999,7 @@ call op_add
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff6c
   result rsp = 0x120fff80
   result r8 = 0x4
@@ -6015,7 +6015,7 @@ call op_sub
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff6c
   result rsp = 0x120fff80
   result r11 = 0x33
@@ -6030,7 +6030,7 @@ call op_mul
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff6b
   result rsp = 0x120fff80
   result r8 = 0x5
@@ -6047,7 +6047,7 @@ call op_div
   result xmm0 = 0x0
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff6d
   result rsp = 0x120fff80
   result r8 = 0x3
@@ -6064,7 +6064,7 @@ call sum_table
   result xmm1 = 0xa0000001e0000000a0000001d
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff6c
   result rsp = 0x120fff80
   result r8 = 0x4
@@ -6087,7 +6087,7 @@ call sort_table
     08 00 00 00 09 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020be
   result rsp = 0x120fff80
   result r8 = 0x4
@@ -6098,7 +6098,7 @@ call print_str
   effect 0x120fff74: 04 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a8
   result rsp = 0x120fff80
   result r8 = 0x1
@@ -6107,7 +6107,7 @@ call print_str
   effect 0x120fff74: 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020c3
   result rsp = 0x120fff80
   result r8 = 0x3
@@ -6116,7 +6116,7 @@ call print_str
   effect 0x120fff74: 03 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a8
   result rsp = 0x120fff80
   result r8 = 0x1
@@ -6125,7 +6125,7 @@ call print_str
   effect 0x120fff74: 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020c7
   result rsp = 0x120fff80
   result r8 = 0x3
@@ -6134,7 +6134,7 @@ call print_str
   effect 0x120fff74: 03 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a8
   result rsp = 0x120fff80
   result r8 = 0x1
@@ -6143,7 +6143,7 @@ call print_str
   effect 0x120fff74: 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020cb
   result rsp = 0x120fff80
   result r8 = 0x5
@@ -6152,7 +6152,7 @@ call print_str
   effect 0x120fff74: 05 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a8
   result rsp = 0x120fff80
   result r8 = 0x1
@@ -6161,7 +6161,7 @@ call print_str
   effect 0x120fff74: 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020d1
   result rsp = 0x120fff80
   result r8 = 0x4
@@ -6170,7 +6170,7 @@ call print_str
   effect 0x120fff74: 04 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a8
   result rsp = 0x120fff80
   result r8 = 0x1
@@ -6179,7 +6179,7 @@ call print_str
   effect 0x120fff74: 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020d6
   result rsp = 0x120fff80
   result r8 = 0x4
@@ -6188,7 +6188,7 @@ call print_str
   effect 0x120fff74: 04 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a8
   result rsp = 0x120fff80
   result r8 = 0x1
@@ -6197,7 +6197,7 @@ call print_str
   effect 0x120fff74: 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020db
   result rsp = 0x120fff80
   result r8 = 0x3
@@ -6206,7 +6206,7 @@ call print_str
   effect 0x120fff74: 03 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a8
   result rsp = 0x120fff80
   result r8 = 0x1
@@ -6215,7 +6215,7 @@ call print_str
   effect 0x120fff74: 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020df
   result rsp = 0x120fff80
   result r8 = 0x5
@@ -6224,7 +6224,7 @@ call print_str
   effect 0x120fff74: 05 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a8
   result rsp = 0x120fff80
   result r8 = 0x1
@@ -6233,7 +6233,7 @@ call print_str
   effect 0x120fff74: 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020e5
   result rsp = 0x120fff80
   result r8 = 0x5
@@ -6242,7 +6242,7 @@ call print_str
   effect 0x120fff74: 05 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a8
   result rsp = 0x120fff80
   result r8 = 0x1
@@ -6251,7 +6251,7 @@ call print_str
   effect 0x120fff74: 01 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020eb
   result rsp = 0x120fff80
   result r8 = 0x4
@@ -6260,7 +6260,7 @@ call print_str
   effect 0x120fff74: 04 00 00 00
 call print_str
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x1400020a5
   result rsp = 0x120fff80
   result r8 = 0x2
@@ -6269,7 +6269,7 @@ call print_str
   effect 0x120fff74: 02 00 00 00
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff69
   result rsp = 0x120fff80
   result r8 = 0x7
@@ -6281,7 +6281,7 @@ call print_int
   effect 0x120fff69: 32 31 38 33 30 0d 0a
 call print_int
   result rax = 0x1
-  result rcx = 0x250
+  result rcx = 0x25c
   result rdx = 0x120fff6d
   result rsp = 0x120fff80
   result r8 = 0x3
@@ -6358,6 +6358,6 @@ memory out
   0x120fff78: 9d 12 00 40 01 00 00 00
   0x120fffa0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
     00 00 00 00 00 00 00 00
-  0x140003028: 50 02 00 00 00 00 00 00 90 05 00 10 00 00 00 00
-    90 05 00 10 00 00 00 00
+  0x140003028: 5c 02 00 00 00 00 00 00 00 06 00 10 00 00 00 00
+    00 06 00 10 00 00 00 00
 left exit 0x0

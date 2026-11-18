@@ -2729,6 +2729,14 @@ struct Emitter<'a> {
     /// The locals that point at a struct: each is declared as `struct S *`, and reads as a
     /// `uint8_t *` through a cast everywhere but at its fields.
     struct_of: HashMap<ValueId, &'a str>,
+    /// What a `break` leaves where the statement being written stands, innermost last: a loop,
+    /// with the label after it once a `break` under a `switch` of its body asked for one, or a
+    /// `switch` (`None`). The tree's `break` leaves the loop; C's leaves the `switch` it stands
+    /// in, so one there is a `goto` past the loop. Written as `break`, the last turn of a loop
+    /// over a `switch` went on into the statements after the `switch` and round again.
+    breakables: Vec<Option<Option<String>>>,
+    /// The labels [`Self::breakables`] made, for their names.
+    loop_exits: usize,
     /// The loops written as a `for` over their header's phis, by header.
     for_loops: HashMap<BlockId, ForLoop>,
     /// The loops written as a call to `ra_strlen`, by header.
@@ -2913,6 +2921,8 @@ impl<'a> Emitter<'a> {
             types,
             layouts,
             struct_of,
+            breakables: Vec::new(),
+            loop_exits: 0,
             for_loops: HashMap::new(),
             strlen_loops: HashMap::new(),
             hoisted: HashSet::new(),
@@ -4414,6 +4424,14 @@ impl<'a> Emitter<'a> {
             })
     }
 
+    /// Ends the loop just written: the label after it, when a `break` under a `switch` of its
+    /// body jumps there.
+    fn loop_exit(&mut self, out: &mut String, pad: &str) {
+        if let Some(Some(Some(label))) = self.breakables.pop() {
+            let _ = writeln!(out, "{pad}{label}:;");
+        }
+    }
+
     fn stmt(&mut self, out: &mut String, s: &Stmt, depth: usize) {
         let pad = "    ".repeat(depth);
         match s {
@@ -4430,22 +4448,40 @@ impl<'a> Emitter<'a> {
                     let cond = strip_parens(&self.cond(&cond));
                     self.cond_alias.clear();
                     let _ = writeln!(out, "{pad}for ({}; {cond}; {}) {{", inits.join(", "), steps.join(", "));
+                    self.breakables.push(Some(None));
                     self.stmts(out, rest, depth + 1);
                     let _ = writeln!(out, "{pad}}}");
+                    self.loop_exit(out, &pad);
                 }
                 Some((rest, cond)) => {
                     let _ = writeln!(out, "{pad}do {{");
+                    self.breakables.push(Some(None));
                     self.stmts(out, rest, depth + 1);
                     let _ = writeln!(out, "{pad}}} while ({});", strip_parens(&self.cond(&cond)));
+                    self.loop_exit(out, &pad);
                 }
                 None => {
                     let _ = writeln!(out, "{pad}for (;;) {{");
+                    self.breakables.push(Some(None));
                     self.stmts(out, body, depth + 1);
                     let _ = writeln!(out, "{pad}}}");
+                    self.loop_exit(out, &pad);
                 }
             },
             Stmt::Break => {
-                let _ = writeln!(out, "{pad}break;");
+                // Under a `switch` of the loop's body, C's `break` is the switch's.
+                if matches!(self.breakables.last(), Some(None))
+                    && let Some(at) = self.breakables.iter().rposition(Option::is_some)
+                {
+                    if self.breakables[at] == Some(None) {
+                        self.loop_exits += 1;
+                        self.breakables[at] = Some(Some(format!("L_out_{}", self.loop_exits)));
+                    }
+                    let Some(Some(label)) = &self.breakables[at] else { unreachable!() };
+                    let _ = writeln!(out, "{pad}goto {label};");
+                } else {
+                    let _ = writeln!(out, "{pad}break;");
+                }
             }
             Stmt::Continue => {
                 let _ = writeln!(out, "{pad}continue;");
@@ -4501,7 +4537,9 @@ impl<'a> Emitter<'a> {
                     if case.default {
                         let _ = writeln!(out, "{pad}default:");
                     }
+                    self.breakables.push(None);
                     self.stmts(out, &case.body, depth + 1);
+                    self.breakables.pop();
                     if case.falls_through {
                         let _ = writeln!(out, "{pad}    /* falls through */");
                     } else if !ends_in_jump(&case.body) {

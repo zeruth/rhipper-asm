@@ -528,7 +528,16 @@ fn rebase_arguments(f: &mut Function, offsets: &HashMap<ValueId, i64>, args: Val
         let instrs = std::mem::take(&mut f.blocks[bi].instrs);
         let mut out = Vec::with_capacity(instrs.len());
         for i in instrs {
-            let rebased = i.result.and_then(|v| offsets.get(&v)).copied().filter(|&k| k >= first && !matches!(i.inst, Inst::Phi { .. }));
+            // Not the slots the prologue copies the block into (`varargs.<k>.s`), which the
+            // reads through a lost stack pointer find: rebased, the block was copied onto itself
+            // and the frame above the return address stayed unset, so a variadic function that
+            // took `va_start` after a call through a pointer walked its own frame.
+            let copy = i.result.is_some_and(|v| {
+                let name = f.value_name(v);
+                name.starts_with("varargs.") && name.ends_with(".s")
+            });
+            let rebased =
+                i.result.and_then(|v| offsets.get(&v)).copied().filter(|&k| k >= first && !copy && !matches!(i.inst, Inst::Phi { .. }));
             let (Some(v), Some(k)) = (i.result, rebased) else {
                 out.push(i);
                 continue;

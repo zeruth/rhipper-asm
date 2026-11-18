@@ -24,6 +24,7 @@
 pub mod kind;
 mod layouts;
 mod openal;
+mod opengl;
 #[rustfmt::skip]
 mod sdl2_layouts;
 mod win32;
@@ -150,6 +151,13 @@ pub fn sdl2_kinds(name: &str) -> Option<&'static str> {
 /// `al.h` and `alc.h`, from the hand-written table.
 pub fn openal_kinds(name: &str) -> Option<&'static str> {
     openal::KINDS.iter().find(|(n, _)| *n == name).map(|(_, kinds)| *kinds)
+}
+
+/// The kinds of an OpenGL function or a WGL extension's, as [`win32_kinds`] writes them: `stdcall`
+/// on 32-bit Windows, from the table written from `GL.h` and `glext.h`, which is in the order of
+/// the names.
+pub fn opengl_kinds(name: &str) -> Option<&'static str> {
+    opengl::KINDS.binary_search_by(|(n, _)| (*n).cmp(name)).ok().map(|at| opengl::KINDS[at].1)
 }
 
 /// The fields of `record` a converter crosses the widths by, in order: a field the 32-bit layout

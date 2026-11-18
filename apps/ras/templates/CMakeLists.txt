@@ -148,13 +148,16 @@ if(WIN32 AND RA_RESIDUAL)
 endif()
 
 # A 32-bit program keeps its 32-bit pointers in the port: every address of the process must fit
-# in them, which the linker arranges for a binary that is not large-address-aware.
+# in them. The port is large-address-aware, at a fixed base below 4 GB, and its driver bounds the
+# process at 4 GB as it starts (it starts itself again with everything above reserved): the
+# 2 GB of a binary that is not large-address-aware were too few once a 64-bit display driver
+# took one of them.
 set(RA_POINTER_BITS @POINTER_BITS@)
 if(WIN32 AND RA_POINTER_BITS EQUAL 32)
   if(CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-    target_link_options(@TARGET@ PRIVATE /LARGEADDRESSAWARE:NO)
+    target_link_options(@TARGET@ PRIVATE /LARGEADDRESSAWARE /BASE:0x400000 /DYNAMICBASE:NO /HIGHENTROPYVA:NO)
   else()
-    target_link_options(@TARGET@ PRIVATE -Wl,/largeaddressaware:no)
+    target_link_options(@TARGET@ PRIVATE -Wl,/largeaddressaware -Wl,/base:0x400000 -Wl,/dynamicbase:no -Wl,/highentropyva:no)
   endif()
 elseif(RA_POINTER_BITS EQUAL 32)
   # On x86-64 Linux the executable is linked at its fixed low address, and the driver keeps the

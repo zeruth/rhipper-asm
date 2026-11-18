@@ -3,13 +3,13 @@ ra-asm-verify vectors 1
 
 vector square at 0x401000
 entry
-  eax = 0x250
+  eax = 0x25c
   ecx = 0x0
   edx = 0x0
   ebx = 0x0
   esp = 0x120fffa8
   ebp = 0x0
-  esi = 0x250
+  esi = 0x25c
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -60,7 +60,7 @@ exit
   ebx = 0x0
   esp = 0x120fffac
   ebp = 0x0
-  esi = 0x250
+  esi = 0x25c
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -157,7 +157,7 @@ entry
   ymm15h = 0x0
 memory in
 call imp_GetStdHandle
-  result eax = 0x250
+  result eax = 0x25c
   result edx = 0x0
   result xmm0 = 0x0
 call square
@@ -182,7 +182,7 @@ exit
   ebx = 0x0
   esp = 0x120fffac
   ebp = 0x0
-  esi = 0x250
+  esi = 0x25c
   edi = 0x0
   eip = 0x0
   cf = 0x0
@@ -225,6 +225,6 @@ exit
   ymm14h = 0x0
   ymm15h = 0x0
 memory out
-  0x120fff9c: 50 02 00 00 b0 ff 0f 12 04 00 00 00 b4 ff 0f 12
+  0x120fff9c: 5c 02 00 00 b0 ff 0f 12 04 00 00 00 b4 ff 0f 12
     00 00 00 00 33 39 0d 0a 04 00 00 00 00 00 00 00
 left exit 0x0

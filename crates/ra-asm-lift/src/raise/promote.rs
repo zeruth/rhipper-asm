@@ -57,6 +57,42 @@ pub struct Abi<'a> {
     pub host_objects: bool,
 }
 
+/// Asks the runtime what the callee at `code` popped (`ra_pops_of`, which takes the record of it
+/// away). In a function that jumps on through a pointer with its own arguments the answer goes
+/// back into the record, for the function's own caller, who asks in turn.
+fn pops_asked(f: &mut Function, abi: &Abi<'_>, code: Operand, address: Option<u64>, out: &mut Vec<Instruction>) -> ValueId {
+    let pops = f.new_value("pops", Type::I64);
+    out.push(Instruction {
+        result: Some(pops),
+        inst: Inst::Call {
+            fn_ty: FnType::new(Type::I64, vec![Type::I64]),
+            callee: Callee::Direct("ra_pops_of".into()),
+            args: vec![(Type::I64, code)],
+            tail: false,
+        },
+        address,
+    });
+    if abi.own.forwards {
+        let record = f.new_value("pops.p", Type::Ptr);
+        out.push(Instruction {
+            result: Some(record),
+            inst: Inst::Cast {
+                cast: Cast::IntToPtr,
+                from: Type::I64,
+                value: Operand::Address { global: crate::state::POPS.to_owned(), offset: 0 },
+                to: Type::Ptr,
+            },
+            address,
+        });
+        out.push(Instruction {
+            result: None,
+            inst: Inst::Store { ty: Type::I64, value: Operand::Local(pops), ptr: Operand::Local(record), align: 8, volatile: false },
+            address,
+        });
+    }
+    pops
+}
+
 /// The trap code of a call through a vtable slot that holds an address outside the vtables.
 const OUTSIDE_VTABLES: u64 = 10;
 
@@ -289,11 +325,31 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
         // A variadic function takes the address of its caller's argument block; the frame pass
         // rebases what the code derives from the entry stack pointer above the return address
         // onto it, by the parameter's name.
+        let mut block_of_arguments = None;
         if abi.own.variadic {
-            let v = f.new_value("varargs", Type::I64);
+            // The frame pass rebases onto the block by the name `varargs`: a function that only
+            // copies the block keeps its arguments in its frame.
+            let v = f.new_value(if abi.own.copies { "argblock" } else { "varargs" }, Type::I64);
             f.params.push(v);
             types.push(Type::I64);
+            block_of_arguments = Some(v);
         }
+        // A variadic function whose stack pointer the analysis lost reads the arguments it pops
+        // through that pointer too, which is an address of this frame and not of the caller's
+        // block: the frame holds a copy of them above the return address, as it holds a plain
+        // function's stack parameters.
+        // A `cdecl` function pops nothing to count them by: sixteen dwords, which every caller's
+        // frame has above its block (see the frame's size below) and the universal stub's has.
+        // A function that reads its arguments in place copies sixteen dwords all the same, for
+        // the reads through its lost stack pointer; one that only copies, all it reads.
+        // Whether or not the analysis lost the stack pointer: where it knew what a call through
+        // a pointer pops from the functions that fill the slot, this rewrite asks the runtime
+        // all the same, and the reads after the call are through that answer.
+        let copied = match (abi.own.variadic && !target.is_64(), abi.own.copies) {
+            (false, _) => 0,
+            (true, true) => abi.own.block_bytes,
+            (true, false) => abi.own.pops.max(64),
+        };
         let ret = abi.own.returns.map_or(Type::Void, Kind::ty);
         f.ty = FnType::new(ret, types);
 
@@ -316,7 +372,7 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
         };
         let below = abi.own.frame_below.max(16) + 16 + slack;
         let entry = target.entry_misalignment();
-        let above = target.first_stack_arg() as u64 + abi.own.stack_bytes(target) as u64;
+        let above = target.first_stack_arg() as u64 + (abi.own.stack_bytes(target) as u64).max(copied);
         // A call through a pointer reads the universal dwords above its stack pointer, whatever
         // lies there: the room above covers them.
         let size = below + entry + above + 64 + 4 * abi.extra_dwords as u64;
@@ -377,6 +433,44 @@ fn run(f: &mut Function, abi: Option<&Abi<'_>>, target: Target) {
                 inst: Inst::Store { ty, value, ptr: Operand::Local(slot), align: width as u32, volatile: false },
                 address: None,
             });
+        }
+        if let Some(block) = block_of_arguments {
+            for k in 0..copied / 4 {
+                let at = f.new_value(&format!("varargs.{k}"), Type::I64);
+                prologue.push(Instruction {
+                    result: Some(at),
+                    inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: Operand::Local(block), rhs: Operand::Int(i128::from(4 * k)) },
+                    address: None,
+                });
+                let from = f.new_value(&format!("varargs.{k}.p"), Type::Ptr);
+                prologue.push(Instruction {
+                    result: Some(from),
+                    inst: Inst::Cast { cast: Cast::IntToPtr, from: Type::I64, value: Operand::Local(at), to: Type::Ptr },
+                    address: None,
+                });
+                let word = f.new_value(&format!("varargs.{k}.w"), Type::I32);
+                prologue.push(Instruction {
+                    result: Some(word),
+                    inst: Inst::Load { ty: Type::I32, ptr: Operand::Local(from), align: 4, volatile: false },
+                    address: None,
+                });
+                let slot = f.new_value(&format!("varargs.{k}.s"), Type::Ptr);
+                prologue.push(Instruction {
+                    result: Some(slot),
+                    inst: Inst::Gep {
+                        base_ty: Type::I8,
+                        ptr: Operand::Local(top),
+                        indices: vec![(Type::I64, Operand::Int(i128::from(target.first_stack_arg()) + i128::from(4 * k)))],
+                        inbounds: true,
+                    },
+                    address: None,
+                });
+                prologue.push(Instruction {
+                    result: None,
+                    inst: Inst::Store { ty: Type::I32, value: Operand::Local(word), ptr: Operand::Local(slot), align: 4, volatile: false },
+                    address: None,
+                });
+            }
         }
         // The float parameters go to their vector slots.
         for (p, kind) in abi.own.params.iter().enumerate() {
@@ -930,7 +1024,34 @@ impl Rewriter<'_> {
             },
             address,
         });
-        let popped = pop.then(|| self.pop_after_call(f, current, sig.pops as i64, address, out));
+        // A callee that jumps on through a pointer with its own arguments pops what the function
+        // it jumped to popped, which only the run knows: the callee put the record back for this
+        // caller ([`pops_asked`]), who asks here as after a call through a pointer. A caller that
+        // forwards in turn hands the record on.
+        let popped = if pop && sig.forwards && !target.register_arguments() {
+            let pops = pops_asked(f, abi, Operand::Int(0), address, out);
+            let up = f.new_value("pops.a", Type::I64);
+            out.push(Instruction {
+                result: Some(up),
+                inst: Inst::Bin {
+                    op: BinOp::Add,
+                    ty: Type::I64,
+                    lhs: Operand::Local(pops),
+                    rhs: Operand::Int(i128::from(target.pushed_return())),
+                },
+                address,
+            });
+            let rsp = self.sp(current);
+            let popped = f.new_value("rsp", Type::I64);
+            out.push(Instruction {
+                result: Some(popped),
+                inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: Operand::Local(up) },
+                address,
+            });
+            Some(popped)
+        } else {
+            pop.then(|| self.pop_after_call(f, current, sig.pops as i64, address, out))
+        };
         self.after_call(f, current, sig.returns, result, &sig.preserves, &sig.results, out);
         if let Some(popped) = popped {
             current.insert(self.target.sp(), Operand::Local(popped));
@@ -995,17 +1116,7 @@ impl Rewriter<'_> {
         let mut up = Operand::Int(i128::from(ptr));
         // A callee by register convention pops nothing; an x86 one's universal stub says what.
         if !target.register_arguments() {
-            let pops = f.new_value("pops", Type::I64);
-            out.push(Instruction {
-                result: Some(pops),
-                inst: Inst::Call {
-                    fn_ty: FnType::new(Type::I64, vec![Type::I64]),
-                    callee: Callee::Direct("ra_pops_of".into()),
-                    args: vec![(Type::I64, code.clone())],
-                    tail: false,
-                },
-                address,
-            });
+            let pops = pops_asked(f, abi, code.clone(), address, out);
             // A function whose pushes and pops balance with such a callee popping nothing takes
             // that: the stack pointer stays a constant from the frame, and what the function
             // reads above it after the call is still its arguments. The runtime is asked all the
@@ -1094,7 +1205,9 @@ impl Rewriter<'_> {
         let (continuation, continuation_name) = self.fresh_block("vcall.join");
         let (default, default_name) = self.fresh_block(if other { "vcall.other" } else { "vcall.trap" });
         let pops: Vec<i64> = candidates.iter().map(|(_, name)| abi.all.get(name).map_or(0, |s| s.pops as i64)).collect();
-        let same_pops = !other && pops.iter().all(|&p| p == pops[0]);
+        // A candidate that forwards pops what the run says: each arm then moves the pointer.
+        let forwards = candidates.iter().any(|(_, name)| abi.all.get(name).is_some_and(|s| s.forwards));
+        let same_pops = !other && !forwards && pops.iter().all(|&p| p == pops[0]);
         let arms: Vec<(BlockId, String)> = candidates.iter().map(|_| self.fresh_block("vcall")).collect();
         let tests: Vec<(BlockId, String)> = candidates.iter().skip(1).map(|_| self.fresh_block("vcall.test")).collect();
         let mut blocks = Vec::new();

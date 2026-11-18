@@ -363,6 +363,13 @@ impl Lifter<'_, '_> {
                 self.m.store(block, Type::Float, v, address);
             }
             64 => self.m.store(block, Type::Double, value, address),
+            // A `tbyte` of the double unit is the double in the 80-bit form, which holds every
+            // double exactly: the old float-to-integer helper of the C runtime stores one and
+            // reads its exponent and significand back.
+            80 => {
+                let p = self.m.ptr(block, address, "m80.p");
+                self.m.f80_call(block, "ra_f80_store_f64", vec![(Type::Ptr, p.into()), (Type::Double, value.into())]);
+            }
             _ => return false,
         }
         true

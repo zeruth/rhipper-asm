@@ -472,6 +472,10 @@ pub(super) fn f80_dispatch(unit: &mut f80::Unit, vm: &mut Vm<'_>, name: &str, ar
             vm.memory.write(a(0), &f80::Unit::from_f64(farg(args, 1)))?;
             Value::Int(0)
         }
+        "ra_f80_store_f64" => {
+            vm.memory.write(a(0), &f80::Unit::from_f64(farg(args, 1))[..10])?;
+            Value::Int(0)
+        }
         "ra_f80_from_i64" => {
             vm.memory.write(a(0), &f80::Unit::from_i64(a(1)))?;
             Value::Int(0)

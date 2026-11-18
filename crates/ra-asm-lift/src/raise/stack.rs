@@ -487,6 +487,16 @@ fn analyze_with(
                             if let Some(k) = regs[sp] {
                                 info.call_offsets.insert((bi, ii), k);
                             }
+                            // The address of a stack argument in a register the callee may read
+                            // leaves with the call as one pushed does: `lea ecx, [esp + 8]` before
+                            // a method's call is `this` of an object passed by value, which the
+                            // callee reads and writes where it stands.
+                            if !target.is_64()
+                                && (0..GPRS)
+                                    .any(|r| r != sp && !target.callee_saved(Slot::Gpr(r as u8)) && regs[r].is_some_and(|k| k >= first))
+                            {
+                                info.argument_address_escapes = true;
+                            }
                             // A host function cannot write a lifted register; lifted code can.
                             if callee.is_none_or(|name| name.starts_with("F_") || name == "ra_call") {
                                 let held = (0..GPRS).any(|r| r != sp && target.callee_saved(Slot::Gpr(r as u8)) && regs[r].is_some());

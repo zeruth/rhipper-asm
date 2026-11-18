@@ -5,13 +5,14 @@ target triple = "x86_64-pc-windows-msvc"
 
 %State = type { [16 x i64], i64, [8 x i8], [32 x i128] }
 %S0 = type { i32, i32, i32 }
-%S1 = type { i32, i32, i32, [20 x i8], i32 }
-%S2 = type { i32, i32 }
-%S3 = type { i32, i32, i32, i32, i32, i32, i32, i32 }
-%S4 = type { [6 x i8], i16, [12 x i8], i16 }
-%S5 = type { [8 x i8], i32, i32 }
-%S6 = type { i32, [20 x i8], i16, [90 x i8], i32, [112 x i8], i32 }
-%S7 = type { i32, [12 x i8], i32, i32 }
+%S1 = type { i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32 }
+%S2 = type { i32, i32, i32, [20 x i8], i32 }
+%S3 = type { i32, i32 }
+%S4 = type { i32, i32, i32, i32, i32, i32 }
+%S5 = type { [6 x i8], i16, [12 x i8], i16 }
+%S6 = type { [8 x i8], i32, i32 }
+%S7 = type { i32, [20 x i8], i16, [90 x i8], i32, [112 x i8], i32 }
+%S8 = type { i32, [12 x i8], i32, i32 }
 
 @ra_x87_stack = global [8 x double] zeroinitializer, align 16
 @ra_x87_top = global i64 0, align 8
@@ -23,12 +24,12 @@ target triple = "x86_64-pc-windows-msvc"
 @sec_rdata = constant <{ i32, i32, i32, [16 x i8], i32, i32, [12 x i8], i32, i32, i32, [4 x i8], i32, [20 x i8], i32, [4 x i8], i32, [20 x i8], i32, [12 x i8], i32, i32, [4 x i8], i32, i32, i32, [12 x i8], i32, i32, i32, i32, i32, [12 x i8], i32, i32, [12 x i8], i32, i32, i32, [4 x i8], i32, [20 x i8], i32, [4 x i8], i32, [20 x i8], i32, [12 x i8], i32, i32, [4 x i8], i32, i32, i32, [12 x i8], i32, i32, i32, i32, i32, i32, i32, i32, [64 x i8], i32, i32, [4 x i8], i32, [108 x i8], i32, [16 x i8], i32, i32, [12 x i8], i32, i32, [4 x i8], i32, [20 x i8], i32, [188 x i8], i32, [8 x i8], i32, [8 x i8], i32, i32, [384 x i8], i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, [4 x i8], i32, i32, i32, i32, i32, i32, i32, i32, [4 x i8], i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, [4 x i8], i32, i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, i32, [1112 x i8], i32, [24 x i8], i32, [12 x i8], i32, [16 x i8], i32, [16 x i8], i32, [8 x i8], i32, [16 x i8], i32, [4 x i8], i32, i32, [4 x i8], i32, [4 x i8], i32, [12 x i8], i32, [16 x i8], i32, [8 x i8], i32, [16 x i8], i32, [4 x i8], i32, i32, [4 x i8], i32, [4 x i8], i32, [12 x i8], i32, [24 x i8], i32, [12 x i8], i32, [16 x i8], i32, [24 x i8], i32, [12 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [8 x i8], i32, [28 x i8], i32, [8 x i8], i32, [4 x i8], i32, [48 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [12 x i8], i32, [8 x i8], i32, [28 x i8], i32, [8 x i8], i32, [4 x i8], i32, [64 x i8], i32, [16 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [8 x i8], i32, [4 x i8], i32, [28 x i8], i32, [12 x i8], i32, [12 x i8], i32, [24 x i8], i32, [16 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, [8 x i8], i32, [4 x i8], i32, [28 x i8], i32, [24 x i8], i32, [4 x i8], i32, [4 x i8], i32, [4 x i8], i32, i32, [8 x i8], i32, [24 x i8], i32, i32, [24 x i8], i32, i32 }> <{ i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 16) to i32), i32 ptrtoint (ptr @U_00401b30 to i32), i32 ptrtoint (ptr @U_00401b10 to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 16) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 36) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 52) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 64) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 96) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 16) to i32), [20 x i8] c"\01\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 36) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [20 x i8] c"\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 124) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 140) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 96) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 160) to i32), i32 ptrtoint (ptr @U_00401b30 to i32), i32 ptrtoint (ptr @U_00401b20 to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 124) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 192) to i32), i32 ptrtoint (ptr @U_00401ba0 to i32), i32 ptrtoint (ptr @U_00401b50 to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 212) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 228) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 240) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 272) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [20 x i8] c"\01\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 212) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), [20 x i8] c"\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 300) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 316) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 272) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 336) to i32), i32 ptrtoint (ptr @U_00401b70 to i32), i32 ptrtoint (ptr @U_00401b60 to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 300) to i32), i32 4198556, i32 4198686, i32 4198592, i32 4198646, i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 576) to i32), i32 ptrtoint (ptr @U_00402540 to i32), [64 x i8] c"\00\00\00\00\C0\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 804) to i32), [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 836) to i32), [108 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 840) to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 292) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 596) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 612) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 620) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 292) to i32), [20 x i8] c"\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00@\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 596) to i32), [188 x i8] c"by_any\00by_int\00rethrows\00events\00ctor\00Unknown exception\00problem\00finally_param\00seh\000123456789abcdef\00by_base\00by_none\00by_std\00nested\00\00\00\00\00\00\00\A4X\09\CF\00\00\00\00\10\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\D0\1B\00\00\E0\1B\00\00\F0\1B\00\00\00\1C\00\00\10\1C\00\00 \1C\00\00p.\00\00\852\00\00", i32 ptrtoint (ptr @U_00402cb0 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr @U_00402660 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr @U_004025a0 to i32), i32 ptrtoint (ptr @U_00402650 to i32), [384 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\18D\00\00\00\00\00\00\00\00\00\00,I\00\00\E4D\00\00HD\00\00\00\00\00\00\00\00\00\009I\00\00\14E\00\00lD\00\00\00\00\00\00\00\00\00\00JI\00\008E\00\00\BCD\00\00\00\00\00\00\00\00\00\00lI\00\00\88E\00\00\C8D\00\00\00\00\00\00\00\00\00\00\8CI\00\00\94E\00\00\D0D\00\00\00\00\00\00\00\00\00\00\ABI\00\00\9CE\00\00\D8D\00\00\00\00\00\00\00\00\00\00\CCI\00\00\A4E\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\B0E\00\00\C6E\00\00\DCE\00\00\F0E\00\00\00F\00\00\1AF\00\000F\00\00LF\00\00fF\00\00xF\00\00\96F\00\00\00\00\00\00\A2F\00\00\B8F\00\00\CEF\00\00\E4F\00\00\02G\00\00\1AG\00\004G\00\00HG\00\00\00\00\00\00bG\00\00pG\00\00~G\00\00\88G\00\00\92G\00\00\ACG\00\00\BCG\00\00\CAG\00\00\D2G\00\00\F4G\00\00\16H\00\002H\00\00>H\00\00LH\00\00hH\00\00\96H\00\00\A8H\00\00\B8H\00\00\C0H\00\00\00\00\00\00\CCH\00\00\DCH\00\00\00\00\00\00\EAH\00\00\00\00\00\00\FEH\00\00\00\00\00\00\14I\00\00$I\00\00\00\00\00\00", i32 ptrtoint (ptr @GetCurrentProcessId to i32), i32 ptrtoint (ptr @GetCurrentThreadId to i32), i32 ptrtoint (ptr @ra_x86_get_module_handle_w to i32), i32 ptrtoint (ptr @GetStdHandle to i32), i32 ptrtoint (ptr @GetSystemTimeAsFileTime to i32), i32 ptrtoint (ptr @ra_x86_initialize_slist_head to i32), i32 ptrtoint (ptr @IsProcessorFeaturePresent to i32), i32 ptrtoint (ptr @QueryPerformanceCounter to i32), i32 ptrtoint (ptr @RaiseException to i32), i32 ptrtoint (ptr @SetUnhandledExceptionFilter to i32), i32 ptrtoint (ptr @WriteFile to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @_CxxThrowException to i32), i32 ptrtoint (ptr @__CxxFrameHandler3 to i32), i32 ptrtoint (ptr @__current_exception to i32), i32 ptrtoint (ptr @__current_exception_context to i32), i32 ptrtoint (ptr @__std_exception_copy to i32), i32 ptrtoint (ptr @__std_exception_destroy to i32), i32 ptrtoint (ptr @_except_handler3 to i32), i32 ptrtoint (ptr @_except_handler4_common to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @ra_x86_p_argc to i32), i32 ptrtoint (ptr @ra_x86_p_argv to i32), i32 ptrtoint (ptr @_c_exit to i32), i32 ptrtoint (ptr @_cexit to i32), i32 ptrtoint (ptr @_configure_narrow_argv to i32), i32 ptrtoint (ptr @ra_x86_controlfp_s to i32), i32 ptrtoint (ptr @_crt_atexit to i32), i32 ptrtoint (ptr @_exit to i32), i32 ptrtoint (ptr @ra_x86_initial_narrow_environment to i32), i32 ptrtoint (ptr @_initialize_narrow_environment to i32), i32 ptrtoint (ptr @ra_x86_initialize_onexit_table to i32), i32 ptrtoint (ptr @ra_x86_initterm to i32), i32 ptrtoint (ptr @ra_x86_initterm_e to i32), i32 ptrtoint (ptr @ra_x86_register_onexit_function to i32), i32 ptrtoint (ptr @_register_thread_local_exe_atexit_callback to i32), i32 ptrtoint (ptr @_seh_filter_exe to i32), i32 ptrtoint (ptr @_set_app_type to i32), i32 ptrtoint (ptr @exit to i32), i32 ptrtoint (ptr @terminate to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @ra_x86_p_commode to i32), i32 ptrtoint (ptr @_set_fmode to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @__setusermatherr to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @_configthreadlocale to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @_set_new_mode to i32), i32 ptrtoint (ptr @free to i32), [1112 x i8] c"\00\00\00\00<\02GetCurrentProcessId\00@\02GetCurrentThreadId\00\00\9F\02GetModuleHandleW\00\00\FC\02GetStdHandle\00\00\13\03GetSystemTimeAsFileTime\00\91\03InitializeSListHead\00\B5\03IsProcessorFeaturePresent\00~\04QueryPerformanceCounter\00\94\04RaiseException\00\00\A8\05SetUnhandledExceptionFilter\00O\06WriteFile\00\01\00_CxxThrowException\00\00\10\00__CxxFrameHandler3\00\00\1C\00__current_exception\00\1D\00__current_exception_context\00!\00__std_exception_copy\00\00\22\00__std_exception_destroy\004\00_except_handler3\00\005\00_except_handler4_common\00\05\00__p___argc\00\00\06\00__p___argv\00\00\16\00_c_exit\00\17\00_cexit\00\00\19\00_configure_narrow_argv\00\00\1D\00_controlfp_s\00\00\1F\00_crt_atexit\00%\00_exit\00*\00_get_initial_narrow_environment\005\00_initialize_narrow_environment\00\006\00_initialize_onexit_table\00\008\00_initterm\009\00_initterm_e\00>\00_register_onexit_function\00?\00_register_thread_local_exe_atexit_callback\00\00B\00_seh_filter_exe\00D\00_set_app_type\00X\00exit\00\00j\00terminate\00\01\00__p__commode\00\00T\00_set_fmode\00\00.\00__setusermatherr\00\00\08\00_configthreadlocale\00\16\00_set_new_mode\00\18\00free\00\00KERNEL32.dll\00VCRUNTIME140.dll\00api-ms-win-crt-runtime-l1-1-0.dll\00api-ms-win-crt-stdio-l1-1-0.dll\00api-ms-win-crt-math-l1-1-0.dll\00api-ms-win-crt-locale-l1-1-0.dll\00api-ms-win-crt-heap-l1-1-0.dll\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr @sec_data to i32), [24 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\04\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2560) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2588) to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 16) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\08\00\00\00", i32 ptrtoint (ptr @U_00401170 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\08\00\00\00", i32 ptrtoint (ptr @U_00401190 to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2624) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2656) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @U_004011b0 to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2684) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\10\00\00\00", i32 ptrtoint (ptr @U_004011c0 to i32), [8 x i8] c"\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), [16 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\0C\00\00\00", i32 ptrtoint (ptr @U_00401200 to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2720) to i32), i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2752) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @U_00401240 to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2780) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 140) to i32), [24 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\08\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2816) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2844) to i32), [16 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 152) to i32), [24 x i8] c"\00\00\00\00\FF\FF\FF\FF\00\00\00\00\04\00\00\00\00\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2880) to i32), [12 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2908) to i32), [4 x i8] c"\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2656) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @U_004011b0 to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2932) to i32), [8 x i8] c"\22\05\93\19\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2992) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF", i32 4198736, [8 x i8] c"\22\05\93\19\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3036) to i32), [4 x i8] c"\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3052) to i32), [48 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\04\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3072) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @sec_data to i32), [4 x i8] c"\E8\FF\FF\FF", i32 4199152, [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [4 x i8] c"\E4\FF\FF\FF", i32 4199184, [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 112) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4199248, [12 x i8] c"@\00\00\00\00\00\00\00\00\00\00\00", i32 4199296, [8 x i8] c"\22\05\93\19\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3172) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF", i32 4199504, [8 x i8] c"\22\05\93\19\04\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3216) to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3248) to i32), [64 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\FF\FF\FF\FF\00\00\00\00\01\00\00\00\01\00\00\00\02\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3288) to i32), [16 x i8] c"\00\00\00\00\02\00\00\00\03\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3304) to i32), [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4199696, [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 80) to i32), [4 x i8] c"\E4\FF\FF\FF", i32 4199648, [8 x i8] c"\22\05\93\19\07\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3356) to i32), [4 x i8] c"\02\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3412) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00", i32 4199968, [12 x i8] c"\01\00\00\00\00\00\00\00\02\00\00\00", i32 4199904, [12 x i8] c"\01\00\00\00\00\00\00\00\04\00\00\00", i32 4199936, [24 x i8] c"\FF\FF\FF\FF\00\00\00\00\02\00\00\00\03\00\00\00\05\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3452) to i32), [16 x i8] c"\00\00\00\00\05\00\00\00\06\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3468) to i32), [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 152) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4200048, [4 x i8] c"\00\00\00\00", i32 ptrtoint (ptr @sec_data to i32), [4 x i8] c"\D8\FF\FF\FF", i32 4200000, [8 x i8] c"\22\05\93\19\03\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3520) to i32), [4 x i8] c"\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3544) to i32), [28 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\FF\FF\FF\FF\00\00\00\00\00\00\00\00", i32 4200336, [24 x i8] c"\FF\FF\FF\FF\00\00\00\00\00\00\00\00\01\00\00\00\02\00\00\00\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 3564) to i32), [4 x i8] c"\08\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 48) to i32), [4 x i8] c"\E0\FF\FF\FF", i32 4200304, [4 x i8] c"\FF\FF\FF\FF", i32 ptrtoint (ptr @U_004018c0 to i32), i32 4200566, [8 x i8] c"\00\00\00\00\00\00\00\00", i32 4200608, [24 x i8] c"\00\00\00\00\FE\FF\FF\FF\00\00\00\00\CC\FF\FF\FF\00\00\00\00\FE\FF\FF\FF", i32 4204547, i32 4204568, [24 x i8] c"\00\00\00\00\FE\FF\FF\FF\00\00\00\00\D8\FF\FF\FF\00\00\00\00\FE\FF\FF\FF", i32 4204914, i32 4204933 }>, align 16  ; 0x404000
 @sec_data = global <{ i32, [12 x i8], i32, [28 x i8], i32, [28 x i8], i32, [28 x i8], i32, [24 x i8], i32, [8 x i8], i32, [136 x i8], i32, [644 x i8] }> <{ i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [12 x i8] c"\00\00\00\00.H\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [28 x i8] c"\00\00\00\00.?AUDerived@@\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [28 x i8] c"\00\00\00\00.?AUBase@@\00\00\00\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [28 x i8] c"\00\00\00\00.?AUProblem@@\00\00\00\00\00\00\00\00\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [24 x i8] c"\00\00\00\00.?AVexception@std@@\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [8 x i8] c"\00\00\00\00.N\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [136 x i8] c"\00\00\00\00.I\00\00\07\00\00\00\C5\9D\1C\81\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00N\E6@\BB\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\B1\19\BFDu\98\00\00\FF\FF\FF\FF\01\00\00\00\01\00\00\00\00\00\00\00\FF\FF\FF\FF\FF\FF\FF\FF\01\00\00\00", i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 376) to i32), [644 x i8] c"\00\00\00\00.?AVtype_info@@\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00" }>, align 16  ; 0x405000
 @ra_tls = constant <{ i64, i64, i64, i64, i64 }> <{ i64 0, i64 0, i64 0, i64 0, i64 0 }>, align 16
-@ra_functions = constant [34 x { i64, ptr }] [{ i64, ptr } { i64 4198768, ptr @U_00401170 }, { i64, ptr } { i64 4198800, ptr @U_00401190 }, { i64, ptr } { i64 4198832, ptr @U_004011b0 }, { i64, ptr } { i64 4198848, ptr @U_004011c0 }, { i64, ptr } { i64 4198912, ptr @U_00401200 }, { i64, ptr } { i64 4198976, ptr @U_00401240 }, { i64, ptr } { i64 4200640, ptr @U_004018c0 }, { i64, ptr } { i64 4201232, ptr @U_00401b10 }, { i64, ptr } { i64 4201248, ptr @U_00401b20 }, { i64, ptr } { i64 4201264, ptr @U_00401b30 }, { i64, ptr } { i64 4201296, ptr @U_00401b50 }, { i64, ptr } { i64 4201312, ptr @U_00401b60 }, { i64, ptr } { i64 4201328, ptr @U_00401b70 }, { i64, ptr } { i64 4201376, ptr @U_00401ba0 }, { i64, ptr } { i64 4201424, ptr @U_00401bd0 }, { i64, ptr } { i64 4201440, ptr @U_00401be0 }, { i64, ptr } { i64 4201456, ptr @U_00401bf0 }, { i64, ptr } { i64 4201472, ptr @U_00401c00 }, { i64, ptr } { i64 4201488, ptr @U_00401c10 }, { i64, ptr } { i64 4201504, ptr @U_00401c20 }, { i64, ptr } { i64 4203840, ptr @U_00402540 }, { i64, ptr } { i64 4203888, ptr @U_00402570 }, { i64, ptr } { i64 4203936, ptr @U_004025a0 }, { i64, ptr } { i64 4204112, ptr @U_00402650 }, { i64, ptr } { i64 4204128, ptr @U_00402660 }, { i64, ptr } { i64 4204656, ptr @U_00402870 }, { i64, ptr } { i64 4205616, ptr @U_00402c30 }, { i64, ptr } { i64 4205744, ptr @U_00402cb0 }, { i64, ptr } { i64 4206000, ptr @U_00402db0 }, { i64, ptr } { i64 4206144, ptr @U_00402e40 }, { i64, ptr } { i64 4206192, ptr @U_00402e70 }, { i64, ptr } { i64 4207225, ptr @U_00403279 }, { i64, ptr } { i64 4207231, ptr @U_0040327f }, { i64, ptr } { i64 4207237, ptr @U_00403285 }], align 16
-@ra_function_count = constant i64 34, align 8
+@ra_functions = constant [32 x { i64, ptr }] [{ i64, ptr } { i64 4198768, ptr @U_00401170 }, { i64, ptr } { i64 4198800, ptr @U_00401190 }, { i64, ptr } { i64 4198832, ptr @U_004011b0 }, { i64, ptr } { i64 4198848, ptr @U_004011c0 }, { i64, ptr } { i64 4198912, ptr @U_00401200 }, { i64, ptr } { i64 4198976, ptr @U_00401240 }, { i64, ptr } { i64 4200640, ptr @U_004018c0 }, { i64, ptr } { i64 4201232, ptr @U_00401b10 }, { i64, ptr } { i64 4201248, ptr @U_00401b20 }, { i64, ptr } { i64 4201264, ptr @U_00401b30 }, { i64, ptr } { i64 4201296, ptr @U_00401b50 }, { i64, ptr } { i64 4201312, ptr @U_00401b60 }, { i64, ptr } { i64 4201328, ptr @U_00401b70 }, { i64, ptr } { i64 4201376, ptr @U_00401ba0 }, { i64, ptr } { i64 4201424, ptr @U_00401bd0 }, { i64, ptr } { i64 4201440, ptr @U_00401be0 }, { i64, ptr } { i64 4201456, ptr @U_00401bf0 }, { i64, ptr } { i64 4201472, ptr @U_00401c00 }, { i64, ptr } { i64 4201488, ptr @U_00401c10 }, { i64, ptr } { i64 4201504, ptr @U_00401c20 }, { i64, ptr } { i64 4203840, ptr @U_00402540 }, { i64, ptr } { i64 4203888, ptr @U_00402570 }, { i64, ptr } { i64 4203936, ptr @U_004025a0 }, { i64, ptr } { i64 4204112, ptr @U_00402650 }, { i64, ptr } { i64 4204128, ptr @U_00402660 }, { i64, ptr } { i64 4204656, ptr @U_00402870 }, { i64, ptr } { i64 4205616, ptr @U_00402c30 }, { i64, ptr } { i64 4205744, ptr @U_00402cb0 }, { i64, ptr } { i64 4206000, ptr @U_00402db0 }, { i64, ptr } { i64 4206144, ptr @U_00402e40 }, { i64, ptr } { i64 4206192, ptr @U_00402e70 }, { i64, ptr } { i64 4207237, ptr @U_00403285 }], align 16
+@ra_function_count = constant i64 32, align 8
 @ra_import_pops = constant <{ i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64 }> <{ i64 ptrtoint (ptr @GetCurrentProcessId to i64), i64 ptrtoint (ptr @ra_import_names to i64), i64 0, i64 ptrtoint (ptr @GetCurrentThreadId to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 33) to i64), i64 0, i64 ptrtoint (ptr @GetStdHandle to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 65) to i64), i64 4, i64 ptrtoint (ptr @GetSystemTimeAsFileTime to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 91) to i64), i64 4, i64 ptrtoint (ptr @IsProcessorFeaturePresent to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 128) to i64), i64 4, i64 ptrtoint (ptr @QueryPerformanceCounter to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 167) to i64), i64 4, i64 ptrtoint (ptr @RaiseException to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 204) to i64), i64 16, i64 ptrtoint (ptr @SetUnhandledExceptionFilter to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 232) to i64), i64 4, i64 ptrtoint (ptr @WriteFile to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 273) to i64), i64 20, i64 ptrtoint (ptr @_CxxThrowException to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 296) to i64), i64 0, i64 ptrtoint (ptr @__CxxFrameHandler3 to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 332) to i64), i64 0, i64 ptrtoint (ptr @__current_exception to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 368) to i64), i64 0, i64 ptrtoint (ptr @__current_exception_context to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 405) to i64), i64 0, i64 ptrtoint (ptr @__setusermatherr to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 450) to i64), i64 0, i64 ptrtoint (ptr @__std_exception_copy to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 498) to i64), i64 0, i64 ptrtoint (ptr @__std_exception_destroy to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 536) to i64), i64 0, i64 ptrtoint (ptr @_c_exit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 577) to i64), i64 0, i64 ptrtoint (ptr @_cexit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 619) to i64), i64 0, i64 ptrtoint (ptr @_configthreadlocale to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 660) to i64), i64 0, i64 ptrtoint (ptr @_configure_narrow_argv to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 713) to i64), i64 0, i64 ptrtoint (ptr @_crt_atexit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 770) to i64), i64 0, i64 ptrtoint (ptr @_except_handler3 to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 816) to i64), i64 0, i64 ptrtoint (ptr @_except_handler4_common to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 850) to i64), i64 0, i64 ptrtoint (ptr @_exit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 891) to i64), i64 0, i64 ptrtoint (ptr @_initialize_narrow_environment to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 931) to i64), i64 0, i64 ptrtoint (ptr @_register_thread_local_exe_atexit_callback to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 996) to i64), i64 0, i64 ptrtoint (ptr @_seh_filter_exe to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1073) to i64), i64 0, i64 ptrtoint (ptr @_set_app_type to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1123) to i64), i64 0, i64 ptrtoint (ptr @_set_fmode to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1171) to i64), i64 0, i64 ptrtoint (ptr @_set_new_mode to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1214) to i64), i64 0, i64 ptrtoint (ptr @exit to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1259) to i64), i64 0, i64 ptrtoint (ptr @free to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1298) to i64), i64 0, i64 ptrtoint (ptr @ra_x86_controlfp_s to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_get_module_handle_w to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initial_narrow_environment to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initialize_onexit_table to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initialize_slist_head to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initterm to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_initterm_e to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_p_argc to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_p_argv to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_p_commode to i64), i64 0, i64 0, i64 ptrtoint (ptr @ra_x86_register_onexit_function to i64), i64 0, i64 0, i64 ptrtoint (ptr @terminate to i64), i64 ptrtoint (ptr getelementptr (i8, ptr @ra_import_names, i64 1334) to i64), i64 0, i64 0, i64 0, i64 0 }>, align 16
 @ra_import_names = constant [1378 x i8] c"KERNEL32.dll\00GetCurrentProcessId\00KERNEL32.dll\00GetCurrentThreadId\00KERNEL32.dll\00GetStdHandle\00KERNEL32.dll\00GetSystemTimeAsFileTime\00KERNEL32.dll\00IsProcessorFeaturePresent\00KERNEL32.dll\00QueryPerformanceCounter\00KERNEL32.dll\00RaiseException\00KERNEL32.dll\00SetUnhandledExceptionFilter\00KERNEL32.dll\00WriteFile\00VCRUNTIME140.dll\00_CxxThrowException\00VCRUNTIME140.dll\00__CxxFrameHandler3\00VCRUNTIME140.dll\00__current_exception\00VCRUNTIME140.dll\00__current_exception_context\00api-ms-win-crt-math-l1-1-0.dll\00__setusermatherr\00VCRUNTIME140.dll\00__std_exception_copy\00VCRUNTIME140.dll\00__std_exception_destroy\00api-ms-win-crt-runtime-l1-1-0.dll\00_c_exit\00api-ms-win-crt-runtime-l1-1-0.dll\00_cexit\00api-ms-win-crt-locale-l1-1-0.dll\00_configthreadlocale\00api-ms-win-crt-runtime-l1-1-0.dll\00_configure_narrow_argv\00api-ms-win-crt-runtime-l1-1-0.dll\00_crt_atexit\00VCRUNTIME140.dll\00_except_handler3\00VCRUNTIME140.dll\00_except_handler4_common\00api-ms-win-crt-runtime-l1-1-0.dll\00_exit\00api-ms-win-crt-runtime-l1-1-0.dll\00_initialize_narrow_environment\00api-ms-win-crt-runtime-l1-1-0.dll\00_register_thread_local_exe_atexit_callback\00api-ms-win-crt-runtime-l1-1-0.dll\00_seh_filter_exe\00api-ms-win-crt-runtime-l1-1-0.dll\00_set_app_type\00api-ms-win-crt-stdio-l1-1-0.dll\00_set_fmode\00api-ms-win-crt-heap-l1-1-0.dll\00_set_new_mode\00api-ms-win-crt-runtime-l1-1-0.dll\00exit\00api-ms-win-crt-heap-l1-1-0.dll\00free\00api-ms-win-crt-runtime-l1-1-0.dll\00terminate\00", align 16
 @ra_proc_pops = constant [1 x i8] c"\00", align 16
-@ra_args = global [16 x i8] zeroinitializer, align 16
+@ra_proc_kinds = constant [1 x i8] c"\00", align 16
 
 declare void @ra_trap(i64, i64) noreturn
 declare void @ra_call(ptr, i64)
@@ -36,11 +37,14 @@ declare i64 @ra_pops_of(i64)
 declare void @ra_cpuid(i64, i64, ptr)
 declare i64 @ra_xgetbv(i64)
 declare i64 @ra_rdtsc()
+declare i64 @ra_stack_probe(i64, i64, i64)
+declare i64 @ra_pause()
 declare i64 @ra_teb()
 declare void @ra_f80_load(ptr, ptr)
 declare void @ra_f80_store(ptr, ptr)
 declare void @ra_f80_pack(ptr, i64, i64)
 declare void @ra_f80_from_f64(ptr, double)
+declare void @ra_f80_store_f64(ptr, double)
 declare void @ra_f80_from_i64(ptr, i64)
 declare double @ra_f80_to_f64(ptr, i64)
 declare float @ra_f80_to_f32(ptr, i64)
@@ -87,6 +91,8 @@ declare float @llvm.trunc.f32(float)
 declare float @llvm.floor.f32(float)
 declare float @llvm.ceil.f32(float)
 declare float @llvm.rint.f32(float)
+declare float @llvm.sin.f32(float)
+declare float @llvm.cos.f32(float)
 declare double @llvm.sqrt.f64(double)
 declare double @llvm.fabs.f64(double)
 declare double @llvm.minnum.f64(double, double)
@@ -95,6 +101,8 @@ declare double @llvm.trunc.f64(double)
 declare double @llvm.floor.f64(double)
 declare double @llvm.ceil.f64(double)
 declare double @llvm.rint.f64(double)
+declare double @llvm.sin.f64(double)
+declare double @llvm.cos.f64(double)
 declare void @ra_eh_throw(i64, i64)
 declare void @ra_eh_throw_type(i64, i64, i64)
 declare void @ra_eh_rethrow()
@@ -129,8 +137,8 @@ declare i64 @__CxxFrameHandler3(i64, i64, i64, i64)
 declare i64 @__current_exception()
 declare i64 @__current_exception_context()
 declare i64 @__setusermatherr(i64)
-declare i64 @__std_exception_copy(i64, i64, i64, i64, i64, i64, i64, i64)
-declare i64 @__std_exception_destroy(i64, i64, i64, i64, i64, i64, i64, i64)
+declare i64 @__std_exception_copy(i64, i64)
+declare i64 @__std_exception_destroy(i64)
 declare i64 @_c_exit()
 declare i64 @_cexit()
 declare i64 @_configthreadlocale(i64)
@@ -171,13 +179,76 @@ b_401000:  ; 0x401000
   ret i64 %eax.z
 }
 
-define i64 @F_00401020(i32 %arg0) {  ; 0x401020
+define i64 @F_00401020(i64 %argblock) {  ; 0x401020
 b_401020:  ; 0x401020
-  %frame = alloca [300 x i8], align 16
+  %argblock.s = inttoptr i64 %argblock to ptr
+  %frame = alloca [352 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 220
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
-  store i32 %arg0, ptr %stack.arg0.p, align 4
+  %argblock.f0 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 0
+  %varargs.0.w = load i32, ptr %argblock.f0, align 4
+  %varargs.0.s = getelementptr inbounds i8, ptr %frame.top, i64 4
+  store i32 %varargs.0.w, ptr %varargs.0.s, align 4
+  %argblock.f4 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 1
+  %varargs.1.w = load i32, ptr %argblock.f4, align 4
+  %varargs.1.s = getelementptr inbounds i8, ptr %frame.top, i64 8
+  store i32 %varargs.1.w, ptr %varargs.1.s, align 4
+  %argblock.f8 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 2
+  %varargs.2.w = load i32, ptr %argblock.f8, align 4
+  %varargs.2.s = getelementptr inbounds i8, ptr %frame.top, i64 12
+  store i32 %varargs.2.w, ptr %varargs.2.s, align 4
+  %argblock.f12 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 3
+  %varargs.3.w = load i32, ptr %argblock.f12, align 4
+  %varargs.3.s = getelementptr inbounds i8, ptr %frame.top, i64 16
+  store i32 %varargs.3.w, ptr %varargs.3.s, align 4
+  %argblock.f16 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 4
+  %varargs.4.w = load i32, ptr %argblock.f16, align 4
+  %varargs.4.s = getelementptr inbounds i8, ptr %frame.top, i64 20
+  store i32 %varargs.4.w, ptr %varargs.4.s, align 4
+  %argblock.f20 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 5
+  %varargs.5.w = load i32, ptr %argblock.f20, align 4
+  %varargs.5.s = getelementptr inbounds i8, ptr %frame.top, i64 24
+  store i32 %varargs.5.w, ptr %varargs.5.s, align 4
+  %argblock.f24 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 6
+  %varargs.6.w = load i32, ptr %argblock.f24, align 4
+  %varargs.6.s = getelementptr inbounds i8, ptr %frame.top, i64 28
+  store i32 %varargs.6.w, ptr %varargs.6.s, align 4
+  %argblock.f28 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 7
+  %varargs.7.w = load i32, ptr %argblock.f28, align 4
+  %varargs.7.s = getelementptr inbounds i8, ptr %frame.top, i64 32
+  store i32 %varargs.7.w, ptr %varargs.7.s, align 4
+  %argblock.f32 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 8
+  %varargs.8.w = load i32, ptr %argblock.f32, align 4
+  %varargs.8.s = getelementptr inbounds i8, ptr %frame.top, i64 36
+  store i32 %varargs.8.w, ptr %varargs.8.s, align 4
+  %argblock.f36 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 9
+  %varargs.9.w = load i32, ptr %argblock.f36, align 4
+  %varargs.9.s = getelementptr inbounds i8, ptr %frame.top, i64 40
+  store i32 %varargs.9.w, ptr %varargs.9.s, align 4
+  %argblock.f40 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 10
+  %varargs.10.w = load i32, ptr %argblock.f40, align 4
+  %varargs.10.s = getelementptr inbounds i8, ptr %frame.top, i64 44
+  store i32 %varargs.10.w, ptr %varargs.10.s, align 4
+  %argblock.f44 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 11
+  %varargs.11.w = load i32, ptr %argblock.f44, align 4
+  %varargs.11.s = getelementptr inbounds i8, ptr %frame.top, i64 48
+  store i32 %varargs.11.w, ptr %varargs.11.s, align 4
+  %argblock.f48 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 12
+  %varargs.12.w = load i32, ptr %argblock.f48, align 4
+  %varargs.12.s = getelementptr inbounds i8, ptr %frame.top, i64 52
+  store i32 %varargs.12.w, ptr %varargs.12.s, align 4
+  %argblock.f52 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 13
+  %varargs.13.w = load i32, ptr %argblock.f52, align 4
+  %varargs.13.s = getelementptr inbounds i8, ptr %frame.top, i64 56
+  store i32 %varargs.13.w, ptr %varargs.13.s, align 4
+  %argblock.f56 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 14
+  %varargs.14.w = load i32, ptr %argblock.f56, align 4
+  %varargs.14.s = getelementptr inbounds i8, ptr %frame.top, i64 60
+  store i32 %varargs.14.w, ptr %varargs.14.s, align 4
+  %argblock.f60 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 15
+  %varargs.15.w = load i32, ptr %argblock.f60, align 4
+  %varargs.15.s = getelementptr inbounds i8, ptr %frame.top, i64 64
+  store i32 %varargs.15.w, ptr %varargs.15.s, align 4
   %esp = trunc i64 %rsp0 to i32  ; 0x401020
   %sp = sub i32 %esp, 4  ; 0x401020
   %sp.1 = sub i32 %sp, 4  ; 0x401023
@@ -189,7 +260,7 @@ b_401020:  ; 0x401020
   %addr.z.4 = zext i32 %addr to i64  ; 0x40102e
   %st.p.4 = inttoptr i64 %addr.z.4 to ptr  ; 0x40102e
   store i32 %sp, ptr %st.p.4, align 1  ; 0x40102e
-  %m = load i32, ptr %stack.arg0.p, align 1  ; 0x401031
+  %m = load i32, ptr %varargs.0.s, align 1  ; 0x401031
   %addr.2 = add i32 %diff, 44  ; 0x401034
   %addr.z.6 = zext i32 %addr.2 to i64  ; 0x401034
   %st.p.5 = inttoptr i64 %addr.z.6 to ptr  ; 0x401034
@@ -592,11 +663,9 @@ b_4011b0:  ; 0x4011b0
   ret void
 }
 
-define i64 @F_004011c0(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x4011c0
+define i64 @F_004011c0(i64 %arg0, i64 %arg1) {  ; 0x4011c0
 b_4011c0:  ; 0x4011c0
   %stack.arg0.lo = trunc i64 %arg1 to i32
-  %stack.arg1.lo = trunc i64 %arg2 to i32
-  %stack.arg2.lo = trunc i64 %arg3 to i32
   %ecx = trunc i64 %arg0 to i32  ; 0x4011c2
   %addr.z.3 = zext i32 %ecx to i64  ; 0x4011c8
   %st.p.2 = inttoptr i64 %addr.z.3 to ptr  ; 0x4011c8
@@ -610,12 +679,7 @@ b_4011c0:  ; 0x4011c0
   %st.p.4 = inttoptr i64 %addr.z.5 to ptr  ; 0x4011d8
   store i32 0, ptr %st.p.4, align 1  ; 0x4011d8
   %addr.4 = add i32 %stack.arg0.lo, 4  ; 0x4011df
-  %ecx.z = zext i32 %addr.4 to i64  ; 0x4011df
-  %sarg2 = zext i32 undef to i64
-  %sarg5 = zext i32 %stack.arg0.lo to i64
-  %sarg6 = zext i32 %stack.arg1.lo to i64
-  %sarg7 = zext i32 %stack.arg2.lo to i64
-  %ret = call i64 @thunk___std_exception_copy(i64 %ecx.z, i64 %ecx.z, i64 %addr.z.5, i64 %sarg2, i64 %sarg2, i64 %sarg2, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x4011e4
+  %ret = call i64 @thunk___std_exception_copy(i32 %addr.4, i32 %addr.1)  ; 0x4011e4
   %eh.pending = call i64 @ra_eh_pending()  ; 0x4011e4
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4011e4
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.4011e4
@@ -634,32 +698,23 @@ eh.ok.4011e4:  ; 0x4011e4
   ret i64 %addr.z.3
 }
 
-define i64 @F_00401200(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4) {  ; 0x401200
+define i64 @F_00401200(i64 %arg0, i64 %arg1) {  ; 0x401200
 b_401200:  ; 0x401200
   %stack.arg0.lo = trunc i64 %arg1 to i32
-  %stack.arg1.lo = trunc i64 %arg2 to i32
-  %stack.arg2.lo = trunc i64 %arg3 to i32
-  %stack.arg3.lo = trunc i64 %arg4 to i32
   %ecx = trunc i64 %arg0 to i32  ; 0x401201
   %addr.z.2 = zext i32 %ecx to i64  ; 0x401207
   %st.p.1 = inttoptr i64 %addr.z.2 to ptr  ; 0x401207
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 328) to i32), ptr %st.p.1, align 1  ; 0x401207
   %sum = add i32 %ecx, 4  ; 0x40120d
-  %ecx.z = zext i32 %sum to i64  ; 0x40120d
   %addr.1 = add i32 %ecx, 8  ; 0x401210
   %addr.z.3 = zext i32 %addr.1 to i64  ; 0x401210
   %st.p.2 = inttoptr i64 %addr.z.3 to ptr  ; 0x401210
   store i32 0, ptr %st.p.2, align 1  ; 0x401210
-  %st.p.3 = inttoptr i64 %ecx.z to ptr  ; 0x401217
+  %addr.z.4 = zext i32 %sum to i64  ; 0x401217
+  %st.p.3 = inttoptr i64 %addr.z.4 to ptr  ; 0x401217
   store i32 0, ptr %st.p.3, align 1  ; 0x401217
   %sum.1 = add i32 %stack.arg0.lo, 4  ; 0x40121e
-  %sarg0 = zext i32 %sum.1 to i64
-  %sarg2 = zext i32 undef to i64
-  %sarg4 = zext i32 %stack.arg0.lo to i64
-  %sarg5 = zext i32 %stack.arg1.lo to i64
-  %sarg6 = zext i32 %stack.arg2.lo to i64
-  %sarg7 = zext i32 %stack.arg3.lo to i64
-  %ret = call i64 @thunk___std_exception_copy(i64 %ecx.z, i64 %sarg0, i64 %ecx.z, i64 %sarg2, i64 %sarg2, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x401223
+  %ret = call i64 @thunk___std_exception_copy(i32 %sum.1, i32 %sum)  ; 0x401223
   %eh.pending = call i64 @ra_eh_pending()  ; 0x401223
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x401223
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.401223
@@ -669,44 +724,93 @@ eh.ok.401223:  ; 0x401223
   ret i64 %addr.z.2
 }
 
-define void @F_00401240(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4, i64 %arg5, i64 %arg6) {  ; 0x401240
+define i64 @F_00401240(i64 %arg0) {  ; 0x401240
 b_401240:  ; 0x401240
-  %stack.arg0.lo = trunc i64 %arg1 to i32
-  %stack.arg1.lo = trunc i64 %arg2 to i32
-  %stack.arg2.lo = trunc i64 %arg3 to i32
-  %stack.arg3.lo = trunc i64 %arg4 to i32
-  %stack.arg4.lo = trunc i64 %arg5 to i32
-  %stack.arg5.lo = trunc i64 %arg6 to i32
   %ecx = trunc i64 %arg0 to i32  ; 0x401240
   %addr.z = zext i32 %ecx to i64  ; 0x401240
   %st.p = inttoptr i64 %addr.z to ptr  ; 0x401240
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 328) to i32), ptr %st.p, align 1  ; 0x401240
   %sum = add i32 %ecx, 4  ; 0x401246
-  %ecx.z = zext i32 %sum to i64  ; 0x401246
-  %sarg1 = zext i32 undef to i64
-  %sarg2 = zext i32 %stack.arg0.lo to i64
-  %sarg3 = zext i32 %stack.arg1.lo to i64
-  %sarg4 = zext i32 %stack.arg2.lo to i64
-  %sarg5 = zext i32 %stack.arg3.lo to i64
-  %sarg6 = zext i32 %stack.arg4.lo to i64
-  %sarg7 = zext i32 %stack.arg5.lo to i64
-  %ret = call i64 @thunk___std_exception_destroy(i64 %ecx.z, i64 %ecx.z, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x40124a
+  %ret = call i64 @thunk___std_exception_destroy(i32 %sum)  ; 0x40124a
   %eh.pending = call i64 @ra_eh_pending()  ; 0x40124a
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x40124a
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.40124a
 eh.landing:  ; 0x40124a
-  ret void
+  ret i64 %ret
 eh.ok.40124a:  ; 0x40124a
-  ret void
+  ret i64 %ret
 }
 
-define i64 @F_00401260(i32 %arg0) {  ; 0x401260
+define i64 @F_00401260(i64 %argblock) {  ; 0x401260
 b_401260:  ; 0x401260
-  %frame = alloca [4284 x i8], align 16
+  %argblock.s = inttoptr i64 %argblock to ptr
+  %frame = alloca [4336 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 4204
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
-  store i32 %arg0, ptr %stack.arg0.p, align 4
+  %argblock.f0 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 0
+  %varargs.0.w = load i32, ptr %argblock.f0, align 4
+  %varargs.0.s = getelementptr inbounds i8, ptr %frame.top, i64 4
+  store i32 %varargs.0.w, ptr %varargs.0.s, align 4
+  %argblock.f4 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 1
+  %varargs.1.w = load i32, ptr %argblock.f4, align 4
+  %varargs.1.s = getelementptr inbounds i8, ptr %frame.top, i64 8
+  store i32 %varargs.1.w, ptr %varargs.1.s, align 4
+  %argblock.f8 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 2
+  %varargs.2.w = load i32, ptr %argblock.f8, align 4
+  %varargs.2.s = getelementptr inbounds i8, ptr %frame.top, i64 12
+  store i32 %varargs.2.w, ptr %varargs.2.s, align 4
+  %argblock.f12 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 3
+  %varargs.3.w = load i32, ptr %argblock.f12, align 4
+  %varargs.3.s = getelementptr inbounds i8, ptr %frame.top, i64 16
+  store i32 %varargs.3.w, ptr %varargs.3.s, align 4
+  %argblock.f16 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 4
+  %varargs.4.w = load i32, ptr %argblock.f16, align 4
+  %varargs.4.s = getelementptr inbounds i8, ptr %frame.top, i64 20
+  store i32 %varargs.4.w, ptr %varargs.4.s, align 4
+  %argblock.f20 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 5
+  %varargs.5.w = load i32, ptr %argblock.f20, align 4
+  %varargs.5.s = getelementptr inbounds i8, ptr %frame.top, i64 24
+  store i32 %varargs.5.w, ptr %varargs.5.s, align 4
+  %argblock.f24 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 6
+  %varargs.6.w = load i32, ptr %argblock.f24, align 4
+  %varargs.6.s = getelementptr inbounds i8, ptr %frame.top, i64 28
+  store i32 %varargs.6.w, ptr %varargs.6.s, align 4
+  %argblock.f28 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 7
+  %varargs.7.w = load i32, ptr %argblock.f28, align 4
+  %varargs.7.s = getelementptr inbounds i8, ptr %frame.top, i64 32
+  store i32 %varargs.7.w, ptr %varargs.7.s, align 4
+  %argblock.f32 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 8
+  %varargs.8.w = load i32, ptr %argblock.f32, align 4
+  %varargs.8.s = getelementptr inbounds i8, ptr %frame.top, i64 36
+  store i32 %varargs.8.w, ptr %varargs.8.s, align 4
+  %argblock.f36 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 9
+  %varargs.9.w = load i32, ptr %argblock.f36, align 4
+  %varargs.9.s = getelementptr inbounds i8, ptr %frame.top, i64 40
+  store i32 %varargs.9.w, ptr %varargs.9.s, align 4
+  %argblock.f40 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 10
+  %varargs.10.w = load i32, ptr %argblock.f40, align 4
+  %varargs.10.s = getelementptr inbounds i8, ptr %frame.top, i64 44
+  store i32 %varargs.10.w, ptr %varargs.10.s, align 4
+  %argblock.f44 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 11
+  %varargs.11.w = load i32, ptr %argblock.f44, align 4
+  %varargs.11.s = getelementptr inbounds i8, ptr %frame.top, i64 48
+  store i32 %varargs.11.w, ptr %varargs.11.s, align 4
+  %argblock.f48 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 12
+  %varargs.12.w = load i32, ptr %argblock.f48, align 4
+  %varargs.12.s = getelementptr inbounds i8, ptr %frame.top, i64 52
+  store i32 %varargs.12.w, ptr %varargs.12.s, align 4
+  %argblock.f52 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 13
+  %varargs.13.w = load i32, ptr %argblock.f52, align 4
+  %varargs.13.s = getelementptr inbounds i8, ptr %frame.top, i64 56
+  store i32 %varargs.13.w, ptr %varargs.13.s, align 4
+  %argblock.f56 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 14
+  %varargs.14.w = load i32, ptr %argblock.f56, align 4
+  %varargs.14.s = getelementptr inbounds i8, ptr %frame.top, i64 60
+  store i32 %varargs.14.w, ptr %varargs.14.s, align 4
+  %argblock.f60 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 15
+  %varargs.15.w = load i32, ptr %argblock.f60, align 4
+  %varargs.15.s = getelementptr inbounds i8, ptr %frame.top, i64 64
+  store i32 %varargs.15.w, ptr %varargs.15.s, align 4
   %esp = trunc i64 %rsp0 to i32  ; 0x401260
   %sp = sub i32 %esp, 4  ; 0x401260
   %sp.1 = sub i32 %sp, 4  ; 0x401263
@@ -738,10 +842,11 @@ b_401260:  ; 0x401260
   store i32 1, ptr %st.p.10, align 1  ; 0x401298
   %sp.4 = sub i32 %diff, 4  ; 0x40129f
   %st.p.11 = getelementptr inbounds i8, ptr %frame.top, i64 -52  ; 0x40129f
-  store i32 %arg0, ptr %st.p.11, align 1  ; 0x40129f
+  store i32 %varargs.0.w, ptr %st.p.11, align 1  ; 0x40129f
   %sp.5 = sub i32 %sp.4, 4  ; 0x4012a0
-  %sarg0.a = add i32 %sp.5, 4
-  %ret = call i64 @F_00401020(i32 %arg0)  ; 0x4012a0
+  %varargs.a = add i32 %sp.5, 4
+  %varargs = ptrtoint ptr %st.p.11 to i64
+  %ret = call i64 @F_00401020(i64 %varargs)  ; 0x4012a0
   %eh.pending = call i64 @ra_eh_pending()  ; 0x4012a0
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4012a0
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.4012a0
@@ -848,7 +953,7 @@ eh.enter0_0:  ; 0x4012a0
   %eh.esp = load i32, ptr %eh.esp.p.1, align 1  ; 0x4012a0
   %eh.esp.1 = zext i32 %eh.esp to i64  ; 0x4012a0
   call void @ra_eh_catch_sp(i64 %eh.esp.1)  ; 0x4012a0
-  %sp.6 = sub i32 %sarg0.a, 4  ; 0x4012a0
+  %sp.6 = sub i32 %varargs.a, 4  ; 0x4012a0
   %st.p.17 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x4012a0
   store i32 0, ptr %st.p.17, align 1  ; 0x4012a0
   br label %f1_4012f0
@@ -884,8 +989,8 @@ eh.destroy.40130c:  ; 0x40130c
   %ecx.z.1 = zext i32 %eh.this to i64  ; 0x40130c
   store i32 0, ptr %st.p.17, align 1  ; 0x40130c
   %fp.9 = inttoptr i64 %eh.dtor to ptr  ; 0x40130c
-  %sarg0.d.10 = load i32, ptr %st.p.11, align 4
-  %sarg0.10 = zext i32 %sarg0.d.10 to i64
+  %sarg0.d.9 = load i32, ptr %st.p.11, align 4
+  %sarg0.9 = zext i32 %sarg0.d.9 to i64
   %sarg1.p.9 = getelementptr inbounds i8, ptr %frame.top, i64 -48
   %sarg1.d.9 = load i32, ptr %sarg1.p.9, align 4
   %sarg1.9 = zext i32 %sarg1.d.9 to i64
@@ -899,15 +1004,7 @@ eh.destroy.40130c:  ; 0x40130c
   %sarg4.9 = zext i32 %sarg4.d.9 to i64
   %sarg5.d.9 = load i32, ptr %st.p.4, align 4
   %sarg5.9 = zext i32 %sarg5.d.9 to i64
-  %sarg6.d.9 = load i32, ptr %st.p.7, align 4
-  %sarg6.9 = zext i32 %sarg6.d.9 to i64
-  %args.p.18 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40130c
-  store i64 %sarg6.9, ptr %args.p.18, align 8  ; 0x40130c
-  %sarg7.d.9 = load i32, ptr %st.p.6, align 4
-  %sarg7.9 = zext i32 %sarg7.d.9 to i64
-  %args.p.19 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40130c
-  store i64 %sarg7.9, ptr %args.p.19, align 8  ; 0x40130c
-  %ret.26 = call i64 %fp.9(i64 %sarg0.10, i64 %sarg1.9, i64 %sarg2.9, i64 %sarg3.9, i64 %sarg4.9, i64 %sarg5.9, i64 %ecx.z.1, i64 %edx.z)  ; 0x40130c
+  %ret.26 = call i64 %fp.9(i64 %sarg0.9, i64 %sarg1.9, i64 %sarg2.9, i64 %sarg3.9, i64 %sarg4.9, i64 %sarg5.9, i64 %ecx.z.1, i64 %edx.z)  ; 0x40130c
   %pops.9 = call i64 @ra_pops_of(i64 %eh.dtor)  ; 0x40130c
   br label %eh.destroyed.40130c
 eh.destroyed.40130c:  ; 0x40130c
@@ -933,7 +1030,7 @@ eh.enter0_1:  ; 0x40130c
   %eh.esp.2 = load i32, ptr %eh.esp.p.4, align 1  ; 0x40130c
   %eh.esp.3 = zext i32 %eh.esp.2 to i64  ; 0x40130c
   call void @ra_eh_catch_sp(i64 %eh.esp.3)  ; 0x40130c
-  %sp.12 = sub i32 %sarg0.a, 4  ; 0x40130c
+  %sp.12 = sub i32 %varargs.a, 4  ; 0x40130c
   %st.p.26 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x40130c
   store i32 0, ptr %st.p.26, align 1  ; 0x40130c
   br label %f2_401310
@@ -956,9 +1053,9 @@ f2_401310:  ; 0x401310
   %m.3 = load i32, ptr %m.p.3, align 1  ; 0x401318
   %m.3.s.w = zext i32 %m.3 to i64  ; 0x401318
   %m.3.s = inttoptr i64 %m.3.s.w to ptr  ; 0x401318
-  %m.3.f0 = getelementptr inbounds %S2, ptr %m.3.s, i64 0, i32 0  ; 0x40131b
+  %m.3.f0 = getelementptr inbounds %S3, ptr %m.3.s, i64 0, i32 0  ; 0x40131b
   %m.4 = load i32, ptr %m.3.f0, align 1  ; 0x40131b
-  %m.3.f4 = getelementptr inbounds %S2, ptr %m.3.s, i64 0, i32 1  ; 0x40131d
+  %m.3.f4 = getelementptr inbounds %S3, ptr %m.3.s, i64 0, i32 1  ; 0x40131d
   %m.5 = load i32, ptr %m.3.f4, align 1  ; 0x40131d
   %edx.z.1 = zext i32 %m.5 to i64  ; 0x40131d
   %addr.15 = add i32 %m.4, 4  ; 0x401323
@@ -975,6 +1072,7 @@ f2_401310:  ; 0x401310
   br i1 %is.4, label %vcall_96, label %vcall.test_100
 eh.landing.1:  ; 0x40132d
   %rax.phi.3 = phi i64 [ %rax.phi.2, %f2_401310.94 ], [ %rax.phi.6, %f4_401310.112 ], [ %rax.phi.5, %f5_401350.103 ], [ %rax.phi.1, %f7_401350.85 ]  ; 0x40132d
+  %rdx.phi = phi i64 [ %edx.z.1, %f2_401310.94 ], [ %edx.z.2, %f4_401310.112 ], [ %rdx.phi, %f5_401350.103 ], [ %edx.z, %f7_401350.85 ]  ; 0x40132d
   %rsp.phi = phi i32 [ %rsp.91, %f2_401310.94 ], [ %rsp.97, %f4_401310.112 ], [ %rsp.95, %f5_401350.103 ], [ %rsp.89, %f7_401350.85 ]  ; 0x40132d
   %teb.8 = call i64 @ra_teb()  ; 0x40132d
   %teb.9 = trunc i64 %teb.8 to i32  ; 0x40132d
@@ -1086,10 +1184,10 @@ eh.destroy.40130c.1:  ; 0x40130c
   %st.p.41 = inttoptr i64 %addr.z.64 to ptr  ; 0x40130c
   store i32 0, ptr %st.p.41, align 1  ; 0x40130c
   %fp.8 = inttoptr i64 %eh.dtor.1 to ptr  ; 0x40130c
-  %sarg0.a.9 = add i64 %addr.z.64, 4
-  %sarg0.p.9 = inttoptr i64 %sarg0.a.9 to ptr
-  %sarg0.d.9 = load i32, ptr %sarg0.p.9, align 4
-  %sarg0.9 = zext i32 %sarg0.d.9 to i64
+  %sarg0.a.8 = add i64 %addr.z.64, 4
+  %sarg0.p.8 = inttoptr i64 %sarg0.a.8 to ptr
+  %sarg0.d.8 = load i32, ptr %sarg0.p.8, align 4
+  %sarg0.8 = zext i32 %sarg0.d.8 to i64
   %sarg1.a.8 = add i64 %addr.z.64, 8
   %sarg1.p.8 = inttoptr i64 %sarg1.a.8 to ptr
   %sarg1.d.8 = load i32, ptr %sarg1.p.8, align 4
@@ -1110,19 +1208,7 @@ eh.destroy.40130c.1:  ; 0x40130c
   %sarg5.p.8 = inttoptr i64 %sarg5.a.8 to ptr
   %sarg5.d.8 = load i32, ptr %sarg5.p.8, align 4
   %sarg5.8 = zext i32 %sarg5.d.8 to i64
-  %sarg6.a.8 = add i64 %addr.z.64, 28
-  %sarg6.p.8 = inttoptr i64 %sarg6.a.8 to ptr
-  %sarg6.d.8 = load i32, ptr %sarg6.p.8, align 4
-  %sarg6.8 = zext i32 %sarg6.d.8 to i64
-  %args.p.16 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40130c
-  store i64 %sarg6.8, ptr %args.p.16, align 8  ; 0x40130c
-  %sarg7.a.8 = add i64 %addr.z.64, 32
-  %sarg7.p.8 = inttoptr i64 %sarg7.a.8 to ptr
-  %sarg7.d.8 = load i32, ptr %sarg7.p.8, align 4
-  %sarg7.8 = zext i32 %sarg7.d.8 to i64
-  %args.p.17 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40130c
-  store i64 %sarg7.8, ptr %args.p.17, align 8  ; 0x40130c
-  %ret.25 = call i64 %fp.8(i64 %sarg0.9, i64 %sarg1.8, i64 %sarg2.8, i64 %sarg3.8, i64 %sarg4.8, i64 %sarg5.8, i64 %ecx.z.3, i64 undef)  ; 0x40130c
+  %ret.25 = call i64 %fp.8(i64 %sarg0.8, i64 %sarg1.8, i64 %sarg2.8, i64 %sarg3.8, i64 %sarg4.8, i64 %sarg5.8, i64 %ecx.z.3, i64 %rdx.phi)  ; 0x40130c
   %pops.8 = call i64 @ra_pops_of(i64 %eh.dtor.1)  ; 0x40130c
   br label %eh.destroyed.40130c.1
 eh.destroyed.40130c.1:  ; 0x40130c
@@ -1174,9 +1260,9 @@ f4_401310:  ; 0x401310
   %m.8 = load i32, ptr %m.p.8, align 1  ; 0x401318
   %m.8.s.w = zext i32 %m.8 to i64  ; 0x401318
   %m.8.s = inttoptr i64 %m.8.s.w to ptr  ; 0x401318
-  %m.8.f0 = getelementptr inbounds %S2, ptr %m.8.s, i64 0, i32 0  ; 0x40131b
+  %m.8.f0 = getelementptr inbounds %S3, ptr %m.8.s, i64 0, i32 0  ; 0x40131b
   %m.9 = load i32, ptr %m.8.f0, align 1  ; 0x40131b
-  %m.8.f4 = getelementptr inbounds %S2, ptr %m.8.s, i64 0, i32 1  ; 0x40131d
+  %m.8.f4 = getelementptr inbounds %S3, ptr %m.8.s, i64 0, i32 1  ; 0x40131d
   %m.10 = load i32, ptr %m.8.f4, align 1  ; 0x40131d
   %edx.z.2 = zext i32 %m.10 to i64  ; 0x40131d
   %addr.24 = add i32 %m.9, 4  ; 0x401323
@@ -1216,10 +1302,10 @@ eh.destroy.401343:  ; 0x401343
   %st.p.52 = inttoptr i64 %addr.z.82 to ptr  ; 0x401343
   store i32 0, ptr %st.p.52, align 1  ; 0x401343
   %fp.7 = inttoptr i64 %eh.dtor.2 to ptr  ; 0x401343
-  %sarg0.a.8 = add i64 %addr.z.82, 4
-  %sarg0.p.8 = inttoptr i64 %sarg0.a.8 to ptr
-  %sarg0.d.8 = load i32, ptr %sarg0.p.8, align 4
-  %sarg0.8 = zext i32 %sarg0.d.8 to i64
+  %sarg0.a.7 = add i64 %addr.z.82, 4
+  %sarg0.p.7 = inttoptr i64 %sarg0.a.7 to ptr
+  %sarg0.d.7 = load i32, ptr %sarg0.p.7, align 4
+  %sarg0.7 = zext i32 %sarg0.d.7 to i64
   %sarg1.a.7 = add i64 %addr.z.82, 8
   %sarg1.p.7 = inttoptr i64 %sarg1.a.7 to ptr
   %sarg1.d.7 = load i32, ptr %sarg1.p.7, align 4
@@ -1240,19 +1326,7 @@ eh.destroy.401343:  ; 0x401343
   %sarg5.p.7 = inttoptr i64 %sarg5.a.7 to ptr
   %sarg5.d.7 = load i32, ptr %sarg5.p.7, align 4
   %sarg5.7 = zext i32 %sarg5.d.7 to i64
-  %sarg6.a.7 = add i64 %addr.z.82, 28
-  %sarg6.p.7 = inttoptr i64 %sarg6.a.7 to ptr
-  %sarg6.d.7 = load i32, ptr %sarg6.p.7, align 4
-  %sarg6.7 = zext i32 %sarg6.d.7 to i64
-  %args.p.14 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401343
-  store i64 %sarg6.7, ptr %args.p.14, align 8  ; 0x401343
-  %sarg7.a.7 = add i64 %addr.z.82, 32
-  %sarg7.p.7 = inttoptr i64 %sarg7.a.7 to ptr
-  %sarg7.d.7 = load i32, ptr %sarg7.p.7, align 4
-  %sarg7.7 = zext i32 %sarg7.d.7 to i64
-  %args.p.15 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401343
-  store i64 %sarg7.7, ptr %args.p.15, align 8  ; 0x401343
-  %ret.24 = call i64 %fp.7(i64 %sarg0.8, i64 %sarg1.7, i64 %sarg2.7, i64 %sarg3.7, i64 %sarg4.7, i64 %sarg5.7, i64 %ecx.z.5, i64 %edx.z.2)  ; 0x401343
+  %ret.24 = call i64 %fp.7(i64 %sarg0.7, i64 %sarg1.7, i64 %sarg2.7, i64 %sarg3.7, i64 %sarg4.7, i64 %sarg5.7, i64 %ecx.z.5, i64 %edx.z.2)  ; 0x401343
   %pops.7 = call i64 @ra_pops_of(i64 %eh.dtor.2)  ; 0x401343
   br label %eh.destroyed.401343
 eh.destroyed.401343:  ; 0x401343
@@ -1302,7 +1376,7 @@ f5_401350:  ; 0x401350
   %m.12 = load i32, ptr %m.p.12, align 1  ; 0x401358
   %m.12.s.w = zext i32 %m.12 to i64  ; 0x401358
   %m.12.s = inttoptr i64 %m.12.s.w to ptr  ; 0x401358
-  %m.12.f0 = getelementptr inbounds %S2, ptr %m.12.s, i64 0, i32 0  ; 0x40135b
+  %m.12.f0 = getelementptr inbounds %S3, ptr %m.12.s, i64 0, i32 0  ; 0x40135b
   %m.13 = load i32, ptr %m.12.f0, align 1  ; 0x40135b
   %addr.30 = add i32 %m.13, 4  ; 0x40135d
   %addr.z.93 = zext i32 %addr.30 to i64  ; 0x40135d
@@ -1343,10 +1417,10 @@ eh.destroy.40137d:  ; 0x40137d
   %st.p.63 = inttoptr i64 %addr.z.100 to ptr  ; 0x40137d
   store i32 0, ptr %st.p.63, align 1  ; 0x40137d
   %fp.6 = inttoptr i64 %eh.dtor.3 to ptr  ; 0x40137d
-  %sarg0.a.7 = add i64 %addr.z.100, 4
-  %sarg0.p.7 = inttoptr i64 %sarg0.a.7 to ptr
-  %sarg0.d.7 = load i32, ptr %sarg0.p.7, align 4
-  %sarg0.7 = zext i32 %sarg0.d.7 to i64
+  %sarg0.a.6 = add i64 %addr.z.100, 4
+  %sarg0.p.6 = inttoptr i64 %sarg0.a.6 to ptr
+  %sarg0.d.6 = load i32, ptr %sarg0.p.6, align 4
+  %sarg0.6 = zext i32 %sarg0.d.6 to i64
   %sarg1.a.6 = add i64 %addr.z.100, 8
   %sarg1.p.6 = inttoptr i64 %sarg1.a.6 to ptr
   %sarg1.d.6 = load i32, ptr %sarg1.p.6, align 4
@@ -1367,19 +1441,7 @@ eh.destroy.40137d:  ; 0x40137d
   %sarg5.p.6 = inttoptr i64 %sarg5.a.6 to ptr
   %sarg5.d.6 = load i32, ptr %sarg5.p.6, align 4
   %sarg5.6 = zext i32 %sarg5.d.6 to i64
-  %sarg6.a.6 = add i64 %addr.z.100, 28
-  %sarg6.p.6 = inttoptr i64 %sarg6.a.6 to ptr
-  %sarg6.d.6 = load i32, ptr %sarg6.p.6, align 4
-  %sarg6.6 = zext i32 %sarg6.d.6 to i64
-  %args.p.12 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40137d
-  store i64 %sarg6.6, ptr %args.p.12, align 8  ; 0x40137d
-  %sarg7.a.6 = add i64 %addr.z.100, 32
-  %sarg7.p.6 = inttoptr i64 %sarg7.a.6 to ptr
-  %sarg7.d.6 = load i32, ptr %sarg7.p.6, align 4
-  %sarg7.6 = zext i32 %sarg7.d.6 to i64
-  %args.p.13 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40137d
-  store i64 %sarg7.6, ptr %args.p.13, align 8  ; 0x40137d
-  %ret.19 = call i64 %fp.6(i64 %sarg0.7, i64 %sarg1.6, i64 %sarg2.6, i64 %sarg3.6, i64 %sarg4.6, i64 %sarg5.6, i64 %ecx.z.7, i64 undef)  ; 0x40137d
+  %ret.19 = call i64 %fp.6(i64 %sarg0.6, i64 %sarg1.6, i64 %sarg2.6, i64 %sarg3.6, i64 %sarg4.6, i64 %sarg5.6, i64 %ecx.z.7, i64 %rdx.phi)  ; 0x40137d
   %pops.6 = call i64 @ra_pops_of(i64 %eh.dtor.3)  ; 0x40137d
   br label %eh.destroyed.40137d
 eh.destroyed.40137d:  ; 0x40137d
@@ -1448,10 +1510,10 @@ eh.destroy.401391:  ; 0x401391
   %st.p.71 = inttoptr i64 %addr.z.111 to ptr  ; 0x401391
   store i32 0, ptr %st.p.71, align 1  ; 0x401391
   %fp.5 = inttoptr i64 %eh.dtor.4 to ptr  ; 0x401391
-  %sarg0.a.6 = add i64 %addr.z.111, 4
-  %sarg0.p.6 = inttoptr i64 %sarg0.a.6 to ptr
-  %sarg0.d.6 = load i32, ptr %sarg0.p.6, align 4
-  %sarg0.6 = zext i32 %sarg0.d.6 to i64
+  %sarg0.a.5 = add i64 %addr.z.111, 4
+  %sarg0.p.5 = inttoptr i64 %sarg0.a.5 to ptr
+  %sarg0.d.5 = load i32, ptr %sarg0.p.5, align 4
+  %sarg0.5 = zext i32 %sarg0.d.5 to i64
   %sarg1.a.5 = add i64 %addr.z.111, 8
   %sarg1.p.5 = inttoptr i64 %sarg1.a.5 to ptr
   %sarg1.d.5 = load i32, ptr %sarg1.p.5, align 4
@@ -1472,19 +1534,7 @@ eh.destroy.401391:  ; 0x401391
   %sarg5.p.5 = inttoptr i64 %sarg5.a.5 to ptr
   %sarg5.d.5 = load i32, ptr %sarg5.p.5, align 4
   %sarg5.5 = zext i32 %sarg5.d.5 to i64
-  %sarg6.a.5 = add i64 %addr.z.111, 28
-  %sarg6.p.5 = inttoptr i64 %sarg6.a.5 to ptr
-  %sarg6.d.5 = load i32, ptr %sarg6.p.5, align 4
-  %sarg6.5 = zext i32 %sarg6.d.5 to i64
-  %args.p.10 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401391
-  store i64 %sarg6.5, ptr %args.p.10, align 8  ; 0x401391
-  %sarg7.a.5 = add i64 %addr.z.111, 32
-  %sarg7.p.5 = inttoptr i64 %sarg7.a.5 to ptr
-  %sarg7.d.5 = load i32, ptr %sarg7.p.5, align 4
-  %sarg7.5 = zext i32 %sarg7.d.5 to i64
-  %args.p.11 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401391
-  store i64 %sarg7.5, ptr %args.p.11, align 8  ; 0x401391
-  %ret.14 = call i64 %fp.5(i64 %sarg0.6, i64 %sarg1.5, i64 %sarg2.5, i64 %sarg3.5, i64 %sarg4.5, i64 %sarg5.5, i64 %ecx.z.8, i64 undef)  ; 0x401391
+  %ret.14 = call i64 %fp.5(i64 %sarg0.5, i64 %sarg1.5, i64 %sarg2.5, i64 %sarg3.5, i64 %sarg4.5, i64 %sarg5.5, i64 %ecx.z.8, i64 %rdx.phi)  ; 0x401391
   %pops.5 = call i64 @ra_pops_of(i64 %eh.dtor.4)  ; 0x401391
   br label %eh.destroyed.401391
 eh.destroyed.401391:  ; 0x401391
@@ -1511,10 +1561,10 @@ eh.destroy.401260:  ; 0x401391
   %st.p.76 = inttoptr i64 %addr.z.117 to ptr  ; 0x401391
   store i32 0, ptr %st.p.76, align 1  ; 0x401391
   %fp.4 = inttoptr i64 %eh.dtor.5 to ptr  ; 0x401391
-  %sarg0.a.5 = add i64 %addr.z.117, 4
-  %sarg0.p.5 = inttoptr i64 %sarg0.a.5 to ptr
-  %sarg0.d.5 = load i32, ptr %sarg0.p.5, align 4
-  %sarg0.5 = zext i32 %sarg0.d.5 to i64
+  %sarg0.a.4 = add i64 %addr.z.117, 4
+  %sarg0.p.4 = inttoptr i64 %sarg0.a.4 to ptr
+  %sarg0.d.4 = load i32, ptr %sarg0.p.4, align 4
+  %sarg0.4 = zext i32 %sarg0.d.4 to i64
   %sarg1.a.4 = add i64 %addr.z.117, 8
   %sarg1.p.4 = inttoptr i64 %sarg1.a.4 to ptr
   %sarg1.d.4 = load i32, ptr %sarg1.p.4, align 4
@@ -1535,19 +1585,7 @@ eh.destroy.401260:  ; 0x401391
   %sarg5.p.4 = inttoptr i64 %sarg5.a.4 to ptr
   %sarg5.d.4 = load i32, ptr %sarg5.p.4, align 4
   %sarg5.4 = zext i32 %sarg5.d.4 to i64
-  %sarg6.a.4 = add i64 %addr.z.117, 28
-  %sarg6.p.4 = inttoptr i64 %sarg6.a.4 to ptr
-  %sarg6.d.4 = load i32, ptr %sarg6.p.4, align 4
-  %sarg6.4 = zext i32 %sarg6.d.4 to i64
-  %args.p.8 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401391
-  store i64 %sarg6.4, ptr %args.p.8, align 8  ; 0x401391
-  %sarg7.a.4 = add i64 %addr.z.117, 32
-  %sarg7.p.4 = inttoptr i64 %sarg7.a.4 to ptr
-  %sarg7.d.4 = load i32, ptr %sarg7.p.4, align 4
-  %sarg7.4 = zext i32 %sarg7.d.4 to i64
-  %args.p.9 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401391
-  store i64 %sarg7.4, ptr %args.p.9, align 8  ; 0x401391
-  %ret.13 = call i64 %fp.4(i64 %sarg0.5, i64 %sarg1.4, i64 %sarg2.4, i64 %sarg3.4, i64 %sarg4.4, i64 %sarg5.4, i64 %ecx.z.9, i64 undef)  ; 0x401391
+  %ret.13 = call i64 %fp.4(i64 %sarg0.4, i64 %sarg1.4, i64 %sarg2.4, i64 %sarg3.4, i64 %sarg4.4, i64 %sarg5.4, i64 %ecx.z.9, i64 %rdx.phi)  ; 0x401391
   %pops.4 = call i64 @ra_pops_of(i64 %eh.dtor.5)  ; 0x401391
   br label %eh.destroyed.401260
 eh.destroyed.401260:  ; 0x401391
@@ -1582,8 +1620,8 @@ eh.destroy.401343.1:  ; 0x401343
   %ecx.z.10 = zext i32 %eh.this.6 to i64  ; 0x401343
   store i32 0, ptr %st.p.26, align 1  ; 0x401343
   %fp.3 = inttoptr i64 %eh.dtor.6 to ptr  ; 0x401343
-  %sarg0.d.4 = load i32, ptr %st.p.11, align 4
-  %sarg0.4 = zext i32 %sarg0.d.4 to i64
+  %sarg0.d.3 = load i32, ptr %st.p.11, align 4
+  %sarg0.3 = zext i32 %sarg0.d.3 to i64
   %sarg1.p.3 = getelementptr inbounds i8, ptr %frame.top, i64 -48
   %sarg1.d.3 = load i32, ptr %sarg1.p.3, align 4
   %sarg1.3 = zext i32 %sarg1.d.3 to i64
@@ -1597,15 +1635,7 @@ eh.destroy.401343.1:  ; 0x401343
   %sarg4.3 = zext i32 %sarg4.d.3 to i64
   %sarg5.d.3 = load i32, ptr %st.p.4, align 4
   %sarg5.3 = zext i32 %sarg5.d.3 to i64
-  %sarg6.d.3 = load i32, ptr %st.p.7, align 4
-  %sarg6.3 = zext i32 %sarg6.d.3 to i64
-  %args.p.6 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401343
-  store i64 %sarg6.3, ptr %args.p.6, align 8  ; 0x401343
-  %sarg7.d.3 = load i32, ptr %st.p.6, align 4
-  %sarg7.3 = zext i32 %sarg7.d.3 to i64
-  %args.p.7 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401343
-  store i64 %sarg7.3, ptr %args.p.7, align 8  ; 0x401343
-  %ret.12 = call i64 %fp.3(i64 %sarg0.4, i64 %sarg1.3, i64 %sarg2.3, i64 %sarg3.3, i64 %sarg4.3, i64 %sarg5.3, i64 %ecx.z.10, i64 %edx.z.1)  ; 0x401343
+  %ret.12 = call i64 %fp.3(i64 %sarg0.3, i64 %sarg1.3, i64 %sarg2.3, i64 %sarg3.3, i64 %sarg4.3, i64 %sarg5.3, i64 %ecx.z.10, i64 %edx.z.1)  ; 0x401343
   %pops.3 = call i64 @ra_pops_of(i64 %eh.dtor.6)  ; 0x401343
   br label %eh.destroyed.401343.1
 eh.destroyed.401343.1:  ; 0x401343
@@ -1629,7 +1659,7 @@ eh.enter0_2.1:  ; 0x401343
   %eh.esp.12 = load i32, ptr %eh.esp.p.20, align 1  ; 0x401343
   %eh.esp.13 = zext i32 %eh.esp.12 to i64  ; 0x401343
   call void @ra_eh_catch_sp(i64 %eh.esp.13)  ; 0x401343
-  %sp.46 = sub i32 %sarg0.a, 4  ; 0x401343
+  %sp.46 = sub i32 %varargs.a, 4  ; 0x401343
   %st.p.84 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x401343
   store i32 0, ptr %st.p.84, align 1  ; 0x401343
   br label %f7_401350
@@ -1652,7 +1682,7 @@ f7_401350:  ; 0x401350
   %m.16 = load i32, ptr %m.p.16, align 1  ; 0x401358
   %m.16.s.w = zext i32 %m.16 to i64  ; 0x401358
   %m.16.s = inttoptr i64 %m.16.s.w to ptr  ; 0x401358
-  %m.16.f0 = getelementptr inbounds %S2, ptr %m.16.s, i64 0, i32 0  ; 0x40135b
+  %m.16.f0 = getelementptr inbounds %S3, ptr %m.16.s, i64 0, i32 0  ; 0x40135b
   %m.17 = load i32, ptr %m.16.f0, align 1  ; 0x40135b
   %addr.38 = add i32 %m.17, 4  ; 0x40135d
   %addr.z.135 = zext i32 %addr.38 to i64  ; 0x40135d
@@ -1687,8 +1717,8 @@ eh.destroy.40137d.1:  ; 0x40137d
   %ecx.z.12 = zext i32 %eh.this.7 to i64  ; 0x40137d
   store i32 0, ptr %st.p.84, align 1  ; 0x40137d
   %fp.2 = inttoptr i64 %eh.dtor.7 to ptr  ; 0x40137d
-  %sarg0.d.3 = load i32, ptr %st.p.11, align 4
-  %sarg0.3 = zext i32 %sarg0.d.3 to i64
+  %sarg0.d.2 = load i32, ptr %st.p.11, align 4
+  %sarg0.2 = zext i32 %sarg0.d.2 to i64
   %sarg1.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -48
   %sarg1.d.2 = load i32, ptr %sarg1.p.2, align 4
   %sarg1.2 = zext i32 %sarg1.d.2 to i64
@@ -1702,15 +1732,7 @@ eh.destroy.40137d.1:  ; 0x40137d
   %sarg4.2 = zext i32 %sarg4.d.2 to i64
   %sarg5.d.2 = load i32, ptr %st.p.4, align 4
   %sarg5.2 = zext i32 %sarg5.d.2 to i64
-  %sarg6.d.2 = load i32, ptr %st.p.7, align 4
-  %sarg6.2 = zext i32 %sarg6.d.2 to i64
-  %args.p.4 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40137d
-  store i64 %sarg6.2, ptr %args.p.4, align 8  ; 0x40137d
-  %sarg7.d.2 = load i32, ptr %st.p.6, align 4
-  %sarg7.2 = zext i32 %sarg7.d.2 to i64
-  %args.p.5 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40137d
-  store i64 %sarg7.2, ptr %args.p.5, align 8  ; 0x40137d
-  %ret.7 = call i64 %fp.2(i64 %sarg0.3, i64 %sarg1.2, i64 %sarg2.2, i64 %sarg3.2, i64 %sarg4.2, i64 %sarg5.2, i64 %ecx.z.12, i64 %edx.z)  ; 0x40137d
+  %ret.7 = call i64 %fp.2(i64 %sarg0.2, i64 %sarg1.2, i64 %sarg2.2, i64 %sarg3.2, i64 %sarg4.2, i64 %sarg5.2, i64 %ecx.z.12, i64 %edx.z)  ; 0x40137d
   %pops.2 = call i64 @ra_pops_of(i64 %eh.dtor.7)  ; 0x40137d
   br label %eh.destroyed.40137d.1
 eh.destroyed.40137d.1:  ; 0x40137d
@@ -1743,7 +1765,7 @@ eh.enter0_3.1:  ; 0x40137d
   %eh.esp.14 = load i32, ptr %eh.esp.p.23, align 1  ; 0x40137d
   %eh.esp.15 = zext i32 %eh.esp.14 to i64  ; 0x40137d
   call void @ra_eh_catch_sp(i64 %eh.esp.15)  ; 0x40137d
-  %sp.53 = sub i32 %sarg0.a, 4  ; 0x40137d
+  %sp.53 = sub i32 %varargs.a, 4  ; 0x40137d
   %st.p.95 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x40137d
   store i32 0, ptr %st.p.95, align 1  ; 0x40137d
   br label %f8_401380
@@ -1770,8 +1792,8 @@ eh.destroy.401391.1:  ; 0x401391
   %ecx.z.13 = zext i32 %eh.this.8 to i64  ; 0x401391
   store i32 0, ptr %st.p.95, align 1  ; 0x401391
   %fp.1 = inttoptr i64 %eh.dtor.8 to ptr  ; 0x401391
-  %sarg0.d.2 = load i32, ptr %st.p.11, align 4
-  %sarg0.2 = zext i32 %sarg0.d.2 to i64
+  %sarg0.d.1 = load i32, ptr %st.p.11, align 4
+  %sarg0.1 = zext i32 %sarg0.d.1 to i64
   %sarg1.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -48
   %sarg1.d.1 = load i32, ptr %sarg1.p.1, align 4
   %sarg1.1 = zext i32 %sarg1.d.1 to i64
@@ -1785,15 +1807,7 @@ eh.destroy.401391.1:  ; 0x401391
   %sarg4.1 = zext i32 %sarg4.d.1 to i64
   %sarg5.d.1 = load i32, ptr %st.p.4, align 4
   %sarg5.1 = zext i32 %sarg5.d.1 to i64
-  %sarg6.d.1 = load i32, ptr %st.p.7, align 4
-  %sarg6.1 = zext i32 %sarg6.d.1 to i64
-  %args.p.2 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401391
-  store i64 %sarg6.1, ptr %args.p.2, align 8  ; 0x401391
-  %sarg7.d.1 = load i32, ptr %st.p.6, align 4
-  %sarg7.1 = zext i32 %sarg7.d.1 to i64
-  %args.p.3 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401391
-  store i64 %sarg7.1, ptr %args.p.3, align 8  ; 0x401391
-  %ret.2 = call i64 %fp.1(i64 %sarg0.2, i64 %sarg1.1, i64 %sarg2.1, i64 %sarg3.1, i64 %sarg4.1, i64 %sarg5.1, i64 %ecx.z.13, i64 %edx.z)  ; 0x401391
+  %ret.2 = call i64 %fp.1(i64 %sarg0.1, i64 %sarg1.1, i64 %sarg2.1, i64 %sarg3.1, i64 %sarg4.1, i64 %sarg5.1, i64 %ecx.z.13, i64 %edx.z)  ; 0x401391
   %pops.1 = call i64 @ra_pops_of(i64 %eh.dtor.8)  ; 0x401391
   br label %eh.destroyed.401391.1
 eh.destroyed.401391.1:  ; 0x401391
@@ -1818,8 +1832,8 @@ eh.destroy.401260.1:  ; 0x401391
   %st.p.104 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x401391
   store i32 0, ptr %st.p.104, align 1  ; 0x401391
   %fp = inttoptr i64 %eh.dtor.9 to ptr  ; 0x401391
-  %sarg0.d.1 = load i32, ptr %st.p.11, align 4
-  %sarg0.1 = zext i32 %sarg0.d.1 to i64
+  %sarg0.d = load i32, ptr %st.p.11, align 4
+  %sarg0 = zext i32 %sarg0.d to i64
   %sarg1.p = getelementptr inbounds i8, ptr %frame.top, i64 -48
   %sarg1.d = load i32, ptr %sarg1.p, align 4
   %sarg1 = zext i32 %sarg1.d to i64
@@ -1833,15 +1847,7 @@ eh.destroy.401260.1:  ; 0x401391
   %sarg4 = zext i32 %sarg4.d to i64
   %sarg5.d = load i32, ptr %st.p.4, align 4
   %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.d = load i32, ptr %st.p.7, align 4
-  %sarg6 = zext i32 %sarg6.d to i64
-  %args.p = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401391
-  store i64 %sarg6, ptr %args.p, align 8  ; 0x401391
-  %sarg7.d = load i32, ptr %st.p.6, align 4
-  %sarg7 = zext i32 %sarg7.d to i64
-  %args.p.1 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401391
-  store i64 %sarg7, ptr %args.p.1, align 8  ; 0x401391
-  %ret.1 = call i64 %fp(i64 %sarg0.1, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %ecx.z.14, i64 %edx.z)  ; 0x401391
+  %ret.1 = call i64 %fp(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %ecx.z.14, i64 %edx.z)  ; 0x401391
   %pops = call i64 @ra_pops_of(i64 %eh.dtor.9)  ; 0x401391
   br label %eh.destroyed.401260.1
 eh.destroyed.401260.1:  ; 0x401391
@@ -2005,13 +2011,76 @@ f4_401310.112:  ; 0x401310
   br i1 %eh.thrown.2, label %eh.landing.1, label %eh.ok.40132d
 }
 
-define i64 @F_004013a0(i32 %arg0) {  ; 0x4013a0
+define i64 @F_004013a0(i64 %argblock) {  ; 0x4013a0
 b_4013a0:  ; 0x4013a0
-  %frame = alloca [220 x i8], align 16
+  %argblock.s = inttoptr i64 %argblock to ptr
+  %frame = alloca [272 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 140
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
-  store i32 %arg0, ptr %stack.arg0.p, align 4
+  %argblock.f0 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 0
+  %varargs.0.w = load i32, ptr %argblock.f0, align 4
+  %varargs.0.s = getelementptr inbounds i8, ptr %frame.top, i64 4
+  store i32 %varargs.0.w, ptr %varargs.0.s, align 4
+  %argblock.f4 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 1
+  %varargs.1.w = load i32, ptr %argblock.f4, align 4
+  %varargs.1.s = getelementptr inbounds i8, ptr %frame.top, i64 8
+  store i32 %varargs.1.w, ptr %varargs.1.s, align 4
+  %argblock.f8 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 2
+  %varargs.2.w = load i32, ptr %argblock.f8, align 4
+  %varargs.2.s = getelementptr inbounds i8, ptr %frame.top, i64 12
+  store i32 %varargs.2.w, ptr %varargs.2.s, align 4
+  %argblock.f12 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 3
+  %varargs.3.w = load i32, ptr %argblock.f12, align 4
+  %varargs.3.s = getelementptr inbounds i8, ptr %frame.top, i64 16
+  store i32 %varargs.3.w, ptr %varargs.3.s, align 4
+  %argblock.f16 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 4
+  %varargs.4.w = load i32, ptr %argblock.f16, align 4
+  %varargs.4.s = getelementptr inbounds i8, ptr %frame.top, i64 20
+  store i32 %varargs.4.w, ptr %varargs.4.s, align 4
+  %argblock.f20 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 5
+  %varargs.5.w = load i32, ptr %argblock.f20, align 4
+  %varargs.5.s = getelementptr inbounds i8, ptr %frame.top, i64 24
+  store i32 %varargs.5.w, ptr %varargs.5.s, align 4
+  %argblock.f24 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 6
+  %varargs.6.w = load i32, ptr %argblock.f24, align 4
+  %varargs.6.s = getelementptr inbounds i8, ptr %frame.top, i64 28
+  store i32 %varargs.6.w, ptr %varargs.6.s, align 4
+  %argblock.f28 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 7
+  %varargs.7.w = load i32, ptr %argblock.f28, align 4
+  %varargs.7.s = getelementptr inbounds i8, ptr %frame.top, i64 32
+  store i32 %varargs.7.w, ptr %varargs.7.s, align 4
+  %argblock.f32 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 8
+  %varargs.8.w = load i32, ptr %argblock.f32, align 4
+  %varargs.8.s = getelementptr inbounds i8, ptr %frame.top, i64 36
+  store i32 %varargs.8.w, ptr %varargs.8.s, align 4
+  %argblock.f36 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 9
+  %varargs.9.w = load i32, ptr %argblock.f36, align 4
+  %varargs.9.s = getelementptr inbounds i8, ptr %frame.top, i64 40
+  store i32 %varargs.9.w, ptr %varargs.9.s, align 4
+  %argblock.f40 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 10
+  %varargs.10.w = load i32, ptr %argblock.f40, align 4
+  %varargs.10.s = getelementptr inbounds i8, ptr %frame.top, i64 44
+  store i32 %varargs.10.w, ptr %varargs.10.s, align 4
+  %argblock.f44 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 11
+  %varargs.11.w = load i32, ptr %argblock.f44, align 4
+  %varargs.11.s = getelementptr inbounds i8, ptr %frame.top, i64 48
+  store i32 %varargs.11.w, ptr %varargs.11.s, align 4
+  %argblock.f48 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 12
+  %varargs.12.w = load i32, ptr %argblock.f48, align 4
+  %varargs.12.s = getelementptr inbounds i8, ptr %frame.top, i64 52
+  store i32 %varargs.12.w, ptr %varargs.12.s, align 4
+  %argblock.f52 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 13
+  %varargs.13.w = load i32, ptr %argblock.f52, align 4
+  %varargs.13.s = getelementptr inbounds i8, ptr %frame.top, i64 56
+  store i32 %varargs.13.w, ptr %varargs.13.s, align 4
+  %argblock.f56 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 14
+  %varargs.14.w = load i32, ptr %argblock.f56, align 4
+  %varargs.14.s = getelementptr inbounds i8, ptr %frame.top, i64 60
+  store i32 %varargs.14.w, ptr %varargs.14.s, align 4
+  %argblock.f60 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 15
+  %varargs.15.w = load i32, ptr %argblock.f60, align 4
+  %varargs.15.s = getelementptr inbounds i8, ptr %frame.top, i64 64
+  store i32 %varargs.15.w, ptr %varargs.15.s, align 4
   %esp = trunc i64 %rsp0 to i32  ; 0x4013a0
   %sp = sub i32 %esp, 4  ; 0x4013a0
   %sp.1 = sub i32 %sp, 4  ; 0x4013a3
@@ -2037,7 +2106,7 @@ b_4013a0:  ; 0x4013a0
   %addr.z.10 = zext i32 %teb.3 to i64  ; 0x4013ca
   %st.p.8 = inttoptr i64 %addr.z.10 to ptr  ; 0x4013ca
   store i32 %addr.3, ptr %st.p.8, align 1  ; 0x4013ca
-  %addr.6 = add i32 %arg0, 110  ; 0x4013d0
+  %addr.6 = add i32 %varargs.0.w, 110  ; 0x4013d0
   %sp.4 = sub i32 %diff, 4  ; 0x4013d3
   %st.p.9 = getelementptr inbounds i8, ptr %frame.top, i64 -52  ; 0x4013d3
   store i32 %addr.6, ptr %st.p.9, align 1  ; 0x4013d3
@@ -2048,13 +2117,14 @@ b_4013a0:  ; 0x4013a0
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4013d4
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.4013d4
 b_4013e0:  ; 0x4013e0
-  %addr.9 = add i32 %arg0, -1  ; 0x4013e0
+  %addr.9 = add i32 %varargs.0.w, -1  ; 0x4013e0
   store i32 0, ptr %st.p.5, align 1  ; 0x4013e3
   %sp.18 = sub i32 %sum.6, 4  ; 0x4013ea
   store i32 %addr.9, ptr %st.p.9, align 1  ; 0x4013ea
   %sp.19 = sub i32 %sp.18, 4  ; 0x4013eb
-  %sarg0.a.1 = add i32 %sp.19, 4
-  %ret.1 = call i64 @F_004013a0(i32 %addr.9)  ; 0x4013eb
+  %varargs.a = add i32 %sp.19, 4
+  %varargs = ptrtoint ptr %st.p.9 to i64
+  %ret.1 = call i64 @F_004013a0(i64 %varargs)  ; 0x4013eb
   %eh.pending.3 = call i64 @ra_eh_pending()  ; 0x4013eb
   %eh.thrown.3 = icmp ne i64 %eh.pending.3, 0  ; 0x4013eb
   br i1 %eh.thrown.3, label %eh.landing, label %eh.ok.4013eb
@@ -2084,7 +2154,7 @@ b_40141b:  ; 0x40141b
   br label %eh.landing
 eh.landing:  ; 0x4013d4
   %rax.phi = phi i64 [ %ret, %b_4013a0 ], [ %ret.1, %b_4013e0 ], [ %addr.z.62, %b_40141b ], [ %ret.2, %eh.ok.4013eb ]  ; 0x4013d4
-  %rsp.phi = phi i32 [ %sarg0.a, %b_4013a0 ], [ %sarg0.a.1, %b_4013e0 ], [ %sp.28, %b_40141b ], [ %sarg0.a.2, %eh.ok.4013eb ]  ; 0x4013d4
+  %rsp.phi = phi i32 [ %sarg0.a, %b_4013a0 ], [ %varargs.a, %b_4013e0 ], [ %sp.28, %b_40141b ], [ %sarg0.a.1, %eh.ok.4013eb ]  ; 0x4013d4
   %teb.4 = call i64 @ra_teb()  ; 0x4013d4
   %teb.5 = trunc i64 %teb.4 to i32  ; 0x4013d4
   %addr.z.13 = zext i32 %teb.5 to i64  ; 0x4013d4
@@ -2094,14 +2164,14 @@ eh.landing:  ; 0x4013d4
   %eh.head.s = inttoptr i64 %eh.head.s.w to ptr  ; 0x4013d4
   %eh.frame = sub i32 %eh.head, -24  ; 0x4013d4
   %eh.reg = add i32 %eh.frame, -24  ; 0x4013d4
-  %eh.head.f4 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 1  ; 0x4013d4
+  %eh.head.f4 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 1  ; 0x4013d4
   %eh.handler = load i32, ptr %eh.head.f4, align 1  ; 0x4013d4
   %eh.ours = icmp eq i32 %eh.handler, 4201456  ; 0x4013d4
   %eh.ours.1 = icmp eq i32 %eh.handler, ptrtoint (ptr @U_00401bf0 to i32)  ; 0x4013d4
   %eh.ours.2 = or i1 %eh.ours, %eh.ours.1  ; 0x4013d4
   br i1 %eh.ours.2, label %eh.dispatch, label %eh.foreign
 eh.dispatch:  ; 0x4013d4
-  %eh.head.f8 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4013d4
+  %eh.head.f8 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4013d4
   %eh.state = load i32, ptr %eh.head.f8, align 1  ; 0x4013d4
   switch i32 %eh.state, label %eh.state.bad [ i32 -1, label %eh.state_none i32 0, label %eh.state0 ]
 eh.foreign:  ; 0x4013d4
@@ -2112,10 +2182,10 @@ eh.state.bad:  ; 0x4013d4
   unreachable
 eh.state_none:  ; 0x4013d4
   call void @ra_eh_suspend()  ; 0x4013d4
-  %eh.head.f8.1 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4013d4
+  %eh.head.f8.1 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4013d4
   store i32 -1, ptr %eh.head.f8.1, align 1  ; 0x4013d4
   call void @ra_eh_resume()  ; 0x4013d4
-  %eh.head.f0 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 0  ; 0x4013d4
+  %eh.head.f0 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 0  ; 0x4013d4
   %eh.next = load i32, ptr %eh.head.f0, align 1  ; 0x4013d4
   %teb.6 = call i64 @ra_teb()  ; 0x4013d4
   %teb.7 = trunc i64 %teb.6 to i32  ; 0x4013d4
@@ -2125,7 +2195,7 @@ eh.state_none:  ; 0x4013d4
   ret i64 %rax.phi
 eh.state0:  ; 0x4013d4
   call void @ra_eh_suspend()  ; 0x4013d4
-  %eh.head.f8.2 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4013d4
+  %eh.head.f8.2 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4013d4
   store i32 -1, ptr %eh.head.f8.2, align 1  ; 0x4013d4
   %eh.frame.1 = add i32 %eh.reg, 12  ; 0x4013d4
   %sp.6 = sub i32 %rsp.phi, 4  ; 0x4013d4
@@ -2134,10 +2204,10 @@ eh.state0:  ; 0x4013d4
   store i32 0, ptr %st.p.14, align 1  ; 0x4013d4
   br label %f1_401450
 eh.cleaned.401450:  ; 0x4013d4
-  %eh.head.f8.3 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x401469
+  %eh.head.f8.3 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x401469
   store i32 -1, ptr %eh.head.f8.3, align 1  ; 0x401469
   call void @ra_eh_resume()  ; 0x401469
-  %eh.head.f0.1 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 0  ; 0x401469
+  %eh.head.f0.1 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 0  ; 0x401469
   %eh.next.3 = load i32, ptr %eh.head.f0.1, align 1  ; 0x401469
   %teb.14 = call i64 @ra_teb()  ; 0x401469
   %teb.15 = trunc i64 %teb.14 to i32  ; 0x401469
@@ -2151,7 +2221,7 @@ f1_401450:  ; 0x401450
   %st.p.15 = inttoptr i64 %addr.z.21 to ptr  ; 0x401450
   store i32 %eh.frame.1, ptr %st.p.15, align 1  ; 0x401450
   %diff.1 = sub i32 %sp.7, 8  ; 0x401451
-  %eh.head.f32 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 4  ; 0x401457
+  %eh.head.f32 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 4  ; 0x401457
   %m.2 = load i32, ptr %eh.head.f32, align 1  ; 0x401457
   %sum.1 = add i32 %m.2, 210  ; 0x40145a
   %sp.8 = sub i32 %diff.1, 4  ; 0x40145f
@@ -2159,14 +2229,14 @@ f1_401450:  ; 0x401450
   %st.p.16 = inttoptr i64 %addr.z.23 to ptr  ; 0x40145f
   store i32 %sum.1, ptr %st.p.16, align 1  ; 0x40145f
   %sp.9 = sub i32 %sp.8, 4  ; 0x401460
-  %sarg0.a.3 = add i32 %sp.9, 4
+  %sarg0.a.2 = add i32 %sp.9, 4
   %ret.3 = call i64 @F_00401000(i32 %sum.1)  ; 0x401460
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x401460
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x401460
   br i1 %eh.thrown.1, label %eh.landing.1, label %eh.ok.401460.1
 eh.landing.1:  ; 0x401460
   %rax.phi.1 = phi i64 [ %ret.3, %f1_401450 ], [ %ret.4, %f2_401450 ]  ; 0x401460
-  %rsp.phi.1 = phi i32 [ %sarg0.a.3, %f1_401450 ], [ %sarg0.a.4, %f2_401450 ]  ; 0x401460
+  %rsp.phi.1 = phi i32 [ %sarg0.a.2, %f1_401450 ], [ %sarg0.a.3, %f2_401450 ]  ; 0x401460
   %teb.8 = call i64 @ra_teb()  ; 0x401460
   %teb.9 = trunc i64 %teb.8 to i32  ; 0x401460
   %addr.z.25 = zext i32 %teb.9 to i64  ; 0x401460
@@ -2176,14 +2246,14 @@ eh.landing.1:  ; 0x401460
   %eh.head.1.s = inttoptr i64 %eh.head.1.s.w to ptr  ; 0x401460
   %eh.frame.2 = sub i32 %eh.head.1, -24  ; 0x401460
   %eh.reg.1 = add i32 %eh.frame.2, -24  ; 0x401460
-  %eh.head.1.f4 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 1  ; 0x401460
+  %eh.head.1.f4 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 1  ; 0x401460
   %eh.handler.1 = load i32, ptr %eh.head.1.f4, align 1  ; 0x401460
   %eh.ours.3 = icmp eq i32 %eh.handler.1, 4201456  ; 0x401460
   %eh.ours.4 = icmp eq i32 %eh.handler.1, ptrtoint (ptr @U_00401bf0 to i32)  ; 0x401460
   %eh.ours.5 = or i1 %eh.ours.3, %eh.ours.4  ; 0x401460
   br i1 %eh.ours.5, label %eh.dispatch.1, label %eh.foreign.1
 eh.dispatch.1:  ; 0x401460
-  %eh.head.1.f8 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401460
+  %eh.head.1.f8 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401460
   %eh.state.1 = load i32, ptr %eh.head.1.f8, align 1  ; 0x401460
   switch i32 %eh.state.1, label %eh.state.bad.1 [ i32 -1, label %eh.state_none.1 i32 0, label %eh.state0.1 ]
 eh.foreign.1:  ; 0x401460
@@ -2194,10 +2264,10 @@ eh.state.bad.1:  ; 0x401460
   unreachable
 eh.state_none.1:  ; 0x401460
   call void @ra_eh_suspend()  ; 0x401460
-  %eh.head.1.f8.1 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401460
+  %eh.head.1.f8.1 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401460
   store i32 -1, ptr %eh.head.1.f8.1, align 1  ; 0x401460
   call void @ra_eh_resume()  ; 0x401460
-  %eh.head.1.f0 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 0  ; 0x401460
+  %eh.head.1.f0 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 0  ; 0x401460
   %eh.next.1 = load i32, ptr %eh.head.1.f0, align 1  ; 0x401460
   %teb.10 = call i64 @ra_teb()  ; 0x401460
   %teb.11 = trunc i64 %teb.10 to i32  ; 0x401460
@@ -2207,7 +2277,7 @@ eh.state_none.1:  ; 0x401460
   ret i64 %rax.phi.1
 eh.state0.1:  ; 0x401460
   call void @ra_eh_suspend()  ; 0x401460
-  %eh.head.1.f8.2 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401460
+  %eh.head.1.f8.2 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401460
   store i32 -1, ptr %eh.head.1.f8.2, align 1  ; 0x401460
   %eh.frame.3 = add i32 %eh.reg.1, 12  ; 0x401460
   %sp.10 = sub i32 %rsp.phi.1, 4  ; 0x401460
@@ -2216,10 +2286,10 @@ eh.state0.1:  ; 0x401460
   store i32 0, ptr %st.p.21, align 1  ; 0x401460
   br label %f2_401450
 eh.cleaned.401450.1:  ; 0x401460
-  %eh.head.1.f8.3 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401469
+  %eh.head.1.f8.3 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401469
   store i32 -1, ptr %eh.head.1.f8.3, align 1  ; 0x401469
   call void @ra_eh_resume()  ; 0x401469
-  %eh.head.1.f0.1 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 0  ; 0x401469
+  %eh.head.1.f0.1 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 0  ; 0x401469
   %eh.next.2 = load i32, ptr %eh.head.1.f0.1, align 1  ; 0x401469
   %teb.12 = call i64 @ra_teb()  ; 0x401469
   %teb.13 = trunc i64 %teb.12 to i32  ; 0x401469
@@ -2233,7 +2303,7 @@ f2_401450:  ; 0x401450
   %st.p.22 = inttoptr i64 %addr.z.33 to ptr  ; 0x401450
   store i32 %eh.frame.3, ptr %st.p.22, align 1  ; 0x401450
   %diff.2 = sub i32 %sp.11, 8  ; 0x401451
-  %eh.head.1.f32 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 4  ; 0x401457
+  %eh.head.1.f32 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 4  ; 0x401457
   %m.3 = load i32, ptr %eh.head.1.f32, align 1  ; 0x401457
   %sum.3 = add i32 %m.3, 210  ; 0x40145a
   %sp.12 = sub i32 %diff.2, 4  ; 0x40145f
@@ -2241,7 +2311,7 @@ f2_401450:  ; 0x401450
   %st.p.23 = inttoptr i64 %addr.z.35 to ptr  ; 0x40145f
   store i32 %sum.3, ptr %st.p.23, align 1  ; 0x40145f
   %sp.13 = sub i32 %sp.12, 4  ; 0x401460
-  %sarg0.a.4 = add i32 %sp.13, 4
+  %sarg0.a.3 = add i32 %sp.13, 4
   %ret.4 = call i64 @F_00401000(i32 %sum.3)  ; 0x401460
   %eh.pending.2 = call i64 @ra_eh_pending()  ; 0x401460
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x401460
@@ -2252,18 +2322,18 @@ eh.ok.401460.1:  ; 0x401469
   br label %eh.cleaned.401450
 eh.ok.4013d4:  ; 0x401469
   %sum.6 = add i32 %sarg0.a, 4  ; 0x4013d9
-  %zf.10 = icmp eq i32 %arg0, 0  ; 0x4013dc
+  %zf.10 = icmp eq i32 %varargs.0.w, 0  ; 0x4013dc
   br i1 %zf.10, label %b_40141b, label %b_4013e0
 eh.ok.4013eb:  ; 0x4013eb
-  %sum.7 = add i32 %sarg0.a.1, 4  ; 0x4013f0
+  %sum.7 = add i32 %varargs.a, 4  ; 0x4013f0
   %eax.7 = trunc i64 %ret.1 to i32  ; 0x4013f3
   %sum.8 = add i32 %eax.7, 1  ; 0x4013f3
-  %m.4 = load i32, ptr %stack.arg0.p, align 1  ; 0x4013f4
+  %m.4 = load i32, ptr %varargs.0.s, align 1  ; 0x4013f4
   %sum.9 = add i32 %m.4, 210  ; 0x4013f7
   %sp.20 = sub i32 %sum.7, 4  ; 0x4013fd
   store i32 %sum.9, ptr %st.p.9, align 1  ; 0x4013fd
   %sp.21 = sub i32 %sp.20, 4  ; 0x401400
-  %sarg0.a.2 = add i32 %sp.21, 4
+  %sarg0.a.1 = add i32 %sp.21, 4
   %ret.2 = call i64 @F_00401000(i32 %sum.9)  ; 0x401400
   %eh.pending.4 = call i64 @ra_eh_pending()  ; 0x401400
   %eh.thrown.4 = icmp ne i64 %eh.pending.4, 0  ; 0x401400
@@ -2279,13 +2349,76 @@ eh.ok.401400:  ; 0x401400
   ret i64 %eax.z.9
 }
 
-define i64 @F_00401470(i32 %arg0) {  ; 0x401470
+define i64 @F_00401470(i64 %argblock) {  ; 0x401470
 b_401470:  ; 0x401470
-  %frame = alloca [4316 x i8], align 16
+  %argblock.s = inttoptr i64 %argblock to ptr
+  %frame = alloca [4368 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 4236
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
-  store i32 %arg0, ptr %stack.arg0.p, align 4
+  %argblock.f0 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 0
+  %varargs.0.w = load i32, ptr %argblock.f0, align 4
+  %varargs.0.s = getelementptr inbounds i8, ptr %frame.top, i64 4
+  store i32 %varargs.0.w, ptr %varargs.0.s, align 4
+  %argblock.f4 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 1
+  %varargs.1.w = load i32, ptr %argblock.f4, align 4
+  %varargs.1.s = getelementptr inbounds i8, ptr %frame.top, i64 8
+  store i32 %varargs.1.w, ptr %varargs.1.s, align 4
+  %argblock.f8 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 2
+  %varargs.2.w = load i32, ptr %argblock.f8, align 4
+  %varargs.2.s = getelementptr inbounds i8, ptr %frame.top, i64 12
+  store i32 %varargs.2.w, ptr %varargs.2.s, align 4
+  %argblock.f12 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 3
+  %varargs.3.w = load i32, ptr %argblock.f12, align 4
+  %varargs.3.s = getelementptr inbounds i8, ptr %frame.top, i64 16
+  store i32 %varargs.3.w, ptr %varargs.3.s, align 4
+  %argblock.f16 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 4
+  %varargs.4.w = load i32, ptr %argblock.f16, align 4
+  %varargs.4.s = getelementptr inbounds i8, ptr %frame.top, i64 20
+  store i32 %varargs.4.w, ptr %varargs.4.s, align 4
+  %argblock.f20 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 5
+  %varargs.5.w = load i32, ptr %argblock.f20, align 4
+  %varargs.5.s = getelementptr inbounds i8, ptr %frame.top, i64 24
+  store i32 %varargs.5.w, ptr %varargs.5.s, align 4
+  %argblock.f24 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 6
+  %varargs.6.w = load i32, ptr %argblock.f24, align 4
+  %varargs.6.s = getelementptr inbounds i8, ptr %frame.top, i64 28
+  store i32 %varargs.6.w, ptr %varargs.6.s, align 4
+  %argblock.f28 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 7
+  %varargs.7.w = load i32, ptr %argblock.f28, align 4
+  %varargs.7.s = getelementptr inbounds i8, ptr %frame.top, i64 32
+  store i32 %varargs.7.w, ptr %varargs.7.s, align 4
+  %argblock.f32 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 8
+  %varargs.8.w = load i32, ptr %argblock.f32, align 4
+  %varargs.8.s = getelementptr inbounds i8, ptr %frame.top, i64 36
+  store i32 %varargs.8.w, ptr %varargs.8.s, align 4
+  %argblock.f36 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 9
+  %varargs.9.w = load i32, ptr %argblock.f36, align 4
+  %varargs.9.s = getelementptr inbounds i8, ptr %frame.top, i64 40
+  store i32 %varargs.9.w, ptr %varargs.9.s, align 4
+  %argblock.f40 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 10
+  %varargs.10.w = load i32, ptr %argblock.f40, align 4
+  %varargs.10.s = getelementptr inbounds i8, ptr %frame.top, i64 44
+  store i32 %varargs.10.w, ptr %varargs.10.s, align 4
+  %argblock.f44 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 11
+  %varargs.11.w = load i32, ptr %argblock.f44, align 4
+  %varargs.11.s = getelementptr inbounds i8, ptr %frame.top, i64 48
+  store i32 %varargs.11.w, ptr %varargs.11.s, align 4
+  %argblock.f48 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 12
+  %varargs.12.w = load i32, ptr %argblock.f48, align 4
+  %varargs.12.s = getelementptr inbounds i8, ptr %frame.top, i64 52
+  store i32 %varargs.12.w, ptr %varargs.12.s, align 4
+  %argblock.f52 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 13
+  %varargs.13.w = load i32, ptr %argblock.f52, align 4
+  %varargs.13.s = getelementptr inbounds i8, ptr %frame.top, i64 56
+  store i32 %varargs.13.w, ptr %varargs.13.s, align 4
+  %argblock.f56 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 14
+  %varargs.14.w = load i32, ptr %argblock.f56, align 4
+  %varargs.14.s = getelementptr inbounds i8, ptr %frame.top, i64 60
+  store i32 %varargs.14.w, ptr %varargs.14.s, align 4
+  %argblock.f60 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 15
+  %varargs.15.w = load i32, ptr %argblock.f60, align 4
+  %varargs.15.s = getelementptr inbounds i8, ptr %frame.top, i64 64
+  store i32 %varargs.15.w, ptr %varargs.15.s, align 4
   %esp = trunc i64 %rsp0 to i32  ; 0x401470
   %sp = sub i32 %esp, 4  ; 0x401470
   %sp.1 = sub i32 %sp, 4  ; 0x401473
@@ -2311,7 +2444,7 @@ b_401470:  ; 0x401470
   %addr.z.10 = zext i32 %teb.3 to i64  ; 0x40149a
   %st.p.8 = inttoptr i64 %addr.z.10 to ptr  ; 0x40149a
   store i32 %addr.3, ptr %st.p.8, align 1  ; 0x40149a
-  %logic = and i32 %arg0, 3  ; 0x4014a1
+  %logic = and i32 %varargs.0.w, 3  ; 0x4014a1
   %st.p.9 = getelementptr inbounds i8, ptr %frame.top, i64 -40  ; 0x4014a4
   store i32 0, ptr %st.p.9, align 1  ; 0x4014a4
   store i32 1, ptr %st.p.5, align 1  ; 0x4014ab
@@ -2321,8 +2454,9 @@ b_401470:  ; 0x401470
   %st.p.12 = getelementptr inbounds i8, ptr %frame.top, i64 -52  ; 0x4014b9
   store i32 %logic, ptr %st.p.12, align 1  ; 0x4014b9
   %sp.5 = sub i32 %sp.4, 4  ; 0x4014ba
-  %sarg0.a = add i32 %sp.5, 4
-  %ret = call i64 @F_004013a0(i32 %logic)  ; 0x4014ba
+  %varargs.a = add i32 %sp.5, 4
+  %varargs = ptrtoint ptr %st.p.12 to i64
+  %ret = call i64 @F_004013a0(i64 %varargs)  ; 0x4014ba
   %eh.pending = call i64 @ra_eh_pending()  ; 0x4014ba
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4014ba
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.4014ba
@@ -2411,7 +2545,8 @@ eh.next1_0.s0:  ; 0x4014ba
   store i32 %eh.next.1, ptr %st.p.25, align 1  ; 0x401500
   ret i64 %ret
 eh.enter1_0:  ; 0x4014ba
-  %rsp.phi.4 = phi i32 [ %sarg0.a, %eh.catch1_0.s0 ], [ %sarg0.a, %eh.catch1_0.s1.1 ], [ %rsp.phi, %eh.destroyed.401470.3 ]  ; 0x4014ba
+  %rdx.phi.4 = phi i64 [ undef, %eh.catch1_0.s0 ], [ undef, %eh.catch1_0.s1.1 ], [ %rdx.phi, %eh.destroyed.401470.3 ]  ; 0x4014ba
+  %rsp.phi.4 = phi i32 [ %varargs.a, %eh.catch1_0.s0 ], [ %varargs.a, %eh.catch1_0.s1.1 ], [ %rsp.phi, %eh.destroyed.401470.3 ]  ; 0x4014ba
   call void @ra_eh_enter_catch()  ; 0x4014ba
   %eh.head.f8.4 = getelementptr inbounds %S0, ptr %eh.head.s, i64 0, i32 2  ; 0x4014ba
   store i32 3, ptr %eh.head.f8.4, align 1  ; 0x4014ba
@@ -2472,10 +2607,10 @@ eh.destroy.401500:  ; 0x401500
   %st.p.22 = inttoptr i64 %addr.z.34 to ptr  ; 0x401500
   store i32 0, ptr %st.p.22, align 1  ; 0x401500
   %fp.7 = inttoptr i64 %eh.dtor to ptr  ; 0x401500
-  %sarg0.a.8 = add i64 %addr.z.34, 4
-  %sarg0.p.8 = inttoptr i64 %sarg0.a.8 to ptr
-  %sarg0.d.8 = load i32, ptr %sarg0.p.8, align 4
-  %sarg0.8 = zext i32 %sarg0.d.8 to i64
+  %sarg0.a.7 = add i64 %addr.z.34, 4
+  %sarg0.p.7 = inttoptr i64 %sarg0.a.7 to ptr
+  %sarg0.d.7 = load i32, ptr %sarg0.p.7, align 4
+  %sarg0.7 = zext i32 %sarg0.d.7 to i64
   %sarg1.a.7 = add i64 %addr.z.34, 8
   %sarg1.p.7 = inttoptr i64 %sarg1.a.7 to ptr
   %sarg1.d.7 = load i32, ptr %sarg1.p.7, align 4
@@ -2496,19 +2631,7 @@ eh.destroy.401500:  ; 0x401500
   %sarg5.p.7 = inttoptr i64 %sarg5.a.7 to ptr
   %sarg5.d.7 = load i32, ptr %sarg5.p.7, align 4
   %sarg5.7 = zext i32 %sarg5.d.7 to i64
-  %sarg6.a.7 = add i64 %addr.z.34, 28
-  %sarg6.p.7 = inttoptr i64 %sarg6.a.7 to ptr
-  %sarg6.d.7 = load i32, ptr %sarg6.p.7, align 4
-  %sarg6.7 = zext i32 %sarg6.d.7 to i64
-  %args.p.14 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401500
-  store i64 %sarg6.7, ptr %args.p.14, align 8  ; 0x401500
-  %sarg7.a.7 = add i64 %addr.z.34, 32
-  %sarg7.p.7 = inttoptr i64 %sarg7.a.7 to ptr
-  %sarg7.d.7 = load i32, ptr %sarg7.p.7, align 4
-  %sarg7.7 = zext i32 %sarg7.d.7 to i64
-  %args.p.15 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401500
-  store i64 %sarg7.7, ptr %args.p.15, align 8  ; 0x401500
-  %ret.8 = call i64 %fp.7(i64 %sarg0.8, i64 %sarg1.7, i64 %sarg2.7, i64 %sarg3.7, i64 %sarg4.7, i64 %sarg5.7, i64 %ecx.z.3, i64 undef)  ; 0x401500
+  %ret.8 = call i64 %fp.7(i64 %sarg0.7, i64 %sarg1.7, i64 %sarg2.7, i64 %sarg3.7, i64 %sarg4.7, i64 %sarg5.7, i64 %ecx.z.3, i64 %rdx.phi.4)  ; 0x401500
   %pops.7 = call i64 @ra_pops_of(i64 %eh.dtor)  ; 0x401500
   br label %eh.destroyed.401500
 eh.destroyed.401500:  ; 0x401500
@@ -2541,7 +2664,7 @@ eh.enter0_0:  ; 0x401500
   %eh.esp.2 = load i32, ptr %eh.esp.p.4, align 1  ; 0x401500
   %eh.esp.3 = zext i32 %eh.esp.2 to i64  ; 0x401500
   call void @ra_eh_catch_sp(i64 %eh.esp.3)  ; 0x401500
-  %sp.11 = sub i32 %sarg0.a, 4  ; 0x401500
+  %sp.11 = sub i32 %varargs.a, 4  ; 0x401500
   %st.p.28 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x401500
   store i32 0, ptr %st.p.28, align 1  ; 0x401500
   br label %f2_401510
@@ -2565,6 +2688,7 @@ f2_401510:  ; 0x401510
   %m.p.6 = inttoptr i64 %addr.z.46 to ptr  ; 0x40151d
   %m.6 = load i32, ptr %m.p.6, align 1  ; 0x40151d
   %addr.17 = add i32 %m.6, 1  ; 0x401520
+  %edx.z.1 = zext i32 %addr.17 to i64  ; 0x401520
   store i32 %addr.17, ptr %m.p.6, align 1  ; 0x401523
   %addr.19 = add i32 %sum.3, -36  ; 0x401526
   %addr.z.48 = zext i32 %addr.19 to i64  ; 0x401526
@@ -2582,6 +2706,7 @@ f2_401510:  ; 0x401510
   br label %eh.landing.1
 eh.landing.1:  ; 0x401534
   %rax.phi.2 = phi i64 [ %eax.z.4, %f2_401510 ], [ %eax.z.7, %f4_401510 ]  ; 0x401534
+  %rdx.phi.1 = phi i64 [ %edx.z.1, %f2_401510 ], [ %edx.z.2, %f4_401510 ]  ; 0x401534
   %rsp.phi.1 = phi i32 [ %sp.14, %f2_401510 ], [ %sp.23, %f4_401510 ]  ; 0x401534
   %teb.10 = call i64 @ra_teb()  ; 0x401534
   %teb.11 = trunc i64 %teb.10 to i32  ; 0x401534
@@ -2646,6 +2771,7 @@ eh.next1_0.s0.1:  ; 0x401534
   store i32 %eh.next.3, ptr %st.p.47, align 1  ; 0x401500
   ret i64 %rax.phi.2
 eh.enter1_0.1:  ; 0x401534
+  %rdx.phi.3 = phi i64 [ %rdx.phi.1, %eh.catch1_0.s0.1 ], [ %rdx.phi.1, %eh.catch1_0.s1 ], [ %rdx.phi.2, %eh.destroyed.401470 ]  ; 0x401534
   %rsp.phi.3 = phi i32 [ %rsp.phi.1, %eh.catch1_0.s0.1 ], [ %rsp.phi.1, %eh.catch1_0.s1 ], [ %rsp.phi.2, %eh.destroyed.401470 ]  ; 0x401534
   call void @ra_eh_enter_catch()  ; 0x401534
   %eh.head.1.f8.4 = getelementptr inbounds %S0, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401534
@@ -2707,10 +2833,10 @@ eh.destroy.401500.1:  ; 0x401500
   %st.p.44 = inttoptr i64 %addr.z.70 to ptr  ; 0x401500
   store i32 0, ptr %st.p.44, align 1  ; 0x401500
   %fp.6 = inttoptr i64 %eh.dtor.1 to ptr  ; 0x401500
-  %sarg0.a.7 = add i64 %addr.z.70, 4
-  %sarg0.p.7 = inttoptr i64 %sarg0.a.7 to ptr
-  %sarg0.d.7 = load i32, ptr %sarg0.p.7, align 4
-  %sarg0.7 = zext i32 %sarg0.d.7 to i64
+  %sarg0.a.6 = add i64 %addr.z.70, 4
+  %sarg0.p.6 = inttoptr i64 %sarg0.a.6 to ptr
+  %sarg0.d.6 = load i32, ptr %sarg0.p.6, align 4
+  %sarg0.6 = zext i32 %sarg0.d.6 to i64
   %sarg1.a.6 = add i64 %addr.z.70, 8
   %sarg1.p.6 = inttoptr i64 %sarg1.a.6 to ptr
   %sarg1.d.6 = load i32, ptr %sarg1.p.6, align 4
@@ -2731,19 +2857,7 @@ eh.destroy.401500.1:  ; 0x401500
   %sarg5.p.6 = inttoptr i64 %sarg5.a.6 to ptr
   %sarg5.d.6 = load i32, ptr %sarg5.p.6, align 4
   %sarg5.6 = zext i32 %sarg5.d.6 to i64
-  %sarg6.a.6 = add i64 %addr.z.70, 28
-  %sarg6.p.6 = inttoptr i64 %sarg6.a.6 to ptr
-  %sarg6.d.6 = load i32, ptr %sarg6.p.6, align 4
-  %sarg6.6 = zext i32 %sarg6.d.6 to i64
-  %args.p.12 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401500
-  store i64 %sarg6.6, ptr %args.p.12, align 8  ; 0x401500
-  %sarg7.a.6 = add i64 %addr.z.70, 32
-  %sarg7.p.6 = inttoptr i64 %sarg7.a.6 to ptr
-  %sarg7.d.6 = load i32, ptr %sarg7.p.6, align 4
-  %sarg7.6 = zext i32 %sarg7.d.6 to i64
-  %args.p.13 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401500
-  store i64 %sarg7.6, ptr %args.p.13, align 8  ; 0x401500
-  %ret.7 = call i64 %fp.6(i64 %sarg0.7, i64 %sarg1.6, i64 %sarg2.6, i64 %sarg3.6, i64 %sarg4.6, i64 %sarg5.6, i64 %ecx.z.7, i64 undef)  ; 0x401500
+  %ret.7 = call i64 %fp.6(i64 %sarg0.6, i64 %sarg1.6, i64 %sarg2.6, i64 %sarg3.6, i64 %sarg4.6, i64 %sarg5.6, i64 %ecx.z.7, i64 %rdx.phi.3)  ; 0x401500
   %pops.6 = call i64 @ra_pops_of(i64 %eh.dtor.1)  ; 0x401500
   br label %eh.destroyed.401500.1
 eh.destroyed.401500.1:  ; 0x401500
@@ -2802,6 +2916,7 @@ f4_401510:  ; 0x401510
   %m.p.11 = inttoptr i64 %addr.z.82 to ptr  ; 0x40151d
   %m.11 = load i32, ptr %m.p.11, align 1  ; 0x40151d
   %addr.29 = add i32 %m.11, 1  ; 0x401520
+  %edx.z.2 = zext i32 %addr.29 to i64  ; 0x401520
   store i32 %addr.29, ptr %m.p.11, align 1  ; 0x401523
   %addr.31 = add i32 %sum.7, -36  ; 0x401526
   %addr.z.84 = zext i32 %addr.31 to i64  ; 0x401526
@@ -2876,10 +2991,10 @@ eh.destroy.401470:  ; 0x401534
   %st.p.62 = inttoptr i64 %addr.z.93 to ptr  ; 0x401534
   store i32 0, ptr %st.p.62, align 1  ; 0x401534
   %fp.5 = inttoptr i64 %eh.dtor.2 to ptr  ; 0x401534
-  %sarg0.a.6 = add i64 %addr.z.93, 4
-  %sarg0.p.6 = inttoptr i64 %sarg0.a.6 to ptr
-  %sarg0.d.6 = load i32, ptr %sarg0.p.6, align 4
-  %sarg0.6 = zext i32 %sarg0.d.6 to i64
+  %sarg0.a.5 = add i64 %addr.z.93, 4
+  %sarg0.p.5 = inttoptr i64 %sarg0.a.5 to ptr
+  %sarg0.d.5 = load i32, ptr %sarg0.p.5, align 4
+  %sarg0.5 = zext i32 %sarg0.d.5 to i64
   %sarg1.a.5 = add i64 %addr.z.93, 8
   %sarg1.p.5 = inttoptr i64 %sarg1.a.5 to ptr
   %sarg1.d.5 = load i32, ptr %sarg1.p.5, align 4
@@ -2900,25 +3015,15 @@ eh.destroy.401470:  ; 0x401534
   %sarg5.p.5 = inttoptr i64 %sarg5.a.5 to ptr
   %sarg5.d.5 = load i32, ptr %sarg5.p.5, align 4
   %sarg5.5 = zext i32 %sarg5.d.5 to i64
-  %sarg6.a.5 = add i64 %addr.z.93, 28
-  %sarg6.p.5 = inttoptr i64 %sarg6.a.5 to ptr
-  %sarg6.d.5 = load i32, ptr %sarg6.p.5, align 4
-  %sarg6.5 = zext i32 %sarg6.d.5 to i64
-  %args.p.10 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401534
-  store i64 %sarg6.5, ptr %args.p.10, align 8  ; 0x401534
-  %sarg7.a.5 = add i64 %addr.z.93, 32
-  %sarg7.p.5 = inttoptr i64 %sarg7.a.5 to ptr
-  %sarg7.d.5 = load i32, ptr %sarg7.p.5, align 4
-  %sarg7.5 = zext i32 %sarg7.d.5 to i64
-  %args.p.11 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401534
-  store i64 %sarg7.5, ptr %args.p.11, align 8  ; 0x401534
-  %ret.6 = call i64 %fp.5(i64 %sarg0.6, i64 %sarg1.5, i64 %sarg2.5, i64 %sarg3.5, i64 %sarg4.5, i64 %sarg5.5, i64 %ecx.z.9, i64 undef)  ; 0x401534
+  %ret.6 = call i64 %fp.5(i64 %sarg0.5, i64 %sarg1.5, i64 %sarg2.5, i64 %sarg3.5, i64 %sarg4.5, i64 %sarg5.5, i64 %ecx.z.9, i64 %rdx.phi.1)  ; 0x401534
   %pops.5 = call i64 @ra_pops_of(i64 %eh.dtor.2)  ; 0x401534
   %n.1 = trunc i64 %pops.5 to i32
   %pops.a.5 = add i32 %n.1, 4  ; 0x401534
   %rsp.56 = add i32 %sp.24, %pops.a.5  ; 0x401534
+  %ret.hi.5 = lshr i64 %ret.6, 32  ; 0x401534
   br label %eh.destroyed.401470
 eh.destroyed.401470:  ; 0x401534
+  %rdx.phi.2 = phi i64 [ %rdx.phi.1, %eh.catch1_0.s2 ], [ %ret.hi.5, %eh.destroy.401470 ]  ; 0x401534
   %rsp.phi.2 = phi i32 [ %rsp.phi.1, %eh.catch1_0.s2 ], [ %rsp.56, %eh.destroy.401470 ]  ; 0x401534
   %eh.head.1.f8.10 = getelementptr inbounds %S0, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401534
   store i32 0, ptr %eh.head.1.f8.10, align 1  ; 0x401534
@@ -2931,10 +3036,10 @@ eh.destroy.401470.1:  ; 0x401534
   %st.p.65 = inttoptr i64 %addr.z.96 to ptr  ; 0x401534
   store i32 0, ptr %st.p.65, align 1  ; 0x401534
   %fp.4 = inttoptr i64 %eh.dtor.3 to ptr  ; 0x401534
-  %sarg0.a.5 = add i64 %addr.z.96, 4
-  %sarg0.p.5 = inttoptr i64 %sarg0.a.5 to ptr
-  %sarg0.d.5 = load i32, ptr %sarg0.p.5, align 4
-  %sarg0.5 = zext i32 %sarg0.d.5 to i64
+  %sarg0.a.4 = add i64 %addr.z.96, 4
+  %sarg0.p.4 = inttoptr i64 %sarg0.a.4 to ptr
+  %sarg0.d.4 = load i32, ptr %sarg0.p.4, align 4
+  %sarg0.4 = zext i32 %sarg0.d.4 to i64
   %sarg1.a.4 = add i64 %addr.z.96, 8
   %sarg1.p.4 = inttoptr i64 %sarg1.a.4 to ptr
   %sarg1.d.4 = load i32, ptr %sarg1.p.4, align 4
@@ -2955,19 +3060,7 @@ eh.destroy.401470.1:  ; 0x401534
   %sarg5.p.4 = inttoptr i64 %sarg5.a.4 to ptr
   %sarg5.d.4 = load i32, ptr %sarg5.p.4, align 4
   %sarg5.4 = zext i32 %sarg5.d.4 to i64
-  %sarg6.a.4 = add i64 %addr.z.96, 28
-  %sarg6.p.4 = inttoptr i64 %sarg6.a.4 to ptr
-  %sarg6.d.4 = load i32, ptr %sarg6.p.4, align 4
-  %sarg6.4 = zext i32 %sarg6.d.4 to i64
-  %args.p.8 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401534
-  store i64 %sarg6.4, ptr %args.p.8, align 8  ; 0x401534
-  %sarg7.a.4 = add i64 %addr.z.96, 32
-  %sarg7.p.4 = inttoptr i64 %sarg7.a.4 to ptr
-  %sarg7.d.4 = load i32, ptr %sarg7.p.4, align 4
-  %sarg7.4 = zext i32 %sarg7.d.4 to i64
-  %args.p.9 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401534
-  store i64 %sarg7.4, ptr %args.p.9, align 8  ; 0x401534
-  %ret.5 = call i64 %fp.4(i64 %sarg0.5, i64 %sarg1.4, i64 %sarg2.4, i64 %sarg3.4, i64 %sarg4.4, i64 %sarg5.4, i64 %ecx.z.10, i64 undef)  ; 0x401534
+  %ret.5 = call i64 %fp.4(i64 %sarg0.4, i64 %sarg1.4, i64 %sarg2.4, i64 %sarg3.4, i64 %sarg4.4, i64 %sarg5.4, i64 %ecx.z.10, i64 %rdx.phi.1)  ; 0x401534
   %pops.4 = call i64 @ra_pops_of(i64 %eh.dtor.3)  ; 0x401534
   br label %eh.destroyed.401470.1
 eh.destroyed.401470.1:  ; 0x401534
@@ -3004,10 +3097,10 @@ eh.destroy.401470.2:  ; 0x401534
   %st.p.69 = inttoptr i64 %addr.z.101 to ptr  ; 0x401534
   store i32 0, ptr %st.p.69, align 1  ; 0x401534
   %fp.3 = inttoptr i64 %eh.dtor.4 to ptr  ; 0x401534
-  %sarg0.a.4 = add i64 %addr.z.101, 4
-  %sarg0.p.4 = inttoptr i64 %sarg0.a.4 to ptr
-  %sarg0.d.4 = load i32, ptr %sarg0.p.4, align 4
-  %sarg0.4 = zext i32 %sarg0.d.4 to i64
+  %sarg0.a.3 = add i64 %addr.z.101, 4
+  %sarg0.p.3 = inttoptr i64 %sarg0.a.3 to ptr
+  %sarg0.d.3 = load i32, ptr %sarg0.p.3, align 4
+  %sarg0.3 = zext i32 %sarg0.d.3 to i64
   %sarg1.a.3 = add i64 %addr.z.101, 8
   %sarg1.p.3 = inttoptr i64 %sarg1.a.3 to ptr
   %sarg1.d.3 = load i32, ptr %sarg1.p.3, align 4
@@ -3028,19 +3121,7 @@ eh.destroy.401470.2:  ; 0x401534
   %sarg5.p.3 = inttoptr i64 %sarg5.a.3 to ptr
   %sarg5.d.3 = load i32, ptr %sarg5.p.3, align 4
   %sarg5.3 = zext i32 %sarg5.d.3 to i64
-  %sarg6.a.3 = add i64 %addr.z.101, 28
-  %sarg6.p.3 = inttoptr i64 %sarg6.a.3 to ptr
-  %sarg6.d.3 = load i32, ptr %sarg6.p.3, align 4
-  %sarg6.3 = zext i32 %sarg6.d.3 to i64
-  %args.p.6 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401534
-  store i64 %sarg6.3, ptr %args.p.6, align 8  ; 0x401534
-  %sarg7.a.3 = add i64 %addr.z.101, 32
-  %sarg7.p.3 = inttoptr i64 %sarg7.a.3 to ptr
-  %sarg7.d.3 = load i32, ptr %sarg7.p.3, align 4
-  %sarg7.3 = zext i32 %sarg7.d.3 to i64
-  %args.p.7 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401534
-  store i64 %sarg7.3, ptr %args.p.7, align 8  ; 0x401534
-  %ret.4 = call i64 %fp.3(i64 %sarg0.4, i64 %sarg1.3, i64 %sarg2.3, i64 %sarg3.3, i64 %sarg4.3, i64 %sarg5.3, i64 %ecx.z.11, i64 undef)  ; 0x401534
+  %ret.4 = call i64 %fp.3(i64 %sarg0.3, i64 %sarg1.3, i64 %sarg2.3, i64 %sarg3.3, i64 %sarg4.3, i64 %sarg5.3, i64 %ecx.z.11, i64 %rdx.phi.1)  ; 0x401534
   %pops.3 = call i64 @ra_pops_of(i64 %eh.dtor.4)  ; 0x401534
   br label %eh.destroyed.401470.2
 eh.destroyed.401470.2:  ; 0x401534
@@ -3108,12 +3189,12 @@ eh.next1_0.s2.1:  ; 0x401534
 eh.destroy.401470.3:  ; 0x401534
   %eh.this.5 = trunc i64 %eh.ending.5 to i32  ; 0x401534
   %ecx.z.12 = zext i32 %eh.this.5 to i64  ; 0x401534
-  %sp.27 = sub i32 %sarg0.a, 4  ; 0x401534
+  %sp.27 = sub i32 %varargs.a, 4  ; 0x401534
   %st.p.76 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x401534
   store i32 0, ptr %st.p.76, align 1  ; 0x401534
   %fp.2 = inttoptr i64 %eh.dtor.5 to ptr  ; 0x401534
-  %sarg0.d.3 = load i32, ptr %st.p.12, align 4
-  %sarg0.3 = zext i32 %sarg0.d.3 to i64
+  %sarg0.d.2 = load i32, ptr %st.p.12, align 4
+  %sarg0.2 = zext i32 %sarg0.d.2 to i64
   %sarg1.p.2 = getelementptr inbounds i8, ptr %frame.top, i64 -48
   %sarg1.d.2 = load i32, ptr %sarg1.p.2, align 4
   %sarg1.2 = zext i32 %sarg1.d.2 to i64
@@ -3126,22 +3207,16 @@ eh.destroy.401470.3:  ; 0x401534
   %sarg4.2 = zext i32 %sarg4.d.2 to i64
   %sarg5.d.2 = load i32, ptr %st.p.4, align 4
   %sarg5.2 = zext i32 %sarg5.d.2 to i64
-  %sarg6.d.2 = load i32, ptr %st.p.7, align 4
-  %sarg6.2 = zext i32 %sarg6.d.2 to i64
-  %args.p.4 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401534
-  store i64 %sarg6.2, ptr %args.p.4, align 8  ; 0x401534
-  %sarg7.d.2 = load i32, ptr %st.p.6, align 4
-  %sarg7.2 = zext i32 %sarg7.d.2 to i64
-  %args.p.5 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401534
-  store i64 %sarg7.2, ptr %args.p.5, align 8  ; 0x401534
-  %ret.3 = call i64 %fp.2(i64 %sarg0.3, i64 %sarg1.2, i64 %sarg2.2, i64 %sarg3.2, i64 %sarg4.2, i64 %sarg5.2, i64 %ecx.z.12, i64 undef)  ; 0x401534
+  %ret.3 = call i64 %fp.2(i64 %sarg0.2, i64 %sarg1.2, i64 %sarg2.2, i64 %sarg3.2, i64 %sarg4.2, i64 %sarg5.2, i64 %ecx.z.12, i64 undef)  ; 0x401534
   %pops.2 = call i64 @ra_pops_of(i64 %eh.dtor.5)  ; 0x401534
   %n.3 = trunc i64 %pops.2 to i32
   %pops.a.2 = add i32 %n.3, 4  ; 0x401534
   %rsp.53 = add i32 %sp.27, %pops.a.2  ; 0x401534
+  %ret.hi.2 = lshr i64 %ret.3, 32  ; 0x401534
   br label %eh.destroyed.401470.3
 eh.destroyed.401470.3:  ; 0x401534
-  %rsp.phi = phi i32 [ %sarg0.a, %eh.catch1_0.s2.1 ], [ %rsp.53, %eh.destroy.401470.3 ]  ; 0x401534
+  %rdx.phi = phi i64 [ undef, %eh.catch1_0.s2.1 ], [ %ret.hi.2, %eh.destroy.401470.3 ]  ; 0x401534
+  %rsp.phi = phi i32 [ %varargs.a, %eh.catch1_0.s2.1 ], [ %rsp.53, %eh.destroy.401470.3 ]  ; 0x401534
   %eh.head.f8.10 = getelementptr inbounds %S0, ptr %eh.head.s, i64 0, i32 2  ; 0x401534
   store i32 0, ptr %eh.head.f8.10, align 1  ; 0x401534
   br label %eh.enter1_0
@@ -3151,8 +3226,8 @@ eh.destroy.401470.4:  ; 0x401534
   %st.p.79 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x401534
   store i32 0, ptr %st.p.79, align 1  ; 0x401534
   %fp.1 = inttoptr i64 %eh.dtor.6 to ptr  ; 0x401534
-  %sarg0.d.2 = load i32, ptr %st.p.12, align 4
-  %sarg0.2 = zext i32 %sarg0.d.2 to i64
+  %sarg0.d.1 = load i32, ptr %st.p.12, align 4
+  %sarg0.1 = zext i32 %sarg0.d.1 to i64
   %sarg1.p.1 = getelementptr inbounds i8, ptr %frame.top, i64 -48
   %sarg1.d.1 = load i32, ptr %sarg1.p.1, align 4
   %sarg1.1 = zext i32 %sarg1.d.1 to i64
@@ -3165,15 +3240,7 @@ eh.destroy.401470.4:  ; 0x401534
   %sarg4.1 = zext i32 %sarg4.d.1 to i64
   %sarg5.d.1 = load i32, ptr %st.p.4, align 4
   %sarg5.1 = zext i32 %sarg5.d.1 to i64
-  %sarg6.d.1 = load i32, ptr %st.p.7, align 4
-  %sarg6.1 = zext i32 %sarg6.d.1 to i64
-  %args.p.2 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401534
-  store i64 %sarg6.1, ptr %args.p.2, align 8  ; 0x401534
-  %sarg7.d.1 = load i32, ptr %st.p.6, align 4
-  %sarg7.1 = zext i32 %sarg7.d.1 to i64
-  %args.p.3 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401534
-  store i64 %sarg7.1, ptr %args.p.3, align 8  ; 0x401534
-  %ret.2 = call i64 %fp.1(i64 %sarg0.2, i64 %sarg1.1, i64 %sarg2.1, i64 %sarg3.1, i64 %sarg4.1, i64 %sarg5.1, i64 %ecx.z.13, i64 undef)  ; 0x401534
+  %ret.2 = call i64 %fp.1(i64 %sarg0.1, i64 %sarg1.1, i64 %sarg2.1, i64 %sarg3.1, i64 %sarg4.1, i64 %sarg5.1, i64 %ecx.z.13, i64 undef)  ; 0x401534
   %pops.1 = call i64 @ra_pops_of(i64 %eh.dtor.6)  ; 0x401534
   br label %eh.destroyed.401470.4
 eh.destroyed.401470.4:  ; 0x401534
@@ -3208,8 +3275,8 @@ eh.destroy.401470.5:  ; 0x401534
   %st.p.83 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x401534
   store i32 0, ptr %st.p.83, align 1  ; 0x401534
   %fp = inttoptr i64 %eh.dtor.7 to ptr  ; 0x401534
-  %sarg0.d.1 = load i32, ptr %st.p.12, align 4
-  %sarg0.1 = zext i32 %sarg0.d.1 to i64
+  %sarg0.d = load i32, ptr %st.p.12, align 4
+  %sarg0 = zext i32 %sarg0.d to i64
   %sarg1.p = getelementptr inbounds i8, ptr %frame.top, i64 -48
   %sarg1.d = load i32, ptr %sarg1.p, align 4
   %sarg1 = zext i32 %sarg1.d to i64
@@ -3222,15 +3289,7 @@ eh.destroy.401470.5:  ; 0x401534
   %sarg4 = zext i32 %sarg4.d to i64
   %sarg5.d = load i32, ptr %st.p.4, align 4
   %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.d = load i32, ptr %st.p.7, align 4
-  %sarg6 = zext i32 %sarg6.d to i64
-  %args.p = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401534
-  store i64 %sarg6, ptr %args.p, align 8  ; 0x401534
-  %sarg7.d = load i32, ptr %st.p.6, align 4
-  %sarg7 = zext i32 %sarg7.d to i64
-  %args.p.1 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401534
-  store i64 %sarg7, ptr %args.p.1, align 8  ; 0x401534
-  %ret.1 = call i64 %fp(i64 %sarg0.1, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %ecx.z.14, i64 undef)  ; 0x401534
+  %ret.1 = call i64 %fp(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %ecx.z.14, i64 undef)  ; 0x401534
   %pops = call i64 @ra_pops_of(i64 %eh.dtor.7)  ; 0x401534
   br label %eh.destroyed.401470.5
 eh.destroyed.401470.5:  ; 0x401534
@@ -3250,13 +3309,76 @@ eh.ok.4014ba:  ; 0x401534
   br label %b_4014c2
 }
 
-define i64 @F_00401540(i32 %arg0) {  ; 0x401540
+define i64 @F_00401540(i64 %argblock) {  ; 0x401540
 b_401540:  ; 0x401540
-  %frame = alloca [4268 x i8], align 16
+  %argblock.s = inttoptr i64 %argblock to ptr
+  %frame = alloca [4320 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 4188
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
-  store i32 %arg0, ptr %stack.arg0.p, align 4
+  %argblock.f0 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 0
+  %varargs.0.w = load i32, ptr %argblock.f0, align 4
+  %varargs.0.s = getelementptr inbounds i8, ptr %frame.top, i64 4
+  store i32 %varargs.0.w, ptr %varargs.0.s, align 4
+  %argblock.f4 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 1
+  %varargs.1.w = load i32, ptr %argblock.f4, align 4
+  %varargs.1.s = getelementptr inbounds i8, ptr %frame.top, i64 8
+  store i32 %varargs.1.w, ptr %varargs.1.s, align 4
+  %argblock.f8 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 2
+  %varargs.2.w = load i32, ptr %argblock.f8, align 4
+  %varargs.2.s = getelementptr inbounds i8, ptr %frame.top, i64 12
+  store i32 %varargs.2.w, ptr %varargs.2.s, align 4
+  %argblock.f12 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 3
+  %varargs.3.w = load i32, ptr %argblock.f12, align 4
+  %varargs.3.s = getelementptr inbounds i8, ptr %frame.top, i64 16
+  store i32 %varargs.3.w, ptr %varargs.3.s, align 4
+  %argblock.f16 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 4
+  %varargs.4.w = load i32, ptr %argblock.f16, align 4
+  %varargs.4.s = getelementptr inbounds i8, ptr %frame.top, i64 20
+  store i32 %varargs.4.w, ptr %varargs.4.s, align 4
+  %argblock.f20 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 5
+  %varargs.5.w = load i32, ptr %argblock.f20, align 4
+  %varargs.5.s = getelementptr inbounds i8, ptr %frame.top, i64 24
+  store i32 %varargs.5.w, ptr %varargs.5.s, align 4
+  %argblock.f24 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 6
+  %varargs.6.w = load i32, ptr %argblock.f24, align 4
+  %varargs.6.s = getelementptr inbounds i8, ptr %frame.top, i64 28
+  store i32 %varargs.6.w, ptr %varargs.6.s, align 4
+  %argblock.f28 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 7
+  %varargs.7.w = load i32, ptr %argblock.f28, align 4
+  %varargs.7.s = getelementptr inbounds i8, ptr %frame.top, i64 32
+  store i32 %varargs.7.w, ptr %varargs.7.s, align 4
+  %argblock.f32 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 8
+  %varargs.8.w = load i32, ptr %argblock.f32, align 4
+  %varargs.8.s = getelementptr inbounds i8, ptr %frame.top, i64 36
+  store i32 %varargs.8.w, ptr %varargs.8.s, align 4
+  %argblock.f36 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 9
+  %varargs.9.w = load i32, ptr %argblock.f36, align 4
+  %varargs.9.s = getelementptr inbounds i8, ptr %frame.top, i64 40
+  store i32 %varargs.9.w, ptr %varargs.9.s, align 4
+  %argblock.f40 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 10
+  %varargs.10.w = load i32, ptr %argblock.f40, align 4
+  %varargs.10.s = getelementptr inbounds i8, ptr %frame.top, i64 44
+  store i32 %varargs.10.w, ptr %varargs.10.s, align 4
+  %argblock.f44 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 11
+  %varargs.11.w = load i32, ptr %argblock.f44, align 4
+  %varargs.11.s = getelementptr inbounds i8, ptr %frame.top, i64 48
+  store i32 %varargs.11.w, ptr %varargs.11.s, align 4
+  %argblock.f48 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 12
+  %varargs.12.w = load i32, ptr %argblock.f48, align 4
+  %varargs.12.s = getelementptr inbounds i8, ptr %frame.top, i64 52
+  store i32 %varargs.12.w, ptr %varargs.12.s, align 4
+  %argblock.f52 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 13
+  %varargs.13.w = load i32, ptr %argblock.f52, align 4
+  %varargs.13.s = getelementptr inbounds i8, ptr %frame.top, i64 56
+  store i32 %varargs.13.w, ptr %varargs.13.s, align 4
+  %argblock.f56 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 14
+  %varargs.14.w = load i32, ptr %argblock.f56, align 4
+  %varargs.14.s = getelementptr inbounds i8, ptr %frame.top, i64 60
+  store i32 %varargs.14.w, ptr %varargs.14.s, align 4
+  %argblock.f60 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 15
+  %varargs.15.w = load i32, ptr %argblock.f60, align 4
+  %varargs.15.s = getelementptr inbounds i8, ptr %frame.top, i64 64
+  store i32 %varargs.15.w, ptr %varargs.15.s, align 4
   %esp = trunc i64 %rsp0 to i32  ; 0x401540
   %sp = sub i32 %esp, 4  ; 0x401540
   %sp.1 = sub i32 %sp, 4  ; 0x401543
@@ -3317,7 +3439,7 @@ b_4015b6:  ; 0x4015b6
   %addr.83 = add i32 %sp, -48  ; 0x4015b6
   %addr.z.434 = zext i32 %addr.83 to i64  ; 0x4015b6
   %st.p.302 = getelementptr inbounds i8, ptr %frame.top, i64 -52  ; 0x4015b6
-  store i32 %arg0, ptr %st.p.302, align 1  ; 0x4015b6
+  store i32 %varargs.0.w, ptr %st.p.302, align 1  ; 0x4015b6
   store i32 3, ptr %st.p.5, align 1  ; 0x4015b9
   %sp.229 = sub i32 %sum.83, 4  ; 0x4015c3
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2916) to i32), ptr %st.p.9, align 1  ; 0x4015c3
@@ -3402,6 +3524,7 @@ eh.next1_0.s0:  ; 0x401572
   store i32 %eh.next.1, ptr %st.p.22, align 1  ; 0x401660
   ret i64 %rax.phi
 eh.enter1_0:  ; 0x401572
+  %rdx.phi.13 = phi i64 [ undef, %eh.catch1_0.s0 ], [ undef, %eh.cleaned.401620 ], [ undef, %eh.cleaned.401620.12 ], [ undef, %eh.cleaned.401620.14 ], [ %rdx.phi.4, %eh.cleaned.401620.16 ], [ %rdx.phi.2, %eh.cleaned.401620.18 ]  ; 0x401572
   %rsp.phi.13 = phi i32 [ %rsp.phi, %eh.catch1_0.s0 ], [ %sp.122, %eh.cleaned.401620 ], [ %sp.140, %eh.cleaned.401620.12 ], [ %sp.164, %eh.cleaned.401620.14 ], [ %sp.183, %eh.cleaned.401620.16 ], [ %sp.203, %eh.cleaned.401620.18 ]  ; 0x401572
   call void @ra_eh_enter_catch()  ; 0x401572
   %eh.head.f8.4 = getelementptr inbounds %S0, ptr %eh.head.s, i64 0, i32 2  ; 0x401572
@@ -3480,19 +3603,7 @@ eh.destroy.401660:  ; 0x401660
   %sarg5.p.11 = inttoptr i64 %sarg5.a.11 to ptr
   %sarg5.d.11 = load i32, ptr %sarg5.p.11, align 4
   %sarg5.11 = zext i32 %sarg5.d.11 to i64
-  %sarg6.a.11 = add i64 %addr.z.30, 28
-  %sarg6.p.11 = inttoptr i64 %sarg6.a.11 to ptr
-  %sarg6.d.11 = load i32, ptr %sarg6.p.11, align 4
-  %sarg6.11 = zext i32 %sarg6.d.11 to i64
-  %args.p.22 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401660
-  store i64 %sarg6.11, ptr %args.p.22, align 8  ; 0x401660
-  %sarg7.a.11 = add i64 %addr.z.30, 32
-  %sarg7.p.11 = inttoptr i64 %sarg7.a.11 to ptr
-  %sarg7.d.11 = load i32, ptr %sarg7.p.11, align 4
-  %sarg7.11 = zext i32 %sarg7.d.11 to i64
-  %args.p.23 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401660
-  store i64 %sarg7.11, ptr %args.p.23, align 8  ; 0x401660
-  %ret.47 = call i64 %fp.11(i64 %sarg0.47, i64 %sarg1.11, i64 %sarg2.11, i64 %sarg3.11, i64 %sarg4.11, i64 %sarg5.11, i64 %ecx.z.1, i64 undef)  ; 0x401660
+  %ret.47 = call i64 %fp.11(i64 %sarg0.47, i64 %sarg1.11, i64 %sarg2.11, i64 %sarg3.11, i64 %sarg4.11, i64 %sarg5.11, i64 %ecx.z.1, i64 %rdx.phi.13)  ; 0x401660
   %pops.11 = call i64 @ra_pops_of(i64 %eh.dtor)  ; 0x401660
   br label %eh.destroyed.401660
 eh.destroyed.401660:  ; 0x401660
@@ -3553,6 +3664,7 @@ f2_401620:  ; 0x401620
   br i1 %eh.thrown.1, label %eh.landing.1, label %eh.ok.401632.10
 eh.landing.1:  ; 0x401632
   %rax.phi.2 = phi i64 [ %ret.24, %f2_401620 ], [ %ret.45, %f4_401620 ], [ %ret.44, %f5_401620 ], [ %ret.43, %f6_401670 ], [ %addr.z.97, %eh.ok.401682 ], [ %ret.42, %f7_401620 ], [ %ret.41, %f8_401620 ], [ %ret.40, %f9_4015e0 ], [ %ret.38, %f10_4015e0 ], [ %ret.39, %f11_401620 ], [ %ret.36, %f12_4015e0 ], [ %ret.37, %f13_401620 ], [ %ret.35, %f14_401620 ], [ %ret.33, %f15_401620 ], [ %ret.29, %f16_401600 ], [ %ret.31, %f17_401620 ], [ %ret.26, %f18_401600 ], [ %ret.28, %f19_401620 ], [ %ret.23, %f20_401620 ], [ %ret.22, %f21_401670 ], [ %addr.z.272, %eh.ok.401682.1 ], [ %ret.21, %f22_401620 ], [ %ret.20, %f23_401620 ], [ %ret.19, %f24_4015e0 ], [ %ret.17, %f25_4015e0 ], [ %ret.18, %f26_401620 ], [ %ret.15, %f27_4015e0 ], [ %ret.16, %f28_401620 ], [ %ret.14, %f29_401620 ], [ %ret.12, %f30_401620 ], [ %ret.8, %f31_401600 ], [ %ret.10, %f32_401620 ], [ %ret.5, %f33_401600 ], [ %ret.7, %f34_401620 ]  ; 0x401632
+  %rdx.phi.6 = phi i64 [ undef, %f2_401620 ], [ %rdx.phi.6, %f4_401620 ], [ %rdx.phi.6, %f5_401620 ], [ %rdx.phi.6, %f6_401670 ], [ %rdx.phi.6, %eh.ok.401682 ], [ %rdx.phi.6, %f7_401620 ], [ %rdx.phi.6, %f8_401620 ], [ %rdx.phi.6, %f9_4015e0 ], [ %rdx.phi.6, %f10_4015e0 ], [ %rdx.phi.6, %f11_401620 ], [ %rdx.phi.6, %f12_4015e0 ], [ %rdx.phi.6, %f13_401620 ], [ %rdx.phi.10, %f14_401620 ], [ %rdx.phi.9, %f15_401620 ], [ %rdx.phi.6, %f16_401600 ], [ %rdx.phi.8, %f17_401620 ], [ %rdx.phi.6, %f18_401600 ], [ %rdx.phi.7, %f19_401620 ], [ undef, %f20_401620 ], [ undef, %f21_401670 ], [ undef, %eh.ok.401682.1 ], [ undef, %f22_401620 ], [ undef, %f23_401620 ], [ undef, %f24_4015e0 ], [ undef, %f25_4015e0 ], [ undef, %f26_401620 ], [ undef, %f27_4015e0 ], [ undef, %f28_401620 ], [ %rdx.phi.4, %f29_401620 ], [ %rdx.phi.3, %f30_401620 ], [ undef, %f31_401600 ], [ %rdx.phi.2, %f32_401620 ], [ undef, %f33_401600 ], [ %rdx.phi.1, %f34_401620 ]  ; 0x401632
   %rsp.phi.6 = phi i32 [ %sarg0.a.24, %f2_401620 ], [ %sarg0.a.45, %f4_401620 ], [ %sarg0.a.44, %f5_401620 ], [ %sarg0.a.43, %f6_401670 ], [ %sp.37, %eh.ok.401682 ], [ %sarg0.a.42, %f7_401620 ], [ %sarg0.a.41, %f8_401620 ], [ %sarg0.a.40, %f9_4015e0 ], [ %sarg0.a.38, %f10_4015e0 ], [ %sarg0.a.39, %f11_401620 ], [ %sarg0.a.36, %f12_4015e0 ], [ %sarg0.a.37, %f13_401620 ], [ %sarg0.a.35, %f14_401620 ], [ %sarg0.a.33, %f15_401620 ], [ %sarg0.a.29, %f16_401600 ], [ %sarg0.a.31, %f17_401620 ], [ %sarg0.a.26, %f18_401600 ], [ %sarg0.a.28, %f19_401620 ], [ %sarg0.a.23, %f20_401620 ], [ %sarg0.a.22, %f21_401670 ], [ %sp.134, %eh.ok.401682.1 ], [ %sarg0.a.21, %f22_401620 ], [ %sarg0.a.20, %f23_401620 ], [ %sarg0.a.19, %f24_4015e0 ], [ %sarg0.a.17, %f25_4015e0 ], [ %sarg0.a.18, %f26_401620 ], [ %sarg0.a.15, %f27_4015e0 ], [ %sarg0.a.16, %f28_401620 ], [ %sarg0.a.14, %f29_401620 ], [ %sarg0.a.12, %f30_401620 ], [ %sarg0.a.8, %f31_401600 ], [ %sarg0.a.10, %f32_401620 ], [ %sarg0.a.5, %f33_401600 ], [ %sarg0.a.7, %f34_401620 ]  ; 0x401632
   %teb.10 = call i64 @ra_teb()  ; 0x401632
   %teb.11 = trunc i64 %teb.10 to i32  ; 0x401632
@@ -3617,6 +3729,7 @@ eh.next1_0.s0.1:  ; 0x401632
   store i32 %eh.next.3, ptr %st.p.40, align 1  ; 0x401660
   ret i64 %rax.phi.2
 eh.enter1_0.1:  ; 0x401632
+  %rdx.phi.12 = phi i64 [ %rdx.phi.6, %eh.catch1_0.s0.1 ], [ %rdx.phi.6, %eh.cleaned.401620.1 ], [ %rdx.phi.6, %eh.cleaned.401620.3 ], [ %rdx.phi.6, %eh.cleaned.401620.5 ], [ %rdx.phi.10, %eh.cleaned.401620.7 ], [ %rdx.phi.8, %eh.cleaned.401620.9 ]  ; 0x401632
   %rsp.phi.12 = phi i32 [ %rsp.phi.6, %eh.catch1_0.s0.1 ], [ %sp.25, %eh.cleaned.401620.1 ], [ %sp.43, %eh.cleaned.401620.3 ], [ %sp.67, %eh.cleaned.401620.5 ], [ %sp.86, %eh.cleaned.401620.7 ], [ %sp.106, %eh.cleaned.401620.9 ]  ; 0x401632
   call void @ra_eh_enter_catch()  ; 0x401632
   %eh.head.1.f8.4 = getelementptr inbounds %S0, ptr %eh.head.1.s, i64 0, i32 2  ; 0x401632
@@ -3695,19 +3808,7 @@ eh.destroy.401660.1:  ; 0x401660
   %sarg5.p.10 = inttoptr i64 %sarg5.a.10 to ptr
   %sarg5.d.10 = load i32, ptr %sarg5.p.10, align 4
   %sarg5.10 = zext i32 %sarg5.d.10 to i64
-  %sarg6.a.10 = add i64 %addr.z.59, 28
-  %sarg6.p.10 = inttoptr i64 %sarg6.a.10 to ptr
-  %sarg6.d.10 = load i32, ptr %sarg6.p.10, align 4
-  %sarg6.10 = zext i32 %sarg6.d.10 to i64
-  %args.p.20 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x401660
-  store i64 %sarg6.10, ptr %args.p.20, align 8  ; 0x401660
-  %sarg7.a.10 = add i64 %addr.z.59, 32
-  %sarg7.p.10 = inttoptr i64 %sarg7.a.10 to ptr
-  %sarg7.d.10 = load i32, ptr %sarg7.p.10, align 4
-  %sarg7.10 = zext i32 %sarg7.d.10 to i64
-  %args.p.21 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x401660
-  store i64 %sarg7.10, ptr %args.p.21, align 8  ; 0x401660
-  %ret.46 = call i64 %fp.10(i64 %sarg0.46, i64 %sarg1.10, i64 %sarg2.10, i64 %sarg3.10, i64 %sarg4.10, i64 %sarg5.10, i64 %ecx.z.2, i64 undef)  ; 0x401660
+  %ret.46 = call i64 %fp.10(i64 %sarg0.46, i64 %sarg1.10, i64 %sarg2.10, i64 %sarg3.10, i64 %sarg4.10, i64 %sarg5.10, i64 %ecx.z.2, i64 %rdx.phi.12)  ; 0x401660
   %pops.10 = call i64 @ra_pops_of(i64 %eh.dtor.1)  ; 0x401660
   br label %eh.destroyed.401660.1
 eh.destroyed.401660.1:  ; 0x401660
@@ -4252,25 +4353,15 @@ eh.destroy.401540:  ; 0x40163b
   %sarg5.p.9 = inttoptr i64 %sarg5.a.9 to ptr
   %sarg5.d.9 = load i32, ptr %sarg5.p.9, align 4
   %sarg5.9 = zext i32 %sarg5.d.9 to i64
-  %sarg6.a.9 = add i64 %addr.z.172, 28
-  %sarg6.p.9 = inttoptr i64 %sarg6.a.9 to ptr
-  %sarg6.d.9 = load i32, ptr %sarg6.p.9, align 4
-  %sarg6.9 = zext i32 %sarg6.d.9 to i64
-  %args.p.18 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40163b
-  store i64 %sarg6.9, ptr %args.p.18, align 8  ; 0x40163b
-  %sarg7.a.9 = add i64 %addr.z.172, 32
-  %sarg7.p.9 = inttoptr i64 %sarg7.a.9 to ptr
-  %sarg7.d.9 = load i32, ptr %sarg7.p.9, align 4
-  %sarg7.9 = zext i32 %sarg7.d.9 to i64
-  %args.p.19 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40163b
-  store i64 %sarg7.9, ptr %args.p.19, align 8  ; 0x40163b
-  %ret.34 = call i64 %fp.9(i64 %sarg0.34, i64 %sarg1.9, i64 %sarg2.9, i64 %sarg3.9, i64 %sarg4.9, i64 %sarg5.9, i64 %ecx.z.3, i64 undef)  ; 0x40163b
+  %ret.34 = call i64 %fp.9(i64 %sarg0.34, i64 %sarg1.9, i64 %sarg2.9, i64 %sarg3.9, i64 %sarg4.9, i64 %sarg5.9, i64 %ecx.z.3, i64 %rdx.phi.6)  ; 0x40163b
   %pops.9 = call i64 @ra_pops_of(i64 %eh.dtor.2)  ; 0x40163b
   %n.2 = trunc i64 %pops.9 to i32
   %pops.a.9 = add i32 %n.2, 4  ; 0x40163b
   %rsp.358 = add i32 %sp.80, %pops.a.9  ; 0x40163b
+  %ret.hi.9 = lshr i64 %ret.34, 32  ; 0x40163b
   br label %eh.destroyed.401540
 eh.destroyed.401540:  ; 0x40163b
+  %rdx.phi.10 = phi i64 [ %rdx.phi.6, %eh.catch1_0.s4 ], [ %ret.hi.9, %eh.destroy.401540 ]  ; 0x40163b
   %rsp.phi.10 = phi i32 [ %rsp.phi.6, %eh.catch1_0.s4 ], [ %rsp.358, %eh.destroy.401540 ]  ; 0x40163b
   %eh.head.1.f8.24 = getelementptr inbounds %S0, ptr %eh.head.1.s, i64 0, i32 2  ; 0x40163b
   store i32 0, ptr %eh.head.1.f8.24, align 1  ; 0x40163b
@@ -4345,25 +4436,15 @@ eh.destroy.401540.1:  ; 0x40163b
   %sarg5.p.8 = inttoptr i64 %sarg5.a.8 to ptr
   %sarg5.d.8 = load i32, ptr %sarg5.p.8, align 4
   %sarg5.8 = zext i32 %sarg5.d.8 to i64
-  %sarg6.a.8 = add i64 %addr.z.184, 28
-  %sarg6.p.8 = inttoptr i64 %sarg6.a.8 to ptr
-  %sarg6.d.8 = load i32, ptr %sarg6.p.8, align 4
-  %sarg6.8 = zext i32 %sarg6.d.8 to i64
-  %args.p.16 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40163b
-  store i64 %sarg6.8, ptr %args.p.16, align 8  ; 0x40163b
-  %sarg7.a.8 = add i64 %addr.z.184, 32
-  %sarg7.p.8 = inttoptr i64 %sarg7.a.8 to ptr
-  %sarg7.d.8 = load i32, ptr %sarg7.p.8, align 4
-  %sarg7.8 = zext i32 %sarg7.d.8 to i64
-  %args.p.17 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40163b
-  store i64 %sarg7.8, ptr %args.p.17, align 8  ; 0x40163b
-  %ret.32 = call i64 %fp.8(i64 %sarg0.32, i64 %sarg1.8, i64 %sarg2.8, i64 %sarg3.8, i64 %sarg4.8, i64 %sarg5.8, i64 %ecx.z.4, i64 undef)  ; 0x40163b
+  %ret.32 = call i64 %fp.8(i64 %sarg0.32, i64 %sarg1.8, i64 %sarg2.8, i64 %sarg3.8, i64 %sarg4.8, i64 %sarg5.8, i64 %ecx.z.4, i64 %rdx.phi.6)  ; 0x40163b
   %pops.8 = call i64 @ra_pops_of(i64 %eh.dtor.3)  ; 0x40163b
   %n.4 = trunc i64 %pops.8 to i32
   %pops.a.8 = add i32 %n.4, 4  ; 0x40163b
   %rsp.356 = add i32 %sp.87, %pops.a.8  ; 0x40163b
+  %ret.hi.8 = lshr i64 %ret.32, 32  ; 0x40163b
   br label %eh.destroyed.401540.1
 eh.destroyed.401540.1:  ; 0x40163b
+  %rdx.phi.9 = phi i64 [ %rdx.phi.6, %eh.next1_0.s4 ], [ %ret.hi.8, %eh.destroy.401540.1 ]  ; 0x40163b
   %rsp.phi.9 = phi i32 [ %rsp.phi.6, %eh.next1_0.s4 ], [ %rsp.356, %eh.destroy.401540.1 ]  ; 0x40163b
   %eh.head.1.f8.26 = getelementptr inbounds %S0, ptr %eh.head.1.s, i64 0, i32 2  ; 0x40163b
   store i32 0, ptr %eh.head.1.f8.26, align 1  ; 0x40163b
@@ -4510,25 +4591,15 @@ eh.destroy.401540.2:  ; 0x40161e
   %sarg5.p.7 = inttoptr i64 %sarg5.a.7 to ptr
   %sarg5.d.7 = load i32, ptr %sarg5.p.7, align 4
   %sarg5.7 = zext i32 %sarg5.d.7 to i64
-  %sarg6.a.7 = add i64 %addr.z.207, 28
-  %sarg6.p.7 = inttoptr i64 %sarg6.a.7 to ptr
-  %sarg6.d.7 = load i32, ptr %sarg6.p.7, align 4
-  %sarg6.7 = zext i32 %sarg6.d.7 to i64
-  %args.p.14 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40161e
-  store i64 %sarg6.7, ptr %args.p.14, align 8  ; 0x40161e
-  %sarg7.a.7 = add i64 %addr.z.207, 32
-  %sarg7.p.7 = inttoptr i64 %sarg7.a.7 to ptr
-  %sarg7.d.7 = load i32, ptr %sarg7.p.7, align 4
-  %sarg7.7 = zext i32 %sarg7.d.7 to i64
-  %args.p.15 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40161e
-  store i64 %sarg7.7, ptr %args.p.15, align 8  ; 0x40161e
-  %ret.30 = call i64 %fp.7(i64 %sarg0.30, i64 %sarg1.7, i64 %sarg2.7, i64 %sarg3.7, i64 %sarg4.7, i64 %sarg5.7, i64 %ecx.z.5, i64 undef)  ; 0x40161e
+  %ret.30 = call i64 %fp.7(i64 %sarg0.30, i64 %sarg1.7, i64 %sarg2.7, i64 %sarg3.7, i64 %sarg4.7, i64 %sarg5.7, i64 %ecx.z.5, i64 %rdx.phi.6)  ; 0x40161e
   %pops.7 = call i64 @ra_pops_of(i64 %eh.dtor.4)  ; 0x40161e
   %n.6 = trunc i64 %pops.7 to i32
   %pops.a.7 = add i32 %n.6, 4  ; 0x40161e
   %rsp.354 = add i32 %sp.100, %pops.a.7  ; 0x40161e
+  %ret.hi.7 = lshr i64 %ret.30, 32  ; 0x40161e
   br label %eh.destroyed.401540.2
 eh.destroyed.401540.2:  ; 0x40161e
+  %rdx.phi.8 = phi i64 [ %rdx.phi.6, %eh.cleaned.401600 ], [ %ret.hi.7, %eh.destroy.401540.2 ]  ; 0x40161e
   %rsp.phi.8 = phi i32 [ %sp.99, %eh.cleaned.401600 ], [ %rsp.354, %eh.destroy.401540.2 ]  ; 0x40161e
   %eh.head.1.f8.30 = getelementptr inbounds %S0, ptr %eh.head.1.s, i64 0, i32 2  ; 0x40161e
   store i32 0, ptr %eh.head.1.f8.30, align 1  ; 0x40161e
@@ -4639,25 +4710,15 @@ eh.destroy.401540.3:  ; 0x40161e
   %sarg5.p.6 = inttoptr i64 %sarg5.a.6 to ptr
   %sarg5.d.6 = load i32, ptr %sarg5.p.6, align 4
   %sarg5.6 = zext i32 %sarg5.d.6 to i64
-  %sarg6.a.6 = add i64 %addr.z.228, 28
-  %sarg6.p.6 = inttoptr i64 %sarg6.a.6 to ptr
-  %sarg6.d.6 = load i32, ptr %sarg6.p.6, align 4
-  %sarg6.6 = zext i32 %sarg6.d.6 to i64
-  %args.p.12 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40161e
-  store i64 %sarg6.6, ptr %args.p.12, align 8  ; 0x40161e
-  %sarg7.a.6 = add i64 %addr.z.228, 32
-  %sarg7.p.6 = inttoptr i64 %sarg7.a.6 to ptr
-  %sarg7.d.6 = load i32, ptr %sarg7.p.6, align 4
-  %sarg7.6 = zext i32 %sarg7.d.6 to i64
-  %args.p.13 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40161e
-  store i64 %sarg7.6, ptr %args.p.13, align 8  ; 0x40161e
-  %ret.27 = call i64 %fp.6(i64 %sarg0.27, i64 %sarg1.6, i64 %sarg2.6, i64 %sarg3.6, i64 %sarg4.6, i64 %sarg5.6, i64 %ecx.z.6, i64 undef)  ; 0x40161e
+  %ret.27 = call i64 %fp.6(i64 %sarg0.27, i64 %sarg1.6, i64 %sarg2.6, i64 %sarg3.6, i64 %sarg4.6, i64 %sarg5.6, i64 %ecx.z.6, i64 %rdx.phi.6)  ; 0x40161e
   %pops.6 = call i64 @ra_pops_of(i64 %eh.dtor.5)  ; 0x40161e
   %n.8 = trunc i64 %pops.6 to i32
   %pops.a.6 = add i32 %n.8, 4  ; 0x40161e
   %rsp.351 = add i32 %sp.113, %pops.a.6  ; 0x40161e
+  %ret.hi.6 = lshr i64 %ret.27, 32  ; 0x40161e
   br label %eh.destroyed.401540.3
 eh.destroyed.401540.3:  ; 0x40161e
+  %rdx.phi.7 = phi i64 [ %rdx.phi.6, %eh.cleaned.401600.1 ], [ %ret.hi.6, %eh.destroy.401540.3 ]  ; 0x40161e
   %rsp.phi.7 = phi i32 [ %sp.112, %eh.cleaned.401600.1 ], [ %rsp.351, %eh.destroy.401540.3 ]  ; 0x40161e
   %eh.head.1.f8.32 = getelementptr inbounds %S0, ptr %eh.head.1.s, i64 0, i32 2  ; 0x40161e
   store i32 0, ptr %eh.head.1.f8.32, align 1  ; 0x40161e
@@ -4743,19 +4804,7 @@ eh.destroy.401540.4:  ; 0x40163b
   %sarg5.p.5 = inttoptr i64 %sarg5.a.5 to ptr
   %sarg5.d.5 = load i32, ptr %sarg5.p.5, align 4
   %sarg5.5 = zext i32 %sarg5.d.5 to i64
-  %sarg6.a.5 = add i64 %addr.z.242, 28
-  %sarg6.p.5 = inttoptr i64 %sarg6.a.5 to ptr
-  %sarg6.d.5 = load i32, ptr %sarg6.p.5, align 4
-  %sarg6.5 = zext i32 %sarg6.d.5 to i64
-  %args.p.10 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40163b
-  store i64 %sarg6.5, ptr %args.p.10, align 8  ; 0x40163b
-  %sarg7.a.5 = add i64 %addr.z.242, 32
-  %sarg7.p.5 = inttoptr i64 %sarg7.a.5 to ptr
-  %sarg7.d.5 = load i32, ptr %sarg7.p.5, align 4
-  %sarg7.5 = zext i32 %sarg7.d.5 to i64
-  %args.p.11 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40163b
-  store i64 %sarg7.5, ptr %args.p.11, align 8  ; 0x40163b
-  %ret.25 = call i64 %fp.5(i64 %sarg0.25, i64 %sarg1.5, i64 %sarg2.5, i64 %sarg3.5, i64 %sarg4.5, i64 %sarg5.5, i64 %ecx.z.7, i64 undef)  ; 0x40163b
+  %ret.25 = call i64 %fp.5(i64 %sarg0.25, i64 %sarg1.5, i64 %sarg2.5, i64 %sarg3.5, i64 %sarg4.5, i64 %sarg5.5, i64 %ecx.z.7, i64 %rdx.phi.6)  ; 0x40163b
   %pops.5 = call i64 @ra_pops_of(i64 %eh.dtor.6)  ; 0x40163b
   br label %eh.destroyed.401540.4
 eh.destroyed.401540.4:  ; 0x40163b
@@ -5257,25 +5306,15 @@ eh.destroy.401540.5:  ; 0x40163b
   %sarg5.p.4 = inttoptr i64 %sarg5.a.4 to ptr
   %sarg5.d.4 = load i32, ptr %sarg5.p.4, align 4
   %sarg5.4 = zext i32 %sarg5.d.4 to i64
-  %sarg6.a.4 = add i64 %addr.z.347, 28
-  %sarg6.p.4 = inttoptr i64 %sarg6.a.4 to ptr
-  %sarg6.d.4 = load i32, ptr %sarg6.p.4, align 4
-  %sarg6.4 = zext i32 %sarg6.d.4 to i64
-  %args.p.8 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40163b
-  store i64 %sarg6.4, ptr %args.p.8, align 8  ; 0x40163b
-  %sarg7.a.4 = add i64 %addr.z.347, 32
-  %sarg7.p.4 = inttoptr i64 %sarg7.a.4 to ptr
-  %sarg7.d.4 = load i32, ptr %sarg7.p.4, align 4
-  %sarg7.4 = zext i32 %sarg7.d.4 to i64
-  %args.p.9 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40163b
-  store i64 %sarg7.4, ptr %args.p.9, align 8  ; 0x40163b
   %ret.13 = call i64 %fp.4(i64 %sarg0.13, i64 %sarg1.4, i64 %sarg2.4, i64 %sarg3.4, i64 %sarg4.4, i64 %sarg5.4, i64 %ecx.z.8, i64 undef)  ; 0x40163b
   %pops.4 = call i64 @ra_pops_of(i64 %eh.dtor.7)  ; 0x40163b
   %n.10 = trunc i64 %pops.4 to i32
   %pops.a.4 = add i32 %n.10, 4  ; 0x40163b
   %rsp.337 = add i32 %sp.177, %pops.a.4  ; 0x40163b
+  %ret.hi.4 = lshr i64 %ret.13, 32  ; 0x40163b
   br label %eh.destroyed.401540.5
 eh.destroyed.401540.5:  ; 0x40163b
+  %rdx.phi.4 = phi i64 [ undef, %eh.catch1_0.s4.1 ], [ %ret.hi.4, %eh.destroy.401540.5 ]  ; 0x40163b
   %rsp.phi.4 = phi i32 [ %rsp.phi, %eh.catch1_0.s4.1 ], [ %rsp.337, %eh.destroy.401540.5 ]  ; 0x40163b
   %eh.head.f8.24 = getelementptr inbounds %S0, ptr %eh.head.s, i64 0, i32 2  ; 0x40163b
   store i32 0, ptr %eh.head.f8.24, align 1  ; 0x40163b
@@ -5350,25 +5389,15 @@ eh.destroy.401540.6:  ; 0x40163b
   %sarg5.p.3 = inttoptr i64 %sarg5.a.3 to ptr
   %sarg5.d.3 = load i32, ptr %sarg5.p.3, align 4
   %sarg5.3 = zext i32 %sarg5.d.3 to i64
-  %sarg6.a.3 = add i64 %addr.z.359, 28
-  %sarg6.p.3 = inttoptr i64 %sarg6.a.3 to ptr
-  %sarg6.d.3 = load i32, ptr %sarg6.p.3, align 4
-  %sarg6.3 = zext i32 %sarg6.d.3 to i64
-  %args.p.6 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40163b
-  store i64 %sarg6.3, ptr %args.p.6, align 8  ; 0x40163b
-  %sarg7.a.3 = add i64 %addr.z.359, 32
-  %sarg7.p.3 = inttoptr i64 %sarg7.a.3 to ptr
-  %sarg7.d.3 = load i32, ptr %sarg7.p.3, align 4
-  %sarg7.3 = zext i32 %sarg7.d.3 to i64
-  %args.p.7 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40163b
-  store i64 %sarg7.3, ptr %args.p.7, align 8  ; 0x40163b
   %ret.11 = call i64 %fp.3(i64 %sarg0.11, i64 %sarg1.3, i64 %sarg2.3, i64 %sarg3.3, i64 %sarg4.3, i64 %sarg5.3, i64 %ecx.z.9, i64 undef)  ; 0x40163b
   %pops.3 = call i64 @ra_pops_of(i64 %eh.dtor.8)  ; 0x40163b
   %n.12 = trunc i64 %pops.3 to i32
   %pops.a.3 = add i32 %n.12, 4  ; 0x40163b
   %rsp.335 = add i32 %sp.184, %pops.a.3  ; 0x40163b
+  %ret.hi.3 = lshr i64 %ret.11, 32  ; 0x40163b
   br label %eh.destroyed.401540.6
 eh.destroyed.401540.6:  ; 0x40163b
+  %rdx.phi.3 = phi i64 [ undef, %eh.next1_0.s4.1 ], [ %ret.hi.3, %eh.destroy.401540.6 ]  ; 0x40163b
   %rsp.phi.3 = phi i32 [ %rsp.phi, %eh.next1_0.s4.1 ], [ %rsp.335, %eh.destroy.401540.6 ]  ; 0x40163b
   %eh.head.f8.26 = getelementptr inbounds %S0, ptr %eh.head.s, i64 0, i32 2  ; 0x40163b
   store i32 0, ptr %eh.head.f8.26, align 1  ; 0x40163b
@@ -5515,25 +5544,15 @@ eh.destroy.401540.7:  ; 0x40161e
   %sarg5.p.2 = inttoptr i64 %sarg5.a.2 to ptr
   %sarg5.d.2 = load i32, ptr %sarg5.p.2, align 4
   %sarg5.2 = zext i32 %sarg5.d.2 to i64
-  %sarg6.a.2 = add i64 %addr.z.382, 28
-  %sarg6.p.2 = inttoptr i64 %sarg6.a.2 to ptr
-  %sarg6.d.2 = load i32, ptr %sarg6.p.2, align 4
-  %sarg6.2 = zext i32 %sarg6.d.2 to i64
-  %args.p.4 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40161e
-  store i64 %sarg6.2, ptr %args.p.4, align 8  ; 0x40161e
-  %sarg7.a.2 = add i64 %addr.z.382, 32
-  %sarg7.p.2 = inttoptr i64 %sarg7.a.2 to ptr
-  %sarg7.d.2 = load i32, ptr %sarg7.p.2, align 4
-  %sarg7.2 = zext i32 %sarg7.d.2 to i64
-  %args.p.5 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40161e
-  store i64 %sarg7.2, ptr %args.p.5, align 8  ; 0x40161e
   %ret.9 = call i64 %fp.2(i64 %sarg0.9, i64 %sarg1.2, i64 %sarg2.2, i64 %sarg3.2, i64 %sarg4.2, i64 %sarg5.2, i64 %ecx.z.10, i64 undef)  ; 0x40161e
   %pops.2 = call i64 @ra_pops_of(i64 %eh.dtor.9)  ; 0x40161e
   %n.14 = trunc i64 %pops.2 to i32
   %pops.a.2 = add i32 %n.14, 4  ; 0x40161e
   %rsp.333 = add i32 %sp.197, %pops.a.2  ; 0x40161e
+  %ret.hi.2 = lshr i64 %ret.9, 32  ; 0x40161e
   br label %eh.destroyed.401540.7
 eh.destroyed.401540.7:  ; 0x40161e
+  %rdx.phi.2 = phi i64 [ undef, %eh.cleaned.401600.2 ], [ %ret.hi.2, %eh.destroy.401540.7 ]  ; 0x40161e
   %rsp.phi.2 = phi i32 [ %sp.196, %eh.cleaned.401600.2 ], [ %rsp.333, %eh.destroy.401540.7 ]  ; 0x40161e
   %eh.head.f8.30 = getelementptr inbounds %S0, ptr %eh.head.s, i64 0, i32 2  ; 0x40161e
   store i32 0, ptr %eh.head.f8.30, align 1  ; 0x40161e
@@ -5644,25 +5663,15 @@ eh.destroy.401540.8:  ; 0x40161e
   %sarg5.p.1 = inttoptr i64 %sarg5.a.1 to ptr
   %sarg5.d.1 = load i32, ptr %sarg5.p.1, align 4
   %sarg5.1 = zext i32 %sarg5.d.1 to i64
-  %sarg6.a.1 = add i64 %addr.z.403, 28
-  %sarg6.p.1 = inttoptr i64 %sarg6.a.1 to ptr
-  %sarg6.d.1 = load i32, ptr %sarg6.p.1, align 4
-  %sarg6.1 = zext i32 %sarg6.d.1 to i64
-  %args.p.2 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40161e
-  store i64 %sarg6.1, ptr %args.p.2, align 8  ; 0x40161e
-  %sarg7.a.1 = add i64 %addr.z.403, 32
-  %sarg7.p.1 = inttoptr i64 %sarg7.a.1 to ptr
-  %sarg7.d.1 = load i32, ptr %sarg7.p.1, align 4
-  %sarg7.1 = zext i32 %sarg7.d.1 to i64
-  %args.p.3 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40161e
-  store i64 %sarg7.1, ptr %args.p.3, align 8  ; 0x40161e
   %ret.6 = call i64 %fp.1(i64 %sarg0.6, i64 %sarg1.1, i64 %sarg2.1, i64 %sarg3.1, i64 %sarg4.1, i64 %sarg5.1, i64 %ecx.z.11, i64 undef)  ; 0x40161e
   %pops.1 = call i64 @ra_pops_of(i64 %eh.dtor.10)  ; 0x40161e
   %n.16 = trunc i64 %pops.1 to i32
   %pops.a.1 = add i32 %n.16, 4  ; 0x40161e
   %rsp.330 = add i32 %sp.210, %pops.a.1  ; 0x40161e
+  %ret.hi.1 = lshr i64 %ret.6, 32  ; 0x40161e
   br label %eh.destroyed.401540.8
 eh.destroyed.401540.8:  ; 0x40161e
+  %rdx.phi.1 = phi i64 [ undef, %eh.cleaned.401600.3 ], [ %ret.hi.1, %eh.destroy.401540.8 ]  ; 0x40161e
   %rsp.phi.1 = phi i32 [ %sp.209, %eh.cleaned.401600.3 ], [ %rsp.330, %eh.destroy.401540.8 ]  ; 0x40161e
   %eh.head.f8.32 = getelementptr inbounds %S0, ptr %eh.head.s, i64 0, i32 2  ; 0x40161e
   store i32 0, ptr %eh.head.f8.32, align 1  ; 0x40161e
@@ -5748,18 +5757,6 @@ eh.destroy.401540.9:  ; 0x40163b
   %sarg5.p = inttoptr i64 %sarg5.a to ptr
   %sarg5.d = load i32, ptr %sarg5.p, align 4
   %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.a = add i64 %addr.z.417, 28
-  %sarg6.p = inttoptr i64 %sarg6.a to ptr
-  %sarg6.d = load i32, ptr %sarg6.p, align 4
-  %sarg6 = zext i32 %sarg6.d to i64
-  %args.p = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40163b
-  store i64 %sarg6, ptr %args.p, align 8  ; 0x40163b
-  %sarg7.a = add i64 %addr.z.417, 32
-  %sarg7.p = inttoptr i64 %sarg7.a to ptr
-  %sarg7.d = load i32, ptr %sarg7.p, align 4
-  %sarg7 = zext i32 %sarg7.d to i64
-  %args.p.1 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40163b
-  store i64 %sarg7, ptr %args.p.1, align 8  ; 0x40163b
   %ret.4 = call i64 %fp(i64 %sarg0.4, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %ecx.z.12, i64 undef)  ; 0x40163b
   %pops = call i64 @ra_pops_of(i64 %eh.dtor.11)  ; 0x40163b
   br label %eh.destroyed.401540.9
@@ -5788,7 +5785,7 @@ eh.ok.401572:  ; 0x40163b
   br i1 %eh.thrown.33, label %eh.landing, label %eh.ok.40157c
 eh.ok.40157c:  ; 0x40157c
   %sum.83 = add i32 %sarg0.a.1, 4  ; 0x401581
-  %not = icmp ne i32 %arg0, 0  ; 0x401586
+  %not = icmp ne i32 %varargs.0.w, 0  ; 0x401586
   br i1 %not, label %b_4015b6, label %b_401588
 eh.ok.40158d:  ; 0x40158d
   %sum.84 = add i32 %sarg0.a.2, 4  ; 0x401592
@@ -5804,13 +5801,76 @@ eh.ok.40159a:  ; 0x40159a
   br label %b_4015a4
 }
 
-define i64 @F_004016b0(i32 %arg0) {  ; 0x4016b0
+define i64 @F_004016b0(i64 %argblock) {  ; 0x4016b0
 b_4016b0:  ; 0x4016b0
-  %frame = alloca [4268 x i8], align 16
+  %argblock.s = inttoptr i64 %argblock to ptr
+  %frame = alloca [4320 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 4188
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
-  store i32 %arg0, ptr %stack.arg0.p, align 4
+  %argblock.f0 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 0
+  %varargs.0.w = load i32, ptr %argblock.f0, align 4
+  %varargs.0.s = getelementptr inbounds i8, ptr %frame.top, i64 4
+  store i32 %varargs.0.w, ptr %varargs.0.s, align 4
+  %argblock.f4 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 1
+  %varargs.1.w = load i32, ptr %argblock.f4, align 4
+  %varargs.1.s = getelementptr inbounds i8, ptr %frame.top, i64 8
+  store i32 %varargs.1.w, ptr %varargs.1.s, align 4
+  %argblock.f8 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 2
+  %varargs.2.w = load i32, ptr %argblock.f8, align 4
+  %varargs.2.s = getelementptr inbounds i8, ptr %frame.top, i64 12
+  store i32 %varargs.2.w, ptr %varargs.2.s, align 4
+  %argblock.f12 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 3
+  %varargs.3.w = load i32, ptr %argblock.f12, align 4
+  %varargs.3.s = getelementptr inbounds i8, ptr %frame.top, i64 16
+  store i32 %varargs.3.w, ptr %varargs.3.s, align 4
+  %argblock.f16 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 4
+  %varargs.4.w = load i32, ptr %argblock.f16, align 4
+  %varargs.4.s = getelementptr inbounds i8, ptr %frame.top, i64 20
+  store i32 %varargs.4.w, ptr %varargs.4.s, align 4
+  %argblock.f20 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 5
+  %varargs.5.w = load i32, ptr %argblock.f20, align 4
+  %varargs.5.s = getelementptr inbounds i8, ptr %frame.top, i64 24
+  store i32 %varargs.5.w, ptr %varargs.5.s, align 4
+  %argblock.f24 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 6
+  %varargs.6.w = load i32, ptr %argblock.f24, align 4
+  %varargs.6.s = getelementptr inbounds i8, ptr %frame.top, i64 28
+  store i32 %varargs.6.w, ptr %varargs.6.s, align 4
+  %argblock.f28 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 7
+  %varargs.7.w = load i32, ptr %argblock.f28, align 4
+  %varargs.7.s = getelementptr inbounds i8, ptr %frame.top, i64 32
+  store i32 %varargs.7.w, ptr %varargs.7.s, align 4
+  %argblock.f32 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 8
+  %varargs.8.w = load i32, ptr %argblock.f32, align 4
+  %varargs.8.s = getelementptr inbounds i8, ptr %frame.top, i64 36
+  store i32 %varargs.8.w, ptr %varargs.8.s, align 4
+  %argblock.f36 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 9
+  %varargs.9.w = load i32, ptr %argblock.f36, align 4
+  %varargs.9.s = getelementptr inbounds i8, ptr %frame.top, i64 40
+  store i32 %varargs.9.w, ptr %varargs.9.s, align 4
+  %argblock.f40 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 10
+  %varargs.10.w = load i32, ptr %argblock.f40, align 4
+  %varargs.10.s = getelementptr inbounds i8, ptr %frame.top, i64 44
+  store i32 %varargs.10.w, ptr %varargs.10.s, align 4
+  %argblock.f44 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 11
+  %varargs.11.w = load i32, ptr %argblock.f44, align 4
+  %varargs.11.s = getelementptr inbounds i8, ptr %frame.top, i64 48
+  store i32 %varargs.11.w, ptr %varargs.11.s, align 4
+  %argblock.f48 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 12
+  %varargs.12.w = load i32, ptr %argblock.f48, align 4
+  %varargs.12.s = getelementptr inbounds i8, ptr %frame.top, i64 52
+  store i32 %varargs.12.w, ptr %varargs.12.s, align 4
+  %argblock.f52 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 13
+  %varargs.13.w = load i32, ptr %argblock.f52, align 4
+  %varargs.13.s = getelementptr inbounds i8, ptr %frame.top, i64 56
+  store i32 %varargs.13.w, ptr %varargs.13.s, align 4
+  %argblock.f56 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 14
+  %varargs.14.w = load i32, ptr %argblock.f56, align 4
+  %varargs.14.s = getelementptr inbounds i8, ptr %frame.top, i64 60
+  store i32 %varargs.14.w, ptr %varargs.14.s, align 4
+  %argblock.f60 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 15
+  %varargs.15.w = load i32, ptr %argblock.f60, align 4
+  %varargs.15.s = getelementptr inbounds i8, ptr %frame.top, i64 64
+  store i32 %varargs.15.w, ptr %varargs.15.s, align 4
   %esp = trunc i64 %rsp0 to i32  ; 0x4016b0
   %sp = sub i32 %esp, 4  ; 0x4016b0
   %sp.1 = sub i32 %sp, 4  ; 0x4016b3
@@ -5846,7 +5906,7 @@ b_4016b0:  ; 0x4016b0
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4016e5
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.4016e5
 b_401704:  ; 0x401704
-  %sum.22 = add i32 %arg0, 230  ; 0x401704
+  %sum.22 = add i32 %varargs.0.w, 230  ; 0x401704
   %sp.52 = sub i32 %sum.21, 4  ; 0x40170a
   store i32 %sum.22, ptr %st.p.9, align 1  ; 0x40170a
   %sp.53 = sub i32 %sp.52, 4  ; 0x40170b
@@ -5907,14 +5967,14 @@ eh.landing:  ; 0x4016e5
   %eh.head.s = inttoptr i64 %eh.head.s.w to ptr  ; 0x4016e5
   %eh.frame = sub i32 %eh.head, -24  ; 0x4016e5
   %eh.reg = add i32 %eh.frame, -24  ; 0x4016e5
-  %eh.head.f4 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 1  ; 0x4016e5
+  %eh.head.f4 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 1  ; 0x4016e5
   %eh.handler = load i32, ptr %eh.head.f4, align 1  ; 0x4016e5
   %eh.ours = icmp eq i32 %eh.handler, 4201504  ; 0x4016e5
   %eh.ours.1 = icmp eq i32 %eh.handler, ptrtoint (ptr @U_00401c20 to i32)  ; 0x4016e5
   %eh.ours.2 = or i1 %eh.ours, %eh.ours.1  ; 0x4016e5
   br i1 %eh.ours.2, label %eh.dispatch, label %eh.foreign
 eh.dispatch:  ; 0x4016e5
-  %eh.head.f8 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4016e5
+  %eh.head.f8 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4016e5
   %eh.state = load i32, ptr %eh.head.f8, align 1  ; 0x4016e5
   switch i32 %eh.state, label %eh.state.bad [ i32 -1, label %eh.state_none i32 0, label %eh.state0 i32 1, label %eh.state1 i32 2, label %eh.state2.1 ]
 eh.foreign:  ; 0x4016e5
@@ -5925,10 +5985,10 @@ eh.state.bad:  ; 0x4016e5
   unreachable
 eh.state_none:  ; 0x4016e5
   call void @ra_eh_suspend()  ; 0x4016e5
-  %eh.head.f8.1 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4016e5
+  %eh.head.f8.1 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4016e5
   store i32 -1, ptr %eh.head.f8.1, align 1  ; 0x4016e5
   call void @ra_eh_resume()  ; 0x4016e5
-  %eh.head.f0 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 0  ; 0x4016e5
+  %eh.head.f0 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 0  ; 0x4016e5
   %eh.next = load i32, ptr %eh.head.f0, align 1  ; 0x4016e5
   %teb.6 = call i64 @ra_teb()  ; 0x4016e5
   %teb.7 = trunc i64 %teb.6 to i32  ; 0x4016e5
@@ -5944,15 +6004,15 @@ eh.state0:  ; 0x4016e5
   %eh.hit = icmp ne i64 %eh.caught, 0  ; 0x4016e5
   br i1 %eh.hit, label %eh.catch0_0.s0, label %eh.next0_0.s0
 eh.catch0_0.s0:  ; 0x4016e5
-  %eh.head.f8.2 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4016e5
+  %eh.head.f8.2 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4016e5
   store i32 0, ptr %eh.head.f8.2, align 1  ; 0x4016e5
   br label %eh.enter0_0
 eh.next0_0.s0:  ; 0x4016e5
   call void @ra_eh_suspend()  ; 0x40178c
-  %eh.head.f8.3 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x40178c
+  %eh.head.f8.3 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x40178c
   store i32 -1, ptr %eh.head.f8.3, align 1  ; 0x40178c
   call void @ra_eh_resume()  ; 0x40178c
-  %eh.head.f0.1 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 0  ; 0x40178c
+  %eh.head.f0.1 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 0  ; 0x40178c
   %eh.next.1 = load i32, ptr %eh.head.f0.1, align 1  ; 0x40178c
   %teb.8 = call i64 @ra_teb()  ; 0x40178c
   %teb.9 = trunc i64 %teb.8 to i32  ; 0x40178c
@@ -5963,7 +6023,7 @@ eh.next0_0.s0:  ; 0x4016e5
 eh.enter0_0:  ; 0x4016e5
   %rsp.phi.3 = phi i32 [ %rsp.phi, %eh.catch0_0.s0 ], [ %sp.40, %eh.cleaned.401790 ]  ; 0x4016e5
   call void @ra_eh_enter_catch()  ; 0x4016e5
-  %eh.head.f8.4 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4016e5
+  %eh.head.f8.4 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4016e5
   store i32 2, ptr %eh.head.f8.4, align 1  ; 0x4016e5
   %eh.esp.p = sub i32 %eh.reg, 4  ; 0x4016e5
   %addr.z.21 = zext i32 %eh.esp.p to i64  ; 0x4016e5
@@ -6040,18 +6100,6 @@ eh.destroy.40178c:  ; 0x40178c
   %sarg5.p.3 = inttoptr i64 %sarg5.a.3 to ptr
   %sarg5.d.3 = load i32, ptr %sarg5.p.3, align 4
   %sarg5.3 = zext i32 %sarg5.d.3 to i64
-  %sarg6.a.3 = add i64 %addr.z.30, 28
-  %sarg6.p.3 = inttoptr i64 %sarg6.a.3 to ptr
-  %sarg6.d.3 = load i32, ptr %sarg6.p.3, align 4
-  %sarg6.3 = zext i32 %sarg6.d.3 to i64
-  %args.p.6 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40178c
-  store i64 %sarg6.3, ptr %args.p.6, align 8  ; 0x40178c
-  %sarg7.a.3 = add i64 %addr.z.30, 32
-  %sarg7.p.3 = inttoptr i64 %sarg7.a.3 to ptr
-  %sarg7.d.3 = load i32, ptr %sarg7.p.3, align 4
-  %sarg7.3 = zext i32 %sarg7.d.3 to i64
-  %args.p.7 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40178c
-  store i64 %sarg7.3, ptr %args.p.7, align 8  ; 0x40178c
   %ret.15 = call i64 %fp.3(i64 %sarg0.15, i64 %sarg1.3, i64 %sarg2.3, i64 %sarg3.3, i64 %sarg4.3, i64 %sarg5.3, i64 %ecx.z.1, i64 undef)  ; 0x40178c
   %pops.3 = call i64 @ra_pops_of(i64 %eh.dtor)  ; 0x40178c
   br label %eh.destroyed.40178c
@@ -6066,7 +6114,7 @@ eh.state1:  ; 0x40178c
   %eh.hit.1 = icmp ne i64 %eh.caught.1, 0  ; 0x40178c
   br i1 %eh.hit.1, label %eh.catch0_0.s1, label %eh.next0_0.s1
 eh.catch0_0.s1:  ; 0x40178c
-  %eh.head.f8.5 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x40178c
+  %eh.head.f8.5 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x40178c
   store i32 0, ptr %eh.head.f8.5, align 1  ; 0x40178c
   %sp.11 = sub i32 %rsp.phi, 4  ; 0x40178c
   %addr.z.36 = zext i32 %sp.11 to i64  ; 0x40178c
@@ -6075,7 +6123,7 @@ eh.catch0_0.s1:  ; 0x40178c
   br label %f2_401790
 eh.next0_0.s1:  ; 0x40178c
   call void @ra_eh_suspend()  ; 0x4017b6
-  %eh.head.f8.6 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4017b6
+  %eh.head.f8.6 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4017b6
   store i32 0, ptr %eh.head.f8.6, align 1  ; 0x4017b6
   %sp.41 = sub i32 %rsp.phi, 4  ; 0x4017b6
   %addr.z.98 = zext i32 %sp.41 to i64  ; 0x4017b6
@@ -6083,7 +6131,7 @@ eh.next0_0.s1:  ; 0x40178c
   store i32 0, ptr %st.p.65, align 1  ; 0x4017b6
   br label %f6_401790
 eh.cleaned.401790:  ; 0x40178c
-  %eh.head.f8.7 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4017b6
+  %eh.head.f8.7 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4017b6
   store i32 0, ptr %eh.head.f8.7, align 1  ; 0x4017b6
   br label %eh.enter0_0
 f2_401790:  ; 0x401790
@@ -6092,7 +6140,7 @@ f2_401790:  ; 0x401790
   %st.p.25 = inttoptr i64 %addr.z.37 to ptr  ; 0x401790
   store i32 %eh.frame.3, ptr %st.p.25, align 1  ; 0x401790
   %diff.2 = sub i32 %sp.12, 8  ; 0x401791
-  %eh.head.f32 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 4  ; 0x401797
+  %eh.head.f32 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 4  ; 0x401797
   %m.4 = load i32, ptr %eh.head.f32, align 1  ; 0x401797
   %sum.3 = add i32 %m.4, 230  ; 0x40179a
   %sp.13 = sub i32 %diff.2, 4  ; 0x40179f
@@ -6117,14 +6165,14 @@ eh.landing.1:  ; 0x4017a0
   %eh.head.1.s = inttoptr i64 %eh.head.1.s.w to ptr  ; 0x4017a0
   %eh.frame.5 = sub i32 %eh.head.1, -24  ; 0x4017a0
   %eh.reg.1 = add i32 %eh.frame.5, -24  ; 0x4017a0
-  %eh.head.1.f4 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 1  ; 0x4017a0
+  %eh.head.1.f4 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 1  ; 0x4017a0
   %eh.handler.1 = load i32, ptr %eh.head.1.f4, align 1  ; 0x4017a0
   %eh.ours.3 = icmp eq i32 %eh.handler.1, 4201504  ; 0x4017a0
   %eh.ours.4 = icmp eq i32 %eh.handler.1, ptrtoint (ptr @U_00401c20 to i32)  ; 0x4017a0
   %eh.ours.5 = or i1 %eh.ours.3, %eh.ours.4  ; 0x4017a0
   br i1 %eh.ours.5, label %eh.dispatch.1, label %eh.foreign.1
 eh.dispatch.1:  ; 0x4017a0
-  %eh.head.1.f8 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017a0
+  %eh.head.1.f8 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017a0
   %eh.state.1 = load i32, ptr %eh.head.1.f8, align 1  ; 0x4017a0
   switch i32 %eh.state.1, label %eh.state.bad.1 [ i32 -1, label %eh.state_none.1 i32 0, label %eh.state0.1 i32 1, label %eh.state1.1 i32 2, label %eh.state2 ]
 eh.foreign.1:  ; 0x4017a0
@@ -6135,10 +6183,10 @@ eh.state.bad.1:  ; 0x4017a0
   unreachable
 eh.state_none.1:  ; 0x4017a0
   call void @ra_eh_suspend()  ; 0x4017a0
-  %eh.head.1.f8.1 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017a0
+  %eh.head.1.f8.1 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017a0
   store i32 -1, ptr %eh.head.1.f8.1, align 1  ; 0x4017a0
   call void @ra_eh_resume()  ; 0x4017a0
-  %eh.head.1.f0 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 0  ; 0x4017a0
+  %eh.head.1.f0 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 0  ; 0x4017a0
   %eh.next.2 = load i32, ptr %eh.head.1.f0, align 1  ; 0x4017a0
   %teb.12 = call i64 @ra_teb()  ; 0x4017a0
   %teb.13 = trunc i64 %teb.12 to i32  ; 0x4017a0
@@ -6154,15 +6202,15 @@ eh.state0.1:  ; 0x4017a0
   %eh.hit.2 = icmp ne i64 %eh.caught.2, 0  ; 0x4017a0
   br i1 %eh.hit.2, label %eh.catch0_0.s0.1, label %eh.next0_0.s0.1
 eh.catch0_0.s0.1:  ; 0x4017a0
-  %eh.head.1.f8.2 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017a0
+  %eh.head.1.f8.2 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017a0
   store i32 0, ptr %eh.head.1.f8.2, align 1  ; 0x4017a0
   br label %eh.enter0_0.1
 eh.next0_0.s0.1:  ; 0x4017a0
   call void @ra_eh_suspend()  ; 0x40178c
-  %eh.head.1.f8.3 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x40178c
+  %eh.head.1.f8.3 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x40178c
   store i32 -1, ptr %eh.head.1.f8.3, align 1  ; 0x40178c
   call void @ra_eh_resume()  ; 0x40178c
-  %eh.head.1.f0.1 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 0  ; 0x40178c
+  %eh.head.1.f0.1 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 0  ; 0x40178c
   %eh.next.3 = load i32, ptr %eh.head.1.f0.1, align 1  ; 0x40178c
   %teb.14 = call i64 @ra_teb()  ; 0x40178c
   %teb.15 = trunc i64 %teb.14 to i32  ; 0x40178c
@@ -6173,7 +6221,7 @@ eh.next0_0.s0.1:  ; 0x4017a0
 eh.enter0_0.1:  ; 0x4017a0
   %rsp.phi.2 = phi i32 [ %rsp.phi.1, %eh.catch0_0.s0.1 ], [ %sp.27, %eh.cleaned.401790.1 ]  ; 0x4017a0
   call void @ra_eh_enter_catch()  ; 0x4017a0
-  %eh.head.1.f8.4 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017a0
+  %eh.head.1.f8.4 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017a0
   store i32 2, ptr %eh.head.1.f8.4, align 1  ; 0x4017a0
   %eh.esp.p.3 = sub i32 %eh.reg.1, 4  ; 0x4017a0
   %addr.z.49 = zext i32 %eh.esp.p.3 to i64  ; 0x4017a0
@@ -6250,18 +6298,6 @@ eh.destroy.40178c.1:  ; 0x40178c
   %sarg5.p.2 = inttoptr i64 %sarg5.a.2 to ptr
   %sarg5.d.2 = load i32, ptr %sarg5.p.2, align 4
   %sarg5.2 = zext i32 %sarg5.d.2 to i64
-  %sarg6.a.2 = add i64 %addr.z.58, 28
-  %sarg6.p.2 = inttoptr i64 %sarg6.a.2 to ptr
-  %sarg6.d.2 = load i32, ptr %sarg6.p.2, align 4
-  %sarg6.2 = zext i32 %sarg6.d.2 to i64
-  %args.p.4 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x40178c
-  store i64 %sarg6.2, ptr %args.p.4, align 8  ; 0x40178c
-  %sarg7.a.2 = add i64 %addr.z.58, 32
-  %sarg7.p.2 = inttoptr i64 %sarg7.a.2 to ptr
-  %sarg7.d.2 = load i32, ptr %sarg7.p.2, align 4
-  %sarg7.2 = zext i32 %sarg7.d.2 to i64
-  %args.p.5 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x40178c
-  store i64 %sarg7.2, ptr %args.p.5, align 8  ; 0x40178c
   %ret.14 = call i64 %fp.2(i64 %sarg0.14, i64 %sarg1.2, i64 %sarg2.2, i64 %sarg3.2, i64 %sarg4.2, i64 %sarg5.2, i64 %ecx.z.2, i64 undef)  ; 0x40178c
   %pops.2 = call i64 @ra_pops_of(i64 %eh.dtor.1)  ; 0x40178c
   br label %eh.destroyed.40178c.1
@@ -6276,7 +6312,7 @@ eh.state1.1:  ; 0x40178c
   %eh.hit.3 = icmp ne i64 %eh.caught.3, 0  ; 0x40178c
   br i1 %eh.hit.3, label %eh.catch0_0.s1.1, label %eh.next0_0.s1.1
 eh.catch0_0.s1.1:  ; 0x40178c
-  %eh.head.1.f8.5 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x40178c
+  %eh.head.1.f8.5 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x40178c
   store i32 0, ptr %eh.head.1.f8.5, align 1  ; 0x40178c
   %sp.20 = sub i32 %rsp.phi.1, 4  ; 0x40178c
   %addr.z.64 = zext i32 %sp.20 to i64  ; 0x40178c
@@ -6285,7 +6321,7 @@ eh.catch0_0.s1.1:  ; 0x40178c
   br label %f4_401790
 eh.next0_0.s1.1:  ; 0x40178c
   call void @ra_eh_suspend()  ; 0x4017b6
-  %eh.head.1.f8.6 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017b6
+  %eh.head.1.f8.6 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017b6
   store i32 0, ptr %eh.head.1.f8.6, align 1  ; 0x4017b6
   %sp.28 = sub i32 %rsp.phi.1, 4  ; 0x4017b6
   %addr.z.75 = zext i32 %sp.28 to i64  ; 0x4017b6
@@ -6293,7 +6329,7 @@ eh.next0_0.s1.1:  ; 0x40178c
   store i32 0, ptr %st.p.49, align 1  ; 0x4017b6
   br label %f5_401790
 eh.cleaned.401790.1:  ; 0x40178c
-  %eh.head.1.f8.7 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017b6
+  %eh.head.1.f8.7 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017b6
   store i32 0, ptr %eh.head.1.f8.7, align 1  ; 0x4017b6
   br label %eh.enter0_0.1
 f4_401790:  ; 0x401790
@@ -6302,7 +6338,7 @@ f4_401790:  ; 0x401790
   %st.p.42 = inttoptr i64 %addr.z.65 to ptr  ; 0x401790
   store i32 %eh.frame.8, ptr %st.p.42, align 1  ; 0x401790
   %diff.4 = sub i32 %sp.21, 8  ; 0x401791
-  %eh.head.1.f32 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 4  ; 0x401797
+  %eh.head.1.f32 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 4  ; 0x401797
   %m.7 = load i32, ptr %eh.head.1.f32, align 1  ; 0x401797
   %sum.7 = add i32 %m.7, 230  ; 0x40179a
   %sp.22 = sub i32 %diff.4, 4  ; 0x40179f
@@ -6333,10 +6369,10 @@ eh.ok.4017ad:  ; 0x4017ad
   %sp.27 = add i32 %sp.26, 4  ; 0x4017b6
   br label %eh.cleaned.401790.1
 eh.cleaned.401790.2:  ; 0x4017b6
-  %eh.head.1.f8.8 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017b6
+  %eh.head.1.f8.8 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017b6
   store i32 -1, ptr %eh.head.1.f8.8, align 1  ; 0x4017b6
   call void @ra_eh_resume()  ; 0x4017b6
-  %eh.head.1.f0.2 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 0  ; 0x4017b6
+  %eh.head.1.f0.2 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 0  ; 0x4017b6
   %eh.next.4 = load i32, ptr %eh.head.1.f0.2, align 1  ; 0x4017b6
   %teb.16 = call i64 @ra_teb()  ; 0x4017b6
   %teb.17 = trunc i64 %teb.16 to i32  ; 0x4017b6
@@ -6350,7 +6386,7 @@ f5_401790:  ; 0x401790
   %st.p.50 = inttoptr i64 %addr.z.76 to ptr  ; 0x401790
   store i32 %eh.frame.8, ptr %st.p.50, align 1  ; 0x401790
   %diff.5 = sub i32 %sp.29, 8  ; 0x401791
-  %eh.head.1.f32.1 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 4  ; 0x401797
+  %eh.head.1.f32.1 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 4  ; 0x401797
   %m.8 = load i32, ptr %eh.head.1.f32.1, align 1  ; 0x401797
   %sum.11 = add i32 %m.8, 230  ; 0x40179a
   %sp.30 = sub i32 %diff.5, 4  ; 0x40179f
@@ -6422,27 +6458,15 @@ eh.destroy.4016b0:  ; 0x4017b6
   %sarg5.p.1 = inttoptr i64 %sarg5.a.1 to ptr
   %sarg5.d.1 = load i32, ptr %sarg5.p.1, align 4
   %sarg5.1 = zext i32 %sarg5.d.1 to i64
-  %sarg6.a.1 = add i64 %addr.z.88, 28
-  %sarg6.p.1 = inttoptr i64 %sarg6.a.1 to ptr
-  %sarg6.d.1 = load i32, ptr %sarg6.p.1, align 4
-  %sarg6.1 = zext i32 %sarg6.d.1 to i64
-  %args.p.2 = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x4017b6
-  store i64 %sarg6.1, ptr %args.p.2, align 8  ; 0x4017b6
-  %sarg7.a.1 = add i64 %addr.z.88, 32
-  %sarg7.p.1 = inttoptr i64 %sarg7.a.1 to ptr
-  %sarg7.d.1 = load i32, ptr %sarg7.p.1, align 4
-  %sarg7.1 = zext i32 %sarg7.d.1 to i64
-  %args.p.3 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x4017b6
-  store i64 %sarg7.1, ptr %args.p.3, align 8  ; 0x4017b6
   %ret.9 = call i64 %fp.1(i64 %sarg0.9, i64 %sarg1.1, i64 %sarg2.1, i64 %sarg3.1, i64 %sarg4.1, i64 %sarg5.1, i64 %ecx.z.3, i64 undef)  ; 0x4017b6
   %pops.1 = call i64 @ra_pops_of(i64 %eh.dtor.2)  ; 0x4017b6
   br label %eh.destroyed.4016b0
 eh.destroyed.4016b0:  ; 0x4017b6
   %rax.phi.3 = phi i64 [ %rax.phi.2, %eh.state2 ], [ %ret.9, %eh.destroy.4016b0 ]  ; 0x4017b6
-  %eh.head.1.f8.9 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017b6
+  %eh.head.1.f8.9 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 2  ; 0x4017b6
   store i32 -1, ptr %eh.head.1.f8.9, align 1  ; 0x4017b6
   call void @ra_eh_resume()  ; 0x4017b6
-  %eh.head.1.f0.3 = getelementptr inbounds %S1, ptr %eh.head.1.s, i64 0, i32 0  ; 0x4017b6
+  %eh.head.1.f0.3 = getelementptr inbounds %S2, ptr %eh.head.1.s, i64 0, i32 0  ; 0x4017b6
   %eh.next.5 = load i32, ptr %eh.head.1.f0.3, align 1  ; 0x4017b6
   %teb.18 = call i64 @ra_teb()  ; 0x4017b6
   %teb.19 = trunc i64 %teb.18 to i32  ; 0x4017b6
@@ -6468,10 +6492,10 @@ eh.ok.4017ad.2:  ; 0x4017ad
   %sp.40 = add i32 %sp.39, 4  ; 0x4017b6
   br label %eh.cleaned.401790
 eh.cleaned.401790.3:  ; 0x4017b6
-  %eh.head.f8.8 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4017b6
+  %eh.head.f8.8 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4017b6
   store i32 -1, ptr %eh.head.f8.8, align 1  ; 0x4017b6
   call void @ra_eh_resume()  ; 0x4017b6
-  %eh.head.f0.2 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 0  ; 0x4017b6
+  %eh.head.f0.2 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 0  ; 0x4017b6
   %eh.next.6 = load i32, ptr %eh.head.f0.2, align 1  ; 0x4017b6
   %teb.20 = call i64 @ra_teb()  ; 0x4017b6
   %teb.21 = trunc i64 %teb.20 to i32  ; 0x4017b6
@@ -6485,7 +6509,7 @@ f6_401790:  ; 0x401790
   %st.p.66 = inttoptr i64 %addr.z.99 to ptr  ; 0x401790
   store i32 %eh.frame.3, ptr %st.p.66, align 1  ; 0x401790
   %diff.6 = sub i32 %sp.42, 8  ; 0x401791
-  %eh.head.f32.1 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 4  ; 0x401797
+  %eh.head.f32.1 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 4  ; 0x401797
   %m.9 = load i32, ptr %eh.head.f32.1, align 1  ; 0x401797
   %sum.17 = add i32 %m.9, 230  ; 0x40179a
   %sp.43 = sub i32 %diff.6, 4  ; 0x40179f
@@ -6557,27 +6581,15 @@ eh.destroy.4016b0.1:  ; 0x4017b6
   %sarg5.p = inttoptr i64 %sarg5.a to ptr
   %sarg5.d = load i32, ptr %sarg5.p, align 4
   %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.a = add i64 %addr.z.111, 28
-  %sarg6.p = inttoptr i64 %sarg6.a to ptr
-  %sarg6.d = load i32, ptr %sarg6.p, align 4
-  %sarg6 = zext i32 %sarg6.d to i64
-  %args.p = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x4017b6
-  store i64 %sarg6, ptr %args.p, align 8  ; 0x4017b6
-  %sarg7.a = add i64 %addr.z.111, 32
-  %sarg7.p = inttoptr i64 %sarg7.a to ptr
-  %sarg7.d = load i32, ptr %sarg7.p, align 4
-  %sarg7 = zext i32 %sarg7.d to i64
-  %args.p.1 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x4017b6
-  store i64 %sarg7, ptr %args.p.1, align 8  ; 0x4017b6
   %ret.4 = call i64 %fp(i64 %sarg0.4, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %ecx.z.4, i64 undef)  ; 0x4017b6
   %pops = call i64 @ra_pops_of(i64 %eh.dtor.3)  ; 0x4017b6
   br label %eh.destroyed.4016b0.1
 eh.destroyed.4016b0.1:  ; 0x4017b6
   %rax.phi.1 = phi i64 [ %rax.phi, %eh.state2.1 ], [ %ret.4, %eh.destroy.4016b0.1 ]  ; 0x4017b6
-  %eh.head.f8.9 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 2  ; 0x4017b6
+  %eh.head.f8.9 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 2  ; 0x4017b6
   store i32 -1, ptr %eh.head.f8.9, align 1  ; 0x4017b6
   call void @ra_eh_resume()  ; 0x4017b6
-  %eh.head.f0.3 = getelementptr inbounds %S1, ptr %eh.head.s, i64 0, i32 0  ; 0x4017b6
+  %eh.head.f0.3 = getelementptr inbounds %S2, ptr %eh.head.s, i64 0, i32 0  ; 0x4017b6
   %eh.next.7 = load i32, ptr %eh.head.f0.3, align 1  ; 0x4017b6
   %teb.22 = call i64 @ra_teb()  ; 0x4017b6
   %teb.23 = trunc i64 %teb.22 to i32  ; 0x4017b6
@@ -6587,7 +6599,7 @@ eh.destroyed.4016b0.1:  ; 0x4017b6
   ret i64 %rax.phi.1
 eh.ok.4016e5:  ; 0x4017b6
   %sum.20 = add i32 %sarg0.a, 4  ; 0x4016ea
-  %addr.18 = add i32 %arg0, 130  ; 0x4016ed
+  %addr.18 = add i32 %varargs.0.w, 130  ; 0x4016ed
   %sp.50 = sub i32 %sum.20, 4  ; 0x4016f3
   store i32 %addr.18, ptr %st.p.9, align 1  ; 0x4016f3
   %sp.51 = sub i32 %sp.50, 4  ; 0x4016f4
@@ -6598,7 +6610,7 @@ eh.ok.4016e5:  ; 0x4017b6
   br i1 %eh.thrown.9, label %eh.landing, label %eh.ok.4016f4
 eh.ok.4016f4:  ; 0x4016f4
   %sum.21 = add i32 %sarg0.a.1, 4  ; 0x4016f9
-  %addr.19 = add i32 %arg0, 60  ; 0x4016fc
+  %addr.19 = add i32 %varargs.0.w, 60  ; 0x4016fc
   %not = icmp uge i32 %addr.19, 61  ; 0x401702
   br i1 %not, label %b_401737, label %b_401704
 eh.ok.40170b:  ; 0x40170b
@@ -6625,13 +6637,76 @@ b_4017c0:  ; 0x4017c0
   ret i64 %al.z
 }
 
-define i64 @F_004017e0(i32 %arg0) {  ; 0x4017e0
+define i64 @F_004017e0(i64 %argblock) {  ; 0x4017e0
 b_4017e0:  ; 0x4017e0
-  %frame = alloca [4300 x i8], align 16
+  %argblock.s = inttoptr i64 %argblock to ptr
+  %frame = alloca [4352 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 4220
   %rsp0 = ptrtoint ptr %frame.top to i64
-  %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
-  store i32 %arg0, ptr %stack.arg0.p, align 4
+  %argblock.f0 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 0
+  %varargs.0.w = load i32, ptr %argblock.f0, align 4
+  %varargs.0.s = getelementptr inbounds i8, ptr %frame.top, i64 4
+  store i32 %varargs.0.w, ptr %varargs.0.s, align 4
+  %argblock.f4 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 1
+  %varargs.1.w = load i32, ptr %argblock.f4, align 4
+  %varargs.1.s = getelementptr inbounds i8, ptr %frame.top, i64 8
+  store i32 %varargs.1.w, ptr %varargs.1.s, align 4
+  %argblock.f8 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 2
+  %varargs.2.w = load i32, ptr %argblock.f8, align 4
+  %varargs.2.s = getelementptr inbounds i8, ptr %frame.top, i64 12
+  store i32 %varargs.2.w, ptr %varargs.2.s, align 4
+  %argblock.f12 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 3
+  %varargs.3.w = load i32, ptr %argblock.f12, align 4
+  %varargs.3.s = getelementptr inbounds i8, ptr %frame.top, i64 16
+  store i32 %varargs.3.w, ptr %varargs.3.s, align 4
+  %argblock.f16 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 4
+  %varargs.4.w = load i32, ptr %argblock.f16, align 4
+  %varargs.4.s = getelementptr inbounds i8, ptr %frame.top, i64 20
+  store i32 %varargs.4.w, ptr %varargs.4.s, align 4
+  %argblock.f20 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 5
+  %varargs.5.w = load i32, ptr %argblock.f20, align 4
+  %varargs.5.s = getelementptr inbounds i8, ptr %frame.top, i64 24
+  store i32 %varargs.5.w, ptr %varargs.5.s, align 4
+  %argblock.f24 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 6
+  %varargs.6.w = load i32, ptr %argblock.f24, align 4
+  %varargs.6.s = getelementptr inbounds i8, ptr %frame.top, i64 28
+  store i32 %varargs.6.w, ptr %varargs.6.s, align 4
+  %argblock.f28 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 7
+  %varargs.7.w = load i32, ptr %argblock.f28, align 4
+  %varargs.7.s = getelementptr inbounds i8, ptr %frame.top, i64 32
+  store i32 %varargs.7.w, ptr %varargs.7.s, align 4
+  %argblock.f32 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 8
+  %varargs.8.w = load i32, ptr %argblock.f32, align 4
+  %varargs.8.s = getelementptr inbounds i8, ptr %frame.top, i64 36
+  store i32 %varargs.8.w, ptr %varargs.8.s, align 4
+  %argblock.f36 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 9
+  %varargs.9.w = load i32, ptr %argblock.f36, align 4
+  %varargs.9.s = getelementptr inbounds i8, ptr %frame.top, i64 40
+  store i32 %varargs.9.w, ptr %varargs.9.s, align 4
+  %argblock.f40 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 10
+  %varargs.10.w = load i32, ptr %argblock.f40, align 4
+  %varargs.10.s = getelementptr inbounds i8, ptr %frame.top, i64 44
+  store i32 %varargs.10.w, ptr %varargs.10.s, align 4
+  %argblock.f44 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 11
+  %varargs.11.w = load i32, ptr %argblock.f44, align 4
+  %varargs.11.s = getelementptr inbounds i8, ptr %frame.top, i64 48
+  store i32 %varargs.11.w, ptr %varargs.11.s, align 4
+  %argblock.f48 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 12
+  %varargs.12.w = load i32, ptr %argblock.f48, align 4
+  %varargs.12.s = getelementptr inbounds i8, ptr %frame.top, i64 52
+  store i32 %varargs.12.w, ptr %varargs.12.s, align 4
+  %argblock.f52 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 13
+  %varargs.13.w = load i32, ptr %argblock.f52, align 4
+  %varargs.13.s = getelementptr inbounds i8, ptr %frame.top, i64 56
+  store i32 %varargs.13.w, ptr %varargs.13.s, align 4
+  %argblock.f56 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 14
+  %varargs.14.w = load i32, ptr %argblock.f56, align 4
+  %varargs.14.s = getelementptr inbounds i8, ptr %frame.top, i64 60
+  store i32 %varargs.14.w, ptr %varargs.14.s, align 4
+  %argblock.f60 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 15
+  %varargs.15.w = load i32, ptr %argblock.f60, align 4
+  %varargs.15.s = getelementptr inbounds i8, ptr %frame.top, i64 64
+  store i32 %varargs.15.w, ptr %varargs.15.s, align 4
   %esp = trunc i64 %rsp0 to i32  ; 0x4017e0
   %sp = sub i32 %esp, 4  ; 0x4017e0
   %sp.1 = sub i32 %sp, 4  ; 0x4017e3
@@ -6660,10 +6735,10 @@ b_4017e0:  ; 0x4017e0
   %st.p.9 = inttoptr i64 %addr.z.11 to ptr  ; 0x401811
   store i32 %addr.4, ptr %st.p.9, align 1  ; 0x401811
   %st.p.10 = getelementptr inbounds i8, ptr %frame.top, i64 -44  ; 0x401818
-  store i32 %arg0, ptr %st.p.10, align 1  ; 0x401818
+  store i32 %varargs.0.w, ptr %st.p.10, align 1  ; 0x401818
   %addr.8 = add i32 %sp, -44  ; 0x40181b
   %st.p.11 = getelementptr inbounds i8, ptr %frame.top, i64 -48  ; 0x40181b
-  store i32 %arg0, ptr %st.p.11, align 1  ; 0x40181b
+  store i32 %varargs.0.w, ptr %st.p.11, align 1  ; 0x40181b
   store i32 1, ptr %st.p.5, align 1  ; 0x40181e
   %sp.4 = sub i32 %diff, 4  ; 0x401828
   %st.p.13 = getelementptr inbounds i8, ptr %frame.top, i64 -56  ; 0x401828
@@ -7356,7 +7431,7 @@ b_4018f0:  ; 0x4018f0
 
 define i64 @F_00401900(i32 %arg0, i32 %arg1) {  ; 0x401900
 b_401900:  ; 0x401900
-  %frame = alloca [128 x i8], align 16
+  %frame = alloca [120 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
@@ -7426,6 +7501,7 @@ eh.ok.40195f:  ; 0x40195f
 
 define i64 @F_00401970() {  ; 0x401970
 b_401970:  ; 0x401970
+  %va_m8 = alloca [4 x i8], align 16
   %ret = call i64 @F_00401c30()  ; 0x401971
   %eh.pending = call i64 @ra_eh_pending()  ; 0x401971
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x401971
@@ -7436,12 +7512,16 @@ eh.landing:  ; 0x401971
 eh.ok.401971:  ; 0x401971
   %eax = trunc i64 %ret to i32  ; 0x401976
   %sum = add i32 %eax, -6  ; 0x401978
-  %ret.1 = call i64 @F_00401260(i32 %sum)  ; 0x40197c
+  %st.p.2 = getelementptr inbounds i8, ptr %va_m8, i64 0  ; 0x40197b
+  store i32 %sum, ptr %st.p.2, align 1  ; 0x40197b
+  %varargs = ptrtoint ptr %st.p.2 to i64
+  %ret.1 = call i64 @F_00401260(i64 %varargs)  ; 0x40197c
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x40197c
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x40197c
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.40197c
 eh.ok.40197c:  ; 0x40197c
   %eax.3 = trunc i64 %ret.1 to i32  ; 0x401984
+  store i32 %eax.3, ptr %st.p.2, align 1  ; 0x401984
   %ret.2 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 655) to i32), i32 %eax.3)  ; 0x40198a
   %eh.pending.2 = call i64 @ra_eh_pending()  ; 0x40198a
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x40198a
@@ -7450,151 +7530,177 @@ eh.ok.40198a:  ; 0x40198a
   %addr.z.7 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 316) to i32) to i64  ; 0x401992
   %m.p = inttoptr i64 %addr.z.7 to ptr  ; 0x401992
   %m = load i32, ptr %m.p, align 1  ; 0x401992
+  store i32 %m, ptr %st.p.2, align 1  ; 0x401992
   %ret.3 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m)  ; 0x40199d
   %eh.pending.3 = call i64 @ra_eh_pending()  ; 0x40199d
   %eh.thrown.3 = icmp ne i64 %eh.pending.3, 0  ; 0x40199d
   br i1 %eh.thrown.3, label %eh.landing, label %eh.ok.40199d
 eh.ok.40199d:  ; 0x40199d
   %addr = add i32 %eax, -5  ; 0x4019a5
-  %ret.4 = call i64 @F_00401260(i32 %addr)  ; 0x4019a9
+  store i32 %addr, ptr %st.p.2, align 1  ; 0x4019a8
+  %ret.4 = call i64 @F_00401260(i64 %varargs)  ; 0x4019a9
   %eh.pending.4 = call i64 @ra_eh_pending()  ; 0x4019a9
   %eh.thrown.4 = icmp ne i64 %eh.pending.4, 0  ; 0x4019a9
   br i1 %eh.thrown.4, label %eh.landing, label %eh.ok.4019a9
 eh.ok.4019a9:  ; 0x4019a9
   %eax.5 = trunc i64 %ret.4 to i32  ; 0x4019b1
+  store i32 %eax.5, ptr %st.p.2, align 1  ; 0x4019b1
   %ret.5 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 744) to i32), i32 %eax.5)  ; 0x4019b7
   %eh.pending.5 = call i64 @ra_eh_pending()  ; 0x4019b7
   %eh.thrown.5 = icmp ne i64 %eh.pending.5, 0  ; 0x4019b7
   br i1 %eh.thrown.5, label %eh.landing, label %eh.ok.4019b7
 eh.ok.4019b7:  ; 0x4019b7
   %m.1 = load i32, ptr %m.p, align 1  ; 0x4019bf
+  store i32 %m.1, ptr %st.p.2, align 1  ; 0x4019bf
   %ret.6 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.1)  ; 0x4019ca
   %eh.pending.6 = call i64 @ra_eh_pending()  ; 0x4019ca
   %eh.thrown.6 = icmp ne i64 %eh.pending.6, 0  ; 0x4019ca
   br i1 %eh.thrown.6, label %eh.landing, label %eh.ok.4019ca
 eh.ok.4019ca:  ; 0x4019ca
   %addr.1 = add i32 %eax, -4  ; 0x4019d2
-  %ret.7 = call i64 @F_00401260(i32 %addr.1)  ; 0x4019d6
+  store i32 %addr.1, ptr %st.p.2, align 1  ; 0x4019d5
+  %ret.7 = call i64 @F_00401260(i64 %varargs)  ; 0x4019d6
   %eh.pending.7 = call i64 @ra_eh_pending()  ; 0x4019d6
   %eh.thrown.7 = icmp ne i64 %eh.pending.7, 0  ; 0x4019d6
   br i1 %eh.thrown.7, label %eh.landing, label %eh.ok.4019d6
 eh.ok.4019d6:  ; 0x4019d6
   %eax.7 = trunc i64 %ret.7 to i32  ; 0x4019de
+  store i32 %eax.7, ptr %st.p.2, align 1  ; 0x4019de
   %ret.8 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 760) to i32), i32 %eax.7)  ; 0x4019e4
   %eh.pending.8 = call i64 @ra_eh_pending()  ; 0x4019e4
   %eh.thrown.8 = icmp ne i64 %eh.pending.8, 0  ; 0x4019e4
   br i1 %eh.thrown.8, label %eh.landing, label %eh.ok.4019e4
 eh.ok.4019e4:  ; 0x4019e4
   %m.2 = load i32, ptr %m.p, align 1  ; 0x4019ec
+  store i32 %m.2, ptr %st.p.2, align 1  ; 0x4019ec
   %ret.9 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.2)  ; 0x4019f7
   %eh.pending.9 = call i64 @ra_eh_pending()  ; 0x4019f7
   %eh.thrown.9 = icmp ne i64 %eh.pending.9, 0  ; 0x4019f7
   br i1 %eh.thrown.9, label %eh.landing, label %eh.ok.4019f7
 eh.ok.4019f7:  ; 0x4019f7
   %addr.2 = add i32 %eax, -3  ; 0x4019ff
-  %ret.10 = call i64 @F_00401260(i32 %addr.2)  ; 0x401a03
+  store i32 %addr.2, ptr %st.p.2, align 1  ; 0x401a02
+  %ret.10 = call i64 @F_00401260(i64 %varargs)  ; 0x401a03
   %eh.pending.10 = call i64 @ra_eh_pending()  ; 0x401a03
   %eh.thrown.10 = icmp ne i64 %eh.pending.10, 0  ; 0x401a03
   br i1 %eh.thrown.10, label %eh.landing, label %eh.ok.401a03
 eh.ok.401a03:  ; 0x401a03
   %eax.9 = trunc i64 %ret.10 to i32  ; 0x401a0b
+  store i32 %eax.9, ptr %st.p.2, align 1  ; 0x401a0b
   %ret.11 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 648) to i32), i32 %eax.9)  ; 0x401a11
   %eh.pending.11 = call i64 @ra_eh_pending()  ; 0x401a11
   %eh.thrown.11 = icmp ne i64 %eh.pending.11, 0  ; 0x401a11
   br i1 %eh.thrown.11, label %eh.landing, label %eh.ok.401a11
 eh.ok.401a11:  ; 0x401a11
   %m.3 = load i32, ptr %m.p, align 1  ; 0x401a19
+  store i32 %m.3, ptr %st.p.2, align 1  ; 0x401a19
   %ret.12 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.3)  ; 0x401a24
   %eh.pending.12 = call i64 @ra_eh_pending()  ; 0x401a24
   %eh.thrown.12 = icmp ne i64 %eh.pending.12, 0  ; 0x401a24
   br i1 %eh.thrown.12, label %eh.landing, label %eh.ok.401a24
 eh.ok.401a24:  ; 0x401a24
   %addr.3 = add i32 %eax, -2  ; 0x401a2c
-  %ret.13 = call i64 @F_00401260(i32 %addr.3)  ; 0x401a30
+  store i32 %addr.3, ptr %st.p.2, align 1  ; 0x401a2f
+  %ret.13 = call i64 @F_00401260(i64 %varargs)  ; 0x401a30
   %eh.pending.13 = call i64 @ra_eh_pending()  ; 0x401a30
   %eh.thrown.13 = icmp ne i64 %eh.pending.13, 0  ; 0x401a30
   br i1 %eh.thrown.13, label %eh.landing, label %eh.ok.401a30
 eh.ok.401a30:  ; 0x401a30
   %eax.11 = trunc i64 %ret.13 to i32  ; 0x401a38
+  store i32 %eax.11, ptr %st.p.2, align 1  ; 0x401a38
   %ret.14 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 752) to i32), i32 %eax.11)  ; 0x401a3e
   %eh.pending.14 = call i64 @ra_eh_pending()  ; 0x401a3e
   %eh.thrown.14 = icmp ne i64 %eh.pending.14, 0  ; 0x401a3e
   br i1 %eh.thrown.14, label %eh.landing, label %eh.ok.401a3e
 eh.ok.401a3e:  ; 0x401a3e
   %m.4 = load i32, ptr %m.p, align 1  ; 0x401a46
+  store i32 %m.4, ptr %st.p.2, align 1  ; 0x401a46
   %ret.15 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.4)  ; 0x401a51
   %eh.pending.15 = call i64 @ra_eh_pending()  ; 0x401a51
   %eh.thrown.15 = icmp ne i64 %eh.pending.15, 0  ; 0x401a51
   br i1 %eh.thrown.15, label %eh.landing, label %eh.ok.401a51
 eh.ok.401a51:  ; 0x401a51
-  %ret.16 = call i64 @F_00401470(i32 %eax)  ; 0x401a5a
+  store i32 %eax, ptr %st.p.2, align 1  ; 0x401a59
+  %ret.16 = call i64 @F_00401470(i64 %varargs)  ; 0x401a5a
   %eh.pending.16 = call i64 @ra_eh_pending()  ; 0x401a5a
   %eh.thrown.16 = icmp ne i64 %eh.pending.16, 0  ; 0x401a5a
   br i1 %eh.thrown.16, label %eh.landing, label %eh.ok.401a5a
 eh.ok.401a5a:  ; 0x401a5a
   %eax.12 = trunc i64 %ret.16 to i32  ; 0x401a62
+  store i32 %eax.12, ptr %st.p.2, align 1  ; 0x401a62
   %ret.17 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 662) to i32), i32 %eax.12)  ; 0x401a68
   %eh.pending.17 = call i64 @ra_eh_pending()  ; 0x401a68
   %eh.thrown.17 = icmp ne i64 %eh.pending.17, 0  ; 0x401a68
   br i1 %eh.thrown.17, label %eh.landing, label %eh.ok.401a68
 eh.ok.401a68:  ; 0x401a68
   %m.5 = load i32, ptr %m.p, align 1  ; 0x401a70
+  store i32 %m.5, ptr %st.p.2, align 1  ; 0x401a70
   %ret.18 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.5)  ; 0x401a7b
   %eh.pending.18 = call i64 @ra_eh_pending()  ; 0x401a7b
   %eh.thrown.18 = icmp ne i64 %eh.pending.18, 0  ; 0x401a7b
   br i1 %eh.thrown.18, label %eh.landing, label %eh.ok.401a7b
 eh.ok.401a7b:  ; 0x401a7b
-  %ret.19 = call i64 @F_00401540(i32 %eax)  ; 0x401a84
+  store i32 %eax, ptr %st.p.2, align 1  ; 0x401a83
+  %ret.19 = call i64 @F_00401540(i64 %varargs)  ; 0x401a84
   %eh.pending.19 = call i64 @ra_eh_pending()  ; 0x401a84
   %eh.thrown.19 = icmp ne i64 %eh.pending.19, 0  ; 0x401a84
   br i1 %eh.thrown.19, label %eh.landing, label %eh.ok.401a84
 eh.ok.401a84:  ; 0x401a84
   %eax.13 = trunc i64 %ret.19 to i32  ; 0x401a8c
+  store i32 %eax.13, ptr %st.p.2, align 1  ; 0x401a8c
   %ret.20 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 767) to i32), i32 %eax.13)  ; 0x401a92
   %eh.pending.20 = call i64 @ra_eh_pending()  ; 0x401a92
   %eh.thrown.20 = icmp ne i64 %eh.pending.20, 0  ; 0x401a92
   br i1 %eh.thrown.20, label %eh.landing, label %eh.ok.401a92
 eh.ok.401a92:  ; 0x401a92
   %m.6 = load i32, ptr %m.p, align 1  ; 0x401a9a
+  store i32 %m.6, ptr %st.p.2, align 1  ; 0x401a9a
   %ret.21 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.6)  ; 0x401aa5
   %eh.pending.21 = call i64 @ra_eh_pending()  ; 0x401aa5
   %eh.thrown.21 = icmp ne i64 %eh.pending.21, 0  ; 0x401aa5
   br i1 %eh.thrown.21, label %eh.landing, label %eh.ok.401aa5
 eh.ok.401aa5:  ; 0x401aa5
-  %ret.22 = call i64 @F_004016b0(i32 %eax)  ; 0x401aae
+  store i32 %eax, ptr %st.p.2, align 1  ; 0x401aad
+  %ret.22 = call i64 @F_004016b0(i64 %varargs)  ; 0x401aae
   %eh.pending.22 = call i64 @ra_eh_pending()  ; 0x401aae
   %eh.thrown.22 = icmp ne i64 %eh.pending.22, 0  ; 0x401aae
   br i1 %eh.thrown.22, label %eh.landing, label %eh.ok.401aae
 eh.ok.401aae:  ; 0x401aae
   %eax.14 = trunc i64 %ret.22 to i32  ; 0x401ab6
+  store i32 %eax.14, ptr %st.p.2, align 1  ; 0x401ab6
   %ret.23 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 678) to i32), i32 %eax.14)  ; 0x401abc
   %eh.pending.23 = call i64 @ra_eh_pending()  ; 0x401abc
   %eh.thrown.23 = icmp ne i64 %eh.pending.23, 0  ; 0x401abc
   br i1 %eh.thrown.23, label %eh.landing, label %eh.ok.401abc
 eh.ok.401abc:  ; 0x401abc
   %m.7 = load i32, ptr %m.p, align 1  ; 0x401ac4
+  store i32 %m.7, ptr %st.p.2, align 1  ; 0x401ac4
   %ret.24 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 671) to i32), i32 %m.7)  ; 0x401acf
   %eh.pending.24 = call i64 @ra_eh_pending()  ; 0x401acf
   %eh.thrown.24 = icmp ne i64 %eh.pending.24, 0  ; 0x401acf
   br i1 %eh.thrown.24, label %eh.landing, label %eh.ok.401acf
 eh.ok.401acf:  ; 0x401acf
-  %ret.25 = call i64 @F_004017e0(i32 %eax)  ; 0x401ad8
+  store i32 %eax, ptr %st.p.2, align 1  ; 0x401ad7
+  %ret.25 = call i64 @F_004017e0(i64 %varargs)  ; 0x401ad8
   %eh.pending.25 = call i64 @ra_eh_pending()  ; 0x401ad8
   %eh.thrown.25 = icmp ne i64 %eh.pending.25, 0  ; 0x401ad8
   br i1 %eh.thrown.25, label %eh.landing, label %eh.ok.401ad8
 eh.ok.401ad8:  ; 0x401ad8
   %eax.15 = trunc i64 %ret.25 to i32  ; 0x401ae0
+  store i32 %eax.15, ptr %st.p.2, align 1  ; 0x401ae0
   %ret.26 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 723) to i32), i32 %eax.15)  ; 0x401ae6
   %eh.pending.26 = call i64 @ra_eh_pending()  ; 0x401ae6
   %eh.thrown.26 = icmp ne i64 %eh.pending.26, 0  ; 0x401ae6
   br i1 %eh.thrown.26, label %eh.landing, label %eh.ok.401ae6
 eh.ok.401ae6:  ; 0x401ae6
+  store i32 %eax, ptr %st.p.2, align 1  ; 0x401aee
   %ret.27 = call i64 @F_00401900(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 324) to i32), i32 %eax)  ; 0x401af4
   %eh.pending.27 = call i64 @ra_eh_pending()  ; 0x401af4
   %eh.thrown.27 = icmp ne i64 %eh.pending.27, 0  ; 0x401af4
   br i1 %eh.thrown.27, label %eh.landing, label %eh.ok.401af4
 eh.ok.401af4:  ; 0x401af4
   %eax.16 = trunc i64 %ret.27 to i32  ; 0x401afc
+  store i32 %eax.16, ptr %st.p.2, align 1  ; 0x401afc
   %ret.28 = call i64 @F_00401c40(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 709) to i32), i32 %eax.16)  ; 0x401b02
   %eh.pending.28 = call i64 @ra_eh_pending()  ; 0x401b02
   %eh.thrown.28 = icmp ne i64 %eh.pending.28, 0  ; 0x401b02
@@ -7615,7 +7721,7 @@ b_401b20:  ; 0x401b20
 
 define i64 @Base_vf0(i64 %arg0, i64 %arg1) {  ; 0x401b30
 b_401b30:  ; 0x401b30
-  %frame = alloca [124 x i8], align 16
+  %frame = alloca [116 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
@@ -7658,31 +7764,19 @@ b_401b60:  ; 0x401b60
   ret i64 %eax.z.1
 }
 
-define i64 @std_exception_vf0(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4, i64 %arg5) {  ; 0x401b70
+define i64 @std_exception_vf0(i64 %arg0, i64 %arg1) {  ; 0x401b70
 b_401b70:  ; 0x401b70
-  %frame = alloca [140 x i8], align 16
+  %frame = alloca [116 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
   store i32 %stack.arg0.lo, ptr %stack.arg0.p, align 4
-  %stack.arg1.lo = trunc i64 %arg2 to i32
-  %stack.arg2.lo = trunc i64 %arg3 to i32
-  %stack.arg3.lo = trunc i64 %arg4 to i32
-  %stack.arg4.lo = trunc i64 %arg5 to i32
   %ecx = trunc i64 %arg0 to i32  ; 0x401b71
   %esi.z = zext i32 %ecx to i64  ; 0x401b71
   %st.p.1 = inttoptr i64 %esi.z to ptr  ; 0x401b73
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 328) to i32), ptr %st.p.1, align 1  ; 0x401b73
   %addr = add i32 %ecx, 4  ; 0x401b79
-  %sarg0 = zext i32 %addr to i64
-  %sarg1 = zext i32 undef to i64
-  %sarg3.d = load i32, ptr %stack.arg0.p, align 4
-  %sarg3 = zext i32 %sarg3.d to i64
-  %sarg4 = zext i32 %stack.arg1.lo to i64
-  %sarg5 = zext i32 %stack.arg2.lo to i64
-  %sarg6 = zext i32 %stack.arg3.lo to i64
-  %sarg7 = zext i32 %stack.arg4.lo to i64
-  %ret = call i64 @thunk___std_exception_destroy(i64 %arg0, i64 %sarg0, i64 %sarg1, i64 %sarg1, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x401b7d
+  %ret = call i64 @thunk___std_exception_destroy(i32 %addr)  ; 0x401b7d
   %eh.pending = call i64 @ra_eh_pending()  ; 0x401b7d
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x401b7d
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.401b7d
@@ -7705,31 +7799,19 @@ eh.ok.401b8f:  ; 0x401b8f
   br label %b_401b97
 }
 
-define i64 @Problem_vf0(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4, i64 %arg5) {  ; 0x401ba0
+define i64 @Problem_vf0(i64 %arg0, i64 %arg1) {  ; 0x401ba0
 b_401ba0:  ; 0x401ba0
-  %frame = alloca [140 x i8], align 16
+  %frame = alloca [116 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
   store i32 %stack.arg0.lo, ptr %stack.arg0.p, align 4
-  %stack.arg1.lo = trunc i64 %arg2 to i32
-  %stack.arg2.lo = trunc i64 %arg3 to i32
-  %stack.arg3.lo = trunc i64 %arg4 to i32
-  %stack.arg4.lo = trunc i64 %arg5 to i32
   %ecx = trunc i64 %arg0 to i32  ; 0x401ba1
   %esi.z = zext i32 %ecx to i64  ; 0x401ba1
   %st.p.1 = inttoptr i64 %esi.z to ptr  ; 0x401ba3
   store i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 328) to i32), ptr %st.p.1, align 1  ; 0x401ba3
   %addr = add i32 %ecx, 4  ; 0x401ba9
-  %sarg0 = zext i32 %addr to i64
-  %sarg1 = zext i32 undef to i64
-  %sarg3.d = load i32, ptr %stack.arg0.p, align 4
-  %sarg3 = zext i32 %sarg3.d to i64
-  %sarg4 = zext i32 %stack.arg1.lo to i64
-  %sarg5 = zext i32 %stack.arg2.lo to i64
-  %sarg6 = zext i32 %stack.arg3.lo to i64
-  %sarg7 = zext i32 %stack.arg4.lo to i64
-  %ret = call i64 @thunk___std_exception_destroy(i64 %arg0, i64 %sarg0, i64 %sarg1, i64 %sarg1, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %sarg6, i64 %sarg7)  ; 0x401bad
+  %ret = call i64 @thunk___std_exception_destroy(i32 %addr)  ; 0x401bad
   %eh.pending = call i64 @ra_eh_pending()  ; 0x401bad
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x401bad
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.401bad
@@ -7823,7 +7905,7 @@ b_401c30:  ; 0x401c30
 
 define i64 @F_00401c40(i32 %arg0, i32 %arg1) {  ; 0x401c40
 b_401c40:  ; 0x401c40
-  %frame = alloca [176 x i8], align 16
+  %frame = alloca [168 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 92
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
@@ -8475,7 +8557,7 @@ eh.ok.402069:  ; 0x402069
 
 define i64 @F_00402070(i32 %arg0) {  ; 0x402070
 b_402070:  ; 0x402070
-  %frame = alloca [168 x i8], align 16
+  %frame = alloca [160 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 92
   %rsp0 = ptrtoint ptr %frame.top to i64
   %esp = trunc i64 %rsp0 to i32  ; 0x402070
@@ -8631,7 +8713,7 @@ eh.ok.402197:  ; 0x402197
 
 define i64 @F_004021a0() {  ; 0x4021a0
 b_4021a0:  ; 0x4021a0
-  %frame = alloca [136 x i8], align 16
+  %frame = alloca [128 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 60
   %rsp0 = ptrtoint ptr %frame.top to i64
   %esp = trunc i64 %rsp0 to i32  ; 0x4021a0
@@ -9089,7 +9171,7 @@ eh.ok.402536:  ; 0x402536
 
 define i64 @type_info_vf0(i64 %arg0, i64 %arg1) {  ; 0x402540
 b_402540:  ; 0x402540
-  %frame = alloca [140 x i8], align 16
+  %frame = alloca [132 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 60
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   %stack.arg0.lo = trunc i64 %arg1 to i32
@@ -9143,9 +9225,9 @@ b_402590:  ; 0x402590
   unreachable
 }
 
-define void @F_004025a0() {  ; 0x4025a0
+define i64 @F_004025a0() {  ; 0x4025a0
 b_4025a0:  ; 0x4025a0
-  call void @thunk__set_app_type(i32 1)  ; 0x4025a3
+  %ret = call i64 @thunk__set_app_type(i32 1)  ; 0x4025a3
   %eh.pending = call i64 @ra_eh_pending()  ; 0x4025a3
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4025a3
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.4025a3
@@ -9154,106 +9236,109 @@ b_4025d0:  ; 0x4025d0
   %sw = load i16, ptr %ra_x87_sw.p, align 2  ; 0x4025d0
   %sw.c = and i16 %sw, -256  ; 0x4025d0
   store i16 %sw.c, ptr %ra_x87_sw.p, align 2  ; 0x4025d0
-  call void @F_00402e10()  ; 0x4025d2
+  %ret.6 = call i64 @F_00402e10()  ; 0x4025d2
   %eh.pending.6 = call i64 @ra_eh_pending()  ; 0x4025d2
   %eh.thrown.6 = icmp ne i64 %eh.pending.6, 0  ; 0x4025d2
   br i1 %eh.thrown.6, label %eh.landing, label %eh.ok.4025d2
 b_4025f3:  ; 0x4025f3
-  call void @F_00402c60()  ; 0x4025f3
+  %ret.10 = call i64 @F_00402c60()  ; 0x4025f3
   %eh.pending.10 = call i64 @ra_eh_pending()  ; 0x4025f3
   %eh.thrown.10 = icmp ne i64 %eh.pending.10, 0  ; 0x4025f3
   br i1 %eh.thrown.10, label %eh.landing, label %eh.ok.4025f3
 b_402601:  ; 0x402601
-  call void @thunk___setusermatherr(i32 ptrtoint (ptr @U_00402c30 to i32))  ; 0x402606
+  %ret.12 = call i64 @thunk___setusermatherr(i32 ptrtoint (ptr @U_00402c30 to i32))  ; 0x402606
   %eh.pending.12 = call i64 @ra_eh_pending()  ; 0x402606
   %eh.thrown.12 = icmp ne i64 %eh.pending.12, 0  ; 0x402606
   br i1 %eh.thrown.12, label %eh.landing, label %eh.ok.402606
 b_40260e:  ; 0x40260e
+  %rax.phi = phi i64 [ %ret.11, %eh.ok.4025f8 ], [ %ret.12, %eh.ok.402606 ]  ; 0x40260e
   call void @F_00402cb0()  ; 0x40260e
   %eh.pending.13 = call i64 @ra_eh_pending()  ; 0x40260e
   %eh.thrown.13 = icmp ne i64 %eh.pending.13, 0  ; 0x40260e
   br i1 %eh.thrown.13, label %eh.landing, label %eh.ok.40260e
 b_402634:  ; 0x402634
-  call void @thunk__initialize_narrow_environment()  ; 0x402634
+  %ret.17 = call i64 @thunk__initialize_narrow_environment()  ; 0x402634
   %eh.pending.19 = call i64 @ra_eh_pending()  ; 0x402634
   %eh.thrown.19 = icmp ne i64 %eh.pending.19, 0  ; 0x402634
   br i1 %eh.thrown.19, label %eh.landing, label %eh.ok.402634
 b_402639:  ; 0x402639
-  %ret.9 = call i64 @F_00402c30()  ; 0x402639
+  %ret.18 = call i64 @F_00402c30()  ; 0x402639
   %eh.pending.20 = call i64 @ra_eh_pending()  ; 0x402639
   %eh.thrown.20 = icmp ne i64 %eh.pending.20, 0  ; 0x402639
   br i1 %eh.thrown.20, label %eh.landing, label %eh.ok.402639
 b_402647:  ; 0x402647
-  ret void
+  ret i64 %ret.19
 b_402648:  ; 0x402648
+  %rax.phi.1 = phi i64 [ %ret.5, %eh.ok.4025c3 ], [ %ret.9, %eh.ok.4025e7 ], [ %ret.19, %eh.ok.40263e ]  ; 0x402648
   call void @F_00402da0(i64 7)  ; 0x40264a
   %eh.pending.22 = call i64 @ra_eh_pending()  ; 0x40264a
   %eh.thrown.22 = icmp ne i64 %eh.pending.22, 0  ; 0x40264a
   br i1 %eh.thrown.22, label %eh.landing, label %eh.ok.40264a
 eh.landing:  ; 0x4025a3
-  ret void
+  %rax.phi.2 = phi i64 [ %ret, %b_4025a0 ], [ %ret.6, %b_4025d0 ], [ %ret.10, %b_4025f3 ], [ %ret.12, %b_402601 ], [ %rax.phi, %b_40260e ], [ %ret.17, %b_402634 ], [ %ret.18, %b_402639 ], [ %rax.phi.1, %b_402648 ], [ %ret.1, %eh.ok.4025a3 ], [ %ret.2, %eh.ok.4025a8 ], [ %ret.3, %eh.ok.4025ae ], [ %ret.4, %eh.ok.4025b3 ], [ %ret.5, %eh.ok.4025ba ], [ %ret.7, %eh.ok.4025d2 ], [ %ret.8, %eh.ok.4025dc ], [ %ret.9, %eh.ok.4025e1 ], [ %ret.11, %eh.ok.4025f3 ], [ %rax.phi, %eh.ok.40260e ], [ %ret.13, %eh.ok.402613 ], [ %ret.14, %eh.ok.402618 ], [ %ret.15, %eh.ok.40261d ], [ %ret.16, %eh.ok.402623 ], [ %ret.19, %eh.ok.402639 ]  ; 0x4025a3
+  ret i64 %rax.phi.2
 eh.ok.4025a3:  ; 0x4025a3
-  %ret = call i64 @F_00402c50()  ; 0x4025a8
+  %ret.1 = call i64 @F_00402c50()  ; 0x4025a8
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x4025a8
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x4025a8
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.4025a8
 eh.ok.4025a8:  ; 0x4025a8
-  %eax = trunc i64 %ret to i32  ; 0x4025ad
-  call void @thunk__set_fmode(i32 %eax)  ; 0x4025ae
+  %eax = trunc i64 %ret.1 to i32  ; 0x4025ad
+  %ret.2 = call i64 @thunk__set_fmode(i32 %eax)  ; 0x4025ae
   %eh.pending.2 = call i64 @ra_eh_pending()  ; 0x4025ae
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x4025ae
   br i1 %eh.thrown.2, label %eh.landing, label %eh.ok.4025ae
 eh.ok.4025ae:  ; 0x4025ae
-  %ret.1 = call i64 @F_00402c30()  ; 0x4025b3
+  %ret.3 = call i64 @F_00402c30()  ; 0x4025b3
   %eh.pending.3 = call i64 @ra_eh_pending()  ; 0x4025b3
   %eh.thrown.3 = icmp ne i64 %eh.pending.3, 0  ; 0x4025b3
   br i1 %eh.thrown.3, label %eh.landing, label %eh.ok.4025b3
 eh.ok.4025b3:  ; 0x4025b3
-  %eax.1 = trunc i64 %ret.1 to i32  ; 0x4025b8
-  %ret.2 = call i64 @thunk___p__commode()  ; 0x4025ba
+  %eax.1 = trunc i64 %ret.3 to i32  ; 0x4025b8
+  %ret.4 = call i64 @thunk___p__commode()  ; 0x4025ba
   %eh.pending.4 = call i64 @ra_eh_pending()  ; 0x4025ba
   %eh.thrown.4 = icmp ne i64 %eh.pending.4, 0  ; 0x4025ba
   br i1 %eh.thrown.4, label %eh.landing, label %eh.ok.4025ba
 eh.ok.4025ba:  ; 0x4025ba
-  %eax.2 = trunc i64 %ret.2 to i32  ; 0x4025c1
+  %eax.2 = trunc i64 %ret.4 to i32  ; 0x4025c1
   %addr.z.9 = zext i32 %eax.2 to i64  ; 0x4025c1
   %st.p.9 = inttoptr i64 %addr.z.9 to ptr  ; 0x4025c1
   store i32 %eax.1, ptr %st.p.9, align 1  ; 0x4025c1
-  %ret.3 = call i64 @F_00402a80(i32 1)  ; 0x4025c3
+  %ret.5 = call i64 @F_00402a80(i32 1)  ; 0x4025c3
   %eh.pending.5 = call i64 @ra_eh_pending()  ; 0x4025c3
   %eh.thrown.5 = icmp ne i64 %eh.pending.5, 0  ; 0x4025c3
   br i1 %eh.thrown.5, label %eh.landing, label %eh.ok.4025c3
 eh.ok.4025c3:  ; 0x4025c3
-  %al = trunc i64 %ret.3 to i8  ; 0x4025cc
+  %al = trunc i64 %ret.5 to i8  ; 0x4025cc
   %zf.1 = icmp eq i8 %al, 0  ; 0x4025cc
   br i1 %zf.1, label %b_402648, label %b_4025d0
 eh.ok.4025d2:  ; 0x4025d2
-  call void @F_00402880(i32 ptrtoint (ptr @U_00402e40 to i32))  ; 0x4025dc
+  %ret.7 = call i64 @F_00402880(i32 ptrtoint (ptr @U_00402e40 to i32))  ; 0x4025dc
   %eh.pending.7 = call i64 @ra_eh_pending()  ; 0x4025dc
   %eh.thrown.7 = icmp ne i64 %eh.pending.7, 0  ; 0x4025dc
   br i1 %eh.thrown.7, label %eh.landing, label %eh.ok.4025dc
 eh.ok.4025dc:  ; 0x4025dc
-  %ret.4 = call i64 @F_00402c40()  ; 0x4025e1
+  %ret.8 = call i64 @F_00402c40()  ; 0x4025e1
   %eh.pending.8 = call i64 @ra_eh_pending()  ; 0x4025e1
   %eh.thrown.8 = icmp ne i64 %eh.pending.8, 0  ; 0x4025e1
   br i1 %eh.thrown.8, label %eh.landing, label %eh.ok.4025e1
 eh.ok.4025e1:  ; 0x4025e1
-  %eax.3 = trunc i64 %ret.4 to i32  ; 0x4025e6
-  %ret.5 = call i64 @thunk__configure_narrow_argv(i32 %eax.3)  ; 0x4025e7
+  %eax.3 = trunc i64 %ret.8 to i32  ; 0x4025e6
+  %ret.9 = call i64 @thunk__configure_narrow_argv(i32 %eax.3)  ; 0x4025e7
   %eh.pending.9 = call i64 @ra_eh_pending()  ; 0x4025e7
   %eh.thrown.9 = icmp ne i64 %eh.pending.9, 0  ; 0x4025e7
   br i1 %eh.thrown.9, label %eh.landing, label %eh.ok.4025e7
 eh.ok.4025e7:  ; 0x4025e7
-  %eax.4 = trunc i64 %ret.5 to i32  ; 0x4025ef
+  %eax.4 = trunc i64 %ret.9 to i32  ; 0x4025ef
   %not = icmp ne i32 %eax.4, 0  ; 0x4025f1
   br i1 %not, label %b_402648, label %b_4025f3
 eh.ok.4025f3:  ; 0x4025f3
-  %ret.6 = call i64 @F_00402d00()  ; 0x4025f8
+  %ret.11 = call i64 @F_00402d00()  ; 0x4025f8
   %eh.pending.11 = call i64 @ra_eh_pending()  ; 0x4025f8
   %eh.thrown.11 = icmp ne i64 %eh.pending.11, 0  ; 0x4025f8
   br i1 %eh.thrown.11, label %eh.landing, label %eh.ok.4025f8
 eh.ok.4025f8:  ; 0x4025f8
-  %eax.6 = trunc i64 %ret.6 to i32  ; 0x4025fd
+  %eax.6 = trunc i64 %ret.11 to i32  ; 0x4025fd
   %zf.6 = icmp eq i32 %eax.6, 0  ; 0x4025fd
   br i1 %zf.6, label %b_40260e, label %b_402601
 eh.ok.402606:  ; 0x402606
@@ -9264,38 +9349,39 @@ eh.ok.40260e:  ; 0x40260e
   %eh.thrown.14 = icmp ne i64 %eh.pending.14, 0  ; 0x402613
   br i1 %eh.thrown.14, label %eh.landing, label %eh.ok.402613
 eh.ok.402613:  ; 0x402613
-  call void @F_00402c80()  ; 0x402618
+  %ret.13 = call i64 @F_00402c80()  ; 0x402618
   %eh.pending.15 = call i64 @ra_eh_pending()  ; 0x402618
   %eh.thrown.15 = icmp ne i64 %eh.pending.15, 0  ; 0x402618
   br i1 %eh.thrown.15, label %eh.landing, label %eh.ok.402618
 eh.ok.402618:  ; 0x402618
-  %ret.7 = call i64 @F_00402c30()  ; 0x40261d
+  %ret.14 = call i64 @F_00402c30()  ; 0x40261d
   %eh.pending.16 = call i64 @ra_eh_pending()  ; 0x40261d
   %eh.thrown.16 = icmp ne i64 %eh.pending.16, 0  ; 0x40261d
   br i1 %eh.thrown.16, label %eh.landing, label %eh.ok.40261d
 eh.ok.40261d:  ; 0x40261d
-  %eax.8 = trunc i64 %ret.7 to i32  ; 0x402622
-  call void @thunk__configthreadlocale(i32 %eax.8)  ; 0x402623
+  %eax.8 = trunc i64 %ret.14 to i32  ; 0x402622
+  %ret.15 = call i64 @thunk__configthreadlocale(i32 %eax.8)  ; 0x402623
   %eh.pending.17 = call i64 @ra_eh_pending()  ; 0x402623
   %eh.thrown.17 = icmp ne i64 %eh.pending.17, 0  ; 0x402623
   br i1 %eh.thrown.17, label %eh.landing, label %eh.ok.402623
 eh.ok.402623:  ; 0x402623
-  %ret.8 = call i8 @F_00402c70()  ; 0x40262b
+  %ret.16 = call i64 @F_00402c70()  ; 0x40262b
   %eh.pending.18 = call i64 @ra_eh_pending()  ; 0x40262b
   %eh.thrown.18 = icmp ne i64 %eh.pending.18, 0  ; 0x40262b
   br i1 %eh.thrown.18, label %eh.landing, label %eh.ok.40262b
 eh.ok.40262b:  ; 0x40262b
-  %zf.10 = icmp eq i8 %ret.8, 0  ; 0x402630
+  %al.2 = trunc i64 %ret.16 to i8  ; 0x402630
+  %zf.10 = icmp eq i8 %al.2, 0  ; 0x402630
   br i1 %zf.10, label %b_402639, label %b_402634
 eh.ok.402634:  ; 0x402634
   br label %b_402639
 eh.ok.402639:  ; 0x402639
-  %ret.10 = call i64 @F_00402d80()  ; 0x40263e
+  %ret.19 = call i64 @F_00402d80()  ; 0x40263e
   %eh.pending.21 = call i64 @ra_eh_pending()  ; 0x40263e
   %eh.thrown.21 = icmp ne i64 %eh.pending.21, 0  ; 0x40263e
   br i1 %eh.thrown.21, label %eh.landing, label %eh.ok.40263e
 eh.ok.40263e:  ; 0x40263e
-  %eax.9 = trunc i64 %ret.10 to i32  ; 0x402643
+  %eax.9 = trunc i64 %ret.19 to i32  ; 0x402643
   %not.1 = icmp ne i32 %eax.9, 0  ; 0x402645
   br i1 %not.1, label %b_402648, label %b_402647
 eh.ok.40264a:  ; 0x40264a
@@ -9314,34 +9400,100 @@ eh.ok.402650:  ; 0x402650
   ret i64 0
 }
 
-define void @F_00402660() {  ; 0x402660
+define i64 @F_00402660() {  ; 0x402660
 b_402660:  ; 0x402660
-  call void @F_00402d90()  ; 0x402660
+  %ret = call i64 @F_00402d90()  ; 0x402660
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402660
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402660
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.402660
 eh.landing:  ; 0x402660
-  ret void
+  %rax.phi = phi i64 [ %ret, %b_402660 ], [ %ret.1, %eh.ok.402660 ], [ %ret.2, %eh.ok.402665 ]  ; 0x402660
+  ret i64 %rax.phi
 eh.ok.402660:  ; 0x402660
-  %ret = call i64 @F_00402c30()  ; 0x402665
+  %ret.1 = call i64 @F_00402c30()  ; 0x402665
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x402665
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x402665
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.402665
 eh.ok.402665:  ; 0x402665
-  %eax = trunc i64 %ret to i32  ; 0x40266a
-  call void @thunk__set_new_mode(i32 %eax)  ; 0x40266b
+  %eax = trunc i64 %ret.1 to i32  ; 0x40266a
+  %ret.2 = call i64 @thunk__set_new_mode(i32 %eax)  ; 0x40266b
   %eh.pending.2 = call i64 @ra_eh_pending()  ; 0x40266b
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x40266b
   br i1 %eh.thrown.2, label %eh.landing, label %eh.ok.40266b
 eh.ok.40266b:  ; 0x40266b
-  ret void
+  ret i64 %ret.2
 }
 
-define i64 @F_00402680() {  ; 0x402680
+define i64 @F_00402680(i64 %argblock) {  ; 0x402680
 b_402680:  ; 0x402680
-  %frame = alloca [4296 x i8], align 16
+  %argblock.s = inttoptr i64 %argblock to ptr
+  %frame = alloca [4352 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 4220
   %rsp0 = ptrtoint ptr %frame.top to i64
+  %argblock.f0 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 0
+  %varargs.0.w = load i32, ptr %argblock.f0, align 4
+  %varargs.0.s = getelementptr inbounds i8, ptr %frame.top, i64 4
+  store i32 %varargs.0.w, ptr %varargs.0.s, align 4
+  %argblock.f4 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 1
+  %varargs.1.w = load i32, ptr %argblock.f4, align 4
+  %varargs.1.s = getelementptr inbounds i8, ptr %frame.top, i64 8
+  store i32 %varargs.1.w, ptr %varargs.1.s, align 4
+  %argblock.f8 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 2
+  %varargs.2.w = load i32, ptr %argblock.f8, align 4
+  %varargs.2.s = getelementptr inbounds i8, ptr %frame.top, i64 12
+  store i32 %varargs.2.w, ptr %varargs.2.s, align 4
+  %argblock.f12 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 3
+  %varargs.3.w = load i32, ptr %argblock.f12, align 4
+  %varargs.3.s = getelementptr inbounds i8, ptr %frame.top, i64 16
+  store i32 %varargs.3.w, ptr %varargs.3.s, align 4
+  %argblock.f16 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 4
+  %varargs.4.w = load i32, ptr %argblock.f16, align 4
+  %varargs.4.s = getelementptr inbounds i8, ptr %frame.top, i64 20
+  store i32 %varargs.4.w, ptr %varargs.4.s, align 4
+  %argblock.f20 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 5
+  %varargs.5.w = load i32, ptr %argblock.f20, align 4
+  %varargs.5.s = getelementptr inbounds i8, ptr %frame.top, i64 24
+  store i32 %varargs.5.w, ptr %varargs.5.s, align 4
+  %argblock.f24 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 6
+  %varargs.6.w = load i32, ptr %argblock.f24, align 4
+  %varargs.6.s = getelementptr inbounds i8, ptr %frame.top, i64 28
+  store i32 %varargs.6.w, ptr %varargs.6.s, align 4
+  %argblock.f28 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 7
+  %varargs.7.w = load i32, ptr %argblock.f28, align 4
+  %varargs.7.s = getelementptr inbounds i8, ptr %frame.top, i64 32
+  store i32 %varargs.7.w, ptr %varargs.7.s, align 4
+  %argblock.f32 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 8
+  %varargs.8.w = load i32, ptr %argblock.f32, align 4
+  %varargs.8.s = getelementptr inbounds i8, ptr %frame.top, i64 36
+  store i32 %varargs.8.w, ptr %varargs.8.s, align 4
+  %argblock.f36 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 9
+  %varargs.9.w = load i32, ptr %argblock.f36, align 4
+  %varargs.9.s = getelementptr inbounds i8, ptr %frame.top, i64 40
+  store i32 %varargs.9.w, ptr %varargs.9.s, align 4
+  %argblock.f40 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 10
+  %varargs.10.w = load i32, ptr %argblock.f40, align 4
+  %varargs.10.s = getelementptr inbounds i8, ptr %frame.top, i64 44
+  store i32 %varargs.10.w, ptr %varargs.10.s, align 4
+  %argblock.f44 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 11
+  %varargs.11.w = load i32, ptr %argblock.f44, align 4
+  %varargs.11.s = getelementptr inbounds i8, ptr %frame.top, i64 48
+  store i32 %varargs.11.w, ptr %varargs.11.s, align 4
+  %argblock.f48 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 12
+  %varargs.12.w = load i32, ptr %argblock.f48, align 4
+  %varargs.12.s = getelementptr inbounds i8, ptr %frame.top, i64 52
+  store i32 %varargs.12.w, ptr %varargs.12.s, align 4
+  %argblock.f52 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 13
+  %varargs.13.w = load i32, ptr %argblock.f52, align 4
+  %varargs.13.s = getelementptr inbounds i8, ptr %frame.top, i64 56
+  store i32 %varargs.13.w, ptr %varargs.13.s, align 4
+  %argblock.f56 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 14
+  %varargs.14.w = load i32, ptr %argblock.f56, align 4
+  %varargs.14.s = getelementptr inbounds i8, ptr %frame.top, i64 60
+  store i32 %varargs.14.w, ptr %varargs.14.s, align 4
+  %argblock.f60 = getelementptr inbounds %S1, ptr %argblock.s, i64 0, i32 15
+  %varargs.15.w = load i32, ptr %argblock.f60, align 4
+  %varargs.15.s = getelementptr inbounds i8, ptr %frame.top, i64 64
+  store i32 %varargs.15.w, ptr %varargs.15.s, align 4
   %esp = trunc i64 %rsp0 to i32  ; 0x402680
   %sp = sub i32 %esp, 4  ; 0x402680
   %sp.1 = sub i32 %sp, 4  ; 0x402683
@@ -9388,7 +9540,7 @@ b_402680:  ; 0x402680
   store i32 1, ptr %st.p.12, align 1  ; 0x4026b3
   %sp.10 = sub i32 %sp.9, 4  ; 0x4026b5
   %sarg0.a = add i32 %sp.10, 4
-  %ret = call i8 @F_00402a10(i32 1)  ; 0x4026b5
+  %ret = call i64 @F_00402a10(i32 1)  ; 0x4026b5
   %eh.pending = call i64 @ra_eh_pending()  ; 0x4026b5
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x4026b5
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.4026b5
@@ -9455,8 +9607,8 @@ b_40278e:  ; 0x40278e
   %addr.z.178 = zext i32 %sp.91 to i64  ; 0x40278f
   %varargs.a.1 = add i64 %addr.z.178, 4
   %varargs.p.1 = inttoptr i64 %varargs.a.1 to ptr
-  %varargs.1 = ptrtoint ptr %varargs.p.1 to i64
-  %ret.13 = call i32 @F_004028d0(i64 %varargs.1)  ; 0x40278f
+  %varargs.16 = ptrtoint ptr %varargs.p.1 to i64
+  %ret.13 = call i32 @F_004028d0(i64 %varargs.16)  ; 0x40278f
   %eh.pending.21 = call i64 @ra_eh_pending()  ; 0x40278f
   %eh.thrown.21 = icmp ne i64 %eh.pending.21, 0  ; 0x40278f
   br i1 %eh.thrown.21, label %eh.landing, label %eh.ok.40278f
@@ -9562,7 +9714,8 @@ eh.landing:  ; 0x4026b5
   unreachable
 eh.ok.4026b5:  ; 0x4026b5
   %sum = add i32 %sarg0.a, 4  ; 0x4026ba
-  %zf.4 = icmp eq i8 %ret, 0  ; 0x4026bd
+  %al = trunc i64 %ret to i8  ; 0x4026bd
+  %zf.4 = icmp eq i8 %al, 0  ; 0x4026bd
   br i1 %zf.4, label %b_40284b, label %b_4026c5
 eh.ok.4026d1:  ; 0x4026d1
   %n = trunc i64 %ret.1 to i8
@@ -10244,15 +10397,6 @@ eh.access.40277a:  ; 0x402817
   %sarg5.p = getelementptr inbounds i8, ptr %frame.top, i64 -48
   %sarg5.d = load i32, ptr %sarg5.p, align 4
   %sarg5 = zext i32 %sarg5.d to i64
-  %sarg6.p = getelementptr inbounds i8, ptr %frame.top, i64 -44
-  %sarg6.d = load i32, ptr %sarg6.p, align 4
-  %sarg6 = zext i32 %sarg6.d to i64
-  %args.p = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr  ; 0x402817
-  store i64 %sarg6, ptr %args.p, align 8  ; 0x402817
-  %sarg7.d = load i32, ptr %st.p.24, align 4
-  %sarg7 = zext i32 %sarg7.d to i64
-  %args.p.1 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr  ; 0x402817
-  store i64 %sarg7, ptr %args.p.1, align 8  ; 0x402817
   %ret.8 = call i64 %fp(i64 %sarg0.7, i64 %sarg1.5, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %rcx.phi, i64 undef)  ; 0x402817
   %pops = call i64 @ra_pops_of(i64 %target)  ; 0x402817
   %n.2 = trunc i64 %pops to i32
@@ -10267,32 +10411,24 @@ eh.access.40277a:  ; 0x402817
 eh.ok.40277a:  ; 0x402817
   %sp.83 = sub i32 %rsp.185, 4  ; 0x402780
   %fp.1 = inttoptr i64 %esi.z.2 to ptr  ; 0x402780
-  %rsp.185.f0 = getelementptr inbounds %S3, ptr %rsp.185.s, i64 0, i32 0
+  %rsp.185.f0 = getelementptr inbounds %S4, ptr %rsp.185.s, i64 0, i32 0
   %sarg0.d.8 = load i32, ptr %rsp.185.f0, align 4
   %sarg0.8 = zext i32 %sarg0.d.8 to i64
-  %rsp.185.f4 = getelementptr inbounds %S3, ptr %rsp.185.s, i64 0, i32 1
+  %rsp.185.f4 = getelementptr inbounds %S4, ptr %rsp.185.s, i64 0, i32 1
   %sarg1.d.6 = load i32, ptr %rsp.185.f4, align 4
   %sarg1.6 = zext i32 %sarg1.d.6 to i64
-  %rsp.185.f8 = getelementptr inbounds %S3, ptr %rsp.185.s, i64 0, i32 2
+  %rsp.185.f8 = getelementptr inbounds %S4, ptr %rsp.185.s, i64 0, i32 2
   %sarg2.d.1 = load i32, ptr %rsp.185.f8, align 4
   %sarg2.1 = zext i32 %sarg2.d.1 to i64
-  %rsp.185.f12 = getelementptr inbounds %S3, ptr %rsp.185.s, i64 0, i32 3
+  %rsp.185.f12 = getelementptr inbounds %S4, ptr %rsp.185.s, i64 0, i32 3
   %sarg3.d.1 = load i32, ptr %rsp.185.f12, align 4
   %sarg3.1 = zext i32 %sarg3.d.1 to i64
-  %rsp.185.f16 = getelementptr inbounds %S3, ptr %rsp.185.s, i64 0, i32 4
+  %rsp.185.f16 = getelementptr inbounds %S4, ptr %rsp.185.s, i64 0, i32 4
   %sarg4.d.1 = load i32, ptr %rsp.185.f16, align 4
   %sarg4.1 = zext i32 %sarg4.d.1 to i64
-  %rsp.185.f20 = getelementptr inbounds %S3, ptr %rsp.185.s, i64 0, i32 5
+  %rsp.185.f20 = getelementptr inbounds %S4, ptr %rsp.185.s, i64 0, i32 5
   %sarg5.d.1 = load i32, ptr %rsp.185.f20, align 4
   %sarg5.1 = zext i32 %sarg5.d.1 to i64
-  %rsp.185.f24 = getelementptr inbounds %S3, ptr %rsp.185.s, i64 0, i32 6
-  %sarg6.d.1 = load i32, ptr %rsp.185.f24, align 4
-  %sarg6.1 = zext i32 %sarg6.d.1 to i64
-  store i64 %sarg6.1, ptr %args.p, align 8  ; 0x402780
-  %rsp.185.f28 = getelementptr inbounds %S3, ptr %rsp.185.s, i64 0, i32 7
-  %sarg7.d.1 = load i32, ptr %rsp.185.f28, align 4
-  %sarg7.1 = zext i32 %sarg7.d.1 to i64
-  store i64 %sarg7.1, ptr %args.p.1, align 8  ; 0x402780
   %ret.9 = call i64 %fp.1(i64 %sarg0.8, i64 %sarg1.6, i64 %sarg2.1, i64 %sarg3.1, i64 %sarg4.1, i64 %sarg5.1, i64 undef, i64 %ret.hi)  ; 0x402780
   %pops.1 = call i64 @ra_pops_of(i64 %esi.z.2)  ; 0x402780
   %n.3 = trunc i64 %pops.1 to i32
@@ -10730,6 +10866,8 @@ eh.ok.402862:  ; 0x402862
 
 define i64 @entry() {  ; 0x402870
 b_402870:  ; 0x402870
+  %frame = alloca [112 x i8], align 16
+  %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
   %ret = call i64 @F_00402b80()  ; 0x402870
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402870
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402870
@@ -10737,11 +10875,13 @@ b_402870:  ; 0x402870
 eh.landing:  ; 0x402870
   ret i64 %ret
 eh.ok.402870:  ; 0x402870
-  %ret.1 = call i64 @F_00402680()  ; 0x402875
+  %varargs.p = getelementptr inbounds i8, ptr %frame.top, i64 4
+  %varargs = ptrtoint ptr %varargs.p to i64
+  %ret.1 = call i64 @F_00402680(i64 %varargs)  ; 0x402875
   ret i64 %ret.1
 }
 
-define void @F_00402880(i32 %arg0) {  ; 0x402880
+define i64 @F_00402880(i32 %arg0) {  ; 0x402880
 b_402880:  ; 0x402880
   %addr.z.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 860) to i32) to i64  ; 0x402883
   %m.p = inttoptr i64 %addr.z.1 to ptr  ; 0x402883
@@ -10759,18 +10899,102 @@ b_4028ac:  ; 0x4028ac
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x4028b1
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.4028b1
 eh.landing:  ; 0x402891
-  ret void
+  %rax.phi = phi i64 [ %ret, %b_402891 ], [ %ret.1, %b_4028ac ]  ; 0x402891
+  ret i64 %rax.phi
 eh.ok.402891:  ; 0x402891
-  ret void
+  %eax = trunc i64 %ret to i32  ; 0x40289b
+  %zf.4 = icmp eq i32 %eax, 0  ; 0x40289b
+  %cmov = select i1 %zf.4, i32 %arg0, i32 0  ; 0x40289d
+  %cf.2 = icmp ult i32 0, %cmov  ; 0x4028a0
+  %c.6 = zext i1 %cf.2 to i32  ; 0x4028a3
+  %diff.c = sub i32 0, %c.6  ; 0x4028a3
+  %diff.3 = sub i32 0, %diff.c  ; 0x4028a5
+  %addr.1 = add i32 %diff.3, -1  ; 0x4028a7
+  %eax.z = zext i32 %addr.1 to i64  ; 0x4028a7
+  ret i64 %eax.z
 eh.ok.4028b1:  ; 0x4028b1
-  ret void
+  %eax.2 = trunc i64 %ret.1 to i32  ; 0x4028bb
+  %zf.11 = icmp eq i32 %eax.2, 0  ; 0x4028bb
+  %cmov.1 = select i1 %zf.11, i32 %arg0, i32 0  ; 0x4028bd
+  %cf.7 = icmp ult i32 0, %cmov.1  ; 0x4028c0
+  %c.13 = zext i1 %cf.7 to i32  ; 0x4028c3
+  %diff.c.1 = sub i32 0, %c.13  ; 0x4028c3
+  %diff.6 = sub i32 0, %diff.c.1  ; 0x4028c5
+  %addr.2 = add i32 %diff.6, -1  ; 0x4028c7
+  %eax.z.1 = zext i32 %addr.2 to i64  ; 0x4028c7
+  ret i64 %eax.z.1
 }
 
 define i32 @F_004028d0(i64 %varargs) {  ; 0x4028d0
 b_4028d0:  ; 0x4028d0
-  %frame = alloca [4264 x i8], align 16
+  %varargs.s = inttoptr i64 %varargs to ptr
+  %frame = alloca [4320 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 4188
   %rsp0 = ptrtoint ptr %frame.top to i64
+  %varargs.f0 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 0
+  %varargs.0.w = load i32, ptr %varargs.f0, align 4
+  %varargs.0.s = getelementptr inbounds i8, ptr %frame.top, i64 4
+  store i32 %varargs.0.w, ptr %varargs.0.s, align 4
+  %varargs.f4 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 1
+  %varargs.1.w = load i32, ptr %varargs.f4, align 4
+  %varargs.1.s = getelementptr inbounds i8, ptr %frame.top, i64 8
+  store i32 %varargs.1.w, ptr %varargs.1.s, align 4
+  %varargs.f8 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 2
+  %varargs.2.w = load i32, ptr %varargs.f8, align 4
+  %varargs.2.s = getelementptr inbounds i8, ptr %frame.top, i64 12
+  store i32 %varargs.2.w, ptr %varargs.2.s, align 4
+  %varargs.f12 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 3
+  %varargs.3.w = load i32, ptr %varargs.f12, align 4
+  %varargs.3.s = getelementptr inbounds i8, ptr %frame.top, i64 16
+  store i32 %varargs.3.w, ptr %varargs.3.s, align 4
+  %varargs.f16 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 4
+  %varargs.4.w = load i32, ptr %varargs.f16, align 4
+  %varargs.4.s = getelementptr inbounds i8, ptr %frame.top, i64 20
+  store i32 %varargs.4.w, ptr %varargs.4.s, align 4
+  %varargs.f20 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 5
+  %varargs.5.w = load i32, ptr %varargs.f20, align 4
+  %varargs.5.s = getelementptr inbounds i8, ptr %frame.top, i64 24
+  store i32 %varargs.5.w, ptr %varargs.5.s, align 4
+  %varargs.f24 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 6
+  %varargs.6.w = load i32, ptr %varargs.f24, align 4
+  %varargs.6.s = getelementptr inbounds i8, ptr %frame.top, i64 28
+  store i32 %varargs.6.w, ptr %varargs.6.s, align 4
+  %varargs.f28 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 7
+  %varargs.7.w = load i32, ptr %varargs.f28, align 4
+  %varargs.7.s = getelementptr inbounds i8, ptr %frame.top, i64 32
+  store i32 %varargs.7.w, ptr %varargs.7.s, align 4
+  %varargs.f32 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 8
+  %varargs.8.w = load i32, ptr %varargs.f32, align 4
+  %varargs.8.s = getelementptr inbounds i8, ptr %frame.top, i64 36
+  store i32 %varargs.8.w, ptr %varargs.8.s, align 4
+  %varargs.f36 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 9
+  %varargs.9.w = load i32, ptr %varargs.f36, align 4
+  %varargs.9.s = getelementptr inbounds i8, ptr %frame.top, i64 40
+  store i32 %varargs.9.w, ptr %varargs.9.s, align 4
+  %varargs.f40 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 10
+  %varargs.10.w = load i32, ptr %varargs.f40, align 4
+  %varargs.10.s = getelementptr inbounds i8, ptr %frame.top, i64 44
+  store i32 %varargs.10.w, ptr %varargs.10.s, align 4
+  %varargs.f44 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 11
+  %varargs.11.w = load i32, ptr %varargs.f44, align 4
+  %varargs.11.s = getelementptr inbounds i8, ptr %frame.top, i64 48
+  store i32 %varargs.11.w, ptr %varargs.11.s, align 4
+  %varargs.f48 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 12
+  %varargs.12.w = load i32, ptr %varargs.f48, align 4
+  %varargs.12.s = getelementptr inbounds i8, ptr %frame.top, i64 52
+  store i32 %varargs.12.w, ptr %varargs.12.s, align 4
+  %varargs.f52 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 13
+  %varargs.13.w = load i32, ptr %varargs.f52, align 4
+  %varargs.13.s = getelementptr inbounds i8, ptr %frame.top, i64 56
+  store i32 %varargs.13.w, ptr %varargs.13.s, align 4
+  %varargs.f56 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 14
+  %varargs.14.w = load i32, ptr %varargs.f56, align 4
+  %varargs.14.s = getelementptr inbounds i8, ptr %frame.top, i64 60
+  store i32 %varargs.14.w, ptr %varargs.14.s, align 4
+  %varargs.f60 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 15
+  %varargs.15.w = load i32, ptr %varargs.f60, align 4
+  %varargs.15.s = getelementptr inbounds i8, ptr %frame.top, i64 64
+  store i32 %varargs.15.w, ptr %varargs.15.s, align 4
   %esp = trunc i64 %rsp0 to i32  ; 0x4028d0
   %sp = sub i32 %esp, 4  ; 0x4028d0
   %sp.1 = sub i32 %sp, 4  ; 0x4028d3
@@ -11082,9 +11306,8 @@ eh.search.402937.0:  ; 0x402984
   call void @ra_eh_unhandled(i64 4204855)  ; 0x402984
   unreachable
 eh.access.402937:  ; 0x402984
-  %args.p = inttoptr i64 %varargs to ptr  ; 0x402984
-  %m.p.22 = getelementptr inbounds i8, ptr %args.p, i64 0  ; 0x402984
-  %m.22 = load i32, ptr %m.p.22, align 1  ; 0x402984
+  %varargs.f0.1 = getelementptr inbounds %S1, ptr %varargs.s, i64 0, i32 0  ; 0x402984
+  %m.22 = load i32, ptr %varargs.f0.1, align 1  ; 0x402984
   %diff.9 = sub i32 %m.22, ptrtoint (ptr @sec_headers to i32)  ; 0x40293a
   %sp.19 = sub i32 %rsp.phi.4, 4  ; 0x40293f
   %st.p.28 = getelementptr inbounds i8, ptr %frame.top, i64 -48  ; 0x40293f
@@ -11337,7 +11560,7 @@ cx.done.1:  ; 0x4029dc
 
 define void @F_004029f0(i32 %arg0) {  ; 0x4029f0
 b_4029f0:  ; 0x4029f0
-  %frame = alloca [124 x i8], align 16
+  %frame = alloca [116 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
@@ -11364,7 +11587,7 @@ eh.ok.4029f3:  ; 0x4029f3
   br i1 %zf, label %b_402a0b, label %b_4029fc
 }
 
-define i8 @F_00402a10(i32 %arg0) {  ; 0x402a10
+define i64 @F_00402a10(i32 %arg0) {  ; 0x402a10
 b_402a10:  ; 0x402a10
   %not = icmp ne i32 %arg0, 0  ; 0x402a17
   br i1 %not, label %b_402a20, label %b_402a19
@@ -11374,37 +11597,43 @@ b_402a19:  ; 0x402a19
   store i8 1, ptr %st.p.1, align 1  ; 0x402a19
   br label %b_402a20
 b_402a20:  ; 0x402a20
-  %ret = call i8 @F_00402ea0()  ; 0x402a20
+  %ret = call i64 @F_00402ea0()  ; 0x402a20
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402a20
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402a20
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.402a20
 b_402a2e:  ; 0x402a2e
-  %ret.2 = call i8 @F_00402c70()  ; 0x402a2e
+  %ret.2 = call i64 @F_00402c70()  ; 0x402a2e
   %eh.pending.2 = call i64 @ra_eh_pending()  ; 0x402a2e
   %eh.thrown.2 = icmp ne i64 %eh.pending.2, 0  ; 0x402a2e
   br i1 %eh.thrown.2, label %eh.landing, label %eh.ok.402a2e
 b_402a37:  ; 0x402a37
-  %ret.3 = call i8 @F_00402c70()  ; 0x402a39
+  %ret.3 = call i64 @F_00402c70()  ; 0x402a39
   %eh.pending.3 = call i64 @ra_eh_pending()  ; 0x402a39
   %eh.thrown.3 = icmp ne i64 %eh.pending.3, 0  ; 0x402a39
   br i1 %eh.thrown.3, label %eh.landing, label %eh.ok.402a39
 b_402a41:  ; 0x402a41
-  ret i8 0
+  %rax.phi = phi i64 [ %ret.1, %eh.ok.402a25 ], [ %ret.3, %eh.ok.402a39 ]  ; 0x402a41
+  %kept = and i64 %rax.phi, -256  ; 0x402a41
+  ret i64 %kept
 b_402a45:  ; 0x402a45
-  ret i8 1
+  %kept.1 = and i64 %ret.2, -256  ; 0x402a45
+  %rax.7 = or i64 %kept.1, 1  ; 0x402a45
+  ret i64 %rax.7
 eh.landing:  ; 0x402a20
-  %rax.phi.1 = phi i8 [ %ret, %b_402a20 ], [ %ret.2, %b_402a2e ], [ %ret.3, %b_402a37 ], [ %ret.1, %eh.ok.402a20 ]  ; 0x402a20
-  ret i8 %rax.phi.1
+  %rax.phi.1 = phi i64 [ %ret, %b_402a20 ], [ %ret.2, %b_402a2e ], [ %ret.3, %b_402a37 ], [ %ret.1, %eh.ok.402a20 ]  ; 0x402a20
+  ret i64 %rax.phi.1
 eh.ok.402a20:  ; 0x402a20
-  %ret.1 = call i8 @F_00402c70()  ; 0x402a25
+  %ret.1 = call i64 @F_00402c70()  ; 0x402a25
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x402a25
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x402a25
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.402a25
 eh.ok.402a25:  ; 0x402a25
-  %zf.2 = icmp eq i8 %ret.1, 0  ; 0x402a2a
+  %al = trunc i64 %ret.1 to i8  ; 0x402a2a
+  %zf.2 = icmp eq i8 %al, 0  ; 0x402a2a
   br i1 %zf.2, label %b_402a41, label %b_402a2e
 eh.ok.402a2e:  ; 0x402a2e
-  %not.1 = icmp ne i8 %ret.2, 0  ; 0x402a35
+  %al.2 = trunc i64 %ret.2 to i8  ; 0x402a33
+  %not.1 = icmp ne i8 %al.2, 0  ; 0x402a35
   br i1 %not.1, label %b_402a45, label %b_402a37
 eh.ok.402a39:  ; 0x402a39
   br label %b_402a41
@@ -11412,7 +11641,7 @@ eh.ok.402a39:  ; 0x402a39
 
 define void @F_00402a50(i64 %arg0, i32 %arg1) {  ; 0x402a50
 b_402a50:  ; 0x402a50
-  %frame = alloca [128 x i8], align 16
+  %frame = alloca [120 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 44
   %stack.arg1.p = getelementptr inbounds i8, ptr %frame.top, i64 8
   store i32 %arg1, ptr %stack.arg1.p, align 4
@@ -11426,7 +11655,7 @@ b_402a5c:  ; 0x402a5c
   %not = icmp ne i8 %m.1, 0  ; 0x402a60
   br i1 %not, label %b_402a75, label %b_402a62
 b_402a62:  ; 0x402a62
-  %ret = call i8 @F_00402c70()  ; 0x402a65
+  %ret = call i64 @F_00402c70()  ; 0x402a65
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402a65
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402a65
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.402a65
@@ -11435,7 +11664,7 @@ b_402a75:  ; 0x402a75
 eh.landing:  ; 0x402a65
   ret void
 eh.ok.402a65:  ; 0x402a65
-  %ret.1 = call i8 @F_00402c70()  ; 0x402a6d
+  %ret.1 = call i64 @F_00402c70()  ; 0x402a6d
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x402a6d
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x402a6d
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.402a6d
@@ -11541,12 +11770,12 @@ b_402b30:  ; 0x402b30
   %sum = add i32 %m.1, %arg0  ; 0x402b3b
   %sum.s.w = zext i32 %sum to i64  ; 0x402b3b
   %sum.s = inttoptr i64 %sum.s.w to ptr  ; 0x402b3b
-  %sum.f20 = getelementptr inbounds %S4, ptr %sum.s, i64 0, i32 3  ; 0x402b3d
+  %sum.f20 = getelementptr inbounds %S5, ptr %sum.s, i64 0, i32 3  ; 0x402b3d
   %m.2 = load i16, ptr %sum.f20, align 1  ; 0x402b3d
   %eax.z.1 = zext i16 %m.2 to i32  ; 0x402b3d
   %sum.1 = add i32 %eax.z.1, 24  ; 0x402b41
   %sum.2 = add i32 %sum.1, %sum  ; 0x402b44
-  %sum.f6 = getelementptr inbounds %S4, ptr %sum.s, i64 0, i32 1  ; 0x402b46
+  %sum.f6 = getelementptr inbounds %S5, ptr %sum.s, i64 0, i32 1  ; 0x402b46
   %m.3 = load i16, ptr %sum.f6, align 1  ; 0x402b46
   %ecx.z.2 = zext i16 %m.3 to i32  ; 0x402b46
   %scaled.1 = mul i32 %ecx.z.2, 40  ; 0x402b4d
@@ -11559,12 +11788,12 @@ b_402b57:  ; 0x402b57
   %rax.phi = phi i32 [ %sum.2, %b_402b54 ], [ %sum.4, %b_402b67 ]  ; 0x402b57
   %rax.phi.s.w = zext i32 %rax.phi to i64  ; 0x402b57
   %rax.phi.s = inttoptr i64 %rax.phi.s.w to ptr  ; 0x402b57
-  %rax.phi.f12 = getelementptr inbounds %S5, ptr %rax.phi.s, i64 0, i32 2  ; 0x402b57
+  %rax.phi.f12 = getelementptr inbounds %S6, ptr %rax.phi.s, i64 0, i32 2  ; 0x402b57
   %m.5 = load i32, ptr %rax.phi.f12, align 1  ; 0x402b57
   %cf.4 = icmp ult i32 %arg1, %m.5  ; 0x402b5a
   br i1 %cf.4, label %b_402b67, label %b_402b5e
 b_402b5e:  ; 0x402b5e
-  %rax.phi.f8 = getelementptr inbounds %S5, ptr %rax.phi.s, i64 0, i32 1  ; 0x402b5e
+  %rax.phi.f8 = getelementptr inbounds %S6, ptr %rax.phi.s, i64 0, i32 1  ; 0x402b5e
   %m.6 = load i32, ptr %rax.phi.f8, align 1  ; 0x402b5e
   %sum.3 = add i32 %m.6, %m.5  ; 0x402b61
   %cf.7 = icmp ult i32 %arg1, %sum.3  ; 0x402b63
@@ -11583,7 +11812,7 @@ b_402b70:  ; 0x402b70
 define i64 @F_00402b80() {  ; 0x402b80
 b_402b80:  ; 0x402b80
   %xmm = alloca [16 x i128], align 16
-  %frame = alloca [136 x i8], align 16
+  %frame = alloca [128 x i8], align 16
   %frame.top = getelementptr inbounds i8, ptr %frame, i64 60
   %rsp0 = ptrtoint ptr %frame.top to i64
   %esp = trunc i64 %rsp0 to i32  ; 0x402b80
@@ -11688,33 +11917,35 @@ b_402c50:  ; 0x402c50
   ret i64 16384
 }
 
-define void @F_00402c60() {  ; 0x402c60
+define i64 @F_00402c60() {  ; 0x402c60
 b_402c60:  ; 0x402c60
   %sarg0 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 888) to i32) to i64
   %ret = call i64 @ra_x86_initialize_slist_head(i64 %sarg0)  ; 0x402c65
-  ret void
+  ret i64 %ret
 }
 
-define i8 @F_00402c70() {  ; 0x402c70
+define i64 @F_00402c70() {  ; 0x402c70
 b_402c70:  ; 0x402c70
-  ret i8 1
+  %kept = and i64 undef, -256  ; 0x402c70
+  %rax.1 = or i64 %kept, 1  ; 0x402c70
+  ret i64 %rax.1
 }
 
-define void @F_00402c80() {  ; 0x402c80
+define i64 @F_00402c80() {  ; 0x402c80
 b_402c80:  ; 0x402c80
   %ret = call i64 @thunk__controlfp_s(i32 0, i32 65536, i32 196608)  ; 0x402c8c
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402c8c
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402c8c
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.402c8c
 b_402c98:  ; 0x402c98
-  ret void
+  ret i64 %ret
 b_402c99:  ; 0x402c99
   call void @F_00402da0(i64 7)  ; 0x402c9b
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x402c9b
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x402c9b
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.402c9b
 eh.landing:  ; 0x402c8c
-  ret void
+  ret i64 %ret
 eh.ok.402c8c:  ; 0x402c8c
   %eax = trunc i64 %ret to i32  ; 0x402c94
   %not = icmp ne i32 %eax, 0  ; 0x402c96
@@ -11820,22 +12051,22 @@ b_402d46:  ; 0x402d46
   %sum = add i32 %m.1, %eax  ; 0x402d49
   %sum.s.w = zext i32 %sum to i64  ; 0x402d49
   %sum.s = inttoptr i64 %sum.s.w to ptr  ; 0x402d49
-  %sum.f0 = getelementptr inbounds %S6, ptr %sum.s, i64 0, i32 0  ; 0x402d4b
+  %sum.f0 = getelementptr inbounds %S7, ptr %sum.s, i64 0, i32 0  ; 0x402d4b
   %m.2 = load i32, ptr %sum.f0, align 1  ; 0x402d4b
   %not.1 = icmp ne i32 %m.2, 17744  ; 0x402d51
   br i1 %not.1, label %b_402d6f, label %b_402d53
 b_402d53:  ; 0x402d53
-  %sum.f24 = getelementptr inbounds %S6, ptr %sum.s, i64 0, i32 2  ; 0x402d58
+  %sum.f24 = getelementptr inbounds %S7, ptr %sum.s, i64 0, i32 2  ; 0x402d58
   %m.3 = load i16, ptr %sum.f24, align 1  ; 0x402d58
   %not.2 = icmp ne i16 %m.3, 267  ; 0x402d5c
   br i1 %not.2, label %b_402d6f, label %b_402d5e
 b_402d5e:  ; 0x402d5e
-  %sum.f116 = getelementptr inbounds %S6, ptr %sum.s, i64 0, i32 4  ; 0x402d5e
+  %sum.f116 = getelementptr inbounds %S7, ptr %sum.s, i64 0, i32 4  ; 0x402d5e
   %m.4 = load i32, ptr %sum.f116, align 1  ; 0x402d5e
   %be = icmp ule i32 %m.4, 14  ; 0x402d62
   br i1 %be, label %b_402d6f, label %b_402d64
 b_402d64:  ; 0x402d64
-  %sum.f232 = getelementptr inbounds %S6, ptr %sum.s, i64 0, i32 6  ; 0x402d64
+  %sum.f232 = getelementptr inbounds %S7, ptr %sum.s, i64 0, i32 6  ; 0x402d64
   %m.5 = load i32, ptr %sum.f232, align 1  ; 0x402d64
   %not.3 = icmp ne i32 %m.5, 0  ; 0x402d6b
   %al.z = zext i1 %not.3 to i64  ; 0x402d6b
@@ -11853,11 +12084,11 @@ b_402d80:  ; 0x402d80
   ret i64 %ret
 }
 
-define void @F_00402d90() {  ; 0x402d90
+define i64 @F_00402d90() {  ; 0x402d90
 b_402d90:  ; 0x402d90
   %sarg0 = zext i32 ptrtoint (ptr @U_00402db0 to i32) to i64
   %ret = call i64 @SetUnhandledExceptionFilter(i64 %sarg0)  ; 0x402d95
-  ret void
+  ret i64 %ret
 }
 
 define void @F_00402da0(i64 %arg0) {  ; 0x402da0
@@ -11875,17 +12106,17 @@ b_402db0:  ; 0x402db0
   %m.1 = load i32, ptr %m.p.1, align 1  ; 0x402db8
   %m.1.s.w = zext i32 %m.1 to i64  ; 0x402db8
   %m.1.s = inttoptr i64 %m.1.s.w to ptr  ; 0x402db8
-  %m.1.f0 = getelementptr inbounds %S7, ptr %m.1.s, i64 0, i32 0  ; 0x402dba
+  %m.1.f0 = getelementptr inbounds %S8, ptr %m.1.s, i64 0, i32 0  ; 0x402dba
   %m.2 = load i32, ptr %m.1.f0, align 1  ; 0x402dba
   %not = icmp ne i32 %m.2, -529697949  ; 0x402dc0
   br i1 %not, label %b_402de7, label %b_402dc2
 b_402dc2:  ; 0x402dc2
-  %m.1.f16 = getelementptr inbounds %S7, ptr %m.1.s, i64 0, i32 2  ; 0x402dc2
+  %m.1.f16 = getelementptr inbounds %S8, ptr %m.1.s, i64 0, i32 2  ; 0x402dc2
   %m.3 = load i32, ptr %m.1.f16, align 1  ; 0x402dc2
   %not.1 = icmp ne i32 %m.3, 3  ; 0x402dc6
   br i1 %not.1, label %b_402de7, label %b_402dc8
 b_402dc8:  ; 0x402dc8
-  %m.1.f20 = getelementptr inbounds %S7, ptr %m.1.s, i64 0, i32 3  ; 0x402dc8
+  %m.1.f20 = getelementptr inbounds %S8, ptr %m.1.s, i64 0, i32 3  ; 0x402dc8
   %m.4 = load i32, ptr %m.1.f20, align 1  ; 0x402dc8
   %zf.4 = icmp eq i32 %m.4, 429065504  ; 0x402dcb
   br i1 %zf.4, label %b_402def, label %b_402dd2
@@ -11934,11 +12165,12 @@ eh.ok.402e00:  ; 0x402e00
   unreachable
 }
 
-define void @F_00402e10() {  ; 0x402e10
+define i64 @F_00402e10() {  ; 0x402e10
 b_402e10:  ; 0x402e10
+  %esi.z = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_rdata, i64 2544) to i32) to i64  ; 0x402e11
   br label %b_402e3c
 b_402e3c:  ; 0x402e3c
-  ret void
+  ret i64 %esi.z
 }
 
 define i64 @F_00402e40() {  ; 0x402e40
@@ -11949,30 +12181,32 @@ b_402e6c:  ; 0x402e6c
   ret i64 %esi.z
 }
 
-define void @F_00402e70(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x402e70
+define i64 @F_00402e70(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4) {  ; 0x402e70
 b_402e70:  ; 0x402e70
-  %stack.arg0.lo = trunc i64 %arg0 to i32
-  %stack.arg1.lo = trunc i64 %arg1 to i32
+  %stack.arg0.lo = trunc i64 %arg1 to i32
+  %stack.arg1.lo = trunc i64 %arg2 to i32
   %esi.z = zext i32 %stack.arg0.lo to i64  ; 0x402e74
   %m.p.1 = inttoptr i64 %esi.z to ptr  ; 0x402e77
   %m.1 = load i32, ptr %m.p.1, align 1  ; 0x402e77
-  %ret = call i32 @F_004031e0(i32 %m.1)  ; 0x402e79
+  %ret = call i64 @F_004031e0(i64 %arg0, i32 %m.1)  ; 0x402e79
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402e79
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402e79
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.402e79
 eh.landing:  ; 0x402e79
-  ret void
+  %rax.phi = phi i64 [ %ret, %b_402e70 ], [ %ret.1, %eh.ok.402e79 ]  ; 0x402e79
+  ret i64 %rax.phi
 eh.ok.402e79:  ; 0x402e79
-  store i32 %ret, ptr %m.p.1, align 1  ; 0x402e81
-  call void @thunk__except_handler4_common(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32), i32 ptrtoint (ptr @U_00402570 to i32), i32 %stack.arg0.lo, i32 %stack.arg1.lo)  ; 0x402e94
+  %eax = trunc i64 %ret to i32  ; 0x402e81
+  store i32 %eax, ptr %m.p.1, align 1  ; 0x402e81
+  %ret.1 = call i64 @thunk__except_handler4_common(i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 192) to i32), i32 ptrtoint (ptr @U_00402570 to i32), i32 %stack.arg0.lo, i32 %stack.arg1.lo)  ; 0x402e94
   %eh.pending.1 = call i64 @ra_eh_pending()  ; 0x402e94
   %eh.thrown.1 = icmp ne i64 %eh.pending.1, 0  ; 0x402e94
   br i1 %eh.thrown.1, label %eh.landing, label %eh.ok.402e94
 eh.ok.402e94:  ; 0x402e94
-  ret void
+  ret i64 %ret.1
 }
 
-define i8 @F_00402ea0() {  ; 0x402ea0
+define i64 @F_00402ea0() {  ; 0x402ea0
 b_402ea0:  ; 0x402ea0
   %addr.z.1 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 272) to i32) to i64  ; 0x402ea3
   %m.p = inttoptr i64 %addr.z.1 to ptr  ; 0x402ea3
@@ -12206,7 +12440,7 @@ b_4031b3:  ; 0x4031b3
 b_4031c2:  ; 0x4031c2
   br label %b_4031c5
 b_4031c5:  ; 0x4031c5
-  ret i8 0
+  ret i64 0
 }
 
 define i64 @F_004031d0() {  ; 0x4031d0
@@ -12219,7 +12453,7 @@ b_4031d0:  ; 0x4031d0
   ret i64 %al.z
 }
 
-define i32 @F_004031e0(i32 %arg0) {  ; 0x4031e0
+define i64 @F_004031e0(i64 %arg0, i32 %arg1) {  ; 0x4031e0
 b_4031e0:  ; 0x4031e0
   %addr.z.2 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 924) to i32) to i64  ; 0x4031e4
   %m.p = inttoptr i64 %addr.z.2 to ptr  ; 0x4031e4
@@ -12227,10 +12461,10 @@ b_4031e0:  ; 0x4031e0
   %l = icmp slt i32 %m, 1  ; 0x4031ee
   br i1 %l, label %b_403252, label %b_4031f0
 b_4031f0:  ; 0x4031f0
-  %zf.1 = icmp eq i32 %arg0, -1073741132  ; 0x4031f0
+  %zf.1 = icmp eq i32 %arg1, -1073741132  ; 0x4031f0
   br i1 %zf.1, label %b_403200, label %b_4031f8
 b_4031f8:  ; 0x4031f8
-  %not = icmp ne i32 %arg0, -1073741131  ; 0x4031fe
+  %not = icmp ne i32 %arg1, -1073741131  ; 0x4031fe
   br i1 %not, label %b_403252, label %b_403200
 b_403200:  ; 0x403200
   %mxcsr.p = inttoptr i64 ptrtoint (ptr @ra_mxcsr to i64) to ptr  ; 0x403200
@@ -12245,7 +12479,7 @@ b_40320e:  ; 0x40320e
   %not.1 = icmp ne i32 %logic.2, 0  ; 0x403213
   br i1 %not.1, label %b_40321e, label %b_403215
 b_403215:  ; 0x403215
-  ret i32 -1073741682
+  ret i64 3221225614
 b_40321e:  ; 0x40321e
   %logic.3 = and i32 %logic, 258  ; 0x40321e
   %zf.10 = icmp eq i32 %logic.3, 0  ; 0x40321e
@@ -12255,23 +12489,24 @@ b_403225:  ; 0x403225
   %not.2 = icmp ne i32 %logic.4, 0  ; 0x40322a
   br i1 %not.2, label %b_403235, label %b_40322c
 b_40322c:  ; 0x40322c
-  ret i32 -1073741679
+  ret i64 3221225617
 b_403235:  ; 0x403235
   %logic.5 = and i32 %logic, 2064  ; 0x403235
   %not.3 = icmp ne i32 %logic.5, 0  ; 0x40323a
   br i1 %not.3, label %b_403245, label %b_40323c
 b_40323c:  ; 0x40323c
-  ret i32 -1073741677
+  ret i64 3221225619
 b_403245:  ; 0x403245
   %logic.6 = and i32 %logic, 4128  ; 0x403245
   %zf.16 = icmp eq i32 %logic.6, 0  ; 0x403245
-  %cmov = select i1 %zf.16, i32 -1073741681, i32 %arg0  ; 0x40324f
+  %cmov = select i1 %zf.16, i32 -1073741681, i32 %arg1  ; 0x40324f
   br label %b_403252
 b_403252:  ; 0x403252
-  %rcx.phi.1 = phi i32 [ %arg0, %b_4031e0 ], [ %arg0, %b_4031f8 ], [ %cmov, %b_403245 ]  ; 0x403252
-  ret i32 %rcx.phi.1
+  %rcx.phi.1 = phi i32 [ %arg1, %b_4031e0 ], [ %arg1, %b_4031f8 ], [ %cmov, %b_403245 ]  ; 0x403252
+  %eax.z.6 = zext i32 %rcx.phi.1 to i64  ; 0x403252
+  ret i64 %eax.z.6
 b_403258:  ; 0x403258
-  ret i32 -1073741680
+  ret i64 3221225616
 }
 
 define void @thunk__CxxThrowException(i32 %arg0, i32 %arg1) {  ; 0x403261
@@ -12304,39 +12539,18 @@ b_403273:  ; 0x403273
   ret i64 %ret
 }
 
-define i64 @thunk___std_exception_copy(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4, i64 %arg5, i64 %arg6, i64 %arg7, i64 %arg8) {  ; 0x403279
+define i64 @thunk___std_exception_copy(i32 %arg0, i32 %arg1) {  ; 0x403279
 b_403279:  ; 0x403279
-  %stack.arg0.lo = trunc i64 %arg1 to i32
-  %stack.arg1.lo = trunc i64 %arg2 to i32
-  %stack.arg2.lo = trunc i64 %arg3 to i32
-  %stack.arg3.lo = trunc i64 %arg4 to i32
-  %stack.arg4.lo = trunc i64 %arg5 to i32
-  %stack.arg5.lo = trunc i64 %arg6 to i32
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
-  %sarg3 = zext i32 %stack.arg3.lo to i64
-  %sarg4 = zext i32 %stack.arg4.lo to i64
-  %sarg5 = zext i32 %stack.arg5.lo to i64
-  %ret = call i64 @__std_exception_copy(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %arg0, i64 undef)  ; 0x403279
+  %sarg0 = zext i32 %arg0 to i64
+  %sarg1 = zext i32 %arg1 to i64
+  %ret = call i64 @__std_exception_copy(i64 %sarg0, i64 %sarg1)  ; 0x403279
   ret i64 %ret
 }
 
-define i64 @thunk___std_exception_destroy(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4, i64 %arg5, i64 %arg6, i64 %arg7, i64 %arg8) {  ; 0x40327f
+define i64 @thunk___std_exception_destroy(i32 %arg0) {  ; 0x40327f
 b_40327f:  ; 0x40327f
-  %stack.arg0.lo = trunc i64 %arg1 to i32
-  %stack.arg1.lo = trunc i64 %arg2 to i32
-  %stack.arg2.lo = trunc i64 %arg3 to i32
-  %stack.arg3.lo = trunc i64 %arg4 to i32
-  %stack.arg4.lo = trunc i64 %arg5 to i32
-  %stack.arg5.lo = trunc i64 %arg6 to i32
-  %sarg0 = zext i32 %stack.arg0.lo to i64
-  %sarg1 = zext i32 %stack.arg1.lo to i64
-  %sarg2 = zext i32 %stack.arg2.lo to i64
-  %sarg3 = zext i32 %stack.arg3.lo to i64
-  %sarg4 = zext i32 %stack.arg4.lo to i64
-  %sarg5 = zext i32 %stack.arg5.lo to i64
-  %ret = call i64 @__std_exception_destroy(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3, i64 %sarg4, i64 %sarg5, i64 %arg0, i64 undef)  ; 0x40327f
+  %sarg0 = zext i32 %arg0 to i64
+  %ret = call i64 @__std_exception_destroy(i64 %sarg0)  ; 0x40327f
   ret i64 %ret
 }
 
@@ -12350,14 +12564,14 @@ b_403285:  ; 0x403285
   ret i64 %ret
 }
 
-define void @thunk__except_handler4_common(i32 %arg0, i32 %arg1, i32 %arg2, i32 %arg3) {  ; 0x40328b
+define i64 @thunk__except_handler4_common(i32 %arg0, i32 %arg1, i32 %arg2, i32 %arg3) {  ; 0x40328b
 b_40328b:  ; 0x40328b
   %sarg0 = zext i32 %arg0 to i64
   %sarg1 = zext i32 %arg1 to i64
   %sarg2 = zext i32 %arg2 to i64
   %sarg3 = zext i32 %arg3 to i64
   %ret = call i64 @_except_handler4_common(i64 %sarg0, i64 %sarg1, i64 %sarg2, i64 %sarg3)  ; 0x40328b
-  ret void
+  ret i64 %ret
 }
 
 define i64 @thunk___p___argc() {  ; 0x403291
@@ -12378,11 +12592,11 @@ b_40329d:  ; 0x40329d
   ret i64 %ret
 }
 
-define void @thunk___setusermatherr(i32 %arg0) {  ; 0x4032a3
+define i64 @thunk___setusermatherr(i32 %arg0) {  ; 0x4032a3
 b_4032a3:  ; 0x4032a3
   %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @__setusermatherr(i64 %sarg0)  ; 0x4032a3
-  ret void
+  ret i64 %ret
 }
 
 define void @thunk__c_exit() {  ; 0x4032a9
@@ -12397,11 +12611,11 @@ b_4032af:  ; 0x4032af
   ret void
 }
 
-define void @thunk__configthreadlocale(i32 %arg0) {  ; 0x4032b5
+define i64 @thunk__configthreadlocale(i32 %arg0) {  ; 0x4032b5
 b_4032b5:  ; 0x4032b5
   %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_configthreadlocale(i64 %sarg0)  ; 0x4032b5
-  ret void
+  ret i64 %ret
 }
 
 define i64 @thunk__configure_narrow_argv(i32 %arg0) {  ; 0x4032bb
@@ -12440,10 +12654,10 @@ b_4032d3:  ; 0x4032d3
   ret i64 %ret
 }
 
-define void @thunk__initialize_narrow_environment() {  ; 0x4032d9
+define i64 @thunk__initialize_narrow_environment() {  ; 0x4032d9
 b_4032d9:  ; 0x4032d9
   %ret = call i64 @_initialize_narrow_environment()  ; 0x4032d9
-  ret void
+  ret i64 %ret
 }
 
 define i64 @thunk__initialize_onexit_table(i32 %arg0) {  ; 0x4032df
@@ -12492,25 +12706,25 @@ b_4032fd:  ; 0x4032fd
   ret i64 %ret
 }
 
-define void @thunk__set_app_type(i32 %arg0) {  ; 0x403303
+define i64 @thunk__set_app_type(i32 %arg0) {  ; 0x403303
 b_403303:  ; 0x403303
   %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_set_app_type(i64 %sarg0)  ; 0x403303
-  ret void
+  ret i64 %ret
 }
 
-define void @thunk__set_fmode(i32 %arg0) {  ; 0x403309
+define i64 @thunk__set_fmode(i32 %arg0) {  ; 0x403309
 b_403309:  ; 0x403309
   %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_set_fmode(i64 %sarg0)  ; 0x403309
-  ret void
+  ret i64 %ret
 }
 
-define void @thunk__set_new_mode(i32 %arg0) {  ; 0x40330f
+define i64 @thunk__set_new_mode(i32 %arg0) {  ; 0x40330f
 b_40330f:  ; 0x40330f
   %sarg0 = zext i32 %arg0 to i64
   %ret = call i64 @_set_new_mode(i64 %sarg0)  ; 0x40330f
-  ret void
+  ret i64 %ret
 }
 
 define void @thunk_exit(i32 %arg0) {  ; 0x403315
@@ -12571,7 +12785,7 @@ entry:
 
 define i64 @U_004011c0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
-  %ret = call i64 @F_004011c0(i64 %ecx, i64 %u0, i64 %u1, i64 %u2)
+  %ret = call i64 @F_004011c0(i64 %ecx, i64 %u0)
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 4, ptr %pops.p, align 8
   ret i64 %ret
@@ -12579,7 +12793,7 @@ entry:
 
 define i64 @U_00401200(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
-  %ret = call i64 @F_00401200(i64 %ecx, i64 %u0, i64 %u1, i64 %u2, i64 %u3)
+  %ret = call i64 @F_00401200(i64 %ecx, i64 %u0)
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 4, ptr %pops.p, align 8
   ret i64 %ret
@@ -12587,10 +12801,10 @@ entry:
 
 define i64 @U_00401240(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
-  call void @F_00401240(i64 %ecx, i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5)
+  %ret = call i64 @F_00401240(i64 %ecx)
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
-  ret i64 0
+  ret i64 %ret
 }
 
 define i64 @U_004018c0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
@@ -12643,7 +12857,7 @@ entry:
 
 define i64 @U_00401b70(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
-  %ret = call i64 @std_exception_vf0(i64 %ecx, i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4)
+  %ret = call i64 @std_exception_vf0(i64 %ecx, i64 %u0)
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 4, ptr %pops.p, align 8
   ret i64 %ret
@@ -12651,7 +12865,7 @@ entry:
 
 define i64 @U_00401ba0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
-  %ret = call i64 @Problem_vf0(i64 %ecx, i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4)
+  %ret = call i64 @Problem_vf0(i64 %ecx, i64 %u0)
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 4, ptr %pops.p, align 8
   ret i64 %ret
@@ -12723,10 +12937,10 @@ entry:
 
 define i64 @U_004025a0(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
-  call void @F_004025a0()
+  %ret = call i64 @F_004025a0()
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
-  ret i64 0
+  ret i64 %ret
 }
 
 define i64 @U_00402650(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
@@ -12739,10 +12953,10 @@ entry:
 
 define i64 @U_00402660(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
-  call void @F_00402660()
+  %ret = call i64 @F_00402660()
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
-  ret i64 0
+  ret i64 %ret
 }
 
 define i64 @U_00402870(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
@@ -12787,31 +13001,7 @@ entry:
 
 define i64 @U_00402e70(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
-  call void @F_00402e70(i64 %u0, i64 %u1, i64 %u2, i64 %u3)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 0
-}
-
-define i64 @U_00403279(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %args.p = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr
-  %u6 = load i64, ptr %args.p, align 8
-  %args.p.1 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr
-  %u7 = load i64, ptr %args.p.1, align 8
-  %ret = call i64 @thunk___std_exception_copy(i64 %ecx, i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %u6, i64 %u7)
-  %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
-  store i64 0, ptr %pops.p, align 8
-  ret i64 %ret
-}
-
-define i64 @U_0040327f(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
-entry:
-  %args.p = inttoptr i64 ptrtoint (ptr @ra_args to i64) to ptr
-  %u6 = load i64, ptr %args.p, align 8
-  %args.p.1 = inttoptr i64 ptrtoint (ptr getelementptr (i8, ptr @ra_args, i64 8) to i64) to ptr
-  %u7 = load i64, ptr %args.p.1, align 8
-  %ret = call i64 @thunk___std_exception_destroy(i64 %ecx, i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %u6, i64 %u7)
+  %ret = call i64 @F_00402e70(i64 %ecx, i64 %u0, i64 %u1, i64 %u2, i64 %u3)
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
   ret i64 %ret

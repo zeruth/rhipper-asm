@@ -301,6 +301,8 @@ pub fn declare_runtime(module: &mut ra_asm_ir::Module) {
         ("ra_f80_store", Type::Void, vec![p.clone(), p.clone()]),
         ("ra_f80_pack", Type::Void, vec![p.clone(), i.clone(), i.clone()]),
         ("ra_f80_from_f64", Type::Void, vec![p.clone(), d.clone()]),
+        // The double unit's `fstp tbyte`: the ten bytes of the 80-bit form of a double.
+        ("ra_f80_store_f64", Type::Void, vec![p.clone(), d.clone()]),
         ("ra_f80_from_i64", Type::Void, vec![p.clone(), i.clone()]),
         ("ra_f80_to_f64", d, vec![p.clone(), i.clone()]),
         ("ra_f80_to_f32", Type::Float, vec![p.clone(), i.clone()]),
@@ -523,6 +525,11 @@ pub const IMPORT_NAMES: &str = "ra_import_names";
 /// a little-endian `u16`, then an empty name. The runtime's `GetProcAddress` writes them into the
 /// trampoline it hands out; a name the table lacks leaves the pops to the binding table.
 pub const PROC_POPS: &str = "ra_proc_pops";
+/// The kinds of the OpenGL functions a 32-bit program may ask its context for by name, for the
+/// runtime's `ra_x86_sdl_gl_get_proc_address` and `ra_x86_wgl_get_proc_address`: `name\0`, then
+/// the letters of its result and parameters and a zero, for each; then an empty name. Empty for
+/// a program that imports neither.
+pub const PROC_KINDS: &str = "ra_proc_kinds";
 /// The SSE control and status register as the program sets it with `ldmxcsr` and reads it with
 /// `stmxcsr`; the host's own arithmetic keeps its default rounding.
 pub const MXCSR: &str = "ra_mxcsr";
@@ -728,6 +735,46 @@ pub fn proc_pops_global(images: &[&ra_asm_pe::Image], lifted: &crate::Lifted) ->
     }
 }
 
+/// The [`PROC_KINDS`] table of `images`, for a program that asks its OpenGL context for functions
+/// by name: each name among the images' strings that the OpenGL table knows, with its kinds.
+pub fn proc_kinds_global(images: &[&ra_asm_pe::Image]) -> ra_asm_ir::Global {
+    let mut found = std::collections::BTreeMap::new();
+    for image in images {
+        let bytes = image.mapped();
+        let mut start = 0;
+        for (i, &b) in bytes.iter().enumerate() {
+            if b.is_ascii_alphanumeric() || b == b'_' {
+                continue;
+            }
+            if b == 0
+                && i - start >= 4
+                && let Ok(name) = std::str::from_utf8(&bytes[start..i])
+                && let Some(kinds) = crate::raise::prototypes::opengl(name)
+            {
+                found.insert(name.to_owned(), kinds);
+            }
+            start = i + 1;
+        }
+    }
+    let mut table = Vec::new();
+    for (name, kinds) in found {
+        table.extend_from_slice(name.as_bytes());
+        table.push(0);
+        table.extend_from_slice(kinds.as_bytes());
+        table.push(0);
+    }
+    table.push(0);
+    ra_asm_ir::Global {
+        name: PROC_KINDS.to_owned(),
+        ty: Type::array(table.len() as u64, Type::I8),
+        init: Some(ra_asm_ir::Const::Bytes(table)),
+        constant: true,
+        linkage: ra_asm_ir::Linkage::External,
+        align: 16,
+        address: None,
+    }
+}
+
 /// Whether `name` is one of the globals of [`define_runtime_globals`], the [`TLS`] descriptor,
 /// the import binding table, the [`RTTI`] table or the [`ARGS`] of a call through a pointer.
 pub fn is_runtime_global(name: &str) -> bool {
@@ -745,6 +792,7 @@ pub fn is_runtime_global(name: &str) -> bool {
             | IMPORT_POPS
             | IMPORT_NAMES
             | PROC_POPS
+            | PROC_KINDS
             | RTTI
             | PSX_GP
             | N64_COP0

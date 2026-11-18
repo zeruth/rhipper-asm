@@ -157,7 +157,13 @@ fn build_stub(name: &str, f: &ra_asm_ir::Function, sig: &Signature, target: Targ
     // A variadic function reads its arguments through a pointer: the universal dwords go into a
     // block of the stub's own, and the block's address is the argument.
     if sig.variadic {
-        let block_p = b.value(block, Inst::Alloca { ty: Type::array(dwords.len().max(8) as u64, Type::I32), align: 16 }, "varargs");
+        // Sixteen dwords at least: a function whose stack pointer the analysis lost copies that
+        // many into its frame.
+        let block_p = b.value(
+            block,
+            Inst::Alloca { ty: Type::array((dwords.len().max(16) as u64).max(sig.block_bytes / 4), Type::I32), align: 16 },
+            "varargs",
+        );
         for n in 0..dwords.len() {
             let slot = b.gep(block, Type::I32, block_p, vec![(Type::I64, Operand::Int(n as i128))], "slot");
             let low = b.cast(block, Cast::Trunc, Type::I64, dword(n), Type::I32, "lo");
@@ -181,8 +187,12 @@ fn build_stub(name: &str, f: &ra_asm_ir::Function, sig: &Signature, target: Targ
         }
     }
     let result = b.call(block, f.ty.clone(), Callee::Direct(f.name.clone()), args, "ret");
-    let pops_ptr = b.cast(block, Cast::IntToPtr, Type::I64, Operand::Address { global: POPS.to_owned(), offset: 0 }, Type::Ptr, "pops.p");
-    b.store(block, Type::I64, sig.pops as i64, pops_ptr);
+    // A function that jumps on through a pointer left the record of what that one popped.
+    if !sig.forwards {
+        let pops_ptr =
+            b.cast(block, Cast::IntToPtr, Type::I64, Operand::Address { global: POPS.to_owned(), offset: 0 }, Type::Ptr, "pops.p");
+        b.store(block, Type::I64, sig.pops as i64, pops_ptr);
+    }
     if f.attrs.iter().any(|a| a == "noreturn") {
         b.terminate(block, Terminator::Unreachable);
         return b.finish();
