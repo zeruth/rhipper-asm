@@ -213,10 +213,16 @@ pub fn all_argument_slots(target: Target) -> SlotSet {
     // function that ends in a jump through a pointer and keeps nothing on the stack (`mov ecx,
     // [object]; mov eax, [ecx]; jmp [eax + 16]`) holds it live for that call alone. Unread, the
     // words were loaded from a stack pointer nothing set, at addresses 4, 8 and up.
-    if !target.is_arm64() {
+    if stack_words_at_calls(target) {
         set[target.sp().index()] = true;
     }
     set
+}
+
+/// Whether a call's arguments may lie above the stack pointer: everywhere but ARM64, whose
+/// universal eight are its registers.
+fn stack_words_at_calls(target: Target) -> bool {
+    !target.is_arm64()
 }
 
 /// The most argument registers of one class a target has: ARM64's eight.
@@ -226,6 +232,9 @@ const ARGUMENT_REGISTERS: usize = 8;
 struct Facts {
     name: String,
     int_positions: [bool; ARGUMENT_REGISTERS],
+    /// The convention's integer registers, by position, the function reads only to put on the
+    /// stack (a `push ecx` that makes room).
+    room_only: u8,
     float_positions: [Option<Kind>; ARGUMENT_REGISTERS],
     stack: StackInfo,
     /// Whether the function leaves a value in `rax` at a return: one it writes itself, or the one
@@ -855,6 +864,7 @@ fn infer_from(
         // that calls another of its object took `this` from that one for every caller.
         let called: std::collections::HashSet<&str> = set_by_callers.keys().copied().collect();
         let open = |name: &str| roots.contains(name) || !called.contains(name);
+        let room_only: HashMap<&str, u8> = facts.iter().map(|fact| (fact.name.as_str(), fact.room_only)).collect();
         loop {
             let mut next: HashMap<&str, u8> = HashMap::new();
             // The registers some call shows the callee is handed: a root's plain call shows only
@@ -877,9 +887,13 @@ fn infer_from(
                     }
                 }
             }
+            // Undecided, a register the function only pushes to make room is still none it takes.
             for (callee, mask) in &mut next {
+                let shown = shown.get(callee).copied().unwrap_or(0);
                 if decided.contains(callee) {
-                    *mask &= shown.get(callee).copied().unwrap_or(0);
+                    *mask &= shown;
+                } else {
+                    *mask &= shown | !room_only.get(callee).copied().unwrap_or(0);
                 }
             }
             if next == set_by_callers {
@@ -1115,7 +1129,9 @@ pub fn call_model_public(
     let (mut reads, writes) = call_model(inst, virtual_calls, signatures, target, summaries);
     let through_pointer = matches!(inst, Inst::Call { callee: Callee::Direct(name), .. } if name == "ra_call");
     if through_pointer && !target.register_arguments() && virtual_candidates(inst, virtual_calls).is_none() {
-        reads[super::liveness::RDX.index()] = true;
+        for slot in target.int_param_slots() {
+            reads[slot.index()] = true;
+        }
     }
     (reads, writes)
 }
@@ -1206,7 +1222,7 @@ fn call_model(
     // join) and keeps nothing on the stack holds it live for that call alone. Unread, the
     // callee's arguments were loaded from a stack pointer nothing set.
     let with_stack = |mut reads: SlotSet| {
-        if !target.is_arm64() {
+        if stack_words_at_calls(target) {
             reads[target.sp().index()] = true;
         }
         reads
@@ -1315,6 +1331,22 @@ fn gather(
     } else {
         Vec::new()
     };
+    // The convention's registers the function reads only to put on the stack: `push ecx` after
+    // the frame makes room for a local. No call that sets the register speaks for such a read.
+    let mut room_only = 0u8;
+    if private.len() > conventional {
+        let pushes = pushed_only(f, &pointers, target, &private[..conventional]);
+        if !pushes.is_empty() {
+            let pushes = pushes.into_iter().collect();
+            let own = Liveness::with_calls_ignoring(f, &pointers, &order, NO_SLOTS, &model, &pushes);
+            let reads = own.live_in.first().copied().unwrap_or([false; SLOTS]);
+            for (p, slot) in private.iter().enumerate().take(conventional.min(8)) {
+                if live_in[slot.index()] && !reads[slot.index()] {
+                    room_only |= 1 << p;
+                }
+            }
+        }
+    }
     if private.len() > conventional {
         let mut saves = saved_registers(f, &pointers, &stack, &private[conventional..]);
         saves.extend(pushed_only(f, &pointers, target, &private[conventional..]));
@@ -1562,6 +1594,7 @@ fn gather(
         changes,
         uses_saved_of,
         int_positions,
+        room_only,
         float_positions,
         stack,
         writes_xmm0,

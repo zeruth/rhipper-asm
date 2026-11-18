@@ -477,7 +477,7 @@ fn run_here(
     let mut returned = 0;
     let result = runtime.attach_process(&mut vm).and_then(|()| match call {
         None => enter(&mut vm, &mut runtime, image, lifted, signatures),
-        Some(call) => invoke(&mut vm, &mut runtime, lifted, call).map(|value| {
+        Some(call) => invoke(&mut vm, &mut runtime, lifted, signatures, call).map(|value| {
             returned = value;
             0
         }),
@@ -516,7 +516,13 @@ fn run_here(
 /// function of the ABI level gets them as its parameters and answers with its result. An x86
 /// function of the machine shape, or a parameter that is no integer, stops the call: the arguments
 /// would land by a guess.
-fn invoke(vm: &mut Vm<'_>, runtime: &mut Runtime<'_>, lifted: &Lifted, call: &Call) -> Result<u64, Stop> {
+fn invoke(
+    vm: &mut Vm<'_>,
+    runtime: &mut Runtime<'_>,
+    lifted: &Lifted,
+    signatures: &HashMap<String, Signature>,
+    call: &Call,
+) -> Result<u64, Stop> {
     let name = call.function.as_str();
     let f = vm.function(name).ok_or_else(|| Stop::fault(format!("@{name} is not in the module")))?;
     let params = f.ty.params.clone();
@@ -533,11 +539,26 @@ fn invoke(vm: &mut Vm<'_>, runtime: &mut Runtime<'_>, lifted: &Lifted, call: &Ca
         vm.call_named(runtime, name, vec![Value::Int(u128::from(state))])?;
         return vm.memory.read_u64(state);
     }
-    if params.len() != call.args.len() {
+    // A function that takes its caller's argument block gets the arguments past its registers
+    // as that block's words, at the top of the machine's stack, which the raised code leaves
+    // alone, and the block's address last.
+    let mut given = call.args.clone();
+    if signatures.get(name).is_some_and(|s| s.variadic) && !params.is_empty() && given.len() + 1 >= params.len() {
+        let words = given.split_off(params.len() - 1);
+        if words.len() > 16 {
+            return Err(Stop::fault(format!("@{name}: an argument block of {} words", words.len())));
+        }
+        let block = runtime.stack_top() - 128;
+        for k in 0..16 {
+            vm.memory.write_word(block + 4 * k as u64, 4, words.get(k).copied().unwrap_or(0))?;
+        }
+        given.push(block);
+    }
+    if params.len() != given.len() {
         return Err(Stop::fault(format!("@{name} takes {} arguments, the call gives {}", params.len(), call.args.len())));
     }
     let mut args = Vec::with_capacity(params.len());
-    for (ty, &arg) in params.iter().zip(&call.args) {
+    for (ty, &arg) in params.iter().zip(&given) {
         let value = match ty {
             Type::Int(bits) if *bits < 64 => arg & ((1u64 << bits) - 1),
             Type::Int(_) | Type::Ptr => arg,
