@@ -265,9 +265,20 @@ impl Graph {
         let mut x = self.ipdom.get(&header).copied().flatten();
         while let Some(j) = x {
             if !body.contains(&j) {
-                return exits.contains(&j).then_some(j);
+                if exits.contains(&j) {
+                    return Some(j);
+                }
+                break;
             }
             x = self.ipdom.get(&j).copied().flatten();
+        }
+        // All exits but one end the function (a block that returns, with no successor): the one
+        // left is where the loop goes on, and the early returns stay in its body. Without it a
+        // tokenizer's blank-skipping loop, which may return, took the code after it into its body
+        // and reached the next loop by a `goto`.
+        let going_on: Vec<BlockId> = exits.iter().copied().filter(|e| self.succs.get(e).is_some_and(|s| !s.is_empty())).collect();
+        if let [one] = going_on.as_slice() {
+            return Some(*one);
         }
         None
     }
@@ -443,8 +454,19 @@ impl Walk<'_> {
         if !diverges(&region) {
             region.extend(past);
         }
-        self.labels.insert(shared);
-        let mut body = vec![Stmt::Tail { tail: shared, body: region }];
+        // The shared block comes right after the region, so a leave to it that ends the region,
+        // or an arm of its last branch, runs on into it: those go, and an arm left empty is
+        // the other way round. A shared loop's header got a `goto` from each way in (a
+        // tokenizer's two ways into its line loop), where nothing needs one.
+        fall_into(&mut region, shared);
+        let mut leaves = false;
+        each(&region, &mut |s| leaves |= matches!(s, Stmt::Leave(b) if *b == shared));
+        let mut body = if leaves {
+            self.labels.insert(shared);
+            vec![Stmt::Tail { tail: shared, body: region }]
+        } else {
+            region
+        };
         body.extend(self.run(shared, Some(after)));
         if own {
             self.tails.pop();
@@ -1048,6 +1070,28 @@ fn ends_in_jump(body: &[Stmt]) -> bool {
 
 /// Whether no path runs off the end of `body`, so a statement after it would never run: it ends
 /// in a jump, or in an `if` neither of whose arms runs off.
+/// Drops the leaves to `t` that end `body` or an arm of its last branch, `t` being the block
+/// placed right after `body`; a branch left with an empty `then` turns round.
+fn fall_into(body: &mut Vec<Stmt>, t: BlockId) {
+    match body.last_mut() {
+        Some(Stmt::Leave(b)) if *b == t => {
+            body.pop();
+            fall_into(body, t);
+        }
+        Some(Stmt::If { cond, then, els }) => {
+            fall_into(then, t);
+            fall_into(els, t);
+            if then.is_empty() && !els.is_empty() {
+                *then = std::mem::take(els);
+                *cond = Cond::Not(Box::new(cond.clone()));
+            } else if then.is_empty() && els.is_empty() {
+                body.pop();
+            }
+        }
+        _ => {}
+    }
+}
+
 fn diverges(body: &[Stmt]) -> bool {
     match body.last() {
         Some(Stmt::If { then, els, .. }) => diverges(then) && diverges(els),
