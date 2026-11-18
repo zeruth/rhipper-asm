@@ -1076,6 +1076,9 @@ impl BiosCall {
 /// `A0`, `B0` and `C0` tables): the ones whose arguments are integers or pointers in `a0..a3`.
 /// A number not here is no call the lift names; the jump stays the program's.
 const PSX_BIOS: &[(u8, u8, &str, u8, bool)] = &[
+    // The `syscall` instruction, which is no table's: `a0` picks the critical section's entry
+    // (1) or exit (2), and the entry answers whether interrupts were on.
+    (0x00, 0x00, PSX_SYSCALL, 1, true),
     (0xa0, 0x00, "FileOpen", 2, true),
     (0xa0, 0x01, "FileSeek", 3, true),
     (0xa0, 0x02, "FileRead", 3, true),
@@ -1131,8 +1134,26 @@ const PSX_BIOS: &[(u8, u8, &str, u8, bool)] = &[
     (0xa0, 0x3e, "std_out_puts", 1, false),
     (0xa0, 0x3f, "printf", 4, true),
     (0xa0, 0x44, "FlushCache", 0, false),
+    (0xa0, 0x49, "GPU_cw", 1, false),
+    (0xa0, 0x54, "_96_init", 0, false),
+    (0xa0, 0x55, "_bu_init", 0, false),
+    (0xa0, 0x56, "_96_remove", 0, false),
+    (0xa0, 0x70, "_bu_init", 0, false),
+    (0xa0, 0x71, "_96_init", 0, false),
+    (0xa0, 0x72, "_96_remove", 0, false),
+    (0xa0, 0x9f, "SetMemSize", 1, false),
+    (0xa0, 0xab, "_card_info", 1, true),
+    (0xa0, 0xac, "_card_async_load_directory", 1, true),
+    (0xa0, 0xad, "set_card_auto_format", 1, false),
+    (0xa0, 0xaf, "card_write_test", 1, true),
+    (0xa0, 0xb4, "GetSystemInfo", 1, true),
     (0xb0, 0x00, "alloc_kernel_memory", 1, true),
     (0xb0, 0x01, "free_kernel_memory", 1, false),
+    (0xb0, 0x02, "SetRCnt", 3, true),
+    (0xb0, 0x03, "GetRCnt", 1, true),
+    (0xb0, 0x04, "StartRCnt", 1, true),
+    (0xb0, 0x05, "StopRCnt", 1, true),
+    (0xb0, 0x06, "ResetRCnt", 1, true),
     (0xb0, 0x07, "DeliverEvent", 2, false),
     (0xb0, 0x08, "OpenEvent", 4, true),
     (0xb0, 0x09, "CloseEvent", 1, true),
@@ -1159,10 +1180,26 @@ const PSX_BIOS: &[(u8, u8, &str, u8, bool)] = &[
     (0xb0, 0x3d, "std_out_putchar", 1, false),
     (0xb0, 0x3e, "std_in_gets", 1, true),
     (0xb0, 0x3f, "std_out_puts", 1, false),
+    (0xb0, 0x40, "chdir", 1, true),
+    (0xb0, 0x41, "FormatDevice", 1, true),
+    (0xb0, 0x42, "firstfile", 2, true),
+    (0xb0, 0x43, "nextfile", 1, true),
+    (0xb0, 0x44, "FileRename", 2, true),
+    (0xb0, 0x45, "FileDelete", 1, true),
+    (0xb0, 0x46, "FileUndelete", 1, true),
+    (0xb0, 0x47, "AddDevice", 1, true),
+    (0xb0, 0x48, "RemoveDevice", 1, true),
+    (0xb0, 0x49, "PrintInstalledDevices", 0, false),
     (0xb0, 0x4a, "InitCard", 1, false),
     (0xb0, 0x4b, "StartCard", 0, false),
     (0xb0, 0x4c, "StopCard", 0, false),
+    (0xb0, 0x4e, "_card_write", 3, true),
+    (0xb0, 0x4f, "_card_read", 3, true),
+    (0xb0, 0x50, "_new_card", 0, false),
     (0xb0, 0x54, "get_last_error", 0, true),
+    (0xb0, 0x58, "_card_chan", 0, true),
+    (0xb0, 0x5c, "_card_status", 1, true),
+    (0xb0, 0x5d, "_card_wait", 1, true),
     (0xb0, 0x56, "GetC0Table", 0, true),
     (0xb0, 0x57, "GetB0Table", 0, true),
     (0xb0, 0x5b, "ChangeClearPad", 1, false),
@@ -1178,6 +1215,14 @@ const PSX_BIOS: &[(u8, u8, &str, u8, bool)] = &[
     (0xc0, 0x13, "FlushStdInOutPut", 0, false),
     (0xc0, 0x1c, "AdjustA0Table", 0, false),
 ];
+
+/// The name of the kernel's handler of the `syscall` instruction among the BIOS functions.
+const PSX_SYSCALL: &str = "syscall";
+
+/// The kernel's handler of a `PlayStation` program's `syscall`, as a BIOS function.
+pub fn psx_syscall() -> BiosCall {
+    BiosCall { table: 0, number: 0, name: PSX_SYSCALL, params: 1, returns: true }
+}
 
 /// The BIOS function a jump to `entry` (`0xa0`, `0xb0`, `0xc0`) with `number` in `t1` calls.
 pub fn psx_bios(entry: u64, number: u64) -> Option<BiosCall> {

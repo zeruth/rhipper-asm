@@ -71,6 +71,9 @@ pub struct Image {
     /// The `PlayStation` executable's header, when the image is one: its addresses fold through the
     /// console's memory map.
     pub psx: Option<PsxExe>,
+    /// What a `PlayStation` BIOS ROM says of itself, on an image that is one: the ROM maps whole
+    /// at [`psx::BIOS_RESET`], where the processor starts, and is entered at its first word.
+    pub psx_bios: Option<psx::Bios>,
     /// The Dreamcast boot program the image is, when it is one: its addresses fold through the
     /// console's memory map.
     pub dreamcast: Option<Boot>,
@@ -109,6 +112,7 @@ impl Image {
         }
         let reader = Reader::new(&file);
         let mut psx = None;
+        let mut psx_bios = None;
         let mut rom = None;
         let (headers, sections, xbe, elf, macho) = if boot.is_some() {
             let (headers, sections) = dreamcast_layout(file.len())?;
@@ -122,6 +126,10 @@ impl Image {
             let exe = PsxExe::parse(&file)?;
             let (headers, sections) = psx_layout(&exe)?;
             psx = Some(exe);
+            (headers, sections, None, None, None)
+        } else if let Some(bios) = psx::Bios::parse(&file) {
+            let (headers, sections) = psx_bios_layout(file.len())?;
+            psx_bios = Some(bios);
             (headers, sections, None, None, None)
         } else if xbe::is_xbe(reader) {
             let (headers, sections, xbe) = xbe::parse(reader)?;
@@ -193,6 +201,7 @@ impl Image {
             elf,
             macho,
             psx,
+            psx_bios,
             dreamcast: boot,
             n64: rom,
             global_pointer: None,
@@ -209,6 +218,10 @@ impl Image {
         // routine's to set.
         if let Some(exe) = &self.psx {
             self.global_pointer = (exe.gp != 0).then_some(u64::from(exe.gp));
+            return;
+        }
+        // Nor has a BIOS ROM.
+        if self.psx_bios.is_some() {
             return;
         }
         // Nor has a Dreamcast boot program, which is its bytes and nothing else.
@@ -314,7 +327,8 @@ impl Image {
     /// and so is the program's of a ROM that Nintendo's boot code copies flat.
     pub fn entry_point(&self) -> Option<u64> {
         let rva = self.headers.optional.entry_point;
-        (rva != 0 || self.psx.is_some() || self.dreamcast.is_some() || self.n64.is_some()).then(|| self.va(rva))
+        let flat = self.psx.is_some() || self.psx_bios.is_some() || self.dreamcast.is_some() || self.n64.is_some();
+        (rva != 0 || flat).then(|| self.va(rva))
     }
 
     /// The virtual address of an RVA.
@@ -377,7 +391,7 @@ impl Image {
     /// of the R5900, `xbox` for an XBE, `dreamcast` for a boot program, `n64` for a cartridge ROM;
     /// `None` for a program of an operating system.
     pub fn platform(&self) -> Option<&'static str> {
-        if self.psx.is_some() {
+        if self.psx.is_some() || self.psx_bios.is_some() {
             Some("psx")
         } else if self.n64.is_some() {
             Some("n64")
@@ -631,6 +645,22 @@ fn psx_layout(exe: &PsxExe) -> Result<(Headers, Vec<Section>)> {
         section_table_offset: 0,
         rich: None,
     };
+    Ok((headers, sections))
+}
+
+/// The headers and the one section a `PlayStation` BIOS ROM of `len` bytes stands for: `.rom`, the
+/// whole file at [`psx::BIOS_RESET`], code and data both and read-only, entered at its first word.
+fn psx_bios_layout(len: usize) -> Result<(Headers, Vec<Section>)> {
+    let size = u32::try_from(len).context("the ROM is larger than 4 GiB")?;
+    let (mut headers, mut sections) = dreamcast_layout(len.min(0x8000))?;
+    let rom = sections.first_mut().context("no section")?;
+    ".rom".clone_into(&mut rom.name);
+    (rom.virtual_size, rom.raw_size) = (size, size);
+    rom.characteristics = crate::elf::characteristics(true, false, false);
+    headers.coff.machine = Machine::Mips;
+    headers.optional.image_base = psx::BIOS_RESET;
+    headers.optional.size_of_code = size;
+    headers.optional.size_of_image = size;
     Ok((headers, sections))
 }
 

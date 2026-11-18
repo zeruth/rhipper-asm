@@ -28,6 +28,7 @@ ra-asm-testing = { path = "crates/ra-asm-testing" }
 ra-asm-residual = { path = "crates/ra-asm-residual" }
 ra-asm-verify = { path = "crates/ra-asm-verify" }
 ra-asm-wasm = { path = "crates/ra-asm-wasm" }
+ra-asm-platform = { path = "crates/ra-asm-platform" }
 
 anyhow = "1.0.100"
 clap = { version = "4.6", features = ["derive", "env"] }

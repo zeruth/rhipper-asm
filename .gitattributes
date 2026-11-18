@@ -8,6 +8,7 @@ testdata/ps2/hello.elf binary
 testdata/ps2/Makefile eol=lf
 testdata/bin/*.map -text
 testdata/expected/*.txt -text
+testdata/expected/*.png binary
 # the csmith programs (card #207): an expected file is one LF-ended checksum line
 testdata/csmith/bin/*.exe binary
 testdata/csmith/bin/*.map -text

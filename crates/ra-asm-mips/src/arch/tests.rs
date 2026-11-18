@@ -35,6 +35,24 @@ fn the_r5900_rows_decode_only_for_the_r5900() {
 }
 
 #[test]
+fn the_r3000_rows_decode_only_for_the_r3000() {
+    let (mips, psx) = (Mips::default(), Mips { r3000: true, ..Mips::default() });
+    let text = |arch: Mips, word: u32| arch.decode(&word.to_le_bytes(), 0xbfc0_0000).map(|i| i.text);
+    // `mtc0 $zero, $12`, `mfc0 $26, $14` and `rfe`, as a kernel's exception code has them.
+    assert_eq!(text(psx, 0x4080_6000).as_deref(), Some("mtc0\t$zero, $12"));
+    assert_eq!(text(psx, 0x401a_7000).as_deref(), Some("mfc0\t$26, $14"));
+    assert_eq!(text(psx, 0x4200_0010).as_deref(), Some("rfe"));
+    for word in [0x4080_6000, 0x401a_7000, 0x4200_0010] {
+        assert_eq!(text(mips, word), None, "{word:#010x}");
+    }
+    // A row of the core keeps its code, and one of the R3000's own names its form.
+    let rfe = psx.decode(&0x4200_0010u32.to_le_bytes(), 0xbfc0_0000).unwrap();
+    assert_eq!(Mips::delay(&rfe), Delay::None);
+    let jr = psx.decode(&0x03e0_0008u32.to_le_bytes(), 0xbfc0_0000).unwrap();
+    assert_eq!(Mips::delay(&jr), Delay::Slot);
+}
+
+#[test]
 fn allegrex_rows_decode() {
     let psp = Mips { allegrex: true, ..Mips::default() };
     let text = |word: u32| psp.decode(&word.to_le_bytes(), 0x10_0000).map(|i| i.text);

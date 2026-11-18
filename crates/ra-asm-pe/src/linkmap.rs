@@ -83,6 +83,28 @@ fn parse(image: &Image, text: &str) -> Result<Vec<Symbol>> {
     Ok(symbols)
 }
 
+/// The functions of `image` that the symbol list at `path` names: the output of `nm -f posix`
+/// over the ELF a console's executable was made from (`main T ffffffff80010000 3a8`), which is
+/// what names the functions of a PS-X EXE. The text symbols (`T`, `t`) count, each at its address
+/// in the image's 32 bits; of two at one address the one with a size is the function. A list that
+/// names code outside the image is another build's.
+pub fn read_nm(image: &Image, path: &Path) -> Result<Vec<Symbol>> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
+    let mut symbols: Vec<(Symbol, bool)> = Vec::new();
+    for line in text.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        let [name, "T" | "t", address, ..] = parts[..] else { continue };
+        let Ok(va) = u64::from_str_radix(address, 16) else { continue };
+        let va = va & 0xffff_ffff;
+        ensure!(image.is_code(va), "the symbol list {} is of another build: {name} at {va:#x} is not in the image's code", path.display());
+        symbols.push((Symbol { va, name: name.to_owned(), display: true, library: None, object: None }, parts.len() > 3));
+    }
+    // The sized one of an address first, so it is the one kept.
+    symbols.sort_by_key(|(s, sized)| (s.va, !sized));
+    symbols.dedup_by_key(|(s, _)| s.va);
+    Ok(symbols.into_iter().map(|(s, _)| s).collect())
+}
+
 /// A map segment (`0001:00000000 000005f0H .text`) must fit the image's section: a longer one is
 /// the map of another build.
 fn check_segment(image: &Image, start: &str, length: &str, name: &str) -> Result<()> {

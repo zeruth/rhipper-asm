@@ -71,6 +71,14 @@ pub enum Symbol {
 /// machine back, to read and write its memory and to call into the module again (a callback).
 pub trait Host {
     fn call(&mut self, vm: &mut Vm<'_>, name: &str, ty: &FnType, args: &[Value]) -> Result<Value, Stop>;
+
+    /// Called between two instructions of a run whose [`Vm::poll`] is set, every that many
+    /// instructions and after each write to a device register: where the host of a console's
+    /// program moves its machine's clock on and delivers the interrupts that came due, by calls
+    /// into the module.
+    fn poll(&mut self, _vm: &mut Vm<'_>) -> Result<(), Stop> {
+        Ok(())
+    }
 }
 
 /// What a run saw that no reading of the program shows: the facts of the trace, which the static
@@ -125,6 +133,10 @@ pub struct Vm<'m> {
     pub limit: u64,
     /// The instructions executed so far.
     pub steps: u64,
+    /// The instructions of the program's machine executed so far, as far as the IR tells them
+    /// apart: a run of IR instructions lifted from one address counts once. The clock of a
+    /// console's machine runs by it.
+    pub instructions: u64,
     /// The address of the instruction running, for a host that records what it did.
     pub site: Option<u64>,
     /// What the run saw.
@@ -145,6 +157,10 @@ pub struct Vm<'m> {
     /// when set: a runaway recursion of the module's own frames can spend the thread's stack
     /// before it reaches the depth limit, and an overflow ends the process, not the run.
     pub stack: usize,
+    /// How many instructions run between two calls of [`Host::poll`]; zero for none.
+    pub poll: u64,
+    /// The count of instructions the next poll is due at.
+    poll_at: u64,
     /// Where the host's stack stood at the outermost call of the module.
     stack_top: usize,
     /// The image address of each function, by index, where the host gave one: an entry of one on a
@@ -176,6 +192,7 @@ impl<'m> Vm<'m> {
             trace: false,
             limit: 0,
             steps: 0,
+            instructions: 0,
             site: None,
             seen: Seen::default(),
             record: None,
@@ -183,6 +200,8 @@ impl<'m> Vm<'m> {
             pause: None,
             observer: None,
             stack: 0,
+            poll: 0,
+            poll_at: 0,
             stack_top: 0,
             origins: HashMap::new(),
             functions,

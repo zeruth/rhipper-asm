@@ -118,10 +118,17 @@ impl<'m> Vm<'m> {
             if self.limit != 0 && self.steps > self.limit {
                 return Err(Stop::Limit(self.steps));
             }
+            if i.address.is_some() && i.address != self.site {
+                self.instructions += 1;
+            }
             self.site = i.address;
             let v = self.exec(host, f, &frame.values, i).map_err(|s| s.at(i.address))?;
             if let Some(r) = i.result {
                 frame.values[r.0 as usize] = Some(v);
+            }
+            if self.poll != 0 && (self.steps >= self.poll_at || self.memory.take_device_write()) {
+                self.poll_at = self.steps + self.poll;
+                host.poll(self).map_err(|s| s.at(i.address))?;
             }
         }
         frame.prev = Some(b.id);

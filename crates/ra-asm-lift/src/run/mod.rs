@@ -8,6 +8,7 @@
 //! The memory is the host's own, so one program runs at a time in a process: the image's base is
 //! one address, and two runs would want it at once.
 
+mod console;
 mod f80;
 mod ftz;
 mod host;
@@ -27,7 +28,20 @@ use ra_asm_pe::Image;
 
 use crate::Lifted;
 use crate::raise::abi::{Kind, Signature};
+pub use console::Console;
 use host::Runtime;
+pub use ra_asm_platform::host::Capture;
+
+/// Whether `image` is a program of a console whose machine a run carries: its devices, its BIOS
+/// or kernel and its interrupts, with a picture, sound and input.
+pub fn has_machine(image: &Image) -> bool {
+    image.platform().is_some_and(|name| ra_asm_platform::NAMES.contains(&name))
+}
+
+/// The pad state a script's `up+cross` names; `None` for a name that is no button.
+pub fn pad(buttons: &str) -> Option<ra_asm_platform::pad::State> {
+    ra_asm_platform::pad::State::parse(buttons)
+}
 
 /// Whether the DLL `dll` of this host exports `name`: `None` where the host has no such DLL to
 /// ask (another system, or a library that is not on its search path).
@@ -109,6 +123,9 @@ pub struct Options {
     /// and answers the part of each the host would (its DLLs', the processor's queries), so the
     /// run makes no call into the host. A session played back.
     pub answers: Option<Answers>,
+    /// How a console program's machine meets this one; without it the run is headless and keeps
+    /// only the console's text, in the outcome's output.
+    pub console: Option<Console>,
 }
 
 impl Default for Options {
@@ -125,6 +142,7 @@ impl Default for Options {
             session: false,
             unpack: false,
             answers: None,
+            console: None,
         }
     }
 }
@@ -312,6 +330,10 @@ const PROGRAM_STACK: usize = THREAD_STACK - (32 << 20);
 /// The `PlayStation`'s 2 MiB of RAM at its `kseg0` address, where the image's text and data fold.
 const PSX_RAM: u64 = 0x8000_0000;
 const PSX_RAM_SIZE: u64 = 0x20_0000;
+/// The `PlayStation 2`'s RAM a program reaches: from the last 512 KiB of the kernel's first
+/// megabyte to the end of the 32 MiB.
+const PS2_RAM: u64 = 0x0008_0000;
+const PS2_RAM_END: u64 = 0x0200_0000;
 /// The Nintendo 64's 4 MiB of RDRAM at its `kseg0` address.
 const N64_RDRAM: u64 = 0x8000_0000;
 const N64_RDRAM_SIZE: u64 = 0x40_0000;
@@ -389,8 +411,11 @@ fn run_here(
     let size = (base - granule + u64::from(image.size_of_image())).div_ceil(0x10000) * 0x10000;
     // A PlayStation program has the console's RAM, the kernel's part below its text with it.
     // A Nintendo 64 program, its RDRAM, the heap libdragon takes past its data with it.
+    // A PlayStation 2 program has the console's RAM from the kernel's last pages up, where its
+    // start routine puts the stack and the heap.
     let (start, len) = match image.platform() {
         Some("psx") => (PSX_RAM, PSX_RAM_SIZE),
+        Some("ps2") => (PS2_RAM, PS2_RAM_END - PS2_RAM),
         Some("n64") => (N64_RDRAM, N64_RDRAM_SIZE.max(size)),
         _ => (granule, size),
     };
@@ -429,12 +454,7 @@ fn run_here(
     vm.observer = options.observer.clone().map(|watch| Box::new(watch) as Box<dyn Observer>);
     vm.set_static_region(statics.start, statics.len);
     vm.set_frame_region(frames.start, frames.len);
-    // A PlayStation 2 program's console is the EE's serial port: `sio_puts` writes its registers.
     let console = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-    if image.platform() == Some("ps2") {
-        let sio = host::Sio { out: console.clone(), live: options.live };
-        vm.memory.add_device(host::SIO, host::SIO_LEN, Box::new(sio));
-    }
     // A Nintendo 64 program's console is the ISViewer buffer in the cartridge's domain, which
     // `debugf` writes through the PI.
     if image.platform() == Some("n64") {
@@ -458,6 +478,9 @@ fn run_here(
     );
     let args = std::iter::once(path).chain(options.args.iter().cloned()).collect();
     let mut runtime = Runtime::new(image, lifted, &mut vm, args, options.live, stack, heap);
+    // A console's program runs against its console's machine: headless unless the options say how.
+    let headless = Console { capture: Some(Capture::new()), ..Console::default() };
+    runtime.machine = console::Machine::attach(image, &mut vm, options.console.as_ref().unwrap_or(&headless), options.live, (start, len));
     runtime.residual.clone_from(&options.residual);
     runtime.answers.clone_from(&options.answers);
     if options.answers.is_none() {
@@ -506,6 +529,9 @@ fn run_here(
     let resolved = std::mem::take(&mut runtime.resolved);
     let mut output = std::mem::take(&mut runtime.output);
     output.extend(console.take());
+    if let Some(machine) = &runtime.machine {
+        output.extend_from_slice(&machine.capture.lock().console);
+    }
     let outcome =
         Outcome { output, exit, stop, steps: vm.steps, facts, boundary, unpacked, image: image_bytes, resolved, hosted: runtime.hosted };
     Ok((outcome, returned))

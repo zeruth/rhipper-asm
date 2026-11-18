@@ -65,6 +65,7 @@ pub fn arch_of(image: &Image) -> Box<dyn Arch> {
             r5900: image.platform() == Some("ps2"),
             allegrex: image.platform() == Some("psp"),
             vr4300: image.platform() == Some("n64"),
+            r3000: image.platform() == Some("psx"),
         }),
         Machine::Sh4 => Box::new(ra_asm_sh::Sh4 { big_endian: image.big_endian(), ..ra_asm_sh::Sh4::default() }),
         _ => Box::new(ra_asm_x86::X86::for_pointer_size(image.pointer_size())),
@@ -315,9 +316,10 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
             state.seed(begin, Origin::ExceptionTable);
         }
     }
-    // A cartridge ROM maps its code and data as one section, with no relocations to tell its
-    // pointers apart: the symbols of its ELF are what name the functions only a table reaches.
-    if image.n64.is_some() {
+    // A cartridge ROM and a PS-X EXE map their code and data as one section, with no relocations
+    // to tell their pointers apart: the symbols of the ELF they were made from are what name the
+    // functions only a table or a registered handler reaches.
+    if image.n64.is_some() || image.psx.is_some() {
         for symbol in &image.symbols {
             state.seed(symbol.va, Origin::Symbol);
         }

@@ -1,0 +1,107 @@
+__text_start T ffffffff80010000 
+main T ffffffff80010000 3a8
+_vblank_handler t ffffffff800103a8 28
+_process_drawop t ffffffff800103d0 a8
+_gpu_irq_handler t ffffffff80010478 30
+_gpu_dma_handler t ffffffff800104a8 24
+_default_vsync_halt t ffffffff800104cc 58
+ResetGraph T ffffffff80010524 12c
+VSync T ffffffff80010650 170
+SetDrawOpType T ffffffff800107c0 10
+EnqueueDrawOp T ffffffff800107d0 c8
+DrawSync T ffffffff80010898 cc
+_send_linked_list T ffffffff80010964 78
+DrawOTag T ffffffff800109dc 18
+ClearOTagR T ffffffff800109f4 5c
+_build_drawenv_ot t ffffffff80010a50 1f0
+SetDefDrawEnv T ffffffff80010c40 54
+PutDrawEnv T ffffffff80010c94 38
+SetDefDispEnv T ffffffff80010ccc 34
+PutDispEnv T ffffffff80010d00 18c
+SetDispMask T ffffffff80010e8c 1c
+FntLoad T ffffffff80010ea8 164
+FntOpen T ffffffff8001100c f8
+FntPrint T ffffffff80011104 a0
+FntFlush T ffffffff800111a4 2c0
+_dma_transfer t ffffffff80011464 16c
+LoadImage T ffffffff800115d0 70
+GetTimInfo T ffffffff80011640 84
+_global_dma_handler t ffffffff800116c4 cc
+_global_isr t ffffffff80011790 bc
+RestartCallback.part.0 t ffffffff8001184c 88
+InterruptCallback T ffffffff800118d4 64
+DMACallback T ffffffff80011938 ec
+SetDMAPriority T ffffffff80011a24 58
+ResetCallback T ffffffff80011a7c b4
+EnterCriticalSection T ffffffff80011b30 
+ExitCriticalSection T ffffffff80011b40 
+_96_remove T ffffffff80011b50 
+printf T ffffffff80011b5c 
+InitPAD T ffffffff80011b68 
+StartPAD T ffffffff80011b74 
+ReturnFromException T ffffffff80011b80 
+HookEntryInt T ffffffff80011b8c 
+ChangeClearPAD T ffffffff80011b98 
+ChangeClearRCnt T ffffffff80011ba4 
+_start W ffffffff80011bb0 
+InitHeap W ffffffff80011bc0 28
+sbrk W ffffffff80011be8 3c
+TrackHeapUsage W ffffffff80011c24 2c
+malloc W ffffffff80011c50 1c8
+free W ffffffff80011e18 10c
+_start_inner T ffffffff80011f24 118
+toupper T ffffffff8001203c 1c
+strlen T ffffffff80012058 3c
+get_arg_in_size T ffffffff80012094 b8
+vsnprintf T ffffffff8001214c dfc
+_isr_jmp_buf r ffffffff80012f7c 30
+__CTOR_LIST__ D ffffffff80013130 
+__CTOR_END__ D ffffffff80013138 
+__DTOR_LIST__ D ffffffff80013140 
+__DTOR_END__ D ffffffff80013148 
+_gpu_debug_font D ffffffff80013148 840
+_gpu_debug_font_end d ffffffff80013988 
+_vsync_halt_func d ffffffff80013988 4
+__bss_start B ffffffff8001398c 
+_last_hblank b ffffffff8001398c 2
+_last_vblank b ffffffff80013990 4
+_vblank_counter b ffffffff80013994 4
+_drawop_type b ffffffff80013998 1
+_queue_length b ffffffff80013999 1
+_queue_tail b ffffffff8001399a 1
+_queue_head b ffffffff8001399b 1
+_drawsync_callback b ffffffff8001399c 4
+_vsync_callback b ffffffff800139a0 4
+_gpu_video_mode B ffffffff800139a4 4
+_font_clut B ffffffff800139a8 2
+_font_tpage B ffffffff800139aa 2
+_nstreams b ffffffff800139ac 4
+_next_saved_rect b ffffffff800139b0 4
+_isr_installed b ffffffff800139b4 4
+_saved_dma_dicr b ffffffff800139b8 4
+_saved_dma_dpcr b ffffffff800139bc 4
+_saved_irq_mask b ffffffff800139c0 2
+_num_dma_handlers b ffffffff800139c4 4
+_alloc_tail b ffffffff800139c8 4
+_alloc_head b ffffffff800139cc 4
+_alloc_start b ffffffff800139d0 4
+_heap_alloc_max b ffffffff800139d4 4
+_heap_alloc b ffffffff800139d8 4
+_heap_limit b ffffffff800139dc 4
+_heap_end b ffffffff800139e0 4
+_heap_start b ffffffff800139e4 4
+__argv B ffffffff800139e8 4
+__argc B ffffffff800139ec 4
+pad b ffffffff800139f0 44
+prims b ffffffff80013a34 200
+ot b ffffffff80013c34 20
+draw b ffffffff80013c54 80
+disp b ffffffff80013cd4 28
+_draw_queue b ffffffff80013cfc 100
+_stream b ffffffff80013dfc e0
+_saved_rects b ffffffff80013edc 80
+_isr_stack b ffffffff80013f5c 1000
+_dma_handlers b ffffffff80014f5c 1c
+_irq_handlers b ffffffff80014f78 2c
+_end B ffffffff80014fa4 
+_gp d ffffffff8001b980 

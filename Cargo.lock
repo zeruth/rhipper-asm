@@ -323,6 +323,7 @@ dependencies = [
  "ra-asm-format",
  "ra-asm-ir",
  "ra-asm-pe",
+ "ra-asm-platform",
  "ra-asm-protos",
  "ra-asm-testing",
  "ra-asm-x86",
@@ -356,6 +357,10 @@ dependencies = [
  "ra-asm-format",
  "serde",
 ]
+
+[[package]]
+name = "ra-asm-platform"
+version = "0.2.0"
 
 [[package]]
 name = "ra-asm-protos"

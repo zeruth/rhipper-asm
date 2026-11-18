@@ -32,7 +32,10 @@ for lib in psxgpu psxgte psxspu psxcd psxpress psxsio psxetc psxapi smd lzp c; d
   archives+=("$libs/release/lib${lib}_exe_gprel.a")
 done
 
-for program in hello gte; do
+# The programs named on the command line, or all of them.
+programs=("$@")
+[ ${#programs[@]} -eq 0 ] && programs=(hello gte draw)
+for program in "${programs[@]}"; do
   elf="$elf_dir/${program}_psx.elf"
   exe="$testdata/bin/${program}_psx.exe"
   echo "mipsel-none-elf-gcc ${program}_psx"

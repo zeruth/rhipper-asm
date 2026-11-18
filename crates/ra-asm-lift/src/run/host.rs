@@ -43,41 +43,9 @@ const ARM64_STATE_SIZE: u64 = 32 * 8 + 8 + 8 + 32 * 16;
 /// condition bits, each field at its alignment and the whole padded to the vectors'.
 const MIPS_STATE_SIZE: u64 = 34 * 8 + 8 + 8 + 32 * 16 + 4 + 64 * 4 + 4 + 34 * 8 + 4 + 128 * 4 + 4;
 
-/// The end of the `PlayStation 2`'s hardware registers, which begin at 256 MB.
-pub(super) const PS2_HARDWARE_END: u64 = 0x1200_0000;
-/// The `PlayStation 2`'s serial port, the registers of the EE's SIO.
-pub(super) const SIO: u64 = 0x1000_f100;
-pub(super) const SIO_LEN: u64 = 0x100;
-/// `SIO_TXFIFO`: a byte written here goes out on the serial line.
-const SIO_TXFIFO: u64 = 0x1000_f180;
-
-/// The EE's serial port as the program's console: a byte written to the transmit FIFO is the
-/// program's output, captured and written through as it comes when asked, and every register
-/// reads as zero, which `SIO_ISR` gives as a transmit FIFO with room.
-pub(super) struct Sio {
-    pub(super) out: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
-    pub(super) live: bool,
-}
-
-impl ra_asm_ir::interp::memory::Device for Sio {
-    fn read(&mut self, _address: u64, buf: &mut [u8]) {
-        buf.fill(0);
-    }
-
-    fn write(&mut self, address: u64, bytes: &[u8]) {
-        use std::io::Write;
-        if address != SIO_TXFIFO {
-            return;
-        }
-        let byte = &bytes[..1];
-        self.out.borrow_mut().extend_from_slice(byte);
-        if self.live {
-            let mut out = std::io::stdout().lock();
-            let _ = out.write_all(byte);
-            let _ = out.flush();
-        }
-    }
-}
+/// The end of the `PlayStation 2`'s hardware registers, which begin at 256 MB: the EE's, the
+/// vector units' memories and the graphics synthesizer's privileged registers after them.
+pub(super) const PS2_HARDWARE_END: u64 = 0x1300_0000;
 
 /// The Nintendo 64's devices in `kseg1`: the RSP's memories and the RCP's registers from
 /// `0xa4000000`, the PI's domains, the cartridge among them, from `0xb0000000` to the segment's end.
@@ -244,7 +212,7 @@ struct Heap {
 }
 
 pub(super) struct Runtime<'a> {
-    image: &'a Image,
+    pub(super) image: &'a Image,
     lifted: &'a Lifted,
     bits: u32,
     /// The program's path and arguments.
@@ -301,6 +269,8 @@ pub(super) struct Runtime<'a> {
     /// The calls the run made into the host's DLLs.
     pub(super) hosted: u64,
     psp: Psp,
+    /// The machine of a console's program, when its console has a platform runtime.
+    pub(super) machine: Option<super::console::Machine>,
 }
 
 /// The calls across the platform boundary a run made, and those still running.
@@ -517,42 +487,6 @@ fn int(v: u64) -> Result<Value, Stop> {
     Ok(Value::Int(u128::from(v)))
 }
 
-/// A function of the `PlayStation 2`'s EE kernel by its name in the table, on the registers of
-/// `a0` and up: `ExitThread` ends the run, since the interpreter runs the one thread, `KExit` ends
-/// it with the code in `a0`, and the cache flushes are nothing to memory that has no cache.
-/// Another function stops the run.
-fn ee_kernel(name: &str, args: &[Value]) -> Result<Value, Stop> {
-    match name {
-        "ExitThread" | "ExitDeleteThread" => Err(Stop::Exit(0)),
-        "KExit" => Err(Stop::Exit(arg(args, 0) as i32)),
-        "FlushCache" | "iFlushCache" => int(0),
-        _ => Err(Stop::fault(format!("the EE kernel function {name} is not interpreted"))),
-    }
-}
-
-/// An access of a device register the raise made a call on the platform runtime, answered as the
-/// machine levels answer the access itself: through the device the run put at the register's
-/// address (the serial port's console).
-fn device_call(vm: &mut Vm<'_>, call: crate::data::DeviceCall<'_>, args: &[Value]) -> Result<Value, Stop> {
-    let register = arg(args, 0);
-    let value = arg(args, 1);
-    if call.write {
-        match call.bits {
-            8 => vm.memory.write_u8(register, value as u8)?,
-            16 => vm.memory.write_u16(register, value as u16)?,
-            32 => vm.memory.write_u32(register, value as u32)?,
-            _ => vm.memory.write_u64(register, value)?,
-        }
-        return int(0);
-    }
-    int(match call.bits {
-        8 => u64::from(vm.memory.read_u8(register)?),
-        16 => u64::from(vm.memory.read_u16(register)?),
-        32 => u64::from(vm.memory.read_u32(register)?),
-        _ => vm.memory.read_u64(register)?,
-    })
-}
-
 impl<'a> Runtime<'a> {
     pub(super) fn new(
         image: &'a Image,
@@ -614,6 +548,7 @@ impl<'a> Runtime<'a> {
             event: None,
             hosted: 0,
             psp: Psp::default(),
+            machine: None,
         };
         runtime.thread.stack_bottom = runtime.allocations[0].start;
         runtime
@@ -789,6 +724,11 @@ impl<'a> Runtime<'a> {
         Ok(new)
     }
 
+    /// A block of `size` bytes in the heap, for the run's own use.
+    pub(super) fn new_block(&mut self, vm: &mut Vm<'_>, size: u64) -> Result<u64, Stop> {
+        self.allocate(vm, size, 16)
+    }
+
     /// A fresh `%State` in the heap.
     pub(super) fn new_state(&mut self, vm: &mut Vm<'_>) -> Result<u64, Stop> {
         let size = match self.lifted.isa {
@@ -960,44 +900,13 @@ impl<'a> Runtime<'a> {
                 None => Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
             },
             n if n.starts_with("ra_f80_") => self.f80_call(vm, n, args),
-            n if n.starts_with("ra_bios_") => self.bios(vm, &n["ra_bios_".len()..], args),
-            n if n.starts_with("ra_ee_") => ee_kernel(&n["ra_ee_".len()..], args),
+            // A console's BIOS, kernel and devices are its machine's.
+            n if n.starts_with("ra_bios_") => self.console_call(vm, &n["ra_bios_".len()..], args),
+            n if n.starts_with("ra_ee_") => self.console_call(vm, &n["ra_ee_".len()..], args),
+            n if let Some(call) = crate::data::DeviceCall::parse(n) => self.console_access(vm, call.write, call.bits, args),
             n if n.starts_with("ra_eh_") => self.eh_call(vm, n, args),
             n if n.starts_with("ra_x86_") => self.shim_call(vm, n, args),
-            n if let Some(call) = crate::data::DeviceCall::parse(n) => device_call(vm, call, args),
             _ => Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
-        }
-    }
-
-    /// A function of the `PlayStation` BIOS by its name in the tables, on the words of `a0..a3`:
-    /// the console output the TTY writes (`std_out_putchar`, `std_out_puts`, which adds no
-    /// newline, and `printf` on the three arguments of `a1..a3`), and `exit`. A `printf` that
-    /// reads a fourth argument, which the program passed on its stack, stops the run, as does
-    /// another function.
-    fn bios(&mut self, vm: &mut Vm<'_>, name: &str, args: &[Value]) -> Result<Value, Stop> {
-        let word = |i: usize| u64::from(arg(args, i) as u32);
-        match name {
-            "std_out_putchar" => {
-                self.emit(false, &[word(0) as u8]);
-                int(0)
-            }
-            "std_out_puts" => {
-                let text = vm.memory.read_cstr(word(0), 1 << 20)?;
-                self.emit(false, &text);
-                int(0)
-            }
-            "printf" => {
-                let spec = vm.memory.read_cstr(word(0), 1 << 20)?;
-                let mut slots = SlotArgs { values: vec![word(1), word(2), word(3)], at: 0, vm };
-                let text = printf::format(&spec, 32, &mut slots);
-                if slots.at > slots.values.len() {
-                    return Err(Stop::fault(format!("the BIOS printf of {:?} reads past a3", String::from_utf8_lossy(&spec))));
-                }
-                self.emit(false, &text);
-                int(text.len() as u64)
-            }
-            "exit" => Err(Stop::Exit(word(0) as i32)),
-            _ => Err(Stop::fault(format!("the BIOS function {name} is not interpreted"))),
         }
     }
 
@@ -2379,6 +2288,10 @@ impl Host for Runtime<'_> {
         }
         result
     }
+
+    fn poll(&mut self, vm: &mut Vm<'_>) -> Result<(), Stop> {
+        self.console_poll(vm)
+    }
 }
 
 /// The arguments of a call as its integer slots.
@@ -2596,18 +2509,3 @@ fn parse_double(text: &[u8]) -> (f64, usize) {
 }
 
 // endregion
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The thread's exit and the kernel's end the run, a cache flush returns, and a function the
-    /// host does not answer stops the run with its name.
-    #[test]
-    fn the_ee_kernel_ends_the_run_and_flushes_nothing() {
-        assert!(matches!(ee_kernel("ExitThread", &[]), Err(Stop::Exit(0))));
-        assert!(matches!(ee_kernel("KExit", &[Value::Int(7)]), Err(Stop::Exit(7))));
-        assert!(matches!(ee_kernel("FlushCache", &[Value::Int(0)]), Ok(Value::Int(0))));
-        assert!(matches!(ee_kernel("CreateThread", &[Value::Int(0)]), Err(Stop::Fault(m)) if m.contains("CreateThread")));
-    }
-}

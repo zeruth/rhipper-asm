@@ -84,6 +84,122 @@ pub fn fold(va: u64) -> Option<(Region, u64)> {
     }
 }
 
+/// Where the BIOS ROM runs from: `kseg1`, where the processor's reset vector is its first word.
+pub const BIOS_RESET: u64 = 0xbfc0_0000;
+
+/// What a BIOS ROM says of itself: the kernel's header at `0x100` (its date and type words and
+/// its maker), the kernel's own name for the consoles it was built for, and the version string of
+/// the shell, which the first ROMs do not have.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bios {
+    /// The kernel's date as the header holds it, in BCD: `0x19951204`.
+    pub kernel_date: u32,
+    pub kernel_type: u32,
+    /// `Sony Computer Entertainment Inc.`, or another maker's name.
+    pub maker: String,
+    /// `CEX-3000/1001/1002 by K.S.`, when the ROM has such a string.
+    pub kernel: Option<String>,
+    /// `System ROM Version 2.2 12/04/95 A`, when the ROM has one.
+    pub version: Option<String>,
+}
+
+impl Bios {
+    /// The ROM sizes: the console's 512 KiB, the 256 KiB of a replacement ROM, and the 1 MiB of
+    /// a console with a second ROM after the first.
+    const SIZES: [usize; 3] = [0x4_0000, 0x8_0000, 0x10_0000];
+
+    /// Reads what the ROM `bytes` says of itself; `None` for bytes that are no BIOS ROM: another
+    /// size, no date in the kernel's header or no maker's name after it.
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
+        if !Self::SIZES.contains(&bytes.len()) {
+            return None;
+        }
+        let word = |at: usize| u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+        // The reset vector's first instruction: a `lui`, a jump or a move to coprocessor 0, as
+        // the ROMs start; a file of another kind that happens to be a ROM's size starts otherwise.
+        if !matches!(word(0) >> 26, 0x02 | 0x0f | 0x10) {
+            return None;
+        }
+        let kernel_date = word(0x100);
+        let bcd = |shift: u32, digits: u32| {
+            (0..digits).try_fold(0, |n, i| {
+                let digit = (kernel_date >> (shift + 4 * (digits - 1 - i))) & 0xf;
+                (digit < 10).then_some(n * 10 + digit)
+            })
+        };
+        let (year, month, day) = (bcd(16, 4)?, bcd(8, 2)?, bcd(0, 2)?);
+        if !(1993..2100).contains(&year) || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+            return None;
+        }
+        let text = |from: usize, most: usize| -> String {
+            bytes[from..].iter().take(most).take_while(|b| (0x20..0x7f).contains(*b)).map(|b| char::from(*b)).collect()
+        };
+        let maker = text(0x108, 0x60);
+        if maker.len() < 4 {
+            return None;
+        }
+        let find = |needle: &[u8]| bytes.windows(needle.len()).position(|w| w == needle);
+        // The shell's string carries its date and region; a bare one of the font's ROM does not,
+        // so the longest in the console's own 512 KiB is the one.
+        const VERSION: &[u8] = b"System ROM Version ";
+        let own = &bytes[..bytes.len().min(0x8_0000)];
+        let version = (0..own.len() - VERSION.len())
+            .filter(|&at| own[at..].starts_with(VERSION))
+            .map(|at| text(at, 48).trim_end().to_owned())
+            .max_by_key(String::len);
+        // The kernel's name ends in its author's initials: `... by K.S.`.
+        let kernel = find(b" by ").and_then(|by| {
+            let start = bytes[..by].iter().rposition(|b| !(0x20..0x7f).contains(b)).map_or(0, |at| at + 1);
+            let name = text(start, 48);
+            name.ends_with('.').then(|| name.split_whitespace().collect::<Vec<_>>().join(" "))
+        });
+        Some(Self { kernel_date, kernel_type: word(0x104), maker, kernel, version })
+    }
+
+    /// The kernel's date as `1995-12-04`.
+    pub fn date(&self) -> String {
+        format!("{:04x}-{:02x}-{:02x}", self.kernel_date >> 16, (self.kernel_date >> 8) & 0xff, self.kernel_date & 0xff)
+    }
+}
+
+#[cfg(test)]
+mod bios_tests {
+    use super::Bios;
+
+    /// A ROM of the console's size that says what a console's does, in the places it says them.
+    fn rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 0x8_0000];
+        rom[..4].copy_from_slice(&0x3c08_0013u32.to_le_bytes());
+        rom[0x100..0x104].copy_from_slice(&0x1995_1204u32.to_le_bytes());
+        rom[0x104..0x108].copy_from_slice(&3u32.to_le_bytes());
+        rom[0x108..0x128].copy_from_slice(b"Sony Computer Entertainment Inc.");
+        rom[0x12c..0x146].copy_from_slice(b"CEX-3000/1001/1002 by K.S.");
+        rom[0x6_0000..0x6_0016].copy_from_slice(b"System ROM Version 1.0");
+        rom[0x7_ff32..0x7_ff53].copy_from_slice(b"System ROM Version 2.2 12/04/95 A");
+        rom
+    }
+
+    #[test]
+    fn a_rom_says_its_kernel_and_its_shell() {
+        let bios = Bios::parse(&rom()).expect("a BIOS ROM");
+        assert_eq!((bios.date().as_str(), bios.kernel_type, bios.maker.as_str()), ("1995-12-04", 3, "Sony Computer Entertainment Inc."));
+        assert_eq!(bios.kernel.as_deref(), Some("CEX-3000/1001/1002 by K.S."));
+        assert_eq!(bios.version.as_deref(), Some("System ROM Version 2.2 12/04/95 A"), "the string with the date, not the bare one");
+    }
+
+    #[test]
+    fn bytes_of_another_size_date_or_start_are_no_rom() {
+        let rom = rom();
+        assert!(Bios::parse(&rom[..0x7_0000]).is_none(), "another size");
+        let mut undated = rom.clone();
+        undated[0x100..0x104].copy_from_slice(&0x1995_1304u32.to_le_bytes());
+        assert!(Bios::parse(&undated).is_none(), "a thirteenth month");
+        let mut other = rom;
+        other[..4].copy_from_slice(b"MZ\x90\0");
+        assert!(Bios::parse(&other).is_none(), "a file that starts as another kind does");
+    }
+}
+
 /// Whether `bytes` start a PS-X EXE.
 pub fn is_psx(bytes: &[u8]) -> bool {
     bytes.starts_with(MAGIC)

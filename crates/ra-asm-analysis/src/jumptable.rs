@@ -263,11 +263,11 @@ pub fn resolve_mips(image: &Image, block: &[Instr], predecessors: &[&[Instr]], f
     let mut context: Vec<&[Instr]> = vec![block];
     context.extend_from_slice(predecessors);
     // One addend is the table's address, or its high half, the other the index times four.
-    let (base, index) = [(x, y), (y, x)].into_iter().find_map(|(high, scaled)| {
-        Some((mips_constant(image, function, &context, add_at, high)?, mips_scaled_index(block, add_at, scaled)?))
+    let (base, (index, shifted)) = [(x, y), (y, x)].into_iter().find_map(|(high, scaled)| {
+        Some((mips_constant(image, function, &context, add_at, high)?, mips_scaled_index(&context, add_at, scaled)?))
     })?;
     let address = base.wrapping_add(entry.disp as u64) & 0xffff_ffff;
-    let (count, bound) = mips_bound(&context, index).unzip();
+    let (count, bound) = mips_bound(&context, shifted, index).unzip();
     let table = read_table(image, address, 4, count, Relative::Absolute, index, load.address)?;
     Some(Table { bound, ..table })
 }
@@ -331,11 +331,13 @@ fn mips_constant(image: &Image, function: &[&[Instr]], blocks: &[&[Instr]], unti
         Write::Clobbered => return None,
         // `$gp` holds the start routine's value everywhere: code that computes its own from `$t9`
         // arrives at the same one.
-        Write::Unwritten if before.is_empty() => return if reg.full == GP { image.global_pointer } else { None },
+        Write::Unwritten if before.is_empty() => {
+            return if reg.full == GP { image.global_pointer } else { mips_hoisted(image, function, reg) };
+        }
         Write::Unwritten => {
             let mut values = before.iter().map(|b| mips_constant(image, function, &[*b], b.len(), reg));
-            let first = values.next()??;
-            return values.all(|v| v == Some(first)).then_some(first);
+            let agreed = values.next().flatten().filter(|first| values.all(|v| v == Some(*first)));
+            return agreed.or_else(|| mips_hoisted(image, function, reg));
         }
     };
     let mask = |v: u64| v & 0xffff_ffff;
@@ -356,6 +358,27 @@ fn mips_constant(image: &Image, function: &[&[Instr]], blocks: &[&[Instr]], unti
         }
         _ => None,
     }
+}
+
+/// The constant a MIPS register holds through the whole `function`, when every block that writes
+/// it leaves the same one in it and no call comes after the last of those writes: a jump table's
+/// address the compiler formed once ahead of a loop (`vsnprintf` keeps it in `$t9` across the
+/// format loop), which the blocks that lead into the jump, the loop's own, never write.
+fn mips_hoisted(image: &Image, function: &[&[Instr]], reg: Register) -> Option<u64> {
+    let writes = |i: &Instr| writes_first(i) && i.operands.first().and_then(reg_of).is_some_and(|d| same(d, reg));
+    let mut held: Option<(u64, u64)> = None;
+    for block in function {
+        let Some(at) = block.iter().rposition(writes) else { continue };
+        let value = mips_constant(image, &[], &[*block], at + 1, reg)?;
+        match &mut held {
+            Some((constant, last)) if *constant == value => *last = (*last).max(block[at].address),
+            Some(_) => return None,
+            None => held = Some((value, block[at].address)),
+        }
+    }
+    let (value, last) = held?;
+    let clobbered = function.iter().flat_map(|b| b.iter()).any(|i| i.address > last && matches!(i.flow, Flow::Call(_) | Flow::Interrupt));
+    (!clobbered).then_some(value)
 }
 
 /// The constant the stack slot at `disp($sp)` holds, when the `function` stores to it once, a `sw`
@@ -395,21 +418,34 @@ fn mips_spilled(image: &Image, function: &[&[Instr]], disp: i64) -> Option<u64> 
     mips_constant(image, &[], &[block], at, source)
 }
 
-/// The index a MIPS register holds four times of before `until`: `sll s, idx, 2`.
-fn mips_scaled_index(instrs: &[Instr], until: usize, reg: Register) -> Option<Register> {
-    let (_, i) = mips_writer(instrs, until, reg)?;
+/// The index a MIPS register holds four times of before `until` in the first of `blocks`, with
+/// where the shift is (the block's place among `blocks` and the instruction's in it):
+/// `sll s, idx, 2`, in the block itself or, when the block does not write the register and one
+/// block leads into it, at that one's end, where the bound check's branch keeps it in its delay
+/// slot.
+fn mips_scaled_index(blocks: &[&[Instr]], until: usize, reg: Register) -> Option<(Register, (usize, usize))> {
+    let (place, at, i) = match mips_write(blocks.first()?, until, reg) {
+        Write::At(at, i) => (0, at, i),
+        Write::Clobbered => return None,
+        Write::Unwritten => {
+            let [_, before] = blocks else { return None };
+            let (at, i) = mips_writer(before, before.len(), reg)?;
+            (1, at, i)
+        }
+    };
     match (i.mnemonic.as_str(), i.operands.get(1), i.operands.get(2)) {
-        ("sll", Some(Operand::Reg(index)), Some(Operand::Imm { value: 2, .. })) => Some(*index),
+        ("sll", Some(Operand::Reg(index)), Some(Operand::Imm { value: 2, .. })) => Some((*index, (place, at))),
         _ => None,
     }
 }
 
 /// The number of entries `sltiu c, idx, n` bounds a MIPS index to, with the compare's address,
 /// when a `beqz c` or `bnez c` after it in its block branches on the result and nothing writes the
-/// index between the compare and the table read.
-fn mips_bound(blocks: &[&[Instr]], index: Register) -> Option<(usize, u64)> {
-    for block in blocks {
-        for (n, i) in block.iter().enumerate().rev() {
+/// index between the compare and its shift at `shifted`, from where the search goes back.
+fn mips_bound(blocks: &[&[Instr]], shifted: (usize, usize), index: Register) -> Option<(usize, u64)> {
+    for (place, block) in blocks.iter().enumerate().skip(shifted.0) {
+        let until = if place == shifted.0 { shifted.1 } else { block.len() };
+        for (n, i) in block[..until].iter().enumerate().rev() {
             let dst = i.operands.first().and_then(reg_of);
             if i.mnemonic == "sltiu"
                 && let (Some(c), Some(Operand::Reg(r)), Some(Operand::Imm { value, .. })) = (dst, i.operands.get(1), i.operands.get(2))

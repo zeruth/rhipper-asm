@@ -496,9 +496,18 @@ static MACHINE: LazyLock<Machine> = LazyLock::new(|| machine_of("mips", &[FORMS]
 static R5900: LazyLock<Machine> = LazyLock::new(|| machine_of("r5900", &[FORMS, R5900_FORMS]));
 static ALLEGREX_MACHINE: LazyLock<Machine> = LazyLock::new(|| machine_of("allegrex", &[FORMS, ALLEGREX]));
 static VR4300_MACHINE: LazyLock<Machine> = LazyLock::new(|| machine_of("vr4300", &[FORMS, &R5900_FORMS[..MIPS3_ROWS], VR4300]));
+static R3000_MACHINE: LazyLock<Machine> = LazyLock::new(|| machine_of("r3000", &[FORMS, R3000]));
+
+/// The R3000's rows past [`FORMS`], which a `PlayStation`'s kernel uses and its programs do not:
+/// the moves of coprocessor 0 and `rfe`, which puts the mode an exception pushed back.
+const R3000: &[Form] = &[
+    plain("mfc0", 0xffe0_07ff, op(0x10), &[RT, RD]),
+    plain("mtc0", 0xffe0_07ff, op(0x10) | (4 << 21), &[RT, RD]),
+    plain("rfe", u32::MAX, op(0x10) | (16 << 21) | 0x10, &[]),
+];
 
 /// The form of an instruction's code: a row of [`FORMS`], then of [`R5900_FORMS`], then of
-/// [`ALLEGREX`], then of [`VR4300`].
+/// [`ALLEGREX`], then of [`VR4300`], then of [`R3000`].
 fn form(at: usize) -> Option<&'static Form> {
     let past = |n: usize| at.checked_sub(n);
     FORMS
@@ -506,6 +515,7 @@ fn form(at: usize) -> Option<&'static Form> {
         .or_else(|| R5900_FORMS.get(past(FORMS.len())?))
         .or_else(|| ALLEGREX.get(past(FORMS.len() + R5900_FORMS.len())?))
         .or_else(|| VR4300.get(past(FORMS.len() + R5900_FORMS.len() + ALLEGREX.len())?))
+        .or_else(|| R3000.get(past(FORMS.len() + R5900_FORMS.len() + ALLEGREX.len() + VR4300.len())?))
 }
 
 /// The 32-bit MIPS decoder, in the byte order of the file it reads; with `r5900`, the Emotion
@@ -517,6 +527,8 @@ pub struct Mips {
     pub r5900: bool,
     pub allegrex: bool,
     pub vr4300: bool,
+    /// The `PlayStation`'s R3000: MIPS I with the rows of its coprocessor 0.
+    pub r3000: bool,
 }
 
 impl Mips {
@@ -588,10 +600,15 @@ impl Arch for Mips {
             &R5900
         } else if self.vr4300 {
             &VR4300_MACHINE
+        } else if self.r3000 {
+            &R3000_MACHINE
         } else {
             &MACHINE
         };
         let mut instr = machine.instr(word, address)?;
+        if self.r3000 && usize::try_from(instr.code).ok()? >= FORMS.len() {
+            instr.code += u32::try_from(R5900_FORMS.len() + ALLEGREX.len() + VR4300.len()).ok()?;
+        }
         if self.allegrex && usize::try_from(instr.code).ok()? >= FORMS.len() {
             instr.code += u32::try_from(R5900_FORMS.len()).ok()?;
         }

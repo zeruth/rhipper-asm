@@ -27,6 +27,42 @@ pub(crate) struct Options {
     /// Where to write the record of the run (the calls and returns with their values, as a
     /// port's trace, or the session to a `.session` path), when asked.
     pub record: Option<PathBuf>,
+    /// How a console program's machine meets this one: its window or its headless capture, its
+    /// disc and its files.
+    pub console: Option<ra_asm_lift::run::Console>,
+}
+
+/// How the machine of `image`'s console meets this one, by the options of `ras run`: a window, or
+/// headless with the frames to run, where to write them and the buttons to hold; `None` for a
+/// program of an operating system. A `--pad` entry is `<frame>:<buttons>` or
+/// `<frame>:<port>:<buttons>`.
+pub(crate) fn console(
+    image: &Image,
+    headless: bool,
+    frames: Option<u64>,
+    frame_dir: Option<PathBuf>,
+    pads: &[String],
+    disc: Option<PathBuf>,
+    files: Option<PathBuf>,
+) -> Result<Option<ra_asm_lift::run::Console>> {
+    if !ra_asm_lift::run::has_machine(image) {
+        return Ok(None);
+    }
+    let mut capture = ra_asm_lift::run::Capture::new().limit(frames.unwrap_or(0));
+    capture.lock().dump = frame_dir;
+    for entry in pads {
+        let fields: Vec<&str> = entry.split(':').collect();
+        let (frame, port, buttons) = match fields[..] {
+            [frame, buttons] => (frame, "0", buttons),
+            [frame, port, buttons] => (frame, port, buttons),
+            _ => anyhow::bail!("--pad {entry}: not `<frame>:<buttons>` or `<frame>:<port>:<buttons>`"),
+        };
+        let frame: u64 = frame.parse().with_context(|| format!("--pad {entry}: the frame `{frame}` is no number"))?;
+        let port: usize = port.parse().with_context(|| format!("--pad {entry}: the port `{port}` is no number"))?;
+        let state = ra_asm_lift::run::pad(buttons).with_context(|| format!("--pad {entry}: `{buttons}` names a button the pad has not"))?;
+        capture = capture.press(frame, port, state);
+    }
+    Ok(Some(ra_asm_lift::run::Console { capture: headless.then_some(capture), disc, files }))
 }
 
 /// Lifts `image`, runs it, and returns the program's exit code; a fault is reported on stderr as
@@ -56,6 +92,7 @@ pub(crate) fn run(image: &Image, options: &Options) -> Result<i32> {
         session: session.is_some(),
         unpack: false,
         answers: None,
+        console: options.console.clone(),
     };
     let outcome = ra_asm_lift::run::run(image, &lifted, &signatures, &run)?;
     if let Some(stop) = &outcome.stop {

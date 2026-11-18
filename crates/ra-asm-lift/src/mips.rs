@@ -76,6 +76,8 @@ const GP: u8 = 28;
 const SP: u8 = 29;
 /// The VR4300's `Count`, coprocessor 0's register 9.
 const COUNT: u8 = 9;
+/// Coprocessor 0's status register.
+const STATUS: u8 = 12;
 /// The ticks of `Count` between two reads of it: a loop that polls it runs some eight
 /// instructions, a cycle each, and `Count` ticks every other cycle.
 const COUNT_STEP: i64 = 4;
@@ -1010,7 +1012,7 @@ impl Lifter<'_, '_> {
             // of MIPS III to the VFPU.
             18 | 24 | 25 | 27 | 50 | 52..=55 | 58 | 60..=63 if self.allegrex => return self.vfpu(block, w, ip),
             28 if self.r5900 => return self.mmi(block, w, ip),
-            16 if self.vr4300 => return self.cop0(block, w, ip),
+            16 if self.vr4300 || self.r3000 => return self.cop0(block, w, ip),
             // cache: the port's memory has no cache to write back or invalidate.
             47 if self.vr4300 => {}
             17 if self.r5900 => return self.ee_cop1(block, w, ip),
@@ -1139,6 +1141,17 @@ impl Lifter<'_, '_> {
                 };
                 let p = self.cop0_ptr(block, rd);
                 self.m.b.store(block, Type::I64, v, p);
+            }
+            // The R3000's `rfe`: the status register's mode stack pops, the two older pairs of its
+            // six low bits moving down over the current pair.
+            16 if self.r3000 && w.funct() == 0x10 => {
+                let p = self.cop0_ptr(block, STATUS);
+                let status = self.m.b.load(block, Type::I64, p, "status");
+                let kept = self.m.b.bin(block, BinOp::And, Type::I64, status, !0xfi64, "status.kept");
+                let older = self.m.b.bin(block, BinOp::LShr, Type::I64, status, 2i64, "status.older");
+                let popped = self.m.b.bin(block, BinOp::And, Type::I64, older, 0xfi64, "status.popped");
+                let status = self.m.b.bin(block, BinOp::Or, Type::I64, kept, popped, "status");
+                self.m.b.store(block, Type::I64, status, p);
             }
             // tlbr, tlbwi, tlbwr, tlbp, eret.
             16 if matches!(w.funct(), 1 | 2 | 6 | 8 | 0x18) => {}
@@ -1304,6 +1317,8 @@ impl Lifter<'_, '_> {
             }
             // The EE kernel's calls take their number in `v1`: no o32 Linux call.
             12 if self.r5900 => return self.ee_syscall(block, w, ip),
+            // The PlayStation's kernel takes the call's function in `a0`.
+            12 if self.r3000 => self.bios_function(block, crate::raise::prototypes::psx_syscall()),
             // The R5900 has no doubleword multiply or divide.
             28..=31 if self.r5900 => return self.unsupported(block, w, ip),
             // syscall, by o32 Linux: the number in `v0`, the arguments from `a0`; the result in

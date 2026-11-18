@@ -279,12 +279,36 @@ enum Command {
         /// Name every function entered on stderr.
         #[arg(long)]
         trace: bool,
-        /// Stop after this many IR instructions; 0 for no limit.
-        #[arg(long, default_value_t = 2_000_000_000)]
-        limit: u64,
+        /// Stop after this many IR instructions; 0 for no limit. Without it a program stops after
+        /// two thousand million, and a console's program, which runs until its window closes or
+        /// its last frame, has no limit.
+        #[arg(long)]
+        limit: Option<u64>,
         /// Print no warnings of the lift.
         #[arg(long)]
         quiet: bool,
+        /// A console's program: show no window, and keep going until `--frames` or the program's
+        /// own end.
+        #[arg(long)]
+        headless: bool,
+        /// A console's program: end the run after this many frames, headless.
+        #[arg(long)]
+        frames: Option<u64>,
+        /// A console's program: write every frame here as `frame-<n>.png`, headless.
+        #[arg(long)]
+        frame_dir: Option<PathBuf>,
+        /// A console's program, headless: hold buttons from a frame on, as `<frame>:<buttons>` or
+        /// `<frame>:<port>:<buttons>`, the buttons joined by `+` (`30:start`, `60:1:up+cross`,
+        /// `90:none`). Repeatable.
+        #[arg(long)]
+        pad: Vec<String>,
+        /// A console's program: the disc in the drive, an ISO image or the directory of its files.
+        #[arg(long)]
+        disc: Option<PathBuf>,
+        /// A console's program: the directory of its other devices' files, a folder per device
+        /// (`host`, `mc`).
+        #[arg(long)]
+        files: Option<PathBuf>,
         /// Write the facts of the run (the targets of its indirect calls, the functions entered)
         /// as JSON here, for the analysis of the next pass: `build/facts.json` in a project.
         #[arg(long)]
@@ -656,8 +680,12 @@ fn command() -> anyhow::Result<()> {
         Command::Emit { pe, lang, out, quiet, x87, hand, project, checked, only, with, times, deadline: _ } => {
             emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref(), checked, &only, &with, times)
         }
-        Command::Run { pe, args, level, x87, trace, limit, quiet, facts, record } => {
-            let code = run::run(&load(&pe, sigs)?, &run::Options { level, x87, trace, limit, args, quiet, facts, record })?;
+        Command::Run { pe, args, level, x87, trace, limit, quiet, headless, frames, frame_dir, pad, disc, files, facts, record } => {
+            let image = load(&pe, sigs)?;
+            let headless = headless || frames.is_some() || frame_dir.is_some();
+            let console = run::console(&image, headless, frames, frame_dir, &pad, disc, files)?;
+            let limit = limit.unwrap_or(if console.is_some() { 0 } else { 2_000_000_000 });
+            let code = run::run(&image, &run::Options { level, x87, trace, limit, args, quiet, facts, record, console })?;
             std::process::exit(code)
         }
         Command::Disasm { pe, address, length, at, cut } if !at.is_empty() => {

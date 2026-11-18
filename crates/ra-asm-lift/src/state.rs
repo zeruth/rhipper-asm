@@ -153,6 +153,8 @@ pub fn declare_psx(module: &mut ra_asm_ir::Module) {
     for (_, name) in GTE_COMMANDS {
         module.declare(Declaration { name: format!("ra_gte_{name}"), ty: gte_type(), conv: CallConv::C, attrs: vec![] });
     }
+    // The R3000's coprocessor 0, which the kernel's code moves: the registers as the VR4300's are.
+    declare_n64(module);
 }
 
 /// The VR4300's coprocessor 0 registers, register `n` in the `n`th 64-bit slot: a global of the

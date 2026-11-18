@@ -77,6 +77,16 @@ pub fn load(path: &Path) -> anyhow::Result<Image> {
         }
         return Ok(image);
     }
+    // The symbol list beside a PS-X EXE names its functions, the ones only an address reaches
+    // (an interrupt handler, a callback) among them.
+    if image.psx.is_some()
+        && let Some(map) = linkmap::map_beside(&image)
+    {
+        match linkmap::read_nm(&image, &map) {
+            Ok(symbols) => image.symbols = symbols,
+            Err(e) => image.warnings.push(format!("symbols: {e:#}")),
+        }
+    }
     if image.elf.is_some() || image.macho.is_some() || image.psx.is_some() || image.dreamcast.is_some() || image.n64.is_some() {
         return Ok(image);
     }

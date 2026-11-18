@@ -1,0 +1,13 @@
+[package]
+name = "ra-asm-platform"
+description = "The platform boundary of a console's program: its devices, its BIOS or kernel and its interrupts, answered over the host's picture, sound, input and files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

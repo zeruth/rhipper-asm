@@ -982,6 +982,28 @@ source = "testdata/src/psx/gte.c"
 command = "testdata/src/psx/build.sh"
 tools = "PSn00bSDK 0.24, mipsel-none-elf-gcc 12.3.0, mipsel-none-elf-nm (WSL Ubuntu 24.04)"
 
+# draw_psx is the platform runtime's fixture: a frame of each kind of primitive, moved by the pad.
+# Its text is what the source prints under the input script of the test that runs it (three frames
+# of right and down from the square's start, then the cross button); its picture is the eighth
+# frame of that run as the runtime's own software renderer drew it, looked at once and kept.
+
+[[file]]
+path = "testdata/bin/draw_psx.exe"
+sha256 = "8df18bd135ec97d4ce0e395b05fddfce6f75823859de98dd4c714c6f2679d222"
+evidence = "source"
+expected = "testdata/expected/draw_psx.txt"
+source = "testdata/src/psx/draw.c"
+command = "testdata/src/psx/build.sh draw"
+tools = "PSn00bSDK 0.24, mipsel-none-elf-gcc 12.3.0, elf2x (WSL Ubuntu 24.04)"
+
+[[file]]
+path = "testdata/bin/draw_psx.map"
+sha256 = "e1c0b41d6a037fb59be8934ea524cd7852a4e1bb023d4ee1c477e00ed0343a99"
+evidence = "source"
+source = "testdata/src/psx/draw.c"
+command = "testdata/src/psx/build.sh draw"
+tools = "PSn00bSDK 0.24, mipsel-none-elf-gcc 12.3.0, mipsel-none-elf-nm (WSL Ubuntu 24.04)"
+
 # testdata/expected: what a program prints. A `native` one is the output of the Windows build of
 # its source run on this machine; the command that captured it was not kept as a script.
 
@@ -1204,6 +1226,22 @@ evidence = "source"
 source = "testdata/src/psx/gte.c"
 command = "written from the source and the GTE's documented arithmetic (psx-spx)"
 tools = "none: no emulator is on the machine"
+
+[[file]]
+path = "testdata/expected/draw_psx.txt"
+sha256 = "8b6642c3afae7962307c84f8914f1660c0f96517f8674055c67e444e7db4675a"
+evidence = "source"
+source = "testdata/src/psx/draw.c"
+command = "written from the source: what it prints under the pad script of psx_draw_renders_and_reads_the_pad"
+tools = "none: no emulator is on the machine"
+
+[[file]]
+path = "testdata/expected/draw_psx.png"
+sha256 = "8192d989cfe51b2fbb1bdb8302a6d8c61655829ee04428f44451ac4690abbe43"
+evidence = "source"
+source = "testdata/src/psx/draw.c"
+command = "ras run --frames 8 --pad 2:right+down --pad 5:cross --pad 7:none --frame-dir out/psx-draw-ref testdata/bin/draw_psx.exe, its frame-00008.png"
+tools = "ras (ra-asm-platform's software renderer); no emulator is on the machine"
 
 # testdata/rhtest: the old pipeline's test programs. <name>-clang, -static, -clang-Od, -ia32 and
 # -ia32-Od are clang-cl's builds of rhtest/build.ps1 over the MSVC C runtime; core-O2 and core-Od

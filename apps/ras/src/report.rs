@@ -51,11 +51,13 @@ fn directories_of(image: &Image) -> Vec<(&'static str, String, u32)> {
     .collect()
 }
 
-/// `pe32`, `pe32+`, `xbe`, `elf32`, `elf64`, `macho64`, `psx-exe`, `bin`, or a cartridge ROM's
-/// order as dumped: `z64`, `v64` or `n64`.
+/// `pe32`, `pe32+`, `xbe`, `elf32`, `elf64`, `macho64`, `psx-exe`, `psx-bios`, `bin`, or a
+/// cartridge ROM's order as dumped: `z64`, `v64` or `n64`.
 fn format_name(image: &Image) -> &'static str {
     if image.psx.is_some() {
         "psx-exe"
+    } else if image.psx_bios.is_some() {
+        "psx-bios"
     } else if let Some(rom) = &image.n64 {
         rom.order.extension()
     } else if image.dreamcast.is_some() {
@@ -192,6 +194,13 @@ pub(crate) fn info_json(image: &Image) -> serde_json::Value {
                 "sp": p.initial_sp().map(|sp| hex(u64::from(sp))),
                 "marker": p.marker,
             })),
+            "psx_bios": image.psx_bios.as_ref().map(|b| json!({
+                "version": b.version,
+                "kernel": b.kernel,
+                "kernel_date": b.date(),
+                "kernel_type": b.kernel_type,
+                "maker": b.maker,
+            })),
             "dreamcast": image.dreamcast.map(|d| json!({ "scrambled": d.scrambled })),
             "n64": image.n64.as_ref().map(|r| json!({
                 "title": r.title,
@@ -279,6 +288,10 @@ pub(crate) fn info(image: &Image, json: bool) -> Result<()> {
             println!("bss            {:#010x}, {:#x} bytes", p.bss.0, p.bss.1);
         }
         println!("region         {}", if p.marker.is_empty() { "none" } else { &p.marker });
+    }
+    if let Some(b) = &image.psx_bios {
+        println!("rom            {}", b.version.as_deref().unwrap_or("no shell version string"));
+        println!("kernel         {}, {} (type {}), {}", b.kernel.as_deref().unwrap_or("unnamed"), b.date(), b.kernel_type, b.maker);
     }
     if let Some(d) = &image.dreamcast {
         println!("boot program   {}", if d.scrambled { "scrambled, unscrambled to map" } else { "plain" });

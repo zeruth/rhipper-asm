@@ -106,6 +106,8 @@ pub struct Memory {
     written: Option<BTreeSet<u64>>,
     /// The device registers, which an access reaches ahead of the regions.
     devices: Vec<Mapped>,
+    /// A device register was written since [`Memory::take_device_write`] last asked.
+    device_written: bool,
     /// The byte order of the program's words: the module's, which [`Memory::read_word`] and
     /// [`Memory::write_word`] follow; the fixed-width accessors stay in the host's order, the
     /// order of the machine state.
@@ -142,6 +144,12 @@ impl Memory {
     /// the memory's, and is not logged.
     pub fn add_device(&mut self, start: u64, len: u64, device: Box<dyn Device>) {
         self.devices.push(Mapped { start, len, device });
+    }
+
+    /// Whether a device register was written since the last ask: a host whose devices take their
+    /// writes after the instruction that made them asks between two instructions.
+    pub fn take_device_write(&mut self) -> bool {
+        std::mem::take(&mut self.device_written)
     }
 
     fn device(&mut self, address: u64, len: u64) -> Option<&mut Mapped> {
@@ -244,6 +252,7 @@ impl Memory {
         }
         if let Some(mapped) = self.device(address, bytes.len() as u64) {
             mapped.device.write(address, bytes);
+            self.device_written = true;
             return Ok(());
         }
         let region = self.locate(address, bytes.len() as u64)?;

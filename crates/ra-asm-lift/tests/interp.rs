@@ -265,6 +265,41 @@ fn psx_hello_runs_interpreted() {
     }
 }
 
+/// The PSn00bSDK drawing fixture over the PlayStation's platform runtime, headless: the program
+/// draws through the GPU by DMA, waits for the vertical blank's interrupt, which its own handler
+/// takes through the BIOS's exit hook, and reads the pad the BIOS's driver polls. Under a script
+/// that holds right and down for three frames and then presses the cross button, it prints where
+/// the square got to, and its eighth frame is the reference picture, pixel for pixel: the
+/// renderer is software, so the same on every host.
+#[test]
+fn psx_draw_renders_and_reads_the_pad() {
+    use ra_asm_lift::run::{Capture, Console, Options};
+    let Raised { image, lifted, signatures } = raise("draw_psx.exe", "run-machine");
+    assert_eq!(ra_asm_lift::coverage(&ra_asm_analysis::analyze(&image), &lifted).traps(), 0, "psx draw: unsupported instructions");
+    let held = |buttons: &str| ra_asm_lift::run::pad(buttons).unwrap();
+    let capture = Capture::new().limit(8).keep(&[8]).press(2, 0, held("right+down")).press(5, 0, held("cross")).press(7, 0, held("none"));
+    let console = Console { capture: Some(capture.clone()), ..Console::default() };
+    let outcome =
+        ra_asm_lift::run::run(&image, &lifted, &signatures, &Options { limit: 0, console: Some(console), ..Options::default() }).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    let expected = std::fs::read_to_string(root().join("testdata/expected/draw_psx.txt")).unwrap();
+    assert_output("psx draw: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!((outcome.exit, &outcome.stop), (0, &None), "psx draw: the run ends with its last frame");
+
+    let kept = capture.lock();
+    let frame = kept.kept.get(&8).expect("the eighth frame was presented");
+    let reference = std::fs::read(root().join("testdata/expected/draw_psx.png")).unwrap();
+    let reference = ra_asm_platform::png::decode(&reference).expect("the reference picture reads");
+    let differing = frame.differing(&reference, 0);
+    if differing != 0 {
+        let failed = ra_asm_testing::digest::failed_dir();
+        std::fs::create_dir_all(&failed).unwrap();
+        let path = failed.join("draw_psx.png");
+        std::fs::write(&path, ra_asm_platform::png::encode(frame)).unwrap();
+        panic!("psx draw: {differing} pixels of the eighth frame differ from the reference; the frame is at {}", path.display());
+    }
+}
+
 /// The PSP hello, a PRX for the Allegrex: each import stub the program calls lifts to the call on
 /// the import its NID names, through the o32 wrapper that leaves the result in `v0`.
 #[test]
