@@ -28,9 +28,20 @@ pub fn sdl2(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
     ra_asm_protos::sdl2_kinds(name).map(kinds_of)
 }
 
-/// The prototype of a library function, the Windows API's or SDL2's.
+/// Whether the generated layouts name a structure some parameter of `import` points to: the
+/// port's wrapper of the import converts it between the program's layout and the host's.
+pub fn adapts_structures(import: &str) -> bool {
+    !ra_asm_protos::pointees(import).is_empty()
+}
+
+/// The prototype of an OpenAL function from the hand-written table: `cdecl`, as SDL's are.
+pub fn openal(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
+    ra_asm_protos::openal_kinds(name).map(kinds_of)
+}
+
+/// The prototype of a library function: the Windows API's, SDL2's or OpenAL's.
 fn library(name: &str) -> Option<(Option<Kind>, Vec<Kind>)> {
-    win32(name).or_else(|| sdl2(name))
+    win32(name).or_else(|| sdl2(name)).or_else(|| openal(name))
 }
 
 /// A prototype from a table's letters: the result's, then each parameter's.
@@ -184,8 +195,8 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
     if ra_asm_pe::xbe::is_kernel_dll(dll) {
         return ra_asm_pe::xbe::kernel_export_named(name).and_then(|e| e.stack_bytes());
     }
-    // SDL's functions are `cdecl`.
-    if win32(name).is_none() && sdl2(name).is_some() {
+    // SDL's functions are `cdecl`, and OpenAL's.
+    if win32(name).is_none() && (sdl2(name).is_some() || openal(name).is_some()) {
         return Some(0);
     }
     if let Some(proto) = typed(name) {
@@ -367,6 +378,14 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "LoadLibraryExA" => "ra_x86_load_library_ex_a",
         "LoadLibraryExW" => "ra_x86_load_library_ex_w",
         "GetProcAddress" => "ra_x86_get_proc_address",
+        // iphlpapi's list of adapters is a chain of records that hold pointers: the host's
+        // records are larger than the program's, and the program walks its own layout.
+        "GetAdaptersInfo" => "ra_x86_get_adapters_info",
+        // The startup and process records of `CreateProcessA` hold pointers and handles, and
+        // Winsock's `hostent` two lists of pointers.
+        "CreateProcessA" => "ra_x86_create_process_a",
+        "gethostbyname" => "ra_x86_gethostbyname",
+        "gethostbyaddr" => "ra_x86_gethostbyaddr",
         _ => return None,
     })
 }
@@ -550,7 +569,9 @@ pub fn arity(name: &str) -> Option<usize> {
         | "_statusfp"
         | "ra_x86_clearfp"
         | "ra_x86_statusfp"
-        | "__iob_func" => 0,
+        | "__iob_func"
+        | "tmpfile"
+        | "_get_narrow_winmain_command_line" => 0,
 
         "ExitProcess"
         | "ExitThread"
@@ -638,6 +659,16 @@ pub fn arity(name: &str) -> Option<usize> {
         | "exit"
         | "_exit"
         | "_crt_atexit"
+        | "atexit"
+        | "strerror"
+        | "_mkdir"
+        | "_findclose"
+        | "ra_x86_gethostbyname"
+        | "_Init_thread_header"
+        | "_Init_thread_footer"
+        | "_Init_thread_abort"
+        | "__std_exception_destroy"
+        | "__std_type_info_destroy_list"
         | "_crt_at_quick_exit"
         | "puts"
         | "_putws"
@@ -842,7 +873,22 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_std_type_info_name"
         | "__std_type_info_compare"
         | "ra_x86_std_type_info_compare"
+        | "ra_x86_get_adapters_info"
         | "ra_x86_initialize_critical_section_and_spin_count"
+        | "rename"
+        // SDL's functions the generated table leaves out for a structure they take or return:
+        // the window's system information, and a joystick's GUID through the hidden pointer.
+        | "SDL_GetWindowWMInfo"
+        | "SDL_JoystickGetGUID"
+        | "setbuf"
+        | "strtok"
+        | "_getcwd"
+        | "_findfirst64i32"
+        | "_findnext64i32"
+        | "_fstat64i32"
+        | "_stat64i32"
+        | "_seh_filter_dll"
+        | "__std_exception_copy"
         | "ra_x86_command_line_to_argv_w" => 2,
 
         "VirtualFree"
@@ -867,6 +913,10 @@ pub fn arity(name: &str) -> Option<usize> {
         | "memmove"
         | "memset"
         | "memcmp"
+        | "SDL_Vulkan_GetDrawableSize"
+        | "ra_x86_gethostbyaddr"
+        | "freopen"
+        | "_wassert"
         | "memchr"
         | "strncpy"
         | "strncat"
@@ -933,6 +983,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "memcpy_s"
         | "memmove_s"
         | "qsort"
+        | "strftime"
         | "_vsnprintf"
         | "__stdio_common_vsscanf"
         | "_except_handler4_common"
@@ -965,6 +1016,7 @@ pub fn arity(name: &str) -> Option<usize> {
 
         "CreateThread" | "MultiByteToWideChar" | "LCMapStringW" | "CompareStringW" | "__stdio_common_vsprintf" | "_beginthreadex" => 6,
         "CreateFileA" | "CreateFileW" | "FormatMessageA" | "FormatMessageW" | "ra_x86_create_timer_queue_timer" => 7,
+        "ra_x86_create_process_a" => 10,
         "WideCharToMultiByte" | "RtlVirtualUnwind" => 8,
         "CreateWindowExA" | "CreateWindowExW" => 12,
         _ => return library(name).map(|(_, params)| params.len()).or_else(|| ra_asm_pe::xbe::kernel_export_named(name)?.arity()),

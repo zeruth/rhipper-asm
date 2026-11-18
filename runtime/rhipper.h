@@ -290,6 +290,16 @@ uint64_t ra_x86_load_library_w(uint64_t name);
 uint64_t ra_x86_load_library_ex_a(uint64_t name, uint64_t file, uint64_t flags);
 uint64_t ra_x86_load_library_ex_w(uint64_t name, uint64_t file, uint64_t flags);
 uint64_t ra_x86_get_proc_address(uint64_t module, uint64_t name);
+// GetAdaptersInfo of iphlpapi, whose chain of records holds pointers: written in the program's
+// layout into the program's buffer.
+uint64_t ra_x86_get_adapters_info(uint64_t buffer, uint64_t length);
+// CreateProcessA, whose startup and process records hold pointers and handles, and Winsock's
+// host lookups, whose record holds lists of pointers: each in the program's layout.
+uint64_t ra_x86_create_process_a(uint64_t application, uint64_t command_line, uint64_t process_attributes, uint64_t thread_attributes,
+                                 uint64_t inherit, uint64_t flags, uint64_t environment, uint64_t directory, uint64_t startup,
+                                 uint64_t information);
+uint64_t ra_x86_gethostbyname(uint64_t name);
+uint64_t ra_x86_gethostbyaddr(uint64_t address, uint64_t length, uint64_t type);
 // The C++ runtime's `operator new` and `operator delete` a 32-bit program links statically,
 // over the host's heap.
 uint64_t ra_x86_operator_new(uint64_t size);
@@ -539,6 +549,10 @@ static inline float ra_sqrt_f32(float v) { return __builtin_sqrtf(v); }
 static inline double ra_sqrt_f64(double v) { return __builtin_sqrt(v); }
 static inline float ra_fabs_f32(float v) { return __builtin_fabsf(v); }
 static inline double ra_fabs_f64(double v) { return __builtin_fabs(v); }
+static inline float ra_sin_f32(float v) { return __builtin_sinf(v); }
+static inline double ra_sin_f64(double v) { return __builtin_sin(v); }
+static inline float ra_cos_f32(float v) { return __builtin_cosf(v); }
+static inline double ra_cos_f64(double v) { return __builtin_cos(v); }
 static inline float ra_minnum_f32(float a, float b) { return __builtin_fminf(a, b); }
 static inline double ra_minnum_f64(double a, double b) { return __builtin_fmin(a, b); }
 static inline float ra_maxnum_f32(float a, float b) { return __builtin_fmaxf(a, b); }

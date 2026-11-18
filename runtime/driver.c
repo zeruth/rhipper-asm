@@ -2738,6 +2738,227 @@ uint64_t ra_x86_load_library_ex_w(uint64_t name, uint64_t file, uint64_t flags) 
     return module ? module_dword(module) : 0;
 }
 
+// CreateProcessA for a 32-bit program: STARTUPINFOA holds three string pointers and three
+// handles, 68 bytes in the program's layout and 104 in the host's, and PROCESS_INFORMATION two
+// handles, 16 bytes against 24. The program's startup record is widened for the call, and the
+// handles the host hands back, which fit a dword, are written in the program's.
+struct ra_startup_info32 {
+    uint32_t cb, reserved, desktop, title, x, y, x_size, y_size, x_count_chars, y_count_chars, fill_attribute, flags;
+    uint16_t show_window, reserved2_size;
+    uint32_t reserved2, std_input, std_output, std_error;
+};
+struct ra_process_information32 {
+    uint32_t process, thread, process_id, thread_id;
+};
+_Static_assert(sizeof(struct ra_startup_info32) == 68, "the program's STARTUPINFOA");
+
+uint64_t ra_x86_create_process_a(uint64_t application, uint64_t command_line, uint64_t process_attributes, uint64_t thread_attributes, uint64_t inherit, uint64_t flags, uint64_t environment, uint64_t directory, uint64_t startup, uint64_t information) {
+    // The security attributes hold a pointer of their own: a program that passes them is not
+    // answered here.
+    if (process_attributes || thread_attributes) ra_adapt_failed("CreateProcessA with security attributes", process_attributes | thread_attributes);
+    const struct ra_startup_info32 *from = (const struct ra_startup_info32 *)(uintptr_t)startup;
+    STARTUPINFOA si;
+    memset(&si, 0, sizeof si);
+    si.cb = sizeof si;
+    if (from) {
+        si.lpDesktop = (char *)(uintptr_t)from->desktop;
+        si.lpTitle = (char *)(uintptr_t)from->title;
+        si.dwX = from->x;
+        si.dwY = from->y;
+        si.dwXSize = from->x_size;
+        si.dwYSize = from->y_size;
+        si.dwXCountChars = from->x_count_chars;
+        si.dwYCountChars = from->y_count_chars;
+        si.dwFillAttribute = from->fill_attribute;
+        si.dwFlags = from->flags;
+        si.wShowWindow = from->show_window;
+        si.hStdInput = (HANDLE)(intptr_t)(int32_t)from->std_input;
+        si.hStdOutput = (HANDLE)(intptr_t)(int32_t)from->std_output;
+        si.hStdError = (HANDLE)(intptr_t)(int32_t)from->std_error;
+    }
+    PROCESS_INFORMATION pi;
+    memset(&pi, 0, sizeof pi);
+    BOOL made = CreateProcessA((const char *)(uintptr_t)application, (char *)(uintptr_t)command_line, NULL, NULL, (BOOL)inherit, (DWORD)flags, (void *)(uintptr_t)environment, (const char *)(uintptr_t)directory, &si, &pi);
+    struct ra_process_information32 *to = (struct ra_process_information32 *)(uintptr_t)information;
+    if (to) {
+        to->process = (uint32_t)(uintptr_t)pi.hProcess;
+        to->thread = (uint32_t)(uintptr_t)pi.hThread;
+        to->process_id = pi.dwProcessId;
+        to->thread_id = pi.dwThreadId;
+    }
+    return (uint64_t)made;
+}
+
+// gethostbyname and gethostbyaddr of Winsock for a 32-bit program: the `hostent` they hand back
+// holds a name and two lists of pointers, 16 bytes in the program's layout with lists of dwords
+// and 32 in the host's with lists of eight bytes. The host's record is written into one of the
+// thread's own in the program's layout, its lists beside it; the strings and the addresses stay
+// where Winsock keeps them, below 4 GB as the port's whole process is. Found by name, so a port
+// that does not import Winsock links without it.
+struct ra_hostent32 {
+    uint32_t name, aliases;
+    int16_t address_type, length;
+    uint32_t addresses;
+};
+struct ra_hostent64 {
+    char *name;
+    char **aliases;
+    int16_t address_type, length;
+    char **addresses;
+};
+
+static uint64_t hostent_to_guest(const struct ra_hostent64 *host) {
+    static _Thread_local struct ra_hostent32 guest;
+    static _Thread_local uint32_t aliases[36], addresses[36];
+    if (!host) return 0;
+    unsigned n = 0;
+    for (char **p = host->aliases; p && *p && n < 35; p++) aliases[n++] = (uint32_t)(uintptr_t)*p;
+    aliases[n] = 0;
+    n = 0;
+    for (char **p = host->addresses; p && *p && n < 35; p++) addresses[n++] = (uint32_t)(uintptr_t)*p;
+    addresses[n] = 0;
+    guest.name = (uint32_t)(uintptr_t)host->name;
+    guest.aliases = (uint32_t)(uintptr_t)aliases;
+    guest.address_type = host->address_type;
+    guest.length = host->length;
+    guest.addresses = (uint32_t)(uintptr_t)addresses;
+    return (uint32_t)(uintptr_t)&guest;
+}
+
+static void *winsock_function(const char *name) {
+    HMODULE module = LoadLibraryA("ws2_32.dll");
+    return module ? (void *)GetProcAddress(module, name) : NULL;
+}
+
+uint64_t ra_x86_gethostbyname(uint64_t name) {
+    typedef struct ra_hostent64 *(WINAPI * by_name)(const char *);
+    by_name get = (by_name)winsock_function("gethostbyname");
+    return get ? hostent_to_guest(get((const char *)(uintptr_t)name)) : 0;
+}
+
+uint64_t ra_x86_gethostbyaddr(uint64_t address, uint64_t length, uint64_t type) {
+    typedef struct ra_hostent64 *(WINAPI * by_address)(const char *, int, int);
+    by_address get = (by_address)winsock_function("gethostbyaddr");
+    return get ? hostent_to_guest(get((const char *)(uintptr_t)address, (int)length, (int)type)) : 0;
+}
+
+// GetAdaptersInfo of iphlpapi for a 32-bit program. The list it fills is a chain of records that
+// hold pointers (the next adapter, the next address of each of five address lists), so the
+// host's records are 704 bytes where the program's are 648, and the program walks its own
+// layout: the host's list is read into the runtime's own buffer and written out again in the
+// program's layout, the chains as dwords into the program's buffer, the addresses past the
+// first of a list after the last adapter. The size the program is told to ask for is that
+// layout's. The function is found by name, so a port that does not import it links without it.
+struct ra_ip_addr_string64 {
+    struct ra_ip_addr_string64 *next;
+    char address[16], mask[16];
+    uint32_t context;
+};
+struct ra_ip_adapter_info64 {
+    struct ra_ip_adapter_info64 *next;
+    uint32_t combo_index;
+    char name[260], description[132];
+    uint32_t address_length;
+    uint8_t address[8];
+    uint32_t index, type, dhcp_enabled;
+    struct ra_ip_addr_string64 *current;
+    struct ra_ip_addr_string64 lists[3];
+    uint32_t have_wins;
+    struct ra_ip_addr_string64 wins[2];
+    int64_t lease_obtained, lease_expires;
+};
+struct ra_ip_addr_string32 {
+    uint32_t next;
+    char address[16], mask[16];
+    uint32_t context;
+};
+struct ra_ip_adapter_info32 {
+    uint32_t next, combo_index;
+    char name[260], description[132];
+    uint32_t address_length;
+    uint8_t address[8];
+    uint32_t index, type, dhcp_enabled, current;
+    struct ra_ip_addr_string32 lists[3];
+    uint32_t have_wins;
+    struct ra_ip_addr_string32 wins[2];
+    int64_t lease_obtained, lease_expires;
+};
+_Static_assert(sizeof(struct ra_ip_adapter_info32) == 648, "the program's IP_ADAPTER_INFO");
+_Static_assert(sizeof(struct ra_ip_addr_string32) == 40, "the program's IP_ADDR_STRING");
+
+// The addresses of a host's list past its first.
+static unsigned ip_addresses_after(const struct ra_ip_addr_string64 *first) {
+    unsigned n = 0;
+    for (const struct ra_ip_addr_string64 *p = first->next; p; p = p->next) n++;
+    return n;
+}
+
+// A host's list into the program's: the first in place, the rest at `*spare`, which moves on.
+static void ip_addresses_to_guest(struct ra_ip_addr_string32 *guest, const struct ra_ip_addr_string64 *host, struct ra_ip_addr_string32 **spare) {
+    for (;;) {
+        memcpy(guest->address, host->address, sizeof guest->address);
+        memcpy(guest->mask, host->mask, sizeof guest->mask);
+        guest->context = host->context;
+        host = host->next;
+        guest->next = host ? (uint32_t)(uintptr_t)*spare : 0;
+        if (!host) return;
+        guest = (*spare)++;
+    }
+}
+
+uint64_t ra_x86_get_adapters_info(uint64_t buffer, uint64_t length) {
+    typedef ULONG(WINAPI * get_adapters_info)(void *, ULONG *);
+    HMODULE module = LoadLibraryA("iphlpapi.dll");
+    get_adapters_info get = module ? (get_adapters_info)(void *)GetProcAddress(module, "GetAdaptersInfo") : NULL;
+    if (!get) return ERROR_NOT_SUPPORTED;
+    ULONG *asked = (ULONG *)(uintptr_t)length;
+    if (!asked) return ERROR_INVALID_PARAMETER;
+    ULONG size = 0;
+    ULONG result = get(NULL, &size);
+    if (result != ERROR_BUFFER_OVERFLOW) return result;
+    struct ra_ip_adapter_info64 *host = malloc(size);
+    if (!host) return ERROR_NOT_ENOUGH_MEMORY;
+    result = get(host, &size);
+    if (result != ERROR_SUCCESS) {
+        free(host);
+        return result;
+    }
+    unsigned adapters = 0, spares = 0;
+    for (const struct ra_ip_adapter_info64 *a = host; a; a = a->next) {
+        adapters++;
+        for (int k = 0; k < 3; k++) spares += ip_addresses_after(&a->lists[k]);
+        for (int k = 0; k < 2; k++) spares += ip_addresses_after(&a->wins[k]);
+    }
+    ULONG needed = adapters * (ULONG)sizeof(struct ra_ip_adapter_info32) + spares * (ULONG)sizeof(struct ra_ip_addr_string32);
+    struct ra_ip_adapter_info32 *guest = (struct ra_ip_adapter_info32 *)(uintptr_t)buffer;
+    if (!guest || *asked < needed) {
+        *asked = needed;
+        free(host);
+        return ERROR_BUFFER_OVERFLOW;
+    }
+    struct ra_ip_addr_string32 *spare = (struct ra_ip_addr_string32 *)(guest + adapters);
+    for (const struct ra_ip_adapter_info64 *a = host; a; a = a->next, guest++) {
+        guest->next = a->next ? (uint32_t)(uintptr_t)(guest + 1) : 0;
+        guest->combo_index = a->combo_index;
+        memcpy(guest->name, a->name, sizeof guest->name);
+        memcpy(guest->description, a->description, sizeof guest->description);
+        guest->address_length = a->address_length;
+        memcpy(guest->address, a->address, sizeof guest->address);
+        guest->index = a->index;
+        guest->type = a->type;
+        guest->dhcp_enabled = a->dhcp_enabled;
+        guest->current = 0;
+        for (int k = 0; k < 3; k++) ip_addresses_to_guest(&guest->lists[k], &a->lists[k], &spare);
+        guest->have_wins = a->have_wins;
+        for (int k = 0; k < 2; k++) ip_addresses_to_guest(&guest->wins[k], &a->wins[k], &spare);
+        guest->lease_obtained = a->lease_obtained;
+        guest->lease_expires = a->lease_expires;
+    }
+    *asked = needed;
+    free(host);
+    return ERROR_SUCCESS;
+}
+
 // The lift's table of the pops of the functions the program may ask for by name (see the lift's
 // `ra_proc_pops`): `name\0` and a little-endian u16 each, then an empty name.
 extern const uint8_t ra_proc_pops[];

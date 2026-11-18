@@ -47,7 +47,8 @@ pub(crate) fn parse(image: &Image) -> Result<Vec<Import>> {
 
 /// The exports of Winsock whose ordinals are fixed: the Winsock 1.1 functions, which `ws2_32.lib`
 /// and `wsock32.lib` import by ordinal alone (`NONAME`), as every Windows since has exported them
-/// at the same numbers. An import of one has a name the prototype tables know, as a kernel import
+/// at the same numbers. These are `ws2_32.dll`'s; [`fixed_ordinal`] has the three `wsock32.dll`
+/// numbers otherwise. An import of one has a name the prototype tables know, as a kernel import
 /// of an Xbox image has ([`crate::xbe::kernel_export`]); the DLL exports each by name as well, so
 /// the host resolves the name.
 const WINSOCK_ORDINALS: &[(u16, &str)] = &[
@@ -103,7 +104,18 @@ const WINSOCK_ORDINALS: &[(u16, &str)] = &[
 /// The name of an import by ordinal of a DLL whose ordinals are fixed ([`WINSOCK_ORDINALS`]);
 /// `None` for any other DLL or ordinal, whose name the file does not tell.
 pub fn fixed_ordinal(dll: &str, ordinal: u16) -> Option<&'static str> {
-    if !(dll.eq_ignore_ascii_case("ws2_32.dll") || dll.eq_ignore_ascii_case("wsock32.dll")) {
+    // `wsock32.dll` numbers three of them its own way: `inet_addr`, `inet_ntoa` and `ioctlsocket`
+    // are 10, 11 and 12 there, where `ws2_32.dll` has `ioctlsocket` first. Read by the one table,
+    // a program's `inet_addr` was called as `ioctlsocket`, and a zero netmask came back as the
+    // error that is not zero.
+    if dll.eq_ignore_ascii_case("wsock32.dll") {
+        match ordinal {
+            10 => return Some("inet_addr"),
+            11 => return Some("inet_ntoa"),
+            12 => return Some("ioctlsocket"),
+            _ => {}
+        }
+    } else if !dll.eq_ignore_ascii_case("ws2_32.dll") {
         return None;
     }
     WINSOCK_ORDINALS.iter().find(|(o, _)| *o == ordinal).map(|(_, name)| *name)

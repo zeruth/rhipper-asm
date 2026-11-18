@@ -23,6 +23,7 @@
 
 pub mod kind;
 mod layouts;
+mod openal;
 #[rustfmt::skip]
 mod sdl2_layouts;
 mod win32;
@@ -143,6 +144,12 @@ pub fn win32_kinds(name: &str) -> Option<&'static str> {
 pub fn sdl2_kinds(name: &str) -> Option<&'static str> {
     let i = sdl2_layouts::KINDS.binary_search_by_key(&name, |(n, _)| n).ok()?;
     Some(sdl2_layouts::KINDS[i].1)
+}
+
+/// The kinds of an OpenAL 1.1 function, as [`win32_kinds`] writes them: the `cdecl` functions of
+/// `al.h` and `alc.h`, from the hand-written table.
+pub fn openal_kinds(name: &str) -> Option<&'static str> {
+    openal::KINDS.iter().find(|(n, _)| *n == name).map(|(_, kinds)| *kinds)
 }
 
 /// The fields of `record` a converter crosses the widths by, in order: a field the 32-bit layout

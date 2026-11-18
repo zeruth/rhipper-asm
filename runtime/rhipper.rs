@@ -1222,6 +1222,171 @@ unsafe extern "C" {
     fn free(block: *mut u8);
 }
 
+// `GetAdaptersInfo` of iphlpapi for a 32-bit program. The list it fills is a chain of records
+// that hold pointers (the next adapter, the next address of each of five address lists), so the
+// host's records are 704 bytes where the program's are 648, and the program walks its own
+// layout: the host's list is read into the runtime's own buffer and written out again in the
+// program's layout, the chains as dwords into the program's buffer, the addresses past the first
+// of a list after the last adapter. The function is found by name, so a port that does not
+// import it links without it.
+#[repr(C)]
+struct IpAddrString64 {
+    next: *const IpAddrString64,
+    address: [u8; 16],
+    mask: [u8; 16],
+    context: u32,
+}
+
+#[repr(C)]
+struct IpAdapterInfo64 {
+    next: *const IpAdapterInfo64,
+    combo_index: u32,
+    name: [u8; 260],
+    description: [u8; 132],
+    address_length: u32,
+    address: [u8; 8],
+    index: u32,
+    kind: u32,
+    dhcp_enabled: u32,
+    current: *const IpAddrString64,
+    lists: [IpAddrString64; 3],
+    have_wins: u32,
+    wins: [IpAddrString64; 2],
+    lease_obtained: i64,
+    lease_expires: i64,
+}
+
+#[repr(C)]
+struct IpAddrString32 {
+    next: u32,
+    address: [u8; 16],
+    mask: [u8; 16],
+    context: u32,
+}
+
+#[repr(C)]
+struct IpAdapterInfo32 {
+    next: u32,
+    combo_index: u32,
+    name: [u8; 260],
+    description: [u8; 132],
+    address_length: u32,
+    address: [u8; 8],
+    index: u32,
+    kind: u32,
+    dhcp_enabled: u32,
+    current: u32,
+    lists: [IpAddrString32; 3],
+    have_wins: u32,
+    wins: [IpAddrString32; 2],
+    lease_obtained: i64,
+    lease_expires: i64,
+}
+
+const _: () = assert!(std::mem::size_of::<IpAdapterInfo32>() == 648 && std::mem::size_of::<IpAddrString32>() == 40);
+
+/// The addresses of a host's list past its first.
+unsafe fn ip_addresses_after(first: &IpAddrString64) -> usize {
+    let (mut n, mut p) = (0, first.next);
+    while !p.is_null() {
+        n += 1;
+        p = (*p).next;
+    }
+    n
+}
+
+/// A host's list into the program's: the first in place, the rest at `spare`, which moves on.
+unsafe fn ip_addresses_to_guest(mut guest: *mut IpAddrString32, mut host: *const IpAddrString64, spare: &mut *mut IpAddrString32) {
+    loop {
+        (*guest).address = (*host).address;
+        (*guest).mask = (*host).mask;
+        (*guest).context = (*host).context;
+        host = (*host).next;
+        if host.is_null() {
+            (*guest).next = 0;
+            return;
+        }
+        (*guest).next = *spare as usize as u32;
+        guest = *spare;
+        *spare = spare.add(1);
+    }
+}
+
+pub unsafe fn ra_x86_get_adapters_info(buffer: u64, length: u64) -> u64 {
+    const SUCCESS: u32 = 0;
+    const NOT_ENOUGH_MEMORY: u32 = 8;
+    const NOT_SUPPORTED: u32 = 50;
+    const INVALID_PARAMETER: u32 = 87;
+    const BUFFER_OVERFLOW: u32 = 111;
+    let module = LoadLibraryA(c"iphlpapi.dll".as_ptr().cast());
+    let found = if module == 0 { 0 } else { GetProcAddress(module, c"GetAdaptersInfo".as_ptr() as usize) };
+    if found == 0 {
+        return u64::from(NOT_SUPPORTED);
+    }
+    let get: unsafe extern "system" fn(*mut IpAdapterInfo64, *mut u32) -> u32 = core::mem::transmute(found);
+    let asked = length as usize as *mut u32;
+    if asked.is_null() {
+        return u64::from(INVALID_PARAMETER);
+    }
+    let mut size = 0u32;
+    let result = get(core::ptr::null_mut(), &raw mut size);
+    if result != BUFFER_OVERFLOW {
+        return u64::from(result);
+    }
+    let host = malloc(size as usize).cast::<IpAdapterInfo64>();
+    if host.is_null() {
+        return u64::from(NOT_ENOUGH_MEMORY);
+    }
+    let result = get(host, &raw mut size);
+    if result != SUCCESS {
+        free(host.cast());
+        return u64::from(result);
+    }
+    let (mut adapters, mut spares) = (0usize, 0usize);
+    let mut a: *const IpAdapterInfo64 = host;
+    while !a.is_null() {
+        adapters += 1;
+        spares += (*a).lists.iter().chain(&(*a).wins).map(|l| ip_addresses_after(l)).sum::<usize>();
+        a = (*a).next;
+    }
+    let needed = (adapters * std::mem::size_of::<IpAdapterInfo32>() + spares * std::mem::size_of::<IpAddrString32>()) as u32;
+    let mut guest = buffer as usize as *mut IpAdapterInfo32;
+    if guest.is_null() || asked.read_unaligned() < needed {
+        asked.write_unaligned(needed);
+        free(host.cast());
+        return u64::from(BUFFER_OVERFLOW);
+    }
+    let mut spare = guest.add(adapters).cast::<IpAddrString32>();
+    let mut a: *const IpAdapterInfo64 = host;
+    while !a.is_null() {
+        let from = &*a;
+        (*guest).next = if from.next.is_null() { 0 } else { guest.add(1) as usize as u32 };
+        (*guest).combo_index = from.combo_index;
+        (*guest).name = from.name;
+        (*guest).description = from.description;
+        (*guest).address_length = from.address_length;
+        (*guest).address = from.address;
+        (*guest).index = from.index;
+        (*guest).kind = from.kind;
+        (*guest).dhcp_enabled = from.dhcp_enabled;
+        (*guest).current = 0;
+        for k in 0..3 {
+            ip_addresses_to_guest(&raw mut (*guest).lists[k], &raw const from.lists[k], &mut spare);
+        }
+        (*guest).have_wins = from.have_wins;
+        for k in 0..2 {
+            ip_addresses_to_guest(&raw mut (*guest).wins[k], &raw const from.wins[k], &mut spare);
+        }
+        (*guest).lease_obtained = from.lease_obtained;
+        (*guest).lease_expires = from.lease_expires;
+        guest = guest.add(1);
+        a = from.next;
+    }
+    asked.write_unaligned(needed);
+    free(host.cast());
+    u64::from(SUCCESS)
+}
+
 /// The C++ runtime's `operator new` a 32-bit program links statically: never null, a distinct
 /// block for a size of zero, and the end of the program where it would throw `bad_alloc`.
 pub unsafe fn ra_x86_operator_new(size: u64) -> u64 {
