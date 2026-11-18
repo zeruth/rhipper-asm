@@ -138,6 +138,48 @@ fn each(stmts: &[Stmt], visit: &mut dyn FnMut(&Stmt)) {
     }
 }
 
+/// Turns the leaves to `t` in the body of the loop `t` follows into `break`s, when none of them
+/// sits in an inner loop or `switch`, whose own `break` it would be. Whether it did.
+fn breaks_to(body: &mut [Stmt], t: BlockId) -> bool {
+    let all = count(body, &|s| matches!(s, Stmt::Leave(b) if *b == t));
+    if all == 0 || leaves_at_loop_level(body, t) != all {
+        return false;
+    }
+    leaves_to_breaks(body, t);
+    true
+}
+
+/// The leaves to `t` in `stmts` outside any inner loop or `switch`.
+fn leaves_at_loop_level(stmts: &[Stmt], t: BlockId) -> usize {
+    stmts
+        .iter()
+        .map(|s| match s {
+            Stmt::Leave(b) => usize::from(*b == t),
+            Stmt::If { then, els, .. } => leaves_at_loop_level(then, t) + leaves_at_loop_level(els, t),
+            Stmt::Tail { body, .. } => leaves_at_loop_level(body, t),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// [`breaks_to`]'s rewrite, over the statements [`leaves_at_loop_level`] counts.
+fn leaves_to_breaks(stmts: &mut [Stmt], t: BlockId) {
+    for s in stmts {
+        if matches!(s, Stmt::Leave(b) if *b == t) {
+            *s = Stmt::Break;
+            continue;
+        }
+        match s {
+            Stmt::If { then, els, .. } => {
+                leaves_to_breaks(then, t);
+                leaves_to_breaks(els, t);
+            }
+            Stmt::Tail { body, .. } => leaves_to_breaks(body, t),
+            _ => {}
+        }
+    }
+}
+
 /// The most instructions a block may have to be written a second time instead of reached by
 /// `goto`: a few source statements, which unoptimized code spends several loads and stores on
 /// each. A longer block keeps its `goto` in C and stops the Rust port, which names it.
@@ -545,11 +587,15 @@ impl Walk<'_> {
                 let exit = self.g.loop_exit(cur);
                 let tail = if exit.is_none() { self.open_tail(self.beyond(cur), stop) } else { None };
                 self.loops.push((cur, exit));
-                let body = self.run_block_and_after(cur, None);
+                let mut body = self.run_block_and_after(cur, None);
                 self.loops.pop();
+                // The region's tail right after the loop is where a `break` goes: a body that leaves
+                // to it from no inner loop or `switch` breaks instead, and C needs no label.
+                let broke = tail.is_some_and(|t| breaks_to(&mut body, t));
                 let looped = self.close_tail(tail, Stmt::Loop { header: cur, body });
                 let exit = match &looped {
                     Stmt::Tail { tail, .. } => Some(*tail),
+                    _ if broke => tail,
                     _ => exit,
                 };
                 out.push(looped);
@@ -1336,6 +1382,47 @@ mod tests {
         let c = c_of(f);
         assert!(!c.contains("goto "), "{c}");
         assert_eq!(c.matches("return ").count(), 2, "{c}");
+    }
+
+    /// `void f(int n, int *p)`, an insertion sort's shape: an outer loop whose body runs an inner
+    /// loop that leaves through two blocks (the place found, the start reached) to the outer
+    /// loop's latch, which goes round the outer loop or returns.
+    fn inner_loop_with_two_exits() -> Function {
+        let mut fb = FunctionBuilder::new("f", FnType::new(Type::Void, vec![Type::I32, Type::Ptr]), &["n", "p"]);
+        let (n, p) = (fb.param(0), fb.param(1));
+        let [entry, outer, inner, shift, found, start, latch, end] =
+            ["entry", "outer", "inner", "shift", "found", "start", "latch", "end"].map(|name| fb.block(name));
+        fb.terminate(entry, Terminator::Br(outer));
+        let key = fb.load(outer, Type::I32, p, "key");
+        fb.terminate(outer, Terminator::Br(inner));
+        let c = fb.load(inner, Type::I32, p, "c");
+        let less = fb.icmp(inner, ICond::Slt, Type::I32, key, c, "less");
+        fb.terminate(inner, Terminator::CondBr { cond: less.into(), then: shift, els: found });
+        fb.store(shift, Type::I32, c, p);
+        let more = fb.icmp(shift, ICond::Sgt, Type::I32, c, 1i64, "more");
+        fb.terminate(shift, Terminator::CondBr { cond: more.into(), then: inner, els: start });
+        fb.store(found, Type::I32, 1i64, p);
+        fb.terminate(found, Terminator::Br(latch));
+        fb.store(start, Type::I32, 2i64, p);
+        fb.terminate(start, Terminator::Br(latch));
+        fb.store(latch, Type::I32, key, p);
+        let again = fb.icmp(latch, ICond::Slt, Type::I32, key, n, "again");
+        fb.terminate(latch, Terminator::CondBr { cond: again.into(), then: outer, els: end });
+        fb.terminate(end, Terminator::Ret(None));
+        fb.finish()
+    }
+
+    /// The inner loop's two exits meet at the outer loop's latch right after it: both leave the
+    /// inner loop by `break`, and C needs no label.
+    #[test]
+    fn inner_loop_with_two_exits_breaks_to_where_they_meet() {
+        let f = inner_loop_with_two_exits();
+        let g = Graph::of(&f);
+        let s = structure(&f, &g);
+        assert!(!has_goto(&s.body), "{:#?}", s.body);
+        assert!(s.labels.is_empty(), "{:#?}", s.body);
+        let c = c_of(f);
+        assert!(!c.contains("goto "), "{c}");
     }
 
     /// A return block too long to copy, which the loop's exits and the entry's early return

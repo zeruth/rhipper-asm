@@ -52,7 +52,7 @@
 //! do in a port's memory.
 #![allow(clippy::many_single_char_names)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ra_asm_analysis::{Block, Function, Terminator as T};
 use ra_asm_arch::Instr;
@@ -72,6 +72,8 @@ const V1: u8 = 3;
 const T1: u8 = 9;
 /// `gp`, the small-data pointer.
 const GP: u8 = 28;
+/// `sp`, the stack pointer.
+const SP: u8 = 29;
 /// The VR4300's `Count`, coprocessor 0's register 9.
 const COUNT: u8 = 9;
 /// The ticks of `Count` between two reads of it: a loop that polls it runs some eight
@@ -106,6 +108,13 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         cond: None,
         jump_target: None,
         consts: HashMap::new(),
+        upper: HashSet::new(),
+        uppers: held_uppers(image, f),
+        base: None,
+        indexed: HashMap::new(),
+        base_index: None,
+        ends: HashMap::new(),
+        single_predecessor: single_predecessors(f),
         r3000,
         allegrex,
         r5900,
@@ -136,6 +145,81 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         }
     }
     built
+}
+
+/// The registers `f` writes once, by a `lui`, with the upper half it sets, which every block the
+/// write reaches holds wherever the compiler hoisted it, as the upper half of the addresses a
+/// loop completes: the callee-saved ones (`s0` to `s7`, `s8`), which a callee keeps, and in a
+/// function that calls nothing the temporaries no caller hands it (`at`, `v0`, `v1`, `t0` to
+/// `t7`, `t8`). The reload of the caller's value from the stack before a return is no write its
+/// blocks read.
+fn held_uppers(image: &Image, f: &Function) -> HashMap<u8, u32> {
+    let callee_saved = |r: u8| matches!(r, 16..=23 | 30);
+    let mut writes: HashMap<u8, Option<u32>> = HashMap::new();
+    let mut leaf = true;
+    for i in f.blocks.iter().flat_map(|b| &b.instrs) {
+        let Ok(word) = image.u32(i.address) else { continue };
+        let w = Word(word);
+        // `jal`, `jalr`, the linking branches and `syscall` leave the temporaries changed.
+        if w.op() == 3 || (w.op() == 1 && w.rt() & 16 != 0) || (w.op() == 0 && matches!(w.funct(), 9 | 0xc)) {
+            leaf = false;
+        }
+        let restore = matches!(w.op(), 35 | 55) && w.rs() == SP;
+        for r in may_write(w) {
+            if r == 0 || (restore && callee_saved(r)) {
+                continue;
+            }
+            let upper = (w.op() == 15).then_some((w.0 & 0xffff) << 16);
+            writes.entry(r).and_modify(|v| *v = None).or_insert(upper);
+        }
+    }
+    let held = |r: u8| callee_saved(r) || (leaf && matches!(r, 1..=3 | 8..=15 | 24));
+    writes.into_iter().filter_map(|(r, v)| Some((r, v?))).filter(|&(r, _)| held(r)).collect()
+}
+
+/// The upper halves of addresses a block holds at its end: the registers built on a `lui` with
+/// their constants, and the sums of a half and an index.
+#[derive(Clone, Default)]
+struct Halves {
+    consts: HashMap<u8, u32>,
+    indexed: HashMap<u8, (u32, ValueId)>,
+}
+
+/// The one block each block of `f` is reached from, for the blocks other than the entry that are
+/// reached from exactly one.
+fn single_predecessors(f: &Function) -> HashMap<u64, u64> {
+    let mut predecessors: HashMap<u64, Vec<u64>> = HashMap::new();
+    for blk in &f.blocks {
+        for to in blk.terminator.successors() {
+            predecessors.entry(to).or_default().push(blk.start);
+        }
+    }
+    predecessors.into_iter().filter(|(to, from)| *to != f.entry && from.len() == 1).map(|(to, from)| (to, from[0])).collect()
+}
+
+/// Whether the branch `w` leaves the registers as the block had them, its slot run: it links
+/// nothing and its slot runs on both ways (no likely branch).
+fn keeps_registers(w: Word) -> bool {
+    match w.op() {
+        2 | 4..=7 => true,
+        0 => w.funct() == 8,
+        1 => w.rt() < 2,
+        17 => (w.0 >> 17) & 1 == 0,
+        _ => false,
+    }
+}
+
+/// The general registers `w` may write, `$0` for none: every one a word of the class can write,
+/// so a function-wide count misses none.
+fn may_write(w: Word) -> [u8; 2] {
+    match w.op() {
+        0 => [w.rd(), 0],
+        1 if w.rt() & 16 != 0 => [RA, 0],
+        3 => [RA, 0],
+        1 | 2 | 4..=7 | 20..=23 | 40..=47 | 51 | 57 | 58 | 61..=63 => [0, 0],
+        8..=19 | 24..=27 | 30 | 32..=39 | 48 | 52 | 55 | 56 | 60 => [w.rt(), 0],
+        _ => [w.rt(), w.rd()],
+    }
 }
 
 /// The fields of an instruction word.
@@ -218,6 +302,24 @@ struct Lifter<'a, 'b> {
     /// The registers the block has set to a constant so far, at 32 bits: where a BIOS call's
     /// entry and number come from.
     consts: HashMap<u8, u32>,
+    /// The registers of [`Self::consts`] whose constant is built on a `lui`: the upper half of an
+    /// address, which an `addiu`, an `ori` or a memory access completes with its lower half.
+    upper: HashSet<u8>,
+    /// The registers the function sets once, by a `lui`, that no call changes: every block holds
+    /// them, see [`held_uppers`].
+    uppers: HashMap<u8, u32>,
+    /// The constant the base register of the word being lifted held before the word, when it is
+    /// built on a `lui`.
+    base: Option<u32>,
+    /// The registers the block set by an `addu` of an upper half and an index, as a table's
+    /// element is reached: the half and the index's value.
+    indexed: HashMap<u8, (u32, ValueId)>,
+    /// The [`Self::indexed`] entry of the base register of the word being lifted, before the word.
+    base_index: Option<(u32, ValueId)>,
+    /// The halves each block lifted so far ended with, by its start, when it ends in no call.
+    ends: HashMap<u64, Halves>,
+    /// The one block each block is reached from, for the blocks reached from one.
+    single_predecessor: HashMap<u64, u64>,
     /// A `PlayStation` program: the R3000, with the GTE and no FPU.
     r3000: bool,
     /// A PSP program: the Allegrex, whose own `SPECIAL` and `SPECIAL3` forms replace MIPS III's.
@@ -278,8 +380,14 @@ impl Lifter<'_, '_> {
         self.m.b.set_block_address(block, blk.start);
         self.cond = None;
         self.jump_target = None;
-        self.consts.clear();
+        // A block reached from one other, by no call, starts with the halves that one ended with.
+        let halves = self.single_predecessor.get(&blk.start).and_then(|p| self.ends.get(p)).cloned().unwrap_or_default();
+        self.upper = halves.consts.keys().copied().collect();
+        self.consts = halves.consts;
+        self.indexed = halves.indexed;
         self.prefix = [None; 3];
+        // The halves the block's last branch left, when it ends in one.
+        let mut branched: Option<Option<Halves>> = None;
         let mut n = 0;
         while let Some(i) = blk.instrs.get(n) {
             if self.m.b.has_terminator(block) {
@@ -300,11 +408,18 @@ impl Lifter<'_, '_> {
                     n += 1;
                 }
                 block = self.lift_branch(block, w, i.address, slot);
+                branched = Some(keeps_registers(w).then(|| self.halves()));
                 // A callee leaves no register as the block knew it.
                 self.consts.clear();
+                self.upper.clear();
+                self.indexed.clear();
             } else {
                 block = self.lift_instr(block, w, i.address);
+                branched = None;
             }
+        }
+        if let Some(end) = branched.unwrap_or_else(|| Some(self.halves())) {
+            self.ends.insert(blk.start, end);
         }
         if self.m.b.has_terminator(block) || self.vfpu_pending(block) {
             return;
@@ -569,16 +684,19 @@ impl Lifter<'_, '_> {
     }
 
     /// Follows the constants of the block through `w`: `lui`, and `addiu` and `ori` on `$0` or on
-    /// a register the block holds; a register any other word writes leaves the table.
+    /// a register the block holds; a register any other word writes leaves the table. A constant
+    /// built on a `lui`, or on a register the function sets once by one, is marked as the upper
+    /// half of an address.
     fn track(&mut self, w: Word) {
         let (rs, rt) = (w.rs(), w.rt());
-        let known = |consts: &HashMap<u8, u32>, r: u8| if r == 0 { Some(0) } else { consts.get(&r).copied() };
+        let known = |consts: &HashMap<u8, u32>, r: u8| if r == 0 { Some(0) } else { consts.get(&r).or(self.uppers.get(&r)).copied() };
         let constant = match w.op() {
             9 => known(&self.consts, rs).map(|v| v.wrapping_add(w.simm() as u32)),
             13 => known(&self.consts, rs).map(|v| v | w.uimm() as u32),
             15 => Some((w.0 & 0xffff) << 16),
             _ => None,
         };
+        let on_upper = w.op() == 15 || self.is_upper(rs);
         let written = match w.op() {
             0 => Some(w.rd()),
             1 if rt & 16 != 0 => Some(RA),
@@ -591,9 +709,60 @@ impl Lifter<'_, '_> {
         if let Some(r) = written {
             self.consts.remove(&r);
         }
+        // An address is completed only on a half no word since may have changed.
+        for r in may_write(w) {
+            self.upper.remove(&r);
+            self.indexed.remove(&r);
+        }
         if let (Some(v), true) = (constant, rt != 0) {
             self.consts.insert(rt, v);
+            if on_upper {
+                self.upper.insert(rt);
+            }
         }
+    }
+
+    /// The halves the block holds now.
+    fn halves(&self) -> Halves {
+        let consts = self.consts.iter().filter(|(r, _)| self.upper.contains(*r)).map(|(&r, &v)| (r, v)).collect();
+        Halves { consts, indexed: self.indexed.clone() }
+    }
+
+    /// Whether register `r` holds a constant built on a `lui`.
+    fn is_upper(&self, r: u8) -> bool {
+        self.upper.contains(&r) || self.uppers.contains_key(&r)
+    }
+
+    /// The constant register `r` holds when it is built on a `lui`.
+    fn upper_value(&self, r: u8) -> Option<u32> {
+        if r == 0 || !self.is_upper(r) {
+            return None;
+        }
+        self.consts.get(&r).or(self.uppers.get(&r)).copied()
+    }
+
+    /// A constant address as an operand, in standalone mode: the byte of the data global or the
+    /// function it falls in, as the x86 lift names one.
+    fn data_address(&self, address: u32) -> Option<Operand> {
+        if !self.lifted.standalone {
+            return None;
+        }
+        self.lifted.address_of(u64::from(address))
+    }
+
+    /// For an `addu` of a register built on a `lui` and another, in standalone mode: the upper
+    /// half and the other's value before the word, which a memory access on the sum completes as
+    /// an element of its data global.
+    fn upper_sum(&mut self, block: BlockId, w: Word) -> Option<(u32, ValueId)> {
+        if !self.lifted.standalone || w.op() != 0 || w.funct() != 0x21 || w.rd() == 0 {
+            return None;
+        }
+        let (upper, other) = match (self.upper_value(w.rs()), self.upper_value(w.rt())) {
+            (Some(upper), None) => (upper, w.rt()),
+            (None, Some(upper)) => (upper, w.rs()),
+            _ => return None,
+        };
+        Some((upper, self.reg32(block, other)))
     }
 
     /// `call F_target(state)`.
@@ -786,15 +955,39 @@ impl Lifter<'_, '_> {
         (self.trap_if(block, over, ip, trap::INT), result)
     }
 
-    /// The address a load or a store names: base plus the signed offset, at 32 bits.
+    /// The address a load or a store names: base plus the signed offset, at 32 bits. On a base
+    /// built on a `lui`, the offset is the lower half of a constant address, which in standalone
+    /// mode is its data global's.
     fn address(&mut self, block: BlockId, w: Word) -> ValueId {
+        if let Some(at) = self.base.and_then(|upper| self.data_address(upper.wrapping_add(w.simm() as u32))) {
+            return self.m.b.cast(block, Cast::Trunc, Type::I64, at, Type::I32, "addr");
+        }
+        if let Some((upper, index)) = self.base_index
+            && let Some(at) = self.data_address(upper.wrapping_add(w.simm() as u32))
+        {
+            let at = self.m.b.cast(block, Cast::Trunc, Type::I64, at, Type::I32, "table");
+            return self.m.b.bin(block, BinOp::Add, Type::I32, at, index, "addr");
+        }
         let base = self.reg32(block, w.rs());
         self.m.b.bin(block, BinOp::Add, Type::I32, base, w.simm(), "addr")
     }
 
     fn lift_instr(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
         let (rs, rt) = (w.rs(), w.rt());
+        self.base = self.upper_value(rs);
+        self.base_index = self.indexed.get(&rs).copied();
+        let sum = self.upper_sum(block, w);
         self.track(w);
+        if let Some(sum) = sum {
+            self.indexed.insert(w.rd(), sum);
+        }
+        // `addiu` and `ori` completing an address: its data global's in standalone mode.
+        if matches!(w.op(), 9 | 13)
+            && let Some(at) = self.upper_value(rt).and_then(|v| self.data_address(v))
+        {
+            self.set64(block, rt, at);
+            return block;
+        }
         match w.op() {
             0 => return self.special(block, w, ip),
             // The R3000 has no FPU.
