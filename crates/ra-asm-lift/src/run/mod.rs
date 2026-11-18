@@ -29,6 +29,12 @@ use crate::Lifted;
 use crate::raise::abi::{Kind, Signature};
 use host::Runtime;
 
+/// Whether the DLL `dll` of this host exports `name`: `None` where the host has no such DLL to
+/// ask (another system, or a library that is not on its search path).
+pub fn host_exports(dll: &str, name: &str) -> Option<bool> {
+    os::library(dll).map(|module| os::procedure(module, name).is_some())
+}
+
 /// The R5900's float arithmetic `ra_f32_ftz_<name>` on the bits of its operands, as the
 /// interpreter answers it, for a host of its own (a VU program's: its FMACs round as the FPU's
 /// do); `None` for any other name. An operand past the function's count is not read.

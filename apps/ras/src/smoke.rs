@@ -68,6 +68,15 @@ const STRUCTURES: &[(&str, &[&str])] = &[
     ("STARTUPINFOW", &["GetStartupInfoW", "CreateProcessW"]),
     ("PROCESS_INFORMATION", &["CreateProcessA", "CreateProcessW"]),
     ("SYSTEM_INFO", &["GetSystemInfo", "GetNativeSystemInfo"]),
+    // The records a call hands back that hold pointers or `SIZE_T` fields, met on real programs:
+    // the host's are larger, and the program reads its own offsets.
+    ("MEMORYSTATUS", &["GlobalMemoryStatus"]),
+    ("IP_ADAPTER_INFO", &["GetAdaptersInfo"]),
+    ("hostent", &["gethostbyname", "gethostbyaddr"]),
+    ("addrinfo", &["getaddrinfo", "freeaddrinfo"]),
+    ("OPENFILENAMEA", &["GetOpenFileNameA", "GetSaveFileNameA"]),
+    ("OPENFILENAMEW", &["GetOpenFileNameW", "GetSaveFileNameW"]),
+    ("WAVEHDR", &["waveOutPrepareHeader", "waveOutWrite", "waveOutUnprepareHeader", "waveInPrepareHeader", "waveInAddBuffer"]),
 ];
 
 /// The COM interfaces a program reaches through an import that creates an object, by the creator.
@@ -497,7 +506,7 @@ fn boundary_entry(sites: &BTreeMap<String, Sites>, name: &str, imports: &[&str])
 /// imports without a prototype (the coverage's, with the sites counted here; one only the data
 /// names has none), and, for a 32-bit image, the structures handed to an import with no adapter
 /// row and the COM interfaces created with no row.
-fn boundary(lifted: &ra_asm_lift::Lifted, coverage: &ra_asm_lift::Coverage) -> Value {
+pub(crate) fn boundary(lifted: &ra_asm_lift::Lifted, coverage: &ra_asm_lift::Coverage) -> Value {
     let sites = import_sites(lifted);
     let none = Sites::default();
     let imports: Vec<Value> = coverage

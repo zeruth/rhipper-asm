@@ -14,6 +14,7 @@ mod lift;
 mod lockstep;
 mod pipeline;
 mod plugins;
+mod preflight;
 mod project;
 mod report;
 mod run;
@@ -421,6 +422,13 @@ enum Command {
         #[arg(long)]
         jobs: Option<usize>,
     },
+    /// What a port of an image will get wrong when it runs, read off the lift and the raise before
+    /// anything is built: the functions that address memory through a value nothing set (a
+    /// parameter the inference dropped), the functions asked for by name with no prototype, the
+    /// structures and COM interfaces the host lays out differently, the imports without a
+    /// prototype or a name, and the instructions the lift traps on. Takes an image, or the
+    /// directory of a project, whose reference binary it reads.
+    Preflight { path: PathBuf },
     /// The analysis, the lift and the emit over every executable and library under a directory,
     /// each file in a process of its own with a time limit: the coverage summed, the traps by
     /// mnemonic, the slowest files, and the panics with their backtraces. Fails when a file
@@ -680,6 +688,7 @@ fn command() -> anyhow::Result<()> {
             pipeline::run(&pipeline::project_dir(project.as_deref()), &options)
         }
         Command::Plugins { project } => plugins::list(project.as_deref(), json),
+        Command::Preflight { path } => preflight::preflight(&path, sigs, json),
         Command::Score { source: Some(source), .. } => score::score(&source, json),
         Command::Score { dir, write, timeout, jobs, .. } => {
             let dir = match dir {
