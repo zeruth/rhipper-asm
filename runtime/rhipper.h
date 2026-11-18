@@ -237,6 +237,8 @@ void ra_platform_bind(const ra_platform *platform);
 void ra_cpuid(uint64_t leaf, uint64_t subleaf, void *out);
 uint64_t ra_xgetbv(uint64_t which);
 uint64_t ra_rdtsc(void);
+// `pause`, the spin-wait hint: the host's own.
+uint64_t ra_pause(void);
 // The thread environment block of the calling thread, which fs: and gs: accesses read.
 uint64_t ra_teb(void);
 // A MIPS `syscall` of an o32 Linux program: the number and the four argument registers, the
@@ -305,6 +307,9 @@ uint64_t ra_x86_rt_typeid(uint64_t object);
 // `type_info::name()` of a 32-bit program, whose descriptor caches the undecorated name in a dword
 // where the host's `__std_type_info_name` reads eight bytes.
 uint64_t ra_x86_std_type_info_name(uint64_t data, uint64_t root);
+// `type_info::operator==` and `hash_code()` over the same descriptor.
+uint64_t ra_x86_std_type_info_compare(uint64_t left, uint64_t right);
+uint64_t ra_x86_std_type_info_hash(uint64_t data);
 // The window structures of user32 (WNDCLASSA, WNDCLASSEXA, MSG, PAINTSTRUCT), which a 32-bit
 // program lays out with 4-byte pointers: the runtime widens them for the host and narrows what
 // comes back.

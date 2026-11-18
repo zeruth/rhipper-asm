@@ -941,6 +941,7 @@ impl<'a> Runtime<'a> {
             }
             "ra_xgetbv" => int(xgetbv(arg(args, 0) as u32)),
             "ra_rdtsc" => int(rdtsc()),
+            "ra_pause" => int(0),
             "ra_svc" => self.svc(vm, arg(args, 0)),
             "ra_syscall" => {
                 let number = (arg(args, 0) as u32).wrapping_sub(4000);

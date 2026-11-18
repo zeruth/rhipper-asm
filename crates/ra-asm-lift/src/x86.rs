@@ -1121,7 +1121,6 @@ impl Lifter<'_, '_> {
             M::Nop
             | M::Endbr64
             | M::Endbr32
-            | M::Pause
             | M::Wait
             | M::Prefetcht0
             | M::Prefetcht1
@@ -1130,6 +1129,12 @@ impl Lifter<'_, '_> {
             | M::Lfence
             | M::Mfence
             | M::Sfence => {}
+            // The spin-wait hint stays a call: a program that times a loop of them (to learn how
+            // many make five microseconds) measured an empty loop the compiler had deleted, and
+            // stopped on its own assertion that the loop took no time.
+            M::Pause => {
+                self.m.intrinsic(block, "ra_pause", Type::I64, vec![], "pause");
+            }
             M::Int3 => self.m.trap(block, ip, trap::INT3),
             M::Ud2 | M::Ud1 | M::Ud0 => self.m.trap(block, ip, trap::UD2),
             M::Hlt => self.m.trap(block, ip, trap::HLT),

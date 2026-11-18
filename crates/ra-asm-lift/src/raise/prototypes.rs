@@ -352,6 +352,11 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         // `type_info::name()` caches the undecorated name in a dword of the descriptor, which the
         // host reads as eight bytes.
         "__std_type_info_name" => "ra_x86_std_type_info_name",
+        // The comparison and the hash read the decorated name after that pointer: at 4 in the
+        // program's descriptor, where the host reads it at 8 and compared two names from their
+        // fifth character (`typeid(T *) != typeid(T)` came out equal).
+        "__std_type_info_compare" => "ra_x86_std_type_info_compare",
+        "__std_type_info_hash" => "ra_x86_std_type_info_hash",
         // A module handle and a function's address of the 64-bit host do not fit the program's
         // dword: the runtime hands out a dword that stands for the handle, and for the function a
         // trampoline below 4 GB that carries what a call through it pops.
@@ -731,7 +736,14 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_enter_critical_section"
         | "ra_x86_leave_critical_section"
         | "ra_x86_try_enter_critical_section"
-        | "ra_x86_delete_critical_section" => 1,
+        | "ra_x86_delete_critical_section"
+        | "__std_type_info_hash"
+        | "ra_x86_std_type_info_hash"
+        // shcore's scaling functions (`STDAPI` in ShellScalingApi.h, which the generated table
+        // does not read): a program asks `GetProcAddress` for them and calls the pointer.
+        | "SetProcessDpiAwareness" => 1,
+        "GetProcessDpiAwareness" | "GetScaleFactorForMonitor" => 2,
+        "GetDpiForMonitor" => 4,
 
         "TerminateProcess"
         | "GetExitCodeProcess"
@@ -828,6 +840,8 @@ pub fn arity(name: &str) -> Option<usize> {
         | "ra_x86_interlocked_push_entry_slist"
         | "__std_type_info_name"
         | "ra_x86_std_type_info_name"
+        | "__std_type_info_compare"
+        | "ra_x86_std_type_info_compare"
         | "ra_x86_initialize_critical_section_and_spin_count"
         | "ra_x86_command_line_to_argv_w" => 2,
 

@@ -1395,6 +1395,26 @@ unsafe impl Sync for TypeInfoNode64 {}
 #[cfg(windows)]
 static TYPE_INFO_NODE: TypeInfoNode64 = TypeInfoNode64(std::cell::UnsafeCell::new([0; 2]));
 
+/// `type_info::operator==` of a 32-bit program: the decorated names after the dword of the cached
+/// name, from their second character, as the C++ runtime compares them.
+pub unsafe fn ra_x86_std_type_info_compare(left: u64, right: u64) -> u64 {
+    if left == right {
+        return 0;
+    }
+    let name = |data: u64| std::ffi::CStr::from_ptr((data + 5) as usize as *const std::ffi::c_char);
+    match name(left).cmp(name(right)) {
+        std::cmp::Ordering::Less => u64::from(u32::MAX),
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    }
+}
+
+/// `type_info::hash_code()` of a 32-bit program: the 32-bit runtime's FNV-1a over the same name.
+pub unsafe fn ra_x86_std_type_info_hash(data: u64) -> u64 {
+    let name = std::ffi::CStr::from_ptr((data + 5) as usize as *const std::ffi::c_char);
+    u64::from(name.to_bytes().iter().fold(2_166_136_261u32, |hash, b| (hash ^ u32::from(*b)).wrapping_mul(16_777_619)))
+}
+
 #[cfg(windows)]
 pub unsafe fn ra_x86_std_type_info_name(data: u64, _root: u64) -> u64 {
     let cached = data as usize as *mut u32;
@@ -1768,6 +1788,12 @@ pub unsafe fn ra_xgetbv(which: u64) -> u64 {
 
 pub unsafe fn ra_rdtsc() -> u64 {
     core::arch::x86_64::_rdtsc()
+}
+
+/// `pause`, the spin-wait hint: the host's own, so a loop of them takes the time it took.
+pub unsafe fn ra_pause() -> u64 {
+    core::hint::spin_loop();
+    0
 }
 
 /// A Linux system call of a MIPS o32 program, by its number (`4000 + n`) on the four argument

@@ -541,6 +541,17 @@ uint64_t ra_rdtsc(void) {
 }
 #endif
 
+// `pause`, the spin-wait hint of an x86 program: the host's own where it has one, so a loop of
+// them the program times still takes time. It answers nothing.
+uint64_t ra_pause(void) {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    __asm__ volatile("yield");
+#endif
+    return 0;
+}
+
 // A Linux system call of a MIPS o32 program, by its number (`4000 + n`) on the four argument
 // registers: the kernel's result, negative with the error number on a failure. A program without
 // a C library prints and ends through these; the host's C library answers them on any host, as
@@ -585,9 +596,8 @@ static uint64_t call_universal(uint32_t function) {
 // function of the program, the element in `ecx`, which the universal entry point takes as its
 // seventh argument. The destructors run from the last element down. The constructor's unwinding
 // of the elements built so far, when one throws, is left to the program's own frames.
-uint64_t ra_x86_eh_vector_constructor_iterator(uint64_t array, uint64_t size, uint64_t count, uint64_t constructor,
-                                               uint64_t destructor) {
-    (void)destructor;
+uint64_t ra_x86_eh_vector_constructor_iterator(uint64_t array, uint64_t size, uint64_t count, uint64_t constructor, uint64_t undo) {
+    (void)undo;
     native8 f = (native8)(uintptr_t)(uint32_t)constructor;
     for (uint32_t k = 0; k < (uint32_t)count; k++) f(0, 0, 0, 0, 0, 0, (uint32_t)(array + (uint64_t)k * (uint32_t)size), 0);
     return 0;
@@ -915,6 +925,20 @@ struct ra_type_info_node64 {
 };
 const char *__cdecl __std_type_info_name(struct ra_std_type_info_data64 *data, struct ra_type_info_node64 *root);
 #endif
+
+// `type_info::operator==` and `hash_code()` of a 32-bit program: the decorated name follows the
+// dword of the cached name, and the comparison and the hash skip its first character, as the C++
+// runtime's do. The hash is the 32-bit runtime's (FNV-1a over the name).
+uint64_t ra_x86_std_type_info_compare(uint64_t left, uint64_t right) {
+    if (left == right) return 0;
+    return (uint32_t)strcmp((const char *)(uintptr_t)(left + 5), (const char *)(uintptr_t)(right + 5));
+}
+
+uint64_t ra_x86_std_type_info_hash(uint64_t data) {
+    uint32_t hash = 2166136261u;
+    for (const unsigned char *p = (const unsigned char *)(uintptr_t)(data + 5); *p; p++) hash = (hash ^ *p) * 16777619u;
+    return hash;
+}
 
 uint64_t ra_x86_std_type_info_name(uint64_t data, uint64_t root) {
     (void)root;
