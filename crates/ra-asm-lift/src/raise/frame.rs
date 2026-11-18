@@ -30,6 +30,28 @@ pub fn run(f: &mut Function) -> bool {
     run_assuming(f).0
 }
 
+/// The bytes a slot's access covers: its widest type, 8 when it has none.
+fn size_of(u: &Use) -> i64 {
+    u.types.iter().filter_map(|t| t.size(8)).max().unwrap_or(8) as i64
+}
+
+/// Where the argument block that starts at slot `k` ends: up through the slots right above it the
+/// function writes and never reads. A slot inside what the block already covers (a dword another
+/// call pushed into a double's bytes) goes on with it; a gap, a slot read or whose address goes
+/// elsewhere, or one the function holds nothing in (a saved register) ends it. Stopping at the
+/// covered slot cut a 24-byte `Con_Printf(fmt, n, time, fps)` block after its first double, and
+/// the callee read the second from the next block's bytes.
+fn block_end(slots: &BTreeMap<i64, Use>, k: i64, u: &Use) -> i64 {
+    let mut end = k + size_of(u);
+    for (n, above) in slots.range(k + 1..) {
+        if *n > end || above.read || above.escapes_otherwise || above.types.is_empty() || (*n == end && !above.held) {
+            break;
+        }
+        end = end.max(n + size_of(above));
+    }
+    end
+}
+
 /// [`run`], with what the pass assumed beside whether it changed `f`: for each slot it made a
 /// local of its own, at the address of the slot's first use, that no pointer to another slot
 /// reaches it. The slots at or above an address that escapes stay in the frame, so the pointers
@@ -200,14 +222,7 @@ fn rewrite(f: &mut Function, assumptions: &mut Vec<Assumption>) -> bool {
     let mut blocks: Vec<(i64, i64)> = Vec::new();
     if !dynamic {
         for (k, u) in slots.iter().filter(|(_, u)| u.escapes && !u.escapes_otherwise && !u.read && !u.types.is_empty()) {
-            let mut end = k + size_of(u);
-            for (n, above) in slots.range(k + 1..) {
-                if *n != end || above.read || above.escapes_otherwise || above.types.is_empty() {
-                    break;
-                }
-                end = n + size_of(above);
-            }
-            blocks.push((*k, end));
+            blocks.push((*k, block_end(&slots, *k, u)));
         }
         blocks.sort();
         let mut merged: Vec<(i64, i64)> = Vec::new();
@@ -563,4 +578,36 @@ pub fn signed(c: i128, bits: u16) -> i64 {
 
 fn offset_name(k: i64) -> String {
     if k < 0 { format!("m{:x}", -k) } else { format!("p{k:x}") }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn held(types: Vec<Type>, escapes: bool) -> Use {
+        Use { types, escapes, held: true, read: false, escapes_otherwise: false }
+    }
+
+    /// `Con_Printf(fmt, frames, time, fps)` at -28 with `printf(fmt2, frames)` at -12 through the
+    /// same outgoing area, as MSVC lays it out: the dword at -16 lies inside `time`'s double, and
+    /// the block runs on through `fps` to the saved register at -4.
+    #[test]
+    fn an_argument_block_runs_over_a_slot_inside_a_double_to_its_last_argument() {
+        let mut slots = BTreeMap::new();
+        slots.insert(-28, held(vec![Type::I32], true));
+        slots.insert(-24, held(vec![Type::I32], false));
+        slots.insert(-20, held(vec![Type::Double, Type::I32], false));
+        slots.insert(-16, held(vec![Type::I32], false));
+        slots.insert(-12, held(vec![Type::Double, Type::I32], true));
+        slots.insert(-8, held(vec![Type::I32], false));
+        slots.insert(-4, Use { types: vec![Type::I32], ..Use::default() });
+        assert_eq!(block_end(&slots, -28, &slots[&-28]), -4);
+        // a gap ends it, and so does a slot the function reads
+        slots.remove(&-16);
+        slots.remove(&-12);
+        slots.remove(&-8);
+        assert_eq!(block_end(&slots, -28, &slots[&-28]), -12);
+        slots.insert(-12, Use { types: vec![Type::Double], held: true, read: true, ..Use::default() });
+        assert_eq!(block_end(&slots, -28, &slots[&-28]), -12);
+    }
 }
