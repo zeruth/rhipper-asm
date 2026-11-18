@@ -485,3 +485,695 @@ fn dispatch64_runs_interpreted() {
 fn dispatch32_runs_interpreted() {
     run_levels("dispatch32.exe", "dispatch.txt", &LEVELS);
 }
+
+// The Allegrex's VFPU, form by form: each test overwrites the PSP hello's `module_start` with a
+// program that runs one form on lanes it sets, moves the lane each case checks to `$11` and
+// compares it with the word the instruction's definition gives; the interpreter runs it at the
+// machine level over the mapped module.
+
+/// Where the PSP hello's `module_start` loads, and its length in words: a form's program stays
+/// inside it, so no other function's start splits it.
+const PSP_START: u64 = 0x0880_40ec;
+const PSP_START_WORDS: usize = 59;
+
+/// `$11` holds the word a case checks, `$12` the word its definition gives, `$13` their difference.
+const GOT: u32 = 11;
+const WANT: u32 = 12;
+const DIFF: u32 = 13;
+const SP: u32 = 29;
+
+/// The sizes of a VFPU operation: a single, a pair, a triple and a quad.
+const S: u32 = 0;
+const P: u32 = 0x80;
+const T: u32 = 0x8000;
+const Q: u32 = 0x8080;
+
+/// The VFPU registers the forms use: the columns of matrix 0, its rows 0 and (of matrix 1) its
+/// row 0, matrix 0, its transpose and matrix 1. Lane `k` of a column `c` is the single `c + 32 k`.
+const C000: u32 = 0;
+const C010: u32 = 1;
+const C020: u32 = 2;
+const C030: u32 = 3;
+const R000: u32 = 0x20;
+const R100: u32 = 0x24;
+const M000: u32 = 0;
+const E000: u32 = 0x20;
+const M100: u32 = 4;
+
+const VADD: u32 = 0x6000_0000;
+const VSUB: u32 = 0x6080_0000;
+const VDIV: u32 = 0x6380_0000;
+const VMUL: u32 = 0x6400_0000;
+const VSCL: u32 = 0x6500_0000;
+const VCRS: u32 = 0x6680_0000;
+const VCMP: u32 = 0x6c00_0000;
+const VMIN: u32 = 0x6d00_0000;
+const VMAX: u32 = 0x6d80_0000;
+const VSCMP: u32 = 0x6e80_0000;
+const VSGE: u32 = 0x6f00_0000;
+const VSLT: u32 = 0x6f80_0000;
+const VMOV: u32 = 0xd000_0000;
+const VABS: u32 = 0xd001_0000;
+const VNEG: u32 = 0xd002_0000;
+const VIDT: u32 = 0xd003_0000;
+const VSAT0: u32 = 0xd004_0000;
+const VSAT1: u32 = 0xd005_0000;
+const VZERO: u32 = 0xd006_0000;
+const VONE: u32 = 0xd007_0000;
+const VBFY1: u32 = 0xd042_0000;
+const VBFY2: u32 = 0xd043_0000;
+const VCST: u32 = 0xd060_0000;
+const VF2IN: u32 = 0xd200_0000;
+const VF2IZ: u32 = 0xd220_0000;
+const VF2IU: u32 = 0xd240_0000;
+const VF2ID: u32 = 0xd260_0000;
+const VI2F: u32 = 0xd280_0000;
+const VCMOVT: u32 = 0xd2a0_0000;
+const VCMOVF: u32 = 0xd2a8_0000;
+const VMSCL: u32 = 0xf200_0000;
+const VMMOV: u32 = 0xf380_0000;
+const VMIDT: u32 = 0xf383_0000;
+const VMZERO: u32 = 0xf386_0000;
+const VMONE: u32 = 0xf387_0000;
+
+/// A case: its name, its words ending with the checked word in `$11`, and that word's value.
+type Case = (&'static str, Vec<u32>, u32);
+
+fn r_type(rs: u32, rt: u32, rd: u32, sa: u32, funct: u32) -> u32 {
+    (rs << 21) | (rt << 16) | (rd << 11) | (sa << 6) | funct
+}
+
+fn i_type(op: u32, rs: u32, rt: u32, imm: u16) -> u32 {
+    (op << 26) | (rs << 21) | (rt << 16) | u32::from(imm)
+}
+
+/// The word `v` in `$12`: `lui` and `ori`, less the one a half of zero leaves nothing to do.
+fn want(v: u32) -> Vec<u32> {
+    match ((v >> 16) as u16, v as u16) {
+        (0, low) => vec![i_type(0x0d, 0, WANT, low)],
+        (high, 0) => vec![i_type(0x0f, 0, WANT, high)],
+        (high, low) => vec![i_type(0x0f, 0, WANT, high), i_type(0x0d, WANT, WANT, low)],
+    }
+}
+
+/// `lw $11, offset($sp)`.
+fn lw(offset: i16) -> u32 {
+    i_type(0x23, SP, GOT, offset as u16)
+}
+
+/// `lv.s`, `sv.s`, `lv.q` or `sv.q` (`op` 50, 58, 54 or 62) of `reg` at `offset($sp)`: the
+/// register's bits past its low five in the offset's low two, of a quad its row bit alone.
+fn vmem(op: u32, reg: u32, offset: i16) -> u32 {
+    let high = if matches!(op, 50 | 58) { (reg >> 5) & 3 } else { (reg >> 5) & 1 };
+    i_type(op, SP, reg & 0x1f, offset as u16) | high
+}
+
+/// The operation `base` of `size` on `vd`, `vs` and `vt`; a form that takes an immediate (a
+/// constant's index, a scale, a condition bit) has it in `vt`, and `vcmp` its condition in `vd`.
+fn vop(base: u32, size: u32, vd: u32, vs: u32, vt: u32) -> u32 {
+    base | size | (vt << 16) | (vs << 8) | vd
+}
+
+/// `vpfxs`, `vpfxt` or `vpfxd` (`k` 0, 1 or 2) with its 24 bits.
+fn vpfx(k: u32, data: u32) -> u32 {
+    0xdc00_0000 | (k << 24) | data
+}
+
+fn viim(reg: u32, v: i16) -> u32 {
+    0xdf00_0000 | (reg << 16) | u32::from(v as u16)
+}
+
+fn vfim(reg: u32, half: u16) -> u32 {
+    0xdf80_0000 | (reg << 16) | u32::from(half)
+}
+
+/// `mfv $11, reg`.
+fn mfv(reg: u32) -> u32 {
+    0x4860_0000 | (GOT << 16) | reg
+}
+
+/// `mtv $12, reg`.
+fn mtv(reg: u32) -> u32 {
+    0x48e0_0000 | (WANT << 16) | reg
+}
+
+fn lane(v: u32, k: u32) -> u32 {
+    v + 32 * k
+}
+
+/// The column `v` set to the integers `values` by `viim.s`.
+fn column(v: u32, values: [i16; 4]) -> Vec<u32> {
+    (0..4).zip(values).map(|(k, x)| viim(lane(v, k), x)).collect()
+}
+
+/// `C000` set to 1 to 4 and `C010` to 10 to 40.
+fn quads() -> Vec<u32> {
+    let mut words = column(C000, [1, 2, 3, 4]);
+    words.extend(column(C010, [10, 20, 30, 40]));
+    words
+}
+
+fn bits(v: f32) -> u32 {
+    v.to_bits()
+}
+
+/// A word conversion's result, which saturates as Rust's does.
+fn word(v: f64) -> u32 {
+    v as i32 as u32
+}
+
+/// The program: `v0` cleared, `setup`, then each case's words and the comparison of `$11` with
+/// its word, which sets the case's bit of `v0` when they differ; `v0` is the run's exit code.
+fn vfpu_program(setup: &[u32], cases: &[Case]) -> Vec<u32> {
+    let mut code = vec![r_type(0, 0, 2, 0, 0x25)];
+    code.extend(setup);
+    for (bit, (_, words, expected)) in (0..).zip(cases) {
+        code.extend(words);
+        code.extend(want(*expected));
+        // xor, sltu, sll, or: the case's bit, set when the words differ.
+        code.extend([
+            r_type(GOT, WANT, DIFF, 0, 0x26),
+            r_type(0, DIFF, DIFF, 0, 0x2b),
+            r_type(0, DIFF, DIFF, bit, 0),
+            r_type(2, DIFF, 2, 0, 0x25),
+        ]);
+    }
+    code.extend([0x03e0_0008, 0]);
+    code
+}
+
+/// Runs the program of `setup` and `cases` in place of the PSP hello's `module_start`: it must lift
+/// without a trap and stop nowhere, and each case's lane must be the definition's.
+fn run_vfpu(form: &str, setup: &[u32], cases: &[Case]) {
+    let program = vfpu_program(setup, cases);
+    assert!(program.len() <= PSP_START_WORDS && cases.len() < 32, "{form}: the program outgrows module_start ({} words)", program.len());
+    let mut image = ra_asm_pe::load(&root().join("testdata/psp/hello.prx")).unwrap();
+    assert_eq!((image.platform(), image.entry_point()), (Some("psp"), Some(PSP_START)), "the PSP hello");
+    let bytes: Vec<u8> = program.iter().flat_map(|w| w.to_le_bytes()).collect();
+    image.write(PSP_START, &bytes).unwrap();
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let coverage = ra_asm_lift::coverage(&analysis, &lifted);
+    let trapped: Vec<_> = coverage.functions.iter().filter(|(entry, ..)| *entry == PSP_START).collect();
+    assert!(trapped.is_empty(), "{form}: the program traps: {trapped:?}\n{:?}", lifted.warnings);
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.entry = Some(PSP_START);
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    assert_eq!(outcome.stop, None, "{form}: the run stopped ({} steps)", outcome.steps);
+    let wrong: Vec<_> = (0..).zip(cases).filter(|(bit, _)| outcome.exit as u32 & (1 << bit) != 0).map(|(_, (name, ..))| *name).collect();
+    assert!(wrong.is_empty(), "{form}: the lift differs from the definition on {wrong:?}");
+}
+
+/// `mtv` and `mfv` move a word's bits unchanged.
+#[test]
+fn vfpu_mtv_mfv() {
+    let mut single = want(bits(2.5));
+    single.extend([mtv(lane(C010, 1)), mfv(lane(C010, 1))]);
+    let mut raw = want(0x1234_5678);
+    raw.extend([mtv(98), mfv(98)]);
+    let cases = [("a single", single, bits(2.5)), ("any word", raw, 0x1234_5678), ("viim.s", vec![viim(C030, 7), mfv(C030)], bits(7.0))];
+    run_vfpu("mtv and mfv", &[], &cases);
+}
+
+/// `sv.s` stores a single's word and `lv.s` loads it, the register's row in the offset.
+#[test]
+fn vfpu_lv_sv_single() {
+    let cases = [("sv.s", vec![vmem(58, C000, -16), lw(-16)], bits(1.0)), ("lv.s to S023", vec![vmem(50, 98, -16), mfv(98)], bits(1.0))];
+    run_vfpu("lv.s and sv.s", &[viim(C000, 1)], &cases);
+}
+
+/// `sv.q` and `lv.q` move four lanes, a column's or, with the offset's bit 0, a row's.
+#[test]
+fn vfpu_lv_sv_quad() {
+    let cases = [
+        ("sv.q of a column", vec![vmem(62, C010, -32), lw(-24)], bits(30.0)),
+        ("lv.q of a row", vec![vmem(54, R100, -32), mfv(6)], bits(30.0)),
+        ("lv.q of a row, lane 3", vec![mfv(7)], bits(40.0)),
+        ("lv.q of a column", vec![vmem(54, C020, -32), mfv(lane(C020, 1))], bits(20.0)),
+        ("sv.q of a row", vec![vmem(62, R000, -48), lw(-44)], bits(10.0)),
+    ];
+    run_vfpu("lv.q and sv.q", &quads(), &cases);
+}
+
+/// `vadd`: `d = s + t` lane by lane, at every size.
+#[test]
+fn vfpu_vadd() {
+    let cases = [
+        ("vadd.q", vec![vop(VADD, Q, C020, C000, C010), mfv(C020)], bits(1.0 + 10.0)),
+        ("vadd.q, lane 3", vec![mfv(lane(C020, 3))], bits(4.0 + 40.0)),
+        ("vadd.s", vec![vop(VADD, S, C030, C000, C010), mfv(C030)], bits(1.0 + 10.0)),
+        ("vadd.p", vec![vop(VADD, P, C030, C000, C010), mfv(lane(C030, 1))], bits(2.0 + 20.0)),
+        ("vadd.t", vec![vop(VADD, T, C030, C000, C010), mfv(lane(C030, 2))], bits(3.0 + 30.0)),
+    ];
+    run_vfpu("vadd", &quads(), &cases);
+}
+
+/// `vsub`: `d = s - t`.
+#[test]
+fn vfpu_vsub() {
+    let cases = [
+        ("vsub.q", vec![vop(VSUB, Q, C020, C010, C000), mfv(C020)], bits(10.0 - 1.0)),
+        ("vsub.q, lane 3", vec![mfv(lane(C020, 3))], bits(40.0 - 4.0)),
+        ("vsub.s", vec![vop(VSUB, S, C030, C000, C010), mfv(C030)], bits(1.0 - 10.0)),
+    ];
+    run_vfpu("vsub", &quads(), &cases);
+}
+
+/// `vmul`: `d = s * t`.
+#[test]
+fn vfpu_vmul() {
+    let cases = [
+        ("vmul.q", vec![vop(VMUL, Q, C020, C000, C010), mfv(lane(C020, 1))], bits(2.0 * 20.0)),
+        ("vmul.q, lane 3", vec![mfv(lane(C020, 3))], bits(4.0 * 40.0)),
+        ("vmul.t", vec![vop(VMUL, T, C030, C000, C010), mfv(lane(C030, 2))], bits(3.0 * 30.0)),
+    ];
+    run_vfpu("vmul", &quads(), &cases);
+}
+
+/// `vdiv`: `d = s / t`, rounded as IEEE's division.
+#[test]
+fn vfpu_vdiv() {
+    let cases = [
+        ("vdiv.q", vec![vop(VDIV, Q, C020, C000, C010), mfv(C020)], bits(1.0 / 10.0)),
+        ("vdiv.q, lane 2", vec![mfv(lane(C020, 2))], bits(3.0 / 30.0)),
+        ("vdiv.s", vec![vop(VDIV, S, C030, C010, C000), mfv(C030)], bits(10.0 / 1.0)),
+    ];
+    run_vfpu("vdiv", &quads(), &cases);
+}
+
+/// `vscl`: each lane of `s` times the single `t`.
+#[test]
+fn vfpu_vscl() {
+    let cases = [
+        ("vscl.q", vec![vop(VSCL, Q, C020, C000, C010), mfv(C020)], bits(1.0 * 10.0)),
+        ("vscl.q, lane 2", vec![mfv(lane(C020, 2))], bits(3.0 * 10.0)),
+        ("vscl.p", vec![vop(VSCL, P, C030, C000, C010), mfv(lane(C030, 1))], bits(2.0 * 10.0)),
+    ];
+    run_vfpu("vscl", &quads(), &cases);
+}
+
+/// `vcrs.t`: the products a cross product pairs, `(s.y t.z, s.z t.x, s.x t.y)`.
+#[test]
+fn vfpu_vcrs() {
+    let cases = [
+        ("vcrs.t, x", vec![vop(VCRS, T, C020, C000, C010), mfv(C020)], bits(2.0 * 30.0)),
+        ("vcrs.t, y", vec![mfv(lane(C020, 1))], bits(3.0 * 10.0)),
+        ("vcrs.t, z", vec![mfv(lane(C020, 2))], bits(1.0 * 20.0)),
+    ];
+    run_vfpu("vcrs", &quads(), &cases);
+}
+
+/// `vcmp` sets a condition bit per lane, its "any" bit 4 and its "all" bit 5; `vcmovt` and
+/// `vcmovf` move a lane where the bit they name is set or clear, with 6 each lane by its own.
+#[test]
+fn vfpu_vcmp_vcmov() {
+    let mut setup = quads();
+    setup.extend(column(C030, [1, 5, 3, -4]));
+    // (1, 2, 3, 4) < (1, 5, 3, -4) on lane 1 alone; == on lanes 0 and 2.
+    let less = vop(VCMP, Q, 2, C000, C030);
+    let equal = vop(VCMP, Q, 1, C000, C030);
+    let cases = [
+        ("vcmp lt, vcmovt by lane", vec![vop(VZERO, Q, C020, 0, 0), less, vop(VCMOVT, Q, C020, C010, 6), mfv(lane(C020, 1))], bits(20.0)),
+        ("vcmovt by lane, a false lane", vec![mfv(C020)], bits(0.0)),
+        ("vcmovt on any", vec![vop(VCMOVT, S, C020, C000, 4), mfv(C020)], bits(1.0)),
+        ("vcmovf on all", vec![vop(VCMOVF, S, C020, C010, 5), mfv(C020)], bits(10.0)),
+        ("vcmp eq, vcmovf by lane", vec![equal, vop(VCMOVF, Q, C020, C010, 6), mfv(lane(C020, 3))], bits(40.0)),
+    ];
+    run_vfpu("vcmp and vcmov", &setup, &cases);
+}
+
+/// `C000` (1, 2, 3, 4) and `C030` (1, 5, 3, -4), the operands of the orders.
+fn ordered() -> Vec<u32> {
+    let mut setup = column(C000, [1, 2, 3, 4]);
+    setup.extend(column(C030, [1, 5, 3, -4]));
+    setup
+}
+
+/// `vmin`: the lesser of each lane.
+#[test]
+fn vfpu_vmin() {
+    let cases = [
+        ("vmin.q", vec![vop(VMIN, Q, C020, C000, C030), mfv(lane(C020, 1))], bits(2.0f32.min(5.0))),
+        ("vmin.q, lane 3", vec![mfv(lane(C020, 3))], bits(4.0f32.min(-4.0))),
+    ];
+    run_vfpu("vmin", &ordered(), &cases);
+}
+
+/// `vmax`: the greater of each lane.
+#[test]
+fn vfpu_vmax() {
+    let cases = [
+        ("vmax.q", vec![vop(VMAX, Q, C020, C000, C030), mfv(lane(C020, 1))], bits(2.0f32.max(5.0))),
+        ("vmax.q, lane 3", vec![mfv(lane(C020, 3))], bits(4.0f32.max(-4.0))),
+    ];
+    run_vfpu("vmax", &ordered(), &cases);
+}
+
+/// `vscmp`: the sign of `s - t` as a single, `0` where they are equal.
+#[test]
+fn vfpu_vscmp() {
+    let cases = [
+        ("vscmp.q, equal", vec![vop(VSCMP, Q, C020, C000, C030), mfv(C020)], bits(0.0)),
+        ("vscmp.q, less", vec![mfv(lane(C020, 1))], bits(-1.0)),
+        ("vscmp.q, greater", vec![mfv(lane(C020, 3))], bits(1.0)),
+    ];
+    run_vfpu("vscmp", &ordered(), &cases);
+}
+
+/// `vsge`: `1` where `s >= t`, else `0`.
+#[test]
+fn vfpu_vsge() {
+    let cases = [
+        ("vsge.q, less", vec![vop(VSGE, Q, C020, C000, C030), mfv(lane(C020, 1))], bits(0.0)),
+        ("vsge.q, equal", vec![mfv(lane(C020, 2))], bits(1.0)),
+        ("vsge.q, greater", vec![mfv(lane(C020, 3))], bits(1.0)),
+    ];
+    run_vfpu("vsge", &ordered(), &cases);
+}
+
+/// `vslt`: `1` where `s < t`, else `0`.
+#[test]
+fn vfpu_vslt() {
+    let cases = [
+        ("vslt.q, less", vec![vop(VSLT, Q, C020, C000, C030), mfv(lane(C020, 1))], bits(1.0)),
+        ("vslt.q, equal", vec![mfv(lane(C020, 2))], bits(0.0)),
+        ("vslt.q, greater", vec![mfv(lane(C020, 3))], bits(0.0)),
+    ];
+    run_vfpu("vslt", &ordered(), &cases);
+}
+
+/// `vmov`: `s` as it is, a row's lanes along its columns.
+#[test]
+fn vfpu_vmov() {
+    let cases = [
+        ("vmov.q", vec![vop(VMOV, Q, C020, C010, 0), mfv(lane(C020, 2))], bits(30.0)),
+        ("vmov.s", vec![vop(VMOV, S, C030, lane(C000, 1), 0), mfv(C030)], bits(2.0)),
+        ("vmov.t of a row", vec![vop(VMOV, T, C030, R000, 0), mfv(lane(C030, 1))], bits(10.0)),
+    ];
+    run_vfpu("vmov", &quads(), &cases);
+}
+
+/// `vabs`: the magnitude, `-0` to `0`.
+#[test]
+fn vfpu_vabs() {
+    let setup = [viim(C030, -1), viim(lane(C030, 1), 5), viim(lane(C030, 2), -3), vfim(lane(C030, 3), 0x8000)];
+    let cases = [
+        ("vabs.q", vec![vop(VABS, Q, C020, C030, 0), mfv(C020)], bits(1.0)),
+        ("vabs.q, lane 2", vec![mfv(lane(C020, 2))], bits(3.0)),
+        ("vabs.q of -0", vec![mfv(lane(C020, 3))], bits(0.0)),
+    ];
+    run_vfpu("vabs", &setup, &cases);
+}
+
+/// `vneg`: the sign flipped, `0` to `-0`.
+#[test]
+fn vfpu_vneg() {
+    let cases = [
+        ("vneg.q", vec![vop(VNEG, Q, C020, C000, 0), mfv(C020)], bits(-1.0)),
+        ("vneg.q, lane 3", vec![mfv(lane(C020, 3))], bits(-4.0)),
+        ("vneg.s of 0", vec![vop(VZERO, S, C030, 0, 0), vop(VNEG, S, C020, C030, 0), mfv(C020)], bits(-0.0)),
+    ];
+    run_vfpu("vneg", &column(C000, [1, 2, 3, 4]), &cases);
+}
+
+/// The lanes of the saturations, 0.5, 5, -0.5 and -4.
+fn saturated() -> [u32; 4] {
+    [vfim(C030, 0x3800), viim(lane(C030, 1), 5), vfim(lane(C030, 2), 0xb800), viim(lane(C030, 3), -4)]
+}
+
+/// `vsat0`: each lane clamped to `[0, 1]`, a negative one to `0`.
+#[test]
+fn vfpu_vsat0() {
+    let cases = [
+        ("vsat0.q, inside", vec![vop(VSAT0, Q, C020, C030, 0), mfv(C020)], bits(0.5)),
+        ("vsat0.q, over", vec![mfv(lane(C020, 1))], bits(1.0)),
+        ("vsat0.q, under", vec![mfv(lane(C020, 2))], bits(0.0)),
+        ("vsat0.q, under 1", vec![mfv(lane(C020, 3))], bits(0.0)),
+    ];
+    run_vfpu("vsat0", &saturated(), &cases);
+}
+
+/// `vsat1`: each lane clamped to `[-1, 1]`.
+#[test]
+fn vfpu_vsat1() {
+    let cases = [
+        ("vsat1.q, inside", vec![vop(VSAT1, Q, C020, C030, 0), mfv(C020)], bits(0.5)),
+        ("vsat1.q, over", vec![mfv(lane(C020, 1))], bits(1.0)),
+        ("vsat1.q, inside below 0", vec![mfv(lane(C020, 2))], bits(-0.5)),
+        ("vsat1.q, under", vec![mfv(lane(C020, 3))], bits(-1.0)),
+    ];
+    run_vfpu("vsat1", &saturated(), &cases);
+}
+
+/// `vidt`: the row of an identity matrix the register's column names.
+#[test]
+fn vfpu_vidt() {
+    let cases = [
+        ("vidt.q, its one", vec![vop(VIDT, Q, C020, 0, 0), mfv(lane(C020, 2))], bits(1.0)),
+        ("vidt.q, a zero", vec![mfv(C020)], bits(0.0)),
+        ("vidt.p, its one", vec![vop(VIDT, P, C010, 0, 0), mfv(lane(C010, 1))], bits(1.0)),
+        ("vidt.p, its zero", vec![mfv(C010)], bits(0.0)),
+    ];
+    run_vfpu("vidt", &[], &cases);
+}
+
+/// `vzero`: its lanes `0`, the others as they are.
+#[test]
+fn vfpu_vzero() {
+    let cases = [
+        ("vzero.t", vec![vop(VONE, Q, C020, 0, 0), vop(VZERO, T, C020, 0, 0), mfv(C020)], bits(0.0)),
+        ("vzero.t, past its lanes", vec![mfv(lane(C020, 3))], bits(1.0)),
+    ];
+    run_vfpu("vzero", &[], &cases);
+}
+
+/// `vone`: its lanes `1`, the others as they are.
+#[test]
+fn vfpu_vone() {
+    let cases = [
+        ("vone.p", vec![vop(VZERO, Q, C020, 0, 0), vop(VONE, P, C020, 0, 0), mfv(lane(C020, 1))], bits(1.0)),
+        ("vone.p, past its lanes", vec![mfv(lane(C020, 2))], bits(0.0)),
+    ];
+    run_vfpu("vone", &[], &cases);
+}
+
+/// `vcst`: the constant of its index in every lane.
+#[test]
+fn vfpu_vcst() {
+    let cases = [
+        ("vcst.s pi", vec![vop(VCST, S, C020, 0, 9), mfv(C020)], bits(std::f32::consts::PI)),
+        ("vcst.q e", vec![vop(VCST, Q, C030, 0, 10), mfv(lane(C030, 3))], bits(std::f32::consts::E)),
+        ("vcst.s the largest single", vec![vop(VCST, S, C020, 0, 1), mfv(C020)], bits(f32::MAX)),
+    ];
+    run_vfpu("vcst", &[], &cases);
+}
+
+/// `vbfy1`: `(s.x + s.y, s.x - s.y, s.z + s.w, s.z - s.w)`.
+#[test]
+fn vfpu_vbfy1() {
+    let cases = [
+        ("vbfy1.q, x", vec![vop(VBFY1, Q, C020, C000, 0), mfv(C020)], bits(1.0 + 2.0)),
+        ("vbfy1.q, y", vec![mfv(lane(C020, 1))], bits(1.0 - 2.0)),
+        ("vbfy1.q, z", vec![mfv(lane(C020, 2))], bits(3.0 + 4.0)),
+        ("vbfy1.q, w", vec![mfv(lane(C020, 3))], bits(3.0 - 4.0)),
+        ("vbfy1.p, y", vec![vop(VBFY1, P, C030, C000, 0), mfv(lane(C030, 1))], bits(1.0 - 2.0)),
+    ];
+    run_vfpu("vbfy1", &column(C000, [1, 2, 3, 4]), &cases);
+}
+
+/// `vbfy2`: `(s.x + s.z, s.y + s.w, s.x - s.z, s.y - s.w)`.
+#[test]
+fn vfpu_vbfy2() {
+    let cases = [
+        ("vbfy2.q, x", vec![vop(VBFY2, Q, C020, C000, 0), mfv(C020)], bits(1.0 + 3.0)),
+        ("vbfy2.q, y", vec![mfv(lane(C020, 1))], bits(2.0 + 4.0)),
+        ("vbfy2.q, z", vec![mfv(lane(C020, 2))], bits(1.0 - 3.0)),
+        ("vbfy2.q, w", vec![mfv(lane(C020, 3))], bits(2.0 - 4.0)),
+    ];
+    run_vfpu("vbfy2", &column(C000, [1, 2, 3, 4]), &cases);
+}
+
+/// `S030` 2.5, `S031` -2.5 and `S032` 3.5, the operands of the conversions to words.
+fn halves() -> [u32; 3] {
+    [vfim(C030, 0x4100), vfim(lane(C030, 1), 0xc100), vfim(lane(C030, 2), 0x4300)]
+}
+
+/// `vf2in`: `s * 2^scale` to the nearest word, a tie to the even one, saturating.
+#[test]
+fn vfpu_vf2in() {
+    let cases = [
+        ("vf2in.s 2.5", vec![vop(VF2IN, S, C020, C030, 0), mfv(C020)], word(2.5f64.round_ties_even())),
+        ("vf2in.s 3.5", vec![vop(VF2IN, S, C020, lane(C030, 2), 0), mfv(C020)], word(3.5f64.round_ties_even())),
+        ("vf2in.s -2.5 by 2^31", vec![vop(VF2IN, S, C020, lane(C030, 1), 31), mfv(C020)], word((-2.5 * 2f64.powi(31)).round_ties_even())),
+    ];
+    run_vfpu("vf2in", &halves(), &cases);
+}
+
+/// `vf2iz`: `s * 2^scale` toward zero, saturating.
+#[test]
+fn vfpu_vf2iz() {
+    let cases = [
+        ("vf2iz.s -2.5", vec![vop(VF2IZ, S, C020, lane(C030, 1), 0), mfv(C020)], word((-2.5f64).trunc())),
+        ("vf2iz.s 2.5 by 2^4", vec![vop(VF2IZ, S, C020, C030, 4), mfv(C020)], word((2.5 * 2f64.powi(4)).trunc())),
+        ("vf2iz.s 2.5 by 2^31", vec![vop(VF2IZ, S, C020, C030, 31), mfv(C020)], word((2.5 * 2f64.powi(31)).trunc())),
+    ];
+    run_vfpu("vf2iz", &halves(), &cases);
+}
+
+/// `vf2iu`: `s * 2^scale` up.
+#[test]
+fn vfpu_vf2iu() {
+    let cases = [
+        ("vf2iu.s 2.5", vec![vop(VF2IU, S, C020, C030, 0), mfv(C020)], word(2.5f64.ceil())),
+        ("vf2iu.s -2.5", vec![vop(VF2IU, S, C020, lane(C030, 1), 0), mfv(C020)], word((-2.5f64).ceil())),
+    ];
+    run_vfpu("vf2iu", &halves(), &cases);
+}
+
+/// `vf2id`: `s * 2^scale` down.
+#[test]
+fn vfpu_vf2id() {
+    let cases = [
+        ("vf2id.s 2.5", vec![vop(VF2ID, S, C020, C030, 0), mfv(C020)], word(2.5f64.floor())),
+        ("vf2id.s -2.5", vec![vop(VF2ID, S, C020, lane(C030, 1), 0), mfv(C020)], word((-2.5f64).floor())),
+    ];
+    run_vfpu("vf2id", &halves(), &cases);
+}
+
+/// `vi2f`: each word as a single, times `2^-scale`.
+#[test]
+fn vfpu_vi2f() {
+    let mut setup = want(6);
+    setup.extend([mtv(C030), i_type(0x09, 0, WANT, (-8i16) as u16), mtv(lane(C030, 1))]);
+    let cases = [
+        ("vi2f.s by 2^-1", vec![vop(VI2F, S, C020, C030, 1), mfv(C020)], bits(6.0 / 2.0)),
+        ("vi2f.s of a negative", vec![vop(VI2F, S, C020, lane(C030, 1), 0), mfv(C020)], bits(-8.0)),
+        ("vi2f.p by 2^-2", vec![vop(VI2F, P, C020, C030, 2), mfv(lane(C020, 1))], bits(-8.0 / 4.0)),
+    ];
+    run_vfpu("vi2f", &setup, &cases);
+}
+
+/// `vpfxs`: each source lane one of the vector's or a constant, then its magnitude, then negated.
+#[test]
+fn vfpu_vpfxs() {
+    let cases = [
+        // Lane 0 is lane 1 negated.
+        ("swizzle and negate", vec![vpfx(0, 0x01_00e5), vop(VMOV, Q, C020, C000, 0), mfv(C020)], bits(-2.0)),
+        ("the lanes it leaves", vec![mfv(lane(C020, 2))], bits(3.0)),
+        ("magnitude", vec![vop(VNEG, Q, C030, C000, 0), vpfx(0, 0x02e4), vop(VMOV, Q, C020, C030, 0), mfv(lane(C020, 1))], bits(2.0)),
+        // Lane 3 is the constant of selector 3 with the magnitude bit.
+        ("constant", vec![vpfx(0, 0x88e4), vop(VMOV, Q, C020, C000, 0), mfv(lane(C020, 3))], bits(1.0 / 6.0)),
+    ];
+    run_vfpu("vpfxs", &column(C000, [1, 2, 3, 4]), &cases);
+}
+
+/// `vpfxt`: the same on the second operand.
+#[test]
+fn vfpu_vpfxt() {
+    let cases = [
+        // Lane 0 is the constant 3.
+        ("constant", vec![vpfx(1, 0x11e4), vop(VADD, Q, C020, C000, C010), mfv(C020)], bits(1.0 + 3.0)),
+        // Lane 0 is lane 3.
+        ("swizzle", vec![vpfx(1, 0xe7), vop(VSUB, Q, C020, C010, C000), mfv(C020)], bits(10.0 - 4.0)),
+        ("negate", vec![vpfx(1, 0x02_00e4), vop(VADD, Q, C020, C000, C010), mfv(lane(C020, 1))], bits(2.0 - 20.0)),
+    ];
+    run_vfpu("vpfxt", &quads(), &cases);
+}
+
+/// `vpfxd`: a masked lane keeps its value, a saturated one is clamped.
+#[test]
+fn vfpu_vpfxd() {
+    let cases = [
+        ("mask", vec![vop(VONE, Q, C020, 0, 0), vpfx(2, 0x200), vop(VMOV, Q, C020, C010, 0), mfv(lane(C020, 1))], bits(1.0)),
+        ("the lanes it does not mask", vec![mfv(C020)], bits(10.0)),
+        ("saturate to [-1, 1]", vec![vpfx(2, 0x30), vop(VMOV, Q, C020, C010, 0), mfv(lane(C020, 2))], bits(1.0)),
+        ("saturate to [0, 1]", vec![vop(VNEG, Q, C030, C000, 0), vpfx(2, 0x01), vop(VMOV, Q, C020, C030, 0), mfv(C020)], bits(0.0)),
+    ];
+    run_vfpu("vpfxd", &quads(), &cases);
+}
+
+/// `viim.s`: a single of a 16-bit integer.
+#[test]
+fn vfpu_viim() {
+    let cases = [
+        ("a negative", vec![viim(C020, -5), mfv(C020)], bits(-5.0)),
+        ("the largest", vec![viim(C020, i16::MAX), mfv(C020)], bits(f32::from(i16::MAX))),
+    ];
+    run_vfpu("viim", &[], &cases);
+}
+
+/// `vfim.s`: a single of a half, exactly.
+#[test]
+fn vfpu_vfim() {
+    let cases = [
+        ("1.5", vec![vfim(C020, 0x3e00), mfv(C020)], bits(1.5)),
+        ("-2", vec![vfim(C020, 0xc000), mfv(C020)], bits(-2.0)),
+        ("an infinity", vec![vfim(C020, 0x7c00), mfv(C020)], bits(f32::INFINITY)),
+        ("the least subnormal", vec![vfim(C020, 0x0001), mfv(C020)], bits(2f32.powi(-24))),
+    ];
+    run_vfpu("vfim", &[], &cases);
+}
+
+/// `vmscl`: each element of `s` times the single `t`. `M100`'s element is the one of `M000` four
+/// singles before it.
+#[test]
+fn vfpu_vmscl() {
+    let cases = [
+        ("vmscl.q", vec![vop(VMSCL, Q, M100, M000, C010), mfv(36)], bits(2.0 * 10.0)),
+        ("vmscl.q, row 0", vec![mfv(5)], bits(10.0 * 10.0)),
+        ("vmscl.q, the last", vec![mfv(101)], bits(40.0 * 10.0)),
+    ];
+    run_vfpu("vmscl", &quads(), &cases);
+}
+
+/// `vmmov`: `s` as it is, or its transpose.
+#[test]
+fn vfpu_vmmov() {
+    let cases = [
+        ("vmmov.q", vec![vop(VMMOV, Q, M100, M000, 0), mfv(69)], bits(30.0)),
+        ("vmmov.q of a transpose", vec![vop(VMMOV, Q, M100, E000, 0), mfv(5)], bits(2.0)),
+        ("vmmov.q of a transpose, its mirror", vec![mfv(36)], bits(10.0)),
+    ];
+    run_vfpu("vmmov", &quads(), &cases);
+}
+
+/// `vmidt`: an identity matrix of its size, the elements past it as they are.
+#[test]
+fn vfpu_vmidt() {
+    let cases = [
+        ("vmidt.t, the diagonal", vec![vop(VMONE, Q, M100, 0, 0), vop(VMIDT, T, M100, 0, 0), mfv(4)], bits(1.0)),
+        ("vmidt.t, off it", vec![mfv(5)], bits(0.0)),
+        ("vmidt.t, row 1", vec![mfv(37)], bits(1.0)),
+        ("vmidt.t, past its size", vec![mfv(7)], bits(1.0)),
+    ];
+    run_vfpu("vmidt", &[], &cases);
+}
+
+/// `vmzero`: a matrix of zeros of its size.
+#[test]
+fn vfpu_vmzero() {
+    let cases = [
+        ("vmzero.p", vec![vop(VMONE, Q, M100, 0, 0), vop(VMZERO, P, M100, 0, 0), mfv(37)], bits(0.0)),
+        ("vmzero.p, past its size", vec![mfv(70)], bits(1.0)),
+    ];
+    run_vfpu("vmzero", &[], &cases);
+}
+
+/// `vmone`: a matrix of ones of its size.
+#[test]
+fn vfpu_vmone() {
+    let cases = [
+        ("vmone.t", vec![vop(VMZERO, Q, M100, 0, 0), vop(VMONE, T, M100, 0, 0), mfv(70)], bits(1.0)),
+        ("vmone.t, past its size", vec![mfv(103)], bits(0.0)),
+    ];
+    run_vfpu("vmone", &[], &cases);
+}
+
+/// `vnop`, `vsync` and `vflush` change nothing.
+#[test]
+fn vfpu_nop_sync_flush() {
+    let cases = [("vnop, vsync, vflush", vec![0xffff_0000, 0xffff_0320, 0xffff_040d, mfv(C010)], bits(10.0))];
+    run_vfpu("vnop, vsync and vflush", &[viim(C010, 10)], &cases);
+}
