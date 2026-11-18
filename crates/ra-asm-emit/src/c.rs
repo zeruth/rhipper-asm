@@ -3201,6 +3201,23 @@ impl<'a> Emitter<'a> {
         if escapes {
             return None;
         }
+        // The step runs before the test, so after the loop a phi's variable holds its next-round
+        // value: code after the loop that reads a phi itself (its value in the last round), or an
+        // inlined value of the body over one, would read one step too far. The sky of a software
+        // renderer was built with a 260-byte row for a 256-byte one: the pointer's `+ 132` after
+        // its row loop read the stepped pointer (`rdx += 4` in the step), not the last round's.
+        let stale = |o: &Operand| {
+            o.local().is_some_and(|v| names.contains(&v) || (defined_in(v) && self.inlinable(v) && self.reads_any(v, &names)))
+        };
+        let reads_last_round = self.f.blocks.iter().filter(|b| !members.contains(&b.id)).any(|b| {
+            b.instrs.iter().any(|i| match &i.inst {
+                Inst::Phi { incoming, .. } => incoming.iter().any(|(o, from)| members.contains(from) && stale(o)),
+                inst => inst.operands().into_iter().any(stale),
+            }) || b.terminator.operands().into_iter().any(stale)
+        });
+        if reads_last_round {
+            return None;
+        }
         // A next-round value written inline at its move is written in the step, after the body:
         // only one of the latch that holds to its end and reads no other phi moves there.
         for (phi, _, next) in &phis {
@@ -4755,7 +4772,7 @@ fn short_type(ty: &Type) -> String {
 mod tests {
     use std::collections::BTreeMap;
 
-    use ra_asm_ir::{BinOp, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, Module, Operand, Terminator, Type};
+    use ra_asm_ir::{BinOp, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Inst, Module, Operand, Terminator, Type};
 
     use super::{Options, Unit, emit_unit, emit_unit_dropping, parts};
 
@@ -4841,6 +4858,34 @@ mod tests {
         // The integer goes straight to the access's macro, without a byte pointer between.
         assert!(!text.contains("((uint8_t *)"), "{text}");
         assert!(text.contains("RA_U8(") && text.contains("RA_U32("), "{text}");
+    }
+
+    /// `p = 0; c = 0; do { c += 4; p += 4 } while (c < 128); return p_last + 132`, where `p_last`
+    /// is the phi, the pointer of the last round: a `for` would step `p` before its test, and the
+    /// return would read the stepped pointer (a sky built with 260-byte rows for 256-byte ones).
+    #[test]
+    fn a_phi_read_after_its_loop_keeps_the_loop_a_do_while() {
+        let mut module = Module::x86_64_windows("rows");
+        let mut b = FunctionBuilder::new("F_00001000", FnType::new(Type::I32, vec![Type::I32]), &["x"]);
+        b.set_address(0x1000);
+        let entry = b.block("entry");
+        let body = b.block("body");
+        let exit = b.block("exit");
+        b.terminate(entry, Terminator::Br(body));
+        let p = b.value(body, Inst::Phi { ty: Type::I32, incoming: vec![(Operand::Int(0), entry)] }, "p");
+        let c = b.value(body, Inst::Phi { ty: Type::I32, incoming: vec![(Operand::Int(0), entry)] }, "c");
+        let c_next = b.bin(body, BinOp::Add, Type::I32, c, Operand::Int(4), "c_next");
+        let p_next = b.bin(body, BinOp::Add, Type::I32, p, Operand::Int(4), "p_next");
+        let more = b.icmp(body, ICond::Slt, Type::I32, c_next, Operand::Int(128), "more");
+        b.terminate(body, Terminator::CondBr { cond: more.into(), then: body, els: exit });
+        b.add_incoming(p, body, p_next);
+        b.add_incoming(c, body, c_next);
+        let row = b.bin(exit, BinOp::Add, Type::I32, p, Operand::Int(132), "row");
+        b.terminate(exit, Terminator::Ret(Some((Type::I32, Operand::Local(row)))));
+        module.functions.push(b.finish());
+        let text = emit_unit(&module, &Options::default()).functions[0].text.clone();
+        assert!(!text.contains("for ("), "the loop steps its phi before the read after it:\n{text}");
+        assert!(text.contains("} while ("), "{text}");
     }
 
     /// A module whose functions are frozen past its first ones writes as it does thawed, and the
