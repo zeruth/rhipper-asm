@@ -1,9 +1,10 @@
 // The guest of the vector harness: a freestanding program with no C library, built by clang in
 // WSL for AArch64 Linux (run under qemu-aarch64-static), for 32-bit ARM Linux (run under
-// qemu-arm-static) or for little-endian MIPS32 Linux (run under qemu-mipsel-static). It maps the
+// qemu-arm-static) or for little-endian MIPS32 or MIPS64 Linux (run under qemu-mipsel-static or
+// qemu-mips64el-static). It maps the
 // case page and the data region at the addresses the vectors name, reads cases from a file named
 // on the command line (or standard input), runs each through the trampoline of aarch64.S, arm.S
-// or mipsel.S and writes the machine's state after it to the output file (or standard output). Every case ends in a signal: the breakpoint after the instruction, the
+// mipsel.S or mips64el.S and writes the machine's state after it to the output file (or standard output). Every case ends in a signal: the breakpoint after the instruction, the
 // breakpoint fill a branch lands on, or the fault the instruction itself raises. The handler
 // copies the registers out of the signal context, so the state is the machine's at the moment the
 // case stopped, and resumes the trampoline with the host's registers.
@@ -23,6 +24,8 @@
 // And for mipsel by run.sh beside it, which `mipsel_runs_three_cases` in
 // crates/ra-asm-machine/tests/harness.rs calls:
 //   wsl -d Ubuntu-24.04 -- bash testdata/vectors/harness/run.sh mipsel <dir> cases.bin results.bin
+// and for mips64el the same way, which the MIPS III vectors of crates/ra-asm-mips/tests/vectors.rs
+// are generated with.
 
 typedef unsigned long long u64;
 typedef unsigned int u32;
@@ -328,8 +331,106 @@ _Static_assert(__builtin_offsetof(struct ucontext, mc.mdhi) == 576, "uc_mcontext
 
 #define SAVED_WORDS 12
 
+#elif defined(__mips__) && defined(__MIPSEL__) && _MIPS_SIM == _ABI64
+
+// `break`, the fill, and the prologue `ld $1, 8($4); ld $4, 32($4)` before the case, see
+// mips64el.S.
+#define BREAK 0x0000000du
+#define PROLOGUE_0 0xdc810008u
+#define PROLOGUE_1 0xdc840020u
+
+// One case in: the registers ($0..$31, $0 unused), hi and lo as doublewords, the length of the
+// code, the window's address, the code's bytes and the window of data bytes.
+struct case_in {
+    u64 r[32];
+    u64 hi;
+    u64 lo;
+    u32 len;
+    u32 window_at;
+    u8 code[16];
+    u8 window[WINDOW];
+};
+
+// One case out: the signal that ended it and the pc it ended at, the registers, hi and lo as the
+// context held them, the first address outside the window a store reached (plus one, zero for
+// none) and the window as the case left it, every field but the window a doubleword.
+struct case_out {
+    u64 sig;
+    u64 pc;
+    u64 r[32];
+    u64 hi;
+    u64 lo;
+    u64 stray;
+    u8 window[WINDOW];
+};
+
+_Static_assert(sizeof(struct case_in) == 360, "the layout mips64el.S and the generator share");
+_Static_assert(__builtin_offsetof(struct case_in, hi) == 256, "IN_HI");
+_Static_assert(__builtin_offsetof(struct case_in, lo) == 264, "IN_LO");
+_Static_assert(__builtin_offsetof(struct case_in, code) == 280, "the code");
+_Static_assert(sizeof(struct case_out) == 360, "the layout the generator reads");
+
+// The signal context of n64 MIPS Linux, as the kernel and qemu lay it out: the registers first,
+// the four hi and lo pairs of the DSP, then the pc.
+struct kernel_stack {
+    void *sp;
+    uw size;
+    int flags;
+};
+
+struct kernel_sigaction {
+    u32 flags;
+    void (*handler)(int, void *, void *);
+    u32 mask[4];
+};
+
+struct sigcontext {
+    u64 regs[32];
+    u64 fpregs[32];
+    u64 mdhi;
+    u64 hi1;
+    u64 hi2;
+    u64 hi3;
+    u64 mdlo;
+    u64 lo1;
+    u64 lo2;
+    u64 lo3;
+    u64 pc;
+    u32 fpc_csr;
+    u32 used_math;
+    u32 dsp;
+    u32 reserved;
+};
+
+struct ucontext {
+    uw flags;
+    void *link;
+    struct kernel_stack stack;
+    struct sigcontext mc;
+};
+
+_Static_assert(__builtin_offsetof(struct ucontext, mc) == 40, "uc_mcontext");
+_Static_assert(__builtin_offsetof(struct ucontext, mc.pc) == 40 + 576, "uc_mcontext.sc_pc");
+
+// The n64 syscall numbers: Linux's `asm/unistd_n64.h`.
+#define SYS_read 5000
+#define SYS_write 5001
+#define SYS_mmap 5009
+#define SYS_rt_sigaction 5013
+#define SYS_sigaltstack 5129
+#define SYS_cacheflush 5197
+#define SYS_exit_group 5205
+#define SYS_openat 5247
+
+#define SIGBUS 10
+#define SA_SIGINFO 8ul
+#define SIGSET_BYTES 16
+#define OPEN_WRITE 0x301
+
+#define SAVED_WORDS 12
+
 #else
-#error "the guest is AArch64, 32-bit ARM or o32 little-endian MIPS"
+#error "the guest is AArch64, 32-bit ARM or little-endian MIPS of o32 or n64"
 #endif
 
 #define SIGILL 4
@@ -533,12 +634,12 @@ static void handler(int sig, void *info, void *context) {
     struct ucontext *uc = context;
     (void)info;
     g_out.sig = (u32)sig;
-    g_out.pc = (u32)uc->mc.pc;
+    g_out.pc = (uw)uc->mc.pc;
     for (int i = 0; i < 32; i++) {
-        g_out.r[i] = (u32)uc->mc.regs[i];
+        g_out.r[i] = (uw)uc->mc.regs[i];
     }
-    g_out.hi = (u32)uc->mc.mdhi;
-    g_out.lo = (u32)uc->mc.mdlo;
+    g_out.hi = (uw)uc->mc.mdhi;
+    g_out.lo = (uw)uc->mc.mdlo;
     uc->mc.pc = (u64)(uw)run_case_done;
 }
 

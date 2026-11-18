@@ -1,0 +1,2 @@
+# The forms of the mips64el vectors whose replay differs from the machine today, one
+# `<group> <row>: <first difference>` a line, as ra_asm_machine::replay reads them. None does.

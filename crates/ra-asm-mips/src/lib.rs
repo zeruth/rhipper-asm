@@ -14,4 +14,9 @@ pub mod r5900 {
     pub mod spec;
 }
 
+/// Rows with their semantics, over machines of their own state.
+pub mod rows {
+    pub mod mips3;
+}
+
 pub use arch::{Delay, Mips};

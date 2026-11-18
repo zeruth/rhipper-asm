@@ -344,6 +344,7 @@ dependencies = [
  "ra-asm-ir",
  "ra-asm-machine",
  "ra-asm-pe",
+ "ra-asm-testing",
 ]
 
 [[package]]

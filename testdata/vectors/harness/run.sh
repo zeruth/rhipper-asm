@@ -23,6 +23,12 @@ case "$machine" in
     flags=(--target=mipsel-linux-gnu -mno-abicalls -mno-gpopt -msoft-float)
     emulator=qemu-mipsel-static
     ;;
+  mips64el)
+    # n64 without abicalls: absolute addresses, which the image below 2 GB lets the trampoline
+    # build with lui and an add.
+    flags=(--target=mips64el-linux-gnuabi64 -mno-abicalls -mno-gpopt -msoft-float)
+    emulator=qemu-mips64el-static
+    ;;
   *)
     echo "run.sh: no trampoline for $machine" >&2
     exit 2
