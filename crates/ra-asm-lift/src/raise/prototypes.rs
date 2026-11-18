@@ -106,7 +106,7 @@ pub fn typed(name: &str) -> Option<Typed> {
         | "ra_x86_sqrt_sse2" | "ra_x86_sin_sse2" | "ra_x86_cos_sse2" | "ra_x86_tan_sse2" | "ra_x86_asin_sse2" | "ra_x86_acos_sse2"
         | "ra_x86_atan_sse2" | "ra_x86_exp_sse2" | "ra_x86_log_sse2" | "ra_x86_log10_sse2" => (vec![Double], Some(Double)),
         // Its operands and result are on the x87 stack, in memory the call reads and writes.
-        "ra_x86_ci_atan2" => (vec![], None),
+        "ra_x86_ci_atan2" | "ra_x86_ci_fmod" => (vec![], None),
         "sinf" | "cosf" | "tanf" | "asinf" | "acosf" | "atanf" | "sinhf" | "coshf" | "tanhf" | "expf" | "exp2f" | "logf" | "log2f"
         | "log10f" | "sqrtf" | "cbrtf" | "floorf" | "ceilf" | "truncf" | "roundf" | "rintf" | "nearbyintf" | "fabsf" | "_chgsignf" => {
             (vec![Float], Some(Float))
@@ -192,6 +192,17 @@ pub fn stdcall_pops(dll: &str, name: &str) -> Option<u64> {
         return Some(proto.stack_bytes_x86() as u64);
     }
     arity(name).map(|n| 4 * n as u64)
+}
+
+/// The bytes a function of a runtime library linked into a 32-bit image pops on return, by the
+/// name the port calls it under: none for the C runtime's `cdecl`, and the arguments for the
+/// `stdcall` array iterators of the C++ runtime.
+pub fn linked_pops(name: &str) -> u64 {
+    match name {
+        "ra_x86_eh_vector_destructor_iterator" => 16,
+        "ra_x86_eh_vector_constructor_iterator" => 20,
+        _ => 0,
+    }
 }
 
 /// The bytes a function pops that a 32-bit program asks `GetProcAddress` for by `name`, when the
@@ -285,6 +296,7 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         "_libm_sse2_atan_precise" => "ra_x86_atan_sse2",
         // The x87 one, whose operands are on the unit's stack: the runtime works on the lift's.
         "_CIatan2" => "ra_x86_ci_atan2",
+        "_CIfmod" => "ra_x86_ci_fmod",
         "_libm_sse2_exp_precise" => "ra_x86_exp_sse2",
         "_libm_sse2_log_precise" => "ra_x86_log_sse2",
         "_libm_sse2_log10_precise" => "ra_x86_log10_sse2",
@@ -328,6 +340,10 @@ pub fn x86_shim(name: &str) -> Option<&'static str> {
         // 4 GB, takes them. The sized delete's size is the caller's to pop.
         "operator_new" | "operator_new_array" => "ra_x86_operator_new",
         "operator_delete" | "operator_delete_array" => "ra_x86_operator_delete",
+        // The array iterators of the same library call a `thiscall` structor of the program on
+        // each element: the host's would call the dword as a 64-bit function.
+        "eh_vector_constructor_iterator" => "ra_x86_eh_vector_constructor_iterator",
+        "eh_vector_destructor_iterator" => "ra_x86_eh_vector_destructor_iterator",
         // The run-time type information the host's vcruntime reads in the 64-bit layout
         // (image-relative offsets in eight-byte slots); the program's holds absolute dwords.
         "__RTDynamicCast" => "ra_x86_rt_dynamic_cast",
@@ -914,6 +930,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "_get_stream_buffer_pointers"
         | "ra_x86_get_stream_buffer_pointers"
         | "ra_x86_init_once_execute_once"
+        | "ra_x86_eh_vector_destructor_iterator"
         | "ra_x86_wait_for_multiple_objects" => 4,
 
         "WriteFile"
@@ -929,6 +946,7 @@ pub fn arity(name: &str) -> Option<usize> {
         | "__stdio_common_vfprintf"
         | "__stdio_common_vfwprintf"
         | "__RTDynamicCast"
+        | "ra_x86_eh_vector_constructor_iterator"
         | "ra_x86_rt_dynamic_cast" => 5,
 
         "CreateThread" | "MultiByteToWideChar" | "LCMapStringW" | "CompareStringW" | "__stdio_common_vsprintf" | "_beginthreadex" => 6,

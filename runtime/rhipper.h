@@ -292,6 +292,11 @@ uint64_t ra_x86_get_proc_address(uint64_t module, uint64_t name);
 // over the host's heap.
 uint64_t ra_x86_operator_new(uint64_t size);
 uint64_t ra_x86_operator_delete(uint64_t block);
+// The C++ runtime's array iterators, which run a `thiscall` structor of the program on each
+// element of an array.
+uint64_t ra_x86_eh_vector_constructor_iterator(uint64_t array, uint64_t size, uint64_t count, uint64_t constructor,
+                                               uint64_t destructor);
+uint64_t ra_x86_eh_vector_destructor_iterator(uint64_t array, uint64_t size, uint64_t count, uint64_t destructor);
 // The run-time type information of a 32-bit program, whose structures hold absolute dwords where
 // the host's `__RTDynamicCast`, `__RTCastToVoid` and `__RTtypeid` read the 64-bit layout.
 uint64_t ra_x86_rt_dynamic_cast(uint64_t object, uint64_t vf_delta, uint64_t source, uint64_t target, uint64_t is_reference);
@@ -347,6 +352,7 @@ double ra_x86_asin_sse2(double x);
 double ra_x86_acos_sse2(double x);
 double ra_x86_atan_sse2(double x);
 void ra_x86_ci_atan2(void);
+void ra_x86_ci_fmod(void);
 double ra_x86_exp_sse2(double x);
 double ra_x86_log_sse2(double x);
 double ra_x86_log10_sse2(double x);

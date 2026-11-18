@@ -431,6 +431,14 @@ impl Lifter<'_, '_> {
                 let adjusted = self.m.b.bin(block, BinOp::Add, Type::I32, sp, pops as i64, "sp");
                 self.m.write_sp(block, adjusted);
             }
+        } else if self.m.bits == 32 && !self.lifted.sysv {
+            // A `stdcall` function of a linked-in runtime pops its arguments all the same.
+            let pops = crate::raise::prototypes::linked_pops(&symbol);
+            if pops > 0 {
+                let sp = self.m.read_sp(block);
+                let adjusted = self.m.b.bin(block, BinOp::Add, Type::I32, sp, pops as i64, "sp");
+                self.m.write_sp(block, adjusted);
+            }
         }
     }
 

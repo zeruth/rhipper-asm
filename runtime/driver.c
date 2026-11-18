@@ -580,6 +580,25 @@ static uint64_t call_universal(uint32_t function) {
     return f(0, 0, 0, 0, 0, 0, 0, 0);
 }
 
+// The C++ runtime's array iterators (`eh vector constructor iterator` and its destructor twin),
+// linked into the image from the runtime library: each element's structor is a `thiscall`
+// function of the program, the element in `ecx`, which the universal entry point takes as its
+// seventh argument. The destructors run from the last element down. The constructor's unwinding
+// of the elements built so far, when one throws, is left to the program's own frames.
+uint64_t ra_x86_eh_vector_constructor_iterator(uint64_t array, uint64_t size, uint64_t count, uint64_t constructor,
+                                               uint64_t destructor) {
+    (void)destructor;
+    native8 f = (native8)(uintptr_t)(uint32_t)constructor;
+    for (uint32_t k = 0; k < (uint32_t)count; k++) f(0, 0, 0, 0, 0, 0, (uint32_t)(array + (uint64_t)k * (uint32_t)size), 0);
+    return 0;
+}
+
+uint64_t ra_x86_eh_vector_destructor_iterator(uint64_t array, uint64_t size, uint64_t count, uint64_t destructor) {
+    native8 f = (native8)(uintptr_t)(uint32_t)destructor;
+    for (uint32_t k = (uint32_t)count; k-- > 0;) f(0, 0, 0, 0, 0, 0, (uint32_t)(array + (uint64_t)k * (uint32_t)size), 0);
+    return 0;
+}
+
 uint64_t ra_x86_initterm(uint64_t first, uint64_t last) {
     for (uint32_t *p = (uint32_t *)(uintptr_t)first; (uintptr_t)p < (uintptr_t)last; p++) {
         if (*p) call_universal(*p);
@@ -1525,6 +1544,13 @@ void ra_x86_ci_atan2(void) {
     double x = ra_x87_stack[top], y = ra_x87_stack[(top + 1) & 7];
     ra_x87_top = (top + 1) & 7;
     ra_x87_stack[ra_x87_top] = atan2(y, x);
+}
+// `_CIfmod`, the same way: st0 the divisor, st1 the dividend, fmod(st1, st0) in their place.
+void ra_x86_ci_fmod(void) {
+    uint64_t top = ra_x87_top & 7;
+    double y = ra_x87_stack[top], x = ra_x87_stack[(top + 1) & 7];
+    ra_x87_top = (top + 1) & 7;
+    ra_x87_stack[ra_x87_top] = fmod(x, y);
 }
 double ra_x86_exp_sse2(double x) { return exp(x); }
 double ra_x86_log_sse2(double x) { return log(x); }

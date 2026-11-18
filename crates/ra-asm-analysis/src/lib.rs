@@ -870,13 +870,36 @@ impl<'a> State<'a> {
         // A function of a linked-in C runtime is the host's: the no-return settle judges it by
         // name, not by the body it has here.
         symbols::classify(self.image, &self.runtime, &mut function);
+        // A piece of the runtime's code the symbols do not name, which a helper the port keeps
+        // calls or jumps to, is that helper's own (the range and error paths of `_dtol3`): the
+        // host has nothing under `F_<address>`, and the port would not link.
+        let unnamed = |f: &Function| matches!(&f.kind, Kind::Runtime(n) if *n == function::default_name(f.entry));
+        let kept = |f: &Function, runtime: &symbols::RuntimeRanges| matches!(f.kind, Kind::Normal) && runtime.contains(f.entry);
+        if unnamed(&function)
+            && function.origins.iter().any(
+                |o| matches!(o, Origin::Call(c) | Origin::TailCall(c) if self.functions.get(c).is_some_and(|c| kept(c, &self.runtime))),
+            )
+        {
+            function.kind = Kind::Normal;
+        }
         self.warnings.extend(built.warnings);
         for &target in function.calls.iter().chain(&function.tail_calls) {
+            let origin = if function.tail_calls.contains(&target) { Origin::TailCall(entry) } else { Origin::Call(entry) };
             if self.image.is_code(target) && !self.functions.contains_key(&target) && !self.pending.contains(&target) {
                 self.known_starts.insert(target);
                 self.pending.push(target);
-                let origin = if function.tail_calls.contains(&target) { Origin::TailCall(entry) } else { Origin::Call(entry) };
                 self.origins.entry(target).or_default().push(origin);
+            } else if self.image.is_code(target) && target != entry && kept(&function, &self.runtime) {
+                // A piece queued or built before this caller was known: it builds again as the
+                // helper's.
+                let origins = self.origins.entry(target).or_default();
+                if !origins.contains(&origin) {
+                    origins.push(origin);
+                }
+                if self.functions.get(&target).is_some_and(unnamed) {
+                    self.take(target);
+                    self.pending.push(target);
+                }
             }
         }
         debug_assert_eq!(function.entry, entry);
