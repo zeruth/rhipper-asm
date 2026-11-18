@@ -19,6 +19,7 @@ pub mod raise;
 pub mod run;
 pub mod state;
 pub mod thumb;
+pub mod vu;
 pub mod x86;
 pub mod x87;
 

@@ -184,13 +184,18 @@ pub fn ee_fpu_type(operands: usize) -> FnType {
     FnType::new(Type::I32, vec![Type::I32; operands])
 }
 
+/// The R5900 FPU's functions, `ra_f32_ftz_*`, which the vector units' FMACs call as well.
+pub fn declare_ee_fpu(module: &mut ra_asm_ir::Module) {
+    for (name, operands) in EE_FPU {
+        module.declare(Declaration { name: format!("ra_f32_ftz_{name}"), ty: ee_fpu_type(operands), conv: CallConv::C, attrs: vec![] });
+    }
+}
+
 /// The runtime of a `PlayStation 2` program: the R5900 FPU's functions, and each EE kernel
 /// function by its name in the kernel's table, `ra_ee_<name>` with the prototype
 /// [`crate::raise::prototypes::ee_syscall`] gives it.
 pub fn declare_ps2(module: &mut ra_asm_ir::Module) {
-    for (name, operands) in EE_FPU {
-        module.declare(Declaration { name: format!("ra_f32_ftz_{name}"), ty: ee_fpu_type(operands), conv: CallConv::C, attrs: vec![] });
-    }
+    declare_ee_fpu(module);
     for call in crate::raise::prototypes::ee_syscalls() {
         module.declare(Declaration { name: call.symbol(), ty: call.fn_type(), conv: CallConv::C, attrs: vec![] });
     }

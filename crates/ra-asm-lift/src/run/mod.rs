@@ -29,6 +29,24 @@ use crate::Lifted;
 use crate::raise::abi::{Kind, Signature};
 use host::Runtime;
 
+/// The R5900's float arithmetic `ra_f32_ftz_<name>` on the bits of its operands, as the
+/// interpreter answers it, for a host of its own (a VU program's: its FMACs round as the FPU's
+/// do); `None` for any other name. An operand past the function's count is not read.
+pub fn ftz_call(name: &str, args: &[u32]) -> Option<u32> {
+    let (a, b) = (args.first().copied().unwrap_or(0), args.get(1).copied().unwrap_or(0));
+    Some(match name.strip_prefix("ra_f32_ftz_")? {
+        "add" => ftz::add(a, b),
+        "sub" => ftz::sub(a, b),
+        "mul" => ftz::mul(a, b),
+        "div" => ftz::div(a, b),
+        "rsqrt" => ftz::rsqrt(a, b),
+        "sqrt" => ftz::sqrt(a),
+        "cvt_s_w" => ftz::cvt_s_w(a),
+        "cvt_w_s" => ftz::cvt_w_s(a),
+        _ => return None,
+    })
+}
+
 /// The software `f80` of the exact x87 unit for a host of its own: answers a `ra_f80_*` call over
 /// the interpreter's memory with its value and the status-word flags it raised, for the host to
 /// merge into the program's status word; `None` for any other name. The instruction vectors

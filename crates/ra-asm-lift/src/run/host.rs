@@ -925,26 +925,10 @@ impl<'a> Runtime<'a> {
                 let result = self.linux(vm, number, true, regs)?;
                 Ok(Value::Int(u128::from(i64::from(result as i32) as u64)))
             }
-            "ra_f32_ftz_add" | "ra_f32_ftz_sub" | "ra_f32_ftz_mul" | "ra_f32_ftz_div" | "ra_f32_ftz_rsqrt" => {
-                let (a, b) = (arg(args, 0) as u32, arg(args, 1) as u32);
-                let op = match name {
-                    "ra_f32_ftz_add" => super::ftz::add,
-                    "ra_f32_ftz_sub" => super::ftz::sub,
-                    "ra_f32_ftz_mul" => super::ftz::mul,
-                    "ra_f32_ftz_div" => super::ftz::div,
-                    _ => super::ftz::rsqrt,
-                };
-                int(u64::from(op(a, b)))
-            }
-            "ra_f32_ftz_sqrt" | "ra_f32_ftz_cvt_s_w" | "ra_f32_ftz_cvt_w_s" => {
-                let a = arg(args, 0) as u32;
-                let op = match name {
-                    "ra_f32_ftz_sqrt" => super::ftz::sqrt,
-                    "ra_f32_ftz_cvt_s_w" => super::ftz::cvt_s_w,
-                    _ => super::ftz::cvt_w_s,
-                };
-                int(u64::from(op(a)))
-            }
+            n if n.starts_with("ra_f32_ftz_") => match super::ftz_call(n, &[arg(args, 0) as u32, arg(args, 1) as u32]) {
+                Some(r) => int(u64::from(r)),
+                None => Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
+            },
             n if n.starts_with("ra_f80_") => self.f80_call(vm, n, args),
             n if n.starts_with("ra_bios_") => self.bios(vm, &n["ra_bios_".len()..], args),
             n if n.starts_with("ra_ee_") => ee_kernel(&n["ra_ee_".len()..], args),
