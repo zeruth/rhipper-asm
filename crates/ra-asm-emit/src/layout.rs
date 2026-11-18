@@ -519,6 +519,12 @@ fn string_field(layout: &Layout, start: u64, next: u64) -> Option<Field> {
     if len == 0 || !run[..len].iter().all(|&b| b == b'\t' || b == b'\n' || b == b'\r' || (b' '..=b'~').contains(&b)) {
         return None;
     }
+    // One character, a zero, another character and a zero is the start of a UTF-16 string, not
+    // a one-character C string: as the literal `"t"` the wide text after it was gone, and the
+    // C runtime's `_wassert` printed what lay behind the literal for the expression.
+    if len == 1 && run.len() >= 4 && run[2] != 0 && run[3] == 0 {
+        return None;
+    }
     Some(Field { offset: start, count: len as u64 + 1, elem: Elem::Char, array: true, name: None })
 }
 
