@@ -265,6 +265,23 @@ fn psx_hello_runs_interpreted() {
     }
 }
 
+/// The PSP hello, a PRX for the Allegrex: each import stub the program calls lifts to the call on
+/// the import its NID names, through the o32 wrapper that leaves the result in `v0`.
+#[test]
+fn psp_hello_calls_its_imports_by_name() {
+    let image = ra_asm_pe::load(&root().join("testdata/psp/hello.prx")).unwrap();
+    assert_eq!(image.platform(), Some("psp"), "a PRX");
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let ll = lifted.module.to_ll();
+    for name in ["sceIoWrite", "sceKernelExitGame"] {
+        let wrapper = ra_asm_lift::import_wrapper_name(name, false);
+        assert!(ll.lines().any(|l| l.contains("call ") && l.contains(&format!("@{name}("))), "psp hello: no call on {name}");
+        assert!(ll.lines().any(|l| l.contains("call ") && l.contains(&format!("@{wrapper}("))), "psp hello: no stub calls {wrapper}");
+    }
+}
+
 /// The ps2sdk hello, an R5900 ELF: its own code (`main` and the `sio_puts` it calls, down to
 /// `sio_putc`) lifts with no trap, and run from `main` over the mapped image it prints through
 /// the EE's serial port the console output its source writes. The C library's start, which waits

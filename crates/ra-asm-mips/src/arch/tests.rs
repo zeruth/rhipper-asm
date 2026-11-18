@@ -4,6 +4,16 @@ use super::*;
 fn the_rows_make_a_table() {
     assert_eq!(Mips::machine().table.rows().len(), FORMS.len());
     assert_eq!(Mips::r5900_machine().table.rows().len(), FORMS.len() + R5900_FORMS.len());
+    assert_eq!(Mips::allegrex_machine().table.rows().len(), FORMS.len() + ALLEGREX.len());
+}
+
+#[test]
+fn an_allegrex_code_names_its_own_form() {
+    let allegrex = Mips { allegrex: true, ..Mips::default() };
+    // `bc1t`, a delayed branch of the Allegrex's FPU; on the R5900 the row at its index is another.
+    let instr = allegrex.decode(&0x4501_0003u32.to_le_bytes(), 0x10_0000).unwrap();
+    assert_eq!(instr.mnemonic, "bc1t");
+    assert_eq!(Mips::delay(&instr), Delay::Slot);
 }
 
 #[test]
@@ -67,7 +77,7 @@ fn allegrex_rows_decode() {
 
 #[test]
 fn every_transfer_is_delayed_and_nothing_else_is() {
-    for form in FORMS.iter().chain(R5900_FORMS) {
+    for form in FORMS.iter().chain(R5900_FORMS).chain(ALLEGREX) {
         let transfers = matches!(form.row.flow, Flow::Jump | Flow::Branch | Flow::Call | Flow::Return);
         assert_eq!(form.delay != Delay::None, transfers, "{}", form.row.name);
         assert_eq!(form.reach == Reach::Region, matches!(form.row.name, "j" | "jal"), "{}", form.row.name);
@@ -86,6 +96,22 @@ fn an_alias_wins_its_words() {
     assert_eq!(name(0x1201_0003), Some("beq"));
     assert_eq!(name(0x0411_0003), Some("bal"));
     assert_eq!(name(0x0491_0003), Some("bgezal"));
+}
+
+/// The Allegrex's own forms decode only on its decoder: on another MIPS their words are other
+/// machines' instructions.
+#[test]
+fn the_allegrex_forms_decode_on_its_decoder_alone() {
+    let name = |word: u32| Mips::allegrex_machine().table.decode(word).map(|decoded| decoded.row.name);
+    assert_eq!(name(0x7c06_0804), Some("ins"), "ins $6, $zero, 0x0, 0x2");
+    assert_eq!(name(0x7c02_1c20), Some("seb"));
+    assert_eq!(name(0x0085_102c), Some("max"));
+    assert_eq!(name(0x0080_1016), Some("clz"));
+    assert_eq!(name(0x0022_1882), Some("rotr"));
+    assert_eq!(name(0x0040_1825), Some("move"));
+    assert!(Mips::machine().table.decode(0x0085_102c).is_none());
+    assert!(Mips::machine().table.decode(0x7c06_0804).is_none());
+    assert_eq!(name(0x4500_0003), Some("bc1f"));
 }
 
 #[test]
