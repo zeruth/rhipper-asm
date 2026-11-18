@@ -21,6 +21,10 @@ oracle = []
 name = "instruction_oracle"
 required-features = ["oracle"]
 
+[[test]]
+name = "mips_data"
+path = "tests/mips_data.rs"
+
 [dependencies]
 anyhow.workspace = true
 ra-asm-analysis.workspace = true

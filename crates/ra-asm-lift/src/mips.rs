@@ -972,6 +972,18 @@ impl Lifter<'_, '_> {
         self.m.b.bin(block, BinOp::Add, Type::I32, base, w.simm(), "addr")
     }
 
+    /// The address of a base register the block set to a constant, plus `offset`: in standalone
+    /// mode, the byte of the data global or the function it falls in, as the x86 lift names a
+    /// constant address; `None` for a base the block does not know or an address outside them.
+    fn constant_address(&mut self, block: BlockId, offset: i64) -> Option<ValueId> {
+        if !self.lifted.standalone {
+            return None;
+        }
+        let address = self.base?.wrapping_add(offset as u32);
+        let op = self.lifted.address_of(u64::from(address))?;
+        Some(self.m.value_of(block, Type::I32, op))
+    }
+
     fn lift_instr(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
         let (rs, rt) = (w.rs(), w.rt());
         self.base = self.upper_value(rs);
@@ -2324,6 +2336,9 @@ impl Lifter<'_, '_> {
 
     /// The address of `lv` and `sv`: the base plus the offset, whose low two bits name the register.
     fn vfpu_address(&mut self, block: BlockId, w: Word) -> ValueId {
+        if let Some(address) = self.constant_address(block, w.simm() & !3) {
+            return address;
+        }
         let base = self.reg32(block, w.rs());
         self.m.b.bin(block, BinOp::Add, Type::I32, base, w.simm() & !3, "addr")
     }
