@@ -12181,14 +12181,14 @@ b_402e6c:  ; 0x402e6c
   ret i64 %esi.z
 }
 
-define i64 @F_00402e70(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3, i64 %arg4) {  ; 0x402e70
+define i64 @F_00402e70(i64 %arg0, i64 %arg1, i64 %arg2, i64 %arg3) {  ; 0x402e70
 b_402e70:  ; 0x402e70
-  %stack.arg0.lo = trunc i64 %arg1 to i32
-  %stack.arg1.lo = trunc i64 %arg2 to i32
+  %stack.arg0.lo = trunc i64 %arg0 to i32
+  %stack.arg1.lo = trunc i64 %arg1 to i32
   %esi.z = zext i32 %stack.arg0.lo to i64  ; 0x402e74
   %m.p.1 = inttoptr i64 %esi.z to ptr  ; 0x402e77
   %m.1 = load i32, ptr %m.p.1, align 1  ; 0x402e77
-  %ret = call i64 @F_004031e0(i64 %arg0, i32 %m.1)  ; 0x402e79
+  %ret = call i64 @F_004031e0(i32 %m.1)  ; 0x402e79
   %eh.pending = call i64 @ra_eh_pending()  ; 0x402e79
   %eh.thrown = icmp ne i64 %eh.pending, 0  ; 0x402e79
   br i1 %eh.thrown, label %eh.landing, label %eh.ok.402e79
@@ -12453,7 +12453,7 @@ b_4031d0:  ; 0x4031d0
   ret i64 %al.z
 }
 
-define i64 @F_004031e0(i64 %arg0, i32 %arg1) {  ; 0x4031e0
+define i64 @F_004031e0(i32 %arg0) {  ; 0x4031e0
 b_4031e0:  ; 0x4031e0
   %addr.z.2 = zext i32 ptrtoint (ptr getelementptr (i8, ptr @sec_data, i64 924) to i32) to i64  ; 0x4031e4
   %m.p = inttoptr i64 %addr.z.2 to ptr  ; 0x4031e4
@@ -12461,10 +12461,10 @@ b_4031e0:  ; 0x4031e0
   %l = icmp slt i32 %m, 1  ; 0x4031ee
   br i1 %l, label %b_403252, label %b_4031f0
 b_4031f0:  ; 0x4031f0
-  %zf.1 = icmp eq i32 %arg1, -1073741132  ; 0x4031f0
+  %zf.1 = icmp eq i32 %arg0, -1073741132  ; 0x4031f0
   br i1 %zf.1, label %b_403200, label %b_4031f8
 b_4031f8:  ; 0x4031f8
-  %not = icmp ne i32 %arg1, -1073741131  ; 0x4031fe
+  %not = icmp ne i32 %arg0, -1073741131  ; 0x4031fe
   br i1 %not, label %b_403252, label %b_403200
 b_403200:  ; 0x403200
   %mxcsr.p = inttoptr i64 ptrtoint (ptr @ra_mxcsr to i64) to ptr  ; 0x403200
@@ -12499,10 +12499,10 @@ b_40323c:  ; 0x40323c
 b_403245:  ; 0x403245
   %logic.6 = and i32 %logic, 4128  ; 0x403245
   %zf.16 = icmp eq i32 %logic.6, 0  ; 0x403245
-  %cmov = select i1 %zf.16, i32 -1073741681, i32 %arg1  ; 0x40324f
+  %cmov = select i1 %zf.16, i32 -1073741681, i32 %arg0  ; 0x40324f
   br label %b_403252
 b_403252:  ; 0x403252
-  %rcx.phi.1 = phi i32 [ %arg1, %b_4031e0 ], [ %arg1, %b_4031f8 ], [ %cmov, %b_403245 ]  ; 0x403252
+  %rcx.phi.1 = phi i32 [ %arg0, %b_4031e0 ], [ %arg0, %b_4031f8 ], [ %cmov, %b_403245 ]  ; 0x403252
   %eax.z.6 = zext i32 %rcx.phi.1 to i64  ; 0x403252
   ret i64 %eax.z.6
 b_403258:  ; 0x403258
@@ -13001,7 +13001,7 @@ entry:
 
 define i64 @U_00402e70(i64 %u0, i64 %u1, i64 %u2, i64 %u3, i64 %u4, i64 %u5, i64 %ecx, i64 %edx) {
 entry:
-  %ret = call i64 @F_00402e70(i64 %ecx, i64 %u0, i64 %u1, i64 %u2, i64 %u3)
+  %ret = call i64 @F_00402e70(i64 %u0, i64 %u1, i64 %u2, i64 %u3)
   %pops.p = inttoptr i64 ptrtoint (ptr @ra_pops to i64) to ptr
   store i64 0, ptr %pops.p, align 8
   ret i64 %ret

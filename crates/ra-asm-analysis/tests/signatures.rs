@@ -77,7 +77,13 @@ fn the_libcmt_signatures_recognize_the_static_runtime() {
         }
     };
     assert!(set.signatures.len() > 1000, "{} signatures from {from}", set.signatures.len());
-    let mut failures = Vec::new();
+    // The two programs hold the runtime of MSVC 14.51. Another release's library holds its
+    // startup and its exception handling in other bytes, and has nothing to say about them.
+    if !from.replace('\\', "/").contains(&format!("/{LINKED_RUNTIME}.")) {
+        eprintln!("skipped: the toolset at {from} is not the {LINKED_RUNTIME} the programs were linked with");
+        return;
+    }
+    let mut failures = vec![format!("the signatures are from {from}")];
     for name in ["core-static", "int64-static"] {
         let bytes = std::fs::read(rhtest(&format!("{name}.exe"))).unwrap();
         let mut image = Image::parse(bytes).unwrap();
@@ -175,8 +181,11 @@ fn the_libcmt_signatures_recognize_the_static_runtime() {
             ));
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(failures.len() == 1, "{}", failures.join("\n"));
 }
+
+/// The release of MSVC whose static runtime `core-static.exe` and `int64-static.exe` hold.
+const LINKED_RUNTIME: &str = "14.51";
 
 /// The set written and read back matches the same functions.
 #[test]
