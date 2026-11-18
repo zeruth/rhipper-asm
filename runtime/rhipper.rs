@@ -1955,6 +1955,13 @@ pub unsafe fn ra_rdtsc() -> u64 {
     core::arch::x86_64::_rdtsc()
 }
 
+/// An `alloca` of a size the run knows, as the stack pointer to go on with. Rust has no `alloca`:
+/// the room is the frame's own slack below the stack pointer, so a buffer larger than a page
+/// overruns it. The C runtime makes the room on the host's stack.
+pub unsafe fn ra_stack_probe(sp: u64, bytes: u64, align: u64) -> u64 {
+    sp.wrapping_sub(bytes) & !(align.max(1) - 1) & 0xffff_ffff
+}
+
 /// `pause`, the spin-wait hint: the host's own, so a loop of them takes the time it took.
 pub unsafe fn ra_pause() -> u64 {
     core::hint::spin_loop();

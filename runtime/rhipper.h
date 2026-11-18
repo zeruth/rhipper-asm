@@ -239,6 +239,18 @@ uint64_t ra_xgetbv(uint64_t which);
 uint64_t ra_rdtsc(void);
 // `pause`, the spin-wait hint: the host's own.
 uint64_t ra_pause(void);
+// An `alloca` of a size the run knows (`_alloca_probe` with the size in a register): the stack
+// pointer to go on with. In the translation it is room on the host's stack, which lasts until
+// the function returns as the program's did: the bytes asked for, and a page below them for
+// what the function pushes after. The function's own frame is of a size fixed when it is
+// written, and a buffer of a file's length went far below it. The driver's function of the same
+// name is for code that keeps the machine's own stack, where the stack pointer just moves down.
+uint64_t ra_stack_probe(uint64_t sp, uint64_t bytes, uint64_t align);
+#define RA_PROBE_BELOW 4096u
+#define ra_stack_probe(sp, bytes, align) \
+    ((void)(sp), \
+     (uint64_t)(uint32_t)(((uintptr_t)__builtin_alloca((size_t)(bytes) + RA_PROBE_BELOW + (size_t)(align)) + RA_PROBE_BELOW + (uintptr_t)(align) - 1) \
+                          & ~((uintptr_t)(align) - 1)))
 // The thread environment block of the calling thread, which fs: and gs: accesses read.
 uint64_t ra_teb(void);
 // A MIPS `syscall` of an o32 Linux program: the number and the four argument registers, the

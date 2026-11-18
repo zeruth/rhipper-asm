@@ -342,6 +342,8 @@ impl Host for Lone {
         match name {
             "ra_trap" => Err(Stop::fault(format!("trap {}", args.get(1).map_or(0, Value::as_u64)))),
             "ra_unsupported" => Err(Stop::fault("unsupported by the lift")),
+            // `pause` is the host's spin-wait hint, which changes nothing the oracle compares.
+            "ra_pause" => Ok(Value::Int(0)),
             other => Err(Stop::fault(format!("a call to {other}"))),
         }
     }

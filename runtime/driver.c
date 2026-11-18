@@ -541,6 +541,14 @@ uint64_t ra_rdtsc(void) {
 }
 #endif
 
+// The stack probe of a size the run knows, for code that keeps the machine's own stack (the
+// lifted IR built as it is): the stack pointer moves down by the bytes, to the alignment. The
+// translation takes the header's macro of the same name, which makes the room.
+#undef ra_stack_probe
+uint64_t ra_stack_probe(uint64_t sp, uint64_t bytes, uint64_t align) {
+    return (uint32_t)((sp - bytes) & ~((align ? align : 1) - 1));
+}
+
 // `pause`, the spin-wait hint of an x86 program: the host's own where it has one, so a loop of
 // them the program times still takes time. It answers nothing.
 uint64_t ra_pause(void) {

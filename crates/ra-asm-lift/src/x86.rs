@@ -1609,10 +1609,21 @@ impl Lifter<'_, '_> {
                                 .checked_sub(1)
                                 .map(|p| self.block_instrs[p])
                                 .filter(|p| p.code() == Code::Mov_r32_imm32 && p.op0_register() == R::EAX);
-                            let eax: Operand = match size {
-                                Some(p) => Operand::Int(i128::from(p.immediate32())),
-                                None => self.m.read_gpr(block, R::EAX).into(),
+                            let Some(p) = size else {
+                                // A size only the run knows is an `alloca`: the runtime gives
+                                // the room, since the frame of the port's function is of a size
+                                // fixed when it is written, and a buffer of the length of a
+                                // file's text (`alloca(length * 4)`) went far below it.
+                                let eax = self.m.read_gpr(block, R::EAX);
+                                let from = self.m.zext(block, Type::I32, sp, Type::I64, "sp.w");
+                                let bytes = self.m.zext(block, Type::I32, eax, Type::I64, "probe.n");
+                                let args = vec![(Type::I64, from.into()), (Type::I64, bytes.into()), (Type::I64, Operand::Int(i128::from(align.max(1))))];
+                                let to = self.m.intrinsic(block, "ra_stack_probe", Type::I64, args, "sp.probe");
+                                let narrow = self.m.trunc(block, Type::I64, to, Type::I32, "sp.aligned");
+                                self.m.write_sp(block, narrow);
+                                return block;
                             };
+                            let eax = Operand::Int(i128::from(p.immediate32()));
                             let moved = self.m.b.bin(block, BinOp::Sub, Type::I32, sp, eax, "sp.probe");
                             let aligned = if align > 1 {
                                 self.m.b.bin(block, BinOp::And, Type::I32, moved, -(align as i64), "sp.aligned")

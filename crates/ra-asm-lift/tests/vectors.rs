@@ -450,6 +450,8 @@ impl Host for Ends {
             "ra_trap" => Err(Stop::fault(format!("{END_TRAP}{:#x}", arg(0)))),
             "ra_call" => Err(Stop::fault(format!("{END_JUMP}{:#x}", arg(1)))),
             "ra_unsupported" => Err(Stop::fault(format!("{END_UNSUPPORTED}{:#x}", arg(0)))),
+            // `pause` is the host's spin-wait hint, which changes nothing a vector holds.
+            "ra_pause" => Ok(Value::Int(0)),
             other => Err(Stop::fault(format!("a call to {other}"))),
         }
     }

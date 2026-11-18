@@ -279,6 +279,15 @@ pub fn declare_runtime(module: &mut ra_asm_ir::Module) {
     });
     module.declare(Declaration { name: "ra_xgetbv".into(), ty: FnType::new(Type::I64, vec![Type::I64]), conv: CallConv::C, attrs: vec![] });
     module.declare(Declaration { name: "ra_rdtsc".into(), ty: FnType::new(Type::I64, vec![]), conv: CallConv::C, attrs: vec![] });
+    // An `alloca` of a size the run knows: the stack pointer to go on with, given the one the
+    // code has, the bytes asked for and the alignment. The runtime of a raised port makes the
+    // room on the host's stack; where the stack is the machine's own it is `(sp - n) & -align`.
+    module.declare(Declaration {
+        name: "ra_stack_probe".into(),
+        ty: FnType::new(Type::I64, vec![Type::I64, Type::I64, Type::I64]),
+        conv: CallConv::C,
+        attrs: vec![],
+    });
     // `pause`, the spin-wait hint: the host's own, so a loop of them takes the time it took.
     module.declare(Declaration { name: "ra_pause".into(), ty: FnType::new(Type::I64, vec![]), conv: CallConv::C, attrs: vec![] });
     // The thread environment block of the calling thread, as an address: the runtime keeps one

@@ -942,6 +942,8 @@ impl<'a> Runtime<'a> {
             "ra_xgetbv" => int(xgetbv(arg(args, 0) as u32)),
             "ra_rdtsc" => int(rdtsc()),
             "ra_pause" => int(0),
+            // The machine's own stack has the room: the stack pointer moves down by the bytes.
+            "ra_stack_probe" => int(arg(args, 0).wrapping_sub(arg(args, 1)) & !(arg(args, 2).max(1) - 1) & 0xffff_ffff),
             "ra_svc" => self.svc(vm, arg(args, 0)),
             "ra_syscall" => {
                 let number = (arg(args, 0) as u32).wrapping_sub(4000);
