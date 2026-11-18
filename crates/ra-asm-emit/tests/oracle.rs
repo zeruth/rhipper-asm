@@ -482,7 +482,9 @@ fn emit(fixture: &Fixture, tag: &str, functions_per_file: usize, dialect: ra_asm
     // A 32-bit program's imports that take a structure laid out for 4-byte pointers go through
     // the wrappers of `adapters.c`, as `ras emit` writes them.
     let guest32 = image.pointer_size() == 4;
-    let options = ra_asm_emit::COptions { names, dialect, classes, guest32, ..Default::default() };
+    // In C++ the object of a container's member function reads as the container, as `ras emit` writes it.
+    let containers = if dialect == ra_asm_emit::Dialect::Cpp { ra_asm_emit::containers(&analysis) } else { Vec::new() };
+    let options = ra_asm_emit::COptions { names, dialect, classes, guest32, containers, ..Default::default() };
     let unit = ra_asm_emit::emit_unit(&lifted.module, &options);
     // The emit that drops each function's IR as it goes, as `ras emit` and the pipeline do, writes
     // the same unit.
@@ -1557,10 +1559,23 @@ fn rhtest_cpp_clang_runs_as_cpp() {
 /// The rhtest `stl` program in its x64 build (`stl-clang64.exe`) as C++: its msvcp140 imports
 /// link under their x64 names through assembler labels, the two variables among them through the
 /// import table, and the member functions of its containers carry their `std::` names from the
-/// map. The port prints `stl64.txt`.
+/// map. A member function of `std::vector<unsigned int>` reaches its object as the vector, with
+/// Microsoft's names of its three pointers. The port prints `stl64.txt`.
 #[test]
 fn rhtest_stl_clang64_runs_as_cpp() {
     let fixture = Fixture { expected: "rhtest/stl64.txt".to_owned(), ..rhtest("stl", "clang64") };
+    let (_dir, text, _) = emit(&fixture, "cpp-containers", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
+    assert!(text.contains("struct std_vector_unsigned_int {"), "stl-clang64: no std::vector<unsigned int> is declared");
+    let shrink = text
+        .split("void std_vector_unsigned_int_shrink_to_fit(")
+        .skip(1)
+        .find(|rest| rest.lines().next().is_some_and(|line| line.contains(") {")))
+        .expect("stl-clang64: shrink_to_fit's definition");
+    let shrink = shrink.split("\n}\n").next().unwrap_or_default();
+    assert!(
+        shrink.contains("struct std_vector_unsigned_int *") && shrink.contains("->_Mylast") && shrink.contains("->_Myend"),
+        "stl-clang64: shrink_to_fit does not read its object as the vector:\n{shrink}"
+    );
     run_fixture_as_c(&fixture, "cpp", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
 }
 

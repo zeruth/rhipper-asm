@@ -79,6 +79,9 @@ pub struct Options {
     /// The module is a 32-bit program's: an import that takes a structure laid out for 4-byte
     /// pointers is called through its wrapper in `adapters.c` ([`crate::adapters`]).
     pub guest32: bool,
+    /// The containers of the standard library the program inlines ([`crate::containers()`]): the
+    /// object of each one's member functions reads as the container's struct.
+    pub containers: Vec<crate::containers::Container>,
 }
 
 /// One open assumption a checked build watches: what a raise step relied on and nothing proved,
@@ -664,6 +667,8 @@ struct Parts<'o> {
     method_of: HashMap<&'o str, (&'o crate::cpp::Class, crate::cpp::Method)>,
     /// The names of the methods of `method_of`.
     members: HashSet<String>,
+    /// The container each member function of a container the unit declares belongs to, by IR name.
+    container_of: HashMap<&'o str, &'o crate::containers::Container>,
     /// The structs and the classes; the SDK's names go above them once every function is written.
     types: String,
     sdk_names: BTreeMap<String, String>,
@@ -737,7 +742,14 @@ impl Parts<'_> {
         let tidied = if options.checks.iter().any(|c| c.function == f.name) { None } else { crate::tidy::tidy(f, &self.nothrow) };
         lap.end("tidy");
         let f = tidied.as_ref().unwrap_or(f);
-        let shared = Shared { types, layouts: &self.layouts, trace: options.trace, checks: &options.checks, members: &self.members };
+        let shared = Shared {
+            types,
+            layouts: &self.layouts,
+            trace: options.trace,
+            checks: &options.checks,
+            members: &self.members,
+            container: self.container_of.get(f.name.as_str()).copied(),
+        };
         let (header_lines, copies, gotos, end, written) =
             emit_function(&mut text, f, &self.prototypes[&f.name], source_name, method, names, &shared);
         // A method's grade is its definition's: the vtable's entry after it is the engine's.
@@ -814,6 +826,12 @@ fn parts<'o>(module: &Module, options: &'o Options, aliases: &BTreeMap<String, I
     let classes: &'o [crate::cpp::Class] = if options.dialect == Dialect::Cpp { &options.classes } else { &[] };
     let method_names: HashSet<&str> = classes.iter().flat_map(|c| c.methods.iter().map(|m| m.ir_name.as_str())).collect();
     let mut methods: HashMap<String, Function> = HashMap::new();
+    // The member functions of the containers; a container is declared once one of them reaches
+    // the object through a struct the container's fields make, with the fields they agree on.
+    let container_of: HashMap<&'o str, &'o crate::containers::Container> =
+        options.containers.iter().flat_map(|c| c.methods.iter().map(move |m| (m.as_str(), c))).collect();
+    let mut shapes: BTreeMap<&'o str, BTreeMap<u64, Type>> = BTreeMap::new();
+    let mut viewed: HashSet<String> = HashSet::new();
     each_run(module, &mut |run| {
         for f in run {
             prototypes.insert(f.name.clone(), prototype(f));
@@ -825,8 +843,19 @@ fn parts<'o>(module: &Module, options: &'o Options, aliases: &BTreeMap<String, I
             if method_names.contains(f.name.as_str()) && !options.hand.contains(&f.name) {
                 methods.insert(f.name.clone(), f.clone());
             }
+            if let Some(&container) = container_of.get(f.name.as_str())
+                && let Some(fields) = crate::containers::object_fields(f, container, &module.types)
+            {
+                let shape = shapes.entry(container.name.as_str()).or_default();
+                if fields.iter().all(|(offset, ty)| shape.get(offset).is_none_or(|t| t == ty)) {
+                    shape.extend(fields);
+                    viewed.insert(f.name.clone());
+                }
+            }
         }
     });
+    let container_of: HashMap<&'o str, &'o crate::containers::Container> =
+        container_of.into_iter().filter(|(name, _)| viewed.contains(*name)).collect();
     let adapters = if options.guest32 { crate::adapters::adapters(module) } else { crate::adapters::Adapters::default() };
     let mut externs = String::new();
     for d in &module.declarations {
@@ -943,6 +972,7 @@ fn parts<'o>(module: &Module, options: &'o Options, aliases: &BTreeMap<String, I
     let members = method_of.values().map(|(_, m)| m.name.clone()).collect();
     // The struct types the functions address, read from their IR before any of it goes.
     let mut types = define_types(module, &structs);
+    types.push_str(&crate::containers::declare(&options.containers, &shapes));
     if !classes.is_empty() {
         types.push('\n');
         types.push_str(&crate::cpp::declare(classes, &by_name, &module.types));
@@ -963,6 +993,7 @@ fn parts<'o>(module: &Module, options: &'o Options, aliases: &BTreeMap<String, I
         layouts,
         method_of,
         members,
+        container_of,
         types,
         sdk_names: BTreeMap::new(),
         watched: HashSet::new(),
@@ -1791,6 +1822,8 @@ struct Shared<'a> {
     /// The names the classes have members under: in a method's body such a name would be the
     /// member, so a function or global of the unit called that reads as `::name`.
     members: &'a HashSet<String>,
+    /// The container the function is a member function of, whose struct the unit declares.
+    container: Option<&'a crate::containers::Container>,
 }
 
 /// Writes one function, with one comment line above it naming it: the source name when the image
@@ -1860,6 +1893,9 @@ fn emit_function(
     lap.end("structure");
     let mut e = Emitter::new(f, &structured.labels, types, layouts, std::mem::take(sdk_names), traced, checks);
     e.members = method.is_some().then_some(shared.members);
+    if let Some(container) = shared.container {
+        e.view_container(container);
+    }
     e.plan_loops(&structured.body, &graph);
     e.plan_remat();
     e.plan_direct();
@@ -2691,6 +2727,11 @@ struct Emitter<'a> {
     named_allocas: HashMap<ValueId, Type>,
     /// The cheap values written at each of their uses ([`Self::plan_remat`]).
     remat: HashSet<ValueId>,
+    /// In a member function of a container, the container ([`Self::view_container`]).
+    container: Option<&'a crate::containers::Container>,
+    /// The pointers at the object whose struct reads as the container, with the struct's name in
+    /// the module.
+    object: HashMap<ValueId, &'a str>,
 }
 
 /// Where the checks of a function are written, and the values they read (see [`place_checks`]).
@@ -2844,7 +2885,37 @@ impl<'a> Emitter<'a> {
             rename: HashMap::new(),
             named_allocas: named_allocas(f),
             remat: HashSet::new(),
+            container: None,
+            object: HashMap::new(),
         }
+    }
+
+    /// Reads the object of this member function of `container` as the container's struct: each
+    /// pointer at it is declared as one, and its fields go by the library's names.
+    fn view_container(&mut self, container: &'a crate::containers::Container) {
+        self.object = crate::containers::object_pointers(self.f, container, self.types);
+        for (v, s) in &self.object {
+            if let Some(declared) = self.struct_of.get_mut(v)
+                && *declared == *s
+            {
+                *declared = container.name.as_str();
+            }
+        }
+        self.container = Some(container);
+    }
+
+    /// The struct and the field a field pointer over `base` names, as the C writes them: the
+    /// container's and the library's name of it where `base` is the object of a container's
+    /// member function, else the module's struct and `f<offset>`.
+    fn field_names(&self, base: &Operand, field: &crate::common::Field<'a>) -> (&'a str, String) {
+        if let Some(container) = self.container
+            && let Operand::Local(v) = base
+            && self.object.get(v).is_some_and(|s| *s == field.name)
+            && let Some(name) = container.field_at(field.offset)
+        {
+            return (container.name.as_str(), name.to_owned());
+        }
+        (field.name, field_name(field.ty, field.offset))
     }
 
     /// `name`, a function or global of the unit, as the body reaches it: `::name` in a method
@@ -3441,7 +3512,8 @@ impl<'a> Emitter<'a> {
         let Operand::Local(g) = ptr else { return None };
         let Some((_, _, Inst::Gep { base_ty, ptr: base, indices, .. })) = self.def(*g) else { return None };
         let field = crate::common::field_of(self.types, base_ty, indices)?;
-        Some((format!("{}->{}", self.struct_base(base, field.name), field_name(field.ty, field.offset)), field.ty))
+        let (struct_name, field_name) = self.field_names(base, &field);
+        Some((format!("{}->{field_name}", self.struct_base(base, struct_name)), field.ty))
     }
 
     /// A pointer operand as a pointer to `struct_name`: the local declared as one, or a cast of
@@ -3989,7 +4061,8 @@ impl<'a> Emitter<'a> {
             Inst::Gep { base_ty, ptr, indices, .. } => {
                 // A field's address, taken as the bytes it is.
                 if let Some(field) = crate::common::field_of(self.types, base_ty, indices) {
-                    return format!("((uint8_t *)&{}->{})", self.struct_base(ptr, field.name), field_name(field.ty, field.offset));
+                    let (struct_name, field_name) = self.field_names(ptr, &field);
+                    return format!("((uint8_t *)&{}->{field_name})", self.struct_base(ptr, struct_name));
                 }
                 // Constant indexes fold into one offset; the rest scale by the element size.
                 let mut constant = 0i128;

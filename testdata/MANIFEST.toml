@@ -1786,6 +1786,16 @@ source = "testdata/rhtest/src/win.c"
 command = "cargo test -p ra-asm-emit --features oracle --test oracle rhtest_write_references -- --ignored"
 tools = "Windows 11 10.0.26200 x64"
 
+# testdata/vectors/mips64el: the state the vector harness left after each case under
+# qemu-mips64el-static in WSL.
+
+[[file]]
+path = "testdata/vectors/mips64el/mips3.vec"
+sha256 = "367758030e7e2d68923766fa86f8360212210c840ab9adcba99cb8871ceec662"
+evidence = "emulator"
+command = "cargo test -q -p ra-asm-mips --test vectors write_mips3_vectors -- --ignored"
+tools = "Ubuntu clang 18.1.3, qemu-mips64el 8.2.2 (WSL Ubuntu 24.04)"
+
 # testdata/vectors/x86_64: the state this machine's processor left after each case, written by
 # the instruction oracle.
 

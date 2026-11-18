@@ -14,6 +14,7 @@ pub mod adapters;
 pub mod c;
 mod coalesce;
 mod common;
+pub mod containers;
 pub mod cpp;
 mod format;
 pub mod functions;
@@ -28,6 +29,7 @@ pub use c::{
     ADAPTERS_FILE, Check, Dialect, EmittedFile, EmittedFunction, FUNCTIONS_PER_FILE, MODULE_MARK, Options as COptions, Unit, Watch, emit_c,
     emit_unit, emit_unit_dropping,
 };
+pub use containers::{Container, containers};
 pub use cpp::{Class, Method, classes};
 pub use format::format_files;
 pub use functions::{FunctionInfo, Grade, format_address, table};

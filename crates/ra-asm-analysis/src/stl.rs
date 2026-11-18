@@ -40,6 +40,10 @@ pub struct Member {
     /// The member function's name: `push_back`; `ctor` and `dtor` for the structors and
     /// `operator_<name>` for an operator, as the symbols' other names read.
     pub method: String,
+    /// Whether the function takes the object as its first argument: not a static member function.
+    /// MSVC's access code says so; the Itanium ABI does not, and libstdc++ names its static member
+    /// functions `_S_…`.
+    pub this: bool,
 }
 
 /// The standard library a toolset links, whose containers the program inlines.
@@ -66,6 +70,11 @@ impl Library {
             Some((15 | 16, _)) => Self::Msvc2010,
             _ => Self::Msvc,
         }
+    }
+
+    /// The library of the toolset that built `image`.
+    pub fn of_image(image: &ra_asm_pe::Image) -> Self {
+        Self::of(&Toolset::of(image))
     }
 
     /// The library as a person names it.
@@ -205,20 +214,24 @@ pub fn layout(kind: Kind, library: Library, pointer: u32) -> Option<Vec<Field>> 
 /// is `std::vector<unsigned int>`'s `insert`, `_ZNSt6vectorIjSaIjEE9push_backERKj` its
 /// `push_back`. `None` for any other function, a global one among them.
 pub fn member(symbol: &str) -> Option<Member> {
-    let (scope, method) = if let Some(rest) = symbol.strip_prefix('?') {
+    let (scope, method, this) = if let Some(rest) = symbol.strip_prefix('?') {
         let mut r = Msvc::new(rest);
         let method = r.leaf()?.0;
         let scope = r.qualified()?;
-        // A member function's access code: `A` to `X`; `Y` and `Z` are a global function's.
-        if !matches!(r.peek()?, b'A'..=b'X') {
+        // A member function's access code: `A` to `X`; `Y` and `Z` are a global function's, and
+        // `C`, `D`, `K`, `L`, `S` and `T` a static member function's.
+        let code = r.peek()?;
+        if !matches!(code, b'A'..=b'X') {
             return None;
         }
-        (scope, method)
+        (scope, method, !matches!(code, b'C' | b'D' | b'K' | b'L' | b'S' | b'T'))
     } else {
-        Itanium::member(symbol)?
+        let (scope, method) = Itanium::member(symbol)?;
+        let this = !method.starts_with("_S_");
+        (scope, method, this)
     };
     let (kind, container) = standard(&scope)?;
-    Some(Member { kind, container, method })
+    Some(Member { kind, container, method, this })
 }
 
 /// The algorithm of the standard library `symbol` names, with what it is instantiated with:
@@ -1001,6 +1014,9 @@ mod tests {
         for &(symbol, kind, container, method) in cases {
             assert_eq!(reads(symbol), Some((kind, container.to_owned(), method.to_owned())), "{symbol}");
         }
+        // A private static member function takes no object; a private member function does.
+        assert_eq!(member("?_Xlength@?$vector@IV?$allocator@I@std@@@std@@CAXXZ").map(|m| m.this), Some(false));
+        assert_eq!(member("??$_Emplace_reallocate@I@?$vector@IV?$allocator@I@std@@@std@@AAEPAIQAI$$QAI@Z").map(|m| m.this), Some(true));
         // A global function, a class of the program and the library's streams are no container's.
         for symbol in [
             "?_Xlength_error@std@@YAXPBD@Z",

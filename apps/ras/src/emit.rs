@@ -193,7 +193,9 @@ pub(crate) fn translate(
     let classes: Vec<_> = timed("translate: classes", || analyses.iter().flat_map(|a| ra_asm_emit::classes(a, signatures)).collect());
     let checks = if checked { timed("translate: checks", || checks(&analyses, lifted)) } else { Vec::new() };
     let guest32 = image.pointer_size() == 4;
-    let options = ra_asm_emit::COptions { names, dialect, classes, trace, hand, checks, guest32 };
+    // In C++ the object of a container's member function reads as the container.
+    let containers = if dialect == ra_asm_emit::Dialect::Cpp { ra_asm_emit::containers(analysis) } else { Vec::new() };
+    let options = ra_asm_emit::COptions { names, dialect, classes, trace, hand, checks, guest32, containers };
     // The unit times its own parts: the module's, the functions' and the unit's.
     let mut unit = ra_asm_emit::emit_unit_dropping(&mut lifted.module, &options);
     // The bytes of the large data globals the source embeds go beside it, as the resources do.
