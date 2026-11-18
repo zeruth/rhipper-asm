@@ -818,7 +818,11 @@ fn infer_from(
         // sets, down from what the calls hand on at most. A root's callers are not all seen: it
         // hands on the convention's registers at the jump of a tail call alone (an export's `jmp`
         // to the method behind it enters it with the `this` the export's callers set), none
-        // elsewhere (main's `ecx` is no argument it passes).
+        // elsewhere (main's `ecx` is no argument it passes). At a plain call a root that came in
+        // with a convention's register and left it alone shows nothing either way: a destructor a
+        // pointer names calls a method of the same object with the `this` it was handed, and the
+        // method's other callers, which set `ecx`, decide. Taken as a caller that sets nothing,
+        // it took `this` from the method for every caller, and the method read the object at 0.
         let conventional = (0..ints.min(8)).fold(0u8, |mask, p| mask | (1 << p));
         let mut set_by_callers: HashMap<&str, u8> = HashMap::new();
         for fact in &facts {
@@ -828,13 +832,20 @@ fn infer_from(
         }
         loop {
             let mut next: HashMap<&str, u8> = HashMap::new();
+            // The registers some call shows the callee is handed: a root's plain call shows only
+            // what it sets.
+            let mut shown: HashMap<&str, u8> = HashMap::new();
             for fact in &facts {
                 let root = roots.contains(&fact.name);
                 let own = if root { 0 } else { set_by_callers.get(fact.name.as_str()).copied().unwrap_or(0) };
                 for call in &fact.sets_before_calls {
-                    let own = if root && call.tail { conventional } else { own };
-                    *next.entry(call.callee.as_str()).or_insert(u8::MAX) &= call.set | (call.given & own);
+                    let handed = call.set | (call.given & if root { conventional } else { own });
+                    *next.entry(call.callee.as_str()).or_insert(u8::MAX) &= handed;
+                    *shown.entry(call.callee.as_str()).or_insert(0) |= if root && !call.tail { call.set } else { handed };
                 }
+            }
+            for (callee, mask) in &mut next {
+                *mask &= shown.get(callee).copied().unwrap_or(0);
             }
             if next == set_by_callers {
                 break;
