@@ -1006,13 +1006,19 @@ impl Rewriter<'_> {
                 },
                 address,
             });
-            let sum = f.new_value("pops.a", Type::I64);
-            out.push(Instruction {
-                result: Some(sum),
-                inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: Operand::Local(pops), rhs: Operand::Int(i128::from(ptr)) },
-                address,
-            });
-            up = Operand::Local(sum);
+            // A function whose pushes and pops balance with such a callee popping nothing takes
+            // that: the stack pointer stays a constant from the frame, and what the function
+            // reads above it after the call is still its arguments. The runtime is asked all the
+            // same, which clears what the callee's entry point recorded.
+            if !abi.own.plain_pops {
+                let sum = f.new_value("pops.a", Type::I64);
+                out.push(Instruction {
+                    result: Some(sum),
+                    inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: Operand::Local(pops), rhs: Operand::Int(i128::from(ptr)) },
+                    address,
+                });
+                up = Operand::Local(sum);
+            }
         }
         let popped = f.new_value("rsp", Type::I64);
         out.push(Instruction { result: Some(popped), inst: Inst::Bin { op: BinOp::Add, ty: Type::I64, lhs: rsp, rhs: up }, address });

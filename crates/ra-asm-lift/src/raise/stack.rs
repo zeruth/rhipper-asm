@@ -81,6 +81,13 @@ pub struct StackInfo {
     /// privacy of the frame the promotion lists on its own. None when the analysis did not
     /// settle; all of them for a function no path of which returns.
     pub kept: u64,
+    /// Every return leaves the stack pointer where the others do, every block is reached at one
+    /// depth, and every callee-saved register is back: the pushes and the pops of the function
+    /// balance as the analysis read them.
+    pub balanced: bool,
+    /// The analysis took every call through a pointer whose callee it does not know as popping
+    /// nothing (see [`analyze_resolved`]).
+    pub plain: bool,
 }
 
 /// What a lifted callee does to the stack of its caller, as far as the inference knows it so far.
@@ -102,13 +109,53 @@ pub struct CalleeStack {
 /// for a callee it does not know.
 // The names are the ones the analysis is written in: `f`, `n` blocks, `sp`, a block `b` and an
 // instruction `i`.
-#[allow(clippy::many_single_char_names)]
 pub fn analyze(
     f: &Function,
     state: ValueId,
     pointers: &HashMap<ValueId, Slot>,
     target: Target,
     call_pops: &dyn Fn(&Inst) -> Option<Vec<CalleeStack>>,
+) -> StackInfo {
+    analyze_with(f, state, pointers, target, call_pops, false)
+}
+
+/// [`analyze`], with the calls through a pointer whose callee no one knows resolved where the
+/// function's own code says how. Such a call pops what its callee says at run time, and the
+/// analysis loses the stack pointer after it: an argument read later is no argument read, and
+/// the address of an argument slot handed to the callee makes the function look variadic. A
+/// `cdecl` callee pops nothing, and then the caller's pushes and pops balance to the byte: so
+/// the function is read once more with every such call popping nothing, and that reading stands
+/// when it balances (every return at one depth, every block reached at one depth, every
+/// callee-saved register back) where the first lost the stack pointer. A callee that pops its
+/// arguments leaves the returns off by them, or a saved register read back from the wrong slot,
+/// and the first reading stays.
+pub fn analyze_resolved(
+    f: &Function,
+    state: ValueId,
+    pointers: &HashMap<ValueId, Slot>,
+    target: Target,
+    call_pops: &dyn Fn(&Inst) -> Option<Vec<CalleeStack>>,
+) -> StackInfo {
+    let info = analyze_with(f, state, pointers, target, call_pops, false);
+    if target.is_64() || !info.dynamic || info.dynamic_unmeasured {
+        return info;
+    }
+    let mut plain = analyze_with(f, state, pointers, target, call_pops, true);
+    if plain.balanced && !plain.dynamic && plain.pops >= 0 {
+        plain.plain = true;
+        return plain;
+    }
+    info
+}
+
+#[allow(clippy::many_single_char_names)]
+fn analyze_with(
+    f: &Function,
+    state: ValueId,
+    pointers: &HashMap<ValueId, Slot>,
+    target: Target,
+    call_pops: &dyn Fn(&Inst) -> Option<Vec<CalleeStack>>,
+    plain: bool,
 ) -> StackInfo {
     let n = f.blocks.len();
     let order = reverse_post_order(f);
@@ -128,6 +175,8 @@ pub fn analyze(
     // through a pointer popped.
     let mut lost_to_call: Vec<bool> = vec![false; n];
     let mut lost_at_entry: Vec<bool> = vec![false; n];
+    // What each block's `ret` pops, by its own instruction.
+    let mut ret_pops: Vec<Option<i64>> = vec![None; n];
     let mut saves_entry: Vec<Option<Saves>> = vec![None; n];
     let mut saves_exit: Vec<Option<Saves>> = vec![None; n];
     let intact = (0..GPRS).filter(|&r| r != sp && target.callee_saved(Slot::Gpr(r as u8))).fold(0u64, |m, r| m | 1 << r);
@@ -217,6 +266,9 @@ pub fn analyze(
             let mut moved = 0i64;
             // Whether the stack pointer, where it is lost, is lost only to what calls popped.
             let mut to_call = lost_at_entry[bi];
+            // The writes of the stack pointer, each with its instruction's address and how far it
+            // moves it.
+            let mut sp_moves: Vec<(Option<u64>, Option<i64>)> = Vec::new();
             for (ii, i) in f.blocks[bi].instrs.iter().enumerate() {
                 let first = target.first_stack_arg();
                 let symbolic_arg = |o: &Operand| matches!(o, Operand::Local(v) if symbolic.get(v).is_some_and(|&k| k >= first));
@@ -264,6 +316,14 @@ pub fn analyze(
                             Operand::Local(v) => symbolic.get(v).copied(),
                             _ => None,
                         };
+                        if usize::from(*r) == sp {
+                            // How far this write moves the stack pointer from where it was read.
+                            let moved = match value {
+                                Operand::Local(v) => lost.get(v).copied(),
+                                _ => None,
+                            };
+                            sp_moves.push((i.address, moved));
+                        }
                         regs[usize::from(*r)] = k;
                         held[usize::from(*r)] = match value {
                             Operand::Int(c) => i64::try_from(*c).ok(),
@@ -536,7 +596,7 @@ pub fn analyze(
                                     };
                                     match pops {
                                         Some(pops) => regs[sp] = regs[sp].map(|k| k + pushed + pops),
-                                        None if target.is_64() => regs[sp] = regs[sp].map(|k| k + pushed),
+                                        None if target.is_64() || plain => regs[sp] = regs[sp].map(|k| k + pushed),
                                         None => {
                                             to_call |= regs[sp].is_some();
                                             regs[sp] = None;
@@ -558,6 +618,14 @@ pub fn analyze(
                 }
             }
             moved_below[bi] = moved;
+            // What the block's `ret` pops beyond the return address: the moves its own
+            // instruction makes (the pop of the return address, then the `N` of `ret N`), which
+            // read the same whether the analysis knows where the stack pointer is or not.
+            if matches!(f.blocks[bi].terminator, Terminator::Ret(_)) {
+                let at = f.blocks[bi].instrs.iter().rev().find_map(|i| i.address);
+                let own: Vec<Option<i64>> = sp_moves.iter().filter(|(a, _)| at.is_some() && *a == at).map(|(_, d)| *d).collect();
+                ret_pops[bi] = if own.is_empty() { None } else { own.iter().copied().sum::<Option<i64>>().map(|d| d - pushed) };
+            }
             let lost_now = regs[sp].is_none() && to_call;
             if lost_to_call[bi] != lost_now {
                 lost_to_call[bi] = lost_now;
@@ -599,6 +667,23 @@ pub fn analyze(
             }
         }
     }
+    // A return the analysis reaches with the stack pointer lost (a call through a pointer before
+    // it popped what its callee says) still pops what its own instruction says: the `N` of
+    // `ret N`. Without it a method that calls a virtual function with an argument and ends in
+    // `ret 8` popped nothing by its signature, its universal entry point recorded nothing
+    // popped, and the caller that asked what it popped read its own locals eight bytes off.
+    if !target.is_64() {
+        for (bi, block) in f.blocks.iter().enumerate() {
+            let unwinding = block.name.starts_with("eh.") && !block.name.starts_with("eh.ok.");
+            if matches!(block.terminator, Terminator::Ret(_))
+                && !unwinding
+                && exit[bi].is_some_and(|regs| regs[sp].is_none())
+                && let Some(own) = ret_pops[bi]
+            {
+                info.pops = info.pops.max(own);
+            }
+        }
+    }
     // What the signature says of every return: the return address popped, and on x86 the bytes
     // of `ret N`.
     let at_return = pushed + if target.is_64() { 0 } else { info.pops.max(0) };
@@ -623,6 +708,35 @@ pub fn analyze(
             assumed(assume::Kind::BalancedStack, block.instrs.iter().rev().find_map(|i| i.address).or(block.address));
         }
     }
+    // Whether the function's own paths balance. The blocks an exception in flight leaves through
+    // (the landing after a call, which returns with the stack as the call left it) are not
+    // among them: their returns are the unwinding's, at whatever depth the call was made.
+    let unwinds = |b: &ra_asm_ir::Block| b.name.starts_with("eh.") && !b.name.starts_with("eh.ok.");
+    let mut balanced = settled;
+    let mut kept = intact;
+    for (bi, block) in f.blocks.iter().enumerate() {
+        if unwinds(block) {
+            continue;
+        }
+        let Some(regs) = exit[bi] else { continue };
+        let ways: Vec<Option<i64>> = preds
+            .get(&block.id)
+            .into_iter()
+            .flatten()
+            .map(|p| index_of[p])
+            .filter(|&pi| !unwinds(&f.blocks[pi]))
+            .filter_map(|pi| exit[pi])
+            .map(|regs| regs[sp])
+            .collect();
+        balanced &= bi == 0 || ways.iter().all(|k| k.is_some() && *k == ways[0]);
+        if matches!(block.terminator, Terminator::Ret(_)) {
+            // The depth at the return is the one its own `ret N` leaves from the entry's: a
+            // callee that popped its arguments unseen leaves it short by them.
+            balanced &= regs[sp] == Some(at_return) && ret_pops[bi] == Some(at_return - pushed);
+            kept &= saves_exit[bi].as_ref().map_or(0, |saves| saves.kept);
+        }
+    }
+    info.balanced = balanced && kept == intact;
     info
 }
 

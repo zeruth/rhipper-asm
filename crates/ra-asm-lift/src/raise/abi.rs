@@ -23,7 +23,7 @@ use ra_asm_ir::{BinOp, Callee, Cast, Function, Inst, Module, Operand, Type, Valu
 use super::Target;
 use super::assume::{self, Assumption, Step};
 use super::liveness::{CallKind, Liveness, NO_SLOTS, RCX, SLOTS, Slot, SlotSet, call_kind, reverse_post_order, slot_pointers};
-use super::stack::{CalleeStack, StackInfo, analyze as analyze_stack};
+use super::stack::{CalleeStack, StackInfo, analyze_resolved as analyze_stack};
 
 pub use ra_asm_protos::kind::Kind;
 
@@ -82,6 +82,10 @@ pub struct Signature {
     /// Its stack parameters include the universal words a jump through an unresolved pointer
     /// hands on ([`super::stack::StackInfo::forwards`]).
     pub forwards: bool,
+    /// Its calls through a pointer whose callee no one knows pop nothing: the function's pushes
+    /// and pops balance that way ([`super::stack::analyze_resolved`]), so the stack pointer after
+    /// such a call is the one before it, not what the runtime says the callee popped.
+    pub plain_pops: bool,
 }
 
 impl Default for Signature {
@@ -100,6 +104,7 @@ impl Default for Signature {
             preserves: NO_SLOTS,
             variadic: false,
             forwards: false,
+            plain_pops: false,
         }
     }
 }
@@ -191,11 +196,15 @@ pub fn all_argument_slots(target: Target) -> SlotSet {
         if target.is_arm64() {
             set[super::X8.index()] = true;
         }
-        if target.is_mips() {
-            set[target.sp().index()] = true;
-        }
     } else {
         set[RCX.index()] = true;
+    }
+    // The universal call reads its stack words above the stack pointer, on x86 as on MIPS: a
+    // function that ends in a jump through a pointer and keeps nothing on the stack (`mov ecx,
+    // [object]; mov eax, [ecx]; jmp [eax + 16]`) holds it live for that call alone. Unread, the
+    // words were loaded from a stack pointer nothing set, at addresses 4, 8 and up.
+    if !target.is_arm64() {
+        set[target.sp().index()] = true;
     }
     set
 }
@@ -830,13 +839,19 @@ fn infer_from(
                 *set_by_callers.entry(call.callee.as_str()).or_insert(u8::MAX) &= call.given;
             }
         }
+        // A function no direct call reaches is entered some way the lift does not see (a pointer
+        // it did not find, a table), as a root is: it takes the convention's registers it reads,
+        // and what it hands on shows nothing. As a caller that sets nothing, one such method
+        // that calls another of its object took `this` from that one for every caller.
+        let called: std::collections::HashSet<&str> = set_by_callers.keys().copied().collect();
+        let open = |name: &str| roots.contains(name) || !called.contains(name);
         loop {
             let mut next: HashMap<&str, u8> = HashMap::new();
             // The registers some call shows the callee is handed: a root's plain call shows only
             // what it sets.
             let mut shown: HashMap<&str, u8> = HashMap::new();
             for fact in &facts {
-                let root = roots.contains(&fact.name);
+                let root = open(&fact.name);
                 let own = if root { 0 } else { set_by_callers.get(fact.name.as_str()).copied().unwrap_or(0) };
                 for call in &fact.sets_before_calls {
                     let handed = call.set | (call.given & if root { conventional } else { own });
@@ -885,7 +900,7 @@ fn infer_from(
                 // Only where the lift has private registers past the convention's (x86) does it
                 // see what callers set: elsewhere (ARM64, MIPS, Win64) the convention's registers
                 // are the arguments a function reads.
-                let root = roots.contains(&fact.name);
+                let root = open(&fact.name);
                 let checks_callers = private_ints > ints;
                 let confirmed = if root { 0 } else { set_by_callers.get(fact.name.as_str()).copied().unwrap_or(0) };
                 let read = |p: usize| fact.int_positions[p] && ((p < ints && (root || !checks_callers)) || confirmed & (1 << p) != 0);
@@ -957,6 +972,7 @@ fn infer_from(
                     preserves,
                     variadic,
                     forwards: !variadic && fact.stack.forwards,
+                    plain_pops: fact.stack.plain,
                 },
             );
         }
