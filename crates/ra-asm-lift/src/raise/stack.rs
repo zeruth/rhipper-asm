@@ -46,6 +46,10 @@ pub struct StackInfo {
     /// it: a frame realigned with `and esp, -16` and then probed for (`mov eax, N; call
     /// __chkstk`), and the pushes after. Room the frame needs below what `min_offset` places.
     pub dynamic_below: i64,
+    /// The function moves the stack pointer by an amount no constant gives (an `alloca`'s
+    /// `sub esp, eax` with `eax` unknown): [`Self::dynamic_below`] does not bound its frame. A
+    /// stack pointer lost only to a call that pops an unknown amount moves up, which needs no room.
+    pub dynamic_unmeasured: bool,
     /// The address of a stack argument leaves the stack arithmetic: stored to memory, passed on,
     /// or added to a register. A `va_list`, or a pointer to the arguments: the function reads
     /// them through it, not only by their slots.
@@ -243,6 +247,8 @@ pub fn analyze(
                                 && let Some(&d) = lost.get(v)
                             {
                                 moved += (-d).max(0);
+                            } else {
+                                info.dynamic_unmeasured = true;
                             }
                             // A push through a stack pointer the analysis lost writes where it cannot see.
                             saves.bytes.clear();
