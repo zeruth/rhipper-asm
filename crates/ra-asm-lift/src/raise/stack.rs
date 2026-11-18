@@ -124,6 +124,10 @@ pub fn analyze(
     let mut at_entry = [None; GPRS];
     at_entry[sp] = Some(0);
     entry[0] = Some(at_entry);
+    // The blocks that end, and those that start, with the stack pointer lost only to what a call
+    // through a pointer popped.
+    let mut lost_to_call: Vec<bool> = vec![false; n];
+    let mut lost_at_entry: Vec<bool> = vec![false; n];
     let mut saves_entry: Vec<Option<Saves>> = vec![None; n];
     let mut saves_exit: Vec<Option<Saves>> = vec![None; n];
     let intact = (0..GPRS).filter(|&r| r != sp && target.callee_saved(Slot::Gpr(r as u8))).fold(0u64, |m, r| m | 1 << r);
@@ -167,6 +171,36 @@ pub fn analyze(
                         (Some(a), Some(b)) => Some(a.join(b)),
                     };
                 }
+                // A compiler keeps the stack pointer the same on every way into a block. A way in
+                // that lost it only to what a call through a pointer popped (`call [eax + 92]`,
+                // then the caller's `add esp, 8`) takes the offset the other ways agree on: the
+                // read of an argument after the join (`mov ecx, [esp + 24]`) is one again, where
+                // the function lost its third parameter and read a stale word of its frame.
+                let mut known: Option<i64> = None;
+                let (mut agree, mut any_lost, mut all_lost) = (true, false, true);
+                for p in preds.get(&f.blocks[bi].id).into_iter().flatten() {
+                    let pi = index_of[p];
+                    let Some(regs) = exit[pi] else { continue };
+                    match regs[sp] {
+                        Some(k) => {
+                            agree &= known.is_none_or(|other| other == k);
+                            known = Some(k);
+                        }
+                        None if lost_to_call[pi] => any_lost = true,
+                        None => {
+                            agree = false;
+                            all_lost = false;
+                        }
+                    }
+                }
+                if let Some(regs) = joined.as_mut()
+                    && any_lost
+                    && agree
+                    && known.is_some()
+                {
+                    regs[sp] = known;
+                }
+                lost_at_entry[bi] = any_lost && all_lost && known.is_none();
                 if joined != entry[bi] {
                     entry[bi] = joined;
                     changed = true;
@@ -181,6 +215,8 @@ pub fn analyze(
             // The constant each register holds, from a write in this block.
             let mut held: [Option<i64>; GPRS] = [None; GPRS];
             let mut moved = 0i64;
+            // Whether the stack pointer, where it is lost, is lost only to what calls popped.
+            let mut to_call = lost_at_entry[bi];
             for (ii, i) in f.blocks[bi].instrs.iter().enumerate() {
                 let first = target.first_stack_arg();
                 let symbolic_arg = |o: &Operand| matches!(o, Operand::Local(v) if symbolic.get(v).is_some_and(|&k| k >= first));
@@ -249,6 +285,7 @@ pub fn analyze(
                                 moved += (-d).max(0);
                             } else {
                                 info.dynamic_unmeasured = true;
+                                to_call = false;
                             }
                             // A push through a stack pointer the analysis lost writes where it cannot see.
                             saves.bytes.clear();
@@ -501,6 +538,7 @@ pub fn analyze(
                                         Some(pops) => regs[sp] = regs[sp].map(|k| k + pushed + pops),
                                         None if target.is_64() => regs[sp] = regs[sp].map(|k| k + pushed),
                                         None => {
+                                            to_call |= regs[sp].is_some();
                                             regs[sp] = None;
                                             info.dynamic = true;
                                         }
@@ -520,6 +558,11 @@ pub fn analyze(
                 }
             }
             moved_below[bi] = moved;
+            let lost_now = regs[sp].is_none() && to_call;
+            if lost_to_call[bi] != lost_now {
+                lost_to_call[bi] = lost_now;
+                changed = true;
+            }
             if exit[bi] != Some(regs) {
                 exit[bi] = Some(regs);
                 changed = true;
