@@ -10,10 +10,10 @@
 //! data in its code section ([`Image::data_in_code`]) has that section as a global too, with the
 //! words outside its functions: the code's own operands stay bytes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use ra_asm_analysis::Analysis;
-use ra_asm_ir::{Const, Global, Linkage, Type};
+use ra_asm_ir::{CallConv, Callee, Cast, Const, Declaration, FnType, Function, Global, Inst, Linkage, Operand, Type, ValueId};
 use ra_asm_pe::{Image, RelocKind};
 
 use crate::{DataSection, Lifted};
@@ -224,6 +224,148 @@ pub fn add_sections(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted,
             });
         }
     }
+}
+
+/// The device registers of a machine, from the memory map of the console its image names: an
+/// access at an address the map folds onto its hardware range is a device's, which the port asks
+/// its platform runtime for (see [`device_accesses`]), since no memory of the host holds it.
+#[derive(Debug, Clone, Copy)]
+pub struct Devices {
+    /// The address a register folds to through the console's mirrors, for an address of the
+    /// hardware range; `None` for memory.
+    fold: fn(u64) -> Option<u64>,
+    /// The devices by the first register of each, in address order: a register is the last
+    /// device's that starts at or below it.
+    blocks: &'static [(u64, &'static str)],
+}
+
+/// The blocks of the Emotion Engine's registers, as the EE manual lays them out: the timers, the
+/// IPU, the GIF, the two VIFs and their FIFOs, the DMA controller (whose enable registers at
+/// `0x1000f500` are its too), the interrupt controller, the serial port, the SIF's registers, and
+/// the vector units' memories.
+const PS2_DEVICES: [(u64, &str); 13] = [
+    (0x1000_0000, "timer"),
+    (0x1000_2000, "ipu"),
+    (0x1000_3000, "gif"),
+    (0x1000_3800, "vif0"),
+    (0x1000_3c00, "vif1"),
+    (0x1000_4000, "fifo"),
+    (0x1000_8000, "dma"),
+    (0x1000_f000, "intc"),
+    (0x1000_f100, "sio"),
+    (0x1000_f200, "sif"),
+    (0x1000_f400, "hw"),
+    (0x1000_f500, "dma"),
+    (0x1100_0000, "vu"),
+];
+
+/// The serial port's registers by name (`<sio.h>` of ps2sdk), which `runtime/rhipper.h` defines
+/// for a platform runtime to read the log by.
+pub const PS2_SIO_REGISTERS: [(u64, &str); 8] = [
+    (0x1000_f100, "SIO_LCR"),
+    (0x1000_f110, "SIO_LSR"),
+    (0x1000_f120, "SIO_IER"),
+    (0x1000_f130, "SIO_ISR"),
+    (0x1000_f140, "SIO_FCR"),
+    (0x1000_f150, "SIO_BGR"),
+    (0x1000_f180, "SIO_TXFIFO"),
+    (0x1000_f1c0, "SIO_RXFIFO"),
+];
+
+fn ps2_fold(va: u64) -> Option<u64> {
+    match ra_asm_format::elf::ps2::fold(va)? {
+        (ra_asm_format::psx::Region::Hardware, folded) => Some(folded),
+        _ => None,
+    }
+}
+
+impl Devices {
+    /// The device registers of `image`'s console; `None` for a program of an operating system,
+    /// and for a console whose platform runtime does not answer its devices yet, whose port keeps
+    /// the accesses as memory.
+    pub fn of(image: &Image) -> Option<Self> {
+        (image.platform() == Some("ps2")).then_some(Self { fold: ps2_fold, blocks: &PS2_DEVICES })
+    }
+
+    /// The device `address` reaches and the register it folds to; `None` for memory.
+    pub fn device(&self, address: u64) -> Option<(&'static str, u64)> {
+        let register = (self.fold)(address)?;
+        let (_, name) = self.blocks.iter().rev().find(|(start, _)| *start <= register)?;
+        Some((name, register))
+    }
+}
+
+/// An access of a device register as the call on the platform runtime that makes it:
+/// `ra_<device>_read<bits>(register)` and `ra_<device>_write<bits>(register, value)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeviceCall<'a> {
+    pub device: &'a str,
+    pub write: bool,
+    pub bits: u16,
+}
+
+impl<'a> DeviceCall<'a> {
+    pub fn symbol(&self) -> String {
+        format!("ra_{}_{}{}", self.device, if self.write { "write" } else { "read" }, self.bits)
+    }
+
+    /// The prototype: the register as a 64-bit address, and the value of the access's width.
+    pub fn fn_type(&self) -> FnType {
+        let value = Type::Int(self.bits);
+        if self.write { FnType::new(Type::Void, vec![Type::I64, value]) } else { FnType::new(value, vec![Type::I64]) }
+    }
+
+    /// The device call `symbol` names, for a device of any console's map.
+    pub fn parse(symbol: &'a str) -> Option<Self> {
+        let rest = symbol.strip_prefix("ra_")?;
+        let (device, access) = rest.rsplit_once('_')?;
+        let (write, bits) = match access.strip_prefix("write") {
+            Some(bits) => (true, bits),
+            None => (false, access.strip_prefix("read")?),
+        };
+        let bits = bits.parse().ok().filter(|b| matches!(b, 8 | 16 | 32 | 64))?;
+        PS2_DEVICES.iter().any(|(_, n)| *n == device).then_some(Self { device, write, bits })
+    }
+}
+
+/// Rewrites every load and store of `f` at a constant address of a device register into the call
+/// on the platform runtime that makes it, and gives the declarations of the calls it wrote. An
+/// access of another width than a word's (a 128-bit `sq` to a FIFO) stays a memory access.
+pub fn device_accesses(f: &mut Function, devices: &Devices) -> Vec<Declaration> {
+    let pointers: HashMap<ValueId, u64> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instrs)
+        .filter_map(|i| match (i.result, &i.inst) {
+            (Some(v), Inst::Cast { cast: Cast::IntToPtr, value: Operand::Int(c), .. }) => Some((v, *c as u64)),
+            _ => None,
+        })
+        .collect();
+    let address = |ptr: &Operand| match ptr {
+        Operand::Int(c) => Some(*c as u64),
+        Operand::Local(v) => pointers.get(v).copied(),
+        _ => None,
+    };
+    let mut used: BTreeMap<String, FnType> = BTreeMap::new();
+    for i in f.blocks.iter_mut().flat_map(|b| &mut b.instrs) {
+        let (ty, ptr, value) = match &i.inst {
+            Inst::Load { ty, ptr, .. } => (ty, ptr, None),
+            Inst::Store { ty, ptr, value, .. } => (ty, ptr, Some(value)),
+            _ => continue,
+        };
+        let bits = match ty {
+            Type::Int(b @ (8 | 16 | 32 | 64)) => *b,
+            _ => continue,
+        };
+        let Some((device, register)) = address(ptr).and_then(|a| devices.device(a)) else { continue };
+        let call = DeviceCall { device, write: value.is_some(), bits };
+        let mut args = vec![(Type::I64, Operand::Int(i128::from(register)))];
+        args.extend(value.map(|v| (Type::Int(bits), v.clone())));
+        let (symbol, fn_ty) = (call.symbol(), call.fn_type());
+        used.insert(symbol.clone(), fn_ty.clone());
+        i.inst = Inst::Call { fn_ty, callee: Callee::Direct(symbol), args, tail: false };
+    }
+    used.into_iter().map(|(name, ty)| Declaration { name, ty, conv: CallConv::C, attrs: vec![] }).collect()
 }
 
 /// `sec_rdata` for `.rdata`; `sec_<tag>rdata` with a tag.

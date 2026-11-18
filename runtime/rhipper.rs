@@ -1803,6 +1803,70 @@ pub unsafe fn ra_syscall(number: u64, a0: u64, a1: u64, a2: u64, _a3: u64) -> u6
     }
 }
 
+/// The platform interface of a console's port: every access of a device register the lift saw at
+/// its address and every call on the console's kernel goes to the runtime bound here (the host's
+/// graphics, sound and input, or [`StubPlatform`]). `ras emit` writes the program's calls on it,
+/// `ra_<device>_read<bits>`, `ra_<device>_write<bits>` and `ra_ee_<name>`, at the end of this module.
+pub trait Platform: Sync {
+    /// The register `register` of `device`, read at the access's width.
+    fn read(&self, device: &str, register: u64, bits: u32) -> u64;
+    /// `value` written to the register `register` of `device` at the access's width.
+    fn write(&self, device: &str, register: u64, bits: u32, value: u64);
+    /// The kernel's function `name` on its register arguments, and its answer.
+    fn call(&self, name: &str, args: &[u64]) -> u64;
+}
+
+/// The serial port's transmit FIFO of the Emotion Engine (`SIO_TXFIFO` of ps2sdk's `<sio.h>`).
+pub const RA_SIO_TXFIFO: u64 = 0x1000_f180;
+
+/// The runtime a port runs over until its `main` binds another: it logs each call on stderr in
+/// the order the program makes it and answers zero, as the C runtime's stub does; the serial
+/// port's transmit FIFO is also the console on stdout, and the kernel's exits end the run.
+pub struct StubPlatform;
+
+impl Platform for StubPlatform {
+    fn read(&self, device: &str, register: u64, bits: u32) -> u64 {
+        eprintln!("ra: {device} read{bits} {register:#x}");
+        0
+    }
+
+    fn write(&self, device: &str, register: u64, bits: u32, value: u64) {
+        use std::io::Write;
+        eprintln!("ra: {device} write{bits} {register:#x} {value:#x}");
+        if device == "sio" && register == RA_SIO_TXFIFO {
+            let mut out = std::io::stdout().lock();
+            let _ = out.write_all(&[value as u8]);
+            let _ = out.flush();
+        }
+    }
+
+    fn call(&self, name: &str, args: &[u64]) -> u64 {
+        use std::io::Write;
+        let shown: Vec<String> = args.iter().map(|a| format!("{a:#x}")).collect();
+        eprintln!("ra: call {name}({})", shown.join(", "));
+        let code = match name {
+            "ExitThread" | "ExitDeleteThread" => 0,
+            "KExit" => args.first().copied().unwrap_or(0) as u32 as i32,
+            _ => return 0,
+        };
+        let _ = std::io::stdout().flush();
+        std::process::exit(code)
+    }
+}
+
+static PLATFORM: std::sync::OnceLock<&'static dyn Platform> = std::sync::OnceLock::new();
+
+/// Binds the runtime the port's calls on the platform go to; the first binding stays, and a port
+/// that binds none runs over [`StubPlatform`].
+pub fn ra_platform_bind(platform: &'static dyn Platform) -> bool {
+    PLATFORM.set(platform).is_ok()
+}
+
+/// The runtime bound, the stub when none is.
+pub fn ra_platform() -> &'static dyn Platform {
+    *PLATFORM.get_or_init(|| &StubPlatform as &'static dyn Platform)
+}
+
 // The exact x87 unit: a software f80. A slot holds an 80-bit value as the x87 stores a tbyte, the
 // 64-bit significand with its explicit integer bit then the sign and the 15-bit exponent, and six
 // bytes of padding. Every operation unpacks its operands, works in 128 bits with a sticky bit for

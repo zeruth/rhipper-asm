@@ -320,6 +320,7 @@ dependencies = [
  "ra-asm-analysis",
  "ra-asm-arch",
  "ra-asm-arm64",
+ "ra-asm-format",
  "ra-asm-ir",
  "ra-asm-pe",
  "ra-asm-protos",

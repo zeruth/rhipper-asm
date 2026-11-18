@@ -201,6 +201,38 @@ uint32_t ra_f32_ftz_rsqrt(uint32_t a, uint32_t b);
 uint32_t ra_f32_ftz_sqrt(uint32_t a);
 uint32_t ra_f32_ftz_cvt_s_w(uint32_t a);
 uint32_t ra_f32_ftz_cvt_w_s(uint32_t a);
+// The platform interface of a console's port. Every access of a device register the lift saw at its
+// address (`ra_<device>_read<bits>(register)`, `ra_<device>_write<bits>(register, value)`, the
+// register at the address the memory map folds it to) and every call on the console's kernel
+// (`ra_ee_<name>`) goes to the runtime bound here: the host's graphics, sound and input, or the
+// stub. `ras emit` writes the program's calls on the interface into `platform.c` with the stub
+// runtime, which logs each call on stderr in the order the program makes it and answers zero (the
+// serial port's transmit FIFO is also the console on stdout, and the kernel's exits end the run);
+// the port runs over the stub until its `main` binds another runtime with `ra_platform_bind`.
+typedef struct ra_platform {
+    uint64_t (*read)(const char *device, uint64_t reg, unsigned bits);
+    void (*write)(const char *device, uint64_t reg, unsigned bits, uint64_t value);
+    uint64_t (*call)(const char *name, unsigned count, const uint64_t *args);
+} ra_platform;
+extern const ra_platform ra_platform_stub;
+extern const ra_platform *ra_platform_bound;
+void ra_platform_bind(const ra_platform *platform);
+// The EE's serial port by its registers (ps2sdk's <sio.h>), for a runtime to read the log by.
+#define RA_SIO_LCR 0x1000f100ull
+#define RA_SIO_LSR 0x1000f110ull
+#define RA_SIO_IER 0x1000f120ull
+#define RA_SIO_ISR 0x1000f130ull
+#define RA_SIO_FCR 0x1000f140ull
+#define RA_SIO_BGR 0x1000f150ull
+#define RA_SIO_TXFIFO 0x1000f180ull
+#define RA_SIO_RXFIFO 0x1000f1c0ull
+// The prototypes of the program's calls on the interface, which `ras emit` writes beside a console's
+// port in `platform.h`; a program of an operating system has none.
+#if defined(__has_include)
+#if __has_include("platform.h")
+#include "platform.h"
+#endif
+#endif
 // The processor's answers, from the host.
 void ra_cpuid(uint64_t leaf, uint64_t subleaf, void *out);
 uint64_t ra_xgetbv(uint64_t which);
