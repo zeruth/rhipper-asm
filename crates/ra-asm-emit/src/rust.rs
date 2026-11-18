@@ -404,10 +404,16 @@ fn data_module(module: &Module, options: &Options, function_names: &HashSet<Stri
         }
         by_dll.entry(options.imports.get(&d.name).cloned()).or_default().push(d);
     }
+    let mut runtime: Vec<(String, &ra_asm_ir::Declaration)> = Vec::new();
     for (dll, declarations) in &by_dll {
-        if let Some(dll) = dll {
-            let _ = writeln!(out, "#[link(name = \"{}\")]", import_library(dll));
+        let link = dll.as_ref().map(|dll| format!("#[link(name = \"{}\")]\n", import_library(dll))).unwrap_or_default();
+        let (c, declarations): (Vec<&ra_asm_ir::Declaration>, Vec<&ra_asm_ir::Declaration>) =
+            declarations.iter().copied().partition(|d| c_runtime_signature(d).is_some());
+        runtime.extend(c.into_iter().map(|d| (link.clone(), d)));
+        if declarations.is_empty() {
+            continue;
         }
+        out.push_str(&link);
         let _ = writeln!(out, "unsafe extern \"system\" {{");
         for d in declarations {
             let params: Vec<String> = d.ty.params.iter().enumerate().map(|(i, t)| format!("a{i}: {}", rust_type(t))).collect();
@@ -415,6 +421,9 @@ fn data_module(module: &Module, options: &Options, function_names: &HashSet<Stri
             let _ = writeln!(out, "    pub fn {}({}){ret};", d.name, params.join(", "));
         }
         let _ = writeln!(out, "}}\n");
+    }
+    if !runtime.is_empty() {
+        c_runtime_wrappers(&mut out, &runtime);
     }
 
     // An import by ordinal has no symbol to link: a function pointer `ra_init` resolves from the
@@ -525,6 +534,71 @@ fn import_library(dll: &str) -> String {
         "vcruntime".to_owned()
     } else {
         name.to_owned()
+    }
+}
+
+/// The C runtime functions the standard library links itself, by their C parameters and result:
+/// rustc rejects a declaration of one of these symbols by any other signature.
+const C_RUNTIME: [(&str, &[&str], &str); 6] = [
+    ("memcpy", &["*mut core::ffi::c_void", "*const core::ffi::c_void", "usize"], "*mut core::ffi::c_void"),
+    ("memmove", &["*mut core::ffi::c_void", "*const core::ffi::c_void", "usize"], "*mut core::ffi::c_void"),
+    ("memset", &["*mut core::ffi::c_void", "core::ffi::c_int", "usize"], "*mut core::ffi::c_void"),
+    ("memcmp", &["*const core::ffi::c_void", "*const core::ffi::c_void", "usize"], "core::ffi::c_int"),
+    ("bcmp", &["*const core::ffi::c_void", "*const core::ffi::c_void", "usize"], "core::ffi::c_int"),
+    ("strlen", &["*const core::ffi::c_char"], "usize"),
+];
+
+/// The C parameters and result of `d` when it is one of [`C_RUNTIME`] the program calls with as
+/// many arguments.
+fn c_runtime_signature(d: &ra_asm_ir::Declaration) -> Option<(&'static [&'static str], &'static str)> {
+    C_RUNTIME.iter().find(|(name, params, _)| d.name == *name && params.len() == d.ty.params.len()).map(|&(_, params, ret)| (params, ret))
+}
+
+/// `value` of the Rust type `from` as the Rust type `to`, one of them a pointer or an integer:
+/// through `usize` when either is a pointer, as Rust casts between the two.
+fn c_runtime_cast(value: &str, from: &str, to: &str) -> String {
+    if from.starts_with('*') || to.starts_with('*') { format!("{value} as usize as {to}") } else { format!("{value} as {to}") }
+}
+
+/// The C runtime functions among the imports, declared by their C signature in a module of their
+/// own, and each a function of the program's name that takes and gives the machine words and
+/// calls it: the symbol keeps the one signature the standard library agrees with.
+fn c_runtime_wrappers(out: &mut String, declarations: &[(String, &ra_asm_ir::Declaration)]) {
+    let _ = writeln!(out, "mod c_runtime {{");
+    for (link, d) in declarations {
+        let Some((params, ret)) = c_runtime_signature(d) else { continue };
+        let params: Vec<String> = params.iter().enumerate().map(|(i, t)| format!("a{i}: {t}")).collect();
+        let _ = writeln!(out, "{link}unsafe extern \"C\" {{\n    pub fn {}({}) -> {ret};\n}}", d.name, params.join(", "));
+    }
+    let _ = writeln!(out, "}}\n");
+    for (_, d) in declarations {
+        let Some((c_params, c_ret)) = c_runtime_signature(d) else { continue };
+        let params: Vec<String> = d.ty.params.iter().enumerate().map(|(i, t)| format!("a{i}: {}", rust_type(t))).collect();
+        let args: Vec<String> =
+            d.ty.params.iter().zip(c_params).enumerate().map(|(i, (t, c))| c_runtime_cast(&format!("a{i}"), &rust_type(t), c)).collect();
+        let call = format!("c_runtime::{}({})", d.name, args.join(", "));
+        let _ = writeln!(out, "/// The C runtime's `{}`, called with the program's machine words.\n///", d.name);
+        let _ = writeln!(out, "/// # Safety\n///\n/// The words are what the C function takes: the memory they address is valid for it.");
+        if d.ty.ret == Type::Void {
+            let _ = writeln!(
+                out,
+                "pub unsafe extern \"system\" fn {}({}) {{\n    let _ = unsafe {{ {call} }};\n}}\n",
+                d.name,
+                params.join(", ")
+            );
+        } else {
+            // A 32-bit program's word is narrower than the C result, and the narrowing loses
+            // nothing: its port runs with every address below 4 GB, so the pointer `memcpy` gives
+            // back is the program's own argument and a `strlen` fits the word.
+            let ret = rust_type(&d.ty.ret);
+            let result = c_runtime_cast("result", c_ret, &ret);
+            let _ = writeln!(
+                out,
+                "pub unsafe extern \"system\" fn {}({}) -> {ret} {{\n    let result = unsafe {{ {call} }};\n    {result}\n}}\n",
+                d.name,
+                params.join(", ")
+            );
+        }
     }
 }
 
@@ -1554,4 +1628,72 @@ fn label(b: BlockId, f: &Function) -> String {
     let n = f.block(b).map_or_else(|| format!("b{}", b.0), |b| b.name.clone());
     let s: String = n.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     format!("L_{s}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn declaration(name: &str, ret: Type, params: Vec<Type>) -> ra_asm_ir::Declaration {
+        ra_asm_ir::Declaration {
+            name: name.to_owned(),
+            ty: ra_asm_ir::FnType::new(ret, params),
+            conv: ra_asm_ir::CallConv::default(),
+            attrs: Vec::new(),
+        }
+    }
+
+    /// The wrappers of `memset`, `strlen` and `memcmp` declared in words of `bits`.
+    fn wrappers(bits: u16) -> String {
+        let word = Type::Int(bits);
+        let declarations = [
+            declaration("memset", word.clone(), vec![word.clone(), Type::Int(32), word.clone()]),
+            declaration("strlen", word.clone(), vec![word.clone()]),
+            declaration("memcmp", Type::Int(32), vec![word.clone(), word.clone(), word.clone()]),
+        ];
+        let link = "#[link(name = \"ucrt\")]\n".to_owned();
+        let declarations: Vec<(String, &ra_asm_ir::Declaration)> = declarations.iter().map(|d| (link.clone(), d)).collect();
+        let mut out = String::new();
+        c_runtime_wrappers(&mut out, &declarations);
+        out
+    }
+
+    #[test]
+    fn the_c_runtime_keeps_its_c_signature_at_either_word_size() {
+        for bits in [32, 64] {
+            let text = wrappers(bits);
+            assert!(
+                text.contains("pub fn memset(a0: *mut core::ffi::c_void, a1: core::ffi::c_int, a2: usize) -> *mut core::ffi::c_void;"),
+                "{bits}-bit:\n{text}"
+            );
+            assert!(text.contains("pub fn strlen(a0: *const core::ffi::c_char) -> usize;"), "{bits}-bit:\n{text}");
+            assert!(text.contains("#[link(name = \"ucrt\")]\nunsafe extern \"C\""), "{bits}-bit:\n{text}");
+        }
+    }
+
+    #[test]
+    fn a_wrapper_takes_and_gives_the_programs_words() {
+        let text = wrappers(32);
+        assert!(text.contains("pub unsafe extern \"system\" fn memset(a0: u32, a1: u32, a2: u32) -> u32 {"), "{text}");
+        assert!(text.contains("c_runtime::memset(a0 as usize as *mut core::ffi::c_void, a1 as core::ffi::c_int, a2 as usize)"), "{text}");
+        // The pointer and the length come back in the 32-bit word the program passed them in.
+        assert!(text.contains("    result as usize as u32\n"), "{text}");
+        assert!(text.contains("pub unsafe extern \"system\" fn strlen(a0: u32) -> u32 {"), "{text}");
+        let text = wrappers(64);
+        assert!(text.contains("pub unsafe extern \"system\" fn memset(a0: u64, a1: u32, a2: u64) -> u64 {"), "{text}");
+        assert!(text.contains("    result as usize as u64\n"), "{text}");
+        assert!(text.contains("pub unsafe extern \"system\" fn strlen(a0: u64) -> u64 {"), "{text}");
+        assert!(text.contains("c_runtime::strlen(a0 as usize as *const core::ffi::c_char)"), "{text}");
+        // `memcmp`'s sign is the C `int`'s bits in the program's 32-bit result.
+        assert!(text.contains("pub unsafe extern \"system\" fn memcmp(a0: u64, a1: u64, a2: u64) -> u32 {"), "{text}");
+        assert!(text.contains("    result as u32\n"), "{text}");
+    }
+
+    #[test]
+    fn another_arity_is_no_c_runtime_function() {
+        let d = declaration("memset", Type::Int(64), vec![Type::Int(64), Type::Int(64)]);
+        assert!(c_runtime_signature(&d).is_none());
+        let d = declaration("strlen", Type::Int(64), vec![Type::Int(64)]);
+        assert!(c_runtime_signature(&d).is_some());
+    }
 }

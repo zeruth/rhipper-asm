@@ -31,7 +31,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | float64.exe | ok | 7 | 7 | 7 | 0 | 0 | 7 | 7 | 36 | 0 | 72 | 428 | 0.0 | 415.9 |
 | floata64.exe | ok | 7 | 7 | 7 | 0 | 0 | 7 | 7 | 36 | 0 | 36 | 351 | 0.0 | 487.2 |
 | gte_psx.exe | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 3 | 0 | 7 | 190 | 0.0 | 421.1 |
-| hello32-upx.exe | timeout | 3 | 3 | 3 | 1 | 1 | 2 | 3 | 2 | 0 | 22 | 16836 | 0.4 | 499.2 |
+| hello32-upx.exe | timeout | 3 | 3 | 3 | 1 | 1 | 2 | 3 | 2 | 0 | 22 | 16840 | 0.4 | 499.1 |
 | hello32.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 161 | 0.0 | 242.2 |
 | hello64-upx.exe | timeout | 6 | 6 | 6 | 0 | 0 | 2 | 2 | 2 | 0 | 22 | 8529 | 0.7 | 1928.6 |
 | hello64.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 84 | 0.0 | 226.2 |
@@ -63,7 +63,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 373 | 0.0 | 745.3 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 261 | 0.0 | 375.5 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 165 | 0.0 | 472.7 |
-| total | 54/57 ok | 388 | 388 | 388 | 7 | 7 | 314 | 316 | 863 | 0 | 1973 | 61471 | 0.6 | 721.1 |
+| total | 54/57 ok | 388 | 388 | 388 | 7 | 7 | 314 | 316 | 863 | 0 | 1973 | 61475 | 0.6 | 721.0 |
 
 | pending list | entries |
 |---|---|
