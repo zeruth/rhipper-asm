@@ -1,0 +1,42 @@
+ lines64
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000140000000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000002e8H .text                   CODE
+ 0002:000000c8 00000034H .xdata                  DATA
+ 0003:00000000 0000008bH .data                   DATA
+ 0003:00000090 0000001cH .bss                    DATA
+ 0004:00000000 0000003cH .pdata                  DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       mainCRTStartup             0000000140001000     lines-cb4e95.o
+ 0002:00000000       ??_C@_07OLCGHOOI@lines?$AN?6?$AA@ 0000000140002000     lines-cb4e95.o
+ 0002:00000070       __imp_ExitProcess          0000000140002070     kernel32:KERNEL32.dll
+ 0002:00000078       __imp_GetStdHandle         0000000140002078     kernel32:KERNEL32.dll
+ 0002:00000080       __imp_WriteFile            0000000140002080     kernel32:KERNEL32.dll
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:000000f0       print_str                  00000001400010f0     lines-cb4e95.o
+ 0001:00000130       print_int                  0000000140001130     lines-cb4e95.o
+ 0001:000001c0       load                       00000001400011c0     lines-cb4e95.o
+ 0001:00000250       tell                       0000000140001250     lines-cb4e95.o
+ 0001:00000270       take                       0000000140001270     lines-cb4e95.o
+ 0001:000002d0       handle                     00000001400012d0     lines-cb4e95.o
+ 0003:00000000       text_size                  0000000140003000     lines-cb4e95.o
+ 0003:00000010       text                       0000000140003010     lines-cb4e95.o
+ 0003:00000068       refuse_at                  0000000140003068     lines-cb4e95.o
+ 0003:0000006c       second_size                000000014000306c     lines-cb4e95.o
+ 0003:00000070       second                     0000000140003070     lines-cb4e95.o
+ 0003:00000090       out                        0000000140003090     lines-cb4e95.o
+ 0003:00000098       told                       0000000140003098     lines-cb4e95.o
+ 0003:0000009c       empty_size                 000000014000309c     lines-cb4e95.o
+ 0003:000000a0       sections                   00000001400030a0     lines-cb4e95.o
+ 0003:000000a4       entries                    00000001400030a4     lines-cb4e95.o
+ 0003:000000a8       comments                   00000001400030a8     lines-cb4e95.o

@@ -173,8 +173,8 @@ b_401000:  ; 0x401000
 
 define i64 @F_00401020(i32 %arg0) {  ; 0x401020
 b_401020:  ; 0x401020
-  %frame = alloca [4220 x i8], align 16
-  %frame.top = getelementptr inbounds i8, ptr %frame, i64 4140
+  %frame = alloca [300 x i8], align 16
+  %frame.top = getelementptr inbounds i8, ptr %frame, i64 220
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4
@@ -2007,8 +2007,8 @@ f4_401310.112:  ; 0x401310
 
 define i64 @F_004013a0(i32 %arg0) {  ; 0x4013a0
 b_4013a0:  ; 0x4013a0
-  %frame = alloca [4268 x i8], align 16
-  %frame.top = getelementptr inbounds i8, ptr %frame, i64 4188
+  %frame = alloca [220 x i8], align 16
+  %frame.top = getelementptr inbounds i8, ptr %frame, i64 140
   %rsp0 = ptrtoint ptr %frame.top to i64
   %stack.arg0.p = getelementptr inbounds i8, ptr %frame.top, i64 4
   store i32 %arg0, ptr %stack.arg0.p, align 4

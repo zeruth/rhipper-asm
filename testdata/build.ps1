@@ -81,6 +81,8 @@ if (Wanted 'hello') { Build-Exe 'hello' @() 'c' @() @('64', '32', 'a64') }
 # control carries a CodeView debug record, for the debug directory.
 if (Wanted 'control') { Build-Exe 'control' @('-g', '-gcodeview', '-Wl,/debug', '-Wl,/pdbaltpath:control.pdb') }
 if (Wanted 'float') { Build-Exe 'float' @() }
+# lines is a loop whose head both arms of a branch reach, and whose test of '\r' every way on passes.
+if (Wanted 'lines') { Build-Exe 'lines' @() }
 # extended does its floating point on the x87, for the exact unit; x64 code has no x87 arithmetic.
 if (Wanted 'extended') { Build-Exe 'extended' @('-mno-sse') 'c' @() @('32') }
 # classes is C++ with RTTI, for the vtable analysis; no exceptions, so no runtime handler is named.

@@ -524,6 +524,40 @@ command = "testdata/build.ps1 linked"
 tools = "clang 22.1.7, LLD 22.1.7"
 
 [[file]]
+path = "testdata/bin/lines32.exe"
+sha256 = "d648b207d58751afd20d8145aa649a50c7990d43255dc4c87c74eb7a0dfc39cb"
+evidence = "native"
+expected = "testdata/expected/lines.txt"
+source = "testdata/src/lines.c"
+command = "testdata/build.ps1 lines"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/lines32.map"
+sha256 = "395dff76ff442ed97c0c4293467dead7d766c050abcbf9fc229993db4d672de7"
+evidence = "native"
+source = "testdata/src/lines.c"
+command = "testdata/build.ps1 lines"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/lines64.exe"
+sha256 = "633ed92d19fa2a97d5bd45e040bcc8ab2c4d30d33baffe9e45a525e912a754b2"
+evidence = "native"
+expected = "testdata/expected/lines.txt"
+source = "testdata/src/lines.c"
+command = "testdata/build.ps1 lines"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/lines64.map"
+sha256 = "af80b7e3b34b34a50d57550a50adf04e7b1f3a2f00ad8113cf30c5fe4846d7e9"
+evidence = "native"
+source = "testdata/src/lines.c"
+command = "testdata/build.ps1 lines"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
 path = "testdata/bin/obfusc32.exe"
 sha256 = "6f30ca67744e070fdb785b2a8898db5993368688cfa2929bb1016709e9574ac3"
 evidence = "native"
@@ -1053,6 +1087,14 @@ sha256 = "2277b2f8ffb2f59d4586a7d47619d9e44653cf79b7e1e9d67b6635b6f7f72241"
 evidence = "native"
 source = "testdata/src/linked.c"
 command = "the native run of the linked fixture beside the exports DLL, its output captured"
+tools = "Windows 11 10.0.26200 x64"
+
+[[file]]
+path = "testdata/expected/lines.txt"
+sha256 = "e621d195cfec34d4888df77c80573090196979221c805027f9f5e1990c873d46"
+evidence = "native"
+source = "testdata/src/lines.c"
+command = "the native run of the lines fixture, its output captured"
 tools = "Windows 11 10.0.26200 x64"
 
 # obfusc.txt is committed with the CRLF the program wrote; its hash is of those bytes.

@@ -1022,6 +1022,41 @@ fn inline_reads_as_source() {
     }
 }
 
+/// The lines fixture, held to its output alone: `load`'s guard, which the entry and the exit of
+/// the handler loop share while the loop's other way out returns through the common return,
+/// is still reached by `goto` in C; [`lines_places_every_label`] holds each one to its label.
+fn lines_fixture(binary: &str) -> Fixture {
+    Fixture { no_goto: false, ..fixture(binary, "lines.txt") }
+}
+
+#[test]
+fn lines64_runs_as_c() {
+    run_fixture_as_c(&lines_fixture("lines64.exe"), "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+}
+
+#[test]
+fn lines32_runs_as_c() {
+    run_fixture_as_c(&lines_fixture("lines32.exe"), "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+}
+
+/// `load`, whose two ways out of the handler loop both reach the line loop's head: every `goto`
+/// of a function names a label line (`name:;`) of the same function, not a name another function
+/// places or a substring of a longer one.
+#[test]
+fn lines_places_every_label() {
+    for binary in ["lines64.exe", "lines32.exe"] {
+        let (_, c, _) = emit(&lines_fixture(binary), "labels", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+        // A function's definition ends at its unindented closing brace.
+        for function in c.split("\n}\n") {
+            let labels: HashSet<&str> = function.lines().filter_map(|l| l.trim().strip_suffix(":;")).collect();
+            for (at, _) in function.match_indices("goto ") {
+                let name = function[at + 5..].split(';').next().unwrap().trim();
+                assert!(labels.contains(name), "{binary}: `goto {name}` has no label line `{name}:;` in its function:\n{function}");
+            }
+        }
+    }
+}
+
 #[test]
 fn obfusc64_runs_as_c() {
     run_oracle("obfusc64.exe", "obfusc.txt");

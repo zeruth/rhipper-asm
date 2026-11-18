@@ -1,0 +1,40 @@
+ lines32
+
+ Timestamp is 00000000 (Repro mode)
+
+ Preferred load address is 0000000000400000
+
+ Start         Length     Name                   Class
+ 0001:00000000 000002a3H .text                   CODE
+ 0003:00000000 0000007fH .data                   DATA
+ 0003:00000080 00000018H .bss                    DATA
+
+  Address         Publics by Value              Rva+Base               Lib:Object
+
+ 0001:00000000       _mainCRTStartup            0000000000401000     lines-86b406.o
+ 0002:00000000       ??_C@_07OLCGHOOI@lines?$AN?6?$AA@ 0000000000402000     lines-86b406.o
+ 0002:0000005c       __imp__ExitProcess@4       000000000040205c     kernel32:KERNEL32.dll
+ 0002:00000060       __imp__GetStdHandle@4      0000000000402060     kernel32:KERNEL32.dll
+ 0002:00000064       __imp__WriteFile@20        0000000000402064     kernel32:KERNEL32.dll
+
+ entry point at         0001:00000000
+
+ Static symbols
+
+ 0001:000000e0       _print_str                 00000000004010e0     lines-86b406.o
+ 0001:00000110       _print_int                 0000000000401110     lines-86b406.o
+ 0001:00000190       _load                      0000000000401190     lines-86b406.o
+ 0001:00000220       _tell                      0000000000401220     lines-86b406.o
+ 0001:00000240       _take                      0000000000401240     lines-86b406.o
+ 0001:00000290       _handle                    0000000000401290     lines-86b406.o
+ 0003:00000000       _text_size                 0000000000403000     lines-86b406.o
+ 0003:00000004       _text                      0000000000403004     lines-86b406.o
+ 0003:0000005c       _refuse_at                 000000000040305c     lines-86b406.o
+ 0003:00000060       _second_size               0000000000403060     lines-86b406.o
+ 0003:00000064       _second                    0000000000403064     lines-86b406.o
+ 0003:00000080       _out                       0000000000403080     lines-86b406.o
+ 0003:00000084       _told                      0000000000403084     lines-86b406.o
+ 0003:00000088       _empty_size                0000000000403088     lines-86b406.o
+ 0003:0000008c       _sections                  000000000040308c     lines-86b406.o
+ 0003:00000090       _entries                   0000000000403090     lines-86b406.o
+ 0003:00000094       _comments                  0000000000403094     lines-86b406.o
