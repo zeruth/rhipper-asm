@@ -1357,6 +1357,8 @@ impl Emitter<'_> {
                 "bswap" => format!("{x}.swap_bytes()"),
                 "sqrt" => format!("{x}.sqrt()"),
                 "fabs" => format!("{x}.abs()"),
+                "sin" => format!("{x}.sin()"),
+                "cos" => format!("{x}.cos()"),
                 "trunc" => format!("{x}.trunc()"),
                 "floor" => format!("{x}.floor()"),
                 "ceil" => format!("{x}.ceil()"),

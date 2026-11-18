@@ -880,6 +880,8 @@ impl<'m> Vm<'m> {
             }
             "sqrt" => float(farg(0).sqrt()),
             "fabs" => float(farg(0).abs()),
+            "sin" => float(farg(0).sin()),
+            "cos" => float(farg(0).cos()),
             "minnum" => float(farg(0).min(farg(1))),
             "maxnum" => float(farg(0).max(farg(1))),
             "trunc" => float(farg(0).trunc()),

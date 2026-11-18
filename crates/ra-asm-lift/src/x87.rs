@@ -134,6 +134,7 @@ pub fn is_x87(m: M) -> bool {
             | M::Fcmovnbe
             | M::Fcmovnu
             | M::Fnop
+            | M::Fsincos
     )
 }
 
@@ -651,6 +652,16 @@ impl Lifter<'_, '_> {
                 let v = self.m.st(block, 0);
                 let r = self.m.intrinsic(block, "llvm.sqrt.f64", d.clone(), vec![(d, v.into())], "sqrt");
                 self.m.set_st(block, 0, r);
+            }
+            // The sine in place of the angle, then the cosine pushed over it. The double unit's;
+            // the exact unit has no 80-bit sine yet.
+            M::Fsincos if exact => unsupported!(),
+            M::Fsincos => {
+                let v = self.m.st(block, 0);
+                let sin = self.m.intrinsic(block, "llvm.sin.f64", d.clone(), vec![(d.clone(), v.into())], "sin");
+                let cos = self.m.intrinsic(block, "llvm.cos.f64", d.clone(), vec![(d, v.into())], "cos");
+                self.m.set_st(block, 0, sin);
+                self.m.fpush_value(block, cos);
             }
             M::Frndint => {
                 let v = self.m.st(block, 0);

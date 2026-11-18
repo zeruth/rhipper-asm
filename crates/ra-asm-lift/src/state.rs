@@ -409,6 +409,15 @@ pub fn declare_runtime(module: &mut ra_asm_ir::Module) {
             conv: CallConv::C,
             attrs: vec![],
         });
+        // The x87's `fsincos`.
+        for function in ["sin", "cos"] {
+            module.declare(Declaration {
+                name: format!("llvm.{function}.{name}"),
+                ty: FnType::new(t.clone(), vec![t.clone()]),
+                conv: CallConv::C,
+                attrs: vec![],
+            });
+        }
     }
 }
 

@@ -612,6 +612,8 @@ impl Lifter<'_, '_> {
                     self.m.read_xmm(block, r, Type::I128)
                 } else if r.is_segment_register() {
                     self.m.value_of(block, Type::I16, 0i64)
+                } else if r.is_mm() {
+                    self.read_mm(block, r)
                 } else {
                     self.warn(format!("{:#x}: a read of {:?} is not lifted", i.ip(), r));
                     self.m.value_of(block, Type::Int(bits), 0i64)
@@ -662,6 +664,8 @@ impl Lifter<'_, '_> {
                     self.m.write_gpr(block, r, value);
                 } else if r.is_xmm() {
                     self.m.write_xmm(block, r, Type::I128, value, true);
+                } else if r.is_mm() {
+                    self.write_mm(block, r, value);
                 } else {
                     self.warn(format!("{:#x}: a write of {:?} is not lifted", i.ip(), r));
                 }
@@ -1118,7 +1122,17 @@ impl Lifter<'_, '_> {
             return next;
         }
         match i.mnemonic() {
+            // The MMX forms a 128-bit computation does not hold in its low half: the high unpacks
+            // read lanes 4 to 7 of 8 bytes, a pack narrows four lanes of each operand, not eight.
+            M::Punpckhbw | M::Punpckhwd | M::Punpckhdq | M::Packsswb | M::Packssdw | M::Packuswb | M::Pshufw if Self::is_mmx(i) => {
+                self.warn(format!("{ip:#x}: {:?} over MMX registers is not lifted yet", i.mnemonic()));
+                self.m.unsupported(block, ip, i.code() as u64);
+            }
+            // The x87 tags `emms` clears are not kept: the MMX registers are the x87 registers'
+            // bits, which the next x87 load overwrites.
             M::Nop
+            | M::Emms
+            | M::Femms
             | M::Endbr64
             | M::Endbr32
             | M::Wait
@@ -1837,6 +1851,7 @@ impl Lifter<'_, '_> {
             // SSE
             M::Movd
             | M::Movq
+            | M::Movntq
             | M::Movdqa
             | M::Movdqu
             | M::Movaps
@@ -2147,6 +2162,74 @@ impl Lifter<'_, '_> {
                     ),
                 };
                 self.m.write_xmm(block, i.op_register(0), fty, r, false);
+            }
+            // The lanes of the first operand where the compare holds, of the second elsewhere: a
+            // NaN or an equal pair gives the second, as the instruction does.
+            M::Minps | M::Maxps | M::Minpd | M::Maxpd => {
+                let single = matches!(i.mnemonic(), M::Minps | M::Maxps);
+                let (lane_ty, lanes) = if single { (Type::Float, 4) } else { (Type::Double, 2) };
+                let ty = Type::vector(lanes, lane_ty.clone());
+                let cond = if matches!(i.mnemonic(), M::Minps | M::Minpd) { FCond::Olt } else { FCond::Ogt };
+                let a = self.read_vec(block, i, 0, ty.clone());
+                let b = self.read_vec(block, i, 1, ty.clone());
+                // Every lane is replaced: the first operand is the vector to put them in.
+                let mut r = a;
+                for k in 0..i128::from(lanes) {
+                    let x =
+                        self.m.b.value(block, Inst::ExtractElement { ty: ty.clone(), vector: a.into(), index: Operand::Int(k) }, "lane");
+                    let y =
+                        self.m.b.value(block, Inst::ExtractElement { ty: ty.clone(), vector: b.into(), index: Operand::Int(k) }, "lane");
+                    let holds = self.m.b.value(block, Inst::FCmp { cond, ty: lane_ty.clone(), lhs: x.into(), rhs: y.into() }, "fcmp");
+                    let pick = self.m.b.select(block, holds, lane_ty.clone(), x, y, "fminmax");
+                    r = self.m.b.value(
+                        block,
+                        Inst::InsertElement { ty: ty.clone(), vector: r.into(), element: pick.into(), index: Operand::Int(k) },
+                        "fminmaxs",
+                    );
+                }
+                self.write_vec(block, i, 0, ty, r);
+            }
+            // The reciprocals, exact where the processor's are good to twelve bits.
+            M::Rsqrtss | M::Rcpss => {
+                let b = self.read_vec(block, i, 1, Type::Float);
+                let d = if i.mnemonic() == M::Rsqrtss {
+                    self.m.intrinsic(block, "llvm.sqrt.f32", Type::Float, vec![(Type::Float, b.into())], "fsqrt")
+                } else {
+                    b
+                };
+                let r = self.m.b.bin(block, BinOp::FDiv, Type::Float, Operand::Float(1.0), d, "frcp");
+                self.m.write_xmm(block, i.op_register(0), Type::Float, r, false);
+            }
+            M::Rsqrtps | M::Rcpps => {
+                let ty = Type::vector(4, Type::Float);
+                let b = self.read_vec(block, i, 1, ty.clone());
+                // Every lane is replaced: the operand is the vector to put them in.
+                let mut r = b;
+                for k in 0..4 {
+                    let lane =
+                        self.m.b.value(block, Inst::ExtractElement { ty: ty.clone(), vector: b.into(), index: Operand::Int(k) }, "lane");
+                    let d = if i.mnemonic() == M::Rsqrtps {
+                        self.m.intrinsic(block, "llvm.sqrt.f32", Type::Float, vec![(Type::Float, lane.into())], "fsqrt")
+                    } else {
+                        lane
+                    };
+                    let q = self.m.b.bin(block, BinOp::FDiv, Type::Float, Operand::Float(1.0), d, "frcp");
+                    r = self.m.b.value(
+                        block,
+                        Inst::InsertElement { ty: ty.clone(), vector: r.into(), element: q.into(), index: Operand::Int(k) },
+                        "frcps",
+                    );
+                }
+                self.write_vec(block, i, 0, ty, r);
+            }
+            // `movhlps` takes the source's high half into the low, `movlhps` its low into the high.
+            M::Movhlps | M::Movlhps => {
+                let ty = Type::vector(2, Type::I64);
+                let a = self.read_vec(block, i, 0, ty.clone());
+                let b = self.read_vec(block, i, 1, ty.clone());
+                let mask = if i.mnemonic() == M::Movhlps { vec![3, 1] } else { vec![0, 2] };
+                let r = self.m.b.value(block, Inst::ShuffleVector { ty: ty.clone(), a: a.into(), b: b.into(), mask }, "movhl");
+                self.write_vec(block, i, 0, ty, r);
             }
             M::Cvtsi2ss | M::Cvtsi2sd => {
                 let bits = self.op_bits(i, 1);
@@ -2692,12 +2775,65 @@ impl Lifter<'_, '_> {
     // region Vectors
 
     /// Reads operand `n` as a vector or float type: the low bytes of a register, or memory.
+    /// A pointer to an MMX register: the 64 bits of the x87 register of the same number, which
+    /// is where the processor keeps it (`mm3` is the significand of the fourth x87 register,
+    /// whatever the top of the stack is).
+    fn mm_ptr(&mut self, block: BlockId, r: R) -> ValueId {
+        let slot = if self.lifted.x87 == crate::x87::X87Unit::Exact { crate::x87::F80_SLOT as i64 } else { 8 };
+        let address = Operand::Address { global: crate::state::X87_STACK.to_owned(), offset: slot * r.number() as i64 };
+        self.m.b.cast(block, Cast::IntToPtr, Type::I64, address, Type::Ptr, "mm.p")
+    }
+
+    fn read_mm(&mut self, block: BlockId, r: R) -> ValueId {
+        let p = self.mm_ptr(block, r);
+        self.m.b.load(block, Type::I64, p, "mm")
+    }
+
+    fn write_mm(&mut self, block: BlockId, r: R, value: ValueId) {
+        let p = self.mm_ptr(block, r);
+        self.m.b.store(block, Type::I64, value, p);
+    }
+
+    /// The 64 bits of an MMX operand as `ty`: as they are for a type of 64 bits, the low half of
+    /// a type of 128 with the rest zero, so a lane-wise operation over the wider type computes
+    /// the MMX one in its low half.
+    fn widen_mm(&mut self, block: BlockId, v: ValueId, ty: Type) -> ValueId {
+        if ty == Type::I64 {
+            v
+        } else if ty.size(8) == Some(8) {
+            self.m.b.cast(block, Cast::Bitcast, Type::I64, v, ty, "mm.as")
+        } else {
+            let wide = self.m.zext(block, Type::I64, v, Type::I128, "mm.w");
+            if ty == Type::I128 { wide } else { self.m.b.cast(block, Cast::Bitcast, Type::I128, wide, ty, "mm.as") }
+        }
+    }
+
+    /// Whether the instruction works on MMX registers: its register operands are `mm0` to `mm7`.
+    fn is_mmx(i: &Instruction) -> bool {
+        (0..i.op_count()).any(|n| i.op_kind(n) == OpKind::Register && i.op_register(n).is_mm())
+    }
+
     fn read_vec(&mut self, block: BlockId, i: &Instruction, n: u32, ty: Type) -> ValueId {
+        // An MMX instruction's memory operand is 64 bits, whatever the type it is computed in.
+        if Self::is_mmx(i) && ty.size(8) == Some(16) {
+            let v = match i.op_kind(n) {
+                OpKind::Register if i.op_register(n).is_mm() => self.read_mm(block, i.op_register(n)),
+                OpKind::Memory => {
+                    let addr = self.mem_address(block, i);
+                    self.m.load(block, Type::I64, addr, "vm")
+                }
+                _ => return self.m.value_of(block, ty, Self::immediate(i, n)),
+            };
+            return self.widen_mm(block, v, ty);
+        }
         match i.op_kind(n) {
             OpKind::Register => {
                 let r = i.op_register(n);
                 if r.is_xmm() {
                     self.m.read_xmm(block, r, ty)
+                } else if r.is_mm() {
+                    let v = self.read_mm(block, r);
+                    self.widen_mm(block, v, ty)
                 } else {
                     // A general register into a vector type of the same width.
                     let v = self.m.read_gpr(block, r);
@@ -2721,6 +2857,18 @@ impl Lifter<'_, '_> {
                 let r = i.op_register(n);
                 if r.is_xmm() {
                     self.m.write_xmm(block, r, ty, value, true);
+                } else if r.is_mm() {
+                    // The low 64 bits of what was computed.
+                    let v = if ty == Type::I64 {
+                        value
+                    } else if ty.size(8) == Some(8) {
+                        self.m.b.cast(block, Cast::Bitcast, ty, value, Type::I64, "mm.int")
+                    } else {
+                        let wide =
+                            if ty == Type::I128 { value } else { self.m.b.cast(block, Cast::Bitcast, ty, value, Type::I128, "mm.int") };
+                        self.m.trunc(block, Type::I128, wide, Type::I64, "mm.low")
+                    };
+                    self.write_mm(block, r, v);
                 } else {
                     let bits = (r.size() * 8) as u16;
                     let v = self.m.b.cast(block, Cast::Bitcast, ty, value, Type::Int(bits), "asint");
@@ -2760,7 +2908,8 @@ impl Lifter<'_, '_> {
         let dst = i.op_register(0);
         let src = i.op_register(1);
         match i.mnemonic() {
-            M::Movd | M::Movq => {
+            // `movntq` is `movq` to memory past the cache.
+            M::Movd | M::Movq | M::Movntq => {
                 let bits = if i.mnemonic() == M::Movd { 32 } else { 64 };
                 let ty = Type::Int(bits);
                 let v = if i.op_kind(1) == OpKind::Register && src.is_xmm() {
