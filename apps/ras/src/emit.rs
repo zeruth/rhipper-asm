@@ -175,7 +175,13 @@ pub(crate) fn translate(
             resources: !image.resources.is_empty(),
             ..Default::default()
         };
-        let output = timed("translate: functions", || ra_asm_emit::emit_rust(&lifted.module, &options));
+        let mut output = timed("translate: functions", || ra_asm_emit::emit_rust(&lifted.module, &options));
+        let calls = platform_calls(&lifted.module.declarations);
+        if !calls.is_empty()
+            && let Some(runtime) = output.files.iter_mut().find(|f| f.name == "src/rhipper.rs")
+        {
+            runtime.text.push_str(&platform_rust(&calls));
+        }
         return Ok(Translation {
             files: output.files,
             functions: output.functions,
@@ -196,6 +202,14 @@ pub(crate) fn translate(
     // In C++ the object of a container's member function reads as the container.
     let containers = if dialect == ra_asm_emit::Dialect::Cpp { ra_asm_emit::containers(analysis) } else { Vec::new() };
     let options = ra_asm_emit::COptions { names, dialect, classes, trace, hand, checks, guest32, containers };
+    // A console's port calls its platform: the prototypes go where `rhipper.h` finds them, the
+    // calls and the stub runtime into a source of the build.
+    let calls = platform_calls(&lifted.module.declarations);
+    if !calls.is_empty() {
+        let (header, source) = platform_c(&calls);
+        resources.push(("platform.h".to_owned(), header.into_bytes()));
+        resources.push(("platform.c".to_owned(), source.into_bytes()));
+    }
     // The unit times its own parts: the module's, the functions' and the unit's.
     let mut unit = ra_asm_emit::emit_unit_dropping(&mut lifted.module, &options);
     // The bytes of the large data globals the source embeds go beside it, as the resources do.
@@ -217,6 +231,155 @@ pub(crate) fn translate(
         exports,
         warnings,
     })
+}
+
+/// What a call on the platform interface asks the runtime bound for.
+#[derive(Debug, Clone, Copy)]
+enum PlatformCall<'a> {
+    /// An access of a device register.
+    Device(ra_asm_lift::data::DeviceCall<'a>),
+    /// A function of the console's kernel, by its name.
+    Kernel(&'static str),
+}
+
+/// The program's calls on the platform interface of its console among the declarations of its
+/// raised module, each with its declaration: none for a program of an operating system.
+fn platform_calls(declarations: &[ra_asm_ir::Declaration]) -> Vec<(&ra_asm_ir::Declaration, PlatformCall<'_>)> {
+    declarations
+        .iter()
+        .filter_map(|d| {
+            let call = match ra_asm_lift::data::DeviceCall::parse(&d.name) {
+                Some(device) => PlatformCall::Device(device),
+                None => PlatformCall::Kernel(ra_asm_lift::raise::prototypes::ee_syscall_named(&d.name)?.name),
+            };
+            Some((d, call))
+        })
+        .collect()
+}
+
+/// The C type of a word of the platform interface.
+fn c_word(ty: &ra_asm_ir::Type) -> &'static str {
+    match ty {
+        ra_asm_ir::Type::Void => "void",
+        ra_asm_ir::Type::Int(8) => "uint8_t",
+        ra_asm_ir::Type::Int(16) => "uint16_t",
+        ra_asm_ir::Type::Int(32) => "uint32_t",
+        _ => "uint64_t",
+    }
+}
+
+/// The Rust type of a word of the platform interface.
+fn rust_word(ty: &ra_asm_ir::Type) -> &'static str {
+    match ty {
+        ra_asm_ir::Type::Int(8) => "u8",
+        ra_asm_ir::Type::Int(16) => "u16",
+        ra_asm_ir::Type::Int(32) => "u32",
+        _ => "u64",
+    }
+}
+
+/// The stub runtime of the C runtime's platform interface (see `runtime/rhipper.h`): each call
+/// logged on stderr as the Rust runtime's `StubPlatform` logs it, and answered zero.
+const PLATFORM_STUB_C: &str = r#"#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "rhipper.h"
+
+static uint64_t ra_stub_read(const char *device, uint64_t reg, unsigned bits) {
+    fprintf(stderr, "ra: %s read%u 0x%llx\n", device, bits, (unsigned long long)reg);
+    return 0;
+}
+
+static void ra_stub_write(const char *device, uint64_t reg, unsigned bits, uint64_t value) {
+    fprintf(stderr, "ra: %s write%u 0x%llx 0x%llx\n", device, bits, (unsigned long long)reg, (unsigned long long)value);
+    // The serial port's transmit FIFO is the console.
+    if (strcmp(device, "sio") == 0 && reg == RA_SIO_TXFIFO) {
+        fputc((int)(uint8_t)value, stdout);
+        fflush(stdout);
+    }
+}
+
+static uint64_t ra_stub_call(const char *name, unsigned count, const uint64_t *args) {
+    fprintf(stderr, "ra: call %s(", name);
+    for (unsigned i = 0; i < count; i++) {
+        fprintf(stderr, i ? ", 0x%llx" : "0x%llx", (unsigned long long)args[i]);
+    }
+    fprintf(stderr, ")\n");
+    // The kernel's exits end the run.
+    if (strcmp(name, "ExitThread") == 0 || strcmp(name, "ExitDeleteThread") == 0) {
+        fflush(stdout);
+        exit(0);
+    }
+    if (strcmp(name, "KExit") == 0) {
+        fflush(stdout);
+        exit((int)(uint32_t)args[0]);
+    }
+    return 0;
+}
+
+const ra_platform ra_platform_stub = {ra_stub_read, ra_stub_write, ra_stub_call};
+const ra_platform *ra_platform_bound = &ra_platform_stub;
+
+void ra_platform_bind(const ra_platform *platform) {
+    ra_platform_bound = platform;
+}
+"#;
+
+/// `platform.h`, the prototypes of the program's calls on the platform interface, and
+/// `platform.c`, each call made on the runtime bound, with the stub runtime.
+fn platform_c(calls: &[(&ra_asm_ir::Declaration, PlatformCall<'_>)]) -> (String, String) {
+    let mut header = String::from(
+        "// Generated by ras emit: the program's calls on the platform interface of rhipper.h.\n\
+         #ifndef RA_PLATFORM_H\n#define RA_PLATFORM_H\n#include <stdint.h>\n",
+    );
+    let mut source = String::from("// Generated by ras emit: the program's calls on the platform interface, and the stub runtime.\n");
+    source.push_str(PLATFORM_STUB_C);
+    for (d, call) in calls {
+        let ret = c_word(&d.ty.ret);
+        let params: Vec<String> = d.ty.params.iter().enumerate().map(|(i, t)| format!("{} a{i}", c_word(t))).collect();
+        let prototype = format!("{ret} {}({})", d.name, if params.is_empty() { "void".to_owned() } else { params.join(", ") });
+        let _ = writeln!(header, "{prototype};");
+        let body = match call {
+            PlatformCall::Device(device) if device.write => {
+                format!("ra_platform_bound->write(\"{}\", a0, {}, (uint64_t)a1);", device.device, device.bits)
+            }
+            PlatformCall::Device(device) => format!("return ({ret})ra_platform_bound->read(\"{}\", a0, {});", device.device, device.bits),
+            PlatformCall::Kernel(name) => {
+                let args: Vec<String> = (0..d.ty.params.len()).map(|i| format!("(uint64_t)a{i}")).collect();
+                let array = if args.is_empty() { "0".to_owned() } else { format!("(const uint64_t[]){{{}}}", args.join(", ")) };
+                let made = format!("ra_platform_bound->call(\"{name}\", {}, {array})", args.len());
+                if ret == "void" { format!("{made};") } else { format!("return ({ret}){made};") }
+            }
+        };
+        let _ = write!(source, "\n{prototype} {{\n    {body}\n}}\n");
+    }
+    header.push_str("#endif\n");
+    (header, source)
+}
+
+/// The program's calls on the platform interface in Rust, each made on the runtime bound, for the
+/// end of the runtime module (`runtime/rhipper.rs`, whose `Platform` trait they call).
+fn platform_rust(calls: &[(&ra_asm_ir::Declaration, PlatformCall<'_>)]) -> String {
+    let mut out = String::from("\n// The program's calls on the platform interface, written by ras emit.\n");
+    for (d, call) in calls {
+        let params: Vec<String> = d.ty.params.iter().enumerate().map(|(i, t)| format!("a{i}: {}", rust_word(t))).collect();
+        let ret = if d.ty.ret == ra_asm_ir::Type::Void { String::new() } else { format!(" -> {}", rust_word(&d.ty.ret)) };
+        let body = match call {
+            PlatformCall::Device(device) if device.write => {
+                format!("ra_platform().write(\"{}\", a0, {}, a1 as u64);", device.device, device.bits)
+            }
+            PlatformCall::Device(device) => {
+                format!("ra_platform().read(\"{}\", a0, {}) as {}", device.device, device.bits, rust_word(&d.ty.ret))
+            }
+            PlatformCall::Kernel(name) => {
+                let args: Vec<String> = (0..d.ty.params.len()).map(|i| format!("a{i} as u64")).collect();
+                let made = format!("ra_platform().call(\"{name}\", &[{}])", args.join(", "));
+                if ret.is_empty() { format!("{made};") } else { format!("{made} as {}", rust_word(&d.ty.ret)) }
+            }
+        };
+        let _ = writeln!(out, "#[allow(non_snake_case)]\npub fn {}({}){ret} {{\n    {body}\n}}", d.name, params.join(", "));
+    }
+    out
 }
 
 /// The table's view of the functions of `analysis` and of the second images `with`: the

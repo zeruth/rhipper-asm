@@ -394,8 +394,10 @@ fn types(module: &mut Module, cx: &Context<'_>) {
     });
 }
 
-/// Each import is declared with the arity the prototype table gives it.
-fn prototypes(module: &mut Module, _: &Context<'_>) {
+/// Each import is declared with the arity the prototype table gives it, and each access of a
+/// console's device register at the address the raise folded is the call on the platform runtime
+/// that makes it, declared as it is called.
+fn prototypes(module: &mut Module, cx: &Context<'_>) {
     for d in &mut module.declarations {
         if let Some(arity) = super::prototypes::arity(&d.name)
             && d.ty.params.len() == 8
@@ -403,7 +405,27 @@ fn prototypes(module: &mut Module, _: &Context<'_>) {
             d.ty = ra_asm_ir::FnType::new(ra_asm_ir::Type::I64, vec![ra_asm_ir::Type::I64; arity]);
         }
     }
-    super::held::step(module, |module| broken_all("prototypes", module));
+    super::held::step(module, |module| {
+        if let Some(devices) = &cx.options.devices {
+            let called = Mutex::new(Vec::new());
+            let mut rows = cx.rows();
+            super::held::rewrite(
+                &mut module.frozen,
+                &mut rows,
+                |_| true,
+                |_, f| {
+                    let declarations = crate::data::device_accesses(f, devices);
+                    called.lock().unwrap_or_else(PoisonError::into_inner).extend(declarations);
+                },
+            );
+            let mut called = called.into_inner().unwrap_or_else(PoisonError::into_inner);
+            called.sort_by(|a, b| a.name.cmp(&b.name));
+            for d in called {
+                module.declare(d);
+            }
+        }
+        broken_all("prototypes", module);
+    });
 }
 
 /// The cleanup over every frozen function, each thawed alone, and its row written again.

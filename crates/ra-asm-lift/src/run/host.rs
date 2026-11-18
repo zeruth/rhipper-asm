@@ -526,6 +526,29 @@ fn ee_kernel(name: &str, args: &[Value]) -> Result<Value, Stop> {
     }
 }
 
+/// An access of a device register the raise made a call on the platform runtime, answered as the
+/// machine levels answer the access itself: through the device the run put at the register's
+/// address (the serial port's console).
+fn device_call(vm: &mut Vm<'_>, call: crate::data::DeviceCall<'_>, args: &[Value]) -> Result<Value, Stop> {
+    let register = arg(args, 0);
+    let value = arg(args, 1);
+    if call.write {
+        match call.bits {
+            8 => vm.memory.write_u8(register, value as u8)?,
+            16 => vm.memory.write_u16(register, value as u16)?,
+            32 => vm.memory.write_u32(register, value as u32)?,
+            _ => vm.memory.write_u64(register, value)?,
+        }
+        return int(0);
+    }
+    int(match call.bits {
+        8 => u64::from(vm.memory.read_u8(register)?),
+        16 => u64::from(vm.memory.read_u16(register)?),
+        32 => u64::from(vm.memory.read_u32(register)?),
+        _ => vm.memory.read_u64(register)?,
+    })
+}
+
 impl<'a> Runtime<'a> {
     pub(super) fn new(
         image: &'a Image,
@@ -934,6 +957,7 @@ impl<'a> Runtime<'a> {
             n if n.starts_with("ra_ee_") => ee_kernel(&n["ra_ee_".len()..], args),
             n if n.starts_with("ra_eh_") => self.eh_call(vm, n, args),
             n if n.starts_with("ra_x86_") => self.shim_call(vm, n, args),
+            n if let Some(call) = crate::data::DeviceCall::parse(n) => device_call(vm, call, args),
             _ => Err(Stop::fault(format!("the runtime function {name} is not interpreted"))),
         }
     }

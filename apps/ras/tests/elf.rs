@@ -78,6 +78,101 @@ fn ras_lists_the_ee_kernel_calls_of_the_ps2_hello() {
     assert_eq!(syscalls("main"), Vec::<String>::new(), "main makes no system call of its own");
 }
 
+/// The source files of a port's directory, by name, with their texts: `.c` in `dir`, `.rs` under
+/// `dir/src`.
+fn sources(dir: &Path, extension: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == extension))
+        .map(|p| (p.file_name().unwrap().to_string_lossy().into_owned(), std::fs::read_to_string(&p).unwrap()))
+        .collect();
+    out.sort();
+    out
+}
+
+/// The body of the C function `name` in `text`, from its definition (a line at the left margin
+/// that names it and is no prototype) to the closing brace at the left margin.
+fn c_body<'t>(text: &'t str, name: &str) -> Option<&'t str> {
+    let named = format!(" {name}(");
+    let mut at = 0;
+    for line in text.split_inclusive('\n') {
+        if !line.starts_with(char::is_whitespace) && line.contains(&named) && line.contains('{') {
+            let end = text[at..].find("\n}").map_or(text.len(), |e| at + e);
+            return Some(&text[at..end]);
+        }
+        at += line.len();
+    }
+    None
+}
+
+/// The ps2sdk hello ported over the platform interface: the serial port's registers read and
+/// written as calls on the platform (`sio_putc` polls the status register, then writes the
+/// transmit FIFO, in that order), the kernel's functions as calls on it too, and beside the port
+/// the stub runtime that logs each call, in C (`platform.h`, `platform.c`) and in Rust (at the end
+/// of the runtime module, over its `Platform` trait).
+#[test]
+fn ras_ports_the_ps2_hello_over_the_platform_interface() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/ps2/hello.elf");
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("ps2-platform");
+    let (c_dir, rust_dir) = (root.join("c"), root.join("rust"));
+    for (lang, dir) in [("c", &c_dir), ("rust", &rust_dir)] {
+        let _ = std::fs::remove_dir_all(dir);
+        let out = dir.to_string_lossy().into_owned();
+        ras_on(&path, &["emit", "--lang", lang, "--out", &out, "--quiet"]);
+    }
+
+    let header = std::fs::read_to_string(c_dir.join("platform.h")).expect("no platform.h beside the C port");
+    let stub = std::fs::read_to_string(c_dir.join("platform.c")).expect("no platform.c beside the C port");
+    for line in ["void ra_sio_write8(uint64_t a0, uint8_t a1);", "uint32_t ra_sio_read32(uint64_t a0);", " ra_ee_FlushCache(uint64_t a0);"]
+    {
+        assert!(header.contains(line), "no `{line}` in platform.h:\n{header}");
+    }
+    for text in [
+        "const ra_platform ra_platform_stub = ",
+        "void ra_sio_write8(uint64_t a0, uint8_t a1) {\n    ra_platform_bound->write(\"sio\", a0, 8, (uint64_t)a1);",
+        "ra_platform_bound->call(\"FlushCache\", 1, ",
+    ] {
+        assert!(stub.contains(text), "no `{text}` in platform.c:\n{stub}");
+    }
+    let c: String = sources(&c_dir, "c").into_iter().filter(|(n, _)| n != "platform.c").map(|(_, t)| t).collect();
+    let putc = c_body(&c, "sio_putc").unwrap_or_else(|| panic!("no sio_putc in the C port"));
+    let (read, write) = (putc.find("ra_sio_read32("), putc.find("ra_sio_write8("));
+    assert!(read.is_some() && write.is_some() && read < write, "sio_putc does not poll then write the serial port:\n{putc}");
+    assert!(!putc.contains("RA_U8(268497280ull)"), "the transmit FIFO is still memory:\n{putc}");
+    assert!(c.contains("ra_ee_FlushCache("), "the C port does not call the kernel's FlushCache on the platform");
+
+    let runtime = std::fs::read_to_string(rust_dir.join("src/rhipper.rs")).unwrap();
+    for text in [
+        "pub trait Platform",
+        "pub fn ra_sio_write8(a0: u64, a1: u8) {\n    ra_platform().write(\"sio\", a0, 8, a1 as u64);",
+        "pub fn ra_sio_read32(a0: u64) -> u32 {",
+        "ra_platform().call(\"FlushCache\", &[a0 as u64])",
+    ] {
+        assert!(runtime.contains(text), "no `{text}` in the Rust runtime module");
+    }
+    let rust: String = sources(&rust_dir.join("src"), "rs").into_iter().filter(|(n, _)| n != "rhipper.rs").map(|(_, t)| t).collect();
+    for call in ["rhipper::ra_sio_read32(", "rhipper::ra_sio_write8(", "rhipper::ra_ee_FlushCache("] {
+        assert!(rust.contains(call), "no `{call}` in the Rust port");
+    }
+
+    // The stub runtime is C a compiler takes, over the repository's header as a port's build reads it.
+    let runtime_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
+    match Command::new("clang")
+        .arg("-fsyntax-only")
+        .arg("-I")
+        .arg(&c_dir)
+        .arg("-I")
+        .arg(&runtime_dir)
+        .arg(c_dir.join("platform.c"))
+        .output()
+    {
+        Ok(out) => assert!(out.status.success(), "platform.c does not compile:\n{}", String::from_utf8_lossy(&out.stderr)),
+        Err(_) => eprintln!("skipped the compile of platform.c: no clang on the PATH"),
+    }
+}
+
 /// The EE caller of the IOP module fixture: each `SifCallRpc` names the function of `hello.irx`
 /// beside it that its number reaches through the dispatcher the module registers, and the module's
 /// own import stubs read by their names.

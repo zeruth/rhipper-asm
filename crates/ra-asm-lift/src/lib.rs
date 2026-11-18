@@ -97,6 +97,9 @@ pub struct Lifted {
     /// instance), which the port calls with `DLL_PROCESS_ATTACH` before the program's entry, as
     /// the loader would have.
     pub attach: Vec<(u64, Option<String>)>,
+    /// The device registers of the console the image runs on: the raise makes every access of
+    /// one a call on the platform runtime.
+    pub devices: Option<data::Devices>,
     pub warnings: Vec<String>,
 }
 
@@ -327,6 +330,7 @@ impl Lifted {
             vtables: self.vtables.clone(),
             host_objects: self.host_objects,
             traced_calls: self.traced_calls.clone(),
+            devices: self.devices,
         }
     }
 
@@ -409,6 +413,7 @@ impl Lifted {
             initializer_tables: Vec::new(),
             bound: self.bound.clone(),
             attach: Vec::new(),
+            devices: self.devices,
             warnings: Vec::new(),
         }
     }
@@ -659,6 +664,7 @@ fn lift_on(
         initializer_tables: initializer_tables(image, analysis),
         bound: HashMap::new(),
         attach: Vec::new(),
+        devices: data::Devices::of(image),
         warnings: Vec::new(),
     };
     for (image, analysis) in &images {
@@ -924,6 +930,7 @@ fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, t
             initializer_tables: _,
             bound,
             attach: _,
+            devices: _,
             warnings,
         } = worker;
         let Module { name: _, triple: _, data_layout: _, types, globals, declarations, functions: built, frozen, variables } = module;

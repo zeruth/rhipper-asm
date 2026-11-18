@@ -507,6 +507,10 @@ pub struct Options {
     /// reached: a call to them directly, with the indirect call kept for any other target (see
     /// [`abi::traced_calls`]).
     pub traced_calls: BTreeMap<u64, Vec<u64>>,
+    /// The device registers of the image's console: at the ABI level an access of one at a
+    /// constant address becomes the call on the platform runtime that makes it (see
+    /// [`crate::data::device_accesses`]).
+    pub devices: Option<crate::data::Devices>,
 }
 
 impl Default for Options {
@@ -519,6 +523,7 @@ impl Default for Options {
             vtables: Vec::new(),
             host_objects: false,
             traced_calls: BTreeMap::new(),
+            devices: None,
         }
     }
 }
