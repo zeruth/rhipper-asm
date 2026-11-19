@@ -118,6 +118,7 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         ends: HashMap::new(),
         single_predecessor: single_predecessors(f),
         r3000,
+        kernel: r3000 && image.psx_bios.is_some(),
         allegrex,
         r5900,
         vr4300: image.platform() == Some("n64"),
@@ -324,6 +325,9 @@ struct Lifter<'a, 'b> {
     single_predecessor: HashMap<u64, u64>,
     /// A `PlayStation` program: the R3000, with the GTE and no FPU.
     r3000: bool,
+    /// A `PlayStation`'s own ROM: the kernel itself, which takes its exceptions at its vector
+    /// and reaches its tables by the jumps a program makes, with nothing to answer for it.
+    kernel: bool,
     /// A PSP program: the Allegrex, whose own `SPECIAL` and `SPECIAL3` forms replace MIPS III's.
     allegrex: bool,
     /// A `PlayStation 2` program: the R5900, with its 128-bit registers and multimedia
@@ -442,18 +446,26 @@ impl Lifter<'_, '_> {
             }
             T::Switch { targets, .. } => {
                 let default = self.m.b.block("switch.bad");
-                self.m.trap(default, last, trap::BAD_SWITCH);
                 let Some(target) = self.jump_target else {
+                    self.m.trap(default, last, trap::BAD_SWITCH);
                     self.warn(format!("{last:#x}: a switch with no computed target"));
                     self.m.trap(block, last, trap::INVALID);
                     return;
                 };
+                if self.r3000 {
+                    // An address the table the analysis read does not hold is still where the
+                    // program goes: the run's processor takes the rest of the function from it.
+                    self.runtime_call(default, target);
+                    self.m.b.terminate(default, Terminator::Ret(None));
+                } else {
+                    self.m.trap(default, last, trap::BAD_SWITCH);
+                }
                 let cases = targets.iter().filter_map(|t| self.blocks.get(t).map(|b| (i128::from(*t), *b))).collect();
                 self.m.b.terminate(block, Terminator::Switch { ty: Type::I64, value: target.into(), default, cases });
             }
             T::IndirectJump => {
                 let Some(target) = self.jump_target else {
-                    self.m.trap(block, last, trap::INVALID);
+                    self.give_up(block, last);
                     return;
                 };
                 // A jump the analysis did not resolve: most often a tail call through a pointer.
@@ -472,7 +484,21 @@ impl Lifter<'_, '_> {
             T::Return => self.m.b.terminate(block, Terminator::Ret(None)),
             T::Trap => self.m.trap(block, last, trap::UD2),
             T::Halt => self.m.trap(block, last, trap::HLT),
-            T::Invalid => self.m.trap(block, last, trap::INVALID),
+            // The bytes after the last instruction the analysis read are none it reads.
+            T::Invalid => self.give_up(block, blk.instrs.last().map_or(blk.start, Instr::end)),
+        }
+    }
+
+    /// Where the lift cannot go on at `address`: a trap. A `PlayStation` program's run has the
+    /// processor itself for the code no function covers (a branch in a delay slot, a word the
+    /// analysis does not read), so there the rest of the function from `address` is that code's:
+    /// called as a function is, and returned from when it returns.
+    fn give_up(&mut self, block: BlockId, address: u64) {
+        if self.r3000 {
+            self.runtime_call(block, address as i64);
+            self.m.b.terminate(block, Terminator::Ret(None));
+        } else {
+            self.m.trap(block, address, trap::INVALID);
         }
     }
 
@@ -491,7 +517,7 @@ impl Lifter<'_, '_> {
             self.call_lifted(b, target);
             self.m.b.terminate(b, Terminator::Ret(None));
         } else {
-            self.m.trap(b, target, trap::INVALID);
+            self.give_up(b, target);
         }
         b
     }
@@ -559,7 +585,7 @@ impl Lifter<'_, '_> {
             Some(s) => {
                 let Some(sw) = self.word(s.address).filter(|sw| !sw.is_branch()) else {
                     self.warn(format!("{:#x}: a branch in the delay slot of the branch at {ip:#x}", s.address));
-                    self.m.trap(block, s.address, trap::INVALID);
+                    self.give_up(block, ip);
                     return block;
                 };
                 self.m.b.address = Some(s.address);
@@ -588,7 +614,7 @@ impl Lifter<'_, '_> {
             None if likely => self.after_slot(block, ip, cond, jump, call),
             None => {
                 self.warn(format!("{ip:#x}: a branch whose delay slot is not in its block"));
-                self.m.trap(block, ip, trap::INVALID);
+                self.give_up(block, ip);
                 block
             }
         }
@@ -618,7 +644,7 @@ impl Lifter<'_, '_> {
     /// call of a `PlayStation` program goes to: a `j` or `jal` that names it, or a `jr` or `jalr`
     /// through a register the block set to it.
     fn bios_entry(&self, w: Word, ip: u64) -> Option<u64> {
-        if !self.r3000 {
+        if !self.r3000 || self.kernel {
             return None;
         }
         let target = match w.op() {
@@ -643,7 +669,8 @@ impl Lifter<'_, '_> {
         let Some(call) = number.and_then(|n| psx_bios(entry, u64::from(n))) else {
             let held = number.map_or_else(|| "no constant".to_owned(), |n| format!("{n:#x}"));
             self.warn(format!("{ip:#x}: a BIOS call through {entry:#x} with {held} in t1, which the table does not name"));
-            self.m.trap(block, ip, trap::INVALID);
+            // The run's processor makes the jump with the number `t1` holds then.
+            self.give_up(block, ip);
             return block;
         };
         self.bios_function(block, call);
@@ -655,7 +682,13 @@ impl Lifter<'_, '_> {
 
     /// `v0 = ra_bios_<name>(a0, ...)`, its result a word as the BIOS leaves it.
     fn bios_function(&mut self, block: BlockId, call: BiosCall) {
-        let args: Vec<(Type, Operand)> = (0..call.params).map(|i| (Type::I64, self.reg64(block, 4 + i).into())).collect();
+        let mut args: Vec<(Type, Operand)> = (0..call.params).map(|i| (Type::I64, self.reg64(block, 4 + i).into())).collect();
+        // `setjmp` saves the caller's registers, which are the state's: its second argument is
+        // where the state is, not `a1`.
+        if call.name == crate::raise::prototypes::PSX_SETJMP {
+            let state = self.m.b.cast(block, Cast::PtrToInt, Type::Ptr, self.m.state, Type::I64, "state");
+            args[1] = (Type::I64, state.into());
+        }
         if let Some(r) = self.m.b.call(block, call.fn_type(), Callee::Direct(call.symbol()), args, call.name) {
             let word = self.m.b.cast(block, Cast::Trunc, Type::I64, r, Type::I32, "v0.w");
             self.set32(block, 2, word);
@@ -1141,6 +1174,11 @@ impl Lifter<'_, '_> {
                 };
                 let p = self.cop0_ptr(block, rd);
                 self.m.b.store(block, Type::I64, v, p);
+                // What a write of the R3000's status changes is the machine's to see.
+                if self.r3000 && rd == STATUS {
+                    let args = vec![(Type::Ptr, self.m.state.into())];
+                    self.m.b.call(block, crate::state::psx_status_type(), Callee::Direct(crate::state::PSX_STATUS.into()), args, "");
+                }
             }
             // The R3000's `rfe`: the status register's mode stack pops, the two older pairs of its
             // six low bits moving down over the current pair.
@@ -1317,6 +1355,12 @@ impl Lifter<'_, '_> {
             }
             // The EE kernel's calls take their number in `v1`: no o32 Linux call.
             12 if self.r5900 => return self.ee_syscall(block, w, ip),
+            // The kernel itself takes `syscall` and `break` as the exceptions they are.
+            12 | 13 if self.kernel => {
+                let code = if funct == 12 { 8i64 } else { 9 };
+                let args = vec![(Type::Ptr, self.m.state.into()), (Type::I64, code.into()), (Type::I64, (ip as i64).into())];
+                self.m.b.call(block, crate::state::psx_exception_type(), Callee::Direct(crate::state::PSX_EXCEPTION.into()), args, "");
+            }
             // The PlayStation's kernel takes the call's function in `a0`.
             12 if self.r3000 => self.bios_function(block, crate::raise::prototypes::psx_syscall()),
             // The R5900 has no doubleword multiply or divide.
@@ -1521,6 +1565,33 @@ impl Lifter<'_, '_> {
         let signed = w.funct() & 1 == 0;
         let a = self.reg(block, w.rs(), ty);
         let b = self.reg(block, w.rt(), ty);
+        if self.r3000 {
+            // The R3000 traps on neither and its results are known: by zero the remainder is the
+            // dividend and the quotient all ones (one, of a negative dividend divided signed); the
+            // most negative number by -1 is itself, with no remainder, as dividing by one gives.
+            let zero = self.m.b.icmp(block, ICond::Eq, ty.clone(), b, 0i64, "zero");
+            let mut safe = zero;
+            if signed {
+                let is_min = self.m.b.icmp(block, ICond::Eq, ty.clone(), a, i64::from(i32::MIN), "min");
+                let minus = self.m.b.icmp(block, ICond::Eq, ty.clone(), b, -1i64, "minus");
+                let both = self.m.b.bin(block, BinOp::And, Type::I1, is_min, minus, "overflow");
+                safe = self.m.b.bin(block, BinOp::Or, Type::I1, zero, both, "special");
+            }
+            let divisor = self.m.select(block, safe, ty.clone(), 1i64, b, "divisor");
+            let (div, rem) = if signed { (BinOp::SDiv, BinOp::SRem) } else { (BinOp::UDiv, BinOp::URem) };
+            let q = self.m.b.bin(block, div, ty.clone(), a, divisor, "quotient");
+            let r = self.m.b.bin(block, rem, ty.clone(), a, divisor, "remainder");
+            let by_zero = if signed {
+                let negative = self.m.b.icmp(block, ICond::Slt, ty.clone(), a, 0i64, "negative");
+                self.m.select(block, negative, ty.clone(), 1i64, -1i64, "quotient.zero")
+            } else {
+                self.m.value_of(block, ty.clone(), -1i64)
+            };
+            let q = self.m.select(block, zero, ty.clone(), by_zero, q, "quotient");
+            let r = self.m.select(block, zero, ty.clone(), a, r, "remainder");
+            self.set_pair(block, second, ty, q, r);
+            return block;
+        }
         // The quotient of a division by zero, and of the most negative number by -1, is
         // unpredictable: the lift stops rather than pick one.
         let zero = self.m.b.icmp(block, ICond::Eq, ty.clone(), b, 0i64, "zero");

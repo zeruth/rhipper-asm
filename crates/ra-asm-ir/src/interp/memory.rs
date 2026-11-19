@@ -108,6 +108,10 @@ pub struct Memory {
     devices: Vec<Mapped>,
     /// A device register was written since [`Memory::take_device_write`] last asked.
     device_written: bool,
+    /// The writes so far to the range [`Memory::count_stores`] named, its start and its length.
+    stores: u64,
+    loads: u64,
+    counted: (u64, u64),
     /// The byte order of the program's words: the module's, which [`Memory::read_word`] and
     /// [`Memory::write_word`] follow; the fixed-width accessors stay in the host's order, the
     /// order of the machine state.
@@ -150,6 +154,23 @@ impl Memory {
     /// writes after the instruction that made them asks between two instructions.
     pub fn take_device_write(&mut self) -> bool {
         std::mem::take(&mut self.device_written)
+    }
+
+    /// Counts the writes to the `len` bytes at `start` from now on: a console's RAM, apart from
+    /// the machine state and the stack the run keeps elsewhere.
+    pub fn count_stores(&mut self, start: u64, len: u64) {
+        self.counted = (start, len);
+    }
+
+    /// How many writes the counted range has taken so far: a host that asks twice knows whether
+    /// the program stored anything there between.
+    pub fn stores(&self) -> u64 {
+        self.stores
+    }
+
+    /// How many reads the counted range has answered so far.
+    pub fn loads(&self) -> u64 {
+        self.loads
     }
 
     fn device(&mut self, address: u64, len: u64) -> Option<&mut Mapped> {
@@ -221,7 +242,13 @@ impl Memory {
         }
         if let Some(mapped) = self.device(address, buf.len() as u64) {
             mapped.device.read(address, buf);
+            // A device's register read counts with the reads of the counted range: both are
+            // what a program that waits looks at.
+            self.loads += 1;
             return Ok(());
+        }
+        if address.wrapping_sub(self.counted.0) < self.counted.1 {
+            self.loads += 1;
         }
         let region = self.locate(address, buf.len() as u64)?;
         let region = &self.regions[region];
@@ -254,6 +281,9 @@ impl Memory {
             mapped.device.write(address, bytes);
             self.device_written = true;
             return Ok(());
+        }
+        if address.wrapping_sub(self.counted.0) < self.counted.1 {
+            self.stores += 1;
         }
         let region = self.locate(address, bytes.len() as u64)?;
         let region = &mut self.regions[region];

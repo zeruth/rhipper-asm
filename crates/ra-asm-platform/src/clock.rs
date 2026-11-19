@@ -26,6 +26,11 @@ impl<E: Ord> Scheduler<E> {
         self.now
     }
 
+    /// The cycles until the next event comes due; `None` with none scheduled.
+    pub fn until_next(&self) -> Option<u64> {
+        self.events.peek().map(|Reverse((due, ..))| due.saturating_sub(self.now))
+    }
+
     /// Schedules `event` for `after` cycles from now.
     pub fn after(&mut self, after: u64, event: E) {
         self.order += 1;

@@ -456,6 +456,15 @@ fn mips_bound(blocks: &[&[Instr]], shifted: (usize, usize), index: Register) -> 
             {
                 return usize::try_from(*value).ok().map(|entries| (entries, i.address));
             }
+            // An index masked to its low bits needs no compare: `andi idx, x, 3` is four entries.
+            if i.mnemonic == "andi"
+                && dst.is_some_and(|d| same(d, index))
+                && let Some(Operand::Imm { value, .. }) = i.operands.get(2)
+                && let Ok(mask) = usize::try_from(*value)
+                && (mask + 1).is_power_of_two()
+            {
+                return Some((mask + 1, i.address));
+            }
             if writes_first(i) && dst.is_some_and(|d| same(d, index)) {
                 return None;
             }

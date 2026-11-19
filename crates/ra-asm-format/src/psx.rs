@@ -92,7 +92,8 @@ pub const BIOS_RESET: u64 = 0xbfc0_0000;
 /// the shell, which the first ROMs do not have.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bios {
-    /// The kernel's date as the header holds it, in BCD: `0x19951204`.
+    /// The kernel's date as the header holds it, in BCD: `0x19951204`; zero, with no type and no
+    /// maker, for a ROM that has code where the header is.
     pub kernel_date: u32,
     pub kernel_type: u32,
     /// `Sony Computer Entertainment Inc.`, or another maker's name.
@@ -109,7 +110,8 @@ impl Bios {
     const SIZES: [usize; 3] = [0x4_0000, 0x8_0000, 0x10_0000];
 
     /// Reads what the ROM `bytes` says of itself; `None` for bytes that are no BIOS ROM: another
-    /// size, no date in the kernel's header or no maker's name after it.
+    /// size, or neither the kernel's header (its date and its maker's name) nor reset code that
+    /// sets up the console's memory control. A ROM without the header has no date and no maker.
     pub fn parse(bytes: &[u8]) -> Option<Self> {
         if !Self::SIZES.contains(&bytes.len()) {
             return None;
@@ -120,24 +122,33 @@ impl Bios {
         if !matches!(word(0) >> 26, 0x02 | 0x0f | 0x10) {
             return None;
         }
-        let kernel_date = word(0x100);
-        let bcd = |shift: u32, digits: u32| {
-            (0..digits).try_fold(0, |n, i| {
-                let digit = (kernel_date >> (shift + 4 * (digits - 1 - i))) & 0xf;
-                (digit < 10).then_some(n * 10 + digit)
-            })
-        };
-        let (year, month, day) = (bcd(16, 4)?, bcd(8, 2)?, bcd(0, 2)?);
-        if !(1993..2100).contains(&year) || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-            return None;
-        }
         let text = |from: usize, most: usize| -> String {
             bytes[from..].iter().take(most).take_while(|b| (0x20..0x7f).contains(*b)).map(|b| char::from(*b)).collect()
         };
+        let dated = word(0x100);
+        let bcd = |shift: u32, digits: u32| {
+            (0..digits).try_fold(0, |n, i| {
+                let digit = (dated >> (shift + 4 * (digits - 1 - i))) & 0xf;
+                (digit < 10).then_some(n * 10 + digit)
+            })
+        };
+        let date = (|| {
+            let (year, month, day) = (bcd(16, 4)?, bcd(8, 2)?, bcd(0, 2)?);
+            ((1993..2100).contains(&year) && (1..=12).contains(&month) && (1..=31).contains(&day)).then_some(dated)
+        })();
         let maker = text(0x108, 0x60);
-        if maker.len() < 4 {
+        let header = date.filter(|_| maker.len() >= 4);
+        // A ROM of another maker has code where the console's own has the header. What tells it
+        // from a file of its size is what every ROM does first: its reset code sets the memory
+        // control's registers, whose address it builds in its first words.
+        let sets_memory_control = (0..16).any(|n| word(4 * n) & 0xffe0_ffff == 0x3c00_1f80);
+        if header.is_none() && !sets_memory_control {
             return None;
         }
+        let (kernel_date, kernel_type, maker) = match header {
+            Some(date) => (date, word(0x104), maker),
+            None => (0, 0, String::new()),
+        };
         let find = |needle: &[u8]| bytes.windows(needle.len()).position(|w| w == needle);
         // The shell's string carries its date and region; a bare one of the font's ROM does not,
         // so the longest in the console's own 512 KiB is the one.
@@ -153,7 +164,41 @@ impl Bios {
             let name = text(start, 48);
             name.ends_with('.').then(|| name.split_whitespace().collect::<Vec<_>>().join(" "))
         });
-        Some(Self { kernel_date, kernel_type: word(0x104), maker, kernel, version })
+        Some(Self { kernel_date, kernel_type, maker, kernel, version })
+    }
+
+    /// Where the ROM `bytes` keeps the shell and where its start code copies it to before it
+    /// calls it: the offset in the ROM, the RAM address and the length, read from the constants
+    /// of that copy's call (`a0` the RAM address, `a1` the ROM's, `a2` the length, built within
+    /// a few instructions of each other). `None` for a ROM whose code has no such call.
+    pub fn shell(bytes: &[u8]) -> Option<(usize, u32, u32)> {
+        let rom = &bytes[..bytes.len().min(BIOS_SIZE as usize)];
+        let words: Vec<u32> = rom.chunks_exact(4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]])).collect();
+        // The constant a `lui` at `at` builds, with the `addiu` or `ori` that completes it in
+        // the next few words, and the register that holds it.
+        let constant = |at: usize| -> Option<(u32, u32)> {
+            let word = *words.get(at)?;
+            if word >> 26 != 0x0f {
+                return None;
+            }
+            let (register, high) = ((word >> 16) & 31, (word & 0xffff) << 16);
+            let completed = words[at + 1..].iter().take(7).find_map(|next| {
+                let (op, source, low) = (next >> 26, (next >> 21) & 31, next & 0xffff);
+                (matches!(op, 0x09 | 0x0d) && source == register).then(|| {
+                    let low = if op == 0x09 { i32::from(low as u16 as i16).cast_unsigned() } else { low };
+                    ((next >> 16) & 31, high.wrapping_add(low))
+                })
+            });
+            Some(completed.unwrap_or((register, high)))
+        };
+        (0..words.len()).find_map(|at| {
+            let (_, target) = constant(at).filter(|(register, value)| *register == 4 && (0x8001_0000..0x8020_0000).contains(value))?;
+            let near: Vec<(u32, u32)> = (at.saturating_sub(12)..at + 12).filter_map(constant).collect();
+            let source = near.iter().find(|(register, value)| *register == 5 && (0xbfc0_0000..0xbfc8_0000).contains(value))?.1;
+            let len = near.iter().find(|(register, value)| *register == 6 && (1..0x8_0000).contains(value))?.1;
+            let offset = (source - 0xbfc0_0000) as usize;
+            (offset + len as usize <= rom.len()).then_some((offset, target, len))
+        })
     }
 
     /// The kernel's date as `1995-12-04`.
@@ -188,6 +233,17 @@ mod bios_tests {
     }
 
     #[test]
+    fn the_shell_is_where_the_copy_before_its_call_says() {
+        let mut rom = rom();
+        // lui a1, 0xbfc1; ori a1, a1, 0x8000; lui a2, 6; ori a2, a2, 0x7ff0; jal; lui a0, 0x8003.
+        for (i, word) in [0x3c05_bfc1u32, 0x34a5_8000, 0x3c06_0006, 0x34c6_7ff0, 0x0ff0_0000, 0x3c04_8003].into_iter().enumerate() {
+            rom[0x7000 + 4 * i..0x7004 + 4 * i].copy_from_slice(&word.to_le_bytes());
+        }
+        assert_eq!(Bios::shell(&rom), Some((0x1_8000, 0x8003_0000, 0x6_7ff0)));
+        assert_eq!(Bios::shell(&self::rom()), None, "a ROM without the copy");
+    }
+
+    #[test]
     fn bytes_of_another_size_date_or_start_are_no_rom() {
         let rom = rom();
         assert!(Bios::parse(&rom[..0x7_0000]).is_none(), "another size");
@@ -197,6 +253,18 @@ mod bios_tests {
         let mut other = rom;
         other[..4].copy_from_slice(b"MZ\x90\0");
         assert!(Bios::parse(&other).is_none(), "a file that starts as another kind does");
+    }
+
+    #[test]
+    fn a_rom_without_the_header_is_one_by_its_reset_code() {
+        let mut rom = vec![0u8; 0x8_0000];
+        // lui t0, 0x13; ori t0, t0, 0x243f; lui at, 0x1f80; sw t0, 0x1010(at).
+        for (i, word) in [0x3c08_0013u32, 0x3508_243f, 0x3c01_1f80, 0xac28_1010].into_iter().enumerate() {
+            rom[4 * i..4 * i + 4].copy_from_slice(&word.to_le_bytes());
+        }
+        let bios = Bios::parse(&rom).expect("a ROM of another maker");
+        assert_eq!((bios.kernel_date, bios.maker.as_str(), bios.version), (0, "", None));
+        assert_eq!(Bios::shell(&rom), None);
     }
 }
 

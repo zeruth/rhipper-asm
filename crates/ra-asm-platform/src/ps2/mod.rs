@@ -372,6 +372,10 @@ impl Platform for Ps2 {
         if self.closed { Err(Stop::Exit(0)) } else { Ok(()) }
     }
 
+    fn idle(&self) -> u64 {
+        self.clock.until_next().unwrap_or(0)
+    }
+
     fn deliver(&mut self, _memory: &mut dyn Memory) -> Option<Delivery> {
         self.kernel_deliver()
     }

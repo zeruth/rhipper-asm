@@ -373,9 +373,13 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     }
     state.run();
 
-    // The immediates of the functions the pointers named.
+    // The immediates of the functions the pointers named, and on a PlayStation the addresses
+    // its code builds in two halves.
     for _ in 0..4 {
-        let seeds = immediate_seeds(image, &state.functions, &state.cover);
+        let mut seeds = immediate_seeds(image, &state.functions, &state.cover);
+        if image.platform() == Some("psx") {
+            seeds.extend(mips_pair_seeds(image, &state.functions, &state.cover));
+        }
         if seeds.is_empty() {
             break;
         }
@@ -592,6 +596,96 @@ fn immediate_seeds(image: &Image, functions: &BTreeMap<u64, Function>, cover: &C
                     continue;
                 }
                 seeds.push((va, Origin::Pointer(i.address)));
+            }
+        }
+    }
+    seeds.sort_by_key(|(va, _)| *va);
+    seeds.dedup_by_key(|(va, _)| *va);
+    seeds
+}
+
+/// The functions a `PlayStation` program names only by an address it builds: a `lui` and the
+/// `addiu` or `ori` that completes it in the same block, giving the address of code no function
+/// holds yet that starts as a function with a frame does, `addiu $sp, $sp, -n`. A handler or a
+/// callback is handed to the kernel that way, and the image has no relocation to say the
+/// constant is an address; the frame's instruction is what tells it from a number.
+fn mips_pair_seeds(image: &Image, functions: &BTreeMap<u64, Function>, cover: &Cover) -> Vec<(u64, Origin)> {
+    // Code that makes its frame within its first four instructions, before any jump: the end of
+    // one function with the start of the next after it is no start.
+    let framed = |va: u64| {
+        // A number that reads as the code's address in another segment is a number.
+        if va % 4 != 0 || !image.is_code(va) || image.memory_region(va).is_some_and(|(_, folded)| folded != va) {
+            return false;
+        }
+        for n in 0..4 {
+            let Ok(word) = image.u32(va + 4 * n) else { return false };
+            if word >> 16 == 0x27bd && word & 0x8000 != 0 {
+                return true;
+            }
+            let jump = matches!(word >> 26, 2 | 3) || (word >> 26 == 0 && matches!(word & 0x3f, 8 | 9));
+            if jump {
+                return false;
+            }
+        }
+        false
+    };
+    // A function may make its frame late or have none: an address is a start all the same when
+    // the code before it ends in a return or in the jump of a stub to one of the BIOS's tables
+    // (`j 0xa0`, `j 0xb0`, `j 0xc0`), with its delay slot or a pad after. Any other jump is as
+    // often the end of a switch's case, in the middle of its function.
+    let starts = |va: u64| {
+        let word = |at: u64| image.u32(at).unwrap_or(u32::MAX);
+        let leaves = |at: u64| matches!(word(at), 0x03e0_0008 | 0x0800_0028 | 0x0800_002c | 0x0800_0030);
+        let after_return = va % 4 == 0
+            && image.is_code(va)
+            && image.memory_region(va).is_none_or(|(_, folded)| folded == va)
+            && (leaves(va.wrapping_sub(8)) || (word(va.wrapping_sub(4)) == 0 && leaves(va.wrapping_sub(12))));
+        framed(va) || after_return
+    };
+    let mut seeds = Vec::new();
+    for block in functions.values().flat_map(|f| &f.blocks) {
+        let mut high: HashMap<u32, u32> = HashMap::new();
+        for i in &block.instrs {
+            let Ok(word) = image.u32(i.address) else { continue };
+            let (op, rs, rt, low) = (word >> 26, (word >> 21) & 31, (word >> 16) & 31, word & 0xffff);
+            match op {
+                0x0f => {
+                    high.insert(rt, low << 16);
+                }
+                0x09 | 0x0d if high.contains_key(&rs) => {
+                    let low = if op == 0x09 { i32::from(low as u16 as i16).cast_unsigned() } else { low };
+                    let va = u64::from(high[&rs].wrapping_add(low));
+                    if starts(va) && !functions.contains_key(&va) && !cover.covered(va) {
+                        seeds.push((va, Origin::Pointer(i.address)));
+                    }
+                    high.remove(&rt);
+                }
+                _ => {}
+            }
+        }
+    }
+    // Where a call of the BIOS's `setjmp` returns is where the kernel's `longjmp` enters later, on
+    // an interrupt: an entry of its own. The call goes to the stub that names the function, by
+    // its table and its number.
+    const SETJMP_STUB: [u32; 3] = [0x240a_00a0, 0x0140_0008, 0x2409_0013];
+    let is_stub = |va: u64| (0u64..3).all(|n| image.u32(va + 4 * n).is_ok_and(|word| word == SETJMP_STUB[n as usize]));
+    for i in functions.values().flat_map(|f| &f.blocks).flat_map(|b| &b.instrs) {
+        let Ok(word) = image.u32(i.address) else { continue };
+        let target = ((i.address + 4) & 0xf000_0000) | (u64::from(word & 0x03ff_ffff) << 2);
+        let after = i.address + 8;
+        if word >> 26 == 3 && is_stub(target) && !functions.contains_key(&after) {
+            seeds.push((after, Origin::Pointer(i.address)));
+        }
+    }
+    // The image's one section holds its data too: a word of it, outside the code found so far,
+    // that holds such an address is a slot of a table of functions.
+    for section in &image.sections {
+        let start = image.va(section.virtual_address);
+        let Ok(bytes) = image.read_to_section_end(start) else { continue };
+        for (offset, chunk) in bytes.chunks_exact(4).enumerate() {
+            let (slot, va) = (start + 4 * offset as u64, image.pointer_in(chunk));
+            if !cover.covered(slot) && starts(va) && !functions.contains_key(&va) && !cover.covered(va) {
+                seeds.push((va, Origin::Pointer(slot)));
             }
         }
     }

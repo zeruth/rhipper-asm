@@ -110,6 +110,9 @@ impl Cdrom {
     fn command(&mut self, command: u8) {
         let parameters = std::mem::take(&mut self.parameters);
         let stat = self.stat();
+        if crate::tracing() {
+            eprintln!("cdrom: command {command:#04x} {parameters:02x?}");
+        }
         let needs_disc = matches!(command, 0x02 | 0x06 | 0x09 | 0x15 | 0x16 | 0x1b | 0x1e);
         if needs_disc && !self.disc {
             self.answer(FIRST, ERROR, vec![stat | 1, 0x80]);
@@ -204,6 +207,9 @@ impl Cdrom {
 
     fn raise(&mut self, interrupt: u8, bytes: Vec<u8>) -> bool {
         self.wait = self.pending.front().map_or(0, |(after, ..)| *after);
+        if crate::tracing() {
+            eprintln!("cdrom: interrupt {interrupt} {bytes:02x?}, enabled {:#04x}", self.enable);
+        }
         self.response = bytes.into();
         self.flag = interrupt;
         self.enable & interrupt != 0

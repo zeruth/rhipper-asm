@@ -112,6 +112,40 @@ fn int_bytes(v: u128, size: u64, big_endian: bool) -> Vec<u8> {
     if big_endian { v.to_be_bytes()[16 - n..].to_vec() } else { v.to_le_bytes()[..n].to_vec() }
 }
 
+/// A map keyed by a small integer the run looks up at every block and every field address: its
+/// hash is one multiplication, where the standard one is built to resist chosen keys.
+type Quick<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<QuickHasher>>;
+
+#[derive(Default)]
+struct QuickHasher(u64);
+
+impl std::hash::Hasher for QuickHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.0 = (self.0 ^ u64::from(byte)).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        }
+    }
+
+    fn write_u32(&mut self, n: u32) {
+        self.0 = u64::from(n).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+
+    fn write_usize(&mut self, n: usize) {
+        // An instruction's address: its low bits are its alignment's zeros.
+        self.0 = ((n >> 3) as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+}
+
+/// Whether a value of the type is one integer, pointer or float: what a load or a store moves
+/// without building it from parts.
+fn is_scalar(ty: &Type) -> bool {
+    matches!(ty, Type::Int(_) | Type::Ptr | Type::Float | Type::Double)
+}
+
 /// The call depth the interpreter allows before it stops a runaway recursion.
 const MAX_DEPTH: usize = 20_000;
 
@@ -161,6 +195,12 @@ pub struct Vm<'m> {
     pub poll: u64,
     /// The count of instructions the next poll is due at.
     poll_at: u64,
+    /// The first argument of the function a poll interrupts: the machine's state, at the levels
+    /// whose functions take it.
+    pub poll_argument: Option<u64>,
+    /// The offset each `getelementptr` of constant indices adds to its pointer, by the
+    /// instruction's place in the module, once it has run.
+    gep_offsets: Quick<usize, u64>,
     /// Where the host's stack stood at the outermost call of the module.
     stack_top: usize,
     /// The image address of each function, by index, where the host gave one: an entry of one on a
@@ -169,7 +209,7 @@ pub struct Vm<'m> {
     functions: HashMap<String, usize>,
     named: HashMap<String, Vec<Type>>,
     /// The index of each block of each function, by id.
-    blocks: Vec<HashMap<BlockId, usize>>,
+    blocks: Vec<Quick<BlockId, usize>>,
     symbols: HashMap<String, u64>,
     by_address: HashMap<u64, Symbol>,
     statics: Bump,
@@ -202,6 +242,8 @@ impl<'m> Vm<'m> {
             stack: 0,
             poll: 0,
             poll_at: 0,
+            poll_argument: None,
+            gep_offsets: Quick::default(),
             stack_top: 0,
             origins: HashMap::new(),
             functions,
@@ -621,12 +663,25 @@ impl<'m> Vm<'m> {
             Inst::Load { ty, ptr, .. } => {
                 let address = self.eval(f, values, ptr, &Type::Ptr)?.as_u64();
                 let size = self.layout().size(ty);
+                // A scalar, which most loads are, is read into the stack.
+                if is_scalar(ty) && size <= 16 {
+                    let mut bytes = [0u8; 16];
+                    self.memory.read(address, &mut bytes[..size as usize])?;
+                    return Ok(Value::from_bytes(ty, &bytes[..size as usize], &self.layout()));
+                }
                 let bytes = self.memory.read_vec(address, size)?;
                 Ok(Value::from_bytes(ty, &bytes, &self.layout()))
             }
             Inst::Store { ty, value, ptr, .. } => {
                 let address = self.eval(f, values, ptr, &Type::Ptr)?.as_u64();
                 let v = self.eval(f, values, value, ty)?;
+                let size = self.layout().size(ty);
+                if is_scalar(ty) && size <= 16 {
+                    let mut bytes = [0u8; 16];
+                    v.write_bytes(ty, &self.layout(), &mut bytes[..size as usize]);
+                    self.memory.write(address, &bytes[..size as usize])?;
+                    return Ok(Value::Int(0));
+                }
                 let bytes = v.to_bytes(ty, &self.layout());
                 self.memory.write(address, &bytes)?;
                 Ok(Value::Int(0))
@@ -662,8 +717,16 @@ impl<'m> Vm<'m> {
                 self.cast(*cast, from, &v, to)
             }
             Inst::Gep { base_ty, ptr, indices, .. } => {
+                // A field's address by constant indices, as every register of a machine state
+                // is reached, is the same offset each time the instruction runs.
+                let constant = indices.iter().all(|(_, index)| matches!(index, Operand::Int(_)));
+                let key = std::ptr::from_ref(i).addr();
+                if constant && let Some(offset) = self.gep_offsets.get(&key) {
+                    return Ok(Value::Int(u128::from(self.eval(f, values, ptr, &Type::Ptr)?.as_u64().wrapping_add(*offset))));
+                }
                 let layout = Layout { named: &self.named, big_endian: self.memory.big_endian() };
-                let mut address = self.eval(f, values, ptr, &Type::Ptr)?.as_u64();
+                let base = self.eval(f, values, ptr, &Type::Ptr)?.as_u64();
+                let mut address = base;
                 let mut ty = base_ty.clone();
                 for (k, (ity, iop)) in indices.iter().enumerate() {
                     let index = sext(self.eval(f, values, iop, ity)?.as_u128(), layout.bits(ity)) as i64;
@@ -688,6 +751,9 @@ impl<'m> Vm<'m> {
                         }
                         other => return Err(Stop::fault(format!("a getelementptr through {other}"))),
                     }
+                }
+                if constant {
+                    self.gep_offsets.insert(key, address.wrapping_sub(base));
                 }
                 Ok(Value::Int(u128::from(address)))
             }

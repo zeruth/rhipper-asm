@@ -148,12 +148,13 @@ impl Ps2 {
         self.kernel.running = Some(step);
         self.kernel.token += 1;
         let token = self.kernel.token;
+        let registers = Vec::new();
         Some(match step {
             Step::Handler { entry, cause, argument } => {
-                Delivery { entry: entry.into(), args: [cause.into(), argument.into(), 0, 0], stack: None, gp: None, token }
+                Delivery { entry: entry.into(), args: [cause.into(), argument.into(), 0, 0], stack: None, gp: None, registers, token }
             }
             Step::Alarm { entry, id, time, argument } => {
-                Delivery { entry: entry.into(), args: [id.into(), time.into(), argument.into(), 0], stack: None, gp: None, token }
+                Delivery { entry: entry.into(), args: [id.into(), time.into(), argument.into(), 0], stack: None, gp: None, registers, token }
             }
             Step::Thread { id, argument, .. } => {
                 let thread = &mut self.kernel.threads[id];
@@ -165,6 +166,7 @@ impl Ps2 {
                     args: [argument.into(), 0, 0, 0],
                     stack: Some(u64::from(thread.stack + thread.stack_size) & !0xf),
                     gp: (thread.gp != 0).then_some(thread.gp.into()),
+                    registers,
                     token,
                 }
             }

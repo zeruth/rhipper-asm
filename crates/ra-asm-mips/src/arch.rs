@@ -504,6 +504,15 @@ const R3000: &[Form] = &[
     plain("mfc0", 0xffe0_07ff, op(0x10), &[RT, RD]),
     plain("mtc0", 0xffe0_07ff, op(0x10) | (4 << 21), &[RT, RD]),
     plain("rfe", u32::MAX, op(0x10) | (16 << 21) | 0x10, &[]),
+    // Coprocessor 2, the GTE: a command, the moves of its data and control registers, and the
+    // load and store of a data register.
+    plain("cop2", 0xfe00_0000, op(0x12) | (1 << 25), &[]),
+    plain("mfc2", 0xffe0_07ff, op(0x12), &[RT, RD]),
+    plain("cfc2", 0xffe0_07ff, op(0x12) | (2 << 21), &[RT, RD]),
+    plain("mtc2", 0xffe0_07ff, op(0x12) | (4 << 21), &[RT, RD]),
+    plain("ctc2", 0xffe0_07ff, op(0x12) | (6 << 21), &[RT, RD]),
+    plain("lwc2", OP, op(0x32), &[RT, RS, D32]),
+    plain("swc2", OP, op(0x3a), &[RT, RS, D32]),
 ];
 
 /// The form of an instruction's code: a row of [`FORMS`], then of [`R5900_FORMS`], then of

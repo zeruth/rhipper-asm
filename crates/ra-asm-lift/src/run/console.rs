@@ -41,6 +41,10 @@ impl std::fmt::Debug for Console {
 const CYCLES_PER_INSTRUCTION: u64 = 2;
 /// The instructions between two looks at the machine.
 pub(super) const POLL: u64 = 256;
+/// The polls in a row that find the registers as they were before the program counts as waiting.
+const WAITING_POLLS: u32 = 8;
+/// How far apart, in bytes of code, the polls of a waiting program find it.
+const WAITING_SPAN: u64 = 128;
 /// The cycles the clock moves at a time while a call waits for the machine.
 const WAIT_QUANTUM: u64 = 4096;
 /// The stack the machine's calls into the program run on when the program gave none.
@@ -62,6 +66,35 @@ pub(super) struct Machine {
     states: Vec<u64>,
     stack: u64,
     depth: usize,
+    /// How many polls in a row found the program waiting; whether it called the machine since
+    /// the last poll.
+    seen_at: usize,
+    repeats: u32,
+    busy: bool,
+    /// Where the last polls found the program, and the memory's count of writes at the last.
+    sites: [u64; 8],
+    stores: u64,
+    loads: u64,
+    /// A PlayStation's processor, for the code of its program the lift has no function for.
+    pub(super) r3000: Option<super::r3000::Processor>,
+}
+
+/// A console's ROM seen through another segment of its address space.
+struct Rom {
+    start: u64,
+    bytes: Rc<[u8]>,
+}
+
+impl ra_asm_ir::interp::memory::Device for Rom {
+    fn read(&mut self, address: u64, buf: &mut [u8]) {
+        let at = (address - self.start) as usize;
+        match self.bytes.get(at..at + buf.len()) {
+            Some(bytes) => buf.copy_from_slice(bytes),
+            None => buf.fill(0),
+        }
+    }
+
+    fn write(&mut self, _address: u64, _bytes: &[u8]) {}
 }
 
 /// The device registers of a console in the interpreter's memory, one mirror of them.
@@ -170,6 +203,21 @@ fn stop(stop: ra_asm_platform::Stop) -> Stop {
     }
 }
 
+/// A command of the PlayStation's GTE: the sixty-four registers of the state's field at the
+/// first argument, through the command the second is the word of, and back.
+pub(super) fn gte(vm: &mut Vm<'_>, args: &[Value]) -> Result<Value, Stop> {
+    let (at, command) = (args.first().map_or(0, Value::as_u64), args.get(1).map_or(0, Value::as_u64));
+    let mut registers = [0i32; 64];
+    for (n, register) in registers.iter_mut().enumerate() {
+        *register = vm.memory.read_u32(at + 4 * n as u64)?.cast_signed();
+    }
+    ra_asm_platform::psx::gte::command(&mut registers, command as u32);
+    for (n, register) in registers.into_iter().enumerate() {
+        vm.memory.write_u32(at + 4 * n as u64, register.cast_unsigned())?;
+    }
+    Ok(Value::Int(0))
+}
+
 impl Machine {
     /// Gives `host` a window for its picture, its input and its sound, where the system has one;
     /// elsewhere the run stays headless, its console's text written through.
@@ -226,17 +274,67 @@ impl Machine {
         for segment in segments {
             vm.memory.add_device(segment + within, ram.1, Box::new(Mirror { start: segment + within, target: ram.0, ram }));
         }
+        if name == "psx" {
+            // The PlayStation's 2 MiB answer through the 8 MiB its memory control maps: three
+            // more times after themselves, in every segment.
+            for segment in [0x0000_0000, 0x8000_0000, 0xa000_0000u64] {
+                for again in 1..4 {
+                    let start = segment + again * ram.1;
+                    vm.memory.add_device(start, ram.1, Box::new(Mirror { start, target: ram.0, ram }));
+                }
+            }
+            // The ROM, the image's own or the one beside it, through the cached segments.
+            let rom: Option<Rc<[u8]>> = match (&image.psx_bios, &image.rom) {
+                (Some(_), _) => Some(image.mapped().into()),
+                (None, Some((_, bytes))) => Some(bytes.as_slice().into()),
+                (None, None) => None,
+            };
+            if let Some(bytes) = rom {
+                for start in [0x1fc0_0000, 0x9fc0_0000u64] {
+                    vm.memory.add_device(start, bytes.len() as u64, Box::new(Rom { start, bytes: bytes.clone() }));
+                }
+            }
+        }
         vm.memory.add_region(ra_asm_ir::interp::Region::owned(scratchpad.0, scratchpad.1, "scratchpad"));
         if name == "psx" {
             let cache = ra_asm_platform::psx::CACHE_CONTROL;
             vm.memory.add_device(cache, 4, Box::new(Ports { platform: platform.clone(), writes: writes.clone() }));
         }
         vm.poll = POLL;
-        Some(Self { platform, writes, capture, counted: 0, states: Vec::new(), stack: 0, depth: 0 })
+        vm.memory.count_stores(ram.0, ram.1);
+        let r3000 = if name == "psx" { super::r3000::Processor::new(vm, image.psx_bios.is_some()) } else { None };
+        Some(Self {
+            r3000,
+            platform,
+            writes,
+            capture,
+            counted: 0,
+            states: Vec::new(),
+            stack: 0,
+            depth: 0,
+            seen_at: 0,
+            repeats: 0,
+            busy: false,
+            sites: [0; 8],
+            stores: 0,
+            loads: 0,
+        })
+    }
+}
+
+impl Machine {
+    /// The level of the console's interrupt line.
+    pub(super) fn interrupt(&self) -> bool {
+        self.platform.borrow().interrupt()
     }
 }
 
 impl Runtime<'_> {
+    /// The stacks the console keeps in its own memory, when the program has a console that does.
+    pub(super) fn stacks(&self) -> Option<ra_asm_platform::Stacks> {
+        self.machine.as_ref().and_then(|machine| machine.platform.borrow().stacks())
+    }
+
     fn machine(&mut self) -> Result<&mut Machine, Stop> {
         self.machine.as_mut().ok_or_else(|| Stop::fault("the program's console has no platform runtime"))
     }
@@ -250,9 +348,31 @@ impl Runtime<'_> {
         let writes: Vec<(u64, Vec<u8>)> = std::mem::take(&mut machine.writes.borrow_mut());
         let cycles = (vm.instructions - machine.counted) * CYCLES_PER_INSTRUCTION;
         machine.counted = vm.instructions;
+        // A program that only waits goes round a few instructions: it reads what it waits for
+        // from its memory or from a device's register, stores nothing, writes no register and
+        // calls nothing. When poll after poll finds it so, the clock moves on toward what it
+        // waits for. (A loop that only counts is a delay, which takes the time it takes.)
+        let interrupted = vm.poll_argument.take();
+        let kernel = machine.r3000.as_ref().is_some_and(|processor| processor.kernel);
+        let polled = interrupted.is_some() && writes.is_empty() && !machine.busy;
+        machine.busy = false;
+        let stored = std::mem::replace(&mut machine.stores, vm.memory.stores()) != vm.memory.stores();
+        let loaded = std::mem::replace(&mut machine.loads, vm.memory.loads()) != vm.memory.loads();
+        let site = vm.site.unwrap_or(0);
+        let near = machine.sites.iter().all(|s| s.abs_diff(site) <= WAITING_SPAN);
+        machine.sites[machine.seen_at % machine.sites.len()] = site;
+        machine.seen_at += 1;
+        machine.repeats = if polled && near && loaded && !stored { machine.repeats + 1 } else { 0 };
+        let waiting = machine.repeats >= WAITING_POLLS;
         {
             let mut platform = platform.borrow_mut();
             let mut guest = Guest { memory: &mut vm.memory, image };
+            if waiting {
+                // Not all the way at once: what the program waits for may be a register that
+                // changes between two of the machine's events, as the beam's line does.
+                let skipped = platform.idle().min(WAIT_QUANTUM * 4);
+                platform.advance(&mut guest, skipped).map_err(stop)?;
+            }
             for (address, bytes) in writes {
                 let Some(register) = platform.fold(address) else { continue };
                 let mut word = [0u8; 8];
@@ -262,7 +382,9 @@ impl Runtime<'_> {
             }
             platform.advance(&mut guest, cycles).map_err(stop)?;
         }
-        self.deliveries(vm)
+        // A kernel takes its interrupts itself, as the processor raises them; an answered one
+        // has the machine call the program's handlers.
+        if kernel { self.psx_interrupt(vm, interrupted) } else { self.deliveries(vm) }
     }
 
     /// Makes every call into the program the machine has due, each to its end.
@@ -285,10 +407,12 @@ impl Runtime<'_> {
     /// arguments, on the stack the delivery names or the handlers' own. A function of the machine
     /// shape gets a state of its own, so the registers of the code it interrupts stay as they are.
     fn deliver(&mut self, vm: &mut Vm<'_>, delivery: &Delivery) -> Result<u64, Stop> {
-        let Some(name) = vm.name_at(delivery.entry).map(str::to_owned) else {
+        // Code the lift has no function for is the processor's, where the run has one.
+        let name = vm.name_at(delivery.entry).map(str::to_owned);
+        if name.is_none() && !self.r3000() {
             return Err(Stop::fault(format!("the machine calls {:#x}, which is no lifted function", delivery.entry)));
-        };
-        let machine_shape = vm.function(&name).is_some_and(|f| f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void);
+        }
+        let machine_shape = name.as_ref().is_none_or(|name| vm.function(name).is_some_and(|f| f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void));
         if !machine_shape {
             return self.call_back(vm, delivery.entry, [delivery.args[0], delivery.args[1], delivery.args[2]]);
         }
@@ -297,18 +421,23 @@ impl Runtime<'_> {
             let state = self.new_state(vm)?;
             self.machine()?.states.push(state);
         }
+        let stacks = self.stacks();
         if self.machine()?.stack == 0 {
-            // A state's worth of heap is a block like another: the stack is one of its own size.
-            let block = self.new_block(vm, HANDLER_STACK)?;
-            self.machine()?.stack = block + HANDLER_STACK - 64;
+            self.machine()?.stack = match stacks {
+                Some(stacks) => stacks.handlers,
+                // A state's worth of heap is a block like another: the stack is one of its own size.
+                None => self.new_block(vm, HANDLER_STACK)? + HANDLER_STACK - 64,
+            };
         }
         let global_pointer = self.image.global_pointer;
         let machine = self.machine()?;
         let state = machine.states[depth];
         // A nested handler runs below the one it interrupts.
-        let stack = delivery.stack.unwrap_or(machine.stack - depth as u64 * (HANDLER_STACK / 8));
+        let nested = stacks.map_or(HANDLER_STACK / 8, |stacks| stacks.nested);
+        let stack = delivery.stack.unwrap_or(machine.stack - depth as u64 * nested);
         machine.depth += 1;
-        let registers = [(29, stack), (31, 0), (4, delivery.args[0]), (5, delivery.args[1]), (6, delivery.args[2]), (7, delivery.args[3])];
+        let mut registers = vec![(29, stack), (31, 0), (4, delivery.args[0]), (5, delivery.args[1]), (6, delivery.args[2]), (7, delivery.args[3])];
+        registers.extend(delivery.registers.iter().map(|(register, value)| (u64::from(*register), *value)));
         let result = (|| {
             if let Some(gp) = delivery.gp.or(global_pointer) {
                 vm.memory.write_u64(state + 28 * 8, gp)?;
@@ -317,7 +446,12 @@ impl Runtime<'_> {
                 // A word in a 64-bit register is held sign-extended.
                 vm.memory.write_u64(state + register * 8, i64::from(value as u32 as i32) as u64)?;
             }
-            vm.call_named(self, &name, vec![Value::Int(u128::from(state))])?;
+            match &name {
+                Some(name) => {
+                    vm.call_named(self, name, vec![Value::Int(u128::from(state))])?;
+                }
+                None => self.r3000_call(vm, state, delivery.entry)?,
+            }
             vm.memory.read_u64(state + 2 * 8)
         })();
         if let Some(machine) = &mut self.machine {
@@ -331,9 +465,26 @@ impl Runtime<'_> {
     pub(super) fn console_call(&mut self, vm: &mut Vm<'_>, name: &str, args: &[Value]) -> Result<Value, Stop> {
         // The machine is as far as the program is before the function sees it.
         self.console_poll(vm)?;
+        self.machine()?.busy = true;
         let image = self.image;
         let platform = self.machine()?.platform.clone();
         let args: Vec<u64> = args.iter().map(Value::as_u64).collect();
+        // The BIOS's `setjmp` saves the caller's registers, which the lift handed as the state
+        // they are in: the return address, the stack and frame pointers, `s0` to `s7`, and the
+        // global pointer, which a PlayStation program keeps in a global.
+        if name == crate::raise::prototypes::PSX_SETJMP {
+            let (buffer, state) = (args.first().copied().unwrap_or(0) as u32, args.get(1).copied().unwrap_or(0));
+            let gp = match vm.symbol(crate::state::PSX_GP) {
+                Some(at) => vm.memory.read_u64(at)?,
+                None => 0,
+            };
+            for (slot, register) in [31u64, 29, 30, 16, 17, 18, 19, 20, 21, 22, 23].into_iter().enumerate() {
+                let value = vm.memory.read_u64(state + register * 8)?;
+                vm.memory.write_u32(u64::from(buffer) + 4 * slot as u64, value as u32)?;
+            }
+            vm.memory.write_u32(u64::from(buffer) + 44, gp as u32)?;
+            return Ok(Value::Int(0));
+        }
         let answer = platform.borrow_mut().call(&mut Guest { memory: &mut vm.memory, image }, name, &args).map_err(stop)?;
         let value = match answer {
             Answer::Value(value) => value,

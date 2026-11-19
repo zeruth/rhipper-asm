@@ -30,6 +30,8 @@ pub(crate) struct Options {
     /// How a console program's machine meets this one: its window or its headless capture, its
     /// disc and its files.
     pub console: Option<ra_asm_lift::run::Console>,
+    /// Where to write the sound of a console program's headless run, as a WAV file.
+    pub wav: Option<PathBuf>,
 }
 
 /// How the machine of `image`'s console meets this one, by the options of `ras run`: a window, or
@@ -94,7 +96,15 @@ pub(crate) fn run(image: &Image, options: &Options) -> Result<i32> {
         answers: None,
         console: options.console.clone(),
     };
+    let started = std::time::Instant::now();
     let outcome = ra_asm_lift::run::run(image, &lifted, &signatures, &run)?;
+    if options.trace || std::env::var_os("RA_RUN_STATS").is_some() {
+        let seconds = started.elapsed().as_secs_f64();
+        eprintln!("ra: {} IR instructions in {seconds:.2} s, {:.1} million a second", outcome.steps, outcome.steps as f64 / seconds / 1e6);
+        for line in ra_asm_ir::interp::block::profile::report() {
+            eprintln!("ra: {line}");
+        }
+    }
     if let Some(stop) = &outcome.stop {
         eprintln!("ra: {stop}");
     }
@@ -105,7 +115,35 @@ pub(crate) fn run(image: &Image, options: &Options) -> Result<i32> {
     if let Some(path) = &options.facts {
         write_facts(path, &outcome.facts)?;
     }
+    if let (Some(path), Some(capture)) = (&options.wav, options.console.as_ref().and_then(|c| c.capture.as_ref())) {
+        let kept = capture.lock();
+        std::fs::write(path, wav(&kept.samples, kept.rate)).with_context(|| format!("cannot write the sound at {}", path.display()))?;
+    }
     Ok(outcome.exit)
+}
+
+/// The sound a headless run kept as a WAV file's bytes: sixteen bits, two channels, at `rate`.
+fn wav(samples: &[[i16; 2]], rate: u32) -> Vec<u8> {
+    let rate = if rate == 0 { 44_100 } else { rate };
+    let data = (samples.len() * 4) as u32;
+    let mut out = Vec::with_capacity(44 + data as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    // PCM, two channels, the rate, the bytes a second, the bytes a frame, the bits a sample.
+    for field in [1u16, 2] {
+        out.extend_from_slice(&field.to_le_bytes());
+    }
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&(rate * 4).to_le_bytes());
+    for field in [4u16, 16] {
+        out.extend_from_slice(&field.to_le_bytes());
+    }
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data.to_le_bytes());
+    out.extend(samples.iter().flatten().flat_map(|s| s.to_le_bytes()));
+    out
 }
 
 /// Writes `facts` as JSON at `path`, making its directory.

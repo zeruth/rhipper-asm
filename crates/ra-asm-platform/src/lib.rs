@@ -42,6 +42,13 @@ pub mod window;
 
 pub use host::Host;
 
+/// Whether the runtimes say on stderr what the program asks of their devices and what they
+/// answer: with `RA_PLATFORM_TRACE` set, for finding where a program and a device disagree.
+pub fn tracing() -> bool {
+    static TRACING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *TRACING.get_or_init(|| std::env::var_os("RA_PLATFORM_TRACE").is_some())
+}
+
 /// Why a platform ends the program's run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stop {
@@ -197,6 +204,8 @@ pub struct Delivery {
     pub stack: Option<u64>,
     /// The global pointer the code starts with, when the program registered one beside it.
     pub gp: Option<u64>,
+    /// Other registers the code starts with, by their numbers: those a `longjmp` restores.
+    pub registers: Vec<(u32, u64)>,
     /// What the platform reads the end of the call by.
     pub token: u64,
 }
@@ -216,6 +225,17 @@ pub enum Answer {
 }
 
 /// One console's side of the boundary.
+/// The stacks a console keeps in its memory: see [`Platform::stacks`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stacks {
+    /// The program's stack pointer at its entry.
+    pub program: u64,
+    /// The stack pointer of the outermost call the machine makes into the program.
+    pub handlers: u64,
+    /// How far below the last a nested call's stack starts.
+    pub nested: u64,
+}
+
 pub trait Platform {
     /// The console's name, as `Image::platform` gives it.
     fn name(&self) -> &'static str;
@@ -242,6 +262,26 @@ pub trait Platform {
     /// Lets the machine's clock run `cycles` on: the devices do what they do in that time, and what
     /// they raise is queued for [`Platform::deliver`].
     fn advance(&mut self, memory: &mut dyn Memory, cycles: u64) -> Result<(), Stop>;
+
+    /// The cycles until the machine next does something of its own accord (a vertical blank, an
+    /// answer of a device): what a program that only waits can be moved on by.
+    fn idle(&self) -> u64;
+
+    /// Where a program's stack starts when its image names none, and where the stack of the
+    /// machine's calls into the program does, with the room each nested call has: both in the
+    /// console's own memory, since a program hands addresses on its stack to the devices (a
+    /// packet for the GPU built in a local). `None` leaves the stacks to the carrier.
+    fn stacks(&self) -> Option<Stacks> {
+        None
+    }
+
+    /// The level of the processor's interrupt line: whether a device asks for an interrupt the
+    /// program's controller lets through. A run whose program is the console's own kernel takes
+    /// the interrupt itself, as the processor does, and asks this in place of
+    /// [`Platform::deliver`].
+    fn interrupt(&self) -> bool {
+        false
+    }
 
     /// The next call the machine makes into the program, when one is due and the program takes it.
     fn deliver(&mut self, memory: &mut dyn Memory) -> Option<Delivery>;

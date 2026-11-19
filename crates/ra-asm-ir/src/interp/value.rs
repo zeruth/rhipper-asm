@@ -128,7 +128,8 @@ impl Value {
         out
     }
 
-    fn write_bytes(&self, ty: &Type, layout: &Layout<'_>, out: &mut [u8]) {
+    /// Lays the value out as `ty` in `out`, which is the type's size.
+    pub(super) fn write_bytes(&self, ty: &Type, layout: &Layout<'_>, out: &mut [u8]) {
         match (ty, self) {
             (Type::Vector(n, e), Self::Vector(lanes)) if **e == Type::I1 => {
                 // A vector of bits is packed, as LLVM stores it.

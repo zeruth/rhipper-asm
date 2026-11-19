@@ -1093,6 +1093,7 @@ const PSX_BIOS: &[(u8, u8, &str, u8, bool)] = &[
     (0xa0, 0x0e, "abs", 1, true),
     (0xa0, 0x0f, "labs", 1, true),
     (0xa0, 0x10, "atoi", 1, true),
+    (0xa0, 0x13, PSX_SETJMP, 2, true),
     (0xa0, 0x11, "atol", 1, true),
     (0xa0, 0x15, "strcat", 2, true),
     (0xa0, 0x16, "strncat", 3, true),
@@ -1142,6 +1143,7 @@ const PSX_BIOS: &[(u8, u8, &str, u8, bool)] = &[
     (0xa0, 0x71, "_96_init", 0, false),
     (0xa0, 0x72, "_96_remove", 0, false),
     (0xa0, 0x9f, "SetMemSize", 1, false),
+    (0xa0, 0xa1, "SystemErrorBootOrDiskFailure", 2, false),
     (0xa0, 0xab, "_card_info", 1, true),
     (0xa0, 0xac, "_card_async_load_directory", 1, true),
     (0xa0, 0xad, "set_card_auto_format", 1, false),
@@ -1164,6 +1166,8 @@ const PSX_BIOS: &[(u8, u8, &str, u8, bool)] = &[
     (0xb0, 0x12, "InitPad", 4, true),
     (0xb0, 0x13, "StartPad", 0, true),
     (0xb0, 0x14, "StopPad", 0, false),
+    (0xb0, 0x15, "OutdatedPadInitAndStart", 4, true),
+    (0xb0, 0x16, "OutdatedPadGetButtons", 0, true),
     (0xb0, 0x17, "ReturnFromException", 0, false),
     (0xb0, 0x18, "SetDefaultExitFromException", 0, false),
     (0xb0, 0x19, "SetCustomExitFromException", 1, false),
@@ -1215,6 +1219,10 @@ const PSX_BIOS: &[(u8, u8, &str, u8, bool)] = &[
     (0xc0, 0x13, "FlushStdInOutPut", 0, false),
     (0xc0, 0x1c, "AdjustA0Table", 0, false),
 ];
+
+/// The BIOS's `setjmp`, whose runtime function takes the buffer and, in place of a second
+/// argument, where the caller's registers are: the machine's state.
+pub const PSX_SETJMP: &str = "setjmp";
 
 /// The name of the kernel's handler of the `syscall` instruction among the BIOS functions.
 const PSX_SYSCALL: &str = "syscall";

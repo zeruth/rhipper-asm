@@ -14,6 +14,7 @@ mod ftz;
 mod host;
 pub(crate) mod os;
 mod printf;
+mod r3000;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Write;
@@ -461,8 +462,17 @@ fn run_here(
         let devices = host::N64::new(console.clone(), options.live, len);
         vm.memory.add_device(host::N64_DEVICES, host::N64_DEVICES_LEN, Box::new(devices));
     }
+    // A PlayStation's ROM is the image itself, where the console has it, beside its RAM.
+    if image.psx_bios.is_some() {
+        vm.memory.add_region(Region::owned(base, u64::from(image.size_of_image()), "rom"));
+    }
     if !lifted.standalone {
         vm.memory.write(base, image.mapped()).map_err(setup)?;
+    }
+    // The ROM a program reads beside itself is memory of its own, where the console has it.
+    if let Some((address, bytes)) = &image.rom {
+        vm.memory.add_region(Region::owned(*address, bytes.len() as u64, "rom"));
+        vm.memory.write(*address, bytes).map_err(setup)?;
     }
     vm.place().map_err(setup)?;
     // A run kept as a session, or played back from one, names the program by its file name
@@ -661,7 +671,9 @@ fn enter(
         // The return goes through `ra`, which holds zero; `sp` is `$29`, `gp` `$28` as the start
         // routine of a C library would set it, and the result is `v0`.
         let state = runtime.new_state(vm)?;
-        vm.memory.write_u64(state + 29 * 8, runtime.stack_top())?;
+        // A console's program starts on a stack in the console's memory.
+        let stack = runtime.stacks().map_or(runtime.stack_top(), |stacks| stacks.program);
+        vm.memory.write_u64(state + 29 * 8, stack)?;
         if let Some(gp) = image.global_pointer {
             vm.memory.write_u64(state + 28 * 8, gp)?;
         }

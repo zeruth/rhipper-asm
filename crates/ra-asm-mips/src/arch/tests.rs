@@ -42,7 +42,12 @@ fn the_r3000_rows_decode_only_for_the_r3000() {
     assert_eq!(text(psx, 0x4080_6000).as_deref(), Some("mtc0\t$zero, $12"));
     assert_eq!(text(psx, 0x401a_7000).as_deref(), Some("mfc0\t$26, $14"));
     assert_eq!(text(psx, 0x4200_0010).as_deref(), Some("rfe"));
-    for word in [0x4080_6000, 0x401a_7000, 0x4200_0010] {
+    // The GTE: `ctc2 $4, $21`, `lwc2 $0, 0($4)` and the command RTPS.
+    let name = |word: u32| psx.decode(&word.to_le_bytes(), 0x8003_0000).map(|i| i.mnemonic);
+    assert_eq!(name(0x48c4_a800).as_deref(), Some("ctc2"));
+    assert_eq!(name(0xc880_0000).as_deref(), Some("lwc2"));
+    assert_eq!(name(0x4a18_0001).as_deref(), Some("cop2"));
+    for word in [0x4080_6000, 0x401a_7000, 0x4200_0010, 0x48c4_a800, 0xc880_0000, 0x4a18_0001] {
         assert_eq!(text(mips, word), None, "{word:#010x}");
     }
     // A row of the core keeps its code, and one of the R3000's own names its form.

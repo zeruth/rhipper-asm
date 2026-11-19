@@ -298,6 +298,10 @@ impl Gpu {
     }
 
     fn run(&mut self, command: u8, w: &[u32]) {
+        if crate::tracing() && std::env::var_os("RA_GPU_TRACE").is_some() {
+            let words: Vec<String> = w.iter().map(|word| format!("{word:08x}")).collect();
+            eprintln!("gp0: {}", words.join(" "));
+        }
         match command {
             0x02 => self.fill(w[0], w[1], w[2]),
             0x1f => self.interrupt = true,
@@ -523,6 +527,14 @@ impl Gpu {
         }
         let pixel = (colour[0] | (colour[1] << 5) | (colour[2] << 10)) as u16;
         self.vram[at] = pixel | (u16::from(mask || self.set_mask) << 15);
+    }
+
+    /// The whole video memory as a picture, 1024 by 512: what a person looks at to see where a
+    /// program keeps its textures and what it drew off the screen.
+    pub fn video_memory(&self) -> Frame {
+        let wide = |five: u16| u32::from((five << 3) | (five >> 2));
+        let pixels = self.vram.iter().map(|p| wide(p & 0x1f) << 16 | wide((p >> 5) & 0x1f) << 8 | wide((p >> 10) & 0x1f)).collect();
+        Frame { width: VRAM_WIDTH as u32, height: VRAM_HEIGHT as u32, pixels }
     }
 
     /// The size of the picture the display mode shows.

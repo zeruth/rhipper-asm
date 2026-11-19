@@ -6,6 +6,51 @@
 //! shape against the exit the block reports.
 
 use super::{Host, Stop, Value, Vm, mask};
+
+/// Where a run's time goes, by the kind of instruction, when `RA_PROFILE` is set: the count and
+/// the time of each kind, printed by [`profile::report`]. The clock's own cost is in the times.
+pub mod profile {
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use crate::inst::Inst;
+
+    const KINDS: [&str; 10] = ["alloca", "load", "store", "bin", "icmp", "cast", "gep", "call", "select", "other"];
+    static COUNTS: [AtomicU64; 10] = [const { AtomicU64::new(0) }; 10];
+    static NANOS: [AtomicU64; 10] = [const { AtomicU64::new(0) }; 10];
+
+    pub(super) fn on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var_os("RA_PROFILE").is_some())
+    }
+
+    pub(super) fn add(inst: &Inst, took: std::time::Duration) {
+        let kind = match inst {
+            Inst::Alloca { .. } => 0,
+            Inst::Load { .. } => 1,
+            Inst::Store { .. } => 2,
+            Inst::Bin { .. } => 3,
+            Inst::ICmp { .. } => 4,
+            Inst::Cast { .. } => 5,
+            Inst::Gep { .. } => 6,
+            Inst::Call { .. } => 7,
+            Inst::Select { .. } => 8,
+            _ => 9,
+        };
+        COUNTS[kind].fetch_add(1, Ordering::Relaxed);
+        NANOS[kind].fetch_add(took.as_nanos() as u64, Ordering::Relaxed);
+    }
+
+    /// The lines of the profile: each kind with its count and its mean time.
+    pub fn report() -> Vec<String> {
+        (0..KINDS.len())
+            .filter_map(|k| {
+                let (count, nanos) = (COUNTS[k].load(Ordering::Relaxed), NANOS[k].load(Ordering::Relaxed));
+                (count != 0).then(|| format!("{:8} {count:>12} {:>6} ns each, {:.2} s", KINDS[k], nanos / count, nanos as f64 / 1e9))
+            })
+            .collect()
+    }
+}
 use crate::inst::{Inst, Terminator};
 use crate::module::{BlockId, Function, ValueId};
 use crate::types::Type;
@@ -122,12 +167,17 @@ impl<'m> Vm<'m> {
                 self.instructions += 1;
             }
             self.site = i.address;
+            let profiled = profile::on().then(std::time::Instant::now);
             let v = self.exec(host, f, &frame.values, i).map_err(|s| s.at(i.address))?;
+            if let Some(started) = profiled {
+                profile::add(&i.inst, started.elapsed());
+            }
             if let Some(r) = i.result {
                 frame.values[r.0 as usize] = Some(v);
             }
             if self.poll != 0 && (self.steps >= self.poll_at || self.memory.take_device_write()) {
                 self.poll_at = self.steps + self.poll;
+                self.poll_argument = frame.values.first().and_then(Option::as_ref).map(Value::as_u64);
                 host.poll(self).map_err(|s| s.at(i.address))?;
             }
         }

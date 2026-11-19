@@ -9,6 +9,7 @@
 mod bios;
 mod cdrom;
 pub mod gpu;
+pub mod gte;
 pub mod spu;
 
 use crate::clock::Scheduler;
@@ -108,6 +109,10 @@ pub struct Psx {
     bios: bios::Bios,
     /// The person closed the picture: the run ends at its next step.
     closed: bool,
+    /// The program ended itself through the debug port, with this code.
+    ended: Option<i32>,
+    /// The register reads a trace has said already, each with its value.
+    traced: std::collections::HashSet<(u64, u32)>,
 }
 
 impl Psx {
@@ -133,6 +138,8 @@ impl Psx {
             blank_at: 0,
             bios: bios::Bios::default(),
             closed: false,
+            ended: None,
+            traced: std::collections::HashSet::new(),
         }
     }
 
@@ -294,6 +301,9 @@ impl Psx {
                 // A list that loops would never end: none is longer than the memory.
                 for _ in 0..0x8_0000 {
                     let header = memory.u32(Self::ram(address));
+                    if crate::tracing() && std::env::var_os("RA_GPU_TRACE").is_some() {
+                        eprintln!("dma: list at {address:08x}, header {header:08x}");
+                    }
                     for i in 1..=(header >> 24) {
                         let word = memory.u32(Self::ram(address.wrapping_add(4 * i)));
                         self.gpu.gp0(word);
@@ -473,7 +483,12 @@ impl Platform for Psx {
             }
             _ => self.port_read(register) >> (8 * (register & 3)),
         };
-        u64::from(if bits >= 32 { value } else { value & ((1 << bits) - 1) })
+        let value = if bits >= 32 { value } else { value & ((1 << bits) - 1) };
+        // Each value of a register once: a program that polls reads the same one for long.
+        if crate::tracing() && self.traced.insert((register, value)) {
+            eprintln!("psx: read{bits} {register:#x} = {value:#x}");
+        }
+        u64::from(value)
     }
 
     fn write(&mut self, memory: &mut dyn Memory, register: u64, bits: u32, value: u64) {
@@ -483,6 +498,10 @@ impl Platform for Psx {
             return;
         }
         let offset = register - PORTS;
+        // The GPU's and the DMA's words are too many to say; the rest are the program's setup.
+        if crate::tracing() && !matches!(offset, 0x80..=0xff | 0x810..=0x817 | 0x70..=0x77) {
+            eprintln!("psx: write{bits} {register:#x} = {value:#x}");
+        }
         match offset {
             0x800..=0x803 => {
                 if offset == 0x801 || offset == 0x800 {
@@ -496,6 +515,10 @@ impl Platform for Psx {
                     self.spu.write((offset - 0xc00) as usize + 2, (value >> 16) as u16);
                 }
             }
+            // The debug ports a development board has in the second expansion region, which a
+            // test program ends itself and prints through: a character, and the exit code.
+            0x1080 if bits == 8 => self.host.console.write(&[value as u8]),
+            0x1082 if bits == 16 => self.ended = Some(i32::from(value as u16 as i16)),
             _ => self.port_write(memory, register, bits, value),
         }
     }
@@ -509,6 +532,9 @@ impl Platform for Psx {
     }
 
     fn advance(&mut self, _memory: &mut dyn Memory, cycles: u64) -> Result<(), Stop> {
+        if let Some(code) = self.ended {
+            return Err(Stop::Exit(code));
+        }
         if self.closed || !self.host.video.idle() {
             return Err(Stop::Exit(0));
         }
@@ -530,6 +556,13 @@ impl Platform for Psx {
                     if !self.host.video.present(&self.gpu.frame()) {
                         self.closed = true;
                     }
+                    // With `RA_VRAM_DUMP` naming a directory, the video memory every hundredth frame.
+                    if self.frames % 100 == 0
+                        && let Some(dir) = std::env::var_os("RA_VRAM_DUMP")
+                    {
+                        let path = std::path::Path::new(&dir).join(format!("vram-{:05}.png", self.frames));
+                        let _ = std::fs::write(path, crate::png::encode(&self.gpu.video_memory()));
+                    }
                     self.clock.after(self.system().0, Event::VBlank);
                 }
                 Event::JoyAck => {
@@ -541,6 +574,20 @@ impl Platform for Psx {
             }
         }
         if self.closed { Err(Stop::Exit(0)) } else { Ok(()) }
+    }
+
+    fn idle(&self) -> u64 {
+        self.clock.until_next().unwrap_or(0)
+    }
+
+    fn stacks(&self) -> Option<crate::Stacks> {
+        // The kernel starts a program at the top of the memory, and runs its handlers on a stack
+        // of its own in its part below the program.
+        Some(crate::Stacks { program: 0x801f_fff0, handlers: 0x8000_dff0, nested: 0x1000 })
+    }
+
+    fn interrupt(&self) -> bool {
+        self.i_stat & self.i_mask != 0
     }
 
     fn deliver(&mut self, memory: &mut dyn Memory) -> Option<Delivery> {

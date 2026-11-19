@@ -155,6 +155,26 @@ pub fn declare_psx(module: &mut ra_asm_ir::Module) {
     }
     // The R3000's coprocessor 0, which the kernel's code moves: the registers as the VR4300's are.
     declare_n64(module);
+    module.declare(Declaration { name: PSX_EXCEPTION.to_owned(), ty: psx_exception_type(), conv: CallConv::C, attrs: vec![] });
+    module.declare(Declaration { name: PSX_STATUS.to_owned(), ty: psx_status_type(), conv: CallConv::C, attrs: vec![] });
+}
+
+/// `ra_psx_exception(state, code, address)`: the exception `code` (the processor's `ExcCode`) at
+/// the instruction at `address` of a program that is the console's own kernel, which takes it at
+/// its vector as the processor enters it and comes back where its handler returns.
+pub const PSX_EXCEPTION: &str = "ra_psx_exception";
+
+pub fn psx_exception_type() -> FnType {
+    FnType::new(Type::Void, vec![Type::Ptr, Type::I64, Type::I64])
+}
+
+/// `ra_psx_status(state)`: the status register of coprocessor 0 was written. The run reads what
+/// the write changes for the machine: the data cache cut off from the memory, in which the
+/// stores that flush it reach no memory, and an interrupt the write lets through.
+pub const PSX_STATUS: &str = "ra_psx_status";
+
+pub fn psx_status_type() -> FnType {
+    FnType::new(Type::Void, vec![Type::Ptr])
 }
 
 /// The VR4300's coprocessor 0 registers, register `n` in the `n`th 64-bit slot: a global of the

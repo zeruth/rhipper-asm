@@ -903,6 +903,15 @@ impl<'a> Runtime<'a> {
             // A console's BIOS, kernel and devices are its machine's.
             n if n.starts_with("ra_bios_") => self.console_call(vm, &n["ra_bios_".len()..], args),
             n if n.starts_with("ra_ee_") => self.console_call(vm, &n["ra_ee_".len()..], args),
+            n if n.starts_with("ra_gte_") => super::console::gte(vm, args),
+            crate::state::PSX_EXCEPTION => {
+                self.psx_exception(vm, arg(args, 0), arg(args, 1) as u32, arg(args, 2) as u32, false)?;
+                int(0)
+            }
+            crate::state::PSX_STATUS => {
+                self.psx_status(vm)?;
+                int(0)
+            }
             n if let Some(call) = crate::data::DeviceCall::parse(n) => self.console_access(vm, call.write, call.bits, args),
             n if n.starts_with("ra_eh_") => self.eh_call(vm, n, args),
             n if n.starts_with("ra_x86_") => self.shim_call(vm, n, args),
@@ -1131,8 +1140,18 @@ impl<'a> Runtime<'a> {
     /// of the image no lifted function has is the run's [`super::Residual`]'s, unless the run wrote
     /// its page, where the run stops.
     fn machine_call(&mut self, vm: &mut Vm<'_>, state: u64, target: u64) -> Result<Value, Stop> {
+        // A jump of a kernel's handler back to where its exception was taken ends the handler,
+        // whatever is at the address.
+        if self.r3000() && self.r3000_leaves(target as u32)? {
+            return Err(Stop::fault(super::r3000::RETURNED));
+        }
         vm.record_call(target);
         match vm.symbol_at(target).cloned() {
+            // A PlayStation's code the lift has no function for is its processor's.
+            None if self.r3000() => {
+                self.r3000_call(vm, state, target)?;
+                int(0)
+            }
             Some(Symbol::Function(_)) => {
                 let name = vm.name_at(target).unwrap_or_default().to_owned();
                 vm.call_named(self, &name, vec![Value::Int(u128::from(state))])?;

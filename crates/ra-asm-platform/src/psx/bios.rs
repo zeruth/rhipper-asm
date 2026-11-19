@@ -22,6 +22,9 @@ const EVENT_HANDLES: u32 = 0xf100_0000;
 /// interrupt.
 const CLASS_COUNTER: u32 = 0xf200_0000;
 const SPEC_INTERRUPT: u32 = 0x0002;
+/// The memory cards' event class, and the spec of a card that did not answer.
+const CLASS_CARD: u32 = 0xf400_0001;
+const SPEC_TIMEOUT: u32 = 0x0100;
 
 /// Where `alloc_kernel_memory` hands out of: the kernel's part of RAM, below the program.
 const KERNEL_HEAP: u32 = 0x8000_e000;
@@ -58,6 +61,8 @@ pub(super) struct Bios {
     /// The two pad buffers of `InitPad` with their lengths, and whether `StartPad` ran.
     pads: [(u32, u32); 2],
     pads_started: bool,
+    /// Where the kernel's first pad driver leaves both pads' buttons, when a program asked.
+    outdated_pad: u32,
     /// Acknowledge the vertical blank, and each root counter's interrupt, in the kernel.
     clear_pad: bool,
     clear_counter: [bool; 4],
@@ -88,6 +93,7 @@ impl Default for Bios {
             events: Vec::new(),
             pads: [(0, 0); 2],
             pads_started: false,
+            outdated_pad: 0,
             clear_pad: false,
             clear_counter: [false; 4],
             hook: None,
@@ -228,12 +234,24 @@ impl Psx {
         self.bios.token += 1;
         let token = u64::from(self.bios.token);
         Some(match step {
-            Step::Call(entry, argument) => Delivery { entry: entry.into(), args: [argument.into(), 0, 0, 0], stack: None, gp: None, token },
-            Step::Verify(entry, _) => Delivery { entry: entry.into(), args: [0; 4], stack: None, gp: None, token },
-            // The buffer `setjmp` fills: `ra`, `sp`, `fp`, `s0` to `s7`, `gp`.
+            Step::Call(entry, argument) => {
+                Delivery { entry: entry.into(), args: [argument.into(), 0, 0, 0], stack: None, gp: None, registers: Vec::new(), token }
+            }
+            Step::Verify(entry, _) => Delivery { entry: entry.into(), args: [0; 4], stack: None, gp: None, registers: Vec::new(), token },
+            // The buffer `setjmp` fills: `ra`, `sp`, `fp`, `s0` to `s7`, `gp`. The kernel leaves
+            // through it as `longjmp` does: the saved registers back, and one in `v0`.
             Step::Hook(buffer) => {
                 let word = |memory: &mut dyn Memory, i: u64| u64::from(memory.u32(u64::from(buffer) + 4 * i));
-                Delivery { entry: word(memory, 0), args: [1, 0, 0, 0], stack: Some(word(memory, 1)), gp: Some(word(memory, 11)), token }
+                let mut registers = vec![(2, 1), (30, word(memory, 2))];
+                registers.extend((0..8).map(|n| (16 + n, word(memory, 3 + u64::from(n)))));
+                Delivery {
+                    entry: word(memory, 0),
+                    args: [1, 0, 0, 0],
+                    stack: Some(word(memory, 1)),
+                    gp: Some(word(memory, 11)),
+                    registers,
+                    token,
+                }
             }
         })
     }
@@ -255,17 +273,29 @@ impl Psx {
     /// `InitPad` gave for it, as a status byte (zero for a pad, `ff` for none), the pad's
     /// identifier and its report.
     fn poll_pads(&mut self, memory: &mut dyn Memory) {
-        for (port, (buffer, len)) in self.bios.pads.into_iter().enumerate() {
+        if self.bios.outdated_pad != 0 {
+            let word = self.outdated_buttons();
+            memory.set_u32(u64::from(self.bios.outdated_pad), word);
+        }
+        // The driver writes a pad's whole answer whatever length the program gave: the shell
+        // gives two and reads the buttons past them.
+        for (port, (buffer, _)) in self.bios.pads.into_iter().enumerate() {
             if buffer == 0 {
                 continue;
             }
             let bytes = match self.host.input.pad(port) {
                 Some(pad) => [vec![0x00, crate::pad::DIGITAL], pad.report(false)].concat(),
-                None => vec![0xff, 0x00],
+                None => vec![0xff, 0x00, 0xff, 0xff],
             };
-            let most = bytes.len().min(len as usize);
-            memory.write(u64::from(buffer), &bytes[..most]);
+            memory.write(u64::from(buffer), &bytes);
         }
+    }
+
+    /// Both pads as the kernel's first pad driver gives them: a set bit for a pressed button,
+    /// the report's first byte the upper one, the second pad in the upper half.
+    fn outdated_buttons(&mut self) -> u32 {
+        let pad = |host: &mut crate::Host, port: usize| u32::from(host.input.pad(port).map_or(0, |p| p.buttons.swap_bytes()));
+        pad(&mut self.host, 0) | pad(&mut self.host, 1) << 16
     }
 
     fn tty(&mut self, bytes: &[u8]) {
@@ -281,6 +311,9 @@ impl Psx {
         let a = |i: usize| args.get(i).copied().unwrap_or(0) as u32;
         let value = |v: u32| Ok(Answer::Value(u64::from(v)));
         let (a0, a1, a2) = (a(0), a(1), a(2));
+        if crate::tracing() && !matches!(name, "syscall" | "std_out_putchar") {
+            eprintln!("bios: {name}({a0:#x}, {a1:#x}, {a2:#x}, {:#x})", a(3));
+        }
         match name {
             // The system calls: the critical section's two, which answer whether interrupts
             // were on, and the two that do nothing here.
@@ -297,6 +330,9 @@ impl Psx {
                 _ => value(0),
             },
             "exit" | "SystemErrorExit" => Err(Stop::Exit(a0.cast_signed())),
+            "SystemErrorBootOrDiskFailure" => {
+                Err(Stop::fault(format!("the console could not boot: failure {} with the code {a1:#x}", char::from(a0 as u8))))
+            }
 
             // The TTY and the files.
             "std_out_putchar" => {
@@ -582,9 +618,19 @@ impl Psx {
                 self.bios.pads = [(a0, a1), (a2, a(3))];
                 // No pad has answered yet: the buffers say so until the first poll.
                 for (buffer, len) in self.bios.pads {
-                    memory.write(u64::from(buffer), &vec![0xff; len as usize]);
+                    memory.write(u64::from(buffer), &vec![0xff; (len as usize).max(4)]);
                 }
                 value(2)
+            }
+            "OutdatedPadInitAndStart" => {
+                self.bios.outdated_pad = a1;
+                self.bios.pads_started = true;
+                self.i_mask |= irq::VBLANK;
+                value(0)
+            }
+            "OutdatedPadGetButtons" => {
+                let word = self.outdated_buttons();
+                value(word)
             }
             "StartPad" => {
                 self.bios.pads_started = true;
@@ -684,16 +730,24 @@ impl Psx {
             | "AddDevice"
             | "RemoveDevice"
             | "PrintInstalledDevices"
-            | "_card_info"
-            | "_card_async_load_directory"
+            | "FileDelete"
+            | "FileRename"
+            | "FileUndelete"
+            | "FormatDevice"
             | "set_card_auto_format"
             | "card_write_test"
-            | "_card_write"
-            | "_card_read"
             | "_new_card"
             | "_card_chan"
             | "_card_status"
             | "_card_wait" => value(0),
+            // A memory card's slot is asked and answers later by an event: with no card in it,
+            // the one that says the card did not answer.
+            "_card_info" | "_card_async_load_directory" | "_card_write" | "_card_read" => {
+                for function in self.bios.deliver_event(CLASS_CARD, SPEC_TIMEOUT) {
+                    self.bios.steps.push_back(Step::Call(function, 0));
+                }
+                value(1)
+            }
             "GPU_cw" => {
                 self.gpu.gp0(a0);
                 value(0)
