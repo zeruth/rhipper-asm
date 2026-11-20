@@ -93,6 +93,9 @@ pub struct Image {
     /// The image is a program a `PlayStation` BIOS ROM keeps for RAM ([`Image::psx_bios_parts`]):
     /// the offset of its bytes in the ROM.
     pub rom_part: Option<usize>,
+    /// The image is a program a console loads into RAM and runs over its ROM's kernel, lifted
+    /// beside the ROM.
+    pub loaded: bool,
     /// The segment of the console's address space the image's code names its own places
     /// through, when it is not the one the image is mapped at: a kernel linked for `kuseg`.
     pub link_segment: Option<u64>,
@@ -120,7 +123,13 @@ impl Image {
     /// too (the image is the ROM or a part of it, or a program the ROM beside it boots), and not
     /// one the run answers for.
     pub fn psx_kernel(&self) -> bool {
-        self.psx_bios.is_some() || self.rom_boots || self.rom_part.is_some()
+        self.psx_bios.is_some() || self.rom_boots || self.is_resident()
+    }
+
+    /// Whether the image is code a console has in RAM beside its ROM: a program the ROM keeps
+    /// for RAM, or one the console loads there.
+    pub fn is_resident(&self) -> bool {
+        self.rom_part.is_some() || self.loaded
     }
 
     /// The programs a `PlayStation` BIOS ROM keeps for RAM ([`psx::Bios::copies`]: its kernel,
@@ -276,6 +285,7 @@ impl Image {
             rom: None,
             rom_boots: false,
             rom_part: None,
+            loaded: false,
             link_segment: None,
             warnings,
             file,

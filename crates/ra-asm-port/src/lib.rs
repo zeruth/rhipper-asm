@@ -107,6 +107,19 @@ pub struct Port {
     pub imports: *const *const c_char,
     pub globals: *const Global,
     pub host: *mut Host,
+    /// The programs the console loads that the port has compiled functions of; the table ends
+    /// at one of no image.
+    pub loaded: *const LoadedProgram,
+}
+
+/// A program the console loads into RAM, as the port was made with it: its file's bytes and
+/// the entries of its functions a run found.
+#[repr(C)]
+pub struct LoadedProgram {
+    pub image: *const u8,
+    pub image_size: u64,
+    pub entries: *const u64,
+    pub entry_count: u64,
 }
 
 /// The runtime's functions the port calls, by number: each one's name and type, from the lift.
@@ -317,9 +330,31 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
         }
         (image, functions, globals, imports)
     };
+    // With `RA_NATIVE_SKIP=<from>-<to>` (hexadecimal), the functions in the range run as their
+    // IR and not as the port's code: which of the two a fault is in.
+    let functions: Vec<(u64, Code)> = match std::env::var("RA_NATIVE_SKIP").ok().and_then(|range| {
+        let (from, to) = range.split_once('-')?;
+        Some((u64::from_str_radix(from, 16).ok()?, u64::from_str_radix(to, 16).ok()?))
+    }) {
+        Some((from, to)) => functions.into_iter().filter(|(address, _)| !(from..to).contains(address)).collect(),
+        None => functions,
+    };
     let mut image = ra_asm_pe::Image::parse(image)?;
     image.path = std::env::current_exe().ok();
-    let whole = Whole::lift(&image, LiftOptions { standalone: false, x87: X87Unit::Double }, RaiseLevel::Machine)?;
+    // The programs the console loads that the port has compiled functions of, each with the
+    // entries the port was made with: the table ends at one of no image.
+    let mut loaded = Vec::new();
+    // SAFETY: the port's table, as its `main` wrote it.
+    unsafe {
+        let mut at = port.loaded;
+        while !at.is_null() && !(*at).image.is_null() {
+            let bytes = std::slice::from_raw_parts((*at).image, (*at).image_size as usize).to_vec();
+            let entries = std::slice::from_raw_parts((*at).entries, (*at).entry_count as usize);
+            loaded.push(ra_asm_lift::Loaded::new(bytes, &format!("loaded-{}.exe", loaded.len()), entries)?);
+            at = at.add(1);
+        }
+    }
+    let whole = Whole::lift_with(&image, &loaded, LiftOptions { standalone: false, x87: X87Unit::Double }, RaiseLevel::Machine)?;
     let declared = |name: &str| whole.lifted.module.declarations.iter().find(|d| d.name == name).map(|d| d.ty.clone());
     let imports: Vec<(String, FnType)> = imports
         .into_iter()
@@ -354,7 +389,8 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
         let host = unsafe { &mut *port.host };
         host.ram = Ram { at: 0x8000_0000, segments: 0b0011_0001, fold: 0x1fff_ffff, limit: 0x80_0000, wrap: 0x1f_ffff };
         for (watched, part) in host.watched.iter_mut().zip(&whole.lifted.resident) {
-            *watched = [part.start & 0x1f_ffff, part.bytes.len() as u64];
+            let (start, len) = part.code();
+            *watched = [start & 0x1f_ffff, len];
         }
         if whole.lifted.resident.len() > host.watched.len() {
             host.ram.limit = 0;
@@ -371,6 +407,14 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
     if arguments.stats {
         let seconds = started.elapsed().as_secs_f64();
         eprintln!("ra: {} instructions in {seconds:.2} s, {:.1} million a second", outcome.steps, outcome.steps as f64 / seconds / 1e6);
+        // With `RA_RUN_STATS` set, where the time went among the console's devices.
+        let [draw, sound, show] = ra_asm_lift::run::device_seconds();
+        if draw + sound + show > 0.0 {
+            eprintln!(
+                "ra: of {seconds:.2} s: {draw:.2} drawing, {sound:.2} mixing sound, {show:.2} showing frames, {:.2} the rest (the program and the run)",
+                seconds - draw - sound - show
+            );
+        }
         // With `RA_RUN_STATS` set, what of them no compiled function ran.
         let (processor, entries) = ra_asm_lift::run::processor_stats::report(24);
         if processor != 0 {

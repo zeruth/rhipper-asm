@@ -491,6 +491,15 @@ impl Lifter<'_, '_> {
                     self.m.b.terminate(block, Terminator::Ret(None));
                     return;
                 }
+                // Over a kernel, a jump the analysis did not resolve is the run's to place: a
+                // tail call through a pointer, or a jump into the middle of a function whose
+                // frame is still open (a jump buffer's, a switch of contexts), which no call is.
+                if self.kernel {
+                    let args = vec![(Type::Ptr, self.m.state.into()), (Type::I64, target.into())];
+                    self.m.b.call(block, crate::state::psx_return_type(), Callee::Direct(crate::state::PSX_JUMP.into()), args, "");
+                    self.m.b.terminate(block, Terminator::Ret(None));
+                    return;
+                }
                 // A jump the analysis did not resolve: most often a tail call through a pointer.
                 self.runtime_call(block, target);
                 self.m.b.terminate(block, Terminator::Ret(None));

@@ -908,6 +908,10 @@ impl<'a> Runtime<'a> {
                 self.psx_raised(vm, arg(args, 0), arg(args, 1) as u32, arg(args, 2) as u32)?;
                 int(0)
             }
+            crate::state::PSX_JUMP => {
+                self.psx_jump(arg(args, 1))?;
+                self.machine_call(vm, arg(args, 0), arg(args, 1))
+            }
             crate::state::PSX_RETURN => {
                 self.psx_returns(arg(args, 1) as u32)?;
                 int(0)
@@ -1153,15 +1157,21 @@ impl<'a> Runtime<'a> {
         // A PlayStation's code is the lifted function of its address, whatever segment names
         // it; code the lift has no function for is its processor's.
         if self.r3000() {
-            match self.psx_lifted(vm, target)? {
-                Some(at) => {
-                    let name = vm.name_at(at).unwrap_or_default().to_owned();
-                    let link = vm.memory.read_u64(state + 8 * 31)? as u32;
-                    vm.call_named(self, &name, vec![Value::Int(u128::from(state))])?;
-                    self.psx_returned(vm, state, link)?;
+            let depth = self.psx_nest(vm, target as u32)?;
+            let result = (|| {
+                match self.psx_lifted(vm, target)? {
+                    Some(at) => {
+                        let name = vm.name_at(at).unwrap_or_default().to_owned();
+                        let link = vm.memory.read_u64(state + 8 * 31)? as u32;
+                        vm.call_named(self, &name, vec![Value::Int(u128::from(state))])?;
+                        self.psx_returned(vm, state, link)?;
+                    }
+                    None => self.r3000_call(vm, state, target)?,
                 }
-                None => self.r3000_call(vm, state, target)?,
-            }
+                Ok(())
+            })();
+            self.psx_unnest(depth);
+            result?;
             return int(0);
         }
         match vm.symbol_at(target).cloned() {

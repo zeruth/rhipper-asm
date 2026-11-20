@@ -174,6 +174,7 @@ pub fn declare_psx(module: &mut ra_asm_ir::Module) {
     module.declare(Declaration { name: PSX_EXCEPTION.to_owned(), ty: psx_exception_type(), conv: CallConv::C, attrs: vec![] });
     module.declare(Declaration { name: PSX_STATUS.to_owned(), ty: psx_status_type(), conv: CallConv::C, attrs: vec![] });
     module.declare(Declaration { name: PSX_RETURN.to_owned(), ty: psx_return_type(), conv: CallConv::C, attrs: vec![] });
+    module.declare(Declaration { name: PSX_JUMP.to_owned(), ty: psx_return_type(), conv: CallConv::C, attrs: vec![] });
 }
 
 /// `ra_psx_exception(state, code, address)`: the exception `code` (the processor's `ExcCode`) at
@@ -196,6 +197,13 @@ pub const PSX_RETURN: &str = "ra_psx_return";
 pub fn psx_return_type() -> FnType {
     FnType::new(Type::Void, vec![Type::Ptr, Type::I64])
 }
+
+/// `ra_psx_jump(state, target)`: a jump through a register of code that runs over a console's
+/// kernel, which the analysis did not resolve. To a function's entry it is the call of it the
+/// jump ends its function with. Into the middle of a lifted function it is no call: that
+/// function's frame is open somewhere below (the jump is a jump buffer's, or a switch of
+/// contexts), so the frames of the run are left as they stand and the processor goes on there.
+pub const PSX_JUMP: &str = "ra_psx_jump";
 
 /// `ra_psx_status(state)`: the status register of coprocessor 0 was written. The run reads what
 /// the write changes for the machine: the data cache cut off from the memory, in which the

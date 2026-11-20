@@ -123,6 +123,43 @@ impl Resident {
         let functions = analysis.ported().map(|f| (f.entry, f.blocks.iter().map(|b| (b.start, b.end)).collect())).collect();
         Self { start: image.image_base(), bytes: image.mapped().to_vec(), functions }
     }
+
+    /// The range its lifted functions' instructions lie in, as a start and a length: a write
+    /// outside it (to the program's data, which the image holds too) changes none of them.
+    pub fn code(&self) -> (u64, u64) {
+        let ranges = || self.functions.values().flatten();
+        let start = ranges().map(|r| r.0).min().unwrap_or(self.start);
+        let end = ranges().map(|r| r.1).max().unwrap_or(self.start);
+        (start, end.saturating_sub(start))
+    }
+}
+
+/// A program a console loads into RAM and runs over its kernel, lifted beside the console's ROM
+/// as the programs the ROM keeps for RAM are: its image, and the entries of its functions a run
+/// of it found ([`Lifted`] has none of a program nothing in the ROM names).
+pub struct Loaded {
+    pub image: Image,
+    pub entries: Vec<u64>,
+}
+
+impl Loaded {
+    /// The program in `bytes`, with the entries a run found among `entries` that lie in its code.
+    pub fn new(bytes: Vec<u8>, name: &str, entries: &[u64]) -> anyhow::Result<Self> {
+        let mut image = Image::parse(bytes)?;
+        anyhow::ensure!(image.psx.is_some(), "{name} is no program a PlayStation loads");
+        image.path = Some(name.into());
+        image.loaded = true;
+        let entries = entries.iter().copied().filter(|a| a % 4 == 0 && image.is_code(*a)).collect();
+        Ok(Self { image, entries })
+    }
+
+    fn facts(&self) -> ra_asm_analysis::Facts {
+        ra_asm_analysis::Facts {
+            input: ra_asm_analysis::facts::Input::of(&self.image, &[]),
+            residual: self.entries.clone(),
+            ..ra_asm_analysis::Facts::default()
+        }
+    }
 }
 
 /// A second image ported with the program: a DLL the program imports whose exports carry what
@@ -170,9 +207,31 @@ pub struct Whole {
 impl Whole {
     /// Lifts `image` whole, or says why a part of a ROM does not load.
     pub fn lift(image: &Image, options: LiftOptions, level: RaiseLevel) -> anyhow::Result<Self> {
+        Self::lift_with(image, &[], options, level)
+    }
+
+    /// Lifts `image` whole with the programs `loaded` its console loads into RAM. A program
+    /// the ROM keeps for RAM where one of them is loaded later (the shell, where a game goes)
+    /// is left out: an address is one function's, and that program runs once, as the processor's.
+    pub fn lift_with(image: &Image, loaded: &[Loaded], options: LiftOptions, level: RaiseLevel) -> anyhow::Result<Self> {
         let analysis = ra_asm_analysis::analyze(image);
-        let parts = image.psx_bios_parts()?;
-        let part_analyses = analyze_companions(&analysis, &parts);
+        let range = |i: &Image| i.image_base()..i.image_base() + u64::from(i.size_of_image());
+        let mut parts = image.psx_bios_parts()?;
+        parts.retain(|part| !loaded.iter().any(|l| range(&l.image).start < range(part).end && range(part).start < range(&l.image).end));
+        let mut part_analyses = analyze_companions(&analysis, &parts);
+        let mut taken: HashSet<String> =
+            analysis.functions.values().chain(part_analyses.iter().flat_map(|a| a.functions.values())).map(|f| f.name.clone()).collect();
+        for program in loaded {
+            let mut analysis = ra_asm_analysis::analyze_with(&program.image, &program.facts());
+            for f in analysis.functions.values_mut() {
+                if !taken.insert(f.name.clone()) {
+                    f.name = format!("{}_{:08x}", f.name, program.image.image_base());
+                    taken.insert(f.name.clone());
+                }
+            }
+            part_analyses.push(analysis);
+        }
+        let parts: Vec<&Image> = parts.iter().chain(loaded.iter().map(|l| &l.image)).collect();
         let companions: Vec<Companion<'_>> =
             parts.iter().zip(&part_analyses).map(|(image, analysis)| Companion { image, analysis }).collect();
         let mut lifted = lift_frozen_with(image, &analysis, &companions, options);
@@ -183,7 +242,7 @@ impl Whole {
             lifted.apply_names(part, Some(&mut signatures));
         }
         let images = std::iter::once((image, &analysis))
-            .chain(parts.iter().zip(&part_analyses))
+            .chain(parts.iter().copied().zip(&part_analyses))
             .map(|(image, analysis)| (image.image_base(), image.size_of_image(), analysis.ported().count()))
             .collect();
         let warnings =
@@ -745,7 +804,7 @@ fn lift_on(
         bound: HashMap::new(),
         attach: Vec::new(),
         devices: data::Devices::of(image),
-        resident: with.iter().filter(|c| c.image.rom_part.is_some()).map(|c| Resident::of(c.image, c.analysis)).collect(),
+        resident: with.iter().filter(|c| c.image.is_resident()).map(|c| Resident::of(c.image, c.analysis)).collect(),
         warnings: Vec::new(),
     };
     for (image, analysis) in &images {
@@ -796,7 +855,7 @@ fn lift_on(
     }
     for companion in with {
         // A program a ROM keeps for RAM is entered by the ROM's own code, where it jumps to it.
-        if companion.image.rom_part.is_some() {
+        if companion.image.is_resident() {
             continue;
         }
         let name = image_name(companion.image);

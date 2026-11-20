@@ -611,7 +611,9 @@ impl Platform for Psx {
             return Err(Stop::Exit(0));
         }
         self.timers(cycles);
+        let started = crate::profile::start();
         self.spu.advance(cycles);
+        crate::profile::end(crate::profile::Part::Sound, started);
         let storage = &mut self.host.storage;
         // A sector as the drive reads it; of a disc the host has only the user data of, the
         // sector around the data.
@@ -644,11 +646,13 @@ impl Platform for Psx {
                     gpu::Gpu::trace_frame(self.frames);
                     self.blank_at = self.clock.now();
                     self.raise(irq::VBLANK);
+                    let started = crate::profile::start();
                     let samples = std::mem::take(&mut self.spu.out);
                     self.host.audio.play(&samples, spu::RATE);
                     if !self.host.video.present(&self.gpu.frame()) {
                         self.closed = true;
                     }
+                    crate::profile::end(crate::profile::Part::Show, started);
                     // With `RA_VRAM_DUMP` naming a directory, the video memory every hundredth frame.
                     if self.frames % 100 == 0
                         && let Some(dir) = std::env::var_os("RA_VRAM_DUMP")

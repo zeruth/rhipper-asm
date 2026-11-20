@@ -281,6 +281,14 @@ enum Command {
         /// Write the sources and build nothing: `build.cmd` there has the command.
         #[arg(long)]
         no_build: bool,
+        /// A program the console loads into RAM (a game's executable off its disc), lifted and compiled with the ROM: its
+        /// functions run compiled while the RAM holds them. Repeatable.
+        #[arg(long, value_name = "IMAGE")]
+        with: Vec<PathBuf>,
+        /// The entries of functions a run found (what `--entries` of a port writes): the functions of the `--with`
+        /// programs nothing in them names.
+        #[arg(long, value_name = "FILE")]
+        entries: Option<PathBuf>,
         #[arg(long)]
         quiet: bool,
     },
@@ -720,7 +728,9 @@ fn command() -> anyhow::Result<()> {
             times,
             entries.as_deref(),
         ),
-        Command::Port { pe, out, name, no_build, quiet } => port::port(&load(&pe, sigs)?, &out, &port::Options { name, no_build, quiet }),
+        Command::Port { pe, out, name, no_build, quiet, with, entries } => {
+            port::port(&load(&pe, sigs)?, &out, &port::Options { name, no_build, quiet, with, entries })
+        }
         Command::Run {
             pe,
             args,

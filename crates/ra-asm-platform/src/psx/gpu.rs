@@ -317,6 +317,12 @@ impl Gpu {
             let words: Vec<String> = w.iter().map(|word| format!("{word:08x}")).collect();
             eprintln!("gp0: {}", words.join(" "));
         }
+        let started = crate::profile::start();
+        self.draw(command, w);
+        crate::profile::end(crate::profile::Part::Draw, started);
+    }
+
+    fn draw(&mut self, command: u8, w: &[u32]) {
         match command {
             0x02 => self.fill(w[0], w[1], w[2]),
             0x1f => self.interrupt = true,

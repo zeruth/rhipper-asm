@@ -21,6 +21,10 @@ pub(crate) struct Options {
     /// Write the sources and build nothing.
     pub no_build: bool,
     pub quiet: bool,
+    /// The programs the console loads (a game's executable off its disc) lifted with it.
+    pub with: Vec<PathBuf>,
+    /// The entries a run found: the functions of those programs nothing in them names.
+    pub entries: Option<PathBuf>,
 }
 
 /// Where the run's library is: beside this executable, where the same build of the workspace
@@ -44,7 +48,20 @@ pub(crate) fn port(image: &Image, out: &Path, options: &Options) -> Result<()> {
     }
     let level = ra_asm_lift::RaiseLevel::Machine;
     let lift = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
-    let mut whole = ra_asm_lift::Whole::lift(image, lift, level)?;
+    // The programs the console loads that are lifted with it, each with the entries a run found.
+    let entries: Vec<u64> = match &options.entries {
+        Some(path) => {
+            let text = std::fs::read_to_string(path).with_context(|| format!("cannot read the entries at {}", path.display()))?;
+            text.lines().filter_map(|line| line.split_whitespace().next()).filter_map(|word| u64::from_str_radix(word, 16).ok()).collect()
+        }
+        None => Vec::new(),
+    };
+    let mut loaded = Vec::new();
+    for (n, path) in options.with.iter().enumerate() {
+        let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+        loaded.push(ra_asm_lift::Loaded::new(bytes, &format!("loaded-{n}.exe"), &entries)?);
+    }
+    let mut whole = ra_asm_lift::Whole::lift_with(image, &loaded, lift, level)?;
     if !options.quiet {
         for w in &whole.warnings {
             eprintln!("warning: {w}");
@@ -57,8 +74,11 @@ pub(crate) fn port(image: &Image, out: &Path, options: &Options) -> Result<()> {
         std::fs::write(out.join(name), bytes).with_context(|| format!("cannot write {}", out.join(name).display()))
     };
     write("program.ll", whole.lifted.module.to_ll().as_bytes())?;
-    write("port.c", ra_asm_lift::port::source(&whole.lifted).as_bytes())?;
+    write("port.c", ra_asm_lift::port::source(&whole.lifted, &loaded).as_bytes())?;
     write("image.bin", image.file())?;
+    for (n, program) in loaded.iter().enumerate() {
+        write(&format!("loaded-{n}.bin"), program.image.file())?;
+    }
     let library = library_dir()?;
     for name in [LIBRARY, IMPORT_LIBRARY] {
         std::fs::copy(library.join(name), out.join(name)).with_context(|| format!("cannot copy {name} into {}", out.display()))?;

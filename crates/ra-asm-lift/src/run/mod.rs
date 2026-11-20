@@ -33,6 +33,7 @@ pub use console::{Console, Native};
 use host::Runtime;
 pub use r3000::stats as processor_stats;
 pub use ra_asm_platform::host::Capture;
+pub use ra_asm_platform::profile::seconds as device_seconds;
 
 /// Whether `image` is a program of a console whose machine a run carries: its devices, its BIOS
 /// or kernel and its interrupts, with a picture, sound and input.

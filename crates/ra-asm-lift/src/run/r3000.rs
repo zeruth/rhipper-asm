@@ -72,6 +72,9 @@ pub(super) struct Processor {
     /// For each run of code the program copies into RAM ([`crate::Resident`]): the watch of its
     /// range, and the functions whose bytes the RAM was found to hold since the last write there.
     resident: Vec<(usize, std::collections::HashSet<u64>)>,
+    /// The calls and jumps of lifted code through the run that are open, innermost last: each
+    /// one's target and the block it was made from.
+    nest: Vec<(u32, u32)>,
     /// The RAM as it was when the data cache was cut off, while it is: the stores made then
     /// flush cache lines and reach no memory, so the RAM comes back when the cache does.
     isolated: Option<Vec<u8>>,
@@ -93,6 +96,7 @@ impl Processor {
             returned: 0,
             booted: false,
             resident: Vec::new(),
+            nest: Vec::new(),
             isolated: None,
             cop0,
             gp: vm.symbol(PSX_GP),
@@ -368,8 +372,8 @@ impl Runtime<'_> {
         };
         let Ok(processor) = self.processor() else { return Ok(Some(at)) };
         while processor.resident.len() < lifted.resident.len() {
-            let part = &lifted.resident[processor.resident.len()];
-            processor.resident.push((vm.memory.watch(part.start, part.bytes.len() as u64), std::collections::HashSet::new()));
+            let (start, len) = lifted.resident[processor.resident.len()].code();
+            processor.resident.push((vm.memory.watch(start, len), std::collections::HashSet::new()));
         }
         let (watch, held) = &mut processor.resident[index];
         if vm.memory.take_written(*watch) {
@@ -443,6 +447,51 @@ impl Runtime<'_> {
             return Err(Stop::fault(ELSEWHERE));
         }
         Ok(())
+    }
+
+    /// A lifted function's jump through a register to `target` (`ra_psx_jump`): into the middle
+    /// of a function the run has lifted from RAM it is no call, and the processor goes on there
+    /// from the run's first frame; anywhere else the jump is made as a call is.
+    pub(super) fn psx_jump(&mut self, target: u64) -> Result<(), Stop> {
+        let physical = target & 0x1fff_ffff;
+        if !matches!(target >> 29, 0 | 4 | 5) || physical >= 0x80_0000 {
+            return Ok(());
+        }
+        let at = 0x8000_0000 | (physical & 0x1f_ffff);
+        let inside = self.lifted.resident.iter().any(|part| {
+            !part.functions.contains_key(&at) && part.functions.values().flatten().any(|&(start, end)| (start..end).contains(&at))
+        });
+        if !inside {
+            return Ok(());
+        }
+        stats::trail(|| format!("a lifted jump into the middle of a function, at {target:#x}"));
+        self.processor()?.returned = target as u32;
+        Err(Stop::fault(ELSEWHERE))
+    }
+
+    /// A lifted function's call or jump through the run to `target` opens: how many were open
+    /// before it. A program does not nest its calls without end, so past a depth no program
+    /// reaches the run stops, with the targets and the sites of the last of them: where
+    /// lifted code that leaves by a jump is taken for code that calls.
+    pub(super) fn psx_nest(&mut self, vm: &Vm<'_>, target: u32) -> Result<usize, Stop> {
+        const DEEPEST: usize = 3000;
+        let site = vm.site.unwrap_or(0) as u32;
+        let Ok(processor) = self.processor() else { return Ok(0) };
+        let depth = processor.nest.len();
+        processor.nest.push((target, site));
+        if depth >= DEEPEST {
+            let last: Vec<String> =
+                processor.nest.iter().rev().take(12).map(|(target, site)| format!("{target:#x} from {site:#x}")).collect();
+            return Err(Stop::fault(format!("lifted code is {depth} jumps through the run deep, the last to {}", last.join(", "))));
+        }
+        Ok(depth)
+    }
+
+    /// The call or jump that opened at `depth` is over, with every one it opened.
+    pub(super) fn psx_unnest(&mut self, depth: usize) {
+        if let Ok(processor) = self.processor() {
+            processor.nest.truncate(depth);
+        }
     }
 
     /// A lifted function of a kernel's run came back from a call whose return address was
@@ -859,7 +908,7 @@ impl Runtime<'_> {
         stats::trail(|| format!("exception {code} at {address:#x} slot {slot} returns {returns:x?}"));
         if ra_asm_platform::tracing() && !matches!(code, INTERRUPT | SYSCALL) {
             eprintln!("psx: the exception {code} at {address:#x}{}", if slot { ", in a delay slot" } else { "" });
-            if code == RESERVED {
+            if matches!(code, RESERVED | BUS_CODE | BUS_DATA | ADDRESS_LOAD | ADDRESS_STORE) {
                 stats::dump_trail(60);
             }
         }

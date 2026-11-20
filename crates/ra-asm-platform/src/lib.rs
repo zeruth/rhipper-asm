@@ -29,6 +29,46 @@
 
 pub mod adpcm;
 pub mod clock;
+/// Where a run's time goes among a console's devices, when `RA_RUN_STATS` is set: the seconds
+/// spent drawing, mixing sound and showing frames, which a run prints beside its own.
+pub mod profile {
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Instant;
+
+    /// What the time is counted under.
+    #[derive(Clone, Copy)]
+    pub enum Part {
+        Draw,
+        Sound,
+        Show,
+    }
+
+    static NANOS: [AtomicU64; 3] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
+
+    fn on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var_os("RA_RUN_STATS").is_some())
+    }
+
+    /// The clock's reading, when the times are kept.
+    pub fn start() -> Option<Instant> {
+        on().then(Instant::now)
+    }
+
+    /// Counts the time since `started` under `part`.
+    pub fn end(part: Part, started: Option<Instant>) {
+        if let Some(started) = started {
+            NANOS[part as usize].fetch_add(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        }
+    }
+
+    /// The seconds spent drawing, mixing sound and showing frames.
+    pub fn seconds() -> [f64; 3] {
+        [0, 1, 2].map(|part| NANOS[part].load(Ordering::Relaxed) as f64 / 1e9)
+    }
+}
+
 pub mod disc;
 pub mod host;
 pub mod iso;
