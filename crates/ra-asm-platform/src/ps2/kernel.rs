@@ -153,9 +153,14 @@ impl Ps2 {
             Step::Handler { entry, cause, argument } => {
                 Delivery { entry: entry.into(), args: [cause.into(), argument.into(), 0, 0], stack: None, gp: None, registers, token }
             }
-            Step::Alarm { entry, id, time, argument } => {
-                Delivery { entry: entry.into(), args: [id.into(), time.into(), argument.into(), 0], stack: None, gp: None, registers, token }
-            }
+            Step::Alarm { entry, id, time, argument } => Delivery {
+                entry: entry.into(),
+                args: [id.into(), time.into(), argument.into(), 0],
+                stack: None,
+                gp: None,
+                registers,
+                token,
+            },
             Step::Thread { id, argument, .. } => {
                 let thread = &mut self.kernel.threads[id];
                 thread.status = RUNNING;

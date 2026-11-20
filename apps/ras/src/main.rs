@@ -706,7 +706,25 @@ fn command() -> anyhow::Result<()> {
             emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref(), checked, &only, &with, times)
         }
         Command::Port { pe, out, name, no_build, quiet } => port::port(&load(&pe, sigs)?, &out, &port::Options { name, no_build, quiet }),
-        Command::Run { pe, args, level, x87, trace, limit, quiet, headless, frames, frame_dir, pad, wav, disc, bios, files, facts, record } => {
+        Command::Run {
+            pe,
+            args,
+            level,
+            x87,
+            trace,
+            limit,
+            quiet,
+            headless,
+            frames,
+            frame_dir,
+            pad,
+            wav,
+            disc,
+            bios,
+            files,
+            facts,
+            record,
+        } => {
             let mut image = load(&pe, sigs)?;
             if let Some(bios) = bios {
                 anyhow::ensure!(image.psx.is_some(), "--bios is the ROM beside a PlayStation program: {} is none", pe.display());

@@ -30,8 +30,8 @@ use ra_asm_pe::Image;
 use crate::Lifted;
 use crate::raise::abi::{Kind, Signature};
 pub use console::{Console, Native};
-pub use r3000::stats as processor_stats;
 use host::Runtime;
+pub use r3000::stats as processor_stats;
 pub use ra_asm_platform::host::Capture;
 
 /// Whether `image` is a program of a console whose machine a run carries: its devices, its BIOS

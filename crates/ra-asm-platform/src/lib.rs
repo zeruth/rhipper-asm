@@ -29,8 +29,8 @@
 
 pub mod adpcm;
 pub mod clock;
-pub mod host;
 pub mod disc;
+pub mod host;
 pub mod iso;
 pub mod pad;
 pub mod png;

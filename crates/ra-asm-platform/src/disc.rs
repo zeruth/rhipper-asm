@@ -99,14 +99,15 @@ impl Disc {
         let mut before: Option<(u8, u64, bool, Option<u32>)> = None;
         // The sectors a `PREGAP` says precede a track without being in any file.
         let mut gaps = 0u32;
-        let close = |disc: &mut Self, track: &mut Option<(u8, u64, bool, Option<u32>)>, current: Option<(usize, u64, u32)>, until: Option<u32>| {
-            let (Some((_, stride, audio, Some(first))), Some((file, len, base))) = (track.take(), current) else { return };
-            let end = until.unwrap_or((len / stride) as u32);
-            if end > first {
-                let _ = audio;
-                disc.spans.push(Span { start: base + first, sectors: end - first, file, offset: u64::from(first) * stride, stride });
-            }
-        };
+        let close =
+            |disc: &mut Self, track: &mut Option<(u8, u64, bool, Option<u32>)>, current: Option<(usize, u64, u32)>, until: Option<u32>| {
+                let (Some((_, stride, audio, Some(first))), Some((file, len, base))) = (track.take(), current) else { return };
+                let end = until.unwrap_or((len / stride) as u32);
+                if end > first {
+                    let _ = audio;
+                    disc.spans.push(Span { start: base + first, sectors: end - first, file, offset: u64::from(first) * stride, stride });
+                }
+            };
         for line in text.lines() {
             let line = line.trim();
             let (word, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
@@ -116,7 +117,11 @@ impl Disc {
                     close(&mut disc, &mut track, current, None);
                     // The file's sectors are the disc's after those of the files before it.
                     let base = disc.spans.iter().map(|s| s.start + s.sectors).max().unwrap_or(0) + std::mem::take(&mut gaps);
-                    let name = rest.trim().strip_prefix('"').and_then(|r| r.split_once('"')).map_or_else(|| rest.split_whitespace().next().unwrap_or(""), |(name, _)| name);
+                    let name = rest
+                        .trim()
+                        .strip_prefix('"')
+                        .and_then(|r| r.split_once('"'))
+                        .map_or_else(|| rest.split_whitespace().next().unwrap_or(""), |(name, _)| name);
                     let at = folder.join(name);
                     let file = File::open(&at).map_err(|e| format!("cannot open {}, which {} names: {e}", at.display(), path.display()))?;
                     let len = file.metadata().map_err(|e| e.to_string())?.len();
@@ -125,7 +130,10 @@ impl Disc {
                 }
                 "TRACK" => {
                     let mut fields = rest.split_whitespace();
-                    let number: u8 = fields.next().and_then(|n| n.parse().ok()).ok_or_else(|| format!("{}: a track without a number", path.display()))?;
+                    let number: u8 = fields
+                        .next()
+                        .and_then(|n| n.parse().ok())
+                        .ok_or_else(|| format!("{}: a track without a number", path.display()))?;
                     let kind = fields.next().unwrap_or("").to_ascii_uppercase();
                     let stride = match kind.rsplit('/').next().and_then(|s| s.parse::<u64>().ok()) {
                         Some(stride @ (2048 | 2352)) => stride,
@@ -139,7 +147,10 @@ impl Disc {
                 "PREGAP" => gaps += frames(rest).unwrap_or(0),
                 "INDEX" => {
                     let mut fields = rest.split_whitespace();
-                    let (Some(index), Some(at)) = (fields.next().and_then(|n| n.parse::<u32>().ok()), fields.next().and_then(frames)) else { continue };
+                    let (Some(index), Some(at)) = (fields.next().and_then(|n| n.parse::<u32>().ok()), fields.next().and_then(frames))
+                    else {
+                        continue;
+                    };
                     let Some((number, _, audio, first)) = &mut track else { continue };
                     if first.is_none() {
                         // The track's sectors start here: the one before it in the file ends.

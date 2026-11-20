@@ -314,7 +314,12 @@ mod tests {
         for pair in blocks.chunks_exact(2) {
             mdec.write(u32::from(pair[0]) | u32::from(pair[1]) << 16);
         }
-        let pixels: Vec<u16> = (0..128).flat_map(|_| mdec.read().to_le_bytes()).collect::<Vec<u8>>().chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
+        let pixels: Vec<u16> = (0..128)
+            .flat_map(|_| mdec.read().to_le_bytes())
+            .collect::<Vec<u8>>()
+            .chunks_exact(2)
+            .map(|p| u16::from_le_bytes([p[0], p[1]]))
+            .collect();
         // 512 as ten signed bits is -512: an eighth of it, -64, over the middle of 128.
         let grey = (128u16 - 64) >> 3;
         assert_eq!(pixels, [grey | grey << 5 | grey << 10 | 0x8000; 256]);

@@ -29,7 +29,10 @@ fn library_dir() -> Result<PathBuf> {
     let exe = std::env::current_exe().context("cannot tell where ras is")?;
     let dir = exe.parent().context("ras has no directory")?.to_path_buf();
     if !dir.join(LIBRARY).is_file() || !dir.join(IMPORT_LIBRARY).is_file() {
-        bail!("{LIBRARY} and {IMPORT_LIBRARY} are not beside ras in {}: build them with `cargo build --release -p ra-asm-port`", dir.display());
+        bail!(
+            "{LIBRARY} and {IMPORT_LIBRARY} are not beside ras in {}: build them with `cargo build --release -p ra-asm-port`",
+            dir.display()
+        );
     }
     Ok(dir)
 }
@@ -50,7 +53,9 @@ pub(crate) fn port(image: &Image, out: &Path, options: &Options) -> Result<()> {
     }
     ra_asm_lift::port::nativize(&mut whole.lifted.module);
     std::fs::create_dir_all(out).with_context(|| format!("cannot create {}", out.display()))?;
-    let write = |name: &str, bytes: &[u8]| std::fs::write(out.join(name), bytes).with_context(|| format!("cannot write {}", out.join(name).display()));
+    let write = |name: &str, bytes: &[u8]| {
+        std::fs::write(out.join(name), bytes).with_context(|| format!("cannot write {}", out.join(name).display()))
+    };
     write("program.ll", whole.lifted.module.to_ll().as_bytes())?;
     write("port.c", ra_asm_lift::port::source(&whole.lifted).as_bytes())?;
     write("image.bin", image.file())?;
@@ -58,11 +63,8 @@ pub(crate) fn port(image: &Image, out: &Path, options: &Options) -> Result<()> {
     for name in [LIBRARY, IMPORT_LIBRARY] {
         std::fs::copy(library.join(name), out.join(name)).with_context(|| format!("cannot copy {name} into {}", out.display()))?;
     }
-    let name = options
-        .name
-        .clone()
-        .or_else(|| out.file_name().map(|n| n.to_string_lossy().into_owned()))
-        .unwrap_or_else(|| "port".to_owned());
+    let name =
+        options.name.clone().or_else(|| out.file_name().map(|n| n.to_string_lossy().into_owned())).unwrap_or_else(|| "port".to_owned());
     let exe = format!("{name}.exe");
     let arguments = ["-O2", "-std=c23", "-Wno-override-module", "program.ll", "port.c", IMPORT_LIBRARY, "-o", exe.as_str()];
     write("build.cmd", format!("@echo off\r\nclang {}\r\n", arguments.join(" ")).as_bytes())?;
@@ -72,7 +74,8 @@ pub(crate) fn port(image: &Image, out: &Path, options: &Options) -> Result<()> {
     if !options.quiet {
         eprintln!("ra: {} functions; building {}", whole.lifted.functions.len(), out.join(&exe).display());
     }
-    let status = Command::new("clang").args(arguments).current_dir(out).status().context("cannot run clang: `ras doctor` says what a port needs")?;
+    let status =
+        Command::new("clang").args(arguments).current_dir(out).status().context("cannot run clang: `ras doctor` says what a port needs")?;
     if !status.success() {
         bail!("clang did not build the port: the command is in {}", out.join("build.cmd").display());
     }

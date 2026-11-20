@@ -29,7 +29,8 @@ thread_local! {
 pub(super) fn call(vm: &mut Vm<'_>, host: &mut dyn Host, code: Code, state: u64) -> Result<(), Stop> {
     // SAFETY: the pointers are read back only by `with`, on this thread, while this call is on
     // the stack below it, where `vm` and `host` are borrowed for the whole call and not used.
-    let context: Context = unsafe { (std::ptr::from_mut(vm).cast(), std::mem::transmute::<*mut dyn Host, *mut (dyn Host + 'static)>(host)) };
+    let context: Context =
+        unsafe { (std::ptr::from_mut(vm).cast(), std::mem::transmute::<*mut dyn Host, *mut (dyn Host + 'static)>(host)) };
     let outer = CONTEXT.replace(Some(context));
     // SAFETY: `code` is a compiled function of the module's, which takes its machine's state.
     let result = catch_unwind(AssertUnwindSafe(|| unsafe { code(state as usize as *mut u8) }));

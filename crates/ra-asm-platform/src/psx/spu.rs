@@ -221,14 +221,18 @@ impl Spu {
         // A coefficient, in 0x8000ths, and an offset into the work area, in bytes.
         let volume = |spu: &Self, n: usize| i32::from(register(spu, n).cast_signed());
         let place = |spu: &Self, n: usize, back: usize| base + (at - base + usize::from(register(spu, n)) * 8 + span - back) % span;
-        let read = |spu: &Self, address: usize| i32::from(i16::from_le_bytes([spu.ram[address & (RAM_SIZE - 1)], spu.ram[(address + 1) & (RAM_SIZE - 1)]]));
+        let read = |spu: &Self, address: usize| {
+            i32::from(i16::from_le_bytes([spu.ram[address & (RAM_SIZE - 1)], spu.ram[(address + 1) & (RAM_SIZE - 1)]]))
+        };
         let clamp = |v: i32| v.clamp(-0x8000, 0x7fff);
         let (wall, iir) = (volume(self, 3 + 4), volume(self, 2));
         let mut writes = Vec::with_capacity(8);
         // The same-side and the cross-side reflections: each a low-pass of the input and of the
         // wall's reflection of the other tap.
         let inputs = [input[0] * volume(self, 0x1e) / 0x8000, input[1] * volume(self, 0x1f) / 0x8000];
-        for (side, (store, same_from, diff_store, diff_from)) in [(0x0a, 0x10, 0x12, 0x19), (0x0b, 0x11, 0x13, 0x18)].into_iter().enumerate() {
+        for (side, (store, same_from, diff_store, diff_from)) in
+            [(0x0a, 0x10, 0x12, 0x19), (0x0b, 0x11, 0x13, 0x18)].into_iter().enumerate()
+        {
             for (to, from) in [(store, same_from), (diff_store, diff_from)] {
                 let before = read(self, place(self, to, 2));
                 let reflected = inputs[side] + read(self, place(self, from, 0)) * wall / 0x8000;

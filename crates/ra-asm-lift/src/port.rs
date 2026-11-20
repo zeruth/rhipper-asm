@@ -54,8 +54,18 @@ fn bits_of(ty: &Type) -> Option<u16> {
 pub fn nativize(module: &mut Module) {
     for bits in [8u16, 16, 32, 64] {
         let ty = Type::Int(bits);
-        module.declare(Declaration { name: accessor(false, bits), ty: FnType::new(ty.clone(), vec![Type::I64]), conv: CallConv::C, attrs: vec![] });
-        module.declare(Declaration { name: accessor(true, bits), ty: FnType::new(Type::Void, vec![Type::I64, ty]), conv: CallConv::C, attrs: vec![] });
+        module.declare(Declaration {
+            name: accessor(false, bits),
+            ty: FnType::new(ty.clone(), vec![Type::I64]),
+            conv: CallConv::C,
+            attrs: vec![],
+        });
+        module.declare(Declaration {
+            name: accessor(true, bits),
+            ty: FnType::new(Type::Void, vec![Type::I64, ty]),
+            conv: CallConv::C,
+            attrs: vec![],
+        });
     }
     module.declare(Declaration { name: TICK.into(), ty: tick_type(), conv: CallConv::C, attrs: vec![] });
     module.declare(Declaration { name: STEP.into(), ty: step_type(), conv: CallConv::C, attrs: vec![] });
@@ -168,8 +178,11 @@ pub fn source(lifted: &Lifted) -> String {
     // The runtime's functions the module names, each through the run's one entry by its number.
     let defined: BTreeSet<&str> = module.functions.iter().map(|f| f.name.as_str()).collect();
     let own = |name: &str| name == TICK || name == STEP || name.starts_with("ra_ld") || name.starts_with("ra_st");
-    let imports: Vec<&Declaration> =
-        module.declarations.iter().filter(|d| !d.name.starts_with("llvm.") && !own(&d.name) && !defined.contains(d.name.as_str())).collect();
+    let imports: Vec<&Declaration> = module
+        .declarations
+        .iter()
+        .filter(|d| !d.name.starts_with("llvm.") && !own(&d.name) && !defined.contains(d.name.as_str()))
+        .collect();
     for (index, declaration) in imports.iter().enumerate() {
         let _ = writeln!(
             out,
@@ -184,7 +197,8 @@ pub fn source(lifted: &Lifted) -> String {
     let _ = writeln!(out, "    0\n}};");
     // The functions, by the addresses the program has them at.
     let by_name: HashMap<&str, u64> = lifted.functions.iter().map(|(address, name)| (name.as_str(), *address)).collect();
-    let functions: Vec<(u64, &str)> = module.functions.iter().filter_map(|f| by_name.get(f.name.as_str()).map(|address| (*address, f.name.as_str()))).collect();
+    let functions: Vec<(u64, &str)> =
+        module.functions.iter().filter_map(|f| by_name.get(f.name.as_str()).map(|address| (*address, f.name.as_str()))).collect();
     // A function's name in the module may be none of C's: each is declared by its address,
     // under the symbol the module gives it.
     for (address, name) in &functions {

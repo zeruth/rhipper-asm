@@ -184,7 +184,8 @@ impl Cdrom {
                 match parameters.first().map(|t| bcd(*t)).filter(|t| *t != 0) {
                     Some(number) => {
                         self.target = None;
-                        self.position = self.tracks.iter().find(|t| u32::from(t.number) == number).or(self.tracks.last()).map_or(0, |t| t.start);
+                        self.position =
+                            self.tracks.iter().find(|t| u32::from(t.number) == number).or(self.tracks.last()).map_or(0, |t| t.start);
                     }
                     None => self.seek(),
                 }

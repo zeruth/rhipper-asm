@@ -173,7 +173,8 @@ impl Whole {
         let analysis = ra_asm_analysis::analyze(image);
         let parts = image.psx_bios_parts()?;
         let part_analyses = analyze_companions(&analysis, &parts);
-        let companions: Vec<Companion<'_>> = parts.iter().zip(&part_analyses).map(|(image, analysis)| Companion { image, analysis }).collect();
+        let companions: Vec<Companion<'_>> =
+            parts.iter().zip(&part_analyses).map(|(image, analysis)| Companion { image, analysis }).collect();
         let mut lifted = lift_frozen_with(image, &analysis, &companions, options);
         let raise_options = lifted.raise_options(level);
         let mut signatures = raise(&mut lifted.module, &lifted.roots, raise_options);
@@ -185,7 +186,8 @@ impl Whole {
             .chain(parts.iter().zip(&part_analyses))
             .map(|(image, analysis)| (image.image_base(), image.size_of_image(), analysis.ported().count()))
             .collect();
-        let warnings = analysis.warnings.iter().chain(part_analyses.iter().flat_map(|a| &a.warnings)).chain(&lifted.warnings).cloned().collect();
+        let warnings =
+            analysis.warnings.iter().chain(part_analyses.iter().flat_map(|a| &a.warnings)).chain(&lifted.warnings).cloned().collect();
         Ok(Self { lifted, signatures, images, warnings })
     }
 }

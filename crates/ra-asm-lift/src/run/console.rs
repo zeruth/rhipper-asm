@@ -354,7 +354,8 @@ impl Runtime<'_> {
         let registers = match interrupted {
             Some(state) => vm.memory.read_vec(state, 32 * 8).map_or(0, |bytes| {
                 bytes.chunks_exact(8).fold(site ^ 0xcbf2_9ce4_8422_2325, |hash, word| {
-                    (hash ^ u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]])).wrapping_mul(0x0100_0000_01b3)
+                    (hash ^ u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]]))
+                        .wrapping_mul(0x0100_0000_01b3)
                 })
             }),
             None => 0,
@@ -415,7 +416,8 @@ impl Runtime<'_> {
         if name.is_none() && !self.r3000() {
             return Err(Stop::fault(format!("the machine calls {:#x}, which is no lifted function", delivery.entry)));
         }
-        let machine_shape = name.as_ref().is_none_or(|name| vm.function(name).is_some_and(|f| f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void));
+        let machine_shape =
+            name.as_ref().is_none_or(|name| vm.function(name).is_some_and(|f| f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void));
         if !machine_shape {
             return self.call_back(vm, delivery.entry, [delivery.args[0], delivery.args[1], delivery.args[2]]);
         }
@@ -439,7 +441,8 @@ impl Runtime<'_> {
         let nested = stacks.map_or(HANDLER_STACK / 8, |stacks| stacks.nested);
         let stack = delivery.stack.unwrap_or(machine.stack - depth as u64 * nested);
         machine.depth += 1;
-        let mut registers = vec![(29, stack), (31, 0), (4, delivery.args[0]), (5, delivery.args[1]), (6, delivery.args[2]), (7, delivery.args[3])];
+        let mut registers =
+            vec![(29, stack), (31, 0), (4, delivery.args[0]), (5, delivery.args[1]), (6, delivery.args[2]), (7, delivery.args[3])];
         registers.extend(delivery.registers.iter().map(|(register, value)| (u64::from(*register), *value)));
         let result = (|| {
             if let Some(gp) = delivery.gp.or(global_pointer) {

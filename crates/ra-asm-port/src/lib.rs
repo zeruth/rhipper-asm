@@ -181,7 +181,9 @@ fn peek(vm: &mut ra_asm_ir::interp::Vm<'_>) {
     static ADDRESSES: std::sync::OnceLock<Vec<u64>> = std::sync::OnceLock::new();
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let addresses = ADDRESSES.get_or_init(|| {
-        std::env::var("RA_PEEK").map(|list| list.split(',').filter_map(|a| u64::from_str_radix(a.trim(), 16).ok()).collect()).unwrap_or_default()
+        std::env::var("RA_PEEK")
+            .map(|list| list.split(',').filter_map(|a| u64::from_str_radix(a.trim(), 16).ok()).collect())
+            .unwrap_or_default()
     });
     if addresses.is_empty() || vm.instructions < NEXT.load(std::sync::atomic::Ordering::Relaxed) {
         return;
@@ -193,7 +195,9 @@ fn peek(vm: &mut ra_asm_ir::interp::Vm<'_>) {
 
 unsafe extern "C-unwind" fn call(import: u64, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> u64 {
     let Some((name, ty)) = IMPORTS.get().and_then(|imports| imports.get(import as usize)) else {
-        return native::with(|_, _| Err::<u64, _>(Stop::fault(format!("the port calls the runtime's function {import}, which it does not name"))));
+        return native::with(|_, _| {
+            Err::<u64, _>(Stop::fault(format!("the port calls the runtime's function {import}, which it does not name")))
+        });
     };
     let args: Vec<Value> = [a0, a1, a2, a3, a4, a5].into_iter().take(ty.params.len()).map(|a| Value::Int(u128::from(a))).collect();
     native::with(|vm, host| {
@@ -290,7 +294,8 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
     capture.lock().dump = arguments.frame_dir;
     for entry in &arguments.pads {
         let (frame, buttons) = entry.split_once(':').ok_or_else(|| anyhow::anyhow!("--pad {entry}: not `<frame>:<buttons>`"))?;
-        let state = ra_asm_lift::run::pad(buttons).ok_or_else(|| anyhow::anyhow!("--pad {entry}: `{buttons}` names a button the pad has not"))?;
+        let state =
+            ra_asm_lift::run::pad(buttons).ok_or_else(|| anyhow::anyhow!("--pad {entry}: `{buttons}` names a button the pad has not"))?;
         capture = capture.press(frame.parse()?, 0, state);
     }
     let headless = arguments.headless || !arguments.pads.is_empty();

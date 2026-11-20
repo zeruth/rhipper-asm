@@ -1366,8 +1366,7 @@ mod spec {
         assert_eq!(fields.len(), 9);
         assert_eq!(fields[MIPS_VFPU as usize], Type::array(128, Type::I32));
         assert_eq!(fields[MIPS_VFPU_CC as usize], Type::I32);
-        let named: Vec<_> =
-            [MIPS_FCSR, MIPS_UPPER, MIPS_ACC, MIPS_VFPU, MIPS_VFPU_CC].map(|i| spec.fields[i as usize].name).into();
+        let named: Vec<_> = [MIPS_FCSR, MIPS_UPPER, MIPS_ACC, MIPS_VFPU, MIPS_VFPU_CC].map(|i| spec.fields[i as usize].name).into();
         assert_eq!(named, ["fcsr", "upper", "acc", "vfpu", "vfpucc"]);
         assert_eq!(laid_out(spec), (vec![0, 272, 280, 288, 800, 808, 1080, 1084, 1596], 1600));
         let (index, vfpu) = (MIPS_VFPU as usize, &spec.fields[MIPS_VFPU as usize]);

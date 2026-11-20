@@ -87,7 +87,17 @@ impl Processor {
         // The processor's identity, as a program reads it.
         vm.memory.write_u64(cop0 + 15 * 8, 2).ok()?;
         let gte = vm.symbol(PSX_GTE)?;
-        Some(Self { kernel, exceptions: Vec::new(), returned: 0, booted: false, resident: Vec::new(), isolated: None, cop0, gp: vm.symbol(PSX_GP), gte })
+        Some(Self {
+            kernel,
+            exceptions: Vec::new(),
+            returned: 0,
+            booted: false,
+            resident: Vec::new(),
+            isolated: None,
+            cop0,
+            gp: vm.symbol(PSX_GP),
+            gte,
+        })
     }
 }
 
@@ -105,7 +115,9 @@ pub mod stats {
     }
 
     pub(super) fn add(entry: u32, instructions: u64) {
-        if on() && let Ok(mut runs) = RUNS.lock() {
+        if on()
+            && let Ok(mut runs) = RUNS.lock()
+        {
             *runs.get_or_insert_with(HashMap::new).entry(entry).or_default() += instructions;
         }
     }
@@ -117,7 +129,9 @@ pub mod stats {
     /// while the platform is traced: how a run came to code that is none.
     pub(super) fn trail(what: impl FnOnce() -> String) {
         static ON: OnceLock<bool> = OnceLock::new();
-        if *ON.get_or_init(|| std::env::var_os("RA_PROCESSOR_TRAIL").is_some()) && let Ok(mut trail) = TRAIL.lock() {
+        if *ON.get_or_init(|| std::env::var_os("RA_PROCESSOR_TRAIL").is_some())
+            && let Ok(mut trail) = TRAIL.lock()
+        {
             if trail.len() >= 4000 {
                 trail.drain(..2000);
             }
@@ -139,7 +153,9 @@ pub mod stats {
     /// instructions go. The count starts over at each million, so the report is of the last
     /// stretch of the run.
     pub(super) fn sample(pc: u32) {
-        if on() && let Ok(mut samples) = SAMPLES.lock() {
+        if on()
+            && let Ok(mut samples) = SAMPLES.lock()
+        {
             let samples = samples.get_or_insert_with(HashMap::new);
             if samples.values().sum::<u64>() >= 200_000 {
                 samples.clear();
@@ -160,7 +176,9 @@ pub mod stats {
 
     /// A call or a jump of the processor's came to `target`, which no lifted function is.
     pub(super) fn enter(target: u32) {
-        if on() && let Ok(mut entered) = ENTERED.lock() {
+        if on()
+            && let Ok(mut entered) = ENTERED.lock()
+        {
             *entered.get_or_insert_with(HashMap::new).entry(target).or_default() += 1;
         }
     }
@@ -784,7 +802,16 @@ impl Runtime<'_> {
 
     /// An access to `bad` the processor of a kernel's run does not make: the exception `code`,
     /// with the address in coprocessor 0's register for it when it is an address error.
-    fn r3000_bad(&mut self, vm: &mut Vm<'_>, state: u64, cpu: &mut Cpu, code: u32, bad: u32, current: u32, in_slot: bool) -> Result<(), Stop> {
+    fn r3000_bad(
+        &mut self,
+        vm: &mut Vm<'_>,
+        state: u64,
+        cpu: &mut Cpu,
+        code: u32,
+        bad: u32,
+        current: u32,
+        in_slot: bool,
+    ) -> Result<(), Stop> {
         let processor = self.processor()?;
         if code != BUS_DATA && code != BUS_CODE {
             vm.memory.write_u64(processor.cop0 + 8 * BAD_ADDRESS, sext(bad))?;
@@ -895,7 +922,14 @@ impl Runtime<'_> {
     /// branch and its slot, nor between the slot and what the branch does after it (its call,
     /// which the lift places there, and what follows the call's return), nor at a function's
     /// entry, which a handler's return to would read as a call of it.
-    pub(super) fn psx_boundary(&mut self, vm: &mut Vm<'_>, from: Option<u64>, to: u64, start: bool, state: Option<u64>) -> Result<(), Stop> {
+    pub(super) fn psx_boundary(
+        &mut self,
+        vm: &mut Vm<'_>,
+        from: Option<u64>,
+        to: u64,
+        start: bool,
+        state: Option<u64>,
+    ) -> Result<(), Stop> {
         let Some(state) = state else { return Ok(()) };
         if !self.r3000() || !self.psx_interrupt_due(vm)? || vm.symbol_at(to).is_some() {
             return Ok(());
@@ -943,42 +977,42 @@ impl Runtime<'_> {
     /// Data register `n` of the GTE as `mfc2` reads it: as the lift's `gte_data`.
     fn gte_data(&mut self, vm: &mut Vm<'_>, n: u32) -> Result<u32, Stop> {
         match n {
-            15 => self.gte_slot(vm,14),
+            15 => self.gte_slot(vm, 14),
             28 | 29 => {
                 let mut packed = 0;
                 for k in 0..3 {
-                    let ir = self.gte_slot(vm,9 + k)?.cast_signed();
+                    let ir = self.gte_slot(vm, 9 + k)?.cast_signed();
                     packed |= ((ir >> 7).clamp(0, 0x1f) as u32) << (5 * k);
                 }
                 Ok(packed)
             }
             31 => {
-                let value = self.gte_slot(vm,30)?.cast_signed();
+                let value = self.gte_slot(vm, 30)?.cast_signed();
                 Ok((value ^ (value >> 31)).leading_zeros())
             }
-            _ => self.gte_slot(vm,n),
+            _ => self.gte_slot(vm, n),
         }
     }
 
     /// Writes data register `n` of the GTE as `mtc2` does: as the lift's `set_gte_data`.
     fn set_gte_data(&mut self, vm: &mut Vm<'_>, n: u32, value: u32) -> Result<(), Stop> {
         match n {
-            1 | 3 | 5 | 8..=11 => self.set_gte_slot(vm,n, i32::from(value as u16 as i16).cast_unsigned()),
-            7 | 16..=19 => self.set_gte_slot(vm,n, value & 0xffff),
+            1 | 3 | 5 | 8..=11 => self.set_gte_slot(vm, n, i32::from(value as u16 as i16).cast_unsigned()),
+            7 | 16..=19 => self.set_gte_slot(vm, n, value & 0xffff),
             15 => {
-                let (s1, s2) = (self.gte_slot(vm,13)?, self.gte_slot(vm,14)?);
-                self.set_gte_slot(vm,12, s1)?;
-                self.set_gte_slot(vm,13, s2)?;
-                self.set_gte_slot(vm,14, value)
+                let (s1, s2) = (self.gte_slot(vm, 13)?, self.gte_slot(vm, 14)?);
+                self.set_gte_slot(vm, 12, s1)?;
+                self.set_gte_slot(vm, 13, s2)?;
+                self.set_gte_slot(vm, 14, value)
             }
             28 => {
                 for k in 0..3 {
-                    self.set_gte_slot(vm,9 + k, ((value >> (5 * k)) & 0x1f) << 7)?;
+                    self.set_gte_slot(vm, 9 + k, ((value >> (5 * k)) & 0x1f) << 7)?;
                 }
-                self.set_gte_slot(vm,28, value)
+                self.set_gte_slot(vm, 28, value)
             }
             29 | 31 => Ok(()),
-            _ => self.set_gte_slot(vm,n, value),
+            _ => self.set_gte_slot(vm, n, value),
         }
     }
 
@@ -989,13 +1023,21 @@ impl Runtime<'_> {
             31 => (value & 0x7fff_f000) | if value & 0x7f87_e000 != 0 { 1 << 31 } else { 0 },
             _ => value,
         };
-        self.set_gte_slot(vm,32 + n, value)
+        self.set_gte_slot(vm, 32 + n, value)
     }
 
     /// One instruction: `word`, read at `current`, in a delay slot when `in_slot`. The result is
     /// the jump it made, when it is one whose target may be a callee's entry or a return.
     #[allow(clippy::too_many_lines)]
-    fn r3000_exec(&mut self, vm: &mut Vm<'_>, state: u64, cpu: &mut Cpu, word: u32, current: u32, in_slot: bool) -> Result<Option<Arrival>, Stop> {
+    fn r3000_exec(
+        &mut self,
+        vm: &mut Vm<'_>,
+        state: u64,
+        cpu: &mut Cpu,
+        word: u32,
+        current: u32,
+        in_slot: bool,
+    ) -> Result<Option<Arrival>, Stop> {
         let (op, rs, rt, rd) = (word >> 26, (word >> 21 & 31) as usize, (word >> 16 & 31) as usize, (word >> 11 & 31) as usize);
         let (shift, funct) = (word >> 6 & 31, word & 0x3f);
         let (s, t) = (cpu.r[rs], cpu.r[rt]);
@@ -1144,15 +1186,15 @@ impl Runtime<'_> {
             }
             18 => match rs {
                 0 => {
-                    let value = self.gte_data(vm,rd as u32)?;
+                    let value = self.gte_data(vm, rd as u32)?;
                     cpu.delay(rt, value);
                 }
                 2 => {
-                    let value = self.gte_slot(vm,32 + rd as u32)?;
+                    let value = self.gte_slot(vm, 32 + rd as u32)?;
                     cpu.delay(rt, value);
                 }
-                4 => self.set_gte_data(vm,rd as u32, t)?,
-                6 => self.set_gte_control(vm,rd as u32, t)?,
+                4 => self.set_gte_data(vm, rd as u32, t)?,
+                6 => self.set_gte_control(vm, rd as u32, t)?,
                 16..=31 => {
                     let gte = self.processor()?.gte;
                     super::console::gte(vm, &[Value::Int(u128::from(gte)), Value::Int(u128::from(word))])?;
@@ -1160,7 +1202,9 @@ impl Runtime<'_> {
                 _ => self.r3000_raise(vm, state, cpu, RESERVED, current, in_slot)?,
             },
             // A halfword or a word at an address that is no multiple of its size.
-            33 | 35 | 37 | 50 | 41 | 43 | 58 if address & (if matches!(op, 33 | 37 | 41) { 1 } else { 3 }) != 0 && self.processor()?.kernel => {
+            33 | 35 | 37 | 50 | 41 | 43 | 58
+                if address & (if matches!(op, 33 | 37 | 41) { 1 } else { 3 }) != 0 && self.processor()?.kernel =>
+            {
                 let code = if matches!(op, 41 | 43 | 58) { ADDRESS_STORE } else { ADDRESS_LOAD };
                 self.r3000_bad(vm, state, cpu, code, address, current, in_slot)?;
             }
@@ -1216,10 +1260,10 @@ impl Runtime<'_> {
             43 => bus!(vm.memory.write_u32(at, t)),
             50 => {
                 let value = bus!(vm.memory.read_u32(at));
-                self.set_gte_data(vm,rt as u32, value)?;
+                self.set_gte_data(vm, rt as u32, value)?;
             }
             58 => {
-                let value = self.gte_data(vm,rt as u32)?;
+                let value = self.gte_data(vm, rt as u32)?;
                 bus!(vm.memory.write_u32(at, value));
             }
             _ => self.r3000_raise(vm, state, cpu, RESERVED, current, in_slot)?,
