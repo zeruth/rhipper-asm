@@ -935,6 +935,23 @@ fn staged<T>(name: &str, run: impl FnOnce() -> T) -> T {
     out
 }
 
+/// The entries a run found (`--entries`: a line an address in hexadecimal, what follows it on
+/// the line left out) as the facts of a run of `image`: those that lie in the image's code
+/// are functions of it, which the analysis builds as it builds the ones it found itself.
+pub(crate) fn entry_facts(image: &Image, path: &Path) -> Result<ra_asm_analysis::Facts> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("cannot read the entries at {}", path.display()))?;
+    let mut residual = Vec::new();
+    for line in text.lines() {
+        let Some(word) = line.split_whitespace().next() else { continue };
+        let address = u64::from_str_radix(word.trim_start_matches("0x"), 16)
+            .with_context(|| format!("{}: `{word}` is no address", path.display()))?;
+        if address % 4 == 0 && image.is_code(address) {
+            residual.push(address);
+        }
+    }
+    Ok(ra_asm_analysis::Facts { input: ra_asm_analysis::facts::Input::of(image, &[]), residual, ..ra_asm_analysis::Facts::default() })
+}
+
 /// Writes the translation, the runtime and `functions.json` into `out`, or the translation to
 /// stdout without `out`. `hand` names the functions left to hand-written sources; the annotations
 /// of the project at `project` rename functions and leave more to the sources. `checked` writes
@@ -956,11 +973,13 @@ pub(crate) fn emit(
     only: &[String],
     with: &[std::path::PathBuf],
     times: bool,
+    entries: Option<&Path>,
 ) -> Result<()> {
     if times {
         ra_asm_lift::raise::print_times(true);
     }
-    let mut analysis = staged("analysis", || ra_asm_analysis::analyze(image));
+    let facts = entries.map(|path| entry_facts(image, path)).transpose()?.unwrap_or_default();
+    let mut analysis = staged("analysis", || ra_asm_analysis::analyze_with(image, &facts));
     keep_reached(&mut analysis, only)?;
     let (annotations, warnings) = project.map(|root| crate::annotations::annotate(root, &mut analysis)).unwrap_or_default();
     let hand = crate::annotations::hand_list(hand, &annotations);

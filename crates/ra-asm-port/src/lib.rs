@@ -220,6 +220,8 @@ struct Arguments {
     pads: Vec<String>,
     /// Where a headless run writes its sound.
     wav: Option<PathBuf>,
+    /// Where the run writes the entries of the functions it called that it had no lift of.
+    entries: Option<PathBuf>,
 }
 
 const USAGE: &str = "\
@@ -232,11 +234,21 @@ The port of a console's program.
   --frame-dir <DIR>   Write each frame there as a PNG (headless)
   --pad <F>:<BUTTONS> Hold these buttons from frame F on (headless): `300:start`, `360:none`
   --wav <FILE>        Write the run's sound there (headless)
+  --entries <FILE>    Write the entries of the functions the run called and had no lift of
   --stats             Say how many instructions ran and how fast as the run ends";
 
 fn arguments(args: &[String]) -> anyhow::Result<Arguments> {
-    let mut out =
-        Arguments { frames: None, frame_dir: None, disc: None, files: None, headless: false, stats: false, pads: Vec::new(), wav: None };
+    let mut out = Arguments {
+        frames: None,
+        frame_dir: None,
+        disc: None,
+        files: None,
+        headless: false,
+        stats: false,
+        pads: Vec::new(),
+        wav: None,
+        entries: None,
+    };
     let mut args = args.iter().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or_else(|| anyhow::anyhow!("{arg} takes a value\n\n{USAGE}"));
@@ -247,6 +259,7 @@ fn arguments(args: &[String]) -> anyhow::Result<Arguments> {
             "--files" => out.files = Some(value()?.into()),
             "--pad" => out.pads.push(value()?.clone()),
             "--wav" => out.wav = Some(value()?.into()),
+            "--entries" => out.entries = Some(value()?.into()),
             "--headless" => out.headless = true,
             "--stats" => out.stats = true,
             _ => anyhow::bail!("{arg}: no such option\n\n{USAGE}"),
@@ -349,6 +362,10 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
     }
     HOST.store(port.host, std::sync::atomic::Ordering::Relaxed);
     let _ = IMPORTS.set(imports);
+    if arguments.entries.is_some() {
+        // SAFETY: the run's thread is not started yet: no other thread reads the environment.
+        unsafe { std::env::set_var("RA_RUN_STATS", "1") };
+    }
     let started = std::time::Instant::now();
     let outcome = ra_asm_lift::run::run(&image, &whole.lifted, &whole.signatures, &options)?;
     if arguments.stats {
@@ -373,6 +390,14 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
     }
     if let Some(stop) = &outcome.stop {
         eprintln!("ra: {stop}");
+    }
+    // With `--entries <file>`, every address a call came to that no lifted function was, with
+    // how often: the entries of the functions a program loaded from the disc has, which
+    // `ras emit --entries` takes as functions.
+    if let Some(path) = &arguments.entries {
+        let lines: Vec<String> =
+            ra_asm_lift::run::processor_stats::called().into_iter().map(|(entry, count)| format!("{entry:08x} {count}\n")).collect();
+        std::fs::write(path, lines.concat())?;
     }
     if let Some(path) = &arguments.wav {
         let kept = kept.lock();

@@ -423,8 +423,10 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     }
     // The entries a run of the port left to the residual engine: functions only an address the
     // program computed reaches, which the next port has lifted.
+    // A run entered each as a function: one that lies in a function the analysis built is an
+    // entry of its own all the same, where that function is cut.
     for &va in &facts.residual {
-        if !state.cover.covered(va) {
+        if !state.functions.contains_key(&va) {
             state.seed(va, Origin::Residual);
         }
     }

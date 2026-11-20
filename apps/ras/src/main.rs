@@ -217,6 +217,10 @@ enum Command {
         /// the translation's parts, the evidence, the formatting, the writing and the regeneration. `RA_STEP_TIMES` set does too.
         #[arg(long)]
         times: bool,
+        /// The entries of functions a run found, a line an address in hexadecimal (what `--entries` of a console's port
+        /// writes): those in the image's code are functions of it, though nothing in the image names them.
+        #[arg(long, value_name = "FILE")]
+        entries: Option<PathBuf>,
         /// Stop the raise once this many seconds have passed since the command began, naming the function and the step it was
         /// at, and exit non-zero.
         #[arg(long, value_name = "SECONDS")]
@@ -702,9 +706,20 @@ fn command() -> anyhow::Result<()> {
             signatures::recognize(&mut image, &from, write.as_deref(), json)
         }
         Command::Signatures { pe, .. } => signatures::signatures(&load(&pe.context("a PE image is required")?, sigs)?, json),
-        Command::Emit { pe, lang, out, quiet, x87, hand, project, checked, only, with, times, deadline: _ } => {
-            emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref(), checked, &only, &with, times)
-        }
+        Command::Emit { pe, lang, out, quiet, x87, hand, project, checked, only, with, times, entries, deadline: _ } => emit::emit(
+            &load(&pe, sigs)?,
+            &lang,
+            out.as_deref(),
+            quiet,
+            x87,
+            &hand,
+            project.as_deref(),
+            checked,
+            &only,
+            &with,
+            times,
+            entries.as_deref(),
+        ),
         Command::Port { pe, out, name, no_build, quiet } => port::port(&load(&pe, sigs)?, &out, &port::Options { name, no_build, quiet }),
         Command::Run {
             pe,

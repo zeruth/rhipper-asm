@@ -172,6 +172,25 @@ pub mod stats {
         entries
     }
 
+    static CALLED: Mutex<Option<HashMap<u32, u64>>> = Mutex::new(None);
+
+    /// A call came to `target`, which no lifted function is: the entry of a function the lift
+    /// has still to find.
+    pub(super) fn call(target: u32) {
+        if on()
+            && let Ok(mut called) = CALLED.lock()
+        {
+            *called.get_or_insert_with(HashMap::new).entry(target).or_default() += 1;
+        }
+    }
+
+    /// Every address a call came to that no lifted function was, with how often, by address.
+    pub fn called() -> Vec<(u32, u64)> {
+        let mut entries: Vec<(u32, u64)> = CALLED.lock().ok().and_then(|e| e.clone()).unwrap_or_default().into_iter().collect();
+        entries.sort_unstable();
+        entries
+    }
+
     static ENTERED: Mutex<Option<HashMap<u32, u64>>> = Mutex::new(None);
 
     /// A call or a jump of the processor's came to `target`, which no lifted function is.
@@ -681,6 +700,9 @@ impl Runtime<'_> {
             self.r3000_load(vm, state, cpu)?;
         } else {
             stats::enter(target);
+            if arrival == Arrival::Call {
+                stats::call(target);
+            }
             return Ok(None);
         }
         // The callee ran to its end. A call's goes on after it; a jump to it was the end of the
