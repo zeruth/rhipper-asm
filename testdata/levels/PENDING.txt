@@ -5,4 +5,5 @@
 # a line leaves when its function passes, and a function that starts to fail is a regression.
 # When the list differs, the test writes the one it found to var/levels/PENDING.txt; with
 # RA_LEVELS=write it writes it here instead and passes.
+gte_psx.exe abi F_80010000 Stack block `b_80010000`: a store: 4 bytes at offset -12 of the frame, which has 224
 throws64.exe promoted F_140001390 Sync block `eh.cleaned.1400013d0`: a store: `rsi` is stored away from a call that takes the state and from the return

@@ -43,8 +43,12 @@ host)` names it by what `Image::platform` says.
 ## The consoles
 
 **PlayStation (`psx`).** The interrupt controller, the DMA channels (the GPU's blocks and linked
-lists, the ordering table's clear, the SPU's and the CD-ROM's), the three timers, the controller
-port (the pad's byte protocol), the CD-ROM controller (commands, answers as interrupts, sector
+lists, the ordering table's clear, the SPU's, the CD-ROM's and the MDEC's two), the three timers,
+the controller port (the pad's byte protocol, and the memory card's: a card is the file
+`mc/card0.mcd` or `mc/card1.mcd` of the `--files` directory, a raw image, formatted when new;
+without `--files` the slots are empty),
+the macroblock decoder (its tables, colour and monochrome macroblocks at every depth), the CD-ROM
+controller (commands, answers as interrupts, sector
 reads off the host's disc), the GPU (every `GP0` drawing command in software: fills, flat, shaded
 and textured polygons, lines and polylines, rectangles, the three copies, the drawing environment,
 dithering, the four blends, the mask bit; `GP1`'s display side) and the SPU (24 ADPCM voices with
@@ -95,23 +99,32 @@ second ROM) whose kernel header at `0x100` holds a date and a maker's name, or, 
 another maker with code there, whose reset code sets the memory control's registers; mapped whole
 at `0xbfc00000` and entered at the reset vector.
 
-`ras run` on a ROM has two forms, by what the ROM is:
+`ras run` on a ROM runs it whole from its reset vector, its kernel its own, the console's ROM as
+a replacement's (OpenBIOS). Its lift names no BIOS function: a jump to `0xa0` is a jump, `syscall`
+and `break` are the exceptions they are (`ra_psx_exception`, which also says when the instruction
+is in a delay slot), and the run takes them as the processor does: the cause and the return
+address into coprocessor 0, the status register's mode pushed, and the code at the vector run
+until it jumps back to where the exception was taken. A handler that leaves for somewhere else
+(another thread, a jump buffer, a handler of the program's own) ends the frames of the run down
+to its first, and the processor goes on there. The processor of such a run raises the address
+and bus errors too, and an arithmetic overflow. Interrupts are the level of the console's
+interrupt line (`Platform::interrupt`) in the cause register, taken between two of the program's
+instructions, lifted (`Host::boundary`) or the processor's, and `Platform::deliver` is not asked.
+A write of the status register that cuts the data cache off (`ra_psx_status`) keeps the RAM as
+it is until the cache is back, since the stores that flush the cache reach no memory. What the
+ROM copies into RAM (its vectors, its tables' dispatchers, its shell) is the processor's. The
+kernel's TTY is a development board's serial port, so what a program prints is taken where it
+enters the kernel's `putchar`, `puts` or `write`.
 
-- **The shell over the answered kernel.** A ROM whose start code copies a shell into RAM (the
-  console's own) runs as that shell, a PS-X EXE of the bytes the copy takes, with the kernel's
-  functions answered by the runtime.
-- **The ROM itself, its kernel its own.** Any other ROM (OpenBIOS) runs whole from its reset
-  vector. Its lift names no BIOS function: a jump to `0xa0` is a jump, `syscall` and `break` are
-  the exceptions they are (`ra_psx_exception`), and the run takes them as the processor does:
-  the cause and the return address into coprocessor 0, the status register's mode pushed, and the
-  code at the vector run until it jumps back to where the exception was taken. Interrupts are
-  the level of the console's interrupt line (`Platform::interrupt`), looked at between two
-  instructions, and `Platform::deliver` is not asked. A write of the status register that cuts
-  the data cache off (`ra_psx_status`) keeps the RAM as it is until the cache is back, since the
-  stores that flush the cache reach no memory. What the ROM copies into RAM (its vectors, its
-  tables' dispatchers, its shell) is the processor's. `ras info` prints what the ROM says of itself (the
-shell's version string, the kernel's name and date). The R3000's coprocessor 0 (`mfc0`, `mtc0`,
-`rfe`) decodes and lifts for a `psx` image, the registers a global as the VR4300's are.
+`ras run --bios <rom> program.exe` runs a program over a ROM's kernel in place of the answered
+one: the run starts at the ROM's reset vector, and where the kernel would enter its shell the
+program is loaded and entered in the shell's stead, as the kernel's `Exec` starts one. The
+program's `syscall` and `break` are the kernel's exceptions then, and its interrupt handlers the
+kernel's to call. Without `--bios` the kernel's functions are answered by the runtime.
+
+`ras info` prints what the ROM says of itself (the shell's version string, the kernel's name and
+date). The R3000's coprocessor 0 (`mfc0`, `mtc0`, `rfe`) decodes and lifts for a `psx` image, the
+registers a global as the VR4300's are.
 
 The target ROM is `System ROM Version 2.2 12/04/95 A` (kernel `CEX-3000/1001/1002 by K.S.`,
 1995-12-04), whose kernel every later console ROM kept. From its reset vector the analysis finds
@@ -123,9 +136,8 @@ The target ROM is `System ROM Version 2.2 12/04/95 A` (kernel `CEX-3000/1001/100
   program's (`Companion`), with its place read from the copy loop's own constants.
 - The functions of the `A0`, `B0` and `C0` tables and the shell are reached through tables the
   kernel builds in RAM; they are seeds once the tables' ROM sources are read.
-- Running it whole is the second form above, which a ROM without a shell copy takes today; the
-  console's own ROM still takes the first. Its kernel and its shell both run from RAM, so run
-  whole they are all the processor's until the kernel is an image beside the ROM's.
+- Run whole, its kernel and its shell both run from RAM, so they are all the processor's until
+  the kernel is an image beside the ROM's.
 
 ## The reference tests
 
@@ -140,10 +152,10 @@ which the PlayStation runtime answers.
 
 - The port's runtime: this crate behind `ra_platform` for the C and Rust ports, and the lift
   naming the PlayStation's device accesses as it names the PlayStation 2's.
-- PlayStation: the MDEC; memory cards; a program's own exception handlers over the answered
-  kernel (a test that writes the vector at `0x80000080` is never entered there); a kernel that
-  returns from an exception into another thread than the one it interrupted; a program run over
-  a ROM's own kernel in place of the answered one.
+- PlayStation: a program's own exception handlers over the answered kernel (a program that
+  writes the vector at `0x80000080` is never entered there; over a ROM's kernel, with `--bios`,
+  it is). The devices answer at once: the reference tests of the bus's, the GPU's and the
+  CD-ROM's timing fail on it. The MDEC takes a command's data whole before it decodes it.
 - PlayStation 2: ps2sdk's start routine stops at its first `mfc0`/`di` (the R5900's rows have no
   coprocessor 0), so a program runs from `main`, as the fixture does. The IOP and its modules,
   and so the pads, SPU2 and files, which go through the SIF; the VIFs and the vector units'

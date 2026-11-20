@@ -84,9 +84,12 @@ pub struct Image {
     /// The value the start routine gives the global pointer, on a machine whose code addresses its
     /// data through one: a 32-bit MIPS ELF's `$gp`, from its `.reginfo` or its `_gp` symbol.
     pub global_pointer: Option<u64>,
-    /// A ROM the program reads beside itself, with the address it is at: the BIOS ROM a
-    /// `PlayStation`'s shell was copied out of, whose fonts the shell reads where they are.
+    /// A ROM beside the program, with the address it is at: the BIOS ROM of a `PlayStation`
+    /// program's console.
     pub rom: Option<(u64, Vec<u8>)>,
+    /// The ROM beside a `PlayStation` program is the console's kernel: the run starts at the
+    /// ROM's reset vector, and the program is entered where the kernel would enter its shell.
+    pub rom_boots: bool,
     /// What the loader could not read. A directory that fails to parse lands here, not in an error.
     pub warnings: Vec<String>,
     file: Vec<u8>,
@@ -107,27 +110,11 @@ impl Image {
         Self::parse_as(plain, Some(Boot { scrambled }))
     }
 
-    /// The shell of a `PlayStation` BIOS ROM as the program it is once the ROM's start code has
-    /// copied it into RAM: the bytes the copy takes, at the address it puts them, entered at
-    /// their first word, with the ROM beside it. The shell is the console's own program, the
-    /// one that shows its menu; it calls the kernel as any program does.
-    pub fn psx_shell(&self) -> Result<Self> {
-        ensure!(self.psx_bios.is_some(), "the image is no PlayStation BIOS ROM");
-        let Some((offset, address, len)) = psx::Bios::shell(&self.file) else {
-            bail!("the ROM's start code has no copy of a shell into RAM");
-        };
-        // The header a PS-X EXE of those bytes would have: its text's address and size, its
-        // entry, and no stack of its own.
-        let mut exe = vec![0u8; psx::HEADER_SIZE];
-        exe[..8].copy_from_slice(psx::MAGIC);
-        exe[0x10..0x14].copy_from_slice(&address.to_le_bytes());
-        exe[0x18..0x1c].copy_from_slice(&address.to_le_bytes());
-        exe[0x1c..0x20].copy_from_slice(&len.to_le_bytes());
-        exe.extend_from_slice(&self.file[offset..offset + len as usize]);
-        let mut shell = Self::parse(exe).context("the shell of the ROM")?;
-        shell.path.clone_from(&self.path);
-        shell.rom = Some((psx::BIOS_RESET, self.file.clone()));
-        Ok(shell)
+    /// Whether the code of a `PlayStation` image runs over a kernel that is code of the console
+    /// too (the image is the ROM, or a program the ROM beside it boots), and not one the run
+    /// answers for.
+    pub fn psx_kernel(&self) -> bool {
+        self.psx_bios.is_some() || self.rom_boots
     }
 
     fn parse_as(mut file: Vec<u8>, boot: Option<Boot>) -> Result<Self> {
@@ -232,6 +219,7 @@ impl Image {
             n64: rom,
             global_pointer: None,
             rom: None,
+            rom_boots: false,
             warnings,
             file,
             mapped,

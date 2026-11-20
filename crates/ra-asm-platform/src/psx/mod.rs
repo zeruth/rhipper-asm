@@ -7,9 +7,11 @@
 //! and the interrupt is raised.
 
 mod bios;
+pub mod card;
 mod cdrom;
 pub mod gpu;
 pub mod gte;
+pub mod mdec;
 pub mod spu;
 
 use crate::clock::Scheduler;
@@ -28,8 +30,8 @@ pub const CACHE_CONTROL: u64 = 0xfffe_0130;
 pub const CLOCK: u64 = 33_868_800;
 const NTSC: (u64, u64) = (CLOCK / 60, 263);
 const PAL: (u64, u64) = (CLOCK / 50, 314);
-/// The cycles from a byte sent to a controller to its acknowledge.
-const JOY_ACK: u64 = 1_100;
+/// The cycles from the last bit of a byte sent to a controller to the controller's acknowledge.
+const JOY_ACK: u64 = 170;
 
 /// The interrupt controller's lines.
 pub mod irq {
@@ -61,6 +63,8 @@ pub const BLOCKS: [Block; 12] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Event {
     VBlank,
+    /// The byte sent to the controller port is out, and the device's answer is in.
+    JoyByte,
     JoyAck,
 }
 
@@ -75,9 +79,21 @@ struct Timer {
     fired: bool,
 }
 
+/// What a transfer of the controller port speaks to: the first byte is its address.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Addressed {
+    Pad,
+    Card,
+}
+
 #[derive(Default)]
 struct Joy {
     ports: [pad::Port; 2],
+    slots: [card::Slot; 2],
+    /// The device each port's transfer in flight speaks to.
+    addressed: [Option<Addressed>; 2],
+    /// The answer to the byte on the wire, and whether the device acknowledges it.
+    incoming: Option<(u8, bool)>,
     received: Option<u8>,
     control: u16,
     mode: u16,
@@ -94,6 +110,7 @@ pub struct Psx {
     fresh: u32,
     pub gpu: gpu::Gpu,
     pub spu: spu::Spu,
+    pub mdec: mdec::Mdec,
     cdrom: cdrom::Cdrom,
     /// The DMA channels' three registers each, then the control and the interrupt registers.
     dma: [[u32; 3]; 7],
@@ -101,6 +118,8 @@ pub struct Psx {
     dicr: u32,
     timers: [Timer; 3],
     joy: Joy,
+    /// The image of the card in each slot, once the slot was spoken to; `None` in an empty one.
+    cards: [Option<Option<Box<dyn crate::host::File>>>; 2],
     /// The memory control registers and the others that only keep what is written.
     kept: std::collections::BTreeMap<u64, u32>,
     frames: u64,
@@ -127,12 +146,14 @@ impl Psx {
             fresh: 0,
             gpu: gpu::Gpu::new(),
             spu: spu::Spu::new(),
+            mdec: mdec::Mdec::default(),
             cdrom: cdrom::Cdrom::default(),
             dma: [[0; 3]; 7],
             dpcr: 0x0765_4321,
             dicr: 0,
             timers: [Timer::default(); 3],
             joy: Joy::default(),
+            cards: [None, None],
             kept: std::collections::BTreeMap::new(),
             frames: 0,
             blank_at: 0,
@@ -243,21 +264,45 @@ impl Psx {
 
     fn joy_send(&mut self, byte: u8) {
         let port = usize::from(self.joy.control >> 13 & 1);
+        // A byte takes eight bits of the baud rate's timer to go out and its answer to come in.
+        let factor = [1, 1, 16, 64][usize::from(self.joy.mode & 3)];
+        let reload = if self.joy.baud == 0 { 0x88 } else { u64::from(self.joy.baud) };
+        let transfer = ((reload * factor) & !1).max(2) * 8;
+        self.clock.cancel(|event| *event == Event::JoyByte);
+        self.clock.after(transfer, Event::JoyByte);
         if self.joy.control & 0x0002 == 0 {
-            self.joy.received = Some(0xff);
+            self.joy.incoming = Some((0xff, false));
             return;
         }
-        let state = self.host.input.pad(port);
-        let (answer, acknowledged) = self.joy.ports[port].exchange(state, byte);
-        self.joy.received = Some(answer);
-        if acknowledged {
-            self.clock.after(JOY_ACK, Event::JoyAck);
+        let addressed = *self.joy.addressed[port].get_or_insert(if byte == 0x81 { Addressed::Card } else { Addressed::Pad });
+        let (answer, acknowledged) = match addressed {
+            Addressed::Pad => {
+                let state = self.host.input.pad(port);
+                self.joy.ports[port].exchange(state, byte)
+            }
+            Addressed::Card => {
+                // The card in the slot is a file of the host's, looked for when first spoken to.
+                let storage = &mut self.host.storage;
+                let image = self.cards[port].get_or_insert_with(|| storage.open(&format!("mc{port}:card{port}.mcd"), true).map(card::open));
+                match image {
+                    Some(file) => self.joy.slots[port].exchange(Some(file.as_mut()), byte),
+                    None => self.joy.slots[port].exchange(None, byte),
+                }
+            }
+        };
+        if !acknowledged {
+            self.joy.addressed[port] = None;
         }
+        self.joy.incoming = Some((answer, acknowledged));
     }
 
     fn joy_control(&mut self, value: u16) {
         if value & 0x40 != 0 {
-            self.joy = Joy::default();
+            // The port's registers reset; what a card remembers is the card's.
+            let mut slots = std::mem::take(&mut self.joy.slots);
+            slots.iter_mut().for_each(card::Slot::deselect);
+            self.joy = Joy { slots, ..Joy::default() };
+            self.clock.cancel(|event| matches!(event, Event::JoyByte | Event::JoyAck));
             return;
         }
         if value & 0x10 != 0 {
@@ -266,6 +311,8 @@ impl Psx {
         self.joy.control = value & !0x50;
         if value & 0x0002 == 0 {
             self.joy.ports.iter_mut().for_each(pad::Port::deselect);
+            self.joy.slots.iter_mut().for_each(card::Slot::deselect);
+            self.joy.addressed = [None; 2];
         }
     }
 
@@ -295,6 +342,17 @@ impl Psx {
         };
         let mut address = base;
         match channel {
+            // The macroblock decoder's two: its commands and their data in, its pixels out.
+            0 | 1 => {
+                for _ in 0..words {
+                    if channel == 0 {
+                        self.mdec.write(memory.u32(Self::ram(address)));
+                    } else {
+                        memory.set_u32(Self::ram(address), self.mdec.read());
+                    }
+                    address = address.wrapping_add(step);
+                }
+            }
             // The GPU: a list of packets, each a header of its length and the next one's address,
             // or a block of words to or from it.
             2 if (control >> 9) & 3 == 2 => {
@@ -399,8 +457,10 @@ impl Psx {
         match offset & !3 {
             0x040 => u32::from(self.joy.received.take().unwrap_or(0xff)),
             0x044 => {
-                // Ready to send, a byte received, idle; the acknowledge's interrupt.
-                0x05 | u32::from(self.joy.received.is_some()) << 1 | u32::from(self.joy.interrupt) << 9
+                // Ready to send; a byte received; nothing on the wire; the acknowledge's
+                // interrupt.
+                let idle = self.joy.incoming.is_none();
+                0x01 | u32::from(self.joy.received.is_some()) << 1 | u32::from(idle) << 2 | u32::from(self.joy.interrupt) << 9
             }
             0x048 => u32::from(self.joy.mode) | u32::from(self.joy.control) << 16,
             0x04c => u32::from(self.joy.baud) << 16,
@@ -414,8 +474,8 @@ impl Psx {
             o @ 0x100..=0x128 => self.timer_read(o - 0x100),
             0x810 => self.gpu.read(),
             0x814 => self.gpu.status(self.line(), self.frames),
-            // The MDEC: its input ready for data, nothing to give.
-            0x824 => 0x8004_0000,
+            0x820 => self.mdec.read(),
+            0x824 => self.mdec.status(),
             _ => self.kept.get(&(register & !3)).copied().unwrap_or(0),
         }
     }
@@ -443,6 +503,8 @@ impl Psx {
                 }
             }
             0x814 => self.gpu.gp1(value),
+            0x820 => self.mdec.write(value),
+            0x824 => self.mdec.control(value),
             _ => {
                 self.kept.insert(register & !3, value);
             }
@@ -481,12 +543,14 @@ impl Platform for Psx {
                 let low = u32::from(self.spu.read((offset - 0xc00) as usize));
                 if bits == 32 { low | u32::from(self.spu.read((offset - 0xc00) as usize + 2)) << 16 } else { low }
             }
+            // The debug ports' identifier, which a test program reads before it uses them.
+            0x1080..=0x1083 => 0x5853_4350 >> (8 * (offset & 3)),
             _ => self.port_read(register) >> (8 * (register & 3)),
         };
         let value = if bits >= 32 { value } else { value & ((1 << bits) - 1) };
         // Each value of a register once: a program that polls reads the same one for long.
         if crate::tracing() && self.traced.insert((register, value)) {
-            eprintln!("psx: read{bits} {register:#x} = {value:#x}");
+            eprintln!("psx: read{bits} {register:#x} = {value:#x} at cycle {}", self.clock.now());
         }
         u64::from(value)
     }
@@ -500,7 +564,7 @@ impl Platform for Psx {
         let offset = register - PORTS;
         // The GPU's and the DMA's words are too many to say; the rest are the program's setup.
         if crate::tracing() && !matches!(offset, 0x80..=0xff | 0x810..=0x817 | 0x70..=0x77) {
-            eprintln!("psx: write{bits} {register:#x} = {value:#x}");
+            eprintln!("psx: write{bits} {register:#x} = {value:#x} at cycle {}", self.clock.now());
         }
         match offset {
             0x800..=0x803 => {
@@ -564,6 +628,14 @@ impl Platform for Psx {
                         let _ = std::fs::write(path, crate::png::encode(&self.gpu.video_memory()));
                     }
                     self.clock.after(self.system().0, Event::VBlank);
+                }
+                Event::JoyByte => {
+                    if let Some((answer, acknowledged)) = self.joy.incoming.take() {
+                        self.joy.received = Some(answer);
+                        if acknowledged {
+                            self.clock.after(JOY_ACK, Event::JoyAck);
+                        }
+                    }
                 }
                 Event::JoyAck => {
                     self.joy.interrupt = true;
@@ -746,7 +818,9 @@ mod tests {
         let mut answers = Vec::new();
         for byte in [0x01u64, 0x42, 0x00, 0x00, 0x00] {
             psx.write(&mut ram, PORTS + 0x040, 8, byte);
-            assert_ne!(psx.read(&mut ram, PORTS + 0x044, 16) & 2, 0, "a byte came back");
+            assert_eq!(psx.read(&mut ram, PORTS + 0x044, 16) & 6, 0, "the byte is on the wire");
+            psx.advance(&mut ram, 8 * 0x88).unwrap();
+            assert_eq!(psx.read(&mut ram, PORTS + 0x044, 16) & 6, 6, "a byte came back");
             answers.push(psx.read(&mut ram, PORTS + 0x040, 8));
         }
         assert_eq!(answers, [0xff, 0x41, 0x5a, 0xff, 0xff]);
@@ -755,6 +829,25 @@ mod tests {
         assert_ne!(psx.read(&mut ram, PORTS + 0x044, 16) & 0x200, 0);
         psx.write(&mut ram, PORTS + 0x04a, 16, 0x1013);
         assert_eq!(psx.read(&mut ram, PORTS + 0x044, 16) & 0x200, 0, "acknowledged");
+    }
+
+    #[test]
+    fn the_acknowledge_comes_after_the_byte_as_a_kernel_waits_for_it() {
+        let (mut psx, mut ram, _) = machine();
+        // A kernel's pad driver: select, send, acknowledge what came before while the byte is
+        // on the wire, wait for the answer, then find the acknowledge's interrupt.
+        psx.write(&mut ram, PORTS + 0x04a, 16, 0x1003);
+        psx.write(&mut ram, PORTS + 0x040, 8, 0x01);
+        psx.advance(&mut ram, 240).unwrap();
+        psx.write(&mut ram, PORTS + 0x04a, 16, 0x1013);
+        psx.write(&mut ram, PORTS + 0x070, 32, u64::from(!irq::CONTROLLER));
+        assert_eq!(psx.read(&mut ram, PORTS + 0x044, 16) & 2, 0, "the answer is not in yet");
+        psx.advance(&mut ram, 8 * 0x88 - 240).unwrap();
+        assert_ne!(psx.read(&mut ram, PORTS + 0x044, 16) & 2, 0);
+        assert_eq!(psx.read(&mut ram, PORTS + 0x040, 8), 0xff);
+        assert_eq!(psx.read(&mut ram, PORTS + 0x070, 32) & u64::from(irq::CONTROLLER), 0, "nor the acknowledge");
+        psx.advance(&mut ram, JOY_ACK).unwrap();
+        assert_ne!(psx.read(&mut ram, PORTS + 0x070, 32) & u64::from(irq::CONTROLLER), 0);
     }
 
     #[test]

@@ -79,6 +79,15 @@ pub trait Host {
     fn poll(&mut self, _vm: &mut Vm<'_>) -> Result<(), Stop> {
         Ok(())
     }
+
+    /// Called while [`Vm::boundary`] is set, before the first IR instruction of each of the
+    /// program's instructions: the one at `to` is about to run and nothing of it has, the last
+    /// that ran is the one at `from`, `start` says the block starts here, and `state` is the
+    /// first argument of the function they are in. Where the host of a console's own kernel
+    /// has the processor take an interrupt, between two instructions as the processor does.
+    fn boundary(&mut self, _vm: &mut Vm<'_>, _from: Option<u64>, _to: u64, _start: bool, _state: Option<u64>) -> Result<(), Stop> {
+        Ok(())
+    }
 }
 
 /// What a run saw that no reading of the program shows: the facts of the trace, which the static
@@ -198,6 +207,8 @@ pub struct Vm<'m> {
     /// The first argument of the function a poll interrupts: the machine's state, at the levels
     /// whose functions take it.
     pub poll_argument: Option<u64>,
+    /// The host asks for [`Host::boundary`] before each instruction of the program.
+    pub boundary: bool,
     /// The offset each `getelementptr` of constant indices adds to its pointer, by the
     /// instruction's place in the module, once it has run.
     gep_offsets: Quick<usize, u64>,
@@ -243,6 +254,7 @@ impl<'m> Vm<'m> {
             poll: 0,
             poll_at: 0,
             poll_argument: None,
+            boundary: false,
             gep_offsets: Quick::default(),
             stack_top: 0,
             origins: HashMap::new(),

@@ -374,9 +374,8 @@ fn the_second_pipeline_multiplies_into_hi1_and_lo1() {
 }
 
 /// ps2sdk's kernel stubs (`li $v1, n; syscall; jr $ra`) lift to calls on the EE kernel's
-/// functions by their names, and the interpreter answers the ones a program's start and end
-/// reach: `FlushCache` returns, `KExit` ends the run, and one it does not interpret stops it with
-/// the function's name. Only the stubs the program calls are functions of the analysis: the
+/// functions by their names, and the console's runtime answers them: `FlushCache` returns, `KExit`
+/// ends the run, and `CreateThread` makes a thread. Only the stubs the program calls are functions of the analysis: the
 /// fixture's `ExitThread`, `iSignalSema` and `_iGetThreadId` are never reached.
 #[test]
 fn the_ee_kernel_calls_are_named() {
@@ -424,5 +423,5 @@ fn the_ee_kernel_calls_are_named() {
     let exited = run("KExit");
     assert_eq!(exited.stop, None, "KExit ends the run");
     let created = run("CreateThread");
-    assert!(created.stop.as_ref().is_some_and(|s| s.contains("CreateThread")), "CreateThread stops the run: {:?}", created.stop);
+    assert_eq!(created.stop, None, "CreateThread makes a thread and returns");
 }

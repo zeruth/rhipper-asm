@@ -20,6 +20,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | crt64.exe | ok | 15 | 15 | 15 | 0 | 0 | 3 | 3 | 4 | 0 | 8 | 1388 | 0.0 | 2792.5 |
 | dispatch32.exe | ok | 8 | 8 | 8 | 0 | 0 | 8 | 8 | 15 | 0 | 33 | 270 | 0.0 | 274.1 |
 | dispatch64.exe | ok | 8 | 8 | 8 | 0 | 0 | 8 | 8 | 15 | 0 | 33 | 153 | 0.0 | 313.7 |
+| draw_psx.exe | timeout | 55 | - | 55 | 0 | 0 | 34 | - | 65 | 0 | 114 | 3580 | 13.1 | 538.0 |
 | exports32.dll | ok | 4 | 4 | 4 | 0 | 0 | 1 | 1 | 0 | 0 | 0 | 123 | 0.0 | 154.5 |
 | exports64.dll | ok | 4 | 4 | 4 | 0 | 0 | 1 | 1 | 0 | 0 | 0 | 82 | 0.0 | 134.1 |
 | exports_host32.exe | ok | 3 | 3 | 3 | 0 | 0 | 2 | 2 | 8 | 0 | 25 | 314 | 3.2 | 468.2 |
@@ -30,7 +31,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | float32.exe | ok | 6 | 6 | 6 | 0 | 0 | 6 | 6 | 27 | 0 | 78 | 621 | 0.0 | 458.9 |
 | float64.exe | ok | 7 | 7 | 7 | 0 | 0 | 7 | 7 | 36 | 0 | 72 | 428 | 0.0 | 415.9 |
 | floata64.exe | ok | 7 | 7 | 7 | 0 | 0 | 7 | 7 | 36 | 0 | 36 | 351 | 0.0 | 487.2 |
-| gte_psx.exe | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 3 | 0 | 7 | 193 | 0.0 | 518.1 |
+| gte_psx.exe | ok | 8 | 8 | 8 | 0 | 0 | 5 | 5 | 6 | 0 | 28 | 493 | 0.0 | 525.4 |
 | hello32-upx.exe | timeout | 3 | 3 | 3 | 1 | 1 | 2 | 3 | 2 | 0 | 22 | 16916 | 0.4 | 497.3 |
 | hello32.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 2 | 163 | 0.0 | 239.3 |
 | hello64-upx.exe | timeout | 6 | 6 | 6 | 0 | 0 | 2 | 2 | 2 | 0 | 22 | 8524 | 0.6 | 1929.7 |
@@ -41,7 +42,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | hello_macos_x64 | ok | 4 | 4 | 4 | 0 | 0 | 4 | 4 | 2 | 0 | 4 | 109 | 0.0 | 119.3 |
 | hello_mips | ok | 8 | 8 | 8 | 1 | 1 | 4 | 4 | 3 | 0 | 5 | 150 | 0.0 | 233.3 |
 | hello_mipsel | ok | 8 | 8 | 8 | 1 | 1 | 4 | 4 | 3 | 0 | 5 | 145 | 0.0 | 241.4 |
-| hello_psx.exe | ok | 6 | 6 | 6 | 0 | 0 | 6 | 6 | 6 | 0 | 10 | 161 | 0.0 | 409.9 |
+| hello_psx.exe | ok | 7 | 7 | 7 | 0 | 0 | 7 | 7 | 6 | 0 | 12 | 178 | 0.0 | 427.0 |
 | helloa64.exe | ok | 2 | 2 | 2 | 0 | 0 | 2 | 2 | 1 | 0 | 1 | 87 | 0.0 | 183.9 |
 | inline32.exe | ok | 5 | 5 | 5 | 0 | 0 | 5 | 5 | 38 | 0 | 76 | 261 | 0.0 | 287.4 |
 | inline64.exe | ok | 5 | 5 | 5 | 0 | 0 | 5 | 5 | 38 | 0 | 76 | 180 | 0.0 | 288.9 |
@@ -65,13 +66,13 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 375 | 0.0 | 741.3 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 261 | 0.0 | 375.5 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 167 | 0.0 | 467.1 |
-| total | 56/59 ok | 402 | 402 | 402 | 6 | 6 | 329 | 331 | 897 | 0 | 2041 | 62466 | 0.5 | 713.8 |
+| total | 56/60 ok | 462 | 407 | 462 | 6 | 6 | 365 | 333 | 965 | 0 | 2178 | 66363 | 1.2 | 703.4 |
 
 | pending list | entries |
 |---|---|
 | testdata/csmith/EMIT_PENDING.txt | 67 |
 | testdata/csmith/PENDING.txt | 42 |
-| testdata/levels/PENDING.txt | 1 |
+| testdata/levels/PENDING.txt | 2 |
 | testdata/vectors/arm32/PENDING.txt | 12 |
 | testdata/vectors/arm64/PENDING.txt | 0 |
 | testdata/vectors/fn/TREE_PENDING.txt | 0 |
@@ -80,7 +81,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | testdata/vectors/x86/PENDING.txt | 1 |
 | testdata/vectors/x86_64/PENDING.txt | 0 |
 | testdata/vectors/x87/PENDING.txt | 29 |
-| total | 152 |
+| total | 153 |
 
 | oracle | ignored tests |
 |---|---|

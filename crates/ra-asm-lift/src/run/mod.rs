@@ -647,6 +647,12 @@ fn enter(
     lifted: &Lifted,
     signatures: &HashMap<String, Signature>,
 ) -> Result<i32, Stop> {
+    if image.rom_boots {
+        // The console starts at its ROM's reset vector; the kernel there comes to the program.
+        let state = runtime.new_state(vm)?;
+        runtime.psx_boot(vm, state, None, ra_asm_format::psx::BIOS_RESET as u32)?;
+        return Ok(vm.memory.read_u32(state + 2 * 8)? as i32);
+    }
     let entry = lifted.entry.or_else(|| image.entry_point()).ok_or_else(|| Stop::fault("the image has no entry point"))?;
     let name = lifted.functions.get(&entry).cloned().unwrap_or_else(|| crate::function_name(entry));
     let f = vm.function(&name).ok_or_else(|| Stop::fault(format!("the entry @{name} is not in the module")))?;
@@ -677,7 +683,11 @@ fn enter(
         if let Some(gp) = image.global_pointer {
             vm.memory.write_u64(state + 28 * 8, gp)?;
         }
-        vm.call_named(runtime, &name, vec![Value::Int(u128::from(state))])?;
+        if image.psx_bios.is_some() {
+            runtime.psx_boot(vm, state, Some(&name), entry as u32)?;
+        } else {
+            vm.call_named(runtime, &name, vec![Value::Int(u128::from(state))])?;
+        }
         return Ok(vm.memory.read_u32(state + 2 * 8)? as i32);
     }
     if f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void {

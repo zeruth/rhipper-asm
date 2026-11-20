@@ -60,7 +60,7 @@ use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, IC
 use ra_asm_pe::Image;
 
 use crate::raise::prototypes::{BiosCall, ee_syscall, psx_bios};
-use crate::state::{Isa, MIPS_ACC, MIPS_FCSR, MIPS_GTE, MIPS_HI, MIPS_LO, Machine, N64_COP0, PSX_GP};
+use crate::state::{Isa, MIPS_ACC, MIPS_FCSR, MIPS_HI, MIPS_LO, Machine, N64_COP0, PSX_GP};
 use crate::x86::trap;
 use crate::{Lifted, function_name};
 
@@ -109,6 +109,7 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         blocks,
         cond: None,
         jump_target: None,
+        jump_direct: None,
         consts: HashMap::new(),
         upper: HashSet::new(),
         uppers: held_uppers(image, f),
@@ -118,7 +119,8 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
         ends: HashMap::new(),
         single_predecessor: single_predecessors(f),
         r3000,
-        kernel: r3000 && image.psx_bios.is_some(),
+        kernel: r3000 && image.psx_kernel(),
+        slot_of: None,
         allegrex,
         r5900,
         vr4300: image.platform() == Some("n64"),
@@ -302,6 +304,8 @@ struct Lifter<'a, 'b> {
     cond: Option<ValueId>,
     /// The target of the jump through a register that ends the current block, as a 64-bit address.
     jump_target: Option<ValueId>,
+    /// The target of the `j` that ends the current block.
+    jump_direct: Option<u64>,
     /// The registers the block has set to a constant so far, at 32 bits: where a BIOS call's
     /// entry and number come from.
     consts: HashMap<u8, u32>,
@@ -328,6 +332,8 @@ struct Lifter<'a, 'b> {
     /// A `PlayStation`'s own ROM: the kernel itself, which takes its exceptions at its vector
     /// and reaches its tables by the jumps a program makes, with nothing to answer for it.
     kernel: bool,
+    /// The branch whose delay slot the instruction being lifted is in, when it is in one.
+    slot_of: Option<u64>,
     /// A PSP program: the Allegrex, whose own `SPECIAL` and `SPECIAL3` forms replace MIPS III's.
     allegrex: bool,
     /// A `PlayStation 2` program: the R5900, with its 128-bit registers and multimedia
@@ -386,6 +392,7 @@ impl Lifter<'_, '_> {
         self.m.b.set_block_address(block, blk.start);
         self.cond = None;
         self.jump_target = None;
+        self.jump_direct = None;
         // A block reached from one other, by no call, starts with the halves that one ended with.
         let halves = self.single_predecessor.get(&blk.start).and_then(|p| self.ends.get(p)).cloned().unwrap_or_default();
         self.upper = halves.consts.keys().copied().collect();
@@ -465,7 +472,15 @@ impl Lifter<'_, '_> {
             }
             T::IndirectJump => {
                 let Some(target) = self.jump_target else {
-                    self.give_up(block, last);
+                    // A `j` to an address that holds no code of the image (a kernel's entry
+                    // in RAM): the code there is the run's, called as the function it is.
+                    match self.jump_direct {
+                        Some(target) if self.r3000 => {
+                            self.runtime_call(block, target as i64);
+                            self.m.b.terminate(block, Terminator::Ret(None));
+                        }
+                        _ => self.give_up(block, last),
+                    }
                     return;
                 };
                 // A jump the analysis did not resolve: most often a tail call through a pointer.
@@ -552,7 +567,7 @@ impl Lifter<'_, '_> {
                 link = Some(RA);
                 call = Some(Call::Direct(relative));
             }
-            2 => {}
+            2 => self.jump_direct = Some((ip.wrapping_add(4) & 0xf000_0000) | (u64::from(w.0 & 0x03ff_ffff) << 2)),
             3 => {
                 link = Some(RA);
                 call = Some(Call::Direct((ip.wrapping_add(4) & 0xf000_0000) | (u64::from(w.0 & 0x03ff_ffff) << 2)));
@@ -589,17 +604,20 @@ impl Lifter<'_, '_> {
                     return block;
                 };
                 self.m.b.address = Some(s.address);
+                self.slot_of = Some(ip);
                 if let (true, Some(c)) = (likely, cond) {
                     let then = self.m.b.block(&format!("slot_{:x}", s.address));
                     let next = self.m.b.block(&format!("taken_{ip:x}"));
                     self.m.b.terminate(block, Terminator::CondBr { cond: c.into(), then, els: next });
                     let end = self.lift_instr(then, sw, s.address);
+                    self.slot_of = None;
                     if !self.vfpu_pending(end) && !self.m.b.has_terminator(end) {
                         self.m.b.terminate(end, Terminator::Br(next));
                     }
                     return self.after_slot(next, ip, cond, jump, call);
                 }
                 let end = self.lift_instr(block, sw, s.address);
+                self.slot_of = None;
                 if self.vfpu_pending(end) {
                     return end;
                 }
@@ -961,7 +979,12 @@ impl Lifter<'_, '_> {
 
     fn unsupported(&mut self, block: BlockId, w: Word, ip: u64) -> BlockId {
         self.warn(format!("{ip:#x}: the MIPS lift does not cover the word {:#010x}", w.0));
-        self.m.unsupported(block, ip, u64::from(w.0));
+        if self.r3000 && self.slot_of.is_none() {
+            // The run's processor reads the word itself, and raises what the R3000 does.
+            self.give_up(block, ip);
+        } else {
+            self.m.unsupported(block, ip, u64::from(w.0));
+        }
         block
     }
 
@@ -987,7 +1010,29 @@ impl Lifter<'_, '_> {
         };
         let both = self.m.b.bin(block, BinOp::And, ty.clone(), x, y, "ov");
         let over = self.m.b.icmp(block, ICond::Slt, ty, both, 0i64, "overflow");
-        (self.trap_if(block, over, ip, trap::INT), result)
+        if !self.kernel {
+            return (self.trap_if(block, over, ip, trap::INT), result);
+        }
+        // Over a kernel the overflow is the processor's exception, and the sum is not written:
+        // where the handler comes back, the rest of the function is the processor's.
+        let bad = self.m.b.block(&format!("overflow_{ip:x}"));
+        let ok = self.m.b.block(&format!("ok_{ip:x}"));
+        self.m.b.terminate(block, Terminator::CondBr { cond: over.into(), then: bad, els: ok });
+        self.exception(bad, 12, ip);
+        self.give_up(bad, ip.wrapping_add(4));
+        (ok, result)
+    }
+
+    /// The processor's exception `code` at the instruction at `ip`, over a kernel that takes it
+    /// (`ra_psx_exception`): of an instruction in a delay slot the address is the branch's, and
+    /// the code's ninth bit says so.
+    fn exception(&mut self, block: BlockId, code: i64, ip: u64) {
+        let (code, address) = match self.slot_of {
+            Some(branch) => (code | 0x100, branch),
+            None => (code, ip),
+        };
+        let args = vec![(Type::Ptr, self.m.state.into()), (Type::I64, code.into()), (Type::I64, (address as i64).into())];
+        self.m.b.call(block, crate::state::psx_exception_type(), Callee::Direct(crate::state::PSX_EXCEPTION.into()), args, "");
     }
 
     /// The address a load or a store names: base plus the signed offset, at 32 bits. On a base
@@ -1356,11 +1401,7 @@ impl Lifter<'_, '_> {
             // The EE kernel's calls take their number in `v1`: no o32 Linux call.
             12 if self.r5900 => return self.ee_syscall(block, w, ip),
             // The kernel itself takes `syscall` and `break` as the exceptions they are.
-            12 | 13 if self.kernel => {
-                let code = if funct == 12 { 8i64 } else { 9 };
-                let args = vec![(Type::Ptr, self.m.state.into()), (Type::I64, code.into()), (Type::I64, (ip as i64).into())];
-                self.m.b.call(block, crate::state::psx_exception_type(), Callee::Direct(crate::state::PSX_EXCEPTION.into()), args, "");
-            }
+            12 | 13 if self.kernel => self.exception(block, if funct == 12 { 8 } else { 9 }, ip),
             // The PlayStation's kernel takes the call's function in `a0`.
             12 if self.r3000 => self.bios_function(block, crate::raise::prototypes::psx_syscall()),
             // The R5900 has no doubleword multiply or divide.
@@ -1937,8 +1978,7 @@ impl Lifter<'_, '_> {
                 let Some(name) = crate::state::gte_command(w.funct()) else {
                     return self.unsupported(block, w, ip);
                 };
-                let p = self.m.field_ptr(block, MIPS_GTE, "p.gte");
-                let args = vec![(Type::Ptr, p.into()), (Type::I64, i64::from(w.0).into())];
+                let args = vec![(Type::Ptr, crate::state::gte_slot(0)), (Type::I64, i64::from(w.0).into())];
                 self.m.b.call(block, crate::state::gte_type(), Callee::Direct(name), args, "");
             }
             (18, 0) => {
@@ -1973,16 +2013,14 @@ impl Lifter<'_, '_> {
     }
 
     fn gte_slot(&mut self, block: BlockId, slot: u8) -> ValueId {
-        let p = self.m.gte_ptr(block, u32::from(slot));
-        self.m.b.load(block, Type::I32, p, &format!("gte{slot}"))
+        self.m.b.load(block, Type::I32, crate::state::gte_slot(u32::from(slot)), &format!("gte{slot}"))
     }
 
     fn set_gte_slot(&mut self, block: BlockId, slot: u8, value: impl Into<Operand>) {
-        let p = self.m.gte_ptr(block, u32::from(slot));
-        self.m.b.store(block, Type::I32, value, p);
+        self.m.b.store(block, Type::I32, value, crate::state::gte_slot(u32::from(slot)));
     }
 
-    /// Data register `n` as `mfc2` reads it. The field holds each register as it reads, but for
+    /// Data register `n` as `mfc2` reads it. The global holds each register as it reads, but for
     /// those the GTE computes on the read: `SXYP` mirrors `SXY2`, `IRGB` and `ORGB` pack `IR1..3`
     /// saturated to five bits, `LZCR` counts the leading bits of `LZCS` that equal its sign.
     fn gte_data(&mut self, block: BlockId, n: u8) -> ValueId {

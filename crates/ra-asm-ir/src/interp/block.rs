@@ -163,8 +163,15 @@ impl<'m> Vm<'m> {
             if self.limit != 0 && self.steps > self.limit {
                 return Err(Stop::Limit(self.steps));
             }
-            if i.address.is_some() && i.address != self.site {
+            if let Some(to) = i.address
+                && i.address != self.site
+            {
                 self.instructions += 1;
+                if self.boundary {
+                    let state = frame.values.first().and_then(Option::as_ref).map(Value::as_u64);
+                    let start = std::ptr::eq(i, &raw const b.instrs[first]);
+                    host.boundary(self, self.site, to, start, state)?;
+                }
             }
             self.site = i.address;
             let profiled = profile::on().then(std::time::Instant::now);

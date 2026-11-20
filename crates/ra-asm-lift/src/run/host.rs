@@ -905,7 +905,7 @@ impl<'a> Runtime<'a> {
             n if n.starts_with("ra_ee_") => self.console_call(vm, &n["ra_ee_".len()..], args),
             n if n.starts_with("ra_gte_") => super::console::gte(vm, args),
             crate::state::PSX_EXCEPTION => {
-                self.psx_exception(vm, arg(args, 0), arg(args, 1) as u32, arg(args, 2) as u32, false)?;
+                self.psx_raised(vm, arg(args, 0), arg(args, 1) as u32, arg(args, 2) as u32)?;
                 int(0)
             }
             crate::state::PSX_STATUS => {
@@ -2310,6 +2310,10 @@ impl Host for Runtime<'_> {
 
     fn poll(&mut self, vm: &mut Vm<'_>) -> Result<(), Stop> {
         self.console_poll(vm)
+    }
+
+    fn boundary(&mut self, vm: &mut Vm<'_>, from: Option<u64>, to: u64, start: bool, state: Option<u64>) -> Result<(), Stop> {
+        self.psx_boundary(vm, from, to, start, state)
     }
 }
 

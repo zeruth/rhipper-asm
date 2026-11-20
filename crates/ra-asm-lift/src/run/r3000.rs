@@ -20,25 +20,38 @@
 //! at between two instructions.
 
 use ra_asm_ir::Type;
+use ra_asm_ir::interp::memory::UNMAPPED;
 use ra_asm_ir::interp::{Stop, Symbol, Value, Vm};
 
 use super::host::Runtime;
 use crate::raise::prototypes::{PSX_SETJMP, psx_bios, psx_syscall};
-use crate::state::{Isa, MIPS_GTE, MIPS_HI, MIPS_LO, N64_COP0, PSX_GP};
+use crate::state::{MIPS_HI, MIPS_LO, N64_COP0, PSX_GP, PSX_GTE};
 
 /// What ends the run of an exception's handler from inside a lifted function it called: the
 /// jump back to where the exception was taken, as a fault the exception's own frame reads.
 pub(super) const RETURNED: &str = "the exception's handler returned";
+/// What ends every frame of the run down to its first when a handler leaves an exception for
+/// somewhere else than the code it was taken in (another thread, a handler of the program's
+/// own): the processor goes on there, as a fault the first frame reads.
+pub(super) const ELSEWHERE: &str = "the processor goes on elsewhere";
 /// The instructions between two looks at the machine.
 const POLL: u64 = 64;
+/// Where a kernel enters the shell it copied into RAM.
+const SHELL: u32 = 0x8003_0000;
 /// Coprocessor 0's registers the processor writes: the status, the cause, the return address.
 const SR: u64 = 12;
 const CAUSE: u64 = 13;
 const EPC: u64 = 14;
 /// The status register's bit that cuts the data cache off from the memory.
 const ISOLATED: u32 = 1 << 16;
+/// Coprocessor 0's register of the address an address error was taken for.
+const BAD_ADDRESS: u64 = 8;
 /// The exception codes the processor raises here.
 const INTERRUPT: u32 = 0;
+const ADDRESS_LOAD: u32 = 4;
+const ADDRESS_STORE: u32 = 5;
+const BUS_CODE: u32 = 6;
+const BUS_DATA: u32 = 7;
 const SYSCALL: u32 = 8;
 const BREAK: u32 = 9;
 const RESERVED: u32 = 10;
@@ -48,11 +61,14 @@ const OVERFLOW: u32 = 12;
 pub(super) struct Processor {
     /// The program is the console's own kernel: exceptions are taken, nothing is answered.
     pub(super) kernel: bool,
-    /// The exceptions being handled, innermost last: the two addresses each one's handler
-    /// returns to (the instruction it was taken at, and the one after a `syscall`).
-    exceptions: Vec<[u32; 2]>,
+    /// The exceptions being handled, innermost last: the addresses each one's handler returns
+    /// to when the code the exception was taken in goes on (the instruction it was taken at,
+    /// the one after it, or both, by what that code can go on from).
+    exceptions: Vec<[Option<u32>; 2]>,
     /// Where the handler that last returned through a lifted function went.
     returned: u32,
+    /// The program a ROM is beside was entered in the shell's stead.
+    booted: bool,
     /// The RAM as it was when the data cache was cut off, while it is: the stores made then
     /// flush cache lines and reach no memory, so the RAM comes back when the cache does.
     isolated: Option<Vec<u8>>,
@@ -67,9 +83,21 @@ impl Processor {
         let cop0 = vm.symbol(N64_COP0)?;
         // The processor's identity, as a program reads it.
         vm.memory.write_u64(cop0 + 15 * 8, 2).ok()?;
-        let gte = Isa::Mips.spec().offsets()[MIPS_GTE as usize];
-        Some(Self { kernel, exceptions: Vec::new(), returned: 0, isolated: None, cop0, gp: vm.symbol(PSX_GP), gte })
+        let gte = vm.symbol(PSX_GTE)?;
+        Some(Self { kernel, exceptions: Vec::new(), returned: 0, booted: false, isolated: None, cop0, gp: vm.symbol(PSX_GP), gte })
     }
+}
+
+/// What a run of the processor is the run of.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Frame {
+    /// A function, from its entry to its return.
+    Function,
+    /// The handler of the exception of this index, to its return to the exception's address.
+    Handler(usize),
+    /// The run's first frame, which the program never returns from: where it starts, and
+    /// where the processor goes on in the middle of it.
+    Bottom,
 }
 
 /// How control came to an address: what the instruction before the delay slot was.
@@ -81,6 +109,8 @@ enum Arrival {
     Call,
     /// `jr` through this register.
     Register(usize),
+    /// `jr` with `rfe` in its slot: the return of an exception's handler.
+    Exception,
 }
 
 struct Cpu {
@@ -99,6 +129,8 @@ struct Cpu {
     branch: bool,
     /// An exception was taken and came back: `pc` is where it returned to.
     resumed: bool,
+    /// The instruction that ran was `rfe`.
+    rfe: bool,
 }
 
 impl Cpu {
@@ -137,6 +169,15 @@ impl Cpu {
     }
 }
 
+/// Whether `word` is a branch or a jump: an instruction with a delay slot.
+fn is_branch(word: u32) -> bool {
+    match word >> 26 {
+        0 => matches!(word & 0x3f, 8 | 9),
+        1..=7 => true,
+        _ => false,
+    }
+}
+
 fn sext(word: u32) -> u64 {
     i64::from(word.cast_signed()).cast_unsigned()
 }
@@ -170,7 +211,35 @@ impl Runtime<'_> {
             .as_ref()
             .and_then(|machine| machine.r3000.as_ref())
             .and_then(|processor| processor.exceptions.last())
-            .is_some_and(|returns| returns.contains(&target))
+            .is_some_and(|returns| returns.contains(&Some(target)))
+    }
+
+    /// The run of a kernel from its first frame: the lifted function `name`, or the code at
+    /// `entry`, and then the processor wherever a handler left an exception for.
+    pub(super) fn psx_boot(&mut self, vm: &mut Vm<'_>, state: u64, name: Option<&str>, entry: u32) -> Result<(), Stop> {
+        let mut result = match name {
+            Some(name) => vm.call_named(self, name, vec![Value::Int(u128::from(state))]).map(|_| ()),
+            None => self.r3000_run(vm, state, entry, Frame::Bottom).map(|_| ()),
+        };
+        loop {
+            match result {
+                Err(Stop::Fault(message)) if message.starts_with(ELSEWHERE) => {
+                    let processor = self.processor()?;
+                    processor.exceptions.clear();
+                    let target = processor.returned;
+                    result = self.r3000_run(vm, state, target, Frame::Bottom).map(|_| ());
+                }
+                // Lifted code reached memory nothing answers at: the processor's bus error at
+                // the instruction, whose handler says where the processor goes on.
+                Err(Stop::Fault(message)) if message.contains(UNMAPPED) && !message.ends_with(')') && vm.site.is_some() => {
+                    let site = vm.site.unwrap_or(0) as u32;
+                    let slot = fetch(vm, site.wrapping_sub(4)).is_ok_and(is_branch);
+                    let address = if slot { site.wrapping_sub(4) } else { site };
+                    result = self.psx_exception(vm, state, BUS_DATA, address, slot, [None, None]).map(|_| ());
+                }
+                other => return other,
+            }
+        }
     }
 
     /// A lifted function's call or jump to `target`, which no lifted function is: the code there
@@ -180,7 +249,20 @@ impl Runtime<'_> {
         if vm.trace {
             eprintln!("> the processor at {target:#x}");
         }
-        self.r3000_run(vm, state, target, None).map(|_| ())
+        let link = vm.memory.read_u64(state + 8 * 31)? as u32;
+        let returned = self.r3000_run(vm, state, target, Frame::Function)?;
+        // A function of a kernel returns where it was called from, or leaves through a jump
+        // buffer for where the buffer was filled: the lifted frames up to there are left as
+        // they stand, and the processor goes on from the run's first frame. (Code of the image
+        // itself is the rest of a lifted function, which returns where that function does.)
+        let image = (self.image.image_base() & 0x1fff_ffff, u64::from(self.image.size_of_image()));
+        let outside = (u64::from(target) & 0x1fff_ffff).wrapping_sub(image.0) >= image.1;
+        let processor = self.processor()?;
+        if processor.kernel && outside && returned != link {
+            processor.returned = returned;
+            return Err(Stop::fault(ELSEWHERE));
+        }
+        Ok(())
     }
 
     /// Whether a lifted function's jump to `target` leaves the handler of the exception being
@@ -223,9 +305,9 @@ impl Runtime<'_> {
 
     /// Runs the code at `entry` over the state at `state` until the function it starts returns:
     /// its `jr $ra` with every call it made returned from, or the end of a function it jumped
-    /// to. The handler of exception `own` also ends where it jumps back to the exception's
-    /// address. The result is the address control went to.
-    fn r3000_run(&mut self, vm: &mut Vm<'_>, state: u64, entry: u32, own: Option<usize>) -> Result<u32, Stop> {
+    /// to. An exception's handler also ends where it jumps back to the exception's address,
+    /// and the run's first frame has no end. The result is the address control went to.
+    fn r3000_run(&mut self, vm: &mut Vm<'_>, state: u64, entry: u32, frame: Frame) -> Result<u32, Stop> {
         let mut cpu = Cpu {
             r: [0; 32],
             hi: 0,
@@ -236,6 +318,7 @@ impl Runtime<'_> {
             pending: None,
             branch: false,
             resumed: false,
+            rfe: false,
         };
         self.r3000_load(vm, state, &mut cpu)?;
         // The calls open; how control came to `pc`, once the slot of the jump that brought it has
@@ -245,38 +328,69 @@ impl Runtime<'_> {
         let mut jumped: Option<Arrival> = None;
         let mut slot = false;
         let mut count = 0u64;
+        let kernel = self.processor()?.kernel;
         loop {
             if !slot {
                 if let Some(arrival) = arrived.take()
                     && cpu.next == cpu.pc.wrapping_add(4)
-                    && let Some(target) = self.r3000_arrive(vm, state, &mut cpu, arrival, &mut depth, own)?
+                    && let Some(target) = self.r3000_arrive(vm, state, &mut cpu, arrival, &mut depth, frame)?
                 {
                     vm.instructions += count;
                     vm.steps += count;
                     self.r3000_flush(vm, state, &mut cpu)?;
                     return Ok(target);
                 }
-                if count >= POLL || vm.memory.take_device_write() {
+                let wrote = vm.memory.take_device_write();
+                if count >= POLL || wrote {
+                    if wrote && ra_asm_platform::tracing() {
+                        eprintln!("psx: the processor before {:#x}, called from {:#x}, writes", cpu.pc, cpu.r[31].wrapping_sub(8));
+                    }
                     vm.instructions += count;
                     vm.steps += count;
                     count = 0;
+                    // The look runs no code of the program: a load in flight stays in flight,
+                    // and the next instruction reads its register as it was.
+                    let in_flight = cpu.load.take();
                     self.r3000_flush(vm, state, &mut cpu)?;
                     vm.site = Some(u64::from(cpu.pc));
                     vm.poll_argument = Some(state);
                     self.console_poll(vm)?;
                     self.r3000_load(vm, state, &mut cpu)?;
+                    cpu.load = in_flight;
+                }
+                // The processor looks at its interrupts before each instruction.
+                if vm.boundary && self.psx_interrupt_due(vm)? {
+                    self.r3000_flush(vm, state, &mut cpu)?;
+                    let target = self.psx_exception(vm, state, INTERRUPT, cpu.pc, false, [Some(cpu.pc), Some(cpu.pc)])?;
+                    self.r3000_load(vm, state, &mut cpu)?;
+                    (cpu.pc, cpu.next) = (target, target.wrapping_add(4));
                 }
             }
             let current = cpu.pc;
-            let word = fetch(vm, current)?;
+            if kernel && matches!(current & 0x1fff_ffff, 0xa0 | 0xb0) {
+                self.psx_tty(vm, &cpu, current & 0xff)?;
+            }
+            let word = match fetch(vm, current) {
+                Ok(word) if current & 3 == 0 || !kernel => word,
+                // Over a kernel, an address that holds no instruction is the processor's
+                // exception: an address error for one that is no word's, a bus error else.
+                Ok(_) | Err(Stop::Fault(_)) if kernel => {
+                    let code = if current & 3 == 0 { BUS_CODE } else { ADDRESS_LOAD };
+                    self.r3000_bad(vm, state, &mut cpu, code, current, current, false)?;
+                    (slot, jumped, arrived) = (false, None, None);
+                    continue;
+                }
+                other => other?,
+            };
             cpu.pc = cpu.next;
             cpu.next = cpu.next.wrapping_add(4);
             cpu.pending = cpu.load.take();
             cpu.branch = false;
             cpu.resumed = false;
+            cpu.rfe = false;
             count += 1;
             let jump = self.r3000_exec(vm, state, &mut cpu, word, current, slot).map_err(|stop| match stop {
-                Stop::Fault(message) if !message.starts_with(RETURNED) && !message.ends_with(')') => {
+                Stop::Fault(message) if !message.starts_with(RETURNED) && !message.starts_with(ELSEWHERE) && !message.ends_with(')') => {
                     Stop::Fault(format!("{message} at {current:#x} (the processor)"))
                 }
                 other => other,
@@ -290,7 +404,10 @@ impl Runtime<'_> {
                 continue;
             }
             if slot {
-                arrived = jumped.take();
+                arrived = match jumped.take() {
+                    Some(Arrival::Register(_)) if cpu.rfe => Some(Arrival::Exception),
+                    other => other,
+                };
             }
             slot = cpu.branch;
             if jump.is_some() {
@@ -310,29 +427,43 @@ impl Runtime<'_> {
         cpu: &mut Cpu,
         arrival: Arrival,
         depth: &mut u32,
-        own: Option<usize>,
+        frame: Frame,
     ) -> Result<Option<u32>, Stop> {
         let target = cpu.pc;
         match arrival {
+            // A function ends where it returns with every call it made returned from. A handler
+            // does not end so: a kernel's may leave through a jump buffer whose `ra` is the
+            // code that returns from the exception.
             Arrival::Register(31) => {
-                if *depth == 0 {
+                if *depth == 0 && frame == Frame::Function {
                     return Ok(Some(target));
                 }
-                *depth -= 1;
+                *depth = depth.saturating_sub(1);
                 return Ok(None);
             }
-            // A handler returns through a register of the kernel's, never through `ra`.
-            Arrival::Register(_) if self.returns_exception(target) => {
+            // A handler returns through a register of the kernel's, never through `ra`: to the
+            // code its exception was taken in, which goes on, in this frame or in one below.
+            Arrival::Register(_) | Arrival::Exception if self.returns_exception(target) => {
                 let processor = self.processor()?;
-                if own == Some(processor.exceptions.len() - 1) {
+                if frame == Frame::Handler(processor.exceptions.len() - 1) {
                     return Ok(Some(target));
                 }
                 processor.returned = target;
                 self.r3000_flush(vm, state, cpu)?;
                 return Err(Stop::fault(RETURNED));
             }
+            // Or to somewhere else, where the processor goes on from the run's first frame:
+            // the code the exception was taken in is left as it stood.
+            Arrival::Exception if !self.processor()?.exceptions.is_empty() => {
+                self.processor()?.returned = target;
+                self.r3000_flush(vm, state, cpu)?;
+                return Err(Stop::fault(ELSEWHERE));
+            }
             Arrival::Call => *depth += 1,
-            Arrival::Register(_) | Arrival::Jump => {}
+            Arrival::Register(_) | Arrival::Exception | Arrival::Jump => {}
+        }
+        if target == SHELL && self.image.rom_boots && !std::mem::replace(&mut self.processor()?.booted, true) {
+            return self.r3000_program(vm, state, cpu);
         }
         // Where the callee returns to: its caller's link, which a tail jump leaves as it was.
         let link = cpu.r[31];
@@ -353,13 +484,70 @@ impl Runtime<'_> {
         }
         // The callee ran to its end. A call's goes on after it; a jump to it was the end of the
         // function that jumped.
-        if arrival != Arrival::Call && *depth == 0 {
+        if arrival != Arrival::Call && *depth == 0 && frame == Frame::Function {
             return Ok(Some(link));
         }
-        *depth -= 1;
+        *depth = depth.saturating_sub(1);
         cpu.pc = link;
         cpu.next = link.wrapping_add(4);
         Ok(None)
+    }
+
+    /// A kernel's TTY is a serial port of a development board, which no console has: what a
+    /// program prints is taken where it enters the kernel, at the table `entry` (`0xa0` or
+    /// `0xb0`) with the number of `putchar`, `puts` or a `write` to the standard output in `t1`.
+    /// The kernel's own function runs after as it would.
+    fn psx_tty(&mut self, vm: &mut Vm<'_>, cpu: &Cpu, entry: u32) -> Result<(), Stop> {
+        let [a0, a1, a2] = [cpu.r[4], cpu.r[5], cpu.r[6]].map(u64::from);
+        let text = match (entry, cpu.r[9] & 0xff) {
+            (0xa0, 0x3c) | (0xb0, 0x3d) => vec![a0 as u8],
+            (0xa0, 0x3e) | (0xb0, 0x3f) => {
+                let mut text = Vec::new();
+                while text.len() < 1 << 16 {
+                    match vm.memory.read_u8(a0 + text.len() as u64) {
+                        Ok(0) | Err(_) => break,
+                        Ok(byte) => text.push(byte),
+                    }
+                }
+                text
+            }
+            (0xa0, 0x03) | (0xb0, 0x35) if a0 == 1 => vm.memory.read_vec(a1, a2.min(1 << 16)).unwrap_or_default(),
+            _ => return Ok(()),
+        };
+        if let Some(machine) = &self.machine {
+            machine.tty(&text);
+        }
+        Ok(())
+    }
+
+    /// The kernel is about to enter its shell, and the ROM is beside a program: the program is
+    /// loaded and entered in the shell's stead, as the kernel's `Exec` starts one (its text in
+    /// RAM, its BSS cleared, `gp` and the stack its header's), and its end is the run's.
+    fn r3000_program(&mut self, vm: &mut Vm<'_>, state: u64, cpu: &mut Cpu) -> Result<Option<u32>, Stop> {
+        let image = self.image;
+        let exe = image.psx.as_ref().ok_or_else(|| Stop::fault("the ROM is beside no PlayStation program"))?;
+        vm.memory.write(image.image_base(), image.mapped())?;
+        if let Some((at, len)) = exe.bss_range() {
+            vm.memory.write(at, &vec![0; len as usize])?;
+        }
+        if exe.gp != 0 {
+            cpu.r[28] = exe.gp;
+        }
+        if let Some(sp) = exe.initial_sp() {
+            (cpu.r[29], cpu.r[30]) = (sp, sp);
+        }
+        (cpu.r[4], cpu.r[5], cpu.r[31]) = (0, 0, 0);
+        let entry = exe.entry();
+        self.r3000_flush(vm, state, cpu)?;
+        match vm.name_at(entry).map(str::to_owned) {
+            Some(name) if matches!(vm.symbol_at(entry), Some(Symbol::Function(_))) => {
+                vm.call_named(self, &name, vec![Value::Int(u128::from(state))])?;
+            }
+            _ => {
+                self.r3000_run(vm, state, entry as u32, Frame::Function)?;
+            }
+        }
+        Err(Stop::Exit(vm.memory.read_u32(state + 2 * 8)?.cast_signed()))
     }
 
     /// A function of the answered kernel, by the table at `entry` and the number in `t1`.
@@ -403,7 +591,7 @@ impl Runtime<'_> {
         self.r3000_flush(vm, state, cpu)?;
         // An exception in a delay slot is the branch's: the handler returns to the branch.
         let address = if in_slot { current.wrapping_sub(4) } else { current };
-        let target = self.psx_exception(vm, state, code, address, in_slot)?;
+        let target = self.psx_exception(vm, state, code, address, in_slot, [Some(address), Some(address.wrapping_add(4))])?;
         self.r3000_load(vm, state, cpu)?;
         cpu.pc = target;
         cpu.next = target.wrapping_add(4);
@@ -411,11 +599,31 @@ impl Runtime<'_> {
         Ok(())
     }
 
+    /// An access to `bad` the processor of a kernel's run does not make: the exception `code`,
+    /// with the address in coprocessor 0's register for it when it is an address error.
+    fn r3000_bad(&mut self, vm: &mut Vm<'_>, state: u64, cpu: &mut Cpu, code: u32, bad: u32, current: u32, in_slot: bool) -> Result<(), Stop> {
+        let processor = self.processor()?;
+        if code != BUS_DATA && code != BUS_CODE {
+            vm.memory.write_u64(processor.cop0 + 8 * BAD_ADDRESS, sext(bad))?;
+        }
+        self.r3000_raise(vm, state, cpu, code, current, in_slot)
+    }
+
     /// The processor takes the exception `code` at `address` (`slot` when the instruction is in
     /// a branch's delay slot and `address` is the branch): the cause and the return address into
     /// coprocessor 0, the status register's mode pushed, and the code at the vector run until it
-    /// jumps back. The result is where it jumped back to.
-    pub(super) fn psx_exception(&mut self, vm: &mut Vm<'_>, state: u64, code: u32, address: u32, slot: bool) -> Result<u32, Stop> {
+    /// jumps back to one of `returns`, the addresses the code the exception was taken in goes on
+    /// from. The result is the one it jumped back to; a handler that leaves for another address
+    /// ends the frames of the run down to its first ([`ELSEWHERE`]).
+    pub(super) fn psx_exception(
+        &mut self,
+        vm: &mut Vm<'_>,
+        state: u64,
+        code: u32,
+        address: u32,
+        slot: bool,
+        returns: [Option<u32>; 2],
+    ) -> Result<u32, Stop> {
         let cop0 = self.processor()?.cop0;
         let status = vm.memory.read_u64(cop0 + 8 * SR)? as u32;
         let cause = vm.memory.read_u64(cop0 + 8 * CAUSE)? as u32;
@@ -429,8 +637,8 @@ impl Runtime<'_> {
         }
         let processor = self.processor()?;
         let index = processor.exceptions.len();
-        processor.exceptions.push([address, address.wrapping_add(4)]);
-        let result = self.r3000_run(vm, state, vector, Some(index));
+        processor.exceptions.push(returns);
+        let result = self.r3000_run(vm, state, vector, Frame::Handler(index));
         let processor = self.processor()?;
         processor.exceptions.truncate(index);
         match result {
@@ -439,10 +647,20 @@ impl Runtime<'_> {
         }
     }
 
-    /// Between two instructions of a kernel's run: the interrupt line's level into the cause
-    /// register, and the interrupt taken when the status register lets it through. `state` is
-    /// the state of the code the look interrupts, when the run knows it.
-    pub(super) fn psx_interrupt(&mut self, vm: &mut Vm<'_>, state: Option<u64>) -> Result<(), Stop> {
+    /// The exception `code` lifted code raised at `address`: `code`'s ninth bit says the
+    /// instruction is in the delay slot of the branch at `address`. Lifted code goes on after
+    /// the instruction alone, and after one in a slot not at all: a handler that returns to
+    /// the instruction itself, or into a slot's branch, has the processor run it.
+    pub(super) fn psx_raised(&mut self, vm: &mut Vm<'_>, state: u64, code: u32, address: u32) -> Result<(), Stop> {
+        let slot = code & 0x100 != 0;
+        let returns = if slot { [None, None] } else { [Some(address.wrapping_add(4)), None] };
+        self.psx_exception(vm, state, code & 0x1f, address, slot, returns).map(|_| ())
+    }
+
+    /// The interrupt line's level into the cause register of a kernel's run, and whether the
+    /// processor has an interrupt to look at before its instructions: the line's, or one of
+    /// the two the program raises itself.
+    pub(super) fn psx_line(&mut self, vm: &mut Vm<'_>) -> Result<(), Stop> {
         let Some(line) = self.machine.as_ref().map(super::console::Machine::interrupt) else { return Ok(()) };
         let cop0 = self.processor()?.cop0;
         let cause = vm.memory.read_u64(cop0 + 8 * CAUSE)? as u32;
@@ -450,14 +668,58 @@ impl Runtime<'_> {
         if level != cause {
             vm.memory.write_u64(cop0 + 8 * CAUSE, sext(level))?;
         }
+        vm.boundary = level & 0xff00 != 0;
+        Ok(())
+    }
+
+    /// Whether the program stands in a loop of nothing: at `vm.site`, or just before it, a
+    /// branch or a jump to itself with an empty delay slot, which only an interrupt ends. The
+    /// clock may move on to what the machine has next.
+    pub(super) fn psx_idles(&self, vm: &mut Vm<'_>) -> bool {
+        let Some(site) = vm.site.map(|site| site as u32) else { return false };
+        // The RAM alone, which is read here without the read counting as the program's.
+        if !self.r3000() || site & 0x1fff_ffff >= 0x80_0000 {
+            return false;
+        }
+        [site, site.wrapping_sub(4)].into_iter().any(|at| {
+            let (Ok(word), Ok(slot)) = (fetch(vm, at), fetch(vm, at.wrapping_add(4))) else { return false };
+            let to_itself = match word >> 26 {
+                2 => (at.wrapping_add(4) & 0xf000_0000) | ((word & 0x03ff_ffff) << 2) == at,
+                4 => word & 0xffff == 0xffff && (word >> 21) & 31 == (word >> 16) & 31,
+                _ => false,
+            };
+            to_itself && slot == 0
+        })
+    }
+
+    /// Whether the status register lets an interrupt the cause register holds through.
+    fn psx_interrupt_due(&mut self, vm: &mut Vm<'_>) -> Result<bool, Stop> {
+        let cop0 = self.processor()?.cop0;
         let status = vm.memory.read_u64(cop0 + 8 * SR)? as u32;
-        let (Some(state), Some(site)) = (state, vm.site) else { return Ok(()) };
-        // A handler's return to the entry of a lifted function reads as a call of it: such an
-        // instruction is not interrupted, the next look is soon enough.
-        if !line || status & 0x401 != 0x401 || vm.symbol_at(site).is_some() {
+        let cause = vm.memory.read_u64(cop0 + 8 * CAUSE)? as u32;
+        Ok(status & 1 != 0 && status & cause & 0xff00 != 0)
+    }
+
+    /// Before the instruction at `to` of lifted code, after the one at `from`: the processor
+    /// takes the interrupt it has, where the code can be left and come back to. Not between a
+    /// branch and its slot, nor between the slot and what the branch does after it (its call,
+    /// which the lift places there, and what follows the call's return), nor at a function's
+    /// entry, which a handler's return to would read as a call of it.
+    pub(super) fn psx_boundary(&mut self, vm: &mut Vm<'_>, from: Option<u64>, to: u64, start: bool, state: Option<u64>) -> Result<(), Stop> {
+        let Some(state) = state else { return Ok(()) };
+        if !self.r3000() || !self.psx_interrupt_due(vm)? || vm.symbol_at(to).is_some() {
             return Ok(());
         }
-        self.psx_exception(vm, state, INTERRUPT, site as u32, false).map(|_| ())
+        let branch = |vm: &mut Vm<'_>, at: u64| fetch(vm, at as u32).map(is_branch);
+        if let Some(from) = from
+            && (to == from.wrapping_sub(4) || (to == from.wrapping_add(4) && branch(vm, from)?))
+        {
+            return Ok(());
+        }
+        if !start && from != Some(to.wrapping_sub(4)) && branch(vm, to)? {
+            return Ok(());
+        }
+        self.psx_exception(vm, state, INTERRUPT, to as u32, false, [Some(to as u32), None]).map(|_| ())
     }
 
     /// The status register was written: when the write cuts the data cache off from the memory
@@ -475,69 +737,69 @@ impl Runtime<'_> {
             // SAFETY: as above; the kept bytes are the RAM's length.
             unsafe { std::ptr::copy_nonoverlapping(kept.as_ptr(), ram.0, ram.1) };
         }
-        Ok(())
+        self.psx_line(vm)
     }
 
-    fn gte_slot(&mut self, vm: &mut Vm<'_>, state: u64, slot: u32) -> Result<u32, Stop> {
+    fn gte_slot(&mut self, vm: &mut Vm<'_>, slot: u32) -> Result<u32, Stop> {
         let gte = self.processor()?.gte;
-        vm.memory.read_u32(state + gte + 4 * u64::from(slot))
+        vm.memory.read_u32(gte + 4 * u64::from(slot))
     }
 
-    fn set_gte_slot(&mut self, vm: &mut Vm<'_>, state: u64, slot: u32, value: u32) -> Result<(), Stop> {
+    fn set_gte_slot(&mut self, vm: &mut Vm<'_>, slot: u32, value: u32) -> Result<(), Stop> {
         let gte = self.processor()?.gte;
-        vm.memory.write_u32(state + gte + 4 * u64::from(slot), value)
+        vm.memory.write_u32(gte + 4 * u64::from(slot), value)
     }
 
     /// Data register `n` of the GTE as `mfc2` reads it: as the lift's `gte_data`.
-    fn gte_data(&mut self, vm: &mut Vm<'_>, state: u64, n: u32) -> Result<u32, Stop> {
+    fn gte_data(&mut self, vm: &mut Vm<'_>, n: u32) -> Result<u32, Stop> {
         match n {
-            15 => self.gte_slot(vm, state, 14),
+            15 => self.gte_slot(vm,14),
             28 | 29 => {
                 let mut packed = 0;
                 for k in 0..3 {
-                    let ir = self.gte_slot(vm, state, 9 + k)?.cast_signed();
+                    let ir = self.gte_slot(vm,9 + k)?.cast_signed();
                     packed |= ((ir >> 7).clamp(0, 0x1f) as u32) << (5 * k);
                 }
                 Ok(packed)
             }
             31 => {
-                let value = self.gte_slot(vm, state, 30)?.cast_signed();
+                let value = self.gte_slot(vm,30)?.cast_signed();
                 Ok((value ^ (value >> 31)).leading_zeros())
             }
-            _ => self.gte_slot(vm, state, n),
+            _ => self.gte_slot(vm,n),
         }
     }
 
     /// Writes data register `n` of the GTE as `mtc2` does: as the lift's `set_gte_data`.
-    fn set_gte_data(&mut self, vm: &mut Vm<'_>, state: u64, n: u32, value: u32) -> Result<(), Stop> {
+    fn set_gte_data(&mut self, vm: &mut Vm<'_>, n: u32, value: u32) -> Result<(), Stop> {
         match n {
-            1 | 3 | 5 | 8..=11 => self.set_gte_slot(vm, state, n, i32::from(value as u16 as i16).cast_unsigned()),
-            7 | 16..=19 => self.set_gte_slot(vm, state, n, value & 0xffff),
+            1 | 3 | 5 | 8..=11 => self.set_gte_slot(vm,n, i32::from(value as u16 as i16).cast_unsigned()),
+            7 | 16..=19 => self.set_gte_slot(vm,n, value & 0xffff),
             15 => {
-                let (s1, s2) = (self.gte_slot(vm, state, 13)?, self.gte_slot(vm, state, 14)?);
-                self.set_gte_slot(vm, state, 12, s1)?;
-                self.set_gte_slot(vm, state, 13, s2)?;
-                self.set_gte_slot(vm, state, 14, value)
+                let (s1, s2) = (self.gte_slot(vm,13)?, self.gte_slot(vm,14)?);
+                self.set_gte_slot(vm,12, s1)?;
+                self.set_gte_slot(vm,13, s2)?;
+                self.set_gte_slot(vm,14, value)
             }
             28 => {
                 for k in 0..3 {
-                    self.set_gte_slot(vm, state, 9 + k, ((value >> (5 * k)) & 0x1f) << 7)?;
+                    self.set_gte_slot(vm,9 + k, ((value >> (5 * k)) & 0x1f) << 7)?;
                 }
-                self.set_gte_slot(vm, state, 28, value)
+                self.set_gte_slot(vm,28, value)
             }
             29 | 31 => Ok(()),
-            _ => self.set_gte_slot(vm, state, n, value),
+            _ => self.set_gte_slot(vm,n, value),
         }
     }
 
     /// Writes control register `n` of the GTE as `ctc2` does: as the lift's `set_gte_control`.
-    fn set_gte_control(&mut self, vm: &mut Vm<'_>, state: u64, n: u32, value: u32) -> Result<(), Stop> {
+    fn set_gte_control(&mut self, vm: &mut Vm<'_>, n: u32, value: u32) -> Result<(), Stop> {
         let value = match n {
             4 | 12 | 20 | 26 | 27 | 29 | 30 => i32::from(value as u16 as i16).cast_unsigned(),
             31 => (value & 0x7fff_f000) | if value & 0x7f87_e000 != 0 { 1 << 31 } else { 0 },
             _ => value,
         };
-        self.set_gte_slot(vm, state, 32 + n, value)
+        self.set_gte_slot(vm,32 + n, value)
     }
 
     /// One instruction: `word`, read at `current`, in a delay slot when `in_slot`. The result is
@@ -550,6 +812,20 @@ impl Runtime<'_> {
         let simm = i32::from(word as u16 as i16).cast_unsigned();
         let address = s.wrapping_add(simm);
         let at = u64::from(address);
+        // An access of the instruction to memory: over a kernel, one nothing answers is the
+        // processor's bus error.
+        macro_rules! bus {
+            ($access:expr) => {
+                match $access {
+                    Ok(value) => value,
+                    Err(Stop::Fault(message)) if message.contains(UNMAPPED) && self.processor()?.kernel => {
+                        self.r3000_bad(vm, state, cpu, BUS_DATA, address, current, in_slot)?;
+                        return Ok(None);
+                    }
+                    Err(stop) => return Err(stop),
+                }
+            };
+        }
         match op {
             0 => match funct {
                 0 => cpu.set(rd, t << shift),
@@ -661,46 +937,54 @@ impl Runtime<'_> {
                         // Of the cause, a program writes the two software interrupts alone.
                         let value = if rd as u64 == CAUSE { (vm.memory.read_u64(register)? as u32 & !0x300) | (t & 0x300) } else { t };
                         vm.memory.write_u64(register, sext(value))?;
-                        if rd as u64 == SR {
-                            self.psx_status(vm)?;
+                        match rd as u64 {
+                            SR => self.psx_status(vm)?,
+                            CAUSE => self.psx_line(vm)?,
+                            _ => {}
                         }
                     }
                     // `rfe`: the status register's mode pops.
                     16..=31 if funct == 0x10 => {
                         let status = vm.memory.read_u64(cop0 + 8 * SR)? as u32;
                         vm.memory.write_u64(cop0 + 8 * SR, sext((status & !0xf) | ((status >> 2) & 0xf)))?;
+                        cpu.rfe = true;
                     }
                     _ => self.r3000_raise(vm, state, cpu, RESERVED, current, in_slot)?,
                 }
             }
             18 => match rs {
                 0 => {
-                    let value = self.gte_data(vm, state, rd as u32)?;
+                    let value = self.gte_data(vm,rd as u32)?;
                     cpu.delay(rt, value);
                 }
                 2 => {
-                    let value = self.gte_slot(vm, state, 32 + rd as u32)?;
+                    let value = self.gte_slot(vm,32 + rd as u32)?;
                     cpu.delay(rt, value);
                 }
-                4 => self.set_gte_data(vm, state, rd as u32, t)?,
-                6 => self.set_gte_control(vm, state, rd as u32, t)?,
+                4 => self.set_gte_data(vm,rd as u32, t)?,
+                6 => self.set_gte_control(vm,rd as u32, t)?,
                 16..=31 => {
                     let gte = self.processor()?.gte;
-                    super::console::gte(vm, &[Value::Int(u128::from(state + gte)), Value::Int(u128::from(word))])?;
+                    super::console::gte(vm, &[Value::Int(u128::from(gte)), Value::Int(u128::from(word))])?;
                 }
                 _ => self.r3000_raise(vm, state, cpu, RESERVED, current, in_slot)?,
             },
+            // A halfword or a word at an address that is no multiple of its size.
+            33 | 35 | 37 | 50 | 41 | 43 | 58 if address & (if matches!(op, 33 | 37 | 41) { 1 } else { 3 }) != 0 && self.processor()?.kernel => {
+                let code = if matches!(op, 41 | 43 | 58) { ADDRESS_STORE } else { ADDRESS_LOAD };
+                self.r3000_bad(vm, state, cpu, code, address, current, in_slot)?;
+            }
             32 => {
-                let value = i32::from(vm.memory.read_u8(at)?.cast_signed()).cast_unsigned();
+                let value = i32::from(bus!(vm.memory.read_u8(at)).cast_signed()).cast_unsigned();
                 cpu.delay(rt, value);
             }
             33 => {
-                let value = i32::from(vm.memory.read_u16(at)?.cast_signed()).cast_unsigned();
+                let value = i32::from(bus!(vm.memory.read_u16(at)).cast_signed()).cast_unsigned();
                 cpu.delay(rt, value);
             }
             34 | 38 => {
                 let held = cpu.merged(rt);
-                let memory = vm.memory.read_u32(at & !3)?;
+                let memory = bus!(vm.memory.read_u32(at & !3));
                 let value = match (op, address & 3) {
                     (34, 0) => (held & 0x00ff_ffff) | (memory << 24),
                     (34, 1) => (held & 0x0000_ffff) | (memory << 16),
@@ -713,21 +997,21 @@ impl Runtime<'_> {
                 cpu.delay(rt, value);
             }
             35 => {
-                let value = vm.memory.read_u32(at)?;
+                let value = bus!(vm.memory.read_u32(at));
                 cpu.delay(rt, value);
             }
             36 => {
-                let value = u32::from(vm.memory.read_u8(at)?);
+                let value = u32::from(bus!(vm.memory.read_u8(at)));
                 cpu.delay(rt, value);
             }
             37 => {
-                let value = u32::from(vm.memory.read_u16(at)?);
+                let value = u32::from(bus!(vm.memory.read_u16(at)));
                 cpu.delay(rt, value);
             }
-            40 => vm.memory.write_u8(at, t as u8)?,
-            41 => vm.memory.write_u16(at, t as u16)?,
+            40 => bus!(vm.memory.write_u8(at, t as u8)),
+            41 => bus!(vm.memory.write_u16(at, t as u16)),
             42 | 46 => {
-                let memory = vm.memory.read_u32(at & !3)?;
+                let memory = bus!(vm.memory.read_u32(at & !3));
                 let value = match (op, address & 3) {
                     (42, 0) => (memory & 0xffff_ff00) | (t >> 24),
                     (42, 1) => (memory & 0xffff_0000) | (t >> 16),
@@ -737,16 +1021,16 @@ impl Runtime<'_> {
                     (46, 3) => (memory & 0x00ff_ffff) | (t << 24),
                     _ => t,
                 };
-                vm.memory.write_u32(at & !3, value)?;
+                bus!(vm.memory.write_u32(at & !3, value));
             }
-            43 => vm.memory.write_u32(at, t)?,
+            43 => bus!(vm.memory.write_u32(at, t)),
             50 => {
-                let value = vm.memory.read_u32(at)?;
-                self.set_gte_data(vm, state, rt as u32, value)?;
+                let value = bus!(vm.memory.read_u32(at));
+                self.set_gte_data(vm,rt as u32, value)?;
             }
             58 => {
-                let value = self.gte_data(vm, state, rt as u32)?;
-                vm.memory.write_u32(at, value)?;
+                let value = self.gte_data(vm,rt as u32)?;
+                bus!(vm.memory.write_u32(at, value));
             }
             _ => self.r3000_raise(vm, state, cpu, RESERVED, current, in_slot)?,
         }

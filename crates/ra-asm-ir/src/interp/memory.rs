@@ -94,8 +94,20 @@ fn runs(bytes: &BTreeMap<u64, u8>) -> Vec<(u64, Vec<u8>)> {
     out
 }
 
+/// A range of addresses that is another range seen again: a console's RAM through another
+/// segment of its address space, or repeated where its memory control mirrors it.
+struct Alias {
+    start: u64,
+    len: u64,
+    /// What of an offset into the range counts: all of it, or what a repeat leaves.
+    mask: u64,
+    target: u64,
+}
+
 #[derive(Default)]
 pub struct Memory {
+    /// The ranges that are other ranges: an access to one is the access to the other.
+    aliases: Vec<Alias>,
     regions: Vec<Region>,
     probe: Option<Probe>,
     /// The region of the last access: the next one is usually in it.
@@ -148,6 +160,24 @@ impl Memory {
     /// the memory's, and is not logged.
     pub fn add_device(&mut self, start: u64, len: u64, device: Box<dyn Device>) {
         self.devices.push(Mapped { start, len, device });
+    }
+
+    /// Makes the `len` bytes from `start` the bytes from `target` seen again: the byte at an
+    /// offset is the one at `target` plus the offset's bits in `mask`, so a range longer than
+    /// what it repeats repeats it. An access there is the access at the place it stands for.
+    pub fn add_alias(&mut self, start: u64, len: u64, mask: u64, target: u64) {
+        self.aliases.push(Alias { start, len, mask, target });
+    }
+
+    /// The address `address` stands for.
+    fn place(&self, address: u64) -> u64 {
+        for alias in &self.aliases {
+            let offset = address.wrapping_sub(alias.start);
+            if offset < alias.len {
+                return alias.target + (offset & alias.mask);
+            }
+        }
+        address
     }
 
     /// Whether a device register was written since the last ask: a host whose devices take their
@@ -240,6 +270,7 @@ impl Memory {
         if buf.is_empty() {
             return Ok(());
         }
+        let address = self.place(address);
         if let Some(mapped) = self.device(address, buf.len() as u64) {
             mapped.device.read(address, buf);
             // A device's register read counts with the reads of the counted range: both are
@@ -277,6 +308,7 @@ impl Memory {
         if bytes.is_empty() {
             return Ok(());
         }
+        let address = self.place(address);
         if let Some(mapped) = self.device(address, bytes.len() as u64) {
             mapped.device.write(address, bytes);
             self.device_written = true;

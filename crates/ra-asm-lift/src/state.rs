@@ -46,21 +46,18 @@ pub const MIPS_HI: u8 = 32;
 pub const MIPS_LO: u8 = 33;
 /// The scalar field of the MIPS `%State` after the four every state has, by index.
 pub const MIPS_FCSR: i64 = 4;
-/// The field of the GTE's registers: data register `n` in slot `n`, control register `n` in
-/// slot `32 + n`.
-pub const MIPS_GTE: i64 = 5;
 /// The field of the R5900's upper halves: bits 64 to 127 of general register `n` in slot `n`,
 /// `hi1` and `lo1` (the upper halves of `hi` and `lo`) in [`MIPS_HI`] and [`MIPS_LO`].
-pub const MIPS_UPPER: i64 = 6;
+pub const MIPS_UPPER: i64 = 5;
 /// The field of the R5900 FPU's accumulator, a single the `adda`, `mula`, `madd` and `msub`
 /// families read and write.
-pub const MIPS_ACC: i64 = 7;
+pub const MIPS_ACC: i64 = 6;
 /// The field of the PSP's VFPU: its 128 single registers, register `n` of an instruction's
 /// seven-bit field in slot `n`, so a matrix, a column and a row are views of the same singles.
-pub const MIPS_VFPU: i64 = 8;
+pub const MIPS_VFPU: i64 = 7;
 /// The field of the VFPU's condition bits: a lane's result of `vcmp` in bits 0 to 3, any lane's in
 /// bit 4 and every lane's in bit 5.
-pub const MIPS_VFPU_CC: i64 = 9;
+pub const MIPS_VFPU_CC: i64 = 8;
 
 /// The MIPS general registers by their number, in the o32 names (n32 calls `$8..$11` `a4..a7`),
 /// then `hi` and `lo`.
@@ -123,10 +120,20 @@ pub fn gte_command(funct: u32) -> Option<String> {
     GTE_COMMANDS.iter().find(|(f, _)| *f == funct).map(|(_, name)| format!("ra_gte_{name}"))
 }
 
-/// The type of a GTE command: `void (ptr %gte, i64 command)`, the registers of the state's GTE
-/// field and the whole command word, whose `sf`, `lm` and matrix fields the command reads.
+/// The type of a GTE command: `void (ptr %gte, i64 command)`, the [`PSX_GTE`] registers and the
+/// whole command word, whose `sf`, `lm` and matrix fields the command reads.
 pub fn gte_type() -> FnType {
     FnType::new(Type::Void, vec![Type::Ptr, Type::I64])
+}
+
+/// The GTE's registers, 32 bits each: data register `n` in slot `n`, control register `n` in
+/// slot `32 + n`. A global of the module, as the one coprocessor of the machine is: a function at
+/// the ABI level takes no coprocessor from its caller.
+pub const PSX_GTE: &str = "ra_gte";
+
+/// Where slot `slot` of the [`PSX_GTE`] registers is.
+pub fn gte_slot(slot: u32) -> ra_asm_ir::Operand {
+    ra_asm_ir::Operand::Address { global: PSX_GTE.to_owned(), offset: i64::from(slot) * 4 }
 }
 
 /// The `gp` of a `PlayStation` program. The start routine sets it and every function addresses the
@@ -136,8 +143,17 @@ pub const PSX_GP: &str = "ra_gp";
 
 /// The runtime of a `PlayStation` program: a BIOS function by its table's name, `ra_bios_<name>`
 /// with the prototype [`crate::raise::prototypes::psx_bios`] gives it, each GTE command, and the
-/// [`PSX_GP`] global.
+/// [`PSX_GP`] and [`PSX_GTE`] globals.
 pub fn declare_psx(module: &mut ra_asm_ir::Module) {
+    module.globals.push(ra_asm_ir::Global {
+        name: PSX_GTE.to_owned(),
+        ty: Type::array(64, Type::I32),
+        init: Some(ra_asm_ir::Const::Zero),
+        constant: false,
+        linkage: ra_asm_ir::Linkage::External,
+        align: 4,
+        address: None,
+    });
     module.globals.push(ra_asm_ir::Global {
         name: PSX_GP.to_owned(),
         ty: Type::I64,
@@ -160,8 +176,10 @@ pub fn declare_psx(module: &mut ra_asm_ir::Module) {
 }
 
 /// `ra_psx_exception(state, code, address)`: the exception `code` (the processor's `ExcCode`) at
-/// the instruction at `address` of a program that is the console's own kernel, which takes it at
-/// its vector as the processor enters it and comes back where its handler returns.
+/// the instruction at `address` of a program that runs over the console's own kernel, which
+/// takes it at its vector as the processor enters it and comes back where its handler returns.
+/// With the ninth bit of `code` set the instruction is in the delay slot of the branch at
+/// `address`.
 pub const PSX_EXCEPTION: &str = "ra_psx_exception";
 
 pub fn psx_exception_type() -> FnType {
@@ -817,6 +835,7 @@ pub fn is_runtime_global(name: &str) -> bool {
             | PROC_KINDS
             | RTTI
             | PSX_GP
+            | PSX_GTE
             | N64_COP0
     )
 }
@@ -883,19 +902,6 @@ impl Machine<'_> {
             Self::state_ty(),
             self.state,
             vec![(Type::I32, 0i64.into()), (Type::I32, 2i64.into()), (Type::I32, index.into())],
-            &hint,
-        )
-    }
-
-    /// The pointer to slot `slot` of the MIPS state's GTE field: data register `slot`, or control
-    /// register `slot - 32`.
-    pub fn gte_ptr(&mut self, block: BlockId, slot: u32) -> ValueId {
-        let hint = format!("p.gte{slot}");
-        self.b.gep(
-            block,
-            Self::state_ty(),
-            self.state,
-            vec![(Type::I32, 0i64.into()), (Type::I32, MIPS_GTE.into()), (Type::I32, i64::from(slot).into())],
             &hint,
         )
     }
@@ -1346,16 +1352,16 @@ mod spec {
         let spec = Isa::Mips.spec();
         assert_eq!(Isa::MipsN32.spec(), spec);
         let fields = state_fields_for(Isa::Mips);
-        assert_eq!(fields.len(), 10);
+        assert_eq!(fields.len(), 9);
         assert_eq!(fields[MIPS_VFPU as usize], Type::array(128, Type::I32));
         assert_eq!(fields[MIPS_VFPU_CC as usize], Type::I32);
         let named: Vec<_> =
-            [MIPS_FCSR, MIPS_GTE, MIPS_UPPER, MIPS_ACC, MIPS_VFPU, MIPS_VFPU_CC].map(|i| spec.fields[i as usize].name).into();
-        assert_eq!(named, ["fcsr", "gte", "upper", "acc", "vfpu", "vfpucc"]);
-        assert_eq!(laid_out(spec), (vec![0, 272, 280, 288, 800, 804, 1064, 1336, 1340, 1852], 1856));
+            [MIPS_FCSR, MIPS_UPPER, MIPS_ACC, MIPS_VFPU, MIPS_VFPU_CC].map(|i| spec.fields[i as usize].name).into();
+        assert_eq!(named, ["fcsr", "upper", "acc", "vfpu", "vfpucc"]);
+        assert_eq!(laid_out(spec), (vec![0, 272, 280, 288, 800, 808, 1080, 1084, 1596], 1600));
         let (index, vfpu) = (MIPS_VFPU as usize, &spec.fields[MIPS_VFPU as usize]);
         assert_eq!((vfpu.role, vfpu.slots(), vfpu.slot_size()), (Role::Extra, 128, 4));
-        assert_eq!(spec.offsets()[index] + vfpu.size(), 1852, "the condition bits follow the VFPU's singles");
+        assert_eq!(spec.offsets()[index] + vfpu.size(), 1596, "the condition bits follow the VFPU's singles");
     }
 
     #[test]

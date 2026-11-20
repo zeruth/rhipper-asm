@@ -79,19 +79,12 @@ pub(super) struct Machine {
     pub(super) r3000: Option<super::r3000::Processor>,
 }
 
-/// A console's ROM seen through another segment of its address space.
-struct Rom {
-    start: u64,
-    bytes: Rc<[u8]>,
-}
+/// A region of a console's bus with nothing on it: a read finds the bus as nothing drives it.
+struct Open;
 
-impl ra_asm_ir::interp::memory::Device for Rom {
-    fn read(&mut self, address: u64, buf: &mut [u8]) {
-        let at = (address - self.start) as usize;
-        match self.bytes.get(at..at + buf.len()) {
-            Some(bytes) => buf.copy_from_slice(bytes),
-            None => buf.fill(0),
-        }
+impl ra_asm_ir::interp::memory::Device for Open {
+    fn read(&mut self, _address: u64, buf: &mut [u8]) {
+        buf.fill(0xff);
     }
 
     fn write(&mut self, _address: u64, _bytes: &[u8]) {}
@@ -101,41 +94,6 @@ impl ra_asm_ir::interp::memory::Device for Rom {
 struct Ports {
     platform: Rc<RefCell<Box<dyn Platform>>>,
     writes: Writes,
-}
-
-/// The program's RAM seen through another segment of its console's address space: the bytes at
-/// `start` are those at `target` of the RAM the run mapped, which is the host's own memory at
-/// the program's addresses.
-struct Mirror {
-    start: u64,
-    target: u64,
-    /// The mapped RAM's first address and its length.
-    ram: (u64, u64),
-}
-
-impl Mirror {
-    /// Where an access of `len` bytes at `address` lands in the RAM, when it lies whole in it.
-    fn place(&self, address: u64, len: usize) -> Option<u64> {
-        let at = self.target + (address - self.start);
-        (at >= self.ram.0 && at + len as u64 <= self.ram.0 + self.ram.1).then_some(at)
-    }
-}
-
-impl ra_asm_ir::interp::memory::Device for Mirror {
-    fn read(&mut self, address: u64, buf: &mut [u8]) {
-        match self.place(address, buf.len()) {
-            // SAFETY: the range lies in the RAM the run mapped and committed at these addresses.
-            Some(at) => unsafe { std::ptr::copy_nonoverlapping(at as usize as *const u8, buf.as_mut_ptr(), buf.len()) },
-            None => buf.fill(0),
-        }
-    }
-
-    fn write(&mut self, address: u64, bytes: &[u8]) {
-        if let Some(at) = self.place(address, bytes.len()) {
-            // SAFETY: as for a read.
-            unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), at as usize as *mut u8, bytes.len()) }
-        }
-    }
 }
 
 /// No memory: what a register read gets, which reads none.
@@ -271,28 +229,35 @@ impl Machine {
             _ => (&[0x2000_0000, 0x3000_0000, 0x8000_0000, 0xa000_0000], (ra_asm_platform::ps2::SCRATCHPAD, 0x4000)),
         };
         let within = ram.0 & 0x1fff_ffff;
-        for segment in segments {
-            vm.memory.add_device(segment + within, ram.1, Box::new(Mirror { start: segment + within, target: ram.0, ram }));
-        }
         if name == "psx" {
             // The PlayStation's 2 MiB answer through the 8 MiB its memory control maps: three
             // more times after themselves, in every segment.
-            for segment in [0x0000_0000, 0x8000_0000, 0xa000_0000u64] {
-                for again in 1..4 {
-                    let start = segment + again * ram.1;
-                    vm.memory.add_device(start, ram.1, Box::new(Mirror { start, target: ram.0, ram }));
-                }
+            for segment in segments {
+                vm.memory.add_alias(*segment, 4 * ram.1, ram.1 - 1, ram.0);
             }
-            // The ROM, the image's own or the one beside it, through the cached segments.
-            let rom: Option<Rc<[u8]>> = match (&image.psx_bios, &image.rom) {
-                (Some(_), _) => Some(image.mapped().into()),
-                (None, Some((_, bytes))) => Some(bytes.as_slice().into()),
+            vm.memory.add_alias(ram.0 + ram.1, 3 * ram.1, ram.1 - 1, ram.0);
+        } else {
+            for segment in segments {
+                vm.memory.add_alias(segment + within, ram.1, u64::MAX, ram.0);
+            }
+        }
+        if name == "psx" {
+            // The ROM, the image's own or the one beside it, through the cached segments, and
+            // the scratchpad through the one that reaches it.
+            let rom = match (&image.psx_bios, &image.rom) {
+                (Some(_), _) => Some((image.image_base(), u64::from(image.size_of_image()))),
+                (None, Some((address, bytes))) => Some((*address, bytes.len() as u64)),
                 (None, None) => None,
             };
-            if let Some(bytes) = rom {
+            if let Some((at, len)) = rom {
                 for start in [0x1fc0_0000, 0x9fc0_0000u64] {
-                    vm.memory.add_device(start, bytes.len() as u64, Box::new(Rom { start, bytes: bytes.clone() }));
+                    vm.memory.add_alias(start, len, u64::MAX, at);
                 }
+            }
+            vm.memory.add_alias(0x9f80_0000, scratchpad.1, u64::MAX, scratchpad.0);
+            // The first expansion region, where a kernel looks for a cartridge: none is in.
+            for segment in [0x0000_0000, 0x8000_0000, 0xa000_0000u64] {
+                vm.memory.add_device(segment + 0x1f00_0000, 0x80_0000, Box::new(Open));
             }
         }
         vm.memory.add_region(ra_asm_ir::interp::Region::owned(scratchpad.0, scratchpad.1, "scratchpad"));
@@ -302,7 +267,7 @@ impl Machine {
         }
         vm.poll = POLL;
         vm.memory.count_stores(ram.0, ram.1);
-        let r3000 = if name == "psx" { super::r3000::Processor::new(vm, image.psx_bios.is_some()) } else { None };
+        let r3000 = if name == "psx" { super::r3000::Processor::new(vm, image.psx_kernel()) } else { None };
         Some(Self {
             r3000,
             platform,
@@ -327,6 +292,11 @@ impl Machine {
     pub(super) fn interrupt(&self) -> bool {
         self.platform.borrow().interrupt()
     }
+
+    /// Text of the console's TTY, written where the host shows the console's text.
+    pub(super) fn tty(&self, text: &[u8]) {
+        self.platform.borrow_mut().host().console.write(text);
+    }
 }
 
 impl Runtime<'_> {
@@ -343,6 +313,7 @@ impl Runtime<'_> {
     /// clock moves on by the instructions run since, and what the machine has due is called.
     pub(super) fn console_poll(&mut self, vm: &mut Vm<'_>) -> Result<(), Stop> {
         let image = self.image;
+        let idles = self.machine.is_some() && self.psx_idles(vm);
         let Some(machine) = &mut self.machine else { return Ok(()) };
         let platform = machine.platform.clone();
         let writes: Vec<(u64, Vec<u8>)> = std::mem::take(&mut machine.writes.borrow_mut());
@@ -363,7 +334,8 @@ impl Runtime<'_> {
         machine.sites[machine.seen_at % machine.sites.len()] = site;
         machine.seen_at += 1;
         machine.repeats = if polled && near && loaded && !stored { machine.repeats + 1 } else { 0 };
-        let waiting = machine.repeats >= WAITING_POLLS;
+        // A loop of nothing waits for an interrupt, whatever the polls found.
+        let waiting = machine.repeats >= WAITING_POLLS || idles;
         {
             let mut platform = platform.borrow_mut();
             let mut guest = Guest { memory: &mut vm.memory, image };
@@ -382,9 +354,9 @@ impl Runtime<'_> {
             }
             platform.advance(&mut guest, cycles).map_err(stop)?;
         }
-        // A kernel takes its interrupts itself, as the processor raises them; an answered one
-        // has the machine call the program's handlers.
-        if kernel { self.psx_interrupt(vm, interrupted) } else { self.deliveries(vm) }
+        // A kernel takes its interrupts itself, as the processor raises them between two of the
+        // program's instructions; an answered one has the machine call the program's handlers.
+        if kernel { self.psx_line(vm) } else { self.deliveries(vm) }
     }
 
     /// Makes every call into the program the machine has due, each to its end.

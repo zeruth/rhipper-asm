@@ -308,8 +308,8 @@ enum Command {
         /// A console's program: the disc in the drive, an ISO image or the directory of its files.
         #[arg(long)]
         disc: Option<PathBuf>,
-        /// A PlayStation program: the BIOS ROM the console has beside it, which the program reads
-        /// where the console maps it (its fonts, its version). Its kernel is still the run's.
+        /// A PlayStation program: the BIOS ROM of its console. The run starts at the ROM's reset
+        /// vector, and the program is entered where the ROM's kernel would enter its shell.
         #[arg(long)]
         bios: Option<PathBuf>,
         /// A console's program: the directory of its other devices' files, a folder per device
@@ -694,14 +694,8 @@ fn command() -> anyhow::Result<()> {
                 let rom = std::fs::read(&bios).with_context(|| format!("cannot read the ROM at {}", bios.display()))?;
                 anyhow::ensure!(ra_asm_format::psx::Bios::parse(&rom).is_some(), "{} is no PlayStation BIOS ROM", bios.display());
                 image.rom = Some((ra_asm_format::psx::BIOS_RESET, rom));
+                image.rom_boots = true;
             }
-            // A console's BIOS ROM runs as the program its start code makes of it, the shell,
-            // over the kernel the run answers for; a ROM whose start code copies no shell out
-            // runs whole from its reset vector, its kernel its own.
-            let image = match image.psx_shell() {
-                Ok(shell) => shell,
-                Err(_) => image,
-            };
             let headless = headless || frames.is_some() || frame_dir.is_some() || wav.is_some();
             let console = run::console(&image, headless, frames, frame_dir, &pad, disc, files)?;
             let limit = limit.unwrap_or(if console.is_some() { 0 } else { 2_000_000_000 });
