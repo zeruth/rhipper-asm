@@ -629,6 +629,13 @@ impl Platform for Psx {
         if self.cdrom.advance(cycles, whole) {
             self.raise(irq::CDROM);
         }
+        // The drive's sound goes to the sound unit's mix; what the unit is a second behind on
+        // is dropped, so the sound stays with the picture.
+        self.spu.cd.extend(self.cdrom.audio.drain(..));
+        if self.spu.cd.len() > spu::RATE as usize {
+            let late = self.spu.cd.len() - spu::RATE as usize / 4;
+            self.spu.cd.drain(..late);
+        }
         let mut left = cycles;
         while let Some(event) = self.clock.step(&mut left) {
             match event {

@@ -218,6 +218,8 @@ struct Arguments {
     stats: bool,
     /// The buttons a headless run holds from a frame on: `<frame>:<buttons>`.
     pads: Vec<String>,
+    /// Where a headless run writes its sound.
+    wav: Option<PathBuf>,
 }
 
 const USAGE: &str = "\
@@ -229,10 +231,12 @@ The port of a console's program.
   --frames <N>        Stop after this many frames (headless)
   --frame-dir <DIR>   Write each frame there as a PNG (headless)
   --pad <F>:<BUTTONS> Hold these buttons from frame F on (headless): `300:start`, `360:none`
+  --wav <FILE>        Write the run's sound there (headless)
   --stats             Say how many instructions ran and how fast as the run ends";
 
 fn arguments(args: &[String]) -> anyhow::Result<Arguments> {
-    let mut out = Arguments { frames: None, frame_dir: None, disc: None, files: None, headless: false, stats: false, pads: Vec::new() };
+    let mut out =
+        Arguments { frames: None, frame_dir: None, disc: None, files: None, headless: false, stats: false, pads: Vec::new(), wav: None };
     let mut args = args.iter().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or_else(|| anyhow::anyhow!("{arg} takes a value\n\n{USAGE}"));
@@ -242,6 +246,7 @@ fn arguments(args: &[String]) -> anyhow::Result<Arguments> {
             "--disc" => out.disc = Some(value()?.into()),
             "--files" => out.files = Some(value()?.into()),
             "--pad" => out.pads.push(value()?.clone()),
+            "--wav" => out.wav = Some(value()?.into()),
             "--headless" => out.headless = true,
             "--stats" => out.stats = true,
             _ => anyhow::bail!("{arg}: no such option\n\n{USAGE}"),
@@ -249,6 +254,27 @@ fn arguments(args: &[String]) -> anyhow::Result<Arguments> {
     }
     out.headless |= out.frames.is_some() || out.frame_dir.is_some();
     Ok(out)
+}
+
+/// The sound a headless run kept as a WAV file's bytes: sixteen bits, two channels, at `rate`.
+fn wav(samples: &[[i16; 2]], rate: u32) -> Vec<u8> {
+    let rate = if rate == 0 { 44_100 } else { rate };
+    let data = (samples.len() * 4) as u32;
+    let mut out = Vec::with_capacity(44 + data as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&(rate * 4).to_le_bytes());
+    out.extend_from_slice(&4u16.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data.to_le_bytes());
+    out.extend(samples.iter().flatten().flat_map(|s| s.to_le_bytes()));
+    out
 }
 
 /// Runs the port's program to its end and gives its exit code.
@@ -298,7 +324,8 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
             ra_asm_lift::run::pad(buttons).ok_or_else(|| anyhow::anyhow!("--pad {entry}: `{buttons}` names a button the pad has not"))?;
         capture = capture.press(frame.parse()?, 0, state);
     }
-    let headless = arguments.headless || !arguments.pads.is_empty();
+    let headless = arguments.headless || !arguments.pads.is_empty() || arguments.wav.is_some();
+    let kept = capture.clone();
     let console = Console {
         capture: headless.then_some(capture),
         disc: arguments.disc,
@@ -346,6 +373,10 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
     }
     if let Some(stop) = &outcome.stop {
         eprintln!("ra: {stop}");
+    }
+    if let Some(path) = &arguments.wav {
+        let kept = kept.lock();
+        std::fs::write(path, wav(&kept.samples, kept.rate))?;
     }
     Ok(outcome.exit)
 }

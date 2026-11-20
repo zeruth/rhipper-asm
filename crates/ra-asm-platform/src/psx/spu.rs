@@ -51,6 +51,8 @@ pub struct Spu {
     cycles: u64,
     /// The samples mixed and not yet handed to the host.
     pub out: Vec<[i16; 2]>,
+    /// The drive's sound still to mix in, a sample of it to each of the unit's own.
+    pub cd: std::collections::VecDeque<[i16; 2]>,
     /// The reverb unit: whether this sample is one it steps on, its last output, and where it
     /// stands in its work area.
     reverb_tick: bool,
@@ -79,6 +81,8 @@ const ENDX: usize = 0x19c;
 const TRANSFER_ADDRESS: usize = 0x1a6;
 const TRANSFER_FIFO: usize = 0x1a8;
 const CONTROL: usize = 0x1aa;
+/// The volume of the drive's sound, a side each.
+const CD_VOLUME: usize = 0x1b0;
 const STATUS: usize = 0x1ae;
 
 impl Spu {
@@ -91,6 +95,7 @@ impl Spu {
             endx: 0,
             cycles: 0,
             out: Vec::new(),
+            cd: std::collections::VecDeque::new(),
             reverb_tick: false,
             reverb_out: [0; 2],
             reverb_at: 0,
@@ -194,6 +199,13 @@ impl Spu {
         self.reverb_tick = !self.reverb_tick;
         if self.reverb_tick {
             self.reverb_out = self.reverb(echoed.map(|v| v.clamp(-0x8000, 0x7fff)));
+        }
+        // The drive's sound, at its own volume, when the control register lets it in.
+        let cd = self.cd.pop_front().unwrap_or([0, 0]);
+        if self.regs[CONTROL / 2] & 1 != 0 {
+            for side in 0..2 {
+                sum[side] += i32::from(cd[side]) * i32::from(self.regs[(CD_VOLUME + side * 2) / 2].cast_signed()) / 0x8000;
+            }
         }
         if !enabled || muted {
             return [0, 0];

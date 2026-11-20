@@ -71,7 +71,17 @@ pub(super) struct Cdrom {
     pub(super) disc: bool,
     pub(super) tracks: Vec<Track>,
     pub(super) sectors: u32,
+    /// The sound the drive read and the sound unit has not taken yet, at 44100 samples a
+    /// second; the last two samples of each side of a data track's sound, which the next
+    /// sector's go on from; and how far the next sample is into the mixer's.
+    pub(super) audio: Vec<[i16; 2]>,
+    xa_history: [(i32, i32); 2],
+    xa_phase: u64,
+    muted: bool,
 }
+
+/// What starts a data sector: a sound track's sector has samples there.
+const SYNC: [u8; 12] = [0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0];
 
 fn bcd(v: u8) -> u32 {
     u32::from(v >> 4) * 10 + u32::from(v & 0xf)
@@ -171,7 +181,12 @@ impl Cdrom {
         }
         match command {
             // Getstat, Mute, Demute.
-            0x01 | 0x0b | 0x0c => self.answer(FIRST, ACKNOWLEDGE, vec![stat]),
+            0x01 | 0x0b | 0x0c => {
+                if command != 0x01 {
+                    self.muted = command == 0x0b;
+                }
+                self.answer(FIRST, ACKNOWLEDGE, vec![stat]);
+            }
             // Setloc: minutes, seconds and frames in BCD, from the two seconds of the lead-in.
             0x02 => {
                 let field = |i: usize| parameters.get(i).copied().map_or(0, bcd);
@@ -308,7 +323,11 @@ impl Cdrom {
         self.position += 1;
         self.next = Some(self.rate());
         if self.playing {
-            // A sound track's sector: nothing for the program to take.
+            // A sound track's sector is its samples, and nothing for the program to take; a
+            // data track played as sound is noise the drive keeps to itself.
+            if raw[..12] != SYNC && !self.muted {
+                self.audio.extend(raw.chunks_exact(4).map(|s| [i16::from_le_bytes([s[0], s[1]]), i16::from_le_bytes([s[2], s[3]])]));
+            }
             return false;
         }
         let whole = raw[15] != 1;
@@ -320,7 +339,9 @@ impl Cdrom {
         // A sound sector of a data track plays when the mode says so, and is none of the
         // program's data: the one of the filter's file and channel, or any.
         if whole && self.mode & MODE_XA != 0 && raw[18] & SUB_AUDIO != 0 {
-            let _plays = self.mode & MODE_FILTER == 0 || (raw[16], raw[17]) == self.filter;
+            if (self.mode & MODE_FILTER == 0 || (raw[16], raw[17]) == self.filter) && !self.muted {
+                self.xa(&raw);
+            }
             return false;
         }
         let user = if whole { 24 } else { 16 };
@@ -328,6 +349,48 @@ impl Cdrom {
         // What the program left of the sector before is gone with it.
         self.data.clear();
         self.raise(DATA_READY, vec![self.stat()])
+    }
+
+    /// The sound of a data track's sound sector: eighteen groups of eight units of twenty-eight
+    /// samples, four bits each, by the coding its subheader says (two sides or one, 37800 or
+    /// 18900 samples a second), brought to the 44100 a second the sound unit mixes at.
+    fn xa(&mut self, raw: &[u8]) {
+        let (stereo, half_rate, wide) = (raw[19] & 1 != 0, raw[19] & 4 != 0, raw[19] & 0x10 != 0);
+        if wide {
+            // Eight bits a sample: no program of the console's is known to use it.
+            return;
+        }
+        let mut sides: [Vec<i16>; 2] = [Vec::new(), Vec::new()];
+        for group in raw[24..24 + 18 * 128].chunks_exact(128) {
+            for unit in 0..8 {
+                let side = if stereo { unit & 1 } else { 0 };
+                let parameter = group[4 + unit];
+                let shift = match parameter & 0xf {
+                    s @ 0..=12 => u32::from(s),
+                    _ => 9,
+                };
+                let (k0, k1) = [(0, 0), (60, 0), (115, -52), (98, -55)][usize::from((parameter >> 4) & 3)];
+                let history = &mut self.xa_history[side];
+                for sample in 0..28 {
+                    let nibble = (group[16 + sample * 4 + unit / 2] >> (4 * (unit & 1))) & 0xf;
+                    let correction = (i32::from(nibble) << 28 >> 28 << 12) >> shift;
+                    let value = (correction + (history.0 * k0 + history.1 * k1 + 32) / 64).clamp(-0x8000, 0x7fff);
+                    *history = (value, history.0);
+                    sides[side].push(value as i16);
+                }
+            }
+        }
+        let rate: u64 = if half_rate { 18_900 } else { 37_800 };
+        let count = sides[0].len();
+        for n in 0..count {
+            let pair = if stereo { [sides[0][n], sides[1].get(n).copied().unwrap_or(0)] } else { [sides[0][n]; 2] };
+            // Each sample is held for as many of the mixer's as its rate leaves room for.
+            self.xa_phase += 44_100;
+            while self.xa_phase >= rate {
+                self.xa_phase -= rate;
+                self.audio.push(pair);
+            }
+        }
     }
 
     fn raise(&mut self, interrupt: u8, bytes: Vec<u8>) -> bool {
