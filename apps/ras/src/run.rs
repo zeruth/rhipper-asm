@@ -64,23 +64,22 @@ pub(crate) fn console(
         let state = ra_asm_lift::run::pad(buttons).with_context(|| format!("--pad {entry}: `{buttons}` names a button the pad has not"))?;
         capture = capture.press(frame, port, state);
     }
-    Ok(Some(ra_asm_lift::run::Console { capture: headless.then_some(capture), disc, files }))
+    Ok(Some(ra_asm_lift::run::Console { capture: headless.then_some(capture), disc, files, native: None }))
 }
 
 /// Lifts `image`, runs it, and returns the program's exit code; a fault is reported on stderr as
 /// the driver reports a trap, and its exit code is the driver's.
 pub(crate) fn run(image: &Image, options: &Options) -> Result<i32> {
-    let analysis = ra_asm_analysis::analyze(image);
     let standalone = options.level == RaiseLevel::Abi;
-    let mut lifted = ra_asm_lift::lift_with(image, &analysis, ra_asm_lift::LiftOptions { standalone, x87: options.x87 });
-    let raise = lifted.raise_options(options.level);
-    let mut signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, raise);
-    lifted.apply_names(&analysis, Some(&mut signatures));
+    // The programs a console's ROM keeps for RAM lift with it, as second images.
+    let whole = ra_asm_lift::Whole::lift(image, ra_asm_lift::LiftOptions { standalone, x87: options.x87 }, options.level)?;
     if !options.quiet {
-        for w in analysis.warnings.iter().chain(&lifted.warnings) {
+        for w in &whole.warnings {
             eprintln!("warning: {w}");
         }
+        report_images(&whole);
     }
+    let ra_asm_lift::Whole { lifted, signatures, .. } = whole;
     let session = options.record.as_ref().filter(|path| path.extension().is_some_and(|e| e == "session"));
     let run = ra_asm_lift::run::Options {
         trace: options.trace,
@@ -101,6 +100,17 @@ pub(crate) fn run(image: &Image, options: &Options) -> Result<i32> {
     if options.trace || std::env::var_os("RA_RUN_STATS").is_some() {
         let seconds = started.elapsed().as_secs_f64();
         eprintln!("ra: {} IR instructions in {seconds:.2} s, {:.1} million a second", outcome.steps, outcome.steps as f64 / seconds / 1e6);
+        let (processor, entries) = ra_asm_lift::run::processor_stats::report(40);
+        if processor != 0 {
+            eprintln!("ra: {processor} instructions were the processor's, from code no lifted function has; the most from:");
+            for (entry, count) in entries {
+                eprintln!("ra:   {entry:#010x} {count}");
+            }
+            eprintln!("ra: its calls and jumps came the most to:");
+            for (entry, count) in ra_asm_lift::run::processor_stats::entered(40) {
+                eprintln!("ra:   {entry:#010x} {count}");
+            }
+        }
         for line in ra_asm_ir::interp::block::profile::report() {
             eprintln!("ra: {line}");
         }
@@ -120,6 +130,18 @@ pub(crate) fn run(image: &Image, options: &Options) -> Result<i32> {
         std::fs::write(path, wav(&kept.samples, kept.rate)).with_context(|| format!("cannot write the sound at {}", path.display()))?;
     }
     Ok(outcome.exit)
+}
+
+/// Says, of a ROM lifted with the programs it keeps for RAM, how many functions each gave.
+pub(crate) fn report_images(whole: &ra_asm_lift::Whole) {
+    let [(_, _, functions), parts @ ..] = whole.images.as_slice() else { return };
+    if parts.is_empty() {
+        return;
+    }
+    eprintln!("ra: {functions} functions of the ROM");
+    for (base, size, functions) in parts {
+        eprintln!("ra: {functions} functions of its program for {base:#x} ({size:#x} bytes)");
+    }
 }
 
 /// The sound a headless run kept as a WAV file's bytes: sixteen bits, two channels, at `rate`.

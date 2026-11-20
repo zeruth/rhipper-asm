@@ -12,6 +12,7 @@
 
 pub mod block;
 pub mod memory;
+pub mod native;
 pub mod observe;
 #[cfg(test)]
 mod order;
@@ -229,6 +230,9 @@ pub struct Vm<'m> {
     /// The host calls open, which the observer counts in a call's depth and the depth limit of
     /// the module's own recursion does not.
     hosted: usize,
+    /// The functions that run as this machine's own code and not interpreted, by index: a
+    /// port's compiled functions ([`Vm::set_native`]).
+    natives: Vec<Option<native::Code>>,
 }
 
 impl<'m> Vm<'m> {
@@ -267,7 +271,76 @@ impl<'m> Vm<'m> {
             frames: Bump::default(),
             depth: 0,
             hosted: 0,
+            natives: Vec::new(),
         }
+    }
+
+    /// Makes the function `name` run as `code`, this machine's own code, in place of its IR:
+    /// `void code(ptr state)`, what a compiler made of the same function. Whether the module
+    /// has the function.
+    pub fn set_native(&mut self, name: &str, code: native::Code) -> bool {
+        let Some(&index) = self.functions.get(name) else { return false };
+        if self.natives.len() <= index {
+            self.natives.resize(index + 1, None);
+        }
+        self.natives[index] = Some(code);
+        true
+    }
+
+    /// Makes the global `name` the memory at `address`: a compiled program's own copy of it,
+    /// which its code reads and writes there.
+    pub fn set_symbol(&mut self, name: &str, address: u64) {
+        self.symbols.insert(name.to_owned(), address);
+    }
+
+    /// A compiled function's block is about to run: the `instructions` of the program it
+    /// holds count, the host looks at its machine when a look is due, and takes what the
+    /// machine has for the program where the block starts, at `address`.
+    pub fn tick(&mut self, host: &mut dyn Host, state: u64, address: u64, instructions: u64) -> Result<(), Stop> {
+        self.instructions += instructions;
+        self.steps += instructions;
+        self.site = Some(address);
+        if self.limit != 0 && self.steps > self.limit {
+            return Err(Stop::Limit(self.steps));
+        }
+        if self.poll != 0 && (self.steps >= self.poll_at || self.memory.take_device_write()) {
+            self.poll_at = self.steps + self.poll;
+            self.poll_argument = Some(state);
+            host.poll(self)?;
+        }
+        if self.boundary {
+            host.boundary(self, None, address, true, Some(state))?;
+        }
+        Ok(())
+    }
+
+    /// Counts `instructions` of the program compiled code ran, which the code kept the count
+    /// of itself.
+    pub fn account(&mut self, instructions: u64) {
+        self.instructions += instructions;
+        self.steps += instructions;
+    }
+
+    /// How many more instructions compiled code may run before the host is due a look at its
+    /// machine: none it need count for when the host asked for no looks.
+    pub fn until_poll(&self) -> u64 {
+        if self.poll == 0 { u64::MAX } else { self.poll_at.saturating_sub(self.steps) }
+    }
+
+    /// A store of compiled code went through: when it wrote a device's register the host looks
+    /// at its machine at once, as the interpreter has it look after the instruction, so the
+    /// write is the device's before the program reads the device again.
+    pub fn stored(&mut self, host: &mut dyn Host) -> Result<(), Stop> {
+        if self.poll != 0 && self.memory.take_device_write() {
+            self.poll_at = self.steps + self.poll;
+            host.poll(self)?;
+        }
+        Ok(())
+    }
+
+    /// A call of the host's function `name` from compiled code, as the interpreter makes one.
+    pub fn host_call(&mut self, host: &mut dyn Host, name: &str, ty: &FnType, args: &[Value]) -> Result<Value, Stop> {
+        self.call_host(host, name, ty, args)
     }
 
     pub fn layout(&self) -> Layout<'_> {
@@ -511,6 +584,11 @@ impl<'m> Vm<'m> {
         let f = &module.functions[index];
         if self.trace {
             eprintln!("> {}", f.name);
+        }
+        if let Some(code) = self.natives.get(index).copied().flatten() {
+            self.seen.entered.insert(index);
+            let state = args.first().map_or(0, Value::as_u64);
+            return native::call(self, host, code, state).map(|()| Value::Int(0));
         }
         if self.depth >= MAX_DEPTH {
             return Err(Stop::fault(format!("the call depth passed {MAX_DEPTH} in @{}", f.name)));

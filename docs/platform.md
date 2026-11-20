@@ -34,7 +34,8 @@ instructions the program ran: a run is the same run every time.
 | `raster` | which pixels a triangle, a line or a rectangle covers and each pixel's weights; a console's closure makes the pixel |
 | `pad` | the controller both PlayStations take: its state, its report, its serial protocol |
 | `adpcm` | the sound processors' ADPCM blocks |
-| `iso` | a disc as an ISO 9660 image, cooked or raw |
+| `disc` | a compact disc as the files a dump of one is kept in: a cue sheet with one file or one a track, or a bare `.bin`, `.img` or `.iso`; its tracks, and each sector as the 2352 bytes the drive reads |
+| `iso` | a disc's ISO 9660 file system, over its user data |
 | `png`, `printf` | frames as PNG (written stored, any 8-bit RGB or RGBA read), and the BIOS's `printf` |
 
 A new console is a module that lays its devices over these and implements `Platform`; `of(name,
@@ -88,9 +89,39 @@ unlifted code call each other: a jump that lands on a lifted function's entry ru
 function, and where the lift cannot go on in a function (`give_up`) it calls the rest of the
 function by its address. A call no lifted function answers is no longer the end of a run.
 
-**The port.** Not yet. `ras emit` still writes a console's port over the stub runtime of
-`runtime/rhipper.h`, which logs each call. The runtime of a port is this crate behind that
-interface.
+**The port** (`ras port`, `crates/ra-asm-lift/src/port.rs`, `crates/ra-asm-port`). A console's
+program as a program of this machine: the image lifted whole at the machine level, compiled, and
+run in the interpreter's own run with the compiled functions in place of their IR. The machine
+level is the one a kernel needs: an interrupt and a thread switch save and restore the whole
+state, which only that level keeps in memory.
+
+```
+ras port bios.bin --out rebio      program.ll, port.c, image.bin, the run's library, rebio.exe
+rebio.exe                          a window; --disc, --files, --headless, --frames, --frame-dir
+```
+
+- `program.ll` is the module for a compiler: each lifted function `void f(ptr state)`, every
+  access to the program's memory a call (`ra_ld<bits>`, `ra_st<bits>`), and a look at the
+  machine where each block of the program starts (`ra_tick`), which counts the block's
+  instructions for the console's clock and is where an interrupt is taken.
+- `port.c` ties it to the run: the accessors, which read and write the console's RAM
+  themselves (through any segment and mirror) and ask the run for the rest (a device's
+  register, the ROM, a range of RAM the run watches); the runtime's functions the lift names,
+  each through the run's one entry by its number; the table of the functions by address; the
+  image's bytes; and `main`.
+- `ra_asm_port.dll` is the run: it lifts the image again as it starts (for the functions'
+  names, the code that lives in RAM and the IR of any function the port lacks), gives each
+  function its compiled code (`Vm::set_native`), and runs it as `ras run` does. A call back
+  that stops the run (a fault, an exit, a handler that leaves its exception for another frame)
+  unwinds through the compiled frames to the call that entered them.
+
+The run looks at its machine every 256 instructions the compiled code counts, at once after a
+store to a device's register (so the write is the device's before the next read of it), and an
+interrupt is taken at the next block's start, not between two instructions of one.
+
+`ras emit` still writes a console's raised C over the stub runtime of `runtime/rhipper.h`, which
+logs each call: the raised level keeps no state in memory an interrupt could save, so it is
+the port of a program, not of a kernel.
 
 ## The PlayStation's own BIOS as a program
 
@@ -111,8 +142,7 @@ and bus errors too, and an arithmetic overflow. Interrupts are the level of the 
 interrupt line (`Platform::interrupt`) in the cause register, taken between two of the program's
 instructions, lifted (`Host::boundary`) or the processor's, and `Platform::deliver` is not asked.
 A write of the status register that cuts the data cache off (`ra_psx_status`) keeps the RAM as
-it is until the cache is back, since the stores that flush the cache reach no memory. What the
-ROM copies into RAM (its vectors, its tables' dispatchers, its shell) is the processor's. The
+it is until the cache is back, since the stores that flush the cache reach no memory. The
 kernel's TTY is a development board's serial port, so what a program prints is taken where it
 enters the kernel's `putchar`, `puts` or `write`.
 
@@ -126,18 +156,37 @@ kernel's to call. Without `--bios` the kernel's functions are answered by the ru
 date). The R3000's coprocessor 0 (`mfc0`, `mtc0`, `rfe`) decodes and lifts for a `psx` image, the
 registers a global as the VR4300's are.
 
-The target ROM is `System ROM Version 2.2 12/04/95 A` (kernel `CEX-3000/1001/1002 by K.S.`,
-1995-12-04), whose kernel every later console ROM kept. From its reset vector the analysis finds
-75 functions, and `ras emit` writes them. What it does not reach yet is the rest of the ROM:
+**The programs a ROM keeps for RAM.** The ROM holds two more programs, which its start code
+copies into RAM and runs there: the kernel and the shell. Each is a second image beside the
+ROM's, as a DLL is beside a program's (`Companion`), lifted with it into one module
+(`Image::psx_bios_parts`, `ra_asm_lift::Whole`):
 
-- The kernel is a second program inside the ROM: the reset code copies `0x8bf0` bytes from
-  `0xbfc10000` to `0xa0000500` and jumps there, and that code is linked to run in RAM (its first
-  instruction jumps to `0x598`). It is a second image beside the ROM's, as a DLL is beside a
-  program's (`Companion`), with its place read from the copy loop's own constants.
-- The functions of the `A0`, `B0` and `C0` tables and the shell are reached through tables the
-  kernel builds in RAM; they are seeds once the tables' ROM sources are read.
-- Run whole, its kernel and its shell both run from RAM, so they are all the processor's until
-  the kernel is an image beside the ROM's.
+- Their places are read from the copies themselves (`Bios::copies`): the ROM's address of the
+  bytes, the RAM's and the length, built in the three argument registers within a few
+  instructions of each other, of a run of bytes the code then jumps into through a register.
+- A part is mapped at its `kseg0` address, and linked for the segment most of the addresses its
+  code builds name it through (`Image::link_segment`): the kernel is linked for `kuseg`, so its
+  `lui`/`addiu`/`jr` to `0x598` is a jump to its own code at `0x80000598`.
+- A `jr` through a register the code built an address of the image in is a jump there; and the
+  code of a kernel's vectors, which it keeps as bytes it copies to where the processor enters
+  them (`lui r; addiu r, r, lo; jr r`), names its handlers wherever the three words lie.
+- A function of a part is the code at its address only while the RAM there holds the bytes it
+  was lifted from (`Lifted::resident`, `Memory::watch`): what a game loads over the shell is
+  the processor's. An address is folded to the one its code was lifted at, whatever segment or
+  mirror names it (`psx_lifted`).
+- A lifted `jr` with `rfe` in its slot is the return of an exception's handler
+  (`ra_psx_return`), and a lifted function that comes back from a call with another `ra` than
+  it was called with left through a jump buffer (`psx_returned`): in both, where the code does
+  not go on where it was, the processor goes on from the run's first frame.
+
+The target ROM is `System ROM Version 2.2 12/04/95 A` (kernel `CEX-3000/1001/1002 by K.S.`,
+1995-12-04), whose kernel every later console ROM kept: 278 functions of the ROM, 200 of the
+kernel and 550 of the shell. What stays the processor's, about two instructions in a hundred to
+the menu: the few words of each vector the kernel copies into low RAM, and the rest of a function
+the processor went on in the middle of (after an interrupt whose handler left through a jump
+buffer, as the shell's do), up to its return. `RA_RUN_STATS=1` says how many and from where;
+`RA_PROCESSOR_TRAIL=1` with `RA_PLATFORM_TRACE=1` prints the last crossings between lifted code
+and the processor when a reserved instruction's exception is taken.
 
 ## The reference tests
 
@@ -150,8 +199,19 @@ which the PlayStation runtime answers.
 
 ## What is open
 
-- The port's runtime: this crate behind `ra_platform` for the C and Rust ports, and the lift
-  naming the PlayStation's device accesses as it names the PlayStation 2's.
+- The port: its run lifts the image again as it starts (a second, where the tables of the
+  functions and of the code in RAM could come with the port); a port is a console ROM's (a
+  program over the answered kernel has the machine call its handlers, which a compiled function
+  cannot be left for in the middle of); and its speed: the reference ROM's port runs at about
+  a hundred frames a second through the intro and fifty at the menu, headless, and where a
+  frame's time goes there is not measured. The raised
+  C of `ras emit` runs over the stub: the runtime behind `ra_platform`, and the lift naming the
+  PlayStation's device accesses as it names the PlayStation 2's, are for the port of a
+  program.
+- PlayStation's drive: the sound sectors of a data track (XA) and the sound tracks are read
+  and not heard; a CHD image is not read (its hunks are LZMA, deflate and FLAC). A program
+  loaded from a disc is the processor's, not lifted, and the kernel's lifted functions are left
+  once a program patches the kernel in RAM: a game runs at about half the console's speed.
 - PlayStation: a program's own exception handlers over the answered kernel (a program that
   writes the vector at `0x80000080` is never entered there; over a ROM's kernel, with `--bios`,
   it is). The devices answer at once: the reference tests of the bus's, the GPU's and the

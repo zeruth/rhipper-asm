@@ -272,6 +272,19 @@ pub fn resolve_mips(image: &Image, block: &[Instr], predecessors: &[&[Instr]], f
     Some(Table { bound, ..table })
 }
 
+/// The constant the register of the MIPS `jr` that ends `block` holds, its delay slot left out,
+/// when the code builds one there: the address the jump goes to. A return through `$ra` has none.
+pub fn mips_jump_constant(image: &Image, block: &[Instr], predecessors: &[&[Instr]], function: &[&[Instr]]) -> Option<u64> {
+    let jump = block.last()?;
+    let target = reg_of(jump.operands.first()?)?;
+    if target.full == 31 {
+        return None;
+    }
+    let mut context: Vec<&[Instr]> = vec![block];
+    context.extend_from_slice(predecessors);
+    mips_constant(image, function, &context, block.len() - 1, target)
+}
+
 /// Whether a MIPS instruction writes the register it names first, as every form that writes a
 /// general register does: not a store, a branch, a multiply or divide into `hi` and `lo`, or a trap.
 fn writes_first(i: &Instr) -> bool {

@@ -89,6 +89,9 @@ impl Transfer {
     }
 }
 
+/// The commands of the frame being drawn are printed ([`Gpu::trace_frame`]).
+static FRAME_TRACE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub struct Gpu {
     pub vram: Vec<u16>,
     /// The drawing mode of `GP0(E1)`, as the status register's low bits hold it: the texture
@@ -297,8 +300,20 @@ impl Gpu {
         }
     }
 
+    /// Says whether the frames `RA_GPU_FRAME=<n>` names are being drawn: the commands of frame
+    /// `n` and the one after it are printed, with no other tracing on.
+    pub(super) fn trace_frame(frame: u64) {
+        static FROM: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+        if let Some(from) = FROM.get_or_init(|| std::env::var("RA_GPU_FRAME").ok().and_then(|n| n.parse().ok())) {
+            let on = frame >= *from && frame < from + 2;
+            if on != FRAME_TRACE.swap(on, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("gp0: frame {frame}, trace {}", if on { "on" } else { "off" });
+            }
+        }
+    }
+
     fn run(&mut self, command: u8, w: &[u32]) {
-        if crate::tracing() && std::env::var_os("RA_GPU_TRACE").is_some() {
+        if FRAME_TRACE.load(std::sync::atomic::Ordering::Relaxed) || (crate::tracing() && std::env::var_os("RA_GPU_TRACE").is_some()) {
             let words: Vec<String> = w.iter().map(|word| format!("{word:08x}")).collect();
             eprintln!("gp0: {}", words.join(" "));
         }

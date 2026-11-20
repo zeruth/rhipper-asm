@@ -18,8 +18,9 @@ pub struct Iso<R> {
 }
 
 impl<R: Read + Seek> Iso<R> {
-    /// The image, when its sixteenth sector holds a primary volume descriptor in either form.
-    pub fn open(source: R) -> Option<Self> {
+    /// The image, when its sixteenth sector holds a primary volume descriptor in either form;
+    /// what it was to be read from, given back, when it holds none.
+    pub fn open(source: R) -> Result<Self, R> {
         let mut iso = Self { source, stride: 2048, skip: 0, root: (0, 0) };
         for (stride, skip) in [(2048, 0), (2352, 24), (2352, 16)] {
             (iso.stride, iso.skip) = (stride, skip);
@@ -27,11 +28,17 @@ impl<R: Read + Seek> Iso<R> {
                 && volume[0] == 1
                 && &volume[1..6] == b"CD001"
             {
-                iso.root = (u32::from_le_bytes(volume[158..162].try_into().ok()?), u32::from_le_bytes(volume[166..170].try_into().ok()?));
-                return Some(iso);
+                let field = |at: usize| u32::from_le_bytes([volume[at], volume[at + 1], volume[at + 2], volume[at + 3]]);
+                iso.root = (field(158), field(166));
+                return Ok(iso);
             }
         }
-        None
+        Err(iso.source)
+    }
+
+    /// What the image is read from.
+    pub fn source_mut(&mut self) -> &mut R {
+        &mut self.source
     }
 
     /// The user data of the sector `lba`.
@@ -164,6 +171,6 @@ pub(crate) mod tests {
 
     #[test]
     fn a_file_that_is_no_disc_is_refused() {
-        assert!(Iso::open(std::io::Cursor::new(vec![0u8; 40 * SECTOR])).is_none());
+        assert!(Iso::open(std::io::Cursor::new(vec![0u8; 40 * SECTOR])).is_err());
     }
 }

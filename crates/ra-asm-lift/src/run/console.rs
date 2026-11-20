@@ -28,6 +28,19 @@ pub struct Console {
     pub disc: Option<PathBuf>,
     /// Where the files of the console's other devices (the host's, the memory cards') are.
     pub files: Option<PathBuf>,
+    /// The program's functions as this machine's own code, when a port runs them.
+    pub native: Option<Native>,
+}
+
+/// What a compiler made of a program's lift ([`crate::port`]): the run calls a function of it
+/// where it would have interpreted the function's IR.
+#[derive(Clone, Default)]
+pub struct Native {
+    /// The compiled functions, by the addresses the program has them at.
+    pub functions: Vec<(u64, ra_asm_ir::interp::native::Code)>,
+    /// The globals of the module the compiled code has copies of its own of, by name, with
+    /// where each is: the run reads and writes them there.
+    pub globals: Vec<(String, u64)>,
 }
 
 impl std::fmt::Debug for Console {
@@ -69,6 +82,8 @@ pub(super) struct Machine {
     /// How many polls in a row found the program waiting; whether it called the machine since
     /// the last poll.
     seen_at: usize,
+    /// The registers the last polls found, each set as one number.
+    registers: std::collections::VecDeque<u64>,
     repeats: u32,
     busy: bool,
     /// Where the last polls found the program, and the memory's count of writes at the last.
@@ -278,6 +293,7 @@ impl Machine {
             stack: 0,
             depth: 0,
             seen_at: 0,
+            registers: std::collections::VecDeque::new(),
             repeats: 0,
             busy: false,
             sites: [0; 8],
@@ -333,7 +349,22 @@ impl Runtime<'_> {
         let near = machine.sites.iter().all(|s| s.abs_diff(site) <= WAITING_SPAN);
         machine.sites[machine.seen_at % machine.sites.len()] = site;
         machine.seen_at += 1;
-        machine.repeats = if polled && near && loaded && !stored { machine.repeats + 1 } else { 0 };
+        // A program that waits comes round to the registers it had: one that computes (a
+        // checksum over its code reads memory and stores nothing, too) never has the same twice.
+        let registers = match interrupted {
+            Some(state) => vm.memory.read_vec(state, 32 * 8).map_or(0, |bytes| {
+                bytes.chunks_exact(8).fold(site ^ 0xcbf2_9ce4_8422_2325, |hash, word| {
+                    (hash ^ u64::from_le_bytes([word[0], word[1], word[2], word[3], word[4], word[5], word[6], word[7]])).wrapping_mul(0x0100_0000_01b3)
+                })
+            }),
+            None => 0,
+        };
+        let familiar = machine.registers.contains(&registers);
+        if machine.registers.len() >= 64 {
+            machine.registers.pop_front();
+        }
+        machine.registers.push_back(registers);
+        machine.repeats = if polled && near && loaded && !stored && familiar { machine.repeats + 1 } else { 0 };
         // A loop of nothing waits for an interrupt, whatever the polls found.
         let waiting = machine.repeats >= WAITING_POLLS || idles;
         {

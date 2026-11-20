@@ -14,6 +14,7 @@ mod lift;
 mod lockstep;
 mod pipeline;
 mod plugins;
+mod port;
 mod preflight;
 mod project;
 mod report;
@@ -261,6 +262,23 @@ enum Command {
         timings: bool,
         #[command(flatten)]
         cut: Cut,
+    },
+    /// A console's program as a program of this machine: the image lifted whole (a ROM with the
+    /// programs it keeps for RAM), compiled, and linked with its console's machine. Writes
+    /// `program.ll`, `port.c` and `image.bin` into `--out`, puts the run's library beside them
+    /// and builds the executable with clang; it runs as `ras run` does, its functions compiled.
+    Port {
+        pe: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        /// The executable's name, without its extension: the directory's name without one.
+        #[arg(long)]
+        name: Option<String>,
+        /// Write the sources and build nothing: `build.cmd` there has the command.
+        #[arg(long)]
+        no_build: bool,
+        #[arg(long)]
+        quiet: bool,
     },
     /// The program through the IR interpreter: what it prints goes to stdout, its exit code is
     /// the command's. The lift traps and the faults of the machine stop the run with a message
@@ -687,6 +705,7 @@ fn command() -> anyhow::Result<()> {
         Command::Emit { pe, lang, out, quiet, x87, hand, project, checked, only, with, times, deadline: _ } => {
             emit::emit(&load(&pe, sigs)?, &lang, out.as_deref(), quiet, x87, &hand, project.as_deref(), checked, &only, &with, times)
         }
+        Command::Port { pe, out, name, no_build, quiet } => port::port(&load(&pe, sigs)?, &out, &port::Options { name, no_build, quiet }),
         Command::Run { pe, args, level, x87, trace, limit, quiet, headless, frames, frame_dir, pad, wav, disc, bios, files, facts, record } => {
             let mut image = load(&pe, sigs)?;
             if let Some(bios) = bios {

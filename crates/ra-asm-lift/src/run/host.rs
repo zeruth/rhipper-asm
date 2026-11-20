@@ -213,7 +213,7 @@ struct Heap {
 
 pub(super) struct Runtime<'a> {
     pub(super) image: &'a Image,
-    lifted: &'a Lifted,
+    pub(super) lifted: &'a Lifted,
     bits: u32,
     /// The program's path and arguments.
     args: Vec<String>,
@@ -908,6 +908,10 @@ impl<'a> Runtime<'a> {
                 self.psx_raised(vm, arg(args, 0), arg(args, 1) as u32, arg(args, 2) as u32)?;
                 int(0)
             }
+            crate::state::PSX_RETURN => {
+                self.psx_returns(arg(args, 1) as u32)?;
+                int(0)
+            }
             crate::state::PSX_STATUS => {
                 self.psx_status(vm)?;
                 int(0)
@@ -1146,12 +1150,21 @@ impl<'a> Runtime<'a> {
             return Err(Stop::fault(super::r3000::RETURNED));
         }
         vm.record_call(target);
-        match vm.symbol_at(target).cloned() {
-            // A PlayStation's code the lift has no function for is its processor's.
-            None if self.r3000() => {
-                self.r3000_call(vm, state, target)?;
-                int(0)
+        // A PlayStation's code is the lifted function of its address, whatever segment names
+        // it; code the lift has no function for is its processor's.
+        if self.r3000() {
+            match self.psx_lifted(vm, target)? {
+                Some(at) => {
+                    let name = vm.name_at(at).unwrap_or_default().to_owned();
+                    let link = vm.memory.read_u64(state + 8 * 31)? as u32;
+                    vm.call_named(self, &name, vec![Value::Int(u128::from(state))])?;
+                    self.psx_returned(vm, state, link)?;
+                }
+                None => self.r3000_call(vm, state, target)?,
             }
+            return int(0);
+        }
+        match vm.symbol_at(target).cloned() {
             Some(Symbol::Function(_)) => {
                 let name = vm.name_at(target).unwrap_or_default().to_owned();
                 vm.call_named(self, &name, vec![Value::Int(u128::from(state))])?;

@@ -69,6 +69,9 @@ pub(super) struct Processor {
     returned: u32,
     /// The program a ROM is beside was entered in the shell's stead.
     booted: bool,
+    /// For each run of code the program copies into RAM ([`crate::Resident`]): the watch of its
+    /// range, and the functions whose bytes the RAM was found to hold since the last write there.
+    resident: Vec<(usize, std::collections::HashSet<u64>)>,
     /// The RAM as it was when the data cache was cut off, while it is: the stores made then
     /// flush cache lines and reach no memory, so the RAM comes back when the cache does.
     isolated: Option<Vec<u8>>,
@@ -84,7 +87,100 @@ impl Processor {
         // The processor's identity, as a program reads it.
         vm.memory.write_u64(cop0 + 15 * 8, 2).ok()?;
         let gte = vm.symbol(PSX_GTE)?;
-        Some(Self { kernel, exceptions: Vec::new(), returned: 0, booted: false, isolated: None, cop0, gp: vm.symbol(PSX_GP), gte })
+        Some(Self { kernel, exceptions: Vec::new(), returned: 0, booted: false, resident: Vec::new(), isolated: None, cop0, gp: vm.symbol(PSX_GP), gte })
+    }
+}
+
+/// Where the processor's instructions go, when `RA_RUN_STATS` is set: the instructions it ran
+/// from each address a run of it started at, which are the functions the lift has none for.
+pub mod stats {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static RUNS: Mutex<Option<HashMap<u32, u64>>> = Mutex::new(None);
+
+    fn on() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var_os("RA_RUN_STATS").is_some())
+    }
+
+    pub(super) fn add(entry: u32, instructions: u64) {
+        if on() && let Ok(mut runs) = RUNS.lock() {
+            *runs.get_or_insert_with(HashMap::new).entry(entry).or_default() += instructions;
+        }
+    }
+
+    static TRAIL: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    /// With `RA_PROCESSOR_TRAIL` set, keeps the last crossings between lifted code and the
+    /// processor and the exceptions taken, which a reserved instruction's exception prints
+    /// while the platform is traced: how a run came to code that is none.
+    pub(super) fn trail(what: impl FnOnce() -> String) {
+        static ON: OnceLock<bool> = OnceLock::new();
+        if *ON.get_or_init(|| std::env::var_os("RA_PROCESSOR_TRAIL").is_some()) && let Ok(mut trail) = TRAIL.lock() {
+            if trail.len() >= 4000 {
+                trail.drain(..2000);
+            }
+            trail.push(what());
+        }
+    }
+
+    pub(super) fn dump_trail(last: usize) {
+        if let Ok(trail) = TRAIL.lock() {
+            for line in trail.iter().skip(trail.len().saturating_sub(last)) {
+                eprintln!("trail: {line}");
+            }
+        }
+    }
+
+    static SAMPLES: Mutex<Option<HashMap<u32, u64>>> = Mutex::new(None);
+
+    /// The processor stood at `pc` when the run looked at its machine: a sample of where its
+    /// instructions go. The count starts over at each million, so the report is of the last
+    /// stretch of the run.
+    pub(super) fn sample(pc: u32) {
+        if on() && let Ok(mut samples) = SAMPLES.lock() {
+            let samples = samples.get_or_insert_with(HashMap::new);
+            if samples.values().sum::<u64>() >= 200_000 {
+                samples.clear();
+            }
+            *samples.entry(pc).or_default() += 1;
+        }
+    }
+
+    /// Where the processor stood the most in the last stretch of the run, most first.
+    pub fn samples(most: usize) -> Vec<(u32, u64)> {
+        let mut entries: Vec<(u32, u64)> = SAMPLES.lock().ok().and_then(|e| e.clone()).unwrap_or_default().into_iter().collect();
+        entries.sort_by_key(|&(pc, count)| (std::cmp::Reverse(count), pc));
+        entries.truncate(most);
+        entries
+    }
+
+    static ENTERED: Mutex<Option<HashMap<u32, u64>>> = Mutex::new(None);
+
+    /// A call or a jump of the processor's came to `target`, which no lifted function is.
+    pub(super) fn enter(target: u32) {
+        if on() && let Ok(mut entered) = ENTERED.lock() {
+            *entered.get_or_insert_with(HashMap::new).entry(target).or_default() += 1;
+        }
+    }
+
+    /// The addresses the processor's calls and jumps came to the most, most first.
+    pub fn entered(most: usize) -> Vec<(u32, u64)> {
+        let mut entries: Vec<(u32, u64)> = ENTERED.lock().ok().and_then(|e| e.clone()).unwrap_or_default().into_iter().collect();
+        entries.sort_by_key(|&(entry, count)| (std::cmp::Reverse(count), entry));
+        entries.truncate(most);
+        entries
+    }
+
+    /// The processor's instructions in all, and the entries it ran the most from, most first.
+    pub fn report(most: usize) -> (u64, Vec<(u32, u64)>) {
+        let runs = RUNS.lock().ok().and_then(|runs| runs.clone()).unwrap_or_default();
+        let total = runs.values().sum();
+        let mut entries: Vec<(u32, u64)> = runs.into_iter().collect();
+        entries.sort_by_key(|&(entry, count)| (std::cmp::Reverse(count), entry));
+        entries.truncate(most);
+        (total, entries)
     }
 }
 
@@ -214,6 +310,49 @@ impl Runtime<'_> {
             .is_some_and(|returns| returns.contains(&Some(target)))
     }
 
+    /// The lifted function the code at `target` is, by its address in the module: the address
+    /// folded to the one the code was lifted at (RAM at `kseg0`, the ROM at `kseg1`, whatever
+    /// segment or mirror `target` names it through). Code the program copied into RAM is its
+    /// lifted function only while the RAM holds the bytes it was lifted from; other code there
+    /// is the processor's.
+    pub(super) fn psx_lifted(&mut self, vm: &mut Vm<'_>, target: u64) -> Result<Option<u64>, Stop> {
+        let physical = target & 0x1fff_ffff;
+        let at = match target >> 29 {
+            0 | 4 | 5 if physical < 0x80_0000 => 0x8000_0000 | (physical & 0x1f_ffff),
+            0 | 4 | 5 if (0x1fc0_0000..0x1fc8_0000).contains(&physical) => 0xa000_0000 | physical,
+            _ => target,
+        };
+        if !matches!(vm.symbol_at(at), Some(Symbol::Function(_))) {
+            return Ok(None);
+        }
+        let lifted = self.lifted;
+        let Some(index) = lifted.resident.iter().position(|part| at.wrapping_sub(part.start) < part.bytes.len() as u64) else {
+            return Ok(Some(at));
+        };
+        let Ok(processor) = self.processor() else { return Ok(Some(at)) };
+        while processor.resident.len() < lifted.resident.len() {
+            let part = &lifted.resident[processor.resident.len()];
+            processor.resident.push((vm.memory.watch(part.start, part.bytes.len() as u64), std::collections::HashSet::new()));
+        }
+        let (watch, held) = &mut processor.resident[index];
+        if vm.memory.take_written(*watch) {
+            held.clear();
+        }
+        if held.contains(&at) {
+            return Ok(Some(at));
+        }
+        let part = &lifted.resident[index];
+        for &(start, end) in part.functions.get(&at).map_or(&[][..], Vec::as_slice) {
+            let from = (start - part.start) as usize;
+            let expected = part.bytes.get(from..from + (end - start) as usize);
+            if expected.is_none_or(|bytes| vm.memory.read_vec(start, end - start).is_ok_and(|now| now != bytes)) {
+                return Ok(None);
+            }
+        }
+        self.processor()?.resident[index].1.insert(at);
+        Ok(Some(at))
+    }
+
     /// The run of a kernel from its first frame: the lifted function `name`, or the code at
     /// `entry`, and then the processor wherever a handler left an exception for.
     pub(super) fn psx_boot(&mut self, vm: &mut Vm<'_>, state: u64, name: Option<&str>, entry: u32) -> Result<(), Stop> {
@@ -227,6 +366,7 @@ impl Runtime<'_> {
                     let processor = self.processor()?;
                     processor.exceptions.clear();
                     let target = processor.returned;
+                    stats::trail(|| format!("elsewhere: the processor goes on at {target:#x}"));
                     result = self.r3000_run(vm, state, target, Frame::Bottom).map(|_| ());
                 }
                 // Lifted code reached memory nothing answers at: the processor's bus error at
@@ -255,14 +395,45 @@ impl Runtime<'_> {
         // buffer for where the buffer was filled: the lifted frames up to there are left as
         // they stand, and the processor goes on from the run's first frame. (Code of the image
         // itself is the rest of a lifted function, which returns where that function does.)
+        let physical = u64::from(target) & 0x1fff_ffff;
         let image = (self.image.image_base() & 0x1fff_ffff, u64::from(self.image.size_of_image()));
-        let outside = (u64::from(target) & 0x1fff_ffff).wrapping_sub(image.0) >= image.1;
+        let resident = self.lifted.resident.iter().any(|part| physical.wrapping_sub(part.start & 0x1fff_ffff) < part.bytes.len() as u64);
+        let outside = physical.wrapping_sub(image.0) >= image.1 && !resident;
+        stats::trail(|| format!("lifted -> processor {target:#x} link {link:#x} returned {returned:#x} outside {outside}"));
         let processor = self.processor()?;
         if processor.kernel && outside && returned != link {
             processor.returned = returned;
             return Err(Stop::fault(ELSEWHERE));
         }
         Ok(())
+    }
+
+    /// A lifted function of a kernel's run came back from a call whose return address was
+    /// `link`. A function returns through `ra`, so `ra` is where it returned to: any other
+    /// address than `link` is a jump buffer's, where the buffer was filled, and the processor
+    /// goes on there from the run's first frame, the lifted frames left as they stand.
+    pub(super) fn psx_returned(&mut self, vm: &mut Vm<'_>, state: u64, link: u32) -> Result<(), Stop> {
+        let Ok(processor) = self.processor() else { return Ok(()) };
+        if !processor.kernel {
+            return Ok(());
+        }
+        let returned = vm.memory.read_u64(state + 8 * 31)? as u32;
+        if returned == link {
+            return Ok(());
+        }
+        stats::trail(|| format!("a lifted function called for {link:#x} returned to {returned:#x}"));
+        self.processor()?.returned = returned;
+        Err(Stop::fault(ELSEWHERE))
+    }
+
+    /// A lifted handler's return from its exception to `target` (`ra_psx_return`): to the code
+    /// the exception was taken in, whose frame reads the address, or to somewhere else, where
+    /// the processor goes on from the run's first frame.
+    pub(super) fn psx_returns(&mut self, target: u32) -> Result<(), Stop> {
+        let within = self.returns_exception(target);
+        self.processor()?.returned = target;
+        stats::trail(|| format!("lifted rfe to {target:#x}, within {within}"));
+        Err(Stop::fault(if within { RETURNED } else { ELSEWHERE }))
     }
 
     /// Whether a lifted function's jump to `target` leaves the handler of the exception being
@@ -337,6 +508,7 @@ impl Runtime<'_> {
                 {
                     vm.instructions += count;
                     vm.steps += count;
+                    stats::add(entry, count);
                     self.r3000_flush(vm, state, &mut cpu)?;
                     return Ok(target);
                 }
@@ -347,6 +519,8 @@ impl Runtime<'_> {
                     }
                     vm.instructions += count;
                     vm.steps += count;
+                    stats::add(entry, count);
+                    stats::sample(cpu.pc);
                     count = 0;
                     // The look runs no code of the program: a load in flight stays in flight,
                     // and the next instruction reads its register as it was.
@@ -467,19 +641,28 @@ impl Runtime<'_> {
         }
         // Where the callee returns to: its caller's link, which a tail jump leaves as it was.
         let link = cpu.r[31];
+        let arrival_name = match arrival {
+            Arrival::Call => "call",
+            Arrival::Jump => "j",
+            Arrival::Register(_) => "jr",
+            Arrival::Exception => "rfe",
+        };
         let entry = target & 0x1fff_ffff;
         let answered = !self.processor()?.kernel && matches!(entry, 0xa0 | 0xb0 | 0xc0);
         if answered {
             self.r3000_bios(vm, state, cpu, entry)?;
-        } else if matches!(vm.symbol_at(u64::from(target)), Some(Symbol::Function(_))) {
-            let name = vm.name_at(u64::from(target)).unwrap_or_default().to_owned();
+        } else if let Some(at) = self.psx_lifted(vm, u64::from(target))? {
+            stats::trail(|| format!("processor -> lifted {at:#x} ({arrival_name}) ra {link:#x} sp {:#x} t1 {:#x}", cpu.r[29], cpu.r[9]));
+            let name = vm.name_at(at).unwrap_or_default().to_owned();
             if !vm.function(&name).is_some_and(|f| f.ty.params == [Type::Ptr] && f.ty.ret == Type::Void) {
                 return Ok(None);
             }
             self.r3000_flush(vm, state, cpu)?;
             vm.call_named(self, &name, vec![Value::Int(u128::from(state))])?;
+            self.psx_returned(vm, state, link)?;
             self.r3000_load(vm, state, cpu)?;
         } else {
+            stats::enter(target);
             return Ok(None);
         }
         // The callee ran to its end. A call's goes on after it; a jump to it was the end of the
@@ -624,6 +807,13 @@ impl Runtime<'_> {
         slot: bool,
         returns: [Option<u32>; 2],
     ) -> Result<u32, Stop> {
+        stats::trail(|| format!("exception {code} at {address:#x} slot {slot} returns {returns:x?}"));
+        if ra_asm_platform::tracing() && !matches!(code, INTERRUPT | SYSCALL) {
+            eprintln!("psx: the exception {code} at {address:#x}{}", if slot { ", in a delay slot" } else { "" });
+            if code == RESERVED {
+                stats::dump_trail(60);
+            }
+        }
         let cop0 = self.processor()?.cop0;
         let status = vm.memory.read_u64(cop0 + 8 * SR)? as u32;
         let cause = vm.memory.read_u64(cop0 + 8 * CAUSE)? as u32;

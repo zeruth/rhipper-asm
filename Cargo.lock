@@ -363,6 +363,16 @@ name = "ra-asm-platform"
 version = "0.2.0"
 
 [[package]]
+name = "ra-asm-port"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "ra-asm-ir",
+ "ra-asm-lift",
+ "ra-asm-pe",
+]
+
+[[package]]
 name = "ra-asm-protos"
 version = "0.2.0"
 dependencies = [

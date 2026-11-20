@@ -15,6 +15,7 @@ pub mod arm64;
 pub mod data;
 pub mod eh;
 pub mod mips;
+pub mod port;
 pub mod raise;
 pub mod run;
 pub mod state;
@@ -100,7 +101,28 @@ pub struct Lifted {
     /// The device registers of the console the image runs on: the raise makes every access of
     /// one a call on the platform runtime.
     pub devices: Option<data::Devices>,
+    /// The code the program copies into RAM and runs there: the programs a console's ROM keeps
+    /// for RAM ([`Image::psx_bios_parts`]).
+    pub resident: Vec<Resident>,
     pub warnings: Vec<String>,
+}
+
+/// Code a program copies into RAM, lifted from where the program keeps it: a function of it is
+/// the code at its address only while the RAM there holds the bytes it was lifted from.
+#[derive(Debug, Clone)]
+pub struct Resident {
+    /// Where the code runs, and the bytes it is there.
+    pub start: u64,
+    pub bytes: Vec<u8>,
+    /// The ranges of each lifted function's instructions, by its entry.
+    pub functions: BTreeMap<u64, Vec<(u64, u64)>>,
+}
+
+impl Resident {
+    fn of(image: &Image, analysis: &Analysis<'_>) -> Self {
+        let functions = analysis.ported().map(|f| (f.entry, f.blocks.iter().map(|b| (b.start, b.end)).collect())).collect();
+        Self { start: image.image_base(), bytes: image.mapped().to_vec(), functions }
+    }
 }
 
 /// A second image ported with the program: a DLL the program imports whose exports carry what
@@ -111,6 +133,61 @@ pub struct Lifted {
 pub struct Companion<'a> {
     pub image: &'a Image,
     pub analysis: &'a Analysis<'a>,
+}
+
+/// The analyses of the second images `with`, each named apart from the program's functions and
+/// the other images': a name two images share (`entry`, a thunk's) takes its image's stem, so the
+/// one module defines each once.
+pub fn analyze_companions<'a>(analysis: &Analysis<'_>, with: &'a [Image]) -> Vec<Analysis<'a>> {
+    let mut taken: HashSet<String> = analysis.functions.values().map(|f| f.name.clone()).collect();
+    let mut analyses = Vec::with_capacity(with.len());
+    for image in with {
+        let mut analysis = ra_asm_analysis::analyze(image);
+        let stem = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "with".to_owned(), |s| s.to_string_lossy().into_owned());
+        for f in analysis.functions.values_mut() {
+            if !taken.insert(f.name.clone()) {
+                f.name = format!("{}_{stem}", f.name);
+                taken.insert(f.name.clone());
+            }
+        }
+        analyses.push(analysis);
+    }
+    analyses
+}
+
+/// A console program lifted for a run of it: the image and, of a ROM, the programs it keeps
+/// for RAM ([`Image::psx_bios_parts`]) as second images, raised to `level`, the functions under
+/// their final names. With the lift come the signatures of the raise, the functions each image
+/// gave (the program's first) and the warnings of the analyses and the lift.
+pub struct Whole {
+    pub lifted: Lifted,
+    pub signatures: std::collections::HashMap<String, raise::abi::Signature>,
+    /// Each image's base, size and count of functions.
+    pub images: Vec<(u64, u32, usize)>,
+    pub warnings: Vec<String>,
+}
+
+impl Whole {
+    /// Lifts `image` whole, or says why a part of a ROM does not load.
+    pub fn lift(image: &Image, options: LiftOptions, level: RaiseLevel) -> anyhow::Result<Self> {
+        let analysis = ra_asm_analysis::analyze(image);
+        let parts = image.psx_bios_parts()?;
+        let part_analyses = analyze_companions(&analysis, &parts);
+        let companions: Vec<Companion<'_>> = parts.iter().zip(&part_analyses).map(|(image, analysis)| Companion { image, analysis }).collect();
+        let mut lifted = lift_frozen_with(image, &analysis, &companions, options);
+        let raise_options = lifted.raise_options(level);
+        let mut signatures = raise(&mut lifted.module, &lifted.roots, raise_options);
+        lifted.apply_names(&analysis, Some(&mut signatures));
+        for part in &part_analyses {
+            lifted.apply_names(part, Some(&mut signatures));
+        }
+        let images = std::iter::once((image, &analysis))
+            .chain(parts.iter().zip(&part_analyses))
+            .map(|(image, analysis)| (image.image_base(), image.size_of_image(), analysis.ported().count()))
+            .collect();
+        let warnings = analysis.warnings.iter().chain(part_analyses.iter().flat_map(|a| &a.warnings)).chain(&lifted.warnings).cloned().collect();
+        Ok(Self { lifted, signatures, images, warnings })
+    }
 }
 
 impl Companion<'_> {
@@ -414,6 +491,7 @@ impl Lifted {
             bound: self.bound.clone(),
             attach: Vec::new(),
             devices: self.devices,
+            resident: Vec::new(),
             warnings: Vec::new(),
         }
     }
@@ -665,6 +743,7 @@ fn lift_on(
         bound: HashMap::new(),
         attach: Vec::new(),
         devices: data::Devices::of(image),
+        resident: with.iter().filter(|c| c.image.rom_part.is_some()).map(|c| Resident::of(c.image, c.analysis)).collect(),
         warnings: Vec::new(),
     };
     for (image, analysis) in &images {
@@ -714,6 +793,10 @@ fn lift_on(
         data::add_sections(image, analysis, &mut lifted, "");
     }
     for companion in with {
+        // A program a ROM keeps for RAM is entered by the ROM's own code, where it jumps to it.
+        if companion.image.rom_part.is_some() {
+            continue;
+        }
         let name = image_name(companion.image);
         if companion.image.tls.is_some() {
             lifted.warnings.push(format!("{name}: the thread-local storage of a second image is not ported"));
@@ -934,6 +1017,7 @@ fn lift_functions(image: &Image, analysis: &Analysis<'_>, lifted: &mut Lifted, t
             bound,
             attach: _,
             devices: _,
+            resident: _,
             warnings,
         } = worker;
         let Module { name: _, triple: _, data_layout: _, types, globals, declarations, functions: built, frozen, variables } = module;

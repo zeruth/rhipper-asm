@@ -483,6 +483,14 @@ impl Lifter<'_, '_> {
                     }
                     return;
                 };
+                // Over a kernel, a jump with `rfe` in its slot is the return of an exception's
+                // handler: to the code the exception was taken in, or to another thread's.
+                if self.kernel && self.word(last).is_some_and(|w| w.0 == 0x4200_0010) {
+                    let args = vec![(Type::Ptr, self.m.state.into()), (Type::I64, target.into())];
+                    self.m.b.call(block, crate::state::psx_return_type(), Callee::Direct(crate::state::PSX_RETURN.into()), args, "");
+                    self.m.b.terminate(block, Terminator::Ret(None));
+                    return;
+                }
                 // A jump the analysis did not resolve: most often a tail call through a pointer.
                 self.runtime_call(block, target);
                 self.m.b.terminate(block, Terminator::Ret(None));

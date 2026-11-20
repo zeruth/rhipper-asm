@@ -533,6 +533,20 @@ impl Builder<'_> {
         let resolved = if self.delays {
             let function: Vec<&[Instr]> =
                 self.blocks.values().map(|b| b.instrs.as_slice()).chain(std::iter::once(draft.instrs.as_slice())).collect();
+            // A jump through a register that holds the address of code of the image, built
+            // where the jump is (`lui`, `addiu`, `jr`): a jump to that code, as a `j` is.
+            let constant = jumptable::mips_jump_constant(self.image, body, &predecessors, &function)
+                .filter(|&va| self.image.names_own(va))
+                .map(|va| self.image.memory_region(va).map_or(va, |(_, folded)| folded))
+                .filter(|&va| va % 4 == 0 && self.image.is_code(va));
+            if let Some(target) = constant {
+                if self.internal(target) {
+                    self.worklist.push(target);
+                    return Terminator::Jump(target);
+                }
+                self.tail_calls.push(target);
+                return Terminator::TailCall(target);
+            }
             jumptable::resolve_mips(self.image, body, &predecessors, &function)
         } else {
             jumptable::resolve(self.image, body, &predecessors)

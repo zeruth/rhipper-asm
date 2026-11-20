@@ -173,6 +173,7 @@ pub fn declare_psx(module: &mut ra_asm_ir::Module) {
     declare_n64(module);
     module.declare(Declaration { name: PSX_EXCEPTION.to_owned(), ty: psx_exception_type(), conv: CallConv::C, attrs: vec![] });
     module.declare(Declaration { name: PSX_STATUS.to_owned(), ty: psx_status_type(), conv: CallConv::C, attrs: vec![] });
+    module.declare(Declaration { name: PSX_RETURN.to_owned(), ty: psx_return_type(), conv: CallConv::C, attrs: vec![] });
 }
 
 /// `ra_psx_exception(state, code, address)`: the exception `code` (the processor's `ExcCode`) at
@@ -184,6 +185,16 @@ pub const PSX_EXCEPTION: &str = "ra_psx_exception";
 
 pub fn psx_exception_type() -> FnType {
     FnType::new(Type::Void, vec![Type::Ptr, Type::I64, Type::I64])
+}
+
+/// `ra_psx_return(state, target)`: a kernel's jump to `target` with `rfe` in its delay slot, the
+/// return of an exception's handler. Where the exception was taken, the code there goes on; any
+/// other address (another thread's) is where the processor goes on, and the frames of the code
+/// the exception was taken in are left as they stand. The call does not return.
+pub const PSX_RETURN: &str = "ra_psx_return";
+
+pub fn psx_return_type() -> FnType {
+    FnType::new(Type::Void, vec![Type::Ptr, Type::I64])
 }
 
 /// `ra_psx_status(state)`: the status register of coprocessor 0 was written. The run reads what

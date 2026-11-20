@@ -1,0 +1,20 @@
+[package]
+name = "ra-asm-port"
+description = "The run of a console program's port: the library a compiled lift is linked with, which gives it its console's machine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anyhow.workspace = true
+ra-asm-ir.workspace = true
+ra-asm-lift.workspace = true
+ra-asm-pe.workspace = true

@@ -167,6 +167,69 @@ impl Bios {
         Some(Self { kernel_date, kernel_type, maker, kernel, version })
     }
 
+    /// The programs the ROM `bytes` keeps for RAM: each run of its bytes the start code copies
+    /// into RAM before it runs it there (the kernel, the shell), as the offset in the ROM, the
+    /// RAM address at `kseg0` and the length. They are read from the constants of the copies
+    /// themselves: the ROM's address of the bytes, the RAM's and the length, built in the three
+    /// argument registers within a few instructions of each other, in either order of the first
+    /// two (a copy loop's own registers, or the arguments of a call of the copy).
+    pub fn copies(bytes: &[u8]) -> Vec<(usize, u32, u32)> {
+        /// How far apart the three constants are built, in instructions.
+        const NEAR: usize = 16;
+        let rom = &bytes[..bytes.len().min(BIOS_SIZE as usize)];
+        let in_rom = |value: u32| (0xbfc0_0000..0xbfc0_0000 + rom.len() as u32).contains(&value);
+        let in_ram = |value: u32| matches!(value >> 28, 0x8 | 0xa) && (0x400..RAM_SIZE as u32).contains(&(value & 0x0fff_ffff));
+        // The constant each register holds, with the instruction that completed it.
+        let mut known: [Option<(u32, usize)>; 32] = [None; 32];
+        let mut copies: Vec<(usize, u32, u32)> = Vec::new();
+        // The addresses the code jumps to through a register it built them in: a run of bytes
+        // copied into RAM is a program when the code enters it.
+        let mut entered: Vec<u32> = Vec::new();
+        for (at, word) in rom.chunks_exact(4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]])).enumerate() {
+            let (op, rs, rt, rd) = (word >> 26, (word >> 21) as usize & 31, (word >> 16) as usize & 31, (word >> 11) as usize & 31);
+            let low = word & 0xffff;
+            let source = if rs == 0 { Some(0) } else { known[rs].map(|(value, _)| value) };
+            match op {
+                0x0f => known[rt] = Some((low << 16, at)),
+                0x09 => known[rt] = source.map(|value| (value.wrapping_add(i32::from(low as u16 as i16).cast_unsigned()), at)),
+                0x0d => known[rt] = source.map(|value| (value | low, at)),
+                // A register another instruction writes holds no constant; a jump out of the
+                // code ends what the registers were built for.
+                0 if matches!(word & 0x3f, 8 | 9) => {
+                    entered.extend(known[rs].map(|(value, _)| 0x8000_0000 | (value & 0x1fff_ffff)));
+                    if word & 0x3f == 8 {
+                        known = [None; 32];
+                    }
+                }
+                0 => known[rd] = None,
+                0x02 | 0x04..=0x07 | 0x28..=0x2e => {}
+                0x03 => known[31] = None,
+                _ => known[rt] = None,
+            }
+            known[0] = None;
+            let (Some(a0), Some(a1), Some(a2)) = (known[4], known[5], known[6]) else { continue };
+            let latest = a0.1.max(a1.1).max(a2.1);
+            if latest != at || latest - a0.1.min(a1.1).min(a2.1) > NEAR {
+                continue;
+            }
+            let (source, target) = match (a0.0, a1.0) {
+                (from, to) if in_rom(from) && in_ram(to) => (from, to),
+                (to, from) if in_rom(from) && in_ram(to) => (from, to),
+                _ => continue,
+            };
+            let (offset, len) = ((source - 0xbfc0_0000) as usize, a2.0);
+            if len < 0x100 || len & 3 != 0 || offset + len as usize > rom.len() {
+                continue;
+            }
+            let copy = (offset, 0x8000_0000 | (target & 0x1fff_ffff), len);
+            if !copies.contains(&copy) {
+                copies.push(copy);
+            }
+        }
+        copies.retain(|&(_, address, len)| entered.iter().any(|target| target.wrapping_sub(address) < len));
+        copies
+    }
+
     /// The kernel's date as `1995-12-04`.
     pub fn date(&self) -> String {
         format!("{:04x}-{:02x}-{:02x}", self.kernel_date >> 16, (self.kernel_date >> 8) & 0xff, self.kernel_date & 0xff)
@@ -196,6 +259,27 @@ mod bios_tests {
         assert_eq!((bios.date().as_str(), bios.kernel_type, bios.maker.as_str()), ("1995-12-04", 3, "Sony Computer Entertainment Inc."));
         assert_eq!(bios.kernel.as_deref(), Some("CEX-3000/1001/1002 by K.S."));
         assert_eq!(bios.version.as_deref(), Some("System ROM Version 2.2 12/04/95 A"), "the string with the date, not the bare one");
+    }
+
+    #[test]
+    fn the_programs_for_ram_are_where_their_copies_say() {
+        let mut rom = rom();
+        let mut put = |at: usize, words: &[u32]| {
+            for (i, word) in words.iter().enumerate() {
+                rom[at + 4 * i..at + 4 * i + 4].copy_from_slice(&word.to_le_bytes());
+            }
+        };
+        // A copy loop: lui a0, 0xbfc1; lui a1, 0xa000; addiu a0, a0, 0; ori a2, zero, 0x8bf0;
+        // addiu a1, a1, 0x500.
+        // Then the jump to it: lui a0, 0xa000; addiu a0, a0, 0x500; jr a0.
+        put(0x420, &[0x3c04_bfc1, 0x3c05_a000, 0x2484_0000, 0x3406_8bf0, 0x24a5_0500, 0x3c04_a000, 0x2484_0500, 0x0080_0008]);
+        // A call of the copy: lui a1, 0xbfc1; ori a1, a1, 0x8000; lui a2, 6; ori a2, a2, 0x7ff0;
+        // jal; lui a0, 0x8003. Then the call of what it copied: lui t0, 0x8003; jalr t0.
+        put(0x7000, &[0x3c05_bfc1, 0x34a5_8000, 0x3c06_0006, 0x34c6_7ff0, 0x0ff0_0000, 0x3c04_8003, 0x3c08_8003, 0x0100_f809]);
+        // A copy of bytes nothing enters is data.
+        put(0x7100, &[0x3c05_bfc2, 0x3c06_0000, 0x34c6_0800, 0x0ff0_0000, 0x3c04_8001]);
+        assert_eq!(Bios::copies(&rom), [(0x1_0000, 0x8000_0500, 0x8bf0), (0x1_8000, 0x8003_0000, 0x6_7ff0)]);
+        assert_eq!(Bios::copies(&self::rom()), [], "a ROM without a copy");
     }
 
     #[test]

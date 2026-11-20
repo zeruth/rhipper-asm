@@ -1,15 +1,19 @@
 //! The PlayStation's CD-ROM controller: four registers behind an index, a command with its
 //! parameters in, and the answers out as numbered interrupts, each with its bytes, one at a time
 //! as the program acknowledges them. A read delivers a sector per interrupt, which the program
-//! takes from the data port or by DMA. The drive's timing is a fixed delay per answer.
+//! takes from the data port or by DMA: its user data, or the whole sector past its sync when the
+//! mode asks. The disc is its sectors as the drive reads them and its tracks; the drive's timing
+//! is a fixed delay per answer and the sector rate of its speed.
 
 use std::collections::VecDeque;
 
+use crate::disc::{Track, address};
+
 /// The cycles from a command to its first answer, from that to its second, and from one sector of
-/// a read to the next at double speed.
+/// a read to the next at single speed.
 const FIRST: u64 = 20_000;
 const SECOND: u64 = 200_000;
-const SECTOR: u64 = 33_868_800 / 150;
+const SECTOR: u64 = 33_868_800 / 75;
 
 /// The answers by their interrupt's number.
 const DATA_READY: u8 = 1;
@@ -17,10 +21,23 @@ const COMPLETE: u8 = 2;
 const ACKNOWLEDGE: u8 = 3;
 const ERROR: u8 = 5;
 
-/// The drive's status byte: the motor runs, the lid is open (no disc), a read is going.
+/// The drive's status byte: the motor runs, the lid is open (no disc), a read is going, sound
+/// plays.
 const MOTOR: u8 = 0x02;
 const OPEN: u8 = 0x10;
 const READING: u8 = 0x20;
+const PLAYING: u8 = 0x80;
+
+/// The mode byte's bits: sound tracks play, a play ends at its track's end, a play reports where
+/// it is, only the sound sectors of the filter's file and channel play, the whole sector past
+/// its sync is the data, the sound sectors of a data track play, the drive turns at double speed.
+const MODE_FILTER: u8 = 0x08;
+const MODE_WHOLE: u8 = 0x20;
+const MODE_XA: u8 = 0x40;
+const MODE_DOUBLE: u8 = 0x80;
+
+/// A sector's subheader: its submode says it holds sound, and is one of a stream in real time.
+const SUB_AUDIO: u8 = 0x04;
 
 #[derive(Default)]
 pub(super) struct Cdrom {
@@ -30,22 +47,38 @@ pub(super) struct Cdrom {
     data: VecDeque<u8>,
     /// The sector the drive read last, which the program asks into the data port.
     sector: Vec<u8>,
+    /// The address, mode and subheader of the data sector read last.
+    header: [u8; 8],
     enable: u8,
     flag: u8,
     /// The answers still to come: the cycles after the one before, the interrupt, the bytes.
     pending: VecDeque<(u64, u8, Vec<u8>)>,
     /// The cycles the head of `pending` still waits.
     wait: u64,
-    /// Where the next sector is read, and whether the drive is reading.
+    /// The cycles to the next sector of a read or a play, while one goes.
+    next: Option<u64>,
+    /// Where the next sector is read, where a `Setloc` said the next read or seek starts, and
+    /// whether the drive is reading or playing.
     position: u32,
+    target: Option<u32>,
     reading: bool,
+    playing: bool,
     mode: u8,
-    /// Whether the host has a disc: decided when the drive is first asked.
+    /// The file and the channel of the sound sectors that play, when the mode filters them.
+    filter: (u8, u8),
+    /// Whether the host has a disc: decided when the drive is first asked, with its tracks and
+    /// the sectors of its program area.
     pub(super) disc: bool,
+    pub(super) tracks: Vec<Track>,
+    pub(super) sectors: u32,
 }
 
 fn bcd(v: u8) -> u32 {
     u32::from(v >> 4) * 10 + u32::from(v & 0xf)
+}
+
+fn to_bcd(v: u32) -> u8 {
+    ((v / 10) << 4 | v % 10) as u8
 }
 
 impl Cdrom {
@@ -53,7 +86,12 @@ impl Cdrom {
         if !self.disc {
             return OPEN;
         }
-        MOTOR | if self.reading { READING } else { 0 }
+        MOTOR | if self.reading { READING } else { 0 } | if self.playing { PLAYING } else { 0 }
+    }
+
+    /// The cycles from one sector to the next at the mode's speed.
+    fn rate(&self) -> u64 {
+        if self.mode & MODE_DOUBLE != 0 { SECTOR / 2 } else { SECTOR }
     }
 
     pub(super) fn read(&mut self, register: u64) -> u8 {
@@ -107,62 +145,128 @@ impl Cdrom {
         self.pending.push_back((after, interrupt, bytes));
     }
 
+    /// Ends a read or a play, with the sectors still to come.
+    fn halt(&mut self) {
+        (self.reading, self.playing) = (false, false);
+        self.next = None;
+    }
+
+    /// The head goes where the last `Setloc` said, when one did since the last read or seek.
+    fn seek(&mut self) {
+        if let Some(target) = self.target.take() {
+            self.position = target;
+        }
+    }
+
     fn command(&mut self, command: u8) {
         let parameters = std::mem::take(&mut self.parameters);
         let stat = self.stat();
         if crate::tracing() {
             eprintln!("cdrom: command {command:#04x} {parameters:02x?}");
         }
-        let needs_disc = matches!(command, 0x02 | 0x06 | 0x09 | 0x15 | 0x16 | 0x1b | 0x1e);
+        let needs_disc = matches!(command, 0x02 | 0x03 | 0x06 | 0x09 | 0x13 | 0x14 | 0x15 | 0x16 | 0x1b | 0x1e);
         if needs_disc && !self.disc {
             self.answer(FIRST, ERROR, vec![stat | 1, 0x80]);
             return;
         }
         match command {
-            // Getstat, Mute, Demute, Setfilter, MotorOn's first answer.
-            0x01 | 0x0b | 0x0c | 0x0d => self.answer(FIRST, ACKNOWLEDGE, vec![stat]),
+            // Getstat, Mute, Demute.
+            0x01 | 0x0b | 0x0c => self.answer(FIRST, ACKNOWLEDGE, vec![stat]),
             // Setloc: minutes, seconds and frames in BCD, from the two seconds of the lead-in.
             0x02 => {
                 let field = |i: usize| parameters.get(i).copied().map_or(0, bcd);
-                self.position = ((field(0) * 60 + field(1)) * 75 + field(2)).saturating_sub(150);
+                self.target = Some(((field(0) * 60 + field(1)) * 75 + field(2)).saturating_sub(150));
                 self.answer(FIRST, ACKNOWLEDGE, vec![stat]);
+            }
+            // Play: from the track named, or from where the head is; a sector's time apart.
+            0x03 => {
+                self.halt();
+                match parameters.first().map(|t| bcd(*t)).filter(|t| *t != 0) {
+                    Some(number) => {
+                        self.target = None;
+                        self.position = self.tracks.iter().find(|t| u32::from(t.number) == number).or(self.tracks.last()).map_or(0, |t| t.start);
+                    }
+                    None => self.seek(),
+                }
+                self.playing = true;
+                self.answer(FIRST, ACKNOWLEDGE, vec![self.stat()]);
+                self.next = Some(FIRST + SECTOR);
             }
             // ReadN, ReadS: an acknowledge, then a sector an interrupt until a pause.
             0x06 | 0x1b => {
+                self.halt();
+                self.seek();
                 self.reading = true;
-                self.pending.retain(|(_, interrupt, _)| *interrupt != DATA_READY);
                 self.answer(FIRST, ACKNOWLEDGE, vec![self.stat()]);
-                self.answer(SECTOR, DATA_READY, Vec::new());
+                self.next = Some(FIRST + self.rate());
             }
             // MotorOn, Stop, Pause, Init, SeekL, SeekP, ReadTOC: an acknowledge, then the end.
             0x07 | 0x08 | 0x09 | 0x0a | 0x15 | 0x16 | 0x1e => {
                 if matches!(command, 0x08 | 0x09 | 0x0a) {
-                    self.reading = false;
-                    self.pending.retain(|(_, interrupt, _)| *interrupt != DATA_READY);
+                    self.halt();
+                }
+                if matches!(command, 0x15 | 0x16) {
+                    self.halt();
+                    self.seek();
                 }
                 if command == 0x0a {
-                    self.mode = 0;
+                    self.mode = MODE_WHOLE;
                 }
                 self.answer(FIRST, ACKNOWLEDGE, vec![stat]);
                 self.answer(SECOND, COMPLETE, vec![self.stat()]);
+            }
+            // Setfilter: the file and the channel of the sound sectors that play.
+            0x0d => {
+                self.filter = (parameters.first().copied().unwrap_or(0), parameters.get(1).copied().unwrap_or(0));
+                self.answer(FIRST, ACKNOWLEDGE, vec![stat]);
             }
             0x0e => {
                 self.mode = parameters.first().copied().unwrap_or(0);
                 self.answer(FIRST, ACKNOWLEDGE, vec![stat]);
             }
-            // GetlocL: the header of the sector read last. GetlocP: the position on the track.
-            0x10 | 0x11 => {
-                let at = self.position + 150;
-                let to_bcd = |v: u32| ((v / 10) << 4 | v % 10) as u8;
-                let (m, s, f) = (to_bcd(at / 4500), to_bcd(at / 75 % 60), to_bcd(at % 75));
-                let bytes = if command == 0x10 { vec![m, s, f, 2, 0, 0, 0, 0] } else { vec![1, 1, m, s, f, m, s, f] };
-                self.answer(FIRST, ACKNOWLEDGE, bytes);
+            // Getparam: the mode and the filter.
+            0x0f => self.answer(FIRST, ACKNOWLEDGE, vec![stat, self.mode, 0, self.filter.0, self.filter.1]),
+            // GetlocL: the header of the data sector read last.
+            0x10 => self.answer(FIRST, ACKNOWLEDGE, self.header.to_vec()),
+            // GetlocP: the track, its index, and the head's place in the track and on the disc.
+            0x11 => {
+                let track = self.tracks.iter().rev().find(|t| t.start <= self.position).or(self.tracks.first()).copied();
+                let (number, start) = track.map_or((1, 0), |t| (u32::from(t.number), t.start));
+                let within = self.position.saturating_sub(start);
+                let relative = [to_bcd(within / 4500), to_bcd(within / 75 % 60), to_bcd(within % 75)];
+                let absolute = address(self.position);
+                self.answer(FIRST, ACKNOWLEDGE, [&[to_bcd(number), 1][..], &relative, &absolute].concat());
             }
-            // GetTN: one track. GetTD: where it starts.
-            0x13 => self.answer(FIRST, ACKNOWLEDGE, vec![stat, 1, 1]),
-            0x14 => self.answer(FIRST, ACKNOWLEDGE, vec![stat, 0, 2]),
-            // Test 20: the controller's version.
-            0x19 => self.answer(FIRST, ACKNOWLEDGE, vec![0x94, 0x09, 0x19, 0xc0]),
+            // GetTN: the first track and the last.
+            0x13 => {
+                let (first, last) = (self.tracks.first().map_or(1, |t| t.number), self.tracks.last().map_or(1, |t| t.number));
+                self.answer(FIRST, ACKNOWLEDGE, vec![stat, to_bcd(first.into()), to_bcd(last.into())]);
+            }
+            // GetTD: where a track starts, or the lead-out for track zero.
+            0x14 => {
+                let number = parameters.first().map_or(0, |t| bcd(*t));
+                let start = match number {
+                    0 => Some(self.sectors),
+                    _ => self.tracks.iter().find(|t| u32::from(t.number) == number).map(|t| t.start),
+                };
+                match start {
+                    Some(start) => {
+                        let [minutes, seconds, _] = address(start);
+                        self.answer(FIRST, ACKNOWLEDGE, vec![stat, minutes, seconds]);
+                    }
+                    None => self.answer(FIRST, ERROR, vec![stat | 1, 0x10]),
+                }
+            }
+            // Test, by its first parameter. 20: the controller's version. 04: count the licence
+            // strings the drive reads from here on; 05: how many it tried and how many it read,
+            // none where the head is in the program area, which has no such string (a program
+            // that finds one there has found a chip that feeds it).
+            0x19 => match parameters.first() {
+                Some(0x20) => self.answer(FIRST, ACKNOWLEDGE, vec![0x94, 0x09, 0x19, 0xc0]),
+                Some(0x04) => self.answer(FIRST, ACKNOWLEDGE, vec![stat]),
+                Some(0x05) => self.answer(FIRST, ACKNOWLEDGE, vec![stat, 0, 0]),
+                _ => self.answer(FIRST, ERROR, vec![stat | 1, 0x10]),
+            },
             // GetID: a licensed data disc, or none.
             0x1a => {
                 if self.disc {
@@ -177,32 +281,52 @@ impl Cdrom {
     }
 
     /// Lets `cycles` pass. When an answer comes due and the program has acknowledged the one
-    /// before, it is raised, a sector's with the data `sector` reads off the disc for its
-    /// number; the result says whether the controller's interrupt line rose.
+    /// before, it is raised, a sector's with what `sector` reads off the disc for its number,
+    /// whole; the result says whether the controller's interrupt line rose.
     pub(super) fn advance(&mut self, cycles: u64, mut sector: impl FnMut(u32) -> Option<Vec<u8>>) -> bool {
         self.wait = self.wait.saturating_sub(cycles);
-        if self.wait > 0 || self.flag != 0 {
+        if let Some(due) = &mut self.next {
+            *due = due.saturating_sub(cycles);
+        }
+        if self.flag != 0 {
             return false;
         }
-        let Some((_, interrupt, mut bytes)) = self.pending.pop_front() else { return false };
-        if interrupt == DATA_READY {
-            match sector(self.position) {
-                Some(data) => {
-                    // The whole sector's form has its address and mode ahead of the data.
-                    self.sector = if self.mode & 0x20 != 0 { [vec![0; 12], data].concat() } else { data };
-                    // What the program left of the sector before is gone with it.
-                    self.data.clear();
-                    self.position += 1;
-                    bytes = vec![self.stat()];
-                    self.pending.push_back((SECTOR, DATA_READY, Vec::new()));
-                }
-                None => {
-                    self.reading = false;
-                    return self.raise(ERROR, vec![self.stat() | 1, 0x04]);
-                }
-            }
+        // A command's answer comes ahead of the next sector.
+        if self.wait == 0
+            && let Some((_, interrupt, bytes)) = self.pending.pop_front()
+        {
+            return self.raise(interrupt, bytes);
         }
-        self.raise(interrupt, bytes)
+        if self.next != Some(0) {
+            return false;
+        }
+        let Some(raw) = sector(self.position).filter(|raw| raw.len() >= 2352) else {
+            self.halt();
+            return self.raise(ERROR, vec![self.stat() | 1, 0x04]);
+        };
+        self.position += 1;
+        self.next = Some(self.rate());
+        if self.playing {
+            // A sound track's sector: nothing for the program to take.
+            return false;
+        }
+        let whole = raw[15] != 1;
+        if whole {
+            self.header.copy_from_slice(&raw[12..20]);
+        } else {
+            self.header = [raw[12], raw[13], raw[14], raw[15], 0, 0, 0, 0];
+        }
+        // A sound sector of a data track plays when the mode says so, and is none of the
+        // program's data: the one of the filter's file and channel, or any.
+        if whole && self.mode & MODE_XA != 0 && raw[18] & SUB_AUDIO != 0 {
+            let _plays = self.mode & MODE_FILTER == 0 || (raw[16], raw[17]) == self.filter;
+            return false;
+        }
+        let user = if whole { 24 } else { 16 };
+        self.sector = if self.mode & MODE_WHOLE != 0 { raw[12..].to_vec() } else { raw[user..user + 2048].to_vec() };
+        // What the program left of the sector before is gone with it.
+        self.data.clear();
+        self.raise(DATA_READY, vec![self.stat()])
     }
 
     fn raise(&mut self, interrupt: u8, bytes: Vec<u8>) -> bool {
@@ -229,7 +353,7 @@ mod tests {
     use super::*;
 
     fn drive() -> Cdrom {
-        let mut cd = Cdrom { disc: true, ..Cdrom::default() };
+        let mut cd = Cdrom { disc: true, sectors: 1000, tracks: vec![Track { number: 1, audio: false, start: 0 }], ..Cdrom::default() };
         cd.write(0, 1);
         cd.write(2, 0x1f);
         cd.write(0, 0);
@@ -240,6 +364,16 @@ mod tests {
         cd.write(0, 1);
         cd.write(3, 0x1f);
         cd.write(0, 0);
+    }
+
+    /// A whole mode 2 sector: its address, a subheader of `submode`, and `byte` as its data.
+    fn raw(lba: u32, submode: u8, byte: u8) -> Option<Vec<u8>> {
+        let mut out = vec![0u8; 2352];
+        out[12..15].copy_from_slice(&address(lba));
+        out[15] = 2;
+        out[16..20].copy_from_slice(&[1, 2, submode, 0]);
+        out[24..24 + 2048].fill(byte);
+        Some(out)
     }
 
     #[test]
@@ -274,14 +408,51 @@ mod tests {
         let mut asked = Vec::new();
         assert!(cd.advance(SECTOR, |lba| {
             asked.push(lba);
-            Some(vec![lba as u8; 2048])
+            raw(lba, 8, lba as u8)
         }));
         assert_eq!(asked, [16], "00:02:16 is the sixteenth sector");
         assert_eq!(cd.read(1), MOTOR | READING);
         assert_eq!(cd.pull(4), [16, 16, 16, 16]);
         acknowledge(&mut cd);
-        assert!(cd.advance(SECTOR, |lba| Some(vec![lba as u8; 2048])));
+        assert!(cd.advance(SECTOR, |lba| raw(lba, 8, lba as u8)));
         assert_eq!(cd.pull(1), [17]);
+        // The header of the sector read last is what GetlocL answers.
+        acknowledge(&mut cd);
+        cd.write(1, 0x10);
+        assert!(cd.advance(FIRST, |_| None));
+        let header: Vec<u8> = (0..8).map(|_| cd.read(1)).collect();
+        assert_eq!(header, [0x00, 0x02, 0x17, 2, 1, 2, 8, 0]);
+    }
+
+    #[test]
+    fn the_mode_gives_the_whole_sector_and_keeps_a_sound_sector_from_the_data() {
+        let mut cd = drive();
+        // The whole sector, the sound sectors played, at double speed.
+        cd.write(2, MODE_WHOLE | MODE_XA | MODE_DOUBLE);
+        cd.write(1, 0x0e);
+        assert!(cd.advance(FIRST, |_| None));
+        acknowledge(&mut cd);
+        cd.write(1, 0x06);
+        assert!(cd.advance(FIRST, |_| None));
+        acknowledge(&mut cd);
+        assert!(!cd.advance(SECTOR / 2, |lba| raw(lba, 0x64, 9)), "a sound sector is none of the program's");
+        assert!(cd.advance(SECTOR / 2, |lba| raw(lba, 8, 9)));
+        let sector = cd.pull(2340);
+        assert_eq!((&sector[..8], sector[12]), (&[0x00, 0x02, 0x01, 2, 1, 2, 8, 0][..], 9), "from the address on");
+    }
+
+    #[test]
+    fn the_tracks_answer_the_contents_commands() {
+        let mut cd = drive();
+        cd.tracks.push(Track { number: 2, audio: true, start: 4500 - 150 });
+        cd.write(1, 0x13);
+        assert!(cd.advance(FIRST, |_| None));
+        assert_eq!((cd.read(1), cd.read(1), cd.read(1)), (MOTOR, 1, 2));
+        acknowledge(&mut cd);
+        cd.write(2, 0x02);
+        cd.write(1, 0x14);
+        assert!(cd.advance(FIRST, |_| None));
+        assert_eq!((cd.read(1), cd.read(1), cd.read(1)), (MOTOR, 0x01, 0x00), "track 2 starts at 01:00");
     }
 
     #[test]

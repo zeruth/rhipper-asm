@@ -29,7 +29,8 @@ use ra_asm_pe::Image;
 
 use crate::Lifted;
 use crate::raise::abi::{Kind, Signature};
-pub use console::Console;
+pub use console::{Console, Native};
+pub use r3000::stats as processor_stats;
 use host::Runtime;
 pub use ra_asm_platform::host::Capture;
 
@@ -475,6 +476,17 @@ fn run_here(
         vm.memory.write(*address, bytes).map_err(setup)?;
     }
     vm.place().map_err(setup)?;
+    // A port's compiled functions run in place of their IR, on the globals the compiled code has.
+    if let Some(native) = options.console.as_ref().and_then(|console| console.native.as_ref()) {
+        for (address, code) in &native.functions {
+            if let Some(name) = lifted.functions.get(address) {
+                vm.set_native(name, *code);
+            }
+        }
+        for (name, address) in &native.globals {
+            vm.set_symbol(name, *address);
+        }
+    }
     // A run kept as a session, or played back from one, names the program by its file name
     // alone: the path is in the program's memory, so a checkout of a longer path moves every
     // allocation after it, and a session recorded in one tree would not replay in another.

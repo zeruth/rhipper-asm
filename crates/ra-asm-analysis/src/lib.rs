@@ -614,7 +614,7 @@ fn mips_pair_seeds(image: &Image, functions: &BTreeMap<u64, Function>, cover: &C
     // one function with the start of the next after it is no start.
     let framed = |va: u64| {
         // A number that reads as the code's address in another segment is a number.
-        if va % 4 != 0 || !image.is_code(va) || image.memory_region(va).is_some_and(|(_, folded)| folded != va) {
+        if va % 4 != 0 || !image.is_code(va) || !image.names_own(va) {
             return false;
         }
         for n in 0..4 {
@@ -638,7 +638,7 @@ fn mips_pair_seeds(image: &Image, functions: &BTreeMap<u64, Function>, cover: &C
         let leaves = |at: u64| matches!(word(at), 0x03e0_0008 | 0x0800_0028 | 0x0800_002c | 0x0800_0030);
         let after_return = va % 4 == 0
             && image.is_code(va)
-            && image.memory_region(va).is_none_or(|(_, folded)| folded == va)
+            && image.names_own(va)
             && (leaves(va.wrapping_sub(8)) || (word(va.wrapping_sub(4)) == 0 && leaves(va.wrapping_sub(12))));
         framed(va) || after_return
     };
@@ -654,8 +654,10 @@ fn mips_pair_seeds(image: &Image, functions: &BTreeMap<u64, Function>, cover: &C
                 }
                 0x09 | 0x0d if high.contains_key(&rs) => {
                     let low = if op == 0x09 { i32::from(low as u16 as i16).cast_unsigned() } else { low };
-                    let va = u64::from(high[&rs].wrapping_add(low));
-                    if starts(va) && !functions.contains_key(&va) && !cover.covered(va) {
+                    let built = u64::from(high[&rs].wrapping_add(low));
+                    // The function is at the address the image holds it at.
+                    let va = image.memory_region(built).map_or(built, |(_, folded)| folded);
+                    if starts(built) && !functions.contains_key(&va) && !cover.covered(va) {
                         seeds.push((va, Origin::Pointer(i.address)));
                     }
                     high.remove(&rt);
@@ -683,9 +685,34 @@ fn mips_pair_seeds(image: &Image, functions: &BTreeMap<u64, Function>, cover: &C
         let start = image.va(section.virtual_address);
         let Ok(bytes) = image.read_to_section_end(start) else { continue };
         for (offset, chunk) in bytes.chunks_exact(4).enumerate() {
-            let (slot, va) = (start + 4 * offset as u64, image.pointer_in(chunk));
-            if !cover.covered(slot) && starts(va) && !functions.contains_key(&va) && !cover.covered(va) {
+            let (slot, built) = (start + 4 * offset as u64, image.pointer_in(chunk));
+            let va = image.memory_region(built).map_or(built, |(_, folded)| folded);
+            if !cover.covered(slot) && starts(built) && !functions.contains_key(&va) && !cover.covered(va) {
                 seeds.push((va, Origin::Pointer(slot)));
+            }
+        }
+    }
+    // A kernel keeps the code of its vectors as bytes it copies to where the processor enters
+    // them: `lui r; addiu r, r, lo; jr r`, a jump to the handler, which nothing else names. The
+    // three words together are a jump wherever they lie, in code the walk reached or not.
+    if image.psx_kernel() {
+        for section in &image.sections {
+            let start = image.va(section.virtual_address);
+            let Ok(bytes) = image.read_to_section_end(start) else { continue };
+            let words: Vec<u32> = bytes.chunks_exact(4).map(|w| image.pointer_in(w) as u32).collect();
+            for (offset, triple) in words.windows(3).enumerate() {
+                let (high, low, jump) = (triple[0], triple[1], triple[2]);
+                let register = (high >> 16) & 31;
+                let completes = matches!(low >> 26, 0x09 | 0x0d) && (low >> 21) & 31 == register && (low >> 16) & 31 == register;
+                if high >> 21 != 0x1e0 || !completes || jump != (register << 21) | 8 {
+                    continue;
+                }
+                let half = if low >> 26 == 0x09 { i32::from(low as u16 as i16).cast_unsigned() } else { low & 0xffff };
+                let built = u64::from(((high & 0xffff) << 16).wrapping_add(half));
+                let va = image.memory_region(built).map_or(built, |(_, folded)| folded);
+                if va % 4 == 0 && image.is_code(va) && image.names_own(built) && !functions.contains_key(&va) && !cover.covered(va) {
+                    seeds.push((va, Origin::TailCall(start + 4 * offset as u64)));
+                }
             }
         }
     }

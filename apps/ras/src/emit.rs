@@ -914,20 +914,7 @@ pub(crate) fn load_companions(image: &Image, paths: &[std::path::PathBuf]) -> Re
 /// the other images': a name two images share (`entry`, a thunk's) takes its image's stem, so the
 /// one module defines each once.
 pub(crate) fn analyze_companions<'a>(analysis: &Analysis<'_>, with: &'a [Image]) -> Vec<Analysis<'a>> {
-    let mut taken: HashSet<String> = analysis.functions.values().map(|f| f.name.clone()).collect();
-    let mut analyses = Vec::with_capacity(with.len());
-    for image in with {
-        let mut analysis = ra_asm_analysis::analyze(image);
-        let stem = image.path.as_ref().and_then(|p| p.file_stem()).map_or_else(|| "with".to_owned(), |s| s.to_string_lossy().into_owned());
-        for f in analysis.functions.values_mut() {
-            if !taken.insert(f.name.clone()) {
-                f.name = format!("{}_{stem}", f.name);
-                taken.insert(f.name.clone());
-            }
-        }
-        analyses.push(analysis);
-    }
-    analyses
+    ra_asm_lift::analyze_companions(analysis, with)
 }
 
 /// The second images with their analyses, as the lift and the translation take them.

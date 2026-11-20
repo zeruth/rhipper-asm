@@ -570,6 +570,14 @@ impl Platform for Psx {
             0x800..=0x803 => {
                 if offset == 0x801 || offset == 0x800 {
                     self.cdrom.disc = self.host.storage.sector(16).is_some();
+                    if self.cdrom.disc && self.cdrom.tracks.is_empty() {
+                        (self.cdrom.tracks, self.cdrom.sectors) = self.host.storage.tracks();
+                        // A disc that is a folder of its files has one track, of any length.
+                        if self.cdrom.tracks.is_empty() {
+                            self.cdrom.tracks.push(crate::disc::Track { number: 1, audio: false, start: 0 });
+                            self.cdrom.sectors = 333_000;
+                        }
+                    }
                 }
                 self.cdrom.write(offset, value as u8);
             }
@@ -605,7 +613,20 @@ impl Platform for Psx {
         self.timers(cycles);
         self.spu.advance(cycles);
         let storage = &mut self.host.storage;
-        if self.cdrom.advance(cycles, |lba| storage.sector(lba)) {
+        // A sector as the drive reads it; of a disc the host has only the user data of, the
+        // sector around the data.
+        let whole = |lba: u32| {
+            storage.raw_sector(lba).or_else(|| {
+                let data = storage.sector(lba)?;
+                let mut raw = vec![0u8; crate::disc::RAW];
+                raw[12..15].copy_from_slice(&crate::disc::address(lba));
+                raw[15] = 2;
+                raw[16..24].copy_from_slice(&[0, 0, 8, 0, 0, 0, 8, 0]);
+                raw[24..24 + data.len().min(crate::disc::DATA)].copy_from_slice(&data[..data.len().min(crate::disc::DATA)]);
+                Some(raw)
+            })
+        };
+        if self.cdrom.advance(cycles, whole) {
             self.raise(irq::CDROM);
         }
         let mut left = cycles;
@@ -613,6 +634,7 @@ impl Platform for Psx {
             match event {
                 Event::VBlank => {
                     self.frames += 1;
+                    gpu::Gpu::trace_frame(self.frames);
                     self.blank_at = self.clock.now();
                     self.raise(irq::VBLANK);
                     let samples = std::mem::take(&mut self.spu.out);

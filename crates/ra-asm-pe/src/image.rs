@@ -90,6 +90,12 @@ pub struct Image {
     /// The ROM beside a `PlayStation` program is the console's kernel: the run starts at the
     /// ROM's reset vector, and the program is entered where the kernel would enter its shell.
     pub rom_boots: bool,
+    /// The image is a program a `PlayStation` BIOS ROM keeps for RAM ([`Image::psx_bios_parts`]):
+    /// the offset of its bytes in the ROM.
+    pub rom_part: Option<usize>,
+    /// The segment of the console's address space the image's code names its own places
+    /// through, when it is not the one the image is mapped at: a kernel linked for `kuseg`.
+    pub link_segment: Option<u64>,
     /// What the loader could not read. A directory that fails to parse lands here, not in an error.
     pub warnings: Vec<String>,
     file: Vec<u8>,
@@ -111,10 +117,59 @@ impl Image {
     }
 
     /// Whether the code of a `PlayStation` image runs over a kernel that is code of the console
-    /// too (the image is the ROM, or a program the ROM beside it boots), and not one the run
-    /// answers for.
+    /// too (the image is the ROM or a part of it, or a program the ROM beside it boots), and not
+    /// one the run answers for.
     pub fn psx_kernel(&self) -> bool {
-        self.psx_bios.is_some() || self.rom_boots
+        self.psx_bios.is_some() || self.rom_boots || self.rom_part.is_some()
+    }
+
+    /// The programs a `PlayStation` BIOS ROM keeps for RAM ([`psx::Bios::copies`]: its kernel,
+    /// its shell), each as the image it is once the ROM's start code has copied it: the bytes
+    /// the copy takes at the address it puts them, entered at their first word. They are second
+    /// images beside the ROM's, as a DLL is beside a program's, and code of the console's kernel
+    /// as the ROM's is. Empty for an image that is no ROM, or a ROM that copies none.
+    pub fn psx_bios_parts(&self) -> Result<Vec<Self>> {
+        if self.psx_bios.is_none() {
+            return Ok(Vec::new());
+        }
+        let mut parts = Vec::new();
+        for (offset, address, len) in psx::Bios::copies(&self.file) {
+            // The header a PS-X EXE of those bytes would have: its text's address and size, its
+            // entry, and no stack of its own.
+            let mut exe = vec![0u8; psx::HEADER_SIZE];
+            exe[..8].copy_from_slice(psx::MAGIC);
+            exe[0x10..0x14].copy_from_slice(&address.to_le_bytes());
+            exe[0x18..0x1c].copy_from_slice(&address.to_le_bytes());
+            exe[0x1c..0x20].copy_from_slice(&len.to_le_bytes());
+            exe.extend_from_slice(&self.file[offset..offset + len as usize]);
+            let mut part = Self::parse(exe).with_context(|| format!("the ROM's program for {address:#x}"))?;
+            part.rom_part = Some(offset);
+            // The segment the program was linked for: the one most of the addresses its code
+            // builds in two halves, that lie in it, name it through.
+            let physical = u64::from(address & 0x1fff_ffff);
+            let mut votes = [0usize; 8];
+            let words: Vec<u32> = part.mapped().chunks_exact(4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]])).collect();
+            for pair in words.windows(2) {
+                let (high, low) = (pair[0], pair[1]);
+                if high >> 26 != 0x0f || !matches!(low >> 26, 0x09 | 0x0d) || (low >> 21) & 31 != (high >> 16) & 31 {
+                    continue;
+                }
+                let half = if low >> 26 == 0x09 { i32::from(low as u16 as i16).cast_unsigned() } else { low & 0xffff };
+                let built = ((high & 0xffff) << 16).wrapping_add(half);
+                if u64::from(built & 0x1fff_ffff).wrapping_sub(physical) < u64::from(len) {
+                    votes[(built >> 29) as usize] += 1;
+                }
+            }
+            let segment = [4usize, 0, 5].into_iter().max_by_key(|&s| votes[s]).unwrap_or(4);
+            part.link_segment = (segment != 4).then_some((segment as u64) << 29);
+            // Named apart from the ROM and from the other parts, by where it runs.
+            part.path = self.path.as_ref().map(|path| {
+                let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                path.with_file_name(format!("{stem}_{address:08x}.bin"))
+            });
+            parts.push(part);
+        }
+        Ok(parts)
     }
 
     fn parse_as(mut file: Vec<u8>, boot: Option<Boot>) -> Result<Self> {
@@ -220,6 +275,8 @@ impl Image {
             global_pointer: None,
             rom: None,
             rom_boots: false,
+            rom_part: None,
+            link_segment: None,
             warnings,
             file,
             mapped,
@@ -446,6 +503,17 @@ impl Image {
             ra_asm_format::elf::ps2::fold(va)
         } else {
             None
+        }
+    }
+
+    /// Whether `va` is an address as the image's code names its own places: on a console's
+    /// image, the one the memory map folds it to, or the same place through the segment the
+    /// image was linked for ([`Image::link_segment`]). The same place through another segment
+    /// is a number that happens to read as an address.
+    pub fn names_own(&self, va: u64) -> bool {
+        match self.memory_region(va) {
+            None => true,
+            Some((_, folded)) => folded == va || self.link_segment.is_some_and(|segment| va & 0xe000_0000 == segment),
         }
     }
 

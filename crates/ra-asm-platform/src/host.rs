@@ -86,6 +86,15 @@ pub trait Storage {
     fn open(&mut self, name: &str, write: bool) -> Option<Box<dyn File>>;
     /// The sector `lba` of the disc, 2048 bytes of user data; `None` without a disc or past its end.
     fn sector(&mut self, lba: u32) -> Option<Vec<u8>>;
+    /// The sector `lba` as the drive reads it, 2352 bytes: a data sector with its sync, address
+    /// and subheader, or a sound sector's samples. `None` without a disc image or past its end.
+    fn raw_sector(&mut self, _lba: u32) -> Option<Vec<u8>> {
+        None
+    }
+    /// The disc's tracks and the sectors of its program area; no track without a disc image.
+    fn tracks(&mut self) -> (Vec<crate::disc::Track>, u32) {
+        (Vec::new(), 0)
+    }
 }
 
 /// The host's side of a runtime.
@@ -245,11 +254,28 @@ impl Audio for Silence {
 /// each device a folder of its name. Without either, nothing opens.
 #[derive(Default)]
 pub struct Directory {
-    /// The disc: an ISO 9660 image, or the directory its files were copied to.
+    /// The disc: an image of one ([`crate::disc::Disc`]: a cue sheet, a bare image), or the
+    /// directory its files were copied to.
     pub disc: Option<PathBuf>,
     /// Where the files of the other devices are.
     pub root: Option<PathBuf>,
-    image: Option<crate::iso::Iso<std::fs::File>>,
+    /// The image and its file system, once asked for; a disc with no file system (a sound
+    /// disc) has the image alone.
+    image: Option<Image>,
+}
+
+enum Image {
+    Files(crate::iso::Iso<crate::disc::Cooked>),
+    Sectors(crate::disc::Disc),
+}
+
+impl Image {
+    fn disc(&mut self) -> &mut crate::disc::Disc {
+        match self {
+            Self::Files(iso) => &mut iso.source_mut().disc,
+            Self::Sectors(disc) => disc,
+        }
+    }
 }
 
 impl Directory {
@@ -265,10 +291,22 @@ impl Directory {
         (device, path.trim_start_matches('/').to_owned())
     }
 
-    fn image(&mut self) -> Option<&mut crate::iso::Iso<std::fs::File>> {
+    fn image(&mut self) -> Option<&mut Image> {
         if self.image.is_none() {
             let path = self.disc.as_ref().filter(|p| p.is_file())?;
-            self.image = crate::iso::Iso::open(std::fs::File::open(path).ok()?);
+            let disc = match crate::disc::Disc::open(path) {
+                Ok(disc) => disc,
+                Err(why) => {
+                    eprintln!("ra: no disc: {why}");
+                    // Asked once: the drive is empty from here on.
+                    self.disc = None;
+                    return None;
+                }
+            };
+            self.image = Some(match crate::iso::Iso::open(crate::disc::Cooked::new(disc)) {
+                Ok(iso) => Image::Files(iso),
+                Err(cooked) => Image::Sectors(cooked.disc),
+            });
         }
         self.image.as_mut()
     }
@@ -357,8 +395,10 @@ impl Storage for Directory {
             if write {
                 return None;
             }
-            if let Some(image) = self.image() {
-                return image.file(&path).map(|bytes| Box::new(Bytes { bytes, at: 0 }) as Box<dyn File>);
+            match self.image() {
+                Some(Image::Files(iso)) => return iso.file(&path).map(|bytes| Box::new(Bytes { bytes, at: 0 }) as Box<dyn File>),
+                Some(Image::Sectors(_)) => return None,
+                None => {}
             }
             let found = find(self.disc.as_ref().filter(|p| p.is_dir())?, &path)?;
             return std::fs::File::open(found).ok().map(|f| Box::new(HostFile(f)) as Box<dyn File>);
@@ -374,7 +414,18 @@ impl Storage for Directory {
     }
 
     fn sector(&mut self, lba: u32) -> Option<Vec<u8>> {
-        self.image()?.sector(lba)
+        self.image()?.disc().data(lba)
+    }
+
+    fn raw_sector(&mut self, lba: u32) -> Option<Vec<u8>> {
+        self.image()?.disc().raw(lba)
+    }
+
+    fn tracks(&mut self) -> (Vec<crate::disc::Track>, u32) {
+        self.image().map_or((Vec::new(), 0), |image| {
+            let disc = image.disc();
+            (disc.tracks().to_vec(), disc.sectors())
+        })
     }
 }
 

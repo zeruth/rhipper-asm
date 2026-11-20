@@ -124,6 +124,8 @@ pub struct Memory {
     stores: u64,
     loads: u64,
     counted: (u64, u64),
+    /// The ranges [`Memory::watch`] named, each with whether it was written since it was asked.
+    watched: Vec<(u64, u64, bool)>,
     /// The byte order of the program's words: the module's, which [`Memory::read_word`] and
     /// [`Memory::write_word`] follow; the fixed-width accessors stay in the host's order, the
     /// order of the machine state.
@@ -186,10 +188,31 @@ impl Memory {
         std::mem::take(&mut self.device_written)
     }
 
+    /// Watches the `len` bytes at `start` for writes, and gives the watch's number: code a
+    /// program copied there, which is the lifted function of its address while it stays as it
+    /// was copied.
+    pub fn watch(&mut self, start: u64, len: u64) -> usize {
+        self.watched.push((start, len, true));
+        self.watched.len() - 1
+    }
+
+    /// Whether the range of watch `number` was written since the last ask; a new watch says so
+    /// once.
+    pub fn take_written(&mut self, number: usize) -> bool {
+        self.watched.get_mut(number).is_some_and(|watch| std::mem::take(&mut watch.2))
+    }
+
     /// Counts the writes to the `len` bytes at `start` from now on: a console's RAM, apart from
     /// the machine state and the stack the run keeps elsewhere.
     pub fn count_stores(&mut self, start: u64, len: u64) {
         self.counted = (start, len);
+    }
+
+    /// Counts `loads` and `stores` a compiled program made in the counted range itself, with no
+    /// call of the memory.
+    pub fn count(&mut self, loads: u64, stores: u64) {
+        self.loads += loads;
+        self.stores += stores;
     }
 
     /// How many writes the counted range has taken so far: a host that asks twice knows whether
@@ -316,6 +339,11 @@ impl Memory {
         }
         if address.wrapping_sub(self.counted.0) < self.counted.1 {
             self.stores += 1;
+        }
+        for (start, len, written) in &mut self.watched {
+            if address < *start + *len && *start < address + bytes.len() as u64 {
+                *written = true;
+            }
         }
         let region = self.locate(address, bytes.len() as u64)?;
         let region = &mut self.regions[region];
