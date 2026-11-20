@@ -1,0 +1,2 @@
+draw: ready
+draw: A at 150 110

@@ -521,6 +521,20 @@ impl Platform for Psx {
         &BLOCKS
     }
 
+    fn map(&self) -> crate::Map {
+        // The ports through the three segments, and the cache control, which is in none. The
+        // 2 MiB of RAM answer through the 8 MiB the memory control maps, in every segment.
+        const PORTS_AT: [Block; 4] = [
+            Block::new("ports", PORTS, PORTS_LEN),
+            Block::new("ports", 0x8000_0000 | PORTS, PORTS_LEN),
+            Block::new("ports", 0xa000_0000 | PORTS, PORTS_LEN),
+            Block::new("cache", CACHE_CONTROL, 4),
+        ];
+        const SCRATCHPAD: [crate::Extra; 1] =
+            [crate::Extra { name: "scratchpad", start: 0x1f80_0000, len: 0x400, mirrors: &[0x9f80_0000] }];
+        crate::Map { order: crate::Order::Little, ports: &PORTS_AT, ram: &[0x0000_0000, 0xa000_0000], repeats: 4, extras: &SCRATCHPAD }
+    }
+
     fn fold(&self, address: u64) -> Option<u64> {
         let address = u32::try_from(address).ok()?;
         if u64::from(address) == CACHE_CONTROL {

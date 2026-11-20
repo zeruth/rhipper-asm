@@ -457,13 +457,6 @@ fn run_here(
     vm.observer = options.observer.clone().map(|watch| Box::new(watch) as Box<dyn Observer>);
     vm.set_static_region(statics.start, statics.len);
     vm.set_frame_region(frames.start, frames.len);
-    let console = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-    // A Nintendo 64 program's console is the ISViewer buffer in the cartridge's domain, which
-    // `debugf` writes through the PI.
-    if image.platform() == Some("n64") {
-        let devices = host::N64::new(console.clone(), options.live, len);
-        vm.memory.add_device(host::N64_DEVICES, host::N64_DEVICES_LEN, Box::new(devices));
-    }
     // A PlayStation's ROM is the image itself, where the console has it, beside its RAM.
     if image.psx_bios.is_some() {
         vm.memory.add_region(Region::owned(base, u64::from(image.size_of_image()), "rom"));
@@ -551,7 +544,6 @@ fn run_here(
     };
     let resolved = std::mem::take(&mut runtime.resolved);
     let mut output = std::mem::take(&mut runtime.output);
-    output.extend(console.take());
     if let Some(machine) = &runtime.machine {
         output.extend_from_slice(&machine.capture.lock().console);
     }

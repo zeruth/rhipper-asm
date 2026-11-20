@@ -179,7 +179,7 @@ svg .lbl { fill: var(--text) }
   <span class="dot" title="idle"></span><span class="proj">rhipper-asm</span>
   <span class="dim">main @ <span id="head">?</span> · <span id="date">?</span> · rebuilt on every push</span>
   <nav aria-label="Sections">
-    <a href="#matrix">Matrix</a><a href="#families">Families</a><a href="#engine">Engine</a><a href="#road">Road</a><a href="#method">Method</a>
+    <a href="#matrix">Matrix</a><a href="#consoles">Consoles</a><a href="#families">Families</a><a href="#engine">Engine</a><a href="#road">Road</a><a href="#method">Method</a>
   </nav>
 </div>
 
@@ -214,6 +214,16 @@ svg .lbl { fill: var(--text) }
     <div class="scroll"><table class="matrix" id="mx"></table></div>
   </section>
 
+  <section id="consoles">
+    <div class="head">
+      <div class="eyebrow">The scoreboard</div>
+      <h2>Each console's machine, against the PlayStation's</h2>
+      <p class="dim">The matrix's Runtime column, taken apart. A console's program is half machine: rows are the consoles with a platform runtime, columns are the parts of the machine every console has. All of them answer through one boundary and one memory map description, so a part built for one console is the pattern for the next.</p>
+    </div>
+    <div class="scroll"><table class="matrix" id="cs"></table></div>
+    <p class="dim" style="font-size:.82rem">5: a committed fixture or a real program crosses the part end to end and its picture or output is checked. 4: the part works and is tested at its registers or calls. 3: part of it is there. 0: not there. n/a: the console has no such part. Lines, tests and fixtures are counted from <span class="mono">crates/ra-asm-platform</span> and <span class="mono">testdata</span>.</p>
+  </section>
+
   <section id="families">
     <div class="head">
       <div class="eyebrow">In depth</div>
@@ -232,7 +242,8 @@ svg .lbl { fill: var(--text) }
       <div class="panel"><h3>Rust lines by crate</h3><p class="dim" style="margin:4px 0 12px">Source and tests together. The ARM decoders are thin because the ARM64 decoder wraps <span class="mono">yaxpeax-arm</span>. x86 wraps <span class="mono">iced-x86</span>.</p><div class="hbars" id="loc"></div></div>
       <div class="panel"><h3>Tests by crate</h3><p class="dim" style="margin:4px 0 12px">The count of <span class="mono">#[test]</span> functions: <span id="ntests">?</span> in all. The instruction oracle runs x86 forms on the host CPU.</p><div class="hbars" id="tests"></div></div>
       <div class="panel"><h3>Instruction forms the lifts name</h3><p class="dim" style="margin:4px 0 12px">The distinct decoder opcodes each lift handles. Each architecture is counted its own way, so these are scale, not exact parity.</p><div class="hbars" id="forms"></div></div>
-      <div class="panel"><h3>Boundary knowledge</h3><p class="dim" style="margin:4px 0 12px">What asm knows about the platform a program calls into. Win32 is the only full boundary today. The console boundaries are roadmap sections.</p><div class="hbars" id="boundary"></div></div>
+      <div class="panel"><h3>Boundary knowledge</h3><p class="dim" style="margin:4px 0 12px">What asm knows about the platform a program of an operating system calls into. Win32 is the only full one. A console's boundary is its platform runtime, beside this panel.</p><div class="hbars" id="boundary"></div></div>
+      <div class="panel"><h3>Console runtimes</h3><p class="dim" style="margin:4px 0 12px">The lines of each console's machine in <span class="mono">ra-asm-platform</span>, and of what the consoles share: the host, the clock, the rasterizer, the scan-out, the disc, the pad.</p><div class="hbars" id="runtimes"></div></div>
     </div>
     <div class="panel">
       <h3>Committed fixtures: container × machine</h3>
@@ -269,7 +280,8 @@ svg .lbl { fill: var(--text) }
         <li><b>1 · envisioned</b>: an endgame section names it (phases 4–11), with no cards yet.</li>
         <li><b>0</b>: nothing yet.</li>
       </ul>
-      <p>Line, test and card counts are measured. Levels are judged from those counts plus the accepted cards' acceptance criteria, so treat them as ±1. The "retail" column means one commercial program from your own copy, carried from boot to its title screen (card 100, §422). No platform has reached it.</p>
+      <p>Line, test and card counts are measured. Levels are judged from those counts plus the accepted cards' acceptance criteria, so treat them as ±1. The "retail" column means one commercial program from your own copy, carried from boot to its title screen (card 100, §422). The PlayStation has reached it; no other platform has.</p>
+      <p>The consoles' scoreboard uses the same six levels for the parts of a console's machine. A 5 there is a part a committed fixture or a real program crosses end to end with its picture or output checked; a 4 is a part tested at its registers or calls alone.</p>
     </div>
   </section>
 </div>
@@ -288,7 +300,7 @@ const FAMILIES = [
     platforms: [
       { n: "Windows x86 (PE32)", s: [5, 5, 5, 4, 4, 5, 4, 2], d: "18 fixtures; the instruction oracle runs on the host CPU; driver.c and rhipper.h provide the Win32 host" },
       { n: "Windows x64 (PE32+)", s: [5, 5, 5, 4, 4, 5, 4, 2], d: "19 fixtures including PDB, C++ throw and SEH; the -O1 control build" },
-      { n: "Original Xbox (XBE)", s: [5, 5, 4, 3, 3, 4, 1, 1], d: "xbe.rs is 743 lines with 237 lines of tests; the fixture's port prints its expected output; the kernel exports are §440" },
+      { n: "Original Xbox (XBE)", s: [5, 5, 4, 3, 3, 4, 1, 1], d: "xbe.rs is 743 lines with 237 lines of tests; the fixture's port prints its expected output; the kernel exports and a platform runtime are §440" },
       { n: "Linux x86-64 (ELF)", s: [4, 5, 5, 3, 3, 4, 1, 0], d: "hello_linux64 with a golden output; the libc and syscall boundary is §440" },
       { n: "macOS x86-64 (Mach-O)", s: [4, 5, 5, 3, 3, 3, 1, 0], d: "hello_macos_x64; macho.rs is 1 071 lines in ra-asm-format" },
       { n: "DOS (real mode)", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "Segments, real mode and DOS extenders as loaders: §440" },
@@ -310,19 +322,19 @@ const FAMILIES = [
       { n: "Nintendo 3DS (ARM11)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "ARMv6: §439" },
     ],
     note: "The ARM lifts were checked against outputs only, not instruction by instruction. Cards 364–366 add assembled cases and qemu vectors, so they get the same per-form proof x86 has." },
-  { id: "mips", name: "MIPS · R3000, R5900, Allegrex, VR4300", tag: "fully carded", color: "var(--debug)",
-    blurb: "The most planned family and the first one built from a machine description instead of hand-written code. The 79-card \"Machines from descriptions\" milestone builds a table mechanism, a qemu-user reference harness, big-endian support, the PlayStation with its GTE, and the Emotion Engine with MMI. No MIPS code exists yet.",
-    facts: [["{cards}", "cards on the roadmap"], ["{accepted}", "accepted"], ["{s333}", "PlayStation cards"], ["{s347}", "Emotion Engine cards"], ["{s313}", "image-to-C cards"], ["qemu", "reference oracle"]],
+  { id: "mips", name: "MIPS · R3000, R5900, Allegrex, VR4300", tag: "running", color: "var(--debug)",
+    blurb: "The first family built from a machine description instead of hand-written code: one table decodes and lifts the R3000, the R5900 with its MMI and the vector units, the Allegrex with its VFPU and the VR4300, in both byte orders. The PlayStation is the furthest console on the map: its BIOS ROM lifts whole and compiles as a port, and a commercial disc boots through it to its title sequence. The Nintendo 64 and the PSP run homebrew that draws, reads the controller and waits for the blank, on runtimes behind the same platform boundary.",
+    facts: [["{cards}", "cards on the roadmap"], ["{accepted}", "accepted"], ["{mips_lift_lines}", "lines in the MIPS lift"], ["{rt_psx}", "PlayStation runtime lines"], ["{rt_others}", "lines in the other consoles' runtimes"], ["{console_fixtures}", "console fixtures"]],
     scope: { milestones: [79, 278], exclude: [364, 365, 366], sections: [414, 415, 416, 417, 418, 419, 434] },
     keyCards: [[288, "A row, and a decoder built from rows", "def"], [297, "The harness and its MIPS trampoline", "def"], [313, "A MIPS program, from image to C (13 cards)", "def"], [335, "A PSX-EXE is an Image, with the memory map", "def"], [339, "The GTE's registers, as a sub-machine", "def"], [348, "The R5900 machine: 128-bit registers", "def"], [417, "The PlayStation 2: vector units", "env"], [434, "The PSP and the Nintendo 64", "env"]],
     platforms: [
-      { n: "Linux MIPS (mipsel / mips ELF)", s: [2, 2, 2, 2, 2, 2, 2, 0], d: "Freestanding fixtures, o32 as an Abi constant, Linux syscalls in the interpreter (cards 314–325)" },
-      { n: "PlayStation (R3000A + GTE)", s: [2, 2, 2, 2, 2, 2, 2, 2], d: "PSX-EXE, BIOS A0/B0/C0 tables as rows, two independent GTEs (cards 334–346); GPU and SPU are §414–416" },
-      { n: "PlayStation 2 (EE R5900 · VU · IOP)", s: [2, 2, 2, 2, 2, 2, 2, 2], d: "EE ELF and memory map, MMI, non-IEEE float, kernel syscalls (cards 348–362); VU and IOP are §417–419" },
-      { n: "PSP (Allegrex + VFPU)", s: [2, 2, 2, 1, 1, 1, 1, 1], d: "PRX module info and NIDs (cards 86, 147); §434" },
-      { n: "Nintendo 64 (VR4300 + RSP)", s: [2, 2, 2, 1, 1, 1, 1, 1], d: "ROM byte orders, libdragon, RSP microcode as epochs (cards 87, 148, 152)" },
+      { n: "Linux MIPS (mipsel / mips ELF)", s: [5, 5, 5, 4, 4, 4, 3, 0], d: "control and hello in both byte orders on the scoreboard; objdump listings at four optimisation levels; the Linux system calls a freestanding program makes, in the interpreter" },
+      { n: "PlayStation (R3000A + GTE)", s: [5, 5, 5, 4, 3, 4, 5, 4], d: "PS-X EXE, BIOS ROM and disc images; the GPU, SPU, MDEC, CD-ROM, pads and memory cards in software; a ROM lifts whole and compiles as a port; a commercial disc reaches its title sequence and its demo" },
+      { n: "PlayStation 2 (EE R5900 · VU · IOP)", s: [5, 4, 4, 3, 3, 3, 3, 2], d: "EE ELF and IRX modules; MMI and the vector units' microcode lift; the GS in software and the EE kernel answered; the IOP, and with it pads, sound and files, is §418" },
+      { n: "Nintendo 64 (VR4300 + RSP)", s: [5, 4, 4, 3, 2, 3, 3, 1], d: "z64, v64 and n64 dumps; libdragon homebrew draws, takes the video interface's interrupt as the VR4300's exception and reads the controller through the PIF; the RSP and the RDP are cards 152 and §434" },
+      { n: "PSP (Allegrex + VFPU)", s: [5, 4, 4, 3, 2, 3, 3, 1], d: "PRX with its imports named by NID; the VFPU form by form; threads, the display, the controller and the sound channels answered; the graphics engine is §434" },
     ],
-    note: "This family proves the bet. If the table mechanism makes the second and third MIPS machines cheap, every family after it is mostly data." },
+    note: "The table carried the second, third and fourth MIPS machines. The same holds a level up now: the Nintendo 64 and the PSP reached a drawn, controlled frame on the boundary the PlayStation's runtime fixed. The roadmap's cards for this family trail the code." },
   { id: "ppc", name: "PowerPC · Gekko, Broadway, Xenon, Cell PPU", tag: "carded", color: "var(--trace)",
     blurb: "One table is planned for the whole family: Gekko's and Broadway's paired singles, VMX and VMX128, and the Cell's PPU. DOL and REL for the GameCube and Wii have cards. The Xbox 360's XEX is blocked, and XEX and SELF are limited to images you have already decrypted.",
     facts: [["{cards}", "cards on the roadmap"], ["{blocked}", "blocked"], ["4", "consoles named"], ["BE", "needs big-endian (cards 326–332)"], ["§435", "endgame section"]],
@@ -335,17 +347,17 @@ const FAMILIES = [
       { n: "PlayStation 3 (Cell PPU)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "SELF, decrypted only; the SPUs are not named yet" },
     ],
     note: "Waits on the big-endian work in MIPS's milestone, which is shared by every big-endian family after it." },
-  { id: "sh", name: "SuperH · SH-4 and SH-2", tag: "blocked", color: "var(--err)",
-    blurb: "The Dreamcast's cards exist (the SH-4 decoder, its lift and the KallistiOS raise, and 1ST_READ.BIN), but all three are blocked. They reuse the delay-slot lifter the MIPS phase builds. The Saturn and 32X use SH-2 in the same table.",
-    facts: [["{cards}", "cards on the roadmap"], ["{blocked}", "blocked"], ["3", "consoles named"], ["delay", "slots shared with MIPS"], ["KOS", "signatures for Dreamcast"], ["§436", "endgame section"]],
+  { id: "sh", name: "SuperH · SH-4 and SH-2", tag: "decoding", color: "var(--err)",
+    blurb: "The Dreamcast's boot program loads, plain or scrambled, and the SH-4 decodes, checked against objdump. The lift is not written, so no Dreamcast program runs yet; the console's machine is there ahead of it (Holly's interrupts, the Maple bus with its controllers, the video output, the SH-4's timers and serial port), tested at its registers. The lift reuses the delay-slot lifter MIPS built. The Saturn and 32X use SH-2 in the same table.",
+    facts: [["{cards}", "cards on the roadmap"], ["{blocked}", "blocked"], ["{sh_decoder_lines}", "SH-4 decoder lines"], ["{rt_dreamcast}", "Dreamcast runtime lines"], ["delay", "slots shared with MIPS"], ["§436", "endgame section"]],
     scope: { ids: [143, 93, 153], sections: [436] },
     keyCards: [[143, "The SH-4 decoder", "blk"], [93, "Dreamcast: 1ST_READ.BIN and the KallistiOS signatures", "blk"], [153, "The SH-4 lift and the KOS raise", "blk"], [436, "SH-4 and SH-2 as one table", "env"]],
     platforms: [
-      { n: "Dreamcast (SH-4)", s: [2, 2, 2, 2, 1, 1, 1, 1], d: "Cards 93, 143, 153, all blocked", blocked: true },
+      { n: "Dreamcast (SH-4)", s: [4, 4, 2, 2, 1, 1, 3, 1], d: "1ST_READ.BIN and the decoder are in; the lift and the KallistiOS raise are card 153, still marked blocked; the runtime waits for a carrier", blocked: true },
       { n: "Sega Saturn (2× SH-2)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "§436" },
       { n: "Sega 32X (SH-2)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "§436" },
     ],
-    note: "Card 93 also has a review asking for substantive revision. Unblocking SH-4 should wait until the MIPS table mechanism lands." },
+    note: "The MIPS table mechanism has landed, so the SH-4 lift is next for this family: with it the Dreamcast's runtime gets its first program." },
   { id: "m68k", name: "Motorola 68000", tag: "envisioned", color: "var(--moon-b)",
     blurb: "The first variable-length machine the table format has to describe, built from extension words. Planned containers: ROM images, Amiga Hunk files and the classic Mac's resource forks.",
     facts: [["0", "cards"], ["4", "platforms named"], ["v2", "row format needed"], ["§437", "endgame section"]],
@@ -398,7 +410,15 @@ const fxRow = (name) => (M.fixtures.rows.find((r) => r[0] === name) || [name, [0
 const pe = fxRow("PE"), elf = fxRow("ELF"), macho = fxRow("Mach-O");
 const boundary = Object.fromEntries(M.boundary);
 const GLOBAL = { ...M.forms, win32: fmt((boundary["Win32 protos"] || 0) + (boundary["Win32 names"] || 0)),
-  pe_x86: pe[0] + pe[1], arm_fixtures: pe[2] + pe[3] + elf[2] + elf[3] + macho[2] + macho[3], thumb_decoder_lines: fmt(M.forms.thumb_decoder_lines) };
+  pe_x86: pe[0] + pe[1], arm_fixtures: pe[2] + pe[3] + elf[2] + elf[3] + macho[2] + macho[3], thumb_decoder_lines: fmt(M.forms.thumb_decoder_lines),
+  mips_lift_lines: fmt(M.forms.mips_lift_lines), sh_decoder_lines: fmt(M.forms.sh_decoder_lines) };
+// the consoles' platform runtimes: each console's own lines, and the rest's beside the PlayStation's
+const RUNTIME_NAMES = { psx: "PlayStation", ps2: "PlayStation 2", n64: "Nintendo 64", psp: "PSP", dreamcast: "Dreamcast", shared: "shared by all" };
+const runtime = (id) => M.runtimes[id] || { lines: 0, tests: 0, fixtures: 0, golden: 0 };
+const consoleIds = Object.keys(M.runtimes).filter((id) => id !== "shared");
+consoleIds.forEach((id) => { GLOBAL["rt_" + id] = fmt(runtime(id).lines); });
+GLOBAL.rt_others = fmt(consoleIds.filter((id) => id !== "psx").reduce((a, id) => a + runtime(id).lines, 0));
+GLOBAL.console_fixtures = consoleIds.reduce((a, id) => a + runtime(id).fixtures, 0);
 const milestone = (id) => M.milestones.find((m) => m.id === id) || { tasks: [], sections: [] };
 const sectionTasks = (id) => { // the tasks under a section: the ids that follow it in its milestone up to the next section
   for (const m of M.milestones) { const i = m.sections.indexOf(id); if (i >= 0) { const next = m.sections[i + 1] ?? Infinity; return m.tasks.filter((t) => t > id && t < next); } }
@@ -464,6 +484,33 @@ FAMILIES.forEach((f) => {
 });
 mx.append(tb);
 
+// the consoles' scoreboard: the parts of a console's machine, the PlayStation's first
+const PARTS = ["Registers", "Video out", "Renderer", "Input", "Sound", "Text", "Interrupts", "Kernel", "Runs"];
+const PART_TIPS = ["the devices behind the console's registers", "the picture the video output shows reaches the host's window", "the graphics processor draws what a program sends it", "the controllers are the host's pad", "what the console plays reaches the host's sound", "the console's text output is captured", "the machine's interrupts reach the program", "the BIOS or kernel a program calls is answered", "a carrier runs a program against the machine"];
+// null: the console has no such part (a user module sees no register; a console without a kernel)
+const CONSOLES = [
+  { id: "psx", s: [5, 5, 5, 5, 4, 5, 5, 5, 5], d: "Every device in software; its kernel answered, or a ROM's own run from reset; homebrew, a BIOS ROM and a commercial disc; the interpreter and a compiled port" },
+  { id: "ps2", s: [3, 4, 4, 0, 0, 5, 4, 4, 3], d: "The EE's side: timers, the GIF and its DMA channel, the GS in software, the EE kernel answered; pads, sound and files wait for the IOP; a program runs from main" },
+  { id: "n64", s: [4, 5, 0, 5, 4, 5, 5, null, 5], d: "The RCP's interfaces and the PIF; the frame buffer the video interface shows; interrupts as the VR4300's exception into the program's own handler; the RSP runs no task and the RDP draws nothing" },
+  { id: "psp", s: [null, 5, 0, 5, 4, 5, null, 3, 5], d: "A user module's calls: the display, the controller, the sound channels, the clock, the threads; the graphics engine runs no display list" },
+  { id: "dreamcast", s: [3, 4, 0, 4, 0, 4, 3, 0, 0], d: "Holly's interrupts, the Maple bus, the video output, the SH-4's timers and serial port, at their registers; no carrier runs an SH-4 program yet; the renderer, the AICA and the drive are not there" },
+];
+(function () {
+  const cs = $("#cs");
+  cs.append(h("thead", {}, `<tr><th>Console</th>${PARTS.map((p, i) => `<th title="${PART_TIPS[i]}">${p}</th>`).join("")}<th title="lines of the console's runtime">Lines</th><th title="tests of the console's runtime">Tests</th><th title="fixtures, and those with a golden output">Fixtures</th></tr>`));
+  const body = h("tbody");
+  CONSOLES.forEach((c) => {
+    const r = runtime(c.id);
+    body.append(h("tr", {}, `<td class="plat"><b>${RUNTIME_NAMES[c.id]}</b><small>${c.d}</small></td>` +
+      c.s.map((v, i) => v === null ? `<td class="cell"><div style="color:var(--dim);border:1px dashed var(--rule)" title="${PARTS[i]}: no such part on this console">n/a</div></td>`
+        : `<td class="cell"><div class="L${v}" title="${PARTS[i]}: ${LEVELS[v]}">${v || "·"}</div></td>`).join("") +
+      `<td class="num">${fmt(r.lines)}</td><td class="num">${r.tests}</td><td class="num">${r.fixtures}<span class="dim"> · ${r.golden}</span></td>`));
+  });
+  const shared = runtime("shared");
+  body.append(h("tr", {}, `<td class="plat"><b>Shared by all</b><small>The boundary and the memory map, the host and its headless form, the window, the clock, the rasterizer, the scan-out, the pad, the disc</small></td><td colspan="${PARTS.length}"></td><td class="num">${fmt(shared.lines)}</td><td class="num">${shared.tests}</td><td></td>`));
+  cs.append(body);
+})();
+
 // radar
 function radar(vals, color) {
   const cx = 140, cy = 140, R = 96, n = vals.length;
@@ -519,6 +566,7 @@ hbars("#loc", [...M.crates].sort((a, b) => b[1] - a[1]).map(([n, loc]) => [n, lo
 hbars("#tests", [...M.crates].filter((r) => r[2]).sort((a, b) => b[2] - a[2]).map(([n, , t]) => [n, t]));
 hbars("#forms", [["x86 lift", M.forms.x86, "var(--accent)"], ["AArch64 lift", M.forms.a64, "var(--warn-t)"], ["x87 lift", M.forms.x87, "var(--accent)"], ["AArch64 adapter", M.forms.a64_adapter, "var(--warn-t)"], ["Thumb-2 lift", M.forms.thumb, "var(--warn-t)"]].sort((a, b) => b[1] - a[1]));
 hbars("#boundary", M.boundary.map(([k, v]) => [k, v, "var(--accent)"]).sort((a, b) => b[1] - a[1]), (v) => v ? fmt(v) + " ln" : "—");
+hbars("#runtimes", Object.keys(M.runtimes).map((id) => [RUNTIME_NAMES[id] || id, runtime(id).lines, id === "shared" ? "var(--dim)" : "var(--debug)"]).sort((a, b) => b[1] - a[1]), (v) => fmt(v) + " ln");
 
 // fixtures matrix
 $("#fixt").innerHTML = `<thead><tr><th>Container</th>${M.fixtures.cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${M.fixtures.rows.map(([n, v]) => `<tr><td>${n}</td>${v.map((x) => `<td class="${x ? "yes" : "no"} num">${x || "·"}</td>`).join("")}</tr>`).join("")}</tbody>`;

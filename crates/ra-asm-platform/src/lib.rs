@@ -16,8 +16,10 @@
 //!
 //! The parts every console shares are modules of their own: the clock and its scheduled events
 //! ([`clock`]), the software rasterizer ([`raster`]), the controllers ([`pad`]), the ADPCM of the
-//! sound processors ([`adpcm`]), the disc ([`iso`]) and the host with its headless form
-//! ([`host`]). A console is a module that lays its devices over them: [`psx`], [`ps2`].
+//! sound processors ([`adpcm`]), the disc ([`iso`]), the frame buffer a video output shows
+//! ([`scanout`]) and the host with its headless form ([`host`]). A console is a module that lays
+//! its devices over them and says how its memory lies ([`Map`]), which is all a carrier needs to
+//! put the machine behind a program: [`psx`], [`ps2`], [`n64`], [`psp`], [`dreamcast`].
 // A renderer and a mixer turn pixel counts and fixed-point coordinates into floats and back on
 // every line; the values are screen coordinates and sample levels, far inside a float's range.
 #![allow(clippy::cast_precision_loss)]
@@ -70,14 +72,18 @@ pub mod profile {
 }
 
 pub mod disc;
+pub mod dreamcast;
 pub mod host;
 pub mod iso;
+pub mod n64;
 pub mod pad;
 pub mod png;
 pub mod printf;
 pub mod ps2;
+pub mod psp;
 pub mod psx;
 pub mod raster;
+pub mod scanout;
 #[cfg(windows)]
 pub mod window;
 
@@ -153,6 +159,23 @@ pub trait MemoryExt: Memory {
 
     fn set_u64(&mut self, address: u64, value: u64) {
         self.write(address, &value.to_le_bytes());
+    }
+
+    /// The word at `address` of a console whose words are in `order`.
+    fn word(&mut self, address: u64, order: Order) -> u32 {
+        let mut b = [0; 4];
+        self.read(address, &mut b);
+        match order {
+            Order::Little => u32::from_le_bytes(b),
+            Order::Big => u32::from_be_bytes(b),
+        }
+    }
+
+    fn set_word(&mut self, address: u64, value: u32, order: Order) {
+        match order {
+            Order::Little => self.write(address, &value.to_le_bytes()),
+            Order::Big => self.write(address, &value.to_be_bytes()),
+        };
     }
 
     fn bytes(&mut self, address: u64, len: usize) -> Vec<u8> {
@@ -234,6 +257,71 @@ impl Block {
     }
 }
 
+/// The order of the bytes of a word in a console's memory and on its bus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Order {
+    #[default]
+    Little,
+    Big,
+}
+
+impl Order {
+    /// The low `buf.len()` bytes of `value` as the console's memory holds them.
+    pub fn put(self, value: u64, buf: &mut [u8]) {
+        let len = buf.len().min(8);
+        match self {
+            Self::Little => buf[..len].copy_from_slice(&value.to_le_bytes()[..len]),
+            Self::Big => buf[..len].copy_from_slice(&value.to_be_bytes()[8 - len..]),
+        }
+    }
+
+    /// The value the first eight bytes of `bytes` at the most are, as the console's memory holds
+    /// one.
+    pub fn get(self, bytes: &[u8]) -> u64 {
+        let len = bytes.len().min(8);
+        let mut word = [0u8; 8];
+        match self {
+            Self::Little => {
+                word[..len].copy_from_slice(&bytes[..len]);
+                u64::from_le_bytes(word)
+            }
+            Self::Big => {
+                word[8 - len..].copy_from_slice(&bytes[..len]);
+                u64::from_be_bytes(word)
+            }
+        }
+    }
+}
+
+/// Memory a console has beside the RAM its program is in (a scratchpad, the video memory), at
+/// its own address and at each address that mirrors it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Extra {
+    pub name: &'static str,
+    pub start: u64,
+    pub len: u64,
+    pub mirrors: &'static [u64],
+}
+
+/// How a console's memory lies, which is all a carrier has to know of the console to put its
+/// machine behind a program: where the device registers answer, where the RAM answers again,
+/// and what memory there is beside the RAM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Map {
+    pub order: Order,
+    /// Every run of addresses the device registers answer at, each mirror a run of its own. An
+    /// access in one goes to [`Platform::fold`] and then to [`Platform::read`] or
+    /// [`Platform::write`].
+    pub ports: &'static [Block],
+    /// The first address of each segment the RAM answers through beside the one the program is
+    /// linked in: the RAM is at the same place of each.
+    pub ram: &'static [u64],
+    /// How many times in a row the RAM answers in each segment: once, or more where the
+    /// console's address decoder leaves the RAM's upper address lines out.
+    pub repeats: u64,
+    pub extras: &'static [Extra],
+}
+
 /// Code of the program the machine runs for it: an interrupt handler or a callback, entered as a
 /// call with its arguments in the first argument registers, on a stack of its own when the
 /// program gave it one. The run that carries the program makes the call and reports its end.
@@ -283,6 +371,17 @@ pub trait Platform {
 
     /// The device registers the console answers, in address order.
     fn blocks(&self) -> &'static [Block];
+
+    /// How the console's memory lies.
+    fn map(&self) -> Map;
+
+    /// What the console's own start leaves for the program before its first instruction (a boot
+    /// program's report, a kernel's tables), with the RAM the carrier gave the program: its
+    /// first address and its length.
+    fn start(&mut self, _memory: &mut dyn Memory, _ram: (u64, u64)) {}
+
+    /// The cartridge in the console's slot: the bytes of its ROM, in the cartridge's own order.
+    fn cartridge(&mut self, _rom: Vec<u8>) {}
 
     /// The register an address of the program reaches through the console's mirrors; `None` for
     /// memory.
@@ -338,9 +437,47 @@ pub fn of(name: &str, host: Host) -> Option<Box<dyn Platform>> {
     match name {
         "psx" => Some(Box::new(psx::Psx::new(host))),
         "ps2" => Some(Box::new(ps2::Ps2::new(host))),
+        "n64" => Some(Box::new(n64::N64::new(host))),
+        "psp" => Some(Box::new(psp::Psp::new(host))),
+        "dreamcast" => Some(Box::new(dreamcast::Dreamcast::new(host))),
         _ => None,
     }
 }
 
 /// The consoles [`of`] has a runtime for.
-pub const NAMES: [&str; 2] = ["psx", "ps2"];
+pub const NAMES: [&str; 5] = ["psx", "ps2", "n64", "psp", "dreamcast"];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_value_goes_to_bytes_and_back_in_either_order() {
+        let mut buf = [0u8; 2];
+        Order::Little.put(0x1234_5678, &mut buf);
+        assert_eq!(buf, [0x78, 0x56]);
+        Order::Big.put(0x1234_5678, &mut buf);
+        assert_eq!(buf, [0x56, 0x78]);
+        assert_eq!(Order::Big.get(&[0x12, 0x34, 0x56, 0x78]), 0x1234_5678);
+        assert_eq!(Order::Little.get(&[0x12, 0x34, 0x56, 0x78]), 0x7856_3412);
+    }
+
+    #[test]
+    fn every_console_named_has_a_runtime_whose_ports_fold_to_registers() {
+        for name in NAMES {
+            let platform = of(name, Host::headless(&host::Capture::new())).unwrap_or_else(|| panic!("{name} has no runtime"));
+            assert_eq!(platform.name(), name);
+            let map = platform.map();
+            assert!(map.repeats >= 1, "{name}");
+            for port in map.ports {
+                assert!(platform.fold(port.start).is_some(), "{name}: {:#x} folds to no register", port.start);
+            }
+            // Every block is reached through a run of ports.
+            for block in platform.blocks() {
+                let reached =
+                    |port: &Block| platform.fold(port.start).is_some_and(|first| block.start >= first && block.start - first < port.len);
+                assert!(map.ports.iter().any(reached), "{name}: no port reaches {}", block.name);
+            }
+        }
+    }
+}

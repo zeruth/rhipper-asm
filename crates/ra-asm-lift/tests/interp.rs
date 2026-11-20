@@ -380,6 +380,77 @@ fn psp_hello_runs_interpreted() {
     assert_eq!(outcome.exit, 0, "psp hello: the interpreted program's exit");
 }
 
+/// The PSP's drawing fixture over the PSP's platform runtime, headless: the program draws into a
+/// frame buffer in the video memory, through the uncached mirror, names it to the display, reads
+/// the controller and waits for the vertical blank each frame. Under a script that holds right
+/// and down for three frames and then presses the cross button, it prints where the square got
+/// to, and its eighth frame shows the square there over what the program drew first.
+#[test]
+fn psp_draw_shows_its_frame_buffer_and_reads_the_pad() {
+    use ra_asm_lift::run::{Capture, Console, Options};
+    let image = ra_asm_pe::load(&root().join("testdata/psp/draw.prx")).unwrap();
+    let expected = std::fs::read_to_string(root().join("testdata/psp/draw.txt")).unwrap().replace("\r\n", "\n");
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    assert_eq!(ra_asm_lift::coverage(&analysis, &lifted).traps(), 0, "psp draw: unsupported instructions");
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+    lifted.entry = image.entry_point();
+
+    let held = |buttons: &str| ra_asm_lift::run::pad(buttons).unwrap();
+    let capture = Capture::new().limit(8).keep(&[8]).press(2, 0, held("right+down")).press(5, 0, held("cross")).press(7, 0, held("none"));
+    let console = Console { capture: Some(capture.clone()), ..Console::default() };
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &Options { console: Some(console), ..Options::default() }).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("psp draw: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!((outcome.exit, &outcome.stop), (0, &None), "psp draw: the run ends with its last frame");
+
+    let kept = capture.lock();
+    let frame = kept.kept.get(&8).expect("the eighth frame was presented");
+    assert_eq!((frame.width, frame.height), (480, 272));
+    let at = |x: usize, y: usize| frame.pixels[y * 480 + x];
+    assert_eq!((at(10, 10), at(469, 10), at(470, 10)), (0x00ff_ffff, 0x00ff_ffff, 0), "the line across the top");
+    assert_eq!((at(16, 200), at(80, 200), at(144, 200)), (0x00ff_0000, 0x0000_ff00, 0x0000_00ff), "the three blocks");
+    assert_eq!((at(230, 126), at(261, 157)), (0x00ff_ff00, 0x00ff_ff00), "the square where the pad moved it");
+    assert_eq!((at(229, 126), at(224, 120), at(262, 157)), (0x0000_2040, 0x0000_2040, 0), "what the square left is the background's");
+}
+
+/// The Nintendo 64's drawing fixture over the console's platform runtime, headless: a libdragon
+/// program whose frame buffers the video interface shows. `display_get` waits for the video
+/// interface's interrupt, which the run raises as the VR4300's exception into the program's
+/// own handler, and the joypad module reads the controller through the PIF by the serial
+/// interface's. Under a script that holds right and down for three frames and then presses the
+/// cross button (the controller's A), it prints where the square got to, and its eighth frame
+/// shows the square there.
+#[test]
+fn n64_draw_takes_its_interrupts_and_reads_the_controller() {
+    use ra_asm_lift::run::{Capture, Console, Options};
+    let image = ra_asm_pe::load(&root().join("testdata/n64/draw.z64")).unwrap();
+    let expected = std::fs::read_to_string(root().join("testdata/n64/draw.txt")).unwrap().replace("\r\n", "\n");
+    let analysis = ra_asm_analysis::analyze(&image);
+    let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
+    let mut lifted = ra_asm_lift::lift_with(&image, &analysis, options);
+    let options = lifted.raise_options(ra_asm_lift::RaiseLevel::Machine);
+    let signatures = ra_asm_lift::raise(&mut lifted.module, &lifted.roots, options);
+
+    let held = |buttons: &str| ra_asm_lift::run::pad(buttons).unwrap();
+    let capture = Capture::new().limit(8).keep(&[8]).press(2, 0, held("right+down")).press(5, 0, held("cross")).press(7, 0, held("none"));
+    let console = Console { capture: Some(capture.clone()), ..Console::default() };
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &Options { console: Some(console), ..Options::default() }).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("n64 draw: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!((outcome.exit, &outcome.stop), (0, &None), "n64 draw: the run ends with its last frame");
+
+    let kept = capture.lock();
+    let frame = kept.kept.get(&8).expect("the eighth frame was presented");
+    assert_eq!(frame.width, 320);
+    let at = |x: usize, y: usize| frame.pixels[y * 320 + x];
+    assert_eq!((at(10, 10), at(309, 10), at(310, 10)), (0x00ff_ffff, 0x00ff_ffff, 0), "the line across the top");
+    assert_eq!((at(150, 110), at(181, 141)), (0x00ff_ff00, 0x00ff_ff00), "the square where the controller moved it");
+    assert_eq!((at(149, 110), at(182, 141), at(0, 95)), (0x0000_2142, 0x0000_2142, 0), "the band behind it, and nothing above the band");
+}
+
 /// The image addresses of the functions of `module` that `root` reaches by its direct calls,
 /// its own among them.
 fn reached_from(module: &ra_asm_ir::Module, root: &str) -> std::collections::BTreeSet<u64> {

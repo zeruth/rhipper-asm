@@ -252,6 +252,21 @@ impl Platform for Ps2 {
         &BLOCKS
     }
 
+    fn map(&self) -> crate::Map {
+        // The registers at their own addresses and through `kseg1`; the RAM through its two
+        // uncached mirrors and the kernel's two segments.
+        const LEN: u64 = GS + 0x2000 - HARDWARE;
+        const PORTS: [Block; 2] = [Block::new("hardware", HARDWARE, LEN), Block::new("hardware", 0xa000_0000 | HARDWARE, LEN)];
+        const SCRATCH: [crate::Extra; 1] = [crate::Extra { name: "scratchpad", start: SCRATCHPAD, len: 0x4000, mirrors: &[] }];
+        crate::Map {
+            order: crate::Order::Little,
+            ports: &PORTS,
+            ram: &[0x2000_0000, 0x3000_0000, 0x8000_0000, 0xa000_0000],
+            repeats: 1,
+            extras: &SCRATCH,
+        }
+    }
+
     fn fold(&self, address: u64) -> Option<u64> {
         // A 32-bit address a 64-bit register holds sign-extended is the same address.
         let address = address as u32;

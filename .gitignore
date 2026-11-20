@@ -2,8 +2,8 @@
 /var
 /out
 /site
-/testdata/psp/hello.elf
-/testdata/psp/hello.o
+/testdata/psp/*.elf
+/testdata/psp/*.o
 /testdata/ps2/hello.o
 /testdata/ps2/rpc.o
 /testdata/ps2/obj

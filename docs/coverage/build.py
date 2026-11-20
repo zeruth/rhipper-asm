@@ -1,5 +1,6 @@
 """Builds the machine coverage report: measures the workspace (the roadmap's cards, the crates'
-lines and tests, the lifts' instruction forms, the committed fixtures, the commits) and writes
+lines and tests, the lifts' instruction forms, the consoles' platform runtimes, the committed
+fixtures, the commits) and writes
 the measurements into the page `index.html` beside this script, as `<out>/index.html`.
 
 The levels of each platform at each stage are judgement, kept in the page itself; everything this
@@ -75,7 +76,39 @@ def forms():
         "a64_adapter": distinct("crates/ra-asm-arm64/src/decode.rs", r"\bOpcode::(\w+)"),
         "thumb": distinct("crates/ra-asm-lift/src/thumb.rs", r"\bOp::(\w+)"),
         "thumb_decoder_lines": lines("crates/ra-asm-arm64/src/thumb.rs"),
+        # the MIPS machines are rows of one table, so their lift is counted by its lines
+        "mips_lift_lines": lines("crates/ra-asm-lift/src/mips.rs"),
+        "sh_decoder_lines": lines("crates/ra-asm-sh/src/decode.rs"),
     }
+
+
+def runtimes():
+    """The platform runtime of each console: its lines, its tests, and the console's committed
+    fixtures with their golden outputs. `shared` is what the consoles have in common."""
+    base = ROOT / "crates" / "ra-asm-platform" / "src"
+    consoles = {
+        "psx": ("psx", ["testdata/bin/*_psx.exe"], ["testdata/expected/*_psx.txt"]),
+        "ps2": ("ps2", ["testdata/ps2/*.elf", "testdata/ps2/*.irx"], ["testdata/ps2/*.txt"]),
+        "n64": ("n64.rs", ["testdata/n64/*.z64"], ["testdata/n64/*.txt"]),
+        "psp": ("psp.rs", ["testdata/psp/*.prx"], ["testdata/psp/*.txt"]),
+        "dreamcast": ("dreamcast.rs", ["testdata/dc/1ST_READ.BIN"], ["testdata/dc/*.txt"]),
+    }
+
+    def measure(files):
+        source = [f.read_text(encoding="utf-8") for f in files]
+        return {"lines": sum(len(s.splitlines()) for s in source), "tests": sum(s.count("#[test]") for s in source)}
+
+    def found(patterns):
+        return sum(len(list(ROOT.glob(p))) for p in patterns)
+
+    out, own = {}, set()
+    for name, (where, fixtures, golden) in consoles.items():
+        path = base / where
+        files = sorted(path.rglob("*.rs")) if path.is_dir() else [path]
+        own.update(files)
+        out[name] = {**measure(files), "fixtures": found(fixtures), "golden": found(golden)}
+    out["shared"] = measure([f for f in sorted(base.glob("*.rs")) if f not in own])
+    return out
 
 
 def boundary():
@@ -101,8 +134,11 @@ def machine(data):
         kind = int.from_bytes(data[pe + 4:pe + 6], "little")
         return "PE", {0x14C: "x86-32", 0x8664: "x86-64", 0xAA64: "AArch64"}.get(kind)
     if data[:4] == b"\x7fELF":
-        kind = int.from_bytes(data[18:20], "little")
-        return "ELF", {3: "x86-32", 62: "x86-64", 183: "AArch64", 40: "ARM32"}.get(kind)
+        # the machine is in the file's own byte order
+        kind = int.from_bytes(data[18:20], "big" if data[5] == 2 else "little")
+        return "ELF", {3: "x86-32", 62: "x86-64", 183: "AArch64", 40: "ARM32", 8: "MIPS"}.get(kind)
+    if data[:8] == b"PS-X EXE":
+        return "PS-X EXE", "MIPS"
     if data[:4] == b"\xcf\xfa\xed\xfe":
         kind = int.from_bytes(data[4:8], "little")
         return "Mach-O", {0x1000007: "x86-64", 0x100000C: "AArch64"}.get(kind)
@@ -112,8 +148,8 @@ def machine(data):
 
 
 def fixtures():
-    cols = ["x86-32", "x86-64", "AArch64", "ARM32"]
-    rows = {k: Counter() for k in ("PE", "ELF", "Mach-O", "XBE", "UPX-packed", "with symbols")}
+    cols = ["x86-32", "x86-64", "AArch64", "ARM32", "MIPS"]
+    rows = {k: Counter() for k in ("PE", "ELF", "Mach-O", "XBE", "PS-X EXE", "UPX-packed", "with symbols")}
     bins = ROOT / "testdata" / "bin"
     for f in sorted(bins.iterdir()):
         if f.suffix in (".map", ".pdb", ".txt"):
@@ -155,6 +191,7 @@ def main():
         "crates": crates(),
         "forms": forms(),
         "boundary": boundary(),
+        "runtimes": runtimes(),
         "fixtures": fixtures(),
         "golden": len(list((ROOT / "testdata" / "expected").glob("*.txt"))),
     }

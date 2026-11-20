@@ -22,11 +22,11 @@ the raise and the backends are the same for all of them. How far each one is tod
 | Linux, Android | ELF | x86-64, AArch64, ARM32 and Thumb-2, MIPS32 in both byte orders | Lifts and emits; a Linux port runs on Linux against the host's C library |
 | macOS | Mach-O, thin or fat | x86-64, AArch64 | Lifts and emits; fixtures verified |
 | Xbox | XBE | x86 | The kernel's thunk table by name; fixture verified |
-| PlayStation | PS-X EXE | R3000 with the GTE | Lifts with no trap, the BIOS calls by name; a whole program does not run interpreted yet |
-| PlayStation 2 | ELF, IRX | R5900, the vector units, the IOP | Lifts with no trap in a program's own code and runs interpreted from `main`; the C library's start does not run yet |
-| PSP | PRX | Allegrex with the VFPU | Lifts, the imports named from their NIDs; runs interpreted through its two system calls |
-| Nintendo 64 | ROM, in its three byte orders | VR4300 | Lifts; the RSP's microcode is in progress |
-| Dreamcast | `1ST_READ.BIN`, plain or scrambled | SH-4 | Loads and decodes; the lift is in progress |
+| PlayStation | PS-X EXE, a BIOS ROM, a disc image | R3000 with the GTE | Runs against the console's machine in software (`docs/platform.md`): homebrew, a BIOS ROM whole from its reset vector, which also compiles as a port, and a disc through it |
+| PlayStation 2 | ELF, IRX | R5900, the vector units, the IOP | Lifts with no trap in a program's own code and runs interpreted from `main` over the EE's devices and kernel; the C library's start and the IOP do not run yet |
+| PSP | PRX | Allegrex with the VFPU | Lifts, the imports named from their NIDs; homebrew that draws into its frame buffer runs interpreted with its display, controller and sound; the graphics engine does not |
+| Nintendo 64 | ROM, in its three byte orders | VR4300 | Lifts; libdragon homebrew that draws into its frame buffer runs interpreted, its interrupts and its controller with it; the RSP and the RDP do not |
+| Dreamcast | `1ST_READ.BIN`, plain or scrambled | SH-4 | Loads and decodes; the lift is in progress, the console's machine is there at its registers |
 | GameCube, Wii, Xbox 360 | DOL, REL, XEX | PowerPC | Planned: the decoder is the next card |
 
 A console program is proven on small homebrew fixtures built with the open SDKs, not on a game.

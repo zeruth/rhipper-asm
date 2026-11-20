@@ -1,0 +1,2 @@
+draw: ready
+draw: cross at 230 126

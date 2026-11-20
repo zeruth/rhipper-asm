@@ -24,6 +24,20 @@ until `resume` gives its result. So the same runtime sits behind any carrier of 
 Time is the machine's cycles, and only moves when the carrier says so (`advance`), by the
 instructions the program ran: a run is the same run every time.
 
+Beside the three events a console says how its memory lies (`Platform::map`), which is all a
+carrier has to know of it to put the machine behind a program:
+
+| Of the `Map` | What |
+| --- | --- |
+| `order` | the order of a word's bytes in the console's memory and on its bus |
+| `ports` | every run of addresses the device registers answer at, each mirror a run of its own |
+| `ram`, `repeats` | the segments the RAM answers through beside the one the program is linked in, and how many times in a row it answers in each |
+| `extras` | the memory beside the RAM (a scratchpad, the video memory), with its mirrors |
+
+`Platform::start` is what the console's own start leaves the program (a boot program's report),
+`Platform::cartridge` takes the ROM in the slot, and `Platform::interrupt` is the level of the
+processor's interrupt line, for a console whose program takes its interrupts itself.
+
 ## What the consoles share
 
 | Module | What |
@@ -32,14 +46,28 @@ instructions the program ran: a run is the same run every time.
 | `window` | the host on Windows: a window, the keyboard and an XInput gamepad, wave-out sound, on the system's own calls |
 | `clock` | the scheduler of the devices' events against the cycle count |
 | `raster` | which pixels a triangle, a line or a rectangle covers and each pixel's weights; a console's closure makes the pixel |
-| `pad` | the controller both PlayStations take: its state, its report, its serial protocol |
+| `scanout` | a frame buffer in the program's memory as the picture a video output makes of it: the pixel formats of the consoles, the bytes between two rows, either byte order, the two fields of an interlaced picture |
+| `pad` | the controller both PlayStations take: its state, its report, its serial protocol; the other consoles' controllers are made of its state (`n64::controller`, `psp::buttons`, `dreamcast::condition`) |
 | `adpcm` | the sound processors' ADPCM blocks |
 | `disc` | a compact disc as the files a dump of one is kept in: a cue sheet with one file or one a track, or a bare `.bin`, `.img` or `.iso`; its tracks, and each sector as the 2352 bytes the drive reads |
 | `iso` | a disc's ISO 9660 file system, over its user data |
 | `png`, `printf` | frames as PNG (written stored, any 8-bit RGB or RGBA read), and the BIOS's `printf` |
 
 A new console is a module that lays its devices over these and implements `Platform`; `of(name,
-host)` names it by what `Image::platform` says.
+host)` names it by what `Image::platform` says, and `NAMES` lists the consoles that have one.
+Nothing else names a console: the interpreter maps the registers, the RAM's mirrors and the
+extra memory from the `Map`, so a console whose processor lifts runs as soon as its module is
+there.
+
+What every console has, and what is its own:
+
+| Console | Registers | Picture | Input | Sound | Text | Interrupts | Kernel | Runs |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `psx` | all | the GPU, in software | pad, memory cards | SPU, XA, CD-DA | TTY | its kernel's, or delivered | answered, or a ROM's own | homebrew, a BIOS ROM, a commercial disc |
+| `ps2` | the EE's | the GS, in software | none (the IOP) | none (the IOP) | serial port | delivered | the EE's, answered | a program from `main` |
+| `n64` | the RCP's, the PIF | the frame buffer the VI shows | controllers, through the PIF | the AI's buffers | ISViewer | the VR4300's exception | none on the console | libdragon homebrew that draws itself |
+| `psp` | none in user mode | the frame buffer the display shows | the controller | the sound channels | standard output | none in user mode | the display, controller, sound and clock, answered | homebrew that draws itself |
+| `dreamcast` | Holly's, the SH-4's timers and serial port | the frame buffer the video output shows | controllers, on the Maple bus | none (the AICA) | serial port | the line's level | none on the console | at its registers: no carrier runs an SH-4 program |
 
 ## The consoles
 
@@ -66,12 +94,53 @@ tests, the blend, host-to-local and local-to-local transfers; its privileged reg
 picture they select) and the EE kernel's functions by name (the start routine's stack and heap,
 threads, semaphores, interrupt and DMA handlers, alarms, the GS's mask and mode).
 
+**Nintendo 64 (`n64`).** The RCP behind its registers, in the words' big-endian order: the MIPS
+interface's interrupt register and its mask; the video interface, which shows the 16- or 32-bit
+frame buffer at its origin in RDRAM, as wide and high as its scales make the lines it scans, and
+interrupts once a frame; the audio interface, which plays each buffer it is handed at the DAC's
+rate and holds one more; the peripheral interface's transfers between the cartridge's ROM and
+RDRAM, with the `ISViewer` in the cartridge's domain as the console's text; the serial interface
+with the PIF behind it, whose RAM is run as joybus frames: a controller in each port the host
+has a pad in, what it is and its buttons and stick. The RSP's memories keep what is written and
+its DMA copies; a task started on it ends at once, and the RDP's commands are read for the full
+sync alone. The boot code's report is in the RSP's data memory at the start (`Platform::start`).
+`testdata/n64/draw.z64` is the fixture: libdragon's display, graphics and joypad modules.
+
+**PSP (`psp`).** A user module sees no register, so the console is its calls: the display
+(`sceDisplaySetMode`, `sceDisplaySetFrameBuf` in the four pixel formats, the waits for the
+vertical blank, the frame count), the video memory with its uncached mirror (`sceGeEdramGetAddr`),
+the controller (`sceCtrlReadBufferPositive` and its kin), the eight sound channels and the output
+at a rate of the program's own (a blocking output waits for the channel), the clock, the
+callbacks a program registers to be told to exit, and the cache calls. The threads, the
+semaphores, the mutexes and the memory blocks stay the interpreter's (`run/host.rs`), which
+sends a function it does not answer itself here. `testdata/psp/draw.prx` is the fixture.
+
+**Dreamcast (`dreamcast`).** Holly: the three interrupt status registers and the masks of the
+three levels; the Maple bus, whose command table is run from RAM (a controller in each port the
+host has a pad in answers what it is and its condition, nothing else answers); the PowerVR's
+video output, which shows the frame buffer its read registers name in the video memory in any of
+the four depths, the two fields by turns when interlaced, with the blank's two interrupts and the
+beam's status; the clock. The SH-4's own: the three timers on the peripheral clock, and the
+serial port with its FIFO, which is the console's text. A render a program starts ends at once
+with its interrupts.
+
 ## Carriers
 
-**The interpreter** (`crates/ra-asm-lift/src/run/console.rs`). `ras run` on a `psx` or `ps2`
-image runs it against its machine: the registers are devices of the interpreter's memory at
-every mirror, `ra_bios_*` and `ra_ee_*` calls go to the runtime, the clock moves two cycles a
-processor instruction, and deliveries are calls into the lifted module on a state of their own.
+**The interpreter** (`crates/ra-asm-lift/src/run/console.rs`). `ras run` on an image of a
+console in `NAMES` whose processor lifts (`psx`, `ps2`, `n64`, `psp`) runs it against its
+machine: the registers are devices of the interpreter's memory at every run of the map's ports,
+in the console's byte order, `ra_bios_*` and `ra_ee_*` calls and a PSP module's imports go to
+the runtime, the clock moves two cycles a processor instruction, and deliveries are calls into
+the lifted module on a state of their own.
+
+A Nintendo 64 program has no kernel to deliver to: the RCP's interrupt is the VR4300's
+(`vr4300_line`). The line's level is the cause register's pending bit, and with the status
+register's interrupts on, the line let through and no exception being handled, the run sets
+the exception level and calls the function the code at the general vector jumps to (a `j`, or
+an address built in a register and a `jr`), on the registers of the code it interrupts, as the
+processor enters it. The handler saves and restores what it uses, and its `eret` is the
+function's return. The analysis seeds that function from the vectors of the image
+(`ra-asm-analysis`), since nothing of the program calls it.
 
 ```
 ras run game.exe                          a window; keyboard and gamepad; closes with the window
@@ -222,6 +291,20 @@ which the PlayStation runtime answers.
   microprograms; the IPU. The GS's local memory is laid out a row after a row, not in the
   hardware's pages and blocks, which shows where a program reads a buffer in another format
   than it wrote it.
+- Nintendo 64: the RSP runs no task (one a program starts ends at once, so sound mixed and
+  display lists built on it come to nothing) and the RDP draws nothing: a program that draws
+  through `rdpq` shows what it cleared its buffer to. The processor's timer interrupt (`Count`
+  against `Compare`) is not raised, the cartridge has no save memory, and the 64DD is absent.
+  A program that puts no jump at the general vector takes no interrupt.
+- PSP: the graphics engine runs no display list (`sceGeListEnQueue` stops the run, so `sceGu`
+  programs do), the media engine and the files beside the standard output are not there, and a
+  callback is never called. A function's arguments past the fourth (`t0` and up) do not reach
+  the runtime.
+- Dreamcast: no carrier runs an SH-4 program (the decoder is there, the lift is not), so the
+  runtime is tested at its registers. The tile accelerator and the renderer, the AICA and its
+  processor, the GD-ROM drive and the boot ROM's system calls are not there.
+- The Xbox (`xbox` images load and lift) has no runtime: its kernel's exports and the NV2A.
+- A port (`ras port`) is a PlayStation ROM's: the other consoles run in the interpreter alone.
 - Threads run nested in the thread that started them: a thread that waits for the one below it
   never wakes.
 - A function only an address reaches (a handler, a callback) is found on a PS-X EXE by the

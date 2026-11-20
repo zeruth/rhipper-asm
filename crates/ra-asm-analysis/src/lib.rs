@@ -284,6 +284,17 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
     if let Some(entry) = image.entry_point() {
         state.seed(entry, Origin::Entry);
     }
+    // A Nintendo 64 program keeps a jump to its exception handler at each of the VR4300's
+    // vectors. Nothing of the program calls the handler: the processor enters it.
+    if image.platform() == Some("n64") {
+        for vector in [0x8000_0000u64, 0x8000_0080, 0x8000_0100, 0x8000_0180] {
+            if let Ok(word) = image.u32(vector)
+                && word >> 26 == 2
+            {
+                state.seed(0x8000_0000 | u64::from((word & 0x03ff_ffff) << 2), Origin::TailCall(vector));
+            }
+        }
+    }
     if let Some(exports) = &image.exports {
         for export in &exports.exports {
             // A DLL exports its data too (a vtable, a vbtable, a constant), which lies in the code

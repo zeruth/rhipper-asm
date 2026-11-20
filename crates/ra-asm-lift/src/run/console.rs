@@ -71,6 +71,8 @@ type Writes = Rc<RefCell<Vec<(u64, Vec<u8>)>>>;
 pub(super) struct Machine {
     platform: Rc<RefCell<Box<dyn Platform>>>,
     writes: Writes,
+    /// The order of a register's bytes on the console's bus.
+    order: ra_asm_platform::Order,
     /// What a headless run keeps, the console's text with it.
     pub(super) capture: Capture,
     /// The processor's instructions counted into the machine's clock so far.
@@ -109,6 +111,8 @@ impl ra_asm_ir::interp::memory::Device for Open {
 struct Ports {
     platform: Rc<RefCell<Box<dyn Platform>>>,
     writes: Writes,
+    /// The order of a register's bytes on the console's bus.
+    order: ra_asm_platform::Order,
 }
 
 /// No memory: what a register read gets, which reads none.
@@ -131,9 +135,7 @@ impl ra_asm_ir::interp::memory::Device for Ports {
             Some(register) => platform.read(&mut Nothing, register, buf.len().min(8) as u32 * 8),
             None => 0,
         };
-        for (byte, source) in buf.iter_mut().zip(value.to_le_bytes()) {
-            *byte = source;
-        }
+        self.order.put(value, buf);
     }
 
     fn write(&mut self, address: u64, bytes: &[u8]) {
@@ -191,6 +193,33 @@ pub(super) fn gte(vm: &mut Vm<'_>, args: &[Value]) -> Result<Value, Stop> {
     Ok(Value::Int(0))
 }
 
+/// Where the code at the VR4300's general exception vector jumps: a program puts a `j` to its
+/// handler there, or the handler's address built in a register and a `jr` through it. `None`
+/// while the program has put no such code there.
+fn vr4300_vector(vm: &mut Vm<'_>) -> Option<u64> {
+    const VECTOR: u64 = 0x8000_0180;
+    let mut words = [0u32; 3];
+    for (n, word) in words.iter_mut().enumerate() {
+        *word = u32::from_be_bytes(vm.memory.read_vec(VECTOR + 4 * n as u64, 4).ok()?.try_into().ok()?);
+    }
+    let [first, second, third] = words;
+    if first >> 26 == 2 {
+        return Some(u64::from(0x8000_0000 | ((first & 0x03ff_ffff) << 2)));
+    }
+    // lui r, high; addiu or ori r, r, low; jr r.
+    let register = (first >> 16) & 31;
+    let same = (second >> 21) & 31 == register && (second >> 16) & 31 == register;
+    if first >> 26 != 0xf || !same || third != (register << 21) | 8 {
+        return None;
+    }
+    let (high, low) = ((first & 0xffff) << 16, second & 0xffff);
+    match second >> 26 {
+        9 => Some(u64::from(high.wrapping_add(i32::from(low as u16 as i16).cast_unsigned()))),
+        0xd => Some(u64::from(high | low)),
+        _ => None,
+    }
+}
+
 impl Machine {
     /// Gives `host` a window for its picture, its input and its sound, where the system has one;
     /// elsewhere the run stays headless, its console's text written through.
@@ -225,40 +254,44 @@ impl Machine {
         if console.capture.is_none() {
             Self::show(&mut host, image);
         }
-        let platform = Rc::new(RefCell::new(ra_asm_platform::of(name, host)?));
+        let mut platform = ra_asm_platform::of(name, host)?;
+        // A cartridge's ROM is the image's file, in the cartridge's own order.
+        if let (Some(_), Some(path)) = (&image.n64, &image.path)
+            && let Ok(mut rom) = std::fs::read(path)
+            && let Some(order) = ra_asm_format::n64::Order::of(&rom)
+            && ra_asm_format::n64::to_z64(&mut rom, order).is_ok()
+        {
+            platform.cartridge(rom);
+        }
+        let map = platform.map();
+        let platform = Rc::new(RefCell::new(platform));
         let writes: Writes = Rc::default();
-        // Each run of registers at its own address and at its mirrors in the other segments.
-        let mirrors: &[u64] = match name {
-            "psx" => &[0, 0x8000_0000, 0xa000_0000],
-            _ => &[0, 0xa000_0000],
-        };
-        let blocks = platform.borrow().blocks();
-        let (start, end) = (blocks.first()?.start, blocks.last().map(|b| b.start + b.len)?);
-        for mirror in mirrors {
-            vm.memory.add_device(start | mirror, end - start, Box::new(Ports { platform: platform.clone(), writes: writes.clone() }));
+        // Each run of the registers' addresses, a mirror of them a run of its own.
+        for ports in map.ports {
+            let device = Ports { platform: platform.clone(), writes: writes.clone(), order: map.order };
+            vm.memory.add_device(ports.start, ports.len, Box::new(device));
         }
-        // The RAM's mirrors, each from the first byte the run mapped, and the scratchpad: the
-        // PlayStation's RAM is mapped at `kseg0`, the PlayStation 2's at its own addresses.
-        let (segments, scratchpad): (&[u64], (u64, u64)) = match name {
-            "psx" => (&[0x0000_0000, 0xa000_0000], (0x1f80_0000, 0x400)),
-            _ => (&[0x2000_0000, 0x3000_0000, 0x8000_0000, 0xa000_0000], (ra_asm_platform::ps2::SCRATCHPAD, 0x4000)),
-        };
+        // The RAM again in each segment that reaches it, from the first byte the run mapped;
+        // and where the console's decoder leaves the RAM's upper address lines out (the
+        // PlayStation's 2 MiB answer through the 8 MiB its memory control maps), after itself
+        // in every segment, its own with them.
         let within = ram.0 & 0x1fff_ffff;
-        if name == "psx" {
-            // The PlayStation's 2 MiB answer through the 8 MiB its memory control maps: three
-            // more times after themselves, in every segment.
-            for segment in segments {
-                vm.memory.add_alias(*segment, 4 * ram.1, ram.1 - 1, ram.0);
-            }
-            vm.memory.add_alias(ram.0 + ram.1, 3 * ram.1, ram.1 - 1, ram.0);
-        } else {
-            for segment in segments {
-                vm.memory.add_alias(segment + within, ram.1, u64::MAX, ram.0);
+        let (span, wrap) = if map.repeats > 1 { (map.repeats * ram.1, ram.1 - 1) } else { (ram.1, u64::MAX) };
+        for segment in map.ram {
+            vm.memory.add_alias(segment + within, span, wrap, ram.0);
+        }
+        if map.repeats > 1 {
+            vm.memory.add_alias(ram.0 + ram.1, span - ram.1, wrap, ram.0);
+        }
+        // The memory the console has beside the RAM, at its own address and at its mirrors.
+        for extra in map.extras {
+            vm.memory.add_region(ra_asm_ir::interp::Region::owned(extra.start, extra.len, extra.name));
+            for mirror in extra.mirrors {
+                vm.memory.add_alias(*mirror, extra.len, u64::MAX, extra.start);
             }
         }
         if name == "psx" {
-            // The ROM, the image's own or the one beside it, through the cached segments, and
-            // the scratchpad through the one that reaches it.
+            // The ROM, the image's own or the one beside it, through the cached segments.
             let rom = match (&image.psx_bios, &image.rom) {
                 (Some(_), _) => Some((image.image_base(), u64::from(image.size_of_image()))),
                 (None, Some((address, bytes))) => Some((*address, bytes.len() as u64)),
@@ -269,17 +302,13 @@ impl Machine {
                     vm.memory.add_alias(start, len, u64::MAX, at);
                 }
             }
-            vm.memory.add_alias(0x9f80_0000, scratchpad.1, u64::MAX, scratchpad.0);
             // The first expansion region, where a kernel looks for a cartridge: none is in.
             for segment in [0x0000_0000, 0x8000_0000, 0xa000_0000u64] {
                 vm.memory.add_device(segment + 0x1f00_0000, 0x80_0000, Box::new(Open));
             }
         }
-        vm.memory.add_region(ra_asm_ir::interp::Region::owned(scratchpad.0, scratchpad.1, "scratchpad"));
-        if name == "psx" {
-            let cache = ra_asm_platform::psx::CACHE_CONTROL;
-            vm.memory.add_device(cache, 4, Box::new(Ports { platform: platform.clone(), writes: writes.clone() }));
-        }
+        // What the console's own start leaves the program.
+        platform.borrow_mut().start(&mut Guest { memory: &mut vm.memory, image }, ram);
         vm.poll = POLL;
         vm.memory.count_stores(ram.0, ram.1);
         let r3000 = if name == "psx" { super::r3000::Processor::new(vm, image.psx_kernel()) } else { None };
@@ -287,6 +316,7 @@ impl Machine {
             r3000,
             platform,
             writes,
+            order: map.order,
             capture,
             counted: 0,
             states: Vec::new(),
@@ -331,7 +361,7 @@ impl Runtime<'_> {
         let image = self.image;
         let idles = self.machine.is_some() && self.psx_idles(vm);
         let Some(machine) = &mut self.machine else { return Ok(()) };
-        let platform = machine.platform.clone();
+        let (platform, order) = (machine.platform.clone(), machine.order);
         let writes: Vec<(u64, Vec<u8>)> = std::mem::take(&mut machine.writes.borrow_mut());
         let cycles = (vm.instructions - machine.counted) * CYCLES_PER_INSTRUCTION;
         machine.counted = vm.instructions;
@@ -379,16 +409,58 @@ impl Runtime<'_> {
             }
             for (address, bytes) in writes {
                 let Some(register) = platform.fold(address) else { continue };
-                let mut word = [0u8; 8];
                 let len = bytes.len().min(8);
-                word[..len].copy_from_slice(&bytes[..len]);
-                platform.write(&mut guest, register, len as u32 * 8, u64::from_le_bytes(word));
+                platform.write(&mut guest, register, len as u32 * 8, order.get(&bytes));
             }
             platform.advance(&mut guest, cycles).map_err(stop)?;
         }
         // A kernel takes its interrupts itself, as the processor raises them between two of the
-        // program's instructions; an answered one has the machine call the program's handlers.
-        if kernel { self.psx_line(vm) } else { self.deliveries(vm) }
+        // program's instructions; an answered one has the machine call the program's handlers;
+        // and a console without a kernel raises its processor's exception in the program.
+        if kernel {
+            self.psx_line(vm)
+        } else if image.n64.is_some() {
+            self.vr4300_line(vm, interrupted)
+        } else {
+            self.deliveries(vm)
+        }
+    }
+
+    /// The Nintendo 64's interrupt line at the VR4300: the RCP's interrupt is the cause
+    /// register's third pending bit, and with the status register's interrupts on, that line
+    /// let through and no exception being handled, the processor takes the interrupt's
+    /// exception. The program's handler at the general vector is a jump to a function of the
+    /// program, which the run calls on the registers of the code it interrupts (`interrupted`,
+    /// the state the poll came from), as the processor enters it: the handler saves and
+    /// restores what it uses, and its `eret` is the function's return, which ends the
+    /// exception.
+    fn vr4300_line(&mut self, vm: &mut Vm<'_>, interrupted: Option<u64>) -> Result<(), Stop> {
+        // The three registers' places in the coprocessor's global; the status register's
+        // enable, its exception and error levels, and the line's bit in both registers.
+        const STATUS: u64 = 12 * 8;
+        const CAUSE: u64 = 13 * 8;
+        const EPC: u64 = 14 * 8;
+        const ENABLED: u64 = 1;
+        const HANDLING: u64 = 6;
+        const LINE: u64 = 0x400;
+        let Some(cop0) = vm.symbol(crate::state::N64_COP0) else { return Ok(()) };
+        let raised = self.machine()?.interrupt();
+        let cause = (vm.memory.read_u64(cop0 + CAUSE)? & !(LINE | 0x7c)) | if raised { LINE } else { 0 };
+        vm.memory.write_u64(cop0 + CAUSE, cause)?;
+        let status = vm.memory.read_u64(cop0 + STATUS)?;
+        if !raised || status & (ENABLED | HANDLING) != ENABLED || status & LINE == 0 {
+            return Ok(());
+        }
+        let (Some(state), Some(entry)) = (interrupted, vr4300_vector(vm)) else { return Ok(()) };
+        let Some(handler) = vm.name_at(entry).map(str::to_owned) else {
+            return Err(Stop::fault(format!("the exception vector jumps to {entry:#x}, which is no lifted function")));
+        };
+        // The exception level is set and the place the program was at kept, as a word.
+        vm.memory.write_u64(cop0 + STATUS, status | 2)?;
+        vm.memory.write_u64(cop0 + EPC, i64::from(vm.site.unwrap_or(0) as u32 as i32) as u64)?;
+        vm.call_named(self, &handler, vec![Value::Int(u128::from(state))])?;
+        let status = vm.memory.read_u64(cop0 + STATUS)?;
+        vm.memory.write_u64(cop0 + STATUS, status & !2)
     }
 
     /// Makes every call into the program the machine has due, each to its end.

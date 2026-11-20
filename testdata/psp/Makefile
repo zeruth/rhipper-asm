@@ -1,8 +1,9 @@
 # The PSP fixture, built in WSL with pspdev:
 #   wsl -d Ubuntu-24.04 -- bash -lc "cd /mnt/c/Users/tyler/Documents/code/rhipper-asm && make -C testdata/psp"
-# The PRX is committed as hello.prx; hello.elf and hello.o are the build's and are not.
-TARGET = hello
-OBJS = hello.o
+# The PRX is committed as hello.prx; hello.elf and hello.o are the build's and are not. The
+# drawing fixture is the same build of draw.c: `make -C testdata/psp TARGET=draw`.
+TARGET ?= hello
+OBJS = $(TARGET).o
 
 BUILD_PRX = 1
 
