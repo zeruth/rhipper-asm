@@ -24,7 +24,7 @@ use ra_asm_ir::{
     BinOp, BlockId, CallConv, Callee, Cast, Declaration, FnType, FunctionBuilder, ICond, Module, Operand, Terminator, Type, ValueId,
 };
 
-use crate::{Form, Instruction, Width, decode};
+use crate::{Form, Instruction, Width};
 
 /// The function the lift writes: `void (ptr state, i64 pc)`. The names here are ones a C
 /// compiler takes, so the module goes through the C backend as it is.
@@ -171,14 +171,18 @@ pub fn lift(code: Code<'_>, width: Width) -> Module {
     let start = b.param(1);
     b.store(entry, Type::I64, start, pc);
     b.terminate(entry, Terminator::Br(dispatch));
-    let words: Vec<(u64, u32)> = code
-        .bytes
-        .chunks_exact(4)
-        .enumerate()
-        .map(|(n, word)| (code.address + 4 * n as u64, u32::from_le_bytes([word[0], word[1], word[2], word[3]])))
-        .collect();
+    // The instructions in the order they lie: each with its address and its length, two bytes
+    // for a compressed one and four for the rest; what decodes to nothing keeps its length.
+    let mut words: Vec<(u64, Option<Instruction>, u64)> = Vec::new();
+    let mut offset = 0;
+    while offset + 2 <= code.bytes.len() {
+        let address = code.address + offset as u64;
+        let (instruction, length) = crate::decode_at(&code.bytes[offset..], address, width);
+        words.push((address, instruction, u64::from(length)));
+        offset += usize::from(length);
+    }
     let mut blocks: BTreeMap<u64, BlockId> = BTreeMap::new();
-    for &(address, _) in &words {
+    for &(address, ..) in &words {
         b.address = Some(address);
         blocks.insert(address, b.block(&format!("at.{address:x}")));
     }
@@ -188,12 +192,12 @@ pub fn lift(code: Code<'_>, width: Width) -> Module {
         lift.b.call(block, FnType::new(Type::Void, vec![Type::I64]), Callee::Direct(TRAP.to_owned()), vec![(Type::I64, address)], "");
         lift.b.terminate(block, Terminator::Ret(None));
     };
-    for &(address, word) in &words {
+    for &(address, instruction, length) in &words {
         lift.block = blocks[&address];
         lift.b.address = Some(address);
-        let next = address + 4;
+        let next = address + length;
         let at = |target: u64| blocks.get(&target).copied().unwrap_or(nowhere);
-        let Some(Instruction { mnemonic, form, rd, rs1, rs2, imm }) = decode(word, address, width) else {
+        let Some(Instruction { mnemonic, form, rd, rs1, rs2, imm }) = instruction else {
             trap(&mut lift, blocks[&address], Operand::Int(i128::from(address)));
             continue;
         };

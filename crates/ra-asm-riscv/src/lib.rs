@@ -218,6 +218,135 @@ pub fn decode(word: u32, address: u64, width: Width) -> Option<Instruction> {
     }
 }
 
+/// The instruction at the start of `bytes`, which lies at `address`, and its length: two bytes
+/// for a compressed instruction (its low two bits are not both set), four for the rest. What
+/// decodes to nothing still has its length.
+#[must_use]
+pub fn decode_at(bytes: &[u8], address: u64, width: Width) -> (Option<Instruction>, u8) {
+    let half = u16::from_le_bytes([bytes.first().copied().unwrap_or(0), bytes.get(1).copied().unwrap_or(0)]);
+    if half & 3 != 3 {
+        return (compressed(half, address, width), 2);
+    }
+    match bytes.get(..4) {
+        Some(word) => (decode(u32::from_le_bytes([word[0], word[1], word[2], word[3]]), address, width), 4),
+        None => (None, 2),
+    }
+}
+
+/// Decodes a compressed instruction (the `C` extension) as the instruction of the base set it
+/// stands for: `c.addi sp, -16` is `addi sp, sp, -16`, `c.jr ra` is `jalr zero, 0(ra)`. The
+/// floating-point loads and stores among them are not decoded.
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn compressed(half: u16, address: u64, width: Width) -> Option<Instruction> {
+    let h = u32::from(half);
+    let wide = width == Width::Rv64;
+    // The fields: a full register, the two short registers (x8 to x15), and the pieces the
+    // immediates are put together from.
+    let (full, low) = (bits(h, 11, 7) as u8, bits(h, 6, 2) as u8);
+    let (short1, short2) = (8 + bits(h, 9, 7) as u8, 8 + bits(h, 4, 2) as u8);
+    let imm6 = signed(bits(h, 12, 12) << 5 | bits(h, 6, 2), 6);
+    let shift = i64::from(bits(h, 12, 12) << 5 | bits(h, 6, 2));
+    let make = |mnemonic, form, rd, rs1, rs2, imm| Some(Instruction { mnemonic, form, rd, rs1, rs2, imm });
+    match (h & 3, bits(h, 15, 13)) {
+        (0, 0) => {
+            let imm = bits(h, 10, 7) << 6 | bits(h, 12, 11) << 4 | bits(h, 5, 5) << 3 | bits(h, 6, 6) << 2;
+            (imm != 0).then_some(())?;
+            make("addi", Form::Immediate, short2, 2, 0, i64::from(imm))
+        }
+        (0, 2 | 6) => {
+            let offset = i64::from(bits(h, 5, 5) << 6 | bits(h, 12, 10) << 3 | bits(h, 6, 6) << 2);
+            if bits(h, 15, 13) == 2 {
+                make("lw", Form::Load, short2, short1, 0, offset)
+            } else {
+                make("sw", Form::Store, 0, short1, short2, offset)
+            }
+        }
+        (0, 3 | 7) if wide => {
+            let offset = i64::from(bits(h, 6, 5) << 6 | bits(h, 12, 10) << 3);
+            if bits(h, 15, 13) == 3 {
+                make("ld", Form::Load, short2, short1, 0, offset)
+            } else {
+                make("sd", Form::Store, 0, short1, short2, offset)
+            }
+        }
+        (1, 0) => make("addi", Form::Immediate, full, full, 0, imm6),
+        (1, 1) if wide => (full != 0).then_some(()).and_then(|()| make("addiw", Form::Immediate, full, full, 0, imm6)),
+        (1, 2) => make("addi", Form::Immediate, full, 0, 0, imm6),
+        (1, 3) if full == 2 => {
+            let imm = signed(bits(h, 12, 12) << 9 | bits(h, 4, 3) << 7 | bits(h, 5, 5) << 6 | bits(h, 2, 2) << 5 | bits(h, 6, 6) << 4, 10);
+            (imm != 0).then_some(())?;
+            make("addi", Form::Immediate, 2, 2, 0, imm)
+        }
+        (1, 3) => {
+            (imm6 != 0).then_some(())?;
+            make("lui", Form::Upper, full, 0, 0, imm6 & 0xf_ffff)
+        }
+        (1, 4) => match bits(h, 11, 10) {
+            0 | 1 => {
+                (wide || shift < 32).then_some(())?;
+                make(if bits(h, 11, 10) == 0 { "srli" } else { "srai" }, Form::Immediate, short1, short1, 0, shift)
+            }
+            2 => make("andi", Form::Immediate, short1, short1, 0, imm6),
+            _ => {
+                let mnemonic = match (bits(h, 12, 12), bits(h, 6, 5)) {
+                    (0, 0) => "sub",
+                    (0, 1) => "xor",
+                    (0, 2) => "or",
+                    (0, 3) => "and",
+                    (1, 0) if wide => "subw",
+                    (1, 1) if wide => "addw",
+                    _ => return None,
+                };
+                make(mnemonic, Form::Register, short1, short1, short2, 0)
+            }
+        },
+        (1, 5) => {
+            let offset = signed(
+                bits(h, 12, 12) << 11
+                    | bits(h, 8, 8) << 10
+                    | bits(h, 10, 9) << 8
+                    | bits(h, 6, 6) << 7
+                    | bits(h, 7, 7) << 6
+                    | bits(h, 2, 2) << 5
+                    | bits(h, 11, 11) << 4
+                    | bits(h, 5, 3) << 1,
+                12,
+            );
+            make("jal", Form::Jump, 0, 0, 0, address.wrapping_add_signed(offset).cast_signed())
+        }
+        (1, 6 | 7) => {
+            let offset =
+                signed(bits(h, 12, 12) << 8 | bits(h, 6, 5) << 6 | bits(h, 2, 2) << 5 | bits(h, 11, 10) << 3 | bits(h, 4, 3) << 1, 9);
+            let mnemonic = if bits(h, 15, 13) == 6 { "beq" } else { "bne" };
+            make(mnemonic, Form::Branch, 0, short1, 0, address.wrapping_add_signed(offset).cast_signed())
+        }
+        (2, 0) => {
+            (wide || shift < 32).then_some(())?;
+            make("slli", Form::Immediate, full, full, 0, shift)
+        }
+        (2, 2) => {
+            (full != 0).then_some(())?;
+            make("lw", Form::Load, full, 2, 0, i64::from(bits(h, 3, 2) << 6 | bits(h, 12, 12) << 5 | bits(h, 6, 4) << 2))
+        }
+        (2, 3) if wide => {
+            (full != 0).then_some(())?;
+            make("ld", Form::Load, full, 2, 0, i64::from(bits(h, 4, 2) << 6 | bits(h, 12, 12) << 5 | bits(h, 6, 5) << 3))
+        }
+        (2, 4) => match (bits(h, 12, 12), full, low) {
+            (0, 0, 0) => None,
+            (0, rs1, 0) => make("jalr", Form::JumpRegister, 0, rs1, 0, 0),
+            (0, rd, rs2) => make("add", Form::Register, rd, 0, rs2, 0),
+            (_, 0, 0) => make("ebreak", Form::System, 0, 0, 0, 0),
+            (_, rs1, 0) => make("jalr", Form::JumpRegister, 1, rs1, 0, 0),
+            (_, rd, rs2) => make("add", Form::Register, rd, rd, rs2, 0),
+        },
+        (2, 6) => make("sw", Form::Store, 0, 2, low, i64::from(bits(h, 8, 7) << 6 | bits(h, 12, 9) << 2)),
+        (2, 7) if wide => make("sd", Form::Store, 0, 2, low, i64::from(bits(h, 9, 7) << 6 | bits(h, 12, 10) << 3)),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

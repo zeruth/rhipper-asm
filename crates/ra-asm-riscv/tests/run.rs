@@ -13,15 +13,18 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn the_lifted_fixture_does_what_the_machine_did() {
-    let program = Program::parse(&std::fs::read(fixture("rv64.elf")).unwrap()).unwrap();
-    assert_eq!(program.width, Width::Rv64);
-    let recorded = std::fs::read_to_string(fixture("rv64.out")).unwrap().replace("\r\n", "\n");
-    let (printed, ended) = recorded.trim_end().rsplit_once('\n').unwrap();
-    let code: i32 = ended.strip_prefix("exit ").unwrap().parse().unwrap();
-    let outcome = run(&program, 5_000_000).unwrap();
-    assert_eq!(String::from_utf8_lossy(&outcome.out).trim_end(), printed);
-    assert_eq!(outcome.exit, Some(code));
-    assert!(printed.lines().count() >= 14, "the fixture prints {} lines", printed.lines().count());
+    // The build of the base instructions alone, and the one with the compressed ones.
+    for name in ["rv64", "rv64c"] {
+        let program = Program::parse(&std::fs::read(fixture(&format!("{name}.elf"))).unwrap()).unwrap();
+        assert_eq!(program.width, Width::Rv64);
+        let recorded = std::fs::read_to_string(fixture(&format!("{name}.out"))).unwrap().replace("\r\n", "\n");
+        let (printed, ended) = recorded.trim_end().rsplit_once('\n').unwrap();
+        let code: i32 = ended.strip_prefix("exit ").unwrap().parse().unwrap();
+        let outcome = run(&program, 5_000_000).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(String::from_utf8_lossy(&outcome.out).trim_end(), printed, "{name}");
+        assert_eq!(outcome.exit, Some(code), "{name}");
+        assert!(printed.lines().count() >= 14, "{name}: the fixture prints {} lines", printed.lines().count());
+    }
 }
 
 #[test]
