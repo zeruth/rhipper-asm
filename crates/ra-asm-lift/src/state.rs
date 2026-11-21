@@ -73,6 +73,9 @@ pub const MIPS_GPR_NAMES: [&str; 34] = [
 /// the number and the four argument registers by value, the kernel's result back, negative with
 /// the error number on a failure; the lift writes `v0` and `a3` from it, so a raised function
 /// keeps its registers in values across the call.
+///
+/// A Thumb-2 `bkpt` is an `ra_svc` too, its number with [`BKPT`] set: a microcontroller's
+/// firmware calls the debugger that hosts it so (semihosting, `bkpt 0xab`).
 pub fn declare_svc(module: &mut ra_asm_ir::Module) {
     module.declare(Declaration {
         name: "ra_svc".into(),
@@ -82,6 +85,9 @@ pub fn declare_svc(module: &mut ra_asm_ir::Module) {
     });
     module.declare(Declaration { name: "ra_syscall".into(), ty: syscall_type(), conv: CallConv::C, attrs: vec![] });
 }
+
+/// What `ra_svc`'s number has set when the instruction was a `bkpt` and no `svc`.
+pub const BKPT: i64 = 0x1_0000;
 
 /// The type of `@ra_syscall`.
 pub fn syscall_type() -> FnType {

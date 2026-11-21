@@ -384,7 +384,7 @@ const FAMILIES = [
     scope: { sections: [442, 443] }, keyCards: [[442, "RISC-V and the microcontrollers", "env"], [443, "Firmware containers and the blob", "env"]],
     platforms: [
       { n: "RISC-V RV32 / RV64", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "" },
-      { n: "Cortex-M (ARMv7-M)", s: [1, 3, 3, 2, 1, 1, 1, 0], d: "The Thumb-2 decoder and lift cover most of it" },
+      { n: "Cortex-M (ARMv7-M)", s: [3, 4, 4, 2, 1, 3, 2, 0], d: "The cortexm fixture, firmware with a vector table, flash and RAM, runs lifted from its reset handler to its golden output, printing by semihosting (bkpt 0xab through @ra_svc); the image is read as an ELF, not yet as the flat image a chip is flashed with, and the handlers only the vector table names are not found yet" },
       { n: "AVR · MSP430 · Xtensa", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "" },
       { n: "Headerless firmware blobs", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "Machine and base guessed from statistics: §443" },
     ] },

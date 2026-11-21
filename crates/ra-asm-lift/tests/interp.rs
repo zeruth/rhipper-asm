@@ -128,6 +128,15 @@ fn thumb32_runs_interpreted() {
     run_interpreted("thumb32", &expected, "run-machine");
 }
 
+/// The Cortex-M fixture, firmware for a microcontroller with no system under it: its reset
+/// handler copies the data to RAM and calls `main`, which prints by semihosting (`bkpt 0xab`)
+/// and ends the program by it.
+#[test]
+fn cortexm_firmware_runs_interpreted() {
+    let expected = std::fs::read_to_string(root().join("testdata/expected/cortexm.txt")).unwrap();
+    run_interpreted("cortexm.elf", &expected, "run-machine");
+}
+
 /// The ARM64 Linux hello runs through the interpreter with the x64 build's native output.
 #[test]
 fn hello_linux_a64_runs_interpreted() {

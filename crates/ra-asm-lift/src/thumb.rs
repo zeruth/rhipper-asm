@@ -746,6 +746,17 @@ impl Lifter<'_, '_> {
                     "",
                 );
             }
+            // A breakpoint is the runtime's too: its number goes above the eight bits of an
+            // `svc`'s, so the runtime tells the two apart.
+            Op::Bkpt(imm) => {
+                self.m.b.call(
+                    block,
+                    FnType::new(Type::Void, vec![Type::Ptr, Type::I64]),
+                    Callee::Direct("ra_svc".into()),
+                    vec![(Type::Ptr, self.m.state.into()), (Type::I64, (crate::state::BKPT | i64::from(imm)).into())],
+                    "",
+                );
+            }
             Op::It { .. } | Op::Nop => {}
             Op::Trap => self.m.trap(block, ip, trap::UD2),
             Op::Unsupported => return self.unsupported(block, i),

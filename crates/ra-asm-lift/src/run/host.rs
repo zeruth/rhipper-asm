@@ -823,6 +823,7 @@ impl<'a> Runtime<'a> {
             "ra_pause" => int(0),
             // The machine's own stack has the room: the stack pointer moves down by the bytes.
             "ra_stack_probe" => int(arg(args, 0).wrapping_sub(arg(args, 1)) & !(arg(args, 2).max(1) - 1) & 0xffff_ffff),
+            "ra_svc" if arg(args, 1) as i64 & crate::state::BKPT != 0 => self.bkpt(vm, arg(args, 0), arg(args, 1) & 0xff),
             "ra_svc" => self.svc(vm, arg(args, 0)),
             "ra_syscall" => {
                 let number = (arg(args, 0) as u32).wrapping_sub(4000);
@@ -869,6 +870,44 @@ impl<'a> Runtime<'a> {
         let number = r(vm, 7)?;
         let regs = [r(vm, 0)?, r(vm, 1)?, r(vm, 2)?];
         let result = self.linux(vm, number, false, regs)?;
+        vm.memory.write_u64(state, u64::from(result))?;
+        int(0)
+    }
+
+    /// A `bkpt` of a Thumb-2 program. Number `0xab` is a semihosting call, by which firmware
+    /// with no system under it asks the debugger that hosts it: the operation in `r0`, its
+    /// argument in `r1`, the result in `r0`. The operations that print and that end the program
+    /// are here; another, and a breakpoint of another number, stops the run by its name.
+    fn bkpt(&mut self, vm: &mut Vm<'_>, state: u64, number: u64) -> Result<Value, Stop> {
+        if number != 0xab {
+            return Err(Stop::fault(format!("a breakpoint ({number:#x}) with no debugger to take it")));
+        }
+        let (operation, argument) = (vm.memory.read_u32(state)?, u64::from(vm.memory.read_u32(state + 8)?));
+        let result: u32 = match operation {
+            // SYS_WRITEC: the character `r1` points at.
+            0x03 => {
+                let byte = vm.memory.read_u8(argument)?;
+                self.emit(false, &[byte]);
+                0
+            }
+            // SYS_WRITE0: the text `r1` points at, to its zero.
+            0x04 => {
+                let text = vm.memory.read_cstr(argument, 1 << 20)?;
+                self.emit(false, &text);
+                0
+            }
+            // SYS_WRITE: a block of the handle, the bytes and their count; what was not written.
+            0x05 => {
+                let (handle, at, count) =
+                    (vm.memory.read_u32(argument)?, vm.memory.read_u32(argument + 4)?, vm.memory.read_u32(argument + 8)?);
+                let bytes = vm.memory.read_vec(u64::from(at), u64::from(count))?;
+                self.emit(handle == 2, &bytes);
+                0
+            }
+            // SYS_EXIT: `ADP_Stopped_ApplicationExit` is the program's own end, anything else a failure.
+            0x18 => return Err(Stop::Exit(i32::from(argument != 0x20026))),
+            _ => return Err(Stop::fault(format!("the semihosting operation {operation:#x} is not interpreted"))),
+        };
         vm.memory.write_u64(state, u64::from(result))?;
         int(0)
     }

@@ -223,6 +223,18 @@ if (Wanted 'thumb') {
   if ($LASTEXITCODE -ne 0) { throw "clang failed for thumb32" }
 }
 
+# cortexm is the fixture of a microcontroller: ARMv7-M firmware linked by cortexm.ld into flash
+# at 0x08000000 with its vector table first and its data in RAM at 0x20000000. It prints by
+# semihosting (bkpt 0xab). No Cortex-M is here: it runs lifted only.
+if (Wanted 'cortexm') {
+  $args = @('--target=thumbv7m-none-eabi', '-mcpu=cortex-m3', '-O2', '-fno-unroll-loops', '-fno-vectorize', '-fno-slp-vectorize', '-nostdlib',
+    '-ffreestanding', '-fuse-ld=lld', "-Wl,-T,$(Join-Path $src 'cortexm.ld')", '-Wl,--build-id=none',
+    (Join-Path $src 'cortexm.c'), '-o', (Join-Path $bin 'cortexm.elf'))
+  Write-Host "clang cortexm.elf" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for cortexm.elf" }
+}
+
 # hello_linux_a64 is the same program for ARM64 Linux, over an ARM64 build of the stub libc.so.6:
 # `bl write` reaches the import through its PLT stub. An x64 host runs it only lifted, through the
 # IR interpreter, so its expected output is hello_linux's.

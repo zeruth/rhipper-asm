@@ -255,9 +255,12 @@ pub enum Op {
         target: u64,
     },
     Svc(u8),
+    /// `bkpt`: a stop for the debugger, which a microcontroller's firmware also calls its host
+    /// by (semihosting is `bkpt 0xab`, the operation in `r0` and its argument in `r1`).
+    Bkpt(u8),
     /// `nop` and the other hints.
     Nop,
-    /// `udf` and `bkpt`.
+    /// `udf`.
     Trap,
     Unsupported,
 }
@@ -477,7 +480,7 @@ fn misc16(h: u32, pc: u64) -> Op {
             let list = (h & 0xff) as u16 | if bit(h, 8) { 1 << PC } else { 0 };
             Op::Multiple { load: true, rn: SP, list, wback: true, before: false }
         }
-        0b1110 => Op::Trap,
+        0b1110 => Op::Bkpt((h & 0xff) as u8),
         0b1111 if h & 0xf == 0 => Op::Nop,
         0b1111 => Op::It { first: field(h, 7, 4) as u8, mask: (h & 0xf) as u8 },
         _ => Op::Unsupported,
@@ -761,6 +764,7 @@ fn mnemonic(op: &Op) -> String {
         }
         Op::Adr { .. } => "adr".to_owned(),
         Op::Svc(_) => "svc".to_owned(),
+        Op::Bkpt(_) => "bkpt".to_owned(),
         Op::Nop => "nop".to_owned(),
         Op::Trap => "udf".to_owned(),
         Op::Unsupported => "unknown".to_owned(),
@@ -964,6 +968,12 @@ pub fn record(d: &Decoded, address: u64) -> Instr {
                 registers.push((register(n), Access::Read));
             }
             registers.push((register(0), Access::Write));
+            flow = Flow::Interrupt;
+        }
+        Op::Bkpt(n) => {
+            // The host reads the operation and its argument, and answers in `r0`.
+            operands.push(Operand::Imm { value: i64::from(n), bits: 8 });
+            registers.extend([(register(0), Access::Read), (register(1), Access::Read), (register(0), Access::Write)]);
             flow = Flow::Interrupt;
         }
         Op::Trap => flow = Flow::Trap,
