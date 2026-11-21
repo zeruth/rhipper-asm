@@ -885,7 +885,7 @@ impl ElfFile {
         let (mut exports, mut imports) = (Vec::new(), Vec::new());
         let mut va = text.vaddr;
         while va + 20 <= text.vaddr + end {
-            let at = (text.offset + (va - text.vaddr)) as usize;
+            let at = text.offset.wrapping_add(va.wrapping_sub(text.vaddr)) as usize;
             let magic = d.u32(at, "a library table's magic")?;
             if !matches!(magic, iop::EXPORT_MAGIC | iop::IMPORT_MAGIC) || d.u32(at + 4, "a library table's link")? != 0 {
                 va += 4;
@@ -898,7 +898,7 @@ impl ElfFile {
             }
             let mut functions = Vec::new();
             let mut entry = va + 20;
-            let word = |entry: u64| d.u32((text.offset + (entry - text.vaddr)) as usize, "a library table's entry");
+            let word = |entry: u64| d.u32(text.offset.wrapping_add(entry.wrapping_sub(text.vaddr)) as usize, "a library table's entry");
             if magic == iop::EXPORT_MAGIC {
                 while entry + 4 <= text.vaddr + end && functions.len() < MAX_ENTRIES {
                     let address = word(entry)?;
@@ -930,7 +930,7 @@ impl ElfFile {
             .static_relocations
             .iter()
             .filter(|r| r.symbol == 0)
-            .map(|r| PrxRelocation { place: r.offset + load, kind: r.kind, base: load, low: None })
+            .map(|r| PrxRelocation { place: r.offset.wrapping_add(load), kind: r.kind, base: load, low: None })
             .collect();
         let mut next_low = None;
         for r in relocations.iter_mut().rev() {
@@ -1011,7 +1011,7 @@ impl ElfFile {
         let mut relocations = Vec::new();
         for (offset, size, name) in &tables {
             for i in 0..(*size as usize / 8).min(MAX_ENTRIES) {
-                let at = *offset as usize + 8 * i;
+                let at = (*offset as usize).wrapping_add(8 * i);
                 let what = |field: &str| format!("{name} record {i} {field}");
                 let r_offset = d.u32(at, &what("r_offset"))?;
                 let info = d.u32(at + 4, &what("r_info"))?;
@@ -1121,7 +1121,7 @@ impl ElfFile {
 
     /// The file offset of virtual address `va`, when a loaded segment holds it in the file's bytes.
     pub fn offset_of(&self, va: u64) -> Option<u64> {
-        self.segments.iter().find(|s| s.is_load() && va >= s.vaddr && va - s.vaddr < s.filesz).map(|s| s.offset + (va - s.vaddr))
+        self.segments.iter().find(|s| s.is_load() && va >= s.vaddr && va - s.vaddr < s.filesz).map(|s| s.offset.wrapping_add(va - s.vaddr))
     }
 
     /// The section called `name`.
@@ -1142,8 +1142,9 @@ impl ElfFile {
         let count = (table.size as usize / entsize).min(MAX_ENTRIES);
         let mut symbols = Vec::with_capacity(count);
         for i in 0..count {
-            let at = table.offset as usize + i * entsize;
-            symbols.push(read_symbol(d, at, |name| d.string(strings.offset as usize + name as usize, 4096, "a symbol name"))?);
+            let at = (table.offset as usize).wrapping_add(i * entsize);
+            symbols
+                .push(read_symbol(d, at, |name| d.string((strings.offset as usize).wrapping_add(name as usize), 4096, "a symbol name"))?);
         }
         Ok(symbols)
     }
@@ -1155,7 +1156,7 @@ impl ElfFile {
         let entry = 2 * d.word_size();
         let mut tags: Vec<(u64, u64)> = Vec::new();
         for i in 0..(dynamic.filesz as usize / entry).min(MAX_ENTRIES) {
-            let at = dynamic.offset as usize + i * entry;
+            let at = (dynamic.offset as usize).wrapping_add(i * entry);
             let tag = d.word(at, &format!("dynamic entry {i} d_tag"))?;
             if tag == DT_NULL {
                 break;
@@ -1301,7 +1302,7 @@ impl ElfFile {
             let entsize = if table.entsize == 0 { size } else { table.entsize as usize };
             ensure!(entsize >= size, "{} has records of {entsize} bytes, smaller than one", table.name);
             for i in 0..(table.size as usize / entsize).min(MAX_ENTRIES) {
-                let at = table.offset as usize + i * entsize;
+                let at = (table.offset as usize).wrapping_add(i * entsize);
                 let what = |field: &str| format!("{} record {i} {field}", table.name);
                 let offset = d.word(at, &what("r_offset"))?;
                 let info = d.word(at + d.word_size(), &what("r_info"))?;
@@ -1414,21 +1415,23 @@ impl ElfFile {
     /// `PT_GNU_EH_FRAME`'s header points at.
     fn read_eh_frame(&self, d: Data<'_>) -> Result<Vec<(u64, u64)>> {
         let (va, start, end) = if let Some(s) = self.section(".eh_frame").filter(|s| s.kind == SHT_PROGBITS && s.addr != 0) {
-            (s.addr, s.offset as usize, (s.offset + s.size) as usize)
+            (s.addr, s.offset as usize, s.offset.wrapping_add(s.size) as usize)
         } else if let Some(hdr) = self.segments.iter().find(|s| s.kind == PT_GNU_EH_FRAME) {
             let at = hdr.offset as usize;
             ensure!(d.u8(at, "the .eh_frame_hdr version")? == 1, "the .eh_frame_hdr at offset {at:#x} is not version 1");
             let encoding = d.u8(at + 1, "the .eh_frame_hdr eh_frame_ptr encoding")?;
             let mut cursor = at + 4;
-            let Some(va) = read_encoded(d, &mut cursor, encoding, hdr.vaddr + 4, 0)? else { return Ok(Vec::new()) };
+            let Some(va) = read_encoded(d, &mut cursor, encoding, hdr.vaddr.wrapping_add(4), 0)? else { return Ok(Vec::new()) };
             let start = self.offset_or(va, ".eh_frame")?;
             let segment = self.segments.iter().find(|s| s.is_load() && va >= s.vaddr && va - s.vaddr < s.filesz).unwrap();
-            (va, start, (segment.offset + segment.filesz) as usize)
+            (va, start, segment.offset.wrapping_add(segment.filesz) as usize)
         } else {
             return Ok(Vec::new());
         };
-        ensure!(end <= d.bytes().len(), ".eh_frame at offset {start:#x} runs past the end of the file");
-        let va_of = |offset: usize| va + (offset - start) as u64;
+        // The file's own numbers: a start past the end is a section that wraps round the
+        // address space, which is no section.
+        ensure!(start <= end && end <= d.bytes().len(), ".eh_frame at offset {start:#x} runs past the end of the file");
+        let va_of = |offset: usize| va.wrapping_add((offset - start) as u64);
 
         // The FDE pointer encoding of each CIE, by the CIE's offset.
         let mut cies: HashMap<usize, u8> = HashMap::new();
