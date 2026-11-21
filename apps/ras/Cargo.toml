@@ -34,6 +34,7 @@ ra-asm-emit.workspace = true
 ra-asm-format.workspace = true
 ra-asm-host.workspace = true
 ra-asm-ir.workspace = true
+ra-asm-jvm.workspace = true
 ra-asm-lift.workspace = true
 ra-asm-pe.workspace = true
 ra-asm-verify.workspace = true

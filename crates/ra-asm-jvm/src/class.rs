@@ -287,6 +287,24 @@ impl ClassFile {
         }
         Ok(Some(Code { max_stack, max_locals, code, handlers, attributes: r.attributes()? }))
     }
+
+    /// The class's bootstrap methods, which its `invokedynamic` call sites and its computed
+    /// constants name by number: each the index of a method handle and the indices of the
+    /// constants it is called with. None for a class with no `BootstrapMethods` attribute.
+    ///
+    /// # Errors
+    /// When the attribute ends early.
+    pub fn bootstrap_methods(&self) -> Result<Vec<(u16, Vec<u16>)>, Error> {
+        let Some(attribute) = self.attribute(&self.attributes, "BootstrapMethods") else { return Ok(Vec::new()) };
+        let mut r = Reader { bytes: &attribute.info, at: 0 };
+        let mut methods = Vec::new();
+        for _ in 0..r.u2()? {
+            let handle = r.u2()?;
+            let arguments = (0..r.u2()?).map(|_| r.u2()).collect::<Result<Vec<u16>, Error>>()?;
+            methods.push((handle, arguments));
+        }
+        Ok(methods)
+    }
 }
 
 #[cfg(test)]

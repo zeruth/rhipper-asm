@@ -14,6 +14,7 @@ ra-asm-format = { path = "crates/ra-asm-format" }
 ra-asm-arch = { path = "crates/ra-asm-arch" }
 ra-asm-pe = { path = "crates/ra-asm-pe" }
 ra-asm-ir = { path = "crates/ra-asm-ir" }
+ra-asm-jvm = { path = "crates/ra-asm-jvm" }
 ra-asm-x86 = { path = "crates/ra-asm-x86" }
 ra-asm-arm64 = { path = "crates/ra-asm-arm64" }
 ra-asm-mips = { path = "crates/ra-asm-mips" }

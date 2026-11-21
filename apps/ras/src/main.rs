@@ -10,6 +10,7 @@ mod disasm;
 mod doctor;
 mod emit;
 mod functions;
+mod java;
 mod lift;
 mod lockstep;
 mod pipeline;
@@ -291,6 +292,27 @@ enum Command {
         entries: Option<PathBuf>,
         #[arg(long)]
         quiet: bool,
+    },
+    /// A Java program: the classes of class files, or of the directories given. By itself, what
+    /// each class is: the release that compiled it and its methods. With `--ll`, the IR the lift
+    /// makes of them; with `--run`, the `main` of a class run over the interpreter with the
+    /// machine's runtime.
+    Java {
+        /// Class files, and directories of them.
+        #[arg(required = true)]
+        classes: Vec<PathBuf>,
+        /// Write the lifted IR of all the classes to this file.
+        #[arg(long, value_name = "FILE")]
+        ll: Option<PathBuf>,
+        /// Run the `main` of this class (`Main`, `pkg.Main` or `pkg/Main`).
+        #[arg(long, value_name = "CLASS")]
+        run: Option<String>,
+        /// An argument of the program's `main`. Repeatable.
+        #[arg(long = "arg", value_name = "TEXT")]
+        args: Vec<String>,
+        /// Stop the run after this many instructions of the IR; zero for no limit.
+        #[arg(long, default_value_t = 0)]
+        limit: u64,
     },
     /// The program through the IR interpreter: what it prints goes to stdout, its exit code is
     /// the command's. The lift traps and the faults of the machine stop the run with a message
@@ -728,6 +750,7 @@ fn command() -> anyhow::Result<()> {
             times,
             entries.as_deref(),
         ),
+        Command::Java { classes, ll, run, args, limit } => java::java(&classes, &java::Options { ll, run, args, limit, json }),
         Command::Port { pe, out, name, no_build, quiet, with, entries } => {
             port::port(&load(&pe, sigs)?, &out, &port::Options { name, no_build, quiet, with, entries })
         }

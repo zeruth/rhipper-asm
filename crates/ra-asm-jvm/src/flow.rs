@@ -157,7 +157,7 @@ fn effect(opcode: u8) -> &'static str {
 }
 
 /// The instruction a `wide` form widens, by the form's name.
-fn widened(name: &str) -> u8 {
+pub(crate) fn widened(name: &str) -> u8 {
     match name {
         "iload_w" => 0x15,
         "lload_w" => 0x16,

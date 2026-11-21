@@ -73,7 +73,10 @@ fn print_head(out: &mut String, module: &Module) {
     if !module.globals.is_empty() {
         out.push('\n');
         for g in &module.globals {
+            // A global with no initializer that the module does not own is defined elsewhere, which
+            // LLVM has said in so many words.
             let linkage = match g.linkage {
+                Linkage::External if g.init.is_none() => "external ",
                 Linkage::External => "",
                 Linkage::Internal => "internal ",
             };

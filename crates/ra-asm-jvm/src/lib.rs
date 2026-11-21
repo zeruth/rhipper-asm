@@ -13,6 +13,8 @@
 pub mod class;
 pub mod decode;
 pub mod flow;
+pub mod lift;
+pub mod run;
 pub mod version;
 
 pub use class::{Attribute, ClassFile, Code, Constant, Handler, Member};

@@ -121,7 +121,13 @@ def java():
             releases[int(d.name)] = {"listing": (d / "Opcodes.txt").exists(), "output": (d / "Opcodes.out").exists()}
     files = list((ROOT / "crates" / "ra-asm-jvm").rglob("*.rs"))
     source = [f.read_text(encoding="utf-8") for f in files]
+    # the lift and the runtime: the test that runs every release's lifted fixture against what
+    # `java` printed, and the classes of the library the runtime answers for
+    run = ROOT / "crates" / "ra-asm-jvm" / "src" / "run.rs"
+    library = re.search(r"const LIBRARY: .*? = &\[(.*?)\n\];", run.read_text(encoding="utf-8"), re.S) if run.exists() else None
     return {
+        "runs": (ROOT / "crates" / "ra-asm-jvm" / "tests" / "run.rs").exists(),
+        "library": len(re.findall(r'^\s*\("', library.group(1), re.M)) if library else 0,
         "opcodes": len(re.findall(r'"\w+"', names.group(1))) if names else 0,
         "releases": dict(sorted(releases.items())),
         "lines": sum(len(s.splitlines()) for s in source),

@@ -484,7 +484,13 @@ impl<'a> Parser<'a> {
         let line = self.here();
         let name = self.global_name()?;
         self.expect(b'=')?;
-        let linkage = if self.eat_word("internal") { Linkage::Internal } else { Linkage::External };
+        // `external` says what the missing initializer says again: the global is defined elsewhere.
+        let linkage = if self.eat_word("internal") {
+            Linkage::Internal
+        } else {
+            self.eat_word("external");
+            Linkage::External
+        };
         let constant = if self.eat_word("constant") {
             true
         } else if self.eat_word("global") {

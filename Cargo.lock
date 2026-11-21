@@ -315,6 +315,10 @@ dependencies = [
 [[package]]
 name = "ra-asm-jvm"
 version = "0.2.0"
+dependencies = [
+ "ra-asm-ir",
+ "ra-asm-testing",
+]
 
 [[package]]
 name = "ra-asm-lift"
@@ -459,6 +463,7 @@ dependencies = [
  "ra-asm-format",
  "ra-asm-host",
  "ra-asm-ir",
+ "ra-asm-jvm",
  "ra-asm-lift",
  "ra-asm-pe",
  "ra-asm-testing",

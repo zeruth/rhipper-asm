@@ -3,7 +3,16 @@
 # beside it as `Opcodes.txt`, and what the program prints as `Opcodes.out`.
 #
 # Usage: powershell -File testdata/java/build.ps1
+#
+# `src/Thrown.java`, the fixture of the machine's exceptions, is compiled once, for Java 8, into
+# `thrown/`, with what it prints before it throws as `Thrown.out`.
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$thrown = Join-Path $here 'thrown'
+New-Item -ItemType Directory -Force $thrown | Out-Null
+& javac --release 8 -nowarn -Xlint:-options -d $thrown (Join-Path $here 'src\Thrown.java') 2>$null
+$printed = & java -cp $thrown Thrown 2>$null
+[IO.File]::WriteAllText((Join-Path $thrown 'Thrown.out'), (($printed -join "`n") + "`n"))
+Write-Host "thrown: prints $($printed.Count) lines"
 foreach ($release in 8..25) {
     $out = Join-Path $here $release
     New-Item -ItemType Directory -Force $out | Out-Null
