@@ -384,7 +384,7 @@ const FAMILIES = [
     scope: { sections: [442, 443] }, keyCards: [[442, "RISC-V and the microcontrollers", "env"], [443, "Firmware containers and the blob", "env"]],
     platforms: [
       { n: "RISC-V RV32 / RV64", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "" },
-      { n: "Cortex-M (ARMv7-M)", s: [4, 4, 4, 2, 1, 4, 2, 0], d: "The cortexm fixture, firmware with a vector table, flash and RAM, runs lifted from its reset handler to its golden output, printing by semihosting (bkpt 0xab through @ra_svc), as an ELF and as the flat image a chip is flashed with: flash placed by the reset handler's address, RAM to the stack's top, the handlers the vector table names found as functions. No peripheral is behind the registers yet, and no interrupt is delivered" },
+      { n: "Cortex-M (ARMv7-M)", s: [4, 4, 4, 3, 3, 4, 3, 0], d: "The cortexm fixture, firmware with a vector table, flash and RAM, runs lifted from its reset handler to its golden output, printing by semihosting (bkpt 0xab through @ra_svc), as an ELF and as the flat image a chip is flashed with: flash placed by the reset handler's address, RAM to the stack's top, the handlers the vector table names found as functions. The core's system timer counts and its exception is taken between two instructions, on the handler the table names. Its functions raise and emit as the Thumb-2 Linux fixture's do. No board's peripherals are behind the other registers, and the C has no runtime to run on" },
       { n: "AVR · MSP430 · Xtensa", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "" },
       { n: "Headerless firmware blobs", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "Machine and base guessed from statistics: §443" },
     ] },

@@ -206,6 +206,8 @@ pub(super) struct Runtime<'a> {
     psp: Psp,
     /// The machine of a console's program, when its console has a platform runtime.
     pub(super) machine: Option<super::console::Machine>,
+    /// The core of a microcontroller, on a run of its firmware: the system timer and its exception.
+    pub(super) cortexm: Option<super::cortexm::Core>,
 }
 
 /// The calls across the platform boundary a run made, and those still running.
@@ -484,6 +486,7 @@ impl<'a> Runtime<'a> {
             hosted: 0,
             psp: Psp::default(),
             machine: None,
+            cortexm: None,
         };
         runtime.thread.stack_bottom = runtime.allocations[0].start;
         runtime
@@ -2308,6 +2311,9 @@ impl Host for Runtime<'_> {
     }
 
     fn poll(&mut self, vm: &mut Vm<'_>) -> Result<(), Stop> {
+        if self.cortexm.is_some() {
+            return self.cortexm_poll(vm);
+        }
         self.console_poll(vm)
     }
 

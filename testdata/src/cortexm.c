@@ -46,12 +46,23 @@ static void number(int v) {
     put(digits + at);
 }
 
+// The system timer: control and status, the reload value, the current value.
+#define SYSTICK ((volatile u32 *)0xe000e010)
+
 int main(void) {
     put("hello from the cortex-m\n");
     number(sum(values, 5));
     put(" ");
     number(larger(counted, 4));
     put(" ");
+    // The timer counts down from 999 and raises its exception at zero, three times; the handler
+    // runs between two instructions of this loop, which only waits for it.
+    SYSTICK[1] = 999;
+    SYSTICK[2] = 0;
+    SYSTICK[0] = 7;
+    while (ticks < 3) {
+    }
+    SYSTICK[0] = 0;
     number((int)ticks);
     put("\n");
     return 0;

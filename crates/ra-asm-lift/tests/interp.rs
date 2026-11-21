@@ -144,9 +144,11 @@ fn cortexm_firmware_runs_interpreted() {
 fn cortexm_flat_image_runs_interpreted() {
     let image = ra_asm_pe::load(&root().join("testdata/bin/cortexm.bin")).unwrap();
     assert!(image.firmware);
-    assert_eq!((image.image_base(), image.entry_point()), (0x0800_0000, Some(0x0800_0160)));
+    assert_eq!(image.image_base(), 0x0800_0000);
     let handlers: Vec<u64> = image.cortex_m_vectors().unwrap().into_iter().map(|(_, handler)| handler).collect();
     assert_eq!(handlers.len(), 10, "reset, the faults and the tick: {handlers:x?}");
+    // The entry is the reset handler, the table's first.
+    assert_eq!(image.entry_point(), handlers.first().copied());
     let functions: Vec<u64> = ra_asm_analysis::analyze(&image).functions.keys().copied().collect();
     for handler in handlers {
         assert!(functions.contains(&handler), "the handler at {handler:#x} is no function");
