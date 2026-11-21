@@ -38,6 +38,12 @@ pub const TRAP: &str = "sh_trap";
 /// is at; zero where the program is mapped at its own addresses.
 pub const MEMORY: &str = "sh_memory";
 
+/// The function of a whole program ([`crate::run::Program::lift`]): `void (ptr state)`, which
+/// hands the runtime each segment and runs the code from the program's entry.
+pub const MAIN: &str = "sh_main";
+/// The runtime's taking of a segment: `void (i64 address, ptr bytes, i64 in_file, i64 size)`.
+pub const SEGMENT: &str = "sh_segment";
+
 /// The slots of the state after the sixteen general registers.
 pub const PR: u64 = 16;
 pub const MACH: u64 = 17;

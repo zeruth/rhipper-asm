@@ -353,7 +353,7 @@ const FAMILIES = [
     scope: { ids: [143, 93, 153], sections: [436] },
     keyCards: [[143, "The SH-4 decoder", "blk"], [93, "Dreamcast: 1ST_READ.BIN and the KallistiOS signatures", "blk"], [153, "The SH-4 lift and the KOS raise", "blk"], [436, "SH-4 and SH-2 as one table", "env"]],
     platforms: [
-      { n: "Dreamcast (SH-4)", s: [4, 4, 3, 2, 1, 3, 3, 1], d: "1ST_READ.BIN and the decoder are in. The processor's integer machine lifts at its own level, delay slots, the step division and the carries through T among it: a freestanding fixture built with the console's toolchain, lifted and run, prints what it printed under qemu and ends with the same code. The FPU and the privileged instructions do not lift yet, the lift stands beside the pipeline (a console's boot program does not go through it), and the KallistiOS raise is card 153, still marked blocked", blocked: true },
+      { n: "Dreamcast (SH-4)", s: [4, 4, 3, 2, 3, 4, 3, 1], d: "1ST_READ.BIN and the decoder are in. The processor's integer machine lifts at its own level, delay slots, the step division and the carries through T among it: a freestanding fixture built with the console's toolchain, lifted and run, prints what it printed under qemu and ends with the same code, and so does its port, the same IR through the C backend compiled with a runtime in C. The C is the machine's, one function over the registers. The FPU and the privileged instructions do not lift yet, the lift stands beside the pipeline (a console's boot program does not go through it), and the KallistiOS raise is card 153, still marked blocked", blocked: true },
       { n: "Sega Saturn (2× SH-2)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "§436" },
       { n: "Sega 32X (SH-2)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "§436" },
     ],

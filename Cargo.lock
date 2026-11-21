@@ -415,7 +415,9 @@ name = "ra-asm-sh"
 version = "0.2.0"
 dependencies = [
  "ra-asm-arch",
+ "ra-asm-emit",
  "ra-asm-ir",
+ "ra-asm-testing",
 ]
 
 [[package]]
