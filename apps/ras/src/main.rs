@@ -304,6 +304,21 @@ enum Command {
         /// Write the lifted IR of all the classes to this file.
         #[arg(long, value_name = "FILE")]
         ll: Option<PathBuf>,
+        /// Write the classes as C to this file: the lifted IR through the C backend.
+        #[arg(long, value_name = "FILE")]
+        c: Option<PathBuf>,
+        /// The class whose `main` the C program runs: the source gets the function the runtime's
+        /// `main` calls (`runtime/jvm.c`, which the program is compiled with). Without it `--c`
+        /// writes the classes alone.
+        #[arg(long, value_name = "CLASS")]
+        main: Option<String>,
+        /// Write the port of the program into this directory: `program.c`, the runtime beside it
+        /// and `build.cmd`, built with clang into an executable named after the `--main` class.
+        #[arg(long, value_name = "DIR", requires = "main")]
+        port: Option<PathBuf>,
+        /// With `--port`, write the sources and build nothing.
+        #[arg(long, requires = "port")]
+        no_build: bool,
         /// Run the `main` of this class (`Main`, `pkg.Main` or `pkg/Main`).
         #[arg(long, value_name = "CLASS")]
         run: Option<String>,
@@ -750,7 +765,9 @@ fn command() -> anyhow::Result<()> {
             times,
             entries.as_deref(),
         ),
-        Command::Java { classes, ll, run, args, limit } => java::java(&classes, &java::Options { ll, run, args, limit, json }),
+        Command::Java { classes, ll, c, main, port, no_build, run, args, limit } => {
+            java::java(&classes, &java::Options { ll, c, main, port, no_build, run, args, limit, json })
+        }
         Command::Port { pe, out, name, no_build, quiet, with, entries } => {
             port::port(&load(&pe, sigs)?, &out, &port::Options { name, no_build, quiet, with, entries })
         }

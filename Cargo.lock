@@ -316,6 +316,7 @@ dependencies = [
 name = "ra-asm-jvm"
 version = "0.2.0"
 dependencies = [
+ "ra-asm-emit",
  "ra-asm-ir",
  "ra-asm-testing",
 ]

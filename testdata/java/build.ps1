@@ -13,6 +13,16 @@ New-Item -ItemType Directory -Force $thrown | Out-Null
 $printed = & java -cp $thrown Thrown 2>$null
 [IO.File]::WriteAllText((Join-Path $thrown 'Thrown.out'), (($printed -join "`n") + "`n"))
 Write-Host "thrown: prints $($printed.Count) lines"
+#
+# `src/Plain.java`, the fixture of the releases before Java 8, is compiled once, for Java 8, into
+# `plain/`, with what it prints as `Plain.out`: it uses nothing the first class files had not, and
+# the tests set its classes' version back release by release.
+$plain = Join-Path $here 'plain'
+New-Item -ItemType Directory -Force $plain | Out-Null
+& javac --release 8 -nowarn -Xlint:-options -d $plain (Join-Path $here 'src\Plain.java') 2>$null
+$printed = & java -cp $plain Plain
+[IO.File]::WriteAllText((Join-Path $plain 'Plain.out'), (($printed -join "`n") + "`n"))
+Write-Host "plain: prints $($printed.Count) lines"
 foreach ($release in 8..25) {
     $out = Join-Path $here $release
     New-Item -ItemType Directory -Force $out | Out-Null

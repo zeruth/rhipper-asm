@@ -127,6 +127,11 @@ def java():
     library = re.search(r"const LIBRARY: .*? = &\[(.*?)\n\];", run.read_text(encoding="utf-8"), re.S) if run.exists() else None
     return {
         "runs": (ROOT / "crates" / "ra-asm-jvm" / "tests" / "run.rs").exists(),
+        # the port: the C runtime the emitted source is compiled with, and the test that builds
+        # and runs it; and the fixture every release's class files are made of
+        "port": (ROOT / "runtime" / "jvm.c").exists() and (ROOT / "crates" / "ra-asm-jvm" / "tests" / "emit.rs").exists(),
+        "port_lines": lines("runtime/jvm.c") if (ROOT / "runtime" / "jvm.c").exists() else 0,
+        "plain": (ROOT / "testdata" / "java" / "plain" / "Plain.class").exists(),
         "library": len(re.findall(r'^\s*\("', library.group(1), re.M)) if library else 0,
         "opcodes": len(re.findall(r'"\w+"', names.group(1))) if names else 0,
         "releases": dict(sorted(releases.items())),

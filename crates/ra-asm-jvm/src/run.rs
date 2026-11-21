@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
 use ra_asm_ir::{FnType, Module, Type};
 
-use crate::lift::{CLASS, ELEMENTS, HEADER, symbol};
+use crate::lift::{CLASSES, ELEMENTS, HEADER, symbol};
 
 const STATICS: (u64, u64) = (0x1000_0000, 0x0080_0000);
 const FRAMES: (u64, u64) = (0x2000_0000, 0x0080_0000);
@@ -114,6 +114,8 @@ pub struct Machine {
     /// The string object of each constant's text: a constant is one object wherever it is named.
     interned: HashMap<Vec<u16>, u64>,
     mirrors: HashMap<String, u64>,
+    /// Where each static field of the library the program names is.
+    statics: HashMap<String, u64>,
     pending: u64,
     heap: u64,
     out: Vec<u8>,
@@ -217,69 +219,63 @@ fn element_size(descriptor: &str) -> u64 {
 }
 
 impl Machine {
-    /// The machine of a module the interpreter has placed: its classes read from their globals,
-    /// the library's beside them, and the library's static fields the module names filled.
-    fn new(vm: &mut Vm<'_>) -> Result<Self, Stop> {
+    /// A machine with the library's classes; the module tells it of its own when its
+    /// [`CLASSES`] runs.
+    fn new() -> Self {
         let mut machine = Machine {
             classes: Vec::new(),
             by_name: HashMap::new(),
             natives: HashMap::new(),
             interned: HashMap::new(),
             mirrors: HashMap::new(),
+            statics: HashMap::new(),
             pending: 0,
             heap: HEAP.0,
             out: Vec::new(),
             err: Vec::new(),
         };
-        let text = |vm: &mut Vm<'_>, at: u64| -> Result<String, Stop> {
-            Ok(String::from_utf8_lossy(&vm.memory.read_cstr(at, 4096)?).into_owned())
-        };
-        for global in &vm.module.globals {
-            if !global.name.starts_with(CLASS) {
-                continue;
-            }
-            let at = vm.symbol(&global.name).ok_or_else(|| Stop::fault(format!("@{} is not placed", global.name)))?;
-            let mut word = |n: u64| vm.memory.read_u64(at + 8 * n);
-            let (name, above, fields, interface_count, interfaces, method_count, methods) =
-                (word(0)?, word(1)?, word(2)?, word(3)?, word(4)?, word(5)?, word(6)?);
-            let mut class = Class { name: text(vm, name)?, fields, ..Class::default() };
-            if above != 0 {
-                class.above = Some(text(vm, above)?);
-            }
-            for n in 0..interface_count {
-                let interface = vm.memory.read_u64(interfaces + 8 * n)?;
-                class.interfaces.push(text(vm, interface)?);
-            }
-            for n in 0..method_count {
-                let (named, function) = (vm.memory.read_u64(methods + 16 * n)?, vm.memory.read_u64(methods + 16 * n + 8)?);
-                class.methods.insert(text(vm, named)?, function);
-            }
-            machine.add(class);
-        }
         for &(name, above, interfaces) in LIBRARY {
-            if !machine.by_name.contains_key(name) {
-                machine.add(Class {
-                    name: name.to_owned(),
-                    above: (!above.is_empty()).then(|| above.to_owned()),
-                    interfaces: interfaces.iter().map(|&i| i.to_owned()).collect(),
-                    ..Class::default()
-                });
-            }
+            machine.add(Class {
+                name: name.to_owned(),
+                above: (!above.is_empty()).then(|| above.to_owned()),
+                interfaces: interfaces.iter().map(|&i| i.to_owned()).collect(),
+                ..Class::default()
+            });
         }
-        for (name, number) in [("out", 1), ("err", 2)] {
-            if let Some(at) = vm.symbol(&symbol("java/lang/System", name, "Ljava/io/PrintStream;")) {
-                let stream = machine.object(vm, "java/io/PrintStream")?;
-                machine.natives.insert(stream, Native::Stream(number));
-                vm.memory.write_u64(at, stream)?;
-            }
-        }
-        Ok(machine)
+        machine
     }
 
+    /// Adds a class, or replaces the one of its name: a program's own class of a library's name
+    /// is the class.
     fn add(&mut self, class: Class) -> usize {
+        if let Some(&n) = self.by_name.get(&class.name) {
+            self.classes[n] = class;
+            return n;
+        }
         self.by_name.insert(class.name.clone(), self.classes.len());
         self.classes.push(class);
         self.classes.len() - 1
+    }
+
+    /// Where the static field `named` of a class of the library is: eight bytes of its own, which
+    /// hold the stream for the fields of `System` that are streams.
+    fn library_static(&mut self, vm: &mut Vm<'_>, named: &str) -> Result<u64, Stop> {
+        if let Some(&at) = self.statics.get(named) {
+            return Ok(at);
+        }
+        let at = self.allocate(vm, 8)?;
+        let number = match named {
+            "java/lang/System.out:Ljava/io/PrintStream;" => Some(1),
+            "java/lang/System.err:Ljava/io/PrintStream;" => Some(2),
+            _ => None,
+        };
+        if let Some(number) = number {
+            let stream = self.object(vm, "java/io/PrintStream")?;
+            self.natives.insert(stream, Native::Stream(number));
+            vm.memory.write_u64(at, stream)?;
+        }
+        self.statics.insert(named.to_owned(), at);
+        Ok(at)
     }
 
     /// The number of the class `name`; an array's class is made when it is first named.
@@ -497,6 +493,25 @@ impl Machine {
                 NOTHING
             }
             "jvm.nothing" | "jvm.monitorenter" | "jvm.monitorexit" => NOTHING,
+            "jvm.define" => {
+                let above = if args[1].as_u64() == 0 { None } else { Some(text(vm, 1)?) };
+                self.add(Class { name: text(vm, 0)?, above, fields: args[2].as_u64(), ..Class::default() });
+                NOTHING
+            }
+            "jvm.implement" | "jvm.method" => {
+                let (class, named) = (text(vm, 0)?, text(vm, 1)?);
+                let class = self.class(&class)?;
+                if name == "jvm.method" {
+                    self.classes[class].methods.insert(named, args[2].as_u64());
+                } else {
+                    self.classes[class].interfaces.push(named);
+                }
+                NOTHING
+            }
+            "jvm.static" => {
+                let named = text(vm, 0)?;
+                pointer(self.library_static(vm, &named)?)
+            }
             "jvm.new" => {
                 let class = text(vm, 0)?;
                 pointer(self.object(vm, &class)?)
@@ -996,7 +1011,10 @@ fn enter(
     vm.set_static_region(STATICS.0, STATICS.1);
     vm.set_frame_region(FRAMES.0, FRAMES.1);
     vm.place()?;
-    let mut machine = Machine::new(&mut vm)?;
+    let mut machine = Machine::new();
+    if vm.function(CLASSES).is_some() {
+        vm.call_named(&mut machine, CLASSES, Vec::new())?;
+    }
     let entries = entries(&mut vm, &mut machine)?;
     let mut thrown = None;
     for (function, args) in entries {

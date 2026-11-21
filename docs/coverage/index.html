@@ -405,11 +405,11 @@ const JAVA_RELEASES = [
   [22, "Java 22", "66", ""], [23, "Java 23", "67", ""], [24, "Java 24", "68", ""], [25, "Java 25", "69", ""],
 ];
 FAMILIES.push({ id: "java", name: "Java · the JVM's bytecode", tag: "decoding", color: "rgb(240 150 60)",
-  blurb: "A machine of another kind: a stack machine whose instructions name their types, in a container that names every class, field and method it touches. Each release of Java is a target of its own, told by its class files' major version, and a class is held to what its release had: no invokedynamic before Java 7, no subroutine after it, no constant of a kind that came later. The class file reads and every instruction decodes, checked against javap's listing on a class compiled for each release the JDK still targets. The lift turns a method into a function of the IR: the operand stack becomes values, the locals variables, an exception a pending value every call is followed by a look at, a lambda a class of the module, a string concatenation the appends of a builder. A small runtime answers for the machine itself and for the classes of the library a program cannot be without, and under it the lifted fixture of every release prints what java printed. The emit comes next, and it can be Java again as well as C.",
-  facts: [["{jvm_opcodes}", "instructions decoded"], ["{jvm_releases}", "releases with a compiled fixture"], ["{jvm_listings}", "checked against javap"], ["{jvm_runs}", "run lifted, printing what java prints"], ["{jvm_library}", "library classes in the runtime"], ["{jvm_lines}", "lines in ra-asm-jvm"], ["{jvm_tests}", "tests"], ["45–69", "class file versions read"]],
+  blurb: "A machine of another kind: a stack machine whose instructions name their types, in a container that names every class, field and method it touches. Each release of Java is a target of its own, told by its class files' major version, and a class is held to what its release had: no invokedynamic before Java 7, no subroutine after it, no constant of a kind that came later. The class file reads and every instruction decodes, checked against javap's listing on a class compiled for each release the JDK still targets. The lift turns a method into a function of the IR: the operand stack becomes values, the locals variables, an exception a pending value every call is followed by a look at, a lambda a class of the module, a string concatenation the appends of a builder. A small runtime answers for the machine itself and for the classes of the library a program cannot be without, and under it the lifted fixture of every release prints what java printed. The same IR goes through the C backend the other machines share: ras java --port writes the classes as C beside a runtime in C, and the executable clang makes of them prints the same. The releases no JDK compiles for any more are held to a fixture that uses nothing the first class files had not, its version set back release by release; their subroutines lift too, from code written by hand.",
+  facts: [["{jvm_opcodes}", "instructions decoded"], ["{jvm_releases}", "releases with a compiled fixture"], ["{jvm_listings}", "checked against javap"], ["{jvm_runs}", "run lifted, printing what java prints"], ["{jvm_all}", "releases whose class files run"], ["{jvm_library}", "library classes in the runtime"], ["{jvm_lines}", "lines in ra-asm-jvm"], ["{jvm_port_lines}", "lines in the port's C runtime"], ["{jvm_tests}", "tests"]],
   scope: {}, keyCards: [],
   platforms: JAVA_RELEASES.map(([release, n, major, d]) => ({ release, n: `${n} (class files ${major})`, s: [4, 4, 0, 0, 0, 0, 0, 0], d })),
-  note: "Next for Java: the emit (C through the backend the other machines share, and Java again), a runtime the compiled port links against, more of the library, a collector, threads, and fixtures compiled by the releases before Java 8, whose subroutines the lift already follows." });
+  note: "Next for Java: more of the library in both runtimes (the collections, the boxes' whole surface, text formatting), a collector, threads and monitors that lock, classes initialized when first used, the emit of Java itself, and fixtures written by the compilers of the releases before Java 8." });
 
 const M = /*@MEASURED@*/null;
 const $ = (s) => document.querySelector(s);
@@ -442,25 +442,34 @@ GLOBAL.rt_others = fmt(consoleIds.filter((id) => id !== "psx").reduce((a, id) =>
 GLOBAL.console_fixtures = consoleIds.reduce((a, id) => a + runtime(id).fixtures, 0);
 // Java: a release with a committed class that javap's listing agrees with is verified at the
 // container and the decoder
-const java = M.java || { opcodes: 0, releases: {}, lines: 0, tests: 0, runs: false, library: 0 };
+const java = M.java || { opcodes: 0, releases: {}, lines: 0, tests: 0, runs: false, library: 0, port: false, port_lines: 0, plain: false };
 const javaRuns = (r) => java.runs && r.output;
-Object.assign(GLOBAL, { jvm_opcodes: java.opcodes, jvm_releases: Object.keys(java.releases).length, jvm_listings: Object.values(java.releases).filter((r) => r.listing).length,
-  jvm_runs: Object.values(java.releases).filter(javaRuns).length, jvm_library: java.library, jvm_lines: fmt(java.lines), jvm_tests: java.tests });
 const javaFamily = FAMILIES.find((f) => f.id === "java");
+Object.assign(GLOBAL, { jvm_opcodes: java.opcodes, jvm_releases: Object.keys(java.releases).length, jvm_listings: Object.values(java.releases).filter((r) => r.listing).length,
+  jvm_runs: Object.values(java.releases).filter(javaRuns).length, jvm_all: java.runs && java.plain ? javaFamily.platforms.length : Object.values(java.releases).filter(javaRuns).length,
+  jvm_library: java.library, jvm_lines: fmt(java.lines), jvm_port_lines: fmt(java.port_lines), jvm_tests: java.tests });
 javaFamily.platforms.forEach((p) => {
   const fixture = java.releases[p.release];
+  const add = (text) => { p.d = (p.d ? p.d + "; " : "") + text; };
   if (!fixture || !fixture.listing) {
-    // a release no JDK still compiles for: its instructions lift (the subroutines too), and no class of its own proves it
-    if (java.runs) { p.s[2] = 3; p.s[3] = 3; p.s[6] = 2; }
+    // a release no JDK still compiles for: the plain fixture, its class files' version set to the release's,
+    // lifts and runs to what java printed; no compiler of the release has written a class for it
+    if (java.runs && java.plain) {
+      p.s[2] = 4; p.s[3] = 4; p.s[5] = 4; p.s[6] = 3;
+      if (java.port) p.s[4] = 3;
+      add("a fixture in the release's class file format lifts and runs to java's output; no class from the release's own compiler yet");
+    }
     return;
   }
   p.s[0] = 5; p.s[1] = 5; p.s[2] = 3;
-  p.d = (p.d ? p.d + "; " : "") + "a compiled class decodes as javap lists it, and its operand stack walks to the depth javac wrote";
+  add("a compiled class decodes as javap lists it, and its operand stack walks to the depth javac wrote");
   // lifted and run under the runtime, the fixture prints what java printed: the lift is verified, its functions
   // come out with their own parameters, and the runtime is the part of the library the fixtures touch
-  if (javaRuns(fixture)) { p.s[2] = 5; p.s[3] = 4; p.s[5] = 4; p.s[6] = 3; p.d += "; lifted and run, it prints what java prints"; }
+  if (javaRuns(fixture)) { p.s[2] = 5; p.s[3] = 4; p.s[5] = 4; p.s[6] = 3; add("lifted and run, it prints what java prints"); }
+  // written as C and compiled with the C runtime, the program prints the same: the oracle agrees with the port
+  if (javaRuns(fixture) && java.port) { p.s[4] = 4; p.s[5] = 5; add("its port in C prints the same"); }
 });
-if (java.runs) javaFamily.tag = "lifting";
+if (java.runs) javaFamily.tag = java.port ? "porting" : "lifting";
 const milestone = (id) => M.milestones.find((m) => m.id === id) || { tasks: [], sections: [] };
 const sectionTasks = (id) => { // the tasks under a section: the ids that follow it in its milestone up to the next section
   for (const m of M.milestones) { const i = m.sections.indexOf(id); if (i >= 0) { const next = m.sections[i + 1] ?? Infinity; return m.tasks.filter((t) => t > id && t < next); } }

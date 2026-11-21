@@ -24,9 +24,13 @@
 //!
 //! An object is its class's number in its first eight bytes and, after them, the fields of the
 //! lifted classes it is of, eight bytes each, the superclass's first. An array is the number, its
-//! length at eight and its elements from sixteen. A class is a global, `class:Name`, that says its
-//! name, its superclass, its interfaces, the bytes of its own fields and its methods by name, for
-//! the runtime to find them; a static field is a global, `Class.name:descriptor`.
+//! length at eight and its elements from sixteen. The module tells the runtime of its classes in
+//! a function of its own, [`CLASSES`]: each class's name, its superclass, its interfaces, the
+//! bytes of its own fields and its methods by name. A static field is a global of eight bytes,
+//! `Class.name:descriptor`; one of a class that was not lifted is where `jvm.static` says.
+//!
+//! The module's data is bytes and its classes are calls, so the backends that write a console's
+//! program write this one: [`crate::names`] gives its names the form C takes.
 //!
 //! A call site of `invokedynamic` is lifted by what its bootstrap method makes: a lambda is a
 //! class of the module with the one method, which calls the lambda's body with what the site
@@ -45,8 +49,9 @@ use crate::decode::Operand;
 use crate::flow::{Flow, Kind, field_kind, flow, method_kinds, widened};
 use crate::{Error, error};
 
-/// What the name of a class's global starts with.
-pub const CLASS: &str = "class:";
+/// The function of a lifted module that tells the runtime of the module's classes, which a run
+/// calls before anything else.
+pub const CLASSES: &str = "jvm.classes";
 
 /// The bytes of an object before its fields: its class's number.
 pub const HEADER: u64 = 8;
@@ -150,6 +155,8 @@ enum How {
 enum Place {
     /// The global of a static field.
     Global(String),
+    /// A static field of a class of the library, by its name: the runtime says where it is.
+    Library(String),
     /// The offset of an instance field in its object.
     Offset(u64),
 }
@@ -167,12 +174,80 @@ pub fn lift(classes: &[ClassFile]) -> Result<Module, Error> {
         let name = file.name().ok_or_else(|| Error("a class with no name".to_owned()))?;
         by_name.insert(name, n);
     }
-    let mut lift =
-        Lift { classes, by_name, module: Module::x86_64_windows("java"), texts: HashMap::new(), strings: HashMap::new(), lambdas: 0 };
+    let mut lift = Lift {
+        classes,
+        by_name,
+        module: Module::x86_64_windows("java"),
+        texts: HashMap::new(),
+        strings: HashMap::new(),
+        lambdas: 0,
+        defined: Vec::new(),
+    };
     for file in classes {
         lift.class(file)?;
     }
+    lift.define();
     Ok(lift.module)
+}
+
+/// The function [`entry`] gives a module: what the C runtime's `main` calls with the command's
+/// arguments, as C's `main` gets them.
+pub const MAIN: &str = "jvm.main";
+
+/// Gives a lifted module the function a C program starts at: it tells the runtime of the classes,
+/// runs their static initializers in the module's order and then the `main` of the class `main`
+/// with the command's arguments, and returns what `jvm.end` makes of how that went: zero, or one
+/// when an exception was left pending, which it names on the error stream.
+///
+/// # Errors
+/// When the class has no `main` of strings among the module's functions.
+pub fn entry(module: &mut Module, main: &str) -> Result<(), Error> {
+    let program = symbol(main, "main", "([Ljava/lang/String;)V");
+    if module.function(&program).is_none() {
+        return error(format!("the class {main} has no `main` of strings among the lifted methods"));
+    }
+    let nothing = FnType::new(Type::Void, Vec::new());
+    let mut b = FunctionBuilder::new(MAIN, FnType::new(Type::I32, vec![Type::I32, Type::Ptr]), &["count", "arguments"]);
+    let mut at = b.block("entry");
+    let done = b.block("done");
+    b.call(at, nothing.clone(), Callee::Direct(CLASSES.to_owned()), Vec::new(), "");
+    let mut declare = |name: &str, ty: &FnType| {
+        module.declare(Declaration { name: name.to_owned(), ty: ty.clone(), conv: CallConv::C, attrs: Vec::new() })
+    };
+    let arguments_ty = FnType::new(Type::Ptr, vec![Type::I32, Type::Ptr]);
+    let pending_ty = FnType::new(Type::Ptr, Vec::new());
+    let end_ty = FnType::new(Type::I32, Vec::new());
+    declare("jvm.arguments", &arguments_ty);
+    declare("jvm.pending", &pending_ty);
+    declare("jvm.end", &end_ty);
+    let arguments = vec![(Type::I32, Ir::from(b.param(0))), (Type::Ptr, Ir::from(b.param(1)))];
+    let strings = b.call(at, arguments_ty, Callee::Direct("jvm.arguments".to_owned()), arguments, "strings").expect("a pointer");
+    let initializers: Vec<String> = module.functions.iter().filter(|f| f.name.ends_with(".<clinit>:()V")).map(|f| f.name.clone()).collect();
+    for initializer in initializers {
+        b.call(at, nothing.clone(), Callee::Direct(initializer), Vec::new(), "");
+        let pending = b.call(at, pending_ty.clone(), Callee::Direct("jvm.pending".to_owned()), Vec::new(), "pending").expect("a pointer");
+        let none = b.icmp(at, ICond::Eq, Type::Ptr, pending, Ir::Null, "none");
+        let on = b.block("on");
+        b.terminate(at, Terminator::CondBr { cond: none.into(), then: on, els: done });
+        at = on;
+    }
+    b.call(at, FnType::new(Type::Void, vec![Type::Ptr]), Callee::Direct(program), vec![(Type::Ptr, strings.into())], "");
+    b.terminate(at, Terminator::Br(done));
+    let code = b.call(done, end_ty, Callee::Direct("jvm.end".to_owned()), Vec::new(), "code").expect("an int");
+    b.terminate(done, Terminator::Ret(Some((Type::I32, code.into()))));
+    module.functions.push(b.finish());
+    Ok(())
+}
+
+/// A class as the module tells the runtime of it.
+struct Defined {
+    name: String,
+    above: Option<String>,
+    interfaces: Vec<String>,
+    /// The bytes of the class's own fields.
+    fields: u64,
+    /// The class's methods an object's class finds: `name:descriptor` and the function.
+    methods: Vec<(String, String)>,
 }
 
 struct Lift<'a> {
@@ -184,6 +259,8 @@ struct Lift<'a> {
     /// The global of each string constant, with its length in UTF-16 units.
     strings: HashMap<String, (String, u32)>,
     lambdas: usize,
+    /// The classes of the module, in the order they were lifted.
+    defined: Vec<Defined>,
 }
 
 impl<'a> Lift<'a> {
@@ -192,7 +269,8 @@ impl<'a> Lift<'a> {
         if let Some(name) = self.texts.get(text) {
             return name.clone();
         }
-        let name = format!("text.{}", self.texts.len());
+        // A global's name is none a value of a function takes: the backends write both as they are.
+        let name = format!("jvm.text.{}", self.texts.len());
         let mut bytes = text.as_bytes().to_vec();
         bytes.push(0);
         self.module.globals.push(Global {
@@ -214,12 +292,13 @@ impl<'a> Lift<'a> {
             return found.clone();
         }
         let units: Vec<u16> = text.encode_utf16().collect();
-        let name = format!("string.{}", self.strings.len());
-        let items: Vec<Const> = units.iter().map(|&unit| Const::Int(i128::from(unit))).chain([Const::Int(0)]).collect();
+        let name = format!("jvm.units.{}", self.strings.len());
+        // The units as the bytes they are in memory, low byte first, and a zero unit after them.
+        let bytes: Vec<u8> = units.iter().chain(&[0]).flat_map(|unit| unit.to_le_bytes()).collect();
         self.module.globals.push(Global {
             name: name.clone(),
-            ty: Type::array(items.len() as u64, Type::I16),
-            init: Some(Const::Array(items)),
+            ty: Type::array(bytes.len() as u64, Type::I8),
+            init: Some(Const::Bytes(bytes)),
             constant: true,
             linkage: Linkage::Internal,
             align: 2,
@@ -296,20 +375,8 @@ impl<'a> Lift<'a> {
         if !is_static {
             return error(format!("the field {name} of {class}, a class that was not lifted"));
         }
-        // A static field of a class that was not lifted is the runtime's to fill.
-        let global = symbol(class, name, descriptor);
-        if self.module.global(&global).is_none() {
-            self.module.globals.push(Global {
-                name: global.clone(),
-                ty: ty(field_kind(descriptor)?),
-                init: None,
-                constant: false,
-                linkage: Linkage::External,
-                align: 8,
-                address: None,
-            });
-        }
-        Ok(Place::Global(global))
+        // A static field of a class that was not lifted is the runtime's, which says where it is.
+        Ok(Place::Library(symbol(class, name, descriptor)))
     }
 
     /// A call of the method `name` of `class` with `args`, the receiver first: what it returns.
@@ -344,64 +411,40 @@ impl<'a> Lift<'a> {
         Ok(b.call(block, fn_ty, callee, typed, name.trim_matches(['<', '>'])))
     }
 
-    /// The global of a class: its name, its superclass's, the bytes of its own fields, its
-    /// interfaces' names, and its methods as pairs of `name:descriptor` and function.
+    /// Notes a class of the module: its name, its superclass's, its interfaces' names, the bytes
+    /// of its own fields, and its methods as pairs of `name:descriptor` and function.
     fn class_global(&mut self, name: &str, above: Option<&str>, interfaces: &[&str], fields: u64, methods: &[(String, String)]) {
-        let pointer = |global: String| Const::Global(global);
-        let name_text = self.text(name);
-        let above = above.map_or(Const::Null, |above| pointer(self.text(above)));
-        let interfaces_global = if interfaces.is_empty() {
-            Const::Null
-        } else {
-            let items = interfaces.iter().map(|interface| pointer(self.text(interface))).collect::<Vec<_>>();
-            let global = format!("interfaces:{name}");
-            self.module.globals.push(Global {
-                name: global.clone(),
-                ty: Type::array(items.len() as u64, Type::Ptr),
-                init: Some(Const::Array(items)),
-                constant: true,
-                linkage: Linkage::Internal,
-                align: 8,
-                address: None,
-            });
-            pointer(global)
-        };
-        let methods_global = if methods.is_empty() {
-            Const::Null
-        } else {
-            let items = methods
-                .iter()
-                .map(|(named, function)| Const::Struct(vec![pointer(self.text(named)), pointer(function.clone())]))
-                .collect::<Vec<_>>();
-            let global = format!("methods:{name}");
-            self.module.globals.push(Global {
-                name: global.clone(),
-                ty: Type::array(items.len() as u64, Type::Struct(vec![Type::Ptr, Type::Ptr])),
-                init: Some(Const::Array(items)),
-                constant: true,
-                linkage: Linkage::Internal,
-                align: 8,
-                address: None,
-            });
-            pointer(global)
-        };
-        self.module.globals.push(Global {
-            name: format!("{CLASS}{name}"),
-            ty: Type::Struct(vec![Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::Ptr, Type::I64, Type::Ptr]),
-            init: Some(Const::Struct(vec![
-                pointer(name_text),
-                above,
-                Const::Int(i128::from(fields)),
-                Const::Int(interfaces.len() as i128),
-                interfaces_global,
-                Const::Int(methods.len() as i128),
-                methods_global,
-            ])),
-            constant: true,
-            linkage: Linkage::External,
-            align: 8,
-            address: None,
+        self.defined.push(Defined {
+            name: name.to_owned(),
+            above: above.map(str::to_owned),
+            interfaces: interfaces.iter().map(|&interface| interface.to_owned()).collect(),
+            fields,
+            methods: methods.to_vec(),
         });
+    }
+
+    /// Writes [`CLASSES`], the function that tells the runtime of the module's classes: each by
+    /// its name, its superclass's and the bytes of its own fields, then its interfaces, then its
+    /// methods as `name:descriptor` and function.
+    fn define(&mut self) {
+        let mut b = FunctionBuilder::new(CLASSES, FnType::new(Type::Void, Vec::new()), &[]);
+        let block = b.block("entry");
+        for class in std::mem::take(&mut self.defined) {
+            let text = |lift: &mut Self, text: &str| (Type::Ptr, Ir::Global(lift.text(text)));
+            let name = text(self, &class.name);
+            let above = class.above.as_deref().map_or((Type::Ptr, Ir::Null), |above| text(self, above));
+            self.runtime(&mut b, block, "jvm.define", Type::Void, vec![name.clone(), above, (Type::I64, Ir::Int(class.fields.into()))]);
+            for interface in &class.interfaces {
+                let interface = text(self, interface);
+                self.runtime(&mut b, block, "jvm.implement", Type::Void, vec![name.clone(), interface]);
+            }
+            for (named, function) in &class.methods {
+                let named = text(self, named);
+                self.runtime(&mut b, block, "jvm.method", Type::Void, vec![name.clone(), named, (Type::Ptr, Ir::Global(function.clone()))]);
+            }
+        }
+        b.terminate(block, Terminator::Ret(None));
+        self.module.functions.push(b.finish());
     }
 
     fn class(&mut self, file: &'a ClassFile) -> Result<(), Error> {
@@ -409,26 +452,27 @@ impl<'a> Lift<'a> {
         let mut own = 0;
         for field in &file.fields {
             let (field_name, descriptor) = (text_at(file, field.name)?, text_at(file, field.descriptor)?);
-            let kind = field_kind(descriptor)?;
+            field_kind(descriptor)?;
             if field.access & 0x0008 == 0 {
                 own += 8;
                 continue;
             }
-            // A constant field starts as its constant; a string's is the runtime's to make.
+            // A constant field starts as its constant; a string's is the runtime's to make. The
+            // field is eight bytes of data, which the code reads at the field's own type.
             let constant = file.attribute(&field.attributes, "ConstantValue").and_then(|a| {
                 let index = u16::from_be_bytes([*a.info.first()?, *a.info.get(1)?]);
                 match file.constants.get(usize::from(index))? {
-                    Constant::Integer(v) => Some(Const::Int(i128::from(*v))),
-                    Constant::Long(v) => Some(Const::Int(i128::from(*v))),
-                    Constant::Float(v) => Some(Const::Float(f64::from(*v))),
-                    Constant::Double(v) => Some(Const::Float(*v)),
+                    Constant::Integer(v) => Some(i64::from(*v).cast_unsigned()),
+                    Constant::Long(v) => Some(v.cast_unsigned()),
+                    Constant::Float(v) => Some(u64::from(v.to_bits())),
+                    Constant::Double(v) => Some(v.to_bits()),
                     _ => None,
                 }
             });
             self.module.globals.push(Global {
                 name: symbol(name, field_name, descriptor),
-                ty: ty(kind),
-                init: Some(constant.unwrap_or(Const::Zero)),
+                ty: Type::array(8, Type::I8),
+                init: Some(Const::Bytes(constant.unwrap_or(0).to_le_bytes().to_vec())),
                 constant: false,
                 linkage: Linkage::External,
                 align: 8,
@@ -1112,6 +1156,10 @@ impl<'a> Body<'_, 'a> {
                 let value = if matches!(opcode, 0xb3 | 0xb5) { Some(self.pop()?) } else { None };
                 let at: Ir = match place {
                     Place::Global(global) => Ir::Global(global),
+                    Place::Library(named) => {
+                        let named = self.text(&named);
+                        self.rt("jvm.static", Type::Ptr, vec![named])
+                    }
                     Place::Offset(at) => {
                         let object = self.pop()?;
                         self.null_check(&object, offset)?;

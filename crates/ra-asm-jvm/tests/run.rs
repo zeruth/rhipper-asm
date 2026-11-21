@@ -62,3 +62,33 @@ fn an_uncaught_exception_ends_the_run_by_its_name() {
     assert_eq!(String::from_utf8_lossy(&outcome.out), expected);
     assert_eq!(outcome.thrown.as_deref(), Some("java.lang.IllegalStateException: 3"));
 }
+
+/// Every release from the first: the plain fixture uses nothing the first class files had not,
+/// so with its classes' version set to a release's they are classes of that release, and each
+/// release's lift of them prints what `java` printed.
+#[test]
+fn every_release_runs_the_plain_fixture() {
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(fixtures().join("plain")).unwrap().map(|entry| entry.unwrap().path()).collect();
+    paths.retain(|path| path.extension().is_some_and(|e| e == "class"));
+    paths.sort();
+    assert_eq!(paths.len(), 5, "the fixture and its four nested classes");
+    let bytes: Vec<Vec<u8>> = paths.iter().map(|path| std::fs::read(path).unwrap()).collect();
+    let expected = printed(&fixtures().join("plain/Plain.out"));
+    for major in ra_asm_jvm::version::FIRST..=ra_asm_jvm::version::LAST {
+        let classes: Vec<ClassFile> = bytes
+            .iter()
+            .map(|class| {
+                // The version: the minor at four, the major at six. The first release's class files
+                // are 45.3, where a method's code has the sizes it has had since.
+                let mut class = class.clone();
+                class[4..6].copy_from_slice(&(if major == 45 { 3u16 } else { 0 }).to_be_bytes());
+                class[6..8].copy_from_slice(&major.to_be_bytes());
+                ClassFile::parse(&class).unwrap_or_else(|e| panic!("class files {major}: {e}"))
+            })
+            .collect();
+        let module = lift(&classes).unwrap_or_else(|e| panic!("class files {major}: {e}"));
+        let outcome = run(&module, "Plain", &[], 10_000_000).unwrap_or_else(|stop| panic!("class files {major}: {stop:?}"));
+        assert_eq!(outcome.thrown, None, "class files {major}");
+        assert_eq!(String::from_utf8_lossy(&outcome.out), expected, "class files {major}");
+    }
+}
