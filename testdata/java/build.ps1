@@ -28,6 +28,15 @@ foreach ($class in Get-ChildItem $plain -Filter *.class) {
 }
 Write-Host "plain: prints $($printed.Count) lines"
 #
+# `src/Library.java`, the fixture of the library's everyday classes, is compiled once, for Java 8,
+# into `library/`, with what it prints as `Library.out`.
+$library = Join-Path $here 'library'
+New-Item -ItemType Directory -Force $library | Out-Null
+& javac --release 8 -nowarn -Xlint:-options -d $library (Join-Path $here 'src\Library.java') 2>$null
+$printed = & java -cp $library Library
+[IO.File]::WriteAllText((Join-Path $library 'Library.out'), (($printed -join "`n") + "`n"))
+Write-Host "library: prints $($printed.Count) lines"
+#
 # The fixtures of what a release brought, each compiled for the release that brought it (or the
 # oldest the JDK still targets) and for the newest, into `<name>/<release>/` with what it prints:
 # `Features` (Java 5: enums, boxes, for-each, variable arguments), `Records` (to Java 17: records,

@@ -75,6 +75,8 @@ fn what_each_release_brought_runs() {
         ("records/25", "Records"),
         ("patterns/21", "Patterns"),
         ("patterns/25", "Patterns"),
+        // The library a program leans on every day: strings, numbers, characters, a list, a map.
+        ("library", "Library"),
     ] {
         let mut paths: Vec<PathBuf> = std::fs::read_dir(fixtures().join(directory)).unwrap().map(|entry| entry.unwrap().path()).collect();
         paths.retain(|path| path.extension().is_some_and(|e| e == "class"));

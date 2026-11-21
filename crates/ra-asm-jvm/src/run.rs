@@ -43,6 +43,7 @@ const LIBRARY: &[(&str, &str, &[&str])] = &[
     ("java/io/PrintStream", "java/lang/Object", &[]),
     ("java/util/ArrayList", "java/lang/Object", &["java/util/List", "java/util/Collection", "java/lang/Iterable"]),
     ("java/util/ArrayList$Itr", "java/lang/Object", &["java/util/Iterator"]),
+    ("java/util/HashMap", "java/lang/Object", &["java/util/Map"]),
     ("java/lang/Throwable", "java/lang/Object", &[]),
     ("java/lang/Error", "java/lang/Throwable", &[]),
     ("java/lang/Exception", "java/lang/Throwable", &[]),
@@ -94,6 +95,8 @@ enum Native {
     Stream(u32),
     /// The class a `Class` object is of.
     Class(String),
+    /// A map's entries, each a key and its value, in the order the keys came.
+    Map(Vec<(u64, u64)>),
     /// A constant of an enum: its name, a string, and its place among the constants.
     Enum {
         name: u64,
@@ -455,6 +458,16 @@ impl Machine {
         }
     }
 
+    /// Whether two objects are equal as `Objects.equals` has it: the same object, or the first's
+    /// `equals` says so.
+    fn same(&mut self, vm: &mut Vm<'_>, a: u64, b: u64) -> Result<bool, Stop> {
+        Ok(match (a, b) {
+            (a, b) if a == b => true,
+            (0, _) => false,
+            (a, b) => self.invoke(vm, a, "equals:(Ljava/lang/Object;)Z", vec![pointer(b)], Type::I32)?.as_u64() & 1 != 0,
+        })
+    }
+
     /// What `String.valueOf` makes of an object.
     fn describe(&mut self, vm: &mut Vm<'_>, at: u64) -> Result<Vec<u16>, Stop> {
         if at == 0 {
@@ -770,6 +783,214 @@ impl Machine {
                     }
                 }
                 truth(found)
+            }
+            ("String", "indexOf" | "lastIndexOf", "(I)I") => {
+                let text = self.text(this).cloned().unwrap_or_default();
+                let unit = arg(1) as u16;
+                let found = if name == "indexOf" { text.iter().position(|&u| u == unit) } else { text.iter().rposition(|&u| u == unit) };
+                int(found.map_or(-1, |at| at as i32))
+            }
+            ("String", "indexOf" | "contains" | "startsWith" | "endsWith", _) => {
+                let (text, part) = (self.text(this).cloned().unwrap_or_default(), self.describe(vm, arg(1))?);
+                let found = if part.is_empty() { Some(0) } else { text.windows(part.len()).position(|window| window == part.as_slice()) };
+                match name {
+                    "indexOf" => int(found.map_or(-1, |at| at as i32)),
+                    "contains" => truth(found.is_some()),
+                    "startsWith" => truth(text.starts_with(&part)),
+                    _ => truth(text.ends_with(&part)),
+                }
+            }
+            ("String", "replace", "(CC)Ljava/lang/String;") => {
+                let (from, to) = (arg(1) as u16, arg(2) as u16);
+                let text = self.text(this).cloned().unwrap_or_default().into_iter().map(|u| if u == from { to } else { u }).collect();
+                pointer(self.string(vm, text)?)
+            }
+            ("String", "toUpperCase" | "toLowerCase" | "trim", "()Ljava/lang/String;") => {
+                let text = String::from_utf16_lossy(self.text(this).map_or(&[][..], Vec::as_slice));
+                let made = match name {
+                    "toUpperCase" => text.to_uppercase(),
+                    "toLowerCase" => text.to_lowercase(),
+                    // What is trimmed is every character up to the space, as the library has it.
+                    _ => text.trim_matches(|c| c <= ' ').to_owned(),
+                };
+                pointer(self.string(vm, units(&made))?)
+            }
+            ("String", "toCharArray", "()[C") => {
+                let text = self.text(this).cloned().unwrap_or_default();
+                let array = self.array(vm, "[C", text.len() as i32)?;
+                for (n, unit) in text.iter().enumerate() {
+                    vm.memory.write_u16(array + ELEMENTS + 2 * n as u64, *unit)?;
+                }
+                pointer(array)
+            }
+            ("String", "<init>", "([C)V") | ("String", "valueOf", "([CII)Ljava/lang/String;") => {
+                // The characters of an array, all of them or a run of them.
+                let array = if name == "<init>" { arg(1) } else { this };
+                if array == 0 {
+                    self.throw(vm, "java/lang/NullPointerException", "")?;
+                    return Ok(Some(NOTHING));
+                }
+                let length = vm.memory.read_u32(array + HEADER)?;
+                let (from, count) = if name == "<init>" { (0, length) } else { (arg(1) as u32, arg(2) as u32) };
+                if from.checked_add(count).is_none_or(|end| end > length) {
+                    self.throw(vm, "java/lang/StringIndexOutOfBoundsException", &format!("offset {from}, count {count}, length {length}"))?;
+                    return Ok(Some(NOTHING));
+                }
+                let mut text = Vec::with_capacity(count as usize);
+                for n in 0..u64::from(count) {
+                    text.push(vm.memory.read_u16(array + ELEMENTS + 2 * (u64::from(from) + n))?);
+                }
+                if name == "<init>" {
+                    self.natives.insert(this, Native::Text(text));
+                    NOTHING
+                } else {
+                    pointer(self.string(vm, text)?)
+                }
+            }
+            ("String" | "Float", "valueOf" | "toString", "(F)Ljava/lang/String;") => {
+                pointer(self.string(vm, units(&float_text(args[0].as_f32())))?)
+            }
+            ("StringBuilder", "insert", "(ILjava/lang/String;)Ljava/lang/StringBuilder;") => {
+                let added = self.describe(vm, arg(2))?;
+                let at = as_int(&args[1]);
+                let Some(Native::Text(text)) = self.natives.get_mut(&this) else { return Ok(Some(NOTHING)) };
+                match usize::try_from(at).ok().filter(|&at| at <= text.len()) {
+                    Some(at) => drop(text.splice(at..at, added)),
+                    None => self.throw(vm, "java/lang/StringIndexOutOfBoundsException", &format!("offset {at}"))?,
+                }
+                pointer(this)
+            }
+            ("StringBuilder", "reverse", _) => {
+                if let Some(Native::Text(text)) = self.natives.get_mut(&this) {
+                    text.reverse();
+                }
+                pointer(this)
+            }
+            ("StringBuilder", "setLength", "(I)V") => {
+                if let Some(Native::Text(text)) = self.natives.get_mut(&this) {
+                    text.resize(as_int(&args[1]).max(0) as usize, 0);
+                }
+                NOTHING
+            }
+            ("Integer", "compare", "(II)I") => int(as_int(&args[0]).cmp(&as_int(&args[1])) as i32),
+            ("Integer", "toHexString", "(I)Ljava/lang/String;") => pointer(self.string(vm, units(&format!("{:x}", as_int(&args[0]))))?),
+            ("Long" | "Double" | "Boolean", "parseLong" | "parseDouble" | "parseBoolean", _) => {
+                let text = self.text(this).map(|text| String::from_utf16_lossy(text)).unwrap_or_default();
+                let parsed = match name {
+                    "parseLong" => text.parse::<i64>().ok().map(long),
+                    "parseDouble" => text.trim().parse::<f64>().ok().map(Value::F64),
+                    _ => Some(truth(text.eq_ignore_ascii_case("true"))),
+                };
+                match parsed {
+                    Some(value) => value,
+                    None => {
+                        self.throw(vm, "java/lang/NumberFormatException", &format!("For input string: \"{text}\""))?;
+                        NOTHING
+                    }
+                }
+            }
+            ("Character", "isDigit" | "isLetter" | "isWhitespace" | "isUpperCase" | "isLowerCase", "(C)Z") => {
+                let c = char::from_u32(arg(0) as u32 & 0xffff).unwrap_or('\0');
+                truth(match name {
+                    "isDigit" => c.is_numeric() && c.is_ascii_digit() || c.to_digit(10).is_some(),
+                    "isLetter" => c.is_alphabetic(),
+                    "isWhitespace" => c.is_whitespace() && !matches!(c, '\u{a0}' | '\u{2007}' | '\u{202f}'),
+                    "isUpperCase" => c.is_uppercase(),
+                    _ => c.is_lowercase(),
+                })
+            }
+            ("Character", "toUpperCase" | "toLowerCase", "(C)C") => {
+                let c = char::from_u32(arg(0) as u32 & 0xffff).unwrap_or('\0');
+                // A character whose other case is more than one character keeps its own.
+                let mut other = if name == "toUpperCase" { c.to_uppercase().collect::<Vec<char>>() } else { c.to_lowercase().collect() };
+                let other = if other.len() == 1 { other.remove(0) } else { c };
+                int(if (other as u32) < 0x1_0000 { other as i32 } else { c as i32 })
+            }
+            ("Character", "forDigit", "(II)C") => {
+                let (digit, radix) = (as_int(&args[0]), as_int(&args[1]));
+                let c = u32::try_from(digit)
+                    .ok()
+                    .and_then(|digit| char::from_digit(digit, u32::try_from(radix).ok().filter(|r| (2..=36).contains(r))?));
+                int(c.map_or(0, |c| c as i32))
+            }
+            ("Math", "pow", "(DD)D") => Value::F64(args[0].as_f64().powf(args[1].as_f64())),
+            ("Math", "round", "(D)J") => long((args[0].as_f64() + 0.5).floor() as i64),
+            ("ArrayList", "add", "(ILjava/lang/Object;)V") | ("ArrayList", "remove", "(I)Ljava/lang/Object;") => {
+                let index = as_int(&args[1]);
+                let item = arg(2);
+                let Some(Native::List(items)) = self.natives.get_mut(&this) else { return Ok(Some(NOTHING)) };
+                let count = items.len();
+                let room = if name == "add" { count + 1 } else { count };
+                match usize::try_from(index).ok().filter(|&at| at < room) {
+                    Some(at) if name == "add" => {
+                        items.insert(at, item);
+                        NOTHING
+                    }
+                    Some(at) => pointer(items.remove(at)),
+                    None => {
+                        self.throw(vm, "java/lang/IndexOutOfBoundsException", &format!("Index {index} out of bounds for length {count}"))?;
+                        NOTHING
+                    }
+                }
+            }
+            ("ArrayList", "indexOf", _) | ("ArrayList", "remove", "(Ljava/lang/Object;)Z") => {
+                let items = match self.natives.get(&this) {
+                    Some(Native::List(items)) => items.clone(),
+                    _ => Vec::new(),
+                };
+                let mut found = None;
+                for (n, item) in items.into_iter().enumerate() {
+                    if self.same(vm, arg(1), item)? {
+                        found = Some(n);
+                        break;
+                    }
+                }
+                if name == "indexOf" {
+                    int(found.map_or(-1, |at| at as i32))
+                } else {
+                    if let (Some(at), Some(Native::List(items))) = (found, self.natives.get_mut(&this)) {
+                        items.remove(at);
+                    }
+                    truth(found.is_some())
+                }
+            }
+            ("HashMap", "<init>", "()V" | "(I)V") => {
+                self.natives.insert(this, Native::Map(Vec::new()));
+                NOTHING
+            }
+            ("HashMap", "size", "()I") | ("HashMap", "isEmpty", "()Z") => {
+                let count = match self.natives.get(&this) {
+                    Some(Native::Map(entries)) => entries.len(),
+                    _ => 0,
+                };
+                if name == "size" { int(count as i32) } else { truth(count == 0) }
+            }
+            ("HashMap", "get" | "put" | "remove" | "containsKey" | "getOrDefault", _) => {
+                // The entry whose key equals the one asked for, as the keys' own `equals` says.
+                let entries = match self.natives.get(&this) {
+                    Some(Native::Map(entries)) => entries.clone(),
+                    _ => Vec::new(),
+                };
+                let mut found = None;
+                for (n, (key, _)) in entries.iter().enumerate() {
+                    if self.same(vm, arg(1), *key)? {
+                        found = Some(n);
+                        break;
+                    }
+                }
+                let held = found.map(|at| entries[at].1);
+                let Some(Native::Map(entries)) = self.natives.get_mut(&this) else { return Ok(Some(NOTHING)) };
+                match (name, found) {
+                    ("put", Some(at)) => entries[at].1 = arg(2),
+                    ("put", None) => entries.push((arg(1), arg(2))),
+                    ("remove", Some(at)) => drop(entries.remove(at)),
+                    _ => {}
+                }
+                match name {
+                    "containsKey" => truth(found.is_some()),
+                    "getOrDefault" => pointer(held.unwrap_or(arg(2))),
+                    _ => pointer(held.unwrap_or(0)),
+                }
             }
             ("Objects", "requireNonNull", _) => {
                 if this == 0 {
