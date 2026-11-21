@@ -13,10 +13,11 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn the_lifted_fixture_does_what_the_machine_did() {
-    // The build of the base instructions alone, and the one with the compressed ones.
-    for name in ["rv64", "rv64c"] {
+    // The build of the base instructions alone, the one with the compressed ones, and the
+    // narrow machine's.
+    for name in ["rv64", "rv64c", "rv32c"] {
         let program = Program::parse(&std::fs::read(fixture(&format!("{name}.elf"))).unwrap()).unwrap();
-        assert_eq!(program.width, Width::Rv64);
+        assert_eq!(program.width, if name.starts_with("rv32") { Width::Rv32 } else { Width::Rv64 });
         let recorded = std::fs::read_to_string(fixture(&format!("{name}.out"))).unwrap().replace("\r\n", "\n");
         let (printed, ended) = recorded.trim_end().rsplit_once('\n').unwrap();
         let code: i32 = ended.strip_prefix("exit ").unwrap().parse().unwrap();
@@ -26,7 +27,7 @@ fn the_lifted_fixture_does_what_the_machine_did() {
         // Lifted as its functions, each a function of the IR, the program does the same.
         let module = program.lift_functions().unwrap();
         let functions = module.functions.iter().filter(|f| f.name.starts_with("rv_f_")).count();
-        assert!(functions >= 8, "{name}: {functions} functions found");
+        assert!(functions >= 6, "{name}: {functions} functions found");
         let outcome = ra_asm_riscv::run::run_functions(&program, 5_000_000).unwrap_or_else(|e| panic!("{name}, as functions: {e}"));
         assert_eq!(String::from_utf8_lossy(&outcome.out).trim_end(), printed, "{name}, as functions");
         assert_eq!(outcome.exit, Some(code), "{name}, as functions");

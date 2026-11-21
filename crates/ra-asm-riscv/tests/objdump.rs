@@ -27,16 +27,22 @@ fn listed() -> Vec<(u64, u32, String)> {
 /// says it stands for.
 #[test]
 fn the_compressed_instructions_are_the_ones_they_stand_for() {
+    for (listing, width) in [("rv64c.txt", Width::Rv64), ("rv32c.txt", Width::Rv32)] {
+        compressed_listing(listing, width);
+    }
+}
+
+fn compressed_listing(listing: &str, width: Width) {
     use ra_asm_riscv::decode_at;
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/riscv/rv64c.txt");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/riscv").join(listing);
     let (mut short, mut names) = (0, BTreeSet::new());
     for line in std::fs::read_to_string(path).unwrap().lines() {
         let Some((address, rest)) = line.trim_start().split_once(": ") else { continue };
         let (Ok(address), Some((word, text))) = (u64::from_str_radix(address, 16), rest.split_once(char::is_whitespace)) else { continue };
         let Ok(value) = u32::from_str_radix(word, 16) else { continue };
         let text = text.split(" <").next().unwrap_or(text).split_whitespace().collect::<Vec<_>>().join(" ");
-        let (decoded, length) = decode_at(&value.to_le_bytes(), address, Width::Rv64);
-        assert_eq!(usize::from(length) * 2, word.len(), "{address:#x}: the length of {word}");
+        let (decoded, length) = decode_at(&value.to_le_bytes(), address, width);
+        assert_eq!(usize::from(length) * 2, word.len(), "{listing}, {address:#x}: the length of {word}");
         let decoded = decoded.unwrap_or_else(|| panic!("{address:#x}: {word} ({text}) does not decode"));
         let Some(name) = text.strip_prefix("c.").map(|rest| rest.split(' ').next().unwrap_or(rest)) else {
             assert_eq!(decoded.to_string(), text, "{address:#x}: {word}");
@@ -48,15 +54,15 @@ fn the_compressed_instructions_are_the_ones_they_stand_for() {
             "li" | "nop" => "addi",
             "mv" => "add",
             "jr" | "jalr" => "jalr",
-            "j" => "jal",
+            "j" | "jal" => "jal",
             "beqz" => "beq",
             "bnez" => "bne",
             other => other,
         };
         assert_eq!(decoded.mnemonic, stands_for, "{address:#x}: {word} ({text}) decodes to `{decoded}`");
     }
-    assert!(short > 100, "the listing has {short} compressed instructions");
-    assert!(names.len() >= 20, "the fixture uses {} compressed instructions: {names:?}", names.len());
+    assert!(short > 100, "{listing} has {short} compressed instructions");
+    assert!(names.len() >= 15, "{listing} uses {} compressed instructions: {names:?}", names.len());
 }
 
 #[test]

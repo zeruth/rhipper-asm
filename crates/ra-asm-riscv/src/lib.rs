@@ -301,7 +301,8 @@ pub fn compressed(half: u16, address: u64, width: Width) -> Option<Instruction> 
                 make(mnemonic, Form::Register, short1, short1, short2, 0)
             }
         },
-        (1, 5) => {
+        // `c.j`, and on the narrow machine `c.jal`, which links.
+        (1, 1 | 5) => {
             let offset = signed(
                 bits(h, 12, 12) << 11
                     | bits(h, 8, 8) << 10
@@ -313,7 +314,8 @@ pub fn compressed(half: u16, address: u64, width: Width) -> Option<Instruction> 
                     | bits(h, 5, 3) << 1,
                 12,
             );
-            make("jal", Form::Jump, 0, 0, 0, address.wrapping_add_signed(offset).cast_signed())
+            let link = u8::from(bits(h, 15, 13) == 1);
+            make("jal", Form::Jump, link, 0, 0, address.wrapping_add_signed(offset).cast_signed())
         }
         (1, 6 | 7) => {
             let offset =

@@ -54,9 +54,22 @@ struct Lift {
     b: FunctionBuilder,
     state: ValueId,
     block: BlockId,
+    /// The machine's registers are thirty-two bits: a register's slot holds its value with the
+    /// sign extended, every result is brought back to that, and an address is its low word.
+    narrow: bool,
 }
 
 impl Lift {
+    /// The high word of the product of two registers of the narrow machine, each taken with its
+    /// sign (which its slot already has) or without.
+    fn high_narrow(&mut self, a: Operand, b: Operand, a_signed: bool, b_signed: bool) -> ValueId {
+        let a = if a_signed { a } else { self.bin(BinOp::And, Type::I64, a, 0xffff_ffffu32).into() };
+        let b = if b_signed { b } else { self.bin(BinOp::And, Type::I64, b, 0xffff_ffffu32).into() };
+        let product = self.bin(BinOp::Mul, Type::I64, a, b);
+        let high = self.bin(if a_signed { BinOp::AShr } else { BinOp::LShr }, Type::I64, product, 32);
+        self.word(high)
+    }
+
     /// The value of register `n`.
     fn get(&mut self, n: u8) -> Operand {
         if n == 0 {
@@ -134,7 +147,10 @@ impl Lift {
     /// The pointer a guest address is.
     fn pointer(&mut self, base: u8, offset: i64) -> ValueId {
         let base = self.get(base);
-        let address = self.bin(BinOp::Add, Type::I64, base, offset);
+        let mut address = self.bin(BinOp::Add, Type::I64, base, offset);
+        if self.narrow {
+            address = self.bin(BinOp::And, Type::I64, address, 0xffff_ffffu32);
+        }
         // The program's address, from where its memory is.
         let memory = self.b.load(self.block, Type::I64, Operand::Global(MEMORY.to_owned()), "memory");
         let address = self.bin(BinOp::Add, Type::I64, address, memory);
@@ -285,7 +301,7 @@ fn part(module: &mut Module, name: &str, words: &[Word], width: Width, functions
         let first = words.first().and_then(|(address, ..)| blocks.get(address)).copied().unwrap_or(nowhere);
         b.terminate(entry, Terminator::Br(first));
     }
-    let mut lift = Lift { b, state, block: entry };
+    let mut lift = Lift { b, state, block: entry, narrow: width == Width::Rv32 };
     // An address that is no instruction's: the runtime hears of it, and the function is left.
     let trap = |lift: &mut Lift, block: BlockId, address: Operand| {
         lift.b.call(block, FnType::new(Type::Void, vec![Type::I64]), Callee::Direct(TRAP.to_owned()), vec![(Type::I64, address)], "");
@@ -304,7 +320,9 @@ fn part(module: &mut Module, name: &str, words: &[Word], width: Width, functions
         match form {
             Form::Upper => {
                 let upper = i64::from((imm as i32) << 12);
-                lift.set(rd, if mnemonic == "lui" { upper } else { address.wrapping_add_signed(upper).cast_signed() });
+                let relative = address.wrapping_add_signed(upper).cast_signed();
+                let relative = if lift.narrow { i64::from(relative as i32) } else { relative };
+                lift.set(rd, if mnemonic == "lui" { upper } else { relative });
             }
             Form::Jump => {
                 lift.set(rd, next);
@@ -326,7 +344,7 @@ fn part(module: &mut Module, name: &str, words: &[Word], width: Width, functions
             Form::JumpRegister => {
                 let base = lift.get(rs1);
                 let target = lift.bin(BinOp::Add, Type::I64, base, imm);
-                let target = lift.bin(BinOp::And, Type::I64, target, -2);
+                let target = lift.bin(BinOp::And, Type::I64, target, if lift.narrow { 0xffff_fffe } else { -2i64 });
                 lift.set(rd, next);
                 lift.b.store(lift.block, Type::I64, target, pc);
                 goes = Terminator::Br(dispatch);
@@ -392,12 +410,13 @@ fn part(module: &mut Module, name: &str, words: &[Word], width: Width, functions
             Form::Immediate | Form::Register => {
                 let a = lift.get(rs1);
                 let b: Operand = if form == Form::Immediate { Operand::Int(i128::from(imm)) } else { lift.get(rs2) };
-                let is_word = mnemonic.ends_with('w');
+                // The narrow machine computes everything as the wide one computes on words.
+                let is_word = mnemonic.ends_with('w') || lift.narrow;
                 let base = mnemonic.trim_end_matches('w').trim_end_matches('i');
                 // `slti`'s name ends in the `i` of its immediate; `sltiu`'s has it inside.
                 let base = if mnemonic.starts_with("sltiu") { "sltu" } else { base };
                 let value = match base {
-                    "add" | "sub" | "xor" | "or" | "and" | "mul" if !is_word => {
+                    "add" | "sub" | "xor" | "or" | "and" | "mul" if !is_word || matches!(base, "xor" | "or" | "and") => {
                         let op = match base {
                             "add" => BinOp::Add,
                             "sub" => BinOp::Sub,
@@ -440,6 +459,7 @@ fn part(module: &mut Module, name: &str, words: &[Word], width: Width, functions
                         let less = lift.b.icmp(lift.block, if base == "slt" { ICond::Slt } else { ICond::Ult }, Type::I64, a, b, "less");
                         lift.cast(Cast::ZExt, Type::I1, less, Type::I64)
                     }
+                    "mulh" | "mulhsu" | "mulhu" if lift.narrow => lift.high_narrow(a, b, base != "mulhu", base == "mulh"),
                     "mulh" => lift.high(a, b, true, true),
                     "mulhsu" => lift.high(a, b, true, false),
                     "mulhu" => lift.high(a, b, false, false),
