@@ -16,6 +16,7 @@ testdata/csmith/bin/*.txt -text
 # the RISC-V fixture: its ELF is bytes, and its listing keeps the line ends the disassembler wrote
 testdata/riscv/*.elf binary
 testdata/riscv/*.txt -text
+testdata/riscv/*.out -text
 # the Java fixtures: a class is bytes, and a listing or an output keeps the line ends it was written with
 testdata/java/**/*.class binary
 testdata/java/**/*.txt -text

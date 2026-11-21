@@ -1,7 +1,9 @@
 // The RISC-V fixture: a freestanding program for RV64IM (the base integer instructions and the
-// multiply and divide ones, none compressed), built without a C library. It is here for the
-// decoder: `build.ps1` keeps the disassembler's listing of it beside the program, and every word
-// of that listing must decode to the same text. It ends by the Linux `exit` call.
+// multiply and divide ones, none compressed), built without a C library. `build.ps1` keeps the
+// disassembler's listing of it beside the program, which every word must decode to, and what it
+// printed and how it ended under an emulator of the machine, which the lifted program must
+// repeat. It prints through the Linux `write` call and ends by `exit`. A division by zero and
+// the one division that overflows are here on purpose: the machine gives each a result.
 
 typedef unsigned long u64;
 typedef unsigned int u32;
@@ -59,11 +61,30 @@ __attribute__((noinline)) int words32(int a, int b) {
     return r / (b | 1) + r % (b | 1) + (int)((u32)r / ((u32)b | 1)) + (int)((u32)r % ((u32)b | 1));
 }
 
-static long syscall1(long number, long a) {
+// The Linux system call: the number in a7, the arguments from a0, the result in a0.
+static long syscall3(long number, long a, long b, long c) {
     register long a7 __asm__("a7") = number;
     register long a0 __asm__("a0") = a;
-    __asm__ volatile("ecall" : "+r"(a0) : "r"(a7) : "memory");
+    register long a1 __asm__("a1") = b;
+    register long a2 __asm__("a2") = c;
+    __asm__ volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a1), "r"(a2) : "memory");
     return a0;
+}
+
+// Writes a number and a line end to the standard output.
+__attribute__((noinline)) static void print(long v) {
+    char text[24];
+    int at = 23;
+    u64 u = v < 0 ? 0 - (u64)v : (u64)v;
+    text[at] = '\n';
+    do {
+        text[--at] = (char)('0' + u % 10);
+        u /= 10;
+    } while (u);
+    if (v < 0) {
+        text[--at] = '-';
+    }
+    syscall3(64, 1, (long)(text + at), 24 - at);
 }
 
 void _start(void) {
@@ -73,12 +94,17 @@ void _start(void) {
     u64 wide[8];
     store(bytes, halves, words, wide, 8, 0x1234);
     long total = count(bytes, halves, words, wide, 8);
+    print(total);
     for (long k = 0; k < 9; k++) {
         total += pick(k, total, k + 3);
+        print(total);
     }
-    total += divide(total, 17, (u32)total, (int)total) + words32((int)total, 9);
+    print(divide(total, 17, (u32)total, (int)total));
+    print(divide(-total, -3, 5, -9) + divide(7, 0, 0, 0) + divide((long)(1ul << 63), -1, 1, 1));
+    print(words32((int)total, 9));
+    print((long)mix((u64)total, 99));
     sink = (u64)total;
-    syscall1(93, total & 0x7f);
+    syscall3(93, total & 0x7f, 0, 0);
     for (;;) {
     }
 }

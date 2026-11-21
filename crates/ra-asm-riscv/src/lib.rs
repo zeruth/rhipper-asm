@@ -9,8 +9,27 @@
 //!
 //! The compressed instructions, the floating-point ones, the atomics and the control registers
 //! are not here yet: a word of those decodes to `None`.
+//!
+//! [`lift`] writes a program's code as IR at the machine's own level, and [`run`] reads a
+//! program's ELF file, lifts it, and runs it over the interpreter with the system calls a program
+//! without a C library makes.
+
+pub mod lift;
+pub mod run;
 
 use std::fmt;
+
+/// What is wrong with a program, or how a run of one stopped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Error(pub String);
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Error {}
 
 /// The names of the integer registers, by number, as the calling convention has them.
 pub const REGISTERS: [&str; 32] = [

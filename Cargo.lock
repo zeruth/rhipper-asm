@@ -404,6 +404,9 @@ dependencies = [
 [[package]]
 name = "ra-asm-riscv"
 version = "0.2.0"
+dependencies = [
+ "ra-asm-ir",
+]
 
 [[package]]
 name = "ra-asm-sh"
