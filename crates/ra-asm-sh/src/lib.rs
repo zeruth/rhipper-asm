@@ -7,8 +7,14 @@
 //! flow; [`Sh4::delay`] says when that flow takes effect and [`Sh4::successors`] where control goes
 //! once it has.
 
+//!
+//! [`lift`] writes a program's code as IR at the machine's own level, and [`run`] reads a
+//! program's ELF file, lifts it, and runs it over the interpreter.
+
 pub mod decode;
+pub mod lift;
 pub mod registers;
+pub mod run;
 
 pub use decode::Sh4;
 pub use ra_asm_arch::Delay;

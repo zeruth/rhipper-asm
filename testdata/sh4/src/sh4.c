@@ -71,8 +71,8 @@ __attribute__((noinline)) int pick(int k, int a, int b) {
         case 2: return a & b;
         case 3: return a | b;
         case 4: return a ^ b;
-        case 5: return -a;
-        case 6: return ~a;
+        case 5: return -b;
+        case 6: return ~b;
         case 7: return a * b;
         default: return a >= b ? a : b;
     }

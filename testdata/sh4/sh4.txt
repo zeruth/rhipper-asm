@@ -245,9 +245,9 @@ Disassembly of section .text:
   400216:	0b 00       	rts	
   400218:	6a 20       	xor	r6,r0
   40021a:	0b 00       	rts	
-  40021c:	5b 60       	neg	r5,r0
+  40021c:	6b 60       	neg	r6,r0
   40021e:	0b 00       	rts	
-  400220:	57 60       	not	r5,r0
+  400220:	67 60       	not	r6,r0
   400222:	67 05       	mul.l	r6,r5
   400224:	0b 00       	rts	
   400226:	1a 00       	sts	macl,r0
