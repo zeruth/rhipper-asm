@@ -105,6 +105,9 @@ fn the_compiled_port_prints_what_java_prints() {
             .arg(workspace().join("runtime/jvm.c"))
             .arg("-o")
             .arg(&executable)
+            // The runtime calls the C library's mathematics, which is a library of its own
+            // where the C library is not Microsoft's.
+            .args(if cfg!(windows) { &[][..] } else { &["-lm"][..] })
             .output()
             .unwrap();
         if !build.status.success() {

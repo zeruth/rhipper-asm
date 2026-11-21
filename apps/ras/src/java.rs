@@ -118,7 +118,12 @@ fn port(directory: &Path, main: &str, source: &str, no_build: bool) -> anyhow::R
     }
     let name = main.rsplit(['.', '/']).next().unwrap_or(main).to_lowercase();
     let executable = format!("{name}{}", std::env::consts::EXE_SUFFIX);
-    let arguments = ["-O2", "-I", ".", "program.c", "jvm.c", "-o", executable.as_str()];
+    // The runtime calls the C library's mathematics, which is a library of its own where the C
+    // library is not Microsoft's.
+    let mut arguments = vec!["-O2", "-I", ".", "program.c", "jvm.c", "-o", executable.as_str()];
+    if !cfg!(windows) {
+        arguments.push("-lm");
+    }
     std::fs::write(directory.join("build.cmd"), format!("clang {}\n", arguments.join(" ")))?;
     if no_build {
         eprintln!("{}: the sources are written; build.cmd builds {executable}", directory.display());
