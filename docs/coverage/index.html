@@ -341,8 +341,8 @@ const FAMILIES = [
     scope: { ids: [89, 149, 90, 91], sections: [435] },
     keyCards: [[89, "The PowerPC decoder", "def"], [149, "The PowerPC lift and the SysV raise", "def"], [90, "GameCube and Wii: DOL and REL", "def"], [91, "Xbox 360: XEX", "blk"], [435, "One table for the family", "env"]],
     platforms: [
-      { n: "GameCube (Gekko)", s: [2, 2, 3, 2, 3, 3, 2, 1], d: "DOL and REL (card 90); paired singles. The processor's integer machine lifts at its own level (ra-asm-ppc): a freestanding program built for the 750 the Gekko is, lifted and run, prints what it printed under qemu and ends with the same code, and so does its port through the C backend, its big-endian memory kept in its own order on this host. The lift reads a Linux ELF, not a disc's DOL; the floating point and the paired singles do not lift, and there is no disassembler yet" },
-      { n: "Wii (Broadway)", s: [2, 2, 3, 2, 3, 3, 2, 1], d: "Same containers and core as the GameCube, and the same lift of the integer machine" },
+      { n: "GameCube (Gekko)", s: [2, 3, 3, 2, 3, 3, 2, 1], d: "DOL and REL (card 90); paired singles. The processor's integer machine lifts at its own level (ra-asm-ppc): a freestanding program built for the 750 the Gekko is, lifted and run, prints what it printed under qemu and ends with the same code, and so does its port through the C backend, its big-endian memory kept in its own order on this host. Its disassembler writes every instruction of that program as llvm-objdump lists it. The lift reads a Linux ELF, not a disc's DOL, and the floating point and the paired singles neither decode nor lift" },
+      { n: "Wii (Broadway)", s: [2, 3, 3, 2, 3, 3, 2, 1], d: "Same containers and core as the GameCube, and the same disassembler and lift of the integer machine" },
       { n: "Xbox 360 (Xenon · VMX128)", s: [2, 2, 2, 1, 1, 1, 1, 1], d: "XEX (card 91, blocked); decrypted images only", blocked: true },
       { n: "PlayStation 3 (Cell PPU)", s: [1, 1, 1, 1, 1, 1, 1, 1], d: "SELF, decrypted only; the SPUs are not named yet" },
     ],

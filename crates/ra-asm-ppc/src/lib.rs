@@ -4,8 +4,9 @@
 //!
 //! The processors meant are the big-endian 32-bit ones a GameCube and a Wii have, and the user
 //! code of the larger ones after them: the integer machine is lifted, and a fixture built for it
-//! is held to what it did under an emulator. There is no disassembler here yet: the lift reads
-//! the instruction words itself.
+//! is held to what it did under an emulator. [`disasm`] writes an instruction as the
+//! disassembler does, which the fixture's listing holds it to.
 
+pub mod disasm;
 pub mod lift;
 pub mod run;
