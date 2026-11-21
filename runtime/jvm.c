@@ -603,9 +603,99 @@ ref java_lang_String__valueOf__I_Ljava_lang_String_2(uint32_t v) {
     return string_ascii(digits);
 }
 
-ref java_lang_Objects__requireNonNull__Ljava_lang_Object_2_Ljava_lang_Object_2(ref object) {
+ref java_util_Objects__requireNonNull__Ljava_lang_Object_2_Ljava_lang_Object_2(ref object) {
     if (!object) jvm_null();
     return object;
+}
+
+uint32_t java_util_Objects__equals__Ljava_lang_Object_2Ljava_lang_Object_2_Z(ref a, ref b) {
+    if (a == b) return 1;
+    if (!a) return 0;
+    return ((uint32_t (*)(ref, ref))jvm_virtual(a, (uint8_t *)"equals:(Ljava/lang/Object;)Z"))(a, b) & 1;
+}
+
+uint32_t java_util_Objects__hashCode__Ljava_lang_Object_2_I(ref object) {
+    return object ? ((uint32_t (*)(ref))jvm_virtual(object, (uint8_t *)"hashCode:()I"))(object) : 0;
+}
+
+uint32_t java_lang_Math__abs__I_I(uint32_t v) {
+    return (int32_t)v < 0 ? 0u - v : v;
+}
+
+void java_lang_Record__new___V(ref this) {
+    (void)this;
+}
+
+// An array's copy: the same class, the same length, the same elements. No other object of the
+// library is copied.
+static ref Object_clone(ref this) {
+    const char *name = class_of(this);
+    if (name[0] != '[') {
+        throw_new("java/lang/CloneNotSupportedException", name);
+        return 0;
+    }
+    uint64_t bytes = ELEMENTS + element_size(name) * (uint64_t)LENGTH(this);
+    ref copy = allocate(name, bytes);
+    memcpy(copy + 8, this + 8, bytes - 8);
+    return copy;
+}
+
+// A constant of an enum: its name and its place among the constants. The runtime keeps every
+// constant made, for `valueOf` to find one by its class and its name.
+struct constant {
+    ref name;
+    int32_t ordinal;
+};
+
+static ref *constants;
+static int constant_count, constant_room;
+
+static struct constant *constant_of(ref object) {
+    return (struct constant *)(uintptr_t)NATIVE(object);
+}
+
+void java_lang_Enum__new__Ljava_lang_String_2I_V(ref this, ref name, uint32_t ordinal) {
+    struct constant *constant = room(sizeof *constant);
+    constant->name = name;
+    constant->ordinal = (int32_t)ordinal;
+    NATIVE(this) = (uint64_t)(uintptr_t)constant;
+    if (constant_count == constant_room) {
+        constant_room = constant_room * 2 + 16;
+        constants = realloc(constants, (size_t)constant_room * sizeof *constants);
+        if (!constants) stop("out of memory for", "an enum");
+    }
+    constants[constant_count++] = this;
+}
+
+static ref Enum_name(ref this) {
+    return constant_of(this)->name;
+}
+
+static uint32_t Enum_ordinal(ref this) {
+    return (uint32_t)constant_of(this)->ordinal;
+}
+
+static uint32_t Enum_compareTo(ref this, ref other) {
+    return (uint32_t)(constant_of(this)->ordinal - constant_of(other)->ordinal);
+}
+
+static uint32_t String_equals(ref this, ref other);
+
+ref java_lang_Enum__valueOf__Ljava_lang_Class_2Ljava_lang_String_2_Ljava_lang_Enum_2(ref mirror, ref name) {
+    const char *of = (const char *)(uintptr_t)NATIVE(mirror);
+    for (int n = 0; n < constant_count; n++) {
+        if (strcmp(class_of(constants[n]), of) == 0 && String_equals(constant_of(constants[n])->name, name)) return constants[n];
+    }
+    // `No enum constant pkg.Outer.Enum.NAME`
+    char message[400];
+    int at = snprintf(message, sizeof message - 2, "No enum constant %s.", of);
+    for (char *c = message + 17; *c; c++) {
+        if (*c == '/' || *c == '$') *c = '.';
+    }
+    for (uint32_t n = 0; name && n < text_of(name)->count && at < (int)sizeof message - 1; n++) message[at++] = (char)text_of(name)->units[n];
+    message[at] = 0;
+    throw_new("java/lang/IllegalArgumentException", message);
+    return 0;
 }
 
 void java_lang_StringBuilder__new___V(ref this) {
@@ -748,6 +838,50 @@ static uint32_t ArrayList_isEmpty(ref this) {
     return list_of(this)->count == 0;
 }
 
+static uint32_t ArrayList_contains(ref this, ref item) {
+    for (uint32_t n = 0; n < list_of(this)->count; n++) {
+        if (java_util_Objects__equals__Ljava_lang_Object_2Ljava_lang_Object_2_Z(item, list_of(this)->items[n])) return 1;
+    }
+    return 0;
+}
+
+// `[first, second]`, each element as `String.valueOf` writes it.
+static ref ArrayList_toString(ref this) {
+    ref made = object("java/lang/String");
+    add_ascii(text_of(made), "[");
+    for (uint32_t n = 0; n < list_of(this)->count; n++) {
+        if (n) add_ascii(text_of(made), ", ");
+        ref item = describe(list_of(this)->items[n]);
+        add_units(text_of(made), text_of(item)->units, text_of(item)->count);
+    }
+    add_ascii(text_of(made), "]");
+    return made;
+}
+
+// Where an iterator of a list is.
+struct iterator {
+    ref list;
+    uint32_t at;
+};
+
+static ref ArrayList_iterator(ref this) {
+    ref made = allocate("java/util/ArrayList$Itr", 8);
+    struct iterator *iterator = room(sizeof *iterator);
+    iterator->list = this;
+    NATIVE(made) = (uint64_t)(uintptr_t)iterator;
+    return made;
+}
+
+static uint32_t Iterator_hasNext(ref this) {
+    struct iterator *iterator = (struct iterator *)(uintptr_t)NATIVE(this);
+    return iterator->at < list_of(iterator->list)->count;
+}
+
+static ref Iterator_next(ref this) {
+    struct iterator *iterator = (struct iterator *)(uintptr_t)NATIVE(this);
+    return iterator->at < list_of(iterator->list)->count ? list_of(iterator->list)->items[iterator->at++] : 0;
+}
+
 static ref ArrayList_get(ref this, uint32_t index) {
     if (index >= list_of(this)->count) {
         char message[80];
@@ -774,6 +908,14 @@ THROWABLE(java_lang_NullPointerException)
 THROWABLE(java_lang_ClassCastException)
 THROWABLE(java_lang_IndexOutOfBoundsException)
 THROWABLE(java_lang_ArrayIndexOutOfBoundsException)
+
+THROWABLE(java_lang_MatchException)
+
+// A switch that no case took: its message, and what was thrown while it looked.
+void java_lang_MatchException__new__Ljava_lang_String_2Ljava_lang_Throwable_2_V(ref this, ref message, ref cause) {
+    (void)cause;
+    NATIVE(this) = (uint64_t)(uintptr_t)message;
+}
 
 static ref Throwable_getMessage(ref this) {
     return (ref)(uintptr_t)NATIVE(this);
@@ -832,6 +974,36 @@ static ref Integer_toString(ref this) {
     return java_lang_String__valueOf__I_Ljava_lang_String_2((uint32_t)NATIVE(this));
 }
 
+static ref Long_toString(ref this) {
+    char digits[24];
+    snprintf(digits, sizeof digits, "%lld", (long long)NATIVE(this));
+    return string_ascii(digits);
+}
+
+static ref Double_toString(ref this) {
+    char digits[48];
+    real_text(Double_doubleValue(this), 0, digits);
+    return string_ascii(digits);
+}
+
+static ref Boolean_toString(ref this) {
+    return string_ascii(NATIVE(this) & 1 ? "true" : "false");
+}
+
+static ref Character_toString(ref this) {
+    uint16_t unit = (uint16_t)NATIVE(this);
+    return string_of(&unit, 1);
+}
+
+// Two boxes are equal when they are of one class and hold one value.
+static uint32_t Box_equals(ref this, ref other) {
+    return other && NUMBER(other) == NUMBER(this) && NATIVE(other) == NATIVE(this);
+}
+
+static uint32_t Box_hashCode(ref this) {
+    return (uint32_t)(NATIVE(this) ^ NATIVE(this) >> 32);
+}
+
 static void library(const char *name, const char *above, const char *first, const char *second) {
     define(name, above, 0);
     if (first) jvm_implement((uint8_t *)name, (uint8_t *)first);
@@ -851,6 +1023,15 @@ static void ready(void) {
     method("java/lang/Object", "hashCode:()I", (void *)Object_hashCode);
     method("java/lang/Object", "equals:(Ljava/lang/Object;)Z", (void *)Object_equals);
     method("java/lang/Object", "toString:()Ljava/lang/String;", (void *)Object_toString);
+    method("java/lang/Object", "clone:()Ljava/lang/Object;", (void *)Object_clone);
+    library("java/lang/Record", "java/lang/Object", 0, 0);
+    library("java/lang/Enum", "java/lang/Object", "java/lang/Comparable", 0);
+    method("java/lang/Enum", "name:()Ljava/lang/String;", (void *)Enum_name);
+    method("java/lang/Enum", "toString:()Ljava/lang/String;", (void *)Enum_name);
+    method("java/lang/Enum", "ordinal:()I", (void *)Enum_ordinal);
+    method("java/lang/Enum", "hashCode:()I", (void *)Enum_ordinal);
+    method("java/lang/Enum", "compareTo:(Ljava/lang/Enum;)I", (void *)Enum_compareTo);
+    method("java/lang/Enum", "compareTo:(Ljava/lang/Object;)I", (void *)Enum_compareTo);
     library("java/lang/String", "java/lang/Object", "java/lang/CharSequence", "java/lang/Comparable");
     method("java/lang/String", "length:()I", (void *)String_length);
     method("java/lang/String", "charAt:(I)C", (void *)String_charAt);
@@ -897,6 +1078,12 @@ static void ready(void) {
     method("java/util/ArrayList", "size:()I", (void *)ArrayList_size);
     method("java/util/ArrayList", "isEmpty:()Z", (void *)ArrayList_isEmpty);
     method("java/util/ArrayList", "get:(I)Ljava/lang/Object;", (void *)ArrayList_get);
+    method("java/util/ArrayList", "contains:(Ljava/lang/Object;)Z", (void *)ArrayList_contains);
+    method("java/util/ArrayList", "toString:()Ljava/lang/String;", (void *)ArrayList_toString);
+    method("java/util/ArrayList", "iterator:()Ljava/util/Iterator;", (void *)ArrayList_iterator);
+    library("java/util/ArrayList$Itr", "java/lang/Object", "java/util/Iterator", 0);
+    method("java/util/ArrayList$Itr", "hasNext:()Z", (void *)Iterator_hasNext);
+    method("java/util/ArrayList$Itr", "next:()Ljava/lang/Object;", (void *)Iterator_next);
     library("java/lang/Throwable", "java/lang/Object", 0, 0);
     method("java/lang/Throwable", "getMessage:()Ljava/lang/String;", (void *)Throwable_getMessage);
     method("java/lang/Throwable", "toString:()Ljava/lang/String;", (void *)Throwable_toString);
@@ -905,6 +1092,8 @@ static void ready(void) {
     library("java/lang/RuntimeException", "java/lang/Exception", 0, 0);
     library("java/lang/IllegalStateException", "java/lang/RuntimeException", 0, 0);
     library("java/lang/IllegalArgumentException", "java/lang/RuntimeException", 0, 0);
+    library("java/lang/MatchException", "java/lang/RuntimeException", 0, 0);
+    library("java/lang/CloneNotSupportedException", "java/lang/Exception", 0, 0);
     library("java/lang/UnsupportedOperationException", "java/lang/RuntimeException", 0, 0);
     library("java/lang/ArithmeticException", "java/lang/RuntimeException", 0, 0);
     library("java/lang/NullPointerException", "java/lang/RuntimeException", 0, 0);
@@ -919,12 +1108,21 @@ static void ready(void) {
     method("java/lang/Integer", "toString:()Ljava/lang/String;", (void *)Integer_toString);
     library("java/lang/Long", "java/lang/Number", "java/lang/Comparable", 0);
     method("java/lang/Long", "longValue:()J", (void *)Long_longValue);
+    method("java/lang/Long", "toString:()Ljava/lang/String;", (void *)Long_toString);
     library("java/lang/Double", "java/lang/Number", "java/lang/Comparable", 0);
     method("java/lang/Double", "doubleValue:()D", (void *)Double_doubleValue);
+    method("java/lang/Double", "toString:()Ljava/lang/String;", (void *)Double_toString);
     library("java/lang/Boolean", "java/lang/Object", "java/lang/Comparable", 0);
     method("java/lang/Boolean", "booleanValue:()Z", (void *)Box_intValue);
+    method("java/lang/Boolean", "toString:()Ljava/lang/String;", (void *)Boolean_toString);
     library("java/lang/Character", "java/lang/Object", "java/lang/Comparable", 0);
     method("java/lang/Character", "charValue:()C", (void *)Box_intValue);
+    method("java/lang/Character", "toString:()Ljava/lang/String;", (void *)Character_toString);
+    static const char *const boxes[] = {"java/lang/Integer", "java/lang/Long", "java/lang/Double", "java/lang/Boolean", "java/lang/Character"};
+    for (int n = 0; n < 5; n++) {
+        method(boxes[n], "equals:(Ljava/lang/Object;)Z", (void *)Box_equals);
+        method(boxes[n], "hashCode:()I", (void *)Box_hashCode);
+    }
 }
 
 // The program's entry, which the source's `main` calls around the program's own.

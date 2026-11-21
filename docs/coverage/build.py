@@ -119,6 +119,13 @@ def java():
     for d in (ROOT / "testdata" / "java").iterdir():
         if d.name.isdigit() and (d / "Opcodes.class").exists():
             releases[int(d.name)] = {"listing": (d / "Opcodes.txt").exists(), "output": (d / "Opcodes.out").exists()}
+    # what a release brought: the fixtures compiled for a release, by the release
+    brought = {}
+    for name in ("features", "records", "patterns"):
+        base = ROOT / "testdata" / "java" / name
+        for d in (base.iterdir() if base.exists() else []):
+            if d.name.isdigit() and any(d.glob("*.class")) and any(d.glob("*.out")):
+                brought.setdefault(int(d.name), []).append(name)
     files = list((ROOT / "crates" / "ra-asm-jvm").rglob("*.rs"))
     source = [f.read_text(encoding="utf-8") for f in files]
     # the lift and the runtime: the test that runs every release's lifted fixture against what
@@ -132,6 +139,7 @@ def java():
         "port": (ROOT / "runtime" / "jvm.c").exists() and (ROOT / "crates" / "ra-asm-jvm" / "tests" / "emit.rs").exists(),
         "port_lines": lines("runtime/jvm.c") if (ROOT / "runtime" / "jvm.c").exists() else 0,
         "plain": (ROOT / "testdata" / "java" / "plain" / "Plain.class").exists(),
+        "brought": dict(sorted(brought.items())),
         "library": len(re.findall(r'^\s*\("', library.group(1), re.M)) if library else 0,
         "opcodes": len(re.findall(r'"\w+"', names.group(1))) if names else 0,
         "releases": dict(sorted(releases.items())),

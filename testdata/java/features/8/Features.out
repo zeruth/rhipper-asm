@@ -1,0 +1,11 @@
+main starts
+MERCURY 0 MERCURY 28 hot
+VENUS 1 VENUS 63 far
+EARTH 2 EARTH 70 home
+9 true 2
+55 25 0 6 [1, 4, 9, 16, 25]
+128 1099511627777 5.0 x true true true
+before late
+late starts
+again
+14

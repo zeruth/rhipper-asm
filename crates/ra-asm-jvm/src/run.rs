@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
 use ra_asm_ir::{FnType, Module, Type};
 
-use crate::lift::{CLASSES, ELEMENTS, HEADER, symbol};
+use crate::lift::{CLASSES, ELEMENTS, HEADER, once, symbol};
 
 const STATICS: (u64, u64) = (0x1000_0000, 0x0080_0000);
 const FRAMES: (u64, u64) = (0x2000_0000, 0x0080_0000);
@@ -29,6 +29,8 @@ const LIBRARY: &[(&str, &str, &[&str])] = &[
     ("java/lang/String", "java/lang/Object", &["java/lang/CharSequence", "java/lang/Comparable"]),
     ("java/lang/StringBuilder", "java/lang/Object", &["java/lang/CharSequence"]),
     ("java/lang/Class", "java/lang/Object", &[]),
+    ("java/lang/Enum", "java/lang/Object", &["java/lang/Comparable"]),
+    ("java/lang/Record", "java/lang/Object", &[]),
     ("java/lang/Number", "java/lang/Object", &[]),
     ("java/lang/Integer", "java/lang/Number", &["java/lang/Comparable"]),
     ("java/lang/Long", "java/lang/Number", &["java/lang/Comparable"]),
@@ -46,6 +48,7 @@ const LIBRARY: &[(&str, &str, &[&str])] = &[
     ("java/lang/Exception", "java/lang/Throwable", &[]),
     ("java/lang/RuntimeException", "java/lang/Exception", &[]),
     ("java/lang/IllegalStateException", "java/lang/RuntimeException", &[]),
+    ("java/lang/MatchException", "java/lang/RuntimeException", &[]),
     ("java/lang/IllegalArgumentException", "java/lang/RuntimeException", &[]),
     ("java/lang/NumberFormatException", "java/lang/IllegalArgumentException", &[]),
     ("java/lang/UnsupportedOperationException", "java/lang/RuntimeException", &[]),
@@ -91,6 +94,11 @@ enum Native {
     Stream(u32),
     /// The class a `Class` object is of.
     Class(String),
+    /// A constant of an enum: its name, a string, and its place among the constants.
+    Enum {
+        name: u64,
+        ordinal: i32,
+    },
 }
 
 /// What a run printed, and how it ended.
@@ -673,6 +681,96 @@ impl Machine {
                 };
                 pointer(self.string(vm, text)?)
             }
+            ("Object", "clone", _) => {
+                // An array's copy: the same class, the same length, the same elements.
+                let of = self.class_of(vm, this)?;
+                if !of.starts_with('[') {
+                    self.throw(vm, "java/lang/CloneNotSupportedException", &of.replace('/', "."))?;
+                    return Ok(Some(NOTHING));
+                }
+                let length = vm.memory.read_u32(this + HEADER)?;
+                let copy = self.array(vm, &of, length.cast_signed())?;
+                let bytes = vm.memory.read_vec(this + ELEMENTS, element_size(&of) * u64::from(length))?;
+                vm.memory.write(copy + ELEMENTS, &bytes)?;
+                pointer(copy)
+            }
+            ("Objects", "equals", _) => {
+                let (a, b) = (this, arg(1));
+                if a == b {
+                    truth(true)
+                } else if a == 0 {
+                    truth(false)
+                } else {
+                    self.invoke(vm, a, "equals:(Ljava/lang/Object;)Z", vec![pointer(b)], Type::I32)?
+                }
+            }
+            ("Objects", "hashCode", _) => match this {
+                0 => int(0),
+                object => self.invoke(vm, object, "hashCode:()I", Vec::new(), Type::I32)?,
+            },
+            ("Enum", "<init>", "(Ljava/lang/String;I)V") => {
+                self.natives.insert(this, Native::Enum { name: arg(1), ordinal: as_int(&args[2]) });
+                NOTHING
+            }
+            ("Enum", "name" | "toString" | "ordinal" | "hashCode" | "compareTo", _) => {
+                let constant = |machine: &Self, at: u64| match machine.natives.get(&at) {
+                    Some(&Native::Enum { name, ordinal }) => (name, ordinal),
+                    _ => (0, 0),
+                };
+                let (text, ordinal) = constant(self, this);
+                match name {
+                    "name" | "toString" => pointer(text),
+                    "compareTo" => int(ordinal - constant(self, arg(1)).1),
+                    _ => int(ordinal),
+                }
+            }
+            ("Enum", "valueOf", "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum;") => {
+                // The constant of the class of that name, among the constants made so far: the
+                // class's own `valueOf` initialized it before it asked.
+                let of = match self.natives.get(&this) {
+                    Some(Native::Class(of)) => of.clone(),
+                    _ => String::new(),
+                };
+                let wanted = self.text(arg(1)).cloned().unwrap_or_default();
+                let mut found = 0;
+                let constants: Vec<(u64, u64)> = self
+                    .natives
+                    .iter()
+                    .filter_map(|(&at, native)| match native {
+                        Native::Enum { name, .. } => Some((at, *name)),
+                        _ => None,
+                    })
+                    .collect();
+                for (at, text) in constants {
+                    if self.text(text) == Some(&wanted) && self.class_of(vm, at)? == of {
+                        found = at;
+                    }
+                }
+                if found == 0 {
+                    let message = format!("No enum constant {}.{}", of.replace(['/', '$'], "."), String::from_utf16_lossy(&wanted));
+                    self.throw(vm, "java/lang/IllegalArgumentException", &message)?;
+                }
+                pointer(found)
+            }
+            ("ArrayList", "contains", _) => {
+                let items = match self.natives.get(&this) {
+                    Some(Native::List(items)) => items.clone(),
+                    _ => Vec::new(),
+                };
+                let mut found = false;
+                for item in items {
+                    let equal = match (arg(1), item) {
+                        (a, b) if a == b => true,
+                        (0, _) => false,
+                        (a, b) => self.invoke(vm, a, "equals:(Ljava/lang/Object;)Z", vec![pointer(b)], Type::I32)?.as_u64() & 1 != 0,
+                    };
+                    if equal {
+                        found = true;
+                        break;
+                    }
+                }
+                truth(found)
+            }
             ("Objects", "requireNonNull", _) => {
                 if this == 0 {
                     self.throw(vm, "java/lang/NullPointerException", "")?;
@@ -970,11 +1068,10 @@ impl Host for Machine {
 /// runtime has not, a fault of the lifted code, the limit of `limit` instructions (zero for none).
 pub fn run(module: &Module, main: &str, arguments: &[&str], limit: u64) -> Result<Outcome, Stop> {
     enter(module, limit, |vm, machine| {
+        // The class is initialized before its `main` runs; the others when they are first used.
         let mut entries: Vec<(String, Vec<Value>)> = Vec::new();
-        for function in &module.functions {
-            if function.name.ends_with(".<clinit>:()V") {
-                entries.push((function.name.clone(), Vec::new()));
-            }
+        if module.function(&once(main)).is_some() {
+            entries.push((once(main), Vec::new()));
         }
         let array = machine.array(vm, "[Ljava/lang/String;", arguments.len() as i32)?;
         for (n, argument) in arguments.iter().enumerate() {

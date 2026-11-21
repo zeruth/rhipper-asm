@@ -59,6 +59,14 @@ pub const HEADER: u64 = 8;
 /// Where an array's elements start: after the class's number and the length.
 pub const ELEMENTS: u64 = 16;
 
+/// The function that initializes a lifted class when it is first used: every use of the class
+/// from outside it calls this, and the first call runs the static initializers of the class's
+/// lifted superclasses and then its own.
+#[must_use]
+pub fn once(class: &str) -> String {
+    symbol(class, "<clinit>", "once")
+}
+
 /// The name of the function a method is, and of the global a static field is.
 #[must_use]
 pub fn symbol(class: &str, name: &str, descriptor: &str) -> String {
@@ -153,8 +161,8 @@ enum How {
 
 /// Where a field is.
 enum Place {
-    /// The global of a static field.
-    Global(String),
+    /// The global of a static field, and the class that declares it.
+    Global(String, String),
     /// A static field of a class of the library, by its name: the runtime says where it is.
     Library(String),
     /// The offset of an instance field in its object.
@@ -182,6 +190,7 @@ pub fn lift(classes: &[ClassFile]) -> Result<Module, Error> {
         strings: HashMap::new(),
         lambdas: 0,
         defined: Vec::new(),
+        current: String::new(),
     };
     for file in classes {
         lift.class(file)?;
@@ -222,7 +231,8 @@ pub fn entry(module: &mut Module, main: &str) -> Result<(), Error> {
     declare("jvm.end", &end_ty);
     let arguments = vec![(Type::I32, Ir::from(b.param(0))), (Type::Ptr, Ir::from(b.param(1)))];
     let strings = b.call(at, arguments_ty, Callee::Direct("jvm.arguments".to_owned()), arguments, "strings").expect("a pointer");
-    let initializers: Vec<String> = module.functions.iter().filter(|f| f.name.ends_with(".<clinit>:()V")).map(|f| f.name.clone()).collect();
+    // The class is initialized before its `main` runs; the others when they are first used.
+    let initializers: Vec<String> = module.function(&once(main)).map(|f| f.name.clone()).into_iter().collect();
     for initializer in initializers {
         b.call(at, nothing.clone(), Callee::Direct(initializer), Vec::new(), "");
         let pending = b.call(at, pending_ty.clone(), Callee::Direct("jvm.pending".to_owned()), Vec::new(), "pending").expect("a pointer");
@@ -261,6 +271,8 @@ struct Lift<'a> {
     lambdas: usize,
     /// The classes of the module, in the order they were lifted.
     defined: Vec<Defined>,
+    /// The class whose methods are being lifted.
+    current: String,
 }
 
 impl<'a> Lift<'a> {
@@ -322,20 +334,62 @@ impl<'a> Lift<'a> {
 
     /// The function a call by name of `class`'s method reaches: the method of the class or of
     /// the nearest superclass that has it, and whether it is a function of the module.
-    fn resolve(&self, class: &str, name: &str, descriptor: &str) -> (String, bool) {
+    fn resolve(&self, class: &str, name: &str, descriptor: &str) -> (String, bool, String) {
         let mut at = class;
         while let Some(&n) = self.by_name.get(at) {
             let file = &self.classes[n];
             let found = file.methods.iter().find(|m| file.utf8(m.name) == Some(name) && file.utf8(m.descriptor) == Some(descriptor));
             if let Some(method) = found {
-                return (symbol(at, name, descriptor), file.attribute(&method.attributes, "Code").is_some());
+                return (symbol(at, name, descriptor), file.attribute(&method.attributes, "Code").is_some(), at.to_owned());
             }
             match file.class_name(file.super_class) {
                 Some(above) => at = above,
                 None => break,
             }
         }
-        (symbol(at, name, descriptor), false)
+        (symbol(at, name, descriptor), false, at.to_owned())
+    }
+
+    /// A use of the class `class` that initializes it: a static field read or written, a static
+    /// method called, an object made. The class's [`once`] runs its static initializer the first
+    /// time; the code of a class does not ask it of the class itself, which is being or has been
+    /// initialized whenever its code runs.
+    fn initialize(&mut self, b: &mut FunctionBuilder, block: BlockId, class: &str) {
+        if class != self.current && self.by_name.contains_key(class) {
+            b.call(block, FnType::new(Type::Void, Vec::new()), Callee::Direct(once(class)), Vec::new(), "");
+        }
+    }
+
+    /// Writes the [`once`] of a class: the first call runs the superclass's, when that was
+    /// lifted, and then the class's static initializer, when it has one; every later call
+    /// returns at once.
+    fn initializer(&mut self, class: &str, above: Option<&str>, has: bool) {
+        let done = symbol(class, "<clinit>", "done");
+        self.module.globals.push(Global {
+            name: done.clone(),
+            ty: Type::array(8, Type::I8),
+            init: Some(Const::Bytes(vec![0; 8])),
+            constant: false,
+            linkage: Linkage::External,
+            align: 8,
+            address: None,
+        });
+        let nothing = FnType::new(Type::Void, Vec::new());
+        let mut b = FunctionBuilder::new(&once(class), nothing.clone(), &[]);
+        let (entry, first, after) = (b.block("entry"), b.block("first"), b.block("after"));
+        let was = b.load(entry, Type::I32, Ir::Global(done.clone()), "was");
+        let fresh = b.icmp(entry, ICond::Eq, Type::I32, was, 0, "fresh");
+        b.terminate(entry, Terminator::CondBr { cond: fresh.into(), then: first, els: after });
+        b.store(first, Type::I32, 1, Ir::Global(done));
+        if let Some(above) = above.filter(|above| self.by_name.contains_key(above)) {
+            b.call(first, nothing.clone(), Callee::Direct(once(above)), Vec::new(), "");
+        }
+        if has {
+            b.call(first, nothing, Callee::Direct(symbol(class, "<clinit>", "()V")), Vec::new(), "");
+        }
+        b.terminate(first, Terminator::Br(after));
+        b.terminate(after, Terminator::Ret(None));
+        self.module.functions.push(b.finish());
     }
 
     /// The instance fields of the lifted classes from `class` up.
@@ -362,7 +416,7 @@ impl<'a> Lift<'a> {
             let above = file.class_name(file.super_class);
             if let Some(index) = found {
                 if is_static {
-                    return Ok(Place::Global(symbol(at, name, descriptor)));
+                    return Ok(Place::Global(symbol(at, name, descriptor), at.to_owned()));
                 }
                 let before = above.map_or(0, |above| self.instance_fields(above));
                 return Ok(Place::Offset(HEADER + 8 * (before + index as u64)));
@@ -396,9 +450,12 @@ impl<'a> Lift<'a> {
         let typed: Vec<(Type, Ir)> = fn_ty.params.iter().cloned().zip(args).collect();
         let callee = match how {
             How::Named => {
-                let (function, lifted) = self.resolve(class, name, descriptor);
+                let (function, lifted, declaring) = self.resolve(class, name, descriptor);
                 if !lifted {
                     self.declare(&function, fn_ty.clone());
+                }
+                if !receiver {
+                    self.initialize(b, block, &declaring);
                 }
                 Callee::Direct(function)
             }
@@ -449,6 +506,9 @@ impl<'a> Lift<'a> {
 
     fn class(&mut self, file: &'a ClassFile) -> Result<(), Error> {
         let name = file.name().unwrap_or_default();
+        name.clone_into(&mut self.current);
+        let has = file.methods.iter().any(|m| file.utf8(m.name) == Some("<clinit>") && file.attribute(&m.attributes, "Code").is_some());
+        self.initializer(name, file.class_name(file.super_class), has);
         let mut own = 0;
         for field in &file.fields {
             let (field_name, descriptor) = (text_at(file, field.name)?, text_at(file, field.descriptor)?);
@@ -1155,7 +1215,10 @@ impl<'a> Body<'_, 'a> {
                 let place = self.lift.field(class, name, descriptor, opcode <= 0xb3)?;
                 let value = if matches!(opcode, 0xb3 | 0xb5) { Some(self.pop()?) } else { None };
                 let at: Ir = match place {
-                    Place::Global(global) => Ir::Global(global),
+                    Place::Global(global, declaring) => {
+                        self.lift.initialize(&mut self.b, self.cur, &declaring);
+                        Ir::Global(global)
+                    }
                     Place::Library(named) => {
                         let named = self.text(&named);
                         self.rt("jvm.static", Type::Ptr, vec![named])
@@ -1192,6 +1255,7 @@ impl<'a> Body<'_, 'a> {
             }
             0xba => self.dynamic(constant, offset)?,
             0xbb => {
+                self.lift.initialize(&mut self.b, self.cur, class_at(file, constant)?);
                 let class = self.text(class_at(file, constant)?);
                 let object = self.rt("jvm.new", Type::Ptr, vec![class]);
                 self.push(object, Reference);
@@ -1366,8 +1430,187 @@ impl<'a> Body<'_, 'a> {
                 self.push(string.expect("a string"), Kind::Reference);
                 self.check(offset)?;
             }
+            ("java/lang/runtime/ObjectMethods", "bootstrap") => self.record(name, &args, arguments, offset)?,
+            ("java/lang/runtime/SwitchBootstraps", "typeSwitch") => {
+                // Which case an object is of: the first from `restart` on whose class it is of,
+                // the number of the cases when it is of none, and minus one for no object.
+                let [(target, _), (restart, _)] = args.as_slice() else {
+                    return error("a switch over types takes an object and a case to start at");
+                };
+                let mut result = Ir::Int(arguments.len() as i128);
+                for (n, &label) in arguments.iter().enumerate().rev() {
+                    let Some(Constant::Class(class)) = file.constants.get(usize::from(label)) else {
+                        return error("a case of a switch over types that is no class: the lift does not write those yet");
+                    };
+                    let class = self.text(text_at(file, *class)?);
+                    let is = self.rt("jvm.instanceof", Type::I32, vec![(Type::Ptr, target.clone()), class]);
+                    let is = self.b.icmp(self.cur, ICond::Ne, Type::I32, is, 0, "is");
+                    let from = self.b.icmp(self.cur, ICond::Sle, Type::I32, restart.clone(), n as i64, "from");
+                    let both = self.b.bin(self.cur, BinOp::And, Type::I1, is, from, "case");
+                    result = self.b.select(self.cur, both, Type::I32, n as i64, result, "case").into();
+                }
+                let none = self.b.icmp(self.cur, ICond::Eq, Type::Ptr, target.clone(), Ir::Null, "none");
+                let result = self.b.select(self.cur, none, Type::I32, -1, result, "case");
+                self.push(result, Kind::Int);
+            }
             _ => return error(format!("a call site of {class}.{method}, a bootstrap method the lift does not know")),
         }
         Ok(())
+    }
+
+    /// A new `StringBuilder`.
+    fn builder(&mut self) -> Result<Ir, Error> {
+        let class = self.text("java/lang/StringBuilder");
+        let builder = self.rt("jvm.new", Type::Ptr, vec![class]);
+        self.lift.call(&mut self.b, self.cur, How::Named, true, "java/lang/StringBuilder", "<init>", "()V", vec![builder.clone()])?;
+        Ok(builder)
+    }
+
+    /// Appends a value of a field's `descriptor` to a builder, as the library writes one.
+    fn append(&mut self, builder: &Ir, value: Ir, descriptor: &str) -> Result<(), Error> {
+        let takes = match descriptor {
+            "I" | "S" | "B" => "I",
+            "C" | "Z" | "J" | "F" | "D" | "Ljava/lang/String;" => descriptor,
+            _ => "Ljava/lang/Object;",
+        };
+        let descriptor = format!("({takes})Ljava/lang/StringBuilder;");
+        self.lift.call(
+            &mut self.b,
+            self.cur,
+            How::Named,
+            true,
+            "java/lang/StringBuilder",
+            "append",
+            &descriptor,
+            vec![builder.clone(), value],
+        )?;
+        Ok(())
+    }
+
+    fn append_text(&mut self, builder: &Ir, text: &str) -> Result<(), Error> {
+        let (global, units) = self.lift.string(text);
+        let string = self.rt("jvm.string", Type::Ptr, vec![(Type::Ptr, Ir::Global(global)), (Type::I32, Ir::Int(units.into()))]);
+        self.append(builder, string, "Ljava/lang/String;")
+    }
+
+    /// The methods the compiler leaves a record to the library for: `toString`, `equals` and
+    /// `hashCode` over the record's components, which the call site names with their fields.
+    fn record(&mut self, name: &str, args: &[(Ir, Kind)], arguments: &[u16], offset: u32) -> Result<(), Error> {
+        let file = self.file;
+        let constant = |n: usize| arguments.get(n).and_then(|&a| file.constants.get(usize::from(a)));
+        let (Some(Constant::Class(class)), Some(Constant::String(names))) = (constant(0), constant(1)) else {
+            return error("a record's call site without its class and its components' names");
+        };
+        let (class, names) = (text_at(file, *class)?, text_at(file, *names)?);
+        // Each component: its name, its field's descriptor and where the field is.
+        let mut components = Vec::new();
+        for (n, component) in names.split(';').filter(|name| !name.is_empty()).enumerate() {
+            let Some(Constant::MethodHandle { reference, .. }) = constant(n + 2) else {
+                return error("a record's component without its field");
+            };
+            let (owner, field, descriptor) = member(file, *reference)?;
+            let Place::Offset(at) = self.lift.field(owner, field, descriptor, false)? else {
+                return error("a record's component in no object");
+            };
+            components.push((component, descriptor, at));
+        }
+        let Some((this, _)) = args.first().cloned() else { return error("a record's method of no record") };
+        let load = |body: &mut Self, object: &Ir, descriptor: &str, at: u64| -> Result<(Ir, Kind), Error> {
+            let kind = field_kind(descriptor)?;
+            let field = body.field_at(object.clone(), at);
+            Ok((body.b.load(body.cur, ty(kind), field, "component").into(), kind))
+        };
+        // The bits of a real number, which is how the library compares and hashes one.
+        let bits = |body: &mut Self, value: Ir, kind: Kind| -> Ir {
+            match kind {
+                Kind::Float => body.b.cast(body.cur, Cast::Bitcast, Type::Float, value, Type::I32, "bits").into(),
+                Kind::Double => body.b.cast(body.cur, Cast::Bitcast, Type::Double, value, Type::I64, "bits").into(),
+                _ => value,
+            }
+        };
+        match name {
+            "toString" => {
+                // `Name[first=1, second=2]`, the name without its package and its outer classes.
+                let simple = class.rsplit(['/', '$']).next().unwrap_or(class);
+                let builder = self.builder()?;
+                let mut before = format!("{simple}[");
+                for (component, descriptor, at) in &components {
+                    self.append_text(&builder, &format!("{before}{component}="))?;
+                    let (value, _) = load(self, &this, descriptor, *at)?;
+                    self.append(&builder, value, descriptor)?;
+                    ", ".clone_into(&mut before);
+                }
+                // A record of no components is its name and the brackets.
+                self.append_text(&builder, &if components.is_empty() { format!("{before}]") } else { "]".to_owned() })?;
+                let string = self.lift.call(
+                    &mut self.b,
+                    self.cur,
+                    How::Named,
+                    true,
+                    "java/lang/StringBuilder",
+                    "toString",
+                    "()Ljava/lang/String;",
+                    vec![builder],
+                )?;
+                self.push(string.expect("a string"), Kind::Reference);
+            }
+            "equals" => {
+                // A record of the same class whose every component is equal. The components are
+                // read of the record itself where the other is none, so nothing is read of a null.
+                let Some((other, _)) = args.get(1).cloned() else { return error("a record's equals of nothing") };
+                let named = self.text(class);
+                let is = self.rt("jvm.instanceof", Type::I32, vec![(Type::Ptr, other.clone()), named]);
+                let mut same = self.b.icmp(self.cur, ICond::Ne, Type::I32, is, 0, "same");
+                let other: Ir = self.b.select(self.cur, same, Type::Ptr, other, this.clone(), "other").into();
+                for (_, descriptor, at) in &components {
+                    let ((a, kind), (b, _)) = (load(self, &this, descriptor, *at)?, load(self, &other, descriptor, *at)?);
+                    let equal = if kind == Kind::Reference {
+                        let takes = "(Ljava/lang/Object;Ljava/lang/Object;)Z";
+                        let equal =
+                            self.lift.call(&mut self.b, self.cur, How::Named, false, "java/util/Objects", "equals", takes, vec![a, b])?;
+                        self.b.icmp(self.cur, ICond::Ne, Type::I32, equal.expect("an int"), 0, "equal")
+                    } else {
+                        let (a, b) = (bits(self, a, kind), bits(self, b, kind));
+                        let wide = matches!(kind, Kind::Long | Kind::Double);
+                        self.b.icmp(self.cur, ICond::Eq, if wide { Type::I64 } else { Type::I32 }, a, b, "equal")
+                    };
+                    same = self.b.bin(self.cur, BinOp::And, Type::I1, same, equal, "same");
+                }
+                let same = self.b.cast(self.cur, Cast::ZExt, Type::I1, same, Type::I32, "same");
+                self.push(same, Kind::Int);
+            }
+            "hashCode" => {
+                // Thirty-one times the hash so far, plus each component's own.
+                let mut hash = Ir::Int(0);
+                for (_, descriptor, at) in &components {
+                    let (value, kind) = load(self, &this, descriptor, *at)?;
+                    let own: Ir = match kind {
+                        Kind::Reference => {
+                            let takes = "(Ljava/lang/Object;)I";
+                            self.lift
+                                .call(&mut self.b, self.cur, How::Named, false, "java/util/Objects", "hashCode", takes, vec![value])?
+                                .expect("an int")
+                                .into()
+                        }
+                        Kind::Long | Kind::Double => {
+                            let value = bits(self, value, kind);
+                            let high = self.b.bin(self.cur, BinOp::LShr, Type::I64, value.clone(), 32, "high");
+                            let folded = self.b.bin(self.cur, BinOp::Xor, Type::I64, value, high, "folded");
+                            self.b.cast(self.cur, Cast::Trunc, Type::I64, folded, Type::I32, "own").into()
+                        }
+                        _ if *descriptor == "Z" => {
+                            let set = self.b.icmp(self.cur, ICond::Ne, Type::I32, value, 0, "set");
+                            self.b.select(self.cur, set, Type::I32, 1231, 1237, "own").into()
+                        }
+                        _ => bits(self, value, kind),
+                    };
+                    let scaled = self.b.bin(self.cur, BinOp::Mul, Type::I32, hash, 31, "scaled");
+                    hash = self.b.bin(self.cur, BinOp::Add, Type::I32, scaled, own, "hash").into();
+                }
+                self.push(hash, Kind::Int);
+            }
+            _ => return error(format!("a record's method `{name}` the lift does not write")),
+        }
+        self.check(offset)
     }
 }

@@ -63,6 +63,30 @@ fn an_uncaught_exception_ends_the_run_by_its_name() {
     assert_eq!(outcome.thrown.as_deref(), Some("java.lang.IllegalStateException: 3"));
 }
 
+/// What a release brought, compiled for the release that brought it and for the newest: enums,
+/// boxes and the for-each loop, with a class initialized when it is first used; records and
+/// their methods the library's bootstrap answers; a switch over the type of its operand.
+#[test]
+fn what_each_release_brought_runs() {
+    for (directory, main) in [
+        ("features/8", "Features"),
+        ("features/25", "Features"),
+        ("records/17", "Records"),
+        ("records/25", "Records"),
+        ("patterns/21", "Patterns"),
+        ("patterns/25", "Patterns"),
+    ] {
+        let mut paths: Vec<PathBuf> = std::fs::read_dir(fixtures().join(directory)).unwrap().map(|entry| entry.unwrap().path()).collect();
+        paths.retain(|path| path.extension().is_some_and(|e| e == "class"));
+        paths.sort();
+        let classes: Vec<ClassFile> = paths.iter().map(|path| ClassFile::parse(&std::fs::read(path).unwrap()).unwrap()).collect();
+        let module = lift(&classes).unwrap_or_else(|e| panic!("{directory}: {e}"));
+        let outcome = run(&module, main, &[], 10_000_000).unwrap_or_else(|stop| panic!("{directory}: {stop:?}"));
+        assert_eq!(outcome.thrown, None, "{directory}");
+        assert_eq!(String::from_utf8_lossy(&outcome.out), printed(&fixtures().join(directory).join(format!("{main}.out"))), "{directory}");
+    }
+}
+
 /// Every release from the first: the plain fixture uses nothing the first class files had not,
 /// so with its classes' version set to a release's they are classes of that release, and each
 /// release's lift of them prints what `java` printed.

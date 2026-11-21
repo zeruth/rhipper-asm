@@ -30,7 +30,7 @@ fn source(directory: &str) -> String {
 
 #[test]
 fn the_source_defines_every_method_by_its_c_name() {
-    for directory in ["8", "11", "17", "21", "25", "thrown", "plain"] {
+    for directory in ["8", "11", "17", "21", "25", "thrown", "plain", "features/8", "records/17", "patterns/21", "patterns/25"] {
         let text = source(directory);
         assert!(!text.contains("is not written"), "{directory}: a global the backend left out");
         for file in classes(directory) {
@@ -66,13 +66,20 @@ fn the_compiled_port_prints_what_java_prints() {
         ("25", "Opcodes", 0),
         ("thrown", "Thrown", 1),
         ("plain", "Plain", 0),
+        ("features/8", "Features", 0),
+        ("features/25", "Features", 0),
+        ("records/17", "Records", 0),
+        ("records/25", "Records", 0),
+        ("patterns/21", "Patterns", 0),
+        ("patterns/25", "Patterns", 0),
     ] {
         let mut module = lift(&classes(directory)).unwrap();
         entry(&mut module, main).unwrap();
         c_names(&mut module);
-        let path = scratch.join(format!("{directory}.c"));
+        let name = directory.replace('/', "-");
+        let path = scratch.join(format!("{name}.c"));
         std::fs::write(&path, emit_c(&module, &Options::default())).unwrap();
-        let executable = scratch.join(format!("{directory}{}", std::env::consts::EXE_SUFFIX));
+        let executable = scratch.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
         let build = std::process::Command::new("clang")
             .args(["-O1", "-Werror=implicit-function-declaration", "-I"])
             .arg(workspace().join("runtime"))

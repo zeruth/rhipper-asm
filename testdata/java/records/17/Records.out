@@ -1,0 +1,7 @@
+Point[x=3, y=-4] 7 true false false true
+Line[from=Point[x=3, y=-4], to=Point[x=0, y=0], name=edge, width=1.5, id=8589934592, dashed=true]
+true false
+89
+a point right of the origin by 3; something else; text of 4; something else
+19 two lines
+  of text

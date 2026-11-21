@@ -23,6 +23,23 @@ New-Item -ItemType Directory -Force $plain | Out-Null
 $printed = & java -cp $plain Plain
 [IO.File]::WriteAllText((Join-Path $plain 'Plain.out'), (($printed -join "`n") + "`n"))
 Write-Host "plain: prints $($printed.Count) lines"
+#
+# The fixtures of what a release brought, each compiled for the release that brought it (or the
+# oldest the JDK still targets) and for the newest, into `<name>/<release>/` with what it prints:
+# `Features` (Java 5: enums, boxes, for-each, variable arguments), `Records` (to Java 17: records,
+# switch expressions, text blocks, a type test that binds) and `Patterns` (Java 21: a switch over
+# types, record patterns, sealed interfaces).
+foreach ($fixture in @(@('Features', 8), @('Records', 17), @('Patterns', 21))) {
+    $name = $fixture[0]
+    foreach ($release in $fixture[1], 25) {
+        $out = Join-Path $here (Join-Path $name.ToLower() $release)
+        New-Item -ItemType Directory -Force $out | Out-Null
+        & javac --release $release -nowarn -Xlint:-options -d $out (Join-Path $here "src\$name.java") 2>$null
+        $printed = & java -cp $out $name
+        [IO.File]::WriteAllText((Join-Path $out "$name.out"), (($printed -join "`n") + "`n"))
+        Write-Host "$name for ${release}: prints $($printed.Count) lines"
+    }
+}
 foreach ($release in 8..25) {
     $out = Join-Path $here $release
     New-Item -ItemType Directory -Force $out | Out-Null

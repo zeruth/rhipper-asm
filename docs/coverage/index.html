@@ -404,12 +404,18 @@ const JAVA_RELEASES = [
   [17, "Java 17", "61", "sealed classes"], [18, "Java 18", "62", ""], [19, "Java 19", "63", ""], [20, "Java 20", "64", ""], [21, "Java 21", "65", "pattern switches through invokedynamic"],
   [22, "Java 22", "66", ""], [23, "Java 23", "67", ""], [24, "Java 24", "68", ""], [25, "Java 25", "69", ""],
 ];
+// The fixtures of what the releases brought, by the name of their directory under testdata/java.
+const JAVA_BROUGHT = {
+  features: "enums and a switch over one, boxes, the for-each loop, variable arguments, a class initialized when first used",
+  records: "records and the methods the library's bootstrap gives them, switch expressions, text blocks, a type test that binds",
+  patterns: "a switch over the type of its operand, record patterns, sealed interfaces",
+};
 FAMILIES.push({ id: "java", name: "Java · the JVM's bytecode", tag: "decoding", color: "rgb(240 150 60)",
-  blurb: "A machine of another kind: a stack machine whose instructions name their types, in a container that names every class, field and method it touches. Each release of Java is a target of its own, told by its class files' major version, and a class is held to what its release had: no invokedynamic before Java 7, no subroutine after it, no constant of a kind that came later. The class file reads and every instruction decodes, checked against javap's listing on a class compiled for each release the JDK still targets. The lift turns a method into a function of the IR: the operand stack becomes values, the locals variables, an exception a pending value every call is followed by a look at, a lambda a class of the module, a string concatenation the appends of a builder. A small runtime answers for the machine itself and for the classes of the library a program cannot be without, and under it the lifted fixture of every release prints what java printed. The same IR goes through the C backend the other machines share: ras java --port writes the classes as C beside a runtime in C, and the executable clang makes of them prints the same. The releases no JDK compiles for any more are held to a fixture that uses nothing the first class files had not, its version set back release by release; their subroutines lift too, from code written by hand.",
+  blurb: "A machine of another kind: a stack machine whose instructions name their types, in a container that names every class, field and method it touches. Each release of Java is a target of its own, told by its class files' major version, and a class is held to what its release had: no invokedynamic before Java 7, no subroutine after it, no constant of a kind that came later. The class file reads and every instruction decodes, checked against javap's listing on a class compiled for each release the JDK still targets. The lift turns a method into a function of the IR: the operand stack becomes values, the locals variables, an exception a pending value every call is followed by a look at, a lambda a class of the module, a string concatenation the appends of a builder. A small runtime answers for the machine itself and for the classes of the library a program cannot be without, and under it the lifted fixture of every release prints what java printed. The same IR goes through the C backend the other machines share: ras java --port writes the classes as C beside a runtime in C, and the executable clang makes of them prints the same. The releases no JDK compiles for any more are held to a fixture that uses nothing the first class files had not, its version set back release by release; their subroutines lift too, from code written by hand. What the releases brought has fixtures of its own, compiled for the release that brought it and for the newest: enums and boxes, records, a switch over types. A class is initialized when it is first used, as the machine has it.",
   facts: [["{jvm_opcodes}", "instructions decoded"], ["{jvm_releases}", "releases with a compiled fixture"], ["{jvm_listings}", "checked against javap"], ["{jvm_runs}", "run lifted, printing what java prints"], ["{jvm_all}", "releases whose class files run"], ["{jvm_library}", "library classes in the runtime"], ["{jvm_lines}", "lines in ra-asm-jvm"], ["{jvm_port_lines}", "lines in the port's C runtime"], ["{jvm_tests}", "tests"]],
   scope: {}, keyCards: [],
   platforms: JAVA_RELEASES.map(([release, n, major, d]) => ({ release, n: `${n} (class files ${major})`, s: [4, 4, 0, 0, 0, 0, 0, 0], d })),
-  note: "Next for Java: more of the library in both runtimes (the collections, the boxes' whole surface, text formatting), a collector, threads and monitors that lock, classes initialized when first used, the emit of Java itself, and fixtures written by the compilers of the releases before Java 8." });
+  note: "Next for Java: more of the library in both runtimes (the collections, the boxes' whole surface, text formatting), a collector, threads and monitors that lock, constants computed at run time and method handles, the emit of Java itself, and fixtures written by the compilers of the releases before Java 8." });
 
 const M = /*@MEASURED@*/null;
 const $ = (s) => document.querySelector(s);
@@ -468,6 +474,9 @@ javaFamily.platforms.forEach((p) => {
   if (javaRuns(fixture)) { p.s[2] = 5; p.s[3] = 4; p.s[5] = 4; p.s[6] = 3; add("lifted and run, it prints what java prints"); }
   // written as C and compiled with the C runtime, the program prints the same: the oracle agrees with the port
   if (javaRuns(fixture) && java.port) { p.s[4] = 4; p.s[5] = 5; add("its port in C prints the same"); }
+  // what the releases brought, compiled for this one: each a program that runs lifted and as a port
+  const brought = ((java.brought || {})[p.release] || []).map((name) => JAVA_BROUGHT[name]).filter(Boolean);
+  if (java.runs && brought.length) add("compiled for it, these run too: " + brought.join("; "));
 });
 if (java.runs) javaFamily.tag = java.port ? "porting" : "lifting";
 const milestone = (id) => M.milestones.find((m) => m.id === id) || { tasks: [], sections: [] };
