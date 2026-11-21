@@ -1,0 +1,409 @@
+
+testdata/sh4/sh4.elf:     file format elf32-shl
+
+
+Disassembly of section .text:
+
+00400054 <_print>:
+  400054:	86 2f       	mov.l	r8,@-r15
+  400056:	96 2f       	mov.l	r9,@-r15
+  400058:	a6 2f       	mov.l	r10,@-r15
+  40005a:	f0 7f       	add	#-16,r15
+  40005c:	43 68       	mov	r4,r8
+  40005e:	11 44       	cmp/pz	r4
+  400060:	43 63       	mov	r4,r3
+  400062:	00 89       	bt	400066 <_print+0x12>
+  400064:	4b 63       	neg	r4,r3
+  400066:	0a e0       	mov	#10,r0
+  400068:	ff 80       	mov.b	r0,@(15,r15)
+  40006a:	f3 66       	mov	r15,r6
+  40006c:	0f 76       	add	#15,r6
+  40006e:	0f e0       	mov	#15,r0
+  400070:	13 d4       	mov.l	4000c0 <_print+0x6c>,r4	! cccccccd
+  400072:	09 e5       	mov	#9,r5
+  400074:	03 69       	mov	r0,r9
+  400076:	ff 70       	add	#-1,r0
+  400078:	45 33       	dmulu.l	r4,r3
+  40007a:	0a 01       	sts	mach,r1
+  40007c:	09 41       	shlr2	r1
+  40007e:	01 41       	shlr	r1
+  400080:	13 62       	mov	r1,r2
+  400082:	08 42       	shll2	r2
+  400084:	1c 32       	add	r1,r2
+  400086:	2c 32       	add	r2,r2
+  400088:	33 67       	mov	r3,r7
+  40008a:	28 37       	sub	r2,r7
+  40008c:	73 62       	mov	r7,r2
+  40008e:	30 72       	add	#48,r2
+  400090:	24 26       	mov.b	r2,@-r6
+  400092:	33 62       	mov	r3,r2
+  400094:	56 32       	cmp/hi	r5,r2
+  400096:	ed 8d       	bt.s	400074 <_print+0x20>
+  400098:	13 63       	mov	r1,r3
+  40009a:	11 48       	cmp/pz	r8
+  40009c:	0b 8b       	bf	4000b6 <_print+0x62>
+  40009e:	0b 66       	neg	r0,r6
+  4000a0:	04 e3       	mov	#4,r3
+  4000a2:	01 e4       	mov	#1,r4
+  4000a4:	f3 65       	mov	r15,r5
+  4000a6:	0c 35       	add	r0,r5
+  4000a8:	10 76       	add	#16,r6
+  4000aa:	13 c3       	trapa	#19
+  4000ac:	10 7f       	add	#16,r15
+  4000ae:	f6 6a       	mov.l	@r15+,r10
+  4000b0:	f6 69       	mov.l	@r15+,r9
+  4000b2:	0b 00       	rts	
+  4000b4:	f6 68       	mov.l	@r15+,r8
+  4000b6:	93 60       	mov	r9,r0
+  4000b8:	fe 70       	add	#-2,r0
+  4000ba:	2d e1       	mov	#45,r1
+  4000bc:	ef af       	bra	40009e <_print+0x4a>
+  4000be:	14 0f       	mov.b	r1,@(r0,r15)
+  4000c0:	cd cc       	tst.b	#205,@(r0,gbr)
+  4000c2:	cc cc       	tst.b	#204,@(r0,gbr)
+
+004000c4 <_mix>:
+  4000c4:	43 60       	mov	r4,r0
+  4000c6:	43 61       	mov	r4,r1
+  4000c8:	f1 e2       	mov	#-15,r2
+  4000ca:	2d 41       	shld	r2,r1
+  4000cc:	5a 21       	xor	r5,r1
+  4000ce:	09 d2       	mov.l	4000f4 <_mix+0x30>,r2	! 9e3779b9
+  4000d0:	27 04       	mul.l	r2,r4
+  4000d2:	1a 02       	sts	macl,r2
+  4000d4:	2c 31       	add	r2,r1
+  4000d6:	13 62       	mov	r1,r2
+  4000d8:	0d e3       	mov	#13,r3
+  4000da:	3d 42       	shld	r3,r2
+  4000dc:	1a 22       	xor	r1,r2
+  4000de:	01 cb       	or	#1,r0
+  4000e0:	05 d1       	mov.l	4000f8 <_mix+0x34>,r1	! ff00
+  4000e2:	19 25       	and	r1,r5
+  4000e4:	58 30       	sub	r5,r0
+  4000e6:	29 61       	swap.w	r2,r1
+  4000e8:	18 41       	shll8	r1
+  4000ea:	19 42       	shlr8	r2
+  4000ec:	2b 21       	or	r2,r1
+  4000ee:	04 41       	rotl	r1
+  4000f0:	0b 00       	rts	
+  4000f2:	1c 30       	add	r1,r0
+  4000f4:	b9 79       	add	#-71,r9
+  4000f6:	37 9e       	mov.w	400168 <_count+0x2>,r14	! 8b0f
+  4000f8:	00 ff       	fadd	fr0,fr15
+	...
+
+004000fc <_shifts>:
+  4000fc:	1f e1       	mov	#31,r1
+  4000fe:	19 25       	and	r1,r5
+  400100:	43 61       	mov	r4,r1
+  400102:	5d 41       	shld	r5,r1
+  400104:	5b 65       	neg	r5,r5
+  400106:	43 62       	mov	r4,r2
+  400108:	5c 42       	shad	r5,r2
+  40010a:	13 60       	mov	r1,r0
+  40010c:	2c 30       	add	r2,r0
+  40010e:	43 61       	mov	r4,r1
+  400110:	5d 41       	shld	r5,r1
+  400112:	1c 30       	add	r1,r0
+  400114:	43 61       	mov	r4,r1
+  400116:	08 41       	shll2	r1
+  400118:	1c 31       	add	r1,r1
+  40011a:	1c 30       	add	r1,r0
+  40011c:	f7 e2       	mov	#-9,r2
+  40011e:	43 61       	mov	r4,r1
+  400120:	2c 41       	shad	r2,r1
+  400122:	1c 30       	add	r1,r0
+  400124:	29 44       	shlr16	r4
+  400126:	01 44       	shlr	r4
+  400128:	0b 00       	rts	
+  40012a:	4c 30       	add	r4,r0
+
+0040012c <_compare>:
+  40012c:	53 34       	cmp/ge	r5,r4
+  40012e:	29 01       	movt	r1
+  400130:	47 35       	cmp/gt	r4,r5
+  400132:	1e 31       	addc	r1,r1
+  400134:	66 37       	cmp/hi	r6,r7
+  400136:	29 02       	movt	r2
+  400138:	08 42       	shll2	r2
+  40013a:	2c 31       	add	r2,r1
+  40013c:	72 36       	cmp/hs	r7,r6
+  40013e:	29 02       	movt	r2
+  400140:	08 42       	shll2	r2
+  400142:	2c 32       	add	r2,r2
+  400144:	2c 31       	add	r2,r1
+  400146:	50 34       	cmp/eq	r5,r4
+  400148:	29 02       	movt	r2
+  40014a:	08 42       	shll2	r2
+  40014c:	08 42       	shll2	r2
+  40014e:	15 44       	cmp/pl	r4
+  400150:	04 8f       	bf.s	40015c <_compare+0x30>
+  400152:	2c 31       	add	r2,r1
+  400154:	20 71       	add	#32,r1
+  400156:	40 e0       	mov	#64,r0
+  400158:	0b 00       	rts	
+  40015a:	1c 30       	add	r1,r0
+  40015c:	48 24       	tst	r4,r4
+  40015e:	29 00       	movt	r0
+  400160:	06 e2       	mov	#6,r2
+  400162:	f9 af       	bra	400158 <_compare+0x2c>
+  400164:	2d 40       	shld	r2,r0
+
+00400166 <_count>:
+  400166:	15 47       	cmp/pl	r7
+  400168:	0f 8b       	bf	40018a <_count+0x24>
+  40016a:	86 2f       	mov.l	r8,@-r15
+  40016c:	00 e0       	mov	#0,r0
+  40016e:	44 61       	mov.b	@r4+,r1
+  400170:	55 62       	mov.w	@r5+,r2
+  400172:	66 63       	mov.l	@r6+,r3
+  400174:	1c 68       	extu.b	r1,r8
+  400176:	8c 31       	add	r8,r1
+  400178:	2c 31       	add	r2,r1
+  40017a:	2d 62       	extu.w	r2,r2
+  40017c:	2c 31       	add	r2,r1
+  40017e:	3c 31       	add	r3,r1
+  400180:	10 47       	dt	r7
+  400182:	f4 8f       	bf.s	40016e <_count+0x8>
+  400184:	1c 30       	add	r1,r0
+  400186:	0b 00       	rts	
+  400188:	f6 68       	mov.l	@r15+,r8
+  40018a:	0b 00       	rts	
+  40018c:	00 e0       	mov	#0,r0
+
+0040018e <_store>:
+  40018e:	86 2f       	mov.l	r8,@-r15
+  400190:	96 2f       	mov.l	r9,@-r15
+  400192:	a6 2f       	mov.l	r10,@-r15
+  400194:	b6 2f       	mov.l	r11,@-r15
+  400196:	c6 2f       	mov.l	r12,@-r15
+  400198:	d6 2f       	mov.l	r13,@-r15
+  40019a:	22 4f       	sts.l	pr,@-r15
+  40019c:	43 6b       	mov	r4,r11
+  40019e:	15 47       	cmp/pl	r7
+  4001a0:	16 8f       	bf.s	4001d0 <_store+0x42>
+  4001a2:	f7 54       	mov.l	@(28,r15),r4
+  4001a4:	53 6a       	mov	r5,r10
+  4001a6:	63 69       	mov	r6,r9
+  4001a8:	73 6c       	mov	r7,r12
+  4001aa:	00 e8       	mov	#0,r8
+  4001ac:	0c dd       	mov.l	4001e0 <_store+0x52>,r13	! 4000c4 <_mix>
+  4001ae:	0b 4d       	jsr	@r13
+  4001b0:	83 65       	mov	r8,r5
+  4001b2:	03 64       	mov	r0,r4
+  4001b4:	00 2b       	mov.b	r0,@r11
+  4001b6:	01 7b       	add	#1,r11
+  4001b8:	03 61       	mov	r0,r1
+  4001ba:	19 41       	shlr8	r1
+  4001bc:	11 2a       	mov.w	r1,@r10
+  4001be:	02 7a       	add	#2,r10
+  4001c0:	03 61       	mov	r0,r1
+  4001c2:	09 41       	shlr2	r1
+  4001c4:	01 41       	shlr	r1
+  4001c6:	12 29       	mov.l	r1,@r9
+  4001c8:	01 78       	add	#1,r8
+  4001ca:	80 3c       	cmp/eq	r8,r12
+  4001cc:	ef 8f       	bf.s	4001ae <_store+0x20>
+  4001ce:	04 79       	add	#4,r9
+  4001d0:	26 4f       	lds.l	@r15+,pr
+  4001d2:	f6 6d       	mov.l	@r15+,r13
+  4001d4:	f6 6c       	mov.l	@r15+,r12
+  4001d6:	f6 6b       	mov.l	@r15+,r11
+  4001d8:	f6 6a       	mov.l	@r15+,r10
+  4001da:	f6 69       	mov.l	@r15+,r9
+  4001dc:	0b 00       	rts	
+  4001de:	f6 68       	mov.l	@r15+,r8
+  4001e0:	c4 00       	mov.b	r12,@(r0,r0)
+  4001e2:	40 00       	.word 0x0040
+
+004001e4 <_pick>:
+  4001e4:	07 e1       	mov	#7,r1
+  4001e6:	16 34       	cmp/hi	r1,r4
+  4001e8:	1e 8d       	bt.s	400228 <_pick+0x44>
+  4001ea:	53 60       	mov	r5,r0
+  4001ec:	01 c7       	mova	4001f4 <_pick+0x10>,r0
+  4001ee:	4c 04       	mov.b	@(r0,r4),r4
+  4001f0:	23 04       	braf	r4
+  4001f2:	09 00       	nop	
+  4001f4:	08 0e       	.word 0x0e08
+  4001f6:	14 1a       	mov.l	r1,@(16,r10)
+  4001f8:	20 26       	mov.b	r2,@r6
+  4001fa:	2a 2e       	xor	r2,r14
+  4001fc:	53 60       	mov	r5,r0
+  4001fe:	0b 00       	rts	
+  400200:	6c 30       	add	r6,r0
+  400202:	53 60       	mov	r5,r0
+  400204:	0b 00       	rts	
+  400206:	68 30       	sub	r6,r0
+  400208:	53 60       	mov	r5,r0
+  40020a:	0b 00       	rts	
+  40020c:	69 20       	and	r6,r0
+  40020e:	53 60       	mov	r5,r0
+  400210:	0b 00       	rts	
+  400212:	6b 20       	or	r6,r0
+  400214:	53 60       	mov	r5,r0
+  400216:	0b 00       	rts	
+  400218:	6a 20       	xor	r6,r0
+  40021a:	0b 00       	rts	
+  40021c:	5b 60       	neg	r5,r0
+  40021e:	0b 00       	rts	
+  400220:	57 60       	not	r5,r0
+  400222:	67 05       	mul.l	r6,r5
+  400224:	0b 00       	rts	
+  400226:	1a 00       	sts	macl,r0
+  400228:	63 35       	cmp/ge	r6,r5
+  40022a:	00 89       	bt	40022e <_pick+0x4a>
+  40022c:	63 60       	mov	r6,r0
+  40022e:	0b 00       	rts	
+  400230:	09 00       	nop	
+
+00400232 <_wide>:
+  400232:	00 e1       	mov	#0,r1
+  400234:	00 e3       	mov	#0,r3
+  400236:	53 62       	mov	r5,r2
+  400238:	67 31       	cmp/gt	r6,r1
+  40023a:	5a 35       	subc	r5,r5
+  40023c:	77 31       	cmp/gt	r7,r1
+  40023e:	1a 31       	subc	r1,r1
+  400240:	77 05       	mul.l	r7,r5
+  400242:	1a 05       	sts	macl,r5
+  400244:	67 01       	mul.l	r6,r1
+  400246:	1a 01       	sts	macl,r1
+  400248:	1c 35       	add	r1,r5
+  40024a:	75 36       	dmulu.l	r7,r6
+  40024c:	1a 00       	sts	macl,r0
+  40024e:	0a 01       	sts	mach,r1
+  400250:	5c 31       	add	r5,r1
+  400252:	08 00       	clrt	
+  400254:	2e 30       	addc	r2,r0
+  400256:	3e 31       	addc	r3,r1
+  400258:	25 34       	dmulu.l	r2,r4
+  40025a:	1a 03       	sts	macl,r3
+  40025c:	0a 02       	sts	mach,r2
+  40025e:	08 00       	clrt	
+  400260:	3e 30       	addc	r3,r0
+  400262:	2e 31       	addc	r2,r1
+  400264:	00 e3       	mov	#0,r3
+  400266:	08 00       	clrt	
+  400268:	3e 30       	addc	r3,r0
+  40026a:	0b 00       	rts	
+  40026c:	4e 31       	addc	r4,r1
+
+0040026e <__start>:
+  40026e:	86 2f       	mov.l	r8,@-r15
+  400270:	96 2f       	mov.l	r9,@-r15
+  400272:	a6 2f       	mov.l	r10,@-r15
+  400274:	b6 2f       	mov.l	r11,@-r15
+  400276:	22 4f       	sts.l	pr,@-r15
+  400278:	c4 7f       	add	#-60,r15
+  40027a:	5a 91       	mov.w	400332 <__start+0xc4>,r1	! 1234
+  40027c:	12 2f       	mov.l	r1,@r15
+  40027e:	08 e7       	mov	#8,r7
+  400280:	f3 66       	mov	r15,r6
+  400282:	04 76       	add	#4,r6
+  400284:	f3 65       	mov	r15,r5
+  400286:	24 75       	add	#36,r5
+  400288:	f3 64       	mov	r15,r4
+  40028a:	2a d1       	mov.l	400334 <__start+0xc6>,r1	! 40018e <_store>
+  40028c:	0b 41       	jsr	@r1
+  40028e:	34 74       	add	#52,r4
+  400290:	08 e7       	mov	#8,r7
+  400292:	f3 66       	mov	r15,r6
+  400294:	04 76       	add	#4,r6
+  400296:	f3 65       	mov	r15,r5
+  400298:	24 75       	add	#36,r5
+  40029a:	f3 64       	mov	r15,r4
+  40029c:	26 d0       	mov.l	400338 <__start+0xca>,r0	! 400166 <_count>
+  40029e:	0b 40       	jsr	@r0
+  4002a0:	34 74       	add	#52,r4
+  4002a2:	03 68       	mov	r0,r8
+  4002a4:	25 d1       	mov.l	40033c <__start+0xce>,r1	! 400054 <_print>
+  4002a6:	0b 41       	jsr	@r1
+  4002a8:	03 64       	mov	r0,r4
+  4002aa:	00 e9       	mov	#0,r9
+  4002ac:	24 db       	mov.l	400340 <__start+0xd2>,r11	! 4001e4 <_pick>
+  4002ae:	23 da       	mov.l	40033c <__start+0xce>,r10	! 400054 <_print>
+  4002b0:	93 66       	mov	r9,r6
+  4002b2:	03 76       	add	#3,r6
+  4002b4:	83 65       	mov	r8,r5
+  4002b6:	0b 4b       	jsr	@r11
+  4002b8:	93 64       	mov	r9,r4
+  4002ba:	0c 38       	add	r0,r8
+  4002bc:	0b 4a       	jsr	@r10
+  4002be:	83 64       	mov	r8,r4
+  4002c0:	01 79       	add	#1,r9
+  4002c2:	93 60       	mov	r9,r0
+  4002c4:	09 88       	cmp/eq	#9,r0
+  4002c6:	f4 8f       	bf.s	4002b2 <__start+0x44>
+  4002c8:	93 66       	mov	r9,r6
+  4002ca:	1e d9       	mov.l	400344 <__start+0xd6>,r9	! 4000fc <_shifts>
+  4002cc:	05 e5       	mov	#5,r5
+  4002ce:	0b 49       	jsr	@r9
+  4002d0:	83 64       	mov	r8,r4
+  4002d2:	03 6a       	mov	r0,r10
+  4002d4:	1d e5       	mov	#29,r5
+  4002d6:	0b 49       	jsr	@r9
+  4002d8:	8b 64       	neg	r8,r4
+  4002da:	18 d9       	mov.l	40033c <__start+0xce>,r9	! 400054 <_print>
+  4002dc:	a3 64       	mov	r10,r4
+  4002de:	0b 49       	jsr	@r9
+  4002e0:	0c 34       	add	r0,r4
+  4002e2:	19 db       	mov.l	400348 <__start+0xda>,r11	! 40012c <_compare>
+  4002e4:	07 e7       	mov	#7,r7
+  4002e6:	83 66       	mov	r8,r6
+  4002e8:	07 e5       	mov	#7,r5
+  4002ea:	0b 4b       	jsr	@r11
+  4002ec:	83 64       	mov	r8,r4
+  4002ee:	03 6a       	mov	r0,r10
+  4002f0:	02 e7       	mov	#2,r7
+  4002f2:	01 e6       	mov	#1,r6
+  4002f4:	fd e5       	mov	#-3,r5
+  4002f6:	0b 4b       	jsr	@r11
+  4002f8:	fd e4       	mov	#-3,r4
+  4002fa:	a3 64       	mov	r10,r4
+  4002fc:	0b 49       	jsr	@r9
+  4002fe:	0c 34       	add	r0,r4
+  400300:	b3 e7       	mov	#-77,r7
+  400302:	83 66       	mov	r8,r6
+  400304:	11 d5       	mov.l	40034c <__start+0xde>,r5	! 89abcdef
+  400306:	12 d0       	mov.l	400350 <__start+0xe2>,r0	! 400232 <_wide>
+  400308:	0b 40       	jsr	@r0
+  40030a:	83 64       	mov	r8,r4
+  40030c:	03 64       	mov	r0,r4
+  40030e:	0b 49       	jsr	@r9
+  400310:	13 6a       	mov	r1,r10
+  400312:	0b 49       	jsr	@r9
+  400314:	a3 64       	mov	r10,r4
+  400316:	63 e5       	mov	#99,r5
+  400318:	0e d0       	mov.l	400354 <__start+0xe6>,r0	! 4000c4 <_mix>
+  40031a:	0b 40       	jsr	@r0
+  40031c:	83 64       	mov	r8,r4
+  40031e:	0b 49       	jsr	@r9
+  400320:	03 64       	mov	r0,r4
+  400322:	01 e3       	mov	#1,r3
+  400324:	7f e4       	mov	#127,r4
+  400326:	89 24       	and	r8,r4
+  400328:	00 e5       	mov	#0,r5
+  40032a:	00 e6       	mov	#0,r6
+  40032c:	13 c3       	trapa	#19
+  40032e:	fe af       	bra	40032e <__start+0xc0>
+  400330:	09 00       	nop	
+  400332:	34 12       	mov.l	r3,@(16,r2)
+  400334:	8e 01       	mov.l	@(r0,r8),r1
+  400336:	40 00       	.word 0x0040
+  400338:	66 01       	mov.l	r6,@(r0,r1)
+  40033a:	40 00       	.word 0x0040
+  40033c:	54 00       	mov.b	r5,@(r0,r0)
+  40033e:	40 00       	.word 0x0040
+  400340:	e4 01       	mov.b	r14,@(r0,r1)
+  400342:	40 00       	.word 0x0040
+  400344:	fc 00       	mov.b	@(r0,r15),r0
+  400346:	40 00       	.word 0x0040
+  400348:	2c 01       	mov.b	@(r0,r2),r1
+  40034a:	40 00       	.word 0x0040
+  40034c:	ef cd       	and.b	#239,@(r0,gbr)
+  40034e:	ab 89       	bt	4002a8 <__start+0x3a>
+  400350:	32 02       	stc	ssr,r2
+  400352:	40 00       	.word 0x0040
+  400354:	c4 00       	mov.b	r12,@(r0,r0)
+  400356:	40 00       	.word 0x0040

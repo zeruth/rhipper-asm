@@ -17,6 +17,11 @@ testdata/csmith/bin/*.txt -text
 testdata/riscv/*.elf binary
 testdata/riscv/*.txt -text
 testdata/riscv/*.out -text
+# the SH-4 fixture, the same: its build script runs in WSL and keeps its line ends
+testdata/sh4/*.elf binary
+testdata/sh4/*.txt -text
+testdata/sh4/*.out -text
+testdata/sh4/build.sh eol=lf
 # the Java fixtures: a class is bytes, and a listing or an output keeps the line ends it was written with
 testdata/java/**/*.class binary
 testdata/java/**/*.txt -text
