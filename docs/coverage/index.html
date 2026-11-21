@@ -187,7 +187,7 @@ svg .lbl { fill: var(--text) }
   <header class="hero">
     <div>
       <div class="eyebrow">Rhipper Asm · coverage report</div>
-      <h1>Every machine,<br><span>by its CPU</span></h1>
+      <h1>Every machine,<br><span>by its CPU</span></h1><!-- and the machines that are no CPU: Java's -->
       <p>How far each processor family and each console or platform on it gets through asm's pipeline: from reading the container to a C port that runs and checks itself against the original. Measured from the code, the fixtures and the roadmap at <span class="mono" id="head2">?</span>.</p>
     </div>
     <div class="moon" role="img" aria-label="A blood moon"></div>
@@ -390,6 +390,27 @@ const FAMILIES = [
     ] },
 ];
 
+// Java: every release is a target of its own, by the major version of the class files it writes.
+// What each release brought to the class file, and the levels the releases without a compiled
+// fixture stand at (the reader and the decoder hold them to their release, on classes the tests
+// build by hand); a release with a committed class and javap's listing is raised when measured.
+const JAVA_RELEASES = [
+  [1, "Java 1.0 / 1.1", "45", "the first class files; subroutines (jsr, ret) make finally; the code's sizes in fewer bytes before 1.0.2"],
+  [2, "Java 1.2", "46", "strictfp; the collections' era"], [3, "Java 1.3", "47", ""], [4, "Java 1.4", "48", "assert, as a synthetic field"],
+  [5, "Java 5", "49", "generics as signatures, annotations, enums, ldc of a class"], [6, "Java 6", "50", "StackMapTable: verification by type checking"],
+  [7, "Java 7", "51", "invokedynamic, method handles; subroutines are gone"], [8, "Java 8", "52", "lambdas through invokedynamic; default and static interface methods"],
+  [9, "Java 9", "53", "modules; string concatenation through invokedynamic"], [10, "Java 10", "54", ""], [11, "Java 11", "55", "nest mates; constants computed at run time"],
+  [12, "Java 12", "56", ""], [13, "Java 13", "57", ""], [14, "Java 14", "58", ""], [15, "Java 15", "59", "hidden classes"], [16, "Java 16", "60", "records"],
+  [17, "Java 17", "61", "sealed classes"], [18, "Java 18", "62", ""], [19, "Java 19", "63", ""], [20, "Java 20", "64", ""], [21, "Java 21", "65", "pattern switches through invokedynamic"],
+  [22, "Java 22", "66", ""], [23, "Java 23", "67", ""], [24, "Java 24", "68", ""], [25, "Java 25", "69", ""],
+];
+FAMILIES.push({ id: "java", name: "Java · the JVM's bytecode", tag: "decoding", color: "rgb(240 150 60)",
+  blurb: "A machine of another kind: a stack machine whose instructions name their types, in a container that names every class, field and method it touches. Each release of Java is a target of its own, told by its class files' major version, and a class is held to what its release had: no invokedynamic before Java 7, no subroutine after it, no constant of a kind that came later. The class file reads and every instruction decodes, checked against javap's listing on a class compiled for each release the JDK still targets. The lift is next: the operand stack has a fixed depth at every instruction, so it becomes IR values directly, and the emit can be Java again as well as C.",
+  facts: [["{jvm_opcodes}", "instructions decoded"], ["{jvm_releases}", "releases with a compiled fixture"], ["{jvm_listings}", "checked against javap"], ["{jvm_lines}", "lines in ra-asm-jvm"], ["{jvm_tests}", "tests"], ["45–69", "class file versions read"]],
+  scope: {}, keyCards: [],
+  platforms: JAVA_RELEASES.map(([release, n, major, d]) => ({ release, n: `${n} (class files ${major})`, s: [4, 4, 0, 0, 0, 0, 0, 0], d })),
+  note: "Next for Java: the lift of a method to IR (the stack as values, locals as variables, the constant pool as symbols), then a runtime of the classes a program calls into, release by release, so the fixture's port prints what java prints." });
+
 const M = /*@MEASURED@*/null;
 const $ = (s) => document.querySelector(s);
 const h = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); e.innerHTML = html; return e; };
@@ -419,6 +440,14 @@ const consoleIds = Object.keys(M.runtimes).filter((id) => id !== "shared");
 consoleIds.forEach((id) => { GLOBAL["rt_" + id] = fmt(runtime(id).lines); });
 GLOBAL.rt_others = fmt(consoleIds.filter((id) => id !== "psx").reduce((a, id) => a + runtime(id).lines, 0));
 GLOBAL.console_fixtures = consoleIds.reduce((a, id) => a + runtime(id).fixtures, 0);
+// Java: a release with a committed class that javap's listing agrees with is verified at the
+// container and the decoder
+const java = M.java || { opcodes: 0, releases: {}, lines: 0, tests: 0 };
+Object.assign(GLOBAL, { jvm_opcodes: java.opcodes, jvm_releases: Object.keys(java.releases).length, jvm_listings: Object.values(java.releases).filter((r) => r.listing).length, jvm_lines: fmt(java.lines), jvm_tests: java.tests });
+FAMILIES.find((f) => f.id === "java").platforms.forEach((p) => {
+  const fixture = java.releases[p.release];
+  if (fixture && fixture.listing) { p.s[0] = 5; p.s[1] = 5; p.d = (p.d ? p.d + "; " : "") + "a compiled class decodes as javap lists it"; }
+});
 const milestone = (id) => M.milestones.find((m) => m.id === id) || { tasks: [], sections: [] };
 const sectionTasks = (id) => { // the tasks under a section: the ids that follow it in its milestone up to the next section
   for (const m of M.milestones) { const i = m.sections.indexOf(id); if (i >= 0) { const next = m.sections[i + 1] ?? Infinity; return m.tasks.filter((t) => t > id && t < next); } }

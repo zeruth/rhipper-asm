@@ -111,6 +111,24 @@ def runtimes():
     return out
 
 
+def java():
+    """The Java machine: the instructions the decoder names, and the releases with a committed
+    class, with `javap`'s listing and with what the program prints."""
+    names = re.search(r"pub const NAMES: \[&str; \d+\] = \[(.*?)\];", text("crates/ra-asm-jvm/src/decode.rs"), re.S)
+    releases = {}
+    for d in (ROOT / "testdata" / "java").iterdir():
+        if d.name.isdigit() and (d / "Opcodes.class").exists():
+            releases[int(d.name)] = {"listing": (d / "Opcodes.txt").exists(), "output": (d / "Opcodes.out").exists()}
+    files = list((ROOT / "crates" / "ra-asm-jvm").rglob("*.rs"))
+    source = [f.read_text(encoding="utf-8") for f in files]
+    return {
+        "opcodes": len(re.findall(r'"\w+"', names.group(1))) if names else 0,
+        "releases": dict(sorted(releases.items())),
+        "lines": sum(len(s.splitlines()) for s in source),
+        "tests": sum(s.count("#[test]") for s in source),
+    }
+
+
 def boundary():
     files = {
         "Win32 protos": "crates/ra-asm-protos/src/win32.rs",
@@ -192,6 +210,7 @@ def main():
         "forms": forms(),
         "boundary": boundary(),
         "runtimes": runtimes(),
+        "java": java(),
         "fixtures": fixtures(),
         "golden": len(list((ROOT / "testdata" / "expected").glob("*.txt"))),
     }
