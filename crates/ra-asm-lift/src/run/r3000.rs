@@ -75,6 +75,9 @@ pub(super) struct Processor {
     /// The calls and jumps of lifted code through the run that are open, innermost last: each
     /// one's target and the block it was made from.
     nest: Vec<(u32, u32)>,
+    /// Whether the last leave for elsewhere was a return from an exception to another address
+    /// (a switch of threads), and not a jump buffer's.
+    left_by_rfe: bool,
     /// The RAM as it was when the data cache was cut off, while it is: the stores made then
     /// flush cache lines and reach no memory, so the RAM comes back when the cache does.
     isolated: Option<Vec<u8>>,
@@ -97,6 +100,7 @@ impl Processor {
             booted: false,
             resident: Vec::new(),
             nest: Vec::new(),
+            left_by_rfe: false,
             isolated: None,
             cop0,
             gp: vm.symbol(PSX_GP),
@@ -191,6 +195,25 @@ pub mod stats {
     /// Every address a call came to that no lifted function was, with how often, by address.
     pub fn called() -> Vec<(u32, u64)> {
         let mut entries: Vec<(u32, u64)> = CALLED.lock().ok().and_then(|e| e.clone()).unwrap_or_default().into_iter().collect();
+        entries.sort_unstable();
+        entries
+    }
+
+    static CONTINUED: Mutex<Option<HashMap<u32, u64>>> = Mutex::new(None);
+
+    /// A jump through a register came into the middle of a lifted function at `target`: where
+    /// a context the program switched away from goes on, which the next lift makes an entry.
+    pub(super) fn continuation(target: u32) {
+        if on()
+            && let Ok(mut continued) = CONTINUED.lock()
+        {
+            *continued.get_or_insert_with(HashMap::new).entry(target).or_default() += 1;
+        }
+    }
+
+    /// Every address such a jump came to, with how often, by address.
+    pub fn continued() -> Vec<(u32, u64)> {
+        let mut entries: Vec<(u32, u64)> = CONTINUED.lock().ok().and_then(|e| e.clone()).unwrap_or_default().into_iter().collect();
         entries.sort_unstable();
         entries
     }
@@ -408,7 +431,18 @@ impl Runtime<'_> {
                     processor.exceptions.clear();
                     let target = processor.returned;
                     stats::trail(|| format!("elsewhere: the processor goes on at {target:#x}"));
-                    result = self.r3000_run(vm, state, target, Frame::Bottom).map(|_| ());
+                    result = match self.psx_lifted(vm, u64::from(target))? {
+                        // The run has a function for where it goes on: that function, and
+                        // when it returns, the processor from where it returned to.
+                        Some(at) => {
+                            let name = vm.name_at(at).unwrap_or_default().to_owned();
+                            vm.call_named(self, &name, vec![Value::Int(u128::from(state))]).and_then(|_| {
+                                let link = vm.memory.read_u64(state + 8 * 31)? as u32;
+                                self.r3000_run(vm, state, link, Frame::Bottom).map(|_| ())
+                            })
+                        }
+                        None => self.r3000_run(vm, state, target, Frame::Bottom).map(|_| ()),
+                    };
                 }
                 // Lifted code reached memory nothing answers at: the processor's bus error at
                 // the instruction, whose handler says where the processor goes on.
@@ -444,6 +478,7 @@ impl Runtime<'_> {
         let processor = self.processor()?;
         if processor.kernel && outside && returned != link {
             processor.returned = returned;
+            processor.left_by_rfe = false;
             return Err(Stop::fault(ELSEWHERE));
         }
         Ok(())
@@ -461,11 +496,18 @@ impl Runtime<'_> {
         let inside = self.lifted.resident.iter().any(|part| {
             !part.functions.contains_key(&at) && part.functions.values().flatten().any(|&(start, end)| (start..end).contains(&at))
         });
-        if !inside {
+        // Where an earlier run saw such a jump land, the lift has an entry: the jump is still
+        // no call, and the function there is entered from the run's first frame.
+        let continues = self.lifted.resident.iter().any(|part| part.continuations.contains(&at));
+        if !inside && !continues {
             return Ok(());
         }
+        if inside {
+            stats::continuation(at as u32);
+        }
         stats::trail(|| format!("a lifted jump into the middle of a function, at {target:#x}"));
-        self.processor()?.returned = target as u32;
+        let processor = self.processor()?;
+        (processor.returned, processor.left_by_rfe) = (target as u32, false);
         Err(Stop::fault(ELSEWHERE))
     }
 
@@ -508,7 +550,8 @@ impl Runtime<'_> {
             return Ok(());
         }
         stats::trail(|| format!("a lifted function called for {link:#x} returned to {returned:#x}"));
-        self.processor()?.returned = returned;
+        let processor = self.processor()?;
+        (processor.returned, processor.left_by_rfe) = (returned, false);
         Err(Stop::fault(ELSEWHERE))
     }
 
@@ -517,7 +560,8 @@ impl Runtime<'_> {
     /// the processor goes on from the run's first frame.
     pub(super) fn psx_returns(&mut self, target: u32) -> Result<(), Stop> {
         let within = self.returns_exception(target);
-        self.processor()?.returned = target;
+        let processor = self.processor()?;
+        (processor.returned, processor.left_by_rfe) = (target, true);
         stats::trail(|| format!("lifted rfe to {target:#x}, within {within}"));
         Err(Stop::fault(if within { RETURNED } else { ELSEWHERE }))
     }
@@ -565,6 +609,13 @@ impl Runtime<'_> {
     /// to. An exception's handler also ends where it jumps back to the exception's address,
     /// and the run's first frame has no end. The result is the address control went to.
     fn r3000_run(&mut self, vm: &mut Vm<'_>, state: u64, entry: u32, frame: Frame) -> Result<u32, Stop> {
+        let before = ra_asm_platform::profile::phase(2);
+        let result = self.r3000_steps(vm, state, entry, frame);
+        ra_asm_platform::profile::phase(before);
+        result
+    }
+
+    fn r3000_steps(&mut self, vm: &mut Vm<'_>, state: u64, entry: u32, frame: Frame) -> Result<u32, Stop> {
         let mut cpu = Cpu {
             r: [0; 32],
             hi: 0,
@@ -715,7 +766,8 @@ impl Runtime<'_> {
             // Or to somewhere else, where the processor goes on from the run's first frame:
             // the code the exception was taken in is left as it stood.
             Arrival::Exception if !self.processor()?.exceptions.is_empty() => {
-                self.processor()?.returned = target;
+                let processor = self.processor()?;
+                (processor.returned, processor.left_by_rfe) = (target, true);
                 self.r3000_flush(vm, state, cpu)?;
                 return Err(Stop::fault(ELSEWHERE));
             }
@@ -744,7 +796,9 @@ impl Runtime<'_> {
                 return Ok(None);
             }
             self.r3000_flush(vm, state, cpu)?;
-            vm.call_named(self, &name, vec![Value::Int(u128::from(state))])?;
+            let called = vm.call_named(self, &name, vec![Value::Int(u128::from(state))]);
+            ra_asm_platform::profile::phase(2);
+            called?;
             self.psx_returned(vm, state, link)?;
             self.r3000_load(vm, state, cpu)?;
         } else {
@@ -926,7 +980,20 @@ impl Runtime<'_> {
         let processor = self.processor()?;
         let index = processor.exceptions.len();
         processor.exceptions.push(returns);
-        let result = self.r3000_run(vm, state, vector, Frame::Handler(index));
+        let mut result = self.r3000_run(vm, state, vector, Frame::Handler(index));
+        // A handler that leaves through a jump buffer (its kernel's way out of an interrupt) is
+        // still this exception's handler where the buffer was filled: it goes on there, in this
+        // frame, to its return, so the code the exception was taken in goes on as it stood.
+        // One that returns from the exception to another address has left it for good.
+        loop {
+            let left = matches!(&result, Err(Stop::Fault(message)) if message.starts_with(ELSEWHERE));
+            let processor = self.processor()?;
+            if !left || processor.left_by_rfe || processor.exceptions.len() != index + 1 {
+                break;
+            }
+            let target = processor.returned;
+            result = self.r3000_run(vm, state, target, Frame::Handler(index));
+        }
         let processor = self.processor()?;
         processor.exceptions.truncate(index);
         match result {

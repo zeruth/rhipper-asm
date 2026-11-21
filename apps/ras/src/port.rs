@@ -49,17 +49,24 @@ pub(crate) fn port(image: &Image, out: &Path, options: &Options) -> Result<()> {
     let level = ra_asm_lift::RaiseLevel::Machine;
     let lift = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
     // The programs the console loads that are lifted with it, each with the entries a run found.
-    let entries: Vec<u64> = match &options.entries {
-        Some(path) => {
-            let text = std::fs::read_to_string(path).with_context(|| format!("cannot read the entries at {}", path.display()))?;
-            text.lines().filter_map(|line| line.split_whitespace().next()).filter_map(|word| u64::from_str_radix(word, 16).ok()).collect()
+    // A line an address; `jump` as its third word where the run saw a jump through a register
+    // come to it in the middle of a function.
+    let (mut entries, mut continuations) = (Vec::new(), Vec::new());
+    if let Some(path) = &options.entries {
+        let text = std::fs::read_to_string(path).with_context(|| format!("cannot read the entries at {}", path.display()))?;
+        for line in text.lines() {
+            let mut words = line.split_whitespace();
+            let Some(address) = words.next().and_then(|word| u64::from_str_radix(word, 16).ok()) else { continue };
+            entries.push(address);
+            if words.nth(1) == Some("jump") {
+                continuations.push(address);
+            }
         }
-        None => Vec::new(),
-    };
+    }
     let mut loaded = Vec::new();
     for (n, path) in options.with.iter().enumerate() {
         let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
-        loaded.push(ra_asm_lift::Loaded::new(bytes, &format!("loaded-{n}.exe"), &entries)?);
+        loaded.push(ra_asm_lift::Loaded::new(bytes, &format!("loaded-{n}.exe"), &entries, &continuations)?);
     }
     let mut whole = ra_asm_lift::Whole::lift_with(image, &loaded, lift, level)?;
     if !options.quiet {

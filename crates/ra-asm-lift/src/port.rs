@@ -230,12 +230,20 @@ pub fn source(lifted: &Lifted, loaded: &[crate::Loaded]) -> String {
             "static const uint64_t ra_entries_{n}[] = {{ {} }};",
             if entries.is_empty() { "0".to_owned() } else { entries.join(", ") }
         );
+        let continuations: Vec<String> = program.continuations.iter().map(|a| format!("{a:#x}ull")).collect();
+        let list = if continuations.is_empty() { "0".to_owned() } else { continuations.join(", ") };
+        let _ = writeln!(out, "static const uint64_t ra_continuations_{n}[] = {{ {list} }};");
     }
     let _ = writeln!(out, "static const ra_loaded ra_loaded_programs[] = {{");
     for (n, program) in loaded.iter().enumerate() {
-        let _ = writeln!(out, "    {{ ra_loaded_{n}, sizeof ra_loaded_{n}, ra_entries_{n}, {} }},", program.entries.len());
+        let _ = writeln!(
+            out,
+            "    {{ ra_loaded_{n}, sizeof ra_loaded_{n}, ra_entries_{n}, {}, ra_continuations_{n}, {} }},",
+            program.entries.len(),
+            program.continuations.len()
+        );
     }
-    let _ = writeln!(out, "    {{ 0, 0, 0, 0 }}\n}};");
+    let _ = writeln!(out, "    {{ 0, 0, 0, 0, 0, 0 }}\n}};");
     out.push_str(MAIN);
     out
 }
@@ -245,7 +253,7 @@ const PRELUDE: &str = r#"#include <stdint.h>
 
 typedef struct ra_function { uint64_t address; void (*code)(void *state); } ra_function;
 typedef struct ra_global { const char *name; void *at; } ra_global;
-typedef struct ra_loaded { const unsigned char *image; uint64_t image_size; const uint64_t *entries; uint64_t entry_count; } ra_loaded;
+typedef struct ra_loaded { const unsigned char *image; uint64_t image_size; const uint64_t *entries; uint64_t entry_count; const uint64_t *continuations; uint64_t continuation_count; } ra_loaded;
 // The run's entries, which the run fills in before it calls the program.
 typedef struct ra_host {
     uint64_t (*load)(uint64_t address, uint64_t bytes);

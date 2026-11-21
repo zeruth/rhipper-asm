@@ -358,6 +358,13 @@ impl Runtime<'_> {
     /// Between two instructions: the register writes the devices queued go to the runtime, the
     /// clock moves on by the instructions run since, and what the machine has due is called.
     pub(super) fn console_poll(&mut self, vm: &mut Vm<'_>) -> Result<(), Stop> {
+        let before = ra_asm_platform::profile::phase(3);
+        let result = self.look(vm);
+        ra_asm_platform::profile::phase(before);
+        result
+    }
+
+    fn look(&mut self, vm: &mut Vm<'_>) -> Result<(), Stop> {
         let image = self.image;
         let idles = self.machine.is_some() && self.psx_idles(vm);
         let Some(machine) = &mut self.machine else { return Ok(()) };

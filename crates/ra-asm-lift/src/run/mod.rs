@@ -33,7 +33,10 @@ pub use console::{Console, Native};
 use host::Runtime;
 pub use r3000::stats as processor_stats;
 pub use ra_asm_platform::host::Capture;
-pub use ra_asm_platform::profile::seconds as device_seconds;
+pub use ra_asm_platform::profile::{
+    detail as phase_detail, details as phase_details, phase, sample as phase_sampler, samples as phase_samples, seconds as device_seconds,
+};
+pub use ra_asm_platform::psx::gte::command as gte_command;
 
 /// Whether `image` is a program of a console whose machine a run carries: its devices, its BIOS
 /// or kernel and its interrupts, with a picture, sound and input.

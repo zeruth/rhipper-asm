@@ -116,12 +116,15 @@ pub struct Resident {
     pub bytes: Vec<u8>,
     /// The ranges of each lifted function's instructions, by its entry.
     pub functions: BTreeMap<u64, Vec<(u64, u64)>>,
+    /// The entries that are where a context the program switched away from goes on
+    /// ([`Loaded::continuations`]): a jump through a register to one is no call.
+    pub continuations: BTreeSet<u64>,
 }
 
 impl Resident {
     fn of(image: &Image, analysis: &Analysis<'_>) -> Self {
         let functions = analysis.ported().map(|f| (f.entry, f.blocks.iter().map(|b| (b.start, b.end)).collect())).collect();
-        Self { start: image.image_base(), bytes: image.mapped().to_vec(), functions }
+        Self { start: image.image_base(), bytes: image.mapped().to_vec(), functions, continuations: BTreeSet::new() }
     }
 
     /// The range its lifted functions' instructions lie in, as a start and a length: a write
@@ -140,17 +143,26 @@ impl Resident {
 pub struct Loaded {
     pub image: Image,
     pub entries: Vec<u64>,
+    /// Those of the entries a run saw a jump through a register come to in the middle of a
+    /// function: where a context the program switched away from goes on.
+    pub continuations: Vec<u64>,
 }
 
 impl Loaded {
-    /// The program in `bytes`, with the entries a run found among `entries` that lie in its code.
-    pub fn new(bytes: Vec<u8>, name: &str, entries: &[u64]) -> anyhow::Result<Self> {
+    /// The program in `bytes`, with the entries a run found among `entries` that lie in its
+    /// code, and those of them that are `continuations`.
+    pub fn new(bytes: Vec<u8>, name: &str, entries: &[u64], continuations: &[u64]) -> anyhow::Result<Self> {
         let mut image = Image::parse(bytes)?;
         anyhow::ensure!(image.psx.is_some(), "{name} is no program a PlayStation loads");
         image.path = Some(name.into());
         image.loaded = true;
-        let entries = entries.iter().copied().filter(|a| a % 4 == 0 && image.is_code(*a)).collect();
-        Ok(Self { image, entries })
+        let inside = |addresses: &[u64]| -> Vec<u64> { addresses.iter().copied().filter(|a| a % 4 == 0 && image.is_code(*a)).collect() };
+        let continuations = inside(continuations);
+        let mut entries = inside(entries);
+        entries.extend(&continuations);
+        entries.sort_unstable();
+        entries.dedup();
+        Ok(Self { image, entries, continuations })
     }
 
     fn facts(&self) -> ra_asm_analysis::Facts {
@@ -235,6 +247,11 @@ impl Whole {
         let companions: Vec<Companion<'_>> =
             parts.iter().zip(&part_analyses).map(|(image, analysis)| Companion { image, analysis }).collect();
         let mut lifted = lift_frozen_with(image, &analysis, &companions, options);
+        for program in loaded {
+            if let Some(resident) = lifted.resident.iter_mut().find(|r| r.start == program.image.image_base()) {
+                resident.continuations = program.continuations.iter().copied().collect();
+            }
+        }
         let raise_options = lifted.raise_options(level);
         let mut signatures = raise(&mut lifted.module, &lifted.roots, raise_options);
         lifted.apply_names(&analysis, Some(&mut signatures));

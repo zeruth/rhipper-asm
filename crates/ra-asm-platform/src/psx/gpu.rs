@@ -318,7 +318,9 @@ impl Gpu {
             eprintln!("gp0: {}", words.join(" "));
         }
         let started = crate::profile::start();
+        let before = crate::profile::phase(4);
         self.draw(command, w);
+        crate::profile::phase(before);
         crate::profile::end(crate::profile::Part::Draw, started);
     }
 

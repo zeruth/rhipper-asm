@@ -92,7 +92,16 @@ pub fn lift_function(image: &Image, lifted: &mut Lifted, f: &Function) -> ra_asm
     }
     let state = b.param(0);
     let mut blocks = HashMap::new();
-    blocks.insert(f.entry, b.block(&format!("b_{:x}", f.entry)));
+    // A function whose own code branches back to its first instruction: the function's first
+    // block is one nothing branches to, which goes on into the block the instruction starts.
+    if f.blocks.iter().any(|blk| blk.terminator.successors().contains(&f.entry)) {
+        let entered = b.block("entered");
+        let first = b.block(&format!("b_{:x}", f.entry));
+        b.terminate(entered, Terminator::Br(first));
+        blocks.insert(f.entry, first);
+    } else {
+        blocks.insert(f.entry, b.block(&format!("b_{:x}", f.entry)));
+    }
     for blk in &f.blocks {
         if blk.start != f.entry {
             blocks.insert(blk.start, b.block(&format!("b_{:x}", blk.start)));

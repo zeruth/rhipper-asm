@@ -82,6 +82,7 @@ fn arrive(vm: &mut ra_asm_ir::interp::Vm<'_>) {
     vm.account(std::mem::take(&mut host.steps));
     vm.memory.count(std::mem::take(&mut host.loads), std::mem::take(&mut host.stores));
     host.budget = 0;
+    ra_asm_lift::run::phase(1);
 }
 
 /// The run says how far the program may go on by itself.
@@ -94,6 +95,7 @@ fn leave(vm: &ra_asm_ir::interp::Vm<'_>) {
     let host = unsafe { &mut *host };
     host.budget = vm.until_poll();
     host.boundary = u64::from(vm.boundary);
+    ra_asm_lift::run::phase(0);
 }
 
 /// What a port hands the run.
@@ -120,6 +122,9 @@ pub struct LoadedProgram {
     pub image_size: u64,
     pub entries: *const u64,
     pub entry_count: u64,
+    /// Those of the entries that are where a context the program switched away from goes on.
+    pub continuations: *const u64,
+    pub continuation_count: u64,
 }
 
 /// The runtime's functions the port calls, by number: each one's name and type, from the lift.
@@ -131,6 +136,8 @@ static HOST: std::sync::atomic::AtomicPtr<Host> = std::sync::atomic::AtomicPtr::
 unsafe extern "C-unwind" fn load(address: u64, bytes: u64) -> u64 {
     native::with(|vm, _| {
         arrive(vm);
+        ra_asm_lift::run::phase(5);
+        ra_asm_lift::run::phase_detail((address >> 12) as u32);
         let value = match bytes {
             1 => vm.memory.read_u8(address).map(u64::from),
             2 => vm.memory.read_u16(address).map(u64::from),
@@ -145,6 +152,8 @@ unsafe extern "C-unwind" fn load(address: u64, bytes: u64) -> u64 {
 unsafe extern "C-unwind" fn store(address: u64, bytes: u64, value: u64) {
     native::with(|vm, host| {
         arrive(vm);
+        ra_asm_lift::run::phase(6);
+        ra_asm_lift::run::phase_detail((address >> 12) as u32);
         match bytes {
             1 => vm.memory.write_u8(address, value as u8),
             2 => vm.memory.write_u16(address, value as u16),
@@ -212,9 +221,20 @@ unsafe extern "C-unwind" fn call(import: u64, a0: u64, a1: u64, a2: u64, a3: u64
             Err::<u64, _>(Stop::fault(format!("the port calls the runtime's function {import}, which it does not name")))
         });
     };
+    // A command of the GTE is arithmetic on the registers the program has itself: it runs on
+    // them where they are, and nothing of the run's is touched.
+    if name.starts_with("ra_gte_") {
+        // SAFETY: the first argument is the program's own global of the sixty-four registers,
+        // which only the run's thread touches.
+        let registers = unsafe { &mut *(a0 as *mut [i32; 64]) };
+        ra_asm_lift::run::gte_command(registers, a1 as u32);
+        return 0;
+    }
     let args: Vec<Value> = [a0, a1, a2, a3, a4, a5].into_iter().take(ty.params.len()).map(|a| Value::Int(u128::from(a))).collect();
     native::with(|vm, host| {
         arrive(vm);
+        ra_asm_lift::run::phase(7);
+        ra_asm_lift::run::phase_detail(import as u32);
         let value = vm.host_call(host, name, ty, &args)?;
         leave(vm);
         Ok(if ty.ret == ra_asm_ir::Type::Void { 0 } else { value.as_u64() })
@@ -350,7 +370,8 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
         while !at.is_null() && !(*at).image.is_null() {
             let bytes = std::slice::from_raw_parts((*at).image, (*at).image_size as usize).to_vec();
             let entries = std::slice::from_raw_parts((*at).entries, (*at).entry_count as usize);
-            loaded.push(ra_asm_lift::Loaded::new(bytes, &format!("loaded-{}.exe", loaded.len()), entries)?);
+            let continuations = std::slice::from_raw_parts((*at).continuations, (*at).continuation_count as usize);
+            loaded.push(ra_asm_lift::Loaded::new(bytes, &format!("loaded-{}.exe", loaded.len()), entries, continuations)?);
             at = at.add(1);
         }
     }
@@ -402,11 +423,27 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
         // SAFETY: the run's thread is not started yet: no other thread reads the environment.
         unsafe { std::env::set_var("RA_RUN_STATS", "1") };
     }
+    ra_asm_lift::run::phase_sampler();
     let started = std::time::Instant::now();
     let outcome = ra_asm_lift::run::run(&image, &whole.lifted, &whole.signatures, &options)?;
     if arguments.stats {
         let seconds = started.elapsed().as_secs_f64();
         eprintln!("ra: {} instructions in {seconds:.2} s, {:.1} million a second", outcome.steps, outcome.steps as f64 / seconds / 1e6);
+        // With `RA_RUN_STATS` set, what the run's thread was doing, a sample a millisecond.
+        let samples = ra_asm_lift::run::phase_samples();
+        let total: u64 = samples.iter().map(|(_, n)| n).sum();
+        if total > 0 {
+            let parts: Vec<String> = samples.iter().map(|(name, n)| format!("{name} {:.0}%", 100.0 * *n as f64 / total as f64)).collect();
+            eprintln!("ra: the run's thread: {}", parts.join(", "));
+            for (phase, of, n) in ra_asm_lift::run::phase_details().into_iter().take(14) {
+                let what = match phase {
+                    7 => IMPORTS.get().and_then(|i| i.get(of as usize)).map_or_else(|| of.to_string(), |(name, _)| name.clone()),
+                    5 => format!("loads at {:#x}", u64::from(of) << 12),
+                    _ => format!("stores at {:#x}", u64::from(of) << 12),
+                };
+                eprintln!("ra:   {what} {:.1}%", 100.0 * n as f64 / total as f64);
+            }
+        }
         // With `RA_RUN_STATS` set, where the time went among the console's devices.
         let [draw, sound, show] = ra_asm_lift::run::device_seconds();
         if draw + sound + show > 0.0 {
@@ -439,8 +476,12 @@ fn run(port: &Port, args: &[String]) -> anyhow::Result<i32> {
     // how often: the entries of the functions a program loaded from the disc has, which
     // `ras emit --entries` takes as functions.
     if let Some(path) = &arguments.entries {
-        let lines: Vec<String> =
+        // A line an entry and how often it was called; `jump` after it where a jump through a
+        // register came to it in the middle of a function.
+        let mut lines: Vec<String> =
             ra_asm_lift::run::processor_stats::called().into_iter().map(|(entry, count)| format!("{entry:08x} {count}\n")).collect();
+        lines
+            .extend(ra_asm_lift::run::processor_stats::continued().into_iter().map(|(entry, count)| format!("{entry:08x} {count} jump\n")));
         std::fs::write(path, lines.concat())?;
     }
     if let Some(path) = &arguments.wav {

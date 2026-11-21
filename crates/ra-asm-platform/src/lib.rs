@@ -65,6 +65,72 @@ pub mod profile {
         }
     }
 
+    /// What the run's thread is doing, as the carrier and the devices say when they change
+    /// it: a sampler reads it a thousand times a second ([`sample`]).
+    static PHASE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+    static SAMPLES: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+    /// The phases by number: the program's compiled code, the calls back from it into the
+    /// run, the processor for the code no function has, the look at the machine, drawing.
+    pub const PHASES: [&str; 8] = [
+        "compiled code",
+        "block ticks",
+        "the processor",
+        "looks at the machine",
+        "drawing",
+        "loads through the run",
+        "stores through the run",
+        "the runtime's functions",
+    ];
+
+    /// What the phase is about (the address of a load, the number of a function), which the
+    /// sampler counts with the phase.
+    static DETAIL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    static DETAILS: std::sync::Mutex<Option<std::collections::HashMap<(u8, u32), u64>>> = std::sync::Mutex::new(None);
+
+    /// Says what the phase from here on is about.
+    pub fn detail(of: u32) {
+        DETAIL.store(of, Ordering::Relaxed);
+    }
+
+    /// The samples of the phases that say what they are about, the most first: each a phase's
+    /// number, what it was about and the samples.
+    pub fn details() -> Vec<(u8, u32, u64)> {
+        let map = DETAILS.lock().ok().and_then(|d| d.clone()).unwrap_or_default();
+        let mut all: Vec<(u8, u32, u64)> = map.into_iter().map(|((phase, of), n)| (phase, of, n)).collect();
+        all.sort_unstable_by_key(|&(_, _, n)| std::cmp::Reverse(n));
+        all
+    }
+
+    /// Says what the run's thread does from here on, and gives what it did before.
+    pub fn phase(now: u8) -> u8 {
+        PHASE.swap(now, Ordering::Relaxed)
+    }
+
+    /// Starts the sampler, when the times are kept: a thread that notes the phase every
+    /// millisecond until the process ends.
+    pub fn sample() {
+        if on() {
+            std::thread::spawn(|| {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    let phase = PHASE.load(Ordering::Relaxed).min(7);
+                    SAMPLES[usize::from(phase)].fetch_add(1, Ordering::Relaxed);
+                    if phase >= 5
+                        && let Ok(mut details) = DETAILS.lock()
+                    {
+                        let of = DETAIL.load(Ordering::Relaxed);
+                        *details.get_or_insert_with(Default::default).entry((phase, of)).or_default() += 1;
+                    }
+                }
+            });
+        }
+    }
+
+    /// The samples taken in each phase.
+    pub fn samples() -> Vec<(&'static str, u64)> {
+        PHASES.iter().enumerate().map(|(n, name)| (*name, SAMPLES[n].load(Ordering::Relaxed))).collect()
+    }
+
     /// The seconds spent drawing, mixing sound and showing frames.
     pub fn seconds() -> [f64; 3] {
         [0, 1, 2].map(|part| NANOS[part].load(Ordering::Relaxed) as f64 / 1e9)
