@@ -12,3 +12,7 @@ workspace = true
 
 [dependencies]
 ra-asm-ir.workspace = true
+
+[dev-dependencies]
+ra-asm-emit.workspace = true
+ra-asm-testing.workspace = true

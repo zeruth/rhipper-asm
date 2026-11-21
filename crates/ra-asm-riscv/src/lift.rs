@@ -26,12 +26,22 @@ use ra_asm_ir::{
 
 use crate::{Form, Instruction, Width, decode};
 
-/// The function the lift writes: `void (ptr state, i64 pc)`.
-pub const RUN: &str = "rv.run";
+/// The function the lift writes: `void (ptr state, i64 pc)`. The names here are ones a C
+/// compiler takes, so the module goes through the C backend as it is.
+pub const RUN: &str = "rv_run";
 /// The runtime's answer to an `ecall`: `void (ptr state)`.
-pub const ECALL: &str = "rv.ecall";
+pub const ECALL: &str = "rv_ecall";
 /// What code that is no code calls, with its address: `void (i64 pc)`.
-pub const TRAP: &str = "rv.trap";
+pub const TRAP: &str = "rv_trap";
+/// Where the program's memory is: eight bytes that hold the address the program's address zero
+/// is at. An interpreter that maps the program at its own addresses leaves it zero; a port on a
+/// host that cannot gives the program a block of its own and says where.
+pub const MEMORY: &str = "rv_memory";
+/// The function of a whole program ([`crate::run::Program::lift`]): `void (ptr state)`, which
+/// hands the runtime each segment and runs the code from the program's entry.
+pub const MAIN: &str = "rv_main";
+/// The runtime's taking of a segment: `void (i64 address, ptr bytes, i64 in_file, i64 size)`.
+pub const SEGMENT: &str = "rv_segment";
 
 /// The code of a program: its bytes and the address of the first.
 #[derive(Debug, Clone, Copy)]
@@ -125,6 +135,9 @@ impl Lift {
     fn pointer(&mut self, base: u8, offset: i64) -> ValueId {
         let base = self.get(base);
         let address = self.bin(BinOp::Add, Type::I64, base, offset);
+        // The program's address, from where its memory is.
+        let memory = self.b.load(self.block, Type::I64, Operand::Global(MEMORY.to_owned()), "memory");
+        let address = self.bin(BinOp::Add, Type::I64, address, memory);
         self.cast(Cast::IntToPtr, Type::I64, address, Type::Ptr)
     }
 }
@@ -134,6 +147,15 @@ impl Lift {
 #[allow(clippy::too_many_lines)]
 pub fn lift(code: Code<'_>, width: Width) -> Module {
     let mut module = Module::x86_64_windows("riscv");
+    module.globals.push(ra_asm_ir::Global {
+        name: MEMORY.to_owned(),
+        ty: Type::array(8, Type::I8),
+        init: Some(ra_asm_ir::Const::Bytes(vec![0; 8])),
+        constant: false,
+        linkage: ra_asm_ir::Linkage::External,
+        align: 8,
+        address: None,
+    });
     let declare = |module: &mut Module, name: &str, params: Vec<Type>| {
         module.declare(Declaration { name: name.to_owned(), ty: FnType::new(Type::Void, params), conv: CallConv::C, attrs: Vec::new() });
     };

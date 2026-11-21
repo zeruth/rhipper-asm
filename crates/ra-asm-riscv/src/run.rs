@@ -5,7 +5,7 @@
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
 use ra_asm_ir::{FnType, Module};
 
-use crate::lift::{Code, ECALL, RUN, TRAP, lift};
+use crate::lift::{Code, ECALL, MAIN, RUN, SEGMENT, TRAP, lift};
 use crate::{Error, Width};
 
 /// A part of a program's file the system maps: where, its bytes, and the size it has in memory
@@ -91,8 +91,40 @@ impl Program {
     /// # Errors
     /// When the program has no executable segment.
     pub fn lift(&self) -> Result<Module, Error> {
+        use ra_asm_ir::{CallConv, Callee, Const, Declaration, FunctionBuilder, Global, Linkage, Operand, Terminator, Type};
         let code = self.segments.iter().find(|s| s.executable).ok_or_else(|| Error("the program has no code".to_owned()))?;
-        Ok(lift(Code { address: code.address, bytes: &code.bytes }, self.width))
+        let mut module = lift(Code { address: code.address, bytes: &code.bytes }, self.width);
+        // The whole program: its segments as data the runtime is handed, then the code from
+        // the entry.
+        let segment_ty = FnType::new(Type::Void, vec![Type::I64, Type::Ptr, Type::I64, Type::I64]);
+        module.declare(Declaration { name: SEGMENT.to_owned(), ty: segment_ty.clone(), conv: CallConv::C, attrs: Vec::new() });
+        let mut b = FunctionBuilder::new(MAIN, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
+        let block = b.block("entry");
+        for (n, segment) in self.segments.iter().enumerate() {
+            let name = format!("rv_segment_{n}");
+            module.globals.push(Global {
+                name: name.clone(),
+                ty: Type::array(segment.bytes.len().max(1) as u64, Type::I8),
+                init: Some(Const::Bytes(if segment.bytes.is_empty() { vec![0] } else { segment.bytes.clone() })),
+                constant: true,
+                linkage: Linkage::Internal,
+                align: 1,
+                address: None,
+            });
+            let args = vec![
+                (Type::I64, Operand::Int(i128::from(segment.address))),
+                (Type::Ptr, Operand::Global(name)),
+                (Type::I64, Operand::Int(segment.bytes.len() as i128)),
+                (Type::I64, Operand::Int(i128::from(segment.size))),
+            ];
+            b.call(block, segment_ty.clone(), Callee::Direct(SEGMENT.to_owned()), args, "");
+        }
+        let run_ty = FnType::new(Type::Void, vec![Type::Ptr, Type::I64]);
+        let args = vec![(Type::Ptr, Operand::from(b.param(0))), (Type::I64, Operand::Int(i128::from(self.entry)))];
+        b.call(block, run_ty, Callee::Direct(RUN.to_owned()), args, "");
+        b.terminate(block, Terminator::Ret(None));
+        module.functions.push(b.finish());
+        Ok(module)
     }
 }
 
@@ -136,6 +168,13 @@ impl Host for Linux {
                 vm.memory.write_u64(first + 80, result)?;
                 Ok(Value::Int(0))
             }
+            // A segment: its bytes go where the program has them, which the run mapped.
+            SEGMENT => {
+                let (bytes, in_file) = (args[1].as_u64(), args[2].as_u64());
+                let bytes = vm.memory.read_vec(bytes, in_file)?;
+                vm.memory.write(first, &bytes)?;
+                Ok(Value::Int(0))
+            }
             TRAP => Err(Stop::fault(format!("no instruction at {first:#x}"))),
             _ => Err(Stop::fault(format!("the runtime has no function {name}"))),
         }
@@ -163,15 +202,12 @@ pub fn run(program: &Program, limit: u64) -> Result<Outcome, Error> {
     vm.set_frame_region(FRAMES.0, FRAMES.1);
     let stopped = |stop: Stop| Error(format!("the run stopped: {stop:?}"));
     vm.place().map_err(stopped)?;
-    for segment in &program.segments {
-        vm.memory.write(segment.address, &segment.bytes).map_err(stopped)?;
-    }
     // The state: thirty-two registers, the stack pointer at the stack's top.
     let state = vm.allocate_static(32 * 8, 8).map_err(stopped)?;
     vm.memory.fill(state, 32 * 8, 0).map_err(stopped)?;
     vm.memory.write_u64(state + 2 * 8, STACK.0 + STACK.1 - 64).map_err(stopped)?;
     let mut host = Linux { out: Vec::new() };
-    let exit = match vm.call_named(&mut host, RUN, vec![Value::Int(u128::from(state)), Value::Int(u128::from(program.entry))]) {
+    let exit = match vm.call_named(&mut host, MAIN, vec![Value::Int(u128::from(state))]) {
         Ok(_) => None,
         Err(Stop::Exit(code)) => Some(code),
         Err(stop) => return Err(stopped(stop)),
