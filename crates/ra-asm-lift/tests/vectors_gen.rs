@@ -79,7 +79,8 @@ fn lifted_kinds() -> BTreeSet<String> {
 
 /// The Thumb-2 arms no template names, each with its reason.
 const NOT_TEMPLATED: &[(&str, &str)] = &[
-    ("Svc", "a system call runs the host's kernel"),    ("It", "an IT block is written with the instruction it predicates, whose kind the template names"),
+    ("Svc", "a system call runs the host's kernel"),
+    ("It", "an IT block is written with the instruction it predicates, whose kind the template names"),
 ];
 
 // endregion
