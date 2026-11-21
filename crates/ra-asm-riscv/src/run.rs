@@ -5,7 +5,7 @@
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
 use ra_asm_ir::{FnType, Module};
 
-use crate::lift::{Code, ECALL, MAIN, RUN, SEGMENT, TRAP, lift};
+use crate::lift::{Code, ECALL, Functions, MAIN, RUN, SEGMENT, TRAP, lift};
 use crate::{Error, Width};
 
 /// A part of a program's file the system maps: where, its bytes, and the size it has in memory
@@ -24,6 +24,13 @@ pub struct Program {
     pub width: Width,
     pub entry: u64,
     pub segments: Vec<Segment>,
+    /// The functions the file's symbol table names, by their addresses; none for a stripped file.
+    pub symbols: Functions,
+}
+
+/// The bytes of `file` from `offset`, at most `len` of them, and none when that lies outside it.
+fn at_bytes(file: &[u8], offset: usize, len: usize) -> &[u8] {
+    file.get(offset..).map_or(&[][..], |rest| &rest[..len.min(rest.len())])
 }
 
 impl Program {
@@ -34,7 +41,13 @@ impl Program {
     /// When the bytes are no such file, or a header points outside them.
     pub fn parse(file: &[u8]) -> Result<Self, Error> {
         let bad = |what: &str| Error(format!("no RISC-V program: {what}"));
-        let at = |offset: usize, len: usize| file.get(offset..offset + len).ok_or_else(|| bad("a header ends outside the file"));
+        // Every number here is the file's own: a place past the file's end is refused before
+        // anything is added to it, so no sum of two of them overflows.
+        let at = |offset: usize, len: usize| {
+            let end = offset.checked_add(len).filter(|&end| offset <= file.len() && end <= file.len());
+            end.map(|end| &file[offset..end]).ok_or_else(|| bad("a header ends outside the file"))
+        };
+        let inside = |offset: u64| if offset <= file.len() as u64 { Ok(offset) } else { Err(bad("a table lies outside the file")) };
         let number = |offset: usize, len: usize| -> Result<u64, Error> {
             Ok(at(offset, len)?.iter().rev().fold(0u64, |value, &byte| value << 8 | u64::from(byte)))
         };
@@ -51,6 +64,7 @@ impl Program {
         } else {
             (number(24, 4)?, number(28, 4)?, number(42, 2)?, number(44, 2)?)
         };
+        let table = inside(table)?;
         let mut segments = Vec::new();
         for n in 0..count {
             let header = (table + n * entry_size) as usize;
@@ -77,13 +91,58 @@ impl Program {
             if kind == 1 && size != 0 {
                 segments.push(Segment {
                     address,
-                    bytes: at(offset as usize, in_file as usize)?.to_vec(),
+                    bytes: at(inside(offset)? as usize, inside(in_file)? as usize)?.to_vec(),
                     size,
                     executable: flags & 1 != 0,
                 });
             }
         }
-        Ok(Self { width: if wide { Width::Rv64 } else { Width::Rv32 }, entry, segments })
+        // The functions the symbol table names, where the file has one: a stripped program has
+        // none, and a table that points outside the file is as good as none.
+        let mut symbols = Functions::new();
+        let named = || -> Result<Functions, Error> {
+            let mut found = Functions::new();
+            let (table, entry_size, count) =
+                if wide { (number(40, 8)?, number(58, 2)?, number(60, 2)?) } else { (number(32, 4)?, number(46, 2)?, number(48, 2)?) };
+            let table = inside(table)?;
+            let section = |n: u64| -> Result<(u64, u64, u64, u64), Error> {
+                let n = n.min(0xffff);
+                let header = (table + n * entry_size) as usize;
+                Ok(if wide {
+                    (number(header + 4, 4)?, number(header + 24, 8)?, number(header + 32, 8)?, number(header + 40, 4)?)
+                } else {
+                    (number(header + 4, 4)?, number(header + 16, 4)?, number(header + 20, 4)?, number(header + 24, 4)?)
+                })
+            };
+            for n in 0..count {
+                let (kind, offset, size, link) = section(n)?;
+                if kind != 2 {
+                    continue;
+                }
+                let (_, strings, strings_size, _) = section(link)?;
+                let (offset, size, strings, strings_size) = (inside(offset)?, inside(size)?, inside(strings)?, inside(strings_size)?);
+                let each = if wide { 24 } else { 16 };
+                for symbol in 0..size / each {
+                    let at = (offset + symbol * each) as usize;
+                    let (name, info, value) = if wide {
+                        (number(at, 4)?, number(at + 4, 1)?, number(at + 8, 8)?)
+                    } else {
+                        (number(at, 4)?, number(at + 12, 1)?, number(at + 4, 4)?)
+                    };
+                    if info & 0xf != 2 || name >= strings_size {
+                        continue;
+                    }
+                    let text = at_bytes(file, (strings + name) as usize, (strings_size - name) as usize);
+                    let text: Vec<u8> = text.iter().copied().take_while(|&byte| byte != 0).collect();
+                    found.insert(value & !1, String::from_utf8_lossy(&text).into_owned());
+                }
+            }
+            Ok(found)
+        };
+        if let Ok(found) = named() {
+            symbols = found;
+        }
+        Ok(Self { width: if wide { Width::Rv64 } else { Width::Rv32 }, entry, segments, symbols })
     }
 
     /// The program's code lifted: the first executable segment, as [`lift`] makes it.
@@ -107,7 +166,8 @@ impl Program {
         use ra_asm_ir::{CallConv, Callee, Const, Declaration, FunctionBuilder, Global, Linkage, Operand, Terminator, Type};
         let code = self.segments.iter().find(|s| s.executable).ok_or_else(|| Error("the program has no code".to_owned()))?;
         let code = Code { address: code.address, bytes: &code.bytes };
-        let mut module = if functions { crate::lift::lift_functions(code, self.width, self.entry) } else { lift(code, self.width) };
+        let mut module =
+            if functions { crate::lift::lift_named(code, self.width, self.entry, &self.symbols) } else { lift(code, self.width) };
         // The whole program: its segments as data the runtime is handed, then the code from
         // the entry.
         let segment_ty = FnType::new(Type::Void, vec![Type::I64, Type::Ptr, Type::I64, Type::I64]);

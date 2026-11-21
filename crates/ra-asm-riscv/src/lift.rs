@@ -175,10 +175,28 @@ pub const CALL: &str = "rv_call";
 /// functions are the ones [`entries`] finds from `entry`, each the code up to the next one's.
 #[must_use]
 pub fn lift_functions(code: Code<'_>, width: Width, entry: u64) -> Module {
-    build(code, width, Some(&entries(code, width, entry)))
+    lift_named(code, width, entry, &Functions::new())
 }
 
-fn build(code: Code<'_>, width: Width, functions: Option<&std::collections::BTreeSet<u64>>) -> Module {
+/// The functions of a program by their entries, each with the name its function of the IR has.
+pub type Functions = BTreeMap<u64, String>;
+
+/// [`lift_functions`] with what the program's symbols say: each of `symbols` is a function's
+/// entry and its name, a function whether or not anything calls it by its address, and its
+/// function of the IR is named after it (`f_name`) where the name is one a C compiler takes.
+#[must_use]
+pub fn lift_named(code: Code<'_>, width: Width, entry: u64, symbols: &Functions) -> Module {
+    let mut functions = Functions::new();
+    let mut taken = std::collections::BTreeSet::new();
+    for at in entries(code, width, entry).into_iter().chain(symbols.keys().copied()) {
+        let named = symbols.get(&at).filter(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+        let name = named.map(|name| format!("f_{name}")).filter(|name| taken.insert(name.clone())).unwrap_or_else(|| function_name(at));
+        functions.entry(at).or_insert(name);
+    }
+    build(code, width, Some(&functions))
+}
+
+fn build(code: Code<'_>, width: Width, functions: Option<&Functions>) -> Module {
     let mut module = Module::x86_64_windows("riscv");
     module.globals.push(ra_asm_ir::Global {
         name: MEMORY.to_owned(),
@@ -200,27 +218,21 @@ fn build(code: Code<'_>, width: Width, functions: Option<&std::collections::BTre
         return module;
     };
     // A function is the code from its entry to the next function's.
-    let entries: std::collections::BTreeSet<u64> =
-        entries.iter().copied().filter(|entry| words.iter().any(|(at, ..)| at == entry)).collect();
-    for &entry in &entries {
-        let end = entries.range(entry + 1..).next().copied().unwrap_or(u64::MAX);
+    let entries: Functions =
+        entries.iter().filter(|(entry, _)| words.iter().any(|(at, ..)| at == *entry)).map(|(&at, name)| (at, name.clone())).collect();
+    for (&entry, name) in &entries {
+        let end = entries.range(entry + 1..).next().map_or(u64::MAX, |(&next, _)| next);
         let own: Vec<Word> = words.iter().copied().filter(|(at, ..)| (entry..end).contains(at)).collect();
-        part(&mut module, &function_name(entry), &own, width, Some(&entries));
+        part(&mut module, name, &own, width, Some(&entries));
     }
     // A call through a register: the function whose entry the address is.
     let mut b = FunctionBuilder::new(CALL, FnType::new(Type::Void, vec![Type::Ptr, Type::I64]), &["state", "target"]);
     let (entry, nowhere) = (b.block("entry"), b.block("nowhere"));
     let (state, target) = (b.param(0), b.param(1));
     let mut cases = Vec::new();
-    for &function in &entries {
+    for (&function, name) in &entries {
         let block = b.block(&format!("to.{function:x}"));
-        b.call(
-            block,
-            FnType::new(Type::Void, vec![Type::Ptr]),
-            Callee::Direct(function_name(function)),
-            vec![(Type::Ptr, state.into())],
-            "",
-        );
+        b.call(block, FnType::new(Type::Void, vec![Type::Ptr]), Callee::Direct(name.clone()), vec![(Type::Ptr, state.into())], "");
         b.terminate(block, Terminator::Ret(None));
         cases.push((i128::from(function), block));
     }
@@ -276,7 +288,7 @@ pub fn function_name(entry: u64) -> String {
 /// of the function at its target, a jump out of the function a call of where it goes and a
 /// return, `jalr zero, 0(ra)` a return, and a call through a register a call of [`CALL`].
 #[allow(clippy::too_many_lines)]
-fn part(module: &mut Module, name: &str, words: &[Word], width: Width, functions: Option<&std::collections::BTreeSet<u64>>) {
+fn part(module: &mut Module, name: &str, words: &[Word], width: Width, functions: Option<&Functions>) {
     let state_only = FnType::new(Type::Void, vec![Type::Ptr]);
     let params = if functions.is_some() { vec![Type::Ptr] } else { vec![Type::Ptr, Type::I64] };
     let mut b = FunctionBuilder::new(name, FnType::new(Type::Void, params), &["state", "start"]);
@@ -331,9 +343,9 @@ fn part(module: &mut Module, name: &str, words: &[Word], width: Width, functions
                 // Among functions, a jump that links is a call, and a jump out of the
                 // function a call of where it goes and the function's own return.
                 if let Some(functions) = functions.filter(|_| rd != 0 || !blocks.contains_key(&target)) {
-                    if functions.contains(&target) {
+                    if let Some(called) = functions.get(&target) {
                         let args = vec![(Type::Ptr, state.into())];
-                        lift.b.call(lift.block, state_only.clone(), Callee::Direct(function_name(target)), args, "");
+                        lift.b.call(lift.block, state_only.clone(), Callee::Direct(called.clone()), args, "");
                         goes = if rd == 0 { Terminator::Ret(None) } else { Terminator::Br(at(next)) };
                     } else {
                         trap(&mut lift, blocks[&address], Operand::Int(i128::from(target)));
