@@ -142,6 +142,8 @@ def java():
         # javap's listing of the plain fixture, which every release's decoder is held to
         "plain_listing": (ROOT / "testdata" / "java" / "plain" / "Plain.txt").exists(),
         "brought": dict(sorted(brought.items())),
+        # the fixture of the everyday library, which both runtimes answer for
+        "everyday": (ROOT / "testdata" / "java" / "library" / "Library.out").exists(),
         "library": len(re.findall(r'^\s*\("', library.group(1), re.M)) if library else 0,
         "opcodes": len(re.findall(r'"\w+"', names.group(1))) if names else 0,
         "releases": dict(sorted(releases.items())),

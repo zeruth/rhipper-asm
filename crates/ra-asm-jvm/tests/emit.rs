@@ -82,6 +82,7 @@ fn the_compiled_port_prints_what_java_prints() {
         ("plain@45", "Plain", 0),
         ("plain@48", "Plain", 0),
         ("plain@51", "Plain", 0),
+        ("library", "Library", 0),
         ("features/8", "Features", 0),
         ("features/25", "Features", 0),
         ("records/17", "Records", 0),

@@ -415,7 +415,7 @@ FAMILIES.push({ id: "java", name: "Java · the JVM's bytecode", tag: "decoding",
   facts: [["{jvm_opcodes}", "instructions decoded"], ["{jvm_releases}", "releases with a compiled fixture"], ["{jvm_listings}", "checked against javap"], ["{jvm_runs}", "run lifted, printing what java prints"], ["{jvm_all}", "releases whose class files run"], ["{jvm_library}", "library classes in the runtime"], ["{jvm_lines}", "lines in ra-asm-jvm"], ["{jvm_port_lines}", "lines in the port's C runtime"], ["{jvm_tests}", "tests"]],
   scope: {}, keyCards: [],
   platforms: JAVA_RELEASES.map(([release, n, major, d]) => ({ release, n: `${n} (class files ${major})`, s: [4, 4, 0, 0, 0, 0, 0, 0], d })),
-  note: "Next for Java: more of the library in both runtimes (the collections, the boxes' whole surface, text formatting), a collector, threads and monitors that lock, constants computed at run time and method handles, the emit of Java itself, and fixtures written by the compilers of the releases before Java 8." });
+  note: "Next for Java: more of the library in both runtimes (the other collections, streams, text formatting), a collector, threads and monitors that lock, constants computed at run time and method handles, the emit of Java itself, and fixtures written by the compilers of the releases before Java 8." });
 
 const M = /*@MEASURED@*/null;
 const $ = (s) => document.querySelector(s);
@@ -483,6 +483,9 @@ javaFamily.platforms.forEach((p) => {
   const brought = ((java.brought || {})[p.release] || []).map((name) => JAVA_BROUGHT[name]).filter(Boolean);
   if (java.runs && brought.length) add("compiled for it, these run too: " + brought.join("; "));
 });
+// the runtime: with the everyday library (strings, numbers, characters, a list, a map) answered by both
+// runtimes and held to a fixture, a release that runs has a working one; no collector and no threads yet
+if (java.runs && java.port && java.everyday) javaFamily.platforms.forEach((p) => { if (p.s[6] === 3) p.s[6] = 4; });
 if (java.runs) javaFamily.tag = java.port ? "porting" : "lifting";
 const milestone = (id) => M.milestones.find((m) => m.id === id) || { tasks: [], sections: [] };
 const sectionTasks = (id) => { // the tasks under a section: the ids that follow it in its milestone up to the next section

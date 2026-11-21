@@ -16,11 +16,13 @@
 // its length at eight and its elements from sixteen. Nothing is collected.
 
 #define _CRT_SECURE_NO_WARNINGS
+#include <ctype.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wctype.h>
 
 typedef uint8_t *ref;
 
@@ -143,6 +145,9 @@ static ref object(const char *name) {
         NATIVE(made) = (uint64_t)(uintptr_t)room(sizeof(struct text));
     } else if (is(name, "java/util/ArrayList")) {
         NATIVE(made) = (uint64_t)(uintptr_t)room(sizeof(struct list));
+    } else if (is(name, "java/util/HashMap")) {
+        // A map is two lists: its keys and their values.
+        NATIVE(made) = (uint64_t)(uintptr_t)room(2 * sizeof(struct list));
     }
     return made;
 }
@@ -1004,6 +1009,415 @@ static uint32_t Box_hashCode(ref this) {
     return (uint32_t)(NATIVE(this) ^ NATIVE(this) >> 32);
 }
 
+// The everyday library: what strings and their builder do, numbers read from text, characters
+// told apart, a list changed in place, a map, and arrays copied.
+
+static int32_t find_units(struct text *text, const uint16_t *part, uint32_t count) {
+    for (uint32_t at = 0; at + count <= text->count; at++) {
+        if (count == 0 || memcmp(text->units + at, part, count * sizeof *part) == 0) return (int32_t)at;
+    }
+    return -1;
+}
+
+static uint32_t String_indexOfChar(ref this, uint32_t unit) {
+    for (uint32_t n = 0; n < text_of(this)->count; n++) {
+        if (text_of(this)->units[n] == (uint16_t)unit) return n;
+    }
+    return (uint32_t)-1;
+}
+
+static uint32_t String_lastIndexOfChar(ref this, uint32_t unit) {
+    for (uint32_t n = text_of(this)->count; n > 0; n--) {
+        if (text_of(this)->units[n - 1] == (uint16_t)unit) return n - 1;
+    }
+    return (uint32_t)-1;
+}
+
+static uint32_t String_indexOf(ref this, ref part) {
+    part = describe(part);
+    return (uint32_t)find_units(text_of(this), text_of(part)->units, text_of(part)->count);
+}
+
+static uint32_t String_contains(ref this, ref part) {
+    return (int32_t)String_indexOf(this, part) >= 0;
+}
+
+static uint32_t String_startsWith(ref this, ref part) {
+    struct text *a = text_of(this), *b = text_of(part);
+    return b->count <= a->count && (b->count == 0 || memcmp(a->units, b->units, b->count * sizeof *b->units) == 0);
+}
+
+static uint32_t String_endsWith(ref this, ref part) {
+    struct text *a = text_of(this), *b = text_of(part);
+    return b->count <= a->count && (b->count == 0 || memcmp(a->units + a->count - b->count, b->units, b->count * sizeof *b->units) == 0);
+}
+
+static ref String_replace(ref this, uint32_t from, uint32_t to) {
+    ref made = string_of(text_of(this)->units, text_of(this)->count);
+    for (uint32_t n = 0; n < text_of(made)->count; n++) {
+        if (text_of(made)->units[n] == (uint16_t)from) text_of(made)->units[n] = (uint16_t)to;
+    }
+    return made;
+}
+
+// A character's other case, where that is one character of the first plane.
+static uint16_t upper(uint16_t unit) {
+    return (uint16_t)towupper(unit);
+}
+
+static uint16_t lower(uint16_t unit) {
+    return (uint16_t)towlower(unit);
+}
+
+static ref String_toUpperCase(ref this) {
+    ref made = string_of(text_of(this)->units, text_of(this)->count);
+    for (uint32_t n = 0; n < text_of(made)->count; n++) text_of(made)->units[n] = upper(text_of(made)->units[n]);
+    return made;
+}
+
+static ref String_toLowerCase(ref this) {
+    ref made = string_of(text_of(this)->units, text_of(this)->count);
+    for (uint32_t n = 0; n < text_of(made)->count; n++) text_of(made)->units[n] = lower(text_of(made)->units[n]);
+    return made;
+}
+
+// What is trimmed is every character up to the space, as the library has it.
+static ref String_trim(ref this) {
+    struct text *text = text_of(this);
+    uint32_t from = 0, to = text->count;
+    while (from < to && text->units[from] <= ' ') from++;
+    while (to > from && text->units[to - 1] <= ' ') to--;
+    return string_of(text->units + from, to - from);
+}
+
+static ref substring(ref this, int32_t from, int32_t to) {
+    int32_t count = (int32_t)text_of(this)->count;
+    if (from < 0 || to > count || from > to) {
+        char message[80];
+        snprintf(message, sizeof message, "begin %d, end %d, length %d", from, to, count);
+        throw_new("java/lang/StringIndexOutOfBoundsException", message);
+        return 0;
+    }
+    return string_of(text_of(this)->units + from, (uint32_t)(to - from));
+}
+
+static ref String_substring(ref this, uint32_t from) {
+    return substring(this, (int32_t)from, (int32_t)text_of(this)->count);
+}
+
+static ref String_substring2(ref this, uint32_t from, uint32_t to) {
+    return substring(this, (int32_t)from, (int32_t)to);
+}
+
+static uint32_t String_compareTo(ref this, ref other) {
+    struct text *a = text_of(this), *b = text_of(other);
+    for (uint32_t n = 0; n < a->count && n < b->count; n++) {
+        if (a->units[n] != b->units[n]) return (uint32_t)((int32_t)a->units[n] - (int32_t)b->units[n]);
+    }
+    return (uint32_t)((int32_t)a->count - (int32_t)b->count);
+}
+
+static ref String_toCharArray(ref this) {
+    ref made = array("[C", (int32_t)text_of(this)->count);
+    if (text_of(this)->count) memcpy(made + ELEMENTS, text_of(this)->units, text_of(this)->count * 2);
+    return made;
+}
+
+void java_lang_String__new___3C_V(ref this, ref characters) {
+    if (!characters) {
+        jvm_null();
+        return;
+    }
+    add_units(text_of(this), (const uint16_t *)(characters + ELEMENTS), (uint32_t)LENGTH(characters));
+}
+
+ref java_lang_String__valueOf___3CII_Ljava_lang_String_2(ref characters, uint32_t from, uint32_t count) {
+    if (!characters) {
+        jvm_null();
+        return 0;
+    }
+    if ((uint64_t)from + count > (uint64_t)LENGTH(characters)) {
+        throw_new("java/lang/StringIndexOutOfBoundsException", "a run outside the array");
+        return 0;
+    }
+    return string_of((const uint16_t *)(characters + ELEMENTS) + from, count);
+}
+
+ref java_lang_String__valueOf__F_Ljava_lang_String_2(float v) {
+    char digits[48];
+    real_text(v, 1, digits);
+    return string_ascii(digits);
+}
+
+static ref StringBuilder_insert(ref this, uint32_t at, ref added) {
+    struct text *text = text_of(this);
+    added = describe(added);
+    uint32_t count = text_of(added)->count;
+    if (at > text->count) {
+        throw_new("java/lang/StringIndexOutOfBoundsException", "an offset outside the text");
+        return this;
+    }
+    uint32_t tail = text->count - at;
+    add_units(text, text_of(added)->units, count);
+    memmove(text->units + at + count, text->units + at, tail * sizeof *text->units);
+    memcpy(text->units + at, text_of(added)->units, count * sizeof *text->units);
+    return this;
+}
+
+static ref StringBuilder_reverse(ref this) {
+    struct text *text = text_of(this);
+    for (uint32_t n = 0; n < text->count / 2; n++) {
+        uint16_t unit = text->units[n];
+        text->units[n] = text->units[text->count - 1 - n];
+        text->units[text->count - 1 - n] = unit;
+    }
+    return this;
+}
+
+static void StringBuilder_setLength(ref this, uint32_t length) {
+    struct text *text = text_of(this);
+    while (text->count < length) {
+        uint16_t zero = 0;
+        add_units(text, &zero, 1);
+    }
+    text->count = length;
+}
+
+// The text of a string as bytes, for the C library to read a number from; what is no ASCII is `?`.
+static void narrow(ref string, char *out, size_t size) {
+    size_t n = 0;
+    for (; string && n + 1 < size && n < text_of(string)->count; n++) out[n] = text_of(string)->units[n] < 0x80 ? (char)text_of(string)->units[n] : '?';
+    out[n] = 0;
+}
+
+static void bad_number(const char *text) {
+    char message[120];
+    snprintf(message, sizeof message, "For input string: \"%s\"", text);
+    throw_new("java/lang/NumberFormatException", message);
+}
+
+uint64_t java_lang_Long__parseLong__Ljava_lang_String_2_J(ref string) {
+    char text[64], *end;
+    narrow(string, text, sizeof text);
+    long long value = strtoll(text, &end, 10);
+    if (!text[0] || *end || text[0] == ' ') return bad_number(text), 0;
+    return (uint64_t)value;
+}
+
+uint32_t java_lang_Integer__parseInt__Ljava_lang_String_2_I(ref string) {
+    char text[64];
+    narrow(string, text, sizeof text);
+    int64_t value = (int64_t)java_lang_Long__parseLong__Ljava_lang_String_2_J(string);
+    if (!pending && (value > INT32_MAX || value < INT32_MIN)) return bad_number(text), 0;
+    return (uint32_t)value;
+}
+
+double java_lang_Double__parseDouble__Ljava_lang_String_2_D(ref string) {
+    char text[80], *end;
+    narrow(string, text, sizeof text);
+    double value = strtod(text, &end);
+    if (end == text || *end) return bad_number(text), 0;
+    return value;
+}
+
+uint32_t java_lang_Boolean__parseBoolean__Ljava_lang_String_2_Z(ref string) {
+    char text[8];
+    narrow(string, text, sizeof text);
+    for (char *c = text; *c; c++) *c = (char)tolower((unsigned char)*c);
+    return strcmp(text, "true") == 0;
+}
+
+ref java_lang_Integer__toString__I_Ljava_lang_String_2(uint32_t v) {
+    return java_lang_String__valueOf__I_Ljava_lang_String_2(v);
+}
+
+ref java_lang_Integer__toHexString__I_Ljava_lang_String_2(uint32_t v) {
+    char digits[16];
+    snprintf(digits, sizeof digits, "%x", v);
+    return string_ascii(digits);
+}
+
+ref java_lang_Long__toString__J_Ljava_lang_String_2(uint64_t v) {
+    char digits[24];
+    snprintf(digits, sizeof digits, "%lld", (long long)v);
+    return string_ascii(digits);
+}
+
+uint32_t java_lang_Integer__compare__II_I(uint32_t a, uint32_t b) {
+    return (uint32_t)(((int32_t)a > (int32_t)b) - ((int32_t)a < (int32_t)b));
+}
+
+uint32_t java_lang_Character__isDigit__C_Z(uint32_t c) { return iswdigit((wint_t)c) != 0; }
+uint32_t java_lang_Character__isLetter__C_Z(uint32_t c) { return iswalpha((wint_t)c) != 0; }
+uint32_t java_lang_Character__isWhitespace__C_Z(uint32_t c) { return iswspace((wint_t)c) != 0 && c != 0xa0; }
+uint32_t java_lang_Character__isUpperCase__C_Z(uint32_t c) { return iswupper((wint_t)c) != 0; }
+uint32_t java_lang_Character__isLowerCase__C_Z(uint32_t c) { return iswlower((wint_t)c) != 0; }
+uint32_t java_lang_Character__toUpperCase__C_C(uint32_t c) { return upper((uint16_t)c); }
+uint32_t java_lang_Character__toLowerCase__C_C(uint32_t c) { return lower((uint16_t)c); }
+
+uint32_t java_lang_Character__forDigit__II_C(uint32_t digit, uint32_t radix) {
+    if (radix < 2 || radix > 36 || digit >= radix) return 0;
+    return digit < 10 ? '0' + digit : 'a' + digit - 10;
+}
+
+double java_lang_Math__abs__D_D(double v) { return fabs(v); }
+double java_lang_Math__sqrt__D_D(double v) { return sqrt(v); }
+double java_lang_Math__pow__DD_D(double a, double b) { return pow(a, b); }
+double java_lang_Math__floor__D_D(double v) { return floor(v); }
+double java_lang_Math__ceil__D_D(double v) { return ceil(v); }
+uint64_t java_lang_Math__round__D_J(double v) { return jvm_d2l(floor(v + 0.5)); }
+uint32_t java_lang_Math__max__II_I(uint32_t a, uint32_t b) { return (int32_t)a > (int32_t)b ? a : b; }
+uint32_t java_lang_Math__min__II_I(uint32_t a, uint32_t b) { return (int32_t)a < (int32_t)b ? a : b; }
+uint64_t java_lang_Math__max__JJ_J(uint64_t a, uint64_t b) { return (int64_t)a > (int64_t)b ? a : b; }
+uint64_t java_lang_Math__min__JJ_J(uint64_t a, uint64_t b) { return (int64_t)a < (int64_t)b ? a : b; }
+
+void java_lang_System__arraycopy__Ljava_lang_Object_2ILjava_lang_Object_2II_V(ref from, uint32_t from_at, ref to, uint32_t to_at, uint32_t count) {
+    if (!from || !to) {
+        jvm_null();
+        return;
+    }
+    int32_t have = LENGTH(from), space = LENGTH(to);
+    if ((int32_t)from_at < 0 || (int32_t)to_at < 0 || (int32_t)count < 0 || (int32_t)from_at > have - (int32_t)count || (int32_t)to_at > space - (int32_t)count) {
+        throw_new("java/lang/ArrayIndexOutOfBoundsException", "arraycopy: out of bounds");
+        return;
+    }
+    uint64_t size = element_size(class_of(from));
+    memmove(to + ELEMENTS + size * to_at, from + ELEMENTS + size * from_at, size * count);
+}
+
+static void list_room(struct list *list) {
+    if (list->count == list->room) {
+        list->room = list->room * 2 + 8;
+        list->items = realloc(list->items, list->room * sizeof *list->items);
+        if (!list->items) stop("out of memory for", "a list");
+    }
+}
+
+static int32_t list_find(struct list *list, ref item) {
+    for (uint32_t n = 0; n < list->count; n++) {
+        if (java_util_Objects__equals__Ljava_lang_Object_2Ljava_lang_Object_2_Z(item, list->items[n])) return (int32_t)n;
+    }
+    return -1;
+}
+
+static void list_bounds(uint32_t index, uint32_t count) {
+    char message[80];
+    snprintf(message, sizeof message, "Index %d out of bounds for length %u", (int32_t)index, count);
+    throw_new("java/lang/IndexOutOfBoundsException", message);
+}
+
+static void ArrayList_addAt(ref this, uint32_t index, ref item) {
+    struct list *list = list_of(this);
+    if (index > list->count) {
+        list_bounds(index, list->count);
+        return;
+    }
+    list_room(list);
+    memmove(list->items + index + 1, list->items + index, (list->count - index) * sizeof *list->items);
+    list->items[index] = item;
+    list->count++;
+}
+
+static ref ArrayList_removeAt(ref this, uint32_t index) {
+    struct list *list = list_of(this);
+    if (index >= list->count) {
+        list_bounds(index, list->count);
+        return 0;
+    }
+    ref removed = list->items[index];
+    memmove(list->items + index, list->items + index + 1, (list->count - index - 1) * sizeof *list->items);
+    list->count--;
+    return removed;
+}
+
+static uint32_t ArrayList_remove(ref this, ref item) {
+    int32_t at = list_find(list_of(this), item);
+    if (at >= 0) ArrayList_removeAt(this, (uint32_t)at);
+    return at >= 0;
+}
+
+static uint32_t ArrayList_indexOf(ref this, ref item) {
+    return (uint32_t)list_find(list_of(this), item);
+}
+
+static ref ArrayList_set(ref this, uint32_t index, ref item) {
+    struct list *list = list_of(this);
+    if (index >= list->count) {
+        list_bounds(index, list->count);
+        return 0;
+    }
+    ref old = list->items[index];
+    list->items[index] = item;
+    return old;
+}
+
+static void ArrayList_clear(ref this) {
+    list_of(this)->count = 0;
+}
+
+// A map is two lists side by side: its keys in the order they came, and each one's value.
+struct map {
+    struct list keys, values;
+};
+
+static struct map *map_of(ref object) {
+    return (struct map *)(uintptr_t)NATIVE(object);
+}
+
+void java_util_HashMap__new___V(ref this) {
+    (void)this;
+}
+
+static uint32_t HashMap_size(ref this) {
+    return map_of(this)->keys.count;
+}
+
+static uint32_t HashMap_isEmpty(ref this) {
+    return map_of(this)->keys.count == 0;
+}
+
+static uint32_t HashMap_containsKey(ref this, ref key) {
+    return list_find(&map_of(this)->keys, key) >= 0;
+}
+
+static ref HashMap_getOrDefault(ref this, ref key, ref otherwise) {
+    int32_t at = list_find(&map_of(this)->keys, key);
+    return at >= 0 ? map_of(this)->values.items[at] : otherwise;
+}
+
+static ref HashMap_get(ref this, ref key) {
+    return HashMap_getOrDefault(this, key, 0);
+}
+
+static ref HashMap_put(ref this, ref key, ref value) {
+    struct map *map = map_of(this);
+    int32_t at = list_find(&map->keys, key);
+    if (at >= 0) {
+        ref old = map->values.items[at];
+        map->values.items[at] = value;
+        return old;
+    }
+    list_room(&map->keys);
+    list_room(&map->values);
+    map->keys.items[map->keys.count++] = key;
+    map->values.items[map->values.count++] = value;
+    return 0;
+}
+
+static ref HashMap_remove(ref this, ref key) {
+    struct map *map = map_of(this);
+    int32_t at = list_find(&map->keys, key);
+    if (at < 0) return 0;
+    ref old = map->values.items[at];
+    for (struct list *list = &map->keys; list; list = list == &map->keys ? &map->values : 0) {
+        memmove(list->items + at, list->items + at + 1, (list->count - (uint32_t)at - 1) * sizeof *list->items);
+        list->count--;
+    }
+    return old;
+}
+
+static void everyday(void);
+
 static void library(const char *name, const char *above, const char *first, const char *second) {
     define(name, above, 0);
     if (first) jvm_implement((uint8_t *)name, (uint8_t *)first);
@@ -1012,6 +1426,44 @@ static void library(const char *name, const char *above, const char *first, cons
 
 static void method(const char *name, const char *named, void *function) {
     jvm_method((uint8_t *)name, (uint8_t *)named, function);
+}
+
+// The methods of the everyday library an object's class finds.
+static void everyday(void) {
+    const char *string = "java/lang/String", *builder = "java/lang/StringBuilder", *list = "java/util/ArrayList", *map = "java/util/HashMap";
+    method(string, "indexOf:(I)I", (void *)String_indexOfChar);
+    method(string, "lastIndexOf:(I)I", (void *)String_lastIndexOfChar);
+    method(string, "indexOf:(Ljava/lang/String;)I", (void *)String_indexOf);
+    method(string, "contains:(Ljava/lang/CharSequence;)Z", (void *)String_contains);
+    method(string, "startsWith:(Ljava/lang/String;)Z", (void *)String_startsWith);
+    method(string, "endsWith:(Ljava/lang/String;)Z", (void *)String_endsWith);
+    method(string, "replace:(CC)Ljava/lang/String;", (void *)String_replace);
+    method(string, "toUpperCase:()Ljava/lang/String;", (void *)String_toUpperCase);
+    method(string, "toLowerCase:()Ljava/lang/String;", (void *)String_toLowerCase);
+    method(string, "trim:()Ljava/lang/String;", (void *)String_trim);
+    method(string, "substring:(I)Ljava/lang/String;", (void *)String_substring);
+    method(string, "substring:(II)Ljava/lang/String;", (void *)String_substring2);
+    method(string, "compareTo:(Ljava/lang/String;)I", (void *)String_compareTo);
+    method(string, "compareTo:(Ljava/lang/Object;)I", (void *)String_compareTo);
+    method(string, "toCharArray:()[C", (void *)String_toCharArray);
+    method(builder, "insert:(ILjava/lang/String;)Ljava/lang/StringBuilder;", (void *)StringBuilder_insert);
+    method(builder, "reverse:()Ljava/lang/StringBuilder;", (void *)StringBuilder_reverse);
+    method(builder, "setLength:(I)V", (void *)StringBuilder_setLength);
+    method(list, "add:(ILjava/lang/Object;)V", (void *)ArrayList_addAt);
+    method(list, "remove:(I)Ljava/lang/Object;", (void *)ArrayList_removeAt);
+    method(list, "remove:(Ljava/lang/Object;)Z", (void *)ArrayList_remove);
+    method(list, "indexOf:(Ljava/lang/Object;)I", (void *)ArrayList_indexOf);
+    method(list, "set:(ILjava/lang/Object;)Ljava/lang/Object;", (void *)ArrayList_set);
+    method(list, "clear:()V", (void *)ArrayList_clear);
+    library(map, "java/lang/Object", "java/util/Map", 0);
+    method(map, "size:()I", (void *)HashMap_size);
+    method(map, "isEmpty:()Z", (void *)HashMap_isEmpty);
+    method(map, "containsKey:(Ljava/lang/Object;)Z", (void *)HashMap_containsKey);
+    method(map, "get:(Ljava/lang/Object;)Ljava/lang/Object;", (void *)HashMap_get);
+    method(map, "getOrDefault:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", (void *)HashMap_getOrDefault);
+    method(map, "put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", (void *)HashMap_put);
+    method(map, "remove:(Ljava/lang/Object;)Ljava/lang/Object;", (void *)HashMap_remove);
+    library("java/lang/NumberFormatException", "java/lang/IllegalArgumentException", 0, 0);
 }
 
 // The library's classes and the methods an object's class finds.
@@ -1123,6 +1575,7 @@ static void ready(void) {
         method(boxes[n], "equals:(Ljava/lang/Object;)Z", (void *)Box_equals);
         method(boxes[n], "hashCode:()I", (void *)Box_hashCode);
     }
+    everyday();
 }
 
 // The program's entry, which the source's `main` calls around the program's own.
