@@ -91,6 +91,8 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<(Headers, Vec<Section>, ElfFile)> {
         format::EM_AARCH64 => Machine::Arm64,
         format::EM_ARM => Machine::Arm,
         format::EM_MIPS if !elf.wide => Machine::Mips,
+        // A little-endian SuperH program is the Dreamcast's processor's (`EM_SH`).
+        42 if !elf.wide && !elf.big_endian => Machine::Sh4,
         other => Machine::Other(other),
     };
     let headers = Headers {

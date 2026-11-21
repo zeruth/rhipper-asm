@@ -13,13 +13,13 @@ mod functions;
 mod java;
 mod lift;
 mod lockstep;
+mod machines;
 mod pipeline;
 mod plugins;
 mod port;
 mod preflight;
 mod project;
 mod report;
-mod riscv;
 mod run;
 mod score;
 mod serve;
@@ -330,9 +330,12 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         limit: u64,
     },
-    /// A RISC-V program, from its ELF file. By itself, the instructions of its code. With `--ll`,
-    /// the IR of its lift; with `--run`, the lifted program run over the interpreter, its exit
-    /// code the command's; with `--port`, the program as C beside its runtime, built with clang.
+    /// A program of a machine whose lift stands beside the pipeline, from its ELF file, which
+    /// says the machine: RISC-V, 32-bit PowerPC or SH-4, under any of the command's names. By
+    /// itself, the instructions of its code. With `--ll`, the IR of its lift; with `--run`, the
+    /// lifted program run over the interpreter, its exit code the command's; with `--port`, the
+    /// program as C beside its runtime, built with clang.
+    #[command(visible_aliases = ["ppc", "sh4"])]
     Riscv {
         program: PathBuf,
         /// Write the lifted IR to this file.
@@ -792,7 +795,7 @@ fn command() -> anyhow::Result<()> {
             java::java(&classes, &java::Options { ll, c, main, port, no_build, run, args, limit, json })
         }
         Command::Riscv { program, ll, port, no_build, run, limit } => {
-            riscv::riscv(&program, &riscv::Options { ll, port, no_build, run, limit })
+            machines::machine(&program, &machines::Options { ll, port, no_build, run, limit })
         }
         Command::Port { pe, out, name, no_build, quiet, with, entries } => {
             port::port(&load(&pe, sigs)?, &out, &port::Options { name, no_build, quiet, with, entries })

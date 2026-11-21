@@ -55,6 +55,12 @@ impl Machine {
             Self::Arm => "arm".to_owned(),
             Self::Mips => "mips".to_owned(),
             Self::Sh4 => "sh4".to_owned(),
+            // The machines the pipeline does not lift but a command of their own does (`ras
+            // riscv`), or a crate beside it: named, so a report says what the file is.
+            Self::Other(0x00f3) => "riscv (not in this pipeline: see `ras riscv`)".to_owned(),
+            Self::Other(0x0014) => "powerpc (not in this pipeline)".to_owned(),
+            Self::Other(0x0015) => "powerpc64 (not in this pipeline)".to_owned(),
+            Self::Other(0x0004) => "m68k (not in this pipeline)".to_owned(),
             Self::Other(value) => format!("machine {value:#06x}"),
         }
     }
