@@ -1,0 +1,18 @@
+[package]
+name = "ra-asm-ppc"
+description = "The 32-bit PowerPC of the consoles: the lift of its integer machine to IR at the machine's own level, and a run of a lifted program over the interpreter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ra-asm-ir.workspace = true
+
+[dev-dependencies]
+ra-asm-emit.workspace = true
+ra-asm-testing.workspace = true
