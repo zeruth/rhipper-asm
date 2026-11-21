@@ -23,6 +23,13 @@ fn the_lifted_fixture_does_what_the_machine_did() {
         let outcome = run(&program, 5_000_000).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(String::from_utf8_lossy(&outcome.out).trim_end(), printed, "{name}");
         assert_eq!(outcome.exit, Some(code), "{name}");
+        // Lifted as its functions, each a function of the IR, the program does the same.
+        let module = program.lift_functions().unwrap();
+        let functions = module.functions.iter().filter(|f| f.name.starts_with("rv_f_")).count();
+        assert!(functions >= 8, "{name}: {functions} functions found");
+        let outcome = ra_asm_riscv::run::run_functions(&program, 5_000_000).unwrap_or_else(|e| panic!("{name}, as functions: {e}"));
+        assert_eq!(String::from_utf8_lossy(&outcome.out).trim_end(), printed, "{name}, as functions");
+        assert_eq!(outcome.exit, Some(code), "{name}, as functions");
         assert!(printed.lines().count() >= 14, "{name}: the fixture prints {} lines", printed.lines().count());
     }
 }

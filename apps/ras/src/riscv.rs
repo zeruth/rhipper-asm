@@ -29,7 +29,8 @@ pub(crate) fn riscv(path: &Path, options: &Options) -> anyhow::Result<()> {
     if options.ll.is_none() && options.port.is_none() && !options.run {
         return list(&program);
     }
-    let module = program.lift().map_err(|e| anyhow::anyhow!("the lift: {e}"))?;
+    // The program as its functions, a function of the IR for each.
+    let module = program.lift_functions().map_err(|e| anyhow::anyhow!("the lift: {e}"))?;
     if let Some(path) = &options.ll {
         let mut file = std::io::BufWriter::new(std::fs::File::create(path).with_context(|| format!("writing {}", path.display()))?);
         module.write_ll(&mut file)?;
@@ -42,7 +43,7 @@ pub(crate) fn riscv(path: &Path, options: &Options) -> anyhow::Result<()> {
         port(directory, &name, &source, options.no_build)?;
     }
     if options.run {
-        let outcome = ra_asm_riscv::run::run(&program, options.limit).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let outcome = ra_asm_riscv::run::run_functions(&program, options.limit).map_err(|e| anyhow::anyhow!("{e}"))?;
         std::io::stdout().write_all(&outcome.out)?;
         std::io::stdout().flush()?;
         std::process::exit(outcome.exit.unwrap_or(0));

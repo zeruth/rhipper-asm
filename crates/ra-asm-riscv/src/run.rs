@@ -91,9 +91,23 @@ impl Program {
     /// # Errors
     /// When the program has no executable segment.
     pub fn lift(&self) -> Result<Module, Error> {
+        self.lift_as(false)
+    }
+
+    /// The program lifted as its functions, as [`crate::lift::lift_functions`] makes them: the
+    /// same program, a function of the IR for each of its own.
+    ///
+    /// # Errors
+    /// When the program has no executable segment.
+    pub fn lift_functions(&self) -> Result<Module, Error> {
+        self.lift_as(true)
+    }
+
+    fn lift_as(&self, functions: bool) -> Result<Module, Error> {
         use ra_asm_ir::{CallConv, Callee, Const, Declaration, FunctionBuilder, Global, Linkage, Operand, Terminator, Type};
         let code = self.segments.iter().find(|s| s.executable).ok_or_else(|| Error("the program has no code".to_owned()))?;
-        let mut module = lift(Code { address: code.address, bytes: &code.bytes }, self.width);
+        let code = Code { address: code.address, bytes: &code.bytes };
+        let mut module = if functions { crate::lift::lift_functions(code, self.width, self.entry) } else { lift(code, self.width) };
         // The whole program: its segments as data the runtime is handed, then the code from
         // the entry.
         let segment_ty = FnType::new(Type::Void, vec![Type::I64, Type::Ptr, Type::I64, Type::I64]);
@@ -188,7 +202,18 @@ impl Host for Linux {
 /// When the program has no code, or the run stops other than by the program's `exit`: a system
 /// call the runtime has not, an address that is no instruction's, the limit.
 pub fn run(program: &Program, limit: u64) -> Result<Outcome, Error> {
-    let module = program.lift()?;
+    run_module(program, &program.lift()?, limit)
+}
+
+/// Runs `program` lifted as its functions ([`Program::lift_functions`]).
+///
+/// # Errors
+/// As [`run`].
+pub fn run_functions(program: &Program, limit: u64) -> Result<Outcome, Error> {
+    run_module(program, &program.lift_functions()?, limit)
+}
+
+fn run_module(program: &Program, module: &Module, limit: u64) -> Result<Outcome, Error> {
     let mut memory = Memory::new();
     for (name, (start, len)) in [("stack", STACK), ("statics", STATICS), ("frames", FRAMES)] {
         memory.add_region(Region::owned(start, len, name));
@@ -196,7 +221,7 @@ pub fn run(program: &Program, limit: u64) -> Result<Outcome, Error> {
     for segment in &program.segments {
         memory.add_region(Region::owned(segment.address, segment.size.max(segment.bytes.len() as u64), "segment"));
     }
-    let mut vm = Vm::new(&module, memory);
+    let mut vm = Vm::new(module, memory);
     vm.limit = limit;
     vm.set_static_region(STATICS.0, STATICS.1);
     vm.set_frame_region(FRAMES.0, FRAMES.1);

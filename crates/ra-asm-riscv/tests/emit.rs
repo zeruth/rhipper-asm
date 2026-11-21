@@ -15,14 +15,16 @@ fn workspace() -> PathBuf {
 
 fn source() -> String {
     let program = Program::parse(&std::fs::read(workspace().join("testdata/riscv/rv64.elf")).unwrap()).unwrap();
-    emit_c(&program.lift().unwrap(), &Options::default())
+    // The program as its functions: a function of C for each.
+    emit_c(&program.lift_functions().unwrap(), &Options::default())
 }
 
 #[test]
 fn the_source_defines_the_program() {
     let text = source();
     assert!(!text.contains("is not written"), "a global the backend left out");
-    for defined in ["void rv_run(", "void rv_main(", "rv_memory", "rv_segment_0"] {
+    assert!(text.matches("\nvoid rv_f_").count() >= 16, "the declarations and the definitions of the program's functions");
+    for defined in ["void rv_run(", "void rv_call(", "void rv_main(", "rv_memory", "rv_segment_0"] {
         assert!(text.contains(defined), "the source has no {defined}");
     }
     for called in ["rv_ecall(", "rv_trap(", "rv_segment("] {

@@ -146,6 +146,23 @@ impl Lift {
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn lift(code: Code<'_>, width: Width) -> Module {
+    build(code, width, None)
+}
+
+/// The function a call through a register is, in a module of functions: `void (ptr state, i64
+/// target)`, which calls the function whose entry the address is.
+pub const CALL: &str = "rv_call";
+
+/// Lifts `code` as the program's functions: one function of the IR for each ([`function_name`]),
+/// still over the machine's registers, with the calls between them calls of the IR, [`CALL`] for
+/// the calls through a register, and [`RUN`] as a call of the function at an address. The
+/// functions are the ones [`entries`] finds from `entry`, each the code up to the next one's.
+#[must_use]
+pub fn lift_functions(code: Code<'_>, width: Width, entry: u64) -> Module {
+    build(code, width, Some(&entries(code, width, entry)))
+}
+
+fn build(code: Code<'_>, width: Width, functions: Option<&std::collections::BTreeSet<u64>>) -> Module {
     let mut module = Module::x86_64_windows("riscv");
     module.globals.push(ra_asm_ir::Global {
         name: MEMORY.to_owned(),
@@ -161,19 +178,57 @@ pub fn lift(code: Code<'_>, width: Width) -> Module {
     };
     declare(&mut module, ECALL, vec![Type::Ptr]);
     declare(&mut module, TRAP, vec![Type::I64]);
+    let words = instructions(code, width);
+    let Some(entries) = functions else {
+        part(&mut module, RUN, &words, width, None);
+        return module;
+    };
+    // A function is the code from its entry to the next function's.
+    let entries: std::collections::BTreeSet<u64> =
+        entries.iter().copied().filter(|entry| words.iter().any(|(at, ..)| at == entry)).collect();
+    for &entry in &entries {
+        let end = entries.range(entry + 1..).next().copied().unwrap_or(u64::MAX);
+        let own: Vec<Word> = words.iter().copied().filter(|(at, ..)| (entry..end).contains(at)).collect();
+        part(&mut module, &function_name(entry), &own, width, Some(&entries));
+    }
+    // A call through a register: the function whose entry the address is.
+    let mut b = FunctionBuilder::new(CALL, FnType::new(Type::Void, vec![Type::Ptr, Type::I64]), &["state", "target"]);
+    let (entry, nowhere) = (b.block("entry"), b.block("nowhere"));
+    let (state, target) = (b.param(0), b.param(1));
+    let mut cases = Vec::new();
+    for &function in &entries {
+        let block = b.block(&format!("to.{function:x}"));
+        b.call(
+            block,
+            FnType::new(Type::Void, vec![Type::Ptr]),
+            Callee::Direct(function_name(function)),
+            vec![(Type::Ptr, state.into())],
+            "",
+        );
+        b.terminate(block, Terminator::Ret(None));
+        cases.push((i128::from(function), block));
+    }
+    b.terminate(entry, Terminator::Switch { ty: Type::I64, value: target.into(), default: nowhere, cases });
+    b.call(nowhere, FnType::new(Type::Void, vec![Type::I64]), Callee::Direct(TRAP.to_owned()), vec![(Type::I64, target.into())], "");
+    b.terminate(nowhere, Terminator::Ret(None));
+    module.functions.push(b.finish());
+    // The program is run from an address as a call of the function there.
     let mut b = FunctionBuilder::new(RUN, FnType::new(Type::Void, vec![Type::Ptr, Type::I64]), &["state", "start"]);
-    let entry = b.block("entry");
-    let dispatch = b.block("dispatch");
-    let nowhere = b.block("nowhere");
-    let state = b.param(0);
-    // Where a jump through a register goes, for the dispatcher to find the block of.
-    let pc = b.alloca(entry, Type::I64, "pc");
-    let start = b.param(1);
-    b.store(entry, Type::I64, start, pc);
-    b.terminate(entry, Terminator::Br(dispatch));
-    // The instructions in the order they lie: each with its address and its length, two bytes
-    // for a compressed one and four for the rest; what decodes to nothing keeps its length.
-    let mut words: Vec<(u64, Option<Instruction>, u64)> = Vec::new();
+    let block = b.block("entry");
+    let args = vec![(Type::Ptr, Operand::from(b.param(0))), (Type::I64, Operand::from(b.param(1)))];
+    b.call(block, FnType::new(Type::Void, vec![Type::Ptr, Type::I64]), Callee::Direct(CALL.to_owned()), args, "");
+    b.terminate(block, Terminator::Ret(None));
+    module.functions.push(b.finish());
+    module
+}
+
+/// An instruction of the code: its address, what it decodes to, and its length.
+type Word = (u64, Option<Instruction>, u64);
+
+/// The instructions of `code` in the order they lie: two bytes for a compressed one and four
+/// for the rest; what decodes to nothing keeps its length.
+fn instructions(code: Code<'_>, width: Width) -> Vec<Word> {
+    let mut words = Vec::new();
     let mut offset = 0;
     while offset + 2 <= code.bytes.len() {
         let address = code.address + offset as u64;
@@ -181,10 +236,54 @@ pub fn lift(code: Code<'_>, width: Width) -> Module {
         words.push((address, instruction, u64::from(length)));
         offset += usize::from(length);
     }
+    words
+}
+
+/// The entries of the functions of `code`: `entry`, and every address a `jal` that links goes to.
+#[must_use]
+pub fn entries(code: Code<'_>, width: Width, entry: u64) -> std::collections::BTreeSet<u64> {
+    let calls = instructions(code, width)
+        .into_iter()
+        .filter_map(|(_, instruction, _)| instruction.filter(|i| i.form == Form::Jump && i.rd != 0).map(|i| i.imm.cast_unsigned()));
+    std::iter::once(entry).chain(calls).collect()
+}
+
+/// The name of the function lifted from the code at `entry`.
+#[must_use]
+pub fn function_name(entry: u64) -> String {
+    format!("rv_f_{entry:x}")
+}
+
+/// Writes `words` as one function of `module`. With no `functions` it is the whole machine:
+/// `void (ptr state, i64 start)`, every jump inside it. With them it is one function of the
+/// program, `void (ptr state)`, entered at its first instruction: a `jal` that links is a call
+/// of the function at its target, a jump out of the function a call of where it goes and a
+/// return, `jalr zero, 0(ra)` a return, and a call through a register a call of [`CALL`].
+#[allow(clippy::too_many_lines)]
+fn part(module: &mut Module, name: &str, words: &[Word], width: Width, functions: Option<&std::collections::BTreeSet<u64>>) {
+    let state_only = FnType::new(Type::Void, vec![Type::Ptr]);
+    let params = if functions.is_some() { vec![Type::Ptr] } else { vec![Type::Ptr, Type::I64] };
+    let mut b = FunctionBuilder::new(name, FnType::new(Type::Void, params), &["state", "start"]);
+    let entry = b.block("entry");
+    let dispatch = b.block("dispatch");
+    let nowhere = b.block("nowhere");
+    let state = b.param(0);
+    // Where a jump through a register goes, for the dispatcher to find the block of.
+    let pc = b.alloca(entry, Type::I64, "pc");
+    if functions.is_none() {
+        let start = b.param(1);
+        b.store(entry, Type::I64, start, pc);
+        b.terminate(entry, Terminator::Br(dispatch));
+    }
     let mut blocks: BTreeMap<u64, BlockId> = BTreeMap::new();
-    for &(address, ..) in &words {
+    for &(address, ..) in words {
         b.address = Some(address);
         blocks.insert(address, b.block(&format!("at.{address:x}")));
+    }
+    if functions.is_some() {
+        // A function is entered at its first instruction.
+        let first = words.first().and_then(|(address, ..)| blocks.get(address)).copied().unwrap_or(nowhere);
+        b.terminate(entry, Terminator::Br(first));
     }
     let mut lift = Lift { b, state, block: entry };
     // An address that is no instruction's: the runtime hears of it, and the function is left.
@@ -192,7 +291,7 @@ pub fn lift(code: Code<'_>, width: Width) -> Module {
         lift.b.call(block, FnType::new(Type::Void, vec![Type::I64]), Callee::Direct(TRAP.to_owned()), vec![(Type::I64, address)], "");
         lift.b.terminate(block, Terminator::Ret(None));
     };
-    for &(address, instruction, length) in &words {
+    for &(address, instruction, length) in words {
         lift.block = blocks[&address];
         lift.b.address = Some(address);
         let next = address + length;
@@ -209,7 +308,20 @@ pub fn lift(code: Code<'_>, width: Width) -> Module {
             }
             Form::Jump => {
                 lift.set(rd, next);
-                goes = Terminator::Br(at(imm.cast_unsigned()));
+                let target = imm.cast_unsigned();
+                goes = Terminator::Br(at(target));
+                // Among functions, a jump that links is a call, and a jump out of the
+                // function a call of where it goes and the function's own return.
+                if let Some(functions) = functions.filter(|_| rd != 0 || !blocks.contains_key(&target)) {
+                    if functions.contains(&target) {
+                        let args = vec![(Type::Ptr, state.into())];
+                        lift.b.call(lift.block, state_only.clone(), Callee::Direct(function_name(target)), args, "");
+                        goes = if rd == 0 { Terminator::Ret(None) } else { Terminator::Br(at(next)) };
+                    } else {
+                        trap(&mut lift, blocks[&address], Operand::Int(i128::from(target)));
+                        continue;
+                    }
+                }
             }
             Form::JumpRegister => {
                 let base = lift.get(rs1);
@@ -218,6 +330,22 @@ pub fn lift(code: Code<'_>, width: Width) -> Module {
                 lift.set(rd, next);
                 lift.b.store(lift.block, Type::I64, target, pc);
                 goes = Terminator::Br(dispatch);
+                if functions.is_some() {
+                    if rd != 0 {
+                        // A call through a register, which comes back here.
+                        let args = vec![(Type::Ptr, state.into()), (Type::I64, target.into())];
+                        lift.b.call(
+                            lift.block,
+                            FnType::new(Type::Void, vec![Type::Ptr, Type::I64]),
+                            Callee::Direct(CALL.to_owned()),
+                            args,
+                            "",
+                        );
+                        goes = Terminator::Br(at(next));
+                    } else if rs1 == 1 && imm == 0 {
+                        goes = Terminator::Ret(None);
+                    }
+                }
             }
             Form::Branch => {
                 let cond = match mnemonic {
@@ -350,7 +478,14 @@ pub fn lift(code: Code<'_>, width: Width) -> Module {
     let cases = blocks.iter().map(|(&address, &block)| (i128::from(address), block)).collect();
     lift.b.terminate(dispatch, Terminator::Switch { ty: Type::I64, value: target.into(), default: nowhere, cases });
     let target = lift.b.load(nowhere, Type::I64, pc, "target");
-    trap(&mut lift, nowhere, target.into());
+    if functions.is_some() {
+        // A jump through a register out of the function: a call of where it goes, and the
+        // function's own return.
+        let args = vec![(Type::Ptr, state.into()), (Type::I64, target.into())];
+        lift.b.call(nowhere, FnType::new(Type::Void, vec![Type::Ptr, Type::I64]), Callee::Direct(CALL.to_owned()), args, "");
+        lift.b.terminate(nowhere, Terminator::Ret(None));
+    } else {
+        trap(&mut lift, nowhere, target.into());
+    }
     module.functions.push(lift.b.finish());
-    module
 }
