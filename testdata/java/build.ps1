@@ -22,6 +22,10 @@ New-Item -ItemType Directory -Force $plain | Out-Null
 & javac --release 8 -nowarn -Xlint:-options -d $plain (Join-Path $here 'src\Plain.java') 2>$null
 $printed = & java -cp $plain Plain
 [IO.File]::WriteAllText((Join-Path $plain 'Plain.out'), (($printed -join "`n") + "`n"))
+foreach ($class in Get-ChildItem $plain -Filter *.class) {
+    $listing = & javap -c -p $class.FullName
+    [IO.File]::WriteAllText([IO.Path]::ChangeExtension($class.FullName, 'txt'), (($listing -join "`n") + "`n"))
+}
 Write-Host "plain: prints $($printed.Count) lines"
 #
 # The fixtures of what a release brought, each compiled for the release that brought it (or the

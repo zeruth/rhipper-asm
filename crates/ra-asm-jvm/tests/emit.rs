@@ -13,13 +13,26 @@ fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// The classes of a directory of the Java fixtures, in the order of their files' names.
+/// The classes of a directory of the Java fixtures, in the order of their files' names. After
+/// an `@`, the version their class files are set to: `plain@45` is the plain fixture as classes
+/// of the first release.
 fn classes(directory: &str) -> Vec<ClassFile> {
+    let (directory, major) = directory.split_once('@').map_or((directory, None), |(d, major)| (d, major.parse::<u16>().ok()));
     let mut paths: Vec<PathBuf> =
         std::fs::read_dir(workspace().join("testdata/java").join(directory)).unwrap().map(|entry| entry.unwrap().path()).collect();
     paths.retain(|path| path.extension().is_some_and(|e| e == "class"));
     paths.sort();
-    paths.iter().map(|path| ClassFile::parse(&std::fs::read(path).unwrap()).unwrap()).collect()
+    paths
+        .iter()
+        .map(|path| {
+            let mut bytes = std::fs::read(path).unwrap();
+            if let Some(major) = major {
+                bytes[4..6].copy_from_slice(&(if major == 45 { 3u16 } else { 0 }).to_be_bytes());
+                bytes[6..8].copy_from_slice(&major.to_be_bytes());
+            }
+            ClassFile::parse(&bytes).unwrap()
+        })
+        .collect()
 }
 
 fn source(directory: &str) -> String {
@@ -66,6 +79,9 @@ fn the_compiled_port_prints_what_java_prints() {
         ("25", "Opcodes", 0),
         ("thrown", "Thrown", 1),
         ("plain", "Plain", 0),
+        ("plain@45", "Plain", 0),
+        ("plain@48", "Plain", 0),
+        ("plain@51", "Plain", 0),
         ("features/8", "Features", 0),
         ("features/25", "Features", 0),
         ("records/17", "Records", 0),
@@ -76,7 +92,8 @@ fn the_compiled_port_prints_what_java_prints() {
         let mut module = lift(&classes(directory)).unwrap();
         entry(&mut module, main).unwrap();
         c_names(&mut module);
-        let name = directory.replace('/', "-");
+        let name = directory.replace(['/', '@'], "-");
+        let directory = directory.split('@').next().unwrap_or(directory);
         let path = scratch.join(format!("{name}.c"));
         std::fs::write(&path, emit_c(&module, &Options::default())).unwrap();
         let executable = scratch.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));

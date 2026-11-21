@@ -88,6 +88,38 @@ fn the_decoder_agrees_with_javap() {
     }
 }
 
+/// Every release from the first: the classes of the plain fixture, which uses nothing the first
+/// class files had not, read as classes of each release (their version set to it) decode to what
+/// `javap` lists for them.
+#[test]
+fn every_release_decodes_the_plain_fixture_as_javap_lists_it() {
+    let directory = fixtures().join("plain");
+    let mut classes: Vec<PathBuf> = std::fs::read_dir(&directory).unwrap().map(|entry| entry.unwrap().path()).collect();
+    classes.retain(|path| path.extension().is_some_and(|e| e == "class"));
+    classes.sort();
+    assert_eq!(classes.len(), 5);
+    for major in version::FIRST..=version::LAST {
+        let mut instructions = 0;
+        for path in &classes {
+            let mut bytes = std::fs::read(path).unwrap();
+            bytes[4..6].copy_from_slice(&(if major == 45 { 3u16 } else { 0 }).to_be_bytes());
+            bytes[6..8].copy_from_slice(&major.to_be_bytes());
+            let file = ClassFile::parse(&bytes).unwrap_or_else(|e| panic!("class files {major}: {e}"));
+            assert_eq!(file.major, major);
+            let mut decoded = Vec::new();
+            for method in &file.methods {
+                let Some(code) = file.code(method).unwrap() else { continue };
+                let listing = decode(&code.code, file.major).unwrap_or_else(|e| panic!("class files {major}: {e}"));
+                decoded.extend(listing.iter().flat_map(|i| i.to_string().lines().map(str::to_owned).collect::<Vec<_>>()));
+            }
+            let expected = listed(&std::fs::read_to_string(path.with_extension("txt")).unwrap());
+            assert_eq!(decoded, expected, "class files {major}: {}", path.display());
+            instructions += decoded.len();
+        }
+        assert!(instructions > 300, "class files {major}: {instructions} instructions");
+    }
+}
+
 #[test]
 fn the_fixture_uses_most_of_the_machine() {
     let (_, dir) = releases().pop().expect("a fixture");

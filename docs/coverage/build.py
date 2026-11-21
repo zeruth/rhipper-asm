@@ -139,6 +139,8 @@ def java():
         "port": (ROOT / "runtime" / "jvm.c").exists() and (ROOT / "crates" / "ra-asm-jvm" / "tests" / "emit.rs").exists(),
         "port_lines": lines("runtime/jvm.c") if (ROOT / "runtime" / "jvm.c").exists() else 0,
         "plain": (ROOT / "testdata" / "java" / "plain" / "Plain.class").exists(),
+        # javap's listing of the plain fixture, which every release's decoder is held to
+        "plain_listing": (ROOT / "testdata" / "java" / "plain" / "Plain.txt").exists(),
         "brought": dict(sorted(brought.items())),
         "library": len(re.findall(r'^\s*\("', library.group(1), re.M)) if library else 0,
         "opcodes": len(re.findall(r'"\w+"', names.group(1))) if names else 0,

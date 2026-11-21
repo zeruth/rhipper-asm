@@ -461,9 +461,14 @@ javaFamily.platforms.forEach((p) => {
     // a release no JDK still compiles for: the plain fixture, its class files' version set to the release's,
     // lifts and runs to what java printed; no compiler of the release has written a class for it
     if (java.runs && java.plain) {
-      p.s[2] = 4; p.s[3] = 4; p.s[5] = 4; p.s[6] = 3;
-      if (java.port) p.s[4] = 3;
-      add("a fixture in the release's class file format lifts and runs to java's output; no class from the release's own compiler yet");
+      // the lift is verified for a release without subroutines; before Java 7 a compiler wrote them, and
+      // only code written by hand holds the lift of those
+      p.s[2] = p.release >= 7 ? 5 : 4; p.s[3] = 4; p.s[5] = 4; p.s[6] = 3;
+      // as classes of the release, the fixture's port in C prints what java printed
+      if (java.port) { p.s[4] = 4; p.s[5] = 5; }
+      // and they read and decode as javap lists them
+      if (java.plain_listing) { p.s[0] = 5; p.s[1] = 5; }
+      add("a fixture in the release's class file format decodes as javap lists it, lifts and runs to java's output, and ports to C; no class from the release's own compiler yet");
     }
     return;
   }

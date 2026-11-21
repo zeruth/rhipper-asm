@@ -1,0 +1,4 @@
+Compiled from "Plain.java"
+interface Plain$Shape {
+  public abstract double area();
+}

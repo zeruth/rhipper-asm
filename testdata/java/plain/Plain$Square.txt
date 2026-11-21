@@ -1,0 +1,23 @@
+Compiled from "Plain.java"
+class Plain$Square extends Plain$Named {
+  final double side;
+
+  Plain$Square(double);
+    Code:
+         0: aload_0
+         1: ldc           #1                  // String square
+         3: invokespecial #3                  // Method Plain$Named."<init>":(Ljava/lang/String;)V
+         6: aload_0
+         7: dload_1
+         8: putfield      #9                  // Field side:D
+        11: return
+
+  public double area();
+    Code:
+         0: aload_0
+         1: getfield      #9                  // Field side:D
+         4: aload_0
+         5: getfield      #9                  // Field side:D
+         8: dmul
+         9: dreturn
+}
