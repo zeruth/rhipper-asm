@@ -170,7 +170,9 @@ impl Asm {
     /// the 0F3A map, `L` set and the `66` prefix bits.
     fn vhalf(&mut self, load: bool, ymm: u32, d: u32) {
         let r_bar = if ymm & 8 != 0 { 0 } else { 0x80 };
-        let vvvv = if load { ((!ymm & 0xF) as u8) << 3 } else { 0 };
+        // The insert names its first source, inverted; the extract has none, and its field is
+        // all ones (anything else is no instruction).
+        let vvvv = if load { ((!ymm & 0xF) as u8) << 3 } else { 0x78 };
         self.bytes(&[0xC4, r_bar | 0x63, vvvv | 0x05, if load { 0x18 } else { 0x19 }, 0x80 | ((ymm & 7) as u8) << 3]);
         self.disp(d);
         self.0.push(1);
@@ -544,6 +546,13 @@ const NOT_RUN: &[(&str, &str)] = &[
     ("Popfd", "32-bit mode only"),
     ("Pushad", "32-bit mode only"),
     ("Popad", "32-bit mode only"),
+    ("Femms", "of 3DNow!, which the processors of today do not have"),
+    ("Rcpps", "an approximation each processor makes its own way: the low bits are the maker's"),
+    ("Rcpss", "an approximation each processor makes its own way: the low bits are the maker's"),
+    ("Rsqrtps", "an approximation each processor makes its own way: the low bits are the maker's"),
+    ("Rsqrtss", "an approximation each processor makes its own way: the low bits are the maker's"),
+    ("Pshufw", "of the MMX registers alone, which the generator gives no operand"),
+    ("Movntq", "of the MMX registers alone, which the generator gives no operand"),
 ];
 
 /// The mnemonics with an arm in `lift_instr`, read off the source.
