@@ -22,40 +22,40 @@ out pc=0x30002004 sig=trap
 case Nop aff30080 nop.w <- nop.w
 in nzcv=1001
 out pc=0x30002004 sig=trap
-case Trap 00be bkpt #0 <- bkpt #{bkpt}
+case Bkpt 00be bkpt #0 <- bkpt #{bkpt}
 in nzcv=0011
 out pc=0x30002000 sig=trap
-case Trap 00be bkpt #0 <- bkpt #{bkpt}
+case Bkpt 00be bkpt #0 <- bkpt #{bkpt}
 in nzcv=1000
 out pc=0x30002000 sig=trap
-case Trap 00be bkpt #0 <- bkpt #{bkpt}
+case Bkpt 00be bkpt #0 <- bkpt #{bkpt}
 in nzcv=1011
 out pc=0x30002000 sig=trap
-case Trap 55be bkpt #0x55 <- bkpt #{bkpt}
+case Bkpt 55be bkpt #0x55 <- bkpt #{bkpt}
 in nzcv=1111
 out pc=0x30002000 sig=trap
-case Trap 55be bkpt #0x55 <- bkpt #{bkpt}
+case Bkpt 55be bkpt #0x55 <- bkpt #{bkpt}
 in nzcv=1000
 out pc=0x30002000 sig=trap
-case Trap 55be bkpt #0x55 <- bkpt #{bkpt}
+case Bkpt 55be bkpt #0x55 <- bkpt #{bkpt}
 in nzcv=0111
 out pc=0x30002000 sig=trap
-case Trap ffbe bkpt #0xff <- bkpt #{bkpt}
+case Bkpt ffbe bkpt #0xff <- bkpt #{bkpt}
 in nzcv=0001
 out pc=0x30002000 sig=trap
-case Trap ffbe bkpt #0xff <- bkpt #{bkpt}
+case Bkpt ffbe bkpt #0xff <- bkpt #{bkpt}
 in nzcv=1111
 out pc=0x30002000 sig=trap
-case Trap ffbe bkpt #0xff <- bkpt #{bkpt}
+case Bkpt ffbe bkpt #0xff <- bkpt #{bkpt}
 in nzcv=0000
 out pc=0x30002000 sig=trap
-case Trap 01be bkpt #1 <- bkpt #{bkpt}
+case Bkpt 01be bkpt #1 <- bkpt #{bkpt}
 in nzcv=0011
 out pc=0x30002000 sig=trap
-case Trap 01be bkpt #1 <- bkpt #{bkpt}
+case Bkpt 01be bkpt #1 <- bkpt #{bkpt}
 in nzcv=0100
 out pc=0x30002000 sig=trap
-case Trap 01be bkpt #1 <- bkpt #{bkpt}
+case Bkpt 01be bkpt #1 <- bkpt #{bkpt}
 in nzcv=0010
 out pc=0x30002000 sig=trap
 case Trap 00de udf #0 <- udf #{imm8}

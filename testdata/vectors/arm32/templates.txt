@@ -289,7 +289,7 @@ BranchReg it {cond}; bx{cond} lr
 [system]
 Nop     nop
 Nop     nop.w
-Trap    bkpt #{bkpt}
+Bkpt    bkpt #{bkpt}
 Trap    udf #{imm8}
 Trap    udf.w #{imm16}
 Unsupported clz {Rd}, {Rm}

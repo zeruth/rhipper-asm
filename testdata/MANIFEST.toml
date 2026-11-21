@@ -878,6 +878,24 @@ command = "testdata/build.ps1 thumb"
 tools = "clang 22.1.7, LLD 22.1.7"
 
 [[file]]
+path = "testdata/bin/cortexm.elf"
+sha256 = "a52362af0634f3143f3ff2e8d3b6f64b5c9ef290f503c366a01b606eef9f00dd"
+evidence = "source"
+expected = "testdata/expected/cortexm.txt"
+source = "testdata/src/cortexm.c"
+command = "testdata/build.ps1 cortexm"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/cortexm.bin"
+sha256 = "ede52f143fcdb1870157550c7461eb5e9464f80f81f5a8587b9b53769181dfae"
+evidence = "source"
+expected = "testdata/expected/cortexm.txt"
+source = "testdata/src/cortexm.c"
+command = "testdata/build.ps1 cortexm"
+tools = "clang 22.1.7, LLD 22.1.7, llvm-objcopy 22.1.7"
+
+[[file]]
 path = "testdata/bin/libmain_a64.so"
 sha256 = "ecd0555e372d056b759d22b8144840c10be05f223e98a06d02e7db581cf6af61"
 evidence = "source"
@@ -1201,6 +1219,14 @@ sha256 = "6b297e035d94fd346a94e7ed93d9a2698411182f610b6df24ee714aa2b2543c1"
 evidence = "source"
 source = "testdata/src/libmain.c"
 command = "written from the source: the results of the library's exports"
+tools = "none: no run is recorded"
+
+[[file]]
+path = "testdata/expected/cortexm.txt"
+sha256 = "7654ad57ba9e9b68d285e2e20e89aa9129d293ee757b0202ef92f93adda1ac8b"
+evidence = "source"
+source = "testdata/src/cortexm.c"
+command = "written from the source: what the program writes"
 tools = "none: no run is recorded"
 
 [[file]]
@@ -2437,7 +2463,7 @@ tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
 
 [[file]]
 path = "testdata/vectors/arm32/cases/system.cases"
-sha256 = "7bc65f67d678375aac8a46e3faf3a97b39c68065111bbe7a189290f99ae6df4c"
+sha256 = "f79f70fee182c8efbea6d15b0998ba4e72753768055afe36d9777fb82ad935cd"
 evidence = "source"
 source = "testdata/vectors/arm32/templates.txt"
 command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
@@ -2573,7 +2599,7 @@ tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubun
 
 [[file]]
 path = "testdata/vectors/arm32/system.vec"
-sha256 = "5dcdfe0e6ede48a774d0bd450f3f6250878fd5760256aaac7c2ac045ad02d47a"
+sha256 = "e07ffdd636945a54ac552fd3e2e798d1ea6905acb6102e19e03c2a6ae5710c14"
 evidence = "emulator"
 source = "testdata/vectors/arm32/cases/system.cases"
 command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"

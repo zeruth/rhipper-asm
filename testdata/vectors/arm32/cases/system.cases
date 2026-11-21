@@ -1,9 +1,9 @@
 Nop 00bf nop
 Nop aff30080 nop.w
-Trap 00be bkpt #0
-Trap 55be bkpt #0x55
-Trap ffbe bkpt #0xff
-Trap 01be bkpt #1
+Bkpt 00be bkpt #0
+Bkpt 55be bkpt #0x55
+Bkpt ffbe bkpt #0xff
+Bkpt 01be bkpt #1
 Trap 00de udf #0
 Trap 01de udf #1
 Trap ffde udf #0xff
