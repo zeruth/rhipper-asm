@@ -233,6 +233,9 @@ if (Wanted 'cortexm') {
   Write-Host "clang cortexm.elf" -ForegroundColor Cyan
   & clang @args
   if ($LASTEXITCODE -ne 0) { throw "clang failed for cortexm.elf" }
+  # cortexm.bin is the flat image a chip is flashed with: the ELF's flash contents alone.
+  & llvm-objcopy -O binary (Join-Path $bin 'cortexm.elf') (Join-Path $bin 'cortexm.bin')
+  if ($LASTEXITCODE -ne 0) { throw "llvm-objcopy failed for cortexm.bin" }
 }
 
 # hello_linux_a64 is the same program for ARM64 Linux, over an ARM64 build of the stub libc.so.6:

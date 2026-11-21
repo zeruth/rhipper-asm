@@ -295,6 +295,11 @@ pub fn analyze_with<'a>(image: &'a Image, facts: &Facts) -> Analysis<'a> {
             }
         }
     }
+    // A microcontroller's firmware names its reset handler and its exception handlers in the
+    // vector table at its start, and the processor enters them from there.
+    for (at, handler) in image.cortex_m_vectors().unwrap_or_default() {
+        state.seed(handler, Origin::TailCall(at));
+    }
     if let Some(exports) = &image.exports {
         for export in &exports.exports {
             // A DLL exports its data too (a vtable, a vbtable, a constant), which lies in the code

@@ -137,6 +137,24 @@ fn cortexm_firmware_runs_interpreted() {
     run_interpreted("cortexm.elf", &expected, "run-machine");
 }
 
+/// The same firmware as the flat image a chip is flashed with: no container and no symbol, the
+/// vector table at its start. Flash is placed by the reset handler's address, RAM runs to the
+/// stack's top, the handlers the table names are functions, and the run prints the same.
+#[test]
+fn cortexm_flat_image_runs_interpreted() {
+    let image = ra_asm_pe::load(&root().join("testdata/bin/cortexm.bin")).unwrap();
+    assert!(image.firmware);
+    assert_eq!((image.image_base(), image.entry_point()), (0x0800_0000, Some(0x0800_0160)));
+    let handlers: Vec<u64> = image.cortex_m_vectors().unwrap().into_iter().map(|(_, handler)| handler).collect();
+    assert_eq!(handlers.len(), 10, "reset, the faults and the tick: {handlers:x?}");
+    let functions: Vec<u64> = ra_asm_analysis::analyze(&image).functions.keys().copied().collect();
+    for handler in handlers {
+        assert!(functions.contains(&handler), "the handler at {handler:#x} is no function");
+    }
+    let expected = std::fs::read_to_string(root().join("testdata/expected/cortexm.txt")).unwrap();
+    run_interpreted("cortexm.bin", &expected, "run-machine");
+}
+
 /// The ARM64 Linux hello runs through the interpreter with the x64 build's native output.
 #[test]
 fn hello_linux_a64_runs_interpreted() {

@@ -74,6 +74,9 @@ pub struct Image {
     /// What a `PlayStation` BIOS ROM says of itself, on an image that is one: the ROM maps whole
     /// at [`psx::BIOS_RESET`], where the processor starts, and is entered at its first word.
     pub psx_bios: Option<psx::Bios>,
+    /// The image is a flat Cortex-M firmware: no container, its vector table at its start, flash
+    /// placed by the reset handler's address and RAM from the family's base to the stack's top.
+    pub firmware: bool,
     /// The Dreamcast boot program the image is, when it is one: its addresses fold through the
     /// console's memory map.
     pub dreamcast: Option<Boot>,
@@ -190,6 +193,7 @@ impl Image {
         let reader = Reader::new(&file);
         let mut psx = None;
         let mut psx_bios = None;
+        let mut flat_firmware = false;
         let mut rom = None;
         let (headers, sections, xbe, elf, macho) = if boot.is_some() {
             let (headers, sections) = dreamcast_layout(file.len())?;
@@ -217,6 +221,11 @@ impl Image {
         } else if ra_asm_format::macho::is_macho(&file) {
             let (headers, sections, macho) = crate::macho::parse(&file)?;
             (headers, sections, None, None, Some(macho))
+        } else if let Some(firmware) = CortexM::parse(&file) {
+            // A flat firmware image: no container, the vector table at its start.
+            let (headers, sections) = cortex_m_layout(file.len(), firmware)?;
+            flat_firmware = true;
+            (headers, sections, None, None, None)
         } else {
             let headers = Headers::parse(reader)?;
             let mut sections = Vec::with_capacity(headers.coff.sections as usize);
@@ -279,6 +288,7 @@ impl Image {
             macho,
             psx,
             psx_bios,
+            firmware: flat_firmware,
             dreamcast: boot,
             n64: rom,
             global_pointer: None,
@@ -409,7 +419,7 @@ impl Image {
     /// and so is the program's of a ROM that Nintendo's boot code copies flat.
     pub fn entry_point(&self) -> Option<u64> {
         let rva = self.headers.optional.entry_point;
-        let flat = self.psx.is_some() || self.psx_bios.is_some() || self.dreamcast.is_some() || self.n64.is_some();
+        let flat = self.psx.is_some() || self.psx_bios.is_some() || self.dreamcast.is_some() || self.n64.is_some() || self.firmware;
         (rva != 0 || flat).then(|| self.va(rva))
     }
 
@@ -490,6 +500,35 @@ impl Image {
         } else {
             None
         }
+    }
+
+    /// The handlers of a Cortex-M firmware's vector table, with the address of each one's entry
+    /// in the table: the image is 32-bit ARM, its first word is a stack pointer in the RAM of a
+    /// microcontroller (`0x2000_0000` up), and the words after it are handlers, each the address
+    /// of code with its low bit set (the processor has only Thumb) or zero for an exception the
+    /// firmware leaves alone. The processor enters them: nothing of the program calls one. The
+    /// table ends at the first word that is neither, and `None` is an image with no such table.
+    pub fn cortex_m_vectors(&self) -> Option<Vec<(u64, u64)>> {
+        if self.machine() != Machine::Arm {
+            return None;
+        }
+        let base = self.image_base();
+        let stack = self.u32(base).ok()?;
+        let handler = |word: u32| word & 1 == 1 && self.is_code(u64::from(word & !1));
+        if !(0x2000_0000..0x4000_0000).contains(&stack) || stack % 4 != 0 || !handler(self.u32(base + 4).ok()?) {
+            return None;
+        }
+        let mut handlers = Vec::new();
+        // The system exceptions and as many interrupts as the largest of the family has.
+        for n in 1..16 + 240 {
+            let at = base + 4 * n;
+            match self.u32(at) {
+                Ok(0) => {}
+                Ok(word) if handler(word) => handlers.push((at, u64::from(word & !1))),
+                _ => break,
+            }
+        }
+        Some(handlers)
     }
 
     /// Whether the image is a `PlayStation 2` program: an ELF whose code is the Emotion Engine's.
@@ -754,6 +793,67 @@ fn psx_bios_layout(len: usize) -> Result<(Headers, Vec<Section>)> {
     headers.optional.image_base = psx::BIOS_RESET;
     headers.optional.size_of_code = size;
     headers.optional.size_of_image = size;
+    Ok((headers, sections))
+}
+
+/// What the first words of a flat Cortex-M firmware image say: where flash is, where the reset
+/// handler is, and where the stack starts, which is the end of the RAM the firmware uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CortexM {
+    base: u64,
+    reset: u64,
+    stack: u64,
+}
+
+impl CortexM {
+    /// Reads a file as the image a microcontroller is flashed with: no header, the vector table
+    /// first. Its first word is the stack pointer, in the RAM of the family (`0x2000_0000` up);
+    /// its second the reset handler, an address in the image with its low bit set; and most of
+    /// the exception vectors after them are such addresses too, or zero. The image holds no
+    /// address of its own, so flash is taken to start at the boundary below the reset handler
+    /// that the image's size, as a power of two, lies on.
+    fn parse(file: &[u8]) -> Option<Self> {
+        let word = |n: usize| file.get(4 * n..4 * n + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+        let (stack, reset) = (word(0)?, word(1)?);
+        if file.len() < 64 || !(0x2000_0000..0x4000_0000).contains(&stack) || stack % 4 != 0 || reset & 1 == 0 || reset >= 0x2000_0000 {
+            return None;
+        }
+        let span = (file.len() as u64).next_power_of_two();
+        let base = u64::from(reset & !1) & !(span - 1);
+        let inside = |word: u32| word & 1 == 1 && (base..base + file.len() as u64).contains(&u64::from(word & !1));
+        let vectors: Vec<u32> = (2..16).filter_map(word).collect();
+        let handlers = vectors.iter().filter(|&&v| inside(v)).count();
+        let plausible = inside(reset) && handlers >= 3 && vectors.iter().all(|&v| v == 0 || inside(v));
+        plausible.then_some(Self { base, reset: u64::from(reset & !1), stack: u64::from(stack) })
+    }
+}
+
+/// The headers and the sections a flat Cortex-M firmware image of `len` bytes stands for:
+/// `.flash`, the whole file where the vector table puts it, code and read-only data both, and
+/// `.ram`, from the family's RAM base to the stack's top, which the image holds no byte of.
+fn cortex_m_layout(len: usize, firmware: CortexM) -> Result<(Headers, Vec<Section>)> {
+    const RAM: u64 = 0x2000_0000;
+    let size = u32::try_from(len).context("the firmware image is larger than 4 GiB")?;
+    let (mut headers, mut sections) = dreamcast_layout(len.min(0x8000))?;
+    let flash = sections.first_mut().context("no section")?;
+    ".flash".clone_into(&mut flash.name);
+    (flash.virtual_size, flash.raw_size) = (size, size);
+    flash.characteristics = crate::elf::characteristics(true, false, false);
+    let ram_end = firmware.stack.next_multiple_of(0x1000);
+    sections.push(Section {
+        name: ".ram".to_owned(),
+        virtual_size: u32::try_from(ram_end - RAM).context("the firmware's RAM is larger than 4 GiB")?,
+        virtual_address: u32::try_from(RAM - firmware.base).context("flash lies above the RAM")?,
+        raw_size: 0,
+        raw_offset: 0,
+        characteristics: crate::elf::characteristics(false, true, true),
+    });
+    headers.coff.machine = Machine::Arm;
+    headers.coff.sections = 2;
+    headers.optional.image_base = firmware.base;
+    headers.optional.entry_point = u32::try_from(firmware.reset - firmware.base).context("the reset handler lies outside the image")?;
+    headers.optional.size_of_code = size;
+    headers.optional.size_of_image = u32::try_from(ram_end - firmware.base).context("the firmware's memory is larger than 4 GiB")?;
     Ok((headers, sections))
 }
 
