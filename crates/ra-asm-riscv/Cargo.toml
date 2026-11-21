@@ -1,0 +1,13 @@
+[package]
+name = "ra-asm-riscv"
+description = "The RISC-V decoder: the base integer instructions of RV32 and RV64 and the multiply and divide extension, each as its fields and as the text a disassembler writes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
