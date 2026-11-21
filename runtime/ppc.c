@@ -11,7 +11,8 @@
 // the program's own byte order whatever the host's.
 //
 // The state is slots of eight bytes, a register in the low four: r0 to r31, lr, ctr, the
-// condition register and xer. The system under the program is Linux's, as far as a program
+// condition register and xer, then the thirty-two floating-point registers, a double each, and
+// fpscr. The system under the program is Linux's, as far as a program
 // without a C library needs it to print and to end: `write` and `exit`, by `sc`, the call's
 // number in r0, its arguments from r3 and its result in r3.
 
@@ -27,7 +28,7 @@ extern void ppc_main(uint8_t *state);
 
 #define SPACE ((uint64_t)1 << 31)
 #define STACK_TOP ((uint64_t)0x7ff00000 + 0x100000)
-#define SLOTS 36
+#define SLOTS 69
 
 static uint8_t *memory;
 

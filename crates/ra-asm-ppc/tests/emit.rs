@@ -1,4 +1,4 @@
-//! The emit: the lifted fixture through the C backend. The source defines the program's code
+//! The emit: the lifted fixtures through the C backend. The source defines the program's code
 //! and its entry; compiled with the C runtime (`runtime/ppc.c`), where there is a `clang`, it is
 //! a program of this machine that prints what the fixture printed under the emulator and ends
 //! with the same code.
@@ -13,35 +13,37 @@ fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn source() -> String {
-    let program = Program::parse(&std::fs::read(workspace().join("testdata/ppc/ppc.elf")).unwrap()).unwrap();
+fn source(name: &str) -> String {
+    let program = Program::parse(&std::fs::read(workspace().join(format!("testdata/ppc/{name}.elf"))).unwrap()).unwrap();
     emit_c(&program.lift().unwrap(), &Options::default())
 }
 
 #[test]
 fn the_source_defines_the_program() {
-    let text = source();
-    assert!(!text.contains("is not written"), "a global the backend left out");
-    for defined in ["void ppc_run(", "void ppc_main(", "ppc_memory", "ppc_segment_0"] {
-        assert!(text.contains(defined), "the source has no {defined}");
-    }
-    for called in ["ppc_sc(", "ppc_trap(", "ppc_segment("] {
-        assert!(text.contains(called), "the source never calls {called}");
+    for name in ["ppc", "ppcfp"] {
+        let text = source(name);
+        assert!(!text.contains("is not written"), "a global the backend left out");
+        for defined in ["void ppc_run(", "void ppc_main(", "ppc_memory", "ppc_segment_0"] {
+            assert!(text.contains(defined), "the source has no {defined}");
+        }
+        for called in ["ppc_sc(", "ppc_trap(", "ppc_segment("] {
+            assert!(text.contains(called), "the source never calls {called}");
+        }
     }
 }
 
-#[test]
-fn the_compiled_port_does_what_the_machine_did() {
+fn the_port_does_what_the_machine_did(name: &str) {
     if !Command::new("clang").arg("--version").output().is_ok_and(|o| o.status.success()) {
         eprintln!("clang is not on the PATH: the port's test is skipped");
         return;
     }
-    let scratch = ra_asm_testing::Scratch::new("ra-asm-ppc-tests", "port");
+    let scratch = ra_asm_testing::Scratch::new("ra-asm-ppc-tests", name);
     let path = scratch.join("program.c");
-    std::fs::write(&path, source()).unwrap();
-    let executable = scratch.join(format!("ppc{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(&path, source(name)).unwrap();
+    let executable = scratch.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+    // The lift's products and sums are the program's own: the compiler is not to fuse them.
     let build = Command::new("clang")
-        .args(["-O1", "-Werror=implicit-function-declaration", "-I"])
+        .args(["-O1", "-ffp-contract=off", "-Werror=implicit-function-declaration", "-I"])
         .arg(workspace().join("runtime"))
         .arg(&path)
         .arg(workspace().join("runtime/ppc.c"))
@@ -59,10 +61,20 @@ fn the_compiled_port_does_what_the_machine_did() {
         panic!("clang:\n{text}");
     }
     let run = Command::new(&executable).output().unwrap();
-    let recorded = std::fs::read_to_string(workspace().join("testdata/ppc/ppc.out")).unwrap().replace("\r\n", "\n");
+    let recorded = std::fs::read_to_string(workspace().join(format!("testdata/ppc/{name}.out"))).unwrap().replace("\r\n", "\n");
     let (printed, ended) = recorded.trim_end().rsplit_once('\n').unwrap();
     let code: i32 = ended.strip_prefix("exit ").unwrap().parse().unwrap();
     let wrote = String::from_utf8_lossy(&run.stdout).replace("\r\n", "\n");
     assert_eq!(wrote.trim_end(), printed, "{}", String::from_utf8_lossy(&run.stderr));
     assert_eq!(run.status.code(), Some(code));
+}
+
+#[test]
+fn the_compiled_port_does_what_the_machine_did() {
+    the_port_does_what_the_machine_did("ppc");
+}
+
+#[test]
+fn the_compiled_floating_point_does_what_the_machine_did() {
+    the_port_does_what_the_machine_did("ppcfp");
 }

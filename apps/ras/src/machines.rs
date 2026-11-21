@@ -156,7 +156,8 @@ fn port(directory: &Path, name: &str, source: &str, runtime: (&str, &str), no_bu
         ra_asm_emit::write_if_changed(&directory.join(file), text.as_bytes()).with_context(|| format!("writing {file}"))?;
     }
     let executable = format!("{name}{}", std::env::consts::EXE_SUFFIX);
-    let arguments = ["-O2", "-I", ".", "program.c", runtime.0, "-o", executable.as_str()];
+    // The lift's products and sums are the program's own: the compiler is not to fuse them.
+    let arguments = ["-O2", "-ffp-contract=off", "-I", ".", "program.c", runtime.0, "-o", executable.as_str()];
     std::fs::write(directory.join("build.cmd"), format!("clang {}\n", arguments.join(" ")))?;
     if no_build {
         eprintln!("{}: the sources are written; build.cmd builds {executable}", directory.display());

@@ -14,7 +14,8 @@ fn ras(arguments: &[&str], program: &str) -> std::process::Output {
 }
 
 /// The command's name, the fixture's program, and an instruction its listing has.
-const MACHINES: [(&str, &str, &str); 4] = [
+const MACHINES: [(&str, &str, &str); 5] = [
+    ("ppc", "ppc/ppcfp.elf", "fmadd 0, 1, 2, 0"),
     ("riscv", "riscv/rv64.elf", "ecall"),
     ("riscv", "riscv/rv32c.elf", "ecall"),
     ("ppc", "ppc/ppc.elf", "mullw 5, 3, 5"),
