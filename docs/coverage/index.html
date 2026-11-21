@@ -405,7 +405,7 @@ const JAVA_RELEASES = [
   [22, "Java 22", "66", ""], [23, "Java 23", "67", ""], [24, "Java 24", "68", ""], [25, "Java 25", "69", ""],
 ];
 FAMILIES.push({ id: "java", name: "Java · the JVM's bytecode", tag: "decoding", color: "rgb(240 150 60)",
-  blurb: "A machine of another kind: a stack machine whose instructions name their types, in a container that names every class, field and method it touches. Each release of Java is a target of its own, told by its class files' major version, and a class is held to what its release had: no invokedynamic before Java 7, no subroutine after it, no constant of a kind that came later. The class file reads and every instruction decodes, checked against javap's listing on a class compiled for each release the JDK still targets. The lift is next: the operand stack has a fixed depth at every instruction, so it becomes IR values directly, and the emit can be Java again as well as C.",
+  blurb: "A machine of another kind: a stack machine whose instructions name their types, in a container that names every class, field and method it touches. Each release of Java is a target of its own, told by its class files' major version, and a class is held to what its release had: no invokedynamic before Java 7, no subroutine after it, no constant of a kind that came later. The class file reads and every instruction decodes, checked against javap's listing on a class compiled for each release the JDK still targets. The lift has its first half: every instruction is given the operand stack it finds, slot by slot and kind by kind, and the deepest the stack gets is the depth the compiler wrote, for every method of every release's fixture. The stack's slots become IR values next, and the emit can be Java again as well as C.",
   facts: [["{jvm_opcodes}", "instructions decoded"], ["{jvm_releases}", "releases with a compiled fixture"], ["{jvm_listings}", "checked against javap"], ["{jvm_lines}", "lines in ra-asm-jvm"], ["{jvm_tests}", "tests"], ["45–69", "class file versions read"]],
   scope: {}, keyCards: [],
   platforms: JAVA_RELEASES.map(([release, n, major, d]) => ({ release, n: `${n} (class files ${major})`, s: [4, 4, 0, 0, 0, 0, 0, 0], d })),
@@ -446,7 +446,8 @@ const java = M.java || { opcodes: 0, releases: {}, lines: 0, tests: 0 };
 Object.assign(GLOBAL, { jvm_opcodes: java.opcodes, jvm_releases: Object.keys(java.releases).length, jvm_listings: Object.values(java.releases).filter((r) => r.listing).length, jvm_lines: fmt(java.lines), jvm_tests: java.tests });
 FAMILIES.find((f) => f.id === "java").platforms.forEach((p) => {
   const fixture = java.releases[p.release];
-  if (fixture && fixture.listing) { p.s[0] = 5; p.s[1] = 5; p.d = (p.d ? p.d + "; " : "") + "a compiled class decodes as javap lists it"; }
+  // the lift is partial where the operand stack is walked to the depth the compiler wrote
+  if (fixture && fixture.listing) { p.s[0] = 5; p.s[1] = 5; p.s[2] = 3; p.d = (p.d ? p.d + "; " : "") + "a compiled class decodes as javap lists it, and its operand stack walks to the depth javac wrote"; }
 });
 const milestone = (id) => M.milestones.find((m) => m.id === id) || { tasks: [], sections: [] };
 const sectionTasks = (id) => { // the tasks under a section: the ids that follow it in its milestone up to the next section
