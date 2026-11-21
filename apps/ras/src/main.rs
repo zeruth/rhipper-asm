@@ -19,6 +19,7 @@ mod port;
 mod preflight;
 mod project;
 mod report;
+mod riscv;
 mod run;
 mod score;
 mod serve;
@@ -325,6 +326,28 @@ enum Command {
         /// An argument of the program's `main`. Repeatable.
         #[arg(long = "arg", value_name = "TEXT")]
         args: Vec<String>,
+        /// Stop the run after this many instructions of the IR; zero for no limit.
+        #[arg(long, default_value_t = 0)]
+        limit: u64,
+    },
+    /// A RISC-V program, from its ELF file. By itself, the instructions of its code. With `--ll`,
+    /// the IR of its lift; with `--run`, the lifted program run over the interpreter, its exit
+    /// code the command's; with `--port`, the program as C beside its runtime, built with clang.
+    Riscv {
+        program: PathBuf,
+        /// Write the lifted IR to this file.
+        #[arg(long, value_name = "FILE")]
+        ll: Option<PathBuf>,
+        /// Write the port of the program into this directory: `program.c`, the runtime beside it
+        /// and `build.cmd`, built with clang into an executable named after the program.
+        #[arg(long, value_name = "DIR")]
+        port: Option<PathBuf>,
+        /// With `--port`, write the sources and build nothing.
+        #[arg(long, requires = "port")]
+        no_build: bool,
+        /// Run the lifted program.
+        #[arg(long)]
+        run: bool,
         /// Stop the run after this many instructions of the IR; zero for no limit.
         #[arg(long, default_value_t = 0)]
         limit: u64,
@@ -767,6 +790,9 @@ fn command() -> anyhow::Result<()> {
         ),
         Command::Java { classes, ll, c, main, port, no_build, run, args, limit } => {
             java::java(&classes, &java::Options { ll, c, main, port, no_build, run, args, limit, json })
+        }
+        Command::Riscv { program, ll, port, no_build, run, limit } => {
+            riscv::riscv(&program, &riscv::Options { ll, port, no_build, run, limit })
         }
         Command::Port { pe, out, name, no_build, quiet, with, entries } => {
             port::port(&load(&pe, sigs)?, &out, &port::Options { name, no_build, quiet, with, entries })
