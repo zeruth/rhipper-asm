@@ -7,6 +7,9 @@
 typedef unsigned int u32;
 typedef unsigned long long u64;
 
+// Another machine's fixture is this program with its own system call before it
+// (`testdata/ppc/src/ppc.c`): the calls' numbers, 4 to write and 1 to end, are the same there.
+#ifndef HAVE_SYSCALL3
 static long syscall3(long number, long a, long b, long c) {
     register long r3 __asm__("r3") = number;
     register long r4 __asm__("r4") = a;
@@ -16,6 +19,7 @@ static long syscall3(long number, long a, long b, long c) {
     __asm__ volatile("trapa #0x13" : "=r"(r0) : "r"(r3), "r"(r4), "r"(r5), "r"(r6) : "memory");
     return r0;
 }
+#endif
 
 __attribute__((noinline)) static void print(int v) {
     char text[16];
