@@ -11,6 +11,11 @@ fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/java")
 }
 
+/// What a fixture printed, whatever line ends the checkout gave its file.
+fn printed(path: &std::path::Path) -> String {
+    std::fs::read_to_string(path).unwrap().replace("\r\n", "\n")
+}
+
 #[test]
 fn the_lifted_fixture_prints_what_java_prints() {
     for release in 8..=25 {
@@ -19,7 +24,7 @@ fn the_lifted_fixture_prints_what_java_prints() {
         let module = lift(std::slice::from_ref(&file)).unwrap_or_else(|e| panic!("release {release}: {e}"));
         let outcome = run(&module, "Opcodes", &[], 50_000_000).unwrap_or_else(|stop| panic!("release {release}: {stop:?}"));
         assert_eq!(outcome.thrown, None, "release {release}");
-        let expected = std::fs::read_to_string(directory.join("Opcodes.out")).unwrap();
+        let expected = printed(&directory.join("Opcodes.out"));
         assert_eq!(String::from_utf8_lossy(&outcome.out), expected, "release {release}");
         assert!(outcome.steps > 1000, "release {release}: {} steps", outcome.steps);
     }
@@ -53,7 +58,7 @@ fn an_uncaught_exception_ends_the_run_by_its_name() {
     let classes: Vec<ClassFile> = paths.iter().map(|path| ClassFile::parse(&std::fs::read(path).unwrap()).unwrap()).collect();
     let module = lift(&classes).unwrap();
     let outcome = run(&module, "Thrown", &[], 1_000_000).unwrap();
-    let expected = std::fs::read_to_string(fixtures().join("thrown/Thrown.out")).unwrap();
+    let expected = printed(&fixtures().join("thrown/Thrown.out"));
     assert_eq!(String::from_utf8_lossy(&outcome.out), expected);
     assert_eq!(outcome.thrown.as_deref(), Some("java.lang.IllegalStateException: 3"));
 }
