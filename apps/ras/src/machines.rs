@@ -1,8 +1,8 @@
-//! `ras riscv`, `ras ppc`, `ras sh4`: a program of a machine whose lift stands beside the
-//! pipeline, read, lifted and run.
+//! `ras riscv`, `ras ppc`, `ras sh4`, `ras msp430`: a program of a machine whose lift stands
+//! beside the pipeline, read, lifted and run.
 //!
 //! The command takes a program's ELF file and tells the machine by it: RISC-V of either width,
-//! 32-bit big-endian PowerPC, little-endian SH-4. By itself it lists the instructions of the
+//! big-endian PowerPC (or a DOL file), SH-4, the MSP430. By itself it lists the instructions of the
 //! program's code, each at its address. `--ll` writes the IR of the lift, `--run` runs the lifted
 //! program over the interpreter with the system calls a program without a C library makes, and
 //! `--port` writes a directory of the program as C with the machine's C runtime beside it, built
@@ -27,6 +27,7 @@ enum Program {
     Riscv(ra_asm_riscv::run::Program),
     Ppc(ra_asm_ppc::run::Program),
     Sh4(ra_asm_sh::run::Program),
+    Msp430(ra_asm_msp430::run::Program),
 }
 
 impl Program {
@@ -46,7 +47,8 @@ impl Program {
             Some(243) => Ok(Self::Riscv(ra_asm_riscv::run::Program::parse(bytes).map_err(|e| failed(e.0))?)),
             Some(20 | 21) => Ok(Self::Ppc(ra_asm_ppc::run::Program::parse(bytes).map_err(|e| failed(e.0))?)),
             Some(42) => Ok(Self::Sh4(ra_asm_sh::run::Program::parse(bytes).map_err(|e| failed(e.0))?)),
-            Some(other) => anyhow::bail!("an ELF file of machine {other}, which is none of RISC-V, PowerPC and SH-4"),
+            Some(105) => Ok(Self::Msp430(ra_asm_msp430::run::Program::parse(bytes).map_err(|e| failed(e.0))?)),
+            Some(other) => anyhow::bail!("an ELF file of machine {other}, which is none of RISC-V, PowerPC, SH-4 and the MSP430"),
             None => anyhow::bail!("no ELF file"),
         }
     }
@@ -57,6 +59,7 @@ impl Program {
             Self::Riscv(_) => ("riscv.c", include_str!("../../../runtime/riscv.c")),
             Self::Ppc(_) => ("ppc.c", include_str!("../../../runtime/ppc.c")),
             Self::Sh4(_) => ("sh4.c", include_str!("../../../runtime/sh4.c")),
+            Self::Msp430(_) => ("msp430.c", include_str!("../../../runtime/msp430.c")),
         }
     }
 
@@ -66,6 +69,7 @@ impl Program {
             Self::Riscv(program) => program.lift_functions().map_err(|e| anyhow::anyhow!("the lift: {e}")),
             Self::Ppc(program) => program.lift().map_err(|e| anyhow::anyhow!("the lift: {e}")),
             Self::Sh4(program) => program.lift().map_err(|e| anyhow::anyhow!("the lift: {e}")),
+            Self::Msp430(program) => program.lift().map_err(|e| anyhow::anyhow!("the lift: {e}")),
         }
     }
 
@@ -82,6 +86,10 @@ impl Program {
             }
             Self::Sh4(program) => {
                 let outcome = ra_asm_sh::run::run(program, limit).map_err(|e| anyhow::anyhow!("{e}"))?;
+                (outcome.out, outcome.exit)
+            }
+            Self::Msp430(program) => {
+                let outcome = ra_asm_msp430::run::run(program, limit).map_err(|e| anyhow::anyhow!("{e}"))?;
                 (outcome.out, outcome.exit)
             }
         })
@@ -122,6 +130,19 @@ impl Program {
                     let decoded = decoder.decode_word(word, address);
                     let text = decoded.map_or_else(|| "unknown".to_owned(), |i| i.text);
                     writeln!(out, "{address:#010x}  {text}")?;
+                }
+            }
+            Self::Msp430(program) => {
+                // An instruction is one to three words: the code is read from its start.
+                let code = program.segments.iter().find(|s| s.executable).context("the program has no code")?;
+                let words: Vec<u16> = code.bytes.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect();
+                let mut index = 0;
+                while index < words.len() {
+                    let address = (code.address as u16).wrapping_add(2 * index as u16);
+                    let (text, length) =
+                        ra_asm_msp430::disasm::disassemble(&words[index..], address).unwrap_or_else(|| ("unknown".to_owned(), 2));
+                    writeln!(out, "{address:#06x}  {}", text.replace('\t', " "))?;
+                    index += usize::from(length / 2);
                 }
             }
         }

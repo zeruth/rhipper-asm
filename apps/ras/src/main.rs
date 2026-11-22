@@ -331,11 +331,11 @@ enum Command {
         limit: u64,
     },
     /// A program of a machine whose lift stands beside the pipeline, from its ELF file, which
-    /// says the machine: RISC-V, 32-bit PowerPC or SH-4, under any of the command's names. By
-    /// itself, the instructions of its code. With `--ll`, the IR of its lift; with `--run`, the
-    /// lifted program run over the interpreter, its exit code the command's; with `--port`, the
-    /// program as C beside its runtime, built with clang.
-    #[command(visible_aliases = ["ppc", "sh4"])]
+    /// says the machine: RISC-V, PowerPC, SH-4 or the MSP430, under any of the command's names.
+    /// By itself, the instructions of its code. With `--ll`, the IR of its lift; with `--run`,
+    /// the lifted program run over the interpreter, its exit code the command's; with `--port`,
+    /// the program as C beside its runtime, built with clang.
+    #[command(visible_aliases = ["ppc", "sh4", "msp430"])]
     Riscv {
         program: PathBuf,
         /// Write the lifted IR to this file.

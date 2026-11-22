@@ -14,7 +14,8 @@ fn ras(arguments: &[&str], program: &str) -> std::process::Output {
 }
 
 /// The command's name, the fixture's program, and an instruction its listing has.
-const MACHINES: [(&str, &str, &str); 9] = [
+const MACHINES: [(&str, &str, &str); 10] = [
+    ("msp430", "msp430/msp430.elf", "mov.b r10, &514"),
     ("ppc", "ppc/gc.dol", "mullw 5, 3, 5"),
     ("ppc", "ppc/ppc64.elf", "extsw 3, 3"),
     ("sh4", "sh4/sh4eb.elf", "dmulu.l"),
@@ -56,5 +57,5 @@ fn the_machine_is_the_file_s_whatever_the_command_s_name() {
     // A program of a machine the command has no lift of is refused by name.
     let output = ras(&["ppc"], "bin/cortexm.elf");
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("none of RISC-V, PowerPC and SH-4"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("none of RISC-V, PowerPC, SH-4 and the MSP430"));
 }

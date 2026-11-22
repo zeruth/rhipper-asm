@@ -1,6 +1,6 @@
 [package]
 name = "ra-asm-msp430"
-description = "The MSP430, a 16-bit microcontroller: its instructions decoded and written as the disassembler writes them"
+description = "The MSP430, a 16-bit microcontroller: its instructions decoded and written as the disassembler writes them, the lift of a program to IR at the machine's own level, and a run of a lifted program over the interpreter"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,5 +11,8 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+ra-asm-ir.workspace = true
 
 [dev-dependencies]
+ra-asm-emit.workspace = true
+ra-asm-testing.workspace = true
