@@ -8,18 +8,23 @@
 # Usage, from the repository's root: wsl -e sh testdata/ppc/build.sh
 set -e
 here=$(dirname "$0")
+# build <name> <emulator> <flags...>
 build() {
     name=$1
-    shift
-    clang --target=powerpc-unknown-linux-gnu -mcpu=750 "$@" -O1 -fno-unroll-loops -fno-vectorize -nostdlib -ffreestanding -static \
+    emulator=$2
+    shift 2
+    clang "$@" -O1 -fno-unroll-loops -fno-vectorize -nostdlib -ffreestanding -static \
         -fuse-ld=lld -Wl,--build-id=none -Wl,-e,_start "$here/src/$name.c" -o "$here/$name.elf"
     llvm-objdump -d "$here/$name.elf" > "$here/$name.txt"
     set +e
-    qemu-ppc-static "$here/$name.elf" > "$here/$name.out"
+    "$emulator" "$here/$name.elf" > "$here/$name.out"
     code=$?
     set -e
     echo "exit $code" >> "$here/$name.out"
     echo "$name.elf: $(wc -c < "$here/$name.elf") bytes, $(wc -l < "$here/$name.txt") lines listed, exit $code"
 }
-build ppc -msoft-float
-build ppcfp -mhard-float
+build ppc qemu-ppc-static --target=powerpc-unknown-linux-gnu -mcpu=750 -msoft-float
+build ppcfp qemu-ppc-static --target=powerpc-unknown-linux-gnu -mcpu=750 -mhard-float
+# The 64-bit machine of the later consoles, big-endian, integer code: the linker here links
+# only the newer of its two calling conventions, which has no function descriptors.
+build ppc64 qemu-ppc64-static --target=powerpc64-unknown-linux-gnu -mabi=elfv2 -mcpu=970 -mno-altivec

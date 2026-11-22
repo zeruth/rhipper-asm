@@ -27,6 +27,15 @@ fn the_lifted_fixture_does_what_the_machine_did() {
     does_what_the_machine_did("ppc", 14);
 }
 
+/// The same program built for the 64-bit machine of the later consoles: a file of the wider
+/// class, lifted by the 64-bit lift.
+#[test]
+fn the_lifted_64_bit_program_does_what_the_machine_did() {
+    let program = Program::parse(&std::fs::read(fixture("ppc64.elf")).unwrap()).unwrap();
+    assert!(program.wide);
+    does_what_the_machine_did("ppc64", 14);
+}
+
 #[test]
 fn the_lifted_floating_point_does_what_the_machine_did() {
     does_what_the_machine_did("ppcfp", 28);

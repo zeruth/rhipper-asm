@@ -37,7 +37,7 @@ impl Program {
         let failed = |e: String| anyhow::anyhow!("{e}");
         match machine {
             Some(243) => Ok(Self::Riscv(ra_asm_riscv::run::Program::parse(bytes).map_err(|e| failed(e.0))?)),
-            Some(20) => Ok(Self::Ppc(ra_asm_ppc::run::Program::parse(bytes).map_err(|e| failed(e.0))?)),
+            Some(20 | 21) => Ok(Self::Ppc(ra_asm_ppc::run::Program::parse(bytes).map_err(|e| failed(e.0))?)),
             Some(42) => Ok(Self::Sh4(ra_asm_sh::run::Program::parse(bytes).map_err(|e| failed(e.0))?)),
             Some(other) => anyhow::bail!("an ELF file of machine {other}, which is none of RISC-V, PowerPC and SH-4"),
             None => anyhow::bail!("no ELF file"),

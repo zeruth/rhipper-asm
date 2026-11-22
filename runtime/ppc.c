@@ -48,7 +48,8 @@ void ppc_segment(uint64_t address, uint8_t *bytes, uint64_t in_file, uint64_t si
 void ppc_sc(uint8_t *state) {
     uint64_t *slot = (uint64_t *)state;
     uint32_t call = (uint32_t)slot[0], a = (uint32_t)slot[3], b = (uint32_t)slot[4], c = (uint32_t)slot[5];
-    uint32_t *result = (uint32_t *)&slot[3];
+    // The whole slot: a 64-bit program's register is all of it, a 32-bit one's the low half.
+    uint64_t *result = &slot[3];
     switch (call) {
     case 4: // write
         if (a == 1 || a == 2) {

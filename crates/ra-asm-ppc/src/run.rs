@@ -29,11 +29,13 @@ pub struct Segment {
     pub executable: bool,
 }
 
-/// A 32-bit big-endian PowerPC program as its ELF file has it.
+/// A big-endian PowerPC program as its ELF file has it, of either width.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Program {
     pub entry: u64,
     pub segments: Vec<Segment>,
+    /// The program is a 64-bit one: [`crate::lift64`] lifts its code.
+    pub wide: bool,
 }
 
 impl Program {
@@ -51,24 +53,28 @@ impl Program {
         let number = |offset: u64, len: u64| -> Result<u64, Error> {
             Ok(at(offset, len)?.iter().fold(0u64, |value, &byte| value << 8 | u64::from(byte)))
         };
-        if at(0, 4)? != b"\x7fELF" || at(4, 2)? != [1, 2] {
-            return Err(bad("it is no big-endian 32-bit ELF file"));
+        if at(0, 4)? != b"\x7fELF" || !matches!(at(4, 1)?, [1 | 2]) || at(5, 1)? != [2] {
+            return Err(bad("it is no big-endian ELF file"));
         }
-        if number(18, 2)? != 20 {
+        // A file of the 64-bit class is a 64-bit program's: its headers are laid out wider.
+        let wide = at(4, 1)? == [2];
+        if number(18, 2)? != if wide { 21 } else { 20 } {
             return Err(bad("its machine is not PowerPC"));
         }
-        let (entry, table, entry_size, count) = (number(24, 4)?, number(28, 4)?, number(42, 2)?, number(44, 2)?);
+        let (entry, table, entry_size, count) = if wide {
+            (number(24, 8)?, number(32, 8)?, number(54, 2)?, number(56, 2)?)
+        } else {
+            (number(24, 4)?, number(28, 4)?, number(42, 2)?, number(44, 2)?)
+        };
         let mut segments = Vec::new();
         for n in 0..count {
-            let header = table + n * entry_size;
-            let (kind, offset, address, in_file, size, flags) = (
-                number(header, 4)?,
-                number(header + 4, 4)?,
-                number(header + 8, 4)?,
-                number(header + 16, 4)?,
-                number(header + 20, 4)?,
-                number(header + 24, 4)?,
-            );
+            let header = table.checked_add(n * entry_size).ok_or_else(|| bad("a header ends outside the file"))?;
+            let field = |at: u64, len: u64| number(header.checked_add(at).ok_or_else(|| bad("a header ends outside the file"))?, len);
+            let (kind, offset, address, in_file, size, flags) = if wide {
+                (field(0, 4)?, field(8, 8)?, field(16, 8)?, field(32, 8)?, field(40, 8)?, field(4, 4)?)
+            } else {
+                (field(0, 4)?, field(4, 4)?, field(8, 4)?, field(16, 4)?, field(20, 4)?, field(24, 4)?)
+            };
             if kind == 1 && size != 0 {
                 // A segment with no bytes in the file (what the program clears) may say an
                 // offset past the file's end: nothing is read there.
@@ -76,7 +82,7 @@ impl Program {
                 segments.push(Segment { address, bytes, size, executable: flags & 1 != 0 });
             }
         }
-        Ok(Self { entry, segments })
+        Ok(Self { entry, segments, wide })
     }
 
     /// The whole program lifted: the code of its first executable segment as [`lift`] makes it,
@@ -87,7 +93,8 @@ impl Program {
     /// When the program has no executable segment.
     pub fn lift(&self) -> Result<Module, Error> {
         let code = self.segments.iter().find(|s| s.executable).ok_or_else(|| Error("the program has no code".to_owned()))?;
-        let mut module = lift(Code { address: code.address, bytes: &code.bytes });
+        let code = Code { address: code.address, bytes: &code.bytes };
+        let mut module = if self.wide { crate::lift64::lift(code) } else { lift(code) };
         let segment_ty = FnType::new(Type::Void, vec![Type::I64, Type::Ptr, Type::I64, Type::I64]);
         module.declare(Declaration { name: SEGMENT.to_owned(), ty: segment_ty.clone(), conv: CallConv::C, attrs: Vec::new() });
         let mut b = FunctionBuilder::new(MAIN, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
@@ -110,6 +117,12 @@ impl Program {
                 (Type::I64, Operand::Int(i128::from(segment.size))),
             ];
             b.call(block, segment_ty.clone(), Callee::Direct(SEGMENT.to_owned()), args, "");
+        }
+        if self.wide {
+            // A 64-bit program finds its table of contents from its entry's own address, which
+            // the system leaves in r12.
+            let r12 = b.gep(block, Type::I8, b.param(0), vec![(Type::I64, Operand::Int(8 * 12))], "r12");
+            b.store(block, Type::I64, Operand::Int(i128::from(self.entry)), r12);
         }
         let args = vec![(Type::Ptr, Operand::from(b.param(0))), (Type::I64, Operand::Int(i128::from(self.entry)))];
         b.call(block, FnType::new(Type::Void, vec![Type::Ptr, Type::I64]), Callee::Direct(RUN.to_owned()), args, "");
@@ -141,7 +154,8 @@ impl Host for Linux {
         let first = args.first().map_or(0, Value::as_u64);
         match name {
             SC => {
-                let register = |vm: &mut Vm<'_>, n: u64| vm.memory.read_u32(first + 8 * n).map(u64::from);
+                // A slot's eight bytes: a 32-bit program leaves the high four zero.
+                let register = |vm: &mut Vm<'_>, n: u64| vm.memory.read_u64(first + 8 * n);
                 let (number, a, b, c) = (register(vm, 0)?, register(vm, 3)?, register(vm, 4)?, register(vm, 5)?);
                 let result: u32 = match number {
                     // write
@@ -155,7 +169,7 @@ impl Host for Linux {
                     1 | 234 => return Err(Stop::Exit(a as i32)),
                     _ => return Err(Stop::fault(format!("the system call {number} is not interpreted"))),
                 };
-                vm.memory.write_u32(first + 8 * 3, result)?;
+                vm.memory.write_u64(first + 8 * 3, u64::from(result))?;
                 Ok(Value::Int(0))
             }
             SEGMENT => {

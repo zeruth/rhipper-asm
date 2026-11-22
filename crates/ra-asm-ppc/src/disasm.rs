@@ -27,7 +27,13 @@ pub fn disassemble(word: u32, address: u64) -> Option<String> {
         7 => format!("mulli {d}, {a}, {simm}"),
         8 => format!("subfic {d}, {a}, {simm}"),
         10 | 11 => {
-            let name = if w >> 26 == 10 { "cmplwi" } else { "cmpwi" };
+            // The compare is of the doubleword where the instruction's L bit is set.
+            let name = match (w >> 26, field(w, 10, 10)) {
+                (10, 0) => "cmplwi",
+                (10, _) => "cmpldi",
+                (_, 0) => "cmpwi",
+                _ => "cmpdi",
+            };
             let value = if w >> 26 == 10 { i64::from(uimm) } else { simm };
             match field(w, 6, 8) {
                 0 => format!("{name} {a}, {value}"),
@@ -97,6 +103,34 @@ pub fn disassemble(word: u32, address: u64) -> Option<String> {
             format!("{name} {d}, {simm}({a})")
         }
         59 | 63 => return float(w),
+        30 => {
+            // The doubleword rotates, by the simpler name where one fits.
+            let (shift, end) = (b | ((w >> 1) & 1) << 5, field(w, 21, 25) | field(w, 26, 26) << 5);
+            match ((w >> 1) & 0xf, (w >> 2) & 7) {
+                (8, _) => format!("rldcl{dot} {a}, {d}, {b}, {end}"),
+                (9, _) => format!("rldcr{dot} {a}, {d}, {b}, {end}"),
+                (_, 0) if shift == 0 => format!("clrldi{dot} {a}, {d}, {end}"),
+                (_, 0) if end == 0 => format!("rotldi{dot} {a}, {d}, {shift}"),
+                (_, 0) if shift == 64 - end => format!("srdi{dot} {a}, {d}, {end}"),
+                (_, 0) => format!("rldicl{dot} {a}, {d}, {shift}, {end}"),
+                (_, 1) if end == 63 - shift => format!("sldi{dot} {a}, {d}, {shift}"),
+                (_, 1) => format!("rldicr{dot} {a}, {d}, {shift}, {end}"),
+                (_, 2) => format!("rldic{dot} {a}, {d}, {shift}, {end}"),
+                (_, 3) => format!("rldimi{dot} {a}, {d}, {shift}, {end}"),
+                _ => return None,
+            }
+        }
+        58 | 62 => {
+            let name = match (w >> 26, w & 3) {
+                (58, 0) => "ld",
+                (58, 1) => "ldu",
+                (58, 2) => "lwa",
+                (62, 0) => "std",
+                (62, 1) => "stdu",
+                _ => return None,
+            };
+            format!("{name} {d}, {}({a})", simm & !3)
+        }
         _ => return None,
     })
 }
@@ -159,6 +193,12 @@ fn extended(w: u32) -> Option<String> {
         (247, "stbux"),
         (407, "sthx"),
         (439, "sthux"),
+        (21, "ldx"),
+        (53, "ldux"),
+        (341, "lwax"),
+        (373, "lwaux"),
+        (149, "stdx"),
+        (181, "stdux"),
         (535, "lfsx"),
         (567, "lfsux"),
         (599, "lfdx"),
@@ -184,6 +224,9 @@ fn extended(w: u32) -> Option<String> {
         (24, "slw"),
         (536, "srw"),
         (792, "sraw"),
+        (27, "sld"),
+        (539, "srd"),
+        (794, "srad"),
     ];
     if let Some((_, name)) = logic.iter().find(|(code, _)| *code == xo) {
         return Some(match (xo, d == b) {
@@ -194,13 +237,21 @@ fn extended(w: u32) -> Option<String> {
     }
     Some(match xo {
         0 | 32 => {
-            let name = if xo == 0 { "cmpw" } else { "cmplw" };
+            let name = match (xo, field(w, 10, 10)) {
+                (0, 0) => "cmpw",
+                (0, _) => "cmpd",
+                (_, 0) => "cmplw",
+                _ => "cmpld",
+            };
             match field(w, 6, 8) {
                 0 => format!("{name} {a}, {b}"),
                 which => format!("{name} {which}, {a}, {b}"),
             }
         }
         824 => format!("srawi{dot} {a}, {d}, {b}"),
+        826 | 827 => format!("sradi{dot} {a}, {d}, {}", b | (xo & 1) << 5),
+        58 => format!("cntlzd{dot} {a}, {d}"),
+        986 => format!("extsw{dot} {a}, {d}"),
         26 => format!("cntlzw{dot} {a}, {d}"),
         922 => format!("extsh{dot} {a}, {d}"),
         954 => format!("extsb{dot} {a}, {d}"),
@@ -236,6 +287,11 @@ fn extended(w: u32) -> Option<String> {
                         10 => "addc",
                         138 => "adde",
                         136 => "subfe",
+                        233 => "mulld",
+                        73 => "mulhd",
+                        9 => "mulhdu",
+                        489 => "divd",
+                        457 => "divdu",
                         235 => "mullw",
                         75 => "mulhw",
                         11 => "mulhwu",

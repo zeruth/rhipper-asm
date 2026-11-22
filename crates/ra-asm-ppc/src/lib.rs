@@ -9,4 +9,5 @@
 
 pub mod disasm;
 pub mod lift;
+pub mod lift64;
 pub mod run;

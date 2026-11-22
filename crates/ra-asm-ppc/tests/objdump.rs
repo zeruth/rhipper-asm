@@ -42,6 +42,15 @@ fn the_disassembler_agrees_with_objdump() {
 }
 
 #[test]
+fn the_64_bit_program_reads_as_objdump_lists_it() {
+    let (count, mnemonics) = agrees("ppc64.txt");
+    assert!(count > 250, "the listing has {count} instructions");
+    for used in ["ld", "std", "stdu", "extsw", "clrldi", "rldic", "mulld", "sradi", "cmpldi"] {
+        assert!(mnemonics.contains(used), "the fixture has no {used}: {mnemonics:?}");
+    }
+}
+
+#[test]
 fn the_floating_point_reads_as_objdump_lists_it() {
     let (count, mnemonics) = agrees("ppcfp.txt");
     assert!(count > 500, "the listing has {count} instructions");
