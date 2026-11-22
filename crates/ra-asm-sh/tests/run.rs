@@ -42,6 +42,12 @@ fn the_lifted_floating_point_does_what_the_machine_did() {
     does_what_the_machine_did("sh4fp", 28);
 }
 
+/// Sums of products by `mac.l`, written by hand as the earlier consoles' code has them.
+#[test]
+fn the_lifted_sums_of_products_are_what_the_machine_summed() {
+    does_what_the_machine_did("sh4mac", 12);
+}
+
 /// The same source with its doubles doubles: the code switches the unit to double precision
 /// round each double's arithmetic, and the lift follows `fpscr` as the code writes it.
 #[test]

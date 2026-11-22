@@ -204,6 +204,34 @@ impl Lift {
         self.set(MACH, high);
     }
 
+    /// `mac.l` and `mac.w`: the signed product of what two registers point at, each stepped past
+    /// it, added to `mach` and `macl` as the sixty-four bits they are. The status register's `S`
+    /// bit, which would hold the sum to a range, is taken as clear.
+    fn accumulate(&mut self, n: u64, m: u64, size: u32) {
+        let mut operands = Vec::new();
+        for register in [n, m] {
+            let at = self.get(register);
+            let value = self.load(size, at.clone());
+            let narrow = Type::Int(8 * size as u16);
+            let value = if size == 4 { value } else { self.b.cast(self.block, Cast::Trunc, I32, value, narrow.clone(), "narrow").into() };
+            operands.push(self.b.cast(self.block, Cast::SExt, narrow, value, Type::I64, "wide"));
+            let after = self.bin(BinOp::Add, at, i64::from(size));
+            self.set(register, after);
+        }
+        let product = self.b.bin(self.block, BinOp::Mul, Type::I64, operands[0], operands[1], "product");
+        let (high, low) = (self.get(MACH), self.get(MACL));
+        let high = self.b.cast(self.block, Cast::ZExt, I32, high, Type::I64, "high");
+        let low = self.b.cast(self.block, Cast::ZExt, I32, low, Type::I64, "low");
+        let high = self.b.bin(self.block, BinOp::Shl, Type::I64, high, 32, "high");
+        let sum = self.b.bin(self.block, BinOp::Or, Type::I64, high, low, "sum");
+        let sum = self.b.bin(self.block, BinOp::Add, Type::I64, sum, product, "sum");
+        let low = self.b.cast(self.block, Cast::Trunc, Type::I64, sum, I32, "low");
+        let high = self.b.bin(self.block, BinOp::LShr, Type::I64, sum, 32, "high");
+        let high = self.b.cast(self.block, Cast::Trunc, Type::I64, high, I32, "high");
+        self.set(MACL, low);
+        self.set(MACH, high);
+    }
+
     /// `shad` and `shld`: left by a count that is not negative, right by one that is, and by
     /// thirty-two (all sign, or nothing) when the negative count's low bits are zero.
     fn shift(&mut self, value: Operand, count: Operand, arithmetic: bool) -> Operand {
@@ -247,8 +275,13 @@ impl Lift {
                     let product = self.bin(BinOp::Mul, a, b);
                     self.set(MACL, product);
                 }
+                (0xf, _) => self.accumulate(n, m, 4),
                 (0x8, 0) => self.set(T, 0),
                 (0x8, 1) => self.set(T, 1),
+                (0x8, 2) => {
+                    self.set(MACH, 0);
+                    self.set(MACL, 0);
+                }
                 (0x9, 0) => {}
                 (0x9, 1) => {
                     self.set(Q, 0);
@@ -383,6 +416,7 @@ impl Lift {
                     _ => return false,
                 }
             }
+            0x4 if low == 0xf => self.accumulate(n, m, 2),
             0x4 => {
                 let value = self.get(n);
                 match byte {

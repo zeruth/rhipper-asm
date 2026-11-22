@@ -85,6 +85,11 @@ fn the_compiled_floating_point_does_what_the_machine_did() {
 }
 
 #[test]
+fn the_compiled_sums_of_products_are_what_the_machine_summed() {
+    the_port_does_what_the_machine_did("sh4mac");
+}
+
+#[test]
 fn the_compiled_doubles_do_what_the_machine_did() {
     the_port_does_what_the_machine_did("sh4fpd");
 }

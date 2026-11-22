@@ -35,3 +35,6 @@ build sh4fp sh4fp qemu-sh4-static -lgcc -m4-single-only -ml -Wl,-e,_fp_start
 # The same source with its doubles doubles, as the console's own code is built: the unit is in
 # single precision between functions and the code switches it round each double's arithmetic.
 build sh4fpd sh4fp qemu-sh4-static -lgcc -m4-single -ml -Wl,-e,_fp_start
+# The multiply-and-accumulate instruction, written by hand as the earlier consoles' code has
+# it: `mac.l` only, since this emulator faults on a `mac.w` (see the source).
+build sh4mac sh4mac qemu-sh4-static "" -m4-single-only -ml
