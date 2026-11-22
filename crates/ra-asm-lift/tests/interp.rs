@@ -128,6 +128,21 @@ fn thumb32_runs_interpreted() {
     run_interpreted("thumb32", &expected, "run-machine");
 }
 
+/// The Thumb fixture of the processors before Thumb-2 (ARMv4T, the ARM7TDMI's): sixteen-bit
+/// instructions, a return by `pop {r1}` and `bx r1`, the divisions and the wide multiply the
+/// program's own. It prints what it printed under an emulator of the machine and ends with the
+/// code it ended with there.
+#[test]
+fn thumb1_runs_interpreted() {
+    let expected = std::fs::read_to_string(root().join("testdata/expected/thumb1.txt")).unwrap();
+    let Raised { image, lifted, signatures } = raise("thumb1", "run-machine");
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("thumb1: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!(outcome.exit, 98, "the exit the machine ended with (stop: {:?})", outcome.stop);
+}
+
 /// The Cortex-M fixture, firmware for a microcontroller with no system under it: its reset
 /// handler copies the data to RAM and calls `main`, which prints by semihosting (`bkpt 0xab`)
 /// and ends the program by it.

@@ -1030,6 +1030,18 @@ impl Arch for Thumb {
     }
 
     fn link(&self, before: &[Instr], instr: &mut Instr) {
+        // The return of the processors before `pop {pc}` changed state (ARMv4T): the return
+        // address popped into a low register by itself, and a `bx` through that register.
+        if let (Some(Op::BranchReg { rm, link: false }), Some(last)) =
+            (decode_raw(instr.code, instr.address, None).map(|d| d.op), before.last())
+            && rm != LR
+            && let Some(Op::Multiple { load: true, rn: SP, list, wback: true, before: false }) =
+                decode_raw(last.code, last.address, None).map(|d| d.op)
+            && u32::from(list) == 1 << rm
+        {
+            instr.flow = Flow::Return;
+            return;
+        }
         let Some(cond) = it_condition(before) else { return };
         if let Some(d) = decode_raw(instr.code, instr.address, Some(cond)) {
             *instr = record(&d, instr.address);
@@ -1043,6 +1055,22 @@ mod tests {
 
     fn op(bytes: &[u8], address: u64) -> Op {
         decode(bytes, address, None).unwrap().op
+    }
+
+    #[test]
+    fn a_bx_through_the_register_just_popped_is_a_return() {
+        let instr = |bytes: &[u8], address| Thumb.decode(bytes, address).unwrap();
+        // pop {r1}; bx r1
+        let (pop, mut bx) = (instr(&[0x02, 0xbc], 0x100), instr(&[0x08, 0x47], 0x102));
+        assert_eq!(bx.flow, Flow::Jump(Target::Indirect));
+        Thumb.link(&[pop], &mut bx);
+        assert_eq!(bx.flow, Flow::Return);
+        // After a pop of another register, or of more than the one, it is a jump still.
+        for other in [[0x01, 0xbc], [0x03, 0xbc]] {
+            let mut bx = instr(&[0x08, 0x47], 0x102);
+            Thumb.link(&[instr(&other, 0x100)], &mut bx);
+            assert_eq!(bx.flow, Flow::Jump(Target::Indirect));
+        }
     }
 
     #[test]

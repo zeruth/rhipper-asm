@@ -721,6 +721,8 @@ impl Lifter<'_, '_> {
                 }
             }
             Op::BranchReg { rm: LR, link: false } => {}
+            // The return through a register the address was popped into: the block ends in it.
+            Op::BranchReg { link: false, .. } if i.flow == ra_asm_arch::Flow::Return => {}
             Op::BranchReg { rm, link } => {
                 let target = self.reg(block, rm, ip);
                 let (block, target) = self.thumb_target(block, target, ip);

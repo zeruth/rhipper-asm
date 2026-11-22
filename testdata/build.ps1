@@ -223,6 +223,19 @@ if (Wanted 'thumb') {
   if ($LASTEXITCODE -ne 0) { throw "clang failed for thumb32" }
 }
 
+# thumb1 is the fixture of the processors before Thumb-2: a static Linux program for ARMv4T in
+# Thumb, the ARM7TDMI's instruction set, that brings its own divisions and wide multiply.
+# -fno-jump-tables keeps a switch a chain of compares: the table a Thumb switch jumps through
+# (`add pc, r0`) is not decoded. Its expected output is what it prints under qemu-arm.
+if (Wanted 'thumb1') {
+  $args = @('--target=armv4t-none-linux-gnueabi', '-mthumb', '-O1', '-fno-jump-tables', '-fno-unroll-loops', '-fno-vectorize', '-nostdlib',
+    '-ffreestanding', '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none',
+    (Join-Path $src 'thumb1.c'), '-o', (Join-Path $bin 'thumb1'))
+  Write-Host "clang thumb1" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for thumb1" }
+}
+
 # cortexm is the fixture of a microcontroller: ARMv7-M firmware linked by cortexm.ld into flash
 # at 0x08000000 with its vector table first and its data in RAM at 0x20000000. It prints by
 # semihosting (bkpt 0xab). No Cortex-M is here: it runs lifted only.

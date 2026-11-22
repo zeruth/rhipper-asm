@@ -878,6 +878,15 @@ command = "testdata/build.ps1 thumb"
 tools = "clang 22.1.7, LLD 22.1.7"
 
 [[file]]
+path = "testdata/bin/thumb1"
+sha256 = "335634791dd21030e0686acddee772d7a87675ab1c20967bb28359062c9a2902"
+evidence = "emulator"
+expected = "testdata/expected/thumb1.txt"
+source = "testdata/src/thumb1.c"
+command = "testdata/build.ps1 thumb1"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
 path = "testdata/bin/cortexm.elf"
 sha256 = "a52362af0634f3143f3ff2e8d3b6f64b5c9ef290f503c366a01b606eef9f00dd"
 evidence = "source"
@@ -1228,6 +1237,14 @@ evidence = "source"
 source = "testdata/src/cortexm.c"
 command = "written from the source: what the program writes"
 tools = "none: no run is recorded"
+
+[[file]]
+path = "testdata/expected/thumb1.txt"
+sha256 = "46746806c888847e3e509b193b55613bb44d250aebc022d4c51f3e8d545a40ea"
+evidence = "emulator"
+source = "testdata/src/thumb1.c"
+command = "wsl -e sh -c 'qemu-arm-static testdata/bin/thumb1 > testdata/expected/thumb1.txt'"
+tools = "qemu-arm-static (user mode)"
 
 [[file]]
 path = "testdata/expected/thumb.txt"
