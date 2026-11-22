@@ -103,6 +103,19 @@ pub fn signature(descriptor: &str, receiver: bool) -> Result<FnType, Error> {
 }
 
 /// The descriptors of a method's parameters, and of what it returns.
+/// The box of a primitive type by its descriptor: the box's class, the method that gives its
+/// number back (its name and descriptor), and the descriptor of the `valueOf` that makes one.
+fn boxing(descriptor: &str) -> Option<(&'static str, (&'static str, &'static str), &'static str)> {
+    Some(match descriptor {
+        "I" => ("java/lang/Integer", ("intValue", "()I"), "(I)Ljava/lang/Integer;"),
+        "J" => ("java/lang/Long", ("longValue", "()J"), "(J)Ljava/lang/Long;"),
+        "D" => ("java/lang/Double", ("doubleValue", "()D"), "(D)Ljava/lang/Double;"),
+        "Z" => ("java/lang/Boolean", ("booleanValue", "()Z"), "(Z)Ljava/lang/Boolean;"),
+        "C" => ("java/lang/Character", ("charValue", "()C"), "(C)Ljava/lang/Character;"),
+        _ => return None,
+    })
+}
+
 fn split(descriptor: &str) -> Result<(Vec<&str>, &str), Error> {
     method_kinds(descriptor)?;
     let bytes = descriptor.as_bytes();
@@ -599,6 +612,22 @@ impl<'a> Lift<'a> {
             _ => return error(format!("a lambda whose body is a method handle of kind {kind}")),
         };
         let expected: Vec<Kind> = receiver.then_some(Kind::Reference).into_iter().chain(takes).collect();
+        // Where the interface's method is of objects and the body of numbers (`Integer::sum` as
+        // a function of two `Integer`s), the object's number is taken out of its box.
+        let body_types = split(body_descriptor)?;
+        let takes_types: Vec<Option<&str>> = receiver.then_some(None).into_iter().chain(body_types.0.iter().map(|t| Some(*t))).collect();
+        if values.len() == expected.len() {
+            for (n, (value, kind)) in values.iter_mut().enumerate() {
+                if *kind == Kind::Reference
+                    && expected[n] != Kind::Reference
+                    && let Some((class, unbox, _)) = takes_types[n].and_then(boxing)
+                {
+                    let taken = self.call(&mut b, block, How::Found, true, class, unbox.0, unbox.1, vec![value.clone()])?;
+                    *value = taken.expect("a box gives its number").into();
+                    *kind = expected[n];
+                }
+            }
+        }
         if values.iter().map(|(_, kind)| *kind).ne(expected.iter().copied()) {
             return error(format!("the lambda {name} of {interface} takes {body_descriptor} at other kinds than {erased} gives it"));
         }
@@ -606,9 +635,22 @@ impl<'a> Lift<'a> {
         let how = if matches!(kind, 5 | 9) { How::Found } else { How::Named };
         let result = self.call(&mut b, block, how, receiver, class, body, body_descriptor, values.into_iter().map(|(v, _)| v).collect())?;
         let result: Option<Ir> = if *kind == 8 { object } else { result.map(Ir::from) };
+        let (erased_returns, body_returns) = (split(erased)?.1, body_types.1);
         let ret = match (returned, gives, result) {
             (None, _, _) => None,
             (Some(wanted), Some(given), Some(value)) if wanted == given => Some((ty(wanted), value)),
+            // A number the body returns goes into its box where the interface wants an object,
+            // and comes out of one where the body returns the box and the interface a number.
+            (Some(Kind::Reference), Some(_), Some(value)) if boxing(body_returns).is_some() => {
+                let (class, _, descriptor) = boxing(body_returns).expect("checked");
+                let made = self.call(&mut b, block, How::Named, false, class, "valueOf", descriptor, vec![value])?;
+                Some((Type::Ptr, made.expect("valueOf gives a box").into()))
+            }
+            (Some(wanted), Some(Kind::Reference), Some(value)) if boxing(erased_returns).is_some() => {
+                let (class, unbox, _) = boxing(erased_returns).expect("checked");
+                let taken = self.call(&mut b, block, How::Found, true, class, unbox.0, unbox.1, vec![value])?;
+                Some((ty(wanted), taken.expect("a box gives its number").into()))
+            }
             _ => return error(format!("the lambda {name} of {interface} returns {body_descriptor} at another kind than {erased} wants")),
         };
         b.terminate(block, Terminator::Ret(ret));

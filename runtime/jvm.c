@@ -1424,6 +1424,144 @@ static void library(const char *name, const char *above, const char *first, cons
     if (second) jvm_implement((uint8_t *)name, (uint8_t *)second);
 }
 
+uint32_t java_lang_Integer__sum__II_I(uint32_t a, uint32_t b) { return a + b; }
+uint32_t java_lang_Integer__max__II_I(uint32_t a, uint32_t b) { return (int32_t)a > (int32_t)b ? a : b; }
+uint32_t java_lang_Integer__min__II_I(uint32_t a, uint32_t b) { return (int32_t)a < (int32_t)b ? a : b; }
+uint32_t java_lang_Integer__signum__I_I(uint32_t v) { return (uint32_t)(((int32_t)v > 0) - ((int32_t)v < 0)); }
+
+uint32_t java_lang_Integer__bitCount__I_I(uint32_t v) {
+    uint32_t count = 0;
+    for (; v; v &= v - 1) count++;
+    return count;
+}
+
+// As `Double.compare` orders them: what is no number is above every number, and zero above its
+// negative.
+uint32_t java_lang_Double__compare__DD_I(double a, double b) {
+    if (a < b) return (uint32_t)-1;
+    if (a > b) return 1;
+    if (a != a || b != b) return (uint32_t)((a != a) - (b != b));
+    int64_t x, y;
+    memcpy(&x, &a, sizeof x);
+    memcpy(&y, &b, sizeof y);
+    return (uint32_t)((x > y) - (x < y));
+}
+
+static int32_t floor_quotient(int32_t a, int32_t b) {
+    if (b == 0) {
+        throw_new("java/lang/ArithmeticException", "/ by zero");
+        return 0;
+    }
+    if (b == -1) return (int32_t)(0u - (uint32_t)a);
+    int32_t quotient = a / b;
+    return a % b != 0 && ((a < 0) != (b < 0)) ? quotient - 1 : quotient;
+}
+
+uint32_t java_lang_Math__floorDiv__II_I(uint32_t a, uint32_t b) { return (uint32_t)floor_quotient((int32_t)a, (int32_t)b); }
+
+uint32_t java_lang_Math__floorMod__II_I(uint32_t a, uint32_t b) {
+    uint32_t quotient = (uint32_t)floor_quotient((int32_t)a, (int32_t)b);
+    return pending ? 0 : a - quotient * b;
+}
+
+uint32_t java_lang_Integer__parseInt__Ljava_lang_String_2I_I(ref string, uint32_t radix) {
+    char text[64], *end;
+    narrow(string, text, sizeof text);
+    long long value = radix >= 2 && radix <= 36 ? strtoll(text, &end, (int)radix) : 0;
+    // The C library reads what the Java one refuses: a space before the number, a `0x`.
+    int plain = text[0] && (isalnum((unsigned char)text[0]) || ((text[0] == '-' || text[0] == '+') && isalnum((unsigned char)text[1])));
+    if (radix == 16 && (text[0] == '0' || text[1] == '0') && strpbrk(text, "xX")) plain = 0;
+    if (radix < 2 || radix > 36 || !plain || *end || value > INT32_MAX || value < INT32_MIN) {
+        char message[120];
+        if (radix == 10) {
+            snprintf(message, sizeof message, "For input string: \"%s\"", text);
+        } else {
+            snprintf(message, sizeof message, "For input string: \"%s\" under radix %d", text, (int)radix);
+        }
+        throw_new("java/lang/NumberFormatException", message);
+        return 0;
+    }
+    return (uint32_t)value;
+}
+
+// A digit's value, or a Latin letter's as a digit of a higher base; else -1.
+uint32_t java_lang_Character__getNumericValue__C_I(uint32_t c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'Z') return c - 'A' + 10;
+    return (uint32_t)-1;
+}
+
+uint32_t java_lang_Character__isLetterOrDigit__C_Z(uint32_t c) { return iswalpha((wint_t)c) != 0 || iswdigit((wint_t)c) != 0; }
+
+uint32_t java_util_Objects__hash___3Ljava_lang_Object_2_I(ref objects) {
+    uint32_t hash = 1;
+    for (int32_t n = 0; objects && n < LENGTH(objects); n++) {
+        ref item = ((ref *)(objects + ELEMENTS))[n];
+        uint32_t of = item ? ((uint32_t (*)(ref))jvm_virtual(item, (uint8_t *)"hashCode:()I"))(item) : 0;
+        hash = hash * 31 + of;
+    }
+    return hash;
+}
+
+ref java_util_Objects__toString__Ljava_lang_Object_2_Ljava_lang_String_2(ref object) { return describe(object); }
+
+static uint32_t String_equalsIgnoreCase(ref this, ref other) {
+    if (!other || text_of(this)->count != text_of(other)->count) return 0;
+    for (uint32_t n = 0; n < text_of(this)->count; n++) {
+        if (lower(upper(text_of(this)->units[n])) != lower(upper(text_of(other)->units[n]))) return 0;
+    }
+    return 1;
+}
+
+static ref String_replaceText(ref this, ref from, ref to) {
+    struct text *text = text_of(this), *old = text_of(describe(from)), *new = text_of(describe(to));
+    ref made = object("java/lang/String");
+    for (uint32_t at = 0; at < text->count;) {
+        if (old->count && at + old->count <= text->count && memcmp(text->units + at, old->units, old->count * sizeof *old->units) == 0) {
+            add_units(text_of(made), new->units, new->count);
+            at += old->count;
+        } else {
+            add_units(text_of(made), text->units + at, 1);
+            at++;
+        }
+    }
+    return made;
+}
+
+static ref StringBuilder_delete(ref this, uint32_t from, uint32_t to) {
+    struct text *text = text_of(this);
+    if ((int32_t)from < 0 || from > text->count || (int32_t)from > (int32_t)to) {
+        throw_new("java/lang/StringIndexOutOfBoundsException", "a run outside the text");
+        return this;
+    }
+    if (to > text->count) to = text->count;
+    memmove(text->units + from, text->units + to, (text->count - to) * sizeof *text->units);
+    text->count -= to - from;
+    return this;
+}
+
+static ref StringBuilder_deleteCharAt(ref this, uint32_t at) {
+    if (at >= text_of(this)->count) {
+        throw_new("java/lang/StringIndexOutOfBoundsException", "an index outside the text");
+        return this;
+    }
+    return StringBuilder_delete(this, at, at + 1);
+}
+
+static void StringBuilder_setCharAt(ref this, uint32_t at, uint32_t unit) {
+    if (at >= text_of(this)->count) {
+        throw_new("java/lang/StringIndexOutOfBoundsException", "an index outside the text");
+        return;
+    }
+    text_of(this)->units[at] = (uint16_t)unit;
+}
+
+static uint32_t Class_desiredAssertionStatus(ref this) {
+    (void)this;
+    return 0;
+}
+
 // An object's class, and a class's names: the whole one with its package, and the simple one,
 // which is what follows the package and the classes it is nested in.
 static ref Object_getClass(ref this) {
@@ -1711,6 +1849,12 @@ static void everyday(void) {
     method(string, "compareTo:(Ljava/lang/Object;)I", (void *)String_compareTo);
     method(string, "toCharArray:()[C", (void *)String_toCharArray);
     method(string, "split:(Ljava/lang/String;)[Ljava/lang/String;", (void *)String_split);
+    method(string, "equalsIgnoreCase:(Ljava/lang/String;)Z", (void *)String_equalsIgnoreCase);
+    method(string, "replace:(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;", (void *)String_replaceText);
+    method(builder, "delete:(II)Ljava/lang/StringBuilder;", (void *)StringBuilder_delete);
+    method(builder, "deleteCharAt:(I)Ljava/lang/StringBuilder;", (void *)StringBuilder_deleteCharAt);
+    method(builder, "setCharAt:(IC)V", (void *)StringBuilder_setCharAt);
+    method("java/lang/Class", "desiredAssertionStatus:()Z", (void *)Class_desiredAssertionStatus);
     method("java/lang/Object", "getClass:()Ljava/lang/Class;", (void *)Object_getClass);
     method("java/lang/Class", "getName:()Ljava/lang/String;", (void *)Class_getName);
     method("java/lang/Class", "getSimpleName:()Ljava/lang/String;", (void *)Class_getSimpleName);
@@ -1766,6 +1910,8 @@ static void ready(void) {
     method(builder, "toString:()Ljava/lang/String;", (void *)java_lang_StringBuilder__toString___Ljava_lang_String_2);
     method(builder, "append:(Ljava/lang/String;)Ljava/lang/StringBuilder;", (void *)java_lang_StringBuilder__append__Ljava_lang_String_2_Ljava_lang_StringBuilder_2);
     method(builder, "append:(Ljava/lang/Object;)Ljava/lang/StringBuilder;", (void *)java_lang_StringBuilder__append__Ljava_lang_Object_2_Ljava_lang_StringBuilder_2);
+    // A builder or a string as the text it is, which is what its `toString` gives.
+    method(builder, "append:(Ljava/lang/CharSequence;)Ljava/lang/StringBuilder;", (void *)java_lang_StringBuilder__append__Ljava_lang_Object_2_Ljava_lang_StringBuilder_2);
     method(builder, "append:(I)Ljava/lang/StringBuilder;", (void *)java_lang_StringBuilder__append__I_Ljava_lang_StringBuilder_2);
     method(builder, "append:(J)Ljava/lang/StringBuilder;", (void *)java_lang_StringBuilder__append__J_Ljava_lang_StringBuilder_2);
     method(builder, "append:(C)Ljava/lang/StringBuilder;", (void *)java_lang_StringBuilder__append__C_Ljava_lang_StringBuilder_2);

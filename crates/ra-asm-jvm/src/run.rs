@@ -1492,6 +1492,105 @@ impl Machine {
             ("Math", "max", "(JJ)J") => long(as_long(&args[0]).max(as_long(&args[1]))),
             ("Math", "min", "(JJ)J") => long(as_long(&args[0]).min(as_long(&args[1]))),
             ("Math", "sqrt", "(D)D") => Value::F64(args[0].as_f64().sqrt()),
+            ("Integer", "sum", "(II)I") => int(as_int(&args[0]).wrapping_add(as_int(&args[1]))),
+            ("Integer", "max", "(II)I") => int(as_int(&args[0]).max(as_int(&args[1]))),
+            ("Integer", "min", "(II)I") => int(as_int(&args[0]).min(as_int(&args[1]))),
+            ("Integer", "bitCount", "(I)I") => int(as_int(&args[0]).count_ones() as i32),
+            ("Integer", "signum", "(I)I") => int(as_int(&args[0]).signum()),
+            ("Double", "compare", "(DD)I") => {
+                // As `Double.compare` orders them: no number is above every number, and zero
+                // above its negative.
+                let (a, b) = (args[0].as_f64(), args[1].as_f64());
+                int(match a.partial_cmp(&b) {
+                    Some(std::cmp::Ordering::Equal) => a.to_bits().cast_signed().cmp(&b.to_bits().cast_signed()) as i32,
+                    Some(order) => order as i32,
+                    None => i32::from(a.is_nan()) - i32::from(b.is_nan()),
+                })
+            }
+            ("Math", "floorMod", "(II)I") | ("Math", "floorDiv", "(II)I") => {
+                let (a, b) = (as_int(&args[0]), as_int(&args[1]));
+                if b == 0 {
+                    self.throw(vm, "java/lang/ArithmeticException", "/ by zero")?;
+                    return Ok(Some(NOTHING));
+                }
+                let quotient = a.wrapping_div(b);
+                let floor = if a.wrapping_rem(b) != 0 && ((a < 0) != (b < 0)) { quotient - 1 } else { quotient };
+                int(if name == "floorDiv" { floor } else { a.wrapping_sub(floor.wrapping_mul(b)) })
+            }
+            ("Integer", "parseInt", "(Ljava/lang/String;I)I") => {
+                let text = self.text(this).map(|text| String::from_utf16_lossy(text)).unwrap_or_default();
+                let radix = as_int(&args[1]);
+                match u32::try_from(radix).ok().filter(|r| (2..=36).contains(r)).and_then(|radix| i32::from_str_radix(&text, radix).ok()) {
+                    Some(value) => int(value),
+                    None => {
+                        let under = if radix == 10 { String::new() } else { format!(" under radix {radix}") };
+                        self.throw(vm, "java/lang/NumberFormatException", &format!("For input string: \"{text}\"{under}"))?;
+                        NOTHING
+                    }
+                }
+            }
+            ("Character", "getNumericValue", "(C)I") => {
+                // A digit's value, or a Latin letter's as a digit of a higher base; else -1.
+                let c = char::from_u32(arg(0) as u32 & 0xffff).unwrap_or('\0');
+                int(if c.is_ascii_alphanumeric() { c.to_digit(36).map_or(-1, |d| d as i32) } else { -1 })
+            }
+            ("Character", "isLetterOrDigit", "(C)Z") => {
+                let c = char::from_u32(arg(0) as u32 & 0xffff).unwrap_or('\0');
+                truth(c.is_alphabetic() || c.to_digit(10).is_some())
+            }
+            ("Objects", "hash", "([Ljava/lang/Object;)I") => {
+                let count = if this == 0 { 0 } else { u64::from(vm.memory.read_u32(this + HEADER)?) };
+                let mut hash = 1i32;
+                for n in 0..count {
+                    let item = vm.memory.read_u64(this + ELEMENTS + 8 * n)?;
+                    let of = if item == 0 { 0 } else { as_int(&self.invoke(vm, item, "hashCode:()I", Vec::new(), Type::I32)?) };
+                    hash = hash.wrapping_mul(31).wrapping_add(of);
+                }
+                int(hash)
+            }
+            ("Objects", "toString", "(Ljava/lang/Object;)Ljava/lang/String;") => {
+                let text = self.describe(vm, this)?;
+                pointer(self.string(vm, text)?)
+            }
+            ("String", "equalsIgnoreCase", "(Ljava/lang/String;)Z") => {
+                let fold = |text: Option<&Vec<u16>>| text.map(|text| String::from_utf16_lossy(text).to_uppercase().to_lowercase());
+                truth(arg(1) != 0 && fold(self.text(this)) == fold(self.text(arg(1))))
+            }
+            ("String", "replace", "(Ljava/lang/CharSequence;Ljava/lang/CharSequence;)Ljava/lang/String;") => {
+                let text = self.text(this).cloned().unwrap_or_default();
+                let (from, to) = (self.describe(vm, arg(1))?, self.describe(vm, arg(2))?);
+                let mut made = Vec::with_capacity(text.len());
+                let mut at = 0;
+                while at < text.len() {
+                    if !from.is_empty() && text[at..].starts_with(&from) {
+                        made.extend(&to);
+                        at += from.len();
+                    } else {
+                        made.push(text[at]);
+                        at += 1;
+                    }
+                }
+                pointer(self.string(vm, made)?)
+            }
+            ("StringBuilder", "deleteCharAt" | "delete" | "setCharAt", _) => {
+                let (from, other) = (as_int(&args[1]), args.get(2).map_or(0, as_int));
+                let Some(Native::Text(text)) = self.natives.get_mut(&this) else { return Ok(Some(NOTHING)) };
+                let length = text.len();
+                let at = usize::try_from(from).ok();
+                let done = match (name, at) {
+                    ("deleteCharAt", Some(at)) if at < length => drop(text.remove(at)),
+                    ("setCharAt", Some(at)) if at < length => text[at] = other as u16,
+                    // The end of a run is held to the text's.
+                    ("delete", Some(at)) if at <= length && from <= other => drop(text.drain(at..(other as usize).min(length))),
+                    _ => {
+                        self.throw(vm, "java/lang/StringIndexOutOfBoundsException", &format!("index {from}, length {length}"))?;
+                        return Ok(Some(NOTHING));
+                    }
+                };
+                let () = done;
+                if name == "setCharAt" { NOTHING } else { pointer(this) }
+            }
+            ("Class", "desiredAssertionStatus", "()Z") => truth(false),
             ("Math", "floor", "(D)D") => Value::F64(args[0].as_f64().floor()),
             ("Math", "ceil", "(D)D") => Value::F64(args[0].as_f64().ceil()),
             ("System", "exit", "(I)V") => return Err(Stop::Exit(as_int(&args[0]))),

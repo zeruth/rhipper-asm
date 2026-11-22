@@ -138,7 +138,41 @@ public class Library {
         return out.toString();
     }
 
+    // Methods named as functions, whose numbers go in and out of their boxes on the way; and
+    // more of what numbers, characters, strings and a builder do.
+    static String references() {
+        java.util.function.BiFunction<Integer, Integer, Integer> sum = Integer::sum;
+        java.util.function.Function<String, Integer> length = String::length;
+        java.util.function.Predicate<String> empty = String::isEmpty;
+        java.util.function.ToIntFunction<Integer> twice = v -> v * 2;
+        java.util.function.Supplier<Long> big = () -> 1L << 33;
+        java.util.function.Function<Double, Boolean> positive = v -> v > 0;
+        StringBuilder out = new StringBuilder();
+        out.append(sum.apply(2, 3)).append(length.apply("four")).append(empty.test("")).append(twice.applyAsInt(21)).append(big.get());
+        out.append(positive.apply(-1.5));
+        out.append(' ').append(Integer.max(3, 9)).append(Integer.min(3, 9)).append(Integer.bitCount(255)).append(Integer.signum(-5));
+        out.append(' ').append(Integer.parseInt("ff", 16)).append(Integer.parseInt("-101", 2)).append(Double.compare(1.0, 2.0));
+        out.append(Double.compare(0.0, -0.0)).append(Double.compare(Double.NaN, 1.0));
+        out.append(' ').append(Math.floorMod(-7, 3)).append(Math.floorDiv(-7, 3)).append(Math.floorMod(7, -3)).append(Math.floorDiv(7, 3));
+        out.append(' ').append(Character.getNumericValue('7')).append(Character.getNumericValue('z')).append(Character.getNumericValue('-'));
+        out.append(Character.isLetterOrDigit('x')).append(Character.isLetterOrDigit('_'));
+        out.append(' ').append(java.util.Objects.hash(1, "a", null)).append(java.util.Objects.toString(null));
+        out.append(' ').append("Hello".equalsIgnoreCase("hELLO")).append("a-b-c".replace("-", "+")).append("aaa".replace("aa", "b"));
+        StringBuilder b = new StringBuilder("hello");
+        b.deleteCharAt(0);
+        b.setCharAt(0, 'E');
+        b.delete(1, 2);
+        b.delete(2, 99);
+        try {
+            Integer.parseInt("12x", 16);
+        } catch (NumberFormatException e) {
+            b.append(' ').append(e.getMessage());
+        }
+        return out.append(' ').append(b).toString();
+    }
+
     public static void main(String[] args) {
+        System.out.println(references());
         System.out.println(formats());
         System.out.println(strings());
         System.out.println(builder());
