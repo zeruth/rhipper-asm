@@ -206,6 +206,63 @@ pub fn double_text(v: f64) -> String {
     real(v.is_sign_negative(), special, &format!("{v:e}"))
 }
 
+/// A `double` that is not negative as `%.Nf` writes it: the shortest digits that name it,
+/// rounded half up at the precision, which is how the library rounds (1.005 to two places is
+/// 1.01, though the double lies below it).
+#[must_use]
+pub fn fixed_text(v: f64, precision: usize) -> String {
+    if v.is_nan() {
+        return "NaN".to_owned();
+    }
+    if v.is_infinite() {
+        return "Infinity".to_owned();
+    }
+    let written = format!("{v:e}");
+    let (mantissa, exponent) = written.split_once('e').unwrap_or((&written, "0"));
+    let exponent: i32 = exponent.parse().unwrap_or(0);
+    let shortest: Vec<u8> = mantissa.bytes().filter(u8::is_ascii_digit).collect();
+    // The digits before the point, then those after it.
+    let mut digits: Vec<u8> = Vec::new();
+    let whole = if exponent < 0 {
+        digits.push(b'0');
+        digits.extend(std::iter::repeat_n(b'0', (-exponent - 1) as usize));
+        digits.extend(&shortest);
+        1
+    } else {
+        digits.extend(&shortest);
+        let whole = exponent as usize + 1;
+        if digits.len() < whole {
+            digits.resize(whole, b'0');
+        }
+        whole
+    };
+    let up = digits.get(whole + precision).is_some_and(|&d| d >= b'5');
+    digits.resize(whole + precision, b'0');
+    if up {
+        let mut at = digits.len();
+        loop {
+            if at == 0 {
+                digits.insert(0, b'1');
+                break;
+            }
+            at -= 1;
+            if digits[at] == b'9' {
+                digits[at] = b'0';
+            } else {
+                digits[at] += 1;
+                break;
+            }
+        }
+    }
+    let whole = digits.len() - precision;
+    let mut text = String::from_utf8_lossy(&digits[..whole]).into_owned();
+    if precision > 0 {
+        text.push('.');
+        text.push_str(&String::from_utf8_lossy(&digits[whole..]));
+    }
+    text
+}
+
 /// A `float` as `Float.toString` writes it.
 #[must_use]
 pub fn float_text(v: f32) -> String {
@@ -377,6 +434,114 @@ impl Machine {
         let at = self.object(vm, class)?;
         self.natives.insert(at, Native::Box(bits));
         Ok(pointer(at))
+    }
+
+    /// The object that stands for the class `class`: one for a class.
+    fn mirror(&mut self, vm: &mut Vm<'_>, class: &str) -> Result<u64, Stop> {
+        if let Some(&mirror) = self.mirrors.get(class) {
+            return Ok(mirror);
+        }
+        let mirror = self.object(vm, "java/lang/Class")?;
+        self.natives.insert(mirror, Native::Class(class.to_owned()));
+        self.mirrors.insert(class.to_owned(), mirror);
+        Ok(mirror)
+    }
+
+    /// What `String.format` makes of a format and its arguments, or why the machine has not the
+    /// format: the conversions `d`, `x`, `s`, `c`, `b`, `f`, `n` and `%`, with the flags `-`, `0`
+    /// and `+`, a width and a precision.
+    fn format(&mut self, vm: &mut Vm<'_>, format: &str, array: u64) -> Result<Result<String, String>, Stop> {
+        let count = if array == 0 { 0 } else { u64::from(vm.memory.read_u32(array + HEADER)?) };
+        let (mut out, mut next) = (String::new(), 0);
+        let mut chars = format.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c != '%' {
+                out.push(c);
+                continue;
+            }
+            let (mut left, mut zero, mut plus) = (false, false, false);
+            while let Some(&flag) = chars.peek().filter(|c| matches!(c, '-' | '0' | '+')) {
+                (left, zero, plus) = (left || flag == '-', zero || flag == '0', plus || flag == '+');
+                chars.next();
+            }
+            let number = |chars: &mut std::iter::Peekable<std::str::Chars<'_>>| {
+                let mut value = None;
+                while let Some(digit) = chars.peek().and_then(|c| c.to_digit(10)) {
+                    value = Some(value.unwrap_or(0) * 10 + digit as usize);
+                    chars.next();
+                }
+                value
+            };
+            let width = number(&mut chars).unwrap_or(0);
+            let precision = if chars.peek() == Some(&'.') {
+                chars.next();
+                Some(number(&mut chars).unwrap_or(0))
+            } else {
+                None
+            };
+            let Some(conversion) = chars.next() else { return Ok(Err("a format that ends in its conversion".to_owned())) };
+            if conversion == 'n' || conversion == '%' {
+                out.push(if conversion == 'n' { '\n' } else { '%' });
+                continue;
+            }
+            if next >= count {
+                return Ok(Err(format!("a format with no argument for its %{conversion}")));
+            }
+            let at = vm.memory.read_u64(array + ELEMENTS + 8 * next)?;
+            next += 1;
+            let class = if at == 0 { String::new() } else { self.class_of(vm, at)? };
+            let bits = match self.natives.get(&at) {
+                Some(&Native::Box(bits)) => bits,
+                _ => 0,
+            };
+            let whole = class == "java/lang/Long";
+            let (mut sign, mut body) = (String::new(), String::new());
+            match (conversion, class.as_str()) {
+                ('s', _) => {
+                    let text = String::from_utf16_lossy(&self.describe(vm, at)?);
+                    body = text.chars().take(precision.unwrap_or(usize::MAX)).collect();
+                }
+                ('b', _) => body = (class == "java/lang/Boolean" && bits & 1 != 0 || (at != 0 && class != "java/lang/Boolean")).to_string(),
+                ('c', "java/lang/Character") => body.push(char::from_u32(bits as u32 & 0xffff).unwrap_or('?')),
+                ('d', "java/lang/Integer" | "java/lang/Long" | "java/lang/Short" | "java/lang/Byte") => {
+                    let value = if whole { bits.cast_signed() } else { i64::from(bits as u32 as i32) };
+                    sign = if value < 0 {
+                        "-"
+                    } else if plus {
+                        "+"
+                    } else {
+                        ""
+                    }
+                    .to_owned();
+                    body = value.unsigned_abs().to_string();
+                }
+                ('x', "java/lang/Integer" | "java/lang/Long") => body = format!("{:x}", if whole { bits } else { bits & 0xffff_ffff }),
+                ('f', "java/lang/Double" | "java/lang/Float") => {
+                    let value = if class == "java/lang/Float" { f64::from(f32::from_bits(bits as u32)) } else { f64::from_bits(bits) };
+                    sign = if value.is_sign_negative() && !value.is_nan() {
+                        "-"
+                    } else if plus {
+                        "+"
+                    } else {
+                        ""
+                    }
+                    .to_owned();
+                    body = fixed_text(value.abs(), precision.unwrap_or(6));
+                    zero = zero && value.is_finite();
+                }
+                _ => return Ok(Err(format!("the conversion %{conversion} of {}", if at == 0 { "null" } else { &class }))),
+            }
+            let pad = width.saturating_sub(sign.chars().count() + body.chars().count());
+            let numeric = matches!(conversion, 'd' | 'x' | 'f');
+            if left {
+                out.extend([sign, body, " ".repeat(pad)]);
+            } else if zero && numeric {
+                out.extend([sign, "0".repeat(pad), body]);
+            } else {
+                out.extend([" ".repeat(pad), sign, body]);
+            }
+        }
+        Ok(Ok(out))
     }
 
     /// The name of the class of the object at `at`.
@@ -552,13 +717,7 @@ impl Machine {
             }
             "jvm.class" => {
                 let class = text(vm, 0)?;
-                if let Some(&mirror) = self.mirrors.get(&class) {
-                    return Ok(pointer(mirror));
-                }
-                let mirror = self.object(vm, "java/lang/Class")?;
-                self.natives.insert(mirror, Native::Class(class.clone()));
-                self.mirrors.insert(class, mirror);
-                pointer(mirror)
+                pointer(self.mirror(vm, &class)?)
             }
             "jvm.virtual" => {
                 let receiver = args[0].as_u64();
@@ -874,6 +1033,95 @@ impl Machine {
             }
             ("Integer", "compare", "(II)I") => int(as_int(&args[0]).cmp(&as_int(&args[1])) as i32),
             ("Integer", "toHexString", "(I)Ljava/lang/String;") => pointer(self.string(vm, units(&format!("{:x}", as_int(&args[0]))))?),
+            ("Integer", "toBinaryString", "(I)Ljava/lang/String;") => pointer(self.string(vm, units(&format!("{:b}", as_int(&args[0]))))?),
+            ("Integer", "toOctalString", "(I)Ljava/lang/String;") => pointer(self.string(vm, units(&format!("{:o}", as_int(&args[0]))))?),
+            ("Long", "toHexString", "(J)Ljava/lang/String;") => pointer(self.string(vm, units(&format!("{:x}", arg(0))))?),
+            ("Long", "toBinaryString", "(J)Ljava/lang/String;") => pointer(self.string(vm, units(&format!("{:b}", arg(0))))?),
+            ("Object", "getClass", "()Ljava/lang/Class;") => {
+                let class = self.class_of(vm, this)?;
+                pointer(self.mirror(vm, &class)?)
+            }
+            ("Class", "getName" | "getSimpleName", "()Ljava/lang/String;") => {
+                let Some(Native::Class(of)) = self.natives.get(&this) else { return Ok(Some(NOTHING)) };
+                // A simple name is what follows the package and the classes it is nested in.
+                let made = if name == "getName" { of.replace('/', ".") } else { of.rsplit(['/', '$']).next().unwrap_or(of).to_owned() };
+                pointer(self.string(vm, units(&made))?)
+            }
+            ("Arrays", "sort", "([I)V" | "([J)V" | "([C)V" | "([S)V" | "([B)V") => {
+                if this == 0 {
+                    self.throw(vm, "java/lang/NullPointerException", "")?;
+                    return Ok(Some(NOTHING));
+                }
+                let size = element_size(&descriptor[1..]);
+                let count = u64::from(vm.memory.read_u32(this + HEADER)?);
+                let mut values = Vec::with_capacity(count as usize);
+                for n in 0..count {
+                    let at = this + ELEMENTS + size * n;
+                    // A value with its sign, but for a character, which has none.
+                    values.push(match size {
+                        1 => i64::from(vm.memory.read_u8(at)? as i8),
+                        2 if descriptor == "([C)V" => i64::from(vm.memory.read_u16(at)?),
+                        2 => i64::from(vm.memory.read_u16(at)? as i16),
+                        4 => i64::from(vm.memory.read_u32(at)? as i32),
+                        _ => vm.memory.read_u64(at)?.cast_signed(),
+                    });
+                }
+                values.sort_unstable();
+                for (n, value) in values.into_iter().enumerate() {
+                    let at = this + ELEMENTS + size * n as u64;
+                    match size {
+                        1 => vm.memory.write_u8(at, value as u8)?,
+                        2 => vm.memory.write_u16(at, value as u16)?,
+                        4 => vm.memory.write_u32(at, value as u32)?,
+                        _ => vm.memory.write_u64(at, value.cast_unsigned())?,
+                    }
+                }
+                NOTHING
+            }
+            ("String", "split", "(Ljava/lang/String;)[Ljava/lang/String;") => {
+                // By a separator that is literal text: the pieces between its places, without the
+                // empty ones at the end. A pattern is not read.
+                let text = self.text(this).cloned().unwrap_or_default();
+                let separator = self.text(arg(1)).cloned().unwrap_or_default();
+                if separator.is_empty() || separator.iter().any(|&unit| unit < 0x80 && r"\^$.|?*+()[]{}".contains(unit as u8 as char)) {
+                    self.throw(vm, "java/lang/UnsupportedOperationException", "a pattern that is not literal text")?;
+                    return Ok(Some(NOTHING));
+                }
+                let (mut pieces, mut from, mut at) = (Vec::new(), 0, 0);
+                while at + separator.len() <= text.len() {
+                    if text[at..at + separator.len()] == separator[..] {
+                        pieces.push(text[from..at].to_vec());
+                        at += separator.len();
+                        from = at;
+                    } else {
+                        at += 1;
+                    }
+                }
+                if pieces.is_empty() {
+                    pieces.push(text);
+                } else {
+                    pieces.push(text[from..].to_vec());
+                    while pieces.last().is_some_and(Vec::is_empty) {
+                        pieces.pop();
+                    }
+                }
+                let array = self.array(vm, "[Ljava/lang/String;", pieces.len() as i32)?;
+                for (n, piece) in pieces.into_iter().enumerate() {
+                    let string = self.string(vm, piece)?;
+                    vm.memory.write_u64(array + ELEMENTS + 8 * n as u64, string)?;
+                }
+                pointer(array)
+            }
+            ("String", "format", "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;") => {
+                let format = self.text(this).map(|text| String::from_utf16_lossy(text)).unwrap_or_default();
+                match self.format(vm, &format, arg(1))? {
+                    Ok(made) => pointer(self.string(vm, units(&made))?),
+                    Err(why) => {
+                        self.throw(vm, "java/lang/UnsupportedOperationException", &why)?;
+                        NOTHING
+                    }
+                }
+            }
             ("Long" | "Double" | "Boolean", "parseLong" | "parseDouble" | "parseBoolean", _) => {
                 let text = self.text(this).map(|text| String::from_utf16_lossy(text)).unwrap_or_default();
                 let parsed = match name {

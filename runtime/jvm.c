@@ -1424,6 +1424,270 @@ static void library(const char *name, const char *above, const char *first, cons
     if (second) jvm_implement((uint8_t *)name, (uint8_t *)second);
 }
 
+// An object's class, and a class's names: the whole one with its package, and the simple one,
+// which is what follows the package and the classes it is nested in.
+static ref Object_getClass(ref this) {
+    return jvm_class((uint8_t *)class_of(this));
+}
+
+static ref Class_getName(ref this) {
+    char name[256];
+    dotted(name, sizeof name, (const char *)(uintptr_t)NATIVE(this));
+    return string_ascii(name);
+}
+
+static ref Class_getSimpleName(ref this) {
+    const char *name = (const char *)(uintptr_t)NATIVE(this), *simple = name;
+    for (const char *c = name; *c; c++) {
+        if (*c == '/' || *c == '$') simple = c + 1;
+    }
+    return string_ascii(simple);
+}
+
+// A number in a base that is a power of two, without a sign.
+static ref radix_text(uint64_t v, unsigned bits) {
+    char digits[65];
+    int at = 64;
+    digits[at] = 0;
+    do {
+        digits[--at] = "0123456789abcdef"[v & ((1u << bits) - 1)];
+        v >>= bits;
+    } while (v);
+    return string_ascii(digits + at);
+}
+
+ref java_lang_Long__toHexString__J_Ljava_lang_String_2(uint64_t v) { return radix_text(v, 4); }
+ref java_lang_Long__toBinaryString__J_Ljava_lang_String_2(uint64_t v) { return radix_text(v, 1); }
+ref java_lang_Integer__toBinaryString__I_Ljava_lang_String_2(uint32_t v) { return radix_text(v, 1); }
+ref java_lang_Integer__toOctalString__I_Ljava_lang_String_2(uint32_t v) { return radix_text(v, 3); }
+
+// `Arrays.sort` of an array of numbers: a character has no sign, the rest have.
+#define SORTS(letter, type) \
+    static int compare_##letter(const void *a, const void *b) { \
+        type x = *(const type *)a, y = *(const type *)b; \
+        return (x > y) - (x < y); \
+    } \
+    void java_util_Arrays__sort___3##letter##_V(ref sorted) { \
+        if (!sorted) { \
+            throw_new("java/lang/NullPointerException", 0); \
+            return; \
+        } \
+        qsort(sorted + ELEMENTS, (size_t)LENGTH(sorted), sizeof(type), compare_##letter); \
+    }
+SORTS(I, int32_t)
+SORTS(J, int64_t)
+SORTS(C, uint16_t)
+SORTS(S, int16_t)
+SORTS(B, int8_t)
+
+// `split` by a separator that is literal text: the pieces between its places, without the empty
+// ones at the end. A pattern is not read.
+static ref String_split(ref this, ref separator) {
+    struct text *text = text_of(this), *part = text_of(separator);
+    int literal = part->count != 0;
+    for (uint32_t n = 0; n < part->count; n++) {
+        if (part->units[n] < 0x80 && strchr("\\^$.|?*+()[]{}", (int)part->units[n])) literal = 0;
+    }
+    if (!literal) {
+        throw_new("java/lang/UnsupportedOperationException", "a pattern that is not literal text");
+        return 0;
+    }
+    // Twice over the text: the pieces counted, then made.
+    ref made = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        uint32_t pieces = 0, kept = 0, from = 0, at = 0;
+        int found = 0;
+        while (at + part->count <= text->count) {
+            if (memcmp(text->units + at, part->units, part->count * sizeof *part->units) == 0) {
+                if (made && (int32_t)pieces < LENGTH(made)) ((ref *)(made + ELEMENTS))[pieces] = string_of(text->units + from, at - from);
+                pieces++;
+                if (at > from) kept = pieces;
+                at += part->count;
+                from = at;
+                found = 1;
+            } else {
+                at++;
+            }
+        }
+        if (made && (int32_t)pieces < LENGTH(made)) ((ref *)(made + ELEMENTS))[pieces] = string_of(text->units + from, text->count - from);
+        pieces++;
+        if (text->count > from) kept = pieces;
+        if (!made) {
+            made = array("[Ljava/lang/String;", (int32_t)(found ? kept : 1));
+            if (!made) return 0;
+        }
+    }
+    return made;
+}
+
+// The shortest digits that name a double that is not negative, and its decimal exponent: the
+// value is the first digit, a point, the rest, times ten to the exponent.
+static void shortest(double v, char *digits, int *exponent) {
+    char written[40];
+    for (int precision = 0; precision < 17; precision++) {
+        snprintf(written, sizeof written, "%.*e", precision, v);
+        if (strtod(written, 0) == v) break;
+    }
+    char *at = written;
+    for (; *at && *at != 'e'; at++) {
+        if (*at >= '0' && *at <= '9') *digits++ = *at;
+    }
+    *digits = 0;
+    *exponent = *at ? atoi(at + 1) : 0;
+}
+
+// A double that is not negative as `%.Nf` writes it: its shortest digits rounded half up at the
+// precision, which is how the library rounds (1.005 to two places is 1.01, though the double
+// lies below it).
+static void fixed_text(double v, int precision, struct text *out) {
+    if (v != v || isinf(v)) {
+        add_ascii(out, v != v ? "NaN" : "Infinity");
+        return;
+    }
+    char digits[24];
+    int exponent;
+    shortest(v, digits, &exponent);
+    if (precision > 340) precision = 340;
+    // The digits before the point, then those after it, with room for one more to round by.
+    static char all[720];
+    int count = 0, whole;
+    if (exponent < 0) {
+        all[count++] = '0';
+        for (int n = 0; n < -exponent - 1 && count < 700; n++) all[count++] = '0';
+        for (char *d = digits; *d && count < 700; d++) all[count++] = *d;
+        whole = 1;
+    } else {
+        for (char *d = digits; *d; d++) all[count++] = *d;
+        whole = exponent + 1;
+        while (count < whole) all[count++] = '0';
+    }
+    int up = whole + precision < count && all[whole + precision] >= '5';
+    while (count < whole + precision) all[count++] = '0';
+    count = whole + precision;
+    int carried = 0;
+    if (up) {
+        int at = count;
+        for (;;) {
+            if (at == 0) {
+                carried = 1;
+                break;
+            }
+            at--;
+            if (all[at] == '9') {
+                all[at] = '0';
+            } else {
+                all[at]++;
+                break;
+            }
+        }
+    }
+    all[count] = 0;
+    if (carried) add_ascii(out, "1");
+    uint16_t point = '.';
+    for (int n = 0; n < count; n++) {
+        uint16_t unit = (uint8_t)all[n];
+        if (n == whole) add_units(out, &point, 1);
+        add_units(out, &unit, 1);
+    }
+}
+
+static void pad_with(struct text *out, char with, int count) {
+    uint16_t unit = (uint8_t)with;
+    for (; count > 0; count--) add_units(out, &unit, 1);
+}
+
+// `String.format`: the conversions `d`, `x`, `s`, `c`, `b`, `f`, `n` and `%`, with the flags
+// `-`, `0` and `+`, a width and a precision. Another format is refused.
+ref java_lang_String__format__Ljava_lang_String_2_3Ljava_lang_Object_2_Ljava_lang_String_2(ref format, ref arguments) {
+    struct text *from = text_of(format);
+    ref made = object("java/lang/String");
+    struct text *out = text_of(made);
+    int32_t next = 0, count = arguments ? LENGTH(arguments) : 0;
+    for (uint32_t n = 0; n < from->count; n++) {
+        if (from->units[n] != '%') {
+            add_units(out, &from->units[n], 1);
+            continue;
+        }
+        int left = 0, zero = 0, plus = 0, width = 0, precision = -1;
+        for (n++; n < from->count && (from->units[n] == '-' || from->units[n] == '0' || from->units[n] == '+'); n++) {
+            left |= from->units[n] == '-';
+            zero |= from->units[n] == '0';
+            plus |= from->units[n] == '+';
+        }
+        for (; n < from->count && from->units[n] >= '0' && from->units[n] <= '9'; n++) width = width * 10 + (from->units[n] - '0');
+        if (n < from->count && from->units[n] == '.') {
+            precision = 0;
+            for (n++; n < from->count && from->units[n] >= '0' && from->units[n] <= '9'; n++) precision = precision * 10 + (from->units[n] - '0');
+        }
+        if (n >= from->count) {
+            throw_new("java/lang/UnsupportedOperationException", "a format that ends in its conversion");
+            return 0;
+        }
+        uint16_t conversion = from->units[n];
+        if (conversion == 'n' || conversion == '%') {
+            pad_with(out, conversion == 'n' ? '\n' : '%', 1);
+            continue;
+        }
+        if (next >= count) {
+            throw_new("java/lang/UnsupportedOperationException", "a format with no argument for its conversion");
+            return 0;
+        }
+        ref argument = ((ref *)(arguments + ELEMENTS))[next++];
+        const char *class = argument ? class_of(argument) : "";
+        uint64_t bits = argument ? NATIVE(argument) : 0;
+        int is_long = strcmp(class, "java/lang/Long") == 0, is_boolean = strcmp(class, "java/lang/Boolean") == 0;
+        int is_whole = is_long || strcmp(class, "java/lang/Integer") == 0;
+        const char *sign = "";
+        // The conversion's text, made apart so the width can be filled round it.
+        struct text body = {0};
+        char digits[24];
+        if (conversion == 's') {
+            struct text *described = text_of(describe(argument));
+            if (pending) return 0;
+            uint32_t kept = precision >= 0 && (uint32_t)precision < described->count ? (uint32_t)precision : described->count;
+            add_units(&body, described->units, kept);
+        } else if (conversion == 'b') {
+            add_ascii(&body, (is_boolean ? (bits & 1) != 0 : argument != 0) ? "true" : "false");
+        } else if (conversion == 'c' && strcmp(class, "java/lang/Character") == 0) {
+            uint16_t unit = (uint16_t)bits;
+            add_units(&body, &unit, 1);
+        } else if (conversion == 'd' && (is_whole || strcmp(class, "java/lang/Short") == 0 || strcmp(class, "java/lang/Byte") == 0)) {
+            int64_t value = is_long ? (int64_t)bits : (int64_t)(int32_t)(uint32_t)bits;
+            sign = value < 0 ? "-" : plus ? "+" : "";
+            snprintf(digits, sizeof digits, "%llu", value < 0 ? 0ull - (unsigned long long)value : (unsigned long long)value);
+            add_ascii(&body, digits);
+        } else if (conversion == 'x' && is_whole) {
+            snprintf(digits, sizeof digits, "%llx", (unsigned long long)(is_long ? bits : bits & 0xffffffffu));
+            add_ascii(&body, digits);
+        } else if (conversion == 'f' && (strcmp(class, "java/lang/Double") == 0 || strcmp(class, "java/lang/Float") == 0)) {
+            double value;
+            if (strcmp(class, "java/lang/Float") == 0) {
+                uint32_t narrow = (uint32_t)bits;
+                float single;
+                memcpy(&single, &narrow, sizeof single);
+                value = single;
+            } else {
+                memcpy(&value, &bits, sizeof value);
+            }
+            sign = signbit(value) && value == value ? "-" : plus ? "+" : "";
+            fixed_text(fabs(value), precision < 0 ? 6 : precision, &body);
+            zero = zero && value == value && !isinf(value);
+        } else {
+            throw_new("java/lang/UnsupportedOperationException", "a conversion of a format the runtime has not");
+            return 0;
+        }
+        int pad = width - (int)strlen(sign) - (int)body.count;
+        int numeric = conversion == 'd' || conversion == 'x' || conversion == 'f';
+        if (!left && !(zero && numeric)) pad_with(out, ' ', pad);
+        add_ascii(out, sign);
+        if (!left && zero && numeric) pad_with(out, '0', pad);
+        add_units(out, body.units, body.count);
+        if (left) pad_with(out, ' ', pad);
+        free(body.units);
+    }
+    return made;
+}
+
 static void method(const char *name, const char *named, void *function) {
     jvm_method((uint8_t *)name, (uint8_t *)named, function);
 }
@@ -1446,6 +1710,10 @@ static void everyday(void) {
     method(string, "compareTo:(Ljava/lang/String;)I", (void *)String_compareTo);
     method(string, "compareTo:(Ljava/lang/Object;)I", (void *)String_compareTo);
     method(string, "toCharArray:()[C", (void *)String_toCharArray);
+    method(string, "split:(Ljava/lang/String;)[Ljava/lang/String;", (void *)String_split);
+    method("java/lang/Object", "getClass:()Ljava/lang/Class;", (void *)Object_getClass);
+    method("java/lang/Class", "getName:()Ljava/lang/String;", (void *)Class_getName);
+    method("java/lang/Class", "getSimpleName:()Ljava/lang/String;", (void *)Class_getSimpleName);
     method(builder, "insert:(ILjava/lang/String;)Ljava/lang/StringBuilder;", (void *)StringBuilder_insert);
     method(builder, "reverse:()Ljava/lang/StringBuilder;", (void *)StringBuilder_reverse);
     method(builder, "setLength:(I)V", (void *)StringBuilder_setLength);

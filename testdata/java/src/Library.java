@@ -106,7 +106,40 @@ public class Library {
         return out.append(' ').append(from[0]).append(copy[0]).append(' ').append(new String(letters)).append(String.valueOf(letters, 1, 3)).toString();
     }
 
+    // Text made by a format, split by a separator, and written in another base; arrays sorted;
+    // and an object asked its class.
+    static String formats() {
+        StringBuilder out = new StringBuilder();
+        out.append(String.format("%d|%5d|%-5d|%05d|%+d|%x|%08x", 42, -7, 7, -42, 9, 255, 0xbeef));
+        out.append(' ').append(String.format("%s|%6s|%-6s|%.2s|%c|%b|%b%%", "text", "ab", "cd", "long", 'z', true, null));
+        out.append(' ').append(String.format("%.2f|%8.3f|%.0f|%f|%.2f|%.1f|%d", 2.5, -3.14159, 2.5, 1.5, 1.005, 0.05, 1L << 40));
+        String[] parts = "a,b,,c,,".split(",");
+        out.append(' ').append(parts.length);
+        for (String part : parts) {
+            out.append('[').append(part).append(']');
+        }
+        out.append(' ').append("one--two--three".split("--")[2]).append("none".split(";").length).append(",".split(",").length);
+        out.append(' ').append(Long.toHexString(1L << 40)).append(' ').append(Integer.toBinaryString(10)).append(' ');
+        out.append(Integer.toBinaryString(-1).length()).append(' ').append(Integer.toOctalString(64)).append(' ').append(Long.toBinaryString(5L));
+        int[] numbers = {3, -1, 4, 1, -5, 9, 2, 6};
+        java.util.Arrays.sort(numbers);
+        char[] letters = "hello".toCharArray();
+        java.util.Arrays.sort(letters);
+        long[] wide = {1L << 40, -1L, 0L};
+        java.util.Arrays.sort(wide);
+        out.append(' ');
+        for (int n : numbers) {
+            out.append(n);
+        }
+        out.append(' ').append(new String(letters)).append(' ').append(wide[0]).append(wide[2]);
+        Object text = "text";
+        Object list = new ArrayList<String>();
+        out.append(' ').append(text.getClass().getSimpleName()).append(' ').append(list.getClass().getName());
+        return out.toString();
+    }
+
     public static void main(String[] args) {
+        System.out.println(formats());
         System.out.println(strings());
         System.out.println(builder());
         System.out.println(numbers());
