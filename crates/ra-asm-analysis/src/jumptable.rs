@@ -220,7 +220,11 @@ pub fn arm_jump_constant(image: &Image, block: &[Instr]) -> Option<u64> {
         _ => return None,
     };
     let target = u64::from(word) & !1;
-    image.is_code(target).then_some(target)
+    if !image.is_code(target) {
+        return None;
+    }
+    image.arm_map.mark(target, word & 1 == 0);
+    Some(target)
 }
 
 /// Resolves the jump of a switch in ARM code as clang writes it: `adr b, table; ldr r, [b, i,

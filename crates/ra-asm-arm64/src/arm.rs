@@ -325,17 +325,17 @@ impl Arch for Arm {
 /// The decoder of a program of both instruction sets: ARM code where the image's mapping
 /// symbols say so (`ranges`: the address a run starts at, and whether it is ARM code, in address
 /// order), Thumb elsewhere.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 pub struct ArmThumb {
-    pub ranges: Vec<(u64, bool)>,
+    /// Where each set is known to start; the decoder adds where the branches it reads go.
+    pub map: std::sync::Arc<ra_asm_arch::ArmMap>,
+    /// The set of the code before the first place of the map: ARM code when set.
+    pub arm: bool,
 }
 
 impl ArmThumb {
     fn arm_at(&self, address: u64) -> bool {
-        match self.ranges.partition_point(|&(start, _)| start <= address) {
-            0 => false,
-            n => self.ranges[n - 1].1,
-        }
+        self.map.at(address).unwrap_or(self.arm)
     }
 }
 
@@ -357,7 +357,18 @@ impl Arch for ArmThumb {
     }
 
     fn decode(&self, bytes: &[u8], address: u64) -> Option<Instr> {
-        if self.arm_at(address) { Arm.decode(bytes, address) } else { crate::thumb::Thumb.decode(bytes, address) }
+        let arm = self.arm_at(address);
+        let instr = if arm { Arm.decode(bytes, address) } else { crate::thumb::Thumb.decode(bytes, address) }?;
+        // Where a branch goes is code of the set the branch is in, unless the branch changes the
+        // set: `blx` either way, and Thumb's `bx pc` into the ARM code after it.
+        if let Flow::Call(Target::Direct(target)) | Flow::Jump(Target::Direct(target)) | Flow::CondJump(Target::Direct(target)) = instr.flow
+        {
+            let op =
+                if arm { Some(decode(instr.code, address).op) } else { crate::thumb::decode_raw(instr.code, address, None).map(|d| d.op) };
+            let changes = matches!(op, Some(Op::Call { arm: true, .. } | Op::BranchReg { rm: PC, .. }));
+            self.map.mark(target, arm != changes);
+        }
+        Some(instr)
     }
 
     fn link(&self, before: &[Instr], instr: &mut Instr) {

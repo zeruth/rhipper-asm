@@ -159,6 +159,38 @@ impl Access {
     }
 }
 
+/// Where the code of a 32-bit ARM program is ARM code and where Thumb: the places a set is known
+/// to start at. The code at an address is of the set of the nearest place at or below it. A
+/// file's mapping symbols are the first places; the decoder adds where a branch goes (the set
+/// the branch is in, or the other for a branch that changes it), so a program without the
+/// symbols is told apart as its code is followed. A place keeps the set it was first given.
+#[derive(Debug, Default)]
+pub struct ArmMap {
+    places: std::sync::RwLock<std::collections::BTreeMap<u64, bool>>,
+}
+
+impl ArmMap {
+    /// Says the code at `va` starts a run of ARM code (`arm`) or of Thumb, unless it is said already.
+    pub fn mark(&self, va: u64, arm: bool) {
+        if self.places.read().is_ok_and(|places| places.contains_key(&va)) {
+            return;
+        }
+        if let Ok(mut places) = self.places.write() {
+            places.entry(va).or_insert(arm);
+        }
+    }
+
+    /// Whether the code at `va` is ARM code; `None` before the first place.
+    pub fn at(&self, va: u64) -> Option<bool> {
+        self.places.read().ok()?.range(..=va).next_back().map(|(_, &arm)| arm)
+    }
+
+    /// Whether the map has places of both sets.
+    pub fn both(&self) -> bool {
+        self.places.read().is_ok_and(|places| places.values().any(|&arm| arm) && places.values().any(|&arm| !arm))
+    }
+}
+
 /// The repeat and lock prefixes of an instruction.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct Prefixes {

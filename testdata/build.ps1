@@ -258,6 +258,10 @@ if (Wanted 'armthumb') {
   Write-Host "clang armthumb" -ForegroundColor Cyan
   & clang @args
   if ($LASTEXITCODE -ne 0) { throw "clang failed for armthumb" }
+  # armthumb_stripped is the program without its symbols, the mapping symbols that say which
+  # code is of which set among them: what a cartridge's image is.
+  & llvm-strip --strip-all -o (Join-Path $bin 'armthumb_stripped') (Join-Path $bin 'armthumb')
+  if ($LASTEXITCODE -ne 0) { throw "llvm-strip failed for armthumb_stripped" }
 }
 
 # cortexm is the fixture of a microcontroller: ARMv7-M firmware linked by cortexm.ld into flash

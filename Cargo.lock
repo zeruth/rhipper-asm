@@ -363,6 +363,7 @@ name = "ra-asm-pe"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "ra-asm-arch",
  "ra-asm-format",
  "serde",
 ]

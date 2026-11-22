@@ -36,6 +36,8 @@ const MAX_IMAGE_SIZE: u32 = 1 << 30;
 /// The highest image base the loader takes: 2^40 below the top, above any kernel image's base.
 const MAX_IMAGE_BASE: u64 = u64::MAX - (1 << 40);
 
+pub use ra_asm_arch::ArmMap;
+
 /// A parsed, mapped PE image.
 #[derive(Debug)]
 pub struct Image {
@@ -80,9 +82,9 @@ pub struct Image {
     /// Which instruction set a 32-bit ARM image's code is in, where a reader knows it and the
     /// file does not say: `true` for ARM code, `false` for Thumb ([`Image::arm_code`]).
     pub arm_state: Option<bool>,
-    /// Where the code of a 32-bit ARM image changes instruction set, from an ELF file's mapping
-    /// symbols, in address order: the address a run starts at, and whether it is ARM code.
-    pub arm_ranges: Vec<(u64, bool)>,
+    /// Where the code of a 32-bit ARM image changes instruction set: an ELF file's mapping
+    /// symbols, and what the analysis learns as it follows the code.
+    pub arm_map: std::sync::Arc<ArmMap>,
     /// The Dreamcast boot program the image is, when it is one: its addresses fold through the
     /// console's memory map.
     pub dreamcast: Option<Boot>,
@@ -297,7 +299,7 @@ impl Image {
             firmware: flat_firmware,
             dreamcast: boot,
             arm_state: None,
-            arm_ranges: Vec::new(),
+            arm_map: std::sync::Arc::default(),
             n64: rom,
             global_pointer: None,
             rom: None,
@@ -316,10 +318,11 @@ impl Image {
                 Some("$t") => Some(false),
                 _ => None,
             };
-            let mut ranges: Vec<(u64, bool)> = elf.symbols.iter().filter_map(|s| set(&s.name).map(|arm| (s.value, arm))).collect();
-            ranges.sort_unstable();
-            ranges.dedup_by_key(|r| r.0);
-            image.arm_ranges = ranges;
+            for (va, arm) in elf.symbols.iter().filter_map(|s| set(&s.name).map(|arm| (s.value, arm))) {
+                image.arm_map.mark(va, arm);
+            }
+            // The entry's low bit says the set the program starts in.
+            image.arm_map.mark(elf.entry & !1, elf.entry & 1 == 0);
         }
         image.read_directories();
         Ok(image)
@@ -425,15 +428,12 @@ impl Image {
         if self.arm_state.is_some() || self.machine() != Machine::Arm {
             return self.arm_code();
         }
-        match self.arm_ranges.partition_point(|&(start, _)| start <= va) {
-            0 => self.arm_code(),
-            n => self.arm_ranges[n - 1].1,
-        }
+        self.arm_map.at(va).unwrap_or_else(|| self.arm_code())
     }
 
-    /// Whether the image's code is of both instruction sets, by its mapping symbols.
+    /// Whether the image's code is of both instruction sets, as far as its map says.
     pub fn arm_and_thumb(&self) -> bool {
-        self.arm_state.is_none() && self.arm_ranges.iter().any(|r| r.1) && self.arm_ranges.iter().any(|r| !r.1)
+        self.arm_state.is_none() && self.arm_map.both()
     }
 
     /// The byte order of the program's words, which every read of a value of the image takes: the

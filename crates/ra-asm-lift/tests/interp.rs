@@ -143,8 +143,7 @@ fn thumb1_runs_interpreted() {
 #[test]
 fn arm1_runs_interpreted() {
     let image = ra_asm_pe::load(&root().join("testdata/bin/arm1")).unwrap();
-    assert!(image.arm_code());
-    assert_eq!(ra_asm_analysis::arch_of(&image).name(), "arm");
+    assert!(image.arm_code() && !image.arm_and_thumb());
     runs_as_the_machine_ran_it("arm1");
 }
 
@@ -157,6 +156,20 @@ fn armthumb_runs_interpreted() {
     assert!(image.arm_and_thumb());
     assert_eq!(ra_asm_analysis::arch_of(&image).name(), "arm+thumb");
     runs_as_the_machine_ran_it("armthumb");
+}
+
+/// The same program with its symbols stripped, the mapping symbols among them, as a cartridge
+/// has none: the file says only that it starts in ARM code. The decoder tells the sets apart as
+/// it follows the code, by the branches that change the set and the low bit of an address a
+/// thunk jumps through.
+#[test]
+fn armthumb_stripped_runs_interpreted() {
+    let image = ra_asm_pe::load(&root().join("testdata/bin/armthumb_stripped")).unwrap();
+    assert!(image.arm_code() && !image.arm_and_thumb(), "the file names one set, the one it starts in");
+    runs_as_the_machine_ran_it("armthumb_stripped");
+    let analysis = ra_asm_analysis::analyze(&image);
+    assert!(image.arm_and_thumb(), "the analysis found the other");
+    assert!(analysis.functions.len() >= 14, "{} functions", analysis.functions.len());
 }
 
 /// A fixture of the program `testdata/src/thumb1.c`: lifted without a warning and interpreted,

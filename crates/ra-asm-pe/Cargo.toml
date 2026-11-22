@@ -12,5 +12,6 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+ra-asm-arch.workspace = true
 ra-asm-format.workspace = true
 serde.workspace = true

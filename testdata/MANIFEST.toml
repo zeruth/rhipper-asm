@@ -905,6 +905,15 @@ command = "testdata/build.ps1 armthumb"
 tools = "clang 22.1.7, LLD 22.1.7"
 
 [[file]]
+path = "testdata/bin/armthumb_stripped"
+sha256 = "d3af923806ad3c2d8d5d10075dfea4e2ac811b1462b05752a272a52112f3e00a"
+evidence = "emulator"
+expected = "testdata/expected/thumb1.txt"
+source = "testdata/src/thumb1.c"
+command = "testdata/build.ps1 armthumb"
+tools = "clang 22.1.7, LLD 22.1.7, llvm-strip 22.1.7"
+
+[[file]]
 path = "testdata/bin/cortexm.elf"
 sha256 = "a52362af0634f3143f3ff2e8d3b6f64b5c9ef290f503c366a01b606eef9f00dd"
 evidence = "source"

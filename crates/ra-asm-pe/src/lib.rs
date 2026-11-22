@@ -36,7 +36,7 @@ pub use exception::{
 };
 pub use exports::{Export, ExportTable};
 pub use headers::{DataDirectory, Directory, Headers, Machine, OptionalMagic, RichEntry, RichHeader, RichTool};
-pub use image::Image;
+pub use image::{ArmMap, Image};
 pub use imports::Import;
 pub use object::{Library, Object, ObjectFunction, ObjectReloc, ObjectSection};
 pub use pdb::{DataSymbol, LibraryRange, Symbol};
