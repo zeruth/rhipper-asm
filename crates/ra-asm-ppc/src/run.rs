@@ -70,7 +70,10 @@ impl Program {
                 number(header + 24, 4)?,
             );
             if kind == 1 && size != 0 {
-                segments.push(Segment { address, bytes: at(offset, in_file)?.to_vec(), size, executable: flags & 1 != 0 });
+                // A segment with no bytes in the file (what the program clears) may say an
+                // offset past the file's end: nothing is read there.
+                let bytes = if in_file == 0 { Vec::new() } else { at(offset, in_file)?.to_vec() };
+                segments.push(Segment { address, bytes, size, executable: flags & 1 != 0 });
             }
         }
         Ok(Self { entry, segments })

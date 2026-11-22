@@ -25,7 +25,7 @@ extern void sh_main(uint8_t *state);
 
 #define SPACE ((uint64_t)1 << 31)
 #define STACK_TOP ((uint64_t)0x7ff00000 + 0x100000)
-#define SLOTS 23
+#define SLOTS 41
 
 static uint8_t *memory;
 

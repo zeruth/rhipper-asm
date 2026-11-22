@@ -18,14 +18,23 @@
 //!
 //! What is lifted is the integer machine: the moves in all their addressing, the arithmetic
 //! with its carries and overflows, the step division, the multiplies into `mach` and `macl`, the
-//! shifts and rotates through `T`, the comparisons. The FPU's instructions and the privileged
-//! ones are not.
+//! shifts and rotates through `T`, the comparisons.
+//!
+//! The floating-point unit is lifted in the mode a program of singles keeps it in, which is the
+//! Dreamcast's own for most of its code: single precision and a move of one register. Its
+//! sixteen registers are a slot each after the bits, then `fpul` and `fpscr`. The arithmetic,
+//! the two compares into `T`, the moves in all their addressing, the conversions to and from a
+//! whole number through `fpul`, `fmac`, the constants and the moves of the sign are lifted.
+//! `fpscr` is kept as the program writes it and not obeyed: a program that puts the unit in
+//! double precision or moves pairs is lifted as if it had not, and the second bank of
+//! registers, `fsqrt` and the vector instructions are not lifted. The privileged instructions
+//! are not either.
 
 use std::collections::BTreeMap;
 
 use ra_asm_ir::{
-    BinOp, BlockId, CallConv, Callee, Cast, Const, Declaration, FnType, FunctionBuilder, Global, ICond, Linkage, Module, Operand,
-    Terminator, Type, ValueId,
+    BinOp, BlockId, CallConv, Callee, Cast, Const, Declaration, FCond, FnType, FunctionBuilder, Global, ICond, Inst, Linkage, Module,
+    Operand, Terminator, Type, ValueId,
 };
 
 /// The function the lift writes: `void (ptr state, i64 pc)`.
@@ -52,8 +61,18 @@ pub const GBR: u64 = 19;
 pub const T: u64 = 20;
 pub const Q: u64 = 21;
 pub const M: u64 = 22;
+/// The sixteen floating-point registers, a single each, then `fpul` and `fpscr`.
+pub const FR0: u64 = 23;
+pub const FPUL: u64 = 39;
+pub const FPSCR: u64 = 40;
 /// The slots of a state.
-pub const SLOTS: u64 = 23;
+pub const SLOTS: u64 = 41;
+
+/// The slot of the register an `lds` or an `sts` names by the second digit of its word: `mach`,
+/// `macl`, `pr`, and the floating-point unit's `fpul` and `fpscr`.
+fn special(digit: u32) -> Option<u64> {
+    [Some(MACH), Some(MACL), Some(PR), None, None, Some(FPUL), Some(FPSCR)].get(digit as usize).copied().flatten()
+}
 
 /// The code of a program: its bytes, little-endian words, and the address of the first.
 #[derive(Debug, Clone, Copy)]
@@ -212,8 +231,9 @@ impl Lift {
                     let t = self.get(T);
                     self.set(n, t);
                 }
-                (0xa, 0..=2) => {
-                    let value = self.get([MACH, MACL, PR][m as usize]);
+                (0xa, 0..=2 | 5 | 6) => {
+                    let Some(slot) = special(m as u32) else { return false };
+                    let value = self.get(slot);
                     self.set(n, value);
                 }
                 (0x2, 1) => {
@@ -386,19 +406,24 @@ impl Lift {
                         let is = self.cmp(if byte == 0x11 { ICond::Sge } else { ICond::Sgt }, value, 0);
                         self.set_bit(T, is);
                     }
-                    0x0a | 0x1a | 0x2a => self.set([MACH, MACL, PR][(byte >> 4) as usize], value),
+                    0x0a | 0x1a | 0x2a | 0x5a | 0x6a => {
+                        let Some(slot) = special(byte >> 4) else { return false };
+                        self.set(slot, value);
+                    }
                     0x1e => self.set(GBR, value),
-                    0x02 | 0x12 | 0x22 => {
+                    0x02 | 0x12 | 0x22 | 0x52 | 0x62 => {
+                        let Some(slot) = special(byte >> 4) else { return false };
                         let at = self.bin(BinOp::Sub, value, 4);
                         self.set(n, at.clone());
-                        let saved = self.get([MACH, MACL, PR][(byte >> 4) as usize]);
+                        let saved = self.get(slot);
                         self.store(4, saved, at);
                     }
-                    0x06 | 0x16 | 0x26 => {
+                    0x06 | 0x16 | 0x26 | 0x56 | 0x66 => {
+                        let Some(slot) = special(byte >> 4) else { return false };
                         let loaded = self.load(4, value.clone());
                         let after = self.bin(BinOp::Add, value, 4);
                         self.set(n, after);
-                        self.set([MACH, MACL, PR][(byte >> 4) as usize], loaded);
+                        self.set(slot, loaded);
                     }
                     _ if low == 0xc || low == 0xd => {
                         let count = self.get(m);
@@ -523,6 +548,137 @@ impl Lift {
                 _ => return false,
             },
             0xe => self.set(n, imm),
+            0xf => return self.float(w),
+            _ => return false,
+        }
+        true
+    }
+
+    /// A floating-point register as the single it holds.
+    fn fget(&mut self, n: u64) -> Operand {
+        let at = self.slot(FR0 + n);
+        self.b.load(self.block, Type::Float, at, "f").into()
+    }
+
+    fn fset(&mut self, n: u64, value: impl Into<Operand>) {
+        let at = self.slot(FR0 + n);
+        self.b.store(self.block, Type::Float, value, at);
+    }
+
+    fn fbin(&mut self, op: BinOp, a: impl Into<Operand>, b: impl Into<Operand>) -> Operand {
+        self.b.bin(self.block, op, Type::Float, a, b, "f").into()
+    }
+
+    fn fcmp(&mut self, cond: FCond, ty: Type, a: Operand, b: impl Into<Operand>) -> ValueId {
+        self.b.value(self.block, Inst::FCmp { cond, ty, lhs: a, rhs: b.into() }, "is")
+    }
+
+    /// The instructions of the floating-point unit in the mode a program of singles keeps it in:
+    /// single precision, a move of one register. Whether the lift has the instruction.
+    #[allow(clippy::too_many_lines)]
+    fn float(&mut self, w: u32) -> bool {
+        let (n, m) = (u64::from((w >> 8) & 15), u64::from((w >> 4) & 15));
+        match w & 15 {
+            op @ 0..=3 => {
+                let (a, b) = (self.fget(n), self.fget(m));
+                let value = self.fbin([BinOp::FAdd, BinOp::FSub, BinOp::FMul, BinOp::FDiv][op as usize], a, b);
+                self.fset(n, value);
+            }
+            op @ (4 | 5) => {
+                let (a, b) = (self.fget(n), self.fget(m));
+                let is = self.fcmp(if op == 4 { FCond::Oeq } else { FCond::Ogt }, Type::Float, a, b);
+                self.set_bit(T, is);
+            }
+            // The moves between a register and memory: the bits as they are.
+            6 | 8 | 9 => {
+                let base = self.get(m);
+                let at = if w & 15 == 6 {
+                    let index = self.get(0);
+                    self.bin(BinOp::Add, base.clone(), index)
+                } else {
+                    base.clone()
+                };
+                let bits = self.load(4, at);
+                self.set(FR0 + n, bits);
+                if w & 15 == 9 {
+                    let after = self.bin(BinOp::Add, base, 4);
+                    self.set(m, after);
+                }
+            }
+            7 | 0xa | 0xb => {
+                let (base, bits) = (self.get(n), self.get(FR0 + m));
+                let at = match w & 15 {
+                    7 => {
+                        let index = self.get(0);
+                        self.bin(BinOp::Add, base, index)
+                    }
+                    0xa => base,
+                    _ => {
+                        let at = self.bin(BinOp::Sub, base, 4);
+                        self.set(n, at.clone());
+                        at
+                    }
+                };
+                self.store(4, bits, at);
+            }
+            0xc => {
+                let bits = self.get(FR0 + m);
+                self.set(FR0 + n, bits);
+            }
+            0xe => {
+                // `fmac`: the product of `fr0` and a register added to another, rounded once.
+                // The product of two singles is exact as a double; the sum is rounded as a
+                // double and then as a single, which is the one rounding but for a sum that
+                // lies half way.
+                let wide = |lift: &mut Self, v: Operand| lift.b.cast(lift.block, Cast::FPExt, Type::Float, v, Type::Double, "wide");
+                let (a, b, c) = (self.fget(0), self.fget(m), self.fget(n));
+                let (a, b, c) = (wide(self, a), wide(self, b), wide(self, c));
+                let product = self.b.bin(self.block, BinOp::FMul, Type::Double, a, b, "product");
+                let sum = self.b.bin(self.block, BinOp::FAdd, Type::Double, product, c, "sum");
+                let value = self.b.cast(self.block, Cast::FPTrunc, Type::Double, sum, Type::Float, "f");
+                self.fset(n, value);
+            }
+            0xd => match m {
+                // `fsts` and `flds`: the bits to and from `fpul`.
+                0 => {
+                    let bits = self.get(FPUL);
+                    self.set(FR0 + n, bits);
+                }
+                1 => {
+                    let bits = self.get(FR0 + n);
+                    self.set(FPUL, bits);
+                }
+                // `float`: the whole number in `fpul` as a single.
+                2 => {
+                    let whole = self.get(FPUL);
+                    let value = self.b.cast(self.block, Cast::SIToFP, I32, whole, Type::Float, "f");
+                    self.fset(n, value);
+                }
+                // `ftrc`: toward zero into `fpul`. What is past an end of the word is that end;
+                // what is no number is the highest, as the emulator the fixture is held to has it.
+                3 => {
+                    let value = self.fget(n);
+                    let wide: Operand = self.b.cast(self.block, Cast::FPExt, Type::Float, value, Type::Double, "wide").into();
+                    let low = self.fcmp(FCond::Olt, Type::Double, wide.clone(), Operand::Float(-2_147_483_648.0));
+                    let inside = self.fcmp(FCond::Olt, Type::Double, wide.clone(), Operand::Float(2_147_483_648.0));
+                    let ordered = self.b.bin(self.block, BinOp::Xor, Type::I1, low, 1, "above");
+                    let inside = self.b.bin(self.block, BinOp::And, Type::I1, inside, ordered, "inside");
+                    let safe = self.b.select(self.block, inside, Type::Double, wide, Operand::Float(0.0), "safe");
+                    let whole = self.b.cast(self.block, Cast::FPToSI, Type::Double, safe, I32, "whole");
+                    let whole = self.select(inside, whole, 0x7fff_ffff);
+                    let whole = self.select(low, i64::from(i32::MIN), whole);
+                    self.set(FPUL, whole);
+                }
+                4 | 5 => {
+                    let bits = self.get(FR0 + n);
+                    let bits =
+                        if m == 4 { self.bin(BinOp::Xor, bits, i64::from(i32::MIN)) } else { self.bin(BinOp::And, bits, 0x7fff_ffff) };
+                    self.set(FR0 + n, bits);
+                }
+                8 => self.set(FR0 + n, 0),
+                9 => self.set(FR0 + n, 0x3f80_0000),
+                _ => return false,
+            },
             _ => return false,
         }
         true
