@@ -29,11 +29,14 @@ pub struct Segment {
     pub executable: bool,
 }
 
-/// A little-endian SH program as its ELF file has it.
+/// An SH program as its ELF file has it, of either byte order: the Dreamcast's processor is
+/// little-endian, the Saturn's and the 32X's big-endian.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Program {
     pub entry: u64,
     pub segments: Vec<Segment>,
+    /// The program's words, in its code and in its memory, have their high byte first.
+    pub big_endian: bool,
 }
 
 impl Program {
@@ -49,12 +52,16 @@ impl Program {
             let end = offset.checked_add(len).filter(|&end| end <= file.len() as u64);
             end.map(|end| &file[offset as usize..end as usize]).ok_or_else(|| bad("a header ends outside the file"))
         };
-        let number = |offset: u64, len: u64| -> Result<u64, Error> {
-            Ok(at(offset, len)?.iter().rev().fold(0u64, |value, &byte| value << 8 | u64::from(byte)))
-        };
-        if at(0, 4)? != b"\x7fELF" || at(4, 2)? != [1, 1] {
-            return Err(bad("it is no little-endian 32-bit ELF file"));
+        if at(0, 4)? != b"\x7fELF" || at(4, 1)? != [1] || !matches!(at(5, 1)?, [1 | 2]) {
+            return Err(bad("it is no 32-bit ELF file"));
         }
+        // The file's numbers are in the program's byte order.
+        let big_endian = at(5, 1)? == [2];
+        let number = |offset: u64, len: u64| -> Result<u64, Error> {
+            let bytes = at(offset, len)?;
+            let join = |value: u64, byte: &u8| value << 8 | u64::from(*byte);
+            Ok(if big_endian { bytes.iter().fold(0, join) } else { bytes.iter().rev().fold(0, join) })
+        };
         if number(18, 2)? != 42 {
             return Err(bad("its machine is not SuperH"));
         }
@@ -77,7 +84,7 @@ impl Program {
                 segments.push(Segment { address, bytes, size, executable: flags & 1 != 0 });
             }
         }
-        Ok(Self { entry, segments })
+        Ok(Self { entry, segments, big_endian })
     }
 
     /// The program's code lifted: the first executable segment, as [`lift`] makes it. The
@@ -89,7 +96,7 @@ impl Program {
     pub fn lift(&self) -> Result<Module, Error> {
         use ra_asm_ir::{CallConv, Callee, Const, Declaration, FunctionBuilder, Global, Linkage, Operand, Terminator, Type};
         let code = self.segments.iter().find(|s| s.executable).ok_or_else(|| Error("the program has no code".to_owned()))?;
-        let mut module = lift(Code { address: code.address, bytes: &code.bytes });
+        let mut module = lift(Code { address: code.address, bytes: &code.bytes, big_endian: self.big_endian });
         // The whole program: its segments as data the runtime is handed, then the code from
         // the entry.
         let segment_ty = FnType::new(Type::Void, vec![Type::I64, Type::Ptr, Type::I64, Type::I64]);

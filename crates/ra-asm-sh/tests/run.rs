@@ -27,6 +27,16 @@ fn the_lifted_fixture_does_what_the_machine_did() {
     does_what_the_machine_did("sh4", 14);
 }
 
+/// The same program built big-endian, the byte order of the Saturn's and the 32X's processors:
+/// the lift turns the bytes of what it loads and stores, and the program does what it did under
+/// the emulator of the big-endian machine.
+#[test]
+fn the_lifted_big_endian_program_does_what_the_machine_did() {
+    let program = Program::parse(&std::fs::read(fixture("sh4eb.elf")).unwrap()).unwrap();
+    assert!(program.big_endian);
+    does_what_the_machine_did("sh4eb", 14);
+}
+
 #[test]
 fn the_lifted_floating_point_does_what_the_machine_did() {
     does_what_the_machine_did("sh4fp", 28);

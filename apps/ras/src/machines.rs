@@ -107,10 +107,12 @@ impl Program {
             }
             Self::Sh4(program) => {
                 let code = program.segments.iter().find(|s| s.executable).context("the program has no code")?;
-                let decoder = ra_asm_sh::Sh4::default();
+                let decoder = ra_asm_sh::Sh4 { big_endian: program.big_endian, ..ra_asm_sh::Sh4::default() };
                 for (n, word) in code.bytes.chunks_exact(2).enumerate() {
                     let address = code.address + 2 * n as u64;
-                    let decoded = decoder.decode_word(u16::from_le_bytes([word[0], word[1]]), address);
+                    let word =
+                        if program.big_endian { u16::from_be_bytes([word[0], word[1]]) } else { u16::from_le_bytes([word[0], word[1]]) };
+                    let decoded = decoder.decode_word(word, address);
                     let text = decoded.map_or_else(|| "unknown".to_owned(), |i| i.text);
                     writeln!(out, "{address:#010x}  {text}")?;
                 }

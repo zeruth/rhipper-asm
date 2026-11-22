@@ -20,7 +20,7 @@ fn source(name: &str) -> String {
 
 #[test]
 fn the_source_defines_the_program() {
-    for name in ["sh4", "sh4fp"] {
+    for name in ["sh4", "sh4eb", "sh4fp"] {
         let text = source(name);
         assert!(!text.contains("is not written"), "a global the backend left out");
         for defined in ["void sh_run(", "void sh_main(", "sh_memory", "sh_segment_0"] {
@@ -72,6 +72,11 @@ fn the_port_does_what_the_machine_did(name: &str) {
 #[test]
 fn the_compiled_port_does_what_the_machine_did() {
     the_port_does_what_the_machine_did("sh4");
+}
+
+#[test]
+fn the_compiled_big_endian_port_does_what_the_machine_did() {
+    the_port_does_what_the_machine_did("sh4eb");
 }
 
 #[test]

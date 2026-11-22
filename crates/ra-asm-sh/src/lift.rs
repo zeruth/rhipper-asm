@@ -74,17 +74,22 @@ fn special(digit: u32) -> Option<u64> {
     [Some(MACH), Some(MACL), Some(PR), None, None, Some(FPUL), Some(FPSCR)].get(digit as usize).copied().flatten()
 }
 
-/// The code of a program: its bytes, little-endian words, and the address of the first.
+/// The code of a program: its bytes, the address of the first, and the order of the bytes of
+/// its words, in the code and in its memory.
 #[derive(Debug, Clone, Copy)]
 pub struct Code<'a> {
     pub address: u64,
     pub bytes: &'a [u8],
+    pub big_endian: bool,
 }
 
 struct Lift {
     b: FunctionBuilder,
     state: ValueId,
     block: BlockId,
+    /// The program's memory holds a word's high byte first: a load and a store turn the bytes
+    /// round, so the lifted code is right on a host of the other order.
+    big_endian: bool,
 }
 
 const I32: Type = Type::I32;
@@ -135,8 +140,9 @@ impl Lift {
     fn load(&mut self, size: u32, address: impl Into<Operand>) -> Operand {
         let at = self.pointer(address);
         let ty = Type::Int(8 * size as u16);
-        let value = self.b.load(self.block, ty.clone(), at, "loaded");
-        if size == 4 { value.into() } else { self.b.cast(self.block, Cast::SExt, ty, value, I32, "loaded").into() }
+        let value: Operand = self.b.load(self.block, ty.clone(), at, "loaded").into();
+        let value = self.ordered(size, value);
+        if size == 4 { value } else { self.b.cast(self.block, Cast::SExt, ty, value, I32, "loaded").into() }
     }
 
     fn store(&mut self, size: u32, value: impl Into<Operand>, address: impl Into<Operand>) {
@@ -144,7 +150,28 @@ impl Lift {
         let ty = Type::Int(8 * size as u16);
         let value: Operand =
             if size == 4 { value.into() } else { self.b.cast(self.block, Cast::Trunc, I32, value, ty.clone(), "narrow").into() };
+        let value = self.ordered(size, value);
         self.b.store(self.block, ty, value, at);
+    }
+
+    /// A word or a longword between the program's byte order and the lifted code's: as it is
+    /// for a little-endian program, its bytes turned round for a big-endian one.
+    fn ordered(&mut self, size: u32, value: Operand) -> Operand {
+        if !self.big_endian || size == 1 {
+            return value;
+        }
+        let ty = Type::Int(8 * size as u16);
+        let op =
+            |lift: &mut Self, op: BinOp, a: Operand, b: i64| -> Operand { lift.b.bin(lift.block, op, ty.clone(), a, b, "swap").into() };
+        if size == 2 {
+            let (high, low) = (op(self, BinOp::Shl, value.clone(), 8), op(self, BinOp::LShr, value, 8));
+            return self.b.bin(self.block, BinOp::Or, Type::I16, high, low, "swap").into();
+        }
+        let (a, b) = (op(self, BinOp::Shl, value.clone(), 24), op(self, BinOp::LShr, value.clone(), 24));
+        let (c, d) = (op(self, BinOp::Shl, value.clone(), 8), op(self, BinOp::LShr, value, 8));
+        let (c, d) = (op(self, BinOp::And, c, 0x00ff_0000), op(self, BinOp::And, d, 0xff00));
+        let (outer, inner) = (self.b.bin(self.block, BinOp::Or, I32, a, b, "swap"), self.b.bin(self.block, BinOp::Or, I32, c, d, "swap"));
+        self.b.bin(self.block, BinOp::Or, I32, outer, inner, "swap").into()
     }
 
     /// A sum or a difference of two registers and `T`, at twice the width: the carry or the
@@ -744,15 +771,15 @@ pub fn lift(code: Code<'_>) -> Module {
     let start = b.param(1);
     b.store(entry, Type::I64, start, pc);
     b.terminate(entry, Terminator::Br(dispatch));
-    let words: Vec<(u64, u16)> =
-        code.bytes.chunks_exact(2).enumerate().map(|(n, w)| (code.address + 2 * n as u64, u16::from_le_bytes([w[0], w[1]]))).collect();
+    let word = |w: &[u8]| if code.big_endian { u16::from_be_bytes([w[0], w[1]]) } else { u16::from_le_bytes([w[0], w[1]]) };
+    let words: Vec<(u64, u16)> = code.bytes.chunks_exact(2).enumerate().map(|(n, w)| (code.address + 2 * n as u64, word(w))).collect();
     let mut blocks: BTreeMap<u64, BlockId> = BTreeMap::new();
     for &(address, _) in &words {
         b.address = Some(address);
         blocks.insert(address, b.block(&format!("at.{address:x}")));
     }
     let word_at: BTreeMap<u64, u16> = words.iter().copied().collect();
-    let mut lift = Lift { b, state, block: entry };
+    let mut lift = Lift { b, state, block: entry, big_endian: code.big_endian };
     let trap = |lift: &mut Lift, address: Operand| {
         lift.b.call(lift.block, FnType::new(Type::Void, vec![Type::I64]), Callee::Direct(TRAP.to_owned()), vec![(Type::I64, address)], "");
         lift.b.terminate(lift.block, Terminator::Ret(None));
