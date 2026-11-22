@@ -144,7 +144,9 @@ fn operation(w: u32, address: u64, cond: Option<u8>) -> Op {
             let target = pc.wrapping_add_signed(offset) & 0xffff_ffff;
             if bit(w, 24) { Op::Call { target, arm: false } } else { Op::Branch { cond, target } }
         }
-        0b111 if bit(w, 24) => Op::Svc(w as u8),
+        // The number is the low byte of the comment, or the byte above it where a console's
+        // BIOS reads its call's number (`swi 0x060000`).
+        0b111 if bit(w, 24) => Op::Svc(if w & 0x00ff_0000 == 0 { w as u8 } else { (w >> 16) as u8 }),
         _ => Op::Unsupported, // the coprocessors
     }
 }

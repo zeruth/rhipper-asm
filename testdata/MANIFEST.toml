@@ -914,6 +914,15 @@ command = "testdata/build.ps1 armthumb"
 tools = "clang 22.1.7, LLD 22.1.7, llvm-strip 22.1.7"
 
 [[file]]
+path = "testdata/bin/gba.gba"
+sha256 = "3a1f18b5278e4301385ddebe8c1ec3d5655438ec511a77d97f6604046fe3a127"
+evidence = "source"
+expected = "testdata/expected/thumb1.txt"
+source = "testdata/src/thumb1.c"
+command = "testdata/build.ps1 gba"
+tools = "clang 22.1.7, LLD 22.1.7, llvm-objcopy 22.1.7"
+
+[[file]]
 path = "testdata/bin/cortexm.elf"
 sha256 = "a52362af0634f3143f3ff2e8d3b6f64b5c9ef290f503c366a01b606eef9f00dd"
 evidence = "source"

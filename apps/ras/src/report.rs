@@ -51,7 +51,7 @@ fn directories_of(image: &Image) -> Vec<(&'static str, String, u32)> {
     .collect()
 }
 
-/// `pe32`, `pe32+`, `xbe`, `elf32`, `elf64`, `macho64`, `psx-exe`, `psx-bios`, `cortex-m`, `bin`, or a
+/// `pe32`, `pe32+`, `xbe`, `elf32`, `elf64`, `macho64`, `psx-exe`, `psx-bios`, `cortex-m`, `gba`, `bin`, or a
 /// cartridge ROM's order as dumped: `z64`, `v64` or `n64`.
 fn format_name(image: &Image) -> &'static str {
     if image.psx.is_some() {
@@ -60,6 +60,8 @@ fn format_name(image: &Image) -> &'static str {
         "psx-bios"
     } else if image.firmware {
         "cortex-m"
+    } else if image.gba {
+        "gba"
     } else if let Some(rom) = &image.n64 {
         rom.order.extension()
     } else if image.dreamcast.is_some() {

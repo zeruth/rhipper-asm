@@ -8,6 +8,7 @@
 typedef unsigned int u32;
 
 #define HAVE_SYSCALL3
+#ifndef GBA
 static long syscall3(long number, long a, long b, long c) {
     register long r7 __asm__("r7") = number;
     register long r0 __asm__("r0") = a;
@@ -16,6 +17,55 @@ static long syscall3(long number, long a, long b, long c) {
     __asm__ volatile("svc #0" : "+r"(r0) : "r"(r7), "r"(r1), "r"(r2) : "memory");
     return r0;
 }
+#else
+// The program as a Game Boy Advance cartridge (`-DGBA`, the fixture `gba.gba`): the ROM's header
+// first, then the code the console enters, in ARM code, which sets the stack and goes to the
+// Thumb program. The header's logo is the console maker's and is left empty, so the image is
+// for an emulator and this project's run, not for the console's own boot code. The program has
+// no data to copy to RAM and none to clear.
+__asm__(".section .header,\"ax\",%progbits\n"
+        ".arm\n"
+        ".global rom_start\n"
+        "rom_start:\n"
+        "    b reset\n"
+        "    .space 156\n"
+        "    .ascii \"RHIPPER ASM \"\n"
+        "    .ascii \"ARAE\"\n"
+        "    .ascii \"00\"\n"
+        "    .byte 0x96, 0, 0\n"
+        "    .space 7\n"
+        "    .byte 0\n"
+        "    .byte 0\n" // the header's complement, which the build writes
+        "    .space 2\n"
+        "reset:\n"
+        "    ldr sp, =0x03007f00\n"
+        "    ldr r0, =_start\n"
+        "    bx r0\n"
+        "    .ltorg\n"
+        ".text\n"
+        ".thumb\n");
+
+// The system under the program is the console's BIOS and an emulator's log. A write is a line
+// for the log (`swi 0xff`, the text r0 points at, to its zero); the end is the BIOS's Stop
+// (`swi 3`), which puts the console to sleep.
+static long syscall3(long number, long a, long b, long c) {
+    if (number == 4) {
+        char text[24];
+        const char *from = (const char *)b;
+        int n = 0;
+        for (; n < c && n < 23; n++) {
+            text[n] = from[n];
+        }
+        text[n] = 0;
+        register long r0 __asm__("r0") = (long)text;
+        __asm__ volatile("svc #0xff" : "+r"(r0) : : "r1", "r2", "r3", "memory");
+        return c;
+    }
+    register long r0 __asm__("r0") = a;
+    __asm__ volatile("svc #3" : "+r"(r0) : : "r1", "r2", "r3", "memory");
+    return r0;
+}
+#endif
 
 // A program of both instruction sets (`-DMIXED`, the fixture `armthumb`): the program is Thumb,
 // the arithmetic it calls for is ARM code, and it is entered through ARM code, so a call goes

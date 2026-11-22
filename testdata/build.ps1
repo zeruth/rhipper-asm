@@ -264,6 +264,31 @@ if (Wanted 'armthumb') {
   if ($LASTEXITCODE -ne 0) { throw "llvm-strip failed for armthumb_stripped" }
 }
 
+# gba.gba is the program as a Game Boy Advance cartridge's ROM (-DGBA): linked by gba.ld where
+# the console maps a cartridge, its header first, entered in ARM code that goes to the Thumb
+# program. It prints through the log an emulator keeps (swi 0xff) and ends by the BIOS's Stop.
+# The header's complement is written here, over the bytes from 0xa0 the console's boot code sums.
+# No emulator of the console is here: it runs lifted only, and prints what thumb1 prints.
+if (Wanted 'gba') {
+  $out = Join-Path $PSScriptRoot '..\out\gba'
+  New-Item -ItemType Directory -Force $out | Out-Null
+  $elf = Join-Path $out 'gba.elf'
+  $args = @('--target=armv4t-none-eabi', '-mthumb', '-DGBA', '-O1', '-fno-unroll-loops', '-fno-vectorize', '-nostdlib',
+    '-ffreestanding', '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none', "-Wl,-T,$(Join-Path $src 'gba.ld')",
+    (Join-Path $src 'thumb1.c'), '-o', $elf)
+  Write-Host "clang gba.gba" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for gba.gba" }
+  $rom = Join-Path $bin 'gba.gba'
+  & llvm-objcopy -O binary -j .rom $elf $rom
+  if ($LASTEXITCODE -ne 0) { throw "llvm-objcopy failed for gba.gba" }
+  $bytes = [IO.File]::ReadAllBytes($rom)
+  $sum = 0
+  for ($i = 0xA0; $i -lt 0xBD; $i++) { $sum = ($sum - $bytes[$i]) -band 0xff }
+  $bytes[0xBD] = ($sum - 0x19) -band 0xff
+  [IO.File]::WriteAllBytes($rom, $bytes)
+}
+
 # cortexm is the fixture of a microcontroller: ARMv7-M firmware linked by cortexm.ld into flash
 # at 0x08000000 with its vector table first and its data in RAM at 0x20000000. It prints by
 # semihosting (bkpt 0xab). No Cortex-M is here: it runs lifted only.

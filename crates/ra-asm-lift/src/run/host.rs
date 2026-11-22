@@ -208,6 +208,8 @@ pub(super) struct Runtime<'a> {
     pub(super) machine: Option<super::console::Machine>,
     /// The core of a microcontroller, on a run of its firmware: the system timer and its exception.
     pub(super) cortexm: Option<super::cortexm::Core>,
+    /// The program is a Game Boy Advance cartridge's: its `swi` is a call of the console's BIOS.
+    pub(super) gba: bool,
 }
 
 /// The calls across the platform boundary a run made, and those still running.
@@ -487,6 +489,7 @@ impl<'a> Runtime<'a> {
             psp: Psp::default(),
             machine: None,
             cortexm: None,
+            gba: false,
         };
         runtime.thread.stack_bottom = runtime.allocations[0].start;
         runtime
@@ -827,6 +830,7 @@ impl<'a> Runtime<'a> {
             // The machine's own stack has the room: the stack pointer moves down by the bytes.
             "ra_stack_probe" => int(arg(args, 0).wrapping_sub(arg(args, 1)) & !(arg(args, 2).max(1) - 1) & 0xffff_ffff),
             "ra_svc" if arg(args, 1) as i64 & crate::state::BKPT != 0 => self.bkpt(vm, arg(args, 0), arg(args, 1) & 0xff),
+            "ra_svc" if self.gba => self.gba_bios(vm, arg(args, 0), arg(args, 1) & 0xff),
             "ra_svc" => self.svc(vm, arg(args, 0)),
             "ra_syscall" => {
                 let number = (arg(args, 0) as u32).wrapping_sub(4000);
@@ -874,6 +878,45 @@ impl<'a> Runtime<'a> {
         let regs = [r(vm, 0)?, r(vm, 1)?, r(vm, 2)?];
         let result = self.linux(vm, number, false, regs)?;
         vm.memory.write_u64(state, u64::from(result))?;
+        int(0)
+    }
+
+    /// A call of a Game Boy Advance program into the console's BIOS, by the number its `swi`
+    /// carries: the arguments from `r0`, the results in `r0`, `r1` and `r3`. The arithmetic the
+    /// BIOS does for a program is here, and the two calls that put the console to sleep, which
+    /// end a run that has no interrupt to wake it. `0xff` is no call of the BIOS: emulators take
+    /// it for a line of text for their log, the text `r0` points at, and so does the run.
+    fn gba_bios(&mut self, vm: &mut Vm<'_>, state: u64, number: u64) -> Result<Value, Stop> {
+        let r = |vm: &mut Vm<'_>, n: u64| vm.memory.read_u32(state + n * 8);
+        let set = |vm: &mut Vm<'_>, n: u64, value: u32| vm.memory.write_u64(state + n * 8, u64::from(value));
+        match number {
+            // Halt, Stop
+            0x02 | 0x03 => return Err(Stop::Exit(0)),
+            // Div, and DivArm with its operands the other way round: the quotient, the
+            // remainder and the quotient's magnitude. A division by zero hangs the BIOS.
+            0x06 | 0x07 => {
+                let (a, b) = (r(vm, 0)?.cast_signed(), r(vm, 1)?.cast_signed());
+                let (n, d) = if number == 0x06 { (a, b) } else { (b, a) };
+                if d == 0 {
+                    return Err(Stop::fault("the BIOS divides by zero and does not return".to_owned()));
+                }
+                let (q, m) = (n.wrapping_div(d), n.wrapping_rem(d));
+                set(vm, 0, q.cast_unsigned())?;
+                set(vm, 1, m.cast_unsigned())?;
+                set(vm, 3, q.unsigned_abs())?;
+            }
+            // Sqrt: the whole root of an unsigned word.
+            0x08 => {
+                let root = u64::from(r(vm, 0)?).isqrt() as u32;
+                set(vm, 0, root)?;
+            }
+            0xff => {
+                let at = u64::from(r(vm, 0)?);
+                let text = vm.memory.read_cstr(at, 1 << 16)?;
+                self.emit(false, &text);
+            }
+            _ => return Err(Stop::fault(format!("the BIOS call {number:#x} is not interpreted"))),
+        }
         int(0)
     }
 

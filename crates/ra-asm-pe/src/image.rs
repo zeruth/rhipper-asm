@@ -79,6 +79,9 @@ pub struct Image {
     /// The image is a flat Cortex-M firmware: no container, its vector table at its start, flash
     /// placed by the reset handler's address and RAM from the family's base to the stack's top.
     pub firmware: bool,
+    /// The image is a Game Boy Advance cartridge's ROM: the whole file at [`GBA_ROM`], the
+    /// console's RAM and registers before it, entered at its first word in ARM code.
+    pub gba: bool,
     /// Which instruction set a 32-bit ARM image's code is in, where a reader knows it and the
     /// file does not say: `true` for ARM code, `false` for Thumb ([`Image::arm_code`]).
     pub arm_state: Option<bool>,
@@ -202,6 +205,7 @@ impl Image {
         let mut psx = None;
         let mut psx_bios = None;
         let mut flat_firmware = false;
+        let mut gba = false;
         let mut rom = None;
         let (headers, sections, xbe, elf, macho) = if boot.is_some() {
             let (headers, sections) = dreamcast_layout(file.len())?;
@@ -229,6 +233,10 @@ impl Image {
         } else if ra_asm_format::macho::is_macho(&file) {
             let (headers, sections, macho) = crate::macho::parse(&file)?;
             (headers, sections, None, None, Some(macho))
+        } else if is_gba_rom(&file) {
+            let (headers, sections) = gba_layout(file.len())?;
+            gba = true;
+            (headers, sections, None, None, None)
         } else if let Some(firmware) = CortexM::parse(&file) {
             // A flat firmware image: no container, the vector table at its start.
             let (headers, sections) = cortex_m_layout(file.len(), firmware)?;
@@ -297,6 +305,7 @@ impl Image {
             psx,
             psx_bios,
             firmware: flat_firmware,
+            gba,
             dreamcast: boot,
             arm_state: None,
             arm_map: std::sync::Arc::default(),
@@ -323,6 +332,9 @@ impl Image {
             }
             // The entry's low bit says the set the program starts in.
             image.arm_map.mark(elf.entry & !1, elf.entry & 1 == 0);
+        }
+        if image.gba {
+            image.arm_map.mark(GBA_ROM, true);
         }
         image.read_directories();
         Ok(image)
@@ -418,7 +430,8 @@ impl Image {
     /// Whether a 32-bit ARM program's code is ARM code and not Thumb, as far as its file says: an
     /// ELF file's entry with its low bit clear. A program of both is told by where it starts.
     pub fn arm_code(&self) -> bool {
-        self.machine() == Machine::Arm && self.arm_state.unwrap_or_else(|| self.elf.as_ref().is_some_and(|elf| elf.entry & 1 == 0))
+        self.machine() == Machine::Arm
+            && self.arm_state.unwrap_or_else(|| self.gba || self.elf.as_ref().is_some_and(|elf| elf.entry & 1 == 0))
     }
 
     /// Whether the code at `va` of a 32-bit ARM image is ARM code and not Thumb. A linker marks
@@ -533,6 +546,8 @@ impl Image {
             Some("n64")
         } else if self.dreamcast.is_some() {
             Some("dreamcast")
+        } else if self.gba {
+            Some("gba")
         } else if self.elf.as_ref().is_some_and(|e| e.prx.is_some()) {
             Some("psp")
         } else if self.elf.as_ref().is_some_and(|e| e.irx.is_some()) {
@@ -870,6 +885,55 @@ impl CortexM {
         let plausible = inside(reset) && handlers >= 3 && vectors.iter().all(|&v| v == 0 || inside(v));
         plausible.then_some(Self { base, reset: u64::from(reset & !1), stack: u64::from(stack) })
     }
+}
+
+/// Where a Game Boy Advance cartridge's ROM is in the console's memory, and the memory before it.
+pub const GBA_ROM: u64 = 0x0800_0000;
+const GBA_EWRAM: (u64, u32) = (0x0200_0000, 0x4_0000);
+const GBA_IWRAM: (u64, u32) = (0x0300_0000, 0x8000);
+const GBA_IO: (u64, u32) = (0x0400_0000, 0x400);
+
+/// Whether a file is a Game Boy Advance cartridge's ROM, by its header: an ARM branch over the
+/// header for its first word, the fixed byte `0x96` at `0xb2`, and at `0xbd` the complement of
+/// the sum of the bytes from `0xa0` that the console's boot code checks.
+fn is_gba_rom(file: &[u8]) -> bool {
+    file.len() >= 0xc0
+        && file[3] == 0xea
+        && file[0xb2] == 0x96
+        && file[0xa0..0xbd].iter().fold(0u8, |sum, &byte| sum.wrapping_sub(byte)).wrapping_sub(0x19) == file[0xbd]
+}
+
+/// The headers and the sections a Game Boy Advance ROM of `len` bytes stands for: the console's
+/// two blocks of RAM and its registers, which the file holds no byte of, and `.rom`, the whole
+/// file at [`GBA_ROM`], entered at its first word in ARM code.
+fn gba_layout(len: usize) -> Result<(Headers, Vec<Section>)> {
+    let size = u32::try_from(len).ok().filter(|&size| size <= 0x200_0000).context("the ROM is larger than the 32 MiB a cartridge has")?;
+    let base = GBA_EWRAM.0;
+    let (mut headers, _) = dreamcast_layout(len.min(0x8000))?;
+    let memory = |name: &str, (address, size): (u64, u32)| Section {
+        name: name.to_owned(),
+        virtual_size: size,
+        virtual_address: (address - base) as u32,
+        raw_size: 0,
+        raw_offset: 0,
+        characteristics: crate::elf::characteristics(false, true, true),
+    };
+    let rom = Section {
+        name: ".rom".to_owned(),
+        virtual_size: size,
+        virtual_address: (GBA_ROM - base) as u32,
+        raw_size: size,
+        raw_offset: 0,
+        characteristics: crate::elf::characteristics(true, false, false),
+    };
+    let sections = vec![memory(".ewram", GBA_EWRAM), memory(".iwram", GBA_IWRAM), memory(".io", GBA_IO), rom];
+    headers.coff.machine = Machine::Arm;
+    headers.coff.sections = 4;
+    headers.optional.image_base = base;
+    headers.optional.entry_point = (GBA_ROM - base) as u32;
+    headers.optional.size_of_code = size;
+    headers.optional.size_of_image = (GBA_ROM - base) as u32 + size.next_multiple_of(0x1000);
+    Ok((headers, sections))
 }
 
 /// The headers and the sections a flat Cortex-M firmware image of `len` bytes stands for:

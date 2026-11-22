@@ -503,6 +503,7 @@ fn run_here(
     runtime.machine = console::Machine::attach(image, &mut vm, options.console.as_ref().unwrap_or(&headless), options.live, (start, len));
     // A microcontroller's firmware runs against its core: the system timer and its exception.
     runtime.cortexm = cortexm::Core::attach(image, &mut vm);
+    runtime.gba = image.gba;
     runtime.residual.clone_from(&options.residual);
     runtime.answers.clone_from(&options.answers);
     if options.answers.is_none() {

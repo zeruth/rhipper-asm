@@ -172,6 +172,27 @@ fn armthumb_stripped_runs_interpreted() {
     assert!(analysis.functions.len() >= 14, "{} functions", analysis.functions.len());
 }
 
+/// The program as a Game Boy Advance cartridge's ROM: no container but the cartridge's header,
+/// the whole file where the console maps a cartridge, entered at its first word in ARM code,
+/// which goes to the Thumb program through an address of the literal pool. It prints by the log
+/// an emulator keeps (`swi 0xff`) and ends by the BIOS's Stop. No emulator of the console
+/// recorded it: the output is what the same program printed as a Linux one.
+#[test]
+fn gba_cartridge_runs_interpreted() {
+    let image = ra_asm_pe::load(&root().join("testdata/bin/gba.gba")).unwrap();
+    assert_eq!(image.platform(), Some("gba"));
+    assert_eq!(image.entry_point(), Some(ra_asm_pe::image::GBA_ROM));
+    assert!(image.arm_code() && !image.arm_and_thumb(), "the cartridge starts in ARM code and says no more");
+    let expected = std::fs::read_to_string(root().join("testdata/expected/thumb1.txt")).unwrap();
+    let Raised { image, lifted, signatures } = raise("gba.gba", "run-machine");
+    assert!(image.arm_and_thumb(), "the analysis found the Thumb program");
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("gba.gba: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!(outcome.exit, 0, "the BIOS's Stop ends the run (stop: {:?})", outcome.stop);
+}
+
 /// A fixture of the program `testdata/src/thumb1.c`: lifted without a warning and interpreted,
 /// it prints what the program printed under an emulator and ends with the code it ended with.
 fn runs_as_the_machine_ran_it(binary: &str) {
