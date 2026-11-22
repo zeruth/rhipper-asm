@@ -27,6 +27,12 @@ testdata/ppc/*.elf binary
 testdata/ppc/*.txt -text
 testdata/ppc/*.out -text
 testdata/ppc/build.sh eol=lf
+testdata/ppc/*.dol binary
+# the MSP430 fixture, as the SH-4's
+testdata/msp430/*.elf binary
+testdata/msp430/*.txt -text
+testdata/msp430/*.out -text
+testdata/msp430/build.sh eol=lf
 # the Java fixtures: a class is bytes, and a listing or an output keeps the line ends it was written with
 testdata/java/**/*.class binary
 testdata/java/**/*.txt -text

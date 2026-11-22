@@ -359,6 +359,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ra-asm-msp430"
+version = "0.2.0"
+
+[[package]]
 name = "ra-asm-pe"
 version = "0.2.0"
 dependencies = [

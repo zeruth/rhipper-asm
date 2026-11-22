@@ -1,0 +1,15 @@
+[package]
+name = "ra-asm-msp430"
+description = "The MSP430, a 16-bit microcontroller: its instructions decoded and written as the disassembler writes them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]

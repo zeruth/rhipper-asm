@@ -1,0 +1,1468 @@
+
+testdata/msp430/msp430.elf:	file format elf32-msp430
+
+Disassembly of section .text:
+
+000050c4 <__mspabi_mpyll>:
+    50c4: 0f 12        	push	r15
+    50c6: 0e 12        	push	r14
+    50c8: 0d 12        	push	r13
+    50ca: 0c 12        	push	r12
+    50cc: 0c 48        	mov	r8, r12
+    50ce: 0d 49        	mov	r9, r13
+    50d0: 0e 4a        	mov	r10, r14
+    50d2: 0f 4b        	mov	r11, r15
+    50d4: b0 12 d2 53  	call	#21458
+    50d8: 31 52        	add	#8, r1
+    50da: 30 41        	ret
+
+000050dc <__mspabi_slll>:
+    50dc: 31 80 06 00  	sub	#6, r1
+    50e0: 81 4d 04 00  	mov	r13, 4(r1)
+    50e4: 81 4c 02 00  	mov	r12, 2(r1)
+    50e8: 81 4e 00 00  	mov	r14, 0(r1)
+    50ec: 00 3c        	jmp	$+2
+    50ee: 1c 41 00 00  	mov	0(r1), r12
+    50f2: 0c 93        	tst	r12
+    50f4: 16 24        	jeq	$+46
+    50f6: 00 3c        	jmp	$+2
+    50f8: 1c 41 04 00  	mov	4(r1), r12
+    50fc: 1d 41 02 00  	mov	2(r1), r13
+    5100: 0e 4d        	mov	r13, r14
+    5102: 0e 5e        	add	r14, r14
+    5104: 0e 9d        	cmp	r13, r14
+    5106: 1d 43        	mov	#1, r13
+    5108: 0d c2        	bic	r2, r13
+    510a: 0c 5c        	add	r12, r12
+    510c: 0c 5d        	add	r13, r12
+    510e: 81 4e 02 00  	mov	r14, 2(r1)
+    5112: 81 4c 04 00  	mov	r12, 4(r1)
+    5116: 1c 41 00 00  	mov	0(r1), r12
+    511a: 3c 53        	add	#-1, r12
+    511c: 81 4c 00 00  	mov	r12, 0(r1)
+    5120: e6 3f        	jmp	$-50
+    5122: 1c 41 02 00  	mov	2(r1), r12
+    5126: 1d 41 04 00  	mov	4(r1), r13
+    512a: 31 50 06 00  	add	#6, r1
+    512e: 30 41        	ret
+
+00005130 <__mspabi_srll>:
+    5130: 31 80 06 00  	sub	#6, r1
+    5134: 81 4d 04 00  	mov	r13, 4(r1)
+    5138: 81 4c 02 00  	mov	r12, 2(r1)
+    513c: 81 4e 00 00  	mov	r14, 0(r1)
+    5140: 00 3c        	jmp	$+2
+    5142: 1c 41 00 00  	mov	0(r1), r12
+    5146: 0c 93        	tst	r12
+    5148: 1e 24        	jeq	$+62
+    514a: 00 3c        	jmp	$+2
+    514c: 1d 41 04 00  	mov	4(r1), r13
+    5150: 1c 41 02 00  	mov	2(r1), r12
+    5154: 12 c3        	clrc
+    5156: 0c 10        	rrc	r12
+    5158: 0e 4d        	mov	r13, r14
+    515a: 4e 4e        	mov.b	r14, r14
+    515c: 8e 10        	swpb	r14
+    515e: 0e 5e        	add	r14, r14
+    5160: 0e 5e        	add	r14, r14
+    5162: 0e 5e        	add	r14, r14
+    5164: 0e 5e        	add	r14, r14
+    5166: 0e 5e        	add	r14, r14
+    5168: 0e 5e        	add	r14, r14
+    516a: 0e 5e        	add	r14, r14
+    516c: 0c de        	bis	r14, r12
+    516e: 12 c3        	clrc
+    5170: 0d 10        	rrc	r13
+    5172: 81 4d 04 00  	mov	r13, 4(r1)
+    5176: 81 4c 02 00  	mov	r12, 2(r1)
+    517a: 1c 41 00 00  	mov	0(r1), r12
+    517e: 3c 53        	add	#-1, r12
+    5180: 81 4c 00 00  	mov	r12, 0(r1)
+    5184: de 3f        	jmp	$-66
+    5186: 1c 41 02 00  	mov	2(r1), r12
+    518a: 1d 41 04 00  	mov	4(r1), r13
+    518e: 31 50 06 00  	add	#6, r1
+    5192: 30 41        	ret
+
+00005194 <__mspabi_sral>:
+    5194: 31 80 06 00  	sub	#6, r1
+    5198: 81 4d 04 00  	mov	r13, 4(r1)
+    519c: 81 4c 02 00  	mov	r12, 2(r1)
+    51a0: 81 4e 00 00  	mov	r14, 0(r1)
+    51a4: 00 3c        	jmp	$+2
+    51a6: 1c 41 00 00  	mov	0(r1), r12
+    51aa: 0c 93        	tst	r12
+    51ac: 1d 24        	jeq	$+60
+    51ae: 00 3c        	jmp	$+2
+    51b0: 1d 41 04 00  	mov	4(r1), r13
+    51b4: 1c 41 02 00  	mov	2(r1), r12
+    51b8: 12 c3        	clrc
+    51ba: 0c 10        	rrc	r12
+    51bc: 0e 4d        	mov	r13, r14
+    51be: 4e 4e        	mov.b	r14, r14
+    51c0: 8e 10        	swpb	r14
+    51c2: 0e 5e        	add	r14, r14
+    51c4: 0e 5e        	add	r14, r14
+    51c6: 0e 5e        	add	r14, r14
+    51c8: 0e 5e        	add	r14, r14
+    51ca: 0e 5e        	add	r14, r14
+    51cc: 0e 5e        	add	r14, r14
+    51ce: 0e 5e        	add	r14, r14
+    51d0: 0c de        	bis	r14, r12
+    51d2: 0d 11        	rra	r13
+    51d4: 81 4d 04 00  	mov	r13, 4(r1)
+    51d8: 81 4c 02 00  	mov	r12, 2(r1)
+    51dc: 1c 41 00 00  	mov	0(r1), r12
+    51e0: 3c 53        	add	#-1, r12
+    51e2: 81 4c 00 00  	mov	r12, 0(r1)
+    51e6: df 3f        	jmp	$-64
+    51e8: 1c 41 02 00  	mov	2(r1), r12
+    51ec: 1d 41 04 00  	mov	4(r1), r13
+    51f0: 31 50 06 00  	add	#6, r1
+    51f4: 30 41        	ret
+
+000051f6 <__mspabi_mpyl>:
+    51f6: 31 80 0c 00  	sub	#12, r1
+    51fa: 81 4d 0a 00  	mov	r13, 10(r1)
+    51fe: 81 4c 08 00  	mov	r12, 8(r1)
+    5202: 81 4f 06 00  	mov	r15, 6(r1)
+    5206: 81 4e 04 00  	mov	r14, 4(r1)
+    520a: 81 43 02 00  	clr	2(r1)
+    520e: 81 43 00 00  	clr	0(r1)
+    5212: 00 3c        	jmp	$+2
+    5214: 1c 41 06 00  	mov	6(r1), r12
+    5218: 1d 41 04 00  	mov	4(r1), r13
+    521c: 0d dc        	bis	r12, r13
+    521e: 0d 93        	tst	r13
+    5220: 41 24        	jeq	$+132
+    5222: 00 3c        	jmp	$+2
+    5224: 5c 41 04 00  	mov.b	4(r1), r12
+    5228: 5c b3        	bit.b	#1, r12
+    522a: 15 24        	jeq	$+44
+    522c: 00 3c        	jmp	$+2
+    522e: 1c 41 00 00  	mov	0(r1), r12
+    5232: 1d 41 02 00  	mov	2(r1), r13
+    5236: 1e 41 08 00  	mov	8(r1), r14
+    523a: 1f 41 0a 00  	mov	10(r1), r15
+    523e: 0d 5f        	add	r15, r13
+    5240: 0f 4c        	mov	r12, r15
+    5242: 0f 5e        	add	r14, r15
+    5244: 0f 9c        	cmp	r12, r15
+    5246: 1c 43        	mov	#1, r12
+    5248: 0c c2        	bic	r2, r12
+    524a: 0d 5c        	add	r12, r13
+    524c: 81 4f 00 00  	mov	r15, 0(r1)
+    5250: 81 4d 02 00  	mov	r13, 2(r1)
+    5254: 00 3c        	jmp	$+2
+    5256: 1c 41 0a 00  	mov	10(r1), r12
+    525a: 1d 41 08 00  	mov	8(r1), r13
+    525e: 0e 4d        	mov	r13, r14
+    5260: 0e 5e        	add	r14, r14
+    5262: 0e 9d        	cmp	r13, r14
+    5264: 1d 43        	mov	#1, r13
+    5266: 0d c2        	bic	r2, r13
+    5268: 0c 5c        	add	r12, r12
+    526a: 0c 5d        	add	r13, r12
+    526c: 81 4e 08 00  	mov	r14, 8(r1)
+    5270: 81 4c 0a 00  	mov	r12, 10(r1)
+    5274: 1d 41 06 00  	mov	6(r1), r13
+    5278: 1c 41 04 00  	mov	4(r1), r12
+    527c: 12 c3        	clrc
+    527e: 0c 10        	rrc	r12
+    5280: 0e 4d        	mov	r13, r14
+    5282: 4e 4e        	mov.b	r14, r14
+    5284: 8e 10        	swpb	r14
+    5286: 0e 5e        	add	r14, r14
+    5288: 0e 5e        	add	r14, r14
+    528a: 0e 5e        	add	r14, r14
+    528c: 0e 5e        	add	r14, r14
+    528e: 0e 5e        	add	r14, r14
+    5290: 0e 5e        	add	r14, r14
+    5292: 0e 5e        	add	r14, r14
+    5294: 0c de        	bis	r14, r12
+    5296: 12 c3        	clrc
+    5298: 0d 10        	rrc	r13
+    529a: 81 4d 06 00  	mov	r13, 6(r1)
+    529e: 81 4c 04 00  	mov	r12, 4(r1)
+    52a2: b8 3f        	jmp	$-142
+    52a4: 1c 41 00 00  	mov	0(r1), r12
+    52a8: 1d 41 02 00  	mov	2(r1), r13
+    52ac: 31 50 0c 00  	add	#12, r1
+    52b0: 30 41        	ret
+
+000052b2 <__mspabi_divul>:
+    52b2: 0a 12        	push	r10
+    52b4: 31 80 12 00  	sub	#18, r1
+    52b8: 81 4d 10 00  	mov	r13, 16(r1)
+    52bc: 81 4c 0e 00  	mov	r12, 14(r1)
+    52c0: 81 4f 0c 00  	mov	r15, 12(r1)
+    52c4: 81 4e 0a 00  	mov	r14, 10(r1)
+    52c8: 81 43 08 00  	clr	8(r1)
+    52cc: 81 43 06 00  	clr	6(r1)
+    52d0: 81 43 04 00  	clr	4(r1)
+    52d4: 81 43 02 00  	clr	2(r1)
+    52d8: b1 40 20 00 00 00    	mov	#32, 0(r1)
+    52de: 00 3c        	jmp	$+2
+    52e0: 1c 41 00 00  	mov	0(r1), r12
+    52e4: 0c 93        	tst	r12
+    52e6: 6d 24        	jeq	$+220
+    52e8: 00 3c        	jmp	$+2
+    52ea: 1d 41 04 00  	mov	4(r1), r13
+    52ee: 1c 41 02 00  	mov	2(r1), r12
+    52f2: 0e 4c        	mov	r12, r14
+    52f4: 0e 5e        	add	r14, r14
+    52f6: 0e 9c        	cmp	r12, r14
+    52f8: 1c 43        	mov	#1, r12
+    52fa: 1f 43        	mov	#1, r15
+    52fc: 0f c2        	bic	r2, r15
+    52fe: 0d 5d        	add	r13, r13
+    5300: 0d 5f        	add	r15, r13
+    5302: 1f 41 10 00  	mov	16(r1), r15
+    5306: 8f 10        	swpb	r15
+    5308: 4f 4f        	mov.b	r15, r15
+    530a: 12 c3        	clrc
+    530c: 0f 10        	rrc	r15
+    530e: 0f 11        	rra	r15
+    5310: 0f 11        	rra	r15
+    5312: 0f 11        	rra	r15
+    5314: 0f 11        	rra	r15
+    5316: 0f 11        	rra	r15
+    5318: 0f 11        	rra	r15
+    531a: 0e df        	bis	r15, r14
+    531c: 81 4d 04 00  	mov	r13, 4(r1)
+    5320: 81 4e 02 00  	mov	r14, 2(r1)
+    5324: 1d 41 10 00  	mov	16(r1), r13
+    5328: 1e 41 0e 00  	mov	14(r1), r14
+    532c: 0f 4e        	mov	r14, r15
+    532e: 0f 5f        	add	r15, r15
+    5330: 0f 9e        	cmp	r14, r15
+    5332: 1e 43        	mov	#1, r14
+    5334: 0e c2        	bic	r2, r14
+    5336: 0d 5d        	add	r13, r13
+    5338: 0d 5e        	add	r14, r13
+    533a: 81 4f 0e 00  	mov	r15, 14(r1)
+    533e: 81 4d 10 00  	mov	r13, 16(r1)
+    5342: 1d 41 08 00  	mov	8(r1), r13
+    5346: 1e 41 06 00  	mov	6(r1), r14
+    534a: 0f 4e        	mov	r14, r15
+    534c: 0f 5f        	add	r15, r15
+    534e: 0f 9e        	cmp	r14, r15
+    5350: 1e 43        	mov	#1, r14
+    5352: 0e c2        	bic	r2, r14
+    5354: 0d 5d        	add	r13, r13
+    5356: 0d 5e        	add	r14, r13
+    5358: 81 4f 06 00  	mov	r15, 6(r1)
+    535c: 81 4d 08 00  	mov	r13, 8(r1)
+    5360: 1e 41 02 00  	mov	2(r1), r14
+    5364: 1f 41 04 00  	mov	4(r1), r15
+    5368: 1b 41 0a 00  	mov	10(r1), r11
+    536c: 1a 41 0c 00  	mov	12(r1), r10
+    5370: 0f 9a        	cmp	r10, r15
+    5372: 1d 43        	mov	#1, r13
+    5374: 0d c2        	bic	r2, r13
+    5376: 0e 9b        	cmp	r11, r14
+    5378: 0c c2        	bic	r2, r12
+    537a: 0f 9a        	cmp	r10, r15
+    537c: 01 24        	jeq	$+4
+    537e: 0c 4d        	mov	r13, r12
+    5380: 1c b3        	bit	#1, r12
+    5382: 19 20        	jne	$+52
+    5384: 00 3c        	jmp	$+2
+    5386: 1c 41 02 00  	mov	2(r1), r12
+    538a: 1d 41 04 00  	mov	4(r1), r13
+    538e: 1e 41 0a 00  	mov	10(r1), r14
+    5392: 1f 41 0c 00  	mov	12(r1), r15
+    5396: 0d 8f        	sub	r15, r13
+    5398: 0c 9e        	cmp	r14, r12
+    539a: 1f 43        	mov	#1, r15
+    539c: 0f c2        	bic	r2, r15
+    539e: 0d 8f        	sub	r15, r13
+    53a0: 0c 8e        	sub	r14, r12
+    53a2: 81 4c 02 00  	mov	r12, 2(r1)
+    53a6: 81 4d 04 00  	mov	r13, 4(r1)
+    53aa: 1c 41 06 00  	mov	6(r1), r12
+    53ae: 1c d3        	bis	#1, r12
+    53b0: 81 4c 06 00  	mov	r12, 6(r1)
+    53b4: 00 3c        	jmp	$+2
+    53b6: 1c 41 00 00  	mov	0(r1), r12
+    53ba: 3c 53        	add	#-1, r12
+    53bc: 81 4c 00 00  	mov	r12, 0(r1)
+    53c0: 8f 3f        	jmp	$-224
+    53c2: 1c 41 06 00  	mov	6(r1), r12
+    53c6: 1d 41 08 00  	mov	8(r1), r13
+    53ca: 31 50 12 00  	add	#18, r1
+    53ce: 3a 41        	pop	r10
+    53d0: 30 41        	ret
+
+000053d2 <multiply_wide>:
+    53d2: 06 12        	push	r6
+    53d4: 07 12        	push	r7
+    53d6: 08 12        	push	r8
+    53d8: 09 12        	push	r9
+    53da: 0a 12        	push	r10
+    53dc: 31 80 1a 00  	sub	#26, r1
+    53e0: 1b 41 2c 00  	mov	44(r1), r11
+    53e4: 1a 41 2a 00  	mov	42(r1), r10
+    53e8: 19 41 28 00  	mov	40(r1), r9
+    53ec: 18 41 26 00  	mov	38(r1), r8
+    53f0: 81 4f 18 00  	mov	r15, 24(r1)
+    53f4: 81 4e 16 00  	mov	r14, 22(r1)
+    53f8: 81 4d 14 00  	mov	r13, 20(r1)
+    53fc: 81 4c 12 00  	mov	r12, 18(r1)
+    5400: 81 4b 10 00  	mov	r11, 16(r1)
+    5404: 81 4a 0e 00  	mov	r10, 14(r1)
+    5408: 81 49 0c 00  	mov	r9, 12(r1)
+    540c: 81 48 0a 00  	mov	r8, 10(r1)
+    5410: 81 43 08 00  	clr	8(r1)
+    5414: 81 43 06 00  	clr	6(r1)
+    5418: 81 43 04 00  	clr	4(r1)
+    541c: 81 43 02 00  	clr	2(r1)
+    5420: b1 40 40 00 00 00    	mov	#64, 0(r1)
+    5426: 00 3c        	jmp	$+2
+    5428: 1c 41 00 00  	mov	0(r1), r12
+    542c: 0c 93        	tst	r12
+    542e: a4 24        	jeq	$+330
+    5430: 00 3c        	jmp	$+2
+    5432: 5c 41 0a 00  	mov.b	10(r1), r12
+    5436: 5c b3        	bit.b	#1, r12
+    5438: 35 24        	jeq	$+108
+    543a: 00 3c        	jmp	$+2
+    543c: 1c 41 08 00  	mov	8(r1), r12
+    5440: 1e 41 06 00  	mov	6(r1), r14
+    5444: 1a 41 02 00  	mov	2(r1), r10
+    5448: 16 41 04 00  	mov	4(r1), r6
+    544c: 1b 41 18 00  	mov	24(r1), r11
+    5450: 19 41 16 00  	mov	22(r1), r9
+    5454: 18 41 12 00  	mov	18(r1), r8
+    5458: 1f 41 14 00  	mov	20(r1), r15
+    545c: 0d 46        	mov	r6, r13
+    545e: 0d 5f        	add	r15, r13
+    5460: 0f 4a        	mov	r10, r15
+    5462: 0f 58        	add	r8, r15
+    5464: 0f 9a        	cmp	r10, r15
+    5466: 1a 43        	mov	#1, r10
+    5468: 18 43        	mov	#1, r8
+    546a: 08 c2        	bic	r2, r8
+    546c: 0d 58        	add	r8, r13
+    546e: 0d 96        	cmp	r6, r13
+    5470: 17 43        	mov	#1, r7
+    5472: 07 c2        	bic	r2, r7
+    5474: 0d 96        	cmp	r6, r13
+    5476: 01 24        	jeq	$+4
+    5478: 08 47        	mov	r7, r8
+    547a: 07 4e        	mov	r14, r7
+    547c: 07 59        	add	r9, r7
+    547e: 09 47        	mov	r7, r9
+    5480: 09 58        	add	r8, r9
+    5482: 09 97        	cmp	r7, r9
+    5484: 18 43        	mov	#1, r8
+    5486: 08 c2        	bic	r2, r8
+    5488: 0c 5b        	add	r11, r12
+    548a: 07 9e        	cmp	r14, r7
+    548c: 0a c2        	bic	r2, r10
+    548e: 0c 5a        	add	r10, r12
+    5490: 0c 58        	add	r8, r12
+    5492: 81 4f 02 00  	mov	r15, 2(r1)
+    5496: 81 4d 04 00  	mov	r13, 4(r1)
+    549a: 81 49 06 00  	mov	r9, 6(r1)
+    549e: 81 4c 08 00  	mov	r12, 8(r1)
+    54a2: 00 3c        	jmp	$+2
+    54a4: 1c 41 18 00  	mov	24(r1), r12
+    54a8: 1f 41 16 00  	mov	22(r1), r15
+    54ac: 18 41 14 00  	mov	20(r1), r8
+    54b0: 1e 41 12 00  	mov	18(r1), r14
+    54b4: 0d 4e        	mov	r14, r13
+    54b6: 0d 5d        	add	r13, r13
+    54b8: 0d 9e        	cmp	r14, r13
+    54ba: 1b 43        	mov	#1, r11
+    54bc: 1a 43        	mov	#1, r10
+    54be: 0a c2        	bic	r2, r10
+    54c0: 0e 48        	mov	r8, r14
+    54c2: 0e 5e        	add	r14, r14
+    54c4: 0e 5a        	add	r10, r14
+    54c6: 0e 98        	cmp	r8, r14
+    54c8: 19 43        	mov	#1, r9
+    54ca: 09 c2        	bic	r2, r9
+    54cc: 0e 98        	cmp	r8, r14
+    54ce: 01 24        	jeq	$+4
+    54d0: 0a 49        	mov	r9, r10
+    54d2: 09 4f        	mov	r15, r9
+    54d4: 09 59        	add	r9, r9
+    54d6: 08 49        	mov	r9, r8
+    54d8: 08 5a        	add	r10, r8
+    54da: 08 99        	cmp	r9, r8
+    54dc: 1a 43        	mov	#1, r10
+    54de: 0a c2        	bic	r2, r10
+    54e0: 09 9f        	cmp	r15, r9
+    54e2: 0b c2        	bic	r2, r11
+    54e4: 0c 5c        	add	r12, r12
+    54e6: 0c 5b        	add	r11, r12
+    54e8: 0c 5a        	add	r10, r12
+    54ea: 81 4d 12 00  	mov	r13, 18(r1)
+    54ee: 81 4e 14 00  	mov	r14, 20(r1)
+    54f2: 81 48 16 00  	mov	r8, 22(r1)
+    54f6: 81 4c 18 00  	mov	r12, 24(r1)
+    54fa: 1f 41 10 00  	mov	16(r1), r15
+    54fe: 1e 41 0e 00  	mov	14(r1), r14
+    5502: 1d 41 0c 00  	mov	12(r1), r13
+    5506: 1c 41 0a 00  	mov	10(r1), r12
+    550a: 12 c3        	clrc
+    550c: 0c 10        	rrc	r12
+    550e: 0b 4d        	mov	r13, r11
+    5510: 4b 4b        	mov.b	r11, r11
+    5512: 8b 10        	swpb	r11
+    5514: 0b 5b        	add	r11, r11
+    5516: 0b 5b        	add	r11, r11
+    5518: 0b 5b        	add	r11, r11
+    551a: 0b 5b        	add	r11, r11
+    551c: 0b 5b        	add	r11, r11
+    551e: 0b 5b        	add	r11, r11
+    5520: 0b 5b        	add	r11, r11
+    5522: 0c db        	bis	r11, r12
+    5524: 12 c3        	clrc
+    5526: 0d 10        	rrc	r13
+    5528: 0b 4e        	mov	r14, r11
+    552a: 4b 4b        	mov.b	r11, r11
+    552c: 8b 10        	swpb	r11
+    552e: 0b 5b        	add	r11, r11
+    5530: 0b 5b        	add	r11, r11
+    5532: 0b 5b        	add	r11, r11
+    5534: 0b 5b        	add	r11, r11
+    5536: 0b 5b        	add	r11, r11
+    5538: 0b 5b        	add	r11, r11
+    553a: 0b 5b        	add	r11, r11
+    553c: 0d db        	bis	r11, r13
+    553e: 12 c3        	clrc
+    5540: 0e 10        	rrc	r14
+    5542: 0b 4f        	mov	r15, r11
+    5544: 4b 4b        	mov.b	r11, r11
+    5546: 8b 10        	swpb	r11
+    5548: 0b 5b        	add	r11, r11
+    554a: 0b 5b        	add	r11, r11
+    554c: 0b 5b        	add	r11, r11
+    554e: 0b 5b        	add	r11, r11
+    5550: 0b 5b        	add	r11, r11
+    5552: 0b 5b        	add	r11, r11
+    5554: 0b 5b        	add	r11, r11
+    5556: 0e db        	bis	r11, r14
+    5558: 12 c3        	clrc
+    555a: 0f 10        	rrc	r15
+    555c: 81 4f 10 00  	mov	r15, 16(r1)
+    5560: 81 4e 0e 00  	mov	r14, 14(r1)
+    5564: 81 4d 0c 00  	mov	r13, 12(r1)
+    5568: 81 4c 0a 00  	mov	r12, 10(r1)
+    556c: 1c 41 00 00  	mov	0(r1), r12
+    5570: 3c 53        	add	#-1, r12
+    5572: 81 4c 00 00  	mov	r12, 0(r1)
+    5576: 58 3f        	jmp	$-334
+    5578: 1c 41 02 00  	mov	2(r1), r12
+    557c: 1d 41 04 00  	mov	4(r1), r13
+    5580: 1e 41 06 00  	mov	6(r1), r14
+    5584: 1f 41 08 00  	mov	8(r1), r15
+    5588: 31 50 1a 00  	add	#26, r1
+    558c: 3a 41        	pop	r10
+    558e: 39 41        	pop	r9
+    5590: 38 41        	pop	r8
+    5592: 37 41        	pop	r7
+    5594: 36 41        	pop	r6
+    5596: 30 41        	ret
+
+00005598 <mix>:
+    5598: 06 12        	push	r6
+    559a: 07 12        	push	r7
+    559c: 08 12        	push	r8
+    559e: 09 12        	push	r9
+    55a0: 0a 12        	push	r10
+    55a2: 0a 4f        	mov	r15, r10
+    55a4: 08 4e        	mov	r14, r8
+    55a6: 09 4d        	mov	r13, r9
+    55a8: 07 4c        	mov	r12, r7
+    55aa: 3e 40 b9 79  	mov	#31161, r14
+    55ae: 3f 40 37 9e  	mov	#40503, r15
+    55b2: b0 12 f6 51  	call	#20982
+    55b6: 0f 48        	mov	r8, r15
+    55b8: 3f f0 00 ff  	and	#65280, r15
+    55bc: 0e 47        	mov	r7, r14
+    55be: 1e d3        	bis	#1, r14
+    55c0: 0e 9f        	cmp	r15, r14
+    55c2: 0b 42        	mov	r2, r11
+    55c4: 0e 8f        	sub	r15, r14
+    55c6: 87 10        	swpb	r7
+    55c8: 47 47        	mov.b	r7, r7
+    55ca: 12 c3        	clrc
+    55cc: 07 10        	rrc	r7
+    55ce: 07 11        	rra	r7
+    55d0: 07 11        	rra	r7
+    55d2: 07 11        	rra	r7
+    55d4: 07 11        	rra	r7
+    55d6: 07 11        	rra	r7
+    55d8: 07 11        	rra	r7
+    55da: 06 49        	mov	r9, r6
+    55dc: 06 56        	add	r6, r6
+    55de: 06 d7        	bis	r7, r6
+    55e0: 06 e8        	xor	r8, r6
+    55e2: 1f 43        	mov	#1, r15
+    55e4: 18 43        	mov	#1, r8
+    55e6: 08 cb        	bic	r11, r8
+    55e8: 0b 49        	mov	r9, r11
+    55ea: 0b 88        	sub	r8, r11
+    55ec: 89 10        	swpb	r9
+    55ee: 49 49        	mov.b	r9, r9
+    55f0: 12 c3        	clrc
+    55f2: 09 10        	rrc	r9
+    55f4: 09 11        	rra	r9
+    55f6: 09 11        	rra	r9
+    55f8: 09 11        	rra	r9
+    55fa: 09 11        	rra	r9
+    55fc: 09 11        	rra	r9
+    55fe: 09 11        	rra	r9
+    5600: 09 ea        	xor	r10, r9
+    5602: 0d 59        	add	r9, r13
+    5604: 0c 56        	add	r6, r12
+    5606: 0c 96        	cmp	r6, r12
+    5608: 1a 43        	mov	#1, r10
+    560a: 0a c2        	bic	r2, r10
+    560c: 0d 5a        	add	r10, r13
+    560e: 0a 4d        	mov	r13, r10
+    5610: 4a 4a        	mov.b	r10, r10
+    5612: 8a 10        	swpb	r10
+    5614: 0a 5a        	add	r10, r10
+    5616: 0a 5a        	add	r10, r10
+    5618: 0a 5a        	add	r10, r10
+    561a: 12 c3        	clrc
+    561c: 09 4c        	mov	r12, r9
+    561e: 09 10        	rrc	r9
+    5620: 09 11        	rra	r9
+    5622: 0a 5a        	add	r10, r10
+    5624: 09 11        	rra	r9
+    5626: 0a 5a        	add	r10, r10
+    5628: 0a d9        	bis	r9, r10
+    562a: 0d ea        	xor	r10, r13
+    562c: 0a 4c        	mov	r12, r10
+    562e: 4a 4a        	mov.b	r10, r10
+    5630: 8a 10        	swpb	r10
+    5632: 0a 5a        	add	r10, r10
+    5634: 09 4a        	mov	r10, r9
+    5636: 09 59        	add	r9, r9
+    5638: 09 59        	add	r9, r9
+    563a: 09 59        	add	r9, r9
+    563c: 09 59        	add	r9, r9
+    563e: 0c e9        	xor	r9, r12
+    5640: 09 4d        	mov	r13, r9
+    5642: 49 49        	mov.b	r9, r9
+    5644: 89 10        	swpb	r9
+    5646: 09 59        	add	r9, r9
+    5648: 12 c3        	clrc
+    564a: 0c 10        	rrc	r12
+    564c: 0c 11        	rra	r12
+    564e: 0c 11        	rra	r12
+    5650: 0c 11        	rra	r12
+    5652: 0c 11        	rra	r12
+    5654: 0c 11        	rra	r12
+    5656: 0c 11        	rra	r12
+    5658: 0c d9        	bis	r9, r12
+    565a: 0c 5e        	add	r14, r12
+    565c: 0c 9e        	cmp	r14, r12
+    565e: 0f c2        	bic	r2, r15
+    5660: 12 c3        	clrc
+    5662: 0d 10        	rrc	r13
+    5664: 0d 11        	rra	r13
+    5666: 0d 11        	rra	r13
+    5668: 0d 11        	rra	r13
+    566a: 0d 11        	rra	r13
+    566c: 0d 11        	rra	r13
+    566e: 0d 11        	rra	r13
+    5670: 0d da        	bis	r10, r13
+    5672: 0d 5b        	add	r11, r13
+    5674: 0d 5f        	add	r15, r13
+    5676: 3a 41        	pop	r10
+    5678: 39 41        	pop	r9
+    567a: 38 41        	pop	r8
+    567c: 37 41        	pop	r7
+    567e: 36 41        	pop	r6
+    5680: 30 41        	ret
+
+00005682 <shifts>:
+    5682: 04 12        	push	r4
+    5684: 05 12        	push	r5
+    5686: 06 12        	push	r6
+    5688: 07 12        	push	r7
+    568a: 08 12        	push	r8
+    568c: 09 12        	push	r9
+    568e: 0a 12        	push	r10
+    5690: 31 80 08 00  	sub	#8, r1
+    5694: 07 4e        	mov	r14, r7
+    5696: 09 4d        	mov	r13, r9
+    5698: 06 4c        	mov	r12, r6
+    569a: 37 f0 1f 00  	and	#31, r7
+    569e: 0e 47        	mov	r7, r14
+    56a0: b0 12 dc 50  	call	#20700
+    56a4: 05 4c        	mov	r12, r5
+    56a6: 81 4d 06 00  	mov	r13, 6(r1)
+    56aa: 0c 46        	mov	r6, r12
+    56ac: 0d 49        	mov	r9, r13
+    56ae: 0e 47        	mov	r7, r14
+    56b0: b0 12 94 51  	call	#20884
+    56b4: 81 4d 04 00  	mov	r13, 4(r1)
+    56b8: 04 46        	mov	r6, r4
+    56ba: 84 10        	swpb	r4
+    56bc: 44 44        	mov.b	r4, r4
+    56be: 12 c3        	clrc
+    56c0: 04 10        	rrc	r4
+    56c2: 0d 49        	mov	r9, r13
+    56c4: 0d 5d        	add	r13, r13
+    56c6: 0d 5d        	add	r13, r13
+    56c8: 0d 5d        	add	r13, r13
+    56ca: 0e 4d        	mov	r13, r14
+    56cc: 0e 5e        	add	r14, r14
+    56ce: 0e 5e        	add	r14, r14
+    56d0: 0e 5e        	add	r14, r14
+    56d2: 0e 5e        	add	r14, r14
+    56d4: 0e d4        	bis	r4, r14
+    56d6: 0f 46        	mov	r6, r15
+    56d8: 0f 5f        	add	r15, r15
+    56da: 0f 5f        	add	r15, r15
+    56dc: 0f 5f        	add	r15, r15
+    56de: 0f 5e        	add	r14, r15
+    56e0: 0f 9e        	cmp	r14, r15
+    56e2: 81 42 02 00  	mov	r2, 2(r1)
+    56e6: 12 c3        	clrc
+    56e8: 0e 49        	mov	r9, r14
+    56ea: 0e 10        	rrc	r14
+    56ec: 0e 5f        	add	r15, r14
+    56ee: 0e 9f        	cmp	r15, r14
+    56f0: 81 42 00 00  	mov	r2, 0(r1)
+    56f4: 04 11        	rra	r4
+    56f6: 04 11        	rra	r4
+    56f8: 04 11        	rra	r4
+    56fa: 04 11        	rra	r4
+    56fc: 04 dd        	bis	r13, r4
+    56fe: 0c 5e        	add	r14, r12
+    5700: 0c 9e        	cmp	r14, r12
+    5702: 0a 42        	mov	r2, r10
+    5704: 05 5c        	add	r12, r5
+    5706: 05 9c        	cmp	r12, r5
+    5708: 08 42        	mov	r2, r8
+    570a: 0c 46        	mov	r6, r12
+    570c: 0d 49        	mov	r9, r13
+    570e: 0e 47        	mov	r7, r14
+    5710: b0 12 30 51  	call	#20784
+    5714: 0c 55        	add	r5, r12
+    5716: 0c 95        	cmp	r5, r12
+    5718: 0e 42        	mov	r2, r14
+    571a: 89 10        	swpb	r9
+    571c: 89 11        	sxt	r9
+    571e: 09 11        	rra	r9
+    5720: 09 54        	add	r4, r9
+    5722: 1f 43        	mov	#1, r15
+    5724: 1b 43        	mov	#1, r11
+    5726: 17 41 02 00  	mov	2(r1), r7
+    572a: 0b c7        	bic	r7, r11
+    572c: 0b 59        	add	r9, r11
+    572e: 19 43        	mov	#1, r9
+    5730: 17 41 00 00  	mov	0(r1), r7
+    5734: 09 c7        	bic	r7, r9
+    5736: 09 5b        	add	r11, r9
+    5738: 1b 41 04 00  	mov	4(r1), r11
+    573c: 09 5b        	add	r11, r9
+    573e: 1b 43        	mov	#1, r11
+    5740: 0b ce        	bic	r14, r11
+    5742: 1e 43        	mov	#1, r14
+    5744: 0e c8        	bic	r8, r14
+    5746: 0f ca        	bic	r10, r15
+    5748: 0f 59        	add	r9, r15
+    574a: 1a 41 06 00  	mov	6(r1), r10
+    574e: 0f 5a        	add	r10, r15
+    5750: 0f 5e        	add	r14, r15
+    5752: 0d 5f        	add	r15, r13
+    5754: 0d 5b        	add	r11, r13
+    5756: 31 50 08 00  	add	#8, r1
+    575a: 3a 41        	pop	r10
+    575c: 39 41        	pop	r9
+    575e: 38 41        	pop	r8
+    5760: 37 41        	pop	r7
+    5762: 36 41        	pop	r6
+    5764: 35 41        	pop	r5
+    5766: 34 41        	pop	r4
+    5768: 30 41        	ret
+
+0000576a <compare>:
+    576a: 07 12        	push	r7
+    576c: 08 12        	push	r8
+    576e: 09 12        	push	r9
+    5770: 0a 12        	push	r10
+    5772: 91 91 0e 00 0a 00    	cmp	14(r1), 10(r1)
+    5778: 09 42        	mov	r2, r9
+    577a: 1a 43        	mov	#1, r10
+    577c: 1b 41 10 00  	mov	16(r1), r11
+    5780: 17 41 0c 00  	mov	12(r1), r7
+    5784: 07 9b        	cmp	r11, r7
+    5786: 08 42        	mov	r2, r8
+    5788: 07 9b        	cmp	r11, r7
+    578a: 03 24        	jeq	$+8
+    578c: 1b 43        	mov	#1, r11
+    578e: 0b c8        	bic	r8, r11
+    5790: 02 3c        	jmp	$+6
+    5792: 1b 43        	mov	#1, r11
+    5794: 0b c9        	bic	r9, r11
+    5796: 0c 9e        	cmp	r14, r12
+    5798: 09 42        	mov	r2, r9
+    579a: 0d 9f        	cmp	r15, r13
+    579c: 18 43        	mov	#1, r8
+    579e: 01 38        	jl	$+4
+    57a0: 08 43        	clr	r8
+    57a2: 0d 9f        	cmp	r15, r13
+    57a4: 02 20        	jne	$+6
+    57a6: 18 43        	mov	#1, r8
+    57a8: 08 c9        	bic	r9, r8
+    57aa: 0c 93        	tst	r12
+    57ac: 09 42        	mov	r2, r9
+    57ae: 1d 93        	cmp	#1, r13
+    57b0: 17 43        	mov	#1, r7
+    57b2: 01 34        	jge	$+4
+    57b4: 07 43        	clr	r7
+    57b6: 0d 93        	tst	r13
+    57b8: 03 20        	jne	$+8
+    57ba: 09 11        	rra	r9
+    57bc: 17 43        	mov	#1, r7
+    57be: 07 c9        	bic	r9, r7
+    57c0: 39 40 20 00  	mov	#32, r9
+    57c4: 07 93        	tst	r7
+    57c6: 01 20        	jne	$+4
+    57c8: 09 43        	clr	r9
+    57ca: 0d 9f        	cmp	r15, r13
+    57cc: 01 34        	jge	$+4
+    57ce: 0a 43        	clr	r10
+    57d0: 09 d8        	bis	r8, r9
+    57d2: 0c 9e        	cmp	r14, r12
+    57d4: 08 42        	mov	r2, r8
+    57d6: 0d 9f        	cmp	r15, r13
+    57d8: 02 24        	jeq	$+6
+    57da: 08 4a        	mov	r10, r8
+    57dc: 01 3c        	jmp	$+4
+    57de: 18 f3        	and	#1, r8
+    57e0: 08 58        	add	r8, r8
+    57e2: 09 d8        	bis	r8, r9
+    57e4: 0c ee        	xor	r14, r12
+    57e6: 0f ed        	xor	r13, r15
+    57e8: 0f dc        	bis	r12, r15
+    57ea: 3c 40 10 00  	mov	#16, r12
+    57ee: 0f 93        	tst	r15
+    57f0: 01 24        	jeq	$+4
+    57f2: 0c 43        	clr	r12
+    57f4: 09 dc        	bis	r12, r9
+    57f6: 8d 10        	swpb	r13
+    57f8: 4d 4d        	mov.b	r13, r13
+    57fa: 12 c3        	clrc
+    57fc: 0d 10        	rrc	r13
+    57fe: 3d f0 40 00  	and	#64, r13
+    5802: 0d d9        	bis	r9, r13
+    5804: 0c 4b        	mov	r11, r12
+    5806: 0c 5c        	add	r12, r12
+    5808: 0c 5c        	add	r12, r12
+    580a: 0c dd        	bis	r13, r12
+    580c: 0b 93        	tst	r11
+    580e: 0d 43        	clr	r13
+    5810: 01 20        	jne	$+4
+    5812: 3d 42        	mov	#8, r13
+    5814: 0c dd        	bis	r13, r12
+    5816: 3c e0 40 00  	xor	#64, r12
+    581a: 0d 43        	clr	r13
+    581c: 3a 41        	pop	r10
+    581e: 39 41        	pop	r9
+    5820: 38 41        	pop	r8
+    5822: 37 41        	pop	r7
+    5824: 30 41        	ret
+
+00005826 <count>:
+    5826: 04 12        	push	r4
+    5828: 05 12        	push	r5
+    582a: 06 12        	push	r6
+    582c: 07 12        	push	r7
+    582e: 08 12        	push	r8
+    5830: 09 12        	push	r9
+    5832: 0a 12        	push	r10
+    5834: 31 80 06 00  	sub	#6, r1
+    5838: 81 4e 04 00  	mov	r14, 4(r1)
+    583c: 81 4d 02 00  	mov	r13, 2(r1)
+    5840: 81 4c 00 00  	mov	r12, 0(r1)
+    5844: 1c 41 16 00  	mov	22(r1), r12
+    5848: 0a 43        	clr	r10
+    584a: 19 43        	mov	#1, r9
+    584c: 0c 93        	tst	r12
+    584e: 01 38        	jl	$+4
+    5850: 09 43        	clr	r9
+    5852: 0f 93        	tst	r15
+    5854: 0b 42        	mov	r2, r11
+    5856: 0c 93        	tst	r12
+    5858: 10 24        	jeq	$+34
+    585a: 0b 49        	mov	r9, r11
+    585c: 1b b3        	bit	#1, r11
+    585e: 11 24        	jeq	$+36
+    5860: 0b 43        	clr	r11
+    5862: 0c 4a        	mov	r10, r12
+    5864: 0d 4b        	mov	r11, r13
+    5866: 31 50 06 00  	add	#6, r1
+    586a: 3a 41        	pop	r10
+    586c: 39 41        	pop	r9
+    586e: 38 41        	pop	r8
+    5870: 37 41        	pop	r7
+    5872: 36 41        	pop	r6
+    5874: 35 41        	pop	r5
+    5876: 34 41        	pop	r4
+    5878: 30 41        	ret
+    587a: 0b 11        	rra	r11
+    587c: 1b f3        	and	#1, r11
+    587e: 1b b3        	bit	#1, r11
+    5880: ef 23        	jne	$-32
+    5882: 06 43        	clr	r6
+    5884: 08 43        	clr	r8
+    5886: 05 43        	clr	r5
+    5888: 0b 43        	clr	r11
+    588a: 07 43        	clr	r7
+    588c: 28 3c        	jmp	$+82
+    588e: 1a 41 00 00  	mov	0(r1), r10
+    5892: 0a 56        	add	r6, r10
+    5894: 06 56        	add	r6, r6
+    5896: 1d 41 02 00  	mov	2(r1), r13
+    589a: 0d 56        	add	r6, r13
+    589c: 06 56        	add	r6, r6
+    589e: 1c 41 04 00  	mov	4(r1), r12
+    58a2: 06 5c        	add	r12, r6
+    58a4: 1e 46 00 00  	mov	0(r6), r14
+    58a8: 05 5e        	add	r14, r5
+    58aa: 05 9e        	cmp	r14, r5
+    58ac: 0e 42        	mov	r2, r14
+    58ae: 5a 4a 00 00  	mov.b	0(r10), r10
+    58b2: 0c 4a        	mov	r10, r12
+    58b4: 8c 11        	sxt	r12
+    58b6: 0c 5a        	add	r10, r12
+    58b8: 1a 4d 00 00  	mov	0(r13), r10
+    58bc: 0a 5a        	add	r10, r10
+    58be: 0a 5c        	add	r12, r10
+    58c0: 0a 55        	add	r5, r10
+    58c2: 0a 95        	cmp	r5, r10
+    58c4: 1c 43        	mov	#1, r12
+    58c6: 0c c2        	bic	r2, r12
+    58c8: 04 ce        	bic	r14, r4
+    58ca: 1b 56 02 00  	add	2(r6), r11
+    58ce: 0b 54        	add	r4, r11
+    58d0: 0b 5c        	add	r12, r11
+    58d2: 19 b3        	bit	#1, r9
+    58d4: 06 47        	mov	r7, r6
+    58d6: 05 4a        	mov	r10, r5
+    58d8: 1c 41 16 00  	mov	22(r1), r12
+    58dc: c2 27        	jeq	$-122
+    58de: 17 53        	inc	r7
+    58e0: 07 9f        	cmp	r15, r7
+    58e2: 0a 42        	mov	r2, r10
+    58e4: 07 93        	tst	r7
+    58e6: 09 42        	mov	r2, r9
+    58e8: 09 11        	rra	r9
+    58ea: 19 f3        	and	#1, r9
+    58ec: 08 59        	add	r9, r8
+    58ee: 14 43        	mov	#1, r4
+    58f0: 08 9c        	cmp	r12, r8
+    58f2: 19 43        	mov	#1, r9
+    58f4: 01 38        	jl	$+4
+    58f6: 09 43        	clr	r9
+    58f8: 08 9c        	cmp	r12, r8
+    58fa: c9 23        	jne	$-108
+    58fc: 19 43        	mov	#1, r9
+    58fe: 09 ca        	bic	r10, r9
+    5900: c6 3f        	jmp	$-114
+
+00005902 <store>:
+    5902: 04 12        	push	r4
+    5904: 05 12        	push	r5
+    5906: 06 12        	push	r6
+    5908: 07 12        	push	r7
+    590a: 08 12        	push	r8
+    590c: 09 12        	push	r9
+    590e: 0a 12        	push	r10
+    5910: 31 80 02 00  	sub	#2, r1
+    5914: 0a 4f        	mov	r15, r10
+    5916: 81 4e 00 00  	mov	r14, 0(r1)
+    591a: 09 4d        	mov	r13, r9
+    591c: 07 4c        	mov	r12, r7
+    591e: 14 41 12 00  	mov	18(r1), r4
+    5922: 1c 43        	mov	#1, r12
+    5924: 04 93        	tst	r4
+    5926: 01 38        	jl	$+4
+    5928: 0c 43        	clr	r12
+    592a: 0a 93        	tst	r10
+    592c: 0d 42        	mov	r2, r13
+    592e: 04 93        	tst	r4
+    5930: 04 24        	jeq	$+10
+    5932: 0d 4c        	mov	r12, r13
+    5934: 1d b3        	bit	#1, r13
+    5936: 05 24        	jeq	$+12
+    5938: 4d 3c        	jmp	$+156
+    593a: 0d 11        	rra	r13
+    593c: 1d f3        	and	#1, r13
+    593e: 1d b3        	bit	#1, r13
+    5940: 49 20        	jne	$+148
+    5942: 1d 41 16 00  	mov	22(r1), r13
+    5946: 1c 41 14 00  	mov	20(r1), r12
+    594a: 06 43        	clr	r6
+    594c: 05 43        	clr	r5
+    594e: 03 3c        	jmp	$+8
+    5950: 0f 4b        	mov	r11, r15
+    5952: 1f b3        	bit	#1, r15
+    5954: 3f 24        	jeq	$+128
+    5956: 0e 46        	mov	r6, r14
+    5958: 0f 45        	mov	r5, r15
+    595a: b0 12 98 55  	call	#21912
+    595e: 0e 47        	mov	r7, r14
+    5960: 0e 56        	add	r6, r14
+    5962: ce 4c 00 00  	mov.b	r12, 0(r14)
+    5966: 0e 4d        	mov	r13, r14
+    5968: 4e 4e        	mov.b	r14, r14
+    596a: 8e 10        	swpb	r14
+    596c: 0b 4c        	mov	r12, r11
+    596e: 8b 10        	swpb	r11
+    5970: 4b 4b        	mov.b	r11, r11
+    5972: 0b de        	bis	r14, r11
+    5974: 0f 46        	mov	r6, r15
+    5976: 0f 5f        	add	r15, r15
+    5978: 08 49        	mov	r9, r8
+    597a: 08 5f        	add	r15, r8
+    597c: 88 4b 00 00  	mov	r11, 0(r8)
+    5980: 0f 5f        	add	r15, r15
+    5982: 1b 41 00 00  	mov	0(r1), r11
+    5986: 0f 5b        	add	r11, r15
+    5988: 12 c3        	clrc
+    598a: 0b 4c        	mov	r12, r11
+    598c: 0b 10        	rrc	r11
+    598e: 0b 11        	rra	r11
+    5990: 0b 11        	rra	r11
+    5992: 0e 5e        	add	r14, r14
+    5994: 0e 5e        	add	r14, r14
+    5996: 0e 5e        	add	r14, r14
+    5998: 0e 5e        	add	r14, r14
+    599a: 0e 5e        	add	r14, r14
+    599c: 0e db        	bis	r11, r14
+    599e: 12 c3        	clrc
+    59a0: 0b 4d        	mov	r13, r11
+    59a2: 0b 10        	rrc	r11
+    59a4: 0b 11        	rra	r11
+    59a6: 0b 11        	rra	r11
+    59a8: 8f 4b 02 00  	mov	r11, 2(r15)
+    59ac: 8f 4e 00 00  	mov	r14, 0(r15)
+    59b0: 16 53        	inc	r6
+    59b2: 06 9a        	cmp	r10, r6
+    59b4: 0e 42        	mov	r2, r14
+    59b6: 06 93        	tst	r6
+    59b8: 0f 42        	mov	r2, r15
+    59ba: 0f 11        	rra	r15
+    59bc: 1f f3        	and	#1, r15
+    59be: 05 5f        	add	r15, r5
+    59c0: 1f 43        	mov	#1, r15
+    59c2: 05 94        	cmp	r4, r5
+    59c4: 1b 43        	mov	#1, r11
+    59c6: 01 38        	jl	$+4
+    59c8: 0b 43        	clr	r11
+    59ca: 05 94        	cmp	r4, r5
+    59cc: c1 23        	jne	$-124
+    59ce: 0f ce        	bic	r14, r15
+    59d0: 1f b3        	bit	#1, r15
+    59d2: c1 23        	jne	$-124
+    59d4: 31 50 02 00  	add	#2, r1
+    59d8: 3a 41        	pop	r10
+    59da: 39 41        	pop	r9
+    59dc: 38 41        	pop	r8
+    59de: 37 41        	pop	r7
+    59e0: 36 41        	pop	r6
+    59e2: 35 41        	pop	r5
+    59e4: 34 41        	pop	r4
+    59e6: 30 41        	ret
+
+000059e8 <pick>:
+    59e8: 09 12        	push	r9
+    59ea: 0a 12        	push	r10
+    59ec: 0b 4c        	mov	r12, r11
+    59ee: 0d 93        	tst	r13
+    59f0: 0c 42        	mov	r2, r12
+    59f2: 3b 92        	cmp	#8, r11
+    59f4: 0a 42        	mov	r2, r10
+    59f6: 0d 93        	tst	r13
+    59f8: 04 24        	jeq	$+10
+    59fa: 0c 11        	rra	r12
+    59fc: 1a 43        	mov	#1, r10
+    59fe: 0a cc        	bic	r12, r10
+    5a00: 01 3c        	jmp	$+4
+    5a02: 1a f3        	and	#1, r10
+    5a04: 1d 41 08 00  	mov	8(r1), r13
+    5a08: 1c 41 06 00  	mov	6(r1), r12
+    5a0c: 1a b3        	bit	#1, r10
+    5a0e: 31 20        	jne	$+100
+    5a10: 0b 5b        	add	r11, r11
+    5a12: 10 4b b4 40  	br	16564(r11)
+    5a16: 0d 5f        	add	r15, r13
+    5a18: 0e 5c        	add	r12, r14
+    5a1a: 0e 9c        	cmp	r12, r14
+    5a1c: 1f 43        	mov	#1, r15
+    5a1e: 0f c2        	bic	r2, r15
+    5a20: 0f 5d        	add	r13, r15
+    5a22: 22 3c        	jmp	$+70
+    5a24: 0e ec        	xor	r12, r14
+    5a26: 0f ed        	xor	r13, r15
+    5a28: 1f 3c        	jmp	$+64
+    5a2a: 0e fc        	and	r12, r14
+    5a2c: 0f fd        	and	r13, r15
+    5a2e: 1c 3c        	jmp	$+58
+    5a30: 0e dc        	bis	r12, r14
+    5a32: 0f dd        	bis	r13, r15
+    5a34: 19 3c        	jmp	$+52
+    5a36: b0 12 f6 51  	call	#20982
+    5a3a: 14 3c        	jmp	$+42
+    5a3c: 0e 9c        	cmp	r12, r14
+    5a3e: 1b 43        	mov	#1, r11
+    5a40: 0b c2        	bic	r2, r11
+    5a42: 0f 8d        	sub	r13, r15
+    5a44: 0f 8b        	sub	r11, r15
+    5a46: 0e 8c        	sub	r12, r14
+    5a48: 0f 3c        	jmp	$+32
+    5a4a: 0c 93        	tst	r12
+    5a4c: 0e 42        	mov	r2, r14
+    5a4e: 0e 11        	rra	r14
+    5a50: 1f 43        	mov	#1, r15
+    5a52: 0f ce        	bic	r14, r15
+    5a54: 0d 5f        	add	r15, r13
+    5a56: 0f 43        	clr	r15
+    5a58: 0e 43        	clr	r14
+    5a5a: 0e 8c        	sub	r12, r14
+    5a5c: 0f 8d        	sub	r13, r15
+    5a5e: 04 3c        	jmp	$+10
+    5a60: 3c e3        	inv	r12
+    5a62: 3d e3        	inv	r13
+    5a64: 0e 4c        	mov	r12, r14
+    5a66: 0f 4d        	mov	r13, r15
+    5a68: 0c 4e        	mov	r14, r12
+    5a6a: 0d 4f        	mov	r15, r13
+    5a6c: 3a 41        	pop	r10
+    5a6e: 39 41        	pop	r9
+    5a70: 30 41        	ret
+    5a72: 1b 43        	mov	#1, r11
+    5a74: 0d 9f        	cmp	r15, r13
+    5a76: 1a 43        	mov	#1, r10
+    5a78: 01 38        	jl	$+4
+    5a7a: 0a 43        	clr	r10
+    5a7c: 0c 9e        	cmp	r14, r12
+    5a7e: 09 42        	mov	r2, r9
+    5a80: 0f 9d        	cmp	r13, r15
+    5a82: 04 24        	jeq	$+10
+    5a84: 0b 4a        	mov	r10, r11
+    5a86: 0b 93        	tst	r11
+    5a88: 04 24        	jeq	$+10
+    5a8a: 04 3c        	jmp	$+10
+    5a8c: 0b c9        	bic	r9, r11
+    5a8e: 0b 93        	tst	r11
+    5a90: 01 20        	jne	$+4
+    5a92: 0f 4d        	mov	r13, r15
+    5a94: 0b 93        	tst	r11
+    5a96: e8 23        	jne	$-46
+    5a98: 0e 4c        	mov	r12, r14
+    5a9a: e6 3f        	jmp	$-50
+
+00005a9c <wide>:
+    5a9c: 04 12        	push	r4
+    5a9e: 05 12        	push	r5
+    5aa0: 06 12        	push	r6
+    5aa2: 07 12        	push	r7
+    5aa4: 08 12        	push	r8
+    5aa6: 09 12        	push	r9
+    5aa8: 0a 12        	push	r10
+    5aaa: 31 80 02 00  	sub	#2, r1
+    5aae: 05 4f        	mov	r15, r5
+    5ab0: 04 4e        	mov	r14, r4
+    5ab2: 08 44        	mov	r4, r8
+    5ab4: 09 45        	mov	r5, r9
+    5ab6: 1a 43        	mov	#1, r10
+    5ab8: 0b 43        	clr	r11
+    5aba: 0e 43        	clr	r14
+    5abc: 0f 43        	clr	r15
+    5abe: b0 12 c4 50  	call	#20676
+    5ac2: 81 4e 00 00  	mov	r14, 0(r1)
+    5ac6: 06 4f        	mov	r15, r6
+    5ac8: 04 5c        	add	r12, r4
+    5aca: 04 9c        	cmp	r12, r4
+    5acc: 17 43        	mov	#1, r7
+    5ace: 07 c2        	bic	r2, r7
+    5ad0: 05 5d        	add	r13, r5
+    5ad2: 05 57        	add	r7, r5
+    5ad4: 05 9d        	cmp	r13, r5
+    5ad6: 0c 42        	mov	r2, r12
+    5ad8: 05 9d        	cmp	r13, r5
+    5ada: 02 24        	jeq	$+6
+    5adc: 17 43        	mov	#1, r7
+    5ade: 07 cc        	bic	r12, r7
+    5ae0: 19 41 18 00  	mov	24(r1), r9
+    5ae4: 0a 49        	mov	r9, r10
+    5ae6: 8a 10        	swpb	r10
+    5ae8: 8a 11        	sxt	r10
+    5aea: 0a 11        	rra	r10
+    5aec: 1d 41 14 00  	mov	20(r1), r13
+    5af0: 0e 4d        	mov	r13, r14
+    5af2: 8e 10        	swpb	r14
+    5af4: 8e 11        	sxt	r14
+    5af6: 0e 11        	rra	r14
+    5af8: 0e 11        	rra	r14
+    5afa: 0a 11        	rra	r10
+    5afc: 0a 11        	rra	r10
+    5afe: 0a 11        	rra	r10
+    5b00: 0a 11        	rra	r10
+    5b02: 0a 11        	rra	r10
+    5b04: 0a 11        	rra	r10
+    5b06: 0e 11        	rra	r14
+    5b08: 0e 11        	rra	r14
+    5b0a: 0e 11        	rra	r14
+    5b0c: 0e 11        	rra	r14
+    5b0e: 0e 11        	rra	r14
+    5b10: 18 41 16 00  	mov	22(r1), r8
+    5b14: 1c 41 12 00  	mov	18(r1), r12
+    5b18: 0b 4a        	mov	r10, r11
+    5b1a: 0f 4e        	mov	r14, r15
+    5b1c: b0 12 c4 50  	call	#20676
+    5b20: 0b 4e        	mov	r14, r11
+    5b22: 0c 54        	add	r4, r12
+    5b24: 0c 94        	cmp	r4, r12
+    5b26: 1e 43        	mov	#1, r14
+    5b28: 0e c2        	bic	r2, r14
+    5b2a: 0d 55        	add	r5, r13
+    5b2c: 0d 5e        	add	r14, r13
+    5b2e: 0d 95        	cmp	r5, r13
+    5b30: 0a 42        	mov	r2, r10
+    5b32: 0d 95        	cmp	r5, r13
+    5b34: 02 24        	jeq	$+6
+    5b36: 1e 43        	mov	#1, r14
+    5b38: 0e ca        	bic	r10, r14
+    5b3a: 19 41 00 00  	mov	0(r1), r9
+    5b3e: 07 59        	add	r9, r7
+    5b40: 0b 57        	add	r7, r11
+    5b42: 0b 97        	cmp	r7, r11
+    5b44: 0a 42        	mov	r2, r10
+    5b46: 07 99        	cmp	r9, r7
+    5b48: 19 43        	mov	#1, r9
+    5b4a: 09 c2        	bic	r2, r9
+    5b4c: 06 59        	add	r9, r6
+    5b4e: 06 5f        	add	r15, r6
+    5b50: 19 43        	mov	#1, r9
+    5b52: 09 ca        	bic	r10, r9
+    5b54: 09 56        	add	r6, r9
+    5b56: 0e 5b        	add	r11, r14
+    5b58: 0e 9b        	cmp	r11, r14
+    5b5a: 1f 43        	mov	#1, r15
+    5b5c: 0f c2        	bic	r2, r15
+    5b5e: 0f 59        	add	r9, r15
+    5b60: 31 50 02 00  	add	#2, r1
+    5b64: 3a 41        	pop	r10
+    5b66: 39 41        	pop	r9
+    5b68: 38 41        	pop	r8
+    5b6a: 37 41        	pop	r7
+    5b6c: 36 41        	pop	r6
+    5b6e: 35 41        	pop	r5
+    5b70: 34 41        	pop	r4
+    5b72: 30 41        	ret
+
+00005b74 <_start>:
+    5b74: 06 12        	push	r6
+    5b76: 07 12        	push	r7
+    5b78: 08 12        	push	r8
+    5b7a: 09 12        	push	r9
+    5b7c: 0a 12        	push	r10
+    5b7e: 31 80 40 00  	sub	#64, r1
+    5b82: 81 43 04 00  	clr	4(r1)
+    5b86: b1 40 34 12 02 00    	mov	#4660, 2(r1)
+    5b8c: 81 43 00 00  	clr	0(r1)
+    5b90: 0a 41        	mov	r1, r10
+    5b92: 3a 50 38 00  	add	#56, r10
+    5b96: 09 41        	mov	r1, r9
+    5b98: 39 50 28 00  	add	#40, r9
+    5b9c: 08 41        	mov	r1, r8
+    5b9e: 38 50 08 00  	add	#8, r8
+    5ba2: 0c 4a        	mov	r10, r12
+    5ba4: 0d 49        	mov	r9, r13
+    5ba6: 0e 48        	mov	r8, r14
+    5ba8: 3f 42        	mov	#8, r15
+    5baa: b0 12 02 59  	call	#22786
+    5bae: 81 43 00 00  	clr	0(r1)
+    5bb2: 0c 4a        	mov	r10, r12
+    5bb4: 0d 49        	mov	r9, r13
+    5bb6: 0e 48        	mov	r8, r14
+    5bb8: 3f 42        	mov	#8, r15
+    5bba: b0 12 26 58  	call	#22566
+    5bbe: 0a 4c        	mov	r12, r10
+    5bc0: 09 4d        	mov	r13, r9
+    5bc2: b0 12 0e 5d  	call	#23822
+    5bc6: 08 43        	clr	r8
+    5bc8: 07 43        	clr	r7
+    5bca: 09 3c        	jmp	$+20
+    5bcc: 0c 43        	clr	r12
+    5bce: 18 53        	inc	r8
+    5bd0: 08 93        	tst	r8
+    5bd2: 0d 42        	mov	r2, r13
+    5bd4: 0d 11        	rra	r13
+    5bd6: 1d f3        	and	#1, r13
+    5bd8: 07 5d        	add	r13, r7
+    5bda: 1c b3        	bit	#1, r12
+    5bdc: 23 24        	jeq	$+72
+    5bde: 0c 48        	mov	r8, r12
+    5be0: 3c 50 03 00  	add	#3, r12
+    5be4: 81 4c 00 00  	mov	r12, 0(r1)
+    5be8: 0c 98        	cmp	r8, r12
+    5bea: 1c 43        	mov	#1, r12
+    5bec: 0c c2        	bic	r2, r12
+    5bee: 0c 57        	add	r7, r12
+    5bf0: 81 4c 02 00  	mov	r12, 2(r1)
+    5bf4: 0c 48        	mov	r8, r12
+    5bf6: 0d 47        	mov	r7, r13
+    5bf8: 0e 4a        	mov	r10, r14
+    5bfa: 0f 49        	mov	r9, r15
+    5bfc: b0 12 e8 59  	call	#23016
+    5c00: 0a 5c        	add	r12, r10
+    5c02: 0a 9c        	cmp	r12, r10
+    5c04: 0c 42        	mov	r2, r12
+    5c06: 0d 59        	add	r9, r13
+    5c08: 19 43        	mov	#1, r9
+    5c0a: 09 cc        	bic	r12, r9
+    5c0c: 09 5d        	add	r13, r9
+    5c0e: 0c 4a        	mov	r10, r12
+    5c10: 0d 49        	mov	r9, r13
+    5c12: b0 12 0e 5d  	call	#23822
+    5c16: 38 92        	cmp	#8, r8
+    5c18: 0d 42        	mov	r2, r13
+    5c1a: 07 93        	tst	r7
+    5c1c: d7 23        	jne	$-80
+    5c1e: 1c 43        	mov	#1, r12
+    5c20: 0c cd        	bic	r13, r12
+    5c22: d5 3f        	jmp	$-84
+    5c24: 0c 4a        	mov	r10, r12
+    5c26: 0d 49        	mov	r9, r13
+    5c28: 3e 40 05 00  	mov	#5, r14
+    5c2c: 0f 43        	clr	r15
+    5c2e: b0 12 82 56  	call	#22146
+    5c32: 08 4c        	mov	r12, r8
+    5c34: 07 4d        	mov	r13, r7
+    5c36: 0a 93        	tst	r10
+    5c38: 0c 42        	mov	r2, r12
+    5c3a: 0c 11        	rra	r12
+    5c3c: 16 43        	mov	#1, r6
+    5c3e: 1e 43        	mov	#1, r14
+    5c40: 0e cc        	bic	r12, r14
+    5c42: 0e 59        	add	r9, r14
+    5c44: 0d 43        	clr	r13
+    5c46: 0d 8e        	sub	r14, r13
+    5c48: 0c 43        	clr	r12
+    5c4a: 0c 8a        	sub	r10, r12
+    5c4c: 3e 40 1d 00  	mov	#29, r14
+    5c50: 0f 43        	clr	r15
+    5c52: b0 12 82 56  	call	#22146
+    5c56: 0d 57        	add	r7, r13
+    5c58: 08 5c        	add	r12, r8
+    5c5a: 08 9c        	cmp	r12, r8
+    5c5c: 1c 43        	mov	#1, r12
+    5c5e: 0c c2        	bic	r2, r12
+    5c60: 0d 5c        	add	r12, r13
+    5c62: 0c 48        	mov	r8, r12
+    5c64: b0 12 0e 5d  	call	#23822
+    5c68: 81 49 02 00  	mov	r9, 2(r1)
+    5c6c: 81 4a 00 00  	mov	r10, 0(r1)
+    5c70: 81 43 06 00  	clr	6(r1)
+    5c74: b1 40 07 00 04 00    	mov	#7, 4(r1)
+    5c7a: 0c 4a        	mov	r10, r12
+    5c7c: 0d 49        	mov	r9, r13
+    5c7e: 3e 40 07 00  	mov	#7, r14
+    5c82: 0f 43        	clr	r15
+    5c84: b0 12 6a 57  	call	#22378
+    5c88: 08 4c        	mov	r12, r8
+    5c8a: 07 4d        	mov	r13, r7
+    5c8c: 81 43 06 00  	clr	6(r1)
+    5c90: a1 43 04 00  	mov	#2, 4(r1)
+    5c94: 81 43 02 00  	clr	2(r1)
+    5c98: 91 43 00 00  	mov	#1, 0(r1)
+    5c9c: 3c 40 fd ff  	mov	#65533, r12
+    5ca0: 3d 43        	mov	#-1, r13
+    5ca2: 3e 40 fd ff  	mov	#65533, r14
+    5ca6: 3f 43        	mov	#-1, r15
+    5ca8: b0 12 6a 57  	call	#22378
+    5cac: 0d 57        	add	r7, r13
+    5cae: 08 5c        	add	r12, r8
+    5cb0: 08 9c        	cmp	r12, r8
+    5cb2: 06 c2        	bic	r2, r6
+    5cb4: 0d 56        	add	r6, r13
+    5cb6: 0c 48        	mov	r8, r12
+    5cb8: b0 12 0e 5d  	call	#23822
+    5cbc: 81 49 02 00  	mov	r9, 2(r1)
+    5cc0: 81 4a 00 00  	mov	r10, 0(r1)
+    5cc4: b1 43 06 00  	mov	#-1, 6(r1)
+    5cc8: b1 40 b3 ff 04 00    	mov	#65459, 4(r1)
+    5cce: 0c 4a        	mov	r10, r12
+    5cd0: 0d 49        	mov	r9, r13
+    5cd2: 3e 40 ef cd  	mov	#52719, r14
+    5cd6: 3f 40 ab 89  	mov	#35243, r15
+    5cda: b0 12 9c 5a  	call	#23196
+    5cde: 08 4e        	mov	r14, r8
+    5ce0: 07 4f        	mov	r15, r7
+    5ce2: b0 12 0e 5d  	call	#23822
+    5ce6: 0c 48        	mov	r8, r12
+    5ce8: 0d 47        	mov	r7, r13
+    5cea: b0 12 0e 5d  	call	#23822
+    5cee: 0c 4a        	mov	r10, r12
+    5cf0: 0d 49        	mov	r9, r13
+    5cf2: 3e 40 63 00  	mov	#99, r14
+    5cf6: 0f 43        	clr	r15
+    5cf8: b0 12 98 55  	call	#21912
+    5cfc: b0 12 0e 5d  	call	#23822
+    5d00: 7a f0 7f 00  	and.b	#127, r10
+    5d04: c2 4a 02 02  	mov.b	r10, &514
+    5d08: 32 d0 f0 00  	bis	#240, r2
+    5d0c: ff 3f        	jmp	$+0
+
+00005d0e <print>:
+    5d0e: 04 12        	push	r4
+    5d10: 05 12        	push	r5
+    5d12: 06 12        	push	r6
+    5d14: 07 12        	push	r7
+    5d16: 08 12        	push	r8
+    5d18: 09 12        	push	r9
+    5d1a: 0a 12        	push	r10
+    5d1c: 31 80 12 00  	sub	#18, r1
+    5d20: 0c 93        	tst	r12
+    5d22: 0e 42        	mov	r2, r14
+    5d24: 04 43        	clr	r4
+    5d26: 0d 93        	tst	r13
+    5d28: 02 38        	jl	$+6
+    5d2a: 09 4c        	mov	r12, r9
+    5d2c: 02 3c        	jmp	$+6
+    5d2e: 09 43        	clr	r9
+    5d30: 09 8c        	sub	r12, r9
+    5d32: 0d 93        	tst	r13
+    5d34: 81 4d 00 00  	mov	r13, 0(r1)
+    5d38: 02 38        	jl	$+6
+    5d3a: 08 4d        	mov	r13, r8
+    5d3c: 06 3c        	jmp	$+14
+    5d3e: 0e 11        	rra	r14
+    5d40: 1c 43        	mov	#1, r12
+    5d42: 0c ce        	bic	r14, r12
+    5d44: 0c 5d        	add	r13, r12
+    5d46: 08 43        	clr	r8
+    5d48: 08 8c        	sub	r12, r8
+    5d4a: 35 40 0f 00  	mov	#15, r5
+    5d4e: f1 40 0a 00 11 00    	mov.b	#10, 17(r1)
+    5d54: 0d 3c        	jmp	$+28
+    5d56: 0d 11        	rra	r13
+    5d58: 1c 43        	mov	#1, r12
+    5d5a: 0c cd        	bic	r13, r12
+    5d5c: 0a 93        	tst	r10
+    5d5e: 0e 42        	mov	r2, r14
+    5d60: 0e 11        	rra	r14
+    5d62: 1e f3        	and	#1, r14
+    5d64: 0d 44        	mov	r4, r13
+    5d66: 04 8e        	sub	r14, r4
+    5d68: 1c b3        	bit	#1, r12
+    5d6a: 09 47        	mov	r7, r9
+    5d6c: 08 46        	mov	r6, r8
+    5d6e: 23 24        	jeq	$+72
+    5d70: 0a 45        	mov	r5, r10
+    5d72: 0c 49        	mov	r9, r12
+    5d74: 0d 48        	mov	r8, r13
+    5d76: 3e 40 0a 00  	mov	#10, r14
+    5d7a: 0f 43        	clr	r15
+    5d7c: b0 12 b2 52  	call	#21170
+    5d80: 07 4c        	mov	r12, r7
+    5d82: 06 4d        	mov	r13, r6
+    5d84: 3e 40 0a 00  	mov	#10, r14
+    5d88: 0f 43        	clr	r15
+    5d8a: b0 12 f6 51  	call	#20982
+    5d8e: 0d 49        	mov	r9, r13
+    5d90: 0d 8c        	sub	r12, r13
+    5d92: 7d d0 30 00  	bis.b	#48, r13
+    5d96: 35 53        	add	#-1, r5
+    5d98: 0c 41        	mov	r1, r12
+    5d9a: 3c 50 02 00  	add	#2, r12
+    5d9e: 0c 55        	add	r5, r12
+    5da0: cc 4d 00 00  	mov.b	r13, 0(r12)
+    5da4: 08 93        	tst	r8
+    5da6: 0d 42        	mov	r2, r13
+    5da8: 39 90 0a 00  	cmp	#10, r9
+    5dac: 0c 42        	mov	r2, r12
+    5dae: 08 93        	tst	r8
+    5db0: d2 23        	jne	$-90
+    5db2: 1c f3        	and	#1, r12
+    5db4: d3 3f        	jmp	$-88
+    5db6: 1c 41 00 00  	mov	0(r1), r12
+    5dba: 0c 93        	tst	r12
+    5dbc: 10 34        	jge	$+34
+    5dbe: 05 4a        	mov	r10, r5
+    5dc0: 35 50 fe ff  	add	#65534, r5
+    5dc4: 0c 41        	mov	r1, r12
+    5dc6: 3c 50 02 00  	add	#2, r12
+    5dca: 0c 55        	add	r5, r12
+    5dcc: fc 40 2d 00 00 00    	mov.b	#45, 0(r12)
+    5dd2: 05 9a        	cmp	r10, r5
+    5dd4: 1c 43        	mov	#1, r12
+    5dd6: 0c c2        	bic	r2, r12
+    5dd8: 04 4d        	mov	r13, r4
+    5dda: 04 5c        	add	r12, r4
+    5ddc: 34 53        	add	#-1, r4
+    5dde: 0c 43        	clr	r12
+    5de0: 1e 43        	mov	#1, r14
+    5de2: 14 93        	cmp	#1, r4
+    5de4: 01 34        	jge	$+4
+    5de6: 0e 43        	clr	r14
+    5de8: 35 90 10 00  	cmp	#16, r5
+    5dec: 0f 42        	mov	r2, r15
+    5dee: 04 93        	tst	r4
+    5df0: 02 24        	jeq	$+6
+    5df2: 0f 4e        	mov	r14, r15
+    5df4: 01 3c        	jmp	$+4
+    5df6: 1f f3        	and	#1, r15
+    5df8: 0e 41        	mov	r1, r14
+    5dfa: 3e 50 02 00  	add	#2, r14
+    5dfe: 35 90 11 00  	cmp	#17, r5
+    5e02: 0b 42        	mov	r2, r11
+    5e04: 1f b3        	bit	#1, r15
+    5e06: 24 20        	jne	$+74
+    5e08: 3f 40 10 00  	mov	#16, r15
+    5e0c: 0f 85        	sub	r5, r15
+    5e0e: 0e 55        	add	r5, r14
+    5e10: 1b f3        	and	#1, r11
+    5e12: 04 5b        	add	r11, r4
+    5e14: 0c 84        	sub	r4, r12
+    5e16: 0d 43        	clr	r13
+    5e18: 0b 43        	clr	r11
+    5e1a: 0a 43        	clr	r10
+    5e1c: 08 3c        	jmp	$+18
+    5e1e: 08 47        	mov	r7, r8
+    5e20: 0d 5e        	add	r14, r13
+    5e22: d2 4d 00 00 0e 06    	mov.b	0(r13), &1550
+    5e28: 18 b3        	bit	#1, r8
+    5e2a: 0d 4a        	mov	r10, r13
+    5e2c: 11 24        	jeq	$+36
+    5e2e: 1a 53        	inc	r10
+    5e30: 0a 9f        	cmp	r15, r10
+    5e32: 09 42        	mov	r2, r9
+    5e34: 0a 93        	tst	r10
+    5e36: 08 42        	mov	r2, r8
+    5e38: 08 11        	rra	r8
+    5e3a: 18 f3        	and	#1, r8
+    5e3c: 0b 58        	add	r8, r11
+    5e3e: 18 43        	mov	#1, r8
+    5e40: 0b 9c        	cmp	r12, r11
+    5e42: 17 43        	mov	#1, r7
+    5e44: 01 38        	jl	$+4
+    5e46: 07 43        	clr	r7
+    5e48: 0b 9c        	cmp	r12, r11
+    5e4a: e9 23        	jne	$-44
+    5e4c: 08 c9        	bic	r9, r8
+    5e4e: e8 3f        	jmp	$-46
+    5e50: 31 50 12 00  	add	#18, r1
+    5e54: 3a 41        	pop	r10
+    5e56: 39 41        	pop	r9
+    5e58: 38 41        	pop	r8
+    5e5a: 37 41        	pop	r7
+    5e5c: 36 41        	pop	r6
+    5e5e: 35 41        	pop	r5
+    5e60: 34 41        	pop	r4
+    5e62: 30 41        	ret
