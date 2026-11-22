@@ -986,6 +986,15 @@ command = "testdata/build.ps1 x86sys"
 tools = "clang 22.1.7, LLD 22.1.7"
 
 [[file]]
+path = "testdata/bin/thumbfp"
+sha256 = "b815d67e67b9c7d6f6a94594e9701d804cf208cdbd49233a42f986e810aa54f0"
+evidence = "emulator"
+expected = "testdata/expected/armfp.txt"
+source = "testdata/src/armfp.c"
+command = "testdata/build.ps1 thumbfp"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
 path = "testdata/bin/cortexm.elf"
 sha256 = "a52362af0634f3143f3ff2e8d3b6f64b5c9ef290f503c366a01b606eef9f00dd"
 evidence = "source"

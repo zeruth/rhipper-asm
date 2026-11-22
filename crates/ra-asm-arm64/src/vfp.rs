@@ -39,6 +39,8 @@ pub enum Fp {
     Accumulate { double: bool, d: u8, n: u8, m: u8, negate_sum: bool, negate_product: bool },
     /// `vmov`, `vabs`, `vneg`, `vsqrt` between registers.
     Unary { op: Unary, double: bool, d: u8, m: u8 },
+    /// `vmov` of a constant the instruction holds: the bits of the single or the double.
+    Constant { double: bool, d: u8, bits: u64 },
     /// `vcmp` and `vcmpe`, with a register or with zero: the flags of the status register.
     Compare { double: bool, d: u8, m: Option<u8> },
     /// `vcvt` between the widths: `d` is a double when `to_double`, and `m` then a single.
@@ -86,7 +88,7 @@ impl Fp {
             },
             Self::Compare { .. } => "vcmp",
             Self::Width { .. } | Self::FromInt { .. } | Self::ToInt { .. } => "vcvt",
-            Self::Core { .. } | Self::CorePair { .. } => "vmov",
+            Self::Core { .. } | Self::CorePair { .. } | Self::Constant { .. } => "vmov",
             Self::Status { to_core: true, .. } => "vmrs",
             Self::Status { .. } => "vmsr",
             Self::Mem { load: true, .. } => "vldr",
@@ -171,6 +173,20 @@ fn data(w: u32, double: bool, d: u8, n: u8, m: u8) -> Option<Fp> {
         (0b010, _) => Fp::Arith { op: if op { Arith::Nmul } else { Arith::Mul }, double, d, n, m },
         (0b011, _) => Fp::Arith { op: if op { Arith::Sub } else { Arith::Add }, double, d, n, m },
         (0b100, false) => Fp::Arith { op: Arith::Div, double, d, n, m },
+        // `vmov` of a constant (VFPv3): eight bits, a sign, three of exponent and four of fraction.
+        (0b111, false) => {
+            let imm = field(w, 19, 16) << 4 | field(w, 3, 0);
+            let (sign, low, fraction) = (u64::from(imm >> 7), u64::from((imm >> 4) & 7), u64::from(imm & 15));
+            // The exponent's top bit is the inverse of the third's, which fills the bits between.
+            let top = (low >> 2) ^ 1;
+            let fill = low >> 2;
+            let bits = if double {
+                sign << 63 | top << 62 | (if fill == 1 { 0xff } else { 0 }) << 54 | (low & 3) << 52 | fraction << 48
+            } else {
+                sign << 31 | top << 30 | (if fill == 1 { 0x1f } else { 0 }) << 25 | (low & 3) << 23 | fraction << 19
+            };
+            Fp::Constant { double, d, bits }
+        }
         (0b111, true) => {
             let high = bit(w, 7);
             match field(w, 19, 16) {
@@ -248,6 +264,10 @@ mod tests {
             decode(0xec90_0b06),
             Some(Fp::Multiple { load: true, double: true, d: 0, count: 3, rn: 0, wback: false, before: false })
         );
+        // vmov.f64 d0, #1.0; vmov.f32 s0, #-2.0; vmov.f64 d1, #0.5
+        assert_eq!(decode(0xeeb7_0b00), Some(Fp::Constant { double: true, d: 0, bits: 1.0f64.to_bits() }));
+        assert_eq!(decode(0xeeb8_0a00), Some(Fp::Constant { double: false, d: 0, bits: u64::from((-2.0f32).to_bits()) }));
+        assert_eq!(decode(0xeeb6_1b00), Some(Fp::Constant { double: true, d: 1, bits: 0.5f64.to_bits() }));
         // An instruction of another coprocessor is none of the unit's.
         assert_eq!(decode(0xee00_0f10), None);
     }

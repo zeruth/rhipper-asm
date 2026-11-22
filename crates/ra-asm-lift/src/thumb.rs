@@ -5,12 +5,18 @@
 //! and N, Z, C and V in the first four flag bytes, as ARM64 keeps them. The integer subset the
 //! decoder gives is covered: the data processing with its shifter and its flags, the moves of
 //! halves, the multiplies and divides, the extends and the bitfields, the single, dual and
-//! multiple loads and stores, the branches and calls, and `svc`, which goes to the runtime's
-//! `ra_svc`. An instruction an IT block predicates runs behind a branch on its condition; a
-//! predicated one that ends its block (a return, a branch through a register) cannot, since the
-//! analysis takes it as unconditional, and traps, as a `blx` to ARM code and every encoding
-//! outside the subset do. A literal load reads the pool where it lies in the mapped image, so the
-//! lift is of the machine levels: the standalone level needs the pools as globals.
+//! multiple loads and stores, the branches and calls, the VFP unit, and `svc`, which goes to the
+//! runtime. An instruction an IT block predicates runs behind a branch on its condition; one
+//! that leaves the function (a return, a branch through a register) leaves inside the branch,
+//! and the flow goes on past it. An encoding outside the subset traps.
+//!
+//! The same lift reads ARM code, an image's or a block's ([`ra_asm_arm64::arm`]): a word an
+//! instruction, each under its own condition, the PC its address and eight. In a program of
+//! both sets a call or a branch through a register goes to either.
+//!
+//! A literal load reads the pool where it lies in the mapped image at the machine levels; in a
+//! standalone lift the word is the constant it is, or the address of what it names, and a switch
+//! through a table in the code is a switch on its index.
 #![allow(clippy::many_single_char_names)]
 
 use std::collections::HashMap;
@@ -262,9 +268,10 @@ impl Lifter<'_, '_> {
         let c = self.condition(block, cond);
         self.m.b.terminate(block, Terminator::CondBr { cond: c.into(), then, els: next });
         let end = self.lift_instr(then, d, i);
-        if self.arm && !self.m.b.has_terminator(end) {
-            // ARM code leaves a function under a condition: a return, or a jump through a
-            // register, which is a call of where it goes and a return.
+        if !self.m.b.has_terminator(end) {
+            // Code leaves a function under a condition, in ARM code by the instruction's own
+            // and in Thumb by an IT block's: a return, or a jump through a register, which is a
+            // call of where it goes and a return.
             let returns = match d.op {
                 Op::BranchReg { rm: LR, link: false } => true,
                 Op::Multiple { load: true, list, .. } => list & (1 << PC) != 0,
@@ -708,6 +715,7 @@ impl Lifter<'_, '_> {
                     }
                 }
             }
+            Fp::Constant { double, d, bits } => self.fp_set_bits(block, double, d, Operand::Int(i128::from(bits))),
             Fp::Compare { double, d, m } => {
                 // Less sets N; equal Z and C; greater C; what cannot be ordered C and V.
                 let ty = Self::fp_type(double);

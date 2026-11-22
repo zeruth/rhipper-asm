@@ -68,6 +68,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | throws64.exe | ok | 10 | 10 | 10 | 0 | 0 | 8 | 8 | 19 | 0 | 56 | 409 | 0.0 | 188.3 |
 | thumb1 | ok | 12 | 12 | 12 | 0 | 0 | 12 | 11 | 22 | 0 | 21 | 413 | 0.0 | 322.0 |
 | thumb32 | ok | 5 | 5 | 5 | 0 | 0 | 5 | 4 | 8 | 0 | 8 | 181 | 0.0 | 237.6 |
+| thumbfp | ok | 16 | 16 | 16 | 0 | 0 | 16 | 15 | 71 | 0 | 71 | 690 | 0.0 | 202.9 |
 | tls32.exe | ok | 6 | 6 | 6 | 0 | 0 | 6 | 6 | 12 | 0 | 24 | 296 | 0.0 | 425.7 |
 | tls64.exe | ok | 6 | 6 | 6 | 0 | 0 | 6 | 6 | 12 | 0 | 24 | 192 | 0.0 | 411.5 |
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 375 | 0.0 | 741.3 |
@@ -75,14 +76,14 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | x64sys | ok | 9 | 9 | 9 | 0 | 0 | 9 | 8 | 2 | 0 | 50 | 163 | 0.0 | 184.0 |
 | x86sys | ok | 9 | 9 | 9 | 0 | 0 | 9 | 8 | 18 | 0 | 34 | 280 | 0.0 | 282.1 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 167 | 0.0 | 467.1 |
-| total | 65/69 ok | 564 | 509 | 564 | 6 | 6 | 465 | 425 | 1156 | 0 | 2445 | 69656 | 1.1 | 684.0 |
+| total | 66/70 ok | 580 | 525 | 580 | 6 | 6 | 481 | 440 | 1227 | 0 | 2516 | 70346 | 1.1 | 679.3 |
 
 | pending list | entries |
 |---|---|
 | testdata/csmith/EMIT_PENDING.txt | 67 |
 | testdata/csmith/PENDING.txt | 42 |
 | testdata/levels/PENDING.txt | 2 |
-| testdata/vectors/arm32/PENDING.txt | 8 |
+| testdata/vectors/arm32/PENDING.txt | 6 |
 | testdata/vectors/arm64/PENDING.txt | 0 |
 | testdata/vectors/fn/TREE_PENDING.txt | 0 |
 | testdata/vectors/mips64el/PENDING.txt | 0 |
@@ -90,7 +91,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | testdata/vectors/x86/PENDING.txt | 1 |
 | testdata/vectors/x86_64/PENDING.txt | 0 |
 | testdata/vectors/x87/PENDING.txt | 29 |
-| total | 149 |
+| total | 147 |
 
 | oracle | ignored tests |
 |---|---|

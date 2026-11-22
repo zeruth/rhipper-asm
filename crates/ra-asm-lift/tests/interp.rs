@@ -232,12 +232,24 @@ fn nro_program_runs_interpreted() {
 /// with the code it ended with there.
 #[test]
 fn armfp_runs_interpreted() {
+    floating_point_runs_as_the_machine_ran_it("armfp");
+}
+
+/// The same program in Thumb-2 with the later unit: the unit's instructions as Thumb writes
+/// them, the constants an instruction holds, the multiply-accumulates, and returns inside IT
+/// blocks, which leave the function under the block's condition.
+#[test]
+fn thumbfp_runs_interpreted() {
+    floating_point_runs_as_the_machine_ran_it("thumbfp");
+}
+
+fn floating_point_runs_as_the_machine_ran_it(binary: &str) {
     let expected = std::fs::read_to_string(root().join("testdata/expected/armfp.txt")).unwrap();
-    let Raised { image, lifted, signatures } = raise("armfp", "run-machine");
+    let Raised { image, lifted, signatures } = raise(binary, "run-machine");
     assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
     let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
     let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
-    assert_output("armfp: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_output(&format!("{binary}: interpreted"), &expected, &String::from_utf8_lossy(&outcome.output), &ended);
     assert_eq!(outcome.exit, 99, "the exit the machine ended with (stop: {:?})", outcome.stop);
 }
 

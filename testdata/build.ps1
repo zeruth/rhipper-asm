@@ -276,6 +276,18 @@ if (Wanted 'armfp') {
   if ($LASTEXITCODE -ne 0) { throw "clang failed for armfp" }
 }
 
+# thumbfp is the same program in Thumb-2 for ARMv7 with the later VFP unit: the unit's
+# instructions as Thumb writes them, constants the instructions hold, and returns inside IT
+# blocks. It prints what armfp prints, under qemu-arm as well.
+if (Wanted 'thumbfp') {
+  $args = @('--target=armv7-none-linux-gnueabihf', '-mthumb', '-mfpu=vfpv3-d16', '-mfloat-abi=hard', '-O1', '-fno-unroll-loops',
+    '-fno-vectorize', '-nostdlib', '-ffreestanding', '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none',
+    (Join-Path $src 'armfp.c'), '-o', (Join-Path $bin 'thumbfp'))
+  Write-Host "clang thumbfp" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for thumbfp" }
+}
+
 # armfp.3dsx is the same program as one of the 3DS's system (-DCTR), in the file a program made
 # for that system is kept in: a header with the sizes of its three segments, a table of
 # relocations for each, which this program linked where it is loaded has none of, and the

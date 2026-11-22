@@ -1168,6 +1168,16 @@ impl Arch for Thumb {
         let Some(cond) = it_condition(before) else { return };
         if let Some(d) = decode_raw(instr.code, instr.address, Some(cond)) {
             *instr = record(&d, instr.address);
+            // An instruction of an IT block runs under the block's condition: a call may not
+            // happen, and a return or a jump through a register leaves only when it holds, so
+            // the flow goes on past it and the lift leaves under the condition.
+            if !matches!(d.op, Op::Branch { .. } | Op::It { .. }) {
+                instr.prefixes.conditional = true;
+                if matches!(instr.flow, Flow::Return | Flow::Jump(Target::Indirect)) {
+                    instr.flow = Flow::Next;
+                    instr.prefixes.conditional_leave = true;
+                }
+            }
         }
     }
 }

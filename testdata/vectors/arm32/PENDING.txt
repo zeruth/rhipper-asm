@@ -9,6 +9,4 @@ Unsupported qadd {Rd}, {Rn}, {Rm}: the lift lacks the form and traps
 Unsupported ldrex {Rt}, [{Rb}]: the lift lacks the form and traps
 Unsupported pld [{Rb}]: the lift lacks the form and traps
 Call blx #{label20}: a call into ARM code, which the lift traps on
-Multiple it {cond}; pop{cond} {listpc}: a predicated return, which the lift traps on
-BranchReg it {cond}; bx{cond} lr: a predicated return, which the lift traps on
 Unsupported arm mrs {Rd}, apsr: the lift lacks the form and traps
