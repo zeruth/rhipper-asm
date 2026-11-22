@@ -142,6 +142,59 @@ fn bound_of(blocks: &[&[Instr]], index: Register) -> Option<(usize, u64)> {
     None
 }
 
+/// Resolves the jump of a Thumb switch as clang writes it for the processors without `tbb`:
+/// `add r, pc; ldrb r, [r, #d]; lsls r, r, #1; add pc, r`, the table bytes after the jump, each
+/// half the distance from the jump's PC to a case. The index is bounded by a `cmp r, #n` and a
+/// `bhi` that ends a block before; without them the jump is not resolved, for the bytes after the
+/// table are code and would read as entries.
+pub fn resolve_thumb(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Option<Table> {
+    use ra_asm_arm64::thumb::{Alu, Offset, Op, PC, Shift, Source, decode_raw, register};
+    let op = |i: &Instr| decode_raw(i.code, i.address, None).map(|d| d.op);
+    let [.., base, load, double, jump] = block else { return None };
+    let Op::Alu { op: Alu::Add, rd: PC, src: Source::Reg { rm: r, shift: Shift::Lsl, amount: 0 }, .. } = op(jump)? else { return None };
+    let doubled = Op::Alu { op: Alu::Mov, s: true, rd: r, rn: 0, src: Source::Reg { rm: r, shift: Shift::Lsl, amount: 1 } };
+    if op(double)? != doubled {
+        return None;
+    }
+    let Op::Mem { load: true, bits: 8, signed: false, rt, rn, offset: Offset::Imm(disp), wback: false, .. } = op(load)? else {
+        return None;
+    };
+    let Op::Alu { op: Alu::Add, rd, rn: first, src: Source::Reg { rm: PC, shift: Shift::Lsl, amount: 0 }, .. } = op(base)? else {
+        return None;
+    };
+    if [rt, rn, rd, first] != [r; 4] {
+        return None;
+    }
+    // The compare may be earlier in this block or end the one before.
+    let before = &block[..block.len() - 4];
+    let (entries, bound) = std::iter::once(before).chain(predecessors.iter().copied()).find_map(|instrs| {
+        let [.., compare, branch] = instrs else { return None };
+        let Op::Branch { cond: Some(8), .. } = op(branch)? else { return None };
+        let Op::Alu { op: Alu::Cmp, rn, src: Source::Imm { value, .. }, .. } = op(compare)? else { return None };
+        (rn == r).then_some((value as usize + 1, compare.address))
+    })?;
+    let address = (base.address + 4).wrapping_add_signed(i64::from(disp));
+    let mut targets = Vec::new();
+    for n in 0..entries.min(MAX_ENTRIES) {
+        let target = jump.address + 4 + 2 * u64::from(image.u8(address + n as u64).ok()?);
+        if !image.is_code(target) {
+            return None;
+        }
+        targets.push(target);
+    }
+    let indices = (0..targets.len() as u64).collect();
+    Some(Table {
+        address,
+        entry_size: 1,
+        targets,
+        indices,
+        index: register(r),
+        load_at: load.address,
+        bound: Some(bound),
+        case_table: None,
+    })
+}
+
 /// Resolves the indirect jump that ends `block`, given the blocks that lead into it.
 pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Option<Table> {
     let jump = block.last()?;

@@ -879,7 +879,7 @@ tools = "clang 22.1.7, LLD 22.1.7"
 
 [[file]]
 path = "testdata/bin/thumb1"
-sha256 = "335634791dd21030e0686acddee772d7a87675ab1c20967bb28359062c9a2902"
+sha256 = "d59630854e78d06ec2b85663eb2fbf2f5f7e2263da3e58f4ac478683daf89597"
 evidence = "emulator"
 expected = "testdata/expected/thumb1.txt"
 source = "testdata/src/thumb1.c"

@@ -225,10 +225,10 @@ if (Wanted 'thumb') {
 
 # thumb1 is the fixture of the processors before Thumb-2: a static Linux program for ARMv4T in
 # Thumb, the ARM7TDMI's instruction set, that brings its own divisions and wide multiply.
-# -fno-jump-tables keeps a switch a chain of compares: the table a Thumb switch jumps through
-# (`add pc, r0`) is not decoded. Its expected output is what it prints under qemu-arm.
+# Its switch jumps through a table of bytes after the jump (`add pc, r0`). Its expected output
+# is what it prints under qemu-arm.
 if (Wanted 'thumb1') {
-  $args = @('--target=armv4t-none-linux-gnueabi', '-mthumb', '-O1', '-fno-jump-tables', '-fno-unroll-loops', '-fno-vectorize', '-nostdlib',
+  $args = @('--target=armv4t-none-linux-gnueabi', '-mthumb', '-O1', '-fno-unroll-loops', '-fno-vectorize', '-nostdlib',
     '-ffreestanding', '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none',
     (Join-Path $src 'thumb1.c'), '-o', (Join-Path $bin 'thumb1'))
   Write-Host "clang thumb1" -ForegroundColor Cyan

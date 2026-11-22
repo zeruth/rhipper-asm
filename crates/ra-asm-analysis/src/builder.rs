@@ -548,6 +548,8 @@ impl Builder<'_> {
                 return Terminator::TailCall(target);
             }
             jumptable::resolve_mips(self.image, body, &predecessors, &function)
+        } else if self.arch.name() == "thumb" {
+            jumptable::resolve_thumb(self.image, body, &predecessors)
         } else {
             jumptable::resolve(self.image, body, &predecessors)
         };

@@ -500,6 +500,15 @@ impl Lifter<'_, '_> {
                 let (b, shifter_carry) = self.shifted(block, src, ip, s && !op.arithmetic());
                 let a = if op.unary() { b } else { self.reg(block, rn, ip) };
                 let (result, adder) = self.alu(block, op, s, a, b);
+                if !op.compares() && rd == PC {
+                    // A write of the PC is a jump to the value, its low bit dropped: the jump of
+                    // a switch (`add pc, r0`) and the oldest return (`mov pc, lr`).
+                    if i.flow != ra_asm_arch::Flow::Return {
+                        let code = self.m.b.bin(block, BinOp::And, Type::I32, result, -2i64, "code");
+                        self.jump_target = Some(self.m.b.cast(block, Cast::ZExt, Type::I32, code, Type::I64, "target"));
+                    }
+                    return block;
+                }
                 if !op.compares() {
                     self.set_reg(block, rd, result);
                 }

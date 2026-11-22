@@ -381,9 +381,11 @@ fn decode16(h: u32, address: u64, in_it: bool) -> Op {
             let rdn = (field(h, 7, 7) << 3 | field(h, 2, 0)) as u8;
             let rm = reg(h, 3);
             match field(h, 9, 8) {
-                0 if rdn != PC => Op::Alu { op: Alu::Add, s: false, rd: rdn, rn: rdn, src: plain(rm) },
+                // With the PC for the target these are jumps: `add pc, r0` into the cases of a
+                // switch, `mov pc, lr` back to a caller.
+                0 => Op::Alu { op: Alu::Add, s: false, rd: rdn, rn: rdn, src: plain(rm) },
                 1 => Op::Alu { op: Alu::Cmp, s: true, rd: 0, rn: rdn, src: plain(rm) },
-                2 if rdn != PC => Op::Alu { op: Alu::Mov, s: false, rd: rdn, rn: 0, src: plain(rm) },
+                2 => Op::Alu { op: Alu::Mov, s: false, rd: rdn, rn: 0, src: plain(rm) },
                 3 => Op::BranchReg { rm, link: bit(h, 7) },
                 _ => Op::Unsupported,
             }
@@ -819,6 +821,12 @@ pub fn record(d: &Decoded, address: u64) -> Instr {
             }
             let carry_in = matches!(op, Alu::Adc | Alu::Sbc) || matches!(src, Source::Reg { shift: Shift::Rrx, .. });
             flags = (carry_in, s);
+            if rd == PC && !op.compares() {
+                flow = match (op, src) {
+                    (Alu::Mov, Source::Reg { rm: LR, .. }) => Flow::Return,
+                    _ => Flow::Jump(Target::Indirect),
+                };
+            }
         }
         Op::MovWide { rd, imm, top } => {
             operands.extend([r(rd), Operand::Imm { value: i64::from(imm), bits: 16 }]);
@@ -1071,6 +1079,17 @@ mod tests {
             Thumb.link(&[instr(&other, 0x100)], &mut bx);
             assert_eq!(bx.flow, Flow::Jump(Target::Indirect));
         }
+    }
+
+    #[test]
+    fn a_write_of_the_pc_is_a_jump() {
+        let flow = |bytes: &[u8]| Thumb.decode(bytes, 0x100).unwrap().flow;
+        // add pc, r0; mov pc, r3; mov pc, lr
+        assert_eq!(flow(&[0x87, 0x44]), Flow::Jump(Target::Indirect));
+        assert_eq!(flow(&[0x9f, 0x46]), Flow::Jump(Target::Indirect));
+        assert_eq!(flow(&[0xf7, 0x46]), Flow::Return);
+        // add r0, pc reads it only
+        assert_eq!(flow(&[0x78, 0x44]), Flow::Next);
     }
 
     #[test]
