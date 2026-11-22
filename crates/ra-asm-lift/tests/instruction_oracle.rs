@@ -998,7 +998,8 @@ impl Picture {
     fn bytes_at(&self, arena: &Arena, at: u64) -> Option<&[u8]> {
         let off = at.checked_sub(arena.base)?;
         let (buf, start) = if (DATA..DATA + DATA_LEN).contains(&off) { (&self.data, DATA) } else { (&self.stack, STACK) };
-        let i = (off - start) as usize;
+        // An address below both buffers is in neither: a form that differs is still described.
+        let i = off.checked_sub(start)? as usize;
         buf.get(i..(i + 16).min(buf.len()))
     }
 }

@@ -364,7 +364,20 @@ fn main_module(module: &Module, options: &Options, modules: &[String], sections:
         let _ = writeln!(out, "        rhipper::ra_init_import_pops({pops} as *const u64, &raw mut ra_pops);");
     }
     if let Some(entry) = options.entry.as_ref().and_then(|e| module.functions.iter().find(|f| f.name == *e)) {
-        let args: Vec<String> = entry.ty.params.iter().map(zero).collect();
+        // An entry the raise took as reading its caller's argument block (a 32-bit startup reads
+        // above its return address) is handed the address of one: zeros, as its other
+        // parameters are, where the address of nothing would fault at the first read.
+        let block = |n: usize| entry.params.get(n).is_some_and(|v| matches!(entry.value_name(*v), "argblock" | "varargs"));
+        if (0..entry.ty.params.len()).any(block) {
+            let _ = writeln!(out, "        let mut ra_entry_block = [0u64; 64];");
+        }
+        let args: Vec<String> = entry
+            .ty
+            .params
+            .iter()
+            .enumerate()
+            .map(|(n, ty)| if block(n) { "ra_entry_block.as_mut_ptr() as usize as u64".to_owned() } else { zero(ty) })
+            .collect();
         let call = format!("{}({})", entry.name, args.join(", "));
         // A program that throws may leave an exception nothing caught.
         let uncaught =

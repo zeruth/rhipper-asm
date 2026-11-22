@@ -864,11 +864,25 @@ fn installed_runtime_signatures() -> Option<ra_asm_analysis::SignatureSet> {
     Some(set)
 }
 
+/// The release of MSVC whose static runtime the `static` variants of rhtest hold.
+const RHTEST_LINKED_RUNTIME: &str = "14.51";
+
 /// The `static` variant of an rhtest program read without its map: the installed toolset's
 /// runtime signatures name the C runtime instead, and the port runs the same.
 fn run_rhtest_static_by_signatures_as_c(name: &str) {
-    if installed_runtime_signatures().is_none() {
+    let Some(paths) = ra_asm_analysis::signatures::installed_msvc_runtime("x86") else {
         eprintln!("no MSVC toolset with libcmt.lib: the signature oracle is skipped");
+        return;
+    };
+    // The programs hold the runtime of one release of MSVC. Another release's library holds its
+    // startup in other bytes: the entry goes unrecognized, and the port would start in a runtime
+    // half its own and half the library's (the analysis's own test of the signatures skips the
+    // same way).
+    let linked = format!("/{RHTEST_LINKED_RUNTIME}.");
+    if !paths.iter().any(|p| p.to_string_lossy().replace('\\', "/").contains(&linked)) {
+        eprintln!(
+            "the installed toolset is not the {RHTEST_LINKED_RUNTIME} the programs were linked with: the signature oracle is skipped"
+        );
         return;
     }
     let fixture = Fixture { by_signatures: true, ..rhtest(name, "static") };
