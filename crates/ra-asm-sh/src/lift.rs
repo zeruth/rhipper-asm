@@ -20,15 +20,16 @@
 //! with its carries and overflows, the step division, the multiplies into `mach` and `macl`, the
 //! shifts and rotates through `T`, the comparisons.
 //!
-//! The floating-point unit is lifted in the mode a program of singles keeps it in, which is the
-//! Dreamcast's own for most of its code: single precision and a move of one register. Its
-//! sixteen registers are a slot each after the bits, then `fpul` and `fpscr`. The arithmetic,
-//! the two compares into `T`, the moves in all their addressing, the conversions to and from a
-//! whole number through `fpul`, `fmac`, the constants and the moves of the sign are lifted.
-//! `fpscr` is kept as the program writes it and not obeyed: a program that puts the unit in
-//! double precision or moves pairs is lifted as if it had not, and the second bank of
-//! registers, `fsqrt` and the vector instructions are not lifted. The privileged instructions
-//! are not either.
+//! The floating-point unit is lifted. Its sixteen registers are a slot each after the bits,
+//! then `fpul` and `fpscr`. The arithmetic, the two compares into `T`, the moves in all their
+//! addressing, the conversions to and from a whole number through `fpul`, `fmac`, the constants
+//! and the moves of the sign are lifted. The arithmetic, the compares and the conversions are
+//! of the precision `fpscr` says when they run, as the Dreamcast's code switches it round its
+//! doubles: of singles, or of the doubles pairs of registers hold, with `fcnvsd` and `fcnvds`
+//! between the two. The rest of `fpscr` is kept as the program writes it and not obeyed: a
+//! program that moves pairs is lifted as if it moved one register, the rounding is to the
+//! nearest, and the second bank of registers, `fsqrt` and the vector instructions are not
+//! lifted. The privileged instructions are not either.
 
 use std::collections::BTreeMap;
 
@@ -600,20 +601,72 @@ impl Lift {
         self.b.value(self.block, Inst::FCmp { cond, ty, lhs: a, rhs: b.into() }, "is")
     }
 
-    /// The instructions of the floating-point unit in the mode a program of singles keeps it in:
-    /// single precision, a move of one register. Whether the lift has the instruction.
+    /// Whether the unit is in its double-precision mode: the bit `PR` of `fpscr`, as the
+    /// program last wrote it.
+    fn precise(&mut self) -> ValueId {
+        let fpscr = self.get(FPSCR);
+        let bit = self.bin(BinOp::And, fpscr, 0x8_0000);
+        self.cmp(ICond::Ne, bit, 0)
+    }
+
+    /// The double a pair of registers holds, its high word in the even one.
+    fn dget(&mut self, n: u64) -> Operand {
+        let (high, low) = (self.get(FR0 + (n & !1)), self.get(FR0 + (n | 1)));
+        let high = self.b.cast(self.block, Cast::ZExt, I32, high, Type::I64, "high");
+        let low = self.b.cast(self.block, Cast::ZExt, I32, low, Type::I64, "low");
+        let high = self.b.bin(self.block, BinOp::Shl, Type::I64, high, 32, "high");
+        let bits = self.b.bin(self.block, BinOp::Or, Type::I64, high, low, "bits");
+        self.b.cast(self.block, Cast::Bitcast, Type::I64, bits, Type::Double, "d").into()
+    }
+
+    /// Writes the result of an instruction that is of doubles in the one mode and of singles in
+    /// the other: the double into the pair of `n` where `precise` holds, the single into `n`
+    /// where it does not. An instruction of doubles only has no single.
+    fn fset_either(&mut self, precise: Option<ValueId>, n: u64, double: Operand, single: Option<Operand>) {
+        let bits = self.b.cast(self.block, Cast::Bitcast, Type::Double, double, Type::I64, "bits");
+        let high = self.b.bin(self.block, BinOp::LShr, Type::I64, bits, 32, "high");
+        let high: Operand = self.b.cast(self.block, Cast::Trunc, Type::I64, high, I32, "high").into();
+        let low: Operand = self.b.cast(self.block, Cast::Trunc, Type::I64, bits, I32, "low").into();
+        for (register, half) in [(n & !1, high), (n | 1, low)] {
+            let value = match (precise, &single) {
+                (Some(precise), Some(single)) => {
+                    let other = if register == n {
+                        self.b.cast(self.block, Cast::Bitcast, Type::Float, single.clone(), I32, "bits").into()
+                    } else {
+                        self.get(FR0 + register)
+                    };
+                    self.select(precise, half, other)
+                }
+                _ => half,
+            };
+            self.set(FR0 + register, value);
+        }
+    }
+
+    /// The instructions of the floating-point unit. The arithmetic, the compares and the
+    /// conversions of a whole number are of the precision `fpscr` says when they run; a move is
+    /// of one register. Whether the lift has the instruction.
     #[allow(clippy::too_many_lines)]
     fn float(&mut self, w: u32) -> bool {
         let (n, m) = (u64::from((w >> 8) & 15), u64::from((w >> 4) & 15));
         match w & 15 {
             op @ 0..=3 => {
+                let op = [BinOp::FAdd, BinOp::FSub, BinOp::FMul, BinOp::FDiv][op as usize];
+                let precise = self.precise();
                 let (a, b) = (self.fget(n), self.fget(m));
-                let value = self.fbin([BinOp::FAdd, BinOp::FSub, BinOp::FMul, BinOp::FDiv][op as usize], a, b);
-                self.fset(n, value);
+                let single = self.fbin(op, a, b);
+                let (a, b) = (self.dget(n), self.dget(m));
+                let double: Operand = self.b.bin(self.block, op, Type::Double, a, b, "d").into();
+                self.fset_either(Some(precise), n, double, Some(single));
             }
             op @ (4 | 5) => {
+                let cond = if op == 4 { FCond::Oeq } else { FCond::Ogt };
+                let precise = self.precise();
                 let (a, b) = (self.fget(n), self.fget(m));
-                let is = self.fcmp(if op == 4 { FCond::Oeq } else { FCond::Ogt }, Type::Float, a, b);
+                let single = self.fcmp(cond, Type::Float, a, b);
+                let (a, b) = (self.dget(n), self.dget(m));
+                let double = self.fcmp(cond, Type::Double, a, b);
+                let is = self.b.select(self.block, precise, Type::I1, double, single, "is");
                 self.set_bit(T, is);
             }
             // The moves between a register and memory: the bits as they are.
@@ -675,17 +728,22 @@ impl Lift {
                     let bits = self.get(FR0 + n);
                     self.set(FPUL, bits);
                 }
-                // `float`: the whole number in `fpul` as a single.
+                // `float`: the whole number in `fpul` as a single, or as a double.
                 2 => {
+                    let precise = self.precise();
                     let whole = self.get(FPUL);
-                    let value = self.b.cast(self.block, Cast::SIToFP, I32, whole, Type::Float, "f");
-                    self.fset(n, value);
+                    let single: Operand = self.b.cast(self.block, Cast::SIToFP, I32, whole.clone(), Type::Float, "f").into();
+                    let double: Operand = self.b.cast(self.block, Cast::SIToFP, I32, whole, Type::Double, "d").into();
+                    self.fset_either(Some(precise), n, double, Some(single));
                 }
                 // `ftrc`: toward zero into `fpul`. What is past an end of the word is that end;
                 // what is no number is the highest, as the emulator the fixture is held to has it.
                 3 => {
+                    let precise = self.precise();
                     let value = self.fget(n);
                     let wide: Operand = self.b.cast(self.block, Cast::FPExt, Type::Float, value, Type::Double, "wide").into();
+                    let double = self.dget(n);
+                    let wide: Operand = self.b.select(self.block, precise, Type::Double, double, wide, "wide").into();
                     let low = self.fcmp(FCond::Olt, Type::Double, wide.clone(), Operand::Float(-2_147_483_648.0));
                     let inside = self.fcmp(FCond::Olt, Type::Double, wide.clone(), Operand::Float(2_147_483_648.0));
                     let ordered = self.b.bin(self.block, BinOp::Xor, Type::I1, low, 1, "above");
@@ -704,6 +762,20 @@ impl Lift {
                 }
                 8 => self.set(FR0 + n, 0),
                 9 => self.set(FR0 + n, 0x3f80_0000),
+                // `fcnvsd` and `fcnvds`, which are of the double-precision mode only: the single
+                // in `fpul` as a double, and a double as the single nearest it into `fpul`.
+                0xa => {
+                    let bits = self.get(FPUL);
+                    let single = self.b.cast(self.block, Cast::Bitcast, I32, bits, Type::Float, "f");
+                    let double: Operand = self.b.cast(self.block, Cast::FPExt, Type::Float, single, Type::Double, "d").into();
+                    self.fset_either(None, n, double, None);
+                }
+                0xb => {
+                    let double = self.dget(n);
+                    let single = self.b.cast(self.block, Cast::FPTrunc, Type::Double, double, Type::Float, "f");
+                    let bits = self.b.cast(self.block, Cast::Bitcast, Type::Float, single, I32, "bits");
+                    self.set(FPUL, bits);
+                }
                 _ => return false,
             },
             _ => return false,

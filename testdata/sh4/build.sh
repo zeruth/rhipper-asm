@@ -32,3 +32,6 @@ build() {
 build sh4 sh4 qemu-sh4-static -lgcc -m4-single -ml
 build sh4eb sh4 qemu-sh4eb-static "" -m4-single-only -mb
 build sh4fp sh4fp qemu-sh4-static -lgcc -m4-single-only -ml -Wl,-e,_fp_start
+# The same source with its doubles doubles, as the console's own code is built: the unit is in
+# single precision between functions and the code switches it round each double's arithmetic.
+build sh4fpd sh4fp qemu-sh4-static -lgcc -m4-single -ml -Wl,-e,_fp_start

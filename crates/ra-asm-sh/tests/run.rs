@@ -42,6 +42,13 @@ fn the_lifted_floating_point_does_what_the_machine_did() {
     does_what_the_machine_did("sh4fp", 28);
 }
 
+/// The same source with its doubles doubles: the code switches the unit to double precision
+/// round each double's arithmetic, and the lift follows `fpscr` as the code writes it.
+#[test]
+fn the_lifted_doubles_do_what_the_machine_did() {
+    does_what_the_machine_did("sh4fpd", 28);
+}
+
 #[test]
 fn what_is_no_program_is_refused() {
     assert!(Program::parse(b"\x7fELF").is_err());
