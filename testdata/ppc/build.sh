@@ -25,6 +25,8 @@ build() {
 }
 build ppc qemu-ppc-static --target=powerpc-unknown-linux-gnu -mcpu=750 -msoft-float
 build ppcfp qemu-ppc-static --target=powerpc-unknown-linux-gnu -mcpu=750 -mhard-float
-# The 64-bit machine of the later consoles, big-endian, integer code: the linker here links
-# only the newer of its two calling conventions, which has no function descriptors.
+# The 64-bit machine of the later consoles, big-endian, its integer code (`ppc64`) and its
+# floating-point unit (`ppc64fp`): the linker here links only the newer of its two calling
+# conventions, which has no function descriptors.
 build ppc64 qemu-ppc64-static --target=powerpc64-unknown-linux-gnu -mabi=elfv2 -mcpu=970 -mno-altivec
+build ppc64fp qemu-ppc64-static --target=powerpc64-unknown-linux-gnu -mabi=elfv2 -mcpu=970 -mno-altivec

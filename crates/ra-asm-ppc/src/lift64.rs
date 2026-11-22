@@ -9,17 +9,19 @@
 //! on the low half and say what the high half becomes; and the doubleword ones are here (`ld`,
 //! `std`, the `rld` rotates under a mask, `sld`, `srd`, `srad`, `mulld`, `divd`, `extsw`).
 //!
-//! The integer machine is lifted. The floating-point and the vector instructions, the high
-//! half of a doubleword product, and the overflow bit are not.
+//! The integer machine and the floating-point unit are lifted, the unit as the 32-bit lift has
+//! it, with a double moved as one doubleword and the conversions to and from a doubleword's whole
+//! number (`fcfid`, `fctidz`). The vector instructions, the status register's rounding modes and
+//! the overflow bit are not.
 
 use std::collections::BTreeMap;
 
 use ra_asm_ir::{
-    BinOp, BlockId, CallConv, Callee, Cast, Const, Declaration, FnType, FunctionBuilder, Global, ICond, Linkage, Module, Operand,
-    Terminator, Type, ValueId,
+    BinOp, BlockId, CallConv, Callee, Cast, Const, Declaration, FCond, FnType, FunctionBuilder, Global, ICond, Inst, Linkage, Module,
+    Operand, Terminator, Type, ValueId,
 };
 
-use crate::lift::{CR, CTR, Code, LR, MEMORY, RUN, SC, TRAP, XER};
+use crate::lift::{CR, CTR, Code, F0, LR, MEMORY, RUN, SC, TRAP, XER};
 
 const I32: Type = Type::I32;
 const I64: Type = Type::I64;
@@ -293,6 +295,205 @@ impl Lift {
         self.set(d, value);
     }
 
+    /// A floating-point register as the double it holds.
+    fn fget(&mut self, n: u64) -> Operand {
+        let at = self.slot(F0 + n);
+        self.b.load(self.block, Type::Double, at, "f").into()
+    }
+
+    fn fset(&mut self, n: u64, value: impl Into<Operand>) {
+        let at = self.slot(F0 + n);
+        self.b.store(self.block, Type::Double, value, at);
+    }
+
+    fn fbin(&mut self, op: BinOp, a: impl Into<Operand>, b: impl Into<Operand>) -> Operand {
+        self.b.bin(self.block, op, Type::Double, a, b, "f").into()
+    }
+
+    fn fcmp(&mut self, cond: FCond, a: Operand, b: impl Into<Operand>) -> ValueId {
+        self.b.value(self.block, Inst::FCmp { cond, ty: Type::Double, lhs: a, rhs: b.into() }, "is")
+    }
+
+    /// A double rounded to the single nearest it, as a double.
+    fn single(&mut self, value: Operand) -> Operand {
+        let narrow = self.b.cast(self.block, Cast::FPTrunc, Type::Double, value, Type::Float, "single");
+        self.b.cast(self.block, Cast::FPExt, Type::Float, narrow, Type::Double, "f").into()
+    }
+
+    /// A load into the floating-point register `d` or a store of it, a single or a double. A
+    /// register's slot holds the double's bits, which a general register's access reads as they are.
+    fn float_access(&mut self, single: bool, is_store: bool, d: u64, address: Operand) {
+        match (is_store, single) {
+            (false, true) => {
+                let bits = self.load(4, address);
+                let bits = self.low(bits);
+                let value = self.b.cast(self.block, Cast::Bitcast, I32, bits, Type::Float, "single");
+                let value = self.b.cast(self.block, Cast::FPExt, Type::Float, value, Type::Double, "f");
+                self.fset(d, value);
+            }
+            (true, true) => {
+                let value = self.fget(d);
+                let value = self.b.cast(self.block, Cast::FPTrunc, Type::Double, value, Type::Float, "single");
+                let bits: Operand = self.b.cast(self.block, Cast::Bitcast, Type::Float, value, I32, "bits").into();
+                let bits = self.widen(bits, false);
+                self.store(4, bits, address);
+            }
+            (is_store, false) => self.access(8, is_store, false, F0 + d, address),
+        }
+    }
+
+    /// A double to a whole number toward zero, of `bits` bits: what is past an end of the range
+    /// is that end, and what is no number is the lowest.
+    fn to_whole(&mut self, value: Operand, bits: u32) -> Operand {
+        let (top, bottom, most, least) = if bits == 32 {
+            (2_147_483_647.0, -2_147_483_648.0, 0x7fff_ffffu64, 0xffff_ffff_8000_0000u64)
+        } else {
+            // The highest double below two to the sixty-third converts; that power and above do not.
+            (9_223_372_036_854_774_784.0, -9_223_372_036_854_775_808.0, i64::MAX.cast_unsigned(), 1u64 << 63)
+        };
+        let high = self.fcmp(FCond::Ogt, value.clone(), Operand::Float(top));
+        let low = self.fcmp(FCond::Olt, value.clone(), Operand::Float(bottom));
+        let neither = self.fcmp(FCond::Uno, value.clone(), value.clone());
+        let low = self.any(low, neither);
+        let outside = self.any(low, high);
+        let inside = self.b.select(self.block, outside, Type::Double, Operand::Float(0.0), value, "inside");
+        let whole = self.b.cast(self.block, Cast::FPToSI, Type::Double, inside, I64, "whole");
+        let whole = self.select(low, int(least), whole);
+        self.select(high, int(most), whole)
+    }
+
+    /// The instructions of the floating-point unit, of primary opcode 59 (singles) and 63.
+    fn float(&mut self, w: u32) -> bool {
+        let (d, a, b, c) =
+            (u64::from(field(w, 6, 10)), u64::from(field(w, 11, 15)), u64::from(field(w, 16, 20)), u64::from(field(w, 21, 25)));
+        let single = w >> 26 == 59;
+        // The forms with one operand and the compares, by the whole extended opcode.
+        match ((w >> 1) & 0x3ff, single) {
+            (0 | 32, false) => {
+                // An ordered compare differs from an unordered one in the exceptions it raises.
+                let (x, y) = (self.fget(a), self.fget(b));
+                let (less, greater) = (self.fcmp(FCond::Olt, x.clone(), y.clone()), self.fcmp(FCond::Ogt, x.clone(), y.clone()));
+                let (equal, neither) = (self.fcmp(FCond::Oeq, x.clone(), y.clone()), self.fcmp(FCond::Uno, x, y));
+                let mut bits = Operand::Int(0);
+                for (is, shift) in [(less, 3), (greater, 2), (equal, 1), (neither, 0)] {
+                    let bit: Operand = self.b.cast(self.block, Cast::ZExt, Type::I1, is, I32, "bit").into();
+                    let bit = self.bin32(BinOp::Shl, bit, shift);
+                    bits = self.bin32(BinOp::Or, bits, bit);
+                }
+                let shift = 28 - 4 * field(w, 6, 8);
+                let placed = self.bin32(BinOp::Shl, bits, shift);
+                let cr = self.get32(CR);
+                let cleared = self.bin32(BinOp::And, cr, !(0xfu32 << shift));
+                let cr = self.bin32(BinOp::Or, cleared, placed);
+                self.set32(CR, cr);
+                return true;
+            }
+            (12, false) => {
+                let value = self.fget(b);
+                let value = self.single(value);
+                self.fset(d, value);
+                return true;
+            }
+            (15, false) => {
+                // The whole number in the low word; the high word is not defined, and is this.
+                let value = self.fget(b);
+                let whole = self.to_whole(value, 32);
+                let whole = self.bin(BinOp::And, whole, 0xffff_ffffu32);
+                let bits = self.bin(BinOp::Or, whole, int(0xfff8_0000 << 32));
+                self.set(F0 + d, bits);
+                return true;
+            }
+            (815, false) => {
+                let value = self.fget(b);
+                let whole = self.to_whole(value, 64);
+                self.set(F0 + d, whole);
+                return true;
+            }
+            (846, _) => {
+                // A doubleword's whole number as a double, or as the single nearest it.
+                let whole = self.get(F0 + b);
+                let value: Operand = self.b.cast(self.block, Cast::SIToFP, I64, whole, Type::Double, "f").into();
+                let value = if single { self.single(value) } else { value };
+                self.fset(d, value);
+                return true;
+            }
+            (xo @ (40 | 72 | 136 | 264), false) => {
+                // The moves, which are of the bits: as they are, the sign turned, set or cleared.
+                let bits = self.get(F0 + b);
+                let sign = int(1 << 63);
+                let bits = match xo {
+                    40 => self.bin(BinOp::Xor, bits, sign),
+                    136 => self.bin(BinOp::Or, bits, sign),
+                    264 => self.bin(BinOp::And, bits, int(i64::MAX.cast_unsigned())),
+                    _ => bits,
+                };
+                self.set(F0 + d, bits);
+                return true;
+            }
+            _ => {}
+        }
+        let (x, y) = (self.fget(a), self.fget(b));
+        let value = match (w >> 1) & 0x1f {
+            18 => self.fbin(BinOp::FDiv, x, y),
+            20 => self.fbin(BinOp::FSub, x, y),
+            21 => self.fbin(BinOp::FAdd, x, y),
+            25 => {
+                let z = self.fget(c);
+                self.fbin(BinOp::FMul, x, z)
+            }
+            xo @ 28..=31 => {
+                // A product and a sum. The processor rounds once, after the sum; here the product
+                // is rounded too, which differs where the product is not exact.
+                let z = self.fget(c);
+                let product = self.fbin(BinOp::FMul, x, z);
+                let sum = self.fbin(if xo & 1 == 0 { BinOp::FSub } else { BinOp::FAdd }, product, y);
+                if xo >= 30 {
+                    let bits = self.b.cast(self.block, Cast::Bitcast, Type::Double, sum, I64, "bits");
+                    let bits = self.bin(BinOp::Xor, bits, int(1 << 63));
+                    self.b.cast(self.block, Cast::Bitcast, I64, bits, Type::Double, "f").into()
+                } else {
+                    sum
+                }
+            }
+            23 if !single => {
+                let z = self.fget(c);
+                let positive = self.fcmp(FCond::Oge, x, Operand::Float(0.0));
+                self.b.select(self.block, positive, Type::Double, z, y, "f").into()
+            }
+            _ => return false,
+        };
+        let value = if single { self.single(value) } else { value };
+        self.fset(d, value);
+        true
+    }
+
+    /// The high half of the product of two doublewords, by their halves: of the values as they
+    /// are, and of the signed ones by what a negative operand takes from it.
+    fn high_product(&mut self, x: Operand, y: Operand, signed: bool) -> Operand {
+        let half = 0xffff_ffffu32;
+        let (xl, xh) = (self.bin(BinOp::And, x.clone(), half), self.bin(BinOp::LShr, x.clone(), 32));
+        let (yl, yh) = (self.bin(BinOp::And, y.clone(), half), self.bin(BinOp::LShr, y.clone(), 32));
+        let (ll, lh) = (self.bin(BinOp::Mul, xl.clone(), yl.clone()), self.bin(BinOp::Mul, xl, yh.clone()));
+        let (hl, hh) = (self.bin(BinOp::Mul, xh.clone(), yl), self.bin(BinOp::Mul, xh, yh));
+        let carried = self.bin(BinOp::LShr, ll, 32);
+        let (lh_low, hl_low) = (self.bin(BinOp::And, lh.clone(), half), self.bin(BinOp::And, hl.clone(), half));
+        let middle = self.bin(BinOp::Add, carried, lh_low);
+        let middle = self.bin(BinOp::Add, middle, hl_low);
+        let (lh_high, hl_high, middle_high) =
+            (self.bin(BinOp::LShr, lh, 32), self.bin(BinOp::LShr, hl, 32), self.bin(BinOp::LShr, middle, 32));
+        let high = self.bin(BinOp::Add, hh, lh_high);
+        let high = self.bin(BinOp::Add, high, hl_high);
+        let mut high = self.bin(BinOp::Add, high, middle_high);
+        if signed {
+            for (negative, other) in [(x.clone(), y.clone()), (y, x)] {
+                let is = self.cmp(ICond::Slt, negative, 0);
+                let taken = self.select(is, other, 0);
+                high = self.bin(BinOp::Sub, high, taken);
+            }
+        }
+        high
+    }
+
     /// An instruction that is no transfer of control: whether the lift has it.
     #[allow(clippy::too_many_lines)]
     fn simple(&mut self, w: u32) -> bool {
@@ -448,6 +649,19 @@ impl Lift {
                     self.set(a, address);
                 }
             }
+            48..=55 => {
+                // The floating-point loads and stores with a displacement: a single is kept as the
+                // double it is equal to.
+                let op = (w >> 26) - 48;
+                let update = op & 1 != 0;
+                let base = if update { self.get(a) } else { self.base(a) };
+                let address = self.bin(BinOp::Add, base, simm);
+                self.float_access(op & 2 == 0, op & 4 != 0, d, address.clone());
+                if update {
+                    self.set(a, address);
+                }
+            }
+            59 | 63 => return self.float(w),
             31 => return self.extended(w),
             _ => return false,
         }
@@ -461,6 +675,40 @@ impl Lift {
         let rc = w & 1 != 0;
         let xo = (w >> 1) & 0x3ff;
         match xo {
+            9 | 73 => {
+                let (x, y) = (self.get(a), self.get(b));
+                let value = self.high_product(x, y, xo == 73);
+                self.set(d, value.clone());
+                if rc {
+                    self.record(value);
+                }
+                return true;
+            }
+            535 | 567 | 599 | 631 | 663 | 695 | 727 | 759 | 983 => {
+                // The floating-point loads and stores by an index; `stfiwx` stores the low word as it is.
+                let (single, is_store, update) = match xo {
+                    535 => (true, false, false),
+                    567 => (true, false, true),
+                    599 => (false, false, false),
+                    631 => (false, false, true),
+                    663 => (true, true, false),
+                    695 => (true, true, true),
+                    727 => (false, true, false),
+                    759 => (false, true, true),
+                    _ => (false, true, false),
+                };
+                let (base, index) = (if update { self.get(a) } else { self.base(a) }, self.get(b));
+                let address = self.bin(BinOp::Add, base, index);
+                if xo == 983 {
+                    self.access(4, true, false, F0 + d, address.clone());
+                } else {
+                    self.float_access(single, is_store, d, address.clone());
+                }
+                if update {
+                    self.set(a, address);
+                }
+                return true;
+            }
             0 | 32 => {
                 let signed = xo == 0;
                 let (mut x, mut y) = (self.get(a), self.get(b));

@@ -151,6 +151,9 @@ fn float(w: u32) -> Option<String> {
             72 => Some("fmr"),
             136 => Some("fnabs"),
             264 => Some("fabs"),
+            814 => Some("fctid"),
+            815 => Some("fctidz"),
+            846 => Some("fcfid"),
             _ => None,
         };
         if let Some(name) = name {
@@ -255,6 +258,8 @@ fn extended(w: u32) -> Option<String> {
         26 => format!("cntlzw{dot} {a}, {d}"),
         922 => format!("extsh{dot} {a}, {d}"),
         954 => format!("extsb{dot} {a}, {d}"),
+        // With bit eleven set the instruction asks for one field, which its mask names.
+        19 if field(w, 11, 11) == 1 => format!("mfocrf {d}, {}", field(w, 12, 19)),
         19 => format!("mfcr {d}"),
         339 | 467 => {
             let register = match field(w, 16, 20) << 5 | field(w, 11, 15) {

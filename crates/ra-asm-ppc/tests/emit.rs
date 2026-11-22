@@ -20,7 +20,7 @@ fn source(name: &str) -> String {
 
 #[test]
 fn the_source_defines_the_program() {
-    for name in ["ppc", "ppc64", "ppcfp"] {
+    for name in ["ppc", "ppc64", "ppcfp", "ppc64fp"] {
         let text = source(name);
         assert!(!text.contains("is not written"), "a global the backend left out");
         for defined in ["void ppc_run(", "void ppc_main(", "ppc_memory", "ppc_segment_0"] {
@@ -77,6 +77,11 @@ fn the_compiled_port_does_what_the_machine_did() {
 #[test]
 fn the_compiled_64_bit_port_does_what_the_machine_did() {
     the_port_does_what_the_machine_did("ppc64");
+}
+
+#[test]
+fn the_compiled_64_bit_floating_point_port_does_what_the_machine_did() {
+    the_port_does_what_the_machine_did("ppc64fp");
 }
 
 #[test]

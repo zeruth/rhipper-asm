@@ -51,6 +51,15 @@ fn the_64_bit_program_reads_as_objdump_lists_it() {
 }
 
 #[test]
+fn the_64_bit_floating_point_reads_as_objdump_lists_it() {
+    let (count, mnemonics) = agrees("ppc64fp.txt");
+    assert!(count > 450, "the listing has {count} instructions");
+    for used in ["lfd", "stfd", "fcfid", "fctiwz", "fmadd", "fmuls", "frsp", "fcmpu", "stfiwx"] {
+        assert!(mnemonics.contains(used), "the fixture has no {used}: {mnemonics:?}");
+    }
+}
+
+#[test]
 fn the_floating_point_reads_as_objdump_lists_it() {
     let (count, mnemonics) = agrees("ppcfp.txt");
     assert!(count > 500, "the listing has {count} instructions");

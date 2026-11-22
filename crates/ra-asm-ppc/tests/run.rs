@@ -41,6 +41,13 @@ fn the_lifted_floating_point_does_what_the_machine_did() {
     does_what_the_machine_did("ppcfp", 28);
 }
 
+/// The floating-point program for the 64-bit machine: a double moved as a doubleword, and a
+/// whole number to and from the unit as one.
+#[test]
+fn the_lifted_64_bit_floating_point_does_what_the_machine_did() {
+    does_what_the_machine_did("ppc64fp", 28);
+}
+
 #[test]
 fn what_is_no_program_is_refused() {
     assert!(Program::parse(b"\x7fELF").is_err());
