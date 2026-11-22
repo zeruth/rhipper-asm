@@ -210,6 +210,8 @@ pub(super) struct Runtime<'a> {
     pub(super) cortexm: Option<super::cortexm::Core>,
     /// The program is a Game Boy Advance cartridge's: its `swi` is a call of the console's BIOS.
     pub(super) gba: bool,
+    /// The program is a Nintendo DS cartridge's, whose BIOS numbers its calls its own way.
+    pub(super) nds: bool,
 }
 
 /// The calls across the platform boundary a run made, and those still running.
@@ -490,6 +492,7 @@ impl<'a> Runtime<'a> {
             machine: None,
             cortexm: None,
             gba: false,
+            nds: false,
         };
         runtime.thread.stack_bottom = runtime.allocations[0].start;
         runtime
@@ -830,7 +833,7 @@ impl<'a> Runtime<'a> {
             // The machine's own stack has the room: the stack pointer moves down by the bytes.
             "ra_stack_probe" => int(arg(args, 0).wrapping_sub(arg(args, 1)) & !(arg(args, 2).max(1) - 1) & 0xffff_ffff),
             "ra_svc" if arg(args, 1) as i64 & crate::state::BKPT != 0 => self.bkpt(vm, arg(args, 0), arg(args, 1) & 0xff),
-            "ra_svc" if self.gba => self.gba_bios(vm, arg(args, 0), arg(args, 1) & 0xff),
+            "ra_svc" if self.gba || self.nds => self.gba_bios(vm, arg(args, 0), arg(args, 1) & 0xff),
             "ra_svc" => self.svc(vm, arg(args, 0)),
             "ra_syscall" => {
                 let number = (arg(args, 0) as u32).wrapping_sub(4000);
@@ -886,9 +889,20 @@ impl<'a> Runtime<'a> {
     /// BIOS does for a program is here, and the two calls that put the console to sleep, which
     /// end a run that has no interrupt to wake it. `0xff` is no call of the BIOS: emulators take
     /// it for a line of text for their log, the text `r0` points at, and so does the run.
+    ///
+    /// A Nintendo DS program's calls are the same by other numbers: Halt is 6, the divide 9, the
+    /// square root 13, and the log's line `0xfc`.
     fn gba_bios(&mut self, vm: &mut Vm<'_>, state: u64, number: u64) -> Result<Value, Stop> {
         let r = |vm: &mut Vm<'_>, n: u64| vm.memory.read_u32(state + n * 8);
         let set = |vm: &mut Vm<'_>, n: u64, value: u32| vm.memory.write_u64(state + n * 8, u64::from(value));
+        let number = match (self.nds, number) {
+            (false, n) => n,
+            (true, 0x06) => 0x02,
+            (true, 0x09) => 0x06,
+            (true, 0x0d) => 0x08,
+            (true, 0xfc) => 0xff,
+            (true, n) => return Err(Stop::fault(format!("the BIOS call {n:#x} is not interpreted"))),
+        };
         match number {
             // Halt, Stop
             0x02 | 0x03 => return Err(Stop::Exit(0)),

@@ -8,7 +8,7 @@
 typedef unsigned int u32;
 
 #define HAVE_SYSCALL3
-#ifndef GBA
+#if !defined(GBA) && !defined(NDS)
 static long syscall3(long number, long a, long b, long c) {
     register long r7 __asm__("r7") = number;
     register long r0 __asm__("r0") = a;
@@ -18,6 +18,7 @@ static long syscall3(long number, long a, long b, long c) {
     return r0;
 }
 #else
+#ifdef GBA
 // The program as a Game Boy Advance cartridge (`-DGBA`, the fixture `gba.gba`): the ROM's header
 // first, then the code the console enters, in ARM code, which sets the stack and goes to the
 // Thumb program. The header's logo is the console maker's and is left empty, so the image is
@@ -44,10 +45,31 @@ __asm__(".section .header,\"ax\",%progbits\n"
         "    .ltorg\n"
         ".text\n"
         ".thumb\n");
+#define SWI_LOG "svc #0xff"
+#define SWI_END "svc #3"
+#else
+// The program as the ARM9 program of a Nintendo DS cartridge (`-DNDS`, the fixture `nds.nds`):
+// what the console loads into main RAM and enters, in ARM code, which sets the stack and goes to
+// the Thumb program. The cartridge's header, which says where the program is and where it
+// goes, is written by the build.
+__asm__(".section .start,\"ax\",%progbits\n"
+        ".arm\n"
+        ".global arm9_start\n"
+        "arm9_start:\n"
+        "    ldr sp, =0x023ff000\n"
+        "    ldr r0, =_start\n"
+        "    bx r0\n"
+        "    .ltorg\n"
+        ".text\n"
+        ".thumb\n");
+#define SWI_LOG "svc #0xfc"
+#define SWI_END "svc #6"
+#endif
 
 // The system under the program is the console's BIOS and an emulator's log. A write is a line
-// for the log (`swi 0xff`, the text r0 points at, to its zero); the end is the BIOS's Stop
-// (`swi 3`), which puts the console to sleep.
+// for the log (`swi 0xff` on the one console, `swi 0xfc` on the other: the text r0 points at,
+// to its zero); the end is the BIOS's call that puts the processor to sleep (Stop, `swi 3`, on
+// the one, Halt, `swi 6`, on the other).
 static long syscall3(long number, long a, long b, long c) {
     if (number == 4) {
         char text[24];
@@ -58,11 +80,11 @@ static long syscall3(long number, long a, long b, long c) {
         }
         text[n] = 0;
         register long r0 __asm__("r0") = (long)text;
-        __asm__ volatile("svc #0xff" : "+r"(r0) : : "r1", "r2", "r3", "memory");
+        __asm__ volatile(SWI_LOG : "+r"(r0) : : "r1", "r2", "r3", "memory");
         return c;
     }
     register long r0 __asm__("r0") = a;
-    __asm__ volatile("svc #3" : "+r"(r0) : : "r1", "r2", "r3", "memory");
+    __asm__ volatile(SWI_END : "+r"(r0) : : "r1", "r2", "r3", "memory");
     return r0;
 }
 #endif

@@ -82,6 +82,8 @@ pub struct Image {
     /// The image is a Game Boy Advance cartridge's ROM: the whole file at [`GBA_ROM`], the
     /// console's RAM and registers before it, entered at its first word in ARM code.
     pub gba: bool,
+    /// What a Nintendo DS cartridge's header says, when the image is one's ARM9 program.
+    pub nds: Option<Nds>,
     /// Which instruction set a 32-bit ARM image's code is in, where a reader knows it and the
     /// file does not say: `true` for ARM code, `false` for Thumb ([`Image::arm_code`]).
     pub arm_state: Option<bool>,
@@ -206,6 +208,7 @@ impl Image {
         let mut psx_bios = None;
         let mut flat_firmware = false;
         let mut gba = false;
+        let mut nds = None;
         let mut rom = None;
         let (headers, sections, xbe, elf, macho) = if boot.is_some() {
             let (headers, sections) = dreamcast_layout(file.len())?;
@@ -233,6 +236,10 @@ impl Image {
         } else if ra_asm_format::macho::is_macho(&file) {
             let (headers, sections, macho) = crate::macho::parse(&file)?;
             (headers, sections, None, None, Some(macho))
+        } else if let Some(cartridge) = Nds::parse(&file) {
+            let (headers, sections) = nds_layout(cartridge)?;
+            nds = Some(cartridge);
+            (headers, sections, None, None, None)
         } else if is_gba_rom(&file) {
             let (headers, sections) = gba_layout(file.len())?;
             gba = true;
@@ -306,6 +313,7 @@ impl Image {
             psx_bios,
             firmware: flat_firmware,
             gba,
+            nds,
             dreamcast: boot,
             arm_state: None,
             arm_map: std::sync::Arc::default(),
@@ -335,6 +343,9 @@ impl Image {
         }
         if image.gba {
             image.arm_map.mark(GBA_ROM, true);
+        }
+        if let Some(cartridge) = image.nds {
+            image.arm_map.mark(u64::from(cartridge.arm9.entry), true);
         }
         image.read_directories();
         Ok(image)
@@ -431,7 +442,7 @@ impl Image {
     /// ELF file's entry with its low bit clear. A program of both is told by where it starts.
     pub fn arm_code(&self) -> bool {
         self.machine() == Machine::Arm
-            && self.arm_state.unwrap_or_else(|| self.gba || self.elf.as_ref().is_some_and(|elf| elf.entry & 1 == 0))
+            && self.arm_state.unwrap_or_else(|| self.gba || self.nds.is_some() || self.elf.as_ref().is_some_and(|elf| elf.entry & 1 == 0))
     }
 
     /// Whether the code at `va` of a 32-bit ARM image is ARM code and not Thumb. A linker marks
@@ -476,7 +487,12 @@ impl Image {
     /// and so is the program's of a ROM that Nintendo's boot code copies flat.
     pub fn entry_point(&self) -> Option<u64> {
         let rva = self.headers.optional.entry_point;
-        let flat = self.psx.is_some() || self.psx_bios.is_some() || self.dreamcast.is_some() || self.n64.is_some() || self.firmware;
+        let flat = self.psx.is_some()
+            || self.psx_bios.is_some()
+            || self.dreamcast.is_some()
+            || self.n64.is_some()
+            || self.firmware
+            || self.nds.is_some();
         (rva != 0 || flat).then(|| self.va(rva))
     }
 
@@ -548,6 +564,8 @@ impl Image {
             Some("dreamcast")
         } else if self.gba {
             Some("gba")
+        } else if self.nds.is_some() {
+            Some("nds")
         } else if self.elf.as_ref().is_some_and(|e| e.prx.is_some()) {
             Some("psp")
         } else if self.elf.as_ref().is_some_and(|e| e.irx.is_some()) {
@@ -933,6 +951,84 @@ fn gba_layout(len: usize) -> Result<(Headers, Vec<Section>)> {
     headers.optional.entry_point = (GBA_ROM - base) as u32;
     headers.optional.size_of_code = size;
     headers.optional.size_of_image = (GBA_ROM - base) as u32 + size.next_multiple_of(0x1000);
+    Ok((headers, sections))
+}
+
+/// A program of a Nintendo DS cartridge, as the cartridge's header places it: where it is in the
+/// ROM, where the console loads it, where it is entered, and its size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NdsProgram {
+    pub offset: u32,
+    pub entry: u32,
+    pub load: u32,
+    pub size: u32,
+}
+
+/// What a Nintendo DS cartridge's header says: the program of each of the console's processors.
+/// The image is the ARM9's, in the console's main RAM; the ARM7's is named and not mapped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Nds {
+    pub arm9: NdsProgram,
+    pub arm7: NdsProgram,
+}
+
+/// The console's main RAM, where a cartridge's ARM9 program goes.
+const NDS_RAM: (u64, u64) = (0x0200_0000, 0x40_0000);
+
+impl Nds {
+    /// Reads a file as a Nintendo DS cartridge's ROM: the header's checksum over its first
+    /// `0x15e` bytes holds (a CRC-16 the console's boot code computes), and both programs lie in
+    /// the file, the ARM9's loaded into main RAM and entered inside itself.
+    fn parse(file: &[u8]) -> Option<Self> {
+        let header = file.get(..0x160)?;
+        let crc = header[..0x15e].iter().fold(0xffffu16, |crc, &byte| {
+            (0..8).fold(crc ^ u16::from(byte), |crc, _| if crc & 1 == 0 { crc >> 1 } else { (crc >> 1) ^ 0xa001 })
+        });
+        if crc != u16::from_le_bytes([header[0x15e], header[0x15f]]) {
+            return None;
+        }
+        let word = |at: usize| u32::from_le_bytes([header[at], header[at + 1], header[at + 2], header[at + 3]]);
+        let program = |at: usize| NdsProgram { offset: word(at), entry: word(at + 4), load: word(at + 8), size: word(at + 12) };
+        let (arm9, arm7) = (program(0x20), program(0x30));
+        let in_file = |p: NdsProgram| p.size != 0 && u64::from(p.offset) + u64::from(p.size) <= file.len() as u64;
+        let in_ram = u64::from(arm9.load) >= NDS_RAM.0 && u64::from(arm9.load) + u64::from(arm9.size) <= NDS_RAM.0 + NDS_RAM.1;
+        let entered = (arm9.load..arm9.load.wrapping_add(arm9.size)).contains(&arm9.entry);
+        (in_file(arm9) && in_file(arm7) && in_ram && entered).then_some(Self { arm9, arm7 })
+    }
+}
+
+/// The headers and the sections a Nintendo DS cartridge's ARM9 program stands for: `.arm9`, the
+/// program's bytes of the ROM where the header says the console loads them, code and data both
+/// and writable, and `.ram`, the rest of main RAM after them, which the file holds no byte of.
+fn nds_layout(nds: Nds) -> Result<(Headers, Vec<Section>)> {
+    let (base, program) = (NDS_RAM.0, nds.arm9);
+    let (mut headers, _) = dreamcast_layout(0x1000)?;
+    let start = u64::from(program.load) - base;
+    let end = (start + u64::from(program.size)).next_multiple_of(0x1000).min(NDS_RAM.1);
+    let mut sections = vec![Section {
+        name: ".arm9".to_owned(),
+        virtual_size: program.size,
+        virtual_address: start as u32,
+        raw_size: program.size,
+        raw_offset: program.offset,
+        characteristics: crate::elf::characteristics(true, true, false),
+    }];
+    if end < NDS_RAM.1 {
+        sections.push(Section {
+            name: ".ram".to_owned(),
+            virtual_size: (NDS_RAM.1 - end) as u32,
+            virtual_address: end as u32,
+            raw_size: 0,
+            raw_offset: 0,
+            characteristics: crate::elf::characteristics(false, true, true),
+        });
+    }
+    headers.coff.machine = Machine::Arm;
+    headers.coff.sections = sections.len() as u16;
+    headers.optional.image_base = base;
+    headers.optional.entry_point = program.entry - base as u32;
+    headers.optional.size_of_code = program.size;
+    headers.optional.size_of_image = NDS_RAM.1 as u32;
     Ok((headers, sections))
 }
 

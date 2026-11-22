@@ -289,6 +289,61 @@ if (Wanted 'gba') {
   [IO.File]::WriteAllBytes($rom, $bytes)
 }
 
+# nds.nds is the program as a Nintendo DS cartridge's ROM (-DNDS): the ARM9 program, linked by
+# nds.ld where the console loads it in main RAM, behind the cartridge's header, which is written
+# here: where each processor's program is in the ROM, where it goes and where it is entered, and
+# the header's two checksums. The ARM7's program is one instruction, a branch to itself. The
+# logo is the console maker's and is left empty. No emulator of the console is here: it runs
+# lifted only, and prints what thumb1 prints.
+if (Wanted 'nds') {
+  $out = Join-Path $PSScriptRoot '..\out\nds'
+  New-Item -ItemType Directory -Force $out | Out-Null
+  $elf = Join-Path $out 'arm9.elf'
+  $args = @('--target=armv5te-none-eabi', '-mthumb', '-DNDS', '-O1', '-fno-unroll-loops', '-fno-vectorize', '-nostdlib',
+    '-ffreestanding', '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none', "-Wl,-T,$(Join-Path $src 'nds.ld')",
+    (Join-Path $src 'thumb1.c'), '-o', $elf)
+  Write-Host "clang nds.nds" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for nds.nds" }
+  $bin9 = Join-Path $out 'arm9.bin'
+  & llvm-objcopy -O binary -j .arm9 $elf $bin9
+  if ($LASTEXITCODE -ne 0) { throw "llvm-objcopy failed for nds.nds" }
+  $arm9 = [IO.File]::ReadAllBytes($bin9)
+  $arm7 = [byte[]](0xfe, 0xff, 0xff, 0xea)
+  $at9 = 0x4000
+  $at7 = $at9 + (($arm9.Length + 3) -band -4)
+  $rom = New-Object byte[] ($at7 + $arm7.Length)
+  $put = { param($at, [byte[]]$b) [Array]::Copy($b, 0, $rom, $at, $b.Length) }
+  $w32 = { param($at, $v) & $put $at ([BitConverter]::GetBytes([uint32]$v)) }
+  $w16 = { param($at, $v) & $put $at ([BitConverter]::GetBytes([uint16]$v)) }
+  # CRC-16 with the polynomial 0xA001 from 0xFFFF, which the console's boot code computes.
+  $crc = { param($from, $to)
+    $c = 0xFFFF
+    for ($i = $from; $i -lt $to; $i++) {
+      $c = $c -bxor $rom[$i]
+      for ($k = 0; $k -lt 8; $k++) { if ($c -band 1) { $c = ($c -shr 1) -bxor 0xA001 } else { $c = $c -shr 1 } }
+    }
+    $c
+  }
+  & $put 0x00 ([Text.Encoding]::ASCII.GetBytes('RHIPPER ASM'))
+  & $put 0x0C ([Text.Encoding]::ASCII.GetBytes('ARAE00'))
+  & $w32 0x20 $at9
+  & $w32 0x24 0x02000000
+  & $w32 0x28 0x02000000
+  & $w32 0x2C $arm9.Length
+  & $w32 0x30 $at7
+  & $w32 0x34 0x02380000
+  & $w32 0x38 0x02380000
+  & $w32 0x3C $arm7.Length
+  & $w32 0x80 $rom.Length
+  & $w32 0x84 0x4000
+  & $put $at9 $arm9
+  & $put $at7 $arm7
+  & $w16 0x15C (& $crc 0xC0 0x15C)
+  & $w16 0x15E (& $crc 0x00 0x15E)
+  [IO.File]::WriteAllBytes((Join-Path $bin 'nds.nds'), $rom)
+}
+
 # cortexm is the fixture of a microcontroller: ARMv7-M firmware linked by cortexm.ld into flash
 # at 0x08000000 with its vector table first and its data in RAM at 0x20000000. It prints by
 # semihosting (bkpt 0xab). No Cortex-M is here: it runs lifted only.

@@ -193,6 +193,29 @@ fn gba_cartridge_runs_interpreted() {
     assert_eq!(outcome.exit, 0, "the BIOS's Stop ends the run (stop: {:?})", outcome.stop);
 }
 
+/// The program as a Nintendo DS cartridge's ROM: the header says where the program of each
+/// processor is in the ROM, where the console loads it and where it is entered. The image is
+/// the ARM9's, in the console's main RAM; the ARM7's is named by the header and not lifted. It
+/// prints by an emulator's log (`swi 0xfc`) and ends by the BIOS's Halt. No emulator of the
+/// console recorded it: the output is what the same program printed as a Linux one.
+#[test]
+fn nds_cartridge_runs_interpreted() {
+    let image = ra_asm_pe::load(&root().join("testdata/bin/nds.nds")).unwrap();
+    assert_eq!(image.platform(), Some("nds"));
+    let cartridge = image.nds.expect("the cartridge's header");
+    assert_eq!((cartridge.arm9.load, cartridge.arm9.entry, cartridge.arm9.offset), (0x0200_0000, 0x0200_0000, 0x4000));
+    assert_eq!((cartridge.arm7.load, cartridge.arm7.size), (0x0238_0000, 4));
+    assert_eq!(image.entry_point(), Some(0x0200_0000));
+    let expected = std::fs::read_to_string(root().join("testdata/expected/thumb1.txt")).unwrap();
+    let Raised { image, lifted, signatures } = raise("nds.nds", "run-machine");
+    assert!(image.arm_and_thumb(), "the analysis found the Thumb program");
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("nds.nds: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!(outcome.exit, 0, "the BIOS's Halt ends the run (stop: {:?})", outcome.stop);
+}
+
 /// A fixture of the program `testdata/src/thumb1.c`: lifted without a warning and interpreted,
 /// it prints what the program printed under an emulator and ends with the code it ended with.
 fn runs_as_the_machine_ran_it(binary: &str) {

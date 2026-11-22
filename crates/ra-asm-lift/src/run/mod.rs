@@ -504,6 +504,7 @@ fn run_here(
     // A microcontroller's firmware runs against its core: the system timer and its exception.
     runtime.cortexm = cortexm::Core::attach(image, &mut vm);
     runtime.gba = image.gba;
+    runtime.nds = image.nds.is_some();
     runtime.residual.clone_from(&options.residual);
     runtime.answers.clone_from(&options.answers);
     if options.answers.is_none() {

@@ -923,6 +923,15 @@ command = "testdata/build.ps1 gba"
 tools = "clang 22.1.7, LLD 22.1.7, llvm-objcopy 22.1.7"
 
 [[file]]
+path = "testdata/bin/nds.nds"
+sha256 = "ceb6429db453c36d9eec731cb30f94b4b15639d0aa0e2d986a86de063951f4b3"
+evidence = "source"
+expected = "testdata/expected/thumb1.txt"
+source = "testdata/src/thumb1.c"
+command = "testdata/build.ps1 nds"
+tools = "clang 22.1.7, LLD 22.1.7, llvm-objcopy 22.1.7"
+
+[[file]]
 path = "testdata/bin/cortexm.elf"
 sha256 = "a52362af0634f3143f3ff2e8d3b6f64b5c9ef290f503c366a01b606eef9f00dd"
 evidence = "source"
