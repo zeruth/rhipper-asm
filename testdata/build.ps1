@@ -236,6 +236,18 @@ if (Wanted 'thumb1') {
   if ($LASTEXITCODE -ne 0) { throw "clang failed for thumb1" }
 }
 
+# arm1 is the same program in ARM code, the other instruction set of those processors: a word an
+# instruction, each under its condition, the returns among them (`bxlt lr`), its switch a jump
+# through a table of words (`add pc, r3, r0`). It prints what thumb1 prints.
+if (Wanted 'arm1') {
+  $args = @('--target=armv4t-none-linux-gnueabi', '-marm', '-O1', '-fno-unroll-loops', '-fno-vectorize', '-nostdlib',
+    '-ffreestanding', '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none',
+    (Join-Path $src 'thumb1.c'), '-o', (Join-Path $bin 'arm1'))
+  Write-Host "clang arm1" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for arm1" }
+}
+
 # cortexm is the fixture of a microcontroller: ARMv7-M firmware linked by cortexm.ld into flash
 # at 0x08000000 with its vector table first and its data in RAM at 0x20000000. It prints by
 # semihosting (bkpt 0xab). No Cortex-M is here: it runs lifted only.

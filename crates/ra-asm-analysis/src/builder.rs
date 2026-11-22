@@ -550,6 +550,8 @@ impl Builder<'_> {
             jumptable::resolve_mips(self.image, body, &predecessors, &function)
         } else if self.arch.name() == "thumb" {
             jumptable::resolve_thumb(self.image, body, &predecessors)
+        } else if self.arch.name() == "arm" {
+            jumptable::resolve_arm(self.image, body, &predecessors)
         } else {
             jumptable::resolve(self.image, body, &predecessors)
         };

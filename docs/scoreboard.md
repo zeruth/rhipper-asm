@@ -7,6 +7,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | program | status | machine | promoted | abi | traps | trapping | verified machine | verified promoted | discharged | checked | open | lines | gotos ‰ | casts ‰ |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | aligned32.exe | ok | 6 | 6 | 6 | 0 | 0 | 5 | 5 | 5 | 0 | 16 | 374 | 10.7 | 227.3 |
+| arm1 | ok | 9 | 9 | 9 | 0 | 0 | 9 | 9 | 11 | 0 | 24 | 388 | 0.0 | 407.2 |
 | classes32.exe | ok | 15 | 15 | 15 | 0 | 0 | 15 | 15 | 8 | 0 | 37 | 514 | 0.0 | 671.2 |
 | classes64.exe | ok | 15 | 15 | 15 | 0 | 0 | 15 | 15 | 10 | 0 | 35 | 315 | 0.0 | 409.5 |
 | computed32.exe | ok | 4 | 4 | 4 | 0 | 0 | 3 | 3 | 5 | 0 | 31 | 212 | 0.0 | 264.2 |
@@ -68,7 +69,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 375 | 0.0 | 741.3 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 261 | 0.0 | 375.5 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 167 | 0.0 | 467.1 |
-| total | 58/62 ok | 480 | 425 | 480 | 6 | 6 | 381 | 349 | 982 | 0 | 2210 | 67046 | 1.2 | 702.0 |
+| total | 59/63 ok | 489 | 434 | 489 | 6 | 6 | 390 | 358 | 993 | 0 | 2234 | 67434 | 1.2 | 700.3 |
 
 | pending list | entries |
 |---|---|

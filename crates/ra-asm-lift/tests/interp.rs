@@ -134,12 +134,29 @@ fn thumb32_runs_interpreted() {
 /// code it ended with there.
 #[test]
 fn thumb1_runs_interpreted() {
+    runs_as_the_machine_ran_it("thumb1");
+}
+
+/// The same program in ARM code, the other instruction set of those processors: every
+/// instruction under its condition, the returns among them, a switch through a table of words.
+/// The image is ARM code by its entry, and the decoder, the analysis and the lift follow it.
+#[test]
+fn arm1_runs_interpreted() {
+    let image = ra_asm_pe::load(&root().join("testdata/bin/arm1")).unwrap();
+    assert!(image.arm_code());
+    assert_eq!(ra_asm_analysis::arch_of(&image).name(), "arm");
+    runs_as_the_machine_ran_it("arm1");
+}
+
+/// A fixture of the program `testdata/src/thumb1.c`: lifted without a warning and interpreted,
+/// it prints what the program printed under an emulator and ends with the code it ended with.
+fn runs_as_the_machine_ran_it(binary: &str) {
     let expected = std::fs::read_to_string(root().join("testdata/expected/thumb1.txt")).unwrap();
-    let Raised { image, lifted, signatures } = raise("thumb1", "run-machine");
+    let Raised { image, lifted, signatures } = raise(binary, "run-machine");
     assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
     let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
     let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
-    assert_output("thumb1: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_output(&format!("{binary}: interpreted"), &expected, &String::from_utf8_lossy(&outcome.output), &ended);
     assert_eq!(outcome.exit, 98, "the exit the machine ended with (stop: {:?})", outcome.stop);
 }
 

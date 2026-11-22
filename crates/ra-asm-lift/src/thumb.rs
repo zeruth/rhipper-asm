@@ -52,6 +52,7 @@ pub fn lift_function(image: &Image, _analysis: &Analysis<'_>, lifted: &mut Lifte
     let mut lifter = Lifter {
         m: Machine { b: &mut b, state, bits: 32, x87, isa: Isa::Arm32 },
         _image: image,
+        arm: image.arm_code(),
         lifted,
         blocks,
         cond: None,
@@ -75,6 +76,9 @@ pub fn lift_function(image: &Image, _analysis: &Analysis<'_>, lifted: &mut Lifte
 struct Lifter<'a, 'b> {
     m: Machine<'b>,
     _image: &'a Image,
+    /// Whether the code is ARM code: a word an instruction, its condition in it, the PC it reads
+    /// its address and eight. The operations are Thumb's.
+    arm: bool,
     lifted: &'a mut Lifted,
     blocks: HashMap<u64, BlockId>,
     /// The condition of the conditional branch that ends the current block.
@@ -100,8 +104,13 @@ impl Lifter<'_, '_> {
                 break;
             }
             self.m.b.address = Some(i.address);
-            let it = thumb::it_condition(&blk.instrs[..n]);
-            let Some(d) = thumb::decode_raw(i.code, i.address, it) else { break };
+            let d = if self.arm {
+                ra_asm_arm64::arm::decode(i.code, i.address)
+            } else {
+                let it = thumb::it_condition(&blk.instrs[..n]);
+                let Some(d) = thumb::decode_raw(i.code, i.address, it) else { break };
+                d
+            };
             block = self.lift_predicated(block, &d, i);
         }
         if self.m.b.has_terminator(block) {
@@ -193,6 +202,23 @@ impl Lifter<'_, '_> {
         let c = self.condition(block, cond);
         self.m.b.terminate(block, Terminator::CondBr { cond: c.into(), then, els: next });
         let end = self.lift_instr(then, d, i);
+        if self.arm && !self.m.b.has_terminator(end) {
+            // ARM code leaves a function under a condition: a return, or a jump through a
+            // register, which is a call of where it goes and a return.
+            let returns = match d.op {
+                Op::BranchReg { rm: LR, link: false } => true,
+                Op::Multiple { load: true, list, .. } => list & (1 << PC) != 0,
+                Op::Alu { op: Alu::Mov, rd: PC, src: Source::Reg { rm: LR, .. }, .. } => true,
+                _ => false,
+            };
+            let jumps = self.jump_target.take();
+            if returns {
+                self.m.b.terminate(end, Terminator::Ret(None));
+            } else if let Some(target) = jumps {
+                self.runtime_call(end, target);
+                self.m.b.terminate(end, Terminator::Ret(None));
+            }
+        }
         if !self.m.b.has_terminator(end) {
             self.m.b.terminate(end, Terminator::Br(next));
         }
@@ -226,7 +252,9 @@ impl Lifter<'_, '_> {
         let bit = self.m.b.cast(block, Cast::Trunc, Type::I32, target, Type::I1, "thumb");
         let ok = self.m.b.block(&format!("thumb_{ip:x}"));
         let arm = self.m.b.block(&format!("arm_{ip:x}"));
-        self.m.b.terminate(block, Terminator::CondBr { cond: bit.into(), then: ok, els: arm });
+        // In ARM code it is the other way round: the bit set says Thumb code, which traps.
+        let (set, clear) = if self.arm { (arm, ok) } else { (ok, arm) };
+        self.m.b.terminate(block, Terminator::CondBr { cond: bit.into(), then: set, els: clear });
         self.m.trap(arm, ip, trap::INVALID);
         let code = self.m.b.bin(ok, BinOp::And, Type::I32, target, -2i64, "code");
         let wide = self.m.b.cast(ok, Cast::ZExt, Type::I32, code, Type::I64, "target");
@@ -240,7 +268,7 @@ impl Lifter<'_, '_> {
     /// The value of core register `n`; the PC reads as the instruction's address plus four.
     fn reg(&mut self, block: BlockId, n: u8, ip: u64) -> ValueId {
         if n == PC {
-            return self.m.value_of(block, Type::I32, (ip + 4) as i64);
+            return self.m.value_of(block, Type::I32, (ip + if self.arm { 8 } else { 4 }) as i64);
         }
         let p = self.m.gpr_ptr(block, u32::from(n));
         let whole = self.m.b.load(block, Type::I64, p, self.m.gpr_name(u32::from(n)));
@@ -629,7 +657,8 @@ impl Lifter<'_, '_> {
             Op::Mem { load, bits, signed, rt, rn, offset, index, wback } => {
                 let (address, after): (Operand, Option<ValueId>) = match (rn, offset) {
                     (PC, Offset::Imm(o)) => {
-                        (Operand::Int(i128::from(thumb::aligned_pc(ip).wrapping_add(o as i64 as u64) & 0xffff_ffff)), None)
+                        let pc = if self.arm { ip + 8 } else { thumb::aligned_pc(ip) };
+                        (Operand::Int(i128::from(pc.wrapping_add(o as i64 as u64) & 0xffff_ffff)), None)
                     }
                     (PC, Offset::Reg { .. } | Offset::Shifted { .. }) => return self.unsupported(block, i),
                     (_, offset) => {
@@ -658,6 +687,15 @@ impl Lifter<'_, '_> {
                     } else {
                         self.m.b.cast(block, if signed { Cast::SExt } else { Cast::ZExt }, width, v, ty, "ld.x")
                     };
+                    if rt == PC {
+                        // A load into the PC is a jump to what was read.
+                        if let Some(after) = after {
+                            self.set_reg(block, rn, after);
+                        }
+                        let code = self.m.b.bin(block, BinOp::And, Type::I32, v, -2i64, "code");
+                        self.jump_target = Some(self.m.b.cast(block, Cast::ZExt, Type::I32, code, Type::I64, "target"));
+                        return block;
+                    }
                     self.set_reg(block, rt, v);
                 } else {
                     let v = self.reg(block, rt, ip);
@@ -733,7 +771,7 @@ impl Lifter<'_, '_> {
             }
             Op::Call { arm: true, .. } => return self.unsupported(block, i),
             Op::Call { target, .. } => {
-                self.set_reg(block, LR, ((ip + 4) | 1) as i64);
+                self.set_reg(block, LR, ((ip + 4) | u64::from(!self.arm)) as i64);
                 if self.lifted.functions.contains_key(&target) {
                     self.call_lifted(block, target);
                 } else {
@@ -748,7 +786,7 @@ impl Lifter<'_, '_> {
                 let target = self.reg(block, rm, ip);
                 let (block, target) = self.thumb_target(block, target, ip);
                 if link {
-                    self.set_reg(block, LR, ((ip + u64::from(d.len)) | 1) as i64);
+                    self.set_reg(block, LR, ((ip + u64::from(d.len)) | u64::from(!self.arm)) as i64);
                     self.runtime_call(block, target);
                 } else {
                     self.jump_target = Some(target);

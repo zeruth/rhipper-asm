@@ -195,6 +195,52 @@ pub fn resolve_thumb(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) 
     })
 }
 
+/// Resolves the jump of a switch in ARM code as clang writes it: `adr b, table; ldr r, [b, i,
+/// lsl #2]; add pc, b, r`, the table words after the jump, each the distance from the table to a
+/// case. The index is bounded by a `cmp i, #n` and a `bhi` that ends a block before, as in Thumb.
+pub fn resolve_arm(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Option<Table> {
+    use ra_asm_arm64::thumb::{Alu, Offset, Op, PC, Shift, Source, register};
+    let op = |i: &Instr| ra_asm_arm64::arm::decode(i.code, i.address).op;
+    let [.., base, load, jump] = block else { return None };
+    let Op::Alu { op: Alu::Add, rd: PC, rn: b, src: Source::Reg { rm: r, shift: Shift::Lsl, amount: 0 }, .. } = op(jump) else {
+        return None;
+    };
+    let Op::Mem { load: true, bits: 32, rt, rn, offset: Offset::Reg { rm: index, shift: 2 }, index: true, wback: false, .. } = op(load)
+    else {
+        return None;
+    };
+    let Op::Adr { rd, target: address } = op(base) else { return None };
+    if [rt, rn, rd] != [r, b, b] {
+        return None;
+    }
+    let before = &block[..block.len() - 3];
+    let (entries, bound) = std::iter::once(before).chain(predecessors.iter().copied()).find_map(|instrs| {
+        let [.., compare, branch] = instrs else { return None };
+        let Op::Branch { cond: Some(8), .. } = op(branch) else { return None };
+        let Op::Alu { op: Alu::Cmp, rn, src: Source::Imm { value, .. }, .. } = op(compare) else { return None };
+        (rn == index).then_some((value as usize + 1, compare.address))
+    })?;
+    let mut targets = Vec::new();
+    for n in 0..entries.min(MAX_ENTRIES) {
+        let target = address.wrapping_add(u64::from(image.u32(address + 4 * n as u64).ok()?)) & 0xffff_ffff;
+        if !image.is_code(target) {
+            return None;
+        }
+        targets.push(target);
+    }
+    let indices = (0..targets.len() as u64).collect();
+    Some(Table {
+        address,
+        entry_size: 4,
+        targets,
+        indices,
+        index: register(index),
+        load_at: load.address,
+        bound: Some(bound),
+        case_table: None,
+    })
+}
+
 /// Resolves the indirect jump that ends `block`, given the blocks that lead into it.
 pub fn resolve(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) -> Option<Table> {
     let jump = block.last()?;

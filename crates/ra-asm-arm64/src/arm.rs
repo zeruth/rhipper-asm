@@ -14,7 +14,9 @@
 //! wide moves. The unconditional space, the coprocessors, the status-register moves and the
 //! exclusive loads are [`Op::Unsupported`].
 
-use crate::thumb::{Alu, Decoded, Offset, Op, PC, Shift, Source};
+use ra_asm_arch::{Arch, Flow, Instr, Operand, Register, Target};
+
+use crate::thumb::{Alu, Decoded, Offset, Op, PC, Shift, Source, record, register};
 
 fn field(w: u32, hi: u32, lo: u32) -> u32 {
     (w >> lo) & ((1u32 << (hi - lo + 1)) - 1)
@@ -248,10 +250,70 @@ fn media(w: u32) -> Op {
     Op::Unsupported
 }
 
+/// The ARM decoder, for the analysis: an instruction as the neutral record the Thumb one makes
+/// of the same operation, with what differs between the two sets put right.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Arm;
+
+impl Arch for Arm {
+    fn name(&self) -> &'static str {
+        "arm"
+    }
+
+    fn address_bits(&self) -> u16 {
+        32
+    }
+
+    fn stack_pointer(&self) -> Register {
+        register(crate::thumb::SP)
+    }
+
+    fn instruction_pointer(&self) -> Register {
+        register(PC)
+    }
+
+    fn decode(&self, bytes: &[u8], address: u64) -> Option<Instr> {
+        let word = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?);
+        let d = decode(word, address);
+        let mut instr = record(&d, address);
+        // The PC a load reads is the address and eight, not Thumb's.
+        if let Op::Mem { rn: PC, offset: Offset::Imm(offset), index: true, .. } = d.op {
+            for operand in &mut instr.operands {
+                if let Operand::Mem(m) = operand {
+                    m.absolute = Some(address.wrapping_add(8).wrapping_add_signed(i64::from(offset)) & 0xffff_ffff);
+                }
+            }
+        }
+        // A load into the PC is a jump through what it reads.
+        if matches!(d.op, Op::Mem { load: true, rt: PC, .. }) {
+            instr.flow = Flow::Jump(Target::Indirect);
+        }
+        // A return or a jump through a register under a condition goes on when the condition
+        // fails: the flow goes on, and the lift leaves under the condition.
+        if d.cond.is_some() && !matches!(d.op, Op::Branch { .. }) && matches!(instr.flow, Flow::Return | Flow::Jump(Target::Indirect)) {
+            instr.flow = Flow::Next;
+        }
+        Some(instr)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::thumb::{LR, SP};
+
+    #[test]
+    fn the_record_is_the_arm_instruction_s() {
+        let instr = |word: u32| Arm.decode(&word.to_le_bytes(), 0x8000).unwrap();
+        // ldr r0, [pc, #4] reads the address and eight and four
+        assert_eq!(instr(0xe59f_0004).absolute_memory_operand(), Some(0x800c));
+        // bx lr returns; bxeq lr goes on; bne is a conditional jump; ldr pc, [r1] jumps
+        assert_eq!(instr(0xe12f_ff1e).flow, Flow::Return);
+        assert_eq!(instr(0x012f_ff1e).flow, Flow::Next);
+        assert_eq!(instr(0x1aff_fffc).flow, Flow::CondJump(Target::Direct(0x7ff8)));
+        assert_eq!(instr(0xe591_f000).flow, Flow::Jump(Target::Indirect));
+        assert_eq!(instr(0xe59f_0004).len, 4);
+    }
 
     fn op(word: u32) -> Op {
         decode(word, 0x8000).op

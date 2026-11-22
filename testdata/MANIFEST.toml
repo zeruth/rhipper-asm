@@ -887,6 +887,15 @@ command = "testdata/build.ps1 thumb1"
 tools = "clang 22.1.7, LLD 22.1.7"
 
 [[file]]
+path = "testdata/bin/arm1"
+sha256 = "d4f0673198fd51c9d898f864cf542d8e5ba63514bf1e6b14d002851507c1ae0f"
+evidence = "emulator"
+expected = "testdata/expected/thumb1.txt"
+source = "testdata/src/thumb1.c"
+command = "testdata/build.ps1 arm1"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
 path = "testdata/bin/cortexm.elf"
 sha256 = "a52362af0634f3143f3ff2e8d3b6f64b5c9ef290f503c366a01b606eef9f00dd"
 evidence = "source"

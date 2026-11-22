@@ -392,6 +392,12 @@ impl Image {
         self.n64.is_some() || self.elf.as_ref().is_some_and(|elf| elf.big_endian)
     }
 
+    /// Whether a 32-bit ARM program's code is ARM code and not Thumb, as far as its file says: an
+    /// ELF file's entry with its low bit clear. A program of both is told by where it starts.
+    pub fn arm_code(&self) -> bool {
+        self.machine() == Machine::Arm && self.elf.as_ref().is_some_and(|elf| elf.entry & 1 == 0)
+    }
+
     /// The byte order of the program's words, which every read of a value of the image takes: the
     /// pointers, the tables and the instruction words of a big-endian program read big-endian.
     pub fn order(&self) -> ByteOrder {
