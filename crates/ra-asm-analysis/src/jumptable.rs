@@ -189,7 +189,9 @@ pub fn resolve_thumb(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) 
         targets,
         indices,
         index: register(r),
-        load_at: load.address,
+        // The register holds the index until the first of the four instructions, which is
+        // where a lift that switches on the index takes it.
+        load_at: base.address,
         bound: Some(bound),
         case_table: None,
     })

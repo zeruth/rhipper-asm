@@ -67,7 +67,10 @@ fn lifted_opcodes() -> BTreeSet<String> {
 }
 
 /// The arms no template can name, each with its reason.
-const NOT_ASSEMBLED: &[(&str, &str)] = &[("Invalid", "the decoder's answer to an undefined word, which has no assembly")];
+const NOT_ASSEMBLED: &[(&str, &str)] = &[
+    ("Invalid", "the decoder's answer to an undefined word, which has no assembly"),
+    ("SVC", "a system call runs the host's kernel, which a vector cannot record"),
+];
 
 /// The `Op` kinds with an arm in the Thumb-2 lift's `lift_instr`, read off `thumb.rs` the same way.
 fn lifted_kinds() -> BTreeSet<String> {

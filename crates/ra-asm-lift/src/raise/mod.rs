@@ -226,7 +226,8 @@ const ARM32_MACHINE: Machine = Machine {
     gprs: 16,
     xmms: 16,
     register_arguments: false,
-    high_result: None,
+    // A 64-bit result is in `r0` and `r1`.
+    high_result: Some(Slot::Gpr(1)),
 };
 const O32_MACHINE: Machine = Machine {
     abi: &convention::O32,

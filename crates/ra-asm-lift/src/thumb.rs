@@ -58,6 +58,7 @@ pub fn lift_function(image: &Image, _analysis: &Analysis<'_>, lifted: &mut Lifte
         blocks,
         cond: None,
         jump_target: None,
+        switch_index: None,
     };
     for blk in &f.blocks {
         lifter.lift_block(blk);
@@ -86,6 +87,8 @@ struct Lifter<'a, 'b> {
     cond: Option<ValueId>,
     /// The target of the indirect branch that ends the current block, as a 64-bit address.
     jump_target: Option<ValueId>,
+    /// The index of the switch that ends the current block, where the lift switches on it.
+    switch_index: Option<ValueId>,
 }
 
 impl Lifter<'_, '_> {
@@ -101,9 +104,29 @@ impl Lifter<'_, '_> {
         self.cond = None;
         self.jump_target = None;
         self.arm = self.image.arm_at(blk.start);
+        // A switch through a table that lies in the code: a standalone port has no code to read
+        // the table from, so the instructions that read it are left out and the switch is on
+        // the index they start from, which the analysis mapped to the cases.
+        let table = match &blk.terminator {
+            T::Switch { load_at, index, .. } if self.lifted.standalone => Some((*load_at, index.id as u8)),
+            _ => None,
+        };
+        self.switch_index = None;
         for (n, i) in blk.instrs.iter().enumerate() {
             if self.m.b.has_terminator(block) {
                 break;
+            }
+            if let Some((load_at, index)) = table
+                && i.address == load_at
+            {
+                self.switch_index = Some(self.reg(block, index, i.address));
+                break;
+            }
+            if self.lifted.standalone
+                && let Some((rd, address)) = self.pc_relative_address(&blk.instrs[..n], i)
+            {
+                self.set_reg(block, rd, address);
+                continue;
             }
             self.m.b.address = Some(i.address);
             let d = if self.arm {
@@ -132,9 +155,14 @@ impl Lifter<'_, '_> {
                 let els = self.target_block(*fallthrough);
                 self.m.b.terminate(block, Terminator::CondBr { cond: cond.into(), then, els });
             }
-            T::Switch { targets, .. } => {
+            T::Switch { targets, cases, .. } => {
                 let default = self.m.b.block("switch.bad");
                 self.m.trap(default, last, trap::BAD_SWITCH);
+                if let Some(index) = self.switch_index.take() {
+                    let cases = cases.iter().filter_map(|(n, t)| self.blocks.get(t).map(|b| (i128::from(*n), *b))).collect();
+                    self.m.b.terminate(block, Terminator::Switch { ty: Type::I32, value: index.into(), default, cases });
+                    return;
+                }
                 let Some(target) = self.jump_target else {
                     self.warn(format!("{last:#x}: a switch with no computed target"));
                     self.m.trap(block, last, trap::INVALID);
@@ -166,6 +194,36 @@ impl Lifter<'_, '_> {
             T::Halt => self.m.trap(block, last, trap::HLT),
             T::Invalid => self.m.trap(block, last, trap::INVALID),
         }
+    }
+
+    /// The address a position-independent program forms of something of its own: a word of the
+    /// literal pool, the distance from the code to it, and an `add` of the PC to the register
+    /// that holds the word. For such an `add` whose register the block last loaded from the
+    /// pool, the register and the address of what the sum names, as a standalone port names it.
+    fn pc_relative_address(&self, before: &[Instr], add: &Instr) -> Option<(u8, Operand)> {
+        use ra_asm_arch::Access;
+        let decode = |i: &Instr| {
+            if self.arm { Some(ra_asm_arm64::arm::decode(i.code, i.address)) } else { thumb::decode_raw(i.code, i.address, None) }
+        };
+        let d = decode(add)?;
+        if d.cond.is_some() {
+            return None;
+        }
+        // `add rd, pc` in Thumb; `add rd, pc, rd` or `add rd, rd, pc` in ARM code.
+        let Op::Alu { op: Alu::Add, s: false, rd, rn, src: Source::Reg { rm, shift: Shift::Lsl, amount: 0 } } = d.op else { return None };
+        if rd == PC || !((rn == PC && rm == rd) || (rm == PC && rn == rd)) {
+            return None;
+        }
+        let writes =
+            |i: &Instr| i.registers.iter().any(|(r, access)| r.id == u16::from(rd) && matches!(access, Access::Write | Access::ReadWrite));
+        let load = before.iter().rev().find(|i| writes(i))?;
+        let Op::Mem { load: true, bits: 32, rt, rn: PC, offset: Offset::Imm(_), index: true, wback: false, .. } = decode(load)?.op else {
+            return None;
+        };
+        let word = self.image.u32(load.absolute_memory_operand()?).ok()?;
+        let pc = add.address + if self.arm { 8 } else { 4 };
+        let address = pc.wrapping_add(u64::from(word)) & 0xffff_ffff;
+        (rt == rd).then(|| self.lifted.address_of(address)).flatten().map(|operand| (rd, operand))
     }
 
     fn branch(&mut self, block: BlockId, target: u64) {
@@ -456,7 +514,8 @@ impl Lifter<'_, '_> {
     /// `a + b + carry`, with the carry out and the signed overflow: the one adder of `add`,
     /// `adc`, `sub` and `rsb` (an operand inverted and a carry of one) and `sbc`.
     fn add_with_carry(&mut self, block: BlockId, a: ValueId, b: ValueId, carry: impl Into<Operand>) -> (ValueId, ValueId, ValueId) {
-        let (ty, wide) = (Type::I32, Type::Int(33));
+        // The sum at twice the width, its carry bit 32: a width a C compiler has a type for.
+        let (ty, wide) = (Type::I32, Type::I64);
         let wa = self.m.b.cast(block, Cast::ZExt, ty.clone(), a, wide.clone(), "a.w");
         let wb = self.m.b.cast(block, Cast::ZExt, ty.clone(), b, wide.clone(), "b.w");
         let wc = self.m.b.cast(block, Cast::ZExt, Type::I1, carry, wide.clone(), "c.w");
@@ -760,7 +819,17 @@ impl Lifter<'_, '_> {
             Fp::Mem { load, double, d, rn, offset } => {
                 let address: Operand = if rn == PC {
                     let pc = if self.arm { ip + 8 } else { thumb::aligned_pc(ip) };
-                    Operand::Int(i128::from(pc.wrapping_add(offset as i64 as u64) & 0xffff_ffff))
+                    let at = pc.wrapping_add(offset as i64 as u64) & 0xffff_ffff;
+                    // A constant of the literal pool: in a standalone port, the constant itself.
+                    let constant = if double { self.image.u64(at).ok() } else { self.image.u32(at).ok().map(u64::from) };
+                    if self.lifted.standalone
+                        && load
+                        && let Some(raw) = constant
+                    {
+                        self.fp_set_bits(block, double, d, Operand::Int(i128::from(raw)));
+                        return true;
+                    }
+                    Operand::Int(i128::from(at))
                 } else {
                     let base = self.reg(block, rn, ip);
                     self.m.b.bin(block, BinOp::Add, Type::I32, base, i64::from(offset), "addr").into()
@@ -1002,7 +1071,22 @@ impl Lifter<'_, '_> {
                 let (address, after): (Operand, Option<ValueId>) = match (rn, offset) {
                     (PC, Offset::Imm(o)) => {
                         let pc = if self.arm { ip + 8 } else { thumb::aligned_pc(ip) };
-                        (Operand::Int(i128::from(pc.wrapping_add(o as i64 as u64) & 0xffff_ffff)), None)
+                        let at = pc.wrapping_add(o as i64 as u64) & 0xffff_ffff;
+                        // A word of the literal pool, which lies in the code and never changes:
+                        // a standalone port has no code to read it from, so the word is the
+                        // constant it is, and an address it holds the address of what it names.
+                        if self.lifted.standalone
+                            && load
+                            && bits == 32
+                            && let Ok(word) = self.image.u32(at)
+                        {
+                            if rt != PC {
+                                let value = self.lifted.address_of(u64::from(word)).unwrap_or(Operand::Int(i128::from(word)));
+                                self.set_reg(block, rt, value);
+                            }
+                            return block;
+                        }
+                        (Operand::Int(i128::from(at)), None)
                     }
                     (PC, Offset::Reg { .. } | Offset::Shifted { .. }) => return self.unsupported(block, i),
                     (_, offset) => {
@@ -1145,6 +1229,30 @@ impl Lifter<'_, '_> {
                 self.cond = Some(self.m.b.icmp(block, if nonzero { ICond::Ne } else { ICond::Eq }, ty, v, 0i64, "cb"));
             }
             Op::Adr { rd, target } => self.set_reg(block, rd, (target & 0xffff_ffff) as i64),
+            // A Linux program's system call: the number in `r7`, the arguments from `r0`, the
+            // result in `r0`. They go to the runtime by value, the number as the kernel's oldest
+            // table has it (which MIPS's calls use, from 4000), so a raised function keeps its
+            // registers in values across the call. A console's program names the call by the
+            // instruction's own number, and its system reads the state.
+            Op::Svc(0) if self.image.platform().is_none() => {
+                let wide = |this: &mut Self, n: u8| {
+                    let v = this.reg(block, n, ip);
+                    this.m.b.cast(block, Cast::ZExt, Type::I32, v, Type::I64, "sys.a")
+                };
+                let number = wide(self, 7);
+                let number = self.m.b.bin(block, BinOp::Add, Type::I64, number, 4000i64, "sys.n");
+                let mut args = vec![(Type::I64, number.into())];
+                for n in 0..4 {
+                    args.push((Type::I64, wide(self, n).into()));
+                }
+                let result = self
+                    .m
+                    .b
+                    .call(block, crate::state::syscall_type(), Callee::Direct("ra_syscall".into()), args, "sys")
+                    .expect("the system call returns a value");
+                let result = self.m.b.cast(block, Cast::Trunc, Type::I64, result, Type::I32, "sys.r");
+                self.set_reg(block, 0, result);
+            }
             Op::Svc(imm) => {
                 self.m.b.call(
                     block,

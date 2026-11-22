@@ -1544,6 +1544,36 @@ fn mips_control_runs_as_rust() {
     run_rust_oracle_with(&mips_control(), ra_asm_emit::FUNCTIONS_PER_FILE);
 }
 
+/// A static 32-bit ARM Linux program with no C library, through the raise and the C backend: its
+/// `svc` is the port's `ra_syscall`, a word of its literal pool the constant it is or the
+/// address of what it names, and a switch through a table in the code a switch on its index,
+/// so the port stands without the image. It prints what its source does.
+///
+/// The thumb1 fixture is not among them: its port prints one line wrong, the product its own
+/// 64-bit multiply returns in Thumb code, which the run of the lift at the machine level gets
+/// right. The raise loses something there that it keeps in the same function in ARM code.
+fn arm_fixture(binary: &str, expected: &str) -> Fixture {
+    Fixture { no_goto: false, ..fixture(binary, expected) }
+}
+
+/// Thumb-2, its table reached by a word of the pool and the PC.
+#[test]
+fn thumb32_runs_as_c() {
+    run_fixture_as_c(&arm_fixture("thumb32", "thumb.txt"), "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+}
+
+/// ARM code, every instruction under its condition, its switch through a table of words.
+#[test]
+fn arm1_runs_as_c() {
+    run_fixture_as_c(&arm_fixture("arm1", "thumb1.txt"), "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+}
+
+/// Both sets in one program, told apart as the code is followed, across the linker's thunks.
+#[test]
+fn armthumb_stripped_runs_as_c() {
+    run_fixture_as_c(&arm_fixture("armthumb_stripped", "thumb1.txt"), "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+}
+
 #[test]
 fn float64_runs_as_cpp() {
     run_oracle_with("float64.exe", "float.txt", "cpp", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::Cpp);
