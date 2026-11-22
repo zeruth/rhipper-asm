@@ -216,6 +216,8 @@ pub(super) struct Runtime<'a> {
     pub(super) arm64: bool,
     /// The program is one of the Switch's system: its `svc` is a call of that system's kernel.
     pub(super) switch: bool,
+    /// The program is one of the 3DS's system.
+    pub(super) ctr: bool,
 }
 
 /// The calls across the platform boundary a run made, and those still running.
@@ -499,6 +501,7 @@ impl<'a> Runtime<'a> {
             nds: false,
             arm64: false,
             switch: false,
+            ctr: false,
         };
         runtime.thread.stack_bottom = runtime.allocations[0].start;
         runtime
@@ -841,6 +844,7 @@ impl<'a> Runtime<'a> {
             "ra_svc" if arg(args, 1) as i64 & crate::state::BKPT != 0 => self.bkpt(vm, arg(args, 0), arg(args, 1) & 0xff),
             "ra_svc" if self.gba || self.nds => self.gba_bios(vm, arg(args, 0), arg(args, 1) & 0xff),
             "ra_svc" if self.switch => self.horizon(vm, arg(args, 0), arg(args, 1)),
+            "ra_svc" if self.ctr => self.ctr_kernel(vm, arg(args, 0), arg(args, 1) & 0xff),
             "ra_svc" => self.svc(vm, arg(args, 0)),
             "ra_syscall" => {
                 let number = (arg(args, 0) as u32).wrapping_sub(4000);
@@ -968,6 +972,25 @@ impl<'a> Runtime<'a> {
             0x27 => {
                 let (at, len) = (vm.memory.read_u64(state)?, vm.memory.read_u64(state + 8)?);
                 let text = vm.memory.read_vec(at, len.min(1 << 16))?;
+                self.emit(false, &text);
+                vm.memory.write_u64(state, 0)?;
+                int(0)
+            }
+            _ => Err(Stop::fault(format!("the kernel call {number:#x} is not interpreted"))),
+        }
+    }
+
+    /// A call of a program of the 3DS's system into its kernel, which the `svc`'s own number
+    /// names: the arguments from `r0`, the result code in `r0`. The two a program without the
+    /// system's libraries prints and ends by are here, as the Switch's are.
+    fn ctr_kernel(&mut self, vm: &mut Vm<'_>, state: u64, number: u64) -> Result<Value, Stop> {
+        match number {
+            // ExitProcess
+            0x03 => Err(Stop::Exit(0)),
+            // OutputDebugString: the text and its length.
+            0x3d => {
+                let (at, len) = (vm.memory.read_u32(state)?, vm.memory.read_u32(state + 8)?);
+                let text = vm.memory.read_vec(u64::from(at), u64::from(len.min(1 << 16)))?;
                 self.emit(false, &text);
                 vm.memory.write_u64(state, 0)?;
                 int(0)

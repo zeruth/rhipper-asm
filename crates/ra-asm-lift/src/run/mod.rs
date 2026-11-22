@@ -507,6 +507,7 @@ fn run_here(
     runtime.nds = image.nds.is_some();
     runtime.arm64 = lifted.isa == crate::state::Isa::Arm64;
     runtime.switch = image.nro.is_some();
+    runtime.ctr = image.ctr.is_some();
     runtime.residual.clone_from(&options.residual);
     runtime.answers.clone_from(&options.answers);
     if options.answers.is_none() {

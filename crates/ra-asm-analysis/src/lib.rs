@@ -60,7 +60,7 @@ pub fn arch_of(image: &Image) -> Box<dyn Arch> {
     match image.machine() {
         Machine::Arm64 => Box::new(ra_asm_arm64::Arm64),
         // An ELF file's code may be of both sets, told apart by its map, which the decoder adds to.
-        Machine::Arm if image.arm_state.is_none() && (image.elf.is_some() || image.gba || image.nds.is_some()) => {
+        Machine::Arm if image.arm_state.is_none() && (image.elf.is_some() || image.gba || image.nds.is_some() || image.ctr.is_some()) => {
             Box::new(ra_asm_arm64::arm::ArmThumb { map: image.arm_map.clone(), arm: image.arm_code() })
         }
         Machine::Arm if image.arm_code() => Box::new(ra_asm_arm64::arm::Arm),

@@ -86,6 +86,8 @@ pub struct Image {
     pub nds: Option<Nds>,
     /// What an NRO file's header says, when the image is a program of the Switch's system.
     pub nro: Option<Nro>,
+    /// What a 3DSX file's header says, when the image is a program made for the 3DS's system.
+    pub ctr: Option<Ctr3dsx>,
     /// Which instruction set a 32-bit ARM image's code is in, where a reader knows it and the
     /// file does not say: `true` for ARM code, `false` for Thumb ([`Image::arm_code`]).
     pub arm_state: Option<bool>,
@@ -212,6 +214,7 @@ impl Image {
         let mut gba = false;
         let mut nds = None;
         let mut nro = None;
+        let mut ctr = None;
         let mut rom = None;
         let (headers, sections, xbe, elf, macho) = if boot.is_some() {
             let (headers, sections) = dreamcast_layout(file.len())?;
@@ -239,6 +242,10 @@ impl Image {
         } else if ra_asm_format::macho::is_macho(&file) {
             let (headers, sections, macho) = crate::macho::parse(&file)?;
             (headers, sections, None, None, Some(macho))
+        } else if let Some(program) = Ctr3dsx::parse(&file) {
+            let (headers, sections) = ctr_layout(program)?;
+            ctr = Some(program);
+            (headers, sections, None, None, None)
         } else if let Some(program) = Nro::parse(&file) {
             let (headers, sections) = nro_layout(program)?;
             nro = Some(program);
@@ -322,6 +329,7 @@ impl Image {
             gba,
             nds,
             nro,
+            ctr,
             dreamcast: boot,
             arm_state: None,
             arm_map: std::sync::Arc::default(),
@@ -354,6 +362,15 @@ impl Image {
         }
         if let Some(cartridge) = image.nds {
             image.arm_map.mark(u64::from(cartridge.arm9.entry), true);
+        }
+        if let Some(program) = image.ctr {
+            image.arm_map.mark(CTR_BASE, true);
+            if program.relocations != 0 {
+                image.warnings.push(format!(
+                    "the file's {} relocations are not applied: the program is mapped at {CTR_BASE:#x}",
+                    program.relocations
+                ));
+            }
         }
         image.read_directories();
         Ok(image)
@@ -450,7 +467,9 @@ impl Image {
     /// ELF file's entry with its low bit clear. A program of both is told by where it starts.
     pub fn arm_code(&self) -> bool {
         self.machine() == Machine::Arm
-            && self.arm_state.unwrap_or_else(|| self.gba || self.nds.is_some() || self.elf.as_ref().is_some_and(|elf| elf.entry & 1 == 0))
+            && self.arm_state.unwrap_or_else(|| {
+                self.gba || self.nds.is_some() || self.ctr.is_some() || self.elf.as_ref().is_some_and(|elf| elf.entry & 1 == 0)
+            })
     }
 
     /// Whether the code at `va` of a 32-bit ARM image is ARM code and not Thumb. A linker marks
@@ -501,7 +520,8 @@ impl Image {
             || self.n64.is_some()
             || self.firmware
             || self.nds.is_some()
-            || self.nro.is_some();
+            || self.nro.is_some()
+            || self.ctr.is_some();
         (rva != 0 || flat).then(|| self.va(rva))
     }
 
@@ -577,6 +597,8 @@ impl Image {
             Some("nds")
         } else if self.nro.is_some() {
             Some("switch")
+        } else if self.ctr.is_some() {
+            Some("3ds")
         } else if self.elf.as_ref().is_some_and(|e| e.prx.is_some()) {
             Some("psp")
         } else if self.elf.as_ref().is_some_and(|e| e.irx.is_some()) {
@@ -1044,6 +1066,88 @@ fn nro_layout(nro: Nro) -> Result<(Headers, Vec<Section>)> {
     headers.optional.entry_point = 0;
     headers.optional.size_of_code = nro.segments[0].1;
     headers.optional.size_of_image = end.checked_add(bss).context("the program is larger than 4 GiB")?;
+    Ok((headers, sections))
+}
+
+/// What the header of a 3DSX file, a program made for the 3DS's system, says: the size of its
+/// code, of its read-only data and of its data, the last with what the program clears, where
+/// each segment is in the file, and how many relocations the file has for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ctr3dsx {
+    /// The code, the read-only data and the data: each its offset in the file and its size
+    /// there. The data's size in memory is this and `bss`.
+    pub segments: [(u32, u32); 3],
+    pub bss: u32,
+    /// The relocations the file's tables hold. The loader maps a program where the system
+    /// loads one, and applies none: a program linked for another address is not placed.
+    pub relocations: u32,
+}
+
+/// Where the 3DS's system loads a program's code.
+pub const CTR_BASE: u64 = 0x0010_0000;
+
+impl Ctr3dsx {
+    /// Reads a file as a 3DSX: the magic, the sizes of the header and of a relocation header,
+    /// the three segment sizes, a relocation header for each segment, and the segments after
+    /// them, all in the file.
+    fn parse(file: &[u8]) -> Option<Self> {
+        let header = file.get(..0x20)?;
+        if &header[..4] != b"3DSX" {
+            return None;
+        }
+        let word = |at: usize| file.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+        let half = |at: usize| u32::from(u16::from_le_bytes([header[at], header[at + 1]]));
+        let (header_size, relocation_header) = (half(4), half(6));
+        if header_size < 0x20 || relocation_header < 8 {
+            return None;
+        }
+        let (code, rodata, data, bss) = (word(0x10)?, word(0x14)?, word(0x18)?, word(0x1c)?);
+        let in_file = data.checked_sub(bss)?;
+        let mut relocations = 0u32;
+        for n in 0..3 {
+            let at = (header_size + n * relocation_header) as usize;
+            relocations = relocations.checked_add(word(at)?)?.checked_add(word(at + 4)?)?;
+        }
+        let mut at = header_size + 3 * relocation_header;
+        let mut segments = [(0, 0); 3];
+        for (segment, size) in segments.iter_mut().zip([code, rodata, in_file]) {
+            *segment = (at, size);
+            at = at.checked_add(size)?;
+        }
+        (code != 0 && u64::from(at) <= file.len() as u64).then_some(Self { segments, bss, relocations })
+    }
+}
+
+/// The headers and the sections a 3DSX file stands for: its code at [`CTR_BASE`], its read-only
+/// data and its data after it, each from a page's start, the data with what the program clears.
+/// The program is entered at its code's first word, in ARM code.
+fn ctr_layout(program: Ctr3dsx) -> Result<(Headers, Vec<Section>)> {
+    let (mut headers, _) = dreamcast_layout(0x1000)?;
+    let kinds = [(".text", (true, false)), (".rodata", (false, false)), (".data", (false, true))];
+    let mut sections = Vec::new();
+    let mut at = 0u32;
+    for (n, ((name, (code, writable)), (offset, size))) in kinds.into_iter().zip(program.segments).enumerate() {
+        let memory = if n == 2 { size.checked_add(program.bss).context("the program's data is larger than 4 GiB")? } else { size };
+        if memory != 0 {
+            sections.push(Section {
+                name: name.to_owned(),
+                virtual_size: memory,
+                virtual_address: at,
+                raw_size: size,
+                raw_offset: offset,
+                characteristics: crate::elf::characteristics(code, writable, false),
+            });
+        }
+        at = at
+            .checked_add(memory.checked_next_multiple_of(0x1000).context("the program is larger than 4 GiB")?)
+            .context("the program is larger than 4 GiB")?;
+    }
+    headers.coff.machine = Machine::Arm;
+    headers.coff.sections = sections.len() as u16;
+    headers.optional.image_base = CTR_BASE;
+    headers.optional.entry_point = 0;
+    headers.optional.size_of_code = program.segments[0].1;
+    headers.optional.size_of_image = at;
     Ok((headers, sections))
 }
 

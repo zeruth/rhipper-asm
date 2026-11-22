@@ -224,6 +224,28 @@ fn armfp_runs_interpreted() {
     assert_eq!(outcome.exit, 99, "the exit the machine ended with (stop: {:?})", outcome.stop);
 }
 
+/// The same program as one made for the 3DS's system, in a 3DSX file: a header with the sizes
+/// of three segments and a table of relocations for each, none here, the program being linked
+/// where the system loads one. Its `svc` is a call of that system's kernel by the instruction's
+/// own number. No emulator of the console recorded it: the output is what the same program
+/// printed as a Linux one.
+#[test]
+fn ctr_program_runs_interpreted() {
+    let image = ra_asm_pe::load(&root().join("testdata/bin/armfp.3dsx")).unwrap();
+    assert_eq!(image.platform(), Some("3ds"));
+    let program = image.ctr.expect("the file's header");
+    assert_eq!((program.segments[0].0, program.relocations, program.bss), (0x38, 0, 0));
+    assert_eq!(image.entry_point(), Some(ra_asm_pe::image::CTR_BASE));
+    assert!(image.arm_code() && image.warnings.is_empty());
+    let expected = std::fs::read_to_string(root().join("testdata/expected/armfp.txt")).unwrap();
+    let Raised { image, lifted, signatures } = raise("armfp.3dsx", "run-machine");
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("armfp.3dsx: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!(outcome.exit, 0, "the end of the process ends the run (stop: {:?})", outcome.stop);
+}
+
 /// The program as a Game Boy Advance cartridge's ROM: no container but the cartridge's header,
 /// the whole file where the console maps a cartridge, entered at its first word in ARM code,
 /// which goes to the Thumb program through an address of the literal pool. It prints by the log

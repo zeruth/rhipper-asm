@@ -276,6 +276,46 @@ if (Wanted 'armfp') {
   if ($LASTEXITCODE -ne 0) { throw "clang failed for armfp" }
 }
 
+# armfp.3dsx is the same program as one of the 3DS's system (-DCTR), in the file a program made
+# for that system is kept in: a header with the sizes of its three segments, a table of
+# relocations for each, which this program linked where it is loaded has none of, and the
+# segments. The header and the tables are written here. No emulator of the console is here: it
+# runs lifted only, and prints what armfp prints.
+if (Wanted '3dsx') {
+  $out = Join-Path $PSScriptRoot '..\out\3dsx'
+  New-Item -ItemType Directory -Force $out | Out-Null
+  $elf = Join-Path $out 'armfp.elf'
+  $args = @('--target=armv6k-none-eabihf', '-marm', '-mfpu=vfpv2', '-mfloat-abi=hard', '-DCTR', '-O1', '-fno-unroll-loops',
+    '-fno-vectorize', '-nostdlib', '-ffreestanding', '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none',
+    "-Wl,-T,$(Join-Path $src '3dsx.ld')", (Join-Path $src 'armfp.c'), '-o', $elf)
+  Write-Host "clang armfp.3dsx" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for armfp.3dsx" }
+  $segments = New-Object 'System.Collections.Generic.List[byte[]]'
+  foreach ($name in '.text', '.rodata', '.data') {
+    $part = Join-Path $out "armfp$name.bin"
+    Remove-Item $part -ErrorAction SilentlyContinue
+    & llvm-objcopy -O binary -j $name $elf $part 2>$null
+    if (Test-Path $part) { $segments.Add([IO.File]::ReadAllBytes($part)) } else { $segments.Add((New-Object byte[] 0)) }
+  }
+  # The header (its size, a relocation header's size, the version and the flags, the three
+  # sizes and how much of the data the program clears), then a relocation header for each
+  # segment, both counts zero, then the segments.
+  $head = 0x20 + 3 * 8
+  $file = New-Object byte[] ($head + $segments[0].Length + $segments[1].Length + $segments[2].Length)
+  $w32 = { param($at, $v) [Array]::Copy([BitConverter]::GetBytes([uint32]$v), 0, $file, $at, 4) }
+  $w16 = { param($at, $v) [Array]::Copy([BitConverter]::GetBytes([uint16]$v), 0, $file, $at, 2) }
+  [Array]::Copy([Text.Encoding]::ASCII.GetBytes('3DSX'), 0, $file, 0, 4)
+  & $w16 0x04 0x20
+  & $w16 0x06 8
+  & $w32 0x10 $segments[0].Length
+  & $w32 0x14 $segments[1].Length
+  & $w32 0x18 $segments[2].Length
+  $at = $head
+  foreach ($segment in $segments) { [Array]::Copy($segment, 0, $file, $at, $segment.Length); $at += $segment.Length }
+  [IO.File]::WriteAllBytes((Join-Path $bin 'armfp.3dsx'), $file)
+}
+
 # gba.gba is the program as a Game Boy Advance cartridge's ROM (-DGBA): linked by gba.ld where
 # the console maps a cartridge, its header first, entered in ARM code that goes to the Thumb
 # program. It prints through the log an emulator keeps (swi 0xff) and ends by the BIOS's Stop.

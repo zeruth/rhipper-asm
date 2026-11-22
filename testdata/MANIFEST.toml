@@ -959,6 +959,15 @@ command = "testdata/build.ps1 nro"
 tools = "clang 22.1.7, LLD 22.1.7, llvm-objcopy 22.1.7"
 
 [[file]]
+path = "testdata/bin/armfp.3dsx"
+sha256 = "0d313f9564335c8808c3f131914f8c4b62348853147b61d47362046c3ed1a9a1"
+evidence = "source"
+expected = "testdata/expected/armfp.txt"
+source = "testdata/src/armfp.c"
+command = "testdata/build.ps1 3dsx"
+tools = "clang 22.1.7, LLD 22.1.7, llvm-objcopy 22.1.7"
+
+[[file]]
 path = "testdata/bin/cortexm.elf"
 sha256 = "a52362af0634f3143f3ff2e8d3b6f64b5c9ef290f503c366a01b606eef9f00dd"
 evidence = "source"
