@@ -341,6 +341,21 @@ if (Wanted 'gba') {
   [IO.File]::WriteAllBytes($rom, $bytes)
 }
 
+# x64sys and x86sys are the x86 programs that speak to their system themselves: static Linux
+# programs without a C library, the one's system calls by `syscall`, the other's by `int 0x80`.
+# The 32-bit one is built to its fixed address: a switch of position-independent 32-bit code
+# finds its table by the address a call leaves, which the analysis does not follow. Their
+# expected output is what they print run as they are under Linux, which is what thumb1 prints.
+if (Wanted 'x86sys') {
+  foreach ($target in @(@('x86_64-linux-gnu', 'x64sys', @()), @('i386-linux-gnu', 'x86sys', @('-fno-pic')))) {
+    $args = @("--target=$($target[0])") + $target[2] + @('-O1', '-fno-unroll-loops', '-fno-vectorize', '-nostdlib', '-ffreestanding',
+      '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none', (Join-Path $src 'x86sys.c'), '-o', (Join-Path $bin $target[1]))
+    Write-Host "clang $($target[1])" -ForegroundColor Cyan
+    & clang @args
+    if ($LASTEXITCODE -ne 0) { throw "clang failed for $($target[1])" }
+  }
+}
+
 # a64sys is the ARM64 program that speaks to its system itself: a static Linux program without
 # a C library, its system calls by `svc 0`. Its expected output is what it prints under
 # qemu-aarch64, which is what thumb1 prints.

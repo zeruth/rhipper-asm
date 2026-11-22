@@ -301,7 +301,7 @@ const FAMILIES = [
       { n: "Windows x86 (PE32)", s: [5, 5, 5, 4, 4, 5, 4, 2], d: "18 fixtures; the instruction oracle runs on the host CPU; driver.c and rhipper.h provide the Win32 host" },
       { n: "Windows x64 (PE32+)", s: [5, 5, 5, 4, 4, 5, 4, 2], d: "19 fixtures including PDB, C++ throw and SEH; the -O1 control build" },
       { n: "Original Xbox (XBE)", s: [5, 5, 4, 3, 3, 4, 1, 1], d: "xbe.rs is 743 lines with 237 lines of tests; the fixture's port prints its expected output; the kernel exports and a platform runtime are §440" },
-      { n: "Linux x86-64 (ELF)", s: [4, 5, 5, 3, 3, 4, 1, 0], d: "hello_linux64 with a golden output; the libc and syscall boundary is §440" },
+      { n: "Linux x86-64 (ELF)", s: [4, 5, 5, 3, 3, 4, 2, 0], d: "hello_linux64 with a golden output. A static program that makes its system calls itself lifts them to the runtime, which answers write and exit: x64sys (syscall) and its 32-bit build x86sys (int 0x80) print, lifted, what they print run as they are under Linux, and the 32-bit one's port through the C backend does too. The 64-bit one's port does not: the raise takes a 64-bit function's parameters from the Windows convention's registers, not System V's. A switch of position-independent 32-bit code, which finds its table by the address a call leaves, does not resolve; the libc boundary is §440" },
       { n: "macOS x86-64 (Mach-O)", s: [4, 5, 5, 3, 3, 3, 1, 0], d: "hello_macos_x64; macho.rs is 1 071 lines in ra-asm-format" },
       { n: "DOS (real mode)", s: [1, 1, 1, 1, 1, 1, 1, 0], d: "Segments, real mode and DOS extenders as loaders: §440" },
     ],

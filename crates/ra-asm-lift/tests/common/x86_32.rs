@@ -220,6 +220,7 @@ const GPR32_32: [R; 7] = [R::EAX, R::ECX, R::EDX, R::EBX, R::EBP, R::ESI, R::EDI
 /// here.
 const NOT_RUN32: &[(&str, &str)] = &[
     ("Int", "an interrupt leaves the process (int 0x29 ends it)"),
+    ("Syscall", "a system call runs the host's kernel"),
     ("Call", "control flow"),
     ("Ret", "control flow"),
     ("Retf", "control flow"),

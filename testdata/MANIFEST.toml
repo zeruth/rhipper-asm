@@ -968,6 +968,24 @@ command = "testdata/build.ps1 3dsx"
 tools = "clang 22.1.7, LLD 22.1.7, llvm-objcopy 22.1.7"
 
 [[file]]
+path = "testdata/bin/x64sys"
+sha256 = "9b7368f8186e1f8074b51a2b0252526358de42b98c125f82edfb50e39e82f64d"
+evidence = "native"
+expected = "testdata/expected/thumb1.txt"
+source = "testdata/src/x86sys.c"
+command = "testdata/build.ps1 x86sys"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/x86sys"
+sha256 = "e8934882ec4530a4a1bca4e5491400d7b5b54e21cd34f5b84466db3aefc0bf24"
+evidence = "native"
+expected = "testdata/expected/thumb1.txt"
+source = "testdata/src/x86sys.c"
+command = "testdata/build.ps1 x86sys"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
 path = "testdata/bin/cortexm.elf"
 sha256 = "a52362af0634f3143f3ff2e8d3b6f64b5c9ef290f503c366a01b606eef9f00dd"
 evidence = "source"

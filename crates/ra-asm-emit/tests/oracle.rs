@@ -1552,6 +1552,15 @@ fn arm_fixture(binary: &str, expected: &str) -> Fixture {
     Fixture { no_goto: false, ..fixture(binary, expected) }
 }
 
+/// The 32-bit x86 Linux program that makes its system calls itself, by `int 0x80`. The 64-bit
+/// one (`x64sys`, by `syscall`) runs lifted at the machine level and is not here: its port
+/// stores through a pointer the raise did not pass, the System V convention's registers being
+/// other than the ones the raise takes a 64-bit function's parameters from.
+#[test]
+fn x86sys_runs_as_c() {
+    run_fixture_as_c(&arm_fixture("x86sys", "thumb1.txt"), "one", ra_asm_emit::FUNCTIONS_PER_FILE, ra_asm_emit::Dialect::C);
+}
+
 /// Thumb-2, its table reached by a word of the pool and the PC.
 #[test]
 fn thumb32_runs_as_c() {

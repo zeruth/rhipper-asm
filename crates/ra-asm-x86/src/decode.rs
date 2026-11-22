@@ -75,6 +75,8 @@ impl X86 {
             FlowControl::IndirectBranch => Flow::Jump(Target::Indirect),
             FlowControl::ConditionalBranch => Flow::CondJump(Target::Direct(i.near_branch_target())),
             FlowControl::Return => Flow::Return,
+            // iced files `syscall` under the calls; it calls the kernel, not code of the image.
+            FlowControl::Call if i.mnemonic() == Mnemonic::Syscall => Flow::Interrupt,
             FlowControl::Call => Flow::Call(Target::Direct(i.near_branch_target())),
             FlowControl::IndirectCall => Flow::Call(Target::Indirect),
             FlowControl::Interrupt => {

@@ -1152,6 +1152,47 @@ impl Lifter<'_, '_> {
             M::Int3 => self.m.trap(block, ip, trap::INT3),
             M::Ud2 | M::Ud1 | M::Ud0 => self.m.trap(block, ip, trap::UD2),
             M::Hlt => self.m.trap(block, ip, trap::HLT),
+            // A Linux program's system call, which a program without a C library makes itself.
+            // It goes to the runtime by value, as the other machines' do: the number as the
+            // kernel's oldest table has it, from 4000, which is the 32-bit program's own.
+            M::Int if Self::immediate(i, 0) == 0x80 && self.image.elf.is_some() && self.m.bits == 32 => {
+                let wide = |this: &mut Self, reg: R| {
+                    let v = this.m.read_gpr(block, reg);
+                    this.m.zext(block, Type::I32, v, Type::I64, "sys.a")
+                };
+                let number = wide(self, R::EAX);
+                let number = self.m.b.bin(block, BinOp::Add, Type::I64, number, 4000i64, "sys.n");
+                let mut args = vec![(Type::I64, number.into())];
+                for reg in [R::EBX, R::ECX, R::EDX, R::ESI] {
+                    args.push((Type::I64, wide(self, reg).into()));
+                }
+                let result =
+                    self.m.b.call(block, crate::state::syscall_type(), Callee::Direct("ra_syscall".into()), args, "sys").expect("a value");
+                let result = self.m.trunc(block, Type::I64, result, Type::I32, "sys.r");
+                self.m.write_gpr(block, R::EAX, result);
+            }
+            // The 64-bit program's has its own instruction and its own numbers: the three the
+            // runtime answers (write, exit, exit_group) are renumbered to that table, and
+            // another goes to it out of the table's range, where it is refused by number.
+            // `rcx` is left the address after the instruction, as the processor leaves it;
+            // `r11`, which it leaves the flags, is not changed.
+            M::Syscall if self.image.elf.is_some() && self.m.bits == 64 => {
+                let number = self.m.read_gpr(block, R::RAX);
+                let mut mapped = self.m.b.bin(block, BinOp::Add, Type::I64, number, 0x10_0000i64, "sys.n");
+                for (theirs, ours) in [(1i64, 4004i64), (60, 4001), (231, 4246)] {
+                    let is = self.m.b.icmp(block, ICond::Eq, Type::I64, number, theirs, "sys.is");
+                    mapped = self.m.b.select(block, is, Type::I64, ours, mapped, "sys.n");
+                }
+                let mut args = vec![(Type::I64, mapped.into())];
+                for reg in [R::RDI, R::RSI, R::RDX, R::R10] {
+                    args.push((Type::I64, self.m.read_gpr(block, reg).into()));
+                }
+                let result =
+                    self.m.b.call(block, crate::state::syscall_type(), Callee::Direct("ra_syscall".into()), args, "sys").expect("a value");
+                self.m.write_gpr(block, R::RAX, result);
+                let after = self.m.value_of(block, Type::I64, i.next_ip() as i64);
+                self.m.write_gpr(block, R::RCX, after);
+            }
             M::Int => {
                 let n = Self::immediate(i, 0);
                 self.m.trap(block, ip, if n == 0x29 { trap::FASTFAIL } else { trap::INT });

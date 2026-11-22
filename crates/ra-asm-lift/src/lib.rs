@@ -751,8 +751,17 @@ fn lift_on(
     state::declare_runtime(&mut module);
     // An ARM64 program declares the system call only when it makes one: a program that reaches
     // its system through a library's functions has none.
-    let calls_system = || analysis.functions.values().any(|f| f.blocks.iter().any(|b| b.instrs.iter().any(|i| i.mnemonic == "svc")));
-    if isa == Isa::Arm32 || isa.is_mips() || (isa == Isa::Arm64 && calls_system()) {
+    // An x86 Linux program's is `syscall`, or `int 0x80`.
+    let calls_system = || {
+        let is_call = |i: &ra_asm_arch::Instr| match i.mnemonic.as_str() {
+            "svc" | "syscall" => true,
+            "int" => matches!(i.operands.first(), Some(ra_asm_arch::Operand::Imm { value: 0x80, .. })),
+            _ => false,
+        };
+        analysis.functions.values().any(|f| f.blocks.iter().any(|b| b.instrs.iter().any(is_call)))
+    };
+    let x86_linux = isa == Isa::X86 && image.elf.is_some();
+    if isa == Isa::Arm32 || isa.is_mips() || ((isa == Isa::Arm64 || x86_linux) && calls_system()) {
         state::declare_svc(&mut module);
     }
     if image.platform() == Some("psx") {

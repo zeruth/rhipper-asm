@@ -186,6 +186,23 @@ fn a64sys_runs_interpreted() {
     assert_eq!(outcome.exit, 98, "the exit the machine ended with (stop: {:?})", outcome.stop);
 }
 
+/// The x86 programs that speak to their system themselves: static Linux programs without a C
+/// library, the 64-bit one's system calls by `syscall` and the 32-bit one's by `int 0x80`, which
+/// the lift hands to the runtime by value. Each prints what it printed run as it is under Linux
+/// and ends with the code it ended with there.
+#[test]
+fn x86_system_calls_run_interpreted() {
+    let expected = std::fs::read_to_string(root().join("testdata/expected/thumb1.txt")).unwrap();
+    for binary in ["x64sys", "x86sys"] {
+        let Raised { image, lifted, signatures } = raise(binary, "run-machine");
+        assert!(lifted.warnings.is_empty(), "{binary}: the lift warned:\n{}", lifted.warnings.join("\n"));
+        let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+        let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+        assert_output(&format!("{binary}: interpreted"), &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+        assert_eq!(outcome.exit, 98, "{binary}: the exit the machine ended with (stop: {:?})", outcome.stop);
+    }
+}
+
 /// The same program as one of the Switch's system, in an NRO file: three segments the header in
 /// the code's first bytes names, mapped one after another and entered at the first word. Its
 /// `svc` is a call of that system's kernel by the instruction's own number: a line for the

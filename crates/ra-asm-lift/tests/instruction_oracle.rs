@@ -511,6 +511,7 @@ const YMM: [R; 16] = [
 /// a host call), the 32-bit-only forms, and the one whose result the manual leaves undefined.
 const NOT_RUN: &[(&str, &str)] = &[
     ("Int", "an interrupt leaves the process (int 0x29 ends it)"),
+    ("Syscall", "a system call runs the host's kernel"),
     ("Call", "control flow"),
     ("Ret", "control flow"),
     ("Retf", "control flow"),
