@@ -171,7 +171,56 @@ public class Library {
         return out.append(' ').append(b).toString();
     }
 
+    // A map walked by its keys, its values and its entries, a set, and lists sorted: the order a
+    // map and a set are walked in is the library's own, by the keys' hashes.
+    static String collections() {
+        Map<String, Integer> ages = new HashMap<>();
+        String[] names = {"zoe", "adam", "mia", "bob", "yuri", "carl", "lena", "dave", "kim", "eve", "noor", "finn", "omar", "gus"};
+        for (int n = 0; n < names.length; n++) {
+            ages.put(names[n], 20 + n);
+        }
+        ages.remove("bob");
+        StringBuilder out = new StringBuilder();
+        int total = 0;
+        for (String name : ages.keySet()) {
+            out.append(name.charAt(0));
+        }
+        for (int age : ages.values()) {
+            total = total * 3 + age;
+        }
+        out.append(' ').append(total).append(' ');
+        for (Map.Entry<String, Integer> entry : ages.entrySet()) {
+            out.append(entry.getKey().length() + entry.getValue() % 10);
+        }
+        java.util.Set<Integer> seen = new java.util.HashSet<>();
+        int[] numbers = {40, 7, 23, 7, 100, 16, 40, 1, 33};
+        int fresh = 0;
+        for (int n : numbers) {
+            if (seen.add(n)) {
+                fresh++;
+            }
+        }
+        seen.remove(23);
+        out.append(' ').append(fresh).append(seen.size()).append(seen.contains(7)).append(seen.contains(23)).append(' ');
+        for (int n : seen) {
+            out.append(n).append(',');
+        }
+        List<String> sorted = new ArrayList<>(java.util.Arrays.asList("pear", "fig", "apple", "kiwi"));
+        java.util.Collections.sort(sorted);
+        out.append(' ').append(sorted);
+        sorted.sort((a, b) -> a.length() != b.length() ? a.length() - b.length() : b.compareTo(a));
+        out.append(sorted);
+        List<Integer> values = new ArrayList<>(seen);
+        java.util.Collections.sort(values);
+        values.removeIf(v -> v % 2 == 0);
+        values.addAll(java.util.Arrays.asList(5, 3));
+        values.sort(null);
+        out.append(' ').append(values).append(Integer.valueOf(3).compareTo(7)).append(Long.valueOf(9L).compareTo(2L));
+        return out.toString();
+    }
+
     public static void main(String[] args) {
+        System.out.println(collections());
         System.out.println(references());
         System.out.println(formats());
         System.out.println(strings());

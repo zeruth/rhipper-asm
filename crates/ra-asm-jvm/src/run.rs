@@ -44,6 +44,8 @@ const LIBRARY: &[(&str, &str, &[&str])] = &[
     ("java/util/ArrayList", "java/lang/Object", &["java/util/List", "java/util/Collection", "java/lang/Iterable"]),
     ("java/util/ArrayList$Itr", "java/lang/Object", &["java/util/Iterator"]),
     ("java/util/HashMap", "java/lang/Object", &["java/util/Map"]),
+    ("java/util/HashMap$Node", "java/lang/Object", &["java/util/Map$Entry"]),
+    ("java/util/HashSet", "java/lang/Object", &["java/util/Set", "java/util/Collection", "java/lang/Iterable"]),
     ("java/lang/Throwable", "java/lang/Object", &[]),
     ("java/lang/Error", "java/lang/Throwable", &[]),
     ("java/lang/Exception", "java/lang/Throwable", &[]),
@@ -125,6 +127,8 @@ pub struct Machine {
     /// The string object of each constant's text: a constant is one object wherever it is named.
     interned: HashMap<Vec<u16>, u64>,
     mirrors: HashMap<String, u64>,
+    /// The most entries each map has held.
+    peaks: HashMap<u64, usize>,
     /// Where each static field of the library the program names is.
     statics: HashMap<String, u64>,
     pending: u64,
@@ -296,6 +300,7 @@ impl Machine {
             natives: HashMap::new(),
             interned: HashMap::new(),
             mirrors: HashMap::new(),
+            peaks: HashMap::new(),
             statics: HashMap::new(),
             pending: 0,
             heap: HEAP.0,
@@ -434,6 +439,44 @@ impl Machine {
         let at = self.object(vm, class)?;
         self.natives.insert(at, Native::Box(bits));
         Ok(pointer(at))
+    }
+
+    /// A map's entries, or a set's elements as keys, in the order a `HashMap` walks them: by the
+    /// place of each key's hash in a table as large as the most the map has held asks for, and
+    /// within a place by the order the keys came.
+    fn walked(&mut self, vm: &mut Vm<'_>, map: u64) -> Result<Vec<(u64, u64)>, Stop> {
+        let entries = match self.natives.get(&map) {
+            Some(Native::Map(entries)) => entries.clone(),
+            _ => Vec::new(),
+        };
+        let peak = self.peaks.get(&map).copied().unwrap_or(0).max(entries.len());
+        let mut places = 16usize;
+        while peak > places / 4 * 3 {
+            places *= 2;
+        }
+        let mut placed = Vec::with_capacity(entries.len());
+        for (key, value) in entries {
+            let hash = if key == 0 { 0 } else { as_int(&self.invoke(vm, key, "hashCode:()I", Vec::new(), Type::I32)?).cast_unsigned() };
+            placed.push(((hash ^ (hash >> 16)) as usize & (places - 1), key, value));
+        }
+        placed.sort_by_key(|&(place, _, _)| place);
+        Ok(placed.into_iter().map(|(_, key, value)| (key, value)).collect())
+    }
+
+    /// The elements of a collection of the library: a list's, or a set's as it walks them.
+    fn items(&mut self, vm: &mut Vm<'_>, collection: u64) -> Result<Vec<u64>, Stop> {
+        Ok(match self.natives.get(&collection) {
+            Some(Native::List(items)) => items.clone(),
+            Some(Native::Map(_)) => self.walked(vm, collection)?.into_iter().map(|(key, _)| key).collect(),
+            _ => Vec::new(),
+        })
+    }
+
+    /// A new list of `items`.
+    fn list(&mut self, vm: &mut Vm<'_>, items: Vec<u64>) -> Result<u64, Stop> {
+        let list = self.object(vm, "java/util/ArrayList")?;
+        self.natives.insert(list, Native::List(items));
+        Ok(list)
     }
 
     /// The object that stands for the class `class`: one for a class.
@@ -1202,18 +1245,119 @@ impl Machine {
                     truth(found.is_some())
                 }
             }
-            ("HashMap", "<init>", "()V" | "(I)V") => {
+            ("HashMap" | "HashSet", "<init>", "()V" | "(I)V") | ("HashMap" | "HashSet", "clear", "()V") => {
                 self.natives.insert(this, Native::Map(Vec::new()));
                 NOTHING
             }
-            ("HashMap", "size", "()I") | ("HashMap", "isEmpty", "()Z") => {
+            // A map's keys, its values and its entries, and a set's iterator, in the order a
+            // `HashMap` walks them. Each is a list of what the map held when it was asked: it
+            // does not follow the map after.
+            ("HashMap", "keySet" | "values" | "entrySet", _) => {
+                let mut items = Vec::new();
+                for (key, value) in self.walked(vm, this)? {
+                    items.push(match name {
+                        "keySet" => key,
+                        "values" => value,
+                        _ => {
+                            let node = self.object(vm, "java/util/HashMap$Node")?;
+                            self.natives.insert(node, Native::Map(vec![(key, value)]));
+                            node
+                        }
+                    });
+                }
+                pointer(self.list(vm, items)?)
+            }
+            ("HashMap$Node", "getKey" | "getValue", _) => match self.natives.get(&this) {
+                Some(Native::Map(entry)) if !entry.is_empty() => pointer(if name == "getKey" { entry[0].0 } else { entry[0].1 }),
+                _ => NOTHING,
+            },
+            ("HashSet", "iterator", _) => {
+                let items = self.items(vm, this)?;
+                let list = self.list(vm, items)?;
+                let iterator = self.object(vm, "java/util/ArrayList$Itr")?;
+                self.natives.insert(iterator, Native::Iterator { list, at: 0 });
+                pointer(iterator)
+            }
+            ("Arrays", "asList", "([Ljava/lang/Object;)Ljava/util/List;") => {
+                let count = if this == 0 { 0 } else { u64::from(vm.memory.read_u32(this + HEADER)?) };
+                let mut items = Vec::with_capacity(count as usize);
+                for n in 0..count {
+                    items.push(vm.memory.read_u64(this + ELEMENTS + 8 * n)?);
+                }
+                pointer(self.list(vm, items)?)
+            }
+            ("ArrayList", "<init>" | "addAll", "(Ljava/util/Collection;)V" | "(Ljava/util/Collection;)Z") => {
+                let added = self.items(vm, arg(1))?;
+                let grew = !added.is_empty();
+                if let Some(Native::List(items)) = self.natives.get_mut(&this) {
+                    items.extend(added);
+                }
+                if name == "addAll" { truth(grew) } else { NOTHING }
+            }
+            ("Collections", "sort", "(Ljava/util/List;)V") | ("ArrayList", "sort", "(Ljava/util/Comparator;)V") => {
+                // By the elements' own order, or a comparator's; equal elements keep their places.
+                let comparator = if short == "ArrayList" { arg(1) } else { 0 };
+                let mut items = self.items(vm, this)?;
+                for sorted in 1..items.len() {
+                    let mut at = sorted;
+                    while at > 0 {
+                        let (a, b) = (items[at - 1], items[at]);
+                        let order = if comparator == 0 {
+                            self.invoke(vm, a, "compareTo:(Ljava/lang/Object;)I", vec![pointer(b)], Type::I32)?
+                        } else {
+                            self.invoke(
+                                vm,
+                                comparator,
+                                "compare:(Ljava/lang/Object;Ljava/lang/Object;)I",
+                                vec![pointer(a), pointer(b)],
+                                Type::I32,
+                            )?
+                        };
+                        if self.pending != 0 {
+                            return Ok(Some(NOTHING));
+                        }
+                        if as_int(&order) <= 0 {
+                            break;
+                        }
+                        items.swap(at - 1, at);
+                        at -= 1;
+                    }
+                }
+                self.natives.insert(this, Native::List(items));
+                NOTHING
+            }
+            ("ArrayList", "removeIf", "(Ljava/util/function/Predicate;)Z") => {
+                let items = self.items(vm, this)?;
+                let mut kept = Vec::with_capacity(items.len());
+                for &item in &items {
+                    let gone = self.invoke(vm, arg(1), "test:(Ljava/lang/Object;)Z", vec![pointer(item)], Type::I32)?;
+                    if self.pending != 0 {
+                        return Ok(Some(NOTHING));
+                    }
+                    if gone.as_u64() & 1 == 0 {
+                        kept.push(item);
+                    }
+                }
+                let removed = kept.len() != items.len();
+                self.natives.insert(this, Native::List(kept));
+                truth(removed)
+            }
+            ("Integer" | "Long", "compareTo", _) => {
+                let bits = |machine: &Self, at: u64| match machine.natives.get(&at) {
+                    Some(&Native::Box(bits)) => bits,
+                    _ => 0,
+                };
+                let (a, b) = (bits(self, this), bits(self, arg(1)));
+                int(if short == "Long" { a.cast_signed().cmp(&b.cast_signed()) } else { (a as u32 as i32).cmp(&(b as u32 as i32)) } as i32)
+            }
+            ("HashMap" | "HashSet", "size", "()I") | ("HashMap" | "HashSet", "isEmpty", "()Z") => {
                 let count = match self.natives.get(&this) {
                     Some(Native::Map(entries)) => entries.len(),
                     _ => 0,
                 };
                 if name == "size" { int(count as i32) } else { truth(count == 0) }
             }
-            ("HashMap", "get" | "put" | "remove" | "containsKey" | "getOrDefault", _) => {
+            ("HashMap", "get" | "put" | "remove" | "containsKey" | "getOrDefault", _) | ("HashSet", "add" | "contains" | "remove", _) => {
                 // The entry whose key equals the one asked for, as the keys' own `equals` says.
                 let entries = match self.natives.get(&this) {
                     Some(Native::Map(entries)) => entries.clone(),
@@ -1230,9 +1374,18 @@ impl Machine {
                 let Some(Native::Map(entries)) = self.natives.get_mut(&this) else { return Ok(Some(NOTHING)) };
                 match (name, found) {
                     ("put", Some(at)) => entries[at].1 = arg(2),
-                    ("put", None) => entries.push((arg(1), arg(2))),
+                    ("put" | "add", None) => {
+                        entries.push((arg(1), arg(2)));
+                        // The most the map has held says how many places its table has.
+                        let held = entries.len();
+                        let peak = self.peaks.entry(this).or_default();
+                        *peak = (*peak).max(held);
+                    }
                     ("remove", Some(at)) => drop(entries.remove(at)),
                     _ => {}
+                }
+                if short == "HashSet" {
+                    return Ok(Some(truth(found.is_some() != (name == "add"))));
                 }
                 match name {
                     "containsKey" => truth(found.is_some()),

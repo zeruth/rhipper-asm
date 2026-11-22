@@ -145,9 +145,10 @@ static ref object(const char *name) {
         NATIVE(made) = (uint64_t)(uintptr_t)room(sizeof(struct text));
     } else if (is(name, "java/util/ArrayList")) {
         NATIVE(made) = (uint64_t)(uintptr_t)room(sizeof(struct list));
-    } else if (is(name, "java/util/HashMap")) {
-        // A map is two lists: its keys and their values.
-        NATIVE(made) = (uint64_t)(uintptr_t)room(2 * sizeof(struct list));
+    } else if (is(name, "java/util/HashMap") || is(name, "java/util/HashSet")) {
+        // A map is two lists, its keys and their values, and the most it has held; a set is a
+        // map of its elements.
+        NATIVE(made) = (uint64_t)(uintptr_t)room(2 * sizeof(struct list) + 16);
     }
     return made;
 }
@@ -1358,6 +1359,8 @@ static void ArrayList_clear(ref this) {
 // A map is two lists side by side: its keys in the order they came, and each one's value.
 struct map {
     struct list keys, values;
+    // The most entries the map has held, which says how many places its table has.
+    uint32_t peak;
 };
 
 static struct map *map_of(ref object) {
@@ -1401,6 +1404,7 @@ static ref HashMap_put(ref this, ref key, ref value) {
     list_room(&map->values);
     map->keys.items[map->keys.count++] = key;
     map->values.items[map->values.count++] = value;
+    if (map->keys.count > map->peak) map->peak = map->keys.count;
     return 0;
 }
 
@@ -1414,6 +1418,151 @@ static ref HashMap_remove(ref this, ref key) {
         list->count--;
     }
     return old;
+}
+
+static void HashMap_clear(ref this) {
+    map_of(this)->keys.count = 0;
+    map_of(this)->values.count = 0;
+}
+
+// A map's keys (0), its values (1) or its entries (2) as a list, in the order a `HashMap` walks
+// them: by the place of each key's hash in a table as large as the most the map has held asks
+// for, and within a place by the order the keys came. The list is of what the map holds now.
+static ref walked(ref this, int what) {
+    struct map *map = map_of(this);
+    uint32_t count = map->keys.count, places = 16;
+    while (map->peak > places / 4 * 3) places *= 2;
+    uint32_t *place = room(count * sizeof *place + 1), *order = room(count * sizeof *order + 1);
+    for (uint32_t n = 0; n < count; n++) {
+        ref key = map->keys.items[n];
+        uint32_t hash = key ? ((uint32_t (*)(ref))jvm_virtual(key, (uint8_t *)"hashCode:()I"))(key) : 0;
+        place[n] = (hash ^ (hash >> 16)) & (places - 1);
+        // Into its place among those before it; one of the same place stays ahead.
+        uint32_t at = n;
+        for (; at > 0 && place[order[at - 1]] > place[n]; at--) order[at] = order[at - 1];
+        order[at] = n;
+    }
+    ref made = object("java/util/ArrayList");
+    for (uint32_t n = 0; n < count; n++) {
+        ref key = map->keys.items[order[n]], value = map->values.items[order[n]];
+        if (what == 2) {
+            ref node = allocate("java/util/HashMap$Node", 8);
+            ref *pair = room(2 * sizeof *pair);
+            pair[0] = key;
+            pair[1] = value;
+            NATIVE(node) = (uint64_t)(uintptr_t)pair;
+            ArrayList_add(made, node);
+        } else {
+            ArrayList_add(made, what ? value : key);
+        }
+    }
+    free(place);
+    free(order);
+    return made;
+}
+
+static ref HashMap_keySet(ref this) { return walked(this, 0); }
+static ref HashMap_values(ref this) { return walked(this, 1); }
+static ref HashMap_entrySet(ref this) { return walked(this, 2); }
+static ref Node_getKey(ref this) { return ((ref *)(uintptr_t)NATIVE(this))[0]; }
+static ref Node_getValue(ref this) { return ((ref *)(uintptr_t)NATIVE(this))[1]; }
+
+void java_util_HashSet__new___V(ref this) {
+    (void)this;
+}
+
+static uint32_t HashSet_add(ref this, ref item) {
+    if (list_find(&map_of(this)->keys, item) >= 0) return 0;
+    HashMap_put(this, item, item);
+    return 1;
+}
+
+static uint32_t HashSet_remove(ref this, ref item) {
+    if (list_find(&map_of(this)->keys, item) < 0) return 0;
+    HashMap_remove(this, item);
+    return 1;
+}
+
+static ref HashSet_iterator(ref this) {
+    return ArrayList_iterator(walked(this, 0));
+}
+
+// The elements of a collection of the library as a list: a list's own, or a set's as it walks them.
+static ref items_of(ref collection) {
+    if (!collection) {
+        throw_new("java/lang/NullPointerException", 0);
+        return 0;
+    }
+    return is(class_of(collection), "java/util/HashSet") ? walked(collection, 0) : collection;
+}
+
+static uint32_t ArrayList_addAll(ref this, ref from) {
+    ref items = items_of(from);
+    if (!items) return 0;
+    uint32_t count = list_of(items)->count;
+    for (uint32_t n = 0; n < count; n++) ArrayList_add(this, list_of(items)->items[n]);
+    return count != 0;
+}
+
+void java_util_ArrayList__new__Ljava_util_Collection_2_V(ref this, ref from) {
+    ArrayList_addAll(this, from);
+}
+
+ref java_util_Arrays__asList___3Ljava_lang_Object_2_Ljava_util_List_2(ref array) {
+    ref made = object("java/util/ArrayList");
+    for (int32_t n = 0; array && n < LENGTH(array); n++) ArrayList_add(made, ((ref *)(array + ELEMENTS))[n]);
+    return made;
+}
+
+// A list sorted by its elements' own order, or by a comparator's; equal elements keep their places.
+static void ArrayList_sort(ref this, ref comparator) {
+    struct list *list = list_of(this);
+    for (uint32_t sorted = 1; sorted < list->count; sorted++) {
+        for (uint32_t at = sorted; at > 0; at--) {
+            ref a = list->items[at - 1], b = list->items[at];
+            int32_t order;
+            if (comparator) {
+                order = (int32_t)((uint32_t (*)(ref, ref, ref))jvm_virtual(comparator, (uint8_t *)"compare:(Ljava/lang/Object;Ljava/lang/Object;)I"))(comparator, a, b);
+            } else {
+                order = (int32_t)((uint32_t (*)(ref, ref))jvm_virtual(a, (uint8_t *)"compareTo:(Ljava/lang/Object;)I"))(a, b);
+            }
+            if (pending) return;
+            if (order <= 0) break;
+            list->items[at - 1] = b;
+            list->items[at] = a;
+        }
+    }
+}
+
+void java_util_Collections__sort__Ljava_util_List_2_V(ref list) {
+    if (!list) {
+        throw_new("java/lang/NullPointerException", 0);
+        return;
+    }
+    ArrayList_sort(list, 0);
+}
+
+static uint32_t ArrayList_removeIf(ref this, ref predicate) {
+    struct list *list = list_of(this);
+    uint32_t kept = 0, count = list->count;
+    for (uint32_t n = 0; n < count; n++) {
+        ref item = list->items[n];
+        uint32_t gone = ((uint32_t (*)(ref, ref))jvm_virtual(predicate, (uint8_t *)"test:(Ljava/lang/Object;)Z"))(predicate, item);
+        if (pending) return 0;
+        if (!(gone & 1)) list->items[kept++] = item;
+    }
+    list->count = kept;
+    return kept != count;
+}
+
+static uint32_t Integer_compareTo(ref this, ref other) {
+    int32_t a = (int32_t)NATIVE(this), b = (int32_t)NATIVE(other);
+    return (uint32_t)((a > b) - (a < b));
+}
+
+static uint32_t Long_compareTo(ref this, ref other) {
+    int64_t a = (int64_t)NATIVE(this), b = (int64_t)NATIVE(other);
+    return (uint32_t)((a > b) - (a < b));
 }
 
 static void everyday(void);
@@ -1875,6 +2024,29 @@ static void everyday(void) {
     method(map, "getOrDefault:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", (void *)HashMap_getOrDefault);
     method(map, "put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", (void *)HashMap_put);
     method(map, "remove:(Ljava/lang/Object;)Ljava/lang/Object;", (void *)HashMap_remove);
+    method(map, "clear:()V", (void *)HashMap_clear);
+    method(map, "keySet:()Ljava/util/Set;", (void *)HashMap_keySet);
+    method(map, "values:()Ljava/util/Collection;", (void *)HashMap_values);
+    method(map, "entrySet:()Ljava/util/Set;", (void *)HashMap_entrySet);
+    const char *node = "java/util/HashMap$Node", *set = "java/util/HashSet";
+    library(node, "java/lang/Object", "java/util/Map$Entry", 0);
+    method(node, "getKey:()Ljava/lang/Object;", (void *)Node_getKey);
+    method(node, "getValue:()Ljava/lang/Object;", (void *)Node_getValue);
+    library(set, "java/lang/Object", "java/util/Set", "java/util/Collection");
+    method(set, "size:()I", (void *)HashMap_size);
+    method(set, "isEmpty:()Z", (void *)HashMap_isEmpty);
+    method(set, "contains:(Ljava/lang/Object;)Z", (void *)HashMap_containsKey);
+    method(set, "add:(Ljava/lang/Object;)Z", (void *)HashSet_add);
+    method(set, "remove:(Ljava/lang/Object;)Z", (void *)HashSet_remove);
+    method(set, "clear:()V", (void *)HashMap_clear);
+    method(set, "iterator:()Ljava/util/Iterator;", (void *)HashSet_iterator);
+    method(list, "addAll:(Ljava/util/Collection;)Z", (void *)ArrayList_addAll);
+    method(list, "sort:(Ljava/util/Comparator;)V", (void *)ArrayList_sort);
+    method(list, "removeIf:(Ljava/util/function/Predicate;)Z", (void *)ArrayList_removeIf);
+    method("java/lang/Integer", "compareTo:(Ljava/lang/Integer;)I", (void *)Integer_compareTo);
+    method("java/lang/Integer", "compareTo:(Ljava/lang/Object;)I", (void *)Integer_compareTo);
+    method("java/lang/Long", "compareTo:(Ljava/lang/Long;)I", (void *)Long_compareTo);
+    method("java/lang/Long", "compareTo:(Ljava/lang/Object;)I", (void *)Long_compareTo);
     library("java/lang/NumberFormatException", "java/lang/IllegalArgumentException", 0, 0);
 }
 
