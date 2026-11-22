@@ -941,6 +941,24 @@ command = "testdata/build.ps1 armfp"
 tools = "clang 22.1.7, LLD 22.1.7"
 
 [[file]]
+path = "testdata/bin/a64sys"
+sha256 = "4b129fb72cc17afefc8add57f133184d100904ca08b624e8a21142100edfbd7f"
+evidence = "emulator"
+expected = "testdata/expected/thumb1.txt"
+source = "testdata/src/a64sys.c"
+command = "testdata/build.ps1 a64sys"
+tools = "clang 22.1.7, LLD 22.1.7"
+
+[[file]]
+path = "testdata/bin/a64.nro"
+sha256 = "890cd4ccf82d90c70364aa7df7c3710547cf2578a98e87f65d994c6915f3cdae"
+evidence = "source"
+expected = "testdata/expected/thumb1.txt"
+source = "testdata/src/a64sys.c"
+command = "testdata/build.ps1 nro"
+tools = "clang 22.1.7, LLD 22.1.7, llvm-objcopy 22.1.7"
+
+[[file]]
 path = "testdata/bin/cortexm.elf"
 sha256 = "a52362af0634f3143f3ff2e8d3b6f64b5c9ef290f503c366a01b606eef9f00dd"
 evidence = "source"

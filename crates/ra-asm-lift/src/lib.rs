@@ -749,7 +749,10 @@ fn lift_on(
     };
     module.types.push((state::STATE_TYPE.to_owned(), state::state_fields_for(isa)));
     state::declare_runtime(&mut module);
-    if isa == Isa::Arm32 || isa.is_mips() {
+    // An ARM64 program declares the system call only when it makes one: a program that reaches
+    // its system through a library's functions has none.
+    let calls_system = || analysis.functions.values().any(|f| f.blocks.iter().any(|b| b.instrs.iter().any(|i| i.mnemonic == "svc")));
+    if isa == Isa::Arm32 || isa.is_mips() || (isa == Isa::Arm64 && calls_system()) {
         state::declare_svc(&mut module);
     }
     if image.platform() == Some("psx") {

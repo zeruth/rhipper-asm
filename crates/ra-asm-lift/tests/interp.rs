@@ -172,6 +172,42 @@ fn armthumb_stripped_runs_interpreted() {
     assert!(analysis.functions.len() >= 14, "{} functions", analysis.functions.len());
 }
 
+/// The ARM64 program that speaks to its system itself: a static Linux program without a C
+/// library, whose `svc` the lift hands to the runtime with the state. It prints what it printed
+/// under an emulator of the machine and ends with the code it ended with there.
+#[test]
+fn a64sys_runs_interpreted() {
+    let expected = std::fs::read_to_string(root().join("testdata/expected/thumb1.txt")).unwrap();
+    let Raised { image, lifted, signatures } = raise("a64sys", "run-machine");
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("a64sys: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!(outcome.exit, 98, "the exit the machine ended with (stop: {:?})", outcome.stop);
+}
+
+/// The same program as one of the Switch's system, in an NRO file: three segments the header in
+/// the code's first bytes names, mapped one after another and entered at the first word. Its
+/// `svc` is a call of that system's kernel by the instruction's own number: a line for the
+/// debugger's log, and the end of the process. No emulator of the console recorded it: the
+/// output is what the same program printed as a Linux one.
+#[test]
+fn nro_program_runs_interpreted() {
+    let image = ra_asm_pe::load(&root().join("testdata/bin/a64.nro")).unwrap();
+    assert_eq!(image.platform(), Some("switch"));
+    assert_eq!(image.machine(), ra_asm_pe::Machine::Arm64);
+    let program = image.nro.expect("the file's header");
+    assert_eq!(program.segments, [(0, 0x1000), (0x1000, 0), (0x1000, 0)]);
+    assert_eq!(image.entry_point(), Some(ra_asm_pe::image::NRO_BASE));
+    let expected = std::fs::read_to_string(root().join("testdata/expected/thumb1.txt")).unwrap();
+    let Raised { image, lifted, signatures } = raise("a64.nro", "run-machine");
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("a64.nro: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!(outcome.exit, 0, "the end of the process ends the run (stop: {:?})", outcome.stop);
+}
+
 /// The floating-point fixture of 32-bit ARM: single and double arithmetic by the VFP unit, the
 /// compares through the unit's status register, the conversions with their ends, the loads and
 /// stores of the unit's registers. It prints what it printed under an emulator of the machine,

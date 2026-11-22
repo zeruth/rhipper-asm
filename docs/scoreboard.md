@@ -6,6 +6,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 
 | program | status | machine | promoted | abi | traps | trapping | verified machine | verified promoted | discharged | checked | open | lines | gotos ‰ | casts ‰ |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| a64sys | ok | 9 | 9 | 9 | 0 | 0 | 9 | 9 | 10 | 0 | 24 | 258 | 0.0 | 647.3 |
 | aligned32.exe | ok | 6 | 6 | 6 | 0 | 0 | 5 | 5 | 5 | 0 | 16 | 374 | 10.7 | 227.3 |
 | arm1 | ok | 9 | 9 | 9 | 0 | 0 | 9 | 9 | 11 | 0 | 24 | 388 | 0.0 | 407.2 |
 | armfp | ok | 16 | 16 | 16 | 0 | 0 | 16 | 16 | 45 | 0 | 97 | 751 | 0.0 | 281.0 |
@@ -72,7 +73,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | window32.exe | ok | 5 | 5 | 5 | 0 | 0 | 1 | 1 | 17 | 0 | 32 | 375 | 0.0 | 741.3 |
 | window64.exe | ok | 5 | 5 | 5 | 0 | 0 | 2 | 2 | 17 | 0 | 32 | 261 | 0.0 | 375.5 |
 | xbe32.xbe | ok | 3 | 3 | 3 | 0 | 0 | 3 | 3 | 12 | 0 | 24 | 167 | 0.0 | 467.1 |
-| total | 62/66 ok | 537 | 482 | 537 | 6 | 6 | 438 | 406 | 1072 | 0 | 2391 | 69215 | 1.1 | 693.5 |
+| total | 63/67 ok | 546 | 491 | 546 | 6 | 6 | 447 | 415 | 1082 | 0 | 2415 | 69473 | 1.1 | 693.4 |
 
 | pending list | entries |
 |---|---|

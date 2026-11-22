@@ -555,6 +555,23 @@ impl Lifter<'_, '_> {
             | O::AUTIAZ
             | O::AUTIBZ
             | O::XPACLRI => {}
+            // A call of the system under the program: the runtime reads the call's number and
+            // arguments from the registers of the state and writes the result back. The
+            // instruction's own number, which some systems name the call by, goes with it.
+            O::SVC => {
+                let number = match ops[0] {
+                    Op::Imm16(v) => i64::from(v),
+                    Op::Immediate(v) => i64::from(v),
+                    _ => return self.unsupported(block, ip, code, text),
+                };
+                self.m.b.call(
+                    block,
+                    FnType::new(Type::Void, vec![Type::Ptr, Type::I64]),
+                    Callee::Direct("ra_svc".into()),
+                    vec![(Type::Ptr, self.m.state.into()), (Type::I64, number.into())],
+                    "",
+                );
+            }
             O::BRK => self.m.trap(block, ip, trap::INT3),
             O::UDF | O::Invalid => self.m.trap(block, ip, trap::UD2),
             O::HLT => self.m.trap(block, ip, trap::HLT),

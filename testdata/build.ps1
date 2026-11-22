@@ -301,6 +301,55 @@ if (Wanted 'gba') {
   [IO.File]::WriteAllBytes($rom, $bytes)
 }
 
+# a64sys is the ARM64 program that speaks to its system itself: a static Linux program without
+# a C library, its system calls by `svc 0`. Its expected output is what it prints under
+# qemu-aarch64, which is what thumb1 prints.
+if (Wanted 'a64sys') {
+  $args = @('--target=aarch64-linux-gnu', '-O1', '-fno-unroll-loops', '-fno-vectorize', '-nostdlib', '-ffreestanding', '-fno-builtin',
+    '-static', '-fuse-ld=lld', '-Wl,--build-id=none', (Join-Path $src 'a64sys.c'), '-o', (Join-Path $bin 'a64sys'))
+  Write-Host "clang a64sys" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for a64sys" }
+}
+
+# a64.nro is the same program as a program of the Switch's system (-DHORIZON), in the file such
+# a program is kept in: its three segments, each from a page's start, and in the first bytes of
+# the code the header that says where they are, which is written here. The program is linked
+# from zero by nro.ld and names nothing by address, for the system loads it where it pleases.
+# No emulator of the console is here: it runs lifted only, and prints what thumb1 prints.
+if (Wanted 'nro') {
+  $out = Join-Path $PSScriptRoot '..\out\nro'
+  New-Item -ItemType Directory -Force $out | Out-Null
+  $elf = Join-Path $out 'a64.elf'
+  $args = @('--target=aarch64-none-elf', '-DHORIZON', '-fPIE', '-fvisibility=hidden', '-O1', '-fno-unroll-loops', '-fno-vectorize',
+    '-nostdlib', '-ffreestanding', '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none', "-Wl,-T,$(Join-Path $src 'nro.ld')",
+    (Join-Path $src 'a64sys.c'), '-o', $elf)
+  Write-Host "clang a64.nro" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for a64.nro" }
+  # Each segment by itself, a section the program has none of being empty, padded to a page.
+  $segments = New-Object 'System.Collections.Generic.List[byte[]]'
+  foreach ($name in '.text', '.rodata', '.data') {
+    $part = Join-Path $out "a64$name.bin"
+    Remove-Item $part -ErrorAction SilentlyContinue
+    & llvm-objcopy -O binary -j $name $elf $part 2>$null
+    if (Test-Path $part) { $segments.Add([IO.File]::ReadAllBytes($part)) } else { $segments.Add((New-Object byte[] 0)) }
+  }
+  $offsets = @(0, 0, 0)
+  $total = 0
+  for ($i = 0; $i -lt 3; $i++) { $offsets[$i] = $total; $total += ($segments[$i].Length + 0xfff) -band -0x1000 }
+  $nro = New-Object byte[] $total
+  for ($i = 0; $i -lt 3; $i++) { [Array]::Copy($segments[$i], 0, $nro, $offsets[$i], $segments[$i].Length) }
+  $w32 = { param($at, $v) [Array]::Copy([BitConverter]::GetBytes([uint32]$v), 0, $nro, $at, 4) }
+  [Array]::Copy([Text.Encoding]::ASCII.GetBytes('NRO0'), 0, $nro, 0x10, 4)
+  & $w32 0x18 $total
+  for ($i = 0; $i -lt 3; $i++) {
+    & $w32 (0x20 + 8 * $i) $offsets[$i]
+    & $w32 (0x24 + 8 * $i) (($segments[$i].Length + 0xfff) -band -0x1000)
+  }
+  [IO.File]::WriteAllBytes((Join-Path $bin 'a64.nro'), $nro)
+}
+
 # nds.nds is the program as a Nintendo DS cartridge's ROM (-DNDS): the ARM9 program, linked by
 # nds.ld where the console loads it in main RAM, behind the cartridge's header, which is written
 # here: where each processor's program is in the ROM, where it goes and where it is entered, and

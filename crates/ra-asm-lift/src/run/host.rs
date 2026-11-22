@@ -212,6 +212,10 @@ pub(super) struct Runtime<'a> {
     pub(super) gba: bool,
     /// The program is a Nintendo DS cartridge's, whose BIOS numbers its calls its own way.
     pub(super) nds: bool,
+    /// The program is ARM64's: its `svc` reads the call's number from `x8`.
+    pub(super) arm64: bool,
+    /// The program is one of the Switch's system: its `svc` is a call of that system's kernel.
+    pub(super) switch: bool,
 }
 
 /// The calls across the platform boundary a run made, and those still running.
@@ -493,6 +497,8 @@ impl<'a> Runtime<'a> {
             cortexm: None,
             gba: false,
             nds: false,
+            arm64: false,
+            switch: false,
         };
         runtime.thread.stack_bottom = runtime.allocations[0].start;
         runtime
@@ -834,6 +840,7 @@ impl<'a> Runtime<'a> {
             "ra_stack_probe" => int(arg(args, 0).wrapping_sub(arg(args, 1)) & !(arg(args, 2).max(1) - 1) & 0xffff_ffff),
             "ra_svc" if arg(args, 1) as i64 & crate::state::BKPT != 0 => self.bkpt(vm, arg(args, 0), arg(args, 1) & 0xff),
             "ra_svc" if self.gba || self.nds => self.gba_bios(vm, arg(args, 0), arg(args, 1) & 0xff),
+            "ra_svc" if self.switch => self.horizon(vm, arg(args, 0), arg(args, 1)),
             "ra_svc" => self.svc(vm, arg(args, 0)),
             "ra_syscall" => {
                 let number = (arg(args, 0) as u32).wrapping_sub(4000);
@@ -875,8 +882,23 @@ impl<'a> Runtime<'a> {
 
     /// A system call of a 32-bit ARM Linux program, by the EABI: the number in `r7`, the
     /// arguments from `r0`, the result in `r0`.
+    ///
+    /// An ARM64 Linux program's is the same by its own convention: the number in `x8`, by the
+    /// numbering the newer machines share, the arguments from `x0`, the result in `x0`.
     fn svc(&mut self, vm: &mut Vm<'_>, state: u64) -> Result<Value, Stop> {
         let r = |vm: &mut Vm<'_>, n: u64| vm.memory.read_u32(state + n * 8);
+        if self.arm64 {
+            let number = match r(vm, 8)? {
+                64 => 4,      // write
+                93 | 94 => 1, // exit, exit_group
+                other => return Err(Stop::fault(format!("the system call {other} is not interpreted"))),
+            };
+            let regs = [r(vm, 0)?, r(vm, 1)?, r(vm, 2)?];
+            let result = self.linux(vm, number, false, regs)?;
+            // A failure is a negative number of the register's whole width.
+            vm.memory.write_u64(state, i64::from(result.cast_signed()).cast_unsigned())?;
+            return int(0);
+        }
         let number = r(vm, 7)?;
         let regs = [r(vm, 0)?, r(vm, 1)?, r(vm, 2)?];
         let result = self.linux(vm, number, false, regs)?;
@@ -932,6 +954,26 @@ impl<'a> Runtime<'a> {
             _ => return Err(Stop::fault(format!("the BIOS call {number:#x} is not interpreted"))),
         }
         int(0)
+    }
+
+    /// A call of a program of the Switch's system into its kernel, which the `svc`'s own number
+    /// names: the arguments from `x0`, the result code in `w0`. The two a program without the
+    /// system's libraries prints and ends by are here: a line for the debugger's log, and the
+    /// end of the process. Another stops the run by its number.
+    fn horizon(&mut self, vm: &mut Vm<'_>, state: u64, number: u64) -> Result<Value, Stop> {
+        match number {
+            // ExitProcess
+            0x07 => Err(Stop::Exit(0)),
+            // OutputDebugString: the text and its length.
+            0x27 => {
+                let (at, len) = (vm.memory.read_u64(state)?, vm.memory.read_u64(state + 8)?);
+                let text = vm.memory.read_vec(at, len.min(1 << 16))?;
+                self.emit(false, &text);
+                vm.memory.write_u64(state, 0)?;
+                int(0)
+            }
+            _ => Err(Stop::fault(format!("the kernel call {number:#x} is not interpreted"))),
+        }
     }
 
     /// A `bkpt` of a Thumb-2 program. Number `0xab` is a semihosting call, by which firmware

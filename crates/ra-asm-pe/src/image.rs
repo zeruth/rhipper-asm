@@ -84,6 +84,8 @@ pub struct Image {
     pub gba: bool,
     /// What a Nintendo DS cartridge's header says, when the image is one's ARM9 program.
     pub nds: Option<Nds>,
+    /// What an NRO file's header says, when the image is a program of the Switch's system.
+    pub nro: Option<Nro>,
     /// Which instruction set a 32-bit ARM image's code is in, where a reader knows it and the
     /// file does not say: `true` for ARM code, `false` for Thumb ([`Image::arm_code`]).
     pub arm_state: Option<bool>,
@@ -209,6 +211,7 @@ impl Image {
         let mut flat_firmware = false;
         let mut gba = false;
         let mut nds = None;
+        let mut nro = None;
         let mut rom = None;
         let (headers, sections, xbe, elf, macho) = if boot.is_some() {
             let (headers, sections) = dreamcast_layout(file.len())?;
@@ -236,6 +239,10 @@ impl Image {
         } else if ra_asm_format::macho::is_macho(&file) {
             let (headers, sections, macho) = crate::macho::parse(&file)?;
             (headers, sections, None, None, Some(macho))
+        } else if let Some(program) = Nro::parse(&file) {
+            let (headers, sections) = nro_layout(program)?;
+            nro = Some(program);
+            (headers, sections, None, None, None)
         } else if let Some(cartridge) = Nds::parse(&file) {
             let (headers, sections) = nds_layout(cartridge)?;
             nds = Some(cartridge);
@@ -314,6 +321,7 @@ impl Image {
             firmware: flat_firmware,
             gba,
             nds,
+            nro,
             dreamcast: boot,
             arm_state: None,
             arm_map: std::sync::Arc::default(),
@@ -492,7 +500,8 @@ impl Image {
             || self.dreamcast.is_some()
             || self.n64.is_some()
             || self.firmware
-            || self.nds.is_some();
+            || self.nds.is_some()
+            || self.nro.is_some();
         (rva != 0 || flat).then(|| self.va(rva))
     }
 
@@ -566,6 +575,8 @@ impl Image {
             Some("gba")
         } else if self.nds.is_some() {
             Some("nds")
+        } else if self.nro.is_some() {
+            Some("switch")
         } else if self.elf.as_ref().is_some_and(|e| e.prx.is_some()) {
             Some("psp")
         } else if self.elf.as_ref().is_some_and(|e| e.irx.is_some()) {
@@ -951,6 +962,88 @@ fn gba_layout(len: usize) -> Result<(Headers, Vec<Section>)> {
     headers.optional.entry_point = (GBA_ROM - base) as u32;
     headers.optional.size_of_code = size;
     headers.optional.size_of_image = (GBA_ROM - base) as u32 + size.next_multiple_of(0x1000);
+    Ok((headers, sections))
+}
+
+/// What the header of an NRO file, a program of the Switch's system, says: where each of its
+/// three segments is in the file and how long it is, and how much the program clears after them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Nro {
+    /// The code, the read-only data and the data: each its offset in the file and its size.
+    pub segments: [(u32, u32); 3],
+    pub bss: u32,
+}
+
+/// Where an NRO file's image is mapped: the system places it where it pleases, and the program
+/// names nothing by address.
+pub const NRO_BASE: u64 = 0x0800_0000;
+
+impl Nro {
+    /// Reads a file as an NRO: the magic `NRO0` at `0x10`, in the first bytes of the code, the
+    /// file's size after it, and three segments that lie in the file one after another, each
+    /// from a page's start.
+    fn parse(file: &[u8]) -> Option<Self> {
+        let header = file.get(..0x40)?;
+        if &header[0x10..0x14] != b"NRO0" {
+            return None;
+        }
+        let word = |at: usize| u32::from_le_bytes([header[at], header[at + 1], header[at + 2], header[at + 3]]);
+        let segments = [(word(0x20), word(0x24)), (word(0x28), word(0x2c)), (word(0x30), word(0x34))];
+        let mut end = 0u64;
+        for (offset, size) in segments {
+            if u64::from(offset) != end || offset % 0x1000 != 0 || size % 0x1000 != 0 {
+                return None;
+            }
+            end += u64::from(size);
+        }
+        (segments[0].1 != 0 && end <= file.len() as u64 && u64::from(word(0x18)) <= file.len() as u64)
+            .then_some(Self { segments, bss: word(0x38) })
+    }
+}
+
+/// The headers and the sections an NRO file stands for: its code, its read-only data and its
+/// data where they follow one another from [`NRO_BASE`], and what the program clears after them.
+/// The program is entered at its first word.
+fn nro_layout(nro: Nro) -> Result<(Headers, Vec<Section>)> {
+    let (mut headers, _) = dreamcast_layout(0x1000)?;
+    let kinds = [
+        (".text", crate::elf::characteristics(true, false, false)),
+        (".rodata", crate::elf::characteristics(false, false, false)),
+        (".data", crate::elf::characteristics(false, true, false)),
+    ];
+    let mut sections = Vec::new();
+    let mut end = 0u32;
+    for ((name, characteristics), (offset, size)) in kinds.into_iter().zip(nro.segments) {
+        end = offset + size;
+        if size != 0 {
+            sections.push(Section {
+                name: name.to_owned(),
+                virtual_size: size,
+                virtual_address: offset,
+                raw_size: size,
+                raw_offset: offset,
+                characteristics,
+            });
+        }
+    }
+    let bss = nro.bss.next_multiple_of(0x1000);
+    if bss != 0 {
+        sections.push(Section {
+            name: ".bss".to_owned(),
+            virtual_size: bss,
+            virtual_address: end,
+            raw_size: 0,
+            raw_offset: 0,
+            characteristics: crate::elf::characteristics(false, true, true),
+        });
+    }
+    headers.coff.machine = Machine::Arm64;
+    headers.coff.sections = sections.len() as u16;
+    headers.optional.magic = OptionalMagic::Pe32Plus;
+    headers.optional.image_base = NRO_BASE;
+    headers.optional.entry_point = 0;
+    headers.optional.size_of_code = nro.segments[0].1;
+    headers.optional.size_of_image = end.checked_add(bss).context("the program is larger than 4 GiB")?;
     Ok((headers, sections))
 }
 

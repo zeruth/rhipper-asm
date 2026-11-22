@@ -64,6 +64,8 @@ fn format_name(image: &Image) -> &'static str {
         "gba"
     } else if image.nds.is_some() {
         "nds"
+    } else if image.nro.is_some() {
+        "nro"
     } else if let Some(rom) = &image.n64 {
         rom.order.extension()
     } else if image.dreamcast.is_some() {
