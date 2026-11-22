@@ -172,6 +172,22 @@ fn armthumb_stripped_runs_interpreted() {
     assert!(analysis.functions.len() >= 14, "{} functions", analysis.functions.len());
 }
 
+/// The floating-point fixture of 32-bit ARM: single and double arithmetic by the VFP unit, the
+/// compares through the unit's status register, the conversions with their ends, the loads and
+/// stores of the unit's registers. It prints what it printed under an emulator of the machine,
+/// a division of nothing by nothing converted to zero as that machine converts it, and ends
+/// with the code it ended with there.
+#[test]
+fn armfp_runs_interpreted() {
+    let expected = std::fs::read_to_string(root().join("testdata/expected/armfp.txt")).unwrap();
+    let Raised { image, lifted, signatures } = raise("armfp", "run-machine");
+    assert!(lifted.warnings.is_empty(), "the lift warned:\n{}", lifted.warnings.join("\n"));
+    let outcome = ra_asm_lift::run::run(&image, &lifted, &signatures, &ra_asm_lift::run::Options::default()).unwrap();
+    let ended = format!("exit {:#x}, stop: {:?}, {} steps", outcome.exit, outcome.stop, outcome.steps);
+    assert_output("armfp: interpreted", &expected, &String::from_utf8_lossy(&outcome.output), &ended);
+    assert_eq!(outcome.exit, 99, "the exit the machine ended with (stop: {:?})", outcome.stop);
+}
+
 /// The program as a Game Boy Advance cartridge's ROM: no container but the cartridge's header,
 /// the whole file where the console maps a cartridge, entered at its first word in ARM code,
 /// which goes to the Thumb program through an address of the literal pool. It prints by the log

@@ -376,3 +376,27 @@ Adr     adr{cond} {Rd}, #{adr12}
 Nop     nop
 Trap    bkpt #{bkpt}
 Trap    udf #{imm16}
+
+# The high word of a product, and the VFP unit. The harness records the core registers, the
+# flags and the window, not the unit's registers: a floating-point case holds the lift only to
+# what it leaves of those (nothing, or a fault), and the unit's arithmetic is held to the machine
+# by the armfp fixture's run.
+[fp]
+HighMul smmul {Rd}, {Rn}, {Rm}
+HighMul smmulr {Rd}, {Rn}, {Rm}
+Fp      vadd.f64 d0, d1, d2
+Fp      vmul.f32 s0, s1, s2
+Fp      vcmp.f64 d0, d1
+Fp      vcvt.s32.f64 s0, d1
+Fp      vmov s0, {Rn}
+Fp      vldr d0, [{Rb}, #8]
+
+[arm_fp]
+HighMul smmul {Rd}, {Rn}, {Rm}
+HighMul smmulr{cond} {Rd}, {Rn}, {Rm}
+Fp      vadd.f64 d0, d1, d2
+Fp      vmul.f32 s0, s1, s2
+Fp      vcmp.f64 d0, d1
+Fp      vcvt.s32.f64 s0, d1
+Fp      vmov s0, {Rn}
+Fp      vldr d0, [{Rb}, #8]

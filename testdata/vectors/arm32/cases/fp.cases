@@ -1,0 +1,20 @@
+HighMul 51fb02f0 smmul r0, r1, r2
+HighMul 58fb0af5 smmul r5, r8, r10
+HighMul 5bfb0cf9 smmul r9, r11, r12
+HighMul 5efb06fc smmul r12, r14, r6
+HighMul 51fb12f0 smmulr r0, r1, r2
+HighMul 58fb1af5 smmulr r5, r8, r10
+HighMul 5bfb1cf9 smmulr r9, r11, r12
+HighMul 5efb16fc smmulr r12, r14, r6
+Fp 31ee020b vadd.f64 d0, d1, d2
+Fp 20ee810a vmul.f32 s0, s1, s2
+Fp b4ee410b vcmp.f64 d0, d1
+Fp bdeec10b vcvt.s32.f64 s0, d1
+Fp 00ee101a vmov s0, r1
+Fp 00ee108a vmov s0, r8
+Fp 00ee10ba vmov s0, r11
+Fp 00ee10ea vmov s0, r14
+Fp 91ed020b vldr d0, [r1, #8]
+Fp 98ed020b vldr d0, [r8, #8]
+Fp 9bed020b vldr d0, [r11, #8]
+Fp 94ed020b vldr d0, [r4, #8]

@@ -147,7 +147,8 @@ fn operation(w: u32, address: u64, cond: Option<u8>) -> Op {
         // The number is the low byte of the comment, or the byte above it where a console's
         // BIOS reads its call's number (`swi 0x060000`).
         0b111 if bit(w, 24) => Op::Svc(if w & 0x00ff_0000 == 0 { w as u8 } else { (w >> 16) as u8 }),
-        _ => Op::Unsupported, // the coprocessors
+        // The coprocessors: the VFP unit's instructions are the tenth's and the eleventh's.
+        _ => crate::vfp::decode(w).map_or(Op::Unsupported, Op::Fp),
     }
 }
 
@@ -266,6 +267,10 @@ fn media(w: u32) -> Op {
             (true, true) => Bits::Revsh,
         };
         return Op::Bits { kind, rd, rm };
+    }
+    if w & 0x0ff0_f0d0 == 0x0750_f010 {
+        // smmul, and smmulr with bit five.
+        return Op::HighMul { rd: reg(w, 16), rn: rm, rm: reg(w, 8), round: bit(w, 5) };
     }
     if w & 0x0ff0_00f0 == 0x07f0_00f0 {
         return Op::Trap; // udf

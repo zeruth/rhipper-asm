@@ -264,6 +264,18 @@ if (Wanted 'armthumb') {
   if ($LASTEXITCODE -ne 0) { throw "llvm-strip failed for armthumb_stripped" }
 }
 
+# armfp is the floating-point fixture of 32-bit ARM: single and double arithmetic in ARM code for
+# ARMv6 with the VFP unit, its arguments in the unit's registers, as an ARM11 runs it. Its
+# expected output is what it prints under qemu-arm; it ends with the code 99.
+if (Wanted 'armfp') {
+  $args = @('--target=armv6k-none-linux-gnueabihf', '-marm', '-mfpu=vfpv2', '-mfloat-abi=hard', '-O1', '-fno-unroll-loops',
+    '-fno-vectorize', '-nostdlib', '-ffreestanding', '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none',
+    (Join-Path $src 'armfp.c'), '-o', (Join-Path $bin 'armfp'))
+  Write-Host "clang armfp" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for armfp" }
+}
+
 # gba.gba is the program as a Game Boy Advance cartridge's ROM (-DGBA): linked by gba.ld where
 # the console maps a cartridge, its header first, entered in ARM code that goes to the Thumb
 # program. It prints through the log an emulator keeps (swi 0xff) and ends by the BIOS's Stop.

@@ -1,0 +1,186 @@
+# arm32 vectors of the fp group (Thumb-2 code): the state after each case of
+# cases/fp.cases under qemu-arm-static (-cpu max) over 3 states a case, written by
+# write_arm32_vectors in crates/ra-asm-lift/tests/vectors/arm32.rs and replayed by its arm32 test.
+# case <kind> <bytes> <assembly> <- <template>; in: the registers the case sets (the rest are
+# zero), the flags as NZCV bits, the window of data bytes; out: where the case stopped and
+# what it changed.
+case HighMul 51fb02f0 smmul r0, r1, r2 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=0110 r0=0x605146fa r1=0x4 r2=0x3
+out pc=0x30002004 sig=trap r0=0x0
+case HighMul 51fb02f0 smmul r0, r1, r2 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=0001 r0=0x7ffffff5 r1=0x80000006 r2=0xffff
+out pc=0x30002004 sig=trap r0=0xffff8000
+case HighMul 51fb02f0 smmul r0, r1, r2 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=0101 r0=0x1ffff r1=0xfffffffc r2=0x80000004
+out pc=0x30002004 sig=trap r0=0x1
+case HighMul 58fb0af5 smmul r5, r8, r10 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=1010 r5=0xa6e13433 r8=0xb9e6903b r10=0x7ffffff3
+out pc=0x30002004 sig=trap r5=0xdcf34821
+case HighMul 58fb0af5 smmul r5, r8, r10 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=1011 r5=0xfffffff0 r8=0x20 r10=0xfffffffb
+out pc=0x30002004 sig=trap r5=0xffffffff
+case HighMul 58fb0af5 smmul r5, r8, r10 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=0110 r5=0x20000 r8=0x7ffffffc r10=0x7ffffffb
+out pc=0x30002004 sig=trap r5=0x3ffffffb
+case HighMul 5bfb0cf9 smmul r9, r11, r12 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=0011 r9=0x7ffffff9 r11=0x100 r12=0x1
+out pc=0x30002004 sig=trap r9=0x0
+case HighMul 5bfb0cf9 smmul r9, r11, r12 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=1000 r9=0x7ffffff4 r11=0x446e118c r12=0x5
+out pc=0x30002004 sig=trap r9=0x1
+case HighMul 5bfb0cf9 smmul r9, r11, r12 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=0100 r9=0x0 r11=0x7ffffff3 r12=0x8000000e
+out pc=0x30002004 sig=trap r9=0xc000000d
+case HighMul 5efb06fc smmul r12, r14, r6 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=0011 r6=0x7ffffff1 r12=0xb124757d lr=0x8
+out pc=0x30002004 sig=trap r12=0x3
+case HighMul 5efb06fc smmul r12, r14, r6 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=1000 r6=0xfffffffe r12=0xa763aebb lr=0x68ebbd33
+out pc=0x30002004 sig=trap r12=0xffffffff
+case HighMul 5efb06fc smmul r12, r14, r6 <- smmul {Rd}, {Rn}, {Rm}
+in nzcv=1111 r6=0x8ccbebbb r12=0x80000006 lr=0xb36b39b5
+out pc=0x30002004 sig=trap r12=0x2276695c
+case HighMul 51fb12f0 smmulr r0, r1, r2 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=1110 r0=0xc r1=0xfffffff4 r2=0xfffffff3
+out pc=0x30002004 sig=trap r0=0x0
+case HighMul 51fb12f0 smmulr r0, r1, r2 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=0100 r0=0x7fff r1=0xfffffff4 r2=0xb578bf0f
+out pc=0x30002004 sig=trap r0=0x3
+case HighMul 51fb12f0 smmulr r0, r1, r2 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=1001 r0=0x8000000e r1=0xfffffff9 r2=0x1ffffff
+out pc=0x30002004 sig=trap r0=0x0
+case HighMul 58fb1af5 smmulr r5, r8, r10 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=0011 r5=0x2000 r8=0x8000000b r10=0x100
+out pc=0x30002004 sig=trap r5=0xffffff80
+case HighMul 58fb1af5 smmulr r5, r8, r10 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=1101 r5=0x80000008 r8=0x80000007 r10=0x7ffffff5
+out pc=0x30002004 sig=trap r5=0xc0000009
+case HighMul 58fb1af5 smmulr r5, r8, r10 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=0010 r5=0x7ffffffc r8=0xec9d4566 r10=0x799b08d5
+out pc=0x30002004 sig=trap r5=0xf6ca985b
+case HighMul 5bfb1cf9 smmulr r9, r11, r12 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=1101 r9=0x20000 r11=0x7ffffff4 r12=0xfbe5ea02
+out pc=0x30002004 sig=trap r9=0xfdf2f501
+case HighMul 5bfb1cf9 smmulr r9, r11, r12 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=0101 r9=0x7 r11=0x6 r12=0xfffffff3
+out pc=0x30002004 sig=trap r9=0x0
+case HighMul 5bfb1cf9 smmulr r9, r11, r12 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=1111 r9=0x80000008 r11=0x80000006 r12=0xfffffffa
+out pc=0x30002004 sig=trap r9=0x3
+case HighMul 5efb16fc smmulr r12, r14, r6 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=1011 r6=0xe5d69d2d r12=0x3ffffff lr=0x8000000e
+out pc=0x30002004 sig=trap r12=0xd14b168
+case HighMul 5efb16fc smmulr r12, r14, r6 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=0000 r6=0x80000009 r12=0x7f lr=0xfffffffa
+out pc=0x30002004 sig=trap r12=0x3
+case HighMul 5efb16fc smmulr r12, r14, r6 <- smmulr {Rd}, {Rn}, {Rm}
+in nzcv=0011 r6=0x58511dd0 r12=0x8000000b lr=0x1fff
+out pc=0x30002004 sig=trap r12=0xb0a
+case Fp 31ee020b vadd.f64 d0, d1, d2 <- vadd.f64 d0, d1, d2
+in nzcv=0101
+out pc=0x30002004 sig=trap
+case Fp 31ee020b vadd.f64 d0, d1, d2 <- vadd.f64 d0, d1, d2
+in nzcv=1110
+out pc=0x30002004 sig=trap
+case Fp 31ee020b vadd.f64 d0, d1, d2 <- vadd.f64 d0, d1, d2
+in nzcv=1001
+out pc=0x30002004 sig=trap
+case Fp 20ee810a vmul.f32 s0, s1, s2 <- vmul.f32 s0, s1, s2
+in nzcv=1101
+out pc=0x30002004 sig=trap
+case Fp 20ee810a vmul.f32 s0, s1, s2 <- vmul.f32 s0, s1, s2
+in nzcv=0011
+out pc=0x30002004 sig=trap
+case Fp 20ee810a vmul.f32 s0, s1, s2 <- vmul.f32 s0, s1, s2
+in nzcv=0010
+out pc=0x30002004 sig=trap
+case Fp b4ee410b vcmp.f64 d0, d1 <- vcmp.f64 d0, d1
+in nzcv=1011
+out pc=0x30002004 sig=trap
+case Fp b4ee410b vcmp.f64 d0, d1 <- vcmp.f64 d0, d1
+in nzcv=1110
+out pc=0x30002004 sig=trap
+case Fp b4ee410b vcmp.f64 d0, d1 <- vcmp.f64 d0, d1
+in nzcv=0101
+out pc=0x30002004 sig=trap
+case Fp bdeec10b vcvt.s32.f64 s0, d1 <- vcvt.s32.f64 s0, d1
+in nzcv=0000
+out pc=0x30002004 sig=trap
+case Fp bdeec10b vcvt.s32.f64 s0, d1 <- vcvt.s32.f64 s0, d1
+in nzcv=1000
+out pc=0x30002004 sig=trap
+case Fp bdeec10b vcvt.s32.f64 s0, d1 <- vcvt.s32.f64 s0, d1
+in nzcv=0001
+out pc=0x30002004 sig=trap
+case Fp 00ee101a vmov s0, r1 <- vmov s0, {Rn}
+in nzcv=1010 r1=0x43a545a6
+out pc=0x30002004 sig=trap
+case Fp 00ee101a vmov s0, r1 <- vmov s0, {Rn}
+in nzcv=1001 r1=0x1fff
+out pc=0x30002004 sig=trap
+case Fp 00ee101a vmov s0, r1 <- vmov s0, {Rn}
+in nzcv=1101 r1=0x7ffffffe
+out pc=0x30002004 sig=trap
+case Fp 00ee108a vmov s0, r8 <- vmov s0, {Rn}
+in nzcv=0110 r8=0x3fffff
+out pc=0x30002004 sig=trap
+case Fp 00ee108a vmov s0, r8 <- vmov s0, {Rn}
+in nzcv=1111 r8=0x3f
+out pc=0x30002004 sig=trap
+case Fp 00ee108a vmov s0, r8 <- vmov s0, {Rn}
+in nzcv=1110 r8=0x8000000d
+out pc=0x30002004 sig=trap
+case Fp 00ee10ba vmov s0, r11 <- vmov s0, {Rn}
+in nzcv=1101 r11=0xfffffff9
+out pc=0x30002004 sig=trap
+case Fp 00ee10ba vmov s0, r11 <- vmov s0, {Rn}
+in nzcv=0111 r11=0xfffffffb
+out pc=0x30002004 sig=trap
+case Fp 00ee10ba vmov s0, r11 <- vmov s0, {Rn}
+in nzcv=0111 r11=0xfffffffd
+out pc=0x30002004 sig=trap
+case Fp 00ee10ea vmov s0, r14 <- vmov s0, {Rn}
+in nzcv=0010 lr=0x7ffff
+out pc=0x30002004 sig=trap
+case Fp 00ee10ea vmov s0, r14 <- vmov s0, {Rn}
+in nzcv=0011 lr=0xfffffff1
+out pc=0x30002004 sig=trap
+case Fp 00ee10ea vmov s0, r14 <- vmov s0, {Rn}
+in nzcv=1110 lr=0xf549b8ba
+out pc=0x30002004 sig=trap
+case Fp 91ed020b vldr d0, [r1, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=0000 r1=0x40010000 mem=0x4000fff0:61b1e0fa632c352e5ca8bf132f449ff1316096b2ed5323035724ede50362e3f65165c48e9e26fdb5030584147ca850f6e1ce209af952941d4e42429e12dcb91e
+out pc=0x30002004 sig=trap
+case Fp 91ed020b vldr d0, [r1, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=1011 r1=0x40010000 mem=0x4000fff0:b80a8a968a239a419d7323c5399d981413b4a8a688d3a448a8c47d83366416325d63dea6b8410aa29e9a0cddacaa487a56daeb610cd1a6b6457c38805b9a6b8c
+out pc=0x30002004 sig=trap
+case Fp 91ed020b vldr d0, [r1, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=0101 r1=0x40010000 mem=0x4000fff0:1bc16e950ddaa4d1b06278d5e03bc65164de37cf09ff9a296f33c24f60ebd5095fd40cc8913cfce8179b8e0be97fb3c87f10844d7b124209226fa2cdf0b6ec52
+out pc=0x30002004 sig=trap
+case Fp 98ed020b vldr d0, [r8, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=0010 r8=0x40010000 mem=0x4000fff0:81bf6fd1f468a1a7f7ee5b05b397384d381448cec117b63c7cb9b665f3cf1a00b5e5753ab3fd7def24b707cef034745da3a97ba98e1a961b16f39c5917589de9
+out pc=0x30002004 sig=trap
+case Fp 98ed020b vldr d0, [r8, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=0111 r8=0x40010000 mem=0x4000fff0:555ec8e35c19f413eda0eee140e9059f1b5e705b9f4a84a15da332ba6c72ed1e370154b9158b5f7f1d4ee96b219bc76afa1ee91343ee5751f75c61eaaaedca20
+out pc=0x30002004 sig=trap
+case Fp 98ed020b vldr d0, [r8, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=0001 r8=0x40010000 mem=0x4000fff0:466976ea128f4728d330e6ed6764d5ca5c686e19750b1b7b1c1dd37b6494ecbd5197e17982fab13753326c20b5dd24286802fab565a30043f646f38ff3a6102c
+out pc=0x30002004 sig=trap
+case Fp 9bed020b vldr d0, [r11, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=1100 r11=0x40010000 mem=0x4000fff0:24ccf0e90ec9423f047ed9674adde6020efcf7a7a3a1840fa24333cd149093e9f87446ea06ae70c133cae61ee8c8f5d91687b73e926c943be9b80785b5c011b7
+out pc=0x30002004 sig=trap
+case Fp 9bed020b vldr d0, [r11, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=0100 r11=0x40010000 mem=0x4000fff0:f64faf61b7aa9844dc0a7db21c890e177e5fbf4412a6ee68bf43dacbc3e765b4e92bfad8052360665c4b37f9bb671a9aac3b88fcf8ae14f4e0e3b3f77c07579b
+out pc=0x30002004 sig=trap
+case Fp 9bed020b vldr d0, [r11, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=0100 r11=0x40010000 mem=0x4000fff0:18ebad5c545e08b0d357be57cae6cb1a893d38f4a24533b3c8a05ed401649d0804ef531596342615359538fdddbc65e8cdab4cfbad3ad43e02441653fa42ff32
+out pc=0x30002004 sig=trap
+case Fp 94ed020b vldr d0, [r4, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=1001 r4=0x40010000 mem=0x4000fff0:b3e62a8023569e80b2bb7cdbcd4718bfe88414e020816c8a0c9f5c3636f6f21aada99776f9f61faf2b0ecf04cee6a7540837d657ed0f2cf3b3d28142ff8aa05c
+out pc=0x30002004 sig=trap
+case Fp 94ed020b vldr d0, [r4, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=1001 r4=0x40010000 mem=0x4000fff0:c18cd29fe55a91a2e5d20bbff90ca2adf5a85459ab1a7ecb46d6061e8fd036fd7b1bb0d40686e05c648872a3d71523997dd9f77f159c33f044d5191e7a82007e
+out pc=0x30002004 sig=trap
+case Fp 94ed020b vldr d0, [r4, #8] <- vldr d0, [{Rb}, #8]
+in nzcv=1011 r4=0x40010000 mem=0x4000fff0:aca10a4bbbb25142e32238fc309d3e6d8b142d561f99664cd9e89614a182b1155b7b19623f16154d6387d53984fb848c0fead7c44f989523f3a5d30461115ee8
+out pc=0x30002004 sig=trap

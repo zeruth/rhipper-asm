@@ -212,6 +212,15 @@ pub enum Op {
         rm: u8,
         rotate: u8,
     },
+    /// `smmul`: the high word of the signed product, rounded when `round`.
+    HighMul {
+        rd: u8,
+        rn: u8,
+        rm: u8,
+        round: bool,
+    },
+    /// An instruction of the VFP unit.
+    Fp(crate::vfp::Fp),
     /// `clz`, `rev`, `rev16`, `revsh` and `rbit`.
     Bits {
         kind: Bits,
@@ -592,6 +601,10 @@ fn alu32(op: u32, s: bool, rn: u8, rd: u8, src: Source) -> Op {
 }
 
 fn decode32(h1: u32, h2: u32, address: u64) -> Op {
+    // The coprocessors' space, whose low twenty-eight bits are ARM code's: the VFP unit's part.
+    if h1 & 0xec00 == 0xec00 {
+        return if h1 & 0x1000 == 0 { crate::vfp::decode(h1 << 16 | h2).map_or(Op::Unsupported, Op::Fp) } else { Op::Unsupported };
+    }
     let rn = reg(h1, 0);
     let rd = reg(h2, 8);
     let rm = reg(h2, 0);
@@ -688,6 +701,7 @@ fn decode32(h1: u32, h2: u32, address: u64) -> Op {
                 match (field(h1, 6, 4), field(h2, 5, 4)) {
                     (0, 0) => Op::Mul { s: false, rd, rn, rm, acc: (ra != PC).then_some(ra), subtract: false },
                     (0, 1) => Op::Mul { s: false, rd, rn, rm, acc: Some(ra), subtract: true },
+                    (0b101, round @ (0 | 1)) if ra == PC => Op::HighMul { rd, rn, rm, round: round == 1 },
                     _ => Op::Unsupported,
                 }
             }
@@ -791,6 +805,8 @@ fn mnemonic(op: &Op) -> String {
         }
         Op::Div { signed, .. } => (if signed { "sdiv" } else { "udiv" }).to_owned(),
         Op::Bits { kind, .. } => kind.name().to_owned(),
+        Op::Fp(fp) => fp.name().to_owned(),
+        Op::HighMul { round, .. } => (if round { "smmulr" } else { "smmul" }).to_owned(),
         Op::Extend { signed, bits, .. } => format!("{}xt{}", if signed { "s" } else { "u" }, if bits == 8 { "b" } else { "h" }),
         Op::Field { signed, .. } => (if signed { "sbfx" } else { "ubfx" }).to_owned(),
         Op::Insert { rn, .. } => (if rn.is_some() { "bfi" } else { "bfc" }).to_owned(),
@@ -907,6 +923,44 @@ pub fn record(d: &Decoded, address: u64) -> Instr {
             write(&mut registers, rd);
             read(&mut registers, rn);
             read(&mut registers, rm);
+        }
+        Op::HighMul { rd, rn, rm, .. } => {
+            operands.extend([r(rd), r(rn), r(rm)]);
+            write(&mut registers, rd);
+            read(&mut registers, rn);
+            read(&mut registers, rm);
+        }
+        Op::Fp(fp) => {
+            // The core registers the instruction reads and writes, and its memory: the unit's
+            // own registers are not among the record's.
+            use crate::vfp::Fp;
+            match fp {
+                Fp::Core { to_core, rt, .. } | Fp::Status { to_core, rt } => {
+                    if rt == PC {
+                        flags = (false, true);
+                    } else {
+                        operands.push(r(rt));
+                        registers.push((register(rt), if to_core { Access::Write } else { Access::Read }));
+                    }
+                }
+                Fp::CorePair { to_core, rt, rt2, .. } => {
+                    operands.extend([r(rt), r(rt2)]);
+                    for n in [rt, rt2] {
+                        registers.push((register(n), if to_core { Access::Write } else { Access::Read }));
+                    }
+                }
+                Fp::Mem { load, rn, .. } => {
+                    operands.push(r(rn));
+                    read(&mut registers, rn);
+                    (reads_memory, writes_memory) = (load, !load);
+                }
+                Fp::Multiple { load, rn, wback, .. } => {
+                    operands.push(r(rn));
+                    registers.push((register(rn), if wback { Access::ReadWrite } else { Access::Read }));
+                    (reads_memory, writes_memory) = (load, !load);
+                }
+                _ => {}
+            }
         }
         Op::Extend { rd, rm, .. } | Op::Bits { rd, rm, .. } => {
             operands.extend([r(rd), r(rm)]);

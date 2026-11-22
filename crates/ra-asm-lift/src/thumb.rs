@@ -18,7 +18,8 @@ use std::collections::HashMap;
 use ra_asm_analysis::{Analysis, Block, Function, Terminator as T};
 use ra_asm_arch::Instr;
 use ra_asm_arm64::thumb::{self, Alu, Bits, Decoded, LR, Offset, Op, PC, Shift, Source};
-use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FnType, FunctionBuilder, ICond, Operand, Terminator, Type, ValueId};
+use ra_asm_arm64::vfp::Fp;
+use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FCond, FnType, FunctionBuilder, ICond, Inst, Operand, Terminator, Type, ValueId};
 use ra_asm_pe::Image;
 
 use crate::state::{Isa, Machine};
@@ -525,6 +526,281 @@ impl Lifter<'_, '_> {
         block
     }
 
+    // region The floating-point unit
+
+    /// The pointer to a register of the unit: the doubles are the halves of the state's sixteen
+    /// 128-bit slots, the singles the halves of the low sixteen doubles.
+    fn fp_ptr(&mut self, block: BlockId, double: bool, n: u8) -> ValueId {
+        let (slot, offset) = if double { (n / 2, 8 * (n % 2)) } else { (n / 4, 4 * (n % 4)) };
+        let base = self.m.xmm_ptr(block, u32::from(slot));
+        self.m.b.gep(block, Type::I8, base, vec![(Type::I64, i64::from(offset).into())], if double { "p.d" } else { "p.s" })
+    }
+
+    fn fp_type(double: bool) -> Type {
+        if double { Type::Double } else { Type::Float }
+    }
+
+    fn fp_bits_type(double: bool) -> Type {
+        if double { Type::I64 } else { Type::I32 }
+    }
+
+    fn fp_get(&mut self, block: BlockId, double: bool, n: u8) -> ValueId {
+        let p = self.fp_ptr(block, double, n);
+        self.m.b.load(block, Self::fp_type(double), p, "f")
+    }
+
+    fn fp_set(&mut self, block: BlockId, double: bool, n: u8, value: impl Into<Operand>) {
+        let p = self.fp_ptr(block, double, n);
+        self.m.b.store(block, Self::fp_type(double), value, p);
+    }
+
+    fn fp_bits(&mut self, block: BlockId, double: bool, n: u8) -> ValueId {
+        let p = self.fp_ptr(block, double, n);
+        self.m.b.load(block, Self::fp_bits_type(double), p, "f.bits")
+    }
+
+    fn fp_set_bits(&mut self, block: BlockId, double: bool, n: u8, value: impl Into<Operand>) {
+        let p = self.fp_ptr(block, double, n);
+        self.m.b.store(block, Self::fp_bits_type(double), value, p);
+    }
+
+    /// A value with its sign turned.
+    fn fp_negated(&mut self, block: BlockId, double: bool, value: ValueId) -> ValueId {
+        let (ty, bits) = (Self::fp_type(double), Self::fp_bits_type(double));
+        let sign: i64 = if double { i64::MIN } else { i64::from(i32::MIN) };
+        let raw = self.m.b.cast(block, Cast::Bitcast, ty.clone(), value, bits.clone(), "f.bits");
+        let turned = self.m.b.bin(block, BinOp::Xor, bits.clone(), raw, sign, "f.neg");
+        self.m.b.cast(block, Cast::Bitcast, bits, turned, ty, "f")
+    }
+
+    /// One of the status register's flags, which the state keeps after the processor's four.
+    fn set_fp_flag(&mut self, block: BlockId, index: i64, value: impl Into<Operand>) {
+        let p = self.m.flag_ptr_at(block, 4 + index, ["fn", "fz", "fc", "fv"][index as usize]);
+        let byte = self.m.b.cast(block, Cast::ZExt, Type::I1, value, Type::I8, "f.flag");
+        self.m.b.store(block, Type::I8, byte, p);
+    }
+
+    fn fp_flag(&mut self, block: BlockId, index: i64) -> ValueId {
+        let p = self.m.flag_ptr_at(block, 4 + index, ["fn", "fz", "fc", "fv"][index as usize]);
+        let byte = self.m.b.load(block, Type::I8, p, "f.flag");
+        self.m.b.cast(block, Cast::Trunc, Type::I8, byte, Type::I1, "f.flag")
+    }
+
+    /// An instruction of the VFP unit; whether the lift has it.
+    #[allow(clippy::too_many_lines)]
+    fn lift_fp(&mut self, block: BlockId, fp: Fp, ip: u64) -> bool {
+        use ra_asm_arm64::vfp::{Arith, Unary};
+        let fcmp = |this: &mut Self, cond: FCond, ty: Type, a: Operand, b: Operand| {
+            this.m.b.value(block, Inst::FCmp { cond, ty, lhs: a, rhs: b }, "f.is")
+        };
+        match fp {
+            Fp::Arith { op, double, d, n, m } => {
+                let ty = Self::fp_type(double);
+                let (a, b) = (self.fp_get(block, double, n), self.fp_get(block, double, m));
+                let bin = match op {
+                    Arith::Add => BinOp::FAdd,
+                    Arith::Sub => BinOp::FSub,
+                    Arith::Mul | Arith::Nmul => BinOp::FMul,
+                    Arith::Div => BinOp::FDiv,
+                };
+                let mut r = self.m.b.bin(block, bin, ty, a, b, "f");
+                if op == Arith::Nmul {
+                    r = self.fp_negated(block, double, r);
+                }
+                self.fp_set(block, double, d, r);
+            }
+            Fp::Accumulate { double, d, n, m, negate_sum, negate_product } => {
+                let ty = Self::fp_type(double);
+                let (a, b) = (self.fp_get(block, double, n), self.fp_get(block, double, m));
+                let mut product = self.m.b.bin(block, BinOp::FMul, ty.clone(), a, b, "f.mul");
+                if negate_product {
+                    product = self.fp_negated(block, double, product);
+                }
+                let mut sum = self.fp_get(block, double, d);
+                if negate_sum {
+                    sum = self.fp_negated(block, double, sum);
+                }
+                let r = self.m.b.bin(block, BinOp::FAdd, ty, sum, product, "f");
+                self.fp_set(block, double, d, r);
+            }
+            Fp::Unary { op, double, d, m } => {
+                let bits = Self::fp_bits_type(double);
+                let sign: i64 = if double { i64::MIN } else { i64::from(i32::MIN) };
+                match op {
+                    Unary::Mov => {
+                        let raw = self.fp_bits(block, double, m);
+                        self.fp_set_bits(block, double, d, raw);
+                    }
+                    Unary::Abs | Unary::Neg => {
+                        let raw = self.fp_bits(block, double, m);
+                        let r = if op == Unary::Abs {
+                            self.m.b.bin(block, BinOp::And, bits, raw, !sign, "f.abs")
+                        } else {
+                            self.m.b.bin(block, BinOp::Xor, bits, raw, sign, "f.neg")
+                        };
+                        self.fp_set_bits(block, double, d, r);
+                    }
+                    Unary::Sqrt => {
+                        let ty = Self::fp_type(double);
+                        let x = self.fp_get(block, double, m);
+                        let name = if double { "llvm.sqrt.f64" } else { "llvm.sqrt.f32" };
+                        let r = self.m.intrinsic(block, name, ty.clone(), vec![(ty, x.into())], "f.sqrt");
+                        self.fp_set(block, double, d, r);
+                    }
+                }
+            }
+            Fp::Compare { double, d, m } => {
+                // Less sets N; equal Z and C; greater C; what cannot be ordered C and V.
+                let ty = Self::fp_type(double);
+                let a: Operand = self.fp_get(block, double, d).into();
+                let b: Operand = match m {
+                    Some(m) => self.fp_get(block, double, m).into(),
+                    None => Operand::Float(0.0),
+                };
+                let less = fcmp(self, FCond::Olt, ty.clone(), a.clone(), b.clone());
+                let equal = fcmp(self, FCond::Oeq, ty.clone(), a.clone(), b.clone());
+                let unordered = fcmp(self, FCond::Uno, ty, a, b);
+                let carry = self.m.b.bin(block, BinOp::Xor, Type::I1, less, 1i64, "f.c");
+                self.set_fp_flag(block, N, less);
+                self.set_fp_flag(block, Z, equal);
+                self.set_fp_flag(block, C, carry);
+                self.set_fp_flag(block, V, unordered);
+            }
+            Fp::Width { to_double, d, m } => {
+                let x = self.fp_get(block, !to_double, m);
+                let r = if to_double {
+                    self.m.b.cast(block, Cast::FPExt, Type::Float, x, Type::Double, "f")
+                } else {
+                    self.m.b.cast(block, Cast::FPTrunc, Type::Double, x, Type::Float, "f")
+                };
+                self.fp_set(block, to_double, d, r);
+            }
+            Fp::FromInt { double, signed, d, m } => {
+                let whole = self.fp_bits(block, false, m);
+                let r =
+                    self.m.b.cast(block, if signed { Cast::SIToFP } else { Cast::UIToFP }, Type::I32, whole, Self::fp_type(double), "f");
+                self.fp_set(block, double, d, r);
+            }
+            Fp::ToInt { toward_zero: false, .. } => return false,
+            Fp::ToInt { double, signed, d, m, .. } => {
+                // Toward zero; past an end of the word is that end, and what is no number is zero.
+                let x = self.fp_get(block, double, m);
+                let x: Operand =
+                    if double { x.into() } else { self.m.b.cast(block, Cast::FPExt, Type::Float, x, Type::Double, "f.w").into() };
+                let (top, bottom, most, least): (f64, f64, i64, i64) = if signed {
+                    (2_147_483_648.0, -2_147_483_648.0, i64::from(i32::MAX), i64::from(i32::MIN))
+                } else {
+                    (4_294_967_296.0, 0.0, 0xffff_ffff, 0)
+                };
+                let high = fcmp(self, FCond::Oge, Type::Double, x.clone(), Operand::Float(top));
+                let low = fcmp(self, FCond::Olt, Type::Double, x.clone(), Operand::Float(bottom));
+                let none = fcmp(self, FCond::Uno, Type::Double, x.clone(), x.clone());
+                let outside = self.m.b.bin(block, BinOp::Or, Type::I1, high, low, "f.out");
+                let outside = self.m.b.bin(block, BinOp::Or, Type::I1, outside, none, "f.out");
+                let inside = self.m.b.select(block, outside, Type::Double, Operand::Float(0.0), x, "f.in");
+                let whole =
+                    self.m.b.cast(block, if signed { Cast::FPToSI } else { Cast::FPToUI }, Type::Double, inside, Type::I32, "whole");
+                let whole = self.m.b.select(block, low, Type::I32, least, whole, "whole");
+                let whole = self.m.b.select(block, high, Type::I32, most, whole, "whole");
+                self.fp_set_bits(block, false, d, whole);
+            }
+            Fp::Core { to_core, s, rt } => {
+                if to_core {
+                    let raw = self.fp_bits(block, false, s);
+                    self.set_reg(block, rt, raw);
+                } else {
+                    let v = self.reg(block, rt, ip);
+                    self.fp_set_bits(block, false, s, v);
+                }
+            }
+            Fp::CorePair { to_core, d, rt, rt2 } => {
+                if to_core {
+                    let raw = self.fp_bits(block, true, d);
+                    let low = self.m.b.cast(block, Cast::Trunc, Type::I64, raw, Type::I32, "f.lo");
+                    let high = self.m.b.bin(block, BinOp::LShr, Type::I64, raw, 32i64, "f.hi");
+                    let high = self.m.b.cast(block, Cast::Trunc, Type::I64, high, Type::I32, "f.hi");
+                    self.set_reg(block, rt, low);
+                    self.set_reg(block, rt2, high);
+                } else {
+                    let (low, high) = (self.reg(block, rt, ip), self.reg(block, rt2, ip));
+                    let low = self.m.b.cast(block, Cast::ZExt, Type::I32, low, Type::I64, "f.lo");
+                    let high = self.m.b.cast(block, Cast::ZExt, Type::I32, high, Type::I64, "f.hi");
+                    let high = self.m.b.bin(block, BinOp::Shl, Type::I64, high, 32i64, "f.hi");
+                    let raw = self.m.b.bin(block, BinOp::Or, Type::I64, high, low, "f.bits");
+                    self.fp_set_bits(block, true, d, raw);
+                }
+            }
+            Fp::Status { to_core: true, rt: PC } => {
+                // `vmrs APSR_nzcv, fpscr`: the unit's flags to the processor's.
+                for flag in [N, Z, C, V] {
+                    let v = self.fp_flag(block, flag);
+                    self.set_flag(block, flag, v);
+                }
+            }
+            Fp::Status { to_core: true, rt } => {
+                // The status register as a word: its flags in the top four bits, the rest as at reset.
+                let mut word: Operand = 0i64.into();
+                for (flag, shift) in [(N, 31i64), (Z, 30), (C, 29), (V, 28)] {
+                    let v = self.fp_flag(block, flag);
+                    let wide = self.m.b.cast(block, Cast::ZExt, Type::I1, v, Type::I32, "f.flag");
+                    let placed = self.m.b.bin(block, BinOp::Shl, Type::I32, wide, shift, "f.flag");
+                    word = self.m.b.bin(block, BinOp::Or, Type::I32, word, placed, "fpscr").into();
+                }
+                self.set_reg(block, rt, word);
+            }
+            Fp::Status { to_core: false, rt } => {
+                // Only the flags are kept: the rounding mode and the exception bits are not.
+                let word = self.reg(block, rt, ip);
+                for (flag, shift) in [(N, 31i64), (Z, 30), (C, 29), (V, 28)] {
+                    let bit = self.m.b.bin(block, BinOp::LShr, Type::I32, word, shift, "f.flag");
+                    let bit = self.m.b.cast(block, Cast::Trunc, Type::I32, bit, Type::I1, "f.flag");
+                    self.set_fp_flag(block, flag, bit);
+                }
+            }
+            Fp::Mem { load, double, d, rn, offset } => {
+                let address: Operand = if rn == PC {
+                    let pc = if self.arm { ip + 8 } else { thumb::aligned_pc(ip) };
+                    Operand::Int(i128::from(pc.wrapping_add(offset as i64 as u64) & 0xffff_ffff))
+                } else {
+                    let base = self.reg(block, rn, ip);
+                    self.m.b.bin(block, BinOp::Add, Type::I32, base, i64::from(offset), "addr").into()
+                };
+                let bits = Self::fp_bits_type(double);
+                if load {
+                    let raw = self.m.load(block, bits, address, "f.ld");
+                    self.fp_set_bits(block, double, d, raw);
+                } else {
+                    let raw = self.fp_bits(block, double, d);
+                    self.m.store(block, bits, raw, address);
+                }
+            }
+            Fp::Multiple { load, double, d, count, rn, wback, before } => {
+                let size = if double { 8i64 } else { 4 };
+                let total = size * i64::from(count);
+                let base = self.reg(block, rn, ip);
+                let moved = self.m.b.bin(block, if before { BinOp::Sub } else { BinOp::Add }, Type::I32, base, total, "moved");
+                let start = if before { moved } else { base };
+                let bits = Self::fp_bits_type(double);
+                for k in 0..count {
+                    let at = self.m.b.bin(block, BinOp::Add, Type::I32, start, size * i64::from(k), "at");
+                    if load {
+                        let raw = self.m.load(block, bits.clone(), at, "f.ld");
+                        self.fp_set_bits(block, double, d + k, raw);
+                    } else {
+                        let raw = self.fp_bits(block, double, d + k);
+                        self.m.store(block, bits.clone(), raw, at);
+                    }
+                }
+                if wback {
+                    self.set_reg(block, rn, moved);
+                }
+            }
+        }
+        true
+    }
+
+    // endregion
+
     #[allow(clippy::too_many_lines)]
     fn lift_instr(&mut self, block: BlockId, d: &Decoded, i: &Instr) -> BlockId {
         let ip = i.address;
@@ -632,6 +908,23 @@ impl Lifter<'_, '_> {
                 let t = self.m.b.cast(block, Cast::Trunc, ty.clone(), v, narrow.clone(), "ext.t");
                 let r = self.m.b.cast(block, if signed { Cast::SExt } else { Cast::ZExt }, narrow, t, ty, "ext");
                 self.set_reg(block, rd, r);
+            }
+            Op::HighMul { rd, rn, rm, round } => {
+                let (a, b) = (self.reg(block, rn, ip), self.reg(block, rm, ip));
+                let a = self.m.b.cast(block, Cast::SExt, Type::I32, a, Type::I64, "a.w");
+                let b = self.m.b.cast(block, Cast::SExt, Type::I32, b, Type::I64, "b.w");
+                let mut product = self.m.b.bin(block, BinOp::Mul, Type::I64, a, b, "mul");
+                if round {
+                    product = self.m.b.bin(block, BinOp::Add, Type::I64, product, 0x8000_0000i64, "mul.r");
+                }
+                let high = self.m.b.bin(block, BinOp::AShr, Type::I64, product, 32i64, "hi");
+                let high = self.m.b.cast(block, Cast::Trunc, Type::I64, high, Type::I32, "hi");
+                self.set_reg(block, rd, high);
+            }
+            Op::Fp(fp) => {
+                if !self.lift_fp(block, fp, ip) {
+                    return self.unsupported(block, i);
+                }
             }
             Op::Bits { kind, rd, rm } => {
                 let v = self.reg(block, rm, ip);

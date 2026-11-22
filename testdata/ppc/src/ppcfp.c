@@ -5,6 +5,9 @@
 
 typedef unsigned int u32;
 
+// Another machine's fixture is this program with its own system call before it
+// (`testdata/src/armfp.c`): the calls' numbers, 4 to write and 1 to end, are the same there.
+#ifndef HAVE_SYSCALL3
 static long syscall3(long number, long a, long b, long c) {
     register long r0 __asm__("r0") = number;
     register long r3 __asm__("r3") = a;
@@ -13,6 +16,7 @@ static long syscall3(long number, long a, long b, long c) {
     __asm__ volatile("sc" : "+r"(r3) : "r"(r0), "r"(r4), "r"(r5) : "memory", "cr0", "ctr", "r6", "r7", "r8", "r9", "r10", "r11", "r12");
     return r3;
 }
+#endif
 
 __attribute__((noinline)) static void print(int v) {
     char text[16];

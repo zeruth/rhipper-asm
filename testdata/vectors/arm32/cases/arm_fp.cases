@@ -1,0 +1,30 @@
+HighMul 11f250e7 smmul r0, r1, r2
+HighMul 18fa55e7 smmul r5, r8, r10
+HighMul 1bfc59e7 smmul r9, r11, r12
+HighMul 1ef65ce7 smmul r12, r14, r6
+HighMul 31f25007 smmulreq r0, r1, r2
+HighMul 38fa5517 smmulrne r5, r8, r10
+HighMul 3bfc5927 smmulrcs r9, r11, r12
+HighMul 3ef65c37 smmulrcc r12, r14, r6
+HighMul 31f25047 smmulrmi r0, r1, r2
+HighMul 38fa5557 smmulrpl r5, r8, r10
+HighMul 3bfc5967 smmulrvs r9, r11, r12
+HighMul 3ef65c77 smmulrvc r12, r14, r6
+HighMul 31f25087 smmulrhi r0, r1, r2
+HighMul 38fa5597 smmulrls r5, r8, r10
+HighMul 3bfc59a7 smmulrge r9, r11, r12
+HighMul 3ef65cb7 smmulrlt r12, r14, r6
+HighMul 31f250c7 smmulrgt r0, r1, r2
+HighMul 38fa55d7 smmulrle r5, r8, r10
+Fp 020b31ee vadd.f64 d0, d1, d2
+Fp 810a20ee vmul.f32 s0, s1, s2
+Fp 410bb4ee vcmp.f64 d0, d1
+Fp c10bbdee vcvt.s32.f64 s0, d1
+Fp 101a00ee vmov s0, r1
+Fp 108a00ee vmov s0, r8
+Fp 10ba00ee vmov s0, r11
+Fp 10ea00ee vmov s0, r14
+Fp 020b91ed vldr d0, [r1, #8]
+Fp 020b98ed vldr d0, [r8, #8]
+Fp 020b9bed vldr d0, [r11, #8]
+Fp 020b94ed vldr d0, [r4, #8]
