@@ -126,6 +126,33 @@ impl Alu {
     }
 }
 
+/// A rearrangement of a register's bits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bits {
+    /// The count of the zero bits above the highest one.
+    Clz,
+    /// The four bytes the other way round.
+    Rev,
+    /// The bytes of each half the other way round.
+    Rev16,
+    /// The bytes of the low half the other way round, the result extended by its sign.
+    Revsh,
+    /// The thirty-two bits the other way round.
+    Rbit,
+}
+
+impl Bits {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Clz => "clz",
+            Self::Rev => "rev",
+            Self::Rev16 => "rev16",
+            Self::Revsh => "revsh",
+            Self::Rbit => "rbit",
+        }
+    }
+}
+
 /// The offset of a single load or store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Offset {
@@ -184,6 +211,12 @@ pub enum Op {
         rd: u8,
         rm: u8,
         rotate: u8,
+    },
+    /// `clz`, `rev`, `rev16`, `revsh` and `rbit`.
+    Bits {
+        kind: Bits,
+        rd: u8,
+        rm: u8,
     },
     /// `ubfx` and `sbfx`.
     Field {
@@ -490,6 +523,10 @@ fn misc16(h: u32, pc: u64) -> Op {
             let list = (h & 0xff) as u16 | if bit(h, 8) { 1 << PC } else { 0 };
             Op::Multiple { load: true, rn: SP, list, wback: true, before: false, swapped: false }
         }
+        0b1010 if field(h, 7, 6) != 2 => {
+            let kind = [Bits::Rev, Bits::Rev16, Bits::Rev, Bits::Revsh][field(h, 7, 6) as usize];
+            Op::Bits { kind, rd: low(h, 0), rm: low(h, 3) }
+        }
         0b1110 => Op::Bkpt((h & 0xff) as u8),
         0b1111 if h & 0xf == 0 => Op::Nop,
         0b1111 => Op::It { first: field(h, 7, 4) as u8, mask: (h & 0xf) as u8 },
@@ -637,6 +674,15 @@ fn decode32(h1: u32, h2: u32, address: u64) -> Op {
                 }
                 Op::Unsupported
             }
+            // The rearrangements of a register's bits, which name their source twice.
+            0b0101 if field(h2, 15, 12) == 0xf && rn == rm => match (field(h1, 6, 4), field(h2, 7, 4)) {
+                (0b001, 0b1000) => Op::Bits { kind: Bits::Rev, rd, rm },
+                (0b001, 0b1001) => Op::Bits { kind: Bits::Rev16, rd, rm },
+                (0b001, 0b1010) => Op::Bits { kind: Bits::Rbit, rd, rm },
+                (0b001, 0b1011) => Op::Bits { kind: Bits::Revsh, rd, rm },
+                (0b011, 0b1000) => Op::Bits { kind: Bits::Clz, rd, rm },
+                _ => Op::Unsupported,
+            },
             0b0110 => {
                 let ra = reg(h2, 12);
                 match (field(h1, 6, 4), field(h2, 5, 4)) {
@@ -744,6 +790,7 @@ fn mnemonic(op: &Op) -> String {
             format!("{}{}", if signed { "smul" } else { "umul" }, if accumulate { "al" } else { "l" }).replace("mulal", "mlal")
         }
         Op::Div { signed, .. } => (if signed { "sdiv" } else { "udiv" }).to_owned(),
+        Op::Bits { kind, .. } => kind.name().to_owned(),
         Op::Extend { signed, bits, .. } => format!("{}xt{}", if signed { "s" } else { "u" }, if bits == 8 { "b" } else { "h" }),
         Op::Field { signed, .. } => (if signed { "sbfx" } else { "ubfx" }).to_owned(),
         Op::Insert { rn, .. } => (if rn.is_some() { "bfi" } else { "bfc" }).to_owned(),
@@ -861,7 +908,7 @@ pub fn record(d: &Decoded, address: u64) -> Instr {
             read(&mut registers, rn);
             read(&mut registers, rm);
         }
-        Op::Extend { rd, rm, .. } => {
+        Op::Extend { rd, rm, .. } | Op::Bits { rd, rm, .. } => {
             operands.extend([r(rd), r(rm)]);
             write(&mut registers, rd);
             read(&mut registers, rm);

@@ -166,14 +166,14 @@ Insert 1100dfe7 bfi r0, r1, #0, #32
 Insert 1852cbe7 bfi r5, r8, #4, #8
 Insert 1b98dfe7 bfi r9, r11, #16, #16
 Insert 9ecfdfe7 bfi r12, r14, #31, #1
-Unsupported 120f6fe1 clz r0, r2
-Unsupported 1a5f6fe1 clz r5, r10
-Unsupported 1c9f6fe1 clz r9, r12
-Unsupported 16cf6fe1 clz r12, r6
-Unsupported 320fbfe6 rev r0, r2
-Unsupported 3a5fbfe6 rev r5, r10
-Unsupported 3c9fbfe6 rev r9, r12
-Unsupported 36cfbfe6 rev r12, r6
+Bits 120f6fe1 clz r0, r2
+Bits 1a5f6fe1 clz r5, r10
+Bits 1c9f6fe1 clz r9, r12
+Bits 16cf6fe1 clz r12, r6
+Bits 320fbfe6 rev r0, r2
+Bits 3a5fbfe6 rev r5, r10
+Bits 3c9fbfe6 rev r9, r12
+Bits 36cfbfe6 rev r12, r6
 Unsupported 00000fe1 mrs r0, apsr
 Unsupported 00500fe1 mrs r5, apsr
 Unsupported 00900fe1 mrs r9, apsr

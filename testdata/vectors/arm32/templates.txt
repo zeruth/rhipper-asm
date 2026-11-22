@@ -292,11 +292,11 @@ Nop     nop.w
 Bkpt    bkpt #{bkpt}
 Trap    udf #{imm8}
 Trap    udf.w #{imm16}
-Unsupported clz {Rd}, {Rm}
-Unsupported rev {Ld}, {Lm}
-Unsupported rbit {Rd}, {Rm}
-Unsupported rev16 {Ld}, {Lm}
-Unsupported revsh {Ld}, {Lm}
+Bits clz {Rd}, {Rm}
+Bits rev {Ld}, {Lm}
+Bits rbit {Rd}, {Rm}
+Bits rev16 {Ld}, {Lm}
+Bits revsh {Ld}, {Lm}
 Unsupported ssat {Rd}, #8, {Rn}
 Unsupported qadd {Rd}, {Rn}, {Rm}
 Unsupported ldrex {Rt}, [{Rb}]
@@ -331,8 +331,8 @@ Extend  uxth{cond} {Rd}, {Rm}, ror #{rot}
 Field   ubfx {Rd}, {Rn}, #{lsb}, #{width}
 Field   sbfx {Rd}, {Rn}, #{lsb}, #{width}
 Insert  bfi {Rd}, {Rn}, #{lsb}, #{width}
-Unsupported clz {Rd}, {Rm}
-Unsupported rev {Rd}, {Rm}
+Bits clz {Rd}, {Rm}
+Bits rev {Rd}, {Rm}
 Unsupported mrs {Rd}, apsr
 
 [arm_mem]

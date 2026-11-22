@@ -2377,7 +2377,7 @@ tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
 
 [[file]]
 path = "testdata/vectors/arm32/cases/arm_data.cases"
-sha256 = "8377a6652bb4dd04baf815ff9547327303b61bebdadc402f224c3e6304a516b1"
+sha256 = "759f589f6daebfe568eb2b7feea5b03061f317d2fa69651061b21b9e5f84a4e3"
 evidence = "source"
 source = "testdata/vectors/arm32/templates.txt"
 command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
@@ -2489,7 +2489,7 @@ tools = "llvm-mc of Ubuntu LLVM 18.1.3 (WSL Ubuntu 24.04)"
 
 [[file]]
 path = "testdata/vectors/arm32/cases/system.cases"
-sha256 = "f79f70fee182c8efbea6d15b0998ba4e72753768055afe36d9777fb82ad935cd"
+sha256 = "cf172c022f794b9b6f7443c695c37acc8032681ee2c493cd09dad317633958a9"
 evidence = "source"
 source = "testdata/vectors/arm32/templates.txt"
 command = "cargo test -p ra-asm-lift --test vectors_gen write_arm32_cases -- --ignored"
@@ -2513,7 +2513,7 @@ tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubun
 
 [[file]]
 path = "testdata/vectors/arm32/arm_data.vec"
-sha256 = "49d70cc292a962e0a252e7fa626c276cd8015a7aa10d9964b0a1a2a79eb21c5e"
+sha256 = "b53723450b3a79ccb2e92378dc1678d1a5d0e6d9633de210334f00dab7800e53"
 evidence = "emulator"
 source = "testdata/vectors/arm32/cases/arm_data.cases"
 command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"
@@ -2625,7 +2625,7 @@ tools = "Ubuntu clang 18.1.3, Ubuntu LLD 18.1.3, qemu-arm-static 8.2.2 (WSL Ubun
 
 [[file]]
 path = "testdata/vectors/arm32/system.vec"
-sha256 = "e07ffdd636945a54ac552fd3e2e798d1ea6905acb6102e19e03c2a6ae5710c14"
+sha256 = "45699e7c2e4b6db7f678683f6f7941064dcc4125b3d52389c5bf16ef51cfe715"
 evidence = "emulator"
 source = "testdata/vectors/arm32/cases/system.cases"
 command = "cargo test -p ra-asm-lift --test vectors write_arm32_vectors -- --ignored"

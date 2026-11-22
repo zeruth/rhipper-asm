@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use ra_asm_analysis::{Analysis, Block, Function, Terminator as T};
 use ra_asm_arch::Instr;
-use ra_asm_arm64::thumb::{self, Alu, Decoded, LR, Offset, Op, PC, Shift, Source};
+use ra_asm_arm64::thumb::{self, Alu, Bits, Decoded, LR, Offset, Op, PC, Shift, Source};
 use ra_asm_ir::{BinOp, BlockId, Callee, Cast, FnType, FunctionBuilder, ICond, Operand, Terminator, Type, ValueId};
 use ra_asm_pe::Image;
 
@@ -625,6 +625,51 @@ impl Lifter<'_, '_> {
                 let narrow = Type::Int(u16::from(bits));
                 let t = self.m.b.cast(block, Cast::Trunc, ty.clone(), v, narrow.clone(), "ext.t");
                 let r = self.m.b.cast(block, if signed { Cast::SExt } else { Cast::ZExt }, narrow, t, ty, "ext");
+                self.set_reg(block, rd, r);
+            }
+            Op::Bits { kind, rd, rm } => {
+                let v = self.reg(block, rm, ip);
+                // The two groups of bits a mask and its shift name, each put where the other was.
+                let swap = |this: &mut Self, v: ValueId, by: i64, mask: i64| {
+                    let high = this.m.b.bin(block, BinOp::LShr, Type::I32, v, by, "hi");
+                    let high = this.m.b.bin(block, BinOp::And, Type::I32, high, mask, "hi");
+                    let low = this.m.b.bin(block, BinOp::And, Type::I32, v, mask, "lo");
+                    let low = this.m.b.bin(block, BinOp::Shl, Type::I32, low, by, "lo");
+                    this.m.b.bin(block, BinOp::Or, Type::I32, high, low, "swap")
+                };
+                let r = match kind {
+                    Bits::Rev16 => swap(self, v, 8, 0x00ff_00ff),
+                    Bits::Rev | Bits::Rbit => {
+                        let mut v = v;
+                        if kind == Bits::Rbit {
+                            for (by, mask) in [(1, 0x5555_5555), (2, 0x3333_3333), (4, 0x0f0f_0f0f)] {
+                                v = swap(self, v, by, mask);
+                            }
+                        }
+                        let v = swap(self, v, 8, 0x00ff_00ff);
+                        swap(self, v, 16, 0xffff)
+                    }
+                    Bits::Revsh => {
+                        let v = swap(self, v, 8, 0x00ff_00ff);
+                        let t = self.m.b.cast(block, Cast::Trunc, ty.clone(), v, Type::I16, "rev.t");
+                        self.m.b.cast(block, Cast::SExt, Type::I16, t, ty, "revsh")
+                    }
+                    Bits::Clz => {
+                        // By halves: where the top bits are all zero they are counted and passed.
+                        let zero: Operand = 0i64.into();
+                        let (mut count, mut rest): (Operand, Operand) = (zero, v.into());
+                        for step in [16i64, 8, 4, 2, 1] {
+                            let top = self.m.b.bin(block, BinOp::LShr, Type::I32, rest.clone(), 32 - step, "top");
+                            let none = self.m.b.icmp(block, ICond::Eq, Type::I32, top, 0i64, "none");
+                            let more = self.m.b.bin(block, BinOp::Add, Type::I32, count.clone(), step, "n");
+                            let moved = self.m.b.bin(block, BinOp::Shl, Type::I32, rest.clone(), step, "rest");
+                            count = self.m.b.select(block, none, Type::I32, more, count, "n").into();
+                            rest = self.m.b.select(block, none, Type::I32, moved, rest, "rest").into();
+                        }
+                        let empty = self.m.b.icmp(block, ICond::Eq, Type::I32, v, 0i64, "zero");
+                        self.m.b.select(block, empty, ty, 32i64, count, "clz")
+                    }
+                };
                 self.set_reg(block, rd, r);
             }
             Op::Field { signed, rd, rn, lsb, width } => {

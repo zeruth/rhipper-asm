@@ -16,7 +16,7 @@
 
 use ra_asm_arch::{Arch, Flow, Instr, Operand, Register, Target};
 
-use crate::thumb::{Alu, Decoded, Offset, Op, PC, Shift, Source, record, register};
+use crate::thumb::{Alu, Bits, Decoded, Offset, Op, PC, Shift, Source, record, register};
 
 fn field(w: u32, hi: u32, lo: u32) -> u32 {
     (w >> lo) & ((1u32 << (hi - lo + 1)) - 1)
@@ -72,8 +72,11 @@ fn operation(w: u32, address: u64, cond: Option<u8>) -> Op {
                 return halfword(w);
             }
             let (opcode, s) = (field(w, 24, 21), bit(w, 20));
+            if w & 0x0fff_0ff0 == 0x016f_0f10 {
+                return Op::Bits { kind: Bits::Clz, rd: reg(w, 12), rm: reg(w, 0) };
+            }
             if (8..=11).contains(&opcode) && !s {
-                return Op::Unsupported; // the status register's moves, clz, the saturating sums
+                return Op::Unsupported; // the status register's moves, the saturating sums
             }
             let src = if bit(w, 4) {
                 let shift = [Shift::Lsl, Shift::Lsr, Shift::Asr, Shift::Ror][field(w, 6, 5) as usize];
@@ -243,6 +246,16 @@ fn media(w: u32) -> Op {
             return Op::Unsupported;
         }
         return Op::Insert { rd, rn: (rm != PC).then_some(rm), lsb, width: msb - lsb + 1 };
+    }
+    if w & 0x0fbf_0f70 == 0x06bf_0f30 {
+        // rev and rev16, and with bit 22 rbit and revsh.
+        let kind = match (bit(w, 22), bit(w, 7)) {
+            (false, false) => Bits::Rev,
+            (false, true) => Bits::Rev16,
+            (true, false) => Bits::Rbit,
+            (true, true) => Bits::Revsh,
+        };
+        return Op::Bits { kind, rd, rm };
     }
     if w & 0x0ff0_00f0 == 0x07f0_00f0 {
         return Op::Trap; // udf

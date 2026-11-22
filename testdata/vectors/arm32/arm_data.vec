@@ -1516,76 +1516,76 @@ out pc=0x30002004 sig=trap
 case Insert 9ecfdfe7 bfi r12, r14, #31, #1 <- bfi {Rd}, {Rn}, #{lsb}, #{width}
 in nzcv=1001 r12=0x2 lr=0xe
 out pc=0x30002004 sig=trap
-case Unsupported 120f6fe1 clz r0, r2 <- clz {Rd}, {Rm}
+case Bits 120f6fe1 clz r0, r2 <- clz {Rd}, {Rm}
 in nzcv=0111 r0=0x4 r2=0xf8e47d1b
 out pc=0x30002004 sig=trap r0=0x0
-case Unsupported 120f6fe1 clz r0, r2 <- clz {Rd}, {Rm}
+case Bits 120f6fe1 clz r0, r2 <- clz {Rd}, {Rm}
 in nzcv=1001 r0=0x7ffffffa r2=0xffffffff
 out pc=0x30002004 sig=trap r0=0x0
-case Unsupported 120f6fe1 clz r0, r2 <- clz {Rd}, {Rm}
+case Bits 120f6fe1 clz r0, r2 <- clz {Rd}, {Rm}
 in nzcv=0000 r0=0xffffff r2=0x7ffffff1
 out pc=0x30002004 sig=trap r0=0x1
-case Unsupported 1a5f6fe1 clz r5, r10 <- clz {Rd}, {Rm}
+case Bits 1a5f6fe1 clz r5, r10 <- clz {Rd}, {Rm}
 in nzcv=1101 r5=0xfffffff3 r10=0x80000001
 out pc=0x30002004 sig=trap r5=0x0
-case Unsupported 1a5f6fe1 clz r5, r10 <- clz {Rd}, {Rm}
+case Bits 1a5f6fe1 clz r5, r10 <- clz {Rd}, {Rm}
 in nzcv=1011 r5=0xd678ccee r10=0xc2b3f878
 out pc=0x30002004 sig=trap r5=0x0
-case Unsupported 1a5f6fe1 clz r5, r10 <- clz {Rd}, {Rm}
+case Bits 1a5f6fe1 clz r5, r10 <- clz {Rd}, {Rm}
 in nzcv=0111 r5=0x80000 r10=0xfffffff0
 out pc=0x30002004 sig=trap r5=0x0
-case Unsupported 1c9f6fe1 clz r9, r12 <- clz {Rd}, {Rm}
+case Bits 1c9f6fe1 clz r9, r12 <- clz {Rd}, {Rm}
 in nzcv=1001 r9=0x3f r12=0x3fffff
 out pc=0x30002004 sig=trap r9=0xa
-case Unsupported 1c9f6fe1 clz r9, r12 <- clz {Rd}, {Rm}
+case Bits 1c9f6fe1 clz r9, r12 <- clz {Rd}, {Rm}
 in nzcv=0101 r9=0xe59cd1ba r12=0xfffffff8
 out pc=0x30002004 sig=trap r9=0x0
-case Unsupported 1c9f6fe1 clz r9, r12 <- clz {Rd}, {Rm}
+case Bits 1c9f6fe1 clz r9, r12 <- clz {Rd}, {Rm}
 in nzcv=1001 r9=0xca11d699 r12=0x80000007
 out pc=0x30002004 sig=trap r9=0x0
-case Unsupported 16cf6fe1 clz r12, r6 <- clz {Rd}, {Rm}
+case Bits 16cf6fe1 clz r12, r6 <- clz {Rd}, {Rm}
 in nzcv=0001 r6=0x1ffff r12=0x8
 out pc=0x30002004 sig=trap r12=0xf
-case Unsupported 16cf6fe1 clz r12, r6 <- clz {Rd}, {Rm}
+case Bits 16cf6fe1 clz r12, r6 <- clz {Rd}, {Rm}
 in nzcv=1001 r6=0x7ffffffd r12=0xfffffff5
 out pc=0x30002004 sig=trap r12=0x1
-case Unsupported 16cf6fe1 clz r12, r6 <- clz {Rd}, {Rm}
+case Bits 16cf6fe1 clz r12, r6 <- clz {Rd}, {Rm}
 in nzcv=1011 r6=0xfffffff6 r12=0x8000000c
 out pc=0x30002004 sig=trap r12=0x0
-case Unsupported 320fbfe6 rev r0, r2 <- rev {Rd}, {Rm}
+case Bits 320fbfe6 rev r0, r2 <- rev {Rd}, {Rm}
 in nzcv=1010 r0=0x2 r2=0x1
 out pc=0x30002004 sig=trap r0=0x1000000
-case Unsupported 320fbfe6 rev r0, r2 <- rev {Rd}, {Rm}
+case Bits 320fbfe6 rev r0, r2 <- rev {Rd}, {Rm}
 in nzcv=1010 r0=0xa1c33cba r2=0x3ffff
 out pc=0x30002004 sig=trap r0=0xffff0300
-case Unsupported 320fbfe6 rev r0, r2 <- rev {Rd}, {Rm}
+case Bits 320fbfe6 rev r0, r2 <- rev {Rd}, {Rm}
 in nzcv=1100 r0=0x7fff r2=0x4000000
 out pc=0x30002004 sig=trap r0=0x4
-case Unsupported 3a5fbfe6 rev r5, r10 <- rev {Rd}, {Rm}
+case Bits 3a5fbfe6 rev r5, r10 <- rev {Rd}, {Rm}
 in nzcv=1000 r5=0xfffffff4 r10=0xfffffff0
 out pc=0x30002004 sig=trap r5=0xf0ffffff
-case Unsupported 3a5fbfe6 rev r5, r10 <- rev {Rd}, {Rm}
+case Bits 3a5fbfe6 rev r5, r10 <- rev {Rd}, {Rm}
 in nzcv=1111 r5=0x200000 r10=0x922de360
 out pc=0x30002004 sig=trap r5=0x60e32d92
-case Unsupported 3a5fbfe6 rev r5, r10 <- rev {Rd}, {Rm}
+case Bits 3a5fbfe6 rev r5, r10 <- rev {Rd}, {Rm}
 in nzcv=1100 r5=0x6 r10=0x8000000e
 out pc=0x30002004 sig=trap r5=0xe000080
-case Unsupported 3c9fbfe6 rev r9, r12 <- rev {Rd}, {Rm}
+case Bits 3c9fbfe6 rev r9, r12 <- rev {Rd}, {Rm}
 in nzcv=1101 r9=0xff r12=0x80000005
 out pc=0x30002004 sig=trap r9=0x5000080
-case Unsupported 3c9fbfe6 rev r9, r12 <- rev {Rd}, {Rm}
+case Bits 3c9fbfe6 rev r9, r12 <- rev {Rd}, {Rm}
 in nzcv=1101 r9=0x52b7f83b r12=0x40000000
 out pc=0x30002004 sig=trap r9=0x40
-case Unsupported 3c9fbfe6 rev r9, r12 <- rev {Rd}, {Rm}
+case Bits 3c9fbfe6 rev r9, r12 <- rev {Rd}, {Rm}
 in nzcv=1010 r9=0x40000000 r12=0xf
 out pc=0x30002004 sig=trap r9=0xf000000
-case Unsupported 36cfbfe6 rev r12, r6 <- rev {Rd}, {Rm}
+case Bits 36cfbfe6 rev r12, r6 <- rev {Rd}, {Rm}
 in nzcv=1010 r6=0x800 r12=0x7ffffffc
 out pc=0x30002004 sig=trap r12=0x80000
-case Unsupported 36cfbfe6 rev r12, r6 <- rev {Rd}, {Rm}
+case Bits 36cfbfe6 rev r12, r6 <- rev {Rd}, {Rm}
 in nzcv=0110 r6=0x97218ec8 r12=0x7ffffffa
 out pc=0x30002004 sig=trap r12=0xc88e2197
-case Unsupported 36cfbfe6 rev r12, r6 <- rev {Rd}, {Rm}
+case Bits 36cfbfe6 rev r12, r6 <- rev {Rd}, {Rm}
 in nzcv=1011 r6=0x7ffffffa r12=0x3
 out pc=0x30002004 sig=trap r12=0xfaffff7f
 case Unsupported 00000fe1 mrs r0, apsr <- mrs {Rd}, apsr
