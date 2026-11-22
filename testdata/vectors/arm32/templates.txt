@@ -5,8 +5,8 @@
 # Thumb-2, and the writer (`write_arm32_cases` in crates/ra-asm-lift/tests/vectors_gen.rs) expands
 # every class over its sample values, assembles the lines with llvm-mc in WSL (thumbv7 or armv7)
 # and writes the cases. `arm32_cases` checks the committed Thumb cases against this file and the
-# lift's arm list, and that each case decodes to the kind its template names; the ARM groups are
-# recorded for the A32 lift to come and only replayed by it. Every arm of the lift is named here
+# lift's arm list, and that each case decodes to the kind its template names; the ARM cases
+# decode by the ARM decoder to the same kinds, and replay through the same lift. Every arm of the lift is named here
 # but `Svc` (a system call runs the host's kernel) and `It` (an IT block is written with the
 # instruction it predicates).
 

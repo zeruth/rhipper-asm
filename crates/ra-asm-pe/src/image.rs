@@ -77,6 +77,9 @@ pub struct Image {
     /// The image is a flat Cortex-M firmware: no container, its vector table at its start, flash
     /// placed by the reset handler's address and RAM from the family's base to the stack's top.
     pub firmware: bool,
+    /// Which instruction set a 32-bit ARM image's code is in, where a reader knows it and the
+    /// file does not say: `true` for ARM code, `false` for Thumb ([`Image::arm_code`]).
+    pub arm_state: Option<bool>,
     /// The Dreamcast boot program the image is, when it is one: its addresses fold through the
     /// console's memory map.
     pub dreamcast: Option<Boot>,
@@ -290,6 +293,7 @@ impl Image {
             psx_bios,
             firmware: flat_firmware,
             dreamcast: boot,
+            arm_state: None,
             n64: rom,
             global_pointer: None,
             rom: None,
@@ -395,7 +399,7 @@ impl Image {
     /// Whether a 32-bit ARM program's code is ARM code and not Thumb, as far as its file says: an
     /// ELF file's entry with its low bit clear. A program of both is told by where it starts.
     pub fn arm_code(&self) -> bool {
-        self.machine() == Machine::Arm && self.elf.as_ref().is_some_and(|elf| elf.entry & 1 == 0)
+        self.machine() == Machine::Arm && self.arm_state.unwrap_or_else(|| self.elf.as_ref().is_some_and(|elf| elf.entry & 1 == 0))
     }
 
     /// The byte order of the program's words, which every read of a value of the image takes: the

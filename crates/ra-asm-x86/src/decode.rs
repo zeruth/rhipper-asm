@@ -138,7 +138,7 @@ impl X86 {
             text,
             operands,
             flow,
-            prefixes: Prefixes { rep: i.has_rep_prefix(), repne: i.has_repne_prefix(), lock: i.has_lock_prefix() },
+            prefixes: Prefixes { rep: i.has_rep_prefix(), repne: i.has_repne_prefix(), lock: i.has_lock_prefix(), ..Prefixes::default() },
             registers,
             reads_memory,
             writes_memory,

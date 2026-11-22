@@ -88,6 +88,8 @@ fn never_returns(f: &Function, known: &HashSet<u64>) -> bool {
     let starts: HashSet<u64> = f.blocks.iter().map(|b| b.start).collect();
     let stays = |target: &u64| starts.contains(target) || known.contains(target);
     f.blocks.iter().all(|b| match &b.terminator {
+        // A return under a condition, inside the block, is a return.
+        _ if b.instrs.iter().any(|i| i.prefixes.conditional_leave) => false,
         Terminator::Return | Terminator::IndirectJump | Terminator::Invalid => false,
         Terminator::TailCall(target) => known.contains(target),
         Terminator::ImportTailCall(import) => import_never_returns(import),

@@ -1,6 +1,5 @@
-//! The 32-bit ARM vectors: the Thumb-2 cases of `testdata/vectors/arm32` replayed through the
-//! lift of `thumb.rs` and the IR interpreter, and the ARM cases read and counted, recorded for
-//! the A32 lift to come. A vector is a case (an instruction, or an IT block with the instructions
+//! The 32-bit ARM vectors: the Thumb-2 cases and the ARM cases of `testdata/vectors/arm32`
+//! replayed through the lift of `thumb.rs`, which reads both sets, and the IR interpreter. A vector is a case (an instruction, or an IT block with the instructions
 //! it predicates) with the registers r0..r14, the flags and a window of data bytes in, and what
 //! the processor left out under `qemu-arm-static`.
 //!
@@ -49,11 +48,17 @@ const SP: u8 = 13;
 const LR: u8 = 14;
 const PC: u8 = 15;
 
-/// The Thumb case page: a `bkpt` fill, the prologue before the case, the case's bytes at `IP`.
-fn code_page(bytes: &[u8]) -> Vec<u8> {
-    let mut page: Vec<u8> = BKPT_THUMB.to_le_bytes().repeat(CODE_LEN as usize / 2);
+const BKPT_ARM: u32 = 0xe120_0070;
+/// `ldr r12, [r0, #48]; ldr r0, [r0]` in ARM code.
+const PROLOGUE_ARM: [u8; 8] = [0x30, 0xc0, 0x90, 0xe5, 0x00, 0x00, 0x90, 0xe5];
+
+/// The case page, in ARM code or in Thumb: a `bkpt` fill, the prologue before the case, the
+/// case's bytes at `IP`.
+fn code_page(bytes: &[u8], arm: bool) -> Vec<u8> {
+    let mut page: Vec<u8> =
+        if arm { BKPT_ARM.to_le_bytes().repeat(CODE_LEN as usize / 4) } else { BKPT_THUMB.to_le_bytes().repeat(CODE_LEN as usize / 2) };
     let at = (IP - CODE_BASE) as usize;
-    page[at - 8..at].copy_from_slice(&PROLOGUE_THUMB);
+    page[at - 8..at].copy_from_slice(if arm { &PROLOGUE_ARM } else { &PROLOGUE_THUMB });
     page[at..at + bytes.len()].copy_from_slice(bytes);
     page
 }
@@ -297,8 +302,9 @@ fn pe_with_page(page: &[u8]) -> Vec<u8> {
     f
 }
 
-fn lift_case(bytes: &[u8]) -> LiftedCase {
-    let image = ra_asm_pe::Image::parse(pe_with_page(&code_page(bytes))).expect("the synthetic image parses");
+fn lift_case(bytes: &[u8], arm: bool) -> LiftedCase {
+    let mut image = ra_asm_pe::Image::parse(pe_with_page(&code_page(bytes, arm))).expect("the synthetic image parses");
+    image.arm_state = Some(arm);
     let analysis = ra_asm_analysis::analyze(&image);
     let options = ra_asm_lift::LiftOptions { standalone: false, x87: ra_asm_lift::X87Unit::Double };
     let lifted = ra_asm_lift::lift_with(&image, &analysis, options);
@@ -315,14 +321,14 @@ struct Run {
     writes: Vec<(u64, Vec<u8>)>,
 }
 
-fn run_lifted(case: &LiftedCase, input: &Picture, bytes: &[u8], scratch: &mut [u8]) -> Run {
+fn run_lifted(case: &LiftedCase, input: &Picture, bytes: &[u8], arm: bool, scratch: &mut [u8]) -> Run {
     ensure_fixed();
     let scratch_at = scratch.as_ptr() as usize as u64;
     let mut memory = Memory::new();
     memory.add_region(Region::new(IMAGE_BASE, CODE_MAP_LEN, "code"));
     memory.add_region(Region::new(DATA_BASE, DATA_LEN, "data"));
     memory.add_region(Region::new(scratch_at, scratch.len() as u64, "scratch"));
-    memory.write(CODE_BASE, &code_page(bytes)).expect("the code page");
+    memory.write(CODE_BASE, &code_page(bytes, arm)).expect("the code page");
     let mut vm = Vm::new(&case.lifted.module, memory);
     vm.set_static_region(scratch_at + STATICS_AT, FRAMES_AT - STATICS_AT);
     vm.set_frame_region(scratch_at + FRAMES_AT, SCRATCH_LEN as u64 - FRAMES_AT);
@@ -382,7 +388,16 @@ fn return_target(vector: &Vector, run: &Run) -> Option<u64> {
     }
     let base = if name.starts_with("pop") { SP } else { tokens(instr).iter().find_map(|t| general_register(t))? };
     let base = u64::from(vector.input.r[usize::from(base)]);
-    let slot = if name.starts_with("ldmdb") { base - 4 } else { base + 4 * (list.len() as u64 - 1) };
+    // The PC is the highest register, so it is at the highest address of the block.
+    let slot = if name.starts_with("ldmdb") {
+        base - 4
+    } else if name.starts_with("ldmda") {
+        base
+    } else if name.starts_with("ldmib") {
+        base + 4 * list.len() as u64
+    } else {
+        base + 4 * (list.len() as u64 - 1)
+    };
     let at = slot.checked_sub(vector.input.window_at)? as usize;
     let word = vector.input.window.get(at..at + 4)?;
     Some(u64::from(u32::from_le_bytes(word.try_into().unwrap())) & !1)
@@ -445,7 +460,7 @@ fn differences(vector: &Vector, run: &Run) -> Vec<String> {
 // endregion
 
 /// Every Thumb-2 vector replays through the lift and the interpreter, exactly the forms of
-/// `arm32/PENDING.txt` differ, and the ARM vectors read as the recording they are.
+/// `arm32/PENDING.txt` differ, and so does every vector of ARM code, from a page of ARM code.
 #[test]
 fn arm32() {
     let _turn = replay_turn();
@@ -460,7 +475,7 @@ fn arm32() {
     files.sort();
     assert!(!files.is_empty(), "no .vec files under {}", dir.display());
 
-    let mut lifts: HashMap<Vec<u8>, LiftedCase> = HashMap::new();
+    let mut lifts: HashMap<(bool, Vec<u8>), LiftedCase> = HashMap::new();
     let mut scratch = vec![0u8; SCRATCH_LEN];
     let mut forms = Forms::new();
     let mut order: Vec<String> = Vec::new();
@@ -468,16 +483,18 @@ fn arm32() {
     for file in &files {
         let group = file.file_stem().unwrap().to_string_lossy().into_owned();
         let vectors = read_vectors(file);
-        if is_arm_group(&group) {
-            recorded += vectors.len();
-            continue;
-        }
+        let arm = is_arm_group(&group);
         for vector in vectors {
-            replayed += 1;
-            let case = lifts.entry(vector.bytes.clone()).or_insert_with(|| lift_case(&vector.bytes));
-            let run = run_lifted(case, &vector.input, &vector.bytes, &mut scratch);
+            if arm {
+                recorded += 1;
+            } else {
+                replayed += 1;
+            }
+            let case = lifts.entry((arm, vector.bytes.clone())).or_insert_with(|| lift_case(&vector.bytes, arm));
+            let run = run_lifted(case, &vector.input, &vector.bytes, arm, &mut scratch);
             let found = differences(&vector, &run);
-            let key = format!("{} {}", vector.opcode, vector.form);
+            // A form of ARM code is its own, whatever Thumb form is written the same.
+            let key = if arm { format!("{} arm {}", vector.opcode, vector.form) } else { format!("{} {}", vector.opcode, vector.form) };
             let entry = forms.entry(key.clone()).or_insert_with(|| {
                 order.push(key);
                 (0, Vec::new())
@@ -492,11 +509,12 @@ fn arm32() {
     let failures = pending_failures(&order, &forms, &pending);
     let differing = forms.values().filter(|(_, found)| !found.is_empty()).count();
     println!(
-        "arm32 vectors: {replayed} Thumb cases replayed over {} forms, {recorded} ARM cases recorded; {differing} forms differ, {} pending",
+        "arm32 vectors: {replayed} Thumb cases and {recorded} ARM cases replayed over {} forms; {differing} forms differ, {} pending",
         forms.len(),
         pending.len()
     );
     assert!(replayed >= 3000, "{replayed} Thumb vectors replayed, at least 3000 expected");
+    assert!(recorded >= 1200, "{recorded} ARM vectors replayed, at least 1200 expected");
     assert!(failures.is_empty(), "{} forms are not as PENDING.txt says:\n{}", failures.len(), failures.join("\n"));
 }
 

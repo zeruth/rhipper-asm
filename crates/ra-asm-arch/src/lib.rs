@@ -165,6 +165,14 @@ pub struct Prefixes {
     pub rep: bool,
     pub repne: bool,
     pub lock: bool,
+    /// The instruction runs under a condition of its own, as every instruction of ARM code may:
+    /// a call it makes may not happen.
+    #[serde(skip)]
+    pub conditional: bool,
+    /// Under that condition the instruction leaves the function, by a return or a jump through a
+    /// register; its flow says only what happens when the condition fails.
+    #[serde(skip)]
+    pub conditional_leave: bool,
 }
 
 /// One decoded instruction.

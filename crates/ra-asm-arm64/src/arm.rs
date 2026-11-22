@@ -290,8 +290,12 @@ impl Arch for Arm {
         }
         // A return or a jump through a register under a condition goes on when the condition
         // fails: the flow goes on, and the lift leaves under the condition.
-        if d.cond.is_some() && !matches!(d.op, Op::Branch { .. }) && matches!(instr.flow, Flow::Return | Flow::Jump(Target::Indirect)) {
-            instr.flow = Flow::Next;
+        if d.cond.is_some() && !matches!(d.op, Op::Branch { .. }) {
+            instr.prefixes.conditional = true;
+            if matches!(instr.flow, Flow::Return | Flow::Jump(Target::Indirect)) {
+                instr.flow = Flow::Next;
+                instr.prefixes.conditional_leave = true;
+            }
         }
         Some(instr)
     }

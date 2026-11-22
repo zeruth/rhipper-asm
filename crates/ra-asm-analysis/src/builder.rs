@@ -417,7 +417,8 @@ impl Builder<'_> {
             let delay = self.delay(&instr);
             let mnemonic_is_fastfail = instr.mnemonic == "int" && matches!(instr.operands.first(), Some(Operand::Imm { value: 0x29, .. }));
             // A branch on a register that calls and links: the call may not happen.
-            let conditional_call = delay != Delay::None && matches!(instr.mnemonic.as_str(), "bltzal" | "bgezal" | "bltzall" | "bgezall");
+            let conditional_call = instr.prefixes.conditional
+                || delay != Delay::None && matches!(instr.mnemonic.as_str(), "bltzal" | "bgezal" | "bltzall" | "bgezall");
             let at = draft.instrs.len();
             draft.instrs.push(instr);
             draft.end = next;
