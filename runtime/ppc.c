@@ -23,6 +23,10 @@
 
 // Where the program's address zero is: the source's own eight bytes, which the runtime fills.
 extern uint8_t ppc_memory[8];
+// The bits of an address that name memory, which the source says: all of them for a program
+// of a system, fewer for a console's, whose memory is mapped more than once. The source keeps
+// to them in what it reads and writes; the runtime does for an address a system call hands it.
+extern uint8_t ppc_mask[8];
 
 extern void ppc_main(uint8_t *state);
 
@@ -53,7 +57,9 @@ void ppc_sc(uint8_t *state) {
     switch (call) {
     case 4: // write
         if (a == 1 || a == 2) {
-            fwrite(at(b, c), 1, c, a == 2 ? stderr : stdout);
+            uint64_t mask;
+            memcpy(&mask, ppc_mask, sizeof mask);
+            fwrite(at(b & mask, c), 1, c, a == 2 ? stderr : stdout);
             *result = c;
         } else {
             *result = 9; // EBADF, which the kernel says by the summary bit; no program here looks

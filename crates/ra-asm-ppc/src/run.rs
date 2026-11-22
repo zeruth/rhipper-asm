@@ -6,7 +6,7 @@
 use ra_asm_ir::interp::{Host, Memory, Region, Stop, Value, Vm};
 use ra_asm_ir::{CallConv, Callee, Const, Declaration, FnType, FunctionBuilder, Global, Linkage, Module, Operand, Terminator, Type};
 
-use crate::lift::{Code, MAIN, RUN, SC, SEGMENT, SLOTS, TRAP, lift};
+use crate::lift::{Code, MAIN, MASK, RUN, SC, SEGMENT, SLOTS, TRAP, lift};
 
 /// What is wrong with a program, or how a run of one stopped.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +36,35 @@ pub struct Program {
     pub segments: Vec<Segment>,
     /// The program is a 64-bit one: [`crate::lift64`] lifts its code.
     pub wide: bool,
+    /// The bits of an address that name memory, for a console's program ([`Code::mask`]).
+    pub mask: Option<u32>,
+}
+
+/// The sections a DOL file's header has places for, and how many of the first are code.
+const DOL_SECTIONS: usize = 18;
+const DOL_CODE: usize = 7;
+/// The GameCube's memory is mapped at 0x80000000 and again at 0xc0000000: the low thirty bits
+/// of an address name the memory.
+const DOL_MASK: u32 = 0x3fff_ffff;
+
+/// Whether a file reads as a DOL: the format has no mark of its own, so it is one when its
+/// header's sections lie in the file after the header, at the console's addresses, and its
+/// entry is such an address.
+fn is_dol(file: &[u8]) -> bool {
+    let word = |at: usize| file.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+    let console = |address: u32| (0x8000_0000..0x8180_0000).contains(&address);
+    let mut any = false;
+    for n in 0..DOL_SECTIONS {
+        let (Some(offset), Some(address), Some(size)) = (word(4 * n), word(0x48 + 4 * n), word(0x90 + 4 * n)) else { return false };
+        if size == 0 {
+            continue;
+        }
+        any = true;
+        if offset < 0x100 || u64::from(offset) + u64::from(size) > file.len() as u64 || !console(address) {
+            return false;
+        }
+    }
+    any && word(0xe0).is_some_and(console)
 }
 
 impl Program {
@@ -53,6 +82,9 @@ impl Program {
         let number = |offset: u64, len: u64| -> Result<u64, Error> {
             Ok(at(offset, len)?.iter().fold(0u64, |value, &byte| value << 8 | u64::from(byte)))
         };
+        if file.get(..4) != Some(b"\x7fELF") && is_dol(file) {
+            return Self::dol(file);
+        }
         if at(0, 4)? != b"\x7fELF" || !matches!(at(4, 1)?, [1 | 2]) || at(5, 1)? != [2] {
             return Err(bad("it is no big-endian ELF file"));
         }
@@ -82,7 +114,41 @@ impl Program {
                 segments.push(Segment { address, bytes, size, executable: flags & 1 != 0 });
             }
         }
-        Ok(Self { entry, segments, wide })
+        Ok(Self { entry, segments, wide, mask: None })
+    }
+
+    /// Reads a DOL file, the GameCube's and the Wii's executable: a header of eighteen
+    /// sections (seven of code, eleven of data), each a place in the file, an address and a
+    /// size, then what the program clears and its entry. The addresses are the console's, in
+    /// the mapping of its memory at 0x80000000; [`Program::mask`] says which bits name memory.
+    ///
+    /// # Errors
+    /// When a section lies outside the file or the entry outside the code.
+    pub fn dol(file: &[u8]) -> Result<Self, Error> {
+        let bad = |what: &str| Error(format!("no DOL program: {what}"));
+        let word = |at: usize| {
+            file.get(at..at + 4)
+                .map(|b| u64::from(u32::from_be_bytes([b[0], b[1], b[2], b[3]])))
+                .ok_or_else(|| bad("its header is cut short"))
+        };
+        let mut segments = Vec::new();
+        for n in 0..DOL_SECTIONS {
+            let (offset, address, size) = (word(4 * n)?, word(0x48 + 4 * n)?, word(0x90 + 4 * n)?);
+            if size == 0 {
+                continue;
+            }
+            let end =
+                offset.checked_add(size).filter(|&end| end <= file.len() as u64).ok_or_else(|| bad("a section ends outside the file"))?;
+            segments.push(Segment { address, bytes: file[offset as usize..end as usize].to_vec(), size, executable: n < DOL_CODE });
+        }
+        let (cleared, cleared_size, entry) = (word(0xd8)?, word(0xdc)?, word(0xe0)?);
+        if cleared_size != 0 {
+            segments.push(Segment { address: cleared, bytes: Vec::new(), size: cleared_size, executable: false });
+        }
+        if !segments.iter().any(|s| s.executable && entry >= s.address && entry < s.address + s.size) {
+            return Err(bad("its entry is in no section of code"));
+        }
+        Ok(Self { entry, segments, wide: false, mask: Some(DOL_MASK) })
     }
 
     /// The whole program lifted: the code of its first executable segment as [`lift`] makes it,
@@ -93,8 +159,18 @@ impl Program {
     /// When the program has no executable segment.
     pub fn lift(&self) -> Result<Module, Error> {
         let code = self.segments.iter().find(|s| s.executable).ok_or_else(|| Error("the program has no code".to_owned()))?;
-        let code = Code { address: code.address, bytes: &code.bytes };
+        let code = Code { address: code.address, bytes: &code.bytes, mask: self.mask };
         let mut module = if self.wide { crate::lift64::lift(code) } else { lift(code) };
+        let mask = self.mask.map_or(u64::MAX, u64::from);
+        module.globals.push(Global {
+            name: MASK.to_owned(),
+            ty: Type::array(8, Type::I8),
+            init: Some(Const::Bytes(mask.to_le_bytes().to_vec())),
+            constant: false,
+            linkage: Linkage::External,
+            align: 8,
+            address: None,
+        });
         let segment_ty = FnType::new(Type::Void, vec![Type::I64, Type::Ptr, Type::I64, Type::I64]);
         module.declare(Declaration { name: SEGMENT.to_owned(), ty: segment_ty.clone(), conv: CallConv::C, attrs: Vec::new() });
         let mut b = FunctionBuilder::new(MAIN, FnType::new(Type::Void, vec![Type::Ptr]), &["state"]);
@@ -111,7 +187,7 @@ impl Program {
                 address: None,
             });
             let args = vec![
-                (Type::I64, Operand::Int(i128::from(segment.address))),
+                (Type::I64, Operand::Int(i128::from(segment.address & mask))),
                 (Type::Ptr, Operand::Global(name)),
                 (Type::I64, Operand::Int(segment.bytes.len() as i128)),
                 (Type::I64, Operand::Int(i128::from(segment.size))),
@@ -147,6 +223,8 @@ const FRAMES: (u64, u64) = (0x6800_0000, 0x10_0000);
 
 struct Linux {
     out: Vec<u8>,
+    /// The bits of an address the program hands the system that name memory.
+    mask: u64,
 }
 
 impl Host for Linux {
@@ -160,7 +238,7 @@ impl Host for Linux {
                 let result: u32 = match number {
                     // write
                     4 if a == 1 || a == 2 => {
-                        self.out.extend(vm.memory.read_vec(b, c)?);
+                        self.out.extend(vm.memory.read_vec(b & self.mask, c)?);
                         c as u32
                     }
                     // EBADF, which the kernel says by the summary bit; no program here looks
@@ -191,13 +269,16 @@ impl Host for Linux {
 pub fn run(program: &Program, limit: u64) -> Result<Outcome, Error> {
     let module = program.lift()?;
     let mut memory = Memory::new();
-    for (name, (start, len)) in [("stack", STACK), ("statics", STATICS), ("frames", FRAMES)] {
+    let mask = program.mask.map_or(u64::MAX, u64::from);
+    // The stack is where the program's own addresses of it land in memory.
+    for (name, (start, len)) in [("stack", (STACK.0 & mask, STACK.1)), ("statics", STATICS), ("frames", FRAMES)] {
         memory.add_region(Region::owned(start, len, name));
     }
     for segment in &program.segments {
         // The system maps whole pages.
-        let start = segment.address & !0xfff;
-        let end = (segment.address + segment.size.max(segment.bytes.len() as u64)).next_multiple_of(0x1000);
+        let address = segment.address & mask;
+        let start = address & !0xfff;
+        let end = (address + segment.size.max(segment.bytes.len() as u64)).next_multiple_of(0x1000);
         memory.add_region(Region::owned(start, end - start, "segment"));
     }
     let mut vm = Vm::new(&module, memory);
@@ -210,7 +291,7 @@ pub fn run(program: &Program, limit: u64) -> Result<Outcome, Error> {
     vm.memory.fill(state, SLOTS * 8, 0).map_err(stopped)?;
     // The stack pointer is r1.
     vm.memory.write_u64(state + 8, STACK.0 + STACK.1 - 256).map_err(stopped)?;
-    let mut host = Linux { out: Vec::new() };
+    let mut host = Linux { out: Vec::new(), mask };
     let exit = match vm.call_named(&mut host, MAIN, vec![Value::Int(u128::from(state))]) {
         Ok(_) => None,
         Err(Stop::Exit(code)) => Some(code),

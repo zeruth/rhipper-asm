@@ -35,6 +35,13 @@ impl Program {
         let big = bytes.get(5) == Some(&2);
         let machine = bytes.get(18..20).map(|m| if big { u16::from_be_bytes([m[0], m[1]]) } else { u16::from_le_bytes([m[0], m[1]]) });
         let failed = |e: String| anyhow::anyhow!("{e}");
+        // A DOL file, the GameCube's executable, has no mark: the PowerPC reader knows one by
+        // its header's sections.
+        if bytes.get(..4) != Some(b"\x7fELF")
+            && let Ok(program) = ra_asm_ppc::run::Program::parse(bytes)
+        {
+            return Ok(Self::Ppc(program));
+        }
         match machine {
             Some(243) => Ok(Self::Riscv(ra_asm_riscv::run::Program::parse(bytes).map_err(|e| failed(e.0))?)),
             Some(20 | 21) => Ok(Self::Ppc(ra_asm_ppc::run::Program::parse(bytes).map_err(|e| failed(e.0))?)),

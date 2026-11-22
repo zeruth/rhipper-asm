@@ -41,6 +41,29 @@ fn the_lifted_floating_point_does_what_the_machine_did() {
     does_what_the_machine_did("ppcfp", 28);
 }
 
+/// The integer program as a DOL file, the GameCube's executable, linked at the console's
+/// addresses: the reader knows the file with no mark by its header, the sections are its code
+/// and its data, and the lift keeps to the bits of an address that name memory, so the program
+/// at 0x80010000 runs in the memory at 0x10000.
+#[test]
+fn the_lifted_dol_does_what_the_machine_did() {
+    let file = std::fs::read(fixture("gc.dol")).unwrap();
+    let program = Program::parse(&file).unwrap();
+    assert_eq!(program.mask, Some(0x3fff_ffff));
+    assert!(program.entry >= 0x8001_0000 && program.segments.iter().any(|s| s.executable));
+    assert!(program.segments.iter().all(|s| s.address >= 0x8001_0000));
+    let recorded = std::fs::read_to_string(fixture("gc.out")).unwrap().replace("\r\n", "\n");
+    let (printed, ended) = recorded.trim_end().rsplit_once('\n').unwrap();
+    let outcome = run(&program, 5_000_000).unwrap();
+    assert_eq!(String::from_utf8_lossy(&outcome.out).trim_end(), printed);
+    assert_eq!(outcome.exit, ended.strip_prefix("exit ").unwrap().parse().ok());
+    // A section said to end past the file, and a file cut inside its header, are refused.
+    let mut far = file.clone();
+    far[0x90..0x94].copy_from_slice(&[0x7f, 0xff, 0xff, 0xff]);
+    assert!(Program::parse(&far).is_err());
+    assert!(Program::parse(&file[..0x80]).is_err());
+}
+
 /// The floating-point program for the 64-bit machine: a double moved as a doubleword, and a
 /// whole number to and from the unit as one.
 #[test]

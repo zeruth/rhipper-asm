@@ -14,16 +14,26 @@ fn workspace() -> PathBuf {
 }
 
 fn source(name: &str) -> String {
-    let program = Program::parse(&std::fs::read(workspace().join(format!("testdata/ppc/{name}.elf"))).unwrap()).unwrap();
+    // An ELF file, or the console's own container.
+    let elf = workspace().join(format!("testdata/ppc/{name}.elf"));
+    let file = if elf.exists() { elf } else { workspace().join(format!("testdata/ppc/{name}.dol")) };
+    let program = Program::parse(&std::fs::read(file).unwrap()).unwrap();
     emit_c(&program.lift().unwrap(), &Options::default())
+}
+
+/// The DOL file's port: the program's addresses are the console's, above the memory the
+/// runtime gives a program, and the source keeps to the bits of them that name memory.
+#[test]
+fn the_compiled_dol_does_what_the_machine_did() {
+    the_port_does_what_the_machine_did("gc");
 }
 
 #[test]
 fn the_source_defines_the_program() {
-    for name in ["ppc", "ppc64", "ppcfp", "ppc64fp"] {
+    for name in ["ppc", "ppc64", "ppcfp", "ppc64fp", "gc"] {
         let text = source(name);
         assert!(!text.contains("is not written"), "a global the backend left out");
-        for defined in ["void ppc_run(", "void ppc_main(", "ppc_memory", "ppc_segment_0"] {
+        for defined in ["void ppc_run(", "void ppc_main(", "ppc_memory", "ppc_mask", "ppc_segment_0"] {
             assert!(text.contains(defined), "the source has no {defined}");
         }
         for called in ["ppc_sc(", "ppc_trap(", "ppc_segment("] {

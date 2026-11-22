@@ -50,6 +50,14 @@ fn the_64_bit_program_reads_as_objdump_lists_it() {
     }
 }
 
+/// The listing of the program the DOL file was made of, at the console's addresses: a branch's
+/// target is such an address.
+#[test]
+fn the_dol_program_reads_as_objdump_lists_it() {
+    let (count, _) = agrees("gc.txt");
+    assert!(count > 250, "the listing has {count} instructions");
+}
+
 #[test]
 fn the_64_bit_floating_point_reads_as_objdump_lists_it() {
     let (count, mnemonics) = agrees("ppc64fp.txt");

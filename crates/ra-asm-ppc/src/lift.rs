@@ -41,6 +41,10 @@ pub const TRAP: &str = "ppc_trap";
 /// Where the program's memory is: eight bytes that hold the address the program's address zero
 /// is at; zero where the program is mapped at its own addresses.
 pub const MEMORY: &str = "ppc_memory";
+/// The program's own eight bytes that say which bits of an address name memory
+/// ([`Code::mask`]; every bit where the program has no such mask), for the runtime, which is
+/// handed addresses by the system calls.
+pub const MASK: &str = "ppc_mask";
 /// The function of a whole program ([`crate::run::Program::lift`]): `void (ptr state)`.
 pub const MAIN: &str = "ppc_main";
 /// The runtime's taking of a segment: `void (i64 address, ptr bytes, i64 in_file, i64 size)`.
@@ -65,12 +69,17 @@ const CA: u32 = 0x2000_0000;
 pub struct Code<'a> {
     pub address: u64,
     pub bytes: &'a [u8],
+    /// The bits of an address that name memory, where the machine has fewer than thirty-two: a
+    /// console maps its memory more than once (the GameCube's at 0x80000000 and at 0xc0000000
+    /// is the memory at zero), and an address's high bits say only how.
+    pub mask: Option<u32>,
 }
 
 struct Lift {
     b: FunctionBuilder,
     state: ValueId,
     block: BlockId,
+    mask: Option<u32>,
 }
 
 const I32: Type = Type::I32;
@@ -137,6 +146,10 @@ impl Lift {
     }
 
     fn pointer(&mut self, address: Operand) -> ValueId {
+        let address = match self.mask {
+            Some(mask) => self.bin(BinOp::And, address, mask),
+            None => address,
+        };
         let wide = self.b.cast(self.block, Cast::ZExt, I32, address, Type::I64, "address");
         let memory = self.b.load(self.block, Type::I64, Operand::Global(MEMORY.to_owned()), "memory");
         let wide = self.b.bin(self.block, BinOp::Add, Type::I64, wide, memory, "address");
@@ -843,7 +856,7 @@ pub fn lift(code: Code<'_>) -> Module {
         b.address = Some(address);
         blocks.insert(address, b.block(&format!("at.{address:x}")));
     }
-    let mut lift = Lift { b, state, block: entry };
+    let mut lift = Lift { b, state, block: entry, mask: code.mask };
     let trap = |lift: &mut Lift, address: Operand| {
         lift.b.call(lift.block, FnType::new(Type::Void, vec![Type::I64]), Callee::Direct(TRAP.to_owned()), vec![(Type::I64, address)], "");
         lift.b.terminate(lift.block, Terminator::Ret(None));
