@@ -297,10 +297,19 @@ Bits rev {Ld}, {Lm}
 Bits rbit {Rd}, {Rm}
 Bits rev16 {Ld}, {Lm}
 Bits revsh {Ld}, {Lm}
-Unsupported ssat {Rd}, #8, {Rn}
-Unsupported qadd {Rd}, {Rn}, {Rm}
-Unsupported ldrex {Rt}, [{Rb}]
-Unsupported pld [{Rb}]
+Saturate ssat {Rd}, #8, {Rn}
+Saturate ssat {Rd}, #20, {Rn}, asr #12
+Saturate usat {Rd}, #12, {Rn}
+Saturate usat {Rd}, #5, {Rn}, lsl #3
+SatArith qadd {Rd}, {Rn}, {Rm}
+SatArith qsub {Rd}, {Rn}, {Rm}
+SatArith qdadd {Rd}, {Rn}, {Rm}
+SatArith qdsub {Rd}, {Rn}, {Rm}
+Mem     ldrex {Rt}, [{Rb}]
+StoreExclusive strex {Rd}, {Rm}, [{Rb}]
+Status  mrs {Rd}, apsr
+Nop     pld [{Rb}]
+Unsupported ldrexb {Rt}, [{Rb}]
 
 # ARM code, recorded for the A32 lift to come; the kinds are the ones its arms will match.
 [arm_data]
@@ -333,7 +342,11 @@ Field   sbfx {Rd}, {Rn}, #{lsb}, #{width}
 Insert  bfi {Rd}, {Rn}, #{lsb}, #{width}
 Bits clz {Rd}, {Rm}
 Bits rev {Rd}, {Rm}
-Unsupported mrs {Rd}, apsr
+Status  mrs {Rd}, apsr
+Saturate ssat {Rd}, #16, {Rn}, lsl #4
+Saturate usat {Rd}, #9, {Rn}, asr #32
+SatArith qadd {Rd}, {Rn}, {Rm}
+SatArith qdsub {Rd}, {Rn}, {Rm}
 
 [arm_mem]
 Mem     ldr{cond} {Rt}, [{Rb}, #{off12}]

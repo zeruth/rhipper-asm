@@ -1588,39 +1588,183 @@ out pc=0x30002004 sig=trap r12=0xc88e2197
 case Bits 36cfbfe6 rev r12, r6 <- rev {Rd}, {Rm}
 in nzcv=1011 r6=0x7ffffffa r12=0x3
 out pc=0x30002004 sig=trap r12=0xfaffff7f
-case Unsupported 00000fe1 mrs r0, apsr <- mrs {Rd}, apsr
+case Status 00000fe1 mrs r0, apsr <- mrs {Rd}, apsr
 in nzcv=0111 r0=0x8000000e
 out pc=0x30002004 sig=trap r0=0x70000010
-case Unsupported 00000fe1 mrs r0, apsr <- mrs {Rd}, apsr
+case Status 00000fe1 mrs r0, apsr <- mrs {Rd}, apsr
 in nzcv=0100 r0=0xaf8a888
 out pc=0x30002004 sig=trap r0=0x40000010
-case Unsupported 00000fe1 mrs r0, apsr <- mrs {Rd}, apsr
+case Status 00000fe1 mrs r0, apsr <- mrs {Rd}, apsr
 in nzcv=1100 r0=0x10000000
 out pc=0x30002004 sig=trap r0=0xc0000010
-case Unsupported 00500fe1 mrs r5, apsr <- mrs {Rd}, apsr
+case Status 00500fe1 mrs r5, apsr <- mrs {Rd}, apsr
 in nzcv=0100 r5=0x7ffffff4
 out pc=0x30002004 sig=trap r5=0x40000010
-case Unsupported 00500fe1 mrs r5, apsr <- mrs {Rd}, apsr
+case Status 00500fe1 mrs r5, apsr <- mrs {Rd}, apsr
 in nzcv=1000 r5=0x3f
 out pc=0x30002004 sig=trap r5=0x80000010
-case Unsupported 00500fe1 mrs r5, apsr <- mrs {Rd}, apsr
+case Status 00500fe1 mrs r5, apsr <- mrs {Rd}, apsr
 in nzcv=0110 r5=0x80000009
 out pc=0x30002004 sig=trap r5=0x60000010
-case Unsupported 00900fe1 mrs r9, apsr <- mrs {Rd}, apsr
+case Status 00900fe1 mrs r9, apsr <- mrs {Rd}, apsr
 in nzcv=1110 r9=0x3ff
 out pc=0x30002004 sig=trap r9=0xe0000010
-case Unsupported 00900fe1 mrs r9, apsr <- mrs {Rd}, apsr
+case Status 00900fe1 mrs r9, apsr <- mrs {Rd}, apsr
 in nzcv=1100 r9=0xfffffff7
 out pc=0x30002004 sig=trap r9=0xc0000010
-case Unsupported 00900fe1 mrs r9, apsr <- mrs {Rd}, apsr
+case Status 00900fe1 mrs r9, apsr <- mrs {Rd}, apsr
 in nzcv=1110 r9=0x2
 out pc=0x30002004 sig=trap r9=0xe0000010
-case Unsupported 00c00fe1 mrs r12, apsr <- mrs {Rd}, apsr
+case Status 00c00fe1 mrs r12, apsr <- mrs {Rd}, apsr
 in nzcv=0010 r12=0x55d35d17
 out pc=0x30002004 sig=trap r12=0x20000010
-case Unsupported 00c00fe1 mrs r12, apsr <- mrs {Rd}, apsr
+case Status 00c00fe1 mrs r12, apsr <- mrs {Rd}, apsr
 in nzcv=0111 r12=0x7ffffff5
 out pc=0x30002004 sig=trap r12=0x70000010
-case Unsupported 00c00fe1 mrs r12, apsr <- mrs {Rd}, apsr
+case Status 00c00fe1 mrs r12, apsr <- mrs {Rd}, apsr
 in nzcv=1000 r12=0xdaa54436
 out pc=0x30002004 sig=trap r12=0x80000010
+case Saturate 1102afe6 ssat r0, #16, r1, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=0000 r0=0x80000004 r1=0x20000000
+out pc=0x30002004 sig=trap r0=0x0
+case Saturate 1102afe6 ssat r0, #16, r1, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=1100 r0=0x3ff r1=0x5
+out pc=0x30002004 sig=trap r0=0x50
+case Saturate 1102afe6 ssat r0, #16, r1, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=1010 r0=0x8 r1=0xff
+out pc=0x30002004 sig=trap r0=0xff0
+case Saturate 1852afe6 ssat r5, #16, r8, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=1111 r5=0x7ffffff2 r8=0x8
+out pc=0x30002004 sig=trap r5=0x80
+case Saturate 1852afe6 ssat r5, #16, r8, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=0101 r5=0x6790bbc6 r8=0x7ffffffe
+out pc=0x30002004 sig=trap r5=0xffffffe0
+case Saturate 1852afe6 ssat r5, #16, r8, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=1010 r5=0xc r8=0xfffffff1
+out pc=0x30002004 sig=trap r5=0xffffff10
+case Saturate 1b92afe6 ssat r9, #16, r11, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=0100 r9=0xfffffff4 r11=0xfffffffa
+out pc=0x30002004 sig=trap r9=0xffffffa0
+case Saturate 1b92afe6 ssat r9, #16, r11, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=0111 r9=0x800000 r11=0x20
+out pc=0x30002004 sig=trap r9=0x200
+case Saturate 1b92afe6 ssat r9, #16, r11, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=1011 r9=0xfffffffd r11=0x1
+out pc=0x30002004 sig=trap r9=0x10
+case Saturate 1ec2afe6 ssat r12, #16, r14, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=1001 r12=0x80000009 lr=0x5ceb6e12
+out pc=0x30002004 sig=trap r12=0xffff8000
+case Saturate 1ec2afe6 ssat r12, #16, r14, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=1001 r12=0x80000006 lr=0xe03732b4
+out pc=0x30002004 sig=trap r12=0x7fff
+case Saturate 1ec2afe6 ssat r12, #16, r14, lsl #4 <- ssat {Rd}, #16, {Rn}, lsl #4
+in nzcv=1111 r12=0x5 lr=0x80000000
+out pc=0x30002004 sig=trap r12=0x0
+case Saturate 5100e9e6 usat r0, #9, r1, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=1111 r0=0xcbfad40e r1=0x400
+out pc=0x30002004 sig=trap r0=0x0
+case Saturate 5100e9e6 usat r0, #9, r1, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=1111 r0=0xee599635 r1=0x81b43f1e
+out pc=0x30002004 sig=trap r0=0x0
+case Saturate 5100e9e6 usat r0, #9, r1, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=0110 r0=0x40000 r1=0xfffffffd
+out pc=0x30002004 sig=trap r0=0x0
+case Saturate 5850e9e6 usat r5, #9, r8, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=1101 r5=0x7ffffffb r8=0x7
+out pc=0x30002004 sig=trap r5=0x0
+case Saturate 5850e9e6 usat r5, #9, r8, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=0110 r5=0xfda58868 r8=0x6
+out pc=0x30002004 sig=trap r5=0x0
+case Saturate 5850e9e6 usat r5, #9, r8, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=1010 r5=0x1f9c6b98 r8=0x7ffffff4
+out pc=0x30002004 sig=trap r5=0x0
+case Saturate 5b90e9e6 usat r9, #9, r11, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=0111 r9=0x9a57c7a4 r11=0x80000007
+out pc=0x30002004 sig=trap r9=0x0
+case Saturate 5b90e9e6 usat r9, #9, r11, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=0100 r9=0x61b6c6b3 r11=0x7ffffffa
+out pc=0x30002004 sig=trap r9=0x0
+case Saturate 5b90e9e6 usat r9, #9, r11, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=0011 r9=0x3fffffff r11=0x8
+out pc=0x30002004 sig=trap r9=0x0
+case Saturate 5ec0e9e6 usat r12, #9, r14, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=0000 r12=0x7ffffff6 lr=0x3fff
+out pc=0x30002004 sig=trap r12=0x0
+case Saturate 5ec0e9e6 usat r12, #9, r14, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=1101 r12=0x4000000 lr=0x7ffff
+out pc=0x30002004 sig=trap r12=0x0
+case Saturate 5ec0e9e6 usat r12, #9, r14, asr #32 <- usat {Rd}, #9, {Rn}, asr #32
+in nzcv=0100 r12=0x1000 lr=0xb
+out pc=0x30002004 sig=trap r12=0x0
+case SatArith 510002e1 qadd r0, r1, r2 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=1010 r0=0xfffffffd r1=0xd80fa873 r2=0xc
+out pc=0x30002004 sig=trap r0=0xd80fa87f
+case SatArith 510002e1 qadd r0, r1, r2 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=1110 r0=0x80000001 r1=0x2eff089a r2=0x5
+out pc=0x30002004 sig=trap r0=0x2eff089f
+case SatArith 510002e1 qadd r0, r1, r2 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=1101 r0=0xfff r1=0x8 r2=0x589b3760
+out pc=0x30002004 sig=trap r0=0x589b3768
+case SatArith 58500ae1 qadd r5, r8, r10 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=0101 r5=0x8000000e r8=0xf r10=0x8000000
+out pc=0x30002004 sig=trap r5=0x800000f
+case SatArith 58500ae1 qadd r5, r8, r10 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=1000 r5=0x5f4ca051 r8=0x3 r10=0x1a41caa7
+out pc=0x30002004 sig=trap r5=0x1a41caaa
+case SatArith 58500ae1 qadd r5, r8, r10 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=1100 r5=0x5 r8=0x7ffffff8 r10=0x8000000a
+out pc=0x30002004 sig=trap r5=0x2
+case SatArith 5b900ce1 qadd r9, r11, r12 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=1111 r9=0xf r11=0x80000003 r12=0xfffffff4
+out pc=0x30002004 sig=trap r9=0x80000000
+case SatArith 5b900ce1 qadd r9, r11, r12 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=0111 r9=0x7ffffff1 r11=0x256c709c r12=0xfffffffd
+out pc=0x30002004 sig=trap r9=0x256c7099
+case SatArith 5b900ce1 qadd r9, r11, r12 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=1100 r9=0x0 r11=0x7ffffff9 r12=0x8000000c
+out pc=0x30002004 sig=trap r9=0x5
+case SatArith 5ec006e1 qadd r12, r14, r6 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=1101 r6=0x21845720 r12=0x7ffffff9 lr=0x7ff
+out pc=0x30002004 sig=trap r12=0x21845f1f
+case SatArith 5ec006e1 qadd r12, r14, r6 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=0010 r6=0x0 r12=0x4 lr=0x3ff
+out pc=0x30002004 sig=trap r12=0x3ff
+case SatArith 5ec006e1 qadd r12, r14, r6 <- qadd {Rd}, {Rn}, {Rm}
+in nzcv=0100 r6=0x8000000d r12=0x1fffff lr=0x6
+out pc=0x30002004 sig=trap r12=0x80000013
+case SatArith 510062e1 qdsub r0, r1, r2 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=0000 r0=0x7 r1=0x3f r2=0x7fffffff
+out pc=0x30002004 sig=trap r0=0x80000040
+case SatArith 510062e1 qdsub r0, r1, r2 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=0101 r0=0x1000000 r1=0x7 r2=0x10217bc4
+out pc=0x30002004 sig=trap r0=0xdfbd087f
+case SatArith 510062e1 qdsub r0, r1, r2 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=1101 r0=0x1000 r1=0x7ffffff5 r2=0x80000001
+out pc=0x30002004 sig=trap r0=0x7fffffff
+case SatArith 58506ae1 qdsub r5, r8, r10 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=0001 r5=0xfffffff9 r8=0x3fff r10=0x4
+out pc=0x30002004 sig=trap r5=0x3ff7
+case SatArith 58506ae1 qdsub r5, r8, r10 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=1100 r5=0x1 r8=0xfffffff2 r10=0x1ffffff
+out pc=0x30002004 sig=trap r5=0xfbfffff4
+case SatArith 58506ae1 qdsub r5, r8, r10 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=1000 r5=0x2 r8=0x0 r10=0xf826632a
+out pc=0x30002004 sig=trap r5=0xfb339ac
+case SatArith 5b906ce1 qdsub r9, r11, r12 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=1010 r9=0x3 r11=0x9 r12=0x7ffffff5
+out pc=0x30002004 sig=trap r9=0x8000000a
+case SatArith 5b906ce1 qdsub r9, r11, r12 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=1111 r9=0xfffffff8 r11=0xfffffff3 r12=0xe2a2086e
+out pc=0x30002004 sig=trap r9=0x3abbef17
+case SatArith 5b906ce1 qdsub r9, r11, r12 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=1011 r9=0x5 r11=0x80000007 r12=0x7119bd5d
+out pc=0x30002004 sig=trap r9=0x80000000
+case SatArith 5ec066e1 qdsub r12, r14, r6 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=0011 r6=0x8 r12=0x8000 lr=0x20000
+out pc=0x30002004 sig=trap r12=0x1fff0
+case SatArith 5ec066e1 qdsub r12, r14, r6 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=0001 r6=0xfffffff8 r12=0xffffffff lr=0xfffffff2
+out pc=0x30002004 sig=trap r12=0x2
+case SatArith 5ec066e1 qdsub r12, r14, r6 <- qdsub {Rd}, {Rn}, {Rm}
+in nzcv=0010 r6=0x70230bd8 r12=0x6740aa20 lr=0xfffffff5
+out pc=0x30002004 sig=trap r12=0x80000000

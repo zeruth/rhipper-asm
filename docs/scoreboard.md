@@ -83,7 +83,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | testdata/csmith/EMIT_PENDING.txt | 67 |
 | testdata/csmith/PENDING.txt | 42 |
 | testdata/levels/PENDING.txt | 2 |
-| testdata/vectors/arm32/PENDING.txt | 6 |
+| testdata/vectors/arm32/PENDING.txt | 3 |
 | testdata/vectors/arm64/PENDING.txt | 0 |
 | testdata/vectors/fn/TREE_PENDING.txt | 0 |
 | testdata/vectors/mips64el/PENDING.txt | 0 |
@@ -91,7 +91,7 @@ The board of the fixtures, written by `ras score --write` over `testdata/bin`. `
 | testdata/vectors/x86/PENDING.txt | 1 |
 | testdata/vectors/x86_64/PENDING.txt | 0 |
 | testdata/vectors/x87/PENDING.txt | 29 |
-| total | 147 |
+| total | 144 |
 
 | oracle | ignored tests |
 |---|---|

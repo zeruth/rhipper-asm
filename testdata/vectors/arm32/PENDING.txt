@@ -4,9 +4,6 @@
 # form that differs fails it with a line to paste here, and a listed form that passes fails it
 # with "remove from PENDING.txt", so the card that fixes an arm removes its line. A form of the
 # ARM groups has `arm` after its kind: the same lift reads ARM code, and its vectors replay too.
-Unsupported ssat {Rd}, #8, {Rn}: the lift lacks the form and traps
-Unsupported qadd {Rd}, {Rn}, {Rm}: the lift lacks the form and traps
-Unsupported ldrex {Rt}, [{Rb}]: the lift lacks the form and traps
-Unsupported pld [{Rb}]: the lift lacks the form and traps
+StoreExclusive strex {Rd}, {Rm}, [{Rb}]: alone, with no ldrex before it, the machine's store fails; the lift's always wins
+Unsupported ldrexb {Rt}, [{Rb}]: the lift lacks the form and traps
 Call blx #{label20}: a call into ARM code, which the lift traps on
-Unsupported arm mrs {Rd}, apsr: the lift lacks the form and traps

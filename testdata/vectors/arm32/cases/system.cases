@@ -32,19 +32,55 @@ Bits d0ba revsh r0, r2
 Bits fbba revsh r3, r7
 Bits c5ba revsh r5, r0
 Bits efba revsh r7, r5
-Unsupported 01f30700 ssat r0, #8, r1
-Unsupported 08f30705 ssat r5, #8, r8
-Unsupported 0bf30709 ssat r9, #8, r11
-Unsupported 0ef3070c ssat r12, #8, r14
-Unsupported 82fa81f0 qadd r0, r1, r2
-Unsupported 8afa88f5 qadd r5, r8, r10
-Unsupported 8cfa8bf9 qadd r9, r11, r12
-Unsupported 86fa8efc qadd r12, r14, r6
-Unsupported 51e8000f ldrex r0, [r1]
-Unsupported 58e8005f ldrex r5, [r8]
-Unsupported 5be8009f ldrex r9, [r11]
-Unsupported 54e800cf ldrex r12, [r4]
-Unsupported 91f800f0 pld [r1]
-Unsupported 98f800f0 pld [r8]
-Unsupported 9bf800f0 pld [r11]
-Unsupported 94f800f0 pld [r4]
+Saturate 01f30700 ssat r0, #8, r1
+Saturate 08f30705 ssat r5, #8, r8
+Saturate 0bf30709 ssat r9, #8, r11
+Saturate 0ef3070c ssat r12, #8, r14
+Saturate 21f31330 ssat r0, #20, r1, asr #12
+Saturate 28f31335 ssat r5, #20, r8, asr #12
+Saturate 2bf31339 ssat r9, #20, r11, asr #12
+Saturate 2ef3133c ssat r12, #20, r14, asr #12
+Saturate 81f30c00 usat r0, #12, r1
+Saturate 88f30c05 usat r5, #12, r8
+Saturate 8bf30c09 usat r9, #12, r11
+Saturate 8ef30c0c usat r12, #12, r14
+Saturate 81f3c500 usat r0, #5, r1, lsl #3
+Saturate 88f3c505 usat r5, #5, r8, lsl #3
+Saturate 8bf3c509 usat r9, #5, r11, lsl #3
+Saturate 8ef3c50c usat r12, #5, r14, lsl #3
+SatArith 82fa81f0 qadd r0, r1, r2
+SatArith 8afa88f5 qadd r5, r8, r10
+SatArith 8cfa8bf9 qadd r9, r11, r12
+SatArith 86fa8efc qadd r12, r14, r6
+SatArith 82faa1f0 qsub r0, r1, r2
+SatArith 8afaa8f5 qsub r5, r8, r10
+SatArith 8cfaabf9 qsub r9, r11, r12
+SatArith 86faaefc qsub r12, r14, r6
+SatArith 82fa91f0 qdadd r0, r1, r2
+SatArith 8afa98f5 qdadd r5, r8, r10
+SatArith 8cfa9bf9 qdadd r9, r11, r12
+SatArith 86fa9efc qdadd r12, r14, r6
+SatArith 82fab1f0 qdsub r0, r1, r2
+SatArith 8afab8f5 qdsub r5, r8, r10
+SatArith 8cfabbf9 qdsub r9, r11, r12
+SatArith 86fabefc qdsub r12, r14, r6
+Mem 51e8000f ldrex r0, [r1]
+Mem 58e8005f ldrex r5, [r8]
+Mem 5be8009f ldrex r9, [r11]
+Mem 54e800cf ldrex r12, [r4]
+StoreExclusive 41e80020 strex r0, r2, [r1]
+StoreExclusive 48e800a5 strex r5, r10, [r8]
+StoreExclusive 4be800c9 strex r9, r12, [r11]
+StoreExclusive 44e8006c strex r12, r6, [r4]
+Status eff30080 mrs r0, apsr
+Status eff30085 mrs r5, apsr
+Status eff30089 mrs r9, apsr
+Status eff3008c mrs r12, apsr
+Nop 91f800f0 pld [r1]
+Nop 98f800f0 pld [r8]
+Nop 9bf800f0 pld [r11]
+Nop 94f800f0 pld [r4]
+Unsupported d1e84f0f ldrexb r0, [r1]
+Unsupported d8e84f5f ldrexb r5, [r8]
+Unsupported dbe84f9f ldrexb r9, [r11]
+Unsupported d4e84fcf ldrexb r12, [r4]

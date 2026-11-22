@@ -304,6 +304,37 @@ pub enum Op {
         rd: u8,
         target: u64,
     },
+    /// `ssat` and `usat`: the source, shifted left or right with its sign, held to a signed or
+    /// an unsigned range of `bits` bits.
+    Saturate {
+        signed: bool,
+        rd: u8,
+        rn: u8,
+        bits: u8,
+        shift: Shift,
+        amount: u8,
+    },
+    /// `qadd` and `qsub`, and `qdadd` and `qdsub` with `rn` doubled first: a sum or a
+    /// difference of `rm` and `rn` held to the signed word.
+    SatArith {
+        subtract: bool,
+        double: bool,
+        rd: u8,
+        rm: u8,
+        rn: u8,
+    },
+    /// `strex`: the store of an exclusive pair, which one thread of control always wins: the
+    /// word stored, and `rd` zero. (`ldrex` is the load it is.)
+    StoreExclusive {
+        rd: u8,
+        rt: u8,
+        rn: u8,
+        offset: i32,
+    },
+    /// `mrs` of the program's status: the flags in the top four bits of a register.
+    Status {
+        rd: u8,
+    },
     Svc(u8),
     /// `bkpt`: a stop for the debugger, which a microcontroller's firmware also calls its host
     /// by (semihosting is `bkpt 0xab`, the operation in `r0` and its argument in `r1`).
@@ -624,7 +655,14 @@ fn decode32(h1: u32, h2: u32, address: u64) -> Op {
             0b00 => {
                 let (index, add, wback, load) = (bit(h1, 8), bit(h1, 7), bit(h1, 5), bit(h1, 4));
                 if !index && !wback {
-                    return Op::Unsupported;
+                    // The exclusive pair of a word: `ldrex` is a load, `strex` a store that says it won.
+                    let offset = (h2 & 0xff) as i32 * 4;
+                    return match (add, load) {
+                        (false, true) if rd == PC => mem(true, 32, false, reg(h2, 12), rn, Offset::Imm(offset)),
+                        // The register that says who won is neither the value's nor the base.
+                        (false, false) if rd != reg(h2, 12) && rd != rn => Op::StoreExclusive { rd, rt: reg(h2, 12), rn, offset },
+                        _ => Op::Unsupported,
+                    };
                 }
                 let offset = (h2 & 0xff) as i32 * 4;
                 Op::Dual { load, rt: reg(h2, 12), rt2: reg(h2, 8), rn, offset: if add { offset } else { -offset }, index, wback }
@@ -662,6 +700,13 @@ fn decode32(h1: u32, h2: u32, address: u64) -> Op {
                     }
                     Op::Insert { rd, rn: (rn != PC).then_some(rn), lsb, width: msb - lsb + 1 }
                 }
+                // ssat and usat; with bit five the source goes right with its sign, and by
+                // nothing that way is another instruction (of halves).
+                op @ (0b10000 | 0b10010 | 0b11000 | 0b11010) if op & 2 == 0 || lsb != 0 => {
+                    let signed = op & 0b01000 == 0;
+                    let bits = (h2 & 0x1f) as u8 + u8::from(signed);
+                    Op::Saturate { signed, rd, rn, bits, shift: if op & 2 == 0 { Shift::Lsl } else { Shift::Asr }, amount: lsb }
+                }
                 _ => Op::Unsupported,
             }
         }
@@ -686,6 +731,10 @@ fn decode32(h1: u32, h2: u32, address: u64) -> Op {
                     return Op::Extend { signed, bits, rd, rm, rotate };
                 }
                 Op::Unsupported
+            }
+            // The saturating sums: qadd, qdadd, qsub, qdsub.
+            0b0101 if field(h2, 15, 12) == 0xf && field(h1, 6, 4) == 0 && field(h2, 7, 6) == 0b10 => {
+                Op::SatArith { subtract: bit(h2, 5), double: bit(h2, 4), rd, rm, rn }
             }
             // The rearrangements of a register's bits, which name their source twice.
             0b0101 if field(h2, 15, 12) == 0xf && rn == rm => match (field(h1, 6, 4), field(h2, 7, 4)) {
@@ -742,6 +791,8 @@ fn branch32(h1: u32, h2: u32, address: u64) -> Op {
             }
             if h1 == 0xf3af && h2 & 0xff00 == 0x8000 {
                 Op::Nop
+            } else if h1 == 0xf3ef && h2 & 0xf0ff == 0x8000 {
+                Op::Status { rd: reg(h2, 8) }
             } else if h1 & 0xfff0 == 0xf7f0 && h2 & 0xf000 == 0xa000 {
                 Op::Trap
             } else {
@@ -759,6 +810,10 @@ fn branch32(h1: u32, h2: u32, address: u64) -> Op {
 fn mem32(h1: u32, h2: u32) -> Op {
     let (load, signed, size) = (bit(h1, 4), bit(h1, 8), field(h1, 6, 5));
     let (rn, rt) = (reg(h1, 0), reg(h2, 12));
+    // A load of a byte into the PC is a hint that memory will be read (`pld`) or run (`pli`).
+    if load && rt == PC && size == 0 && (bit(h1, 7) || rn == PC || field(h2, 11, 8) == 0b1100 || field(h2, 11, 6) == 0) {
+        return Op::Nop;
+    }
     if size == 3 || !load && signed || rt == PC {
         return Op::Unsupported;
     }
@@ -836,6 +891,10 @@ fn mnemonic(op: &Op) -> String {
             format!("it{rest}")
         }
         Op::Adr { .. } => "adr".to_owned(),
+        Op::Saturate { signed, .. } => (if signed { "ssat" } else { "usat" }).to_owned(),
+        Op::SatArith { subtract, double, .. } => format!("q{}{}", if double { "d" } else { "" }, if subtract { "sub" } else { "add" }),
+        Op::StoreExclusive { .. } => "strex".to_owned(),
+        Op::Status { .. } => "mrs".to_owned(),
         Op::Svc(_) => "svc".to_owned(),
         Op::Bkpt(_) => "bkpt".to_owned(),
         Op::Nop => "nop".to_owned(),
@@ -924,11 +983,27 @@ pub fn record(d: &Decoded, address: u64) -> Instr {
             read(&mut registers, rn);
             read(&mut registers, rm);
         }
-        Op::HighMul { rd, rn, rm, .. } => {
+        Op::HighMul { rd, rn, rm, .. } | Op::SatArith { rd, rm, rn, .. } => {
             operands.extend([r(rd), r(rn), r(rm)]);
             write(&mut registers, rd);
             read(&mut registers, rn);
             read(&mut registers, rm);
+        }
+        Op::Saturate { rd, rn, .. } => {
+            operands.extend([r(rd), r(rn)]);
+            write(&mut registers, rd);
+            read(&mut registers, rn);
+        }
+        Op::StoreExclusive { rd, rt, rn, .. } => {
+            operands.extend([r(rd), r(rt), r(rn)]);
+            write(&mut registers, rd);
+            read(&mut registers, rt);
+            read(&mut registers, rn);
+        }
+        Op::Status { rd } => {
+            operands.push(r(rd));
+            write(&mut registers, rd);
+            flags = (true, false);
         }
         Op::Fp(fp) => {
             // The core registers the instruction reads and writes, and its memory: the unit's

@@ -11,8 +11,9 @@
 //! with every shift of its second source, the multiplies, the loads and stores of a word, a
 //! byte, a halfword and a pair in every addressing form, the loads and stores of many in all
 //! four directions, the branches, `bx`, `svc`, and the later bit fields, extensions, divides and
-//! wide moves. The unconditional space, the coprocessors, the status-register moves and the
-//! exclusive loads are [`Op::Unsupported`].
+//! wide moves, the saturating sums and `ssat` and `usat`, the exclusive load and store of a
+//! word, and `mrs` of the flags. The unconditional space, the other coprocessors, a move to the
+//! status register and the exclusive pairs of other sizes are [`Op::Unsupported`].
 
 use ra_asm_arch::{Arch, Flow, Instr, Operand, Register, Target};
 
@@ -74,7 +75,32 @@ fn operation(w: u32, address: u64, cond: Option<u8>) -> Op {
                 return multiply(w);
             }
             if w & 0x0f00_00f0 == 0x0100_0090 {
-                return Op::Unsupported; // swp and the exclusive loads and stores
+                // The exclusive pair of a word: `ldrex` is a load, `strex` a store that says it
+                // won. `swp` and the pairs of other sizes are not decoded.
+                let rn = reg(w, 16);
+                if w & 0x0ff0_0fff == 0x0190_0f9f {
+                    return Op::Mem {
+                        load: true,
+                        bits: 32,
+                        signed: false,
+                        rt: reg(w, 12),
+                        rn,
+                        offset: Offset::Imm(0),
+                        index: true,
+                        wback: false,
+                    };
+                }
+                if w & 0x0ff0_0ff0 == 0x0180_0f90 {
+                    return Op::StoreExclusive { rd: reg(w, 12), rt: reg(w, 0), rn, offset: 0 };
+                }
+                return Op::Unsupported;
+            }
+            if w & 0x0fff_0fff == 0x010f_0000 {
+                return Op::Status { rd: reg(w, 12) };
+            }
+            if w & 0x0f90_0ff0 == 0x0100_0050 {
+                // qadd, qsub, and with bit 22 qdadd and qdsub.
+                return Op::SatArith { subtract: bit(w, 21), double: bit(w, 22), rd: reg(w, 12), rm: reg(w, 0), rn: reg(w, 16) };
             }
             if w & 0x90 == 0x90 {
                 return halfword(w);
@@ -271,6 +297,14 @@ fn media(w: u32) -> Op {
     if w & 0x0ff0_f0d0 == 0x0750_f010 {
         // smmul, and smmulr with bit five.
         return Op::HighMul { rd: reg(w, 16), rn: rm, rm: reg(w, 8), round: bit(w, 5) };
+    }
+    if w & 0x0fa0_0030 == 0x06a0_0010 {
+        // ssat, and usat with bit 22; a shift right by nothing is by thirty-two, which leaves
+        // what one by thirty-one does.
+        let (signed, amount, right) = (!bit(w, 22), field(w, 11, 7) as u8, bit(w, 6));
+        let bits = field(w, 20, 16) as u8 + u8::from(signed);
+        let (shift, amount) = if right { (Shift::Asr, if amount == 0 { 31 } else { amount }) } else { (Shift::Lsl, amount) };
+        return Op::Saturate { signed, rd, rn: rm, bits, shift, amount };
     }
     if w & 0x0ff0_00f0 == 0x07f0_00f0 {
         return Op::Trap; // udf

@@ -1003,6 +1003,55 @@ impl Lifter<'_, '_> {
                     return self.unsupported(block, i);
                 }
             }
+            // The saturating forms hold a result to a range. The flag that says one was held
+            // (`Q`) is not among the state's: nothing the lift covers reads it.
+            Op::Saturate { signed, rd, rn, bits, shift, amount } => {
+                let (v, _) = self.shifted(block, Source::Reg { rm: rn, shift, amount }, ip, false);
+                let (lowest, highest) = if signed { (-(1i64 << (bits - 1)), (1i64 << (bits - 1)) - 1) } else { (0, (1i64 << bits) - 1) };
+                let under = self.m.b.icmp(block, ICond::Slt, Type::I32, v, lowest, "under");
+                let over = self.m.b.icmp(block, ICond::Sgt, Type::I32, v, highest, "over");
+                let held = self.m.b.select(block, under, Type::I32, lowest, v, "sat");
+                let held = self.m.b.select(block, over, Type::I32, highest, held, "sat");
+                self.set_reg(block, rd, held);
+            }
+            Op::SatArith { subtract, double, rd, rm, rn } => {
+                let (a, b) = (self.reg(block, rm, ip), self.reg(block, rn, ip));
+                let (lowest, highest) = (i64::from(i32::MIN), i64::from(i32::MAX));
+                let held = |this: &mut Self, v: ValueId| {
+                    let under = this.m.b.icmp(block, ICond::Slt, Type::I64, v, lowest, "under");
+                    let over = this.m.b.icmp(block, ICond::Sgt, Type::I64, v, highest, "over");
+                    let held = this.m.b.select(block, under, Type::I64, lowest, v, "sat");
+                    this.m.b.select(block, over, Type::I64, highest, held, "sat")
+                };
+                let a = self.m.b.cast(block, Cast::SExt, Type::I32, a, Type::I64, "a.w");
+                let mut b = self.m.b.cast(block, Cast::SExt, Type::I32, b, Type::I64, "b.w");
+                if double {
+                    let twice = self.m.b.bin(block, BinOp::Shl, Type::I64, b, 1i64, "twice");
+                    b = held(self, twice);
+                }
+                let sum = self.m.b.bin(block, if subtract { BinOp::Sub } else { BinOp::Add }, Type::I64, a, b, "q");
+                let sum = held(self, sum);
+                let sum = self.m.b.cast(block, Cast::Trunc, Type::I64, sum, Type::I32, "q");
+                self.set_reg(block, rd, sum);
+            }
+            // One thread of control always wins its exclusive store.
+            Op::StoreExclusive { rd, rt, rn, offset } => {
+                let (base, v) = (self.reg(block, rn, ip), self.reg(block, rt, ip));
+                let address = self.m.b.bin(block, BinOp::Add, ty.clone(), base, i64::from(offset), "addr");
+                self.m.store(block, Type::I32, v, address);
+                self.set_reg(block, rd, 0i64);
+            }
+            // The flags in the top four bits, and the mode a program runs in in the low five.
+            Op::Status { rd } => {
+                let mut status: Operand = 0x10i64.into();
+                for (index, place) in [(N, 31), (Z, 30), (C, 29), (V, 28)] {
+                    let flag = self.flag(block, index);
+                    let wide = self.m.b.cast(block, Cast::ZExt, Type::I1, flag, Type::I32, "flag");
+                    let placed = self.m.b.bin(block, BinOp::Shl, Type::I32, wide, i64::from(place), "flag");
+                    status = self.m.b.bin(block, BinOp::Or, Type::I32, status, placed, "apsr").into();
+                }
+                self.set_reg(block, rd, status);
+            }
             Op::Bits { kind, rd, rm } => {
                 let v = self.reg(block, rm, ip);
                 // The two groups of bits a mask and its shift name, each put where the other was.

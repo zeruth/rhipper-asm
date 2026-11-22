@@ -174,7 +174,23 @@ Bits 320fbfe6 rev r0, r2
 Bits 3a5fbfe6 rev r5, r10
 Bits 3c9fbfe6 rev r9, r12
 Bits 36cfbfe6 rev r12, r6
-Unsupported 00000fe1 mrs r0, apsr
-Unsupported 00500fe1 mrs r5, apsr
-Unsupported 00900fe1 mrs r9, apsr
-Unsupported 00c00fe1 mrs r12, apsr
+Status 00000fe1 mrs r0, apsr
+Status 00500fe1 mrs r5, apsr
+Status 00900fe1 mrs r9, apsr
+Status 00c00fe1 mrs r12, apsr
+Saturate 1102afe6 ssat r0, #16, r1, lsl #4
+Saturate 1852afe6 ssat r5, #16, r8, lsl #4
+Saturate 1b92afe6 ssat r9, #16, r11, lsl #4
+Saturate 1ec2afe6 ssat r12, #16, r14, lsl #4
+Saturate 5100e9e6 usat r0, #9, r1, asr #32
+Saturate 5850e9e6 usat r5, #9, r8, asr #32
+Saturate 5b90e9e6 usat r9, #9, r11, asr #32
+Saturate 5ec0e9e6 usat r12, #9, r14, asr #32
+SatArith 510002e1 qadd r0, r1, r2
+SatArith 58500ae1 qadd r5, r8, r10
+SatArith 5b900ce1 qadd r9, r11, r12
+SatArith 5ec006e1 qadd r12, r14, r6
+SatArith 510062e1 qdsub r0, r1, r2
+SatArith 58506ae1 qdsub r5, r8, r10
+SatArith 5b906ce1 qdsub r9, r11, r12
+SatArith 5ec066e1 qdsub r12, r14, r6
