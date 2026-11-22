@@ -140,9 +140,10 @@ impl Convention {
                 let bits = width.min(self.target.bits);
                 Ok(Some(Returned { register: register.to_owned(), value: Value::int(held(register)?, bits), bits }))
             }
-            // The 64-bit result of an x86 function: the high half in `edx`, the low in `eax`.
+            // The 64-bit result of a 32-bit function: the high half in `edx` and the low in
+            // `eax` on x86, `r1` and `r0` on ARM, `v1` and `v0` on MIPS.
             (_, Some(Kind::Wide)) => {
-                let (low, high) = (name(Slot::Gpr(0))?, name(Slot::Gpr(2))?);
+                let (low, high) = (name(self.target.int_return())?, name(self.target.high_return())?);
                 let value = ((held(high)? & mask(32)) << 32) | (held(low)? & mask(32));
                 Ok(Some(Returned { register: format!("{high}:{low}"), value: Value::int(value, width), bits: width }))
             }
