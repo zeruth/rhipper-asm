@@ -2,6 +2,7 @@
 //! fills the neutral [`ra_asm_arch::Instr`] record; [`Arm64::decode_full`] also hands back
 //! yaxpeax's own instruction, which the lift reads for the semantics.
 
+pub mod arm;
 pub mod decode;
 pub mod registers;
 pub mod thumb;

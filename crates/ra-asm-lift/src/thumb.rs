@@ -460,15 +460,15 @@ impl Lifter<'_, '_> {
             }
             Alu::Mov => (b, None),
             Alu::Mvn => (self.not(block, b), None),
-            Alu::Add | Alu::Cmn | Alu::Adc | Alu::Sub | Alu::Cmp | Alu::Sbc | Alu::Rsb => {
+            Alu::Add | Alu::Cmn | Alu::Adc | Alu::Sub | Alu::Cmp | Alu::Sbc | Alu::Rsb | Alu::Rsc => {
                 let (x, y) = match op {
                     Alu::Add | Alu::Cmn | Alu::Adc => (a, b),
-                    Alu::Rsb => (self.not(block, a), b),
+                    Alu::Rsb | Alu::Rsc => (self.not(block, a), b),
                     _ => (a, self.not(block, b)),
                 };
                 let carry: Operand = match op {
                     Alu::Add | Alu::Cmn => 0i64.into(),
-                    Alu::Adc | Alu::Sbc => self.flag(block, C).into(),
+                    Alu::Adc | Alu::Sbc | Alu::Rsc => self.flag(block, C).into(),
                     _ => 1i64.into(),
                 };
                 if !s && matches!(op, Alu::Add | Alu::Sub) {
@@ -631,10 +631,14 @@ impl Lifter<'_, '_> {
                     (PC, Offset::Imm(o)) => {
                         (Operand::Int(i128::from(thumb::aligned_pc(ip).wrapping_add(o as i64 as u64) & 0xffff_ffff)), None)
                     }
-                    (PC, Offset::Reg { .. }) => return self.unsupported(block, i),
+                    (PC, Offset::Reg { .. } | Offset::Shifted { .. }) => return self.unsupported(block, i),
                     (_, offset) => {
                         let base = self.reg(block, rn, ip);
                         let by: Operand = match offset {
+                            Offset::Shifted { rm, shift, amount, subtract } => {
+                                let (by, _) = self.shifted(block, Source::Reg { rm, shift, amount }, ip, false);
+                                if subtract { self.m.b.bin(block, BinOp::Sub, ty.clone(), 0i64, by, "idx").into() } else { by.into() }
+                            }
                             Offset::Imm(o) => i64::from(o).into(),
                             Offset::Reg { rm, shift: 0 } => self.reg(block, rm, ip).into(),
                             Offset::Reg { rm, shift } => {
@@ -685,12 +689,20 @@ impl Lifter<'_, '_> {
                     self.set_reg(block, rn, sum);
                 }
             }
-            Op::Multiple { load, rn, list, wback, before } => {
+            Op::Multiple { load, rn, list, wback, before, swapped } => {
                 let registers: Vec<u8> = (0..16u8).filter(|n| list & (1 << n) != 0).collect();
                 let size = 4 * registers.len() as i64;
                 let base = self.reg(block, rn, ip);
-                let start = if before { self.m.b.bin(block, BinOp::Sub, ty.clone(), base, size, "lo") } else { base };
-                let end = if before { start } else { self.m.b.bin(block, BinOp::Add, ty.clone(), base, size, "hi") };
+                // The lowest address written or read, and what the base becomes: down for
+                // `db` and `da`, up for `ia` and `ib`.
+                let down = before != swapped;
+                let moved = self.m.b.bin(block, if down { BinOp::Sub } else { BinOp::Add }, ty.clone(), base, size, "moved");
+                let (start, end) = match (down, swapped) {
+                    (true, false) => (moved, moved),
+                    (false, false) => (base, moved),
+                    (true, true) => (self.m.b.bin(block, BinOp::Add, ty.clone(), moved, 4i64, "lo"), moved),
+                    (false, true) => (self.m.b.bin(block, BinOp::Add, ty.clone(), base, 4i64, "lo"), moved),
+                };
                 let addresses: Vec<ValueId> =
                     (0..registers.len()).map(|k| self.m.b.bin(block, BinOp::Add, ty.clone(), start, 4 * k as i64, "at")).collect();
                 if load {

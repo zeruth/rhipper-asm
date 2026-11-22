@@ -74,6 +74,8 @@ pub enum Alu {
     Add,
     Adc,
     Sbc,
+    /// The second source less the first and the borrow: ARM code's.
+    Rsc,
     Orr,
     Orn,
     Bic,
@@ -95,6 +97,7 @@ impl Alu {
             Self::Add => "add",
             Self::Adc => "adc",
             Self::Sbc => "sbc",
+            Self::Rsc => "rsc",
             Self::Orr => "orr",
             Self::Orn => "orn",
             Self::Bic => "bic",
@@ -114,7 +117,7 @@ impl Alu {
 
     /// Whether the flags come from the adder (C and V) rather than the shifter.
     pub fn arithmetic(self) -> bool {
-        matches!(self, Self::Sub | Self::Rsb | Self::Add | Self::Adc | Self::Sbc | Self::Cmp | Self::Cmn)
+        matches!(self, Self::Sub | Self::Rsb | Self::Add | Self::Adc | Self::Sbc | Self::Rsc | Self::Cmp | Self::Cmn)
     }
 
     /// Whether the operation reads no first register.
@@ -130,6 +133,8 @@ pub enum Offset {
     Imm(i32),
     /// A register shifted left.
     Reg { rm: u8, shift: u8 },
+    /// A register shifted any way by a constant, added or taken from the base: ARM code's.
+    Shifted { rm: u8, shift: Shift, amount: u8, subtract: bool },
 }
 
 /// The operation of an instruction.
@@ -224,6 +229,9 @@ pub enum Op {
         list: u16,
         wback: bool,
         before: bool,
+        /// The two ways ARM code alone has: with `before`, increment before (`ib`); without,
+        /// decrement after (`da`).
+        swapped: bool,
     },
     /// `b`, conditional by its own encoding or by an IT block.
     Branch {
@@ -416,7 +424,7 @@ fn decode16(h: u32, address: u64, in_it: bool) -> Op {
         0b10110 | 0b10111 => misc16(h, pc),
         0b11000 | 0b11001 => {
             let (load, rn, list) = (bit(h, 11), low(h, 8), (h & 0xff) as u16);
-            Op::Multiple { load, rn, list, wback: !load || list & (1 << rn) == 0, before: false }
+            Op::Multiple { load, rn, list, wback: !load || list & (1 << rn) == 0, before: false, swapped: false }
         }
         0b11010 | 0b11011 => match field(h, 11, 8) as u8 {
             0b1110 => Op::Trap,
@@ -476,11 +484,11 @@ fn misc16(h: u32, pc: u64) -> Op {
         }
         0b0100 | 0b0101 => {
             let list = (h & 0xff) as u16 | if bit(h, 8) { 1 << LR } else { 0 };
-            Op::Multiple { load: false, rn: SP, list, wback: true, before: true }
+            Op::Multiple { load: false, rn: SP, list, wback: true, before: true, swapped: false }
         }
         0b1100 | 0b1101 => {
             let list = (h & 0xff) as u16 | if bit(h, 8) { 1 << PC } else { 0 };
-            Op::Multiple { load: true, rn: SP, list, wback: true, before: false }
+            Op::Multiple { load: true, rn: SP, list, wback: true, before: false, swapped: false }
         }
         0b1110 => Op::Bkpt((h & 0xff) as u8),
         0b1111 if h & 0xf == 0 => Op::Nop,
@@ -558,7 +566,7 @@ fn decode32(h1: u32, h2: u32, address: u64) -> Op {
                 match field(h1, 8, 7) {
                     // A `pc` in a load list is a return from any base, as `pop {.., pc}` is; a store of `pc` is deprecated.
                     0b01 | 0b10 if !(load && wback && list & (1 << rn) != 0) && (list & (1 << PC) == 0 || load) => {
-                        Op::Multiple { load, rn, list, wback, before: field(h1, 8, 7) == 0b10 }
+                        Op::Multiple { load, rn, list, wback, before: field(h1, 8, 7) == 0b10, swapped: false }
                     }
                     _ => Op::Unsupported,
                 }
@@ -819,7 +827,7 @@ pub fn record(d: &Decoded, address: u64) -> Instr {
                     read(&mut registers, rs);
                 }
             }
-            let carry_in = matches!(op, Alu::Adc | Alu::Sbc) || matches!(src, Source::Reg { shift: Shift::Rrx, .. });
+            let carry_in = matches!(op, Alu::Adc | Alu::Sbc | Alu::Rsc) || matches!(src, Source::Reg { shift: Shift::Rrx, .. });
             flags = (carry_in, s);
             if rd == PC && !op.compares() {
                 flow = match (op, src) {
@@ -887,6 +895,10 @@ pub fn record(d: &Decoded, address: u64) -> Instr {
                 Offset::Reg { rm, shift } => {
                     m.index = Some(register(rm));
                     m.scale = 1 << shift;
+                    read(&mut registers, rm);
+                }
+                Offset::Shifted { rm, .. } => {
+                    m.index = Some(register(rm));
                     read(&mut registers, rm);
                 }
             }
@@ -1043,7 +1055,7 @@ impl Arch for Thumb {
         if let (Some(Op::BranchReg { rm, link: false }), Some(last)) =
             (decode_raw(instr.code, instr.address, None).map(|d| d.op), before.last())
             && rm != LR
-            && let Some(Op::Multiple { load: true, rn: SP, list, wback: true, before: false }) =
+            && let Some(Op::Multiple { load: true, rn: SP, list, wback: true, before: false, swapped: false }) =
                 decode_raw(last.code, last.address, None).map(|d| d.op)
             && u32::from(list) == 1 << rm
         {
@@ -1122,7 +1134,7 @@ mod tests {
         // bhi 0x20148 from 0x20166
         assert_eq!(op(&[0xef, 0xd8], 0x20166), Op::Branch { cond: Some(8), target: 0x20148 });
         // pop {r4, r5, r6, pc}
-        assert_eq!(op(&[0x70, 0xbd], 0), Op::Multiple { load: true, rn: SP, list: 0x8070, wback: true, before: false });
+        assert_eq!(op(&[0x70, 0xbd], 0), Op::Multiple { load: true, rn: SP, list: 0x8070, wback: true, before: false, swapped: false });
     }
 
     #[test]

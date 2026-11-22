@@ -291,6 +291,20 @@ fn arm32_cases() {
             );
         }
         if arm32::is_arm_group(group) {
+            // An ARM case is one word, which the ARM decoder reads as the kind its template names.
+            for case in &cases {
+                let word = u32::from_le_bytes(case.bytes[..4].try_into().unwrap());
+                let name = format!("{:?}", ra_asm_arm64::arm::decode(word, arm32::IP).op);
+                let decoded = name.split([' ', '(', '{']).next().unwrap_or(&name);
+                assert_eq!(
+                    decoded,
+                    case.opcode,
+                    "{group}: `{}` ({}) decodes to {decoded}, the template says {}",
+                    case.asm,
+                    arm32::hex(&case.bytes),
+                    case.opcode
+                );
+            }
             arm += cases.len();
             continue;
         }
