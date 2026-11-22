@@ -17,8 +17,17 @@ static long syscall3(long number, long a, long b, long c) {
     return r0;
 }
 
+// A program of both instruction sets (`-DMIXED`, the fixture `armthumb`): the program is Thumb,
+// the arithmetic it calls for is ARM code, and it is entered through ARM code, so a call goes
+// each way across the change of state.
+#ifdef MIXED
+#define ARM_CODE __attribute__((target("arm")))
+#else
+#define ARM_CODE
+#endif
+
 // The quotient and the remainder by shifting and subtracting.
-__attribute__((noinline)) static u32 divide_unsigned(u32 n, u32 d, u32 *remainder) {
+ARM_CODE __attribute__((noinline)) static u32 divide_unsigned(u32 n, u32 d, u32 *remainder) {
     u32 q = 0, r = 0;
     for (int bit = 31; bit >= 0; bit--) {
         r = (r << 1) | ((n >> bit) & 1);
@@ -31,12 +40,12 @@ __attribute__((noinline)) static u32 divide_unsigned(u32 n, u32 d, u32 *remainde
     return q;
 }
 
-u32 __aeabi_uidiv(u32 n, u32 d) {
+ARM_CODE u32 __aeabi_uidiv(u32 n, u32 d) {
     u32 r;
     return divide_unsigned(n, d, &r);
 }
 
-int __aeabi_idiv(int n, int d) {
+ARM_CODE int __aeabi_idiv(int n, int d) {
     u32 r;
     u32 q = divide_unsigned(n < 0 ? 0u - (u32)n : (u32)n, d < 0 ? 0u - (u32)d : (u32)d, &r);
     return (n < 0) != (d < 0) ? (int)(0u - q) : (int)q;
@@ -44,7 +53,7 @@ int __aeabi_idiv(int n, int d) {
 
 // The product of two sixty-four-bit numbers from the halves of their words, sixteen bits at a
 // time: the processor's multiply keeps the low word of a product alone.
-unsigned long long __aeabi_lmul(unsigned long long a, unsigned long long b) {
+ARM_CODE unsigned long long __aeabi_lmul(unsigned long long a, unsigned long long b) {
     u32 al = (u32)a, ah = (u32)(a >> 32), bl = (u32)b, bh = (u32)(b >> 32);
     u32 a0 = al & 0xffff, a1 = al >> 16, b0 = bl & 0xffff, b1 = bl >> 16;
     u32 low = a0 * b0, middle = a1 * b0, other = a0 * b1, high = a1 * b1;
@@ -56,3 +65,12 @@ unsigned long long __aeabi_lmul(unsigned long long a, unsigned long long b) {
 }
 
 #include "../sh4/src/sh4.c"
+
+#ifdef MIXED
+// The entry of the program of both sets: ARM code that calls the Thumb program.
+ARM_CODE void start_arm(void) {
+    _start();
+    for (;;) {
+    }
+}
+#endif

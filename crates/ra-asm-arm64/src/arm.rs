@@ -48,7 +48,15 @@ fn imm_shift(kind: u32, amount: u32) -> (Shift, u8) {
 #[must_use]
 pub fn decode(word: u32, address: u64) -> Decoded {
     let cond = (word >> 28) as u8;
-    let op = if cond == 15 { Op::Unsupported } else { operation(word, address, (cond < 14).then_some(cond)) };
+    let op = if cond != 15 {
+        operation(word, address, (cond < 14).then_some(cond))
+    } else if field(word, 27, 25) == 0b101 {
+        // `blx` to Thumb code: the offset in words, and a halfword more by bit 24.
+        let offset = i64::from((word << 8).cast_signed() >> 6) + i64::from(field(word, 24, 24) << 1);
+        Op::Call { target: address.wrapping_add(8).wrapping_add_signed(offset) & 0xffff_ffff, arm: true }
+    } else {
+        Op::Unsupported
+    };
     Decoded { op, len: 4, raw: word, cond: (cond < 14).then_some(cond) }
 }
 
@@ -311,6 +319,51 @@ impl Arch for Arm {
             }
         }
         Some(instr)
+    }
+}
+
+/// The decoder of a program of both instruction sets: ARM code where the image's mapping
+/// symbols say so (`ranges`: the address a run starts at, and whether it is ARM code, in address
+/// order), Thumb elsewhere.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ArmThumb {
+    pub ranges: Vec<(u64, bool)>,
+}
+
+impl ArmThumb {
+    fn arm_at(&self, address: u64) -> bool {
+        match self.ranges.partition_point(|&(start, _)| start <= address) {
+            0 => false,
+            n => self.ranges[n - 1].1,
+        }
+    }
+}
+
+impl Arch for ArmThumb {
+    fn name(&self) -> &'static str {
+        "arm+thumb"
+    }
+
+    fn address_bits(&self) -> u16 {
+        32
+    }
+
+    fn stack_pointer(&self) -> Register {
+        register(crate::thumb::SP)
+    }
+
+    fn instruction_pointer(&self) -> Register {
+        register(PC)
+    }
+
+    fn decode(&self, bytes: &[u8], address: u64) -> Option<Instr> {
+        if self.arm_at(address) { Arm.decode(bytes, address) } else { crate::thumb::Thumb.decode(bytes, address) }
+    }
+
+    fn link(&self, before: &[Instr], instr: &mut Instr) {
+        if !self.arm_at(instr.address) {
+            crate::thumb::Thumb.link(before, instr);
+        }
     }
 }
 

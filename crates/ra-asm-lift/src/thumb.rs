@@ -51,8 +51,8 @@ pub fn lift_function(image: &Image, _analysis: &Analysis<'_>, lifted: &mut Lifte
     let x87 = lifted.x87;
     let mut lifter = Lifter {
         m: Machine { b: &mut b, state, bits: 32, x87, isa: Isa::Arm32 },
-        _image: image,
-        arm: image.arm_code(),
+        image,
+        arm: image.arm_at(f.entry),
         lifted,
         blocks,
         cond: None,
@@ -75,9 +75,9 @@ pub fn lift_function(image: &Image, _analysis: &Analysis<'_>, lifted: &mut Lifte
 
 struct Lifter<'a, 'b> {
     m: Machine<'b>,
-    _image: &'a Image,
-    /// Whether the code is ARM code: a word an instruction, its condition in it, the PC it reads
-    /// its address and eight. The operations are Thumb's.
+    image: &'a Image,
+    /// Whether the block being lifted is ARM code: a word an instruction, its condition in it,
+    /// the PC it reads its address and eight. The operations are Thumb's.
     arm: bool,
     lifted: &'a mut Lifted,
     blocks: HashMap<u64, BlockId>,
@@ -99,6 +99,7 @@ impl Lifter<'_, '_> {
         self.m.b.set_block_address(block, blk.start);
         self.cond = None;
         self.jump_target = None;
+        self.arm = self.image.arm_at(blk.start);
         for (n, i) in blk.instrs.iter().enumerate() {
             if self.m.b.has_terminator(block) {
                 break;
@@ -249,6 +250,11 @@ impl Lifter<'_, '_> {
     /// The code address a register's value names, as a 64-bit value in the block the lift goes
     /// on in: the low bit set says Thumb and is dropped; clear, it says ARM code, which traps.
     fn thumb_target(&mut self, block: BlockId, target: ValueId, ip: u64) -> (BlockId, ValueId) {
+        if self.image.arm_and_thumb() {
+            // A program of both sets goes to either: the bit says which, and is no part of the address.
+            let code = self.m.b.bin(block, BinOp::And, Type::I32, target, -2i64, "code");
+            return (block, self.m.b.cast(block, Cast::ZExt, Type::I32, code, Type::I64, "target"));
+        }
         let bit = self.m.b.cast(block, Cast::Trunc, Type::I32, target, Type::I1, "thumb");
         let ok = self.m.b.block(&format!("thumb_{ip:x}"));
         let arm = self.m.b.block(&format!("arm_{ip:x}"));
@@ -814,7 +820,8 @@ impl Lifter<'_, '_> {
                     self.cond = Some(self.condition(block, cc));
                 }
             }
-            Op::Call { arm: true, .. } => return self.unsupported(block, i),
+            // A call that changes the instruction set, where the image is not one of both.
+            Op::Call { arm: true, .. } if !self.image.arm_and_thumb() => return self.unsupported(block, i),
             Op::Call { target, .. } => {
                 self.set_reg(block, LR, ((ip + 4) | u64::from(!self.arm)) as i64);
                 if self.lifted.functions.contains_key(&target) {
@@ -825,6 +832,8 @@ impl Lifter<'_, '_> {
                 }
             }
             Op::BranchReg { rm: LR, link: false } => {}
+            // `bx pc` goes on to the code after it in the other set: the block's branch.
+            Op::BranchReg { rm: PC, link: false } if !self.arm && self.image.arm_and_thumb() => {}
             // The return through a register the address was popped into: the block ends in it.
             Op::BranchReg { link: false, .. } if i.flow == ra_asm_arch::Flow::Return => {}
             Op::BranchReg { rm, link } => {

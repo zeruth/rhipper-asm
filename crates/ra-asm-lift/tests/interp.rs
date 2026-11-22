@@ -148,6 +148,17 @@ fn arm1_runs_interpreted() {
     runs_as_the_machine_ran_it("arm1");
 }
 
+/// The program in both sets at once, as a cartridge of those processors is: Thumb code entered
+/// through ARM code and calling ARM code, each way through the thunk the linker puts there. The
+/// image's mapping symbols say which set the code at an address is.
+#[test]
+fn armthumb_runs_interpreted() {
+    let image = ra_asm_pe::load(&root().join("testdata/bin/armthumb")).unwrap();
+    assert!(image.arm_and_thumb());
+    assert_eq!(ra_asm_analysis::arch_of(&image).name(), "arm+thumb");
+    runs_as_the_machine_ran_it("armthumb");
+}
+
 /// A fixture of the program `testdata/src/thumb1.c`: lifted without a warning and interpreted,
 /// it prints what the program printed under an emulator and ends with the code it ended with.
 fn runs_as_the_machine_ran_it(binary: &str) {

@@ -248,6 +248,18 @@ if (Wanted 'arm1') {
   if ($LASTEXITCODE -ne 0) { throw "clang failed for arm1" }
 }
 
+# armthumb is the program in both sets at once (-DMIXED): Thumb code entered through ARM code,
+# its arithmetic ARM code it calls. ARMv4T has no call that changes the set, so the linker puts
+# a thunk in each way (`bx pc` into ARM code, a `bx` through a word of the pool into Thumb).
+if (Wanted 'armthumb') {
+  $args = @('--target=armv4t-none-linux-gnueabi', '-mthumb', '-DMIXED', '-O1', '-fno-unroll-loops', '-fno-vectorize', '-nostdlib',
+    '-ffreestanding', '-fno-builtin', '-static', '-fuse-ld=lld', '-Wl,--build-id=none', '-Wl,-e,start_arm',
+    (Join-Path $src 'thumb1.c'), '-o', (Join-Path $bin 'armthumb'))
+  Write-Host "clang armthumb" -ForegroundColor Cyan
+  & clang @args
+  if ($LASTEXITCODE -ne 0) { throw "clang failed for armthumb" }
+}
+
 # cortexm is the fixture of a microcontroller: ARMv7-M firmware linked by cortexm.ld into flash
 # at 0x08000000 with its vector table first and its data in RAM at 0x20000000. It prints by
 # semihosting (bkpt 0xab). No Cortex-M is here: it runs lifted only.

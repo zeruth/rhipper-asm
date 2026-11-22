@@ -59,6 +59,7 @@ const EM_MIPS: u16 = 8;
 pub fn arch_of(image: &Image) -> Box<dyn Arch> {
     match image.machine() {
         Machine::Arm64 => Box::new(ra_asm_arm64::Arm64),
+        Machine::Arm if image.arm_and_thumb() => Box::new(ra_asm_arm64::arm::ArmThumb { ranges: image.arm_ranges.clone() }),
         Machine::Arm if image.arm_code() => Box::new(ra_asm_arm64::arm::Arm),
         Machine::Arm => Box::new(ra_asm_arm64::thumb::Thumb),
         Machine::Mips | Machine::Other(EM_MIPS) => Box::new(ra_asm_mips::Mips {

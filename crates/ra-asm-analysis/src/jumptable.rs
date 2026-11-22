@@ -195,6 +195,34 @@ pub fn resolve_thumb(image: &Image, block: &[Instr], predecessors: &[&[Instr]]) 
     })
 }
 
+/// Where a jump of 32-bit ARM code goes when it is through a word of the literal pool: `ldr pc,
+/// [pc, #d]`, or `ldr r, [pc, #d]` and `bx r` after it, as a linker's thunk between the two
+/// instruction sets is. The low bit of the word says which set the code there is and is dropped.
+pub fn arm_jump_constant(image: &Image, block: &[Instr]) -> Option<u64> {
+    use ra_asm_arm64::thumb::{Offset, Op, PC, decode_raw};
+    let op = |i: &Instr| {
+        if image.arm_at(i.address) {
+            Some(ra_asm_arm64::arm::decode(i.code, i.address).op)
+        } else {
+            decode_raw(i.code, i.address, None).map(|d| d.op)
+        }
+    };
+    let literal = |i: &Instr, into: u8| match op(i)? {
+        Op::Mem { load: true, bits: 32, rt, rn: PC, offset: Offset::Imm(_), index: true, wback: false, .. } if rt == into => {
+            image.u32(i.absolute_memory_operand()?).ok()
+        }
+        _ => None,
+    };
+    let (jump, before) = block.split_last()?;
+    let word = match op(jump)? {
+        Op::Mem { .. } => literal(jump, PC)?,
+        Op::BranchReg { rm, link: false } => literal(before.last()?, rm)?,
+        _ => return None,
+    };
+    let target = u64::from(word) & !1;
+    image.is_code(target).then_some(target)
+}
+
 /// Resolves the jump of a switch in ARM code as clang writes it: `adr b, table; ldr r, [b, i,
 /// lsl #2]; add pc, b, r`, the table words after the jump, each the distance from the table to a
 /// case. The index is bounded by a `cmp i, #n` and a `bhi` that ends a block before, as in Thumb.

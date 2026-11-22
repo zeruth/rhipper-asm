@@ -549,10 +549,21 @@ impl Builder<'_> {
                 return Terminator::TailCall(target);
             }
             jumptable::resolve_mips(self.image, body, &predecessors, &function)
-        } else if self.arch.name() == "thumb" {
-            jumptable::resolve_thumb(self.image, body, &predecessors)
-        } else if self.arch.name() == "arm" {
-            jumptable::resolve_arm(self.image, body, &predecessors)
+        } else if self.image.machine() == ra_asm_pe::Machine::Arm {
+            // A jump through a word of the literal pool is a jump to the code the word names.
+            if let Some(target) = jumptable::arm_jump_constant(self.image, body) {
+                if self.internal(target) {
+                    self.worklist.push(target);
+                    return Terminator::Jump(target);
+                }
+                self.tail_calls.push(target);
+                return Terminator::TailCall(target);
+            }
+            if self.image.arm_at(jump.address) {
+                jumptable::resolve_arm(self.image, body, &predecessors)
+            } else {
+                jumptable::resolve_thumb(self.image, body, &predecessors)
+            }
         } else {
             jumptable::resolve(self.image, body, &predecessors)
         };

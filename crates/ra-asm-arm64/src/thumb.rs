@@ -1014,6 +1014,8 @@ pub fn record(d: &Decoded, address: u64) -> Instr {
                     Flow::Call(Target::Indirect)
                 }
                 (false, LR) => Flow::Return,
+                // `bx pc`: on to the ARM code after the instruction, as a linker's thunk does.
+                (false, PC) => Flow::Jump(Target::Direct(aligned_pc(address))),
                 (false, _) => Flow::Jump(Target::Indirect),
             };
         }

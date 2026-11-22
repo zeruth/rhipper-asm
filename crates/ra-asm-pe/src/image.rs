@@ -80,6 +80,9 @@ pub struct Image {
     /// Which instruction set a 32-bit ARM image's code is in, where a reader knows it and the
     /// file does not say: `true` for ARM code, `false` for Thumb ([`Image::arm_code`]).
     pub arm_state: Option<bool>,
+    /// Where the code of a 32-bit ARM image changes instruction set, from an ELF file's mapping
+    /// symbols, in address order: the address a run starts at, and whether it is ARM code.
+    pub arm_ranges: Vec<(u64, bool)>,
     /// The Dreamcast boot program the image is, when it is one: its addresses fold through the
     /// console's memory map.
     pub dreamcast: Option<Boot>,
@@ -294,6 +297,7 @@ impl Image {
             firmware: flat_firmware,
             dreamcast: boot,
             arm_state: None,
+            arm_ranges: Vec::new(),
             n64: rom,
             global_pointer: None,
             rom: None,
@@ -305,6 +309,18 @@ impl Image {
             file,
             mapped,
         };
+        if let Some(elf) = image.elf.as_ref().filter(|elf| elf.machine == ra_asm_format::elf::EM_ARM) {
+            // `$a` and `$t`, or either with a suffix after a dot; `$d` is data and changes nothing.
+            let set = |name: &str| match name.split('.').next() {
+                Some("$a") => Some(true),
+                Some("$t") => Some(false),
+                _ => None,
+            };
+            let mut ranges: Vec<(u64, bool)> = elf.symbols.iter().filter_map(|s| set(&s.name).map(|arm| (s.value, arm))).collect();
+            ranges.sort_unstable();
+            ranges.dedup_by_key(|r| r.0);
+            image.arm_ranges = ranges;
+        }
         image.read_directories();
         Ok(image)
     }
@@ -400,6 +416,24 @@ impl Image {
     /// ELF file's entry with its low bit clear. A program of both is told by where it starts.
     pub fn arm_code(&self) -> bool {
         self.machine() == Machine::Arm && self.arm_state.unwrap_or_else(|| self.elf.as_ref().is_some_and(|elf| elf.entry & 1 == 0))
+    }
+
+    /// Whether the code at `va` of a 32-bit ARM image is ARM code and not Thumb. A linker marks
+    /// where each set starts with a mapping symbol (`$a`, `$t`), and a program of both is told
+    /// apart by them; without them the whole image is what [`Image::arm_code`] says.
+    pub fn arm_at(&self, va: u64) -> bool {
+        if self.arm_state.is_some() || self.machine() != Machine::Arm {
+            return self.arm_code();
+        }
+        match self.arm_ranges.partition_point(|&(start, _)| start <= va) {
+            0 => self.arm_code(),
+            n => self.arm_ranges[n - 1].1,
+        }
+    }
+
+    /// Whether the image's code is of both instruction sets, by its mapping symbols.
+    pub fn arm_and_thumb(&self) -> bool {
+        self.arm_state.is_none() && self.arm_ranges.iter().any(|r| r.1) && self.arm_ranges.iter().any(|r| !r.1)
     }
 
     /// The byte order of the program's words, which every read of a value of the image takes: the
