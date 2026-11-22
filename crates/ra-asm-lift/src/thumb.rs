@@ -1081,7 +1081,13 @@ impl Lifter<'_, '_> {
                             && let Ok(word) = self.image.u32(at)
                         {
                             if rt != PC {
-                                let value = self.lifted.address_of(u64::from(word)).unwrap_or(Operand::Int(i128::from(word)));
+                                // An address only where the word lies inside something the
+                                // image has: a number just below a section is a number (0xffff
+                                // under an image at 0x10000 is a mask).
+                                let at = u64::from(word);
+                                let inside =
+                                    self.lifted.functions.contains_key(&at) || self.lifted.data.iter().any(|s| at >= s.start && at < s.end);
+                                let value = inside.then(|| self.lifted.address_of(at)).flatten().unwrap_or(Operand::Int(i128::from(word)));
                                 self.set_reg(block, rt, value);
                             }
                             return block;
